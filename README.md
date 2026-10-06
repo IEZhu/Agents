@@ -33,7 +33,10 @@ checkout), then runs `scripts/init_repo.sh --yes` after a single confirmation.
 - an existing `.venv` is reused and its dependencies are refreshed; it is
   recreated only when its Python version is unknown or older than 3.11;
 - the Claude instruction and routing-reminder prompts are accepted. Client
-  registration and Codex instructions never ask (see [After Cloning](#after-cloning)).
+  registration and Codex instructions never ask (see [After Cloning](#after-cloning));
+- sync between machines is not asked about: the summary says how to turn it on,
+  and the `AGENTS_USER_SYNC_*` variables set it up without questions
+  ([Sync between machines](#sync-between-machines)).
 
 Without a terminal the confirmation is skipped. To inspect the script first,
 download it, read it, then run `bash install.sh`. Pass `init_repo.sh` flags with
@@ -46,6 +49,7 @@ instructions unchanged.
 | `AGENTS_REPO_URL` | `https://github.com/IEZhu/Agents.git` | Repository for a fresh clone |
 | `AGENTS_BRANCH` | `main` | Branch to install; the standalone auto-updater acts only on `AGENTS_AUTO_UPDATE_BRANCH` (default `main`) |
 | `AGENTS_ASSUME_YES` | unset | `1`, `true` or `yes` skips the confirmation, as does `... \| bash -s -- --yes` |
+| `AGENTS_USER_SYNC_REPO`, `AGENTS_USER_SYNC_REMOTE` | unset | Set up [sync between machines](#sync-between-machines) without questions, with the variables listed there |
 
 The installer never uses `sudo`. It refuses a non-empty `AGENTS_HOME` that is not
 an Agents-Core checkout.
@@ -96,7 +100,9 @@ cd Agents
 ```
 
 On Windows, run `scripts\init_repo.bat`. It accepts `--skip-env`, `--skip-index`
-and `--skip-mcp`, but not `--yes`.
+and `--skip-mcp`, and `--yes` (or `AGENTS_ASSUME_YES=1`), which there only stops the
+sync question: the other prompts still ask, and take their defaults when stdin is
+not a console.
 
 The interactive script:
 
@@ -120,7 +126,10 @@ The interactive script:
   also counts as detecting that client (see [alternate client configurations](docs/shared-mcp-daemon.md#alternate-client-configurations));
 - on macOS, once the shared service is installed, keeps these clients on the
   service instead of writing standalone stdio entries. Do not rerun setup while
-  the service runs (see [service updates](docs/shared-mcp-daemon.md#updates-and-recovery)).
+  the service runs (see [service updates](docs/shared-mcp-daemon.md#updates-and-recovery));
+- asks once, at the end, whether to set up [sync between machines](#sync-between-machines),
+  unless it is set up already; with `--yes` or without a terminal it does not ask,
+  and the summary says how to turn it on.
 
 `--skip-mcp` skips all client changes. Use `./scripts/init_repo.sh --help` for the
 available options (`--yes` accepts all defaults). For the shared macOS service and
@@ -235,6 +244,117 @@ Routing thresholds and enrichment settings are defined in
 [intent classifier](docs/intent-classifier.md) thresholds in `env.example`, are
 tuning and evaluation settings; normally keep their defaults. HTTP memory uses a
 registered workspace header instead of `AGENTS_CLIENT_REPO_ROOT`.
+
+### Sync between machines
+
+Personal (`user:`) and repository (`repo:`) flows, persona choices and the
+component switches live in the personal library (`flows/.user`, or
+`AGENTS_USER_FLOWS_DIR`). Sync keeps that library the same on your machines
+through one private git repository per user, on macOS, Windows and Linux
+([reference](docs/user-sync.md)). It is off until you set it up.
+
+By default it syncs everything with a portable identity: personal flows, persona
+choices, the switches, the flows' history, and the flows of every repository that
+has an `origin` remote, work repositories included. Repository folders without an
+`origin` and machine-local files stay on the machine. The wizard and the Sync page
+show a preview and wait for your confirmation before the first upload or a join;
+`python -m src.user_sync scope --exclude repos/<key>` (or `--exclude-file PATH`)
+later keeps a group or a file out on every machine without deleting it anywhere.
+
+To set it up:
+
+- **During setup.** `init_repo.sh` and `init_repo.bat` ask once, at the end:
+  "Set up sync between your machines now? [y/N]". On macOS, when the shared
+  service answers and serves the Sync page, yes opens its settings page there;
+  otherwise it starts the terminal wizard. When the wizard has started sync on a
+  machine without the service, setup also asks "Also sync every 5 minutes in the
+  background? [Y/n]". Setup does not ask under `--yes` (which `install.sh` always
+  passes), without a terminal, while git 2.32 or newer or `ssh-keygen` is missing,
+  or when the library holds a `.git` that sync did not create, which it leaves
+  alone. Updates never ask: `install.sh` runs setup with `--yes`, and the
+  service's `update` and `auto-update` do not run it. Sync that is set up is only
+  reported, and the summary says whether background sync is on.
+- **Later**, from the installation root: `.venv/bin/python -m src.user_sync setup`
+  (the terminal wizard), or the Sync page of `.venv/bin/python -m src.daemon flows-ui`
+  with the shared service.
+- **Without questions**, for example on a new machine: run
+  `.venv/bin/python -m src.user_sync setup --from-env` with these variables in its
+  environment. Setup reads them only there, never from `.env`. The installers honour
+  them too, but the separate command keeps the token to that one command.
+
+| Variable | Purpose |
+|---|---|
+| `AGENTS_USER_SYNC_REPO` | `OWNER/NAME` of an existing private GitHub repository, empty or holding the library |
+| `AGENTS_USER_SYNC_REMOTE` | Instead of the repository: the SSH URL of a private repository on another host |
+| `AGENTS_USER_SYNC_NAME`, `AGENTS_USER_SYNC_EMAIL` | Required: the commit identity; sync never reads your git configuration |
+| `AGENTS_USER_SYNC_LABEL` | This machine's label (default: the platform and a random suffix) |
+| `AGENTS_GITHUB_TOKEN` | Optional, for a GitHub repository: a token with the `repo` scope, which setup checks with GitHub, keeps in the OS secret store and uses to add this machine's deploy key |
+
+From the installation root, with the token typed without echo and set for this
+one command only:
+
+```bash
+read -rs t
+AGENTS_GITHUB_TOKEN="$t" AGENTS_USER_SYNC_REPO=me/agents-library AGENTS_USER_SYNC_NAME="My Name" \
+    AGENTS_USER_SYNC_EMAIL=me@example.com .venv/bin/python -m src.user_sync setup --from-env
+unset t
+```
+
+In PowerShell on Windows, the token lives in the session's environment until you
+remove it:
+
+```powershell
+$secure = Read-Host -AsSecureString "GitHub token"
+$bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
+$env:AGENTS_GITHUB_TOKEN = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
+[Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
+$env:AGENTS_USER_SYNC_REPO = "me/agents-library"
+$env:AGENTS_USER_SYNC_NAME = "My Name"
+$env:AGENTS_USER_SYNC_EMAIL = "me@example.com"
+.venv\Scripts\python.exe -m src.user_sync setup --from-env
+Remove-Item Env:AGENTS_GITHUB_TOKEN
+```
+
+The command takes the token out of its own environment before anything else, so
+none of its child processes (git, ssh, ssh-keygen) inherits it. When you give the
+token to the installers instead, `install.sh` passes it to `init_repo.sh` only,
+never to git, and `init_repo.sh` passes it to the sync step only. `init_repo.bat`
+clears it, because cmd cannot keep a variable from its children: on Windows, use
+the separate command. Never keep the token in `.env`.
+
+Without a token or an earlier `github login`, setup prints this machine's public
+key to add to the repository as a deploy key with write access; run it again
+afterwards, and the installer's summary says so. Setup then checks access and
+privacy, prints the preview and starts sync without waiting, except that joining
+a library with conflicts stops at "confirmation needed" with the commands to
+review the preview and to start with its hash. Where privacy cannot be checked,
+another host's key needs confirming, or the repository belongs to another owner,
+it says to run it again with `--confirm-private`, `--trust-host-key` or
+`--confirm-owner OWNER`. On a machine without the shared service
+it then turns background sync on (`schedule enable`, every 5 minutes). A second
+run with another repository replaces a setup that the variables made and that
+never started, also one that stopped at a mistyped host; GitHub accepts a key on
+one repository only, so setup first removes this machine's deploy key from the
+old repository, or, without the API, gives this machine a new key and names the
+old repository to clean up. Once sync has started, the variables change nothing.
+A token GitHub refuses, or one that cannot see the repository, is reported with
+the variable's name and the `repo` scope it needs. The commands setup prints say
+where to run them: `cd <installation> && …` on macOS and Linux, `in <installation>,
+run …` on Windows, where cmd and PowerShell chain commands differently.
+
+GitHub sign-in in the wizard and on the Sync page is the OAuth device flow of the
+Agents-Core OAuth App, so `gh` is not needed. The app's client ID ships once the
+app is registered; until then, set `AGENTS_GITHUB_CLIENT_ID` in `.env` to an OAuth
+App of your own with Device Flow enabled (see [Environment Variables](#environment-variables)),
+use `AGENTS_GITHUB_TOKEN`, or give an SSH URL and add the deploy key by hand.
+
+Changes reach your other machines when each machine syncs. With the shared
+service, it syncs every few minutes and after each save; `install` says whether
+sync is set up. Without it, the scheduled run (`.venv/bin/python -m src.user_sync
+schedule enable`) syncs every 5 minutes; without that, a machine sends and
+receives changes only in the cycle that follows each save made through its stdio
+servers. The [command reference](docs/user-sync.md#command-line) covers status,
+conflicts, pausing and the scope.
 
 ### Updates
 

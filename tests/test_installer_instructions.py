@@ -63,7 +63,7 @@ def installer_hook(request, tmp_path):
         hook = between(source, "    # --- Configure Codex instructions ---",
                        "    # --- Summary ---")
         closing = between(source, "    # --- Summary ---",
-                          "# ============== Final Summary ==============")
+                          "# ============== Sync Between Machines ==============")
         script = checkout / "instructions.sh"
         script.write_text("set -e\nCONFIGURED_ENVS=()\n" + functions + selector + guard + hook + closing,
                           encoding="utf-8")
@@ -74,7 +74,7 @@ def installer_hook(request, tmp_path):
                            "REM ============== Pre-flight Checks")
         guard = between(source, 'if "%SKIP_MCP%"=="true" (', 'set "CONFIGURED_ENVS="')
         hook = between(source, "REM --- Configure Codex instructions ---", "REM --- MCP Summary ---")
-        closing = between(source, "\n:mcp_done\n", "REM ============== Final Summary ==============")
+        closing = between(source, "\n:mcp_done\n", "REM ============== Sync Between Machines ==============")
         script = checkout / "instructions.bat"
         script.write_bytes(("@echo off\nsetlocal enabledelayedexpansion\n" + selector + guard + hook
                             + closing + "exit /b 0\n").replace("\n", "\r\n").encode("utf-8"))

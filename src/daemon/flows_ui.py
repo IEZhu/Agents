@@ -11,7 +11,8 @@ in the private state directory, so a session lasts 30 days from the last visit a
 survives daemon restarts and updates; ``flows-ui --revoke`` replaces the key and
 ends every session. Every UI request must use the loopback Host; mutations,
 sign-in included, also need a matching Origin and the ``X-Agents-UI`` header,
-which a cross-site page cannot send.
+which a cross-site page cannot send. Library sync (``/ui/api/sync…``, ``sync_ui.py``)
+asks for the header on GET as well, because some of its reads reach the network.
 """
 import asyncio
 import hashlib
@@ -33,6 +34,8 @@ from src.user_flows import FlowLibrary
 from src.version import agents_core_version
 from .peer import loopback_peer_is_owner
 from .state import atomic_private, read_json
+from .sync_loop import DRAINING
+from .sync_ui import SyncUI, is_sync_path
 from .workspaces import WorkspaceError
 
 CODE_TTL = 120
@@ -95,6 +98,7 @@ class FlowsUI:
         self.peer_check = peer_check
         self._key_lock = threading.Lock()
         self._peer_lock = asyncio.Lock()  # one connection-table lookup at a time
+        self.sync = SyncUI(service)
 
     # --- access ----------------------------------------------------------------------
 
@@ -143,6 +147,12 @@ class FlowsUI:
     def _same_origin(self, request: Request) -> bool:
         return request.headers.get("origin", "") in {f"http://{host}" for host in self.hosts()}
 
+    def _page_request(self, request: Request) -> bool:
+        """A GET that only the page sends: the header, which another origin cannot set without a
+        preflight that fails here, and no Origin but our own (browsers omit it on same-origin GETs)."""
+        return request.headers.get("x-agents-ui") == "1" and (
+            "origin" not in request.headers or self._same_origin(request))
+
     # --- dispatch --------------------------------------------------------------------
 
     async def __call__(self, scope, receive, send):
@@ -168,6 +178,9 @@ class FlowsUI:
         if request.method != "GET" and (not self._same_origin(request)
                                         or request.headers.get("x-agents-ui") != "1"):
             return await self._json({"error": "origin_not_allowed"}, 403)(scope, receive, send)
+        syncing = is_sync_path(path)
+        if syncing and request.method == "GET" and not self._page_request(request):
+            return await self._json({"error": "origin_not_allowed"}, 403)(scope, receive, send)
         if path == "/ui/api/session" and request.method == "POST":
             response = await self._login(request)
             return await response(scope, receive, send)
@@ -175,17 +188,26 @@ class FlowsUI:
         if session_key is None:
             return await self._json({"error": "session_required"}, 401)(scope, receive, send)
         if self.service.state == "draining":
-            return await self._json({"error": "draining"}, 503)(scope, receive, send)
-        self.service.inflight += 1
-        self.service.last_activity = time.monotonic()
+            return await self._json(DRAINING if syncing else {"error": "draining"}, 503)(scope, receive, send)
+        # Sync's operations follow the sync task's drain, as /admin/user-sync does (sync_loop.py):
+        # a queued one must not hold the drain that would end it.
+        counted = not syncing
+        # The Sync page's polls are not activity: an open page must not hold back an automatic update.
+        active = not (syncing and self.sync.passive(request.method, path))
+        if counted:
+            self.service.inflight += 1
+        if active:
+            self.service.last_activity = time.monotonic()
         try:
             response = await self._api(request, path)
             renewed = await asyncio.to_thread(self._new_cookie, session_key)
             if renewed:
                 self._set_cookie(response, renewed)  # sliding window
         finally:
-            self.service.inflight -= 1
-            self.service.last_activity = time.monotonic()
+            if counted:
+                self.service.inflight -= 1
+            if active:
+                self.service.last_activity = time.monotonic()
         return await response(scope, receive, send)
 
     @staticmethod
@@ -269,6 +291,8 @@ class FlowsUI:
         return result
 
     async def _api(self, request: Request, path: str):
+        if is_sync_path(path):
+            return await self.sync.handle(request, path)
         query = request.query_params
         try:
             if path == "/ui/api/workspaces" and request.method == "GET":

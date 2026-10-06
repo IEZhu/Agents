@@ -1,5 +1,6 @@
-"""The flow editor page, run in Node against a stub DOM and fetch: sign-in, search, views and layout."""
+"""The flow editor page, run in Node against a stub DOM and fetch: sign-in, search, views, layout and sync."""
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -702,3 +703,336 @@ def test_an_open_agent_has_its_view_controls_in_the_header_without_a_switch(agen
     assert agents["alpha"]["header"] == {"shown": ["component"], "group": True, "pane": "component", "e_actions": False,
                                          "c_actions": True, "seg": ["Rendered", "Source"], "toc": True}
     assert agents["alpha"]["hidden"]["toggle"]  # the switch shares the group and stays hidden for an agent
+
+
+# --- library sync (#170): the header chip, the Sync page, its wizard and the editor's notice ---
+
+def run_sync(scenario):
+    """A sync scenario; times print in UTC, so "14:05" means 14:05Z."""
+    completed = subprocess.run([NODE, str(ROOT / "tests" / "flows_ui_page_harness.mjs"), str(PAGE), scenario],
+                               capture_output=True, text=True, timeout=60, check=True,
+                               env={**os.environ, "TZ": "UTC"})
+    return json.loads(completed.stdout)
+
+
+def test_the_chip_says_the_state_in_words():
+    result = run_sync("sync_chip")
+    states = {name: value and value["text"] for name, value in result["states"].items()}
+    assert states == {
+        "none": None, "unknown": None, "off": "Sync off", "synced": "Synced 2m ago", "just_now": "Synced just now",
+        "hours": "Synced 3h ago", "stale": "Synced 2d ago", "pending": "3 pending", "syncing": "Syncing…",
+        "loop_syncing": "Syncing…", "offline": "Offline, retry 14:05", "paused": "Paused",
+        "attention": "Needs attention", "waiting": "Needs attention", "conflicts": "2 conflicts",
+        "one_conflict": "1 conflict"}
+    tones = {name: value and value["tone"] for name, value in result["states"].items()}
+    assert (tones["synced"], tones["stale"], tones["offline"], tones["pending"]) == ("ok", "warn", "warn", "busy")
+    assert result["started_off"] == {"text": "Sync off", "hidden": False, "tone": "off", "label": "Library sync: Sync off"}
+
+
+def test_the_chip_opens_the_sync_page_in_place_of_the_list_and_a_tab_leaves_it():
+    result = run_sync("sync_chip")
+    opened = result["opened"]
+    assert opened["page_shown"] and opened["main_hidden"] and opened["chip"]["pressed"] == "true"
+    assert opened["tabs"] == ["false"] * 5 and opened["title_focused"] == 1
+    assert result["closed"] == {"chip": {**opened["chip"], "pressed": "false"}, "page_hidden": True, "main_hidden": False,
+                                "tabs": ["true", "false", "false", "false", "false"]}
+    assert result["tab"] == {"page_hidden": True, "main_hidden": False, "tabs": ["false", "false", "true", "false", "false"]}
+
+
+def test_the_status_is_polled_every_30_seconds_only_while_the_tab_is_visible():
+    result = run_sync("sync_poll")
+    assert result["start"] == {"reads": 1, "timers": 1}
+    assert result["after_30s"] == {"reads": 2, "timers": 1}
+    assert result["hidden"] == {"reads": 2, "timers": 0} and result["hidden_after_30s"] == {"reads": 2}
+    assert result["visible"] == {"reads": 3, "timers": 1}  # read again at once when shown
+    assert result["visible_after_30s"] == {"reads": 4, "timers": 1}
+
+
+@pytest.fixture(scope="module")
+def wizard():
+    return run_sync("sync_wizard")
+
+
+def test_the_wizard_signs_in_to_github_with_a_device_code(wizard):
+    assert wizard["connect"]["steps"] == ["*1. Connect", "2. Repository", "3. Identity", "4. What syncs", "5. Preview"]
+    assert wizard["connect"]["buttons"] == ["Sign in to GitHub", "Use this SSH URL"]
+    assert wizard["code"] == {"code": "WDJB-MJHT", "href": "https://github.com/login/device", "rel": "noopener noreferrer",
+                              "target": "_blank", "polls_waiting": 1}
+    assert wizard["still_waiting"] == {"polls_waiting": 1, "code_shown": 1}  # pending: polls again after the interval
+    assert wizard["repository"]["alert"] == "Signed in to GitHub as @octocat."
+    assert wizard["repository"]["checked"] == ["library:octocat/agents-library"]  # an existing library is the default
+
+
+def test_the_wizard_creates_the_repository_and_asks_for_the_identity(wizard):
+    assert wizard["identity"]["alert"] == "Created the private repository octocat/my-library."
+    assert wizard["identity"]["label"] == "mac-1a2b"  # the suggested label, never the hostname
+    assert wizard["identity_refused"]["alert"] == {"text": "Enter a name for commits.", "className": "notice error"}
+    setups = [call for call in wizard["calls"] if call[1] == "/ui/api/sync/setup"]
+    assert setups == [["POST", "/ui/api/sync/setup", {"name": "Owner", "email": "owner@example.com", "label": "mac-1a2b",
+                                                       "github": "octocat/my-library"}]]
+
+
+def test_the_wizard_checks_access_and_offers_to_add_a_missing_deploy_key(wizard):
+    assert wizard["access"]["headings"] == ["Access"]
+    assert wizard["access"]["buttons"] == ["Start over", "Add this machine's key on GitHub", "Check access"]
+    assert wizard["key_added"]["text"] == "added this machine's deploy key to octocat/my-library"
+    assert wizard["scope"]["alert"] == "Access works; the repository is empty."
+
+
+def test_the_wizard_scope_is_all_on_by_default_and_including_needs_the_upload_list(wizard):
+    boxes = {name: (checked, disabled) for name, checked, disabled in wizard["scope"]["boxes"]}
+    assert boxes == {"Personal flows": (True, False), "Persona choices": (True, False),
+                     "Saved versions (history)": (True, False), "Component switches": (True, False),
+                     "github.com/o/r": (True, False), "repos/home-1f2e": (False, True),  # machine-local
+                     "Ask before uploading the flows of a repository that is new to the library": (False, False)}
+    assert wizard["excluded"]["alert"]["text"] == "history no longer syncs; its files stay on every machine."
+    assert wizard["include_asks"]["buttons"][:2] == ["Upload them", "Cancel"]
+    assert wizard["included"]["alert"]["text"] == "history syncs again."
+    scopes = [call[2] for call in wizard["calls"] if call[:2] == ["PUT", "/ui/api/sync/scopes"]]
+    assert scopes == [{"exclude": ["history"]}, {"include": ["history"]}, {"include": ["history"], "confirm": "inc1"}]
+    assert ["PUT", "/ui/api/sync/settings", {"ask_new_repositories": True}] in wizard["calls"]
+
+
+def test_the_wizard_preview_lists_the_plan_and_start_sends_its_hash(wizard):
+    text = wizard["preview"]["text"]
+    for part in ("Upload this library to the empty repository.", "Upload (1)", "user:a  common/a.md (120 B)",
+                 "Not uploaded: possible credentials found by the scanner (1)", "common/secret.md (github_token)",
+                 "github.com/o/r: 2 files, new to the library"):
+        assert part in text, part
+    assert wizard["preview"]["buttons"] == ["Back", "Prepare again", "Start sync"]
+    assert ["POST", "/ui/api/sync/start", {"confirm": "h123", "confirm_private": False}] in wizard["calls"]
+    assert wizard["started"]["headings"] == ["Status", "Machines", "Conflicts", "What syncs", "Access", "Identity",
+                                             "Activity", "Disconnect"]
+    assert wizard["started"]["alert"]["text"] == "Sync started: sent 1 file, received 0."
+    # Every request went to the daemon; the device code never reached the page.
+    assert all(path.startswith("/ui/api/sync") for _, path, _ in wizard["calls"])
+
+
+def test_the_ssh_wizard_confirms_the_host_key_and_the_privacy_it_cannot_check():
+    result = run_sync("sync_wizard_ssh")
+    assert result["identity"]["steps"][1] == "2. Repository (skipped)"
+    assert result["bad_label"]["text"].startswith("The machine label must be")
+    assert result["host_keys"]["radios"] == ["SHA256:aaaa", "SHA256:bbbb"]
+    assert result["no_choice"]["text"] == "Choose the fingerprint that matches the host's."
+    assert result["key"]["key"].startswith("ssh-ed25519 ") and "Copy" in result["key"]["buttons"]
+    assert "Start sync (disabled)" in result["unsure"]["buttons"]  # until the owner confirms privacy
+    assert "Only I can read this repository." in result["unsure"]["text"]
+    assert "Start sync" in result["confirmed"]
+    assert result["calls"][1][2]["trust_host_key"] == "SHA256:bbbb"
+    assert ["POST", "/ui/api/sync/start", {"confirm": "h9", "confirm_private": True}] in result["calls"]
+    # A plan that changed meanwhile is not started; the preview is prepared again.
+    assert result["changed"]["alert"]["text"].startswith("the preview changed")
+    assert result["calls"][-1] == ["GET", "/ui/api/sync/preview", None]
+
+
+@pytest.fixture(scope="module")
+def dashboard():
+    return run_sync("sync_dashboard")
+
+
+def test_the_sync_page_shows_every_section_once_sync_runs(dashboard):
+    page = dashboard["dashboard"]
+    assert page["headings"] == ["Status", "Machines", "Conflicts", "What syncs", "Access", "Identity", "Activity",
+                                "Disconnect"]
+    for part in ("Repositoryoctocat/agents-library", "Branchmain", "Next fetchin 4 min", "(2m ago)", "Sync now", "Pause"):
+        assert part in page["status"], part
+    assert "mac-1a2b (this machine)" in page["machines"] and page["machine_buttons"] == 1  # no Remove for this one
+    assert "Received from laptop: user:tool" in page["activity"]
+    assert "Non-Markdown files changed (scripts): common/tool.py" in page["activity"]
+    assert "github.com/o/r" in page["scopes"] and "Exclude" in page["scopes"] and "Approve" in page["scopes"]
+    assert "GitHub: @octocat" in page["access"] and "Regenerate key" in page["access"]
+    assert dashboard["chip"]["text"] == "2 conflicts"
+
+
+def test_the_sync_page_sends_each_action_to_the_daemon(dashboard):
+    keep, mine = "20261005T120000000000Z-aaaaaaaaaa", "20261005T120100000000Z-bbbbbbbbbb"
+    assert dashboard["actions"] == [
+        ["POST", "/ui/api/sync/machines/remove", {"id": 2}],
+        ["POST", "/ui/api/sync/conflicts/resolve", {"id": keep, "action": "keep"}],
+        ["POST", "/ui/api/sync/conflicts/resolve", {"id": mine, "action": "mine"}],
+        ["POST", "/ui/api/sync/conflicts/resolve", {"id": keep, "action": "dismiss"}],
+        ["GET", f"/ui/api/sync/conflict?id={mine}", None],
+        ["PUT", "/ui/api/sync/scopes", {"exclude": ["repos/abc"]}],
+        ["PUT", "/ui/api/sync/scopes", {"approve": ["repos/def"]}],
+        ["PUT", "/ui/api/sync/scopes", {"approve": ["repos/def"], "confirm": "ap1"}],
+        ["PUT", "/ui/api/sync/settings", {"paused": True}],
+        ["POST", "/ui/api/sync/run", {}],
+        ["PUT", "/ui/api/sync/settings", {"name": "Owner Two", "email": "owner@example.com", "label": "mac-1a2b"}],
+        ["POST", "/ui/api/sync/check", {}],
+        ["POST", "/ui/api/sync/key/regenerate", {}],
+        ["POST", "/ui/api/sync/github/forget", {}],
+    ]
+    assert "Approving repos/def uploads 1 file:" in dashboard["approve_asks"]
+    assert dashboard["sync_now"]["text"] == "Synced: sent 1 file, received 0."
+    assert dashboard["revoke"] == ["https://github.com/settings/applications"]
+
+
+def test_a_conflict_opens_side_by_side_with_the_current_text(dashboard):
+    # Not a flow's text: both versions read-only on the Sync page.
+    assert dashboard["compare"] == [["Current", '{"persona": "a"}', True], ["Yours, kept by sync", '{"persona": "b"}', True]]
+    # A flow's text: the editor, current text on the left, the kept version in the split pane.
+    opened = dashboard["open_flow"]
+    assert opened["page_hidden"] and opened["title"] == "doc" and opened["view_source"]
+    assert not opened["side_hidden"] and opened["side"] == "# Mine, kept\n"
+    assert opened["side_label"].startswith("Your version, kept by sync on 2026-10-05 12:00")
+    assert opened["content"].startswith("---\npersona: tester")
+
+
+def test_disconnect_says_what_happened_to_the_deploy_key_and_returns_to_the_wizard(dashboard):
+    assert dashboard["disconnected"]["alert"]["text"] == (
+        "Sync is off on this machine. Removed this machine's deploy key (Agents-Core mac-1a2b) from octocat/agents-library.")
+    assert dashboard["disconnected"]["steps"][0] == "*1. Connect" and dashboard["disconnected"]["chip"]["text"] == "Sync off"
+
+
+def test_a_flow_that_a_sync_updated_while_open_says_so_and_keeps_unsaved_text():
+    result = run_sync("sync_notice")
+    assert result["other_flow"]["hidden"] and result["same_revision"]["hidden"]  # the revision decides
+    assert result["updated"] == {"hidden": False, "text": "Updated from laptop, desk at 14:02.",
+                                 "content": "# My unsaved text\n"}
+    conflict = result["save_conflict"]
+    assert conflict["notice"] == ("Sync updated this flow from laptop, desk at 14:02 while you edited it. "
+                                  "Your text is kept on the left.")
+    assert conflict["content"] == "# My unsaved text\n" and conflict["side"] == "# Doc from laptop\n"
+    assert conflict["side_label"].startswith("Updated from laptop, desk by sync")
+    assert conflict["sync_notice"]["hidden"]
+    assert result["again"] == {"hidden": False, "text": "Updated from laptop at 14:03."}
+    assert result["reloaded"]["hidden"] and result["reloaded"]["content"] == "# Doc again\n"
+
+
+def test_the_sync_page_keeps_the_header_budget_and_the_csp():
+    html, script, style = page_parts()
+    header = html[html.index("<header>"):html.index("</header>")]
+    # The chip sits beside the version, before the item's controls; it is a button with words.
+    assert header.index('id="version"') < header.index('id="sync-chip"') < header.index('id="item-actions"')
+    assert re.search(r'<button id="sync-chip"[^>]*aria-controls="sync-page"', header)
+    css = css_rules(style)[""]
+    # Under the version, in the 32 px its line had: no width taken from the item's controls, so a
+    # built-in flow's controls keep the first row at 1250 px (measured in Chromium, not committed).
+    assert {"flex-direction": "column", "height": "32px", "margin-right": "auto"}.items() <= css["#brand"].items()
+    assert css["header h1"]["line-height"] == "18px" and css["#sync-chip"]["line-height"] == "12px"
+    assert css["#sync-chip"]["white-space"] == "nowrap"
+    assert css["#sync-page"]["overflow-y"] == "auto"  # it scrolls by itself, like the list
+    # The browser never calls GitHub: every request goes through api() to the page's own origin.
+    assert "fetch(" not in script.replace('fetch("/ui/api/session"', "").replace("await fetch(path, init)", "")
+    assert "github.com" not in script.lower()
+    # The placement counts the chip: a tab never covers it.
+    assert re.search(r"versionEnd: \$\(\"brand\"\)", script)
+    assert run("place") == {"on_pane": "tab", "past_corner": "inline", "after_version": "inline",
+                            "too_wide": "row", "narrow": "stack"}
+
+
+# --- the review round of #170: focus, busy controls, fresh reads, names and robustness -----------
+
+def test_a_rebuilt_part_gives_the_focus_back_to_the_same_control():
+    result = run_sync("sync_focus")
+    assert result["same_name"] == [0, 1, 0]  # "Remove linux-9f9f", not the first "Remove"
+    assert result["same_field"] == [0, 1, 0]  # a switch found by its label
+    assert result["fallback"] == [0, 1]  # Pause became Resume: the part's heading
+    assert result["outside"] == [0, 1]  # focus elsewhere is left alone (the heading count stays 1)
+
+
+@pytest.fixture(scope="module")
+def more():
+    return run_sync("sync_more")
+
+
+def test_a_busy_page_keeps_the_focus_and_pause_still_answers(more):
+    assert more["busy"] == {"sync_now": ["true", False], "pause": [None, False]}  # aria-disabled, never disabled
+    assert more["paused_while_busy"] == [["PUT", "/ui/api/sync/settings", {"paused": True}]]
+    assert more["after"] == {"sync_now": [None]}
+
+
+def test_polls_take_the_scanned_status_and_the_page_reads_fresh_when_it_opens(more):
+    assert more["fresh_on_open"] == 1 and more["fresh_on_poll"] == 0
+
+
+def test_a_failed_poll_says_the_status_is_unavailable(more):
+    assert more["unavailable"]["text"] == "Sync status unavailable" and more["unavailable"]["tone"] == "warn"
+    assert more["available_again"]["text"] == "2 conflicts"
+
+
+def test_list_buttons_have_names_of_their_own_and_foreign_keys_stay(more):
+    names = more["names"]
+    assert len(names) == len(set(names))  # two records of one file differ in their time
+    assert {"Remove linux-9f9f", "Open the conflict on user:doc, recorded 2026-10-05 12:00:00",
+            "Open the conflict on user:doc, recorded 2026-10-05 12:00:07",
+            "Use my version of user:doc (persona), recorded 2026-10-05 12:01:00",
+            "Approve repos/def", "Copy the public key"} <= set(names)
+    assert more["remove_buttons"] == ["Remove linux-9f9f"]  # neither this machine nor a key sync did not add
+    assert "Other deploy keys" in more["machines"] and "CI deploy, read-only" in more["machines"]
+
+
+def test_an_interval_set_elsewhere_shows_in_the_list(more):
+    assert more["interval"] == {"options": ["1", "2", "3", "5", "10", "15", "30", "60"], "value": "3"}
+
+
+def test_bytes_that_are_not_text_say_so(more):
+    assert more["binary"] == ["(not text: binary content)", "(not text: binary content)"]
+
+
+def test_regenerate_key_asks_what_github_will_do_and_refuses_while_signed_out(more):
+    assert more["regenerate_question"] == ("Create a new key for this machine? Agents-Core adds it to "
+                                           "octocat/agents-library on GitHub, then removes the old one.")
+    assert more["signed_out"]["posts"] == 0
+    assert more["signed_out"]["alert"]["text"].startswith("Sign in to GitHub first")
+    assert more["tab_focused"] == 1  # leaving the page moves the focus to the tab that shows
+
+
+def test_a_reload_at_the_host_key_step_shows_the_fingerprints_again():
+    result = run_sync("sync_hostkey")
+    assert result["fingerprints"]["radios"] == ["SHA256:aaaa", "SHA256:bbbb"]
+    assert result["fingerprints"]["buttons"] == ["Trust this key"]
+    assert result["calls"] == [["POST", "/ui/api/sync/setup", {"again": True}],
+                               ["POST", "/ui/api/sync/setup", {"again": True, "trust_host_key": "SHA256:bbbb"}]]
+    assert result["trusted"]["key"].startswith("ssh-ed25519 ") and "Check access" in result["trusted"]["buttons"]
+
+
+@pytest.fixture(scope="module")
+def round2():
+    return run_sync("sync_round2")
+
+
+def test_the_wizard_starts_from_the_settings_not_from_a_status_a_scan_old(round2):
+    assert round2["wizard_from"] == {"stale_synced": ["connect", None], "stale_off": ["access", "ssh"],
+                                     "github": ["access", "github"]}
+
+
+def test_a_poll_never_replaces_a_fresh_read_that_is_still_pending(round2):
+    assert round2["before"] == "2 conflicts" and round2["poll_timers"] == 1
+    assert round2["while_fresh"] == {"reads": 1, "chip": "2 conflicts"}  # the fresh read only; no poll was sent
+    assert round2["after_fresh"] == {"chip": "Synced 2m ago", "timers": 1}  # its answer, then the next poll
+
+
+def test_this_machine_is_marked_under_a_title_sync_did_not_give_it(round2):
+    machines = round2["machines"]
+    assert "laptop key (this machine)" in machines and "GitHub lists no machine" not in machines
+    assert "This machine's key is on GitHub as laptop key, a title Agents-Core did not give it" in machines
+    assert round2["remove_buttons"] == 0
+
+
+def test_text_fields_take_no_typing_while_a_request_runs(round2):
+    assert round2["busy_field"] == {"read_only": True, "aria": "true"}
+    assert round2["idle_field"] == {"read_only": False, "aria": None}
+
+
+def test_a_choice_made_while_a_request_runs_goes_back():
+    result = run_sync("sync_busy_radio")
+    assert result["while_busy"] == [["SHA256:aaaa", True], ["SHA256:bbbb", False]]
+    assert result["sent"][-1] == {"again": True, "trust_host_key": "SHA256:aaaa"}
+
+
+def test_a_github_setup_that_stopped_before_its_host_keys_is_set_up_again():
+    result = run_sync("sync_hostkey_github")
+    assert result["stopped"]["buttons"] == ["Set up again"]  # nothing to confirm on GitHub
+    assert "stopped before GitHub's host keys were stored" in result["stopped"]["text"]
+    assert result["calls"] == [["POST", "/ui/api/sync/setup", {"again": True}]]
+    assert "added this machine's deploy key to octocat/agents-library" in result["again"]["text"]
+    assert result["again"]["buttons"] == ["Start over", "Check access"]
+
+
+def test_a_flow_that_sync_deleted_while_open_says_so():
+    result = run_sync("sync_notice")
+    assert result["deleted"] == {"hidden": False, "reload_hidden": True,
+                                 "text": "Deleted on desk at 14:04 by sync. Your text is still here; copy it to keep it."}
+    assert result["deleted_save"] == {"content": "# Kept text\n", "notice": (
+        "Sync deleted this flow on desk at 14:04 while you edited it. Your text is kept here; copy it to keep it.")}

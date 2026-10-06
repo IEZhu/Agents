@@ -1,4 +1,5 @@
 """Exercise install.sh and init_repo.sh's --yes helpers against disposable directories."""
+import json
 import os
 from pathlib import Path
 import shutil
@@ -12,9 +13,21 @@ BASH = shutil.which("bash")
 pytestmark = pytest.mark.skipif(sys.platform == "win32" or not BASH, reason="requires bash on Unix")
 
 
+def hermetic_environment(**overrides) -> dict:
+    """This process's environment without what steers the installers, git or Python in a test:
+    an Agents-Core variable of the developer's (AGENTS_USER_FLOWS_DIR would point the real sync
+    step at their library), GIT_* and PYTHON*. ``overrides`` come last."""
+    environment = {key: value for key, value in os.environ.items()
+                   if not key.startswith(("AGENTS_", "GIT_", "PYTHON")) and key != "VIRTUAL_ENV"}
+    return {**environment, **overrides}
+
+
 def git(*args, cwd=None):
+    """git for fixtures, without the developer's or the system's configuration: nothing such as
+    maintenance or an fsmonitor writes into a repository after the command returns."""
+    environment = hermetic_environment(GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
     subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.com", *args],
-                   cwd=cwd, check=True, capture_output=True)
+                   cwd=cwd, check=True, capture_output=True, env=environment)
 
 
 @pytest.fixture
@@ -32,15 +45,16 @@ def upstream(tmp_path):
 
 
 def run_install(tmp_path, upstream, *args, extra_env=None, path=None):
-    env = dict(os.environ, HOME=str(tmp_path / "home"), AGENTS_REPO_URL=str(upstream),
-               AGENTS_ASSUME_YES="1")
-    env.pop("AGENTS_HOME", None)
+    env = hermetic_environment(HOME=str(tmp_path / "home"), AGENTS_REPO_URL=str(upstream), AGENTS_ASSUME_YES="1",
+                               GIT_CONFIG_NOSYSTEM="1")
     env.update(extra_env or {})
     if path is not None:
         env["PATH"] = path
     (tmp_path / "home").mkdir(exist_ok=True)
-    return subprocess.run([BASH, str(ROOT / "install.sh"), *args], env=env,
-                          capture_output=True, text=True, stdin=subprocess.DEVNULL)
+    # A new session has no controlling terminal: install.sh cannot prompt on /dev/tty, even when
+    # the test runs in a developer's terminal and a test leaves AGENTS_ASSUME_YES out.
+    return subprocess.run([BASH, str(ROOT / "install.sh"), *args], env=env, capture_output=True, text=True,
+                          stdin=subprocess.DEVNULL, start_new_session=True, timeout=300)
 
 
 def test_fresh_clone_runs_init_with_yes(tmp_path, upstream):
@@ -122,6 +136,146 @@ def test_missing_git_fails_clearly(tmp_path, upstream):
     result = run_install(tmp_path, upstream, path=str(empty))
     assert result.returncode != 0
     assert "git is required" in result.stderr
+
+
+TERMINAL = r"""
+import json, os, pty, select, sys, time
+argv, typed, timeout = json.loads(sys.argv[1]), sys.argv[2].encode(), float(sys.argv[3])
+pid, controller = pty.fork()
+if pid == 0:  # the child: nothing but exec
+    os.execv(argv[0], argv)
+os.write(controller, typed)
+output, deadline = b"", time.monotonic() + timeout
+while time.monotonic() < deadline:
+    if select.select([controller], [], [], 0.1)[0]:
+        try:
+            chunk = os.read(controller, 65536)
+        except OSError:  # EIO: the child's side closed (Linux)
+            chunk = b""
+        output += chunk
+        if not chunk:
+            break
+else:
+    os.kill(pid, 9)
+    timed_out = True
+os.close(controller)
+status = os.waitpid(pid, 0)[1]
+print(json.dumps({"code": os.waitstatus_to_exitcode(status), "output": output.decode(errors="replace"),
+                  "timed_out": "timed_out" in globals()}))
+"""
+
+
+def run_with_terminal(argv, env, typed: bytes, timeout=240):
+    """Run ``argv`` as the leader of a new session whose controlling terminal is a pseudo-terminal,
+    as a user's shell would: ``/dev/tty`` works, and ``typed`` waits in the terminal's input. A fresh,
+    single-threaded Python forks it: forking this multi-threaded test process could deadlock."""
+    result = subprocess.run([sys.executable, "-c", TERMINAL, json.dumps(argv), typed.decode(), str(timeout)],
+                            env=env, capture_output=True, text=True, timeout=timeout + 30, start_new_session=True)
+    answer = json.loads(result.stdout)
+    assert not answer["timed_out"], f"{argv} did not finish within {timeout} s:\n{answer['output'][-3000:]}"
+    return answer["code"], answer["output"]
+
+
+def library_git(checkout):
+    """A personal library with its own .git, as sync (#173) or the user leaves it; its files' bytes."""
+    library = checkout / "flows/.user"
+    library.mkdir(parents=True)
+    git("init", "-q", "-b", "main", cwd=library)
+    (library / "notes.md").write_text("mine")
+    git("add", "-A", cwd=library)
+    git("commit", "-q", "-m", "library", cwd=library)
+    return lambda: {str(path.relative_to(library)): path.read_bytes()
+                    for path in sorted((library / ".git").rglob("*")) if path.is_file()}
+
+
+TOKEN = "ghp_OneLinerToken0123456789abcdef"
+# Blanked so that the user's own never reach a test; AGENTS_ASSUME_YES stays, or install.sh would ask.
+SYNC_VARIABLES = ("AGENTS_USER_SYNC_REPO", "AGENTS_USER_SYNC_REMOTE", "AGENTS_USER_SYNC_NAME",
+                  "AGENTS_USER_SYNC_EMAIL", "AGENTS_USER_SYNC_LABEL", "AGENTS_GITHUB_TOKEN")
+
+
+@pytest.fixture
+def sync_upstream(tmp_path):
+    """A repository whose init_repo.sh records its arguments and whether it got the GitHub token,
+    then runs the real sync section of scripts/init_repo.sh with the real step (a copy of src)."""
+    from tests.test_installer_sync import unix_section
+    repo = tmp_path / "sync-upstream"
+    shutil.copytree(ROOT / "src", repo / "src", ignore=shutil.ignore_patterns("__pycache__"))
+    (repo / "scripts").mkdir()
+    stub = repo / "scripts/init_repo.sh"
+    stub.write_text('#!/usr/bin/env bash\nhere="${0%/*}"\n'
+                    'echo "init:$* token:${AGENTS_GITHUB_TOKEN:-none}" > "$here/../ran.txt"\n'
+                    'REPO_ROOT="$(cd "$here/.." && pwd)"\nPYTHON_ABS="$TEST_PYTHON"\n'
+                    + unix_section((ROOT / "scripts/init_repo.sh").read_text(encoding="utf-8")))
+    stub.chmod(0o755)
+    git("init", "-q", "-b", "main", cwd=repo)
+    git("add", "-A", cwd=repo)
+    git("commit", "-q", "-m", "init", cwd=repo)
+    return repo
+
+
+def test_an_update_from_a_terminal_with_sync_variables_leaves_the_library_git_byte_for_byte(tmp_path, sync_upstream):
+    """install.sh asks only its own confirmation; init_repo.sh --yes runs the real sync step, whose
+    setup from the environment refuses the library's own .git and leaves it as it was (#171)."""
+    checkout = tmp_path / "home/.agents-core"
+    sync_env = {name: "" for name in SYNC_VARIABLES}
+    sync_env.update(TEST_PYTHON=sys.executable, XDG_STATE_HOME=str(tmp_path / "state"),
+                    AGENTS_SERVICE_DIR=str(tmp_path / "service"),
+                    AGENTS_USER_FLOWS_DIR=str(checkout / "flows/.user"))  # the real step's library, pinned
+    first = run_install(tmp_path, sync_upstream, extra_env=sync_env)
+    assert first.returncode == 0, first.stdout + first.stderr
+    snapshot = library_git(checkout)
+    before = snapshot()
+    (sync_upstream / "new.txt").write_text("x")
+    git("add", "-A", cwd=sync_upstream)
+    git("commit", "-q", "-m", "more", cwd=sync_upstream)
+    # No AGENTS_ASSUME_YES: install.sh asks, and the "y" typed below answers.
+    env = hermetic_environment(**{**sync_env, "HOME": str(tmp_path / "home"), "AGENTS_REPO_URL": str(sync_upstream),
+                                  "GIT_CONFIG_NOSYSTEM": "1",
+                                  "AGENTS_USER_SYNC_REMOTE": "git@git.example.com:me/library.git",
+                                  "AGENTS_USER_SYNC_NAME": "Owner", "AGENTS_USER_SYNC_EMAIL": "owner@example.com",
+                                  "AGENTS_GITHUB_TOKEN": TOKEN})
+    code, output = run_with_terminal([BASH, str(ROOT / "install.sh")], env, b"y\n")
+    assert code == 0, output
+    assert "Proceed with these defaults? [Y/n]" in output and (checkout / "new.txt").exists()
+    assert (checkout / "ran.txt").read_text().strip() == f"init:--yes token:{TOKEN}"
+    assert "Setting up sync between machines from AGENTS_USER_SYNC_REMOTE" in output
+    assert "Sync was not set up" in output and "was not created by Agents-Core sync" in output
+    assert "REACHED THE END" in output
+    assert snapshot() == before
+    assert not (tmp_path / "state").exists() and not (tmp_path / "service").exists()
+
+
+@pytest.mark.parametrize("exported_copy", [False, True], ids=["plain", "caller-exports-the-copy-name"])
+def test_install_sh_hands_the_github_token_to_init_repo_only_never_to_git(tmp_path, upstream, exported_copy):
+    """Also when the caller happens to export install.sh's own name for the copy: a local inherits
+    the export attribute, and without `export -n` its children would get the token under that name.
+    Dropped, they see the caller's own value, as before."""
+    events = tmp_path / "git-events.txt"
+    wrappers = tmp_path / "wrappers"
+    wrappers.mkdir()
+    wrapper = wrappers / "git"
+    wrapper.write_text(f'#!/bin/sh\necho "git ${{AGENTS_GITHUB_TOKEN:-none}} ${{sync_github_token:-none}}" >> "{events}"\n'
+                       f'exec {shutil.which("git")} "$@"\n')
+    wrapper.chmod(0o755)
+    stub = upstream / "scripts/init_repo.sh"
+    stub.write_text('#!/usr/bin/env bash\necho "init:$* token:${AGENTS_GITHUB_TOKEN:-none} '
+                    'copy:${sync_github_token:-none}" > "${0%/*}/../ran.txt"\n')
+    git("add", "-A", cwd=upstream)
+    git("commit", "-q", "-m", "stub", cwd=upstream)
+    path = str(wrappers) + os.pathsep + os.environ["PATH"]
+    extra = {**{name: "" for name in SYNC_VARIABLES}, "AGENTS_GITHUB_TOKEN": TOKEN}
+    if exported_copy:
+        extra["sync_github_token"] = "the caller's own value"
+    copy = "the caller's own value" if exported_copy else "none"
+    for attempt in ("clone", "update"):
+        result = run_install(tmp_path, upstream, path=path, extra_env=extra)
+        assert result.returncode == 0, result.stderr
+        ran = (tmp_path / "home/.agents-core/ran.txt").read_text().strip()
+        assert ran == f"init:--yes token:{TOKEN} copy:{copy}", ran
+    lines = events.read_text().splitlines()
+    assert lines and set(lines) == {f"git none {copy}"}, lines
+    assert TOKEN not in result.stdout + result.stderr
 
 
 def test_init_repo_installs_one_embedding_model_without_asking():

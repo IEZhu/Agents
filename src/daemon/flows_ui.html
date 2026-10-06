@@ -39,7 +39,20 @@ body { margin: 0; background: var(--bg); color: var(--text);
 header { flex: none; display: flex; flex-wrap: wrap; gap: 0 8px; align-items: flex-end;
   padding: 4px var(--edge) 0; }
 header > * { margin: 8px 0 var(--edge); }
-header h1 { font-size: 16px; line-height: 32px; margin-right: auto; white-space: nowrap; }
+/* The sync chip sits under the version, in the 32 px the version's line had to itself: at 1250 px a
+   built-in flow's controls fit beside the version with only a few pixels to spare, so a chip beside
+   it would push them to a second row. The block keeps its height with or without the chip. */
+#brand { display: flex; flex-direction: column; justify-content: center; align-items: flex-start; gap: 0; height: 32px;
+  margin-right: auto; min-width: 0; }
+header h1 { font-size: 16px; line-height: 18px; margin: 0; white-space: nowrap; }
+/* The state is in the words, about 100 px of them; the colors only repeat it. */
+#sync-chip { font-size: 11px; line-height: 12px; padding: 1px 6px; white-space: nowrap; color: var(--muted);
+  background: var(--chip); border: 0; border-radius: var(--r-pill); }
+#sync-chip:hover, #sync-chip[aria-pressed="true"] { box-shadow: inset 0 0 0 1px var(--line); }
+#sync-chip[aria-pressed="true"] { font-weight: 600; }
+#sync-chip[data-tone="ok"] { color: var(--ok); }
+#sync-chip[data-tone="busy"] { color: var(--accent); }
+#sync-chip[data-tone="warn"] { color: var(--warn); background: var(--warn-bg); }
 /* The open item's controls fill the header between the version and the tabs and end at the
    divider. The group is the tab of the item's pane: one tint, and it reaches down to the pane. */
 #item-actions { flex: 1 1 0; min-width: 0; display: flex; justify-content: flex-end; margin: 0; }
@@ -207,6 +220,47 @@ details.persona summary { cursor: pointer; }
 .persona-grid select[multiple] { width: 100%; min-height: 140px; }
 .persona-grid select[multiple]:disabled { opacity: .5; }
 @media (max-width: 760px) { .persona-grid { grid-template-columns: 1fr; } }
+/* The Sync page takes the place of the list and the item, under the same header; only it scrolls. */
+#sync-page { flex: 1; min-height: 0; overflow-y: auto; padding: 0 var(--edge) var(--edge); gap: var(--edge); }
+#sync-page > * { width: 100%; max-width: 62rem; margin: 0 auto; }
+.sync-head h2 { margin: 0; font-size: 18px; }
+#sync-body { display: flex; flex-direction: column; gap: var(--edge); }
+.sync-card { display: flex; flex-direction: column; gap: 10px; min-width: 0; padding: 16px; background: var(--panel);
+  border-radius: var(--r-block); }
+.sync-card h3 { margin: 0; font-size: 15px; }
+.sync-card h4 { margin: 6px 0 0; font-size: 13px; }
+.sync-card p { margin: 0; }
+#sync-alert, .sync-card .notice { overflow-wrap: anywhere; }
+.sync-part { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.sync-steps { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.sync-steps li { padding: 3px 10px; color: var(--muted); background: var(--chip); border-radius: var(--r-pill); }
+.sync-steps li[aria-current="step"] { color: var(--text); font-weight: 600; }
+.sync-steps li.skipped { text-decoration: line-through; }
+.sync-code { font: 600 24px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .1em; }
+.sync-key { font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; padding: 6px 8px;
+  background: var(--code-bg); border: 1px solid var(--line); border-radius: var(--r-code); }
+.sync-list { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
+.sync-list > li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 8px 0; border-top: 1px solid var(--line); }
+.sync-list > li:first-child { border-top: 0; }
+.sync-list small { display: block; }
+.sync-list .panes { flex: 1 1 100%; }
+.sync-grow { flex: 1 1 14rem; min-width: 0; overflow-wrap: anywhere; }
+.sync-field { display: flex; flex-direction: column; gap: 4px; max-width: 30rem; }
+.sync-field label { font-size: 12px; color: var(--muted); }
+.sync-choice { display: flex; flex-direction: column; gap: 8px; min-width: 0; margin: 0; padding: 0; border: 0; }
+.sync-choice legend { margin-bottom: 4px; padding: 0; font-weight: 600; }
+/* A switch stays beside its label, which wraps instead (long origins). */
+.sync-option { display: flex; align-items: center; gap: 6px 8px; min-width: 0; overflow-wrap: anywhere; }
+.sync-option input { flex: none; }
+/* Prose here wraps at words; .meta elsewhere breaks IDs and paths anywhere. */
+#sync-page .meta { word-break: normal; overflow-wrap: anywhere; }
+/* Headings take the focus when the page or a step opens; the ring shows for the keyboard only. */
+#sync-page [tabindex="-1"]:focus:not(:focus-visible) { outline: none; }
+/* A control that waits for the page's request keeps the focus; it only looks and acts disabled. */
+#sync-page [aria-disabled="true"] { opacity: .5; cursor: default; }
+.sync-preview { display: flex; flex-direction: column; gap: 4px; }
+.sync-preview ul { margin: 0; padding-left: 1.4em; }
+.sync-preview li { overflow-wrap: anywhere; }
 dialog { border: 1px solid var(--line); border-radius: var(--r-dialog); background: var(--panel); color: var(--text); padding: 16px; width: min(420px, 92vw); }
 dialog form { display: flex; flex-direction: column; gap: 10px; }
 dialog::backdrop { background: rgba(0,0,0,.35); }
@@ -222,7 +276,10 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
 </head>
 <body>
 <header>
-  <h1 id="version">Agents-Core {{VERSION}}</h1>
+  <div id="brand">
+    <h1 id="version">Agents-Core {{VERSION}}</h1>
+    <button id="sync-chip" class="hidden" type="button" aria-pressed="false" aria-controls="sync-page"></button>
+  </div>
   <div id="item-actions" class="hidden" role="group" aria-label="Item actions">
     <div id="e-actions" class="hidden">
       <div id="e-seg" class="seg inline" role="group" aria-label="Flow view"></div>
@@ -270,6 +327,7 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
   <section id="editor" class="hidden">
     <strong id="title" class="item-title"></strong>
     <div id="meta" class="meta"></div>
+    <div id="sync-notice" class="notice hidden bar" role="status"><span id="sync-notice-text"></span><button id="sync-reload" type="button">Reload</button></div>
     <div id="notice" class="notice hidden"></div>
     <details id="persona" class="persona hidden">
       <summary>Persona: <span id="persona-summary"></span></summary>
@@ -290,6 +348,11 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
   </section>
   <section id="welcome"><p class="meta">Select a flow, or create one. Personal and repository flows (User) are stored as Markdown in the installation's git-ignored <code>flows/.user</code>; built-in flows (System) stay read-only and can be replaced by a local copy.</p></section>
 </main>
+<section id="sync-page" class="hidden" aria-labelledby="sync-title">
+  <div class="sync-head"><h2 id="sync-title" tabindex="-1">Library sync</h2></div>
+  <div id="sync-alert" class="notice hidden" role="status"></div>
+  <div id="sync-body"></div>
+</section>
 <dialog id="create">
   <form method="dialog">
     <strong id="create-title">New flow</strong>
@@ -305,7 +368,13 @@ const $ = (id) => document.getElementById(id);
 const state = { tab: "flows", category: "user", flows: [], repos: [], current: null, draft: null, dirty: false,
   upstream: null, items: [], item: null, workspaces: null, pending: null, gen: 0,
   queries: { flows: "", agents: "", rules: "", skills: "", implants: "" },
-  loadedTab: null };  // the tab whose list is on screen; null while a tab loads
+  loadedTab: null,  // the tab whose list is on screen; null while a tab loads
+  signedOut: false };
+// Library sync (#170): the last status, the Sync page, its wizard and the GitHub sign-in in progress.
+const sync = { status: null, gen: 0, freshPending: 0, timer: null, shown: false, parts: null, controls: [], busy: false,
+  wizard: null, device: null, deviceTimer: null, onConnected: null, seen: null, notice: null,
+  scopes: null, scopesLoading: false, scopeHost: null, scopeConfirm: null, machines: null, review: null,
+  compare: null, keyMissing: false, revokeUrl: null, unavailable: false, pausing: false };
 // Every list load bumps `gen`; a response that arrives for an older load is dropped.
 const TEMPLATE = "# Title\n\nPurpose in one sentence.\n\n## Steps\n\n1. \n\n## Done when\n\n- \n";
 const KIND_LABEL = { agents: "Agents", rules: "Rules", skills: "Skills", implants: "Implants" };
@@ -333,7 +402,12 @@ async function api(path, options = {}, retry = true) {
     return api(path, options, false);
   }
   if (response.status === 401) { showSignIn(); const error = new Error("Not signed in. Run: python -m src.daemon flows-ui"); error.signedOut = true; throw error; }
-  if (!response.ok) { const error = new Error(data.error || response.statusText); error.status = response.status; throw error; }
+  if (!response.ok) {
+    // Sync's refusals carry a reason and a message for people; the other routes an error code.
+    const error = new Error(data.message || data.error || response.statusText);
+    error.status = response.status; error.data = data;
+    throw error;
+  }
   return data;
 }
 
@@ -344,10 +418,17 @@ function notice(text, kind = "") {
 }
 
 function showSignIn() {
+  state.signedOut = true;
   $("main").classList.add("hidden");
   $("item-actions").classList.add("hidden");
   $("tabs").classList.add("hidden");
   $("new").classList.add("hidden");
+  // Sync stops asking: its status and controls need a session too.
+  sync.shown = false;
+  clearTimeout(sync.timer); clearTimeout(sync.deviceTimer);
+  sync.timer = sync.deviceTimer = sync.device = sync.onConnected = null;
+  $("sync-page").classList.add("hidden");
+  $("sync-chip").classList.add("hidden");
   $("signin").classList.remove("hidden");
 }
 
@@ -605,7 +686,8 @@ function showPane(pane) {
 // not joined, when it fits there; else in a header row of its own. Pure, so the tests can call it.
 function itemPlace({ narrow, groupWidth, groupEnd, versionEnd, straightStart }) {
   if (narrow) return "stack";
-  if (groupEnd - groupWidth >= straightStart) return "tab";
+  // The tab never covers the version or the sync chip under it, should they reach past the corner.
+  if (groupEnd - groupWidth >= Math.max(straightStart, versionEnd)) return "tab";
   if (groupEnd - groupWidth >= versionEnd) return "inline";
   return "row";
 }
@@ -622,7 +704,7 @@ function placeItemActions() {
     narrow: window.matchMedia("(max-width: 760px)").matches,  // the stylesheet's narrow layout
     groupWidth: group.getBoundingClientRect().width,
     groupEnd: $("tabs").getBoundingClientRect().left - gap,
-    versionEnd: $("version").getBoundingClientRect().right + gap,
+    versionEnd: $("brand").getBoundingClientRect().right + gap,  // the version with the sync chip under it
     straightStart: pane.getBoundingClientRect().left + parseFloat(getComputedStyle(pane).borderTopLeftRadius)
       + parseFloat(getComputedStyle(group, "::before").width),
   });
@@ -656,6 +738,7 @@ function showEditor() {
   $("toggle-upstream").classList.toggle("hidden", !state.upstream);
   $("history").classList.toggle("hidden", builtin || !!state.draft);
   hideSide();
+  clearSyncNotice();  // the text on screen is the one just loaded
   renderPersona().catch((error) => { if (!error.signedOut) notice(error.message, "error"); });
 }
 
@@ -695,14 +778,20 @@ async function save() {
     notice(result.status === "unchanged" ? "No changes." : "Saved.", "ok");
   } catch (error) {
     if (error.status === 409) {
+      // A sync that updated this flow while it was open (see noticeSyncedFlow) is named.
+      const synced = sync.notice && sameFlow(flow, sync.notice.id, sync.notice.repo) ? sync.notice : null;
       try {
         const current = await api("/ui/api/flow?" + flowParams(flow));
-        showSide("Saved by someone else — merge into your text, then save again", current.content);
+        showSide(synced ? "Updated from " + synced.from + " by sync — merge into your text, then save again"
+          : "Saved by someone else — merge into your text, then save again", current.content);
         state.current = current.flow;
         if (state.draft) { state.draft = null; }
         setEditorView("source");
+        clearSyncNotice();
       } catch (_) {}
-      notice("This flow changed elsewhere (chat or another window). Your text is kept on the left.", "error");
+      notice(synced && synced.deleted ? "Sync deleted this flow on " + synced.from + " at " + synced.at + " while you edited it. Your text is kept here; copy it to keep it."
+        : synced ? "Sync updated this flow from " + synced.from + " at " + synced.at + " while you edited it. Your text is kept on the left."
+        : "This flow changed elsewhere (chat or another window). Your text is kept on the left.", "error");
     } else {
       notice(error.message, "error");
     }
@@ -1595,6 +1684,1440 @@ async function toggleItem() {
 }
 $("c-toggle").addEventListener("click", toggleItem);
 
+// --- library sync (#170): the header chip, the Sync page and its setup wizard ------------
+//
+// The page asks only the daemon (/ui/api/sync…), never GitHub. The status, read at start and
+// every 30 s while the tab is visible, feeds the chip, the Sync page and the notice of a flow that
+// a sync updated while it was open. A GitHub sign-in shows its code here; the page polls the
+// daemon, which polls GitHub and keeps the device code to itself.
+
+const SYNC_POLL_MS = 30000;
+const SAFE_HTTPS = /^https:\/\/[^\s"'<>]+$/;
+const pad2 = (n) => String(n).padStart(2, "0");
+const plural = (count, word) => count + " " + word + (count === 1 ? "" : "s");
+
+// "14:05" in local time; "" for a missing or unreadable time.
+function clockTime(iso) {
+  const moment = new Date(iso || "");
+  return isNaN(moment.getTime()) ? "" : pad2(moment.getHours()) + ":" + pad2(moment.getMinutes());
+}
+
+// "2026-10-05 14:05" in local time, "2026-10-05 14:05:09" with `seconds`; "never" without a time.
+function dateTime(iso, seconds) {
+  const moment = new Date(iso || "");
+  if (isNaN(moment.getTime())) return "never";
+  return moment.getFullYear() + "-" + pad2(moment.getMonth() + 1) + "-" + pad2(moment.getDate()) + " " + clockTime(iso)
+    + (seconds ? ":" + pad2(moment.getSeconds()) : "");
+}
+
+function ago(iso, now) {
+  const seconds = Math.max(0, (now - Date.parse(iso)) / 1000);
+  if (isNaN(seconds)) return "";
+  if (seconds < 60) return "just now";
+  if (seconds < 3600) return Math.floor(seconds / 60) + "m ago";
+  if (seconds < 86400) return Math.floor(seconds / 3600) + "h ago";
+  return Math.floor(seconds / 86400) + "d ago";
+}
+
+// What the header says about sync: words first, the tone only repeats them. Null before a status.
+function syncChip(status, now) {
+  if (!status || !status.state) return null;
+  const loop = status.loop || {};
+  if (status.state === "off") return { text: "Sync off", tone: "off" };
+  if (status.state === "syncing" || loop.syncing) return { text: "Syncing…", tone: "busy" };
+  if (status.state === "paused") return { text: "Paused", tone: "off" };
+  if (status.state === "offline") {
+    const at = clockTime(status.retry_at);
+    return { text: at ? "Offline, retry " + at : "Offline", tone: "warn" };
+  }
+  if (status.state !== "synced" && status.state !== "pending") return { text: "Needs attention", tone: "warn" };
+  const conflicts = status.conflict_total ?? status.conflicts;  // counted fresh with each answer
+  if (conflicts) return { text: plural(conflicts, "conflict"), tone: "warn" };
+  if (status.state === "pending") return { text: (status.pending || 0) + " pending", tone: "busy" };
+  return { text: status.last_success ? "Synced " + ago(status.last_success, now) : "Synced", tone: status.stale ? "warn" : "ok" };
+}
+
+function renderChip() {
+  const chip = $("sync-chip");
+  // A status that could not be read is not shown as the last one that could.
+  const shown = state.signedOut ? null : sync.unavailable && sync.status ? { text: "Sync status unavailable", tone: "warn" }
+    : syncChip(sync.status, Date.now());
+  chip.classList.toggle("hidden", !shown);
+  if (shown) {
+    chip.textContent = shown.text;
+    chip.dataset.tone = shown.tone;
+    chip.setAttribute("aria-label", "Library sync: " + shown.text);
+    chip.title = "Library sync: " + shown.text + (!sync.unavailable && sync.status.message ? ". " + sync.status.message : "");
+  }
+  schedulePlacement();  // the chip's width decides where the open item's controls fit
+}
+
+function scheduleSyncPoll() {
+  clearTimeout(sync.timer);
+  sync.timer = null;
+  if (state.signedOut || document.visibilityState === "hidden") return;
+  sync.timer = setTimeout(() => { sync.timer = null; refreshSync(); }, SYNC_POLL_MS);
+}
+
+// Reads the status; a refresh that a newer one overtook is dropped. Polls take the status the daemon
+// keeps (read or confirmed by a scan within a scan interval); `fresh` (opening the Sync page, after its
+// own actions) reads it now, and no poll replaces a fresh read that is still pending: that read
+// answers and schedules the next poll.
+async function refreshSync(fresh) {
+  if (state.signedOut || (!fresh && sync.freshPending)) return;
+  const gen = ++sync.gen;
+  if (fresh) sync.freshPending = gen;
+  let status = null, failed = false;
+  try {
+    status = await api("/ui/api/sync" + (fresh ? "?fresh=1" : ""));
+  } catch (error) {
+    if (error.signedOut) return;
+    failed = true;
+  } finally {
+    if (sync.freshPending === gen) sync.freshPending = 0;
+  }
+  if (gen !== sync.gen) return;
+  if (status) applySyncStatus(status);
+  else if (failed && !sync.unavailable) {
+    sync.unavailable = true;
+    renderChip();
+  }
+  scheduleSyncPoll();
+}
+
+// A hidden tab asks nothing; showing it again reads the status at once.
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") {
+    clearTimeout(sync.timer);
+    sync.timer = null;
+  } else if (!state.signedOut) {
+    refreshSync();
+  }
+});
+
+function applySyncStatus(status) {
+  sync.status = status;
+  sync.unavailable = false;
+  renderChip();
+  noticeSyncedFlow(status).catch(() => {});
+  renderSyncPage(false);
+}
+
+// --- the editor: a flow that a sync updated while it was open -------------------------------
+
+const activityKey = (entry) => [entry.time, entry.result, (entry.sent || []).join(","), (entry.received || []).join(",")].join("|");
+
+// A cycle the page had not seen received the open flow: name the machines and offer a reload. The
+// revision decides; the unsaved text stays, and saving it meets flow_conflict, which names the sync.
+async function noticeSyncedFlow(status) {
+  const entries = Array.isArray(status.activity) ? status.activity : [];
+  const fresh = sync.seen ? entries.filter((entry) => !sync.seen.has(activityKey(entry))) : [];
+  sync.seen = new Set(entries.map(activityKey));  // the first status is the baseline
+  const flow = state.current;
+  if (!flow || state.draft || !["user", "repo"].includes(flow.source)) return;
+  const hit = fresh.filter((entry) => (entry.received || []).includes(flow.id)).pop();
+  if (!hit) return;
+  let latest = null;
+  try {
+    latest = await api("/ui/api/flow?" + flowParams(flow));
+  } catch (error) {
+    if (error.status !== 404) return;  // 404: the cycle deleted it, which the notice says too
+  }
+  if (state.current !== flow || (latest && latest.flow.revision === flow.revision)) return;  // reloaded, or another repository's flow
+  const from = (hit.received_from || []).join(", ") || "another machine";
+  sync.notice = { id: flow.id, repo: flow.repo_key || "", from, at: clockTime(hit.time), deleted: !latest };
+  $("sync-notice-text").textContent = latest ? "Updated from " + from + " at " + sync.notice.at + "."
+    : "Deleted on " + from + " at " + sync.notice.at + " by sync. Your text is still here; copy it to keep it.";
+  $("sync-reload").classList.toggle("hidden", !latest);
+  $("sync-notice").classList.remove("hidden");
+}
+
+function clearSyncNotice() {
+  sync.notice = null;
+  $("sync-notice").classList.add("hidden");
+}
+
+$("sync-reload").addEventListener("click", () => {
+  const flow = state.current;  // openFlow asks before it discards unsaved text
+  if (flow) openFlow(flow.id, null, flow.repo_key, state.view).catch((error) => { if (!error.signedOut) notice(error.message, "error"); });
+});
+
+// --- the Sync page ------------------------------------------------------------------------
+
+// It takes the place of the list and the item under the same header; a tab, or the chip again,
+// returns to what was open, unsaved text included.
+function showSyncPage() {
+  if (state.signedOut || sync.shown) return;
+  sync.shown = true;
+  $("main").classList.add("hidden");
+  $("item-actions").classList.add("hidden");
+  $("new").classList.add("hidden");
+  $("sync-page").classList.remove("hidden");
+  for (const button of $("tabs").children) {
+    button.classList.remove("active");
+    button.setAttribute("aria-pressed", "false");
+  }
+  $("sync-chip").setAttribute("aria-pressed", "true");
+  syncAlert("");
+  sync.parts = null;
+  renderSyncPage(true);
+  $("sync-title").focus();
+  refreshSync(true);
+}
+
+// The tab of what shows again; where the focus goes when it was on the page that is hidden.
+const currentTab = () => Array.from($("tabs").children).find((button) => button.dataset.tab === state.tab);
+
+function hideSyncPage() {
+  if (!sync.shown) return;
+  const focused = $("sync-page").contains(document.activeElement);
+  sync.shown = false;
+  $("sync-page").classList.add("hidden");
+  $("main").classList.remove("hidden");
+  $("sync-chip").setAttribute("aria-pressed", "false");
+  for (const button of $("tabs").children) {
+    const on = button.dataset.tab === state.tab;
+    button.classList.toggle("active", on);
+    button.setAttribute("aria-pressed", String(on));
+  }
+  $("new").classList.toggle("hidden", state.tab !== "flows");
+  showPane($("item-actions").dataset.pane || "welcome");
+  if (focused && currentTab()) currentTab().focus();
+}
+
+$("sync-chip").addEventListener("click", () => (sync.shown ? hideSyncPage() : showSyncPage()));
+
+// The wizard while sync has not started, else the dashboard. A poll never rebuilds a form.
+function renderSyncPage(entering) {
+  if (!sync.shown) return;
+  const status = sync.status;
+  if (!status || !status.state) {
+    if (entering) {
+      const body = $("sync-body");
+      body.replaceChildren();
+      node("p", body, "Loading…", "meta");
+    }
+    return;
+  }
+  if (!status.started) {
+    sync.parts = null;
+    if (!sync.wizard) {
+      sync.wizard = newWizard(status);
+      renderWizard();
+    } else if (entering) {
+      renderWizard();
+    }
+    return;
+  }
+  sync.wizard = null;
+  renderDashboard(entering || !sync.parts);
+}
+
+function node(tag, parent, text, className) {
+  const element = document.createElement(tag);
+  if (className) element.className = className;
+  if (text !== undefined && text !== null) element.textContent = text;
+  if (parent) parent.appendChild(element);
+  return element;
+}
+
+// The page's controls wait while one of its requests runs. A waiting control stays focusable and
+// focused: it is marked aria-disabled and takes no input (a text field is read-only, so nothing typed
+// meanwhile is lost to a rebuild or sent half-changed; a switch or a choice goes back). `dataset.off`
+// disables one for good (a switch for a group that never syncs, Start before privacy is confirmed);
+// `dataset.free` never waits (Pause and Resume).
+function control(element) {
+  sync.controls.push(element);
+  if (sync.controls.length > 400) sync.controls = sync.controls.filter((item) => item.isConnected !== false);
+  markControl(element);
+  return element;
+}
+
+function markControl(element) {
+  element.disabled = element.dataset.off === "1";
+  const waiting = sync.busy && !element.dataset.free;
+  if (waiting) element.setAttribute("aria-disabled", "true");
+  else element.removeAttribute("aria-disabled");
+  if (element.type === "text" || element.type === "email") element.readOnly = waiting;
+}
+
+function setControls() {
+  for (const element of sync.controls) markControl(element);
+}
+
+// `options.name` gives a button in a list its own accessible name ("Remove linux-9f9f").
+function action(parent, label, handler, className, options = {}) {
+  const button = node("button", parent, label, className);
+  button.setAttribute("type", "button");
+  if (options.name) button.setAttribute("aria-label", options.name);
+  if (options.free) button.dataset.free = "1";
+  button.addEventListener("click", () => {
+    if (sync.busy && !options.free) return;
+    Promise.resolve(handler()).catch((error) => { if (!error.signedOut) syncAlert(error.message, "error"); });
+  });
+  return control(button);
+}
+
+function inputField(parent, id, label, value, options = {}) {
+  const box = node("div", parent, null, "sync-field");
+  node("label", box, label).setAttribute("for", id);
+  const input = node("input", box);
+  input.setAttribute("id", id);
+  input.type = options.type || "text";
+  input.value = value || "";
+  input.setAttribute("spellcheck", "false");
+  input.setAttribute("autocomplete", options.autocomplete || "off");
+  if (options.placeholder) input.setAttribute("placeholder", options.placeholder);
+  if (options.onInput) input.addEventListener("input", () => options.onInput(input.value));
+  return control(input);
+}
+
+function checkbox(parent, label, checked, onChange, off) {
+  const row = node("label", parent, null, "sync-option");
+  const box = node("input", row);
+  box.type = "checkbox";
+  box.checked = !!checked;
+  if (off) box.dataset.off = "1";
+  row.appendChild(document.createTextNode(label));
+  box.addEventListener("change", () => {
+    if (sync.busy) {  // a waiting page takes no input: the switch goes back
+      box.checked = !box.checked;
+      return;
+    }
+    onChange(box.checked);
+  });
+  return control(box);
+}
+
+// The radios of a group share `parent`, which keeps them and the value picked last.
+function radio(parent, name, value, label, checked, onPick) {
+  const row = node("label", parent, null, "sync-option");
+  const input = node("input", row);
+  input.type = "radio";
+  input.name = name;
+  input.value = value;
+  input.checked = !!checked;
+  row.appendChild(document.createTextNode(label));
+  const group = parent.radios || (parent.radios = []);
+  group.push(input);
+  if (checked) parent.picked = value;
+  input.addEventListener("change", () => {
+    if (!input.checked) return;
+    if (sync.busy) {  // a waiting page takes no input: the earlier choice comes back
+      for (const other of group) other.checked = other.value === parent.picked;
+      return;
+    }
+    parent.picked = value;
+    onPick(value);
+  });
+  return control(input);
+}
+
+function syncAlert(text, kind = "") {
+  const box = $("sync-alert");
+  box.textContent = text || "";
+  box.className = "notice" + (kind ? " " + kind : "") + (text ? "" : " hidden");
+}
+
+// One request of the page at a time; a refusal shows above the page and resolves to undefined.
+async function syncTask(work) {
+  if (sync.busy) return undefined;
+  sync.busy = true;
+  setControls();
+  syncAlert("");
+  try {
+    return await work();
+  } catch (error) {
+    if (!error.signedOut) syncAlert(error.message, "error");
+    return undefined;
+  } finally {
+    sync.busy = false;
+    setControls();
+  }
+}
+
+const post = (path, body = {}) => api("/ui/api/sync" + path, { method: "POST", body });
+
+async function copyText(text, done) {
+  try {
+    await navigator.clipboard.writeText(text);
+    syncAlert(done, "ok");
+  } catch (_) {
+    syncAlert("This browser does not allow copying here; select the text and copy it.", "error");
+  }
+}
+
+function keyBlock(parent, text) {
+  const row = node("div", parent, null, "bar");
+  node("code", row, text, "sync-key sync-grow");
+  action(row, "Copy", () => copyText(text, "The public key is copied."), "", { name: "Copy the public key" });
+}
+
+function identityProblem(name, email, label, labelRequired) {
+  if (!String(name || "").trim()) return "Enter a name for commits.";
+  if (!/^[^@\s<>]+@[^@\s<>]+$/.test(String(email || "").trim())) return "Enter an email address for commits.";
+  const machine = String(label || "").trim();
+  if ((machine || labelRequired) && !/^[a-z0-9][a-z0-9-]{0,31}$/.test(machine)) {
+    return "The machine label must be 1-32 lowercase letters, digits or dashes.";
+  }
+  return "";
+}
+
+function identityFields(parent, values, prefix) {
+  inputField(parent, prefix + "-name", "Name for commits (required)", values.name,
+    { autocomplete: "name", onInput: (value) => { values.name = value; } });
+  inputField(parent, prefix + "-email", "Email for commits (required)", values.email,
+    { type: "email", autocomplete: "email", onInput: (value) => { values.email = value; } });
+  inputField(parent, prefix + "-label", "Machine label: lowercase letters, digits and dashes", values.label,
+    { onInput: (value) => { values.label = value; } });
+}
+
+// The GitHub sign-in: the daemon asks GitHub for a code; the page shows it with a link to GitHub's
+// page and polls the daemon until the code is entered there.
+function deviceBox(parent, onConnected) {
+  sync.onConnected = onConnected;
+  const box = node("div", parent, null, "sync-part");
+  const device = sync.device;
+  if (!device) {
+    node("p", box, "Agents-Core asks GitHub for a sign-in code, which you enter on GitHub. The authorization stays in this machine's secret store; git uses a deploy key of the repository only.", "meta");
+    action(node("div", box, null, "bar"), "Sign in to GitHub", startSignIn, "primary");
+    return;
+  }
+  node("p", box, "Enter this code on GitHub:");
+  node("p", box, device.user_code, "sync-code");
+  const bar = node("div", box, null, "bar");
+  if (SAFE_HTTPS.test(device.verification_uri || "")) {
+    const link = node("a", bar, "Open " + device.verification_uri.replace(/^https:\/\//, ""));
+    link.setAttribute("href", device.verification_uri);
+    link.setAttribute("target", "_blank");
+    link.setAttribute("rel", "noopener noreferrer");
+  }
+  action(bar, "Copy the code", () => copyText(device.user_code, "The code is copied."));
+  action(bar, "Cancel", cancelSignIn);
+  node("p", box, device.note || "Waiting for GitHub… The code expires in "
+    + plural(Math.max(1, Math.round((device.expires_in || 900) / 60)), "minute") + ".", "meta");
+}
+
+async function startSignIn() {
+  const device = await syncTask(() => post("/github/device"));
+  if (!device) return;
+  sync.device = device;
+  rerenderSync();
+  pollSignInLater(device.interval);
+}
+
+function pollSignInLater(seconds) {
+  clearTimeout(sync.deviceTimer);
+  sync.deviceTimer = setTimeout(pollSignIn, Math.max(1, Number(seconds) || 5) * 1000);
+}
+
+// Polls go on while the tab is hidden: the user is on GitHub's page entering the code.
+async function pollSignIn() {
+  sync.deviceTimer = null;
+  const device = sync.device;
+  if (!device) return;
+  let result;
+  try {
+    result = await api("/ui/api/sync/github/device?" + new URLSearchParams({ attempt: device.attempt }));
+  } catch (error) {
+    if (sync.device !== device || error.signedOut) return;
+    sync.device = null;
+    syncAlert(error.message, "error");
+    rerenderSync();
+    return;
+  }
+  if (sync.device !== device) return;  // cancelled, or a new sign-in started meanwhile
+  if (result.state !== "connected") {
+    const note = result.message ? "Waiting for GitHub… (" + result.message + ")" : "";
+    if (note !== (device.note || "")) {
+      device.note = note;
+      rerenderSync();
+    }
+    pollSignInLater(result.interval || device.interval);
+    return;
+  }
+  sync.device = null;
+  if (sync.status) sync.status.github = result.github;
+  const next = sync.onConnected;
+  sync.onConnected = null;
+  if (next) next(); else rerenderSync();
+  syncAlert("Signed in to GitHub as @" + result.github.login + ".", "ok");
+  refreshSync(true);
+}
+
+function cancelSignIn() {
+  clearTimeout(sync.deviceTimer);
+  sync.deviceTimer = null;
+  sync.device = null;
+  rerenderSync();
+}
+
+function rerenderSync() {
+  if (!sync.shown) return;
+  if (sync.wizard) renderWizard();
+  else if (sync.parts) renderAccessPart();
+}
+
+// --- the wizard: connect, repository, identity (and access), what syncs, preview -------------
+
+const WIZARD_STEPS = [["connect", "Connect"], ["repository", "Repository"], ["identity", "Identity"],
+  ["scope", "What syncs"], ["preview", "Preview"]];
+
+// Whether sync is set up comes from its settings (`set_up`, read with every answer), never from
+// `state`: a poll's status may be a scan old.
+function newWizard(status) {
+  const identity = status.identity || {}, setUp = !!status.set_up;
+  return { step: setUp ? "access" : "connect", mode: setUp ? (status.github_repository ? "github" : "ssh") : null,
+    repository: status.github_repository || "", remote: setUp ? status.repository || "" : "",
+    libraries: null, choice: null, newName: "agents-library", other: "",
+    name: identity.name || "", email: identity.email || "", label: status.label || status.suggested_label || "",
+    setup: null, trust: "", check: null, preview: null, previewError: null, confirmPrivate: false };
+}
+
+function renderWizard(moved) {
+  const wizard = sync.wizard, body = $("sync-body"), active = document.activeElement;
+  const focused = !!(active && body.contains(active));
+  body.replaceChildren();
+  sync.controls = [];
+  sync.scopeHost = null;
+  const steps = node("ol", body, null, "sync-steps");
+  steps.setAttribute("aria-label", "Setup steps");
+  const current = wizard.step === "access" ? "identity" : wizard.step;
+  WIZARD_STEPS.forEach(([key, label], index) => {
+    const item = node("li", steps, (index + 1) + ". " + label, key === "repository" && wizard.mode === "ssh" ? "skipped" : "");
+    if (key === current) item.setAttribute("aria-current", "step");
+  });
+  const card = node("section", body, null, "sync-card");
+  ({ connect: wizardConnect, repository: wizardRepository, identity: wizardIdentity, access: wizardAccess,
+     scope: wizardScope, preview: wizardPreview })[wizard.step](card, wizard);
+  const heading = card.children[0];  // every step starts with its heading
+  heading.setAttribute("tabindex", "-1");
+  if (moved || focused) heading.focus();
+}
+
+function goWizard(changes) {
+  const moved = "step" in changes && changes.step !== sync.wizard.step;
+  Object.assign(sync.wizard, changes);
+  syncAlert("");
+  if (sync.shown) renderWizard(moved);
+}
+
+function wizardConnect(card, wizard) {
+  node("h3", card, "Connect a private repository");
+  node("p", card, "Sync keeps your personal flows, persona choices and component switches the same on your machines through one private git repository. Nothing is uploaded before you confirm a preview.", "meta");
+  node("h4", card, "GitHub");
+  const github = sync.status.github;
+  const toRepository = () => {  // a sign-in can end after the owner chose an SSH URL instead
+    if (sync.wizard !== wizard || wizard.step !== "connect") return rerenderSync();
+    wizard.libraries = null;
+    goWizard({ mode: "github", step: "repository" });
+  };
+  if (github && github.connected && !github.reconnect_needed && !sync.device) {
+    node("p", card, "Signed in to " + github.host + " as @" + github.login + ".");
+    action(node("div", card, null, "bar"), "Continue with GitHub", toRepository, "primary");
+  } else {
+    if (github && github.reconnect_needed) node("p", card, "GitHub refused the stored authorization; sign in again.", "notice");
+    deviceBox(card, toRepository);
+  }
+  node("h4", card, "Another host");
+  node("p", card, "Use the SSH URL of an empty private repository, or of one that already holds your library. You will add this machine's key to it as a deploy key with write access.", "meta");
+  inputField(card, "sync-remote", "SSH URL of the repository", wizard.remote,
+    { placeholder: "git@host:owner/library.git", onInput: (value) => { wizard.remote = value; } });
+  action(node("div", card, null, "bar"), "Use this SSH URL", () => {
+    if (!wizard.remote.trim()) return syncAlert("Enter the SSH URL of the repository.", "error");
+    goWizard({ mode: "ssh", remote: wizard.remote.trim(), step: "identity" });
+  });
+}
+
+function wizardRepository(card, wizard) {
+  node("h3", card, "Choose the repository");
+  if (!wizard.libraries) {
+    node("p", card, "Looking for libraries on your GitHub account…", "meta");
+    loadLibraries(wizard);
+    return;
+  }
+  const libraries = wizard.libraries.repositories || [];
+  if (wizard.choice === null) wizard.choice = libraries.length ? "library:" + libraries[0].full_name : "create";
+  const group = node("fieldset", card, null, "sync-choice");
+  node("legend", group, "Where the library lives");
+  const pick = (value) => { wizard.choice = value; };
+  for (const library of libraries) {
+    radio(group, "sync-repository", "library:" + library.full_name, library.full_name + " (holds a library)",
+      wizard.choice === "library:" + library.full_name, pick);
+  }
+  radio(group, "sync-repository", "create", "A new private repository", wizard.choice === "create", pick);
+  inputField(group, "sync-new-name", "Name of the new repository", wizard.newName,
+    { onInput: (value) => { wizard.newName = value; } });
+  radio(group, "sync-repository", "other", "Another private repository of yours", wizard.choice === "other", pick);
+  inputField(group, "sync-other", "Its OWNER/NAME", wizard.other,
+    { placeholder: "owner/name", onInput: (value) => { wizard.other = value; } });
+  if (wizard.libraries.truncated) {
+    node("p", card, "Only the " + wizard.libraries.checked + " most recently pushed repositories were searched for a library.", "meta");
+  }
+  const bar = node("div", card, null, "bar");
+  action(bar, "Back", () => goWizard({ step: "connect" }));
+  action(bar, "Continue", chooseRepository, "primary");
+}
+
+async function loadLibraries(wizard) {
+  if (wizard.librariesLoading) return;
+  wizard.librariesLoading = true;
+  let result = null;
+  try {
+    result = await api("/ui/api/sync/github/libraries");
+  } catch (error) {
+    if (error.signedOut) return;
+    syncAlert(error.message, "error");
+  } finally {
+    wizard.librariesLoading = false;
+  }
+  wizard.libraries = result || { repositories: [], checked: 0, truncated: false };
+  if (sync.wizard === wizard && wizard.step === "repository" && sync.shown) renderWizard();
+}
+
+async function chooseRepository() {
+  const wizard = sync.wizard;
+  let repository = "";
+  if (wizard.choice === "create") {
+    const created = await syncTask(() => post("/github/create", { name: wizard.newName.trim() || "agents-library" }));
+    if (!created) return;
+    repository = created.repository;
+  } else if (wizard.choice === "other") {
+    repository = wizard.other.trim();
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9._-]+$/.test(repository)) return syncAlert("Enter the repository as OWNER/NAME.", "error");
+  } else {
+    repository = wizard.choice.slice("library:".length);
+  }
+  goWizard({ repository, step: "identity" });
+  if (wizard.choice === "create") syncAlert("Created the private repository " + repository + ".", "ok");
+}
+
+function wizardIdentity(card, wizard) {
+  node("h3", card, "Identity and machine label");
+  node("p", card, "Repository: " + (wizard.mode === "github" ? wizard.repository : wizard.remote));
+  node("p", card, "Sync commits under the name and email you enter here and never reads them from your git configuration. The label names this machine in commits and on GitHub; keep your hostname out of it.", "meta");
+  identityFields(card, wizard, "sync");
+  const bar = node("div", card, null, "bar");
+  action(bar, "Back", () => goWizard({ step: wizard.mode === "github" ? "repository" : "connect" }));
+  action(bar, "Set up sync", () => setUpSync(), "primary");
+}
+
+async function setUpSync(trust) {
+  const wizard = sync.wizard;
+  const problem = identityProblem(wizard.name, wizard.email, wizard.label);
+  if (problem) return syncAlert(problem, "error");
+  const body = { name: wizard.name.trim(), email: wizard.email.trim(), label: wizard.label.trim() || null };
+  if (wizard.mode === "github") body.github = wizard.repository;
+  else body.remote = wizard.remote;
+  if (trust) body.trust_host_key = trust;
+  const result = await syncTask(() => post("/setup", body));
+  if (!result || sync.wizard !== wizard) return;
+  goWizard({ setup: result, step: "access", check: null, label: result.label || wizard.label });
+  if (result.status !== "host_key_unconfirmed" && wizard.mode === "github") await checkAccess();
+}
+
+function wizardAccess(card, wizard) {
+  node("h3", card, "Access");
+  const setup = wizard.setup, status = sync.status;
+  if (setup && setup.status === "host_key_unconfirmed") {
+    node("p", card, setup.host + " offers these host keys. Compare them with the fingerprints the host publishes before you trust one.");
+    const group = node("fieldset", card, null, "sync-choice");
+    node("legend", group, "Host key fingerprint");
+    for (const fingerprint of setup.fingerprints || []) {
+      radio(group, "sync-host-key", fingerprint, fingerprint, wizard.trust === fingerprint, (value) => { wizard.trust = value; });
+    }
+    const bar = node("div", card, null, "bar");
+    if (!wizard.again) action(bar, "Back", () => goWizard({ step: "identity", setup: null }));
+    const trust = () => (wizard.again ? setUpAgain(wizard.trust) : setUpSync(wizard.trust));
+    action(bar, "Trust this key", () => (wizard.trust ? trust()
+      : syncAlert("Choose the fingerprint that matches the host's.", "error")), "primary");
+    return;
+  }
+  if (!setup && status.host_key_unconfirmed) {
+    // A setup that stopped before the host's keys were trusted, then a reload: ask the host again. On
+    // GitHub nothing waits for the owner: setup again stores GitHub's keys and adds the deploy key.
+    const github = !!status.github_repository;
+    node("p", card, github ? "Setup with " + status.github_repository + " stopped before GitHub's host keys were stored."
+      : "The host key of " + (status.repository || "the repository's host") + " is not confirmed yet.");
+    action(node("div", card, null, "bar"), github ? "Set up again" : "Show the host keys", () => setUpAgain(), "primary");
+    if (!wizard.askedAgain) {
+      wizard.askedAgain = true;
+      Promise.resolve().then(() => setUpAgain());
+    }
+    return;
+  }
+  const where = wizard.mode === "github" ? wizard.repository : status.repository || wizard.remote;
+  node("p", card, "Sync is set up with " + where + " as " + ((setup && setup.label) || status.label || wizard.label) + "."
+    + (setup ? "" : " Check access to continue."));
+  if (setup && (setup.steps || []).length) {
+    const list = node("ul", card);
+    for (const step of setup.steps) node("li", list, step);
+  }
+  const publicKey = (setup && setup.public_key) || status.public_key;
+  if (wizard.mode === "ssh" && publicKey) {
+    node("p", card, "Add this public key to the repository as a deploy key with write access, then check access:");
+    keyBlock(card, publicKey);
+  }
+  if (wizard.check && !wizard.check.ok) node("p", card, wizard.check.message, "notice error");
+  const bar = node("div", card, null, "bar");
+  action(bar, "Start over", () => disconnectSync(true));
+  if (sync.keyMissing) action(bar, "Add this machine's key on GitHub", addDeployKey);
+  action(bar, "Check access", checkAccess, "primary");
+}
+
+// Setup again with what sync keeps (remote, identity, label), for a setup that stopped at the
+// host's fingerprints; with `trust`, the fingerprint the owner confirmed.
+async function setUpAgain(trust) {
+  const wizard = sync.wizard;
+  const result = await syncTask(() => post("/setup", trust ? { again: true, trust_host_key: trust } : { again: true }));
+  if (!result || sync.wizard !== wizard) return;
+  goWizard({ setup: result, step: "access", check: null, again: true });
+  if (result.status !== "host_key_unconfirmed") refreshSync(true);
+}
+
+// Access to the repository: from the wizard, which then goes on, or from the dashboard.
+async function checkAccess() {
+  const wizard = sync.wizard;
+  let refused = null;
+  const result = await syncTask(async () => {
+    try {
+      return await post("/check");
+    } catch (error) {
+      if (error.signedOut || !error.data || !error.data.message) throw error;
+      refused = error;
+      return null;
+    }
+  });
+  sync.keyMissing = !!(refused && refused.data.deploy_key === "missing");
+  const works = result ? result.message || "Access works; the repository is "
+    + (result.remote_state === "empty" ? "empty." : "an Agents-Core library.") : "";
+  if (!wizard) {
+    if (result) syncAlert(works, "ok");
+    else if (refused) syncAlert(refused.message, "error");
+    if (sync.parts) renderAccessPart();
+    if (result || refused) refreshSync(true);
+    return;
+  }
+  if (sync.wizard !== wizard || (!result && !refused)) return;
+  if (!result) return goWizard({ check: { ok: false, message: refused.message } });
+  sync.scopes = sync.scopeConfirm = null;
+  goWizard({ check: { ok: true }, step: "scope" });
+  syncAlert(works, "ok");
+}
+
+async function addDeployKey() {
+  const result = await syncTask(() => post("/github/add-key"));
+  if (!result) return;
+  sync.keyMissing = false;
+  if (sync.wizard) goWizard({ check: null });
+  else if (sync.parts) renderAccessPart();
+  syncAlert(result.message, "ok");
+}
+
+function wizardScope(card, wizard) {
+  node("h3", card, "What syncs");
+  node("p", card, "Everything with a portable identity syncs: personal flows, persona choices, saved versions, component switches and the flows of repositories that have an origin. Switch off what should stay on this machine; excluding never deletes files on any machine.", "meta");
+  sync.scopeHost = node("div", card, null, "sync-part");
+  renderScopeList(sync.scopeHost);
+  const bar = node("div", card, null, "bar");
+  action(bar, "Back", () => goWizard({ step: "access" }));
+  action(bar, "Continue to the preview", () => goWizard({ step: "preview", preview: null, previewError: null }), "primary");
+}
+
+const PREVIEW_KINDS = { push: "Upload this library to the empty repository.",
+  join: "Join the library in the repository; the flows of both sides are kept.",
+  fast_forward: "Download the library from the repository.", merge: "Merge this library with the repository's.",
+  none: "Nothing to transfer." };
+
+function bytes(count) {
+  return count < 1024 ? count + " B" : count < 1048576 ? (count / 1024).toFixed(1) + " KiB" : (count / 1048576).toFixed(1) + " MiB";
+}
+
+function previewList(parent, title, items) {
+  if (!items.length) return;
+  node("h4", parent, title + " (" + items.length + ")");
+  const list = node("ul", parent);
+  for (const item of items.slice(0, 100)) node("li", list, item);
+  if (items.length > 100) node("li", list, "and " + (items.length - 100) + " more", "meta");
+}
+
+function renderPreview(parent, preview) {
+  const box = node("div", parent, null, "sync-preview");
+  node("p", box, PREVIEW_KINDS[preview.kind] || preview.kind);
+  const entry = (item) => (typeof item === "string" ? item
+    : (item.flow ? item.flow + "  " + item.path : item.path) + (item.size ? " (" + bytes(item.size) + ")" : ""));
+  previewList(box, "Upload", (preview.upload || []).map(entry));
+  previewList(box, "Download", (preview.download || []).map(entry));
+  previewList(box, "Delete on this machine", (preview.delete_local || []).map(entry));
+  previewList(box, "Remove from the repository", (preview.remove_from_remote || []).map(entry));
+  previewList(box, "Conflicts: the repository's version stays, this machine's is kept in history",
+    (preview.conflicts || []).map(entry));
+  previewList(box, "Not uploaded: possible credentials found by the scanner",
+    (preview.blocked || []).map((item) => item.path + " (" + item.pattern + ")"));
+  previewList(box, "Waiting for approval on this machine", [...(preview.pending_groups || []), ...(preview.pending_files || [])]);
+  previewList(box, "Repository groups", (preview.repository_groups || []).map((group) =>
+    (group.origin || "no origin") + ": " + plural(group.files, "file") + (group.new ? ", new to the library" : "")));
+  if (preview.upload_bytes) node("p", box, "Upload size: " + bytes(preview.upload_bytes), "meta");
+}
+
+function wizardPreview(card, wizard) {
+  node("h3", card, "Preview");
+  if (wizard.previewError) {
+    node("p", card, wizard.previewError, "notice error");
+    const bar = node("div", card, null, "bar");
+    action(bar, "Back", () => goWizard({ step: "scope" }));
+    action(bar, "Try again", () => goWizard({ preview: null, previewError: null }), "primary");
+    return;
+  }
+  if (!wizard.preview) {
+    node("p", card, "Fetching the repository to prepare the preview…", "meta");
+    loadPreview(wizard);
+    return;
+  }
+  const preview = wizard.preview;
+  renderPreview(card, preview);
+  const refused = preview.privacy === "public" || preview.privacy === "internal";
+  const unsure = !refused && preview.privacy !== "private" && !preview.private_confirmed;
+  if (refused) {
+    node("p", card, "The repository is " + preview.privacy + ". Sync uploads only to a private repository: make it private, then prepare the preview again.", "notice error");
+  }
+  let start = null;
+  if (unsure) {
+    checkbox(card, "Only I can read this repository. Agents-Core could not check its privacy on this host.", wizard.confirmPrivate, (on) => {
+      wizard.confirmPrivate = on;
+      start.dataset.off = on ? "" : "1";
+      setControls();
+    });
+  }
+  const bar = node("div", card, null, "bar");
+  action(bar, "Back", () => goWizard({ step: "scope" }));
+  action(bar, "Prepare again", () => goWizard({ preview: null }));
+  start = action(bar, "Start sync", startSync, "primary");
+  if (refused || (unsure && !wizard.confirmPrivate)) {
+    start.dataset.off = "1";
+    setControls();
+  }
+}
+
+async function loadPreview(wizard) {
+  if (wizard.previewLoading) return;
+  wizard.previewLoading = true;
+  try {
+    wizard.preview = await api("/ui/api/sync/preview");
+  } catch (error) {
+    if (error.signedOut) return;
+    wizard.previewError = error.message;
+  } finally {
+    wizard.previewLoading = false;
+  }
+  if (sync.wizard === wizard && wizard.step === "preview" && sync.shown) renderWizard();
+}
+
+function cycleText(result) {
+  if (result.status === "lock_held") return "Another sync of this library is running; try again shortly.";
+  if (result.status === "paused") return "Sync is paused.";
+  const counts = "sent " + plural((result.sent || []).length, "file") + ", received " + (result.received || []).length
+    + ((result.conflicts || []).length ? ", " + plural(result.conflicts.length, "conflict") : "") + ".";
+  return result.reason ? counts + " " + (result.message || result.reason) : counts;
+}
+
+// Start sends the preview's hash: the daemon starts only when the plan is still exactly this one.
+async function startSync() {
+  const wizard = sync.wizard, preview = wizard.preview;
+  const result = await syncTask(() => post("/start", { confirm: preview.hash, confirm_private: !!wizard.confirmPrivate }));
+  if (!result || sync.wizard !== wizard) return;
+  if (result.reason === "confirmation_needed") {
+    goWizard({ preview: null });
+    syncAlert((result.message || "The preview changed") + ". Review the new preview.", "error");
+    return;
+  }
+  await refreshSync(true);
+  if (sync.status && sync.status.started) syncAlert("Sync started: " + cycleText(result), "ok");
+  else syncAlert(result.message || "Sync did not start.", "error");
+}
+
+// --- what syncs: groups, the "ask first" setting and uploads that need a confirmation --------
+
+const GROUP_NAMES = { common: "Personal flows", personas: "Persona choices", history: "Saved versions (history)",
+  components: "Component switches" };
+
+function renderScopeList(host) {
+  Promise.resolve().then(keepFocus(host, $("sync-title")));
+  host.replaceChildren();
+  const scopes = sync.scopes;
+  if (!scopes) {
+    node("p", host, "Loading…", "meta");
+    loadScopes();
+    return;
+  }
+  if (scopes.failed) {
+    node("p", host, scopes.failed, "notice error");
+    action(node("div", host, null, "bar"), "Try again", () => { sync.scopes = null; renderScopes(); });
+    return;
+  }
+  const list = node("ul", host, null, "sync-list");
+  for (const group of scopes.groups || []) {
+    const item = node("li", list);
+    const local = group.reason === "local";
+    checkbox(item, GROUP_NAMES[group.group] || group.origin || group.group, group.syncs,
+      (on) => changeScope(group.group, on ? "include" : "exclude"), local);
+    if (group.group.startsWith("repos/")) {
+      node("small", item, group.group + (local ? ": no origin, stays on this machine" : ""), "meta");
+    }
+  }
+  checkbox(host, "Ask before uploading the flows of a repository that is new to the library", scopes.ask_new_repositories,
+    (on) => saveSettings({ ask_new_repositories: on }, on ? "New repositories wait for your approval." : "New repositories upload and are announced."));
+  const pending = sync.scopeConfirm;
+  if (!pending) return;
+  const box = node("div", host, null, "notice sync-part");
+  node("p", box, (pending.how === "include" ? "Including " : "Approving ") + pending.target + " uploads "
+    + plural(pending.upload.length, "file") + (pending.upload.length ? ":" : "."));
+  if (pending.upload.length) {
+    const files = node("ul", box);
+    for (const path of pending.upload.slice(0, 50)) node("li", files, path);
+    if (pending.upload.length > 50) node("li", files, "and " + (pending.upload.length - 50) + " more");
+  }
+  const bar = node("div", box, null, "bar");
+  action(bar, "Upload them", () => changeScope(pending.target, pending.how, pending.hash), "primary");
+  action(bar, "Cancel", () => { sync.scopeConfirm = null; renderScopes(); });
+}
+
+function renderScopes() {
+  if (sync.parts) renderScopesPart();
+  else if (sync.scopeHost) renderScopeList(sync.scopeHost);
+}
+
+async function loadScopes() {
+  if (sync.scopesLoading) return;
+  sync.scopesLoading = true;
+  try {
+    sync.scopes = await api("/ui/api/sync/scopes");
+  } catch (error) {
+    if (error.signedOut) return;
+    sync.scopes = { groups: [], failed: error.message };
+  } finally {
+    sync.scopesLoading = false;
+  }
+  renderScopes();
+}
+
+// Excluding applies at once; including or approving answers with the files it would upload and a
+// hash, and only the same request with that hash goes ahead.
+async function changeScope(target, how, confirmHash) {
+  const body = { [how]: [target] };
+  if (confirmHash) body.confirm = confirmHash;
+  const result = await syncTask(() => api("/ui/api/sync/scopes", { method: "PUT", body }));
+  if (result && result.status === "confirmation_needed") {
+    sync.scopeConfirm = { target, how, hash: result.hash, upload: result.upload || [] };
+  } else if (result) {
+    sync.scopeConfirm = null;
+    sync.scopes = { ...result, ask_new_repositories: !!(sync.scopes && sync.scopes.ask_new_repositories) };
+    syncAlert(how === "exclude" ? target + " no longer syncs; its files stay on every machine."
+      : how === "include" ? target + " syncs again." : target + " is approved and uploads with the next sync.", "ok");
+    refreshSync(true);
+  }
+  renderScopes();  // a refusal puts the switch back
+}
+
+async function saveSettings(changes, done) {
+  const result = await syncTask(() => api("/ui/api/sync/settings", { method: "PUT", body: changes }));
+  if (result && "ask_new_repositories" in changes && sync.scopes) sync.scopes.ask_new_repositories = changes.ask_new_repositories;
+  if (!result) {
+    if ("ask_new_repositories" in changes) renderScopes();
+    return null;
+  }
+  if (done) syncAlert(done, "ok");
+  await refreshSync(true);
+  return result;
+}
+
+// Pause and Resume answer at once in the daemon, also while a cycle or a queued job runs, so they
+// never wait for the page's other request either.
+async function setPaused(paused) {
+  if (sync.pausing) return;
+  sync.pausing = true;
+  try {
+    await api("/ui/api/sync/settings", { method: "PUT", body: { paused } });
+  } catch (error) {
+    if (!error.signedOut) syncAlert(error.message, "error");
+    return;
+  } finally {
+    sync.pausing = false;
+  }
+  syncAlert(paused ? "Sync is paused." : "Sync resumed.", "ok");
+  await refreshSync(true);
+}
+
+// --- the dashboard, once sync has started ---------------------------------------------------
+
+const DASHBOARD = [["status", "Status"], ["machines", "Machines"], ["conflicts", "Conflicts"], ["scopes", "What syncs"],
+  ["access", "Access"], ["identity", "Identity"], ["activity", "Activity"], ["disconnect", "Disconnect"]];
+const STATE_TEXT = { synced: "Synced", pending: "Changes wait to upload", syncing: "Syncing", offline: "Offline",
+  paused: "Paused", attention: "Needs attention", waiting_for_access: "Waiting for access" };
+const FETCH_MINUTES = [1, 2, 5, 10, 15, 30, 60];
+
+// What identifies a control across a rebuild: a button's label, or the label around a field.
+const controlKey = (element) => (["INPUT", "SELECT"].includes(element.tagName) && element.parentNode
+  ? "field:" + element.parentNode.textContent
+  : "button:" + ((element.getAttribute && element.getAttribute("aria-label")) || element.textContent));
+
+// Before `host` is rebuilt under the keyboard focus: returns what gives the focus back once it is
+// built, to the control with the same label, else to `fallback`.
+function keepFocus(host, fallback) {
+  const active = document.activeElement;
+  if (!active || active === host || !host.contains(active)) return () => {};
+  const key = controlKey(active);
+  return () => {
+    const same = Array.from(host.querySelectorAll("button, input, select")).find((element) => controlKey(element) === key);
+    const target = same || fallback;
+    if (target) target.focus();
+  };
+}
+
+// Clears a part to rebuild it; the focus it held comes back once it is built (see keepFocus).
+function rebuildPart(key) {
+  const host = sync.parts[key];
+  const restore = keepFocus(host, $("sync-part-" + key));
+  host.replaceChildren();
+  Promise.resolve().then(restore);
+  return host;
+}
+
+function renderDashboard(fresh) {
+  if (fresh) {
+    const body = $("sync-body");
+    body.replaceChildren();
+    sync.controls = [];
+    sync.parts = {};
+    for (const [key, title] of DASHBOARD) {
+      const card = node("section", body, null, "sync-card");
+      const heading = node("h3", card, title);
+      heading.setAttribute("id", "sync-part-" + key);
+      heading.setAttribute("tabindex", "-1");
+      card.setAttribute("aria-labelledby", "sync-part-" + key);
+      sync.parts[key] = node("div", card, null, "sync-part");
+    }
+    sync.scopes = sync.scopeConfirm = sync.review = sync.compare = null;
+    renderIdentityPart();
+    renderDisconnectPart();
+    loadMachines();
+  }
+  renderStatusPart();
+  renderConflictsPart();
+  renderScopesPart();
+  renderAccessPart();
+  renderActivityPart();
+  if (!fresh) renderMachinesPart();
+}
+
+function renderStatusPart() {
+  const host = rebuildPart("status"), status = sync.status, loop = status.loop || {};
+  const facts = node("dl", host, null, "facts");
+  const fact = (term, value) => {
+    if (value === null || value === undefined || value === "") return;
+    node("dt", facts, term);
+    node("dd", facts, String(value));
+  };
+  const label = status.state === "syncing" || loop.syncing ? "Syncing" : STATE_TEXT[status.state] || status.state;
+  fact("State", label + (status.message ? ": " + status.message : ""));
+  fact("Last success", status.last_success ? dateTime(status.last_success) + " (" + ago(status.last_success, Date.now()) + ")" : "never");
+  fact("Last attempt", dateTime(status.last_attempt));
+  fact("Repository", status.repository);
+  fact("Branch", status.branch);
+  fact("Pending", plural(status.pending || 0, "change"));
+  fact("Next fetch", typeof loop.next_fetch_seconds === "number"
+    ? (loop.next_fetch_seconds < 60 ? "within a minute" : "in " + Math.round(loop.next_fetch_seconds / 60) + " min")
+    : status.state === "offline" && status.retry_at ? "retry at " + clockTime(status.retry_at)
+      : status.state === "paused" ? "none while paused" : "—");
+  if (loop.held === "update") fact("Held", "an update of Agents-Core is being installed");
+  if (status.size_warning) node("p", host, "The repository is larger than 200 MiB.", "notice");
+  const bar = node("div", host, null, "bar");
+  action(bar, "Sync now", () => syncNow(), "primary");
+  const paused = status.state === "paused";
+  action(bar, paused ? "Resume" : "Pause", () => setPaused(!paused), "", { free: true });
+  const every = node("label", bar, null, "sync-option");
+  every.appendChild(document.createTextNode("Fetch every"));
+  const select = control(node("select", every));
+  const minutes = Number(status.fetch_minutes) || 5;  // the command line may have set one the list lacks
+  for (const value of [...new Set([...FETCH_MINUTES, minutes])].sort((a, b) => a - b)) {
+    select.appendChild(new Option(plural(value, "minute"), String(value)));
+  }
+  select.value = String(minutes);
+  select.addEventListener("change", () => {
+    if (sync.busy) {
+      select.value = String(minutes);
+      return;
+    }
+    saveSettings({ fetch_minutes: Number(select.value) }, "Saved.");
+  });
+  if (status.reason === "confirmation_needed") renderReview(host);
+}
+
+// A started sync that waits for confirmation (a rewritten remote, a mass deletion): the preview,
+// then a run with its hash.
+function renderReview(host) {
+  const box = node("div", host, null, "sync-part");
+  if (!sync.review) {
+    action(node("div", box, null, "bar"), "Review the preview", loadReview, "primary");
+    return;
+  }
+  renderPreview(box, sync.review);
+  const bar = node("div", box, null, "bar");
+  action(bar, "Confirm and sync", () => syncNow(sync.review.hash), "primary");
+  action(bar, "Cancel", () => { sync.review = null; renderStatusPart(); });
+}
+
+async function loadReview() {
+  const preview = await syncTask(() => api("/ui/api/sync/preview"));
+  if (!preview) return;
+  sync.review = preview;
+  if (sync.parts) renderStatusPart();
+}
+
+async function syncNow(confirmHash) {
+  const result = await syncTask(() => post("/run", confirmHash ? { confirm: confirmHash } : {}));
+  if (!result) return;
+  sync.review = null;
+  const ok = ["synced", "pending"].includes(result.status) && !result.reason;
+  // Attention after a cycle (a scanner hit, a group to approve) or a held lock is a notice, not a failure.
+  const kind = ok ? "ok" : ["attention", "offline", "lock_held"].includes(result.status) ? "" : "error";
+  syncAlert((ok ? "Synced: " : "") + cycleText(result), kind);
+  await refreshSync(true);
+}
+
+function renderMachinesPart() {
+  const host = rebuildPart("machines"), machines = sync.machines;
+  node("p", host, "This machine: " + (sync.status.label || "unnamed"));
+  if (!machines) {
+    node("p", host, "Loading…", "meta");
+    return;
+  }
+  if (machines.failed) {
+    node("p", host, machines.failed, "notice error");
+    action(node("div", host, null, "bar"), "Try again", loadMachines);
+    return;
+  }
+  if (!machines.available) {
+    node("p", host, machines.message, "meta");
+    return;
+  }
+  const ours = machines.machines.filter((machine) => machine.managed);
+  const others = machines.machines.filter((machine) => !machine.managed);
+  const list = node("ul", host, null, "sync-list");
+  for (const machine of ours) {
+    const item = node("li", list);
+    node("span", item, machine.label + (machine.this ? " (this machine)" : "") + (machine.read_only ? ", read-only" : ""), "sync-grow");
+    if (machine.created_at) node("span", item, "added " + dateTime(machine.created_at), "meta");
+    if (!machine.this) action(item, "Remove", () => removeMachine(machine), "danger", { name: "Remove " + machine.label });
+  }
+  const elsewhere = others.find((key) => key.this);
+  if (!ours.length) {
+    node("p", host, elsewhere ? "This machine's key is on GitHub as " + elsewhere.title + ", a title Agents-Core did not give it; it is listed under Other deploy keys."
+      : "GitHub lists no machine of this library.", "meta");
+  }
+  node("p", host, "Each machine is a deploy key that Agents-Core added to " + machines.repository + ". Removing one stops that machine from syncing; its files stay there.", "meta");
+  if (!others.length) return;
+  // Keys that sync did not add (a CI system's, a person's): shown, never removed from here.
+  node("h4", host, "Other deploy keys");
+  node("p", host, "Agents-Core did not add these keys, and does not remove them; manage them in the repository's settings on GitHub.", "meta");
+  const foreign = node("ul", host, null, "sync-list");
+  for (const key of others) {
+    const item = node("li", foreign);
+    node("span", item, key.title + (key.this ? " (this machine)" : "") + (key.read_only ? ", read-only" : ""), "sync-grow");
+    if (key.created_at) node("span", item, "added " + dateTime(key.created_at), "meta");
+  }
+}
+
+async function loadMachines() {
+  sync.machines = null;
+  if (sync.parts) renderMachinesPart();
+  let result;
+  try {
+    result = await api("/ui/api/sync/machines");
+  } catch (error) {
+    if (error.signedOut) return;
+    result = { failed: error.message };
+  }
+  sync.machines = result;
+  if (sync.parts) renderMachinesPart();
+}
+
+async function removeMachine(machine) {
+  if (!confirm("Remove " + machine.label + "? That machine can no longer sync with this repository; its files stay there.")) return;
+  const result = await syncTask(() => post("/machines/remove", { id: machine.id }));
+  if (!result) return;
+  syncAlert("Removed " + machine.label + ".", "ok");
+  loadMachines();
+}
+
+// What a conflict is about, unique among the records: a flow's text, its persona or override marker,
+// or another file by its path.
+function conflictSubject(record) {
+  const path = record.path || "", flow = record.flow;
+  if (!flow) return path;
+  const where = record.repo_key ? " in " + record.repo_key : "";
+  if (path.endsWith(".md")) return flow + where;
+  if (path.startsWith("personas/")) return flow + where + " (persona)";
+  if (path.endsWith(".meta.json")) return flow + where + " (override marker)";
+  return path;
+}
+
+function conflictText(record) {
+  const what = conflictSubject(record);
+  if (record.kind === "deletion_undone") {
+    return what + (record.deleted_on === "local" ? ": deleted here and changed on another machine; the changed version is back."
+      : ": changed here and deleted on another machine; your version stays.");
+  }
+  return what + ": changed differently on two machines. The version that reached the repository first is current; yours is kept.";
+}
+
+function renderConflictsPart() {
+  const host = rebuildPart("conflicts"), records = sync.status.conflict_list || [];
+  if (!records.length) {
+    node("p", host, "No conflicts.", "meta");
+    return;
+  }
+  const list = node("ul", host, null, "sync-list");
+  for (const record of records) {
+    const item = node("li", list);
+    const text = node("div", item, null, "sync-grow");
+    node("div", text, conflictText(record));
+    node("small", text, "Recorded " + dateTime(record.time) + (record.machine ? " by " + record.machine : ""), "meta");
+    // Two records of one file differ in their time, so the names say it.
+    const bar = node("div", item, null, "bar"), what = conflictSubject(record) + ", recorded " + dateTime(record.time, true);
+    action(bar, "Open", () => openConflict(record), "", { name: "Open the conflict on " + what });
+    action(bar, "Keep current", () => resolveConflict(record, "keep"), "", { name: "Keep the current version of " + what });
+    action(bar, "Use mine", () => resolveConflict(record, "mine"), "", { name: "Use my version of " + what });
+    action(bar, "Dismiss", () => resolveConflict(record, "dismiss"), "", { name: "Dismiss the conflict on " + what });
+    if (sync.compare && sync.compare.id === record.id) renderComparison(item, sync.compare);
+  }
+  const total = sync.status.conflict_total || records.length;
+  if (total > records.length) {
+    node("p", host, "And " + (total - records.length) + " more; they show here as these are resolved, and python -m src.user_sync conflicts lists them all.", "meta");
+  }
+}
+
+// A file that is not a flow's text: its current and its kept version side by side, read-only.
+function renderComparison(parent, detail) {
+  const panes = node("div", parent, null, "panes split");
+  for (const [label, text] of [["Current", detail.current_binary ? "(not text: binary content)" : detail.current],
+    ["Yours, kept by sync", detail.binary ? "(not text: binary content)" : detail.mine]]) {
+    const pane = node("div", panes, null, "pane");
+    node("span", pane, label, "meta");
+    const area = node("textarea", pane);
+    area.readOnly = true;
+    area.setAttribute("aria-label", label);
+    area.value = typeof text === "string" ? text : "(none)";
+  }
+  action(node("div", parent, null, "bar"), "Close", () => { sync.compare = null; renderConflictsPart(); });
+}
+
+// A flow's text opens in the editor, current text on the left, the kept version in the split pane.
+async function openConflict(record) {
+  const detail = await syncTask(() => api("/ui/api/sync/conflict?" + new URLSearchParams({ id: record.id })));
+  if (!detail) return;
+  if (!(record.flow && /\.md$/.test(record.path || ""))) {
+    sync.compare = detail;
+    renderConflictsPart();
+    return;
+  }
+  hideSyncPage();  // from here on, a failure shows in the editor
+  try {
+    if (state.tab !== "flows") await showTab("flows");
+    await openFlow(record.flow, null, record.repo_key || undefined, "source");
+  } catch (error) {
+    if (!error.signedOut) notice(error.message, "error");
+    return;
+  }
+  if (!sameFlow(state.current, record.flow, record.repo_key)) return;  // unsaved text of another flow stayed
+  $("content").focus();
+  if (detail.binary) {
+    notice("The version sync kept is not text; it stays in the flow's history. On the Sync page, “Use mine” restores it.");
+    return;
+  }
+  if (typeof detail.mine !== "string") return;
+  showSide("Your version, kept by sync on " + dateTime(record.time) + " (read-only)", detail.mine);
+  notice("Sync kept your version on the right. Copy what you need into the text on the left and save. On the Sync page, “Use mine” restores it and “Keep current” resolves the conflict.");
+}
+
+async function resolveConflict(record, how) {
+  const what = conflictSubject(record);
+  const question = how !== "mine" || !record.mine ? null
+    : record.mine === "deleted" ? "Use mine deletes " + what + " again, as this machine did. Its text stays in history."
+      : "Use mine makes your kept version of " + what + " current again; the current text goes to history.";
+  if (question && !confirm(question)) return;
+  const result = await syncTask(() => post("/conflicts/resolve", { id: record.id, action: how }));
+  if (!result) return;
+  if (sync.compare && sync.compare.id === record.id) sync.compare = null;
+  syncAlert(how === "mine" ? "Your version of " + what + " is current." : how === "keep" ? "The current version of " + what + " stays."
+    : "The conflict on " + what + " is dismissed.", "ok");
+  await refreshSync(true);
+}
+
+function renderScopesPart() {
+  const host = rebuildPart("scopes"), status = sync.status;
+  const groups = sync.scopes && !sync.scopes.failed ? sync.scopes.groups || [] : null;
+  const syncing = groups ? new Set(groups.filter((group) => group.syncs).map((group) => group.group)) : null;
+  const announced = (status.announced_groups || []).filter((entry) => !syncing || syncing.has(entry.group)).slice(-5).reverse();
+  if (announced.length) {
+    node("h4", host, "Repositories uploaded for the first time");
+    const list = node("ul", host, null, "sync-list");
+    for (const entry of announced) {
+      const item = node("li", list);
+      node("span", item, (entry.origin || entry.group) + ", " + dateTime(entry.time), "sync-grow");
+      action(item, "Exclude", () => changeScope(entry.group, "exclude"), "", { name: "Exclude " + (entry.origin || entry.group) });
+    }
+  }
+  const waiting = [...(status.pending_groups || []).map((group) => [group, "approve"]),
+    ...(status.pending_files || []).map((path) => [path, "approve_files"])];
+  if (waiting.length) {
+    node("h4", host, "Waiting for your approval before they upload");
+    const list = node("ul", host, null, "sync-list");
+    for (const [target, how] of waiting) {
+      const item = node("li", list);
+      node("span", item, target, "sync-grow");
+      action(item, "Approve", () => changeScope(target, how), "primary", { name: "Approve " + target });
+    }
+  }
+  node("h4", host, "Groups");
+  sync.scopeHost = node("div", host, null, "sync-part");
+  renderScopeList(sync.scopeHost);
+}
+
+function afterReconnect() {
+  if (sync.parts) renderAccessPart();
+  loadMachines();
+}
+
+function renderAccessPart() {
+  const host = rebuildPart("access"), status = sync.status, github = status.github;
+  if (sync.device) {
+    deviceBox(host, afterReconnect);
+  } else if (github && github.connected) {
+    node("p", host, "GitHub: @" + github.login + " on " + github.host + "."
+      + (github.reconnect_needed ? " GitHub refused the stored authorization; reconnect to list machines and add keys." : ""));
+    if (github.warning) node("p", host, github.warning, "notice");
+    const bar = node("div", host, null, "bar");
+    action(bar, "Reconnect", () => { sync.onConnected = afterReconnect; return startSignIn(); });
+    action(bar, "Forget account", forgetAccount, "danger");
+  } else if (status.github_repository) {
+    node("p", host, "No GitHub account is connected here. Sync goes on with this machine's deploy key; sign in to list and remove machines.", "meta");
+    deviceBox(host, afterReconnect);
+  } else {
+    node("p", host, "Manual SSH: this machine's key is a deploy key you added to the repository on its host.", "meta");
+  }
+  if (sync.revokeUrl && SAFE_HTTPS.test(sync.revokeUrl)) {
+    const revoke = node("p", host, "The authorization stays valid on GitHub until you revoke it: ", "meta");
+    const link = node("a", revoke, sync.revokeUrl);
+    link.setAttribute("href", sync.revokeUrl);
+    link.setAttribute("target", "_blank");
+    link.setAttribute("rel", "noopener noreferrer");
+  }
+  if (status.public_key) {
+    node("p", host, "This machine's public key:");
+    keyBlock(host, status.public_key);
+  }
+  const bar = node("div", host, null, "bar");
+  action(bar, "Check access", checkAccess);
+  if (sync.keyMissing) action(bar, "Add this machine's key on GitHub", addDeployKey);
+  if (status.ssh) action(bar, "Regenerate key", regenerateKey);
+}
+
+async function forgetAccount() {
+  if (!confirm("Forget the GitHub account on this machine? Sync goes on with this machine's deploy key; listing machines, a new key and creating repositories need a new sign-in.")) return;
+  const result = await syncTask(() => post("/github/forget"));
+  if (!result) return;
+  sync.revokeUrl = result.revoke_url || null;
+  syncAlert(result.message, "ok");
+  await refreshSync(true);
+  loadMachines();
+}
+
+// On GitHub the daemon adds the new key and removes the old one, which needs the account; on
+// another host the owner adds the new key.
+function regenerateQuestion(status) {
+  const github = status.github;
+  if (status.github_repository) {
+    if (!github || !github.connected || github.reconnect_needed) return null;  // the daemon refuses: say why
+    return "Create a new key for this machine? Agents-Core adds it to " + status.github_repository
+      + " on GitHub, then removes the old one.";
+  }
+  return "Create a new key for this machine? You then add its public key to the repository as a deploy key with write access and remove the old one; until then this machine cannot sync.";
+}
+
+async function regenerateKey() {
+  const question = regenerateQuestion(sync.status);
+  if (question === null) {
+    syncAlert("Sign in to GitHub first: the new key becomes a deploy key of " + sync.status.github_repository + " before the old one goes.", "error");
+    return;
+  }
+  if (!confirm(question)) return;
+  const result = await syncTask(() => post("/key/regenerate"));
+  if (!result) return;
+  syncAlert(result.message, result.deploy_key === "manual" ? "" : "ok");
+  await refreshSync(true);
+  loadMachines();
+}
+
+function renderIdentityPart() {
+  const host = rebuildPart("identity"), status = sync.status, identity = status.identity || {};
+  sync.identity = { name: identity.name || "", email: identity.email || "", label: status.label || "" };
+  node("p", host, "New commits carry this name and email. The label names this machine in commits; its deploy key on GitHub keeps the old title until you regenerate the key.", "meta");
+  identityFields(host, sync.identity, "sync-id");
+  action(node("div", host, null, "bar"), "Save", saveIdentity, "primary");
+}
+
+async function saveIdentity() {
+  const values = sync.identity;
+  const problem = identityProblem(values.name, values.email, values.label, true);
+  if (problem) return syncAlert(problem, "error");
+  const result = await saveSettings({ name: values.name.trim(), email: values.email.trim(), label: values.label.trim() },
+    "Saved. New commits use this identity.");
+  if (result && sync.parts) renderIdentityPart();
+}
+
+function renderActivityPart() {
+  const host = rebuildPart("activity"), entries = (sync.status.activity || []).slice().reverse();
+  if (!entries.length) {
+    node("p", host, "No cycle has sent or received anything yet.", "meta");
+    return;
+  }
+  const list = node("ul", host, null, "sync-list");
+  for (const entry of entries) {
+    const item = node("li", list);
+    node("span", item, dateTime(entry.time), "meta");
+    const text = node("div", item, null, "sync-grow");
+    node("strong", text, entry.result === "ok" ? "Synced" : "Stopped: " + entry.result);
+    if ((entry.sent || []).length) node("div", text, "Sent from " + entry.machine + ": " + entry.sent.join(", "));
+    if ((entry.received || []).length) {
+      node("div", text, "Received" + ((entry.received_from || []).length ? " from " + entry.received_from.join(", ") : "")
+        + ": " + entry.received.join(", "));
+    }
+    if ((entry.scripts || []).length) {
+      node("div", text, "Non-Markdown files changed (scripts): " + entry.scripts.join(", ") + ". Review them before a flow runs them.", "notice");
+    }
+    if (entry.conflicts) node("div", text, plural(entry.conflicts, "conflict"));
+    if ((entry.new_groups || []).length) node("div", text, "Repositories uploaded for the first time: " + entry.new_groups.join(", "));
+  }
+}
+
+function renderDisconnectPart() {
+  const host = rebuildPart("disconnect");
+  node("p", host, "Disconnecting stops sync on this machine. The library's files and its .git directory stay where they are. This machine's key is deleted here and, on GitHub, removed from the repository's deploy keys; on another host you remove it in the repository's settings.");
+  action(node("div", host, null, "bar"), "Disconnect", () => disconnectSync(false), "danger");
+}
+
+async function disconnectSync(startOver) {
+  if (!confirm(startOver ? "Start over? The setup on this machine is removed; nothing was uploaded yet."
+    : "Disconnect sync on this machine? The library's files and its .git stay; this machine's key is deleted here and removed from GitHub.")) return;
+  const result = await syncTask(() => post("/disconnect"));
+  if (!result) return;
+  Object.assign(sync, { wizard: null, parts: null, scopes: null, scopeConfirm: null, machines: null, review: null,
+    compare: null, keyMissing: false });
+  await refreshSync(true);
+  syncAlert("Sync is off on this machine. " + (result.deploy_key_message || ""), "ok");
+}
+
 // --- tabs --------------------------------------------------------------------------------
 
 async function showTab(tab) {
@@ -1622,7 +3145,10 @@ async function showTab(tab) {
   }
 }
 for (const button of $("tabs").children) {
-  button.addEventListener("click", () => showTab(button.dataset.tab).catch((e) => { if (!e.signedOut) alert(e.message); }));
+  button.addEventListener("click", () => {
+    hideSyncPage();  // a tab leaves the Sync page, back to what was open there
+    showTab(button.dataset.tab).catch((e) => { if (!e.signedOut) alert(e.message); });
+  });
 }
 $("search").addEventListener("input", (event) => setQuery(event.target.value));
 $("search").addEventListener("keydown", (event) => {
@@ -1653,6 +3179,8 @@ window.addEventListener("beforeunload", (event) => { if (state.dirty) { event.pr
     message.className = "empty"; message.textContent = error.message;
     nav.appendChild(message);
   }
+  // After the first request, so a sign-in it needed is not attempted twice.
+  await refreshSync();
 })();
 </script>
 </body>

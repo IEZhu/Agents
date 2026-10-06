@@ -1,5 +1,8 @@
 """User library sync in the macOS daemon (#167): the sync task and ``/admin/user-sync/*``.
 
+The web UI's Sync page (#170, ``sync_ui.py``) reaches the same task through ``perform``,
+``offload`` and ``status_view``.
+
 The engine (``src.user_sync``) syncs the personal flow library through one private git
 repository. In the daemon one task drives it:
 
@@ -7,12 +10,13 @@ repository. In the daemon one task drives it:
   The first change of a burst schedules a cycle ``debounce`` seconds later; later changes do not
   move it, and a change during a cycle schedules one more.
 * Every ``scan_every`` seconds a scan looks for writes by other processes (stdio servers, manual
-  edits). It takes a stat-only fingerprint of the library and asks the engine's ``status()``,
-  which reads and hashes every file, only when the fingerprint changed since the library was last
-  seen in sync. The engine's scope rules decide what counts as a change.
+  edits, the command line). It takes a stat-only fingerprint of the library and of sync's own files
+  (the settings, the state and this machine's key pair) and asks the engine's ``status()``, which
+  reads and hashes every file, only when the fingerprint changed since the library was last seen in
+  sync. The engine's scope rules decide what counts as a change.
 * Every ``fetch_minutes`` (a setting, 1 to 60, default 5) a cycle fetches. After a network
   failure the next cycle waits for the engine's ``retry_at``.
-* "Sync now" (``/admin/user-sync/run``) runs a forced cycle.
+* "Sync now" (``/admin/user-sync/run`` or the Sync page) runs a forced cycle.
 
 Nothing automatic runs before the service is ready, while sync is off, waiting for access or
 paused, or while an update transaction (``maintenance.json`` or ``transaction.json``) runs; the
@@ -20,6 +24,12 @@ summary then says ``held: "update"``. Cycles and the admin operations that chang
 run one at a time, in the task. Pause and resume answer at once; every read of the settings is
 numbered, and only a read that started later replaces what the task knows, so a cycle or job that
 read them before a pause never turns the loop back on.
+
+The status the task keeps (``last_status``) serves ``/health`` and the Sync page's polls. Every
+status read is numbered when it starts, and a status is kept only when no read that started later
+was kept, and no operation that changed what it says ended, since it started. A scan that finds
+the fingerprint unchanged confirms the kept status only when that status was read at the same
+fingerprint.
 
 Engine calls run in daemon threads and count in ``io_pending``, so ``auto-update`` and a drain
 wait for them. They do not use the service's executor: its shutdown and the interpreter's exit
@@ -75,6 +85,7 @@ UNSYNCED = ("pending", "attention")
 # hangs: each git network call may take 60 s, and a push is tried three times.
 REQUEST_TIMEOUTS = {"status": 30, "pause": 30, "resume": 30}
 LONG_REQUEST_TIMEOUT = 900
+DRAINING = {"error": "draining", "message": "the service is stopping; try again when it is back"}
 
 
 class Abandoned(Exception):
@@ -83,6 +94,10 @@ class Abandoned(Exception):
 
 class Draining(Exception):
     """The service drains; the operation did not start."""
+
+
+class Unavailable(Exception):
+    """The sync task is not running, so a queued operation would never start."""
 
 
 # --- commands, shared with the controller ----------------------------------------------------
@@ -134,16 +149,24 @@ def failure(error: BaseException) -> tuple[int, dict]:
     """``(HTTP status, JSON)`` for an engine failure; never a traceback."""
     try:
         from src.user_sync.engine import SyncError
-        from src.user_sync.gitcmd import GitError
+        from src.user_sync.github import GitHubError
+        from src.user_sync.gitcmd import GitError, RemoteError
         from src.user_sync.keys import SSHKeyError
+        from src.user_sync.scope import ScopeError
     except Exception:  # the engine itself cannot load; report the original error
-        SyncError = GitError = SSHKeyError = ()
+        SyncError = GitHubError = GitError = RemoteError = SSHKeyError = ScopeError = ()
     if isinstance(error, SyncError):
-        return 409, {"status": error.state, "reason": error.reason, "message": error.message}
+        return 409, {**error.details, "status": error.state, "reason": error.reason, "message": error.message}
+    if isinstance(error, GitHubError):  # messages never hold the token or a device code
+        return 409, {"status": "attention", "reason": error.code, "message": error.message}
     if isinstance(error, GitError):
         return 409, {"status": "attention", "reason": "git_error", "message": str(error)}
     if isinstance(error, SSHKeyError):
         return 409, {"status": "attention", "reason": "ssh_key", "message": str(error)}
+    if isinstance(error, ScopeError):
+        return 409, {"status": "attention", "reason": "scopes_invalid", "message": str(error)}
+    if isinstance(error, RemoteError):
+        return 400, {"status": "attention", "reason": "unknown_remote", "message": str(error)}
     logger.error("User sync operation failed", exc_info=error)
     # An OSError's text names the file, and a file of the private state may be the key.
     detail = error.strerror if isinstance(error, OSError) and error.strerror else str(error)
@@ -223,14 +246,23 @@ def direct_summary(directory, installation) -> dict:
 # --- helpers ----------------------------------------------------------------------------------
 
 
-def library_fingerprint(root) -> str:
-    """A digest of every path's type, size, modification time and inode below ``root``, ``.git`` aside.
+def library_fingerprint(root, files=()) -> str:
+    """A digest of every path's type, size, modification time and inode below ``root``, ``.git`` aside,
+    and of ``files`` outside it, which may be missing (sync's own files: ``state_files``).
 
     It reads no file content. A file's bytes rarely change without these, and the engine's
     ``status()``, which reads every file, decides what the change means.
     """
     root = Path(root)
     digest = hashlib.blake2b(digest_size=16)
+    for path in files:
+        try:
+            info = os.stat(path, follow_symlinks=False)
+        except OSError:
+            digest.update(b"-%s\n" % os.fsencode(path))
+            continue
+        digest.update(b"%s\0%o\0%d\0%d\0%d\n" % (os.fsencode(path), info.st_mode, info.st_size, info.st_mtime_ns,
+                                                 info.st_ino))
     stack = [(root, True)]
     while stack:
         directory, top = stack.pop()
@@ -252,6 +284,24 @@ def library_fingerprint(root) -> str:
             if stat.S_ISDIR(info.st_mode):
                 stack.append((Path(entry.path), False))
     return digest.hexdigest()
+
+
+def state_files(syncer) -> list[Path]:
+    """The files of sync's state directory that its status reads and the command line changes
+    (``configure``, ``run``, ``github regenerate-key``, ``disconnect``): the settings, the state and
+    this machine's key pair."""
+    state_dir = getattr(syncer, "state_dir", None)
+    if state_dir is None:
+        return []
+    from src.user_sync.engine import SETTINGS_FILE, STATE_FILE
+    from src.user_sync.keys import KEY_NAME
+    return [Path(state_dir) / name for name in (SETTINGS_FILE, STATE_FILE, KEY_NAME, f"{KEY_NAME}.pub")]
+
+
+def _confirmable(status: dict) -> bool:
+    """A status that holds while nothing changes: not one that waits for a change to upload, for
+    another runner (``syncing``) or for a retry."""
+    return status.get("state") not in ("pending", "syncing", "offline")
 
 
 def _active(settings) -> bool:
@@ -285,7 +335,7 @@ def _seen(future) -> None:
 
 
 class UserSync:
-    """The daemon's sync task and the operations behind ``/admin/user-sync/*``.
+    """The daemon's sync task and the operations behind ``/admin/user-sync/*`` and the Sync page.
 
     Everything except the engine calls runs on the service's event loop, so the scheduling state
     needs no lock. ``syncer`` replaces the engine in tests; by default the engine syncs the
@@ -304,7 +354,7 @@ class UserSync:
         self.debounce, self.scan_every, self.drain_budget = debounce, scan_every, drain_budget
         self.recheck, self.minute = recheck, minute
         self.wake_event = asyncio.Event()
-        self.jobs = deque()            # (command, call, future) waiting for the task
+        self.jobs = deque()            # (command, call, future, plain) waiting for the task
         self.calls = set()             # engine calls running in threads; part of io_pending
         self.task = None
         self.loop = None
@@ -320,6 +370,11 @@ class UserSync:
         self.clean = None              # the library's fingerprint when it was last seen in sync
         self.syncing = False
         self.last_status = None
+        self.last_status_at = None     # when it was read or a scan confirmed it (monotonic); None: polls read
+        self._kept = 0                 # the number of its read, or of an operation that outdated it since
+        self._clean_status = None      # the status read at the fingerprint ``clean``: a scan may confirm it
+        self._status_reads = 0         # status reads, numbered as they start (``_number``)
+        self._status_reading = None    # (number, future): the newest read a request started; polls share it
         self.last_cycle = None
         self.seen = 0                  # the number of the settings read that ``active`` reflects
         self._reads = 0
@@ -438,35 +493,92 @@ class UserSync:
             call = operation(command, arguments)
         except ValueError as error:
             return reply({"error": "invalid_request", "message": str(error)}, 400)
-        draining = {"error": "draining", "message": "the service is stopping; try again when it is back"}
         try:
             if command == "status":
-                status = await self._engine(self._status_work)
-                self.last_status = status
-                return reply({**status, "loop": self.loop_info()})
-            if command in QUEUED:
-                if self.service.state == "draining":
-                    return reply(draining, 503)
-                if self.task is None or self.task.done():
-                    return reply({"error": "unavailable", "message": "the sync task is not running"}, 503)
-                # A client that goes away does not cancel a submitted operation.
-                outcome = await asyncio.shield(self.submit(command, call))
-            else:  # pause and resume only write the settings: they never wait for a cycle
-                outcome = await self._engine(self._job_work, call, False)
-                self._note_job(command, outcome)
-                self.wake()
+                return reply(await self.status_view())
+            # pause and resume only write the settings: they never wait for a cycle
+            outcome = await self.perform(command, call, queued=command in QUEUED)
+        except Unavailable:
+            return reply({"error": "unavailable", "message": "the sync task is not running"}, 503)
         except (Abandoned, Draining):
-            return reply(draining, 503)
+            return reply(DRAINING, 503)
         except Exception as error:
             code, value = failure(error)
             return reply(value, code)
         return reply(outcome["result"], outcome["code"])
 
-    def submit(self, command: str, call):
+    # --- operations for front ends: the admin endpoints and the web UI (sync_ui) ----------
+
+    async def status_view(self, *, fresh: bool = True) -> dict:
+        """The engine's status with the loop's (``loop``), as ``/admin/user-sync/status`` answers it.
+
+        ``fresh=True`` reads it in a read of its own, which starts now: a read already running may
+        have begun before what the caller just did. ``fresh=False`` (the Sync page's polls) returns
+        the status the loop keeps while it is younger than a scan interval, counted from its read or
+        from the last scan that confirmed it; otherwise it shares the newest read a request started,
+        unless something newer was kept or an operation outdated it since that read began.
+        """
+        if not fresh and self.last_status is not None and self.last_status_at is not None \
+                and time.monotonic() - self.last_status_at < self.scan_every:
+            return {**self.last_status, "loop": self.loop_info()}
+        reading = self._status_reading
+        if fresh or reading is None or reading[0] <= self._kept:
+            number = self._number()
+            future = asyncio.ensure_future(self._read_status(number))
+            future.add_done_callback(_seen)
+            reading = self._status_reading = (number, future)
+        status = await asyncio.shield(reading[1])
+        return {**status, "loop": self.loop_info()}
+
+    async def _read_status(self, number: int) -> dict:
+        """A request's status read, numbered when it was asked for (before its thread starts)."""
+        try:
+            probe = await self._engine(self._observe, None, number)
+            if self._keep_status(probe["status"], number):
+                fingerprint = probe["fingerprint"]
+                if fingerprint is not None and fingerprint == self.clean and _confirmable(probe["status"]):
+                    self._clean_status = probe["status"]  # read at the fingerprint known in sync
+            return probe["status"]
+        finally:
+            if self._status_reading is not None and self._status_reading[0] == number:
+                self._status_reading = None
+
+    async def perform(self, command: str, call, *, queued: bool, plain: bool = False) -> dict:
+        """``call(syncer)`` for a front end; returns ``{"code", "result", ...}``.
+
+        ``queued`` operations (anything that runs git or reaches the remote) wait for the task and
+        run one at a time with the cycles; a client that goes away does not cancel one. The others
+        (settings, scopes, conflicts) run at once in their own thread, also while a cycle runs.
+        Either way the task learns the settings they leave. A ``plain`` queued operation changes
+        nothing the task tracks (the machines on GitHub): it runs alone, and the task reads nothing
+        after it. Raises ``Draining`` while the service drains, ``Unavailable`` without a running
+        task, ``Abandoned`` after the drain deadline.
+        """
+        if queued:
+            if self.service.state == "draining":
+                raise Draining()
+            if self.task is None or self.task.done():
+                raise Unavailable()
+            return await asyncio.shield(self.submit(command, call, plain=plain))
+        outcome = await self._engine(self._job_work, call, False)
+        self._note_job(command, outcome)
+        self.wake()
+        return outcome
+
+    async def offload(self, function, *args):
+        """``function(*args)`` in its own thread, counted in io_pending, outside the queue: reads
+        and GitHub API calls that never touch the library's repository."""
+        return await self._engine(function, *args)
+
+    def engine(self):
+        """The engine the task uses; call it in a thread (``offload``), it may create the engine."""
+        return self._engine_syncer()
+
+    def submit(self, command: str, call, *, plain: bool = False):
         """Queue an operation for the task; the future resolves to ``{"code", "result", ...}``."""
         future = asyncio.get_running_loop().create_future()
         future.add_done_callback(_seen)
-        self.jobs.append((command, call, future))
+        self.jobs.append((command, call, future, plain))
         self.wake()
         return future
 
@@ -556,12 +668,15 @@ class UserSync:
             self.syncing = False
         self._note_cycle(probe, trigger)
 
-    async def _run_job(self, command: str, call, future) -> None:
+    async def _run_job(self, command: str, call, future, plain: bool = False) -> None:
         if command in CYCLES:
             self.due = None
             self.syncing = True
         try:
-            outcome = await self._engine(self._job_work, call, True)
+            if plain:
+                outcome = await self._engine(self._plain_work, call)
+            else:
+                outcome = await self._engine(self._job_work, call, True)
         except Abandoned:
             if not future.done():
                 future.set_exception(Abandoned())
@@ -572,7 +687,8 @@ class UserSync:
         finally:
             self.syncing = False
         try:
-            self._note_job(command, outcome)
+            if not plain:
+                self._note_job(command, outcome)
         finally:  # the request waits for this future
             if not future.done():
                 future.set_result(outcome)
@@ -642,7 +758,7 @@ class UserSync:
 
     def _reject_queued(self) -> None:
         while self.jobs:
-            _, _, future = self.jobs.popleft()
+            future = self.jobs.popleft()[2]
             if not future.done():
                 future.set_exception(Draining())
 
@@ -719,11 +835,25 @@ class UserSync:
     def _in_update(self) -> bool:
         return any((self.service.directory / name).exists() for name in UPDATE_FILES)
 
-    @staticmethod
-    def _observe(syncer) -> tuple[str, dict]:
-        """The fingerprint first: a write after it shows in this status or changes the next one."""
-        fingerprint = library_fingerprint(syncer.library)
-        return fingerprint, syncer.status()
+    def _number(self) -> int:
+        """The number of a status read that starts now. A read with a higher number started later, so
+        it saw every change that ended before it started (see ``_keep_status``)."""
+        with self._reads_guard:
+            self._status_reads += 1
+            return self._status_reads
+
+    def _observe(self, syncer=None, number: int | None = None) -> dict:
+        """A numbered status with the fingerprint taken first: a write after the fingerprint shows in
+        this status or changes the next fingerprint."""
+        syncer = self._engine_syncer() if syncer is None else syncer
+        number = self._number() if number is None else number
+        fingerprint = library_fingerprint(syncer.library, state_files(syncer))
+        return {"number": number, "fingerprint": fingerprint, "status": syncer.status()}
+
+    def _status_of(self, syncer) -> dict:
+        """A numbered status, without a fingerprint."""
+        number = self._number()
+        return {"number": number, "status": syncer.status()}
 
     def _read_settings(self, syncer) -> tuple[int, object]:
         """The settings, numbered in the order the reads started: a later read sees every earlier
@@ -734,36 +864,33 @@ class UserSync:
             number = self._reads
         return number, syncer.settings()
 
-    def _status_work(self) -> dict:
-        return self._engine_syncer().status()
-
     def _scan_work(self, clean: str | None, barrier: bool, need_status: bool) -> dict:
         syncer = self._engine_syncer()
         seen, settings = self._read_settings(syncer)
         if not _active(settings):
-            return {"active": False, "seen": seen, "settings": settings, "status": syncer.status()}
+            return {"active": False, "seen": seen, "settings": settings, **self._status_of(syncer)}
         if barrier and self._in_update():
             return {"active": True, "blocked": True, "seen": seen, "settings": settings,
-                    "status": syncer.status() if need_status else None}
-        fingerprint = library_fingerprint(syncer.library)
+                    **(self._status_of(syncer) if need_status else {"status": None})}
+        number = self._number()
+        fingerprint = library_fingerprint(syncer.library, state_files(syncer))
         status = None if fingerprint == clean else syncer.status()
-        return {"active": True, "seen": seen, "settings": settings, "fingerprint": fingerprint, "status": status}
+        return {"active": True, "seen": seen, "settings": settings, "fingerprint": fingerprint, "number": number,
+                "status": status}
 
     def _cycle_work(self, barrier: bool, need_status: bool) -> dict:
         syncer = self._engine_syncer()
         seen, settings = self._read_settings(syncer)
         if not _active(settings):
-            return {"active": False, "seen": seen, "settings": settings, "status": syncer.status()}
+            return {"active": False, "seen": seen, "settings": settings, **self._status_of(syncer)}
         if barrier and self._in_update():
             return {"active": True, "blocked": True, "seen": seen, "settings": settings,
-                    "status": syncer.status() if need_status else None}
+                    **(self._status_of(syncer) if need_status else {"status": None})}
         try:
             result = syncer.run()
         except Exception as error:  # the engine reports expected failures in its result
             result = failure(error)[1]
-        fingerprint, status = self._observe(syncer)
-        return {"active": True, "seen": seen, "settings": settings, "result": result,
-                "fingerprint": fingerprint, "status": status}
+        return {"active": True, "seen": seen, "settings": settings, "result": result, **self._observe(syncer)}
 
     def _job_work(self, call, observe: bool) -> dict:
         syncer = self._engine_syncer()
@@ -771,30 +898,56 @@ class UserSync:
             code, result = 200, call(syncer)
         except Exception as error:
             code, result = failure(error)
+        # Numbered once the operation ended: a read that began before is older than what it left.
         outcome = {"code": code, "result": result, "seen": None, "settings": None, "fingerprint": None,
-                   "status": None}
+                   "status": None, "number": self._number()}
         try:
             outcome["seen"], outcome["settings"] = self._read_settings(syncer)
             if observe:
-                outcome["fingerprint"], outcome["status"] = self._observe(syncer)
+                outcome.update(self._observe(syncer))
             elif code == 200 and isinstance(result, dict) and "state" in result:
                 outcome["status"] = result  # pause and resume answer with the status
         except Exception:
             logger.warning("User sync status unavailable after an operation", exc_info=True)
         return outcome
 
+    def _plain_work(self, call) -> dict:
+        try:
+            return {"code": 200, "result": call(self._engine_syncer())}
+        except Exception as error:
+            code, result = failure(error)
+            return {"code": code, "result": result}
+
     # --- bookkeeping (event loop) --------------------------------------------------------
 
-    def _remember(self, status, fingerprint=None) -> None:
-        """Keep the engine's status; a library seen in sync needs no status until it changes."""
+    def _keep_status(self, status: dict, number: int | None) -> bool:
+        """Keep ``status`` for /health and the Sync page's polls, unless a read that started later was
+        kept, or an operation outdated it (``_outdate``), since its read started (``number``)."""
+        if number is not None and number <= self._kept:
+            return False
+        self.last_status, self.last_status_at = status, time.monotonic()
+        self._kept = max(self._kept, number or 0)
+        return True
+
+    def _outdate(self, number: int | None) -> None:
+        """An operation changed what the status says and left no status: polls read it again, and a
+        read that started before the operation ended (``number``) is not kept."""
+        self.last_status_at = self._clean_status = None
+        if number is not None:
+            self._kept = max(self._kept, number)
+
+    def _remember(self, status, fingerprint=None, number=None) -> None:
+        """Keep the engine's status (``_keep_status``); a library seen in sync needs no status until it
+        changes, and a scan that finds the same fingerprint confirms this status."""
         if not isinstance(status, dict):
             return
-        self.last_status = status
+        self._keep_status(status, number)
         state = status.get("state")
         self.retry_due = _monotonic_at(status.get("retry_at")) if state == "offline" else None
         # Attention without a change of the library needs no cycle on every scan; offline waits
         # for retry_at, and "syncing" means another runner has the library.
-        self.clean = None if fingerprint is None or state in ("pending", "syncing", "offline") else fingerprint
+        self.clean = fingerprint if fingerprint is not None and _confirmable(status) else None
+        self._clean_status = status if self.clean is not None else None
 
     def _apply_settings(self, probe: dict) -> bool | None:
         """Take ``active`` from the settings a probe read; None when a later read was applied."""
@@ -806,7 +959,7 @@ class UserSync:
         if active and not self.active:
             self.next_fetch = time.monotonic()  # set up, started or resumed: catch up at once
         if not active:
-            self.due = self.retry_due = self.clean = self.held = self.hold_until = None
+            self.due = self.retry_due = self.clean = self._clean_status = self.held = self.hold_until = None
         self.active = active
         return active
 
@@ -814,7 +967,7 @@ class UserSync:
         """An update transaction holds automatic sync: look again soon, and say so in the summary."""
         self.hold_until, self.held = now + self.recheck, "update"
         if isinstance(probe.get("status"), dict):
-            self.last_status = probe["status"]
+            self._keep_status(probe["status"], probe.get("number"))
 
     def _note_scan(self, probe: dict) -> None:
         now = time.monotonic()
@@ -824,16 +977,18 @@ class UserSync:
             return  # a later read of the settings, a pause or resume, decides
         if not applied:
             if isinstance(probe.get("status"), dict):
-                self.last_status = probe["status"]
+                self._keep_status(probe["status"], probe.get("number"))
             return
         if probe.get("blocked"):
             self._hold(probe, now)
             return
         self.hold_until = self.held = None
         status = probe.get("status")
-        if status is None:
-            return  # unchanged since the library was last seen in sync
-        self._remember(status, probe.get("fingerprint"))
+        if status is None:  # unchanged since the library was last seen in sync
+            if self.last_status is not None and self.last_status is self._clean_status:
+                self.last_status_at = now  # the status read at that fingerprint still holds
+            return
+        self._remember(status, probe.get("fingerprint"), probe.get("number"))
         if status.get("state") in UNSYNCED and self.due is None:
             self.due = now
 
@@ -846,7 +1001,7 @@ class UserSync:
                 if trigger == "change" and self.due is None:
                     self.due = now
             elif applied is False and isinstance(probe.get("status"), dict):
-                self.last_status = probe["status"]
+                self._keep_status(probe["status"], probe.get("number"))
                 self.next_scan = now + self.scan_every
             return
         # The cycle ran; a pause during it is already applied and keeps the loop off.
@@ -855,7 +1010,7 @@ class UserSync:
         self.next_fetch = now + self._fetch_seconds(probe.get("settings"))
         result = probe.get("result") or {}
         self._record(trigger, result)
-        self._remember(probe.get("status"), probe.get("fingerprint"))
+        self._remember(probe.get("status"), probe.get("fingerprint"), probe.get("number"))
         if result.get("status") == "lock_held" and self.due is None and self.active:
             self.due = now + self.debounce  # another runner has the library; look again soon
 
@@ -870,12 +1025,15 @@ class UserSync:
         if command == "resume" and applied:
             self.due = now  # catch up with what changed while paused
         self.clean = None
-        self._remember(outcome.get("status"), outcome.get("fingerprint"))
+        self._remember(outcome.get("status"), outcome.get("fingerprint"), outcome.get("number"))
+        if not isinstance(outcome.get("status"), dict):  # resolve, scopes: polls read the status again
+            self._outdate(outcome.get("number"))
 
     def _record(self, trigger: str, result: dict) -> None:
         entry = {"time": datetime.now(timezone.utc).isoformat(timespec="seconds"), "trigger": trigger,
                  "status": result.get("status"), "reason": result.get("reason"),
                  "sent": len(result.get("sent") or ()), "received": len(result.get("received") or ()),
+                 "received_from": list(result.get("received_from") or ())[:10],
                  "conflicts": len(result.get("conflicts") or ()), "pushed": bool(result.get("pushed"))}
         previous = self.last_cycle or {}
         if (previous.get("status"), previous.get("reason")) != (entry["status"], entry["reason"]) \
