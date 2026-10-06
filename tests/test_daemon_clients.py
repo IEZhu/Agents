@@ -69,6 +69,20 @@ def test_tracked_codex_uses_string_helper_without_secret(migration, tmp_path):
     assert not secret
 
 
+def test_each_client_names_its_app_in_its_headers_and_bridge(migration, tmp_path):
+    """The daemon counts requests per app (#187); one bridge file per app keeps their headers apart."""
+    home = tmp_path / "home"; home.mkdir()
+    migration.config["node"] = sys.executable
+    for client, app in (("claude", "claude-code"), ("cursor", "cursor")):
+        _, text, _ = migration.prepare(client, home=home)
+        assert json.loads(text)["mcpServers"]["Agents-Core"]["headers"]["X-Agents-Client"] == app
+    _, text, _ = migration.prepare("codex", home=home)
+    assert tomllib.loads(text)["mcp_servers"]["Agents-Core"]["http_headers"]["X-Agents-Client"] == "codex"
+    _, text, _ = migration.prepare("desktop", home=home)
+    bridge = Path(json.loads(text)["mcpServers"]["Agents-Core-Desktop"]["args"][1])
+    assert bridge.name == "claude-desktop-routing.json"
+    assert json.loads(bridge.read_text())["headers"]["X-Agents-Client"] == "claude-desktop"
+
 def test_prepared_callback_runs_before_writes(migration, tmp_path):
     target = tmp_path / "config.json"
     target.write_text("original")

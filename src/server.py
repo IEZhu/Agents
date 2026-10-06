@@ -1073,9 +1073,13 @@ async def log_interaction(
             if line := persona_history_line(logged, persona_action):
                 eff_action += "\n" + line
             eff_outcome = (outcome or response_content or "").strip()
+            metadata = {"answer_timestamp": timestamp}
+            client_app = getattr(client, "client", None)  # the app named by X-Agents-Client (#187)
+            if client_app:
+                metadata["client"] = client_app
             result = writer.append_entry(
                 eff_intent, eff_action, eff_outcome, files, tags,
-                {"answer_timestamp": timestamp}, dedupe_action=dedupe_action,
+                metadata, dedupe_action=dedupe_action,
             )
             if result.get("status") == "error":
                 logger.error("History append failed: %s", result.get("error"))

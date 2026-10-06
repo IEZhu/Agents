@@ -64,6 +64,7 @@ class ClientContext:
     root: Path | None = None
     error: str | None = None
     source: str | None = None
+    client: str | None = None  # the app named by X-Agents-Client (usage.py), over HTTP
 
     def workspace_root(self):
         if self.error or self.root is None:
