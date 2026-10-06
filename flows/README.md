@@ -103,10 +103,14 @@ Its `flow` has the listing's fields, except that `flow.id` is always
 scope-qualified (`builtin:<id>` for a built-in) and the listing-only
 `qualified_id` and `overridden_by` are absent.
 `run_flow` and `get_flow` declare `anthropic/maxResultSizeChars` in their
-`tools/list` entries: 500,000 characters, Claude Code's ceiling, derived from the
-256 KiB flow limit. Claude Code therefore keeps their results in the conversation;
-without the declaration it saves a result over 50,000 characters, such as
-`pr-review` with its persona bundle, to a file the model has to read in parts.
+`tools/list` entries, so Claude Code keeps a result of up to 500,000 characters,
+its ceiling, in the conversation. Without the declaration it saves a result over
+50,000 characters, such as `pr-review` with its persona bundle, to a file the model
+has to read in parts. Two flows near the 256 KiB limit, a long version history or a
+persona that selects many components can still pass the ceiling. Both tools return
+their JSON text alone, without structured output, so the flow is escaped once.
+Claude Code reads the declaration when it lists the tools: after an update of the
+service, start a new session or reconnect the server (`/mcp` in Claude Code).
 The client model must continue through the flow's completion criteria using its
 own tools. Loading the bundle reads files only: it does not perform the workflow,
 start a background job, sample a model, or grant permission for extra actions.

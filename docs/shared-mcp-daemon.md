@@ -304,6 +304,9 @@ a long-lived GET notification stream; those are counted as `streams`, not as
 work, and drain ends them cleanly
 ([#76](https://github.com/IEZhu/Agents/issues/76)). The transport is stateless,
 so a client's next request reaches the restarted process without a new session.
+A client keeps the tool list it read when it connected, though: a changed tool
+declaration, such as the result size of `run_flow` and `get_flow`, reaches it only
+after it reconnects MCP or starts a new session.
 A request sent during the stop window fails and can be retried. After
 `token rotate`, however, clients must reconnect MCP (see [Service control](#service-control)).
 
