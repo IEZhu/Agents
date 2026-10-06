@@ -102,6 +102,11 @@ reported in an `issues` array of `{id, error}` entries. `run_flow` returns
 Its `flow` has the listing's fields, except that `flow.id` is always
 scope-qualified (`builtin:<id>` for a built-in) and the listing-only
 `qualified_id` and `overridden_by` are absent.
+`run_flow` and `get_flow` declare `anthropic/maxResultSizeChars` in their
+`tools/list` entries: 500,000 characters, Claude Code's ceiling, derived from the
+256 KiB flow limit. Claude Code therefore keeps their results in the conversation;
+without the declaration it saves a result over 50,000 characters, such as
+`pr-review` with its persona bundle, to a file the model has to read in parts.
 The client model must continue through the flow's completion criteria using its
 own tools. Loading the bundle reads files only: it does not perform the workflow,
 start a background job, sample a model, or grant permission for extra actions.

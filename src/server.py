@@ -60,7 +60,7 @@ from src.memory.describer import RepoDescriber
 from src.memory.history import HistoryReader, HistoryWriter
 from src.daemon.workspaces import client_context, WorkspaceError, HistoryStores
 from src import flow_persona
-from src.flows import FlowCatalog, FlowError, execution_bundle
+from src.flows import MAX_FLOW_BYTES, FlowCatalog, FlowError, execution_bundle
 from src.user_flows import FlowLibrary
 from src.schemas.protocol import PersonaDescriptor, PersonaAction
 from src.engine.persona import (
@@ -326,6 +326,26 @@ def _flow_error(error: Exception) -> str:
     return json.dumps({"status": "error", "error": str(error)}, ensure_ascii=False)
 
 
+# Claude Code saves an MCP tool's text result longer than 50,000 characters to a file and gives the
+# model a pointer, unless the tool declares a larger size in its tools/list entry; it accepts at most
+# 500,000 (#196).
+RESULT_SIZE_CEILING = 500_000
+
+
+def flow_result_size(max_flow_bytes: int = MAX_FLOW_BYTES) -> int:
+    """Characters a flow tool's result may take before Claude Code moves it to a file.
+
+    A result carries two texts of up to ``max_flow_bytes`` each: get_flow a flow and, for a local copy,
+    its built-in (``upstream``); run_flow a flow and its persona bundle, which is far smaller
+    (pr-review's is 27,000 characters). JSON escaping turns a newline or a quote into two characters,
+    so each text takes at most twice its bytes. Capped at Claude Code's ceiling.
+    """
+    return min(RESULT_SIZE_CEILING, 2 * 2 * max_flow_bytes)
+
+
+FLOW_RESULT_META = {"anthropic/maxResultSizeChars": flow_result_size()}
+
+
 @mcp.tool()
 async def list_flows(scope: str = "all", ctx: Context | None = None) -> str:
     """List Markdown workflows: built-in, personal and this repository's.
@@ -343,7 +363,7 @@ async def list_flows(scope: str = "all", ctx: Context | None = None) -> str:
         return _flow_error(error)
 
 
-@mcp.tool()
+@mcp.tool(meta=FLOW_RESULT_META)
 async def get_flow(flow: str, version: ta.opt_str("Optional version id of the flow; defaults to the current one.") = None, ctx: Context | None = None) -> str:
     """Read a flow's Markdown, revision and saved versions before editing it.
 
@@ -401,7 +421,7 @@ async def delete_flow(flow: str, expected_revision: str, ctx: Context | None = N
         return _flow_error(error)
 
 
-@mcp.tool()
+@mcp.tool(meta=FLOW_RESULT_META)
 async def run_flow(
     flow: Annotated[str, Field(description="Flow id, ID.md, flows/ID.md, or builtin:/user:/repo:<id>.")],
     request: Annotated[str, Field(description="The user's scope, PR/MR URL and constraints.")] = "",
