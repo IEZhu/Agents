@@ -1120,6 +1120,24 @@ def test_a_checkout_marked_while_a_catch_up_waits_is_not_lost(tmp_path, shared, 
     assert "first turn in a new clone" in a.exported()
 
 
+def test_a_new_turn_in_a_waiting_repository_never_rereads_the_whole_journal(two, clock, monkeypatch):
+    a, _ = two
+    a.log("first")
+    assert a.status()["history_waiting"] == [{"key": KEY, "origin": NORMALIZED, "entries": 1}]
+    reads, real = [], history_sync._journal
+
+    def journal_read(root, since_month=None):
+        reads.append(since_month)
+        return real(root, since_month)
+
+    monkeypatch.setattr(history_sync, "_journal", journal_read)
+    with history_sync._CACHE_GUARD:  # other tests log the same entries at the same times
+        history_sync._VERDICTS.clear()
+    a.log("second")
+    assert a.status()["history_waiting"] == [{"key": KEY, "origin": NORMALIZED, "entries": 2}]
+    assert reads and None not in reads  # the current month held the new turn
+
+
 def test_entries_that_stay_local_are_not_counted_as_waiting(two, clock):
     a, _ = two
     a.log("connect to the database", "used password=hunter2 for it")

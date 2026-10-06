@@ -803,10 +803,16 @@ def _waiting(repo: _Repository, roots: dict[str, dict], approved: bool) -> int:
     with _CACHE_GUARD:
         unknown = {entry_id for entry_id in candidates
                    if _VERDICTS.get((repo.label, repo.origin, entry_id), _MISSING) is _MISSING}
+    current = _now()[:7]
     for root in {candidates[entry_id] for entry_id in unknown}:
-        for entry_id, (entry, body) in _journal(root).items():
-            if entry_id in unknown:
-                _item(entry, body, repo.label, repo.origin)
+        wanted = {entry_id for entry_id in unknown if candidates[entry_id] == root}
+        for since in (current, None):  # a new turn is in history.md: the whole journal only when needed
+            for entry_id, (entry, body) in _journal(root, since).items():
+                if entry_id in wanted:
+                    _item(entry, body, repo.label, repo.origin)
+                    wanted.discard(entry_id)
+            if not wanted:
+                break
     with _CACHE_GUARD:
         return sum(1 for entry_id in candidates
                    if _VERDICTS.get((repo.label, repo.origin, entry_id), "unknown") is None)
