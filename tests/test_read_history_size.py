@@ -279,6 +279,18 @@ def test_an_entry_too_large_even_alone_comes_as_a_stub_and_paging_moves_on():
     assert "offset=8 and limit=4" in payload["instruction"]
 
 
+def test_a_stub_keeps_its_own_fields_short():
+    rows = entries(2)
+    rows[0]["metadata"] = {"_raw": "x" * 60_000}
+    rows[0]["timestamp"] = "2026-10-07T" + "9" * 60_000  # a hand-edited heading
+    rows[0]["machine"] = "m" * 60_000
+    payload = listing("recency", rows, {"pid": 1})
+    assert shown_size(to_json(payload)) <= RESULT_BUDGET
+    [first] = payload["entries"]
+    assert first["id"] == rows[0]["id"] and len(first["timestamp"]) <= 100 and len(first["machine"]) <= 100
+    assert first["truncated"]["timestamp"] == len(rows[0]["timestamp"]) and first["truncated"]["machine"] == 60_000
+
+
 @pytest.mark.asyncio
 async def test_the_tool_description_fits_claude_codes_limit():
     import src.server as server

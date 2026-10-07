@@ -78,11 +78,20 @@ def shorten(entry: Mapping[str, Any], size: int = PREVIEW_CHARS) -> Dict[str, An
 
 
 def stub(entry: Mapping[str, Any]) -> Dict[str, Any]:
-    """``entry`` reduced to its id, time, distance and machine; ``truncated`` gives the length of
-    each field left out (characters, items for a list, characters of JSON otherwise)."""
-    out = {name: entry[name] for name in _STUB_FIELDS if name in entry}
-    out["truncated"] = {name: _length(value) for name, value in entry.items()
-                        if name not in out and value not in (None, "", [], {})}
+    """``entry`` reduced to its id, time, distance and machine, each text at most
+    ``MIN_PREVIEW_CHARS``; ``truncated`` gives the length of each field cut or left out
+    (characters, items for a list, characters of JSON otherwise)."""
+    out: Dict[str, Any] = {}
+    cut = {}
+    for name, value in entry.items():
+        if name not in _STUB_FIELDS:
+            if value not in (None, "", [], {}):
+                cut[name] = _length(value)
+        elif isinstance(value, str) and len(value) > MIN_PREVIEW_CHARS:
+            out[name], cut[name] = preview(value, MIN_PREVIEW_CHARS), len(value)
+        else:
+            out[name] = value
+    out["truncated"] = cut
     return out
 
 
@@ -140,8 +149,10 @@ def listing(mode: str, entries: Sequence[Mapping[str, Any]], extra: Mapping[str,
                         lambda size: render(size, len(entries)), fits) or floor
     # The most entries that fit at the shortest previews. When not even the first does (a huge
     # metadata line or list item), it comes as a stub: entry_id reads it and offset moves past it.
-    return _largest(1, len(entries) - 1, lambda count: render(MIN_PREVIEW_CHARS, count), fits) \
-        or render(MIN_PREVIEW_CHARS, 0, stubbed=bool(entries))
+    fitted = _largest(1, len(entries) - 1, lambda count: render(MIN_PREVIEW_CHARS, count), fits)
+    if fitted is None and entries:
+        fitted = render(MIN_PREVIEW_CHARS, 0, stubbed=True)
+    return fitted if fitted is not None and fits(fitted) else render(MIN_PREVIEW_CHARS, 0)
 
 
 def _largest(low: int, high: int, render, fits) -> Optional[Dict[str, Any]]:
