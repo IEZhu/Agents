@@ -320,7 +320,7 @@ A request sent during the stop window fails and can be retried. After
 .venv/bin/python -m src.daemon flows-ui --auto off  # require the one-use code and end every session (on restores the default)
 ```
 
-The daemon serves a local settings page at `/ui` with five tabs.
+The daemon serves a local settings page at `/ui` with six tabs.
 
 `/ui` opens on an overview of the installation
 ([#188](https://github.com/IEZhu/Agents/issues/188)) in the place of the list and
@@ -333,7 +333,8 @@ the item, with no tab active:
 - **How it works**: a request's path from the app through Agents-Core, the
   embedding model and the agent to the answer and `history.md`, each step with
   its live values. The newest answers run along it one at a time; under
-  `prefers-reduced-motion` it stays still and lists them instead.
+  `prefers-reduced-motion` it stays still and lists them instead. Each answer
+  links to its entry on the History tab.
 - **AI apps**: Claude Code, Claude Desktop, Codex and Cursor, each connected,
   configured or not set up, in words.
 - **Model, directories and sizes**: the version, the embedding model and its size,
@@ -376,6 +377,31 @@ seconds while the browser tab is visible (see
   body (skills also show the agents that declare them and their tier, implants the
   agents that prefer them) and a switch. The files are never edited, renamed or
   deleted.
+- **History** ([#189](https://github.com/IEZhu/Agents/issues/189)) lists every
+  registered workspace that has `history.md` or a monthly archive
+  `history/YYYY-MM.md`, the most recent first, with its path and the age of its
+  newest entry; a workspace whose directory is gone stays listed as unavailable.
+  An open history shows *Rendered* entries newest first, each under its local time,
+  agent and persona action, with the UTC time and the hash below and the fields as
+  Markdown. Entries load 20 at a time as the reader scrolls; "Contents" lists every
+  entry of the file by day (Today, Yesterday, then dates), and an entry there loads
+  what is missing up to it. *Source* is the file as it is, read-only, and a select
+  switches between `history.md` and the archives. `/ui#history/<workspace>/<entry
+  id>` opens an entry. The page reads `GET /ui/api/history/repos`,
+  `GET /ui/api/history?workspace=&file=&before=&limit=` (`before` counts from the
+  oldest entry, so answers appended meanwhile never shift a portion; with
+  `entry=<id>` and `time=` it finds the file and reaches that entry, as ids repeat),
+  `GET /ui/api/history/source` and
+  `GET /ui/api/history/search?q=`. Like the Sync page's reads they need the page's
+  `X-Agents-UI` header, and they read only `history.md` and `history/` archive
+  names of a registered workspace. Entries that other machines shared through
+  library sync are not shown here. The text cannot be edited, but each entry has
+  **Delete entry**: after a confirmation that names it, `POST
+  /ui/api/history/delete` (`workspace`, `file`, `entry`, `time`) removes exactly
+  that heading and its fields, under the lock `log_interaction` appends under, and
+  refuses with 409 `entry_changed` when the entry is no longer there as shown.
+  With [user library sync](user-sync.md#repository-history) the entry also leaves
+  what this machine shared, though the library's git history keeps it.
 
 The page fills the window: the header and the detail pane stay in place and only
 the list on the left scrolls (in the narrow layout, the list above the detail
@@ -385,7 +411,8 @@ controls of the open item, the tabs and, on Flows, "New flow". A flow's controls
 the history, "Show built-in" (on a local copy of a built-in flow), "Delete" and
 "Save" (a built-in flow shows its "Edit copy" buttons instead of the history,
 "Delete" and "Save"); a rule, skill or implant has *Rendered / Source*, "Contents" and its
-switch, and an agent the same without a switch. With nothing open the header
+switch, an agent the same without a switch, and a history *Rendered / Source*,
+"Contents" and its file select. With nothing open the header
 shows none. The controls end at the divider before the tabs and form the tab of
 the open item's pane: the two share one tint and join like a folder and its tab,
 and the list and the item are rounded panels. The page measures where the
@@ -399,7 +426,7 @@ it). Matching is case-insensitive and every whitespace-separated term must
 appear. Items whose name (ID, title, short name; an agent's ID and display name)
 matches are listed first, then items that match only in their text (description
 and body; flow content; an agent's role, routing keywords and prompt body), marked
-"in text" (on Flows, a group heading, such as Personal or a repository, is repeated for its text-only matches). While a query is active the box shows "N of M" for the visible
+"in text" (on Flows, a group heading, such as Personal or a repository, is repeated for its text-only matches; on History the entry text is searched on the server). While a query is active the box shows "N of M" for the visible
 category, the query is kept per tab, and the open item stays open when the query
 hides it. The filter runs in the page: `GET /ui/api/flows?with_content=1` adds a
 `content` field to every flow, including repository flows, and
