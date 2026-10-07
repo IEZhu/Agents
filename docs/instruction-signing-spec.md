@@ -69,15 +69,16 @@ The statement:
 ```json
 {
   "_type": "https://in-toto.io/Statement/v1",
-  "subject": [{"name": "agents-library", "digest": {"sha256": "<root digest>"}}],
+  "subject": [{"name": ".user", "digest": {"sha256": "<root digest>"}}],
   "predicateType": "https://model_signing/signature/v1.0",
   "predicate": {
     "serialization": {"method": "files", "hash_type": "sha256",
                       "allow_symlinks": false, "ignore_paths": []},
-    "resources": [{"name": "common/review.md", "algorithm": "sha256", "digest": "<hex>"}],
-    "agent_instructions": {"profile": "agent-instructions/v1", "seal": "library",
-                           "origin": "mcp", "signer": "laptop",
-                           "signed_at": "2026-10-07T09:00:00Z", "workspace_key": "github.com-owner-repo"}
+    "resources": [{"name": "common/review.md", "algorithm": "sha256", "digest": "<hex>",
+                   "agent_instructions": {"profile": "agent-instructions/v1", "seal": "library",
+                                          "origin": "mcp", "signer": "laptop",
+                                          "signed_at": "2026-10-07T09:00:00Z",
+                                          "workspace_key": "github.com-owner-repo"}}]
   }
 }
 ```
@@ -92,22 +93,32 @@ Rules, taken from `model-signing` 1.1.1 and checked against it:
   `model-signing` 1.1.1 fails on Ed25519 keys.
 - `hint` is the SHA-256 of the PEM-encoded public key (SubjectPublicKeyInfo), as
   `model-signing` computes it.
-- The subject `name` is free text. Verification does not compare it with the
-  directory name.
-- Verifiers of predicate v1.0 ignore predicate fields other than `serialization`
-  and `resources`, so the extension in §6 does not break them.
+- Producers set the subject `name` to the basename of the sealed root, as OMS
+  requires. Verification does not compare it with the directory name, and accepts
+  any non-empty value.
+- The predicate v1.0 schema allows no fields at its top level besides
+  `serialization` and `resources` (`additionalProperties: false`), but leaves
+  resource descriptors open (`additionalProperties: true`), and OMS verifiers
+  ignore unrecognized fields there. The extension in §6 is therefore a field of the
+  first resource descriptor, so a schema-validating OMS verifier accepts the seal.
 
 Checked on 2026-10-07: a seal built as above covered a subset of a directory and
-carried the extension. It passed
+carried the extension, then at the top level of the predicate. It passed
 `model_signing verify key <root> --signature <seal> --public_key <pem> --ignore_unsigned_files`,
-and the same command failed after one byte of a covered file changed.
+and the same command failed after one byte of a covered file changed. The check is
+to be repeated with the extension on the resource descriptor before the first
+release seal ships.
 
 ## 5. What is sealed
 
 ### 5.1 Installation: the release seal
 
-- File: `instructions.oms.sig` at the installation root. Subject name: `agents-core`.
-- Resources: every git-tracked file of the release commit, except the seal itself.
+- File: `instructions.oms.sig` at the installation root. Subject name: the
+  installation directory's basename.
+- Resources: every git-tracked file of the release commit, except the seal itself
+  and the paths OMS excludes by default (`.git`, `.gitignore`, `.gitattributes`,
+  `.github`), so that a default OMS verifier checks the same set. CI and branch
+  protection cover the excluded workflow files (§7.1).
   Covering the code lets the updater check a whole target tree. Runtime
   enforcement (§8) applies to the instruction paths: `agents/**`, `skills/**`,
   `implants/**`, `rules/**`, `flows/*.md` and `scripts/templates/**`.
@@ -117,7 +128,7 @@ and the same command failed after one byte of a covered file changed.
 ### 5.2 Personal library: library seals
 
 - Root: the library root (`flows/.user`, or `AGENTS_USER_FLOWS_DIR`). Subject name:
-  `agents-library`.
+  the root's basename, `.user` by default.
 - One seal per file, at `.seals/<relative path>.oms.sig`. A library seal has
   exactly one resource, whose `name` is the file's path relative to the library
   root. That path binds scope and ID: a sealed `common/a.md` copied to
@@ -134,7 +145,9 @@ and the same command failed after one byte of a covered file changed.
 
 ## 6. Profile extension
 
-`predicate.agent_instructions` is signed together with the rest of the statement.
+`agent_instructions` is a field of the first resource descriptor, in `name` order
+(a library seal has only one), and is signed together with the rest of the
+statement.
 
 | Field | Value |
 |---|---|
@@ -157,6 +170,12 @@ A verifier of this profile rejects a seal in any of these cases:
 All key material lives in the daemon state directory
 (`~/Library/Application Support/Agents-Core/<id>/signing/`, mode `0700`). It never
 goes into the library and never syncs.
+
+Each trust store entry records the seal kind its key may sign: `release` or
+`library`. A release seal verifies only with a pinned key of kind `release`, and a
+library seal only with a key of kind `library`. A machine key trusted for library
+seals can therefore never pass as a release key, and a release key never signs a
+library file.
 
 ### 7.1 Release keys
 
@@ -201,16 +220,21 @@ The loaders are `src/utils/prompt_loader.py`, `src/engine/rules.py`,
 2. finds the covering seal: the release seal for installation paths, or
    `.seals/<path>.oms.sig` for library paths;
 3. verifies the seal in this order:
-   1. the `hint` names a trusted key;
-   2. the signature is valid;
+   1. the `hint` names a key in the trust store whose kind matches the seal (§7);
+      the bundle carries only this fingerprint, so without such a key the
+      signature cannot be checked, and the result is `untrusted`;
+   2. the signature is valid with that key;
    3. the subject digest matches the resources;
    4. the extension follows §6;
    5. the resource `name` equals `relative_path`;
 4. compares the resource digest with the SHA-256 of the bytes from step 1;
 5. returns those same bytes, so nothing is re-read after the check.
 
-Verified seals are cached by the SHA-256 of the seal file. A test fails when a
-loader reads an instruction path without `trusted_read`.
+Verified seals are cached by the SHA-256 of the seal file together with the trust
+store's revision, which every change to the store (a key added, removed or given
+another kind) advances. A key's removal thus takes effect at the next read, never
+through a cached `valid`. A test fails when a loader reads an instruction path
+without `trusted_read`.
 
 A verification has one of these results:
 
@@ -219,7 +243,7 @@ A verification has one of these results:
 | `valid` | Every check passed |
 | `unsigned` | No seal exists, or the seal does not cover the path |
 | `tampered` | The digest of the bytes does not match the sealed digest |
-| `untrusted` | The signature is valid, but the key is not in the trust store |
+| `untrusted` | The seal names a key that the trust store does not hold for its kind. Without the key the signature is not checked, so `untrusted` says nothing about it |
 | `invalid` | The seal is malformed, the signature fails, or the extension breaks §6 |
 
 What happens when the result is not `valid` and developer mode is off (the default):
