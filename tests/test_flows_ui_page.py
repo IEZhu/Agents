@@ -121,7 +121,7 @@ def test_only_the_list_and_the_detail_pane_scroll():
 
 # The open item's controls, moved from the row beside its title into the header (issue #163).
 ITEM_CONTROLS = ("e-seg", "e-toc", "history", "toggle-upstream", "copy-user", "copy-repo", "delete", "save",
-                 "c-seg", "c-toc", "c-toggle")
+                 "c-seg", "c-toc", "c-toggle", "h-seg", "h-toc", "h-file")
 
 
 def test_the_open_items_controls_sit_in_the_header_between_the_version_and_the_tabs():
@@ -187,7 +187,7 @@ def test_the_header_gives_each_place_its_layout():
     assert {"flex": "1 1 0", "min-width": "0", "justify-content": "flex-end"}.items() <= top["#item-actions"].items()
     assert top["#history"] == {"width": "8em"}
     assert top["#tabs"] == {"flex-wrap": "wrap"}
-    assert top["#e-actions, #c-actions"]["flex-wrap"] == "nowrap"  # measured on one line
+    assert top["#e-actions, #c-actions, #h-actions"]["flex-wrap"] == "nowrap"  # measured on one line
     # Labels never wrap, so the group cannot shrink below the width it needs while it is measured.
     assert top["#item-actions button, #item-actions select"] == {"padding": "4px 6px", "white-space": "nowrap"}
     # In its own row a tab starts right of the pane's rounded corner and of its own joint: on the
@@ -206,7 +206,7 @@ def test_the_header_gives_each_place_its_layout():
     joints = ", ".join(f"{place(name)} > div::{side}" for name in ("inline", "stack") for side in ("before", "after"))
     assert top[f'{joints}, {place("row")} > div::after'] == {"display": "none"}
     # In its own row the tab continues the pane's right edge.
-    assert top['#main[data-place="row"] > #editor, #main[data-place="row"] > #component'] == {
+    assert top['#main[data-place="row"] > #editor, #main[data-place="row"] > #component, #main[data-place="row"] > #hist'] == {
         "border-top-right-radius": "0"}
 
 
@@ -215,7 +215,7 @@ def test_the_group_ends_at_the_divider_as_the_tab_of_the_items_pane():
     css = css_rules(page_parts()[2])
     top = css[""]
     assert top["#item-actions:not(.hidden) + #tabs"] == {"border-left": "1px solid var(--line)", "padding-left": "8px"}
-    tab = top["#e-actions, #c-actions"]
+    tab = top["#e-actions, #c-actions, #h-actions"]
     assert {"justify-content": "flex-end", "background": "var(--tint)",
             "border-radius": "var(--r-tab) var(--r-tab) 0 0"}.items() <= tab.items()
     # The tab's padding matches the other header items' margins: it reaches down to the pane where they
@@ -226,10 +226,10 @@ def test_the_group_ends_at_the_divider_as_the_tab_of_the_items_pane():
     # New flow, the list, the welcome pane and the sign-in screen keep the normal colors.
     tinted = {selector for media in css.values() for selector, rule in media.items()
               if any("var(--tint)" in value for value in rule.values())}
-    assert tinted == {"#e-actions, #c-actions", "#e-actions::before, #c-actions::before",
-                      "#e-actions::after, #c-actions::after", "#editor, #component"}
+    assert tinted == {"#e-actions, #c-actions, #h-actions", "#e-actions::before, #c-actions::before, #h-actions::before",
+                      "#e-actions::after, #c-actions::after, #h-actions::after", "#editor, #component, #hist"}
     # Forced colors replace the tint and the bars; an outline keeps the shapes.
-    assert top["nav, main > section, #e-actions, #c-actions, .list-tabs button.active::after"] == {
+    assert top["nav, main > section, #e-actions, #c-actions, #h-actions, .list-tabs button.active::after"] == {
         "outline": "1px solid transparent", "outline-offset": "-1px"}
     # In the narrow layout the list sits between the header and the pane, and wrapped header rows
     # stay close; the "stack" place shapes the tab.
@@ -646,7 +646,8 @@ def agents():
 def test_the_agents_tab_comes_right_after_flows():
     html, _, _ = page_parts()
     assert re.findall(r'<button data-tab="([a-z]+)"[^>]*>([A-Za-z]+)</button>', html) == [
-        ("flows", "Flows"), ("agents", "Agents"), ("rules", "Rules"), ("skills", "Skills"), ("implants", "Implants")]
+        ("flows", "Flows"), ("agents", "Agents"), ("rules", "Rules"), ("skills", "Skills"), ("implants", "Implants"),
+        ("history", "History")]
 
 
 def test_the_agents_tab_lists_display_names_with_their_roles_in_id_order(agents):
@@ -733,10 +734,11 @@ def test_the_chip_opens_the_sync_page_in_place_of_the_list_and_a_tab_leaves_it()
     result = run_sync("sync_chip")
     opened = result["opened"]
     assert opened["page_shown"] and opened["main_hidden"] and opened["chip"]["pressed"] == "true"
-    assert opened["tabs"] == ["false"] * 5 and opened["title_focused"] == 1
+    assert opened["tabs"] == ["false"] * 6 and opened["title_focused"] == 1
     assert result["closed"] == {"chip": {**opened["chip"], "pressed": "false"}, "page_hidden": True, "main_hidden": False,
-                                "tabs": ["true", "false", "false", "false", "false"]}
-    assert result["tab"] == {"page_hidden": True, "main_hidden": False, "tabs": ["false", "false", "true", "false", "false"]}
+                                "tabs": ["true", "false", "false", "false", "false", "false"]}
+    assert result["tab"] == {"page_hidden": True, "main_hidden": False,
+                             "tabs": ["false", "false", "true", "false", "false", "false"]}
 
 
 def test_the_status_is_polled_every_30_seconds_only_while_the_tab_is_visible():
@@ -1089,7 +1091,7 @@ def test_the_page_polls_the_statistics_and_reads_the_overview_when_it_opens(land
 @pytest.mark.parametrize("scenario", ["landing", "landing_stored_off"])
 def test_every_tab_leaves_the_landing_page_and_the_version_opens_it_again(scenario):
     tabs = run(scenario)["tabs"]
-    assert [entry["tab"] for entry in tabs] == ["flows", "agents", "rules", "skills", "implants"]
+    assert [entry["tab"] for entry in tabs] == ["flows", "agents", "rules", "skills", "implants", "history"]
     assert all(entry["left"] and entry["back"] for entry in tabs), tabs
 
 
@@ -1126,3 +1128,84 @@ def test_the_landing_page_keeps_still_under_reduced_motion_and_stacks_on_narrow_
     assert re.search(r"\.card \{[^}]*border-radius: var\(--r-card\)", style)
     assert re.search(r"@media \(prefers-reduced-motion: reduce\) \{ \.diagram \.step \{ transition: none; \} \}", style)
     assert re.search(r"@media \(max-width: 760px\) \{ #landing-grid, \.tops \{ grid-template-columns: minmax\(0, 1fr\); \} \}", style)
+
+
+# --- History (#189) -------------------------------------------------------------------------------
+
+@pytest.fixture(scope="module")
+def history():
+    return run("history")
+
+
+def test_the_history_tab_lists_repositories_most_recent_first_with_their_age(history):
+    assert history["list"] == {"list": ["History (3)", "agents", "project-a", "gone"], "count": "", "query": ""}
+    assert history["chips"] == [["2m"], ["3h"], ["unavailable"]]
+
+
+def test_a_history_opens_like_a_flow_newest_first_with_its_files(history):
+    assert history["pane"] == {"hist": True, "welcome": False, "h_actions": True, "group_pane": "hist", "title": "agents",
+                               "meta": "/code/agents · 45 entries · 585.9 KiB", "seg": ["true", "false"]}
+    assert history["files"] == [["history.md · 45", "current"], ["history/2026-09.md · 2", "2026-09"]]
+    assert history["rendered"] == 20 and history["more"] == "Show earlier entries (25 more)"
+    (heading, meta, body), second = history["first"]
+    assert re.fullmatch(r"\d\d\.\d\d 12:00 · ux_designer · keep", heading) and second[0].endswith(" · lawyer · keep")
+    assert meta.endswith(" · 000000000001") and "Outcome: answer 1" in body and "Tags: #t" in body
+
+
+def test_contents_list_every_entry_grouped_by_day(history):
+    assert history["toc_entries"] == 45
+    toc = history["toc"]
+    assert toc[:4] == ["md-toc-item md-l1 h-day:Today", "md-toc-item md-l2:12:00 ux_designer",
+                       "md-toc-item md-l2:11:00 lawyer", "md-toc-item md-l1 h-day:Yesterday"]
+    assert re.fullmatch(r"md-toc-item md-l1 h-day:\d\d\.\d\d\.\d{4}", toc[5])
+
+
+def test_earlier_entries_load_in_portions_as_the_reader_scrolls_or_picks_them(history):
+    assert history["after_scroll"] == {"rendered": 40, "more": "Show earlier entries (5 more)"}
+    assert history["after_contents"] == {"rendered": 45, "scrolled": 1, "more_hidden": True}
+    assert history["reads"][:3] == ["/ui/api/history?workspace=w-1&limit=20",
+                                    "/ui/api/history?workspace=w-1&file=current&before=25&limit=20",
+                                    "/ui/api/history?workspace=w-1&file=current&before=5&limit=5"]
+
+
+def test_source_shows_the_file_and_the_select_opens_an_archive(history):
+    assert history["source"] == {"value": "---\nrepo: x\n---\nraw current", "label": "history.md (read-only)",
+                                 "shown": True, "rendered_hidden": True}
+    assert history["archive"]["rendered"] == 2 and history["archive"]["toc_entries"] == 2
+    assert history["reads"][3] == "/ui/api/history?workspace=w-1&limit=20&file=2026-09"
+
+
+def test_the_search_matches_names_here_and_entry_text_on_the_server(history):
+    assert history["search_name"] == {"list": ["History (3)", "project-a"], "count": "1 of 3", "query": "proj"}
+    assert history["search_pending"]["list"] == ["History (3)", "Searching…"]
+    assert history["search_text"] == {"list": ["History (3)", "project-a [in text]"], "count": "1 of 3", "query": "needle"}
+
+
+def test_a_repository_whose_directory_is_gone_says_so(history):
+    assert history["gone"] == {"title": "gone", "notice": "This repository's directory is gone, so its history cannot be read.",
+                               "notice_hidden": False, "seg_hidden": True, "file_hidden": True, "rendered_hidden": True}
+
+
+def test_a_link_opens_the_repository_at_its_entry(history):
+    assert history["link"] == {"rendered": 31, "scrolled": 1, "title": "agents"}
+    assert history["reads"][-1] == "/ui/api/history?workspace=w-1&limit=20&entry=00000000001f"
+
+
+def test_delete_entry_asks_naming_the_entry_then_shows_the_file_again(history):
+    delete = history["delete"]
+    assert re.fullmatch(r"Delete the entry \d\d\.\d\d 12:00 · ux_designer · keep \(000000000001\) from history\.md\? "
+                        r"It cannot be undone from this page\.", delete["confirm"])
+    assert [(post["workspace"], post["file"], post["entry"]) for post in delete["posted"]] == [("w-1", "current", "000000000001")]
+    assert delete["posted"][0]["time"].endswith("Z")
+    assert delete["repos_read_again"] == 1 and delete["reread"] == "/ui/api/history?workspace=w-1&limit=20&file=current"
+    assert delete["rendered"] == 20 and delete["first"].endswith(" · lawyer · keep") and "44 entries" in delete["meta"]
+
+
+def test_the_landing_pages_answers_link_to_their_entries(landing):
+    # The diagram's line runs the three newest answers, oldest first, and links the one it shows; a link
+    # carries the entry's time too, as ids repeat.
+    link = r"#history/w-1/00000000000{}/\d{{4}}-\d\d-\d\dT\d\d%3A\d\d%3A\d\d\.\d+Z"
+    [shown] = landing["event_links"]
+    assert re.fullmatch(link.format(3), shown)
+    reduced = run("landing_reduced")["event_links"]
+    assert len(reduced) == 4 and all(re.fullmatch(link.format(n + 1), href) for n, href in enumerate(reduced))
