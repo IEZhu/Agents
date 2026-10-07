@@ -61,15 +61,15 @@ header h1 { font-size: 16px; line-height: 18px; margin: 0; white-space: nowrap; 
    divider. The group is the tab of the item's pane: one tint, and it reaches down to the pane. */
 #item-actions { flex: 1 1 0; min-width: 0; display: flex; justify-content: flex-end; margin: 0; }
 #item-actions:not(.hidden) + #tabs { border-left: 1px solid var(--line); padding-left: 8px; }
-#e-actions, #c-actions { position: relative; display: flex; flex-wrap: nowrap; justify-content: flex-end;
+#e-actions, #c-actions, #h-actions { position: relative; display: flex; flex-wrap: nowrap; justify-content: flex-end;
   gap: 3px; align-items: center; padding: 8px 8px var(--edge); background: var(--tint);
   border-radius: var(--r-tab) var(--r-tab) 0 0; }
 /* Concave joints round the corners where the tab meets the pane. */
-#e-actions::before, #e-actions::after, #c-actions::before, #c-actions::after {
+#e-actions::before, #e-actions::after, #c-actions::before, #c-actions::after, #h-actions::before, #h-actions::after {
   content: ""; position: absolute; bottom: 0; width: var(--r-joint); height: var(--r-joint); }
-#e-actions::before, #c-actions::before { right: 100%;
+#e-actions::before, #c-actions::before, #h-actions::before { right: 100%;
   background: radial-gradient(circle at 0 0, transparent calc(var(--r-joint) - .5px), var(--tint) var(--r-joint)); }
-#e-actions::after, #c-actions::after { left: 100%;
+#e-actions::after, #c-actions::after, #h-actions::after { left: 100%;
   background: radial-gradient(circle at 100% 0, transparent calc(var(--r-joint) - .5px), var(--tint) var(--r-joint)); }
 /* Labels never wrap: the group cannot shrink below one line, so its measured width is the width it
    needs, and in its own row whole buttons wrap. */
@@ -94,7 +94,8 @@ header h1 { font-size: 16px; line-height: 18px; margin: 0; white-space: nowrap; 
 #item-actions[data-place="inline"] > div::before, #item-actions[data-place="inline"] > div::after,
 #item-actions[data-place="stack"] > div::before, #item-actions[data-place="stack"] > div::after,
 #item-actions[data-place="row"] > div::after { display: none; }
-#main[data-place="row"] > #editor, #main[data-place="row"] > #component { border-top-right-radius: 0; }
+#main[data-place="row"] > #editor, #main[data-place="row"] > #component, #main[data-place="row"] > #hist {
+  border-top-right-radius: 0; }
 .item-title { overflow-wrap: anywhere; }
 select, input, button, textarea { font: inherit; color: inherit; }
 select, input { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-field); padding: 5px 8px; }
@@ -108,9 +109,9 @@ main { display: grid; grid-template-columns: var(--list-width) minmax(0, 1fr); g
 main > section { overflow-y: auto; min-height: 0; padding: 10px; border-radius: var(--r-block); background: var(--panel); }
 /* Forced colors replace backgrounds; an outline, transparent otherwise, keeps the shapes of the panels, the
    item tab and the bar under the shown list tab. */
-nav, main > section, #e-actions, #c-actions, .list-tabs button.active::after {
+nav, main > section, #e-actions, #c-actions, #h-actions, .list-tabs button.active::after {
   outline: 1px solid transparent; outline-offset: -1px; }
-#editor, #component { background: var(--tint); }
+#editor, #component, #hist { background: var(--tint); }
 #signin { overflow-y: auto; padding: 16px var(--edge); }
 nav { background: var(--panel); border-radius: var(--r-list); display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
 /* The match count sits at the field's right end, so the list starts as far below the field as the
@@ -168,6 +169,11 @@ textarea[readonly] { color: var(--muted); }
 .mdview { position: relative; display: grid; grid-template-columns: 15rem minmax(0, 1fr); grid-template-rows: minmax(0, 1fr);
   gap: 16px; flex: 1; min-height: 12rem; overflow: hidden; }
 .mdview.no-toc, .mdview.toc-hidden { grid-template-columns: minmax(0, 1fr); }
+/* History (#189): one entry under its heading; the day groups of its contents. */
+.h-entry { padding-bottom: 10px; margin-bottom: 14px; border-bottom: 1px solid var(--line); }
+.h-entry > h2 { border-bottom: 0; margin-bottom: 2px; }
+.h-entry > .meta { margin-bottom: 6px; }
+.md-toc-item.h-day { font-weight: 600; }
 .md-toc, .md { min-height: 0; overflow-y: auto; }
 .md-toc { border: 1px solid var(--line); border-radius: var(--r-toc); background: var(--panel); padding: 8px; }
 .md-toc-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
@@ -352,6 +358,11 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
       <button id="c-toc" class="hidden" aria-pressed="false">Contents</button>
       <button id="c-toggle" class="primary"></button>
     </div>
+    <div id="h-actions" class="hidden">
+      <div id="h-seg" class="seg inline" role="group" aria-label="History view"></div>
+      <button id="h-toc" class="hidden" aria-pressed="false">Contents</button>
+      <select id="h-file" title="History files"></select>
+    </div>
   </div>
   <div class="tabs" id="tabs" role="group" aria-label="Settings sections">
     <button data-tab="flows" class="active" aria-pressed="true">Flows</button>
@@ -359,6 +370,7 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
     <button data-tab="rules" aria-pressed="false">Rules</button>
     <button data-tab="skills" aria-pressed="false">Skills</button>
     <button data-tab="implants" aria-pressed="false">Implants</button>
+    <button data-tab="history" aria-pressed="false">History</button>
   </div>
   <button id="new">New flow</button>
 </header>
@@ -379,6 +391,12 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
     <div id="c-warning" class="notice hidden"></div>
     <div id="c-notice" class="notice">Changes apply to the next bundle the server builds: a new conversation, a switch to another agent, a restore, or a refresh whose revision changed. Conversations that are already active keep their current bundle. Files are never changed.</div>
     <div class="pane hidden" id="c-source"><label for="c-body">Body (read-only)</label><textarea id="c-body" readonly spellcheck="false"></textarea></div>
+  </section>
+  <section id="hist" class="hidden detail">
+    <strong id="h-title" class="item-title"></strong>
+    <div id="h-meta" class="meta"></div>
+    <div id="h-notice" class="notice hidden" role="status"></div>
+    <div class="pane hidden" id="h-source"><label for="h-text" id="h-source-label">Source (read-only)</label><textarea id="h-text" readonly spellcheck="false"></textarea></div>
   </section>
   <section id="editor" class="hidden">
     <strong id="title" class="item-title"></strong>
@@ -435,7 +453,7 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
 const $ = (id) => document.getElementById(id);
 const state = { tab: "flows", category: "user", flows: [], repos: [], current: null, draft: null, dirty: false,
   upstream: null, items: [], item: null, workspaces: null, pending: null, gen: 0,
-  queries: { flows: "", agents: "", rules: "", skills: "", implants: "" },
+  queries: { flows: "", agents: "", rules: "", skills: "", implants: "", history: "" },
   loadedTab: null,  // the tab whose list is on screen; null while a tab loads
   signedOut: false };
 // Library sync (#170): the last status, the Sync page, its wizard and the GitHub sign-in in progress.
@@ -602,12 +620,14 @@ const agentText = (agent) => [agent.role, ...(agent.domain_keywords || []), agen
 function refreshList() {
   if (state.loadedTab !== state.tab) return;  // the list of this tab is still loading
   if (state.tab === "flows") renderList();
+  else if (state.tab === "history") renderHistoryList();
   else renderComponentList(state.tab);
 }
 
 function setQuery(value) {
   state.queries[state.tab] = value;
   $("items").scrollTop = 0;  // a new query starts at its best match
+  if (state.tab === "history") scheduleHistorySearch();
   refreshList();
 }
 
@@ -738,7 +758,8 @@ function renderHistory(versions) {
 
 // Each detail pane: the header controls that act on its item and the title that names the item.
 // The welcome pane has neither.
-const PANES = { editor: { actions: "e-actions", title: "title" }, component: { actions: "c-actions", title: "c-title" } };
+const PANES = { editor: { actions: "e-actions", title: "title" }, component: { actions: "c-actions", title: "c-title" },
+  hist: { actions: "h-actions", title: "h-title" } };
 // Shows one pane with its controls in the header. Signed out, the controls stay hidden, so a
 // response that arrives after the sign-in screen showed cannot reveal them.
 function showPane(pane) {
@@ -1413,8 +1434,9 @@ function setToc(hidden) {
   for (const view of mdViews) view.apply();
 }
 
-// A view lives inside `section`; `button` is its "Contents" control in the header.
-function createMdView(id, section, button) {
+// A view's frame lives inside `section`: the document, its contents panel and the controls that hide
+// the panel; `button` is its "Contents" control in the header. `hasToc` says whether the panel has entries.
+function mdFrame(id, section, button) {
   const root = mdEl("div", "mdview hidden", section);
   root.setAttribute("id", id);
   mdEl("div", "md-edge", root).setAttribute("aria-hidden", "true");
@@ -1422,9 +1444,9 @@ function createMdView(id, section, button) {
   toc.setAttribute("aria-label", "Contents");
   mdText("Contents", mdEl("strong", "grow", head));
   const hide = mdEl("button", "md-toc-hide", head), list = mdEl("div", "md-toc-list", toc), doc = mdEl("article", "md", root);
-  const view = { root, doc, text: null, headings: [], shown: false };
+  const view = { root, doc, list, hasToc: false, shown: false };
   view.apply = () => {
-    const has = view.headings.length > 0;
+    const has = view.hasToc;
     root.classList.toggle("no-toc", !has);
     root.classList.toggle("toc-hidden", state.tocHidden);
     if (!state.tocHidden) root.classList.remove("toc-dismissed");
@@ -1432,23 +1454,6 @@ function createMdView(id, section, button) {
     button.classList.toggle("hidden", !(has && view.shown));
     button.setAttribute("aria-pressed", String(has && !state.tocHidden));
     schedulePlacement();  // "Contents" changes the group's width
-  };
-  view.show = (text) => {
-    view.shown = true;
-    root.classList.remove("hidden");
-    if (view.text !== text) {
-      view.text = text;
-      view.headings = renderMarkdown(text, doc).headings.filter((h) => h.level <= 4 && h.text);
-      const top = view.headings.reduce((low, h) => Math.min(low, h.level), 6);
-      list.replaceChildren();
-      for (const h of view.headings) {
-        const item = mdEl("button", "md-toc-item md-l" + (h.level - top + 1), list);
-        item.textContent = h.text;
-        item.addEventListener("click", () => h.el.scrollIntoView({ block: "start" }));
-      }
-      doc.scrollTop = 0;
-    }
-    view.apply();
   };
   view.close = () => { view.shown = false; root.classList.add("hidden"); view.apply(); };
   hide.addEventListener("click", () => {
@@ -1463,6 +1468,32 @@ function createMdView(id, section, button) {
   });
   button.addEventListener("click", () => setToc(!state.tocHidden));
   mdViews.push(view);
+  return view;
+}
+
+// A Markdown document; its contents list the headings down to level 4.
+function createMdView(id, section, button) {
+  const view = mdFrame(id, section, button);
+  view.text = null;
+  view.headings = [];
+  view.show = (text) => {
+    view.shown = true;
+    view.root.classList.remove("hidden");
+    if (view.text !== text) {
+      view.text = text;
+      view.headings = renderMarkdown(text, view.doc).headings.filter((h) => h.level <= 4 && h.text);
+      view.hasToc = view.headings.length > 0;
+      const top = view.headings.reduce((low, h) => Math.min(low, h.level), 6);
+      view.list.replaceChildren();
+      for (const h of view.headings) {
+        const item = mdEl("button", "md-toc-item md-l" + (h.level - top + 1), view.list);
+        item.textContent = h.text;
+        item.addEventListener("click", () => h.el.scrollIntoView({ block: "start" }));
+      }
+      view.doc.scrollTop = 0;
+    }
+    view.apply();
+  };
   return view;
 }
 
@@ -1754,6 +1785,307 @@ async function toggleItem() {
   } catch (error) { alert(error.message); }
 }
 $("c-toggle").addEventListener("click", toggleItem);
+
+// --- History (#189): each registered repository's history.md and its archives ------------------
+//
+// The list shows the repositories that have a history, the most recent first; the search filters
+// them by name here and by entry text on the server. An open history reads like a flow: Rendered
+// shows its entries newest first, a portion at a time as the reader scrolls, Contents lists every
+// entry by day, and Source shows the file as it is. `#history/<workspace>/<entry id>` opens an entry.
+
+const HISTORY_PORTION = 20;
+const HISTORY_MAX_PORTION = 200;  // the server's largest portion
+const HISTORY_SEARCH_MS = 250;
+const historyState = { gen: 0, repos: [], matches: null, matchQuery: null, searchTimer: null, repo: null,
+  data: null, entries: [], view: "rendered", source: null, loading: false };
+
+const entryCount = (count) => count + (count === 1 ? " entry" : " entries");
+const historyFileLabel = (file) => (file === "current" ? "history.md" : "history/" + file + ".md");
+const historyFailed = (error) => { if (!error.signedOut) alert(error.message); };
+
+// "now", "2m", "3h", "1d": how long ago `iso` was.
+function shortAge(iso, now = Date.now()) {
+  const time = Date.parse(iso);
+  if (!Number.isFinite(time)) return "";
+  const seconds = Math.max(0, (now - time) / 1000);
+  if (seconds < 60) return "now";
+  if (seconds < 3600) return Math.floor(seconds / 60) + "m";
+  if (seconds < 86400) return Math.floor(seconds / 3600) + "h";
+  return Math.floor(seconds / 86400) + "d";
+}
+
+// "Today", "Yesterday", else "04.10.2026": the local day of `iso`, for the contents.
+function historyDay(iso, now = new Date()) {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "Unknown day";
+  const key = (day) => day.getFullYear() + "-" + day.getMonth() + "-" + day.getDate();
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  if (key(date) === key(now)) return "Today";
+  if (key(date) === key(yesterday)) return "Yesterday";
+  return pad2(date.getDate()) + "." + pad2(date.getMonth() + 1) + "." + date.getFullYear();
+}
+
+// "04.10 12:58 · ux_designer · keep": an entry's local time, its agent and the persona action.
+function historyHeading(entry) {
+  const date = new Date(entry.timestamp);
+  const when = Number.isNaN(date.getTime()) ? entry.timestamp
+    : pad2(date.getDate()) + "." + pad2(date.getMonth() + 1) + " " + clockTime(entry.timestamp);
+  return [when, entry.agent, entry.persona_action].filter(Boolean).join(" · ");
+}
+
+// Intent, Action, Outcome, Files, Tags and Meta as Markdown; the writer keeps each on one line.
+function historyMarkdown(entry) {
+  return [["Intent", entry.intent], ["Action", entry.action], ["Outcome", entry.outcome],
+    ["Files", (entry.files || []).join(", ")], ["Tags", (entry.tags || []).join(" ")],
+    ["Meta", entry.metadata ? JSON.stringify(entry.metadata) : ""]]
+    .filter(([, value]) => value).map(([name, value]) => "**" + name + ":** " + value).join("\n\n");
+}
+
+async function loadHistoryRepos() {
+  const gen = ++state.gen;
+  const data = await api("/ui/api/history/repos");
+  if (state.tab !== "history" || gen !== state.gen) return;  // superseded while loading
+  historyState.repos = data.repos;
+  state.loadedTab = "history";
+  renderHistoryList();
+}
+
+function renderHistoryList() {
+  const query = state.queries.history, terms = searchTerms(query), repos = historyState.repos;
+  const matches = terms.length && historyState.matchQuery === query ? historyState.matches : null;
+  const byName = [], byText = [];
+  for (const repo of repos) {
+    const name = (repo.name + "\n" + repo.root).toLowerCase();
+    if (terms.every((term) => name.includes(term))) byName.push({ repo, textOnly: false });
+    else if (matches && matches.has(repo.workspace)) byText.push({ repo, textOnly: true });
+  }
+  const shown = byName.concat(byText);
+  rebuildList((nav) => {
+    heading(nav, "History (" + repos.length + ")");
+    if (!repos.length) empty(nav, "No repository has a history yet");
+    else if (!shown.length) empty(nav, terms.length && !matches ? "Searching…" : "No matches");
+    for (const { repo, textOnly } of shown) {
+      const button = document.createElement("button");
+      button.className = "item" + (historyState.repo === repo.workspace ? " active" : "");
+      button.textContent = repo.name;
+      if (repo.newest) addChip(button, shortAge(repo.newest));
+      if (!repo.available) addChip(button, "unavailable", "off");
+      if (textOnly) addChip(button, "in text");
+      const small = document.createElement("small");
+      small.textContent = repo.root;
+      button.appendChild(small);
+      button.addEventListener("click", () => openHistory(repo.workspace).catch(historyFailed));
+      nav.appendChild(button);
+    }
+  });
+  showCount(shown.length, repos.length, query);
+}
+
+// The entry text search runs on the server, a moment after the last key.
+function scheduleHistorySearch() {
+  clearTimeout(historyState.searchTimer);
+  const query = state.queries.history;
+  if (!searchTerms(query).length) {
+    historyState.matches = historyState.matchQuery = null;
+    return;
+  }
+  historyState.searchTimer = setTimeout(async () => {
+    try {
+      const data = await api("/ui/api/history/search?q=" + encodeURIComponent(query));
+      if (state.queries.history !== query) return;  // the query changed meanwhile
+      historyState.matches = new Map(data.repos.map((repo) => [repo.workspace, repo.matches]));
+      historyState.matchQuery = query;
+      if (state.tab === "history") refreshList();
+    } catch (error) { historyFailed(error); }
+  }, HISTORY_SEARCH_MS);
+}
+
+// Opens a repository's history: `file` defaults to history.md, `entry` opens the file that holds it.
+async function openHistory(workspace, file, entry) {
+  const gen = ++historyState.gen;
+  const repo = historyState.repos.find((item) => item.workspace === workspace) || null;
+  historyState.repo = workspace;
+  historyState.loading = false;
+  renderHistoryList();
+  if (repo && !repo.available) {
+    historyState.data = null;
+    historyState.entries = [];
+    showHistory(repo);
+    return;
+  }
+  const params = new URLSearchParams({ workspace, limit: String(HISTORY_PORTION) });
+  if (file) params.set("file", file);
+  if (entry) params.set("entry", entry);
+  const data = await api("/ui/api/history?" + params);
+  if (gen !== historyState.gen || state.tab !== "history") return;  // superseded while loading
+  historyState.data = data;
+  historyState.entries = data.entries;
+  historyState.source = null;
+  showHistory(repo || { name: data.name, root: data.root, available: true, files: [] });
+  if (data.focus !== undefined) historyView.focus(data.focus);
+}
+
+function showHistory(repo) {
+  const data = historyState.data;
+  showPane("hist");
+  $("h-title").textContent = repo.name;
+  $("h-meta").textContent = data ? [data.root, entryCount(data.total), bytes(data.bytes)].join(" · ") : repo.root;
+  const notice = $("h-notice");
+  notice.textContent = data ? "" : "This repository's directory is gone, so its history cannot be read.";
+  notice.classList.toggle("hidden", !!data);
+  $("h-seg").classList.toggle("hidden", !data);
+  const select = $("h-file");
+  select.replaceChildren();
+  select.classList.toggle("hidden", !data);
+  if (data) {
+    const counts = new Map((repo.files || []).map((item) => [item.file, item.entries]));
+    for (const file of data.files) {
+      const count = counts.get(file);
+      select.appendChild(new Option(historyFileLabel(file) + (count == null ? "" : " · " + count), file));
+    }
+    select.value = data.file;
+  }
+  setHistoryView(data ? historyState.view : null);
+}
+
+function setHistoryView(view) {
+  if (view) historyState.view = view;
+  const data = historyState.data, shown = view && data ? view : null;
+  markSeg($("h-seg"), historyState.view);
+  $("h-source").classList.toggle("hidden", shown !== "source");
+  if (shown === "rendered") historyView.show(data, historyState.entries);
+  else historyView.close();
+  if (shown === "source") loadHistorySource().catch(historyFailed);
+}
+
+// Source: the file as it is, oldest first, read when first shown.
+async function loadHistorySource() {
+  const data = historyState.data, gen = historyState.gen;
+  $("h-source-label").textContent = historyFileLabel(data.file) + " (read-only)";
+  if (historyState.source !== null) {
+    $("h-text").value = historyState.source;
+    return;
+  }
+  $("h-text").value = "Loading…";
+  const source = await api("/ui/api/history/source?" + new URLSearchParams({ workspace: data.workspace, file: data.file }));
+  if (gen !== historyState.gen) return;
+  historyState.source = source.text;
+  if (historyState.view === "source") $("h-text").value = source.text;
+}
+
+// Reads further portions until `until` (a position, newest first) is loaded, or one more portion.
+async function loadMoreHistory(until) {
+  const data = historyState.data, gen = historyState.gen;
+  if (!data || historyState.loading) return;
+  const wanted = Math.min(until === undefined ? historyState.entries.length + HISTORY_PORTION : until + 1, data.total);
+  if (historyState.entries.length >= wanted) return;
+  historyState.loading = true;
+  try {
+    while (historyState.entries.length < wanted) {
+      const offset = historyState.entries.length;
+      const more = await api("/ui/api/history?" + new URLSearchParams({ workspace: data.workspace, file: data.file,
+        offset: String(offset), limit: String(Math.min(HISTORY_MAX_PORTION, wanted - offset)) }));
+      if (gen !== historyState.gen) return;  // another history opened meanwhile
+      if (!more.entries.length) break;
+      historyState.entries = historyState.entries.concat(more.entries);
+      historyView.append(more.entries);
+    }
+  } finally {
+    if (gen === historyState.gen) historyState.loading = false;
+  }
+}
+
+async function goToHistoryEntry(position) {
+  if (historyState.view !== "rendered") setHistoryView("rendered");
+  await loadMoreHistory(position);
+  historyView.focus(position);
+}
+
+// Rendered: the entries newest first, a portion at a time; Contents: every entry of the file by day.
+function createHistoryView(id, section, button) {
+  const view = mdFrame(id, section, button);
+  view.data = null;
+  view.nodes = [];  // the rendered entries, newest first
+  view.show = (data, entries) => {
+    view.shown = true;
+    view.root.classList.remove("hidden");
+    if (view.data !== data) {
+      view.data = data;
+      view.nodes = [];
+      view.doc.replaceChildren();
+      view.entries = mdEl("div", "h-entries", view.doc);
+      view.more = mdEl("button", "h-more", view.doc);
+      view.more.addEventListener("click", () => loadMoreHistory().catch(historyFailed));
+      view.list.replaceChildren();
+      let day = null;
+      (data.index || []).forEach((item, position) => {
+        const label = historyDay(item.timestamp);
+        if (label !== day) {
+          day = label;
+          const group = mdEl("button", "md-toc-item md-l1 h-day", view.list);
+          group.textContent = label;
+          group.addEventListener("click", () => goToHistoryEntry(position).catch(historyFailed));
+        }
+        const link = mdEl("button", "md-toc-item md-l2", view.list);
+        link.textContent = clockTime(item.timestamp) + " " + item.agent;
+        link.addEventListener("click", () => goToHistoryEntry(position).catch(historyFailed));
+      });
+      view.hasToc = (data.index || []).length > 0;
+      view.append(entries);
+      view.doc.scrollTop = 0;
+    }
+    view.apply();
+  };
+  view.append = (entries) => {
+    for (const entry of entries) {
+      const host = mdEl("section", "h-entry", view.entries);
+      mdText(historyHeading(entry), mdEl("h2", "", host));
+      mdText([entry.timestamp, entry.id, entry.machine].filter(Boolean).join(" · "), mdEl("div", "meta", host));
+      renderMarkdown(historyMarkdown(entry), mdEl("div", "", host));
+      view.nodes.push(host);
+    }
+    const left = view.data ? view.data.total - view.nodes.length : 0;
+    view.more.textContent = left > 0 ? "Show earlier entries (" + left + " more)" : "";
+    view.more.classList.toggle("hidden", left <= 0);
+  };
+  view.focus = (position) => {
+    const target = view.nodes[position];
+    if (target) target.scrollIntoView({ block: "start" });
+  };
+  // Near the end of what is loaded, the next portion loads by itself.
+  view.doc.addEventListener("scroll", () => {
+    const doc = view.doc;
+    if (doc.scrollTop + doc.clientHeight >= doc.scrollHeight - 600) loadMoreHistory().catch(historyFailed);
+  });
+  return view;
+}
+
+const historyView = createHistoryView("h-view", $("hist"), $("h-toc"));
+buildSeg($("h-seg"), setHistoryView);
+markSeg($("h-seg"), "rendered");
+$("h-file").addEventListener("change", (event) => {
+  if (historyState.repo) openHistory(historyState.repo, event.target.value).catch(historyFailed);
+});
+
+// `#history/<workspace>[/<entry id>]`, as the landing page's answers link here.
+function historyLink(hash) {
+  const match = /^#history\/([^/]+)(?:\/([0-9a-f]{12}))?$/.exec(hash || "");
+  return match ? { workspace: decodeURIComponent(match[1]), entry: match[2] || null } : null;
+}
+
+async function openHistoryLink(link) {
+  history.replaceState(null, "", location.pathname);  // the same link opens it again
+  hideSyncPage();
+  hideLanding();
+  if (state.tab !== "history") await showTab("history");
+  else if (state.loadedTab !== "history") await loadHistoryRepos();
+  if (state.tab === "history") await openHistory(link.workspace, null, link.entry);
+}
+window.addEventListener("hashchange", () => {
+  const link = historyLink(location.hash);
+  if (link) openHistoryLink(link).catch(historyFailed);
+});
 
 // --- library sync (#170): the header chip, the Sync page and its setup wizard ------------
 //
@@ -3401,6 +3733,9 @@ function renderStats() {
 // An entry logged again later has the same id at another time (#187): both are answers.
 const eventKey = (event) => event.workspace + "|" + event.id + "|" + event.time;
 
+// An answer of the newest list opens at its entry in the History tab.
+const eventHref = (event) => "#history/" + encodeURIComponent(event.workspace) + "/" + event.id;
+
 function eventText(event) {
   return clockTime(event.time) + " " + (APP_NAMES[event.app] || event.app || "An app") + " → " + event.agent
     + (event.action ? " (" + event.action + ")" : "") + " → " + event.repository;
@@ -3436,10 +3771,18 @@ function advanceEvent() {
 
 function lightStep() {
   landing.steps.forEach((item, index) => item.classList.toggle("lit", index === landing.step));
-  if (!landing.eventLine) return;
-  const latest = landing.stats && (landing.stats.events || [])[0];
-  landing.eventLine.textContent = landing.event ? eventText(landing.event)
+  const line = landing.eventLine;
+  if (!line) return;
+  const latest = landing.stats && (landing.stats.events || [])[0], event = landing.event || latest;
+  const text = landing.event ? eventText(landing.event)
     : latest ? "Latest: " + eventText(latest) : landing.stats ? "No answers yet." : "";
+  // Rebuilt only when the answer changes: a link replaced on every step would lose a click.
+  if (line.dataset.text === text) return;
+  line.dataset.text = text;
+  line.textContent = "";
+  line.replaceChildren();
+  if (event) node("a", line, text).setAttribute("href", eventHref(event));
+  else line.textContent = text;
 }
 
 function renderHow() {
@@ -3484,7 +3827,7 @@ function renderHow() {
   }
   node("h4", body, "Latest answers");
   const recent = node("ol", body, null, "events");
-  for (const event of events) node("li", recent, eventText(event));
+  for (const event of events) node("a", node("li", recent), eventText(event)).setAttribute("href", eventHref(event));
 }
 
 // --- AI apps, and what the service keeps on disk --------------------------------------------
@@ -3590,6 +3933,10 @@ async function showTab(tab) {
   showPane("welcome");
   if (tab === "flows") {
     await loadList();
+  } else if (tab === "history") {
+    historyState.gen += 1;  // a history still loading for the last visit does not open now
+    historyState.repo = historyState.data = null;
+    await loadHistoryRepos();
   } else {
     await loadComponents(tab);
   }
@@ -3622,12 +3969,13 @@ window.addEventListener("beforeunload", (event) => { if (state.dirty) { event.pr
 (async () => {
   // /ui opens the landing page unless "Don't show on open" is checked; #overview, the version's link
   // opened in a new browser tab, opens it either way.
-  const overviewLink = location.hash === "#overview";
+  const overviewLink = location.hash === "#overview", entryLink = historyLink(location.hash);
   if (overviewLink) history.replaceState(null, "", location.pathname);
-  if (overviewLink || !landingOff()) showLanding(false);
+  if (overviewLink || (!entryLink && !landingOff())) showLanding(false);
   try {
     await login();
-    await loadList();
+    if (entryLink) await openHistoryLink(entryLink);
+    else await loadList();
   } catch (error) {
     if (error.signedOut) return;
     const nav = $("items");

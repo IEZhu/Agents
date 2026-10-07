@@ -53,7 +53,7 @@ const posts = [];
 const requests = [];  // every path the page fetched, in order
 const isUi = scenario.startsWith("ui");
 const isSync = scenario.startsWith("sync");
-let signedIn = ["search", "render", "persona_race", "agents"].includes(scenario) || isUi || isSync;
+let signedIn = ["search", "render", "persona_race", "agents", "history"].includes(scenario) || isUi || isSync;
 const revisions = {};  // sync_notice: a flow's revision after another machine changed it
 const deletedFlows = new Set();  // sync_notice: flows a cycle deleted (GET answers 404)
 const confirms = [];  // every question the page asked with confirm()
@@ -104,6 +104,7 @@ async function fetchStub(path, init = {}) {
     return respond(200, searchData(path));
   }
   if (scenario === "persona_race") return personaRace(path, init);
+  if (scenario === "history") return respond(...historyData(path, init));
   if (path.startsWith("/ui/api/flows")) return respond(200, { flows: [], repositories: [] });
   return respond(200, { workspaces: [], items: [] });
 }
@@ -129,6 +130,7 @@ function uiData(path, init) {
     savedText[body.id] = body.content;
     return [200, { status: "saved", flow: { id: body.id } }];
   }
+  if (path === "/ui/api/history/repos") return [200, { repos: [] }];
   if (path.startsWith("/ui/api/components")) {
     return [200, { items: [{ id: "skill-a", short_name: "Skill A", description: "d", enabled: true, declared_by: [],
                              body: "# Skill A\n\n## Use\n\nBody <script>x</script>\n" }] }];
@@ -158,6 +160,50 @@ function agentsData(path, init) {
   if (path === "/ui/api/component" && init.method === "PUT") return [200, { status: "ok" }];
   return uiData(path, init);  // the flows
 }
+// --- History (#189): a scripted /ui/api/history -----------------------------------------------
+// history.md of "agents" holds 45 entries: today at noon and an hour before, then one a day, from yesterday.
+const NOON = new Date();
+NOON.setHours(12, 0, 0, 0);
+const historyEntry = (number, time) => ({
+  id: number.toString(16).padStart(12, "0"), timestamp: time.toISOString(), agent: number % 2 ? "ux_designer" : "lawyer",
+  persona_action: number % 3 ? "keep" : null, intent: "question " + number, action: "Agent: lawyer",
+  outcome: "answer **" + number + "**", files: ["src/a.py"], tags: ["#t"], metadata: { answer_timestamp: "x" }, machine: null });
+const HISTORY_ENTRIES = Array.from({ length: 45 }, (_, index) =>
+  historyEntry(index + 1, new Date(NOON.getTime() - (index === 1 ? 3600000 : Math.max(0, index - 1) * 86400000))));
+const ARCHIVE_ENTRIES = [historyEntry(100, new Date("2026-09-30T11:00:00Z")), historyEntry(101, new Date("2026-09-30T10:00:00Z"))];
+const HISTORY_REPOS = [
+  { workspace: "w-1", name: "agents", root: "/code/agents", available: true, entries: 47, bytes: 600000,
+    newest: new Date(Date.now() - 2 * 60000).toISOString(), files: [{ file: "current", entries: 45 }, { file: "2026-09", entries: 2 }] },
+  { workspace: "w-2", name: "project-a", root: "/code/project-a", available: true, entries: 1, bytes: 900,
+    newest: new Date(Date.now() - 180 * 60000).toISOString(), files: [{ file: "current", entries: 1 }] },
+  { workspace: "w-gone", name: "gone", root: "/code/gone", available: false, entries: 0, bytes: 0, newest: null, files: [] },
+];
+function historyData(path, init) {
+  const url = new URL("http://127.0.0.1" + path), query = url.searchParams;
+  if (url.pathname === "/ui/api/history/repos") return [200, { repos: HISTORY_REPOS }];
+  if (url.pathname === "/ui/api/history/search") {
+    return [200, { q: query.get("q"), repos: query.get("q") === "needle" ? [{ workspace: "w-2", matches: 3 }] : [] }];
+  }
+  if (url.pathname === "/ui/api/history/source") {
+    return [200, { workspace: query.get("workspace"), file: query.get("file"), text: "---\nrepo: x\n---\nraw " + query.get("file") }];
+  }
+  if (url.pathname === "/ui/api/history") {
+    const file = query.get("file") || "current", entries = file === "current" ? HISTORY_ENTRIES : ARCHIVE_ENTRIES;
+    const offset = Number(query.get("offset") || 0);
+    let limit = Number(query.get("limit") || 20), focus;
+    if (query.get("entry")) {
+      focus = entries.findIndex((entry) => entry.id === query.get("entry"));
+      limit = Math.max(limit, focus + 1 - offset);
+    }
+    const out = { workspace: query.get("workspace"), name: "agents", root: "/code/agents", file, files: ["current", "2026-09"],
+                  total: entries.length, bytes: 600000, offset, entries: entries.slice(offset, offset + limit) };
+    if (offset === 0) out.index = entries.map(({ id, timestamp, agent, persona_action }) => ({ id, timestamp, agent, persona_action }));
+    if (focus !== undefined) out.focus = focus;
+    return [200, out];
+  }
+  return uiData(path, init);
+}
+
 const flow = (id, source, title, content, extra = {}) => ({ id, source, title, content, ...extra });
 const rule = (id, short_name, description, body, enabled = true) =>
   ({ id, short_name, description, body, enabled, declared_by: [] });
@@ -358,7 +404,7 @@ const context = vm.createContext({
   console, URLSearchParams,
   Option: function Option(text, value) { return Object.assign(element(), { text, value }); },
 });
-for (const [index, tab] of ["flows", "agents", "rules", "skills", "implants"].entries()) {
+for (const [index, tab] of ["flows", "agents", "rules", "skills", "implants", "history"].entries()) {
   const button = element();
   button.dataset.tab = tab;
   if (tab === "flows") button.classes.add("active");  // as the markup has it
@@ -692,6 +738,7 @@ if (scenario.startsWith("landing")) {
     out.lit = lit();
     out.event_line = eventLine();
     out.events_list = findAll(byId("how-body"), hasClass("events")).flatMap((list) => list.children.map(textOf));
+    out.event_links = findAll(byId("how-body"), (n) => n.tag === "a").map((a) => a.attrs.href);
     out.step_timers = pendingTimers(1200).length;
     await fireTimers(1200);
     out.lit_after_a_step = lit();
@@ -701,7 +748,7 @@ if (scenario.startsWith("landing")) {
   }
   // Every tab leaves the landing page, and the version opens it again from there.
   out.tabs = [];
-  for (const tab of ["flows", "agents", "rules", "skills", "implants"]) {
+  for (const tab of ["flows", "agents", "rules", "skills", "implants", "history"]) {
     await openTab(tab);
     const left = view();
     fire(byId("version-link"), "click", { preventDefault() {} });
@@ -1254,6 +1301,66 @@ if (isSync) {
     console.log(JSON.stringify(out));
     process.exit(0);
   }
+}
+
+if (scenario === "history") {
+  const out = {};
+  const textOf = (node) => (node.nodeType === 3 ? node.textContent : (node.textContent || "") + node.children.map(textOf).join(""));
+  const view = byId("h-view"), doc = () => findAll(view, hasClass("md"))[0];
+  const rendered = () => findAll(doc(), hasClass("h-entry"));
+  const more = () => findAll(view, hasClass("h-more"))[0];
+  const reads = () => requests.filter((path) => path.startsWith("/ui/api/history?"));
+  await openTab("history");
+  out.list = shown();
+  out.chips = buttons().map((button) => button.children.filter((child) => (child.className || "").startsWith("chip"))
+    .map((child) => child.textContent));
+  await open(0);
+  out.pane = { hist: !byId("hist").classes.has("hidden"), welcome: !byId("welcome").classes.has("hidden"),
+               h_actions: !byId("h-actions").classes.has("hidden"), group_pane: byId("item-actions").dataset.pane,
+               title: byId("h-title").textContent, meta: byId("h-meta").textContent,
+               seg: byId("h-seg").children.map((button) => button.attrs["aria-pressed"]) };
+  out.files = byId("h-file").children.map((option) => [option.text, option.value]);
+  out.rendered = rendered().length;
+  out.first = rendered().slice(0, 2).map((entry) => [textOf(entry.children[0]), textOf(entry.children[1]), textOf(entry.children[2])]);
+  out.toc = findAll(view, hasClass("md-toc-item")).slice(0, 6).map((item) => item.className + ":" + item.textContent);
+  out.toc_entries = findAll(view, hasClass("md-l2")).length;
+  out.more = more().textContent;
+  Object.assign(doc(), { scrollTop: 900, clientHeight: 500, scrollHeight: 1600 });
+  fire(doc(), "scroll");
+  await sleep(30);
+  out.after_scroll = { rendered: rendered().length, more: more().textContent };
+  const items = findAll(view, hasClass("md-l2"));
+  fire(items[items.length - 1], "click");
+  await sleep(30);
+  out.after_contents = { rendered: rendered().length, scrolled: rendered()[44].scrolled, more_hidden: more().classes.has("hidden") };
+  fire(seg("h-seg", 1), "click");
+  await sleep(30);
+  out.source = { value: byId("h-text").value, label: byId("h-source-label").textContent,
+                 shown: !byId("h-source").classes.has("hidden"), rendered_hidden: view.classes.has("hidden") };
+  fire(seg("h-seg", 0), "click");
+  await sleep(10);
+  byId("h-file").value = "2026-09";
+  fire(byId("h-file"), "change");
+  await sleep(30);
+  out.archive = { rendered: rendered().length, first: textOf(rendered()[0].children[0]), toc_entries: findAll(view, hasClass("md-l2")).length };
+  await type("proj");
+  out.search_name = shown();
+  await type("needle");
+  out.search_pending = shown();
+  await sleep(350);
+  out.search_text = shown();
+  await type("");
+  await open(2);
+  out.gone = { title: byId("h-title").textContent, notice: byId("h-notice").textContent,
+               notice_hidden: byId("h-notice").classes.has("hidden"), seg_hidden: byId("h-seg").classes.has("hidden"),
+               file_hidden: byId("h-file").classes.has("hidden"), rendered_hidden: view.classes.has("hidden") };
+  context.location.hash = "#history/w-1/" + HISTORY_ENTRIES[30].id;
+  for (const handler of windowHandlers.hashchange || []) handler({});
+  await sleep(60);
+  out.link = { rendered: rendered().length, scrolled: rendered()[30].scrolled, title: byId("h-title").textContent };
+  out.reads = reads();
+  console.log(JSON.stringify(out));
+  process.exit(0);
 }
 
 if (scenario === "agents") {

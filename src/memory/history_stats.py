@@ -66,12 +66,18 @@ def _client(meta_text: str) -> Optional[str]:
     return client if isinstance(client, str) and _APP.fullmatch(client) else None
 
 
-def _answer(entry_id: str, timestamp: str, action_text: str, meta_text: str) -> Answer:
+def attribution(action_text: str) -> tuple[str, Optional[str]]:
+    """``(agent, persona action)`` of an entry's action: the persona line's agent, else the default
+    action's, else "unknown"; the action is None without a persona line."""
     agent, action, found = _persona(action_text)
     if agent is None:
         default = _DEFAULT_ACTION.match(action_text)
         agent = default.group("agent") if default else UNKNOWN
-    return Answer(entry_id, timestamp, agent, action if found else None, _client(meta_text))
+    return agent, action if found else None
+
+
+def _answer(entry_id: str, timestamp: str, action_text: str, meta_text: str) -> Answer:
+    return Answer(entry_id, timestamp, *attribution(action_text), _client(meta_text))
 
 
 def _answers(lines: Iterable[str]) -> list[Answer]:

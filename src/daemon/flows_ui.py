@@ -14,7 +14,8 @@ sign-in included, also need a matching Origin and the ``X-Agents-UI`` header,
 which a cross-site page cannot send. Library sync (``/ui/api/sync…``, ``sync_ui.py``)
 asks for the header on GET as well, because some of its reads reach the network, and so do
 the landing page's statistics and overview (``/ui/api/stats``, ``usage.py``; ``/ui/api/overview``,
-``overview.py``), which only the page reads.
+``overview.py``), which only the page reads, and the History tab (``/ui/api/history…``,
+``history_ui.py``), which shows the repositories' histories in full.
 """
 import asyncio
 import hashlib
@@ -34,6 +35,7 @@ from src.component_catalog import known_ids, list_agents, list_components
 from src.flows import FlowCatalog, FlowError
 from src.user_flows import FlowLibrary
 from src.version import agents_core_version
+from .history_ui import HistoryUI, is_history_path
 from .peer import loopback_peer_is_owner
 from .state import atomic_private, read_json
 from .sync_loop import DRAINING
@@ -105,6 +107,7 @@ class FlowsUI:
         self._key_lock = threading.Lock()
         self._peer_lock = asyncio.Lock()  # one connection-table lookup at a time
         self.sync = SyncUI(service)
+        self.history = HistoryUI(service)
 
     # --- access ----------------------------------------------------------------------
 
@@ -185,7 +188,8 @@ class FlowsUI:
                                         or request.headers.get("x-agents-ui") != "1"):
             return await self._json({"error": "origin_not_allowed"}, 403)(scope, receive, send)
         syncing = is_sync_path(path)
-        if (syncing or path in PAGE_READS) and request.method == "GET" and not self._page_request(request):
+        page_only = syncing or path in PAGE_READS or is_history_path(path)
+        if page_only and request.method == "GET" and not self._page_request(request):
             return await self._json({"error": "origin_not_allowed"}, 403)(scope, receive, send)
         if path == "/ui/api/session" and request.method == "POST":
             response = await self._login(request)
@@ -300,6 +304,8 @@ class FlowsUI:
     async def _api(self, request: Request, path: str):
         if is_sync_path(path):
             return await self.sync.handle(request, path)
+        if is_history_path(path):
+            return await self.history.handle(request, path)
         query = request.query_params
         try:
             if path == STATS_PATH and request.method == "GET":
