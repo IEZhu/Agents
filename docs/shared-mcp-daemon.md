@@ -388,8 +388,10 @@ seconds while the browser tab is visible (see
   what is missing up to it. *Source* is the file as it is, read-only, and a select
   switches between `history.md` and the archives. `/ui#history/<workspace>/<entry
   id>` opens an entry. The page reads `GET /ui/api/history/repos`,
-  `GET /ui/api/history?workspace=&file=&offset=&limit=` (with `entry=<id>` it finds
-  the file and reaches the entry), `GET /ui/api/history/source` and
+  `GET /ui/api/history?workspace=&file=&before=&limit=` (`before` counts from the
+  oldest entry, so answers appended meanwhile never shift a portion; with
+  `entry=<id>` and `time=` it finds the file and reaches that entry, as ids repeat),
+  `GET /ui/api/history/source` and
   `GET /ui/api/history/search?q=`. Like the Sync page's reads they need the page's
   `X-Agents-UI` header, and they read only `history.md` and `history/` archive
   names of a registered workspace. Entries that other machines shared through
