@@ -820,6 +820,17 @@ class HistoryReader:
             entries = [e for e in entries if e.timestamp >= since]
         return entries[:limit]
 
+    def find(self, entry_id: str) -> Optional[HistoryEntry]:
+        """The entry with ``entry_id``, its newest copy if it was recorded again, or None.
+
+        Looks through this checkout's whole journal (``history.md``, a pending rotation and
+        ``history/*.md``), so an entry that rotation archived is still found; with the user
+        library sync set up for this repository, through the merged history.
+        """
+        machines = _machine_history(self.history_path)
+        entries = self.journal_entries() if machines is None else self.read_merged(machines)
+        return max((e for e in entries if e.id == entry_id), key=lambda e: e.timestamp, default=None)
+
     def _recent_merged(self, machines: MachineHistory, limit: int, since: Optional[str], keep) -> List[HistoryEntry]:
         """The merged entries that can be among the ``limit`` newest kept ones.
 

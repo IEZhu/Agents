@@ -58,6 +58,7 @@ from src.utils.prompt_loader import load_agent_prompt, get_agent_metadata
 from src.utils.debug_logger import debug_log
 from src.memory.describer import RepoDescriber
 from src.memory.history import HistoryReader, HistoryWriter
+from src.memory.history_results import RECENCY_TEXTS, SEMANTIC_TEXTS, listing
 from src.daemon.workspaces import client_context, WorkspaceError, HistoryStores
 from src import flow_persona
 from src.flows import MAX_FLOW_BYTES, FlowCatalog, FlowError, execution_bundle
@@ -1279,6 +1280,9 @@ async def write_repo_summary(
         return json.dumps(payload, ensure_ascii=False)
 
 
+_ENTRY_ID = re.compile(r"[0-9a-f]{12}")
+
+
 @mcp.tool()
 @observe(name="read_history")
 async def read_history(
@@ -1286,9 +1290,10 @@ async def read_history(
     since: ta.opt_str("Optional ISO8601 prefix; only entries at or after it.") = None,
     query: ta.opt_str("Optional text to search the history for.") = None,
     machine: ta.opt_str("Optional machine label, or `local` for this checkout's own entries.") = None,
+    entry_id: ta.opt_str("Optional id of one entry to return whole; the other arguments are then ignored.") = None,
     ctx: Context | None = None,
 ) -> str:
-    """Read recent history entries or run a lazy semantic search.
+    """Read recent history entries, run a lazy semantic search, or read one entry whole.
 
     - Without ``query``: returns up to ``limit`` newest entries; ``since``
       (ISO8601 prefix) optionally filters for entries at or after that
@@ -1296,19 +1301,31 @@ async def read_history(
     - With ``query``: builds the vector index on first use (and rebuilds it
       when the content of history.md or the embedding configuration changes),
       then returns semantically nearest entries with cosine distance.
+    - With ``entry_id``: returns that entry with its full text, also after
+      rotation archived it; the other arguments are ignored.
+
+    A listing stays under the 50,000 characters above which Claude Code saves a
+    result to a file: long texts are previews (``outcome`` and ``document`` up to
+    600 characters, ``intent`` and ``action`` up to 300), and a shortened entry
+    carries ``truncated`` ({field: full length}). If the previews still do not
+    fit, they get shorter, and then the last entries are left out, counted in
+    ``omitted``; ``instruction`` says how to read more. An entry read whole is
+    not shortened, so one longer than that limit still goes to a file.
 
     With user library sync, the entries the user's machines shared for this
     repository are merged in, one per entry hash; ``machine`` keeps one
     machine label's entries, or ``local`` this checkout's own.
 
     Returns JSON:
-      {entries: [...], total, mode, workspace: {root, source}, pid,
-       history_last_error?}
-      mode ∈ {"recency", "semantic"}. history_last_error ({code, errno, path,
-      at}) is present only after a history write failed.
+      {entries: [...], total, mode, omitted?, instruction?, workspace: {root, source},
+       pid, history_last_error?}
+      mode ∈ {"recency", "semantic", "entry"}; total counts the entries returned,
+      none for an unknown entry_id. history_last_error ({code, errno, path, at})
+      is present only after a history write failed.
 
-    Entry shape depends on mode (machine: null for this checkout's own entries):
-    - recency: {id, timestamp, intent, action, outcome, files, tags, metadata, machine}.
+    Entry shape depends on mode (machine: null for this checkout's own entries;
+    truncated only on a shortened entry):
+    - recency and entry: {id, timestamp, intent, action, outcome, files, tags, metadata, machine}.
     - semantic: {id, distance, document, timestamp, intent, tags, machine}.
     """
     try:
@@ -1318,8 +1335,23 @@ async def read_history(
         limit = max(1, min(limit, 500))
         query = (query or "").strip() or None
         machine = (machine or "").strip() or None
-        debug_log("read_history", "req", {"limit": limit, "since": since, "query": query, "machine": machine})
+        entry_id = (entry_id or "").strip().lower() or None
+        debug_log("read_history", "req", {"limit": limit, "since": since, "query": query, "machine": machine,
+                                           "entry_id": entry_id})
         loop = asyncio.get_running_loop()
+        reader = HistoryReader(str(root / "history.md"), str(root / "history"))
+
+        if entry_id:
+            if not _ENTRY_ID.fullmatch(entry_id):
+                payload = {"status": "error", "error": "entry_id is an entry's id: 12 hexadecimal characters",
+                           **workspace_report}
+                debug_log("read_history", "error", payload)
+                return json.dumps(payload, ensure_ascii=False)
+            entry = await loop.run_in_executor(None, reader.find, entry_id)
+            entries = [entry.to_dict()] if entry else []
+            payload = {"mode": "entry", "total": len(entries), "entries": entries, **workspace_report}
+            debug_log("read_history", "res", {"mode": "entry", "total": len(entries)})
+            return json.dumps(payload, ensure_ascii=False)
 
         if query:
             if (problem := await _readiness_problem("read_history")) is not None:
@@ -1329,23 +1361,16 @@ async def read_history(
 
             def search():
                 with _history_stores.acquire(client) as store:
-                    return store.search(query, limit=limit, machine=machine)
-            results = await loop.run_in_executor(None, search)
-            payload = {"mode": "semantic", "total": len(results), "entries": results}
+                    results = store.search(query, limit=limit, machine=machine)
+                return listing("semantic", results, SEMANTIC_TEXTS, workspace_report)
+            mode, result = "semantic", await loop.run_in_executor(None, search)
         else:
-            reader = HistoryReader(str(root / "history.md"), str(root / "history"))
-            entries = await loop.run_in_executor(
-                None,
-                lambda: reader.read_recent(limit=limit, since=since, machine=machine),
-            )
-            payload = {
-                "mode": "recency",
-                "total": len(entries),
-                "entries": [e.to_dict() for e in entries],
-            }
-        payload.update(workspace_report)
-        debug_log("read_history", "res", {"mode": payload["mode"], "total": payload["total"]})
-        return json.dumps(payload, ensure_ascii=False)
+            def recent():
+                entries = reader.read_recent(limit=limit, since=since, machine=machine)
+                return listing("recency", [e.to_dict() for e in entries], RECENCY_TEXTS, workspace_report)
+            mode, result = "recency", await loop.run_in_executor(None, recent)
+        debug_log("read_history", "res", {"mode": mode, "total": result.total, "omitted": result.omitted})
+        return result.text
     except WorkspaceError as e:
         # A known condition (no usable workspace): no traceback per call.
         payload = {"status": "error", "error": str(e)}

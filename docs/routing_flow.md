@@ -201,7 +201,10 @@ directory. A launch directory without `.git` or `CLAUDE.md` is refused with
 directory (also as `AGENTS_CLIENT_REPO_ROOT`) with `workspace_unsafe` (resolution
 order: [Repository Memory](../README.md#-repository-memory)). The results of
 `log_interaction` and `read_history` report `workspace` and `pid`, and
-`history_last_error` after a failed history write. On `workspace_required`,
+`history_last_error` after a failed history write. A `read_history` listing shows
+long texts as previews and stays under Claude Code's 50,000-character limit; a
+shortened entry carries `truncated`, and `read_history(entry_id=...)` returns the
+entry whole ([details](../README.md#-repository-memory)). On `workspace_required`,
 `workspace_unsafe` or `workspace_invalid`, keep routing and report unavailable memory without
 retrying logging in a loop. For `needs_summary`, preserve `workspace_id`,
 `repo_path`, and `repo_hash` in the follow-up write. See
@@ -247,7 +250,7 @@ same error in their message. A failed initialization is stored and reported by
 every gated call instead of hanging (`ERROR` from persona tools and prompts, an
 error text from `load_implants`, `status: "error"` from `read_history`); the stdio process then needs a
 restart once the cause is fixed. `list_agents`, `list_flows`,
-`log_interaction` and recency `read_history` never wait; `log_interaction`
+`log_interaction`, recency `read_history` and its lookup by `entry_id` never wait; `log_interaction`
 reports `langfuse: {"status": "skipped", "reason": "warming_up"}` while startup
 runs. In stdio, a failed embedding or rules warmup is only logged, as before.
 The HTTP daemon runs the same initializer, strict, before it reports ready, so
