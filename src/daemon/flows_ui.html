@@ -173,6 +173,7 @@ textarea[readonly] { color: var(--muted); }
 .h-entry { padding-bottom: 10px; margin-bottom: 14px; border-bottom: 1px solid var(--line); }
 .h-entry > h2 { border-bottom: 0; margin-bottom: 2px; }
 .h-entry > .meta { margin-bottom: 6px; }
+.h-entry > .h-delete { margin-top: 4px; font-size: 12px; }
 .md-toc-item.h-day { font-weight: 600; }
 .md-toc, .md { min-height: 0; overflow-y: auto; }
 .md-toc { border: 1px solid var(--line); border-radius: var(--r-toc); background: var(--panel); padding: 8px; }
@@ -1912,7 +1913,7 @@ function scheduleHistorySearch() {
 
 // Opens a repository's history: `file` defaults to its newest file; `entry` (with its `time`, as ids
 // repeat) opens the file that holds it, in Rendered, at the entry.
-async function openHistory(workspace, file, entry, time) {
+async function openHistory(workspace, file, entry, time, limit = HISTORY_PORTION) {
   const gen = ++historyState.gen;
   const repo = historyState.repos.find((item) => item.workspace === workspace) || null;
   historyState.data = null;  // a portion still loading for the last file stops here
@@ -1923,7 +1924,7 @@ async function openHistory(workspace, file, entry, time) {
     showHistory(repo);
     return;
   }
-  const params = new URLSearchParams({ workspace, limit: String(HISTORY_PORTION) });
+  const params = new URLSearchParams({ workspace, limit: String(limit) });
   if (file) params.set("file", file);
   if (entry) params.set("entry", entry);
   if (entry && time) params.set("time", time);
@@ -2028,6 +2029,28 @@ async function fetchHistoryUntil(data, wanted) {
   }
 }
 
+// Deletes one entry after the reader confirms it, then shows the file again down to where they were.
+async function deleteHistoryEntry(entry, position) {
+  const data = historyState.data;
+  if (!data) return;
+  const named = historyHeading(entry) + " (" + entry.id + ")";
+  if (!confirm("Delete the entry " + named + " from " + historyFileLabel(data.file)
+    + "? It cannot be undone from this page.")) return;
+  try {
+    await api("/ui/api/history/delete", { method: "POST",
+      body: { workspace: data.workspace, file: data.file, entry: entry.id, time: entry.timestamp } });
+  } catch (error) {
+    if (error.status !== 409) throw error;
+    alert(error.message + ". The history is shown again as it is now.");
+  }
+  const shown = historyState.entries.length;
+  const repos = await api("/ui/api/history/repos");
+  if (state.tab !== "history" || historyState.data !== data) return;  // the reader moved on meanwhile
+  historyState.repos = repos.repos;
+  await openHistory(data.workspace, data.file, null, null, Math.min(HISTORY_MAX_PORTION, Math.max(HISTORY_PORTION, shown)));
+  if (historyState.entries.length) historyView.focus(Math.min(position, historyState.entries.length - 1));
+}
+
 async function goToHistoryEntry(position) {
   if (historyState.view !== "rendered") setHistoryView("rendered");
   await loadMoreHistory(position);
@@ -2082,6 +2105,10 @@ function createHistoryView(id, section, button) {
       mdText(historyHeading(entry), mdEl("h2", "", host));
       mdText([entry.timestamp, entry.id, entry.machine].filter(Boolean).join(" · "), mdEl("div", "meta", host));
       bodies.push([entry, mdEl("div", "", host)]);
+      const position = view.nodes.length;
+      const remove = mdEl("button", "danger h-delete", host);
+      remove.textContent = "Delete entry";
+      remove.addEventListener("click", () => deleteHistoryEntry(entry, position).catch(historyFailed));
       view.nodes.push(host);
     }
     renderHistoryBodies(bodies);

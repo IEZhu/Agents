@@ -227,7 +227,9 @@ def set_sync(integration):
     ``integration.appended(history_path, entry_id)`` is called after each append, once
     every history lock is released, and must return at once;
     ``integration.machines(history_path)`` returns a ``MachineHistory``, or None
-    while the repository's history does not take part in sync. Without an
+    while the repository's history does not take part in sync; an optional
+    ``integration.deleted(history_path, entry_id, timestamp)`` hears of an entry
+    ``delete_entry`` removed, also once the locks are released. Without an
     integration the history is this machine's journal only.
     ``src.user_sync.history.install`` sets it.
     """
@@ -256,6 +258,77 @@ def _appended(history_path: str, entry_id: str) -> None:
         integration.appended(history_path, entry_id)
     except Exception:
         logger.warning("could not schedule sharing the history of %s", history_path, exc_info=True)
+
+
+def _deleted(history_path: str, entry_id: str, timestamp: str) -> None:
+    """Tell the sync that an entry was deleted; called once every history lock is released."""
+    integration = _sync
+    hook = getattr(integration, "deleted", None)
+    if hook is None:
+        return
+    try:
+        hook(history_path, entry_id, timestamp)
+    except Exception:
+        logger.warning("could not schedule removing a deleted entry of %s from sync", history_path, exc_info=True)
+
+
+class EntryChanged(Exception):
+    """The entry to delete is not there as it was shown."""
+
+
+def without_entry(content: str, entry_id: str, timestamp: str) -> str:
+    """``content`` without the entry headed ``## <timestamp> | <entry_id>``: its heading and the field
+    lines and blank lines under it. Other text, such as a rotation's markers, stays.
+    ``EntryChanged`` when no such heading is there."""
+    lines = content.splitlines(keepends=True)
+    for index, line in enumerate(lines):
+        header = _HEADER_RE.match(line)
+        if not header or header.group("id") != entry_id or header.group("ts") != timestamp:
+            continue
+        end = index + 1
+        while end < len(lines) and not _HEADER_RE.match(lines[end]) and (
+                not lines[end].strip() or _FIELD_RE.match(lines[end].rstrip("\r\n"))):
+            end += 1
+        return "".join(lines[:index] + lines[end:])
+    raise EntryChanged("the entry is no longer there as shown")
+
+
+def _replace(path: str, text: str) -> None:
+    """Write ``text`` beside ``path`` and replace it in one step, synced first."""
+    temp = path + ".tmp"
+    try:
+        with open(temp, "w", encoding="utf-8", newline="") as stream:
+            stream.write(text)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temp, path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(temp)
+        raise
+
+
+def delete_entry(history_path: str, month: Optional[str], entry_id: str, timestamp: str,
+                 archive_dir: Optional[str] = None) -> None:
+    """Delete one entry from ``history.md`` (``month`` None) or the archive ``history/<month>.md``.
+
+    The file is rewritten under the locks ``HistoryWriter.append_entry`` takes, so an append or a
+    rotation waits for it and then sees the rest unchanged; it is replaced in one step, as rotation
+    replaces archives. ``EntryChanged`` when the entry is not there as shown, or while a rotation
+    is pending. The sync then removes the entry from what this machine shared (``_deleted``).
+    """
+    archive_dir = archive_dir or os.path.join(os.path.dirname(history_path), "history")
+    path = history_path if month is None else os.path.join(archive_dir, f"{month}.md")
+    with _WRITE_LOCK, file_lock(_sidecar(history_path)):
+        if os.path.exists(history_path + ".rotating"):
+            raise EntryChanged("a rotation of history.md is pending; try again in a moment")
+        try:
+            with open(path, "r", encoding="utf-8", newline="") as stream:
+                content = stream.read()
+        except FileNotFoundError:
+            raise EntryChanged("the file is gone") from None
+        _replace(path, without_entry(content, entry_id, timestamp))
+    _deleted(history_path, entry_id, timestamp)
 
 
 def entry_blocks(content: str) -> List[Tuple[HistoryEntry, str]]:
@@ -1219,14 +1292,17 @@ class HistoryStore:
 
 __all__ = [
     "ENTRY_ID",
+    "EntryChanged",
     "HistoryEntry",
     "HistoryReader",
     "HistoryStore",
     "HistoryWriter",
     "MachineHistory",
+    "delete_entry",
     "entry_blocks",
     "journal_blocks",
     "merge_entries",
     "parsed_file",
     "set_sync",
+    "without_entry",
 ]

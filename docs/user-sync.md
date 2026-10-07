@@ -412,6 +412,11 @@ before. `read_history(entry_id=…)` looks through the whole journal either way,
 included, and with sync through the segments too. It returns the copy a full merged read shows,
 this checkout's own first, which can differ from the copy a shorter listing showed.
 
+An entry deleted on the web UI's History tab leaves this machine's segment at the next run: the
+deletion (its id and time) waits in the sync state until a run takes it out of the part, and other
+machines lose the entry with their next pull. While sync is paused, the repository is not approved
+here or the group is excluded, the deletion waits, and the entry stays in what was shared.
+
 ### Growth and pruning
 
 This version prunes nothing automatically. Each machine adds one file per approved repository and

@@ -178,8 +178,17 @@ const HISTORY_REPOS = [
     newest: new Date(Date.now() - 180 * 60000).toISOString(), files: [{ file: "current", entries: 1 }] },
   { workspace: "w-gone", name: "gone", root: "/code/gone", available: false, entries: 0, bytes: 0, newest: null, files: [] },
 ];
+const historyPosts = [];  // every deletion the page asked for
 function historyData(path, init) {
   const url = new URL("http://127.0.0.1" + path), query = url.searchParams;
+  if (url.pathname === "/ui/api/history/delete" && init.method === "POST") {
+    const body = JSON.parse(init.body);
+    historyPosts.push(body);
+    const index = HISTORY_ENTRIES.findIndex((entry) => entry.id === body.entry && entry.timestamp === body.time);
+    if (index < 0) return [409, { status: "error", error: "entry_changed: the entry is no longer there as shown" }];
+    HISTORY_ENTRIES.splice(index, 1);
+    return [200, { status: "deleted" }];
+  }
   if (url.pathname === "/ui/api/history/repos") return [200, { repos: HISTORY_REPOS }];
   if (url.pathname === "/ui/api/history/search") {
     return [200, { q: query.get("q"), repos: query.get("q") === "needle" ? [{ workspace: "w-2", matches: 3 }] : [] }];
@@ -1360,6 +1369,13 @@ if (scenario === "history") {
   await sleep(60);
   out.link = { rendered: rendered().length, scrolled: rendered()[30].scrolled, title: byId("h-title").textContent };
   out.reads = reads();
+  const repoReads = requests.filter((path) => path === "/ui/api/history/repos").length;
+  fire(findAll(rendered()[0], hasClass("h-delete"))[0], "click");
+  await sleep(80);
+  out.delete = { confirm: confirms.at(-1), posted: historyPosts, rendered: rendered().length,
+                 first: textOf(rendered()[0].children[0]), meta: byId("h-meta").textContent,
+                 repos_read_again: requests.filter((path) => path === "/ui/api/history/repos").length - repoReads,
+                 reread: requests.filter((path) => path.startsWith("/ui/api/history?")).at(-1) };
   console.log(JSON.stringify(out));
   process.exit(0);
 }

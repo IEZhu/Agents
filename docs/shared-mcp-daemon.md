@@ -393,7 +393,13 @@ seconds while the browser tab is visible (see
   `GET /ui/api/history/search?q=`. Like the Sync page's reads they need the page's
   `X-Agents-UI` header, and they read only `history.md` and `history/` archive
   names of a registered workspace. Entries that other machines shared through
-  library sync are not shown here.
+  library sync are not shown here. The text cannot be edited, but each entry has
+  **Delete entry**: after a confirmation that names it, `POST
+  /ui/api/history/delete` (`workspace`, `file`, `entry`, `time`) removes exactly
+  that heading and its fields, under the lock `log_interaction` appends under, and
+  refuses with 409 `entry_changed` when the entry is no longer there as shown.
+  With [user library sync](user-sync.md#repository-history) the entry also leaves
+  what this machine shared.
 
 The page fills the window: the header and the detail pane stay in place and only
 the list on the left scrolls (in the narrow layout, the list above the detail

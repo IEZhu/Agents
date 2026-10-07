@@ -1432,3 +1432,39 @@ def test_one_checkout_under_another_spelling_stays_one_checkout(tmp_path, shared
     assert roots[clone_key]["unreviewed"]  # its unreviewed past moved with it
     assert "old work, spelled otherwise" not in a.exported()
     assert {"after the respelling", "a new turn in the clone"} <= set(a.exported())
+
+
+# --- an entry deleted from the journal (the web UI's History tab, #189) --------------------------
+
+
+def test_a_deleted_entry_leaves_this_machines_segment_and_the_other_machine(shared, clock):
+    a, b = shared
+    gone = a.log("to be deleted")
+    a.log("kept on a")
+    for box in (a, b):
+        box.sync()
+    assert "to be deleted" in [e.intent for e in b.read(limit=10)]
+    timestamp = next(e.timestamp for e in a.read(limit=10) if e.id == gone["entry_id"])
+    with a.active():
+        journal.delete_entry(str(a.history), None, gone["entry_id"], timestamp)
+    assert history_sync.drain(60)
+    assert "to be deleted" not in a.exported() and "kept on a" in a.exported()
+    assert "to be deleted" not in [e.intent for e in a.read(limit=10)]  # nor from this machine's segment
+    assert not history_sync._read_state(a.machine.state).get("deleted")  # applied, so forgotten
+    for box in (a, b):
+        box.sync()
+    assert [e.intent for e in b.read(limit=10) if e.intent in ("to be deleted", "kept on a")] == ["kept on a"]
+
+
+def test_a_deletion_waits_while_sync_is_paused(shared, clock):
+    a, _ = shared
+    gone = a.log("to be deleted")
+    timestamp = next(e.timestamp for e in a.read(limit=10) if e.id == gone["entry_id"])
+    a.machine.sync.pause()
+    with a.active():
+        journal.delete_entry(str(a.history), None, gone["entry_id"], timestamp)
+    assert history_sync.drain(60)
+    assert "to be deleted" in a.exported()
+    assert history_sync._read_state(a.machine.state)["deleted"] == {KEY: [[gone["entry_id"], timestamp]]}
+    a.machine.sync.resume()
+    assert "to be deleted" not in a.exported()

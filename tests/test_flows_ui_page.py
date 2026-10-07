@@ -1191,6 +1191,16 @@ def test_a_link_opens_the_repository_at_its_entry(history):
     assert history["reads"][-1] == "/ui/api/history?workspace=w-1&limit=20&entry=00000000001f"
 
 
+def test_delete_entry_asks_naming_the_entry_then_shows_the_file_again(history):
+    delete = history["delete"]
+    assert re.fullmatch(r"Delete the entry \d\d\.\d\d 12:00 · ux_designer · keep \(000000000001\) from history\.md\? "
+                        r"It cannot be undone from this page\.", delete["confirm"])
+    assert [(post["workspace"], post["file"], post["entry"]) for post in delete["posted"]] == [("w-1", "current", "000000000001")]
+    assert delete["posted"][0]["time"].endswith("Z")
+    assert delete["repos_read_again"] == 1 and delete["reread"] == "/ui/api/history?workspace=w-1&limit=31&file=current"
+    assert delete["rendered"] == 31 and delete["first"].endswith(" · lawyer · keep") and "44 entries" in delete["meta"]
+
+
 def test_the_landing_pages_answers_link_to_their_entries(landing):
     # The diagram's line runs the three newest answers, oldest first, and links the one it shows; a link
     # carries the entry's time too, as ids repeat.

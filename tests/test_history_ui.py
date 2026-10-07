@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import datetime as dt
 import shutil
+import threading
 import time
 
 import httpx
@@ -13,7 +14,7 @@ import pytest_asyncio
 
 from src.daemon.app import create_app
 from src.daemon.workspaces import WorkspaceRegistry
-from src.memory.history import HistoryWriter
+from src.memory.history import EntryChanged, HistoryReader, HistoryWriter, delete_entry
 
 TOKEN = "s" * 48
 UI = {"X-Agents-UI": "1", "Origin": "http://127.0.0.1:8765"}
@@ -205,3 +206,68 @@ async def test_an_unreadable_registry_is_reported(daemon):
     service.registry.path.write_text("{not json", encoding="utf-8")
     response = await http.get("/ui/api/history/repos", headers=UI)
     assert response.status_code == 500 and response.json()["error"].startswith("registry_unreadable")
+
+
+# --- Delete entry ---------------------------------------------------------------------------------
+
+def entries_of(path) -> list[str]:
+    return [entry.intent for entry in HistoryReader._parse(path.read_text(encoding="utf-8"))]
+
+
+def test_delete_entry_removes_exactly_that_entry(tmp_path):
+    history = tmp_path / "history.md"
+    first = NOW - dt.timedelta(hours=2)
+    write(history, block(1, first, "one"), block(2, first, "two"), block(3, NOW, "three"))
+    marker = "\n<!-- merged on rotation -->\n"
+    archive = tmp_path / "history" / "2026-09.md"
+    write(archive, block(4, dt.datetime(2026, 9, 1, tzinfo=dt.timezone.utc), "september"), marker,
+          block(5, dt.datetime(2026, 9, 2, tzinfo=dt.timezone.utc), "later"))
+    delete_entry(str(history), None, f"{2:012x}", first.isoformat(timespec="seconds"))
+    assert entries_of(history) == ["one", "three"]
+    delete_entry(str(history), "2026-09", f"{4:012x}", "2026-09-01T00:00:00+00:00")
+    assert entries_of(archive) == ["later"] and marker in archive.read_text(encoding="utf-8")
+    with pytest.raises(EntryChanged):  # a stale page: the entry is gone already
+        delete_entry(str(history), None, f"{2:012x}", first.isoformat(timespec="seconds"))
+    with pytest.raises(EntryChanged):  # the same id at another time is another entry
+        delete_entry(str(history), None, f"{1:012x}", NOW.isoformat(timespec="seconds"))
+    (tmp_path / "history.md.rotating").write_text("", encoding="utf-8")
+    with pytest.raises(EntryChanged, match="rotation"):
+        delete_entry(str(history), None, f"{1:012x}", first.isoformat(timespec="seconds"))
+
+
+def test_appends_that_run_meanwhile_survive_a_deletion(tmp_path):
+    history = tmp_path / "history.md"
+    writer = HistoryWriter(str(history), str(tmp_path / "history"))
+    target = writer.append_entry("to delete", "Agent: lawyer", "x")
+    timestamp = HistoryReader(str(history)).read_all()[0].timestamp
+    appended = []
+
+    def append():
+        for number in range(40):
+            appended.append(writer.append_entry(f"meanwhile {number}", "Agent: lawyer", "y")["entry_id"])
+
+    thread = threading.Thread(target=append)
+    thread.start()
+    delete_entry(str(history), None, target["entry_id"], timestamp)
+    thread.join()
+    intents = entries_of(history)
+    assert "to delete" not in intents and intents == [f"meanwhile {number}" for number in range(40)]
+
+
+@pytest.mark.asyncio
+async def test_the_page_deletes_an_entry_with_its_header_and_a_stale_one_is_refused(daemon, tmp_path):
+    http, ids = daemon
+    await login(http)
+    body = {"workspace": ids["project"], "file": "current", "entry": f"{3:012x}",
+            "time": (NOW - dt.timedelta(hours=1)).isoformat(timespec="seconds")}
+    assert (await http.post("/ui/api/history/delete", json=body)).status_code == 403  # no page header
+    assert (await http.get("/ui/api/history/delete", headers=UI)).status_code == 405
+    done = await http.post("/ui/api/history/delete", json=body, headers=UI)
+    assert done.status_code == 200 and done.json()["status"] == "deleted"
+    assert "middle" not in entries_of(tmp_path / "project" / "history.md")
+    stale = await http.post("/ui/api/history/delete", json=body, headers=UI)
+    assert stale.status_code == 409 and stale.json()["error"].startswith("entry_changed")
+    for wrong, code in (({**body, "file": "../x"}, "file_invalid"), ({**body, "entry": "x"}, "invalid_request"),
+                        ({**body, "workspace": "not-registered"}, "workspace_invalid")):
+        response = await http.post("/ui/api/history/delete", json=wrong, headers=UI)
+        assert response.status_code == 400 and response.json()["error"].startswith(code), wrong

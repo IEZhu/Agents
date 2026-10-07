@@ -18,10 +18,15 @@ the UI session. Entries of other machines (user library sync) live in the librar
 - ``GET /ui/api/history/source?workspace=&file=``: the file as it is.
 - ``GET /ui/api/history/search?q=``: per workspace, the entries that hold every term, the
   repository's name counting as part of each entry.
+- ``POST /ui/api/history/delete`` with ``{workspace, file, entry, time}``: removes exactly that
+  entry, matched by its heading's hash and time, under the lock ``log_interaction`` appends under
+  (``src.memory.history.delete_entry``); 409 ``entry_changed`` when it is not there as shown. With
+  user library sync the entry then leaves what this machine shared (``src.user_sync.history``).
 """
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import re
 from contextlib import nullcontext as _nothing
@@ -31,7 +36,7 @@ from typing import Optional
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from src.memory.history import _archive_names, _reading, parsed_file
+from src.memory.history import ENTRY_ID, EntryChanged, _archive_names, _reading, delete_entry, parsed_file
 from src.memory.history_stats import FileSummaries, attribution
 from .state import read_json
 from .workspaces import WorkspaceError
@@ -40,6 +45,7 @@ PREFIX = "/ui/api/history"
 CURRENT = "current"
 PORTION = 20
 MAX_PORTION = 200
+MAX_BODY = 8 * 1024
 _MONTH = re.compile(r"[0-9]{4}-(?:0[1-9]|1[0-2])")
 
 
@@ -93,6 +99,18 @@ class HistoryUI:
         self.summaries = summaries or getattr(usage, "files", None) or FileSummaries()
 
     async def handle(self, request: Request, path: str):
+        if path == PREFIX + "/delete":
+            if request.method != "POST":
+                return self._json({"error": "method_not_allowed"}, 405, headers={"Allow": "POST"})
+            raw = await request.body()
+            try:
+                body = json.loads(raw or b"{}") if len(raw) <= MAX_BODY else None
+            except ValueError:
+                body = None
+            if not isinstance(body, dict):
+                return self._json({"status": "error", "error": "invalid_request: the body must be a small JSON object"}, 400)
+            return await self._run(lambda: self.delete(body.get("workspace", ""), body.get("file"), body.get("entry"),
+                                                       body.get("time")))
         if request.method != "GET":
             return self._json({"error": "method_not_allowed"}, 405, headers={"Allow": "GET"})
         query = request.query_params
@@ -104,6 +122,9 @@ class HistoryUI:
         work = routes.get(path)
         if work is None:
             return self._json({"error": "not_found"}, 404)
+        return await self._run(work)
+
+    async def _run(self, work):
         try:
             return self._json(await asyncio.to_thread(work))
         except HistoryError as error:
@@ -228,6 +249,18 @@ class HistoryUI:
         with _reading(str(root / "history.md")) if file == CURRENT else _nothing():
             with open(path, encoding="utf-8", errors="replace", newline="") as stream:
                 return {"workspace": workspace, "file": file, "text": stream.read()}
+
+    def delete(self, workspace: str, file, entry, time) -> dict:
+        root = self._root(workspace)
+        if not isinstance(entry, str) or not ENTRY_ID.fullmatch(entry) or not isinstance(time, str) or not time:
+            raise HistoryError("invalid_request", "entry (an entry's id) and its time are required")
+        _file_path(root, file)  # current or a YYYY-MM archive of this workspace
+        try:
+            delete_entry(str(root / "history.md"), None if file == CURRENT else file, entry, time,
+                         archive_dir=str(root / "history"))
+        except EntryChanged as error:
+            raise HistoryError("entry_changed", str(error), 409) from None
+        return {"status": "deleted", "workspace": workspace, "file": file, "entry": entry, "time": time}
 
     def search(self, query: str) -> dict:
         terms = [term for term in query.lower().split() if term]
