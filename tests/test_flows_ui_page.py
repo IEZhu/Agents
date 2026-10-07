@@ -1197,8 +1197,8 @@ def test_delete_entry_asks_naming_the_entry_then_shows_the_file_again(history):
                         r"It cannot be undone from this page\.", delete["confirm"])
     assert [(post["workspace"], post["file"], post["entry"]) for post in delete["posted"]] == [("w-1", "current", "000000000001")]
     assert delete["posted"][0]["time"].endswith("Z")
-    assert delete["repos_read_again"] == 1 and delete["reread"] == "/ui/api/history?workspace=w-1&limit=31&file=current"
-    assert delete["rendered"] == 31 and delete["first"].endswith(" · lawyer · keep") and "44 entries" in delete["meta"]
+    assert delete["repos_read_again"] == 1 and delete["reread"] == "/ui/api/history?workspace=w-1&limit=20&file=current"
+    assert delete["rendered"] == 20 and delete["first"].endswith(" · lawyer · keep") and "44 entries" in delete["meta"]
 
 
 def test_the_landing_pages_answers_link_to_their_entries(landing):

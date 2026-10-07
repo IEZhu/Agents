@@ -2043,12 +2043,14 @@ async function deleteHistoryEntry(entry, position) {
     if (error.status !== 409) throw error;
     alert(error.message + ". The history is shown again as it is now.");
   }
-  const shown = historyState.entries.length;
   const repos = await api("/ui/api/history/repos");
   if (state.tab !== "history" || historyState.data !== data) return;  // the reader moved on meanwhile
   historyState.repos = repos.repos;
-  await openHistory(data.workspace, data.file, null, null, Math.min(HISTORY_MAX_PORTION, Math.max(HISTORY_PORTION, shown)));
-  if (historyState.entries.length) historyView.focus(Math.min(position, historyState.entries.length - 1));
+  await openHistory(data.workspace, data.file);
+  if (!historyState.data || !historyState.data.total) return;
+  const target = Math.min(position, historyState.data.total - 1);  // the entry after the deleted one
+  await loadMoreHistory(target);
+  historyView.focus(target);
 }
 
 async function goToHistoryEntry(position) {
@@ -2108,7 +2110,10 @@ function createHistoryView(id, section, button) {
       const position = view.nodes.length;
       const remove = mdEl("button", "danger h-delete", host);
       remove.textContent = "Delete entry";
-      remove.addEventListener("click", () => deleteHistoryEntry(entry, position).catch(historyFailed));
+      remove.addEventListener("click", () => {
+        remove.disabled = true;  // one request per entry; the reload rebuilds the button
+        deleteHistoryEntry(entry, position).catch(historyFailed).finally(() => { remove.disabled = false; });
+      });
       view.nodes.push(host);
     }
     renderHistoryBodies(bodies);

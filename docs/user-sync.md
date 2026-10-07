@@ -413,9 +413,13 @@ included, and with sync through the segments too. It returns the copy a full mer
 this checkout's own first, which can differ from the copy a shorter listing showed.
 
 An entry deleted on the web UI's History tab leaves this machine's segment at the next run: the
-deletion (its id and time) waits in the sync state until a run takes it out of the part, and other
-machines lose the entry with their next pull. While sync is paused, the repository is not approved
-here or the group is excluded, the deletion waits, and the entry stays in what was shared.
+deletion (its id and time) is kept in the sync state, a run takes the entry out of the part (a part
+left without entries is removed), and other machines lose it with their next pull. While sync is
+paused, the repository is not approved here or the group is excluded, the deletion waits and the
+entry stays in what was shared; merged reads on this machine leave it out at once either way. The
+newest 1,000 deletions of a repository are kept, so no run shares such an entry again, also from
+another checkout that still holds it. The library's git history keeps the entry: to remove a leaked
+secret, rewrite that history as well.
 
 ### Growth and pruning
 

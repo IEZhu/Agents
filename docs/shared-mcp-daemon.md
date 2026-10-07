@@ -399,7 +399,7 @@ seconds while the browser tab is visible (see
   that heading and its fields, under the lock `log_interaction` appends under, and
   refuses with 409 `entry_changed` when the entry is no longer there as shown.
   With [user library sync](user-sync.md#repository-history) the entry also leaves
-  what this machine shared.
+  what this machine shared, though the library's git history keeps it.
 
 The page fills the window: the header and the detail pane stay in place and only
 the list on the left scrolls (in the narrow layout, the list above the detail

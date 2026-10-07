@@ -1450,10 +1450,17 @@ def test_a_deleted_entry_leaves_this_machines_segment_and_the_other_machine(shar
     assert history_sync.drain(60)
     assert "to be deleted" not in a.exported() and "kept on a" in a.exported()
     assert "to be deleted" not in [e.intent for e in a.read(limit=10)]  # nor from this machine's segment
-    assert not history_sync._read_state(a.machine.state).get("deleted")  # applied, so forgotten
     for box in (a, b):
         box.sync()
     assert [e.intent for e in b.read(limit=10) if e.intent in ("to be deleted", "kept on a")] == ["kept on a"]
+    # Kept, so a journal that still holds the entry (another checkout, a restored file) never shares it again.
+    assert history_sync._read_state(a.machine.state)["deleted"] == {KEY: [[gone["entry_id"], timestamp]]}
+    a.history.write_text(a.history.read_text(encoding="utf-8")
+                         + journal.HistoryWriter._render_entry(gone["entry_id"], timestamp, "to be deleted",
+                                                               "Agent: software_engineer", "done", None, None, None),
+                         encoding="utf-8")
+    a.log("later on a")
+    assert "to be deleted" not in a.exported() and a.exported()[-1] == "later on a"
 
 
 def test_a_deletion_waits_while_sync_is_paused(shared, clock):
@@ -1465,6 +1472,25 @@ def test_a_deletion_waits_while_sync_is_paused(shared, clock):
         journal.delete_entry(str(a.history), None, gone["entry_id"], timestamp)
     assert history_sync.drain(60)
     assert "to be deleted" in a.exported()
+    assert "to be deleted" not in [e.intent for e in a.read(limit=10)]  # merged reads leave it out at once
     assert history_sync._read_state(a.machine.state)["deleted"] == {KEY: [[gone["entry_id"], timestamp]]}
     a.machine.sync.resume()
     assert "to be deleted" not in a.exported()
+
+
+def test_a_part_left_without_entries_is_removed_and_its_month_still_syncs(two, clock):
+    a, _ = two
+    clock.now = datetime(2026, 9, 30, 12, 0, tzinfo=timezone.utc)
+    alone = a.log("alone in september")
+    clock.now = datetime(2026, 10, 5, 9, 0, tzinfo=timezone.utc)
+    a.log("october")
+    a.approve()
+    assert f"{a.label}/2026-09.md" in a.segments()
+    timestamp = next(e.timestamp for e in a.read(limit=10) if e.id == alone["entry_id"])
+    with a.active():
+        journal.delete_entry(str(a.history), None, alone["entry_id"], timestamp)
+    assert history_sync.drain(60)
+    assert f"{a.label}/2026-09.md" not in a.segments()
+    clock.now = datetime(2026, 9, 30, 13, 0, tzinfo=timezone.utc)
+    a.log("september again")
+    assert "september again" in a.exported() and history_sync.status(a.machine.state).get("history_error") is None

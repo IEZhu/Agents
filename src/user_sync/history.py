@@ -45,9 +45,11 @@ disk can leave the last block of a part cut short. Such a block counts as missin
 removed and appended again whole by the next run, and readers on other machines ignore a last block
 without its ``**Machine:**`` line meanwhile. Reading a segment needs no lock. Segments grow by one
 file per machine and month; the only removal is an entry deleted from a journal (the web UI's
-History tab, ``src.memory.history.delete_entry``). The deletion is kept in the state until a run
-takes the entry, by its id and time, out of this machine's part, so other machines lose it with
-their next pull; while sync is paused or the repository is not approved here, it waits.
+History tab, ``src.memory.history.delete_entry``). The newest ``DELETED_KEEP`` deletions of a key are
+kept in the state: a run takes such an entry, by its id and time, out of this machine's part (a part
+left without entries is removed), so other machines lose it with their next pull, and never shares it
+again, also from another checkout that still holds it. Merged reads here leave it out at once, while
+sync is paused or the repository is not approved here too. The library's git history keeps it.
 """
 from __future__ import annotations
 
@@ -81,7 +83,7 @@ FORMAT = 1
 LOCK_WAIT_SECONDS = 30.0          # how long a background run retries a held library lock
 CLI_WAIT_SECONDS = 5.0            # what a command waits in total before leaving the rest to a later run
 WORKSPACE_SECONDS = 30.0          # how long a checkout's origin and top level are remembered
-DELETED_KEEP = 1000               # deletions kept per repository until a run applies them
+DELETED_KEEP = 1000               # the newest deletions kept per repository
 INTENT_CHARACTERS = 80
 _LABEL = re.compile(r"[a-z0-9][a-z0-9-]{0,31}")   # what the engine accepts as a machine label
 _PART = re.compile(r"(?P<month>[0-9]{4}-(?:0[1-9]|1[0-2]))(?:-(?P<number>[2-9]|[1-9][0-9]+))?\.md")
@@ -664,7 +666,7 @@ def _append(path: Path, data: bytes) -> None:
 
 
 def _tombstones(state_dir: Path, key: str) -> list[tuple[str, str]]:
-    """The ``(id, time)`` of entries deleted from a journal of ``key`` that no run applied yet."""
+    """The ``(id, time)`` of entries deleted from a journal of ``key`` here, the newest ``DELETED_KEEP``."""
     pending = (_read_state(state_dir).get("deleted") or {}).get(key) or []
     return [(pair[0], pair[1]) for pair in pending
             if isinstance(pair, list) and len(pair) == 2 and all(isinstance(value, str) for value in pair)]
@@ -715,20 +717,35 @@ def _write(repo: _Repository, items: list[_Item], *, wait: float, tombstones=())
                 user_library.atomic_write(library / repo.group / REPO_META,
                                           json.dumps({"origin": repo.origin}, indent=2).encode() + b"\n")
                 changed.append(f"{repo.group}/{REPO_META}")
+            by_part: dict[str, list[tuple[str, str]]] = {}
             for entry_id, timestamp in tombstones:
-                for _, _, path in _parts(directory, timestamp[:7]):
-                    if _header_origin(path) != repo.origin:
+                by_part.setdefault(timestamp[:7], []).append((entry_id, timestamp))
+            for month, deleted in sorted(by_part.items()):
+                for _, _, path in _parts(directory, month):
+                    present_ids = _known_ids(path)
+                    wanted = [pair for pair in deleted if pair[0] in present_ids]
+                    if not wanted or _header_origin(path) != repo.origin:
                         continue
-                    try:
-                        kept = journal.without_entry(path.read_bytes().decode("utf-8"), entry_id, timestamp)
-                    except journal.EntryChanged:
+                    # surrogateescape keeps every byte, a block a crash cut short included.
+                    text = path.read_bytes().decode("utf-8", "surrogateescape")
+                    taken = []
+                    for entry_id, timestamp in wanted:
+                        try:
+                            text = journal.without_entry(text, entry_id, timestamp)
+                        except journal.EntryChanged:
+                            continue  # the same id at another time: another entry
+                        taken.append(entry_id)
+                    if not taken:
                         continue
-                    user_library.atomic_write(path, kept.encode("utf-8"))
+                    if journal._HEADER_RE.search(text):
+                        user_library.atomic_write(path, text.encode("utf-8", "surrogateescape"))
+                    else:
+                        path.unlink()  # a part without entries would stop every later write of its month
                     with _CACHE_GUARD:
                         _KNOWN.pop(str(path), None)
                     if f"{relative}/{path.name}" not in changed:
                         changed.append(f"{relative}/{path.name}")
-                    removed.append(entry_id)
+                    removed.extend(taken)
             dropped = set(tombstones)
             items = [item for item in items if (item.id, item.timestamp) not in dropped]
             by_month: dict[str, list[_Item]] = {}
@@ -936,7 +953,9 @@ def _reconcile(root, *, state_dir, library, full: bool, wait: float, fresh) -> d
             skipped[reason] += 1
         else:
             items.append(item)
-    outcome = (_write(repo, items, wait=wait, tombstones=tombstones) if items or tombstones
+    # Deleted entries this machine still shares: the others were taken out already, or never shared.
+    shared_deleted = [pair for pair in tombstones if pair[0] in known]
+    outcome = (_write(repo, items, wait=wait, tombstones=shared_deleted) if items or shared_deleted
                else {"status": "unchanged", "written": [], "present": [], "held": [], "removed": []})
     if outcome["status"] == "skipped" and outcome.get("reason") == "other_origin":
         _note_other_origin(machine, repo, sorted(set(others) | set(outcome.get("found", []))))
@@ -951,13 +970,6 @@ def _reconcile(root, *, state_dir, library, full: bool, wait: float, fresh) -> d
         current = state.setdefault("roots", {}).setdefault(workspace.root, {"key": repo.key, "origin": repo.origin})
         if reached and outcome["status"] != "skipped":
             current["watermark"] = max([reached[-1]] + ([current["watermark"]] if current.get("watermark") else []))
-        if tombstones and outcome["status"] not in ("skipped", "failed"):
-            deleted = state.setdefault("deleted", {})
-            left = [pair for pair in deleted.get(repo.key) or [] if tuple(pair) not in dropped]
-            if left:
-                deleted[repo.key] = left  # deleted while this run ran: the next one takes them
-            else:
-                deleted.pop(repo.key, None)
         if failed:
             state["error"] = {"reason": outcome["reason"], "message": outcome.get("message"), "key": repo.key,
                               "time": _now()}
@@ -1122,7 +1134,8 @@ def machine_history(root, *, state_dir=None, library=None) -> journal.MachineHis
     if _excluded(repo, scopes) or not usable or (stored and stored != repo.origin):
         return empty
     files, _ = _segments(repo, scopes)
-    return journal.MachineHistory(label=machine.label, files=tuple((label, str(path)) for label, path in files))
+    return journal.MachineHistory(label=machine.label, files=tuple((label, str(path)) for label, path in files),
+                                  deleted=frozenset(_tombstones(machine.state_dir, repo.key)))
 
 
 class Integration:
@@ -1149,7 +1162,12 @@ class Integration:
             if [entry_id, timestamp] not in pending:
                 pending.append([entry_id, timestamp])
             del pending[:-DELETED_KEEP]
-        _change_state(machine.state_dir, change)
+        try:
+            _change_state(machine.state_dir, change)
+        except OSError as error:
+            # The entry stays in what this machine shared: say so where status shows sync's errors.
+            _record_error(machine, "deletion_unrecorded", f"{type(error).__name__}: {error}", workspace.key)
+            raise
         _EXPORTER.mark(self.state_dir, self.library, root)
 
     def machines(self, history_path: str) -> journal.MachineHistory | None:

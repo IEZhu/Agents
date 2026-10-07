@@ -230,9 +230,13 @@ def test_delete_entry_removes_exactly_that_entry(tmp_path):
         delete_entry(str(history), None, f"{2:012x}", first.isoformat(timespec="seconds"))
     with pytest.raises(EntryChanged):  # the same id at another time is another entry
         delete_entry(str(history), None, f"{1:012x}", NOW.isoformat(timespec="seconds"))
-    (tmp_path / "history.md.rotating").write_text("", encoding="utf-8")
+    pending = tmp_path / "history.md.rotating"
+    pending.write_text(block(9, NOW, "rotating"), encoding="utf-8")
     with pytest.raises(EntryChanged, match="rotation"):
         delete_entry(str(history), None, f"{1:012x}", first.isoformat(timespec="seconds"))
+    pending.write_text("", encoding="utf-8")  # a leftover a rotation emptied holds nothing back
+    delete_entry(str(history), None, f"{1:012x}", first.isoformat(timespec="seconds"))
+    assert entries_of(history) == ["three"]
 
 
 def test_appends_that_run_meanwhile_survive_a_deletion(tmp_path):

@@ -41,7 +41,7 @@ import stat
 import threading
 from collections import OrderedDict
 from dataclasses import asdict, dataclass, field, replace
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, FrozenSet, List, Optional, Tuple
 
 from src.memory import config as _memory_config
 from src.memory.config import (
@@ -213,9 +213,12 @@ class MachineHistory:
     ``label`` names this machine. ``files`` holds ``(label, path)`` of history
     segments of the same repository: other machines', and this machine's own
     from its other checkouts of the repository (their label is ``label``).
+    ``deleted`` holds ``(id, time)`` of entries deleted from a journal here: a
+    segment's copy of one is left out, also before sync takes it out.
     """
     label: str
     files: Tuple[Tuple[str, str], ...] = ()
+    deleted: FrozenSet[Tuple[str, str]] = frozenset()
 
 
 _sync = None
@@ -276,9 +279,12 @@ class EntryChanged(Exception):
     """The entry to delete is not there as it was shown."""
 
 
+_MARKER = re.compile(r"\s*(?:<!--|>)")  # a rotation's merge comment or the archive pointer
+
+
 def without_entry(content: str, entry_id: str, timestamp: str) -> str:
-    """``content`` without the entry headed ``## <timestamp> | <entry_id>``: its heading and the field
-    lines and blank lines under it. Other text, such as a rotation's markers, stays.
+    """``content`` without the entry headed ``## <timestamp> | <entry_id>``: everything up to the next
+    heading, as the parser reads an entry, except a rotation's markers and the blank lines at its end.
     ``EntryChanged`` when no such heading is there."""
     lines = content.splitlines(keepends=True)
     for index, line in enumerate(lines):
@@ -286,21 +292,30 @@ def without_entry(content: str, entry_id: str, timestamp: str) -> str:
         if not header or header.group("id") != entry_id or header.group("ts") != timestamp:
             continue
         end = index + 1
-        while end < len(lines) and not _HEADER_RE.match(lines[end]) and (
-                not lines[end].strip() or _FIELD_RE.match(lines[end].rstrip("\r\n"))):
+        while end < len(lines) and not _HEADER_RE.match(lines[end]):
             end += 1
-        return "".join(lines[:index] + lines[end:])
+        last = end - 1  # the entry's last line: markers and blank lines after it are no part of it
+        while last > index and (not lines[last].strip() or _MARKER.match(lines[last])):
+            last -= 1
+        tail = lines[last + 1:end]
+        kept = tail if any(_MARKER.match(line) for line in tail) else []
+        return "".join(lines[:index] + kept + lines[end:])
     raise EntryChanged("the entry is no longer there as shown")
 
 
 def _replace(path: str, text: str) -> None:
-    """Write ``text`` beside ``path`` and replace it in one step, synced first."""
+    """Write ``text`` beside ``path`` and replace it in one step, synced first, keeping its mode.
+
+    ``surrogateescape`` writes back exactly the bytes a read with it decoded, invalid ones included.
+    """
     temp = path + ".tmp"
     try:
-        with open(temp, "w", encoding="utf-8", newline="") as stream:
+        with open(temp, "w", encoding="utf-8", errors="surrogateescape", newline="") as stream:
             stream.write(text)
             stream.flush()
             os.fsync(stream.fileno())
+        with contextlib.suppress(OSError):
+            os.chmod(temp, stat.S_IMODE(os.stat(path).st_mode))
         os.replace(temp, path)
     except BaseException:
         with contextlib.suppress(OSError):
@@ -320,10 +335,11 @@ def delete_entry(history_path: str, month: Optional[str], entry_id: str, timesta
     archive_dir = archive_dir or os.path.join(os.path.dirname(history_path), "history")
     path = history_path if month is None else os.path.join(archive_dir, f"{month}.md")
     with _WRITE_LOCK, file_lock(_sidecar(history_path)):
-        if os.path.exists(history_path + ".rotating"):
+        pending = history_path + ".rotating"
+        if os.path.exists(pending) and os.path.getsize(pending) > 0:  # an emptied leftover holds nothing
             raise EntryChanged("a rotation of history.md is pending; try again in a moment")
         try:
-            with open(path, "r", encoding="utf-8", newline="") as stream:
+            with open(path, "r", encoding="utf-8", errors="surrogateescape", newline="") as stream:
                 content = stream.read()
         except FileNotFoundError:
             raise EntryChanged("the file is gone") from None
@@ -824,11 +840,12 @@ class HistoryReader:
         return out
 
     @staticmethod
-    def _older_file(machine: Optional[str], path: str):
+    def _older_file(machine: Optional[str], path: str, deleted: FrozenSet[Tuple[str, str]] = frozenset()):
         """``(sha256, entries)`` of an archive or segment; an unreadable segment is skipped, an archive is not.
 
         A segment's last block without its ``**Machine:**`` line was cut short by a crash or a full
         disk on the machine that writes it; it is left out until that machine writes it again whole.
+        A segment's copy of a ``deleted`` entry is left out as well.
         """
         if machine is None:
             return parsed_file(path)
@@ -837,7 +854,9 @@ class HistoryReader:
         except OSError:
             return None
         if parsed is not None and parsed[1] and parsed[1][-1].machine is None:
-            return parsed[0], parsed[1][:-1]
+            parsed = parsed[0], parsed[1][:-1]
+        if parsed is not None and deleted:
+            parsed = parsed[0], tuple(e for e in parsed[1] if (e.id, e.timestamp) not in deleted)
         return parsed
 
     def merged_files(self, machines: MachineHistory) -> List[Tuple[Optional[str], str, str, Tuple[HistoryEntry, ...]]]:
@@ -850,7 +869,7 @@ class HistoryReader:
         """
         files = [(None, path, digest, entries) for path, digest, entries in self._live_files()]
         for _bound, _side, machine, path in _older_sources(self.archive_dir, machines):
-            parsed = self._older_file(machine, path)
+            parsed = self._older_file(machine, path, machines.deleted)
             if parsed is not None:
                 files.append((machine, path, parsed[0], parsed[1]))
         return files
@@ -918,7 +937,7 @@ class HistoryReader:
                 if side == 1:
                     continue
             try:
-                parsed = self._older_file(machine, path)
+                parsed = self._older_file(machine, path, machines.deleted)
             except OSError:
                 logger.warning("could not read history archive %s", path, exc_info=True)
                 continue
@@ -953,7 +972,7 @@ class HistoryReader:
                 break
             while index < len(sources) and sources[index][0] == bound:
                 _bound, _side, source_machine, path = sources[index]
-                parsed = self._older_file(source_machine, path)
+                parsed = self._older_file(source_machine, path, machines.deleted)
                 if parsed is not None:
                     _merge_into(chosen, source_machine, parsed[1])
                 index += 1
@@ -1167,6 +1186,8 @@ class HistoryStore:
         digest = hashlib.sha256(b"merged history\0")
         for machine, path, sha, _entries in files:
             digest.update(f"{machine or ''}\0{os.path.basename(path)}\0{sha}\0".encode("utf-8"))
+        for entry_id, timestamp in sorted(machines.deleted):  # a deletion changes the merged entries too
+            digest.update(f"deleted\0{entry_id}\0{timestamp}\0".encode("utf-8"))
         # Rebuilds of one index from several processes take turns.
         with file_lock(os.path.join(self.data_dir, f".{self.store_name}.lock")):
             self._refresh(digest.hexdigest() + ":" + model_fingerprint(), embed_texts,
