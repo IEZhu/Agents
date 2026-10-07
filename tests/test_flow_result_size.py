@@ -6,10 +6,11 @@ import pytest
 
 import src.server as server
 from src.flows import MAX_FLOW_BYTES, FlowCatalog
+from src.result_size import INLINE_LIMIT
 from src.user_flows import FlowLibrary
 
 KEY = "anthropic/maxResultSizeChars"
-UNDECLARED = 50_000  # Claude Code's threshold for a tool that declares nothing
+UNDECLARED = INLINE_LIMIT  # Claude Code's threshold for a tool that declares nothing
 
 
 @pytest.mark.asyncio

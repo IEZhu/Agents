@@ -203,8 +203,9 @@ order: [Repository Memory](../README.md#-repository-memory)). The results of
 `log_interaction` and `read_history` report `workspace` and `pid`, and
 `history_last_error` after a failed history write. A `read_history` listing shows
 long texts as previews and stays under Claude Code's 50,000-character limit; a
-shortened entry carries `truncated`, and `read_history(entry_id=...)` returns the
-entry whole ([details](../README.md#-repository-memory)). On `workspace_required`,
+shortened entry carries `truncated`, `offset` reads the entries a listing left out,
+and `read_history(entry_id=...)` returns an entry whole
+([details](../README.md#-repository-memory)). On `workspace_required`,
 `workspace_unsafe` or `workspace_invalid`, keep routing and report unavailable memory without
 retrying logging in a loop. For `needs_summary`, preserve `workspace_id`,
 `repo_path`, and `repo_hash` in the follow-up write. See

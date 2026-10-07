@@ -1,18 +1,15 @@
 """read_history listings that Claude Code keeps in the conversation (#212).
 
-Claude Code saves an MCP tool's text result longer than 50,000 characters to a file and gives
-the model a pointer instead (#196). It counts what it shows the model: for a tool with
-structured output, ``JSON.stringify(structuredContent)``, where FastMCP's structured content
-is ``{"result": <the JSON text the tool returns>}``, in UTF-16 code units. A history entry
-carries the whole answer it recorded, so the twenty newest entries of a busy repository
-already pass that limit.
+Claude Code saves a tool result over ``INLINE_LIMIT`` characters, as it counts them
+(``src/result_size.py``), to a file. A history entry carries the whole answer it recorded,
+so the twenty newest entries of a busy repository already pass that limit.
 
-A listing therefore shows long texts as previews: ``outcome`` (recency) and ``document``
-(semantic) up to ``PREVIEW_CHARS``, ``intent`` and ``action`` up to ``BRIEF_CHARS``. A
-shortened entry names each cut field with its full length in ``truncated``, and
+A listing therefore shows long texts as previews of at most ``TEXTS`` characters (outcome,
+intent, action) and lists of at most ``LIST_ITEMS`` items (files, tags). A shortened entry
+gives each cut field's full length in ``truncated``: characters for a text, items for a list.
 ``read_history(entry_id=...)`` returns the entry whole. When the previews still do not fit
 ``RESULT_BUDGET``, they shrink together down to ``MIN_PREVIEW_CHARS``; only then do the last
-entries stay out, counted in ``omitted``.
+entries stay out, counted in ``omitted``, and ``offset`` reads them.
 
 Of the means #212 lists, a lower default ``limit`` alone still lets a few long answers pass
 the limit, and ``anthropic/maxResultSizeChars`` (as for the flow tools, #196) would keep every
@@ -22,124 +19,129 @@ callers mostly look for times, intents and tags.
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List, Mapping, NamedTuple, Optional, Sequence
+from typing import Any, Dict, List, Mapping, Optional, Sequence
 
-# Claude Code's threshold for a tool that declares no result size (#196).
-INLINE_LIMIT = 50_000
+from src.result_size import INLINE_LIMIT, shown_size
+
 # What a listing may take: the rest is room for a client that counts a little differently.
 RESULT_BUDGET = INLINE_LIMIT - 5_000
-PREVIEW_CHARS = 600
-BRIEF_CHARS = 300
+TEXTS = {"outcome": 600, "intent": 300, "action": 300}
+PREVIEW_CHARS = max(TEXTS.values())
 MIN_PREVIEW_CHARS = 100
-
-# The texts a listing shortens, with their preview lengths, per mode.
-RECENCY_TEXTS = {"outcome": PREVIEW_CHARS, "intent": BRIEF_CHARS, "action": BRIEF_CHARS}
-SEMANTIC_TEXTS = {"document": PREVIEW_CHARS, "intent": BRIEF_CHARS}
+LISTS = ("files", "tags")
+LIST_ITEMS = 20
 
 _ELLIPSIS = "…"
 
 
-def shown_size(text: str) -> int:
-    """The size Claude Code counts for a tool that returns ``text``: the UTF-16 length of
-    ``JSON.stringify({"result": text})``, which escapes the tool's JSON a second time."""
-    shown = json.dumps({"result": text}, ensure_ascii=False, separators=(",", ":"))
-    return len(shown.encode("utf-16-le")) // 2
+def to_json(payload: Mapping[str, Any]) -> str:
+    """``payload`` as the JSON text a tool returns; a lone surrogate, which no transport can
+    encode, comes out escaped instead of failing the call."""
+    text = json.dumps(payload, ensure_ascii=False)
+    try:
+        text.encode("utf-8")
+    except UnicodeEncodeError:
+        text = json.dumps(payload)
+    return text
 
 
 def preview(text: str, limit: int) -> str:
-    """``text`` cut to ``limit`` characters plus an ellipsis, at a space near the end when there is one."""
-    cut = text[:limit]
+    """``text`` cut to ``limit`` characters with the ellipsis, at a space near the end when there is one."""
+    cut = text[:limit - 1]
     space = cut.rfind(" ")
     if space > limit * 0.8:
         cut = cut[:space]
     return cut.rstrip() + _ELLIPSIS
 
 
-def shorten(entry: Mapping[str, Any], limits: Mapping[str, int]) -> Dict[str, Any]:
-    """A copy of ``entry`` whose texts longer than their limit are previews, listed in ``truncated``."""
+def shorten(entry: Mapping[str, Any], size: int = PREVIEW_CHARS) -> Dict[str, Any]:
+    """A copy of ``entry`` with texts cut to their ``TEXTS`` limit, at most ``size``, and lists to
+    ``LIST_ITEMS``; ``truncated`` gives each cut field's full length."""
     out = dict(entry)
     cut = {}
-    for name, limit in limits.items():
+    for name, limit in TEXTS.items():
         text = out.get(name)
+        limit = min(limit, size)
         if isinstance(text, str) and len(text) > limit:
             out[name] = preview(text, limit)
             cut[name] = len(text)
+    for name in LISTS:
+        items = out.get(name)
+        if isinstance(items, list) and len(items) > LIST_ITEMS:
+            out[name] = items[:LIST_ITEMS]
+            cut[name] = len(items)
     if cut:
         out["truncated"] = cut
     return out
 
 
-def _instruction(omitted: int) -> str:
-    text = ("Long texts are previews; truncated gives each cut field's full length. "
+def _instruction(omitted: int, next_offset: int) -> str:
+    text = ("Long texts and lists are shortened; truncated gives each cut field's full length. "
             "read_history(entry_id=<id>) returns an entry whole.")
     if omitted:
         text += (f" {omitted} more entries were left out to keep the result under "
-                 f"{INLINE_LIMIT:,} characters: lower limit or narrow since or query.")
+                 f"{INLINE_LIMIT:,} characters: read them with offset={next_offset}.")
     return text
 
 
-class Listing(NamedTuple):
-    text: str  # the JSON the tool returns
-    total: int  # entries shown
-    omitted: int  # entries left out
+def listing(mode: str, entries: Sequence[Mapping[str, Any]], extra: Mapping[str, Any],
+            offset: int = 0) -> Dict[str, Any]:
+    """The read_history payload for ``entries`` (those after ``offset``) that Claude Code keeps inline.
 
-
-def listing(mode: str, entries: Sequence[Mapping[str, Any]], texts: Mapping[str, int],
-            extra: Mapping[str, Any], budget: int = RESULT_BUDGET) -> Listing:
-    """A read_history listing of ``entries`` that Claude Code keeps inline.
-
-    ``texts`` maps each field to shorten to its preview length; ``extra`` is added to the
-    payload after the entries (the workspace report). The text is at most ``budget`` by
-    ``shown_size``: previews first, then shorter previews, then the first entries that fit.
+    ``extra`` is added after the entries (the workspace report). By ``shown_size`` of its
+    ``to_json``, the payload is at most ``RESULT_BUDGET``: previews first, then shorter
+    previews, then the first entries that fit at the shortest previews.
     """
-    def render(size: int, count: int) -> Listing:
-        limits = {name: min(length, size) for name, length in texts.items()}
-        shown: List[Dict[str, Any]] = [shorten(entry, limits) for entry in entries[:count]]
+    def render(size: int, count: int) -> Dict[str, Any]:
+        shown: List[Dict[str, Any]] = [shorten(entry, size) for entry in entries[:count]]
         omitted = len(entries) - count
         payload: Dict[str, Any] = {"mode": mode, "total": count, "entries": shown}
         if omitted:
             payload["omitted"] = omitted
         if omitted or any("truncated" in entry for entry in shown):
-            payload["instruction"] = _instruction(omitted)
+            payload["instruction"] = _instruction(omitted, offset + count)
         payload.update(extra)
-        return Listing(json.dumps(payload, ensure_ascii=False), count, omitted)
+        return payload
 
-    result = render(PREVIEW_CHARS, len(entries))
-    if shown_size(result.text) <= budget:
-        return result
-    # The longest previews that fit, then the most entries that fit at the shortest previews.
-    # A size need not grow strictly with either (a preview can outgrow a text a little over
-    # its limit), so a search can settle below the best fit, never above the budget.
-    fitted = _largest(MIN_PREVIEW_CHARS, PREVIEW_CHARS - 1, lambda size: render(size, len(entries)), budget)
-    if fitted is None:
-        fitted = _largest(1, len(entries) - 1, lambda count: render(MIN_PREVIEW_CHARS, count), budget)
-    return fitted if fitted is not None else render(MIN_PREVIEW_CHARS, 0)
+    def fits(payload: Dict[str, Any]) -> bool:
+        return shown_size(to_json(payload)) <= RESULT_BUDGET
+
+    everything = render(PREVIEW_CHARS, len(entries))
+    if fits(everything):
+        return everything
+    floor = render(MIN_PREVIEW_CHARS, len(entries))
+    if fits(floor):
+        # The longest previews that fit. A size need not grow strictly with the preview (one
+        # can outgrow a text a little over its limit), so the search can settle a little low.
+        return _largest(MIN_PREVIEW_CHARS + 1, PREVIEW_CHARS - 1,
+                        lambda size: render(size, len(entries)), fits) or floor
+    # The most entries that fit at the shortest previews.
+    return _largest(1, len(entries) - 1, lambda count: render(MIN_PREVIEW_CHARS, count), fits) \
+        or render(MIN_PREVIEW_CHARS, 0)
 
 
-def _largest(low: int, high: int, render, budget: int) -> Optional[Listing]:
-    """The rendering for the largest value in ``low..high`` that fits ``budget``, or None."""
+def _largest(low: int, high: int, render, fits) -> Optional[Dict[str, Any]]:
+    """The rendering for the largest value in ``low..high`` that fits, or None."""
     best = None
     while low <= high:
         middle = (low + high) // 2
-        result = render(middle)
-        if shown_size(result.text) <= budget:
-            best, low = result, middle + 1
+        payload = render(middle)
+        if fits(payload):
+            best, low = payload, middle + 1
         else:
             high = middle - 1
     return best
 
 
 __all__ = [
-    "BRIEF_CHARS",
-    "INLINE_LIMIT",
-    "Listing",
+    "LISTS",
+    "LIST_ITEMS",
     "MIN_PREVIEW_CHARS",
     "PREVIEW_CHARS",
-    "RECENCY_TEXTS",
     "RESULT_BUDGET",
-    "SEMANTIC_TEXTS",
+    "TEXTS",
     "listing",
     "preview",
     "shorten",
-    "shown_size",
+    "to_json",
 ]

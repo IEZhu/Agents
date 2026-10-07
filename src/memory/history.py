@@ -80,8 +80,10 @@ except ImportError:  # pragma: no cover - Windows
 _WRITE_LOCK = threading.Lock()
 
 
+# An entry's id: the first 12 hex digits of its content hash (HistoryWriter._compute_entry_hash).
+ENTRY_ID = re.compile(r"[0-9a-f]{12}")
 _HEADER_RE = re.compile(
-    r"^##\s+(?P<ts>\S+)\s+\|\s+(?P<id>[0-9a-f]{12})\s*$",
+    rf"^##\s+(?P<ts>\S+)\s+\|\s+(?P<id>{ENTRY_ID.pattern})\s*$",
     re.MULTILINE,
 )
 _FIELD_RE = re.compile(r"^\*\*(?P<name>[A-Za-z]+):\*\*\s*(?P<value>.*)$")
@@ -821,15 +823,35 @@ class HistoryReader:
         return entries[:limit]
 
     def find(self, entry_id: str) -> Optional[HistoryEntry]:
-        """The entry with ``entry_id``, its newest copy if it was recorded again, or None.
+        """The entry with ``entry_id`` as a merged read shows it (see ``merge_entries``), or None.
 
         Looks through this checkout's whole journal (``history.md``, a pending rotation and
-        ``history/*.md``), so an entry that rotation archived is still found; with the user
-        library sync set up for this repository, through the merged history.
+        ``history/*.md``), so an entry that rotation archived is still found, and with the user
+        library sync set up for this repository through the synced segments too. Files are read
+        newest month first, and the search stops at this checkout's own copy, which wins over a
+        segment's. An archive that cannot be read is skipped with a warning.
         """
-        machines = _machine_history(self.history_path)
-        entries = self.journal_entries() if machines is None else self.read_merged(machines)
-        return max((e for e in entries if e.id == entry_id), key=lambda e: e.timestamp, default=None)
+        chosen: Dict[str, HistoryEntry] = {}
+        for _path, _digest, entries in self._live_files():
+            _merge_into(chosen, None, [e for e in entries if e.id == entry_id])
+        machines = _machine_history(self.history_path) or MachineHistory("")
+        for bound, side, machine, path in _older_sources(self.archive_dir, machines):
+            found = chosen.get(entry_id)
+            if found is not None and bound is not None and bound <= found.timestamp:
+                # Neither this file nor an older one holds a later copy: this checkout's copy is
+                # final, and a segment's can still lose only to this checkout's (an archive's).
+                if found.machine is None:
+                    break
+                if side == 1:
+                    continue
+            try:
+                parsed = self._older_file(machine, path)
+            except OSError:
+                logger.warning("could not read history archive %s", path, exc_info=True)
+                continue
+            if parsed is not None:
+                _merge_into(chosen, machine, [e for e in parsed[1] if e.id == entry_id])
+        return chosen.get(entry_id)
 
     def _recent_merged(self, machines: MachineHistory, limit: int, since: Optional[str], keep) -> List[HistoryEntry]:
         """The merged entries that can be among the ``limit`` newest kept ones.
@@ -991,9 +1013,9 @@ class HistoryStore:
                 out.append({
                     "id": eid,
                     "distance": float(result.distances[i]),
-                    "document": result.documents[i],
                     "timestamp": meta.get("timestamp", ""),
                     "intent": meta.get("intent", ""),
+                    **self._document_fields(result.documents[i]),
                     "tags": meta.get("tags", []),
                     "machine": meta.get("machine"),
                 })
@@ -1181,8 +1203,22 @@ class HistoryStore:
             parts.append("Tags: " + " ".join(entry.tags))
         return "\n".join(parts)
 
+    @staticmethod
+    def _document_fields(document: str) -> Dict[str, str]:
+        """``action`` and ``outcome`` back from a ``_format_for_embedding`` document.
+
+        Each of its fields is one line: the writer collapses an entry's newlines.
+        """
+        fields = {"action": "", "outcome": ""}
+        for line in document.split("\n"):
+            name, _, value = line.partition(": ")
+            if name in ("Action", "Outcome"):
+                fields[name.lower()] = value
+        return fields
+
 
 __all__ = [
+    "ENTRY_ID",
     "HistoryEntry",
     "HistoryReader",
     "HistoryStore",
