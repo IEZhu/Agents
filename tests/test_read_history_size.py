@@ -8,7 +8,7 @@ import os
 import pytest
 
 from src.engine import config as engine_config
-from src.memory.history import HistoryEntry, HistoryReader, HistoryStore, HistoryWriter, MachineHistory, set_sync
+from src.memory.history import HistoryReader, HistoryStore, HistoryWriter, MachineHistory, set_sync
 from src.memory.history_results import LIST_ITEMS, RESULT_BUDGET, TEXTS, listing, preview, to_json
 from src.result_size import INLINE_LIMIT, shown_size
 
@@ -104,7 +104,7 @@ async def test_offset_reads_the_entries_a_listing_left_out(client_root):
     first = json.loads(await server.read_history(limit=150))
     shown = first["total"]
     assert first["omitted"] == 150 - shown > 0
-    assert f"offset={shown}" in first["instruction"]
+    assert f"offset={shown} and limit={150 - shown}" in first["instruction"]
     assert [entry["id"] for entry in first["entries"]] == order[:shown]
     rest = json.loads(await server.read_history(limit=150 - shown, offset=shown))
     assert [entry["id"] for entry in rest["entries"]] == order[shown:shown + rest["total"]]
@@ -125,6 +125,7 @@ def test_an_entry_archived_by_rotation_is_still_found(tmp_path):
     assert reader.find("0123456789ab") is None
 
 
+@pytest.mark.skipif(os.name == "nt" or os.geteuid() == 0, reason="chmod 0 does not block reads here")
 def test_an_unreadable_archive_does_not_fail_a_lookup(tmp_path, caplog):
     history = tmp_path / "history.md"
     writer = HistoryWriter(str(history), str(tmp_path / "history"), rotation_kb=1)
@@ -188,13 +189,6 @@ async def test_a_short_history_is_listed_as_before(client_root):
     assert entry == HistoryReader(str(client_root / "history.md")).read_all()[0].to_dict()
 
 
-def test_semantic_results_carry_the_action_and_outcome_of_their_document():
-    entry = HistoryEntry("abcdef012345", "2026-10-07T10:00:00+00:00", "an intent", "Agent: a: b", "the outcome: yes",
-                         tags=["#t"])
-    document = HistoryStore._format_for_embedding(entry)
-    assert HistoryStore._document_fields(document) == {"action": "Agent: a: b", "outcome": "the outcome: yes"}
-
-
 @pytest.mark.asyncio
 async def test_a_semantic_listing_previews_its_outcomes(client_root, monkeypatch):
     import src.server as server
@@ -225,10 +219,11 @@ async def test_an_entry_with_a_lone_surrogate_still_comes_back(client_root):
 
     # A hand-edited Meta line can decode to a lone surrogate, which no transport can encode.
     (client_root / "history.md").write_text(
-        '## 2026-10-07T10:00:00+00:00 | abcdef012345\n**Intent:** i\n**Action:** a\n**Outcome:** o\n'
+        '## 2026-10-07T10:00:00+00:00 | abcdef012345\n**Intent:** Привет\n**Action:** a\n**Outcome:** o\n'
         '**Meta:** {"note": "\\ud83d"}\n', encoding="utf-8")
     for text in (await server.read_history(entry_id="abcdef012345"), await server.read_history()):
         text.encode("utf-8")
+        assert "Привет" in text  # only the surrogate is escaped
         assert json.loads(text)["entries"][0]["metadata"] == {"note": "\ud83d"}
 
 
@@ -253,7 +248,7 @@ def test_the_last_entries_are_left_out_when_the_shortest_previews_do_not_fit():
     shown = payload["total"]
     assert 0 < shown < 500 and payload["omitted"] == 500 - shown
     assert f"{500 - shown} more entries" in payload["instruction"]
-    assert f"offset={40 + shown}" in payload["instruction"]
+    assert f"offset={40 + shown} and limit={500 - shown}" in payload["instruction"]
     assert [entry["id"] for entry in payload["entries"]] == [entry["id"] for entry in many[:shown]]
 
 
@@ -270,3 +265,25 @@ def test_a_preview_with_its_ellipsis_stays_within_its_limit():
     assert len(preview("x" * 1_000, 600)) == 600 and preview("x" * 1_000, 600).endswith("…")
     worded = preview("word " * 200, 300)
     assert len(worded) <= 300 and worded.endswith("word…")
+
+
+def test_an_entry_too_large_even_alone_comes_as_a_stub_and_paging_moves_on():
+    rows = entries(5)
+    rows[0]["metadata"] = {"_raw": "x" * 60_000}  # a hand-edited Meta line that is not JSON
+    payload = listing("recency", rows, {"pid": 1}, offset=7)
+    assert shown_size(to_json(payload)) <= RESULT_BUDGET
+    assert (payload["total"], payload["omitted"]) == (1, 4)
+    [first] = payload["entries"]
+    assert (first["id"], first["timestamp"]) == (rows[0]["id"], rows[0]["timestamp"])
+    assert first["truncated"]["metadata"] > 60_000 and first["truncated"]["outcome"] == 3_000
+    assert "offset=8 and limit=4" in payload["instruction"]
+
+
+@pytest.mark.asyncio
+async def test_the_tool_description_fits_claude_codes_limit():
+    import src.server as server
+
+    # Claude Code cuts a tool description at 2,048 characters. Python before 3.13 keeps the
+    # docstring's four-space indent, which this bound adds back.
+    description = {tool.name: tool for tool in await server.mcp.list_tools()}["read_history"].description
+    assert len(description) + 4 * description.count("\n") < 2_048

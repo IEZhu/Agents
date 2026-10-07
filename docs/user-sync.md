@@ -409,7 +409,8 @@ is excluded, nothing is merged. The semantic index covers the merged entries and
 entries it has not embedded yet. Without sync set up on the machine, in a subfolder workspace or
 for a repository without an `origin`, `read_history` lists and searches `history.md` alone, as
 before. `read_history(entry_id=…)` looks through the whole journal either way, `history/*.md`
-included, and with sync through the segments too; it returns the copy the merged read shows.
+included, and with sync through the segments too. It returns the copy a full merged read shows,
+this checkout's own first, which can differ from the copy a shorter listing showed.
 
 ### Growth and pruning
 

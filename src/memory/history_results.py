@@ -9,7 +9,8 @@ intent, action) and lists of at most ``LIST_ITEMS`` items (files, tags). A short
 gives each cut field's full length in ``truncated``: characters for a text, items for a list.
 ``read_history(entry_id=...)`` returns the entry whole. When the previews still do not fit
 ``RESULT_BUDGET``, they shrink together down to ``MIN_PREVIEW_CHARS``; only then do the last
-entries stay out, counted in ``omitted``, and ``offset`` reads them.
+entries stay out, counted in ``omitted``, and ``offset`` reads them. A first entry that does
+not fit even then comes as a ``stub`` of its id and time.
 
 Of the means #212 lists, a lower default ``limit`` alone still lets a few long answers pass
 the limit, and ``anthropic/maxResultSizeChars`` (as for the flow tools, #196) would keep every
@@ -36,12 +37,13 @@ _ELLIPSIS = "…"
 
 def to_json(payload: Mapping[str, Any]) -> str:
     """``payload`` as the JSON text a tool returns; a lone surrogate, which no transport can
-    encode, comes out escaped instead of failing the call."""
+    encode, comes out as its ``\\uXXXX`` escape instead of failing the call."""
     text = json.dumps(payload, ensure_ascii=False)
     try:
         text.encode("utf-8")
     except UnicodeEncodeError:
-        text = json.dumps(payload)
+        # Only inside a JSON string, where the escape reads back as the same character.
+        text = text.encode("utf-8", "backslashreplace").decode("utf-8")
     return text
 
 
@@ -75,12 +77,31 @@ def shorten(entry: Mapping[str, Any], size: int = PREVIEW_CHARS) -> Dict[str, An
     return out
 
 
+def stub(entry: Mapping[str, Any]) -> Dict[str, Any]:
+    """``entry`` reduced to its id, time, distance and machine; ``truncated`` gives the length of
+    each field left out (characters, items for a list, characters of JSON otherwise)."""
+    out = {name: entry[name] for name in _STUB_FIELDS if name in entry}
+    out["truncated"] = {name: _length(value) for name, value in entry.items()
+                        if name not in out and value not in (None, "", [], {})}
+    return out
+
+
+_STUB_FIELDS = ("id", "timestamp", "distance", "machine")
+
+
+def _length(value: Any) -> int:
+    if isinstance(value, (str, list)):
+        return len(value)
+    return len(json.dumps(value, ensure_ascii=False))
+
+
 def _instruction(omitted: int, next_offset: int) -> str:
     text = ("Long texts and lists are shortened; truncated gives each cut field's full length. "
             "read_history(entry_id=<id>) returns an entry whole.")
     if omitted:
         text += (f" {omitted} more entries were left out to keep the result under "
-                 f"{INLINE_LIMIT:,} characters: read them with offset={next_offset}.")
+                 f"{INLINE_LIMIT:,} characters: repeat this call with offset={next_offset} and "
+                 f"limit={omitted} to read them.")
     return text
 
 
@@ -92,8 +113,10 @@ def listing(mode: str, entries: Sequence[Mapping[str, Any]], extra: Mapping[str,
     ``to_json``, the payload is at most ``RESULT_BUDGET``: previews first, then shorter
     previews, then the first entries that fit at the shortest previews.
     """
-    def render(size: int, count: int) -> Dict[str, Any]:
+    def render(size: int, count: int, stubbed: bool = False) -> Dict[str, Any]:
         shown: List[Dict[str, Any]] = [shorten(entry, size) for entry in entries[:count]]
+        if stubbed:
+            shown, count = [stub(entries[0])], 1
         omitted = len(entries) - count
         payload: Dict[str, Any] = {"mode": mode, "total": count, "entries": shown}
         if omitted:
@@ -115,9 +138,10 @@ def listing(mode: str, entries: Sequence[Mapping[str, Any]], extra: Mapping[str,
         # can outgrow a text a little over its limit), so the search can settle a little low.
         return _largest(MIN_PREVIEW_CHARS + 1, PREVIEW_CHARS - 1,
                         lambda size: render(size, len(entries)), fits) or floor
-    # The most entries that fit at the shortest previews.
+    # The most entries that fit at the shortest previews. When not even the first does (a huge
+    # metadata line or list item), it comes as a stub: entry_id reads it and offset moves past it.
     return _largest(1, len(entries) - 1, lambda count: render(MIN_PREVIEW_CHARS, count), fits) \
-        or render(MIN_PREVIEW_CHARS, 0)
+        or render(MIN_PREVIEW_CHARS, 0, stubbed=bool(entries))
 
 
 def _largest(low: int, high: int, render, fits) -> Optional[Dict[str, Any]]:
@@ -143,5 +167,6 @@ __all__ = [
     "listing",
     "preview",
     "shorten",
+    "stub",
     "to_json",
 ]

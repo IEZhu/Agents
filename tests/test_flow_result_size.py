@@ -6,7 +6,7 @@ import pytest
 
 import src.server as server
 from src.flows import MAX_FLOW_BYTES, FlowCatalog
-from src.result_size import INLINE_LIMIT
+from src.result_size import INLINE_LIMIT, shown_size
 from src.user_flows import FlowLibrary
 
 KEY = "anthropic/maxResultSizeChars"
@@ -43,3 +43,8 @@ def test_the_size_stays_above_claude_codes_default_and_at_most_its_ceiling():
     assert server.flow_result_size(1) > UNDECLARED
     assert server.flow_result_size(MAX_FLOW_BYTES) == server.flow_result_size(10 ** 7) == server.RESULT_SIZE_CEILING
     assert server.RESULT_SIZE_CEILING == 500_000
+
+
+def test_the_size_counts_a_control_byte_as_claude_code_shows_it():
+    # Claude Code shows the result's JSON escaped a second time: \u0001 there takes seven characters.
+    assert shown_size(json.dumps("\x01")) - shown_size(json.dumps("")) == server._ESCAPED_CHARS_PER_BYTE == 7

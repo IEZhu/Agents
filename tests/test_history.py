@@ -268,6 +268,9 @@ class TestSemanticStore:
         assert len(results) >= 1
         # Top hit must be the semantic-recall entry
         assert "semantic recall" in results[0]["intent"].lower()
+        # Its action and outcome come back from the stored document, which stays internal (#212).
+        assert (results[0]["action"], results[0]["outcome"]) == ("wired NumpyVectorStore", "search returns relevant entries")
+        assert "document" not in results[0]
 
     def test_index_rebuilds_on_file_change(self, tmp_path, writer):
         writer.append_entry("seed", "a", "b")

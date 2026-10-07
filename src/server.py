@@ -1289,41 +1289,30 @@ async def read_history(
     entry_id: ta.opt_str("Optional id of one entry to return whole; the other arguments are then ignored.") = None,
     ctx: Context | None = None,
 ) -> str:
-    """Read recent history entries, run a lazy semantic search, or read one entry whole.
+    """Read recent history entries, search them, or read one entry whole.
 
-    - Without ``query``: returns up to ``limit`` newest entries; ``since``
-      (ISO8601 prefix) optionally filters for entries at or after that
-      timestamp.
-    - With ``query``: builds the vector index on first use (and rebuilds it
-      when the content of history.md or the embedding configuration changes),
-      then returns semantically nearest entries with cosine distance.
+    - Without ``query``: up to ``limit`` newest entries; ``since`` (ISO8601
+      prefix) keeps entries at or after it.
+    - With ``query``: the semantically nearest entries with cosine distance;
+      the index is built on first use and rebuilt when history.md or the
+      embedding configuration changes.
     - ``offset`` skips that many of the newest (or nearest) entries first.
-    - With ``entry_id``: returns that entry with its full text, also after
-      rotation archived it; the other arguments are ignored.
+    - With ``entry_id``: that entry with its full text, also an archived one;
+      the other arguments are ignored.
 
-    A listing stays under the 50,000 characters above which Claude Code saves a
-    result to a file: ``outcome`` is a preview of up to 600 characters,
-    ``intent`` and ``action`` of up to 300, ``files`` and ``tags`` keep up to 20
-    items, and a shortened entry gives each cut field's full length in
-    ``truncated`` (characters, or items for a list). If that is still too much,
-    the previews get shorter, and then the last entries are left out, counted
-    in ``omitted``; ``instruction`` gives the ``offset`` that reads them. An
-    entry read whole is not shortened, so one longer than the limit still goes
-    to a file.
+    A listing stays under Claude Code's 50,000-character result limit: outcome
+    up to 600 characters, intent and action up to 300, files and tags up to 20
+    items, and ``truncated`` gives a shortened entry's full lengths. If that is
+    still too long, previews shrink and the last entries are left out
+    (``omitted``; ``instruction`` says how to read them).
 
     With user library sync, the entries the user's machines shared for this
     repository are merged in, one per entry hash; ``machine`` keeps one
     machine label's entries, or ``local`` this checkout's own.
 
-    Returns JSON:
-      {entries: [...], total, mode, omitted?, instruction?, workspace: {root, source},
-       pid, history_last_error?}
-      mode ∈ {"recency", "semantic", "entry"}; total counts the entries returned,
-      none for an unknown entry_id. history_last_error ({code, errno, path, at})
-      is present only after a history write failed.
-
-    Entry shape depends on mode (machine: null for this checkout's own entries;
-    truncated only on a shortened entry):
+    Returns JSON: {entries, total, mode, omitted?, instruction?, workspace,
+    pid, history_last_error?}; mode is recency, semantic or entry. Entries
+    (machine: null for this checkout's own):
     - recency and entry: {id, timestamp, intent, action, outcome, files, tags, metadata, machine}.
     - semantic: {id, distance, timestamp, intent, action, outcome, tags, machine}.
     """
