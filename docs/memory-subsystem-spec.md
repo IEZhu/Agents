@@ -1,7 +1,7 @@
 # Agents-Core Memory Subsystem: `describe` + `history.md`
 
 > Specification and step-by-step implementation plan for the per-repo memory mechanism of the Agents-Core MCP server.
-> Status: implemented 2026-04-15. Sections 1–5 carry later corrections, including client-scoped paths (#36), the `write_repo_summary` fallback, persona attribution in `log_interaction`, sidecar locks and the history merged across machines through user library sync (#172). The implementation and test plans (sections 6–7) mostly keep their original wording; Appendix C records deviations between the plan and the implementation. For current behavior, see [README: Repository Memory](../README.md#-repository-memory), [service memory behavior](shared-mcp-daemon.md#memory-and-errors) and the [routing reference](routing_flow.md#runtime-and-project-boundaries).
+> Status: implemented 2026-04-15. Sections 1–5 carry later corrections, including client-scoped paths (#36), the `write_repo_summary` fallback, persona attribution in `log_interaction`, sidecar locks, the history merged across machines through user library sync (#172) and `read_history` previews within Claude Code's result limit (#212). The implementation and test plans (sections 6–7) mostly keep their original wording; Appendix C records deviations between the plan and the implementation. For current behavior, see [README: Repository Memory](../README.md#-repository-memory), [service memory behavior](shared-mcp-daemon.md#memory-and-errors) and the [routing reference](routing_flow.md#runtime-and-project-boundaries).
 
 > **Update 2026-04-15 (post-implementation):** The standalone `record_history` MCP tool was merged
 > into `log_interaction`. Now `log_interaction(...)` always appends to `history.md` (with optional
@@ -99,17 +99,24 @@ log_interaction(..., intent, action, outcome, files?, tags?)
   │    (src/user_sync/history.py); the append never waits for it
   └─ return {status:"recorded", entry_id, path}
 
-read_history(limit=20, since?, query?, machine?)
+read_history(limit=20, since?, query?, machine?, offset=0, entry_id?)
   ├─ with user library sync for this checkout: entries = history.md + history/*.md
   │    + the shared segments of its key, a union by entry hash (the checkout's copy wins),
   │    read newest month first; unchanged files come from a parse cache
-  ├─ if query:
+  ├─ if entry_id:
+  │    └─ HistoryReader.find()               # the whole entry, read newest month first from
+  │                                          # history.md, history/*.md and, with sync, the segments
+  ├─ elif query:
   │    ├─ HistoryStore.ensure_index()        # lazy: refresh when the content of the history
   │    │                                     # files or the embedding fingerprint changes; embeds
   │    │                                     # only new or edited entries unless the fingerprint changed
-  │    └─ semantic search via NumpyVectorStore + embedder, filtered by machine
-  └─ else:
-       └─ HistoryReader.read_recent()        # filter by machine and since, newest first
+  │    └─ semantic search via NumpyVectorStore + embedder, filtered by machine;
+  │         action and outcome come back from each entry's document
+  ├─ else:
+  │    └─ HistoryReader.read_recent()        # filter by machine and since, newest first
+  └─ a listing skips offset entries and goes through history_results.listing(): previews
+       of long texts and lists, then shorter previews, then fewer entries, until Claude Code
+       keeps it inline (#212)
 ```
 
 ### 3.2 Module Layout
@@ -312,20 +319,29 @@ async def read_history(
     since: str | None = None,
     query: str | None = None,
     machine: str | None = None,
+    offset: int = 0,
+    entry_id: str | None = None,
     ctx: Context | None = None,
 ) -> str:
-    """Read recent entries (limit/since) or run a lazy semantic search (query).
+    """Read recent entries (limit/since), run a lazy semantic search (query), or
+    read one entry whole (entry_id; the other arguments are then ignored).
     limit is clamped to 1–500. With user library sync, the entries the user's
     machines shared for this repository are merged in, one per entry hash;
     machine keeps one machine label's entries, or `local` the checkout's own.
 
-    Returns JSON: {entries: [...], total, mode}.
-    mode ∈ {"recency", "semantic"}.
+    A listing stays under Claude Code's 50,000-character limit: outcome is a
+    preview of up to 600 characters, intent and action of up to 300, files and
+    tags keep up to 20 items, and a shortened entry carries truncated
+    ({field: full length}); then shorter previews, then the last entries left
+    out, counted in omitted. offset skips entries, so a later call reads them.
+
+    Returns JSON: {entries: [...], total, mode, omitted?, instruction?}.
+    mode ∈ {"recency", "semantic", "entry"}.
     A missing or invalid workspace, or any failure, returns {status, error}.
 
     Entry shape depends on mode (machine is null for the checkout's own entries):
-    - recency: {id, timestamp, intent, action, outcome, files, tags, metadata, machine}.
-    - semantic: {id, distance, document, timestamp, intent, tags, machine}.
+    - recency and entry: {id, timestamp, intent, action, outcome, files, tags, metadata, machine}.
+    - semantic: {id, distance, timestamp, intent, action, outcome, tags, machine}.
     """
 ```
 
