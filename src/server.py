@@ -57,7 +57,9 @@ from src.engine.config import SESSION_CACHE_MAX_SIZE, SESSION_CACHE_TTL_SECONDS,
 from src.utils.prompt_loader import load_agent_prompt, get_agent_metadata
 from src.utils.debug_logger import debug_log
 from src.memory.describer import RepoDescriber
-from src.memory.history import HistoryReader, HistoryWriter
+from src.memory.history import ENTRY_ID, HistoryReader, HistoryWriter
+from src.memory.history_results import listing, to_json
+from src.result_size import RESULT_SIZE_CEILING
 from src.daemon.workspaces import client_context, WorkspaceError, HistoryStores
 from src import flow_persona
 from src.flows import MAX_FLOW_BYTES, FlowCatalog, FlowError, execution_bundle
@@ -326,12 +328,9 @@ def _flow_error(error: Exception) -> str:
     return json.dumps({"status": "error", "error": str(error)}, ensure_ascii=False)
 
 
-# Claude Code saves an MCP tool's text result longer than 50,000 characters to a file and gives the
-# model a pointer, unless the tool declares a larger size in its tools/list entry; it accepts at most
-# 500,000 (#196).
-RESULT_SIZE_CEILING = 500_000
-# json.dumps writes a control character as \u00XX: no byte of a flow becomes more than six characters.
-_ESCAPED_CHARS_PER_BYTE = 6
+# Claude Code shows a result's JSON escaped a second time (src/result_size.py): a control character,
+# \u00XX in the JSON, takes seven characters there, and no byte of a flow takes more.
+_ESCAPED_CHARS_PER_BYTE = 7
 # The rest of a result: ids, revisions, the instruction and the list of saved versions.
 _RESULT_METADATA_CHARS = 64 * 1024
 
@@ -1286,42 +1285,61 @@ async def read_history(
     since: ta.opt_str("Optional ISO8601 prefix; only entries at or after it.") = None,
     query: ta.opt_str("Optional text to search the history for.") = None,
     machine: ta.opt_str("Optional machine label, or `local` for this checkout's own entries.") = None,
+    offset: Annotated[int, Field(description="Entries to skip first, newest or nearest first.")] = 0,
+    entry_id: ta.opt_str("Optional id of one entry to return whole; the other arguments are then ignored.") = None,
     ctx: Context | None = None,
 ) -> str:
-    """Read recent history entries or run a lazy semantic search.
+    """Read recent history entries, search them, or read one entry whole.
 
-    - Without ``query``: returns up to ``limit`` newest entries; ``since``
-      (ISO8601 prefix) optionally filters for entries at or after that
-      timestamp.
-    - With ``query``: builds the vector index on first use (and rebuilds it
-      when the content of history.md or the embedding configuration changes),
-      then returns semantically nearest entries with cosine distance.
+    - Without ``query``: up to ``limit`` newest entries; ``since`` (ISO8601
+      prefix) keeps entries at or after it.
+    - With ``query``: the semantically nearest entries with cosine distance;
+      the index is built on first use and rebuilt when history.md or the
+      embedding configuration changes.
+    - ``offset`` skips that many of the newest (or nearest) entries first.
+    - With ``entry_id``: that entry with its full text, also an archived one;
+      the other arguments are ignored.
+
+    A listing stays under Claude Code's 50,000-character result limit: outcome
+    up to 600 characters, intent and action up to 300, files and tags up to 20
+    items, and ``truncated`` gives a shortened entry's full lengths. If that is
+    still too long, previews shrink and the last entries are left out
+    (``omitted``; ``instruction`` says how to read them).
 
     With user library sync, the entries the user's machines shared for this
     repository are merged in, one per entry hash; ``machine`` keeps one
     machine label's entries, or ``local`` this checkout's own.
 
-    Returns JSON:
-      {entries: [...], total, mode, workspace: {root, source}, pid,
-       history_last_error?}
-      mode ∈ {"recency", "semantic"}. history_last_error ({code, errno, path,
-      at}) is present only after a history write failed.
-
-    Entry shape depends on mode (machine: null for this checkout's own entries):
-    - recency: {id, timestamp, intent, action, outcome, files, tags, metadata, machine}.
-    - semantic: {id, distance, document, timestamp, intent, tags, machine}.
+    Returns JSON: {entries, total, mode, omitted?, instruction?, workspace,
+    pid, history_last_error?}; mode is recency, semantic or entry. Entries
+    (machine: null for this checkout's own):
+    - recency and entry: {id, timestamp, intent, action, outcome, files, tags, metadata, machine}.
+    - semantic: {id, distance, timestamp, intent, action, outcome, tags, machine}.
     """
     try:
         client = client_context(ctx)
         root = client.require_root()
         workspace_report = _workspace_report(client, root)
         limit = max(1, min(limit, 500))
+        offset = max(0, offset)
         query = (query or "").strip() or None
         machine = (machine or "").strip() or None
-        debug_log("read_history", "req", {"limit": limit, "since": since, "query": query, "machine": machine})
+        entry_id = (entry_id or "").strip().lower() or None
+        debug_log("read_history", "req", {"limit": limit, "since": since, "query": query, "machine": machine,
+                                           "offset": offset, "entry_id": entry_id})
         loop = asyncio.get_running_loop()
+        reader = HistoryReader(str(root / "history.md"), str(root / "history"))
 
-        if query:
+        if entry_id:
+            if not ENTRY_ID.fullmatch(entry_id):
+                payload = {"status": "error", "error": "entry_id is an entry's id: 12 hexadecimal characters",
+                           **workspace_report}
+                debug_log("read_history", "error", payload)
+                return to_json(payload)
+            entry = await loop.run_in_executor(None, reader.find, entry_id)
+            entries = [entry.to_dict()] if entry else []
+            payload = {"mode": "entry", "total": len(entries), "entries": entries, **workspace_report}
+        elif query:
             if (problem := await _readiness_problem("read_history")) is not None:
                 status = "warming_up" if problem == "warming_up" else "error"
                 return json.dumps({"status": status, "error": problem if status == "error" else WARMING_UP_HINT,
@@ -1329,23 +1347,17 @@ async def read_history(
 
             def search():
                 with _history_stores.acquire(client) as store:
-                    return store.search(query, limit=limit, machine=machine)
-            results = await loop.run_in_executor(None, search)
-            payload = {"mode": "semantic", "total": len(results), "entries": results}
+                    results = store.search(query, limit=offset + limit, machine=machine)
+                return listing("semantic", results[offset:], workspace_report, offset)
+            payload = await loop.run_in_executor(None, search)
         else:
-            reader = HistoryReader(str(root / "history.md"), str(root / "history"))
-            entries = await loop.run_in_executor(
-                None,
-                lambda: reader.read_recent(limit=limit, since=since, machine=machine),
-            )
-            payload = {
-                "mode": "recency",
-                "total": len(entries),
-                "entries": [e.to_dict() for e in entries],
-            }
-        payload.update(workspace_report)
-        debug_log("read_history", "res", {"mode": payload["mode"], "total": payload["total"]})
-        return json.dumps(payload, ensure_ascii=False)
+            def recent():
+                entries = reader.read_recent(limit=offset + limit, since=since, machine=machine)
+                return listing("recency", [e.to_dict() for e in entries[offset:]], workspace_report, offset)
+            payload = await loop.run_in_executor(None, recent)
+        debug_log("read_history", "res", {"mode": payload["mode"], "total": payload["total"],
+                                          "omitted": payload.get("omitted", 0)})
+        return to_json(payload)
     except WorkspaceError as e:
         # A known condition (no usable workspace): no traceback per call.
         payload = {"status": "error", "error": str(e)}
