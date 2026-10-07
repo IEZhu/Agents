@@ -37,7 +37,7 @@ def write(path, *blocks: str) -> None:
 
 @pytest_asyncio.fixture
 async def daemon(tmp_path):
-    project, other, gone, quiet = (tmp_path / name for name in ("project", "other", "gone", "quiet"))
+    project, other, gone, quiet, archived = (tmp_path / name for name in ("project", "other", "gone", "quiet", "archived"))
     write(project / "history.md",
           block(1, NOW - dt.timedelta(hours=3), "first today", persona("lawyer", "switch")),
           block(2, NOW - dt.timedelta(minutes=2), "newest question", persona("ux_designer")),
@@ -46,11 +46,14 @@ async def daemon(tmp_path):
           block(4, dt.datetime(2026, 9, 30, 10, tzinfo=dt.timezone.utc), "september one"),
           block(5, dt.datetime(2026, 9, 30, 11, tzinfo=dt.timezone.utc), "september two holds a NEEDLE"))
     write(other / "history.md", block(6, NOW - dt.timedelta(days=2), "the needle in another repo", outcome="needle x"))
+    # Only archives, one of them with a name that is no month: it is left out, not fatal.
+    write(archived / "history" / "2026-08.md", block(7, dt.datetime(2026, 8, 1, tzinfo=dt.timezone.utc), "august"))
+    write(archived / "history" / "2026-13.md", block(8, dt.datetime(2026, 8, 2, tzinfo=dt.timezone.utc), "no month"))
     gone.mkdir()
     quiet.mkdir()
     registry = WorkspaceRegistry(tmp_path / "service")
     ids = {name: registry.register(path) for name, path in
-           (("project", project), ("other", other), ("gone", gone), ("quiet", quiet))}
+           (("project", project), ("other", other), ("gone", gone), ("quiet", quiet), ("archived", archived))}
     shutil.rmtree(gone)
 
     def runtime(port):
@@ -99,8 +102,9 @@ async def test_the_list_shows_repositories_with_a_history_newest_first(daemon):
     http, ids = daemon
     await login(http)
     repos = (await http.get("/ui/api/history/repos", headers=UI)).json()["repos"]
-    assert [repo["name"] for repo in repos] == ["project", "other", "gone"]  # "quiet" has no history
-    project, other, gone = repos
+    assert [repo["name"] for repo in repos] == ["project", "other", "archived", "gone"]  # "quiet" has no history
+    project, other, archived, gone = repos
+    assert [(f["file"], f["entries"]) for f in archived["files"]] == [("2026-08", 1)]
     assert project["workspace"] == ids["project"] and project["available"] and project["entries"] == 5
     assert [(f["file"], f["entries"]) for f in project["files"]] == [("current", 3), ("2026-09", 2)]
     assert project["newest"] == (NOW - dt.timedelta(minutes=2)).isoformat(timespec="seconds")
@@ -108,20 +112,25 @@ async def test_the_list_shows_repositories_with_a_history_newest_first(daemon):
 
 
 @pytest.mark.asyncio
-async def test_a_file_reads_newest_first_in_portions_with_a_full_index(daemon):
+async def test_a_file_reads_newest_first_in_portions_with_a_full_index(daemon, tmp_path):
     http, ids = daemon
     await login(http)
     base = f"/ui/api/history?workspace={ids['project']}"
     first = (await http.get(base + "&limit=2", headers=UI)).json()
-    assert (first["file"], first["files"], first["total"], first["offset"]) == ("current", ["current", "2026-09"], 3, 0)
+    assert (first["file"], first["files"], first["total"]) == ("current", ["current", "2026-09"], 3)
     assert [entry["intent"] for entry in first["entries"]] == ["newest question", "middle"]
     newest = first["entries"][0]
     assert (newest["agent"], newest["persona_action"], newest["id"]) == ("ux_designer", "keep", f"{2:012x}")
     assert first["entries"][1]["persona_action"] is None and first["entries"][1]["tags"] == ["#t"]
     assert [(item["id"], item["agent"]) for item in first["index"]] == [
         (f"{2:012x}", "ux_designer"), (f"{3:012x}", "software_engineer"), (f"{1:012x}", "lawyer")]
-    rest = (await http.get(base + "&offset=2&limit=2", headers=UI)).json()
+    # The next portion counts from the oldest entry: an answer logged meanwhile shifts nothing.
+    (tmp_path / "project" / "history.md").write_text(
+        (tmp_path / "project" / "history.md").read_text(encoding="utf-8") + block(9, NOW, "logged meanwhile"),
+        encoding="utf-8")
+    rest = (await http.get(base + "&before=1&limit=2", headers=UI)).json()
     assert [entry["intent"] for entry in rest["entries"]] == ["first today"] and "index" not in rest
+    assert rest["total"] == 4
     archive = (await http.get(base + "&file=2026-09", headers=UI)).json()
     assert [entry["intent"] for entry in archive["entries"]] == ["september two holds a NEEDLE", "september one"]
 
@@ -136,6 +145,13 @@ async def test_an_entry_opens_the_file_that_holds_it_and_is_reached(daemon):
     assert [entry["id"] for entry in found["entries"]] == [f"{5:012x}", f"{4:012x}"]  # the portion reaches it
     missing = await http.get(base + "&entry=0123456789ab", headers=UI)
     assert missing.status_code == 404 and missing.json()["error"].startswith("entry_not_found")
+    wrong_time = await http.get(base + f"&entry={4:012x}&time=2026-01-01T00:00:00%2B00:00", headers=UI)
+    assert wrong_time.status_code == 404  # ids repeat: the time picks the occurrence
+    timed = (await http.get(base + f"&entry={4:012x}&time=2026-09-30T10:00:00%2B00:00", headers=UI)).json()
+    assert timed["focus"] == 1
+    # Without a file, a workspace that has only archives opens its newest one.
+    archived = (await http.get(f"/ui/api/history?workspace={ids['archived']}", headers=UI)).json()
+    assert (archived["file"], archived["files"], archived["total"]) == ("2026-08", ["2026-08"], 1)
 
 
 @pytest.mark.asyncio
@@ -149,11 +165,11 @@ async def test_only_registered_workspaces_and_history_files_are_read(daemon, tmp
         (f"workspace={ids['project']}&file=2026-13", 400, "file_invalid"),
         (f"workspace={ids['project']}&file=history", 400, "file_invalid"),
         (f"workspace={ids['project']}&file=2026-08", 404, "file_not_found"),
-        (f"workspace={ids['project']}&offset=-1", 400, "invalid_request"),
+        (f"workspace={ids['project']}&before=-1", 400, "invalid_request"),
         (f"workspace={ids['project']}&limit=x", 400, "invalid_request"),
     ]:
         for path in ("/ui/api/history?", "/ui/api/history/source?"):
-            if path.endswith("source?") and ("offset" in query or "limit" in query):
+            if path.endswith("source?") and ("before" in query or "limit" in query):
                 continue
             response = await http.get(path + query, headers=UI)
             assert response.status_code == status and response.json()["error"].startswith(code), (path, query)
@@ -176,3 +192,16 @@ async def test_the_search_counts_entries_that_hold_every_term_per_repository(dae
     both = (await http.get("/ui/api/history/search?q=NEEDLE%20another", headers=UI)).json()
     assert both["repos"] == [{"workspace": ids["other"], "matches": 1}]
     assert (await http.get("/ui/api/history/search?q=%20", headers=UI)).json()["repos"] == []
+    # The repository's name counts as part of each entry, as on the other tabs.
+    named = (await http.get("/ui/api/history/search?q=other%20needle", headers=UI)).json()
+    assert named["repos"] == [{"workspace": ids["other"], "matches": 1}]
+
+
+@pytest.mark.asyncio
+async def test_an_unreadable_registry_is_reported(daemon):
+    http, _ = daemon
+    await login(http)
+    service = http._transport.app.state.service
+    service.registry.path.write_text("{not json", encoding="utf-8")
+    response = await http.get("/ui/api/history/repos", headers=UI)
+    assert response.status_code == 500 and response.json()["error"].startswith("registry_unreadable")

@@ -189,15 +189,16 @@ function historyData(path, init) {
   }
   if (url.pathname === "/ui/api/history") {
     const file = query.get("file") || "current", entries = file === "current" ? HISTORY_ENTRIES : ARCHIVE_ENTRIES;
-    const offset = Number(query.get("offset") || 0);
-    let limit = Number(query.get("limit") || 20), focus;
+    // `before` counts from the oldest entry, as the daemon's does.
+    const before = query.get("before"), first = before === null || query.get("entry");
+    let start = first ? 0 : Math.max(0, entries.length - Number(before)), limit = Number(query.get("limit") || 20), focus;
     if (query.get("entry")) {
       focus = entries.findIndex((entry) => entry.id === query.get("entry"));
-      limit = Math.max(limit, focus + 1 - offset);
+      limit = Math.max(limit, focus + 1);
     }
     const out = { workspace: query.get("workspace"), name: "agents", root: "/code/agents", file, files: ["current", "2026-09"],
-                  total: entries.length, bytes: 600000, offset, entries: entries.slice(offset, offset + limit) };
-    if (offset === 0) out.index = entries.map(({ id, timestamp, agent, persona_action }) => ({ id, timestamp, agent, persona_action }));
+                  total: entries.length, bytes: 600000, entries: entries.slice(start, start + limit) };
+    if (first) out.index = entries.map(({ id, timestamp, agent, persona_action }) => ({ id, timestamp, agent, persona_action }));
     if (focus !== undefined) out.focus = focus;
     return [200, out];
   }

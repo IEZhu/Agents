@@ -1164,8 +1164,8 @@ def test_earlier_entries_load_in_portions_as_the_reader_scrolls_or_picks_them(hi
     assert history["after_scroll"] == {"rendered": 40, "more": "Show earlier entries (5 more)"}
     assert history["after_contents"] == {"rendered": 45, "scrolled": 1, "more_hidden": True}
     assert history["reads"][:3] == ["/ui/api/history?workspace=w-1&limit=20",
-                                    "/ui/api/history?workspace=w-1&file=current&offset=20&limit=20",
-                                    "/ui/api/history?workspace=w-1&file=current&offset=40&limit=5"]
+                                    "/ui/api/history?workspace=w-1&file=current&before=25&limit=20",
+                                    "/ui/api/history?workspace=w-1&file=current&before=5&limit=5"]
 
 
 def test_source_shows_the_file_and_the_select_opens_an_archive(history):
@@ -1192,7 +1192,10 @@ def test_a_link_opens_the_repository_at_its_entry(history):
 
 
 def test_the_landing_pages_answers_link_to_their_entries(landing):
-    # The diagram's line runs the three newest answers, oldest first, and links the one it shows.
-    assert landing["event_links"] == ["#history/w-1/000000000003"]
-    assert run("landing_reduced")["event_links"] == [
-        "#history/w-1/000000000001", "#history/w-1/000000000002", "#history/w-1/000000000003", "#history/w-1/000000000004"]
+    # The diagram's line runs the three newest answers, oldest first, and links the one it shows; a link
+    # carries the entry's time too, as ids repeat.
+    link = r"#history/w-1/00000000000{}/\d{{4}}-\d\d-\d\dT\d\d%3A\d\d%3A\d\d\.\d+Z"
+    [shown] = landing["event_links"]
+    assert re.fullmatch(link.format(3), shown)
+    reduced = run("landing_reduced")["event_links"]
+    assert len(reduced) == 4 and all(re.fullmatch(link.format(n + 1), href) for n, href in enumerate(reduced))

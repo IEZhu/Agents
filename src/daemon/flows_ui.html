@@ -1791,13 +1791,15 @@ $("c-toggle").addEventListener("click", toggleItem);
 // The list shows the repositories that have a history, the most recent first; the search filters
 // them by name here and by entry text on the server. An open history reads like a flow: Rendered
 // shows its entries newest first, a portion at a time as the reader scrolls, Contents lists every
-// entry by day, and Source shows the file as it is. `#history/<workspace>/<entry id>` opens an entry.
+// entry by day, and Source shows the file as it is. `#history/<workspace>/<entry id>/<time>` opens an entry.
 
 const HISTORY_PORTION = 20;
 const HISTORY_MAX_PORTION = 200;  // the server's largest portion
 const HISTORY_SEARCH_MS = 250;
+// `data` is the open file's first portion; its `total` anchors the next portions, which count from the
+// oldest entry. `loading` is the portion request running, one at a time.
 const historyState = { gen: 0, repos: [], matches: null, matchQuery: null, searchTimer: null, repo: null,
-  data: null, entries: [], view: "rendered", source: null, loading: false };
+  data: null, entries: [], view: "rendered", source: null, loading: null };
 
 const entryCount = (count) => count + (count === 1 ? " entry" : " entries");
 const historyFileLabel = (file) => (file === "current" ? "history.md" : "history/" + file + ".md");
@@ -1897,32 +1899,55 @@ function scheduleHistorySearch() {
       historyState.matches = new Map(data.repos.map((repo) => [repo.workspace, repo.matches]));
       historyState.matchQuery = query;
       if (state.tab === "history") refreshList();
-    } catch (error) { historyFailed(error); }
+    } catch (error) {
+      if (state.queries.history === query) {  // the names still match; the text search is over
+        historyState.matches = new Map();
+        historyState.matchQuery = query;
+        if (state.tab === "history") refreshList();
+      }
+      historyFailed(error);
+    }
   }, HISTORY_SEARCH_MS);
 }
 
-// Opens a repository's history: `file` defaults to history.md, `entry` opens the file that holds it.
-async function openHistory(workspace, file, entry) {
+// Opens a repository's history: `file` defaults to its newest file; `entry` (with its `time`, as ids
+// repeat) opens the file that holds it, in Rendered, at the entry.
+async function openHistory(workspace, file, entry, time) {
   const gen = ++historyState.gen;
   const repo = historyState.repos.find((item) => item.workspace === workspace) || null;
-  historyState.repo = workspace;
-  historyState.loading = false;
-  renderHistoryList();
+  historyState.data = null;  // a portion still loading for the last file stops here
   if (repo && !repo.available) {
-    historyState.data = null;
+    historyState.repo = workspace;
     historyState.entries = [];
+    renderHistoryList();
     showHistory(repo);
     return;
   }
   const params = new URLSearchParams({ workspace, limit: String(HISTORY_PORTION) });
   if (file) params.set("file", file);
   if (entry) params.set("entry", entry);
-  const data = await api("/ui/api/history?" + params);
+  if (entry && time) params.set("time", time);
+  let data, gone = false;
+  try {
+    data = await api("/ui/api/history?" + params);
+  } catch (error) {
+    if (!entry || error.status !== 404 || !String(error.message).startsWith("entry_not_found")) throw error;
+    gone = true;  // the entry was deleted or moved on: open the history without it
+    params.delete("entry"); params.delete("time");
+    data = await api("/ui/api/history?" + params);
+  }
   if (gen !== historyState.gen || state.tab !== "history") return;  // superseded while loading
+  historyState.repo = workspace;
   historyState.data = data;
   historyState.entries = data.entries;
   historyState.source = null;
+  if (entry) historyState.view = "rendered";
+  renderHistoryList();
   showHistory(repo || { name: data.name, root: data.root, available: true, files: [] });
+  if (gone) {
+    $("h-notice").textContent = "That entry is no longer in this history.";
+    $("h-notice").classList.remove("hidden");
+  }
   if (data.focus !== undefined) historyView.focus(data.focus);
 }
 
@@ -1961,7 +1986,7 @@ function setHistoryView(view) {
 
 // Source: the file as it is, oldest first, read when first shown.
 async function loadHistorySource() {
-  const data = historyState.data, gen = historyState.gen;
+  const data = historyState.data;
   $("h-source-label").textContent = historyFileLabel(data.file) + " (read-only)";
   if (historyState.source !== null) {
     $("h-text").value = historyState.source;
@@ -1969,30 +1994,37 @@ async function loadHistorySource() {
   }
   $("h-text").value = "Loading…";
   const source = await api("/ui/api/history/source?" + new URLSearchParams({ workspace: data.workspace, file: data.file }));
-  if (gen !== historyState.gen) return;
+  if (historyState.data !== data) return;  // another file opened meanwhile
   historyState.source = source.text;
   if (historyState.view === "source") $("h-text").value = source.text;
 }
 
-// Reads further portions until `until` (a position, newest first) is loaded, or one more portion.
+// Reads further portions until `until` (a position, newest first) is loaded, or one more portion. A
+// request waits for the one running, so a Contents click during a scroll's load still arrives.
 async function loadMoreHistory(until) {
-  const data = historyState.data, gen = historyState.gen;
-  if (!data || historyState.loading) return;
+  while (historyState.loading) await historyState.loading.catch(() => {});
+  const data = historyState.data;
+  if (!data) return;
   const wanted = Math.min(until === undefined ? historyState.entries.length + HISTORY_PORTION : until + 1, data.total);
   if (historyState.entries.length >= wanted) return;
-  historyState.loading = true;
+  const run = fetchHistoryUntil(data, wanted);
+  historyState.loading = run;
   try {
-    while (historyState.entries.length < wanted) {
-      const offset = historyState.entries.length;
-      const more = await api("/ui/api/history?" + new URLSearchParams({ workspace: data.workspace, file: data.file,
-        offset: String(offset), limit: String(Math.min(HISTORY_MAX_PORTION, wanted - offset)) }));
-      if (gen !== historyState.gen) return;  // another history opened meanwhile
-      if (!more.entries.length) break;
-      historyState.entries = historyState.entries.concat(more.entries);
-      historyView.append(more.entries);
-    }
+    await run;
   } finally {
-    if (gen === historyState.gen) historyState.loading = false;
+    if (historyState.loading === run) historyState.loading = null;
+  }
+}
+
+async function fetchHistoryUntil(data, wanted) {
+  while (historyState.data === data && historyState.entries.length < wanted) {
+    const shown = historyState.entries.length;
+    // Counted from the oldest entry: answers appended since the first portion shift nothing.
+    const more = await api("/ui/api/history?" + new URLSearchParams({ workspace: data.workspace, file: data.file,
+      before: String(data.total - shown), limit: String(Math.min(HISTORY_MAX_PORTION, wanted - shown)) }));
+    if (historyState.data !== data || !more.entries.length) return;  // another file opened meanwhile
+    historyState.entries = historyState.entries.concat(more.entries);
+    historyView.append(more.entries);
   }
 }
 
@@ -2000,6 +2032,12 @@ async function goToHistoryEntry(position) {
   if (historyState.view !== "rendered") setHistoryView("rendered");
   await loadMoreHistory(position);
   historyView.focus(position);
+}
+
+// The fields of entries, a portion per task: a jump far down a long file never freezes the page.
+function renderHistoryBodies(bodies) {
+  for (const [entry, body] of bodies.splice(0, HISTORY_PORTION)) renderMarkdown(historyMarkdown(entry), body);
+  if (bodies.length) setTimeout(() => renderHistoryBodies(bodies), 0);
 }
 
 // Rendered: the entries newest first, a portion at a time; Contents: every entry of the file by day.
@@ -2038,13 +2076,15 @@ function createHistoryView(id, section, button) {
     view.apply();
   };
   view.append = (entries) => {
+    const bodies = [];
     for (const entry of entries) {
       const host = mdEl("section", "h-entry", view.entries);
       mdText(historyHeading(entry), mdEl("h2", "", host));
       mdText([entry.timestamp, entry.id, entry.machine].filter(Boolean).join(" · "), mdEl("div", "meta", host));
-      renderMarkdown(historyMarkdown(entry), mdEl("div", "", host));
+      bodies.push([entry, mdEl("div", "", host)]);
       view.nodes.push(host);
     }
+    renderHistoryBodies(bodies);
     const left = view.data ? view.data.total - view.nodes.length : 0;
     view.more.textContent = left > 0 ? "Show earlier entries (" + left + " more)" : "";
     view.more.classList.toggle("hidden", left <= 0);
@@ -2068,10 +2108,17 @@ $("h-file").addEventListener("change", (event) => {
   if (historyState.repo) openHistory(historyState.repo, event.target.value).catch(historyFailed);
 });
 
-// `#history/<workspace>[/<entry id>]`, as the landing page's answers link here.
+// `#history/<workspace>[/<entry id>[/<time>]]`, as the landing page's answers link here; null for
+// anything else, a broken escape included.
 function historyLink(hash) {
-  const match = /^#history\/([^/]+)(?:\/([0-9a-f]{12}))?$/.exec(hash || "");
-  return match ? { workspace: decodeURIComponent(match[1]), entry: match[2] || null } : null;
+  const match = /^#history\/([^/]+)(?:\/([0-9a-f]{12})(?:\/([^/]+))?)?$/.exec(hash || "");
+  if (!match) return null;
+  try {
+    return { workspace: decodeURIComponent(match[1]), entry: match[2] || null,
+             time: match[3] ? decodeURIComponent(match[3]) : null };
+  } catch (_) {
+    return null;
+  }
 }
 
 async function openHistoryLink(link) {
@@ -2080,7 +2127,7 @@ async function openHistoryLink(link) {
   hideLanding();
   if (state.tab !== "history") await showTab("history");
   else if (state.loadedTab !== "history") await loadHistoryRepos();
-  if (state.tab === "history") await openHistory(link.workspace, null, link.entry);
+  if (state.tab === "history") await openHistory(link.workspace, null, link.entry, link.time);
 }
 window.addEventListener("hashchange", () => {
   const link = historyLink(location.hash);
@@ -3734,7 +3781,8 @@ function renderStats() {
 const eventKey = (event) => event.workspace + "|" + event.id + "|" + event.time;
 
 // An answer of the newest list opens at its entry in the History tab.
-const eventHref = (event) => "#history/" + encodeURIComponent(event.workspace) + "/" + event.id;
+const eventHref = (event) => "#history/" + encodeURIComponent(event.workspace) + "/" + event.id + "/"
+  + encodeURIComponent(event.time);
 
 function eventText(event) {
   return clockTime(event.time) + " " + (APP_NAMES[event.app] || event.app || "An app") + " → " + event.agent
@@ -3777,8 +3825,9 @@ function lightStep() {
   const text = landing.event ? eventText(landing.event)
     : latest ? "Latest: " + eventText(latest) : landing.stats ? "No answers yet." : "";
   // Rebuilt only when the answer changes: a link replaced on every step would lose a click.
-  if (line.dataset.text === text) return;
-  line.dataset.text = text;
+  const shown = text + "\n" + (event ? eventKey(event) : "");
+  if (line.dataset.shown === shown) return;
+  line.dataset.shown = shown;
   line.textContent = "";
   line.replaceChildren();
   if (event) node("a", line, text).setAttribute("href", eventHref(event));

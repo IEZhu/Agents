@@ -8,18 +8,23 @@ the UI session. Entries of other machines (user library sync) live in the librar
 
 - ``GET /ui/api/history/repos``: the workspaces with a history, newest first: name, root,
   whether the directory is still there, and per file its entries, size and newest time.
-- ``GET /ui/api/history?workspace=&file=&offset=&limit=``: a file's entries, newest first,
-  ``limit`` at a time. The first portion also carries ``index``, every entry's id, time, agent
-  and persona action, which the page's Contents lists. ``entry=<id>`` opens the file that holds
-  that entry (``file`` may then be left out) and reaches it: ``focus`` is its position.
+- ``GET /ui/api/history?workspace=&file=&before=&limit=``: a file's entries, newest first,
+  ``limit`` at a time. ``before`` counts from the oldest entry, so the answers appended meanwhile
+  never shift a portion: the first portion (without ``before``) gives ``total``, and the next one
+  asks for ``before=total - <entries shown>``. The first portion also carries ``index``, every
+  entry's id, time, agent and persona action, which the page's Contents lists. ``file`` defaults
+  to the newest file. ``entry=<id>`` (with ``time=``, as ids repeat) opens the file that holds
+  that entry and reaches it: ``focus`` is its position, newest first.
 - ``GET /ui/api/history/source?workspace=&file=``: the file as it is.
-- ``GET /ui/api/history/search?q=``: per workspace, the entries that hold every term.
+- ``GET /ui/api/history/search?q=``: per workspace, the entries that hold every term, the
+  repository's name counting as part of each entry.
 """
 from __future__ import annotations
 
 import asyncio
 import os
 import re
+from contextlib import nullcontext as _nothing
 from pathlib import Path
 from typing import Optional
 
@@ -64,8 +69,8 @@ def _file_path(root: Path, name: str) -> Path:
 
 
 def _files(root: Path) -> list[str]:
-    """``current`` when ``history.md`` exists, then the archives, newest first."""
-    names = [name[:7] for name in reversed(_archive_names(str(root / "history")))]
+    """``current`` when ``history.md`` exists, then the archives of a real month, newest first."""
+    names = [name[:7] for name in reversed(_archive_names(str(root / "history"))) if _MONTH.fullmatch(name[:7])]
     return ([CURRENT] if (root / "history.md").is_file() else []) + names
 
 
@@ -92,8 +97,8 @@ class HistoryUI:
             return self._json({"error": "method_not_allowed"}, 405, headers={"Allow": "GET"})
         query = request.query_params
         routes = {PREFIX + "/repos": lambda: self.repos(),
-                  PREFIX: lambda: self.read(query.get("workspace", ""), query.get("file"), query.get("offset"),
-                                            query.get("limit"), query.get("entry")),
+                  PREFIX: lambda: self.read(query.get("workspace", ""), query.get("file"), query.get("before"),
+                                            query.get("limit"), query.get("entry"), query.get("time")),
                   PREFIX + "/source": lambda: self.source(query.get("workspace", ""), query.get("file", CURRENT)),
                   PREFIX + "/search": lambda: self.search(query.get("q", ""))}
         work = routes.get(path)
@@ -114,7 +119,10 @@ class HistoryUI:
         return JSONResponse(value, status, headers=headers, **kwargs)
 
     def _workspaces(self) -> list[tuple[str, Path]]:
-        records = read_json(self.service.registry.path, {})
+        try:
+            records = read_json(self.service.registry.path, {})
+        except ValueError:
+            raise HistoryError("registry_unreadable", "the workspace registry cannot be read", 500) from None
         if not isinstance(records, dict):
             return []
         return [(identity, Path(root)) for identity, root in records.items()
@@ -128,21 +136,23 @@ class HistoryUI:
     def repos(self) -> dict:
         out = []
         for identity, root in self._workspaces():
-            if not root.is_dir():
+            try:  # what the reads accept: registered once, still a directory at its saved path
+                root = self._root(identity)
+            except WorkspaceError:
                 out.append({"workspace": identity, "name": root.name, "root": str(root), "available": False,
                             "files": [], "entries": 0, "bytes": 0, "newest": None})
                 continue
             files = []
             for name in _files(root):
-                path = _file_path(root, name)
                 try:
+                    path = _file_path(root, name)
                     if name == CURRENT:
                         with _reading(str(path)):
                             answers = self.summaries.answers(str(path))
                     else:
                         answers = self.summaries.answers(str(path))
                     size = path.stat().st_size
-                except OSError:
+                except (HistoryError, OSError):
                     files.append({"file": name, "entries": None, "bytes": None, "newest": None, "unreadable": True})
                     continue
                 files.append({"file": name, "entries": len(answers), "bytes": size,
@@ -170,29 +180,39 @@ class HistoryUI:
             raise HistoryError("file_not_found", f"{name} is not a regular file", 404)
         return _newest_first(parsed[1])
 
-    def read(self, workspace: str, file: Optional[str], offset, limit, entry: Optional[str]) -> dict:
+    def read(self, workspace: str, file: Optional[str], before, limit, entry: Optional[str],
+             time: Optional[str] = None) -> dict:
         root = self._root(workspace)
-        offset = _number(offset, 0, "offset")
         limit = min(_number(limit, PORTION, "limit") or PORTION, MAX_PORTION)
         files = _files(root)
         focus = None
         if entry:
             for name in ([file] if file else files):
-                entries = self._entries(root, name)
-                focus = next((index for index, item in enumerate(entries) if item.id == entry), None)
+                try:
+                    entries = self._entries(root, name)
+                except HistoryError:
+                    continue
+                focus = next((index for index, item in enumerate(entries)
+                              if item.id == entry and (not time or item.timestamp == time)), None)
                 if focus is not None:
                     file = name
                     break
             if focus is None:
                 raise HistoryError("entry_not_found", "no such entry in this workspace", 404)
-            limit = max(limit, focus + 1 - offset)
+            first, end = True, max(limit, focus + 1)  # the newest entries down to it
         else:
-            file = file or CURRENT
+            file = file or (files[0] if files else CURRENT)
             entries = self._entries(root, file)
+            total = len(entries)
+            first = before in (None, "")
+            # ``before`` counts from the oldest entry: the newest-first slice ends ``before`` entries
+            # above the oldest one, whatever was appended since the first portion.
+            start = 0 if first else max(0, total - min(_number(before, total, "before"), total))
+            end = start + limit
         result = {"workspace": workspace, "name": root.name, "root": str(root), "file": file, "files": files,
-                  "total": len(entries), "bytes": _file_path(root, file).stat().st_size, "offset": offset,
-                  "entries": [_entry(item) for item in entries[offset:offset + limit]]}
-        if offset == 0:
+                  "total": len(entries), "bytes": _file_path(root, file).stat().st_size,
+                  "entries": [_entry(item) for item in entries[(0 if entry else start):end]]}
+        if first:
             result["index"] = [{"id": item.id, "timestamp": item.timestamp, **dict(zip(
                 ("agent", "persona_action"), attribution(item.action)))} for item in entries]
         if focus is not None:
@@ -204,8 +224,10 @@ class HistoryUI:
         path = _file_path(root, file)
         if not path.is_file():
             raise HistoryError("file_not_found", f"{file} does not exist in this workspace", 404)
-        with open(path, encoding="utf-8", errors="replace", newline="") as stream:
-            return {"workspace": workspace, "file": file, "text": stream.read()}
+        # history.md under the shared history lock, as every reader: a rotation never sees it open.
+        with _reading(str(root / "history.md")) if file == CURRENT else _nothing():
+            with open(path, encoding="utf-8", errors="replace", newline="") as stream:
+                return {"workspace": workspace, "file": file, "text": stream.read()}
 
     def search(self, query: str) -> dict:
         terms = [term for term in query.lower().split() if term]
@@ -213,7 +235,9 @@ class HistoryUI:
             return {"q": query, "repos": []}
         out = []
         for identity, root in self._workspaces():
-            if not root.is_dir():
+            try:
+                root = self._root(identity)
+            except WorkspaceError:
                 continue
             matches = 0
             for name in _files(root):
@@ -222,7 +246,9 @@ class HistoryUI:
                 except (HistoryError, OSError):
                     continue
                 for item in entries:
-                    text = "\n".join((item.intent, item.action, item.outcome, " ".join(item.files),
+                    # As on the other tabs, the name counts too: "agents lawyer" finds lawyer's
+                    # answers in the repository "agents".
+                    text = "\n".join((root.name, item.intent, item.action, item.outcome, " ".join(item.files),
                                       " ".join(item.tags))).lower()
                     if all(term in text for term in terms):
                         matches += 1
