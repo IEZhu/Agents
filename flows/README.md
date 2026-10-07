@@ -102,6 +102,17 @@ reported in an `issues` array of `{id, error}` entries. `run_flow` returns
 Its `flow` has the listing's fields, except that `flow.id` is always
 scope-qualified (`builtin:<id>` for a built-in) and the listing-only
 `qualified_id` and `overridden_by` are absent.
+`run_flow` and `get_flow` declare `anthropic/maxResultSizeChars` in their
+`tools/list` entries. Claude Code then moves their results to a file only above
+500,000 characters, its ceiling, instead of above 50,000: `pr-review` with its
+persona bundle, about 58,000 characters, reaches the model in the conversation
+rather than as a file it has to read in parts. The declaration also replaces
+`MAX_MCP_OUTPUT_TOKENS` for these two tools, and Claude Code can still apply limits
+of its own. A result can pass the ceiling when two flows near the 256 KiB limit, a
+long version history or a persona that selects many components come together.
+Claude Code reads the declaration when it lists the tools: after an update of the
+service, reconnect the server (`/mcp`), since a new session can reuse a cached tool
+list.
 The client model must continue through the flow's completion criteria using its
 own tools. Loading the bundle reads files only: it does not perform the workflow,
 start a background job, sample a model, or grant permission for extra actions.
