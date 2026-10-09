@@ -240,12 +240,12 @@ def _run_command(args, cwd: str, timeout: int, *, env=None) -> subprocess.Comple
     """
     if os.name != "posix":
         return subprocess.run(args, cwd=cwd, capture_output=True, text=True,
-                              timeout=timeout, env=env, check=False)
+                              stdin=subprocess.DEVNULL, timeout=timeout, env=env, check=False)
     completed_read, completed_write = os.pipe()
     deadline = time.monotonic() + timeout
     try:
         with subprocess.Popen(
-            args, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            args, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             text=True, env=env, start_new_session=True,
             pass_fds=(*_subprocess_lock_fds(), completed_write),
         ) as process:

@@ -1661,3 +1661,14 @@ def test_configure_refuses_an_identity_git_cannot_hold_before_saving_anything(pa
         assert refused.value.reason == "identity", wrong
     assert a.sync.settings_path.read_bytes() == settings_before
     assert a.sync.gitconfig.read_bytes() == gitconfig_before
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
+def test_git_runs_while_the_mcp_server_reads_its_stdin(tmp_path, pending_stdin_read):
+    """The stdio sync trigger runs git inside the MCP server: git never inherits the server's stdin."""
+    started = time.monotonic()
+    assert gitcmd.git_version() is not None
+    git = gitcmd.Git(tmp_path, config=tmp_path / "gitconfig", ssh=None)
+    assert git.run("version", repository=False).returncode == 0
+    assert git.run("hash-object", "--stdin", input=b"x", repository=False).stdout.strip()  # input still reaches git
+    assert time.monotonic() - started < pending_stdin_read
