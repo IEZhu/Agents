@@ -351,6 +351,14 @@ installation's stdio servers before `migrate`. To update, stop the service,
 update the checkout, then start it; its warmup rebuilds changed skill and
 implant indexes.
 
+User sync set up without the service keeps its settings in
+`%LOCALAPPDATA%\Agents-Core\<installation-hash>\user-sync`, while the service
+reads `<state>\user-sync` and `install` removes the scheduled sync run. So that
+sync never stops without a word, `install` refuses while only the former exists:
+run `python -m src.user_sync schedule disable`, move that directory into the
+service's state directory, then run `install` again. Moving it automatically is
+#256, which also covers the AppData virtualization for user sync itself.
+
 ### Drain and connected clients
 
 `stop`, `restart`, `uninstall`, `restore-clients`, `update`, `recover`, and

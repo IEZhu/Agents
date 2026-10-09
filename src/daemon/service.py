@@ -7,7 +7,8 @@ a manager only talks to the OS scheduler:
 * ``write(probation)`` records the definition, ``serve`` with ``--probation=<nonce>`` while
   a controller transaction verifies a restart (`src.daemon.update.probation`);
 * ``start(probation)`` writes it and starts the service now;
-* ``stop()`` stops it for this login session; it starts again at the next login;
+* ``stop()`` stops it for this login session (after the controller's drain); it starts again at
+  the next login;
 * ``loaded()`` says whether the scheduler keeps it running;
 * ``remove()`` deletes the definition.
 
@@ -183,8 +184,11 @@ class TaskScheduler:
         if self.triggers() is None:
             return
         self.write(keep_alive=False)
-        # /End stops the running instance; without one it fails, which changes nothing.
-        self._schtasks("/End", "/TN", self.name, check=False)
+        # /End terminates the process: no shutdown runs, and log writes still queued are lost. The
+        # service exits by itself when asked, as on launchd's SIGTERM; /End is the fallback for one
+        # that does not answer. Without a running instance /End fails, which changes nothing.
+        if not self.controller.exit_gracefully():
+            self._schtasks("/End", "/TN", self.name, check=False)
 
     def remove(self) -> None:
         """Delete the task; without one, /Delete fails and changes nothing. A task left behind

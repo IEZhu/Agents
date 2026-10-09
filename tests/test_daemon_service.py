@@ -129,6 +129,38 @@ def test_stop_ends_the_task_until_the_next_logon(windows):
     assert _triggers(fake, name) == {"LogonTrigger": True, "TimeTrigger": True}
 
 
+def test_stop_asks_the_service_to_exit_and_ends_the_task_only_as_a_fallback(windows, monkeypatch):
+    """/End terminates the process before the lifespan can flush queued log writes."""
+    controller, fake = windows
+    controller._start()
+    asked = []
+    monkeypatch.setattr(control.Controller, "exit_gracefully", lambda self: asked.append(True) or True)
+    controller.manager.stop()
+    assert asked == [True] and ("/End", controller.manager.name) not in fake.calls
+    assert _triggers(fake, controller.manager.name)["TimeTrigger"] is False  # off before the exit
+    monkeypatch.setattr(control.Controller, "exit_gracefully", lambda self: False)
+    controller._start()
+    controller.manager.stop()
+    assert ("/End", controller.manager.name) in fake.calls
+
+
+@pytest.mark.parametrize("answer", [(404, {"error": "not found"}), (200, {"state": "ready"})])
+def test_a_service_that_does_not_agree_to_exit_is_not_waited_for(tmp_path, monkeypatch, answer):
+    controller = control.Controller(tmp_path / "state")
+    monkeypatch.setattr(control.Controller, "request", lambda self, *a, **k: answer)
+    assert controller.exit_gracefully(timeout=60) is False  # at once, not after the timeout
+
+
+def test_exit_gracefully_waits_for_the_lease(tmp_path, monkeypatch):
+    from src.file_lock import file_lock
+    controller = control.Controller(tmp_path / "state")
+    controller.directory.mkdir()
+    monkeypatch.setattr(control.Controller, "request", lambda self, *a, **k: (200, {"state": "exiting"}))
+    with file_lock(controller.directory / ".daemon.lock"):
+        assert controller.exit_gracefully(timeout=0.3) is False  # still held: the caller ends it
+    assert controller.exit_gracefully(timeout=5) is True
+
+
 def test_stop_without_a_running_instance_or_a_task(windows):
     controller, fake = windows
     controller.manager.stop()  # nothing registered: nothing to do

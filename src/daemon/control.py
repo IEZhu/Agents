@@ -22,6 +22,9 @@ from . import service
 from .state import default_state_dir, state_dir, private_dir, read_json, write_json, atomic_private
 
 
+# Seconds a graceful exit may take: the lifespan waits up to 60 s for running work, then flushes
+# queued log writes (src/server.py drain_pending_logs).
+EXIT_TIMEOUT = 120
 # The service is on loopback: no proxy from http_proxy ever sees a request or its bearer token.
 LOOPBACK = build_opener(ProxyHandler({}))
 # Models fastembed downloads into its Hugging Face cache, by cache directory.
@@ -222,6 +225,27 @@ class Controller:
             time.sleep(.1)
         self.request("/admin/resume", method="POST")
         raise TimeoutError("Drain timed out; runtime resumed without killing active work")
+
+    def exit_gracefully(self, timeout=EXIT_TIMEOUT):
+        """Ask the service to shut down as on SIGTERM; True once it has released ``.daemon.lock``.
+
+        False at once when it does not answer or does not know ``/admin/exit`` (a service started
+        from older code), else after ``timeout``: the caller then ends the process the hard way.
+        """
+        try:
+            code, answer = self.request("/admin/exit", method="POST", status=True)
+        except (OSError, URLError, RuntimeError, ValueError):
+            return False
+        if code != 200 or answer.get("state") != "exiting":
+            return False
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            try:
+                with file_lock(self.directory / ".daemon.lock", blocking=False):
+                    return True
+            except BlockingIOError:
+                time.sleep(.1)
+        return False
 
     def _stop(self):
         self._drain()
