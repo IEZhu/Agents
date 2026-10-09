@@ -195,7 +195,10 @@ HTTP repository memory requires `X-Agents-Workspace` with a registered workspace
 UUID. Global connections can route and load personas without that header, but
 `describe_repo`, `write_repo_summary`, `read_history`, and `log_interaction` need
 a valid workspace. Over stdio, the workspace is the client root from
-`AGENTS_CLIENT_REPO_ROOT`, or one inferred from `CLAUDE_PROJECT_DIR` or the working
+`AGENTS_CLIENT_REPO_ROOT`, else the call's `workspace` argument when it lies inside
+the client's MCP roots (checked per call, `workspace.source` = `workspace`; one stdio
+process, such as the one the Claude desktop app starts, can serve several sessions),
+else one inferred from `CLAUDE_PROJECT_DIR` or the working
 directory. A launch directory without `.git` or `CLAUDE.md` is refused with
 `workspace_required`; a filesystem root, the home directory or a system or program
 directory (also as `AGENTS_CLIENT_REPO_ROOT`) with `workspace_unsafe` (resolution

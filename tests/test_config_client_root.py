@@ -1,4 +1,4 @@
-"""Resolution of ``get_client_repo_root()`` — env → walk-up → start dir.
+"""Resolution of ``get_client_repo_root()`` — env → walk-up → start dir, or a call's workspace.
 
 Issue #36: per-repo memory requires the client repo root to be resolved
 dynamically so one global install can serve many client repos.
@@ -6,13 +6,19 @@ dynamically so one global install can serve many client repos.
 
 from __future__ import annotations
 
+import asyncio
 import importlib.util
 import os
 import sys
+from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
+from mcp.shared.exceptions import McpError
+from mcp.types import ErrorData, ListRootsResult, Root
 
-from src.daemon.workspaces import WorkspaceError, client_context
+from src.daemon import workspaces
+from src.daemon.workspaces import ClientContext, WorkspaceError, client_context, resolve_client_context
 from src.engine import config as engine_config
 
 
@@ -286,6 +292,214 @@ class TestMoreUnsafeRoots:
 
     def test_pytest_tmp_path_is_allowed(self, tmp_path):
         assert engine_config._unsafe_client_root_reason(tmp_path.resolve()) is None
+
+
+def _project(path):
+    """A directory carrying the project marker (the patched one under fake_windows)."""
+    path.mkdir(parents=True)
+    (path / engine_config._CLIENT_ROOT_MARKERS[0]).write_text("")
+    return path
+
+
+def _worktree(main, name):
+    """A git worktree of the checkout at *main*, laid out as `git worktree add` does."""
+    gitdir = main / ".git" / "worktrees" / name
+    gitdir.mkdir(parents=True)
+    (gitdir / "commondir").write_text("../..\n")
+    tree = main / ".claude" / "worktrees" / name
+    tree.mkdir(parents=True)
+    (tree / ".git").write_text(f"gitdir: {gitdir.as_posix()}\n")
+    return tree
+
+
+class FakeSession:
+    """The roots side of an MCP ServerSession."""
+
+    def __init__(self, uris=(), *, declared=True, error=None, hang=False, client="local-agent-mode-Agents-Core"):
+        self.uris, self.declared, self.error, self.hang = list(uris), declared, error, hang
+        self.client_params = SimpleNamespace(clientInfo=SimpleNamespace(name=client))
+        self.asked = 0
+
+    def check_client_capability(self, capability):
+        assert capability.roots is not None
+        return self.declared
+
+    async def list_roots(self):
+        self.asked += 1
+        if self.hang:
+            await asyncio.Event().wait()
+        if self.error is not None:
+            raise self.error
+        return ListRootsResult(roots=[Root(uri=uri) for uri in self.uris])
+
+
+@pytest.fixture
+def desktop(fake_windows, monkeypatch):
+    """Started like the Claude desktop app's stdio servers: in System32, without CLAUDE_PROJECT_DIR."""
+    monkeypatch.delenv("CLAUDE_PROJECT_DIR", raising=False)
+    monkeypatch.delenv("AGENTS_TRANSPORT", raising=False)
+    monkeypatch.chdir(fake_windows / "System32")
+    return fake_windows
+
+
+class TestWorkspaceArgument:
+    """A tool call names its workspace, which must lie inside the client's MCP roots.
+
+    Regression: the Claude desktop app starts one stdio server for all its Code
+    sessions, in C:\\Windows\\System32 without CLAUDE_PROJECT_DIR, and answers
+    roots/list with the folders of every open session, so neither the process
+    nor its roots tell which project a call belongs to.
+    """
+
+    def test_workspace_inside_a_root_resolves_to_its_project(self, desktop, tmp_path):
+        project = _project(tmp_path / "project")
+        (project / "pkg").mkdir()
+        roots = [(tmp_path / "other").as_uri(), project.as_uri()]
+        assert engine_config.client_root_from_workspace(str(project / "pkg"), roots) == str(project.resolve())
+
+    def test_unmarked_workspace_is_used_as_named(self, desktop, tmp_path):
+        plain = tmp_path / "plain"
+        plain.mkdir()
+        assert engine_config.client_root_from_workspace(str(plain), [tmp_path.as_uri()]) == str(plain.resolve())
+
+    def test_workspace_outside_the_roots_is_refused(self, desktop, tmp_path):
+        inside, outside = _project(tmp_path / "inside"), _project(tmp_path / "outside")
+        with pytest.raises(engine_config.ClientRootError, match="outside the client's MCP roots") as info:
+            engine_config.client_root_from_workspace(str(outside), [inside.as_uri()])
+        assert info.value.code == "workspace_invalid"
+
+    @pytest.mark.parametrize("name", ["relative", "missing"])
+    def test_relative_or_missing_workspace_is_refused(self, desktop, tmp_path, name):
+        workspace = "relative/dir" if name == "relative" else str(tmp_path / "missing")
+        with pytest.raises(engine_config.ClientRootError) as info:
+            engine_config.client_root_from_workspace(workspace, [tmp_path.as_uri()])
+        assert info.value.code == "workspace_invalid"
+
+    def test_unsafe_workspace_is_refused_even_inside_a_root(self, desktop, tmp_path, monkeypatch):
+        home = tmp_path / "home"
+        home.mkdir()
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.setenv("USERPROFILE", str(home))
+        with pytest.raises(engine_config.ClientRootError, match="home directory") as info:
+            engine_config.client_root_from_workspace(str(home), [tmp_path.as_uri()])
+        assert info.value.code == "workspace_unsafe"
+
+    def test_worktree_resolves_to_its_main_checkout(self, tmp_path):
+        # Claude Code gives a worktree session the main checkout as CLAUDE_PROJECT_DIR.
+        main = tmp_path / "repo"
+        (main / ".git").mkdir(parents=True)
+        tree = _worktree(main, "feature")
+        assert engine_config.client_root_from_workspace(str(tree), [tree.as_uri()]) == str(main.resolve())
+
+    def test_submodule_stays_itself(self, tmp_path):
+        # A submodule's .git file points to modules/<name>, which has no commondir.
+        modules = tmp_path / "super" / ".git" / "modules" / "lib"
+        modules.mkdir(parents=True)
+        lib = tmp_path / "super" / "lib"
+        lib.mkdir()
+        (lib / ".git").write_text(f"gitdir: {modules.as_posix()}\n")
+        assert engine_config.client_root_from_workspace(str(lib), [lib.as_uri()]) == str(lib.resolve())
+
+    def test_uri_percent_escapes_are_decoded(self, tmp_path):
+        folder = tmp_path / "Доработки 1С"
+        folder.mkdir()
+        assert engine_config._root_uri_path(folder.as_uri()) == folder
+
+    @pytest.mark.parametrize("uri", ["https://example.com/repo", "untitled:Untitled-1"])
+    def test_other_schemes_are_no_local_path(self, uri):
+        assert engine_config._root_uri_path(uri) is None
+
+    def test_remote_host_is_no_local_path_on_posix(self, monkeypatch):
+        monkeypatch.setattr(engine_config, "_is_windows", lambda: False)
+        assert engine_config._root_uri_path("file://server/share/repo") is None
+
+    @pytest.mark.skipif(sys.platform != "win32", reason="UNC paths exist on Windows")
+    def test_remote_host_is_a_unc_path_on_windows(self):
+        assert engine_config._root_uri_path("file://server/share/repo") == Path(r"\\server\share\repo")
+
+
+class TestResolveClientContext:
+    """Each call resolves its own workspace; nothing is pinned for the process."""
+
+    @pytest.mark.asyncio
+    async def test_each_call_gets_its_own_project(self, desktop, tmp_path):
+        first, second = _project(tmp_path / "first"), _project(tmp_path / "second")
+        session = FakeSession([first.as_uri(), second.as_uri()])
+        for project in (first, second, first):
+            context = await resolve_client_context(SimpleNamespace(session=session), str(project))
+            assert (context.require_root(), context.source) == (project.resolve(), "workspace")
+        assert session.asked == 3
+        # The process-wide root is untouched: the stand-in System32 is still refused.
+        with pytest.raises(engine_config.ClientRootError):
+            engine_config.get_client_repo_root()
+
+    @pytest.mark.asyncio
+    async def test_without_workspace_the_error_says_to_pass_one(self, desktop, tmp_path):
+        session = FakeSession([_project(tmp_path / "project").as_uri()])
+        context = await resolve_client_context(SimpleNamespace(session=session))
+        with pytest.raises(WorkspaceError, match="^workspace_unsafe: refusing .* pass workspace"):
+            context.require_root()
+        assert session.asked == 0
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("ctx", [None, SimpleNamespace(), SimpleNamespace(session=FakeSession(declared=False))])
+    async def test_a_client_without_roots_keeps_the_process_root(self, desktop, tmp_path, ctx):
+        context = await resolve_client_context(ctx, str(_project(tmp_path / "project")))
+        with pytest.raises(WorkspaceError, match="^workspace_unsafe: refusing") as info:
+            context.require_root()
+        assert "declares no MCP roots" in str(info.value)
+
+    @pytest.mark.asyncio
+    async def test_a_client_without_roots_still_uses_a_usable_cwd(self, tmp_path, monkeypatch):
+        for name in ("AGENTS_CLIENT_REPO_ROOT", "CLAUDE_PROJECT_DIR", "AGENTS_TRANSPORT"):
+            monkeypatch.delenv(name, raising=False)
+        (tmp_path / ".git").mkdir()
+        monkeypatch.chdir(tmp_path)
+        ctx = SimpleNamespace(session=FakeSession(declared=False))
+        context = await resolve_client_context(ctx, str(tmp_path / "anything"))
+        assert (context.source, context.require_root()) == ("cwd", tmp_path.resolve())
+
+    @pytest.mark.asyncio
+    async def test_the_override_stays_authoritative(self, desktop, tmp_path, monkeypatch):
+        override = _project(tmp_path / "override")
+        monkeypatch.setenv("AGENTS_CLIENT_REPO_ROOT", str(override))
+        session = FakeSession([tmp_path.as_uri()])
+        context = await resolve_client_context(SimpleNamespace(session=session), str(_project(tmp_path / "project")))
+        assert (context.source, context.require_root(), session.asked) == ("env", override.resolve(), 0)
+
+    @pytest.mark.asyncio
+    async def test_a_refused_override_gets_no_workspace_hint(self, desktop, monkeypatch):
+        # The override decides alone, so asking for workspace would only cost a retry.
+        monkeypatch.setenv("AGENTS_CLIENT_REPO_ROOT", str(desktop / "System32"))
+        context = await resolve_client_context(SimpleNamespace(session=FakeSession()))
+        assert context.error.startswith("workspace_unsafe: refusing")
+        assert "AGENTS_CLIENT_REPO_ROOT" in context.error and "pass workspace" not in context.error
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("failure,reported", [
+        ({"hang": True}, "TimeoutError()"),
+        ({"error": McpError(ErrorData(code=-32601, message="Method not found"))}, "McpError('Method not found')"),
+    ])
+    async def test_a_failed_roots_request_refuses_the_call(self, desktop, tmp_path, monkeypatch, failure, reported):
+        monkeypatch.setattr(workspaces, "MCP_ROOTS_TIMEOUT_SECONDS", 0.01)
+        context = await resolve_client_context(SimpleNamespace(session=FakeSession(**failure)), str(tmp_path))
+        assert context.error.startswith("workspace_invalid: could not read the client's MCP roots")
+        assert context.error.endswith(reported)
+
+    @pytest.mark.asyncio
+    async def test_http_ignores_the_argument(self, tmp_path):
+        identity = ClientContext("r", "http", "w", tmp_path)
+        session = FakeSession([tmp_path.as_uri()])
+        request = SimpleNamespace(state=SimpleNamespace(client_context=identity))
+        ctx = SimpleNamespace(session=session, request_context=SimpleNamespace(request=request))
+        assert await resolve_client_context(ctx, str(tmp_path)) is identity
+        assert session.asked == 0
+        assert workspaces.workspace_inputs(ctx) is None
+
+    def test_workspace_inputs_describe_the_process(self, desktop):
+        inputs = workspaces.workspace_inputs(SimpleNamespace(session=FakeSession()))
+        assert inputs == {"cwd": os.getcwd(), "claude_project_dir": False, "agents_client_repo_root": False,
+                          "client": "local-agent-mode-Agents-Core", "roots": True}
 
 
 class TestInstallRootUnchanged:

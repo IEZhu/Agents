@@ -60,7 +60,7 @@ from src.memory.describer import RepoDescriber
 from src.memory.history import ENTRY_ID, HistoryReader, HistoryWriter
 from src.memory.history_results import listing, to_json
 from src.result_size import RESULT_SIZE_CEILING
-from src.daemon.workspaces import client_context, WorkspaceError, HistoryStores
+from src.daemon.workspaces import resolve_client_context, workspace_inputs, WorkspaceError, HistoryStores
 from src import flow_persona
 from src.flows import MAX_FLOW_BYTES, FlowCatalog, FlowError, execution_bundle
 from src.user_flows import FlowLibrary
@@ -134,6 +134,8 @@ mcp = FastMCP(
         "and persona (the last descriptor object, all 7 keys: agent, activation_id, bundle_revision, "
         "scope, skills_loaded, implants_loaded, rules_loaded) with persona_action only together "
         "with it; a caller with no retained descriptor omits both. files/tags are JSON arrays. "
+        "Pass workspace, the absolute path of your working directory, to log_interaction and "
+        "the other memory and flow tools whenever you have one. "
         "Then send the final answer. When the footer lists the "
         "`answer-timestamp` rule and the call returned a `timestamp`, put that `timestamp` on its own "
         "first line followed by an empty line.\n\n"
@@ -315,10 +317,11 @@ def _is_within(candidate: str, boundary: str) -> bool:
 
 # --- Tools ---
 
-def _flow_library(ctx: Context | None) -> FlowLibrary:
+async def _flow_library(ctx: Context | None, workspace: str | None = None) -> FlowLibrary:
     """Built-in plus personal flows; repo: flows need the caller's workspace."""
     try:
-        root, error = client_context(ctx, allow_install_fallback=False).workspace_root(), None
+        client = await resolve_client_context(ctx, workspace, allow_install_fallback=False)
+        root, error = client.workspace_root(), None
     except (WorkspaceError, OSError, RuntimeError) as failure:
         root, error = None, str(failure)
     return FlowLibrary(FlowCatalog(), repo_root=root, repo_error=error)
@@ -352,7 +355,9 @@ FLOW_RESULT_META = {"anthropic/maxResultSizeChars": flow_result_size()}
 
 
 @mcp.tool()
-async def list_flows(scope: str = "all", ctx: Context | None = None) -> str:
+async def list_flows(
+    scope: str = "all", ctx: Context | None = None, workspace: ta.opt_str(ta.WORKSPACE_DESC) = None,
+) -> str:
     """List Markdown workflows: built-in, personal and this repository's.
 
     scope: all (default), builtin, user or repo. IDs: built-ins keep bare IDs
@@ -362,14 +367,15 @@ async def list_flows(scope: str = "all", ctx: Context | None = None) -> str:
     changed since it was saved. No workspace is needed except for repo flows.
     """
     try:
-        library = _flow_library(ctx)
+        library = await _flow_library(ctx, workspace)
         return json.dumps(await asyncio.to_thread(library.list, scope), ensure_ascii=False)
     except (FlowError, OSError, RuntimeError) as error:
         return _flow_error(error)
 
 
 @mcp.tool(meta=FLOW_RESULT_META)
-async def get_flow(flow: str, version: ta.opt_str("Optional version id of the flow; defaults to the current one.") = None, ctx: Context | None = None) -> str:
+async def get_flow(flow: str, version: ta.opt_str("Optional version id of the flow; defaults to the current one.") = None, ctx: Context | None = None,
+                   workspace: ta.opt_str(ta.WORKSPACE_DESC) = None) -> str:
     """Read a flow's Markdown, revision and saved versions before editing it.
 
     flow: a bare ID or builtin:/user:/repo:<id>. version: an entry from history,
@@ -377,7 +383,7 @@ async def get_flow(flow: str, version: ta.opt_str("Optional version id of the fl
     For a local copy of a built-in, upstream holds the current built-in text.
     """
     try:
-        library = _flow_library(ctx)
+        library = await _flow_library(ctx, workspace)
         return json.dumps(await asyncio.to_thread(library.get, flow, version), ensure_ascii=False)
     except (FlowError, OSError, RuntimeError) as error:
         return _flow_error(error)
@@ -391,6 +397,7 @@ async def save_flow(
     expected_revision: ta.opt_str("Optional revision the caller last read; the save is refused if it changed.") = None,
     override: bool = False,
     ctx: Context | None = None,
+    workspace: ta.opt_str(ta.WORKSPACE_DESC) = None,
 ) -> str:
     """Create or update a personal flow when the user asks to save or change one.
 
@@ -404,7 +411,7 @@ async def save_flow(
     with override=true. Previous text stays in history.
     """
     try:
-        library = _flow_library(ctx)
+        library = await _flow_library(ctx, workspace)
         result = await asyncio.to_thread(library.save, flow, content, scope=scope,
                                          expected_revision=expected_revision, override=override)
         return json.dumps(result, ensure_ascii=False)
@@ -413,13 +420,14 @@ async def save_flow(
 
 
 @mcp.tool()
-async def delete_flow(flow: str, expected_revision: str, ctx: Context | None = None) -> str:
+async def delete_flow(flow: str, expected_revision: str, ctx: Context | None = None,
+                      workspace: ta.opt_str(ta.WORKSPACE_DESC) = None) -> str:
     """Delete a personal flow (user:/repo:) on explicit request; its text stays in history.
 
     Deleting a local copy of a built-in makes the built-in effective again.
     """
     try:
-        library = _flow_library(ctx)
+        library = await _flow_library(ctx, workspace)
         result = await asyncio.to_thread(library.delete, flow, expected_revision=expected_revision)
         return json.dumps(result, ensure_ascii=False)
     except (FlowError, OSError, RuntimeError) as error:
@@ -433,6 +441,7 @@ async def run_flow(
     repo_path: ta.opt_str(ta.REPO_PATH_DESC) = None,
     current_persona: ta.persona_arg(ta.CURRENT_PERSONA_DESC) = None,
     ctx: Context | None = None,
+    workspace: ta.opt_str(ta.WORKSPACE_DESC) = None,
 ) -> str:
     """Start a user-requested flow in the CALLER's repository.
 
@@ -440,11 +449,11 @@ async def run_flow(
     resolves repo:, then user:, then builtin:. request carries the user's scope,
     PR/MR URL and constraints such as no-merge. repo_path defaults to the caller
     workspace; an override must be an existing directory within it.
-    HTTP requires X-Agents-Workspace. Stdio uses AGENTS_CLIENT_REPO_ROOT, else the
-    project inferred from CLAUDE_PROJECT_DIR or cwd. A filesystem root, the home
-    directory or a system or program directory (also as the override) is refused
-    with workspace_unsafe, and a cwd without .git or CLAUDE.md is refused with
-    workspace_required.
+    HTTP requires X-Agents-Workspace. Stdio uses AGENTS_CLIENT_REPO_ROOT, else
+    workspace when it lies inside the client's MCP roots, else the project
+    inferred from CLAUDE_PROJECT_DIR or cwd. A filesystem root, the home directory
+    or a system or program directory (also as the override) is refused with
+    workspace_unsafe, and a cwd without .git or CLAUDE.md with workspace_required.
 
     Returns needs_execution with flow metadata, content, repo_path, workspace_id,
     request and instruction. Continue executing that content using client tools.
@@ -455,7 +464,7 @@ async def run_flow(
     Returns status=error for an invalid source or unavailable caller workspace.
     """
     try:
-        client = client_context(ctx, allow_install_fallback=False)
+        client = await resolve_client_context(ctx, workspace, allow_install_fallback=False)
         target = client.workspace_target(repo_path)
         library = FlowLibrary(FlowCatalog(), repo_root=client.workspace_root())
         loaded = await asyncio.to_thread(library.resolve, flow)
@@ -491,6 +500,7 @@ async def set_flow_persona(
     rules: ta.strict_str_list("Optional rule names, as a JSON array of strings.") = None,
     reset: bool = False,
     ctx: Context | None = None,
+    workspace: ta.opt_str(ta.WORKSPACE_DESC) = None,
 ) -> str:
     """Choose the agent, skills, implants and rules a flow runs with, for this user.
 
@@ -504,7 +514,7 @@ async def set_flow_persona(
     rules by name (no-fabrication).
     """
     try:
-        library = _flow_library(ctx)
+        library = await _flow_library(ctx, workspace)
         if reset and any(v is not None for v in (agent, skills, implants, rules)):
             raise FlowError("flow_invalid: reset=true takes no agent or components")
         persona = None
@@ -970,11 +980,12 @@ async def log_interaction(
     persona: ta.persona_arg(ta.LOG_PERSONA_DESC) = None,
     persona_action: ta.opt_str(ta.LOG_PERSONA_ACTION_DESC) = None,
     ctx: Context | None = None,
+    workspace: ta.opt_str(ta.WORKSPACE_DESC) = None,
 ) -> str:
     """End-of-turn logger. Compose the answer including its footer, call this tool
     with that exact response_content, then deliver the final answer. Pass the
     current user request verbatim as query, without paraphrasing or substituting
-    a conversation summary.
+    a conversation summary, and workspace, your working directory.
 
     persona: the `persona` object of the last SUCCESS/NO_CHANGE, copied verbatim
     with all 7 keys (agent, activation_id, bundle_revision, scope, skills_loaded,
@@ -1011,7 +1022,9 @@ async def log_interaction(
     errno (WARNING, ``code=history_unwritable``) and reported on the next result
     as ``history_last_error``; Langfuse failures are only logged. The only
     request-level rejection is an unavailable workspace: it returns a protocol
-    ERROR without ``timestamp``.
+    ERROR without ``timestamp``, over stdio with ``pid`` and ``workspace_inputs``
+    (``cwd``, ``claude_project_dir``, ``agents_client_repo_root``, ``client``,
+    ``roots``).
     """
     if not request_id:
         request_id = str(uuid.uuid4())
@@ -1036,14 +1049,26 @@ async def log_interaction(
         "warnings": warnings,
     })
     try:
-        client = client_context(ctx)
+        client = await resolve_client_context(ctx, workspace)
         root = client.require_root()
     except ValueError as error:
-        return error_response(error, request_id, instruction=(
-            "Nothing was logged. Keep the current activation; on workspace_required, "
-            "workspace_unsafe or workspace_invalid report unavailable logging, and do not "
-            "retry logging in a loop."
-        ))
+        inputs = workspace_inputs(ctx)
+        if inputs and inputs["roots"] and not inputs["agents_client_repo_root"] and not workspace:
+            instruction = (
+                "Nothing was logged. Keep the current activation and retry once with workspace "
+                "set to the absolute path of your working directory; if that fails too, report "
+                "unavailable logging and do not retry again."
+            )
+        else:
+            instruction = (
+                "Nothing was logged. Keep the current activation; on workspace_required, "
+                "workspace_unsafe or workspace_invalid report unavailable logging, and do not "
+                "retry logging in a loop."
+            )
+        payload = json.loads(error_response(error, request_id, instruction=instruction))
+        if inputs is not None:
+            payload.update(pid=os.getpid(), workspace_inputs=inputs)
+        return json.dumps(payload, ensure_ascii=False)
     attribution_status = logged.status or ("unverified" if persona_action is not None else None)
     attribution = {}
     if attribution_status:
@@ -1149,6 +1174,7 @@ async def describe_repo(
     ctx: Context | None = None,
     repo_path: ta.opt_str(ta.REPO_PATH_DESC) = None,
     force_refresh: bool = False,
+    workspace: ta.opt_str(ta.WORKSPACE_DESC) = None,
 ) -> str:
     """One-shot repo bootstrap.
 
@@ -1174,7 +1200,7 @@ async def describe_repo(
     the key names intentionally match its parameters.
     """
     try:
-        client = client_context(ctx)
+        client = await resolve_client_context(ctx, workspace)
         repo_path = str(client.target(repo_path))
 
         debug_log("describe_repo", "req", {
@@ -1237,6 +1263,7 @@ async def write_repo_summary(
     repo_path: ta.opt_str(ta.REPO_PATH_DESC) = None,
     workspace_id: ta.opt_str("Optional workspace id returned by describe_repo.") = None,
     ctx: Context | None = None,
+    workspace: ta.opt_str(ta.WORKSPACE_DESC) = None,
 ) -> str:
     """Persist a repository summary after describe_repo returned status='needs_summary'.
 
@@ -1253,7 +1280,7 @@ async def write_repo_summary(
       error: {status, error}
     """
     try:
-        client = client_context(ctx)
+        client = await resolve_client_context(ctx, workspace)
         client.require_root()
         if client.transport == "http" and (workspace_id != client.workspace_id or repo_path is None):
             raise WorkspaceError("workspace_invalid: pass the original workspace_id and repo_path from describe_repo")
@@ -1288,6 +1315,7 @@ async def read_history(
     offset: Annotated[int, Field(description="Entries to skip first, newest or nearest first.")] = 0,
     entry_id: ta.opt_str("Optional id of one entry to return whole; the other arguments are then ignored.") = None,
     ctx: Context | None = None,
+    workspace: ta.opt_str(ta.WORKSPACE_DESC) = None,
 ) -> str:
     """Read recent history entries, search them, or read one entry whole.
 
@@ -1317,7 +1345,7 @@ async def read_history(
     - semantic: {id, distance, timestamp, intent, action, outcome, tags, machine}.
     """
     try:
-        client = client_context(ctx)
+        client = await resolve_client_context(ctx, workspace)
         root = client.require_root()
         workspace_report = _workspace_report(client, root)
         limit = max(1, min(limit, 500))
@@ -1361,6 +1389,8 @@ async def read_history(
     except WorkspaceError as e:
         # A known condition (no usable workspace): no traceback per call.
         payload = {"status": "error", "error": str(e)}
+        if (inputs := workspace_inputs(ctx)) is not None:
+            payload.update(pid=os.getpid(), workspace_inputs=inputs)
         debug_log("read_history", "error", payload)
         return json.dumps(payload, ensure_ascii=False)
     except Exception as e:

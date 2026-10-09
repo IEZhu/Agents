@@ -152,7 +152,7 @@ async def test_workspace_error_still_writes_nothing(writer, monkeypatch):
         def require_root(self):
             raise server.WorkspaceError("workspace_required: no workspace")
 
-    monkeypatch.setattr(server, "client_context", lambda ctx, **kw: Refusing())
+    monkeypatch.setattr(server, "resolve_client_context", AsyncMock(return_value=Refusing()))
     response = await call(persona=FULL)
     assert response["status"] == "ERROR" and "timestamp" not in response
     assert response["instruction"].startswith("Nothing was logged.")
