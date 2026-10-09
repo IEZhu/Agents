@@ -49,6 +49,7 @@ _DACL_SECURITY_INFORMATION = 0x00000004
 _PROTECTED_DACL_SECURITY_INFORMATION = 0x80000000
 _SDDL_REVISION_1 = 1
 _ACCESS_ALLOWED_ACE_TYPE, _ACCESS_DENIED_ACE_TYPE = 0, 1
+_OBJECT_INHERIT_ACE, _CONTAINER_INHERIT_ACE = 0x1, 0x2
 _SID_OFFSET = 8  # ACE_HEADER (4 bytes) and ACCESS_MASK (4 bytes) precede SidStart
 
 
@@ -134,11 +135,13 @@ def owned_by_user_or_admins(path) -> bool:
         _kernel32.LocalFree(descriptor)
 
 
-def is_private(path) -> bool:
+def is_private(path, *, inherited_below=False) -> bool:
     """Whether only the current user is allowed any access to ``path``.
 
     A missing or NULL DACL (everyone allowed), an ACE type other than plain allow and deny,
     or an allow ACE for any other SID is not private; a deny ACE only takes access away.
+    With ``inherited_below`` a directory also needs an allow ACE that files and subdirectories
+    created in it inherit: without one, Windows gives them the creator's default DACL.
     """
     descriptor, dacl = ctypes.c_void_p(), ctypes.c_void_p()
     error = _advapi32.GetNamedSecurityInfoW(str(path), _SE_FILE_OBJECT, _DACL_SECURITY_INFORMATION,
@@ -150,16 +153,19 @@ def is_private(path) -> bool:
             return False
         user = _UserSid()
         header = _AclHeader.from_address(dacl.value)
-        allowed = 0
+        allowed, passed_on = 0, False
+        both = _OBJECT_INHERIT_ACE | _CONTAINER_INHERIT_ACE
         for index in range(header.AceCount):
             ace = ctypes.c_void_p()
             _check(_advapi32.GetAce(dacl, index, ctypes.byref(ace)))
-            kind = _AceHeader.from_address(ace.value).AceType
-            if kind == _ACCESS_DENIED_ACE_TYPE:
+            ace_header = _AceHeader.from_address(ace.value)
+            if ace_header.AceType == _ACCESS_DENIED_ACE_TYPE:
                 continue
-            if kind != _ACCESS_ALLOWED_ACE_TYPE or not _advapi32.EqualSid(ace.value + _SID_OFFSET, user.pointer):
+            if (ace_header.AceType != _ACCESS_ALLOWED_ACE_TYPE
+                    or not _advapi32.EqualSid(ace.value + _SID_OFFSET, user.pointer)):
                 return False
             allowed += 1
-        return allowed > 0
+            passed_on = passed_on or ace_header.AceFlags & both == both
+        return allowed > 0 and (passed_on or not inherited_below)
     finally:
         _kernel32.LocalFree(descriptor)

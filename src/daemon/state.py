@@ -40,7 +40,8 @@ def private_dir(path):
         from . import acl
         if not acl.owned_by_user_or_admins(path):  # its owner could rewrite the DACL at any time
             raise PermissionError("Service directory belongs to another user")
-        if not acl.is_private(path):
+        # Restricting walks the whole tree, so only a directory that needs it is restricted.
+        if not acl.is_private(path, inherited_below=True):
             acl.restrict(path)
         return path
     if path.stat().st_uid != os.getuid():

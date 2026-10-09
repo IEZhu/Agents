@@ -428,3 +428,18 @@ def test_git_under_the_hidden_service_opens_no_console_and_never_reads_stdin(mon
      "web UI overview": lambda: overview.repository(tmp_path)}[call]()
     assert seen and all(kwargs.get("creationflags") == getattr(subprocess, "CREATE_NO_WINDOW", 0)
                         and kwargs.get("stdin") == subprocess.DEVNULL for kwargs in seen)
+
+
+@windows_only
+def test_a_private_directory_whose_entry_is_not_inherited_is_restricted_again(tmp_path):
+    """A user-only ACE without inheritance flags leaves new files the creator's default DACL."""
+    from src.daemon import acl
+    directory = tmp_path / "state"
+    directory.mkdir()
+    subprocess.run(["icacls", str(directory), "/inheritance:r", "/grant:r", f"*{acl.user_sid()}:F"],
+                   check=True, capture_output=True, stdin=subprocess.DEVNULL)
+    assert acl.is_private(directory) and not acl.is_private(directory, inherited_below=True)
+    private_dir(directory)
+    assert acl.is_private(directory, inherited_below=True)
+    (directory / "token").write_text("secret\n")
+    assert acl.is_private(directory / "token")
