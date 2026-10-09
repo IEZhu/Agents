@@ -2,6 +2,7 @@
 import asyncio
 import hashlib
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -395,9 +396,17 @@ def cookie_of(response):
     return response.headers["set-cookie"].split(";")[0].split("=", 1)[1]
 
 
+def _owner_only(path):
+    """Mode 0600 on POSIX; on Windows, where chmod sets no such mode, an owner-only ACL (#195)."""
+    if os.name == "nt":
+        from src.daemon.acl import is_private
+        return is_private(path)
+    import stat
+    return stat.S_IMODE(path.stat().st_mode) == 0o600
+
+
 @pytest.mark.asyncio
 async def test_session_is_persistent_sliding_and_revocable(editor, tmp_path):
-    import stat
     from src.daemon import flows_ui as module
     http, _ = editor
     service = http._transport.app.state.service
@@ -406,7 +415,7 @@ async def test_session_is_persistent_sliding_and_revocable(editor, tmp_path):
     assert (await http.get("/ui/api/flows")).status_code == 401
     code = await login(http)
     key_path = service.directory / module.KEY_FILE
-    assert stat.S_IMODE(key_path.stat().st_mode) == 0o600
+    assert _owner_only(key_path)
     key = key_path.read_bytes()
     first = (await http.get("/ui/api/flows")).headers["set-cookie"]
     assert code not in first and key.hex() not in first
@@ -459,7 +468,7 @@ async def test_session_is_persistent_sliding_and_revocable(editor, tmp_path):
     assert (await http.get("/ui/api/flows")).status_code == 200
     module.replace_session_key(service.directory)
     assert key_path.read_bytes() != key
-    assert stat.S_IMODE(key_path.stat().st_mode) == 0o600
+    assert _owner_only(key_path)
     assert (await http.get("/ui/api/flows")).status_code == 401
     await login(http)
     assert (await http.get("/ui/api/flows")).status_code == 200

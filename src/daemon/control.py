@@ -1,10 +1,12 @@
-"""Explicit macOS service control. No model or engine imports on ordinary commands."""
+"""Explicit service control (macOS launchd, Windows Task Scheduler: `src.daemon.service`).
+
+No model or engine imports on ordinary commands.
+"""
 import argparse
 from contextlib import ExitStack
 import json
 import os
 from pathlib import Path
-import plistlib
 import secrets
 import shutil
 import socket
@@ -16,6 +18,7 @@ from urllib.request import ProxyHandler, Request, build_opener
 
 from src.file_lock import file_lock
 from src.model_migration import DEFAULT_MODEL, GENERATION
+from . import service
 from .state import state_dir, private_dir, read_json, write_json, atomic_private
 
 
@@ -66,10 +69,12 @@ class Controller:
         return "local.agents-core." + self.directory.name
 
     @property
-    def target(self): return f"gui/{os.getuid()}/{self.label}"
+    def manager(self):
+        """How the OS runs the service here (`src.daemon.service`)."""
+        return service.manager(self)
 
     @property
-    def plist(self): return Path.home() / "Library/LaunchAgents" / (self.label + ".plist")
+    def plist(self): return service.Launchd(self).path
 
     def launchctl(self, *args, check=True):
         return subprocess.run(["/bin/launchctl", *args], capture_output=True, text=True, check=check)
@@ -97,9 +102,9 @@ class Controller:
         if not self.config: return {"state": "not_installed"}
         try: return self.request()
         except (OSError, URLError):
-            result = self.launchctl("print", self.target, check=False)
-            return {"state": "starting" if result.returncode == 0 else "stopped",
-                    "supervised": result.returncode == 0,
+            supervised = self.manager.loaded()
+            return {"state": "starting" if supervised else "stopped",
+                    "supervised": supervised,
                     "maintenance": (self.directory / "maintenance.json").exists(),
                     "transaction": (self.directory / "transaction.json").exists()}
 
@@ -185,30 +190,17 @@ class Controller:
             write_json(self.directory / "service.json", config)
             atomic_private(self.directory / "token", secrets.token_urlsafe(48) + "\n")
             self.config = config
-            self.write_plist()
+            self.manager.install()
             write_json(root / "data/.shared-service.json", {"directory": str(self.directory)})
         return {"state": "installed", "directory": str(self.directory), "port": port,
                 "scheduled_sync": stop_scheduled_sync(root), "user_sync": sync_note(self.directory)}
 
     def write_plist(self, probation=None):
-        arguments = [self.config["python"], "-m", "src.daemon", "--state", str(self.directory), "serve"]
-        # One argument: a URL-safe nonce may start with "-", which argparse would read as an option.
-        if probation: arguments.append("--probation=" + probation)
-        payload = {"Label": self.label, "ProgramArguments": arguments,
-                   "WorkingDirectory": self.config["installation"],
-                   "EnvironmentVariables": {"PATH": self.config["path"], "PYTHONUNBUFFERED": "1"},
-                   "RunAtLoad": True, "KeepAlive": {"SuccessfulExit": False},
-                   "ThrottleInterval": 15, "ProcessType": "Interactive",
-                   "StandardOutPath": "/dev/null", "StandardErrorPath": "/dev/null"}
-        atomic_private(self.plist, plistlib.dumps(payload).decode())
+        """Record the service definition (a LaunchAgent plist, a Task Scheduler task) without starting it."""
+        self.manager.write(probation)
 
     def _start(self, probation=None):
-        self.write_plist(probation)
-        loaded = self.launchctl("print", self.target, check=False).returncode == 0
-        if not loaded:
-            self.launchctl("bootstrap", f"gui/{os.getuid()}", str(self.plist))
-        else:
-            self.launchctl("kickstart", self.target)
+        self.manager.start(probation)
 
     def start(self):
         with file_lock(self.directory / "control.lock", blocking=False):
@@ -232,9 +224,7 @@ class Controller:
 
     def _stop(self):
         self._drain()
-        result = self.launchctl("bootout", self.target, check=False)
-        if result.returncode and self.launchctl("print", self.target, check=False).returncode == 0:
-            raise RuntimeError("launchd could not stop the service")
+        self.manager.stop()
         deadline = time.monotonic() + 60
         while True:
             try:
@@ -257,13 +247,20 @@ class Controller:
         disable(self)
         with file_lock(self.directory / "control.lock", blocking=False):
             self._stop()
-            self.plist.unlink(missing_ok=True)
+            self.manager.remove()
             marker = Path(self.config["installation"]) / "data/.shared-service.json"
             if read_json(marker, {}).get("directory") == str(self.directory): marker.unlink()
             (self.directory / "service.json").unlink()
         return {"state": "uninstalled", "retained": "private backups, token, workspace registry and history indexes",
                 "user_sync": "the daemon no longer syncs the library; to keep syncing without it run "
                              "`python -m src.user_sync schedule enable`"}
+
+
+UPDATES_ON_WINDOWS = (
+    "Service updates are not supported on Windows yet (#195): the update transaction hands the installation "
+    "leases to the updater through POSIX descriptor inheritance, and stdio servers on Windows take no "
+    "installation lease. Stop the service, update the checkout, then start it; its warmup rebuilds changed "
+    "skill and implant indexes.")
 
 
 def sync_note(directory):
@@ -380,6 +377,10 @@ def main(argv=None):
                 parser.error("Each --client-config target must be selected by --clients")
     controller = Controller(args.state)
     exit_code = 0
+    if service.PLATFORM == "win32" and (args.command == "update" or (
+            args.command == "auto-update" and args.action in ("enable", "run"))):
+        print(json.dumps({"state": "unsupported", "error": UPDATES_ON_WINDOWS}, ensure_ascii=False, indent=2))
+        return 2
     if args.command == "serve":
         from .bootstrap import serve
         serve(controller.directory, args.probation)

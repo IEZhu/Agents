@@ -28,6 +28,7 @@ import shutil
 import subprocess
 
 from src.file_lock import file_lock
+from . import service
 from .state import atomic_private, read_json, write_json
 from .update import DEPENDENCIES
 
@@ -105,6 +106,10 @@ def enable(controller, interval=DEFAULT_INTERVAL, idle_seconds=DEFAULT_IDLE_SECO
 
 def disable(controller):
     with file_lock(controller.directory / "control.lock", blocking=False):
+        if service.PLATFORM == "win32":  # `enable` is refused there, so no updater was ever scheduled
+            if controller.config:
+                _save_settings(controller, enabled=False)
+            return {"enabled": False}
         target = f"gui/{os.getuid()}/{label(controller)}"
         result = controller.launchctl("bootout", target, check=False)
         if result.returncode and controller.launchctl("print", target, check=False).returncode == 0:
@@ -116,6 +121,9 @@ def disable(controller):
 
 
 def status(controller):
+    if service.PLATFORM == "win32":
+        return {**settings(controller), "scheduled": False, "supported": False,
+                "last_run": read_json(controller.directory / "auto-update.json", {})}
     loaded = controller.launchctl("print", f"gui/{os.getuid()}/{label(controller)}", check=False).returncode == 0
     return {**settings(controller), "scheduled": loaded,
             "last_run": read_json(controller.directory / "auto-update.json", {})}

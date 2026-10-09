@@ -726,6 +726,13 @@ Migration manages private bearer headers and backups. Reconnect MCP in open
 clients after migration. See [service operations](docs/shared-mcp-daemon.md) for
 scope audits, updates, token rotation and rollback.
 
+On Windows the same commands, run with `.venv\Scripts\python.exe`, install the
+service as a hidden Task Scheduler task of the current user, with its private
+state in `%LOCALAPPDATA%\Agents-Core`. Stdio servers on Windows take no
+installation lease, so `install` cannot see them: end them yourself first.
+`update` and automatic updates are not available there yet (#195). See
+[Windows](docs/shared-mcp-daemon.md#windows-task-scheduler).
+
 Setup, migration and audit read `CLAUDE_CONFIG_DIR`, `CODEX_HOME`,
 `AGENTS_CURSOR_MCP_CONFIG` and `AGENTS_CLAUDE_DESKTOP_CONFIG` only from the
 environment of the command; `--client-config CLIENT=/absolute/file` selects an

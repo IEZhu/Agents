@@ -1,6 +1,8 @@
 # Shared MCP daemon operations
 
-A macOS LaunchAgent serves local MCP clients at `http://127.0.0.1:8765/mcp`.
+A macOS LaunchAgent, or on Windows a Task Scheduler task (see
+[Windows](#windows-task-scheduler)), serves local MCP clients at
+`http://127.0.0.1:8765/mcp`.
 One Python process holds the embedding model (`microsoft/harrier-oss-v1-270m` by
 default), the router, and shared
 indexes. Desktop Chat connects through `bridge/stdio.mjs` (Node 22+, no npm
@@ -263,6 +265,8 @@ distinct names. It uses ProcessType Interactive, RunAtLoad and KeepAlive: launch
 starts it at login and restarts it after an unsuccessful exit. `stop` and
 `restore-clients` unload it for the current login session only, so it starts
 again at the next login; `uninstall` removes its plist from `~/Library/LaunchAgents`.
+Windows keeps the state elsewhere and runs the service differently; see
+[Windows](#windows-task-scheduler).
 
 The service writes its output to `service.log` in the private state directory
 (LaunchAgent stdout and stderr are discarded), limited to six 10 MiB files. With
@@ -289,7 +293,7 @@ counts (`inflight` for work, `streams` for open client notification streams),
 `inference_pending` for model work), and the `user_sync` summary
 (see [User library sync](#user-library-sync)).
 When the service does not respond, `status` also reports `supervised` (launchd
-has the job loaded), `maintenance` and `transaction`, and reads the `user_sync`
+has the job loaded; on Windows, the task's repetition is on), `maintenance` and `transaction`, and reads the `user_sync`
 summary with the sync engine; a `transaction` that remains while no controller
 command is running requires `recover`. `/health` requires a
 bearer token and, besides the MCP SDK `version`, returns `agents_core_version`
@@ -299,6 +303,48 @@ Admission is bounded at 32 work requests, plus up to 32 open notification stream
 counted separately, with eight I/O workers and one inference worker. Capacity
 exhaustion returns busy. Cancelling an HTTP waiter retains the quota for its
 running job and does not replay a mutation.
+
+### Windows (Task Scheduler)
+
+On Windows the service is a hidden Task Scheduler task of the current user,
+`agents-core-daemon-<state-directory-name>`. It runs `pythonw.exe -m src.daemon
+--state DIR serve` in the installation (no console window), only while the user
+is logged on (`InteractiveToken`, least privilege: no stored password and no
+administrator rights), at normal priority, without an execution time limit and
+on battery. Run the commands above with `.venv\Scripts\python.exe`. The task has
+two triggers:
+
+- a logon trigger, on unless `autostart` is off in `service.json`;
+- a time trigger repeated every minute. Task Scheduler's restart on failure
+  applies only when a task fails to start, not when its process exits, so this
+  repetition restarts a service that exited or was killed, within a minute;
+  `IgnoreNew` makes it a no-op while the service runs.
+
+`install` registers the task with the repetition off, so the service starts with
+`start` or at the next login. `start` turns the repetition on and runs the task.
+`stop` and `restore-clients` drain the service, turn the repetition off and end
+the task: as on macOS, it stays stopped until `start` or the next login, and a
+start by the logon trigger turns the repetition on again. Registering the task
+again leaves a running instance alone, so a transaction's probation rewrites the
+task without restarting the verified process. `uninstall` deletes the task. When
+the service does not respond, `status` reads the task's XML (`schtasks /Query
+/XML`, which, unlike its status text, is not localized).
+
+Private state lives in `%LOCALAPPDATA%\Agents-Core\<installation-hash>`, where
+user sync already keeps `<installation-hash>\user-sync`. In place of mode 0700
+the directory gets a protected DACL with one entry, full control for the current
+user, which the token, configurations, bridge configurations and backups created
+in it inherit: `icacls` shows `DOMAIN\user:(OI)(CI)(F)` on the directory and
+`DOMAIN\user:(I)(F)` on its files. `serve` refuses a token that anyone else may
+read. The bridge cannot check mode bits on Windows and relies on that ACL.
+
+Not yet available on Windows (#195): `update` and `auto-update enable|run`
+refuse with exit code 2. The update transaction hands the installation leases to
+the updater through POSIX descriptor inheritance, and stdio servers on Windows
+take no installation lease, so `install` cannot see them either: end this
+installation's stdio servers before `migrate`. To update, stop the service,
+update the checkout, then start it; its warmup rebuilds changed skill and
+implant indexes.
 
 ### Drain and connected clients
 
