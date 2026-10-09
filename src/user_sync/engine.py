@@ -135,17 +135,18 @@ def default_state_dir() -> Path:
 
     macOS: the daemon's state directory: ``AGENTS_SERVICE_DIR`` inside the daemon, else the one an
     installed daemon recorded in ``data/.shared-service.json`` (also when installed with
-    ``--state``), else the default. Windows: ``%LOCALAPPDATA%\\Agents-Core\\<id>``. Others:
-    ``$XDG_STATE_HOME/agents-core/<id>``. Scheduled runs pass ``--state`` explicitly, so they never
-    depend on the environment of the scheduler.
+    ``--state``), else the default. Windows: the same two daemon directories (#195), else
+    ``%LOCALAPPDATA%\\Agents-Core\\<id>``. Others: ``$XDG_STATE_HOME/agents-core/<id>``.
+    Scheduled runs pass ``--state`` explicitly, so they never depend on the environment of the scheduler.
     """
-    if sys.platform == "darwin":
+    if sys.platform in ("darwin", "win32"):
         configured = os.environ.get("AGENTS_SERVICE_DIR")
         if configured:
             return Path(configured).expanduser().resolve() / "user-sync"
         marker = _read_json(installation_root() / "data" / ".shared-service.json")
         if isinstance(marker, dict) and isinstance(marker.get("directory"), str):
             return Path(marker["directory"]) / "user-sync"
+    if sys.platform == "darwin":
         from src.daemon.state import state_dir
         return state_dir() / "user-sync"
     if os.name == "nt":

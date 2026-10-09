@@ -728,7 +728,7 @@ scope audits, updates, token rotation and rollback.
 
 On Windows the same commands, run with `.venv\Scripts\python.exe`, install the
 service as a hidden Task Scheduler task of the current user, with its private
-state in `%LOCALAPPDATA%\Agents-Core`. Stdio servers on Windows take no
+state in `%USERPROFILE%\.agents-core`. Stdio servers on Windows take no
 installation lease, so `install` cannot see them: end them yourself first.
 `update` and automatic updates are not available there yet (#195). See
 [Windows](docs/shared-mcp-daemon.md#windows-task-scheduler).

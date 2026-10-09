@@ -243,9 +243,11 @@ def test_a_token_that_others_can_read_is_refused(tmp_path):
 
 
 @windows_only
-def test_the_state_directory_holds_user_sync_as_on_macos(monkeypatch):
+def test_the_state_directory_is_outside_appdata_and_holds_user_sync(monkeypatch, tmp_path):
+    """The Claude desktop app's MSIX package virtualizes what its processes write under AppData."""
     from src.daemon.state import state_dir
     from src.user_sync import engine
     monkeypatch.delenv("AGENTS_SERVICE_DIR", raising=False)
-    assert state_dir() / "user-sync" == engine.default_state_dir()
-    assert state_dir().parent == Path(os.environ["LOCALAPPDATA"]) / "Agents-Core"
+    assert state_dir().parent == Path(os.environ["USERPROFILE"]) / ".agents-core"
+    monkeypatch.setenv("AGENTS_SERVICE_DIR", str(tmp_path / "service"))  # what serve sets
+    assert engine.default_state_dir() == state_dir() / "user-sync"

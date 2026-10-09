@@ -330,8 +330,13 @@ task without restarting the verified process. `uninstall` deletes the task. When
 the service does not respond, `status` reads the task's XML (`schtasks /Query
 /XML`, which, unlike its status text, is not localized).
 
-Private state lives in `%LOCALAPPDATA%\Agents-Core\<installation-hash>`, where
-user sync already keeps `<installation-hash>\user-sync`. In place of mode 0700
+Private state lives in `%USERPROFILE%\.agents-core\<installation-hash>`, and the
+service keeps user sync's settings in its `user-sync` subdirectory, as on macOS.
+It is not under `%LOCALAPPDATA%`: the Claude desktop app is an MSIX package, and
+every process it starts (Code sessions, their terminals, stdio servers) writes
+new files under AppData into the package's private copy
+(`%LOCALAPPDATA%\Packages\Claude_<id>\LocalCache`), which the task never sees.
+A home directory outside AppData looks the same to both. In place of mode 0700
 the directory gets a protected DACL with one entry, full control for the current
 user, which the token, configurations, bridge configurations and backups created
 in it inherit: `icacls` shows `DOMAIN\user:(OI)(CI)(F)` on the directory and

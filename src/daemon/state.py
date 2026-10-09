@@ -16,11 +16,16 @@ def state_dir(installation=None):
 
 def default_state_dir(installation=None):
     """The service's private state: ``~/Library/Application Support/Agents-Core/<id>`` on macOS,
-    ``%LOCALAPPDATA%\\Agents-Core\\<id>`` on Windows, where user sync already keeps ``<id>\\user-sync``."""
+    ``%USERPROFILE%\\.agents-core\\<id>`` on Windows.
+
+    Not ``%LOCALAPPDATA%`` on Windows: the Claude desktop app is an MSIX package, and every
+    process it starts (Code sessions, their terminals, stdio servers) writes new files under
+    AppData into the package's private copy, which the Task Scheduler task never sees.
+    """
     root = Path(installation or Path(__file__).resolve().parents[2]).resolve()
     identity = hashlib.sha256(str(root).encode()).hexdigest()[:16]
     if os.name == "nt":
-        return Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData/Local") / "Agents-Core" / identity
+        return Path(os.environ.get("USERPROFILE") or Path.home()) / ".agents-core" / identity
     return Path.home() / "Library/Application Support/Agents-Core" / identity
 
 
