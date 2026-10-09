@@ -332,7 +332,8 @@ trigger turns the repetition on again. Registering the task
 again leaves a running instance alone, so a transaction's probation rewrites the
 task without restarting the verified process. `uninstall` deletes the task. When
 the service does not respond, `status` reads the task's XML (`schtasks /Query
-/XML`, which, unlike its status text, is not localized).
+/XML`, which, unlike its status text, is not localized), and reports `unknown`
+with the error when `schtasks` does not answer.
 
 Private state lives in `%USERPROFILE%\.agents-core\<installation-hash>`, and the
 service keeps user sync's settings in its `user-sync` subdirectory, as on macOS.
