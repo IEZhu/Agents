@@ -81,6 +81,8 @@ Absolute paths outside it and escaping symlinks are rejected.
   connection without it can list flows but cannot start one. See
   [workspace setup](../docs/shared-mcp-daemon.md#installation-and-client-migration).
 - **Stdio:** the target is `AGENTS_CLIENT_REPO_ROOT` when set; otherwise the
+  call's `workspace` (the caller's working directory) when it lies inside the
+  client's MCP roots, as one server process can serve several sessions; otherwise the
   nearest `.git` or `CLAUDE.md` at or above `CLAUDE_PROJECT_DIR` (exported by
   Claude Code) or the server's working directory. A `CLAUDE_PROJECT_DIR` without
   a marker is used as named; a working directory without a marker is refused
