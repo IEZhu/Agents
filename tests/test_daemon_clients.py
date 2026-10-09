@@ -85,6 +85,10 @@ def test_each_client_names_its_app_in_its_headers_and_bridge(migration, tmp_path
     bridge = Path(json.loads(text)["mcpServers"]["Agents-Core-Desktop"]["args"][1])
     assert bridge.name == "claude-desktop-routing.json"
     assert json.loads(bridge.read_text())["headers"]["X-Agents-Client"] == "claude-desktop"
+    _, text, _ = migration.prepare("antigravity", home=home)
+    bridge = Path(json.loads(text)["mcpServers"]["Agents-Core"]["args"][1])
+    assert bridge.name == "antigravity-auto.json"
+    assert json.loads(bridge.read_text())["headers"]["X-Agents-Client"] == "antigravity"
 
 
 def test_user_scope_claude_gets_a_bridge_that_names_each_session_project(migration, tmp_path):
@@ -181,10 +185,31 @@ def test_restore_preserves_original_bytes_and_restores_remaining_files(migration
 
 
 
+def test_user_scope_antigravity_gets_auto_workspace_bridge(migration, tmp_path):
+    home = tmp_path / "home"; home.mkdir()
+    migration.config["node"] = sys.executable
+    _, text, secret = migration.prepare("antigravity", home=home)
+    entry = json.loads(text)["mcpServers"]["Agents-Core"]
+    assert entry["command"] == sys.executable and entry["args"][0].endswith("stdio.mjs")
+    bridge = Path(entry["args"][1])
+    assert bridge.name == "antigravity-auto.json"
+    settings = json.loads(bridge.read_text())
+    assert settings["workspace"] == "auto" and "X-Agents-Workspace" not in settings["headers"]
+    assert settings["headers"]["X-Agents-Client"] == "antigravity"
+    assert not secret and migration.token not in text
+    # A pinned project gets a workspace bridge with its workspace identity.
+    project = tmp_path / "repo"; project.mkdir()
+    _, text, _ = migration.prepare("antigravity", project, home=home)
+    pinned_bridge = Path(json.loads(text)["mcpServers"]["Agents-Core"]["args"][1])
+    pinned_settings = json.loads(pinned_bridge.read_text())
+    assert pinned_settings.get("workspace") != "auto"
+    assert pinned_settings["headers"]["X-Agents-Workspace"]
+
+
 def test_conftest_clears_inherited_client_config_overrides(tmp_path):
     # An inherited CLAUDE_CONFIG_DIR made migration tests rewrite the developer's
-    # real Claude profile. Import conftest in a child that inherits all four.
-    overrides = ("CLAUDE_CONFIG_DIR", "CODEX_HOME", "AGENTS_CURSOR_MCP_CONFIG", "AGENTS_CLAUDE_DESKTOP_CONFIG")
+    # real Claude profile. Import conftest in a child that inherits all five.
+    overrides = ("CLAUDE_CONFIG_DIR", "CODEX_HOME", "AGENTS_CURSOR_MCP_CONFIG", "AGENTS_CLAUDE_DESKTOP_CONFIG", "AGENTS_ANTIGRAVITY_MCP_CONFIG")
     env = {**os.environ, **{name: str(tmp_path / "inherited" / name) for name in overrides}}
     home = tmp_path / "home"
     code = (

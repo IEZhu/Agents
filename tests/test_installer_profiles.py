@@ -53,6 +53,7 @@ def profile_installer(request, tmp_path):
                IS_NIXOS="false", NIX_LD_LIB_PATH="", PYTHONUTF8="1",
                RED="", GREEN="", YELLOW="", BLUE="", CYAN="", NC="")
     for name in ("CLAUDE_CONFIG_DIR", "AGENTS_CURSOR_MCP_CONFIG", "AGENTS_CLAUDE_DESKTOP_CONFIG",
+                 "AGENTS_ANTIGRAVITY_MCP_CONFIG",
                  "XDG_CONFIG_HOME", "PYTHONHOME", "PYTHONPATH", "VIRTUAL_ENV", "__PYVENV_LAUNCHER__"):
         env.pop(name, None)
 

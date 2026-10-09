@@ -4,7 +4,7 @@ from pathlib import Path
 import sys
 
 
-CLIENTS = ("codex", "claude", "cursor", "desktop", "claude-project", "claude-deny-desktop")
+CLIENTS = ("codex", "claude", "cursor", "desktop", "claude-project", "claude-deny-desktop", "antigravity")
 
 
 def absolute_path(value):
@@ -44,6 +44,8 @@ def client_config_path(client, workspace=None, *, home=None, config_path=None, e
         if root:
             return root / ".cursor/mcp.json"
         return absolute_path(env["AGENTS_CURSOR_MCP_CONFIG"]) if env.get("AGENTS_CURSOR_MCP_CONFIG") else home / ".cursor/mcp.json"
+    if client == "antigravity":
+        return absolute_path(env["AGENTS_ANTIGRAVITY_MCP_CONFIG"]) if env.get("AGENTS_ANTIGRAVITY_MCP_CONFIG") else home / ".gemini/config/mcp_config.json"
     if env.get("AGENTS_CLAUDE_DESKTOP_CONFIG"):
         return absolute_path(env["AGENTS_CLAUDE_DESKTOP_CONFIG"])
     if sys.platform == "darwin":

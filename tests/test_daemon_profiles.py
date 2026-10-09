@@ -67,7 +67,7 @@ def test_audit_includes_standard_and_environment_profiles(setup, tmp_path, monke
     assert "must-not-print" not in json.dumps(rows)
 
 
-@pytest.mark.parametrize("client", ["codex", "claude", "cursor", "desktop", "claude-project", "claude-deny-desktop"])
+@pytest.mark.parametrize("client", ["codex", "claude", "cursor", "desktop", "claude-project", "claude-deny-desktop", "antigravity"])
 def test_exact_file_override_for_each_client_is_backed_up_and_remembered(setup, tmp_path, client):
     home, state, migration = setup
     project = tmp_path / "project"
@@ -87,7 +87,11 @@ def test_exact_file_override_for_each_client_is_backed_up_and_remembered(setup, 
     assert (state / "client-configs.json").exists()
 
 
-@pytest.mark.parametrize("client,variable", [("cursor", "AGENTS_CURSOR_MCP_CONFIG"), ("desktop", "AGENTS_CLAUDE_DESKTOP_CONFIG")])
+@pytest.mark.parametrize("client,variable", [
+    ("cursor", "AGENTS_CURSOR_MCP_CONFIG"),
+    ("desktop", "AGENTS_CLAUDE_DESKTOP_CONFIG"),
+    ("antigravity", "AGENTS_ANTIGRAVITY_MCP_CONFIG"),
+])
 def test_exact_file_environment_can_be_overridden(setup, tmp_path, monkeypatch, client, variable):
     _, _, migration = setup
     selected = tmp_path / "selected.json"

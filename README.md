@@ -114,16 +114,17 @@ The interactive script:
   recreate it, pass `--yes`, or run `.venv/bin/pip install -r requirements.txt`;
 - registers Agents-Core without asking as a standalone stdio server in each
   detected client's user-level configuration (Claude Code `~/.claude.json`, Cursor
-  `~/.cursor/mcp.json`, Claude Desktop `claude_desktop_config.json`), after
-  copying each file to `<file>.backup.<epoch>`;
+  `~/.cursor/mcp.json`, Claude Desktop `claude_desktop_config.json`, Google Antigravity
+  `~/.gemini/config/mcp_config.json`), after copying each file to `<file>.backup.<epoch>`;
 - asks before installing protocol 2 instructions in the global Claude
   configuration. When Codex is detected, it installs the same protocol in Codex's
   global instructions without asking; this does not connect Codex to MCP (see
   [Codex instruction installation](#codex-instruction-installation));
 - targets another profile when `CLAUDE_CONFIG_DIR` (Claude Code),
-  `AGENTS_CURSOR_MCP_CONFIG` or `AGENTS_CLAUDE_DESKTOP_CONFIG` is exported in the
-  shell that runs setup. Setup does not read them from `.env`, and a set variable
-  also counts as detecting that client (see [alternate client configurations](docs/shared-mcp-daemon.md#alternate-client-configurations));
+  `AGENTS_CURSOR_MCP_CONFIG`, `AGENTS_CLAUDE_DESKTOP_CONFIG` or
+  `AGENTS_ANTIGRAVITY_MCP_CONFIG` is exported in the shell that runs setup. Setup
+  does not read them from `.env`, and a set variable also counts as detecting
+  that client (see [alternate client configurations](docs/shared-mcp-daemon.md#alternate-client-configurations));
 - on macOS, once the shared service is installed, keeps these clients on the
   service instead of writing standalone stdio entries. Do not rerun setup while
   the service runs (see [service updates](docs/shared-mcp-daemon.md#updates-and-recovery));
@@ -727,9 +728,10 @@ clients after migration. See [service operations](docs/shared-mcp-daemon.md) for
 scope audits, updates, token rotation and rollback.
 
 Setup, migration and audit read `CLAUDE_CONFIG_DIR`, `CODEX_HOME`,
-`AGENTS_CURSOR_MCP_CONFIG` and `AGENTS_CLAUDE_DESKTOP_CONFIG` only from the
-environment of the command; `--client-config CLIENT=/absolute/file` selects an
-explicit file (see [alternate client configurations](docs/shared-mcp-daemon.md#alternate-client-configurations)).
+`AGENTS_CURSOR_MCP_CONFIG`, `AGENTS_CLAUDE_DESKTOP_CONFIG` and
+`AGENTS_ANTIGRAVITY_MCP_CONFIG` only from the environment of the command;
+`--client-config CLIENT=/absolute/file` selects an explicit file (see
+[alternate client configurations](docs/shared-mcp-daemon.md#alternate-client-configurations)).
 For example:
 
 ```bash

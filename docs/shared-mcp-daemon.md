@@ -151,6 +151,7 @@ workspace identity is supplied separately with `--workspace`.
 | `codex` | `~/.codex/config.toml`, or `<workspace>/.codex/config.toml` with `--workspace` | `CODEX_HOME` selects the user configuration directory; project paths stay unchanged |
 | `cursor` | `~/.cursor/mcp.json`, or `<workspace>/.cursor/mcp.json` with `--workspace` | `AGENTS_CURSOR_MCP_CONFIG` selects the user MCP file; project paths stay unchanged |
 | `desktop` | macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`; setup on Linux: `$XDG_CONFIG_HOME/Claude/claude_desktop_config.json` (default `~/.config`); setup on Windows: `%APPDATA%\Claude\claude_desktop_config.json` | `AGENTS_CLAUDE_DESKTOP_CONFIG` selects an exact configuration file |
+| `antigravity` | `~/.gemini/config/mcp_config.json` | `AGENTS_ANTIGRAVITY_MCP_CONFIG` selects an exact configuration file |
 | `claude-project` | `<workspace>/.mcp.json` | No environment override; requires `--workspace` |
 
 Export variables in the shell that runs migration or audit. The controller does
@@ -163,11 +164,12 @@ it to `~/.claude` selects `~/.claude/.claude.json`, while leaving it unset selec
 `~/.claude.json`. `CODEX_HOME` is the Codex state directory, not the configuration
 file itself. Use an existing directory and absolute paths for alternate profiles.
 
-`AGENTS_CURSOR_MCP_CONFIG` and `AGENTS_CLAUDE_DESKTOP_CONFIG` are Agents-Core
-settings. They tell migration, audit and setup which existing client file to
-manage; they do not reconfigure the client application's own path selection.
-In particular, a Cursor `--user-data-dir` or UI profile does not establish the
-location of its MCP file. Supply the file that the client actually reads.
+`AGENTS_CURSOR_MCP_CONFIG`, `AGENTS_CLAUDE_DESKTOP_CONFIG` and
+`AGENTS_ANTIGRAVITY_MCP_CONFIG` are Agents-Core settings. They tell migration,
+audit and setup which existing client file to manage; they do not reconfigure
+the client application's own path selection. In particular, a Cursor
+`--user-data-dir` or UI profile does not establish the location of its MCP
+file. Supply the file that the client actually reads.
 
 Select a Claude profile for both user and project-local registrations:
 
