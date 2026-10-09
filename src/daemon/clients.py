@@ -149,6 +149,11 @@ class ClientMigration:
         if client == "codex":
             original = self.read_config(path, as_json=False)
             old_entry = tomllib.loads(original).get("mcp_servers", {}).get(SERVER, {})
+            if root is None and self.has_node():
+                # Codex starts a stdio server without `cwd` in the session's working directory
+                # (codex-rs LocalStdioServerLauncher), so the bridge names that project (#253).
+                entry = transport_entry(old_entry, self.bridge(None, app, auto_workspace=True))
+                return path, replace_toml_server(original, SERVER, entry), False
             entry = transport_entry(old_entry, {})
             entry["url"] = self.url
             if tracked(path):

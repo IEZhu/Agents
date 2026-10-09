@@ -925,9 +925,9 @@ Over stdio their workspace errors carry `pid` and `workspace_inputs` (`cwd`,
 declares roots and `workspace` was omitted, the refusal asks for it and
 `log_interaction` tells the model to retry once with it.
 Over HTTP, memory requires the registered `X-Agents-Workspace` header;
-the daemon does not infer a project from its working directory. Claude Code's
-user-scope entry is a bridge per session that registers the session's project and
-sends that header itself ([details](docs/shared-mcp-daemon.md#installation-and-client-migration)).
+the daemon does not infer a project from its working directory. The user-scope
+entries of Claude Code and Codex are a bridge per session that registers the
+session's project and sends that header itself ([details](docs/shared-mcp-daemon.md#installation-and-client-migration)).
 If a memory tool returns `workspace_required`, `workspace_unsafe` or
 `workspace_invalid`, routing remains available.
 For HTTP without that bridge, register the project with `migrate --workspace /absolute/project` (see

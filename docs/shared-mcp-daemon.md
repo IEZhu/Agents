@@ -59,24 +59,26 @@ the recorded interpreters (by default, the Python running `install` and the firs
 migrations fail with `An absolute Node executable is required`.
 
 Registering the same realpath again returns its existing UUID. With a recorded
-Node, `migrate --clients claude` writes Claude Code's user-scope entry as a stdio
-bridge (`bridge/stdio.mjs`, `workspace: "auto"` in its private
-`bridges/claude-code-auto.json`). Claude Code starts one bridge per session in the
-session's directory and names it in `CLAUDE_PROJECT_DIR`. The bridge registers
-that project through `POST /workspaces` and sends its `X-Agents-Workspace` on every
+Node, `migrate --clients claude` and `migrate --clients codex` write the user-scope
+entry as a stdio bridge (`bridge/stdio.mjs`, `workspace: "auto"` in its private
+`bridges/claude-code-auto.json` or `bridges/codex-auto.json`). Both clients start
+one bridge per session in the session's directory. Claude Code also names it in
+`CLAUDE_PROJECT_DIR`. Codex starts a stdio server without `cwd` in the session's
+working directory, so the Codex entry carries no `cwd`. The bridge registers that
+project through `POST /workspaces` and sends its `X-Agents-Workspace` on every
 request, so new projects, clones and worktrees get memory on their first call
 without a migration. A tool call's `workspace` argument (see
 [Repository Memory](../README.md#-repository-memory)) is registered the same way,
 but only inside the MCP roots the bridge's client declares; when the daemon refuses
 it, a session's bridge keeps using the session's project. A session that started
 while the daemon was unreachable registers on its next request. An existing
-installation gets the bridge when `migrate --clients claude`, or setup, runs again.
-Without a recorded Node the entry stays HTTP. The other global entries (Codex, Cursor) provide routing,
-personas, and built-in and personal flows without a workspace; their memory,
-repository (`repo:`) flows and `run_flow` require project configuration. For them,
+installation gets the bridge when `migrate --clients claude,codex`, or setup, runs again.
+Without a recorded Node these entries stay HTTP. Cursor's global entry provides routing,
+personas, and built-in and personal flows without a workspace; its memory,
+repository (`repo:`) flows and `run_flow` require project configuration. For it,
 after creating a clone or worktree, run `migrate --workspace /absolute/worktree`
-before connecting. `migrate --workspace` also pins a Claude Code project to one
-registration. Do not copy an MCP configuration containing another project's UUID.
+before connecting. `migrate --workspace` also pins a Claude Code or Codex project to
+one registration. Do not copy an MCP configuration containing another project's UUID.
 
 Codex reads project `.codex/config.toml` in a trusted project; Claude Code uses
 local scope in its selected user configuration; Cursor uses project

@@ -79,7 +79,8 @@ def test_each_client_names_its_app_in_its_headers_and_bridge(migration, tmp_path
     bridge = Path(json.loads(text)["mcpServers"]["Agents-Core"]["args"][1])
     assert json.loads(bridge.read_text())["headers"]["X-Agents-Client"] == "claude-code"
     _, text, _ = migration.prepare("codex", home=home)
-    assert tomllib.loads(text)["mcp_servers"]["Agents-Core"]["http_headers"]["X-Agents-Client"] == "codex"
+    bridge = Path(tomllib.loads(text)["mcp_servers"]["Agents-Core"]["args"][1])
+    assert json.loads(bridge.read_text())["headers"]["X-Agents-Client"] == "codex"
     _, text, _ = migration.prepare("desktop", home=home)
     bridge = Path(json.loads(text)["mcpServers"]["Agents-Core-Desktop"]["args"][1])
     assert bridge.name == "claude-desktop-routing.json"
@@ -113,6 +114,35 @@ def test_user_scope_claude_without_node_stays_http(migration, tmp_path):
     _, text, _ = migration.prepare("claude", home=home)
     entry = json.loads(text)["mcpServers"]["Agents-Core"]
     assert entry["type"] == "http" and "X-Agents-Workspace" not in entry["headers"]
+    _, text, _ = migration.prepare("codex", home=home)
+    entry = tomllib.loads(text)["mcp_servers"]["Agents-Core"]
+    assert entry["url"].endswith("/mcp") and "X-Agents-Workspace" not in entry["http_headers"]
+
+
+def test_user_scope_codex_gets_the_same_bridge(migration, tmp_path):
+    """#253: Codex starts a stdio server without `cwd` in the session's working directory."""
+    home = tmp_path / "home"; home.mkdir()
+    (home / ".codex").mkdir()
+    (home / ".codex/config.toml").write_text(
+        'model = "test"\n[mcp_servers."Agents-Core"]\nurl = "http://127.0.0.1:8765/mcp"\ncwd = "/elsewhere"\n'
+        '[mcp_servers."Agents-Core".http_headers]\nAuthorization = "Bearer old"\n[mcp_servers.other]\ncommand = "safe"\n')
+    migration.config["node"] = sys.executable
+    _, text, secret = migration.prepare("codex", home=home)
+    parsed = tomllib.loads(text)
+    entry = parsed["mcp_servers"]["Agents-Core"]
+    assert entry["command"] == sys.executable and entry["args"][0].endswith("stdio.mjs")
+    # A fixed cwd would start every session's bridge in the same directory.
+    assert not {"url", "http_headers", "cwd"} & set(entry)
+    assert parsed["model"] == "test" and parsed["mcp_servers"]["other"] == {"command": "safe"}
+    settings = json.loads(Path(entry["args"][1]).read_text())
+    assert Path(entry["args"][1]).name == "codex-auto.json"
+    assert settings["workspace"] == "auto" and settings["headers"]["X-Agents-Client"] == "codex"
+    assert not secret and migration.token not in text
+    # A project's own .codex/config.toml keeps its fixed identity over HTTP.
+    project = tmp_path / "repo"; project.mkdir()
+    _, text, _ = migration.prepare("codex", project, home=home)
+    pinned = tomllib.loads(text)["mcp_servers"]["Agents-Core"]
+    assert pinned["url"].endswith("/mcp") and pinned["http_headers"]["X-Agents-Workspace"]
 
 
 def test_prepared_callback_runs_before_writes(migration, tmp_path):

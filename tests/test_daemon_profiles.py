@@ -1,6 +1,7 @@
 """Alternate client profiles must not silently keep a standalone model process."""
 import json
 from pathlib import Path
+import sys
 import tomllib
 
 import pytest
@@ -38,14 +39,17 @@ def test_profile_migration_changes_selected_file_only(setup, tmp_path, monkeypat
     atomic_private(default, original)
     atomic_private(target, original)
     monkeypatch.setenv(variable, str(profile))
+    # With a recorded Node the user scope gets the bridge that registers each session's project (#253).
+    migration.config["node"] = sys.executable
     change = migration.prepare(client)
     assert change[0] == target
     backup = migration.apply([change])
     assert default.read_text() == original
     result = json.loads(target.read_text()) if client == "claude" else tomllib.loads(target.read_text())
     servers = result["mcpServers" if client == "claude" else "mcp_servers"]
-    assert servers["Agents-Core"]["url"] == migration.url
-    assert "command" not in servers["Agents-Core"]
+    assert servers["Agents-Core"]["command"] == sys.executable
+    assert servers["Agents-Core"]["args"][0].endswith("stdio.mjs")
+    assert "url" not in servers["Agents-Core"]
     assert servers["other"] == {"command": "safe"}
     assert target.stat().st_mode & 0o777 == 0o600
     migration.restore(backup)
