@@ -23,6 +23,7 @@ import atexit
 import os
 import shutil
 import tempfile
+import time
 
 from dotenv import dotenv_values
 
@@ -143,3 +144,52 @@ def scheduled_sync_calls(monkeypatch):
         return "none"
     monkeypatch.setattr(control, "stop_scheduled_sync", record)
     return calls
+
+
+@pytest.fixture
+def pending_stdin_read():
+    """Windows: this process's stdin is a stdio MCP server's, with the read that waits for a message.
+
+    Node clients (the Claude desktop app, Claude Code) hand a server a synchronous named-pipe
+    client end, and the server's reader blocks in ReadFile on it. A child that inherits that
+    handle blocks at startup until the read returns: git for Windows queries its standard
+    handles there. Yields the seconds a subprocess call may take before it counts as blocked.
+    """
+    if os.name != "nt":
+        pytest.skip("the inherited-handle block is specific to Windows")
+    import ctypes
+    import ctypes.wintypes as wt
+    import threading
+    import uuid
+    import _winapi
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.SetStdHandle.argtypes = [wt.DWORD, wt.HANDLE]
+    kernel32.ReadFile.argtypes = [wt.HANDLE, ctypes.c_void_p, wt.DWORD, ctypes.POINTER(wt.DWORD), ctypes.c_void_p]
+    std_input = wt.DWORD(_winapi.STD_INPUT_HANDLE & 0xFFFFFFFF)
+    outbound, write_attributes = 0x2, 0x100  # PIPE_ACCESS_OUTBOUND, FILE_WRITE_ATTRIBUTES, as libuv opens it
+    name = rf"\\.\pipe\agents-core-test-{uuid.uuid4().hex}"
+    server = _winapi.CreateNamedPipe(name, outbound | _winapi.FILE_FLAG_FIRST_PIPE_INSTANCE,
+                                     0, 1, 65536, 65536, 0, _winapi.NULL)
+    client = _winapi.CreateFile(name, _winapi.GENERIC_READ | write_attributes, 0, _winapi.NULL,
+                                _winapi.OPEN_EXISTING, 0, _winapi.NULL)
+    previous = _winapi.GetStdHandle(_winapi.STD_INPUT_HANDLE)
+    assert kernel32.SetStdHandle(std_input, client)
+    started = threading.Event()
+
+    def read():
+        buffer, count = ctypes.create_string_buffer(1), wt.DWORD()
+        started.set()
+        kernel32.ReadFile(client, buffer, 1, ctypes.byref(count), None)
+    reader = threading.Thread(target=read, daemon=True)
+    reader.start()
+    started.wait()
+    time.sleep(0.2)  # ReadFile is pending once the thread is inside it
+    try:
+        yield 2.0
+    finally:
+        kernel32.SetStdHandle(std_input, previous)
+        _winapi.WriteFile(server, b"x")  # the message that ends the read
+        reader.join(5)
+        _winapi.CloseHandle(client)
+        _winapi.CloseHandle(server)
