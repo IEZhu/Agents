@@ -387,12 +387,14 @@ def test_foreign_git_only_reads_the_librarys_git_config(tmp_path):
     assert files(library / ".git") == before
 
 
-def test_the_daemon_is_found_through_the_marker_install_writes_and_only_on_macos(tmp_path, monkeypatch):
+@pytest.mark.parametrize("platform", ["darwin", "win32"])
+def test_the_daemon_is_found_through_the_marker_install_writes_on_macos_and_windows(tmp_path, monkeypatch,
+                                                                                   platform):
     service = tmp_path / "service"
     (tmp_path / "data").mkdir()
     (tmp_path / "data" / ".shared-service.json").write_text(json.dumps({"directory": str(service)}))
     monkeypatch.setattr(installer, "installation_root", lambda: tmp_path)
-    monkeypatch.setattr(installer.sys, "platform", "darwin")
+    monkeypatch.setattr(installer.sys, "platform", platform)
     assert REAL_DAEMON_DIRECTORY() is None  # recorded, but not installed there
     service.mkdir()
     (service / "service.json").write_text("{}")

@@ -155,13 +155,25 @@ def test_autostart_off_disables_the_logon_trigger(windows):
     assert _triggers(fake, controller.manager.name) == {"LogonTrigger": False, "TimeTrigger": True}
 
 
-def test_remove_deletes_the_task_once(windows):
+def test_remove_deletes_the_task_and_is_quiet_without_one(windows):
     controller, fake = windows
-    controller.manager.remove()
+    controller.manager.remove()  # nothing registered: /Delete fails, the query confirms, no error
     controller.manager.install()
     controller.manager.remove()
     assert controller.manager.name not in fake.tasks
-    assert fake.calls.count(("/Delete", controller.manager.name)) == 1
+
+
+def test_a_task_that_will_not_go_away_is_reported(windows):
+    controller, fake = windows
+    controller.manager.install()
+
+    def refuse_delete(argv, **kwargs):
+        if argv[1] == "/Delete":
+            return subprocess.CompletedProcess(argv, 1, b"", b"ERROR: Access is denied.")
+        return fake(argv, **kwargs)
+    with pytest.raises(RuntimeError, match="could not delete"):
+        service.TaskScheduler(controller, runner=refuse_delete).remove()
+    assert controller.manager.name in fake.tasks
 
 
 def test_a_percent_sign_is_refused_before_anything_is_registered(windows):
@@ -182,6 +194,35 @@ def test_status_reports_whether_the_task_keeps_the_service_running(windows, monk
     controller._start()
     status = controller.status()
     assert (status["state"], status["supervised"]) == ("starting", True)
+
+
+def _sync_set_up(root: Path, local_app_data: Path):
+    from src.daemon.state import default_state_dir
+    old = local_app_data / "Agents-Core" / default_state_dir(root).name / "user-sync"
+    old.mkdir(parents=True)
+    (old / "user-sync.json").write_text("{}")
+    return old
+
+
+def test_windows_install_refuses_while_sync_lives_where_the_service_will_not_look(windows, monkeypatch, tmp_path):
+    """Without the service, user sync keeps its settings in %LOCALAPPDATA%; the service reads its own
+    <state>/user-sync and install removes the scheduled run: sync would stop without a word."""
+    controller, _fake = windows
+    root = tmp_path / "install"
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "LocalAppData"))
+    old = _sync_set_up(root, tmp_path / "LocalAppData")
+    with pytest.raises(RuntimeError, match="#256") as refused:
+        control.unmoved_sync(root, controller.directory)
+    assert str(old) in str(refused.value) and str(controller.directory / "user-sync") in str(refused.value)
+    (controller.directory / "user-sync").mkdir()
+    (controller.directory / "user-sync" / "user-sync.json").write_text("{}")
+    control.unmoved_sync(root, controller.directory)  # moved: install goes on
+
+
+def test_unmoved_sync_is_a_windows_concern_only(tmp_path, monkeypatch):
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "LocalAppData"))
+    _sync_set_up(tmp_path / "install", tmp_path / "LocalAppData")
+    control.unmoved_sync(tmp_path / "install", tmp_path / "state")  # the conftest pins launchd
 
 
 @pytest.mark.parametrize("command", [["update"], ["auto-update", "enable"], ["auto-update", "run"]])

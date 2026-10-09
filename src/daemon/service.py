@@ -187,8 +187,8 @@ class TaskScheduler:
         self._schtasks("/End", "/TN", self.name, check=False)
 
     def remove(self) -> None:
-        if self.triggers() is None:
-            return
+        """Delete the task; without one, /Delete fails and changes nothing. A task left behind
+        would start ``serve`` every minute for a service that is no longer installed."""
         result = self._schtasks("/Delete", "/TN", self.name, "/F", check=False)
         if result.returncode and self.triggers() is not None:
             raise RuntimeError("Task Scheduler could not delete the service task")

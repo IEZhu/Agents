@@ -110,7 +110,7 @@ def enabled_triggers(document: str) -> dict[str, bool]:
     an ``Enabled`` element is enabled.
     """
     # schtasks declares UTF-16 even where its output reaches us decoded: parse the text without it.
-    root = ElementTree.fromstring(re.sub(r"^\s*<\?xml[^>]*\?>", "", document.lstrip("﻿")))
+    root = ElementTree.fromstring(re.sub(r"^\s*<\?xml[^>]*\?>", "", document.lstrip("\ufeff")))
     found = {}
     for kind in ("LogonTrigger", "TimeTrigger"):
         node = root.find(f"{{{NAMESPACE}}}Triggers/{{{NAMESPACE}}}{kind}")

@@ -19,7 +19,7 @@ from urllib.request import ProxyHandler, Request, build_opener
 from src.file_lock import file_lock
 from src.model_migration import DEFAULT_MODEL, GENERATION
 from . import service
-from .state import state_dir, private_dir, read_json, write_json, atomic_private
+from .state import default_state_dir, state_dir, private_dir, read_json, write_json, atomic_private
 
 
 # The service is on loopback: no proxy from http_proxy ever sees a request or its bearer token.
@@ -175,6 +175,7 @@ class Controller:
         root = Path(__file__).resolve().parents[2]
         with file_lock(self.directory / "control.lock", blocking=False), file_lock(root / "data/.sessions.lock", blocking=False):
             if self.config: raise RuntimeError("Service already installed; use start or explicit uninstall")
+            unmoved_sync(root, self.directory)
             with socket.socket() as probe:
                 probe.bind(("127.0.0.1", port))
             python = os.path.abspath(python or sys.executable)
@@ -261,6 +262,25 @@ UPDATES_ON_WINDOWS = (
     "leases to the updater through POSIX descriptor inheritance, and stdio servers on Windows take no "
     "installation lease. Stop the service, update the checkout, then start it; its warmup rebuilds changed "
     "skill and implant indexes.")
+
+
+def unmoved_sync(installation, directory):
+    """Refuse a Windows install while user sync keeps its settings where the service will not look.
+
+    Without the service, user sync keeps them in ``%LOCALAPPDATA%\\Agents-Core\\<id>\\user-sync``;
+    the service reads ``<state>\\user-sync``, and ``install`` removes the scheduled sync run, so
+    sync would stop without a word. Moving the directory waits for #256.
+    """
+    if service.PLATFORM != "win32":
+        return
+    identity = default_state_dir(installation).name
+    old = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData/Local") / "Agents-Core" / identity / "user-sync"
+    new = Path(directory) / "user-sync"
+    if (old / "user-sync.json").is_file() and not (new / "user-sync.json").exists():
+        raise RuntimeError(
+            f"User sync is set up for this installation in {old}, but the service keeps sync's settings in "
+            f"{new}. Run `python -m src.user_sync schedule disable`, move {old} to {new}, then run install "
+            "again (#256).")
 
 
 def sync_note(directory):
