@@ -13,6 +13,7 @@ def absolute_path(value):
 
 
 def client_home(client, *, home=None, environ=None):
+    """Return the configuration home or profile directory for a client."""
     env = os.environ if environ is None else environ
     home = absolute_path(home or Path.home())
     if client == "claude":
@@ -23,6 +24,7 @@ def client_home(client, *, home=None, environ=None):
 
 
 def client_config_path(client, workspace=None, *, home=None, config_path=None, environ=None):
+    """Return the effective configuration file path for a client."""
     if client not in CLIENTS:
         raise ValueError("Unknown client: " + client)
     env = os.environ if environ is None else environ

@@ -186,6 +186,7 @@ def test_restore_preserves_original_bytes_and_restores_remaining_files(migration
 
 
 def test_user_scope_antigravity_gets_auto_workspace_bridge(migration, tmp_path):
+    """#257: Antigravity gets a stdio bridge with auto_workspace for user scope, and fixed workspace for projects."""
     home = tmp_path / "home"; home.mkdir()
     migration.config["node"] = sys.executable
     _, text, secret = migration.prepare("antigravity", home=home)
