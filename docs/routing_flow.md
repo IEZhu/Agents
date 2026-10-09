@@ -296,6 +296,14 @@ they do not register MCP connections. On macOS, the shared daemon's
 for standalone stdio, add the `[mcp_servers."Agents-Core"]` entry from
 [Codex configuration](../README.md#codex-configtoml) manually.
 
+Client connections for Google Antigravity (`~/.gemini/config/mcp_config.json`), Cursor
+(`~/.cursor/mcp.json`) and Claude Desktop (`claude_desktop_config.json`) are configured
+during setup (`scripts/init_repo.sh`) or migrated to the shared daemon (see
+[shared daemon client migration](shared-mcp-daemon.md#client-configuration-and-alternate-profiles)).
+For Antigravity, user-scope migration provisions an auto-workspace stdio bridge
+(`bridges/antigravity-auto.json`) that dynamically binds the active workspace identity per
+session.
+
 The installers and `scripts/install_instructions.py` use the same Claude profile:
 `$CLAUDE_CONFIG_DIR` when that variable is non-empty, otherwise `~/.claude`. It
 holds `CLAUDE.md` and `memory/`. A non-empty `CLAUDE_CONFIG_DIR`, an existing

@@ -20,7 +20,7 @@ SERVER = "Agents-Core"
 DESKTOP_SERVER = "Agents-Core-Desktop"
 # X-Agents-Client of each managed client: the daemon counts requests per app (usage.py, #187).
 APPS = {"claude": "claude-code", "claude-project": "claude-code", "codex": "codex", "cursor": "cursor",
-        "desktop": "claude-desktop"}
+        "desktop": "claude-desktop", "antigravity": "antigravity"}
 TRANSPORT_KEYS = {"type", "command", "args", "env", "env_vars", "cwd", "url", "headers", "http_headers",
                   "env_http_headers", "bearer_token", "bearer_token_env_var", "http_headers_helper"}
 
@@ -194,6 +194,11 @@ class ClientMigration:
             servers = document.setdefault("mcpServers", {})
             previous = servers.pop(SERVER, servers.get(DESKTOP_SERVER, {}))
             servers[DESKTOP_SERVER] = transport_entry(previous, self.bridge(identity, app))
+        elif client == "antigravity":
+            document = self.read_config(path)
+            servers = document.setdefault("mcpServers", {})
+            entry = self.bridge(identity, app, auto_workspace=root is None)
+            servers[SERVER] = transport_entry(servers.get(SERVER, {}), entry)
         else: raise ValueError("Unknown client")
         content = json.dumps(document, ensure_ascii=False, indent=2) + "\n"
         return path, content, self.token in content

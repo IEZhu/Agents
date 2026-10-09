@@ -31,7 +31,7 @@ def inventory(home=None, workspace=None, *, client_configs=(), directory=None):
     roots = {Path(workspace).resolve()} if workspace else set()
     result, candidates = [], []
     for env in ({}, None):
-        for client in ("claude", "codex", "cursor", "desktop"):
+        for client in ("claude", "codex", "cursor", "desktop", "antigravity"):
             candidates.append((client, client_config_path(client, home=home, environ=env), None))
     for client, path in client_configs:
         if client not in CLIENTS:
