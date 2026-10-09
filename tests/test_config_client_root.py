@@ -400,6 +400,18 @@ class TestWorkspaceArgument:
         (lib / ".git").write_text(f"gitdir: {modules.as_posix()}\n")
         assert engine_config.client_root_from_workspace(str(lib), [lib.as_uri()]) == str(lib.resolve())
 
+    def test_session_directory_resolves_to_its_project(self, desktop, tmp_path):
+        # The shared service's bridge reports the directory its client started it in (#253).
+        project = _project(tmp_path / "project")
+        (project / "pkg").mkdir()
+        assert engine_config.client_root_from_directory(str(project / "pkg")) == str(project.resolve())
+
+    @pytest.mark.parametrize("directory,code", [("relative", "workspace_invalid"), (None, "workspace_unsafe")])
+    def test_session_directory_refuses_relative_and_unsafe(self, desktop, directory, code):
+        with pytest.raises(engine_config.ClientRootError) as info:
+            engine_config.client_root_from_directory(directory or str(desktop / "System32"))
+        assert info.value.code == code
+
     def test_uri_percent_escapes_are_decoded(self, tmp_path):
         folder = tmp_path / "Доработки 1С"
         folder.mkdir()

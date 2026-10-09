@@ -300,27 +300,48 @@ def client_root_from_workspace(workspace: str, root_uris: Iterable[str]) -> str:
     refused. Raises `ClientRootError` (`workspace_invalid` or
     `workspace_unsafe`).
     """
-    path = Path(workspace)
-    if not path.is_absolute():
-        raise ClientRootError(f"workspace {workspace!r} is not an absolute path", code="workspace_invalid")
-    try:
-        path = path.resolve(strict=True)
-    except (OSError, RuntimeError):
-        path = None
-    if path is None or not path.is_dir():
-        raise ClientRootError(f"workspace {workspace!r} is not an existing directory", code="workspace_invalid")
+    path = _existing_directory(workspace, "workspace")
     roots = [root.resolve() for root in map(_root_uri_path, root_uris) if root is not None]
     if not any(_inside(path, root) for root in roots):
         named = ", ".join(str(root) for root in roots) or "none"
         raise ClientRootError(
             f"workspace {path} is outside the client's MCP roots ({named})", code="workspace_invalid",
         )
+    return _project_root(path, "workspace")
+
+
+def client_root_from_directory(directory: str) -> str:
+    """The project of the directory a client started a session's process in.
+
+    The shared service's bridge (`bridge/stdio.mjs`) reports the
+    CLAUDE_PROJECT_DIR or cwd its client gave it, the input a stdio server
+    trusts. It resolves as in `client_root_from_workspace`, without roots: the
+    client chose the directory, not a model.
+    """
+    return _project_root(_existing_directory(directory, "directory"), "directory")
+
+
+def _existing_directory(value: str, label: str) -> Path:
+    path = Path(value)
+    if not path.is_absolute():
+        raise ClientRootError(f"{label} {value!r} is not an absolute path", code="workspace_invalid")
+    try:
+        path = path.resolve(strict=True)
+    except (OSError, RuntimeError):
+        path = None
+    if path is None or not path.is_dir():
+        raise ClientRootError(f"{label} {value!r} is not an existing directory", code="workspace_invalid")
+    return path
+
+
+def _project_root(path: Path, label: str) -> str:
+    """Nearest `.git` or `CLAUDE.md` at or above *path* (else *path*), a worktree to its main checkout."""
     marked = _find_marker_upwards(path)
     root = _main_checkout(marked if marked is not None else path)
     reason = _unsafe_client_root_reason(root)
     if reason is not None:
         raise ClientRootError(
-            f"refusing {root} (from workspace {path}) as the client repo root for "
+            f"refusing {root} (from {label} {path}) as the client repo root for "
             f"per-repo memory and flows: {reason}",
             code="workspace_unsafe",
         )

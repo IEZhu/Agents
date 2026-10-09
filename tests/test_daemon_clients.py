@@ -73,15 +73,47 @@ def test_each_client_names_its_app_in_its_headers_and_bridge(migration, tmp_path
     """The daemon counts requests per app (#187); one bridge file per app keeps their headers apart."""
     home = tmp_path / "home"; home.mkdir()
     migration.config["node"] = sys.executable
-    for client, app in (("claude", "claude-code"), ("cursor", "cursor")):
-        _, text, _ = migration.prepare(client, home=home)
-        assert json.loads(text)["mcpServers"]["Agents-Core"]["headers"]["X-Agents-Client"] == app
+    _, text, _ = migration.prepare("cursor", home=home)
+    assert json.loads(text)["mcpServers"]["Agents-Core"]["headers"]["X-Agents-Client"] == "cursor"
+    _, text, _ = migration.prepare("claude", home=home)
+    bridge = Path(json.loads(text)["mcpServers"]["Agents-Core"]["args"][1])
+    assert json.loads(bridge.read_text())["headers"]["X-Agents-Client"] == "claude-code"
     _, text, _ = migration.prepare("codex", home=home)
     assert tomllib.loads(text)["mcp_servers"]["Agents-Core"]["http_headers"]["X-Agents-Client"] == "codex"
     _, text, _ = migration.prepare("desktop", home=home)
     bridge = Path(json.loads(text)["mcpServers"]["Agents-Core-Desktop"]["args"][1])
     assert bridge.name == "claude-desktop-routing.json"
     assert json.loads(bridge.read_text())["headers"]["X-Agents-Client"] == "claude-desktop"
+
+
+def test_user_scope_claude_gets_a_bridge_that_names_each_session_project(migration, tmp_path):
+    """#253: the user scope serves every project, so a bridge per session registers its own;
+    no project needs `migrate --workspace` first."""
+    home = tmp_path / "home"; home.mkdir()
+    migration.config["node"] = sys.executable
+    _, text, secret = migration.prepare("claude", home=home)
+    entry = json.loads(text)["mcpServers"]["Agents-Core"]
+    assert entry["command"] == sys.executable and entry["args"][0].endswith("stdio.mjs")
+    assert "url" not in entry and "headers" not in entry
+    bridge = Path(entry["args"][1])
+    assert bridge.name == "claude-code-auto.json"
+    settings = json.loads(bridge.read_text())
+    assert settings["workspace"] == "auto" and "X-Agents-Workspace" not in settings["headers"]
+    assert not secret and migration.token not in text
+    # A pinned project keeps its fixed identity over HTTP.
+    project = tmp_path / "repo"; project.mkdir()
+    _, text, _ = migration.prepare("claude", project, home=home)
+    pinned = json.loads(text)["projects"][str(project.resolve())]["mcpServers"]["Agents-Core"]
+    assert pinned["type"] == "http" and pinned["headers"]["X-Agents-Workspace"]
+
+
+def test_user_scope_claude_without_node_stays_http(migration, tmp_path):
+    home = tmp_path / "home"; home.mkdir()
+    migration.config["node"] = str(tmp_path / "missing-node")
+    _, text, _ = migration.prepare("claude", home=home)
+    entry = json.loads(text)["mcpServers"]["Agents-Core"]
+    assert entry["type"] == "http" and "X-Agents-Workspace" not in entry["headers"]
+
 
 def test_prepared_callback_runs_before_writes(migration, tmp_path):
     target = tmp_path / "config.json"

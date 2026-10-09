@@ -195,6 +195,8 @@ class Service:
         if path == "/admin/cache/clear" and request.method == "POST" and self.server:
             await self.server.clear_session_cache()
             return await JSONResponse({"status": "cleared"})(scope, receive, send)
+        if path == "/workspaces" and request.method == "POST":
+            return await (await self.register_workspace(request))(scope, receive, send)
         if path != "/mcp":
             return await JSONResponse({"error": "not_found"}, 404)(scope, receive, send)
         if self.state != "ready":
@@ -222,6 +224,35 @@ class Service:
         request_jobs.reset(tracking)
         # A transport disconnect cannot cancel an already submitted mutation.
         await asyncio.shield(task)
+
+    async def register_workspace(self, request):
+        """Register the project a session's bridge names and answer its workspace UUID (#253).
+
+        `{path}` is the directory the client started the bridge in; `{path, roots}` is a
+        tool call's workspace, which must lie inside the client's MCP roots. The
+        checks of `src.engine.config` decide what is a project. The route takes the
+        bearer token and is no MCP tool, so a model never reaches it.
+        """
+        try:
+            body = await request.json()
+            directory, roots = body.get("path"), body.get("roots")
+            if not isinstance(directory, str) or not (
+                    roots is None or isinstance(roots, list) and all(isinstance(root, str) for root in roots)):
+                raise ValueError("expected {path, roots?}")
+        except (ValueError, AttributeError) as error:
+            return JSONResponse({"error": "workspace_invalid", "message": str(error)}, 400)
+        from src.engine.config import ClientRootError, client_root_from_directory, client_root_from_workspace
+
+        def register():
+            root = client_root_from_directory(directory) if roots is None else client_root_from_workspace(directory, roots)
+            return root, self.registry.register(root)
+        try:
+            root, identity = await asyncio.to_thread(register)
+        except ClientRootError as error:
+            return JSONResponse({"error": error.code, "message": str(error)}, 400)
+        except (WorkspaceError, OSError) as error:
+            return JSONResponse({"error": "workspace_invalid", "message": str(error)}, 400)
+        return JSONResponse({"workspace_id": identity, "root": root})
 
     async def dispatch(self, request, scope, receive, send, app=None):
         identity = request.headers.get("x-agents-workspace")

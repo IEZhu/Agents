@@ -5,6 +5,7 @@ import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { once } from 'node:events';
 
 test('stdio forwards concurrent IDs and notifications, suppresses callbacks, never retries', async () => {
@@ -24,7 +25,7 @@ test('stdio forwards concurrent IDs and notifications, suppresses callbacks, nev
   try {
     const config = join(dir, 'config.json');
     await writeFile(config, JSON.stringify({ url: `http://127.0.0.1:${server.address().port}/mcp`, headers: { Authorization: 'Bearer test' } }), { mode: 0o600 });
-    const child = spawn(process.execPath, [new URL('./stdio.mjs', import.meta.url).pathname, config]);
+    const child = spawn(process.execPath, [fileURLToPath(new URL('./stdio.mjs', import.meta.url)), config]);
     let output = '', errors = '';
     child.stdout.on('data', data => output += data);
     child.stderr.on('data', data => errors += data);
@@ -45,4 +46,105 @@ test('stdio forwards concurrent IDs and notifications, suppresses callbacks, nev
     await new Promise(resolve => server.close(resolve));
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+// A fake daemon: /workspaces answers from `answer`, /mcp records each request's workspace header.
+async function fakeDaemon(answer) {
+  const registrations = [], calls = [];
+  const server = createServer(async (request, response) => {
+    let body = '';
+    for await (const chunk of request) body += chunk;
+    const message = JSON.parse(body);
+    assert.equal(request.headers.authorization, 'Bearer test');
+    if (request.url === '/workspaces') {
+      registrations.push(message);
+      const [status, reply] = answer(message, registrations.length);
+      response.writeHead(status, { 'content-type': 'application/json' });
+      response.end(JSON.stringify(reply));
+      return;
+    }
+    calls.push({ message, workspace: request.headers['x-agents-workspace'] });
+    if (!Object.hasOwn(message, 'id')) { response.writeHead(202); response.end(); return; }
+    response.writeHead(200, { 'content-type': 'application/json' });
+    response.end(JSON.stringify({ jsonrpc: '2.0', id: message.id, result: {} }));
+  });
+  server.listen(0, '127.0.0.1'); await once(server, 'listening');
+  return { server, registrations, calls, url: `http://127.0.0.1:${server.address().port}/mcp` };
+}
+
+// A client that declares roots, answers the bridge's roots/list and sends `messages` in order.
+async function session(daemon, settings, messages, env = {}) {
+  const dir = await mkdtemp(join(tmpdir(), 'agents-bridge-'));
+  try {
+    const config = join(dir, 'config.json');
+    await writeFile(config, JSON.stringify({ url: daemon.url, headers: { Authorization: 'Bearer test' }, ...settings }), { mode: 0o600 });
+    const child = spawn(process.execPath, [fileURLToPath(new URL('./stdio.mjs', import.meta.url)), config],
+      { env: { ...process.env, ...env } });
+    const responses = new Map();
+    let rootsAsked = 0, buffer = '', waiting;
+    child.stdout.on('data', data => {
+      buffer += data;
+      for (let end; (end = buffer.indexOf('\n')) >= 0; buffer = buffer.slice(end + 1)) {
+        const message = JSON.parse(buffer.slice(0, end));
+        if (message.method === 'roots/list') {
+          rootsAsked++;
+          child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: message.id, result: { roots: [{ uri: 'file:///roots/a' }] } }) + '\n');
+        } else {
+          responses.set(message.id, message);
+          waiting?.();
+        }
+      }
+    });
+    const write = message => child.stdin.write(JSON.stringify({ jsonrpc: '2.0', ...message }) + '\n');
+    const answered = id => new Promise(resolve => { waiting = () => responses.has(id) && resolve(); waiting(); });
+    write({ id: 'init', method: 'initialize', params: { capabilities: { roots: { listChanged: true } } } });
+    await answered('init');
+    for (const message of messages) {
+      write(message);
+      await answered(message.id);
+    }
+    child.stdin.end();
+    const [code] = await once(child, 'exit');
+    assert.equal(code, 0);
+    const header = id => daemon.calls.find(call => call.message.id === id)?.workspace;
+    return { responses, rootsAsked, header };
+  } finally {
+    await new Promise(resolve => daemon.server.close(resolve));
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+const call = (id, workspace) => ({ id, method: 'tools/call', params: { name: 'log_interaction', arguments: { workspace } } });
+
+test('auto workspace: the session directory names every request, retried while the daemon is not up', async () => {
+  const daemon = await fakeDaemon((message, count) => {
+    if (count === 1) return [503, {}]; // the daemon is still starting
+    if (message.path === '/outside') return [400, { error: 'workspace_invalid', message: 'outside the roots' }];
+    return [200, { workspace_id: message.roots ? 'named-id' : 'session-id', root: message.path }];
+  });
+  const { responses, rootsAsked, header } = await session(daemon, { workspace: 'auto' },
+    [{ id: 'list', method: 'tools/list' }, call('named', '/named'), call('outside', '/outside')],
+    { CLAUDE_PROJECT_DIR: '/session' });
+  assert.deepEqual(daemon.registrations, [{ path: '/session' }, { path: '/session' },
+    { path: '/named', roots: ['file:///roots/a'] }, { path: '/outside', roots: ['file:///roots/a'] }]);
+  assert.equal(rootsAsked, 2);
+  assert.equal(header('init'), undefined);
+  assert.equal(header('list'), 'session-id');
+  assert.equal(header('named'), 'named-id');
+  // A per-session bridge falls back to its own project when a named workspace is refused.
+  assert.equal(header('outside'), 'session-id');
+  assert.ok(!responses.get('outside').error);
+  assert.deepEqual(daemon.calls.find(c => c.message.id === 'init').message.params.capabilities, {});
+});
+
+test('a shared bridge refuses a call whose workspace lies outside the roots', async () => {
+  const daemon = await fakeDaemon(message => message.path === '/outside'
+    ? [400, { error: 'workspace_invalid', message: 'outside the roots' }]
+    : [200, { workspace_id: 'named-id', root: message.path }]);
+  const { responses, header } = await session(daemon, {}, [call('named', '/named'), call('outside', '/outside')]);
+  assert.deepEqual(daemon.registrations.map(r => r.path), ['/named', '/outside']);
+  assert.equal(header('named'), 'named-id');
+  assert.ok(!daemon.calls.some(c => c.message.id === 'outside'));
+  assert.equal(responses.get('outside').error.code, -32602);
+  assert.match(responses.get('outside').error.message, /workspace_invalid: outside the roots/);
 });
