@@ -416,10 +416,20 @@ It is **safe by default**:
   `AGENTS_AUTO_UPDATE_STAGING=0` is the new `requirements.txt` already in place
   when the warning appears.
 
-Lifetime locks require POSIX `flock` (Linux/macOS). On platforms without it the
-server runs with automatic updates disabled. When upgrading from a version that
-does not hold these locks, restart all existing server sessions once. Manual Git
-operations and rebuilds must also be done with those sessions stopped.
+Lifetime locks are `flock` on Linux and macOS and `LockFileEx` on Windows. On a
+file system without byte-range locks (some Windows network shares) the server
+runs with automatic updates disabled. When upgrading from a version that does
+not hold these locks (on Windows, any version before #195), restart all existing
+server sessions once. Manual Git operations and rebuilds must also be done with
+those sessions stopped.
+
+Windows differs in two places. A Windows lock belongs to the process that took
+it, so a git or reindex child cannot keep the installation leased after the
+server exits: the children run in a job object that ends them with the server,
+and the next prepare starts over. Windows also has no `exec`: after activation,
+the server runs the updated code as a child process with its own standard
+handles, releases its leases to it, and exits with the child's exit code, so the
+client keeps talking to the process it started.
 
 Before changing the live tree, the updater flushes a recovery journal to
 `data/.update_in_progress.json`. It removes this guard only after successful

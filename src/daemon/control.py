@@ -299,13 +299,6 @@ class Controller:
                              "`python -m src.user_sync schedule enable`"}
 
 
-UPDATES_ON_WINDOWS = (
-    "Service updates are not supported on Windows yet (#195): the update transaction hands the installation "
-    "leases to the updater through POSIX descriptor inheritance, and stdio servers on Windows take no "
-    "installation lease. Stop the service, update the checkout, then start it; its warmup rebuilds changed "
-    "skill and implant indexes.")
-
-
 def unmoved_sync(installation, directory):
     """Refuse a Windows install while user sync keeps its settings where the service will not look.
 
@@ -439,10 +432,6 @@ def main(argv=None):
                 parser.error("Each --client-config target must be selected by --clients")
     controller = Controller(args.state)
     exit_code = 0
-    if service.PLATFORM == "win32" and (args.command == "update" or (
-            args.command == "auto-update" and args.action in ("enable", "run"))):
-        print(json.dumps({"state": "unsupported", "error": UPDATES_ON_WINDOWS}, ensure_ascii=False, indent=2))
-        return 2
     if args.command == "serve":
         from .bootstrap import serve
         serve(controller.directory, args.probation)

@@ -173,9 +173,9 @@ class ActivationStatus:
 
 
 # --- Cross-process lock (non-blocking) ---------------------------------------
-# fcntl.flock on POSIX; automatic updates are disabled without POSIX locks.
-# Mirrors the helper in src/memory/history.py but uses LOCK_NB so a
-# held lock means "another server is already updating" -> skip immediately.
+# fcntl.flock on POSIX, LockFileEx on Windows (src/file_lock.py). Mirrors the
+# helper in src/memory/history.py but never blocks, so a held lock means
+# "another server is already updating" -> skip immediately.
 _lock_state = threading.local()
 
 
@@ -206,10 +206,19 @@ try:  # pragma: no cover - platform-specific
         except OSError:
             return False
 
+    def _unlock(fd) -> None:
+        """Closing releases the lock; see _process_lock."""
+
 except ImportError:  # pragma: no cover - Windows
+    from src.file_lock import _windows_lock, _windows_unlock as _unlock
+
     def _try_lock(fh) -> bool:
-        """No-op lock on platforms without fcntl; always reports success."""
-        return True
+        """Acquire an exclusive non-blocking lock; return False if already held,
+        and on a file system without byte-range locks."""
+        try:
+            return _windows_lock(fh.fileno(), blocking=False, shared=False)
+        except OSError:
+            return False
 
 
 @contextmanager
@@ -224,6 +233,9 @@ def _process_lock(path: str):
     finally:
         # Closing releases only our reference. LOCK_UN would also revoke the
         # lease of any worker still holding the inherited file description.
+        # A Windows lock belongs to this process alone: release it explicitly.
+        if acquired:
+            _unlock(fh.fileno())
         fh.close()
 
 
@@ -238,6 +250,8 @@ def _run_command(args, cwd: str, timeout: int, *, env=None) -> subprocess.Comple
     lease release can proceed. Such a descendant can extend the timeout, but we
     must not mutate or expose files while it still owns a writer lease.
     """
+    if os.name == "nt":
+        return _run_command_in_job(args, cwd, timeout, env=env)
     if os.name != "posix":
         return subprocess.run(args, cwd=cwd, capture_output=True, text=True,
                               stdin=subprocess.DEVNULL, timeout=timeout, env=env, check=False)
@@ -278,6 +292,35 @@ def _run_command(args, cwd: str, timeout: int, *, env=None) -> subprocess.Comple
         if completed_write is not None:
             os.close(completed_write)
         os.close(completed_read)
+
+
+def _run_command_in_job(args, cwd: str, timeout: int, *, env=None) -> subprocess.CompletedProcess:
+    """Windows: run the command and its descendants in a job that ends with this process.
+
+    A LockFileEx lease belongs to the process that took it: a child cannot keep it
+    after this updater exits unexpectedly, so the job ends the child then instead
+    (src/windows_job.py). A timeout ends the whole job, as killpg does on POSIX.
+    Descendants that outlive the command get the rest of the timeout, then end
+    with the job: none may write once the caller releases its leases.
+    """
+    from src.windows_job import Job
+    deadline = time.monotonic() + timeout
+    with Job() as job:
+        process = job.start(args, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE, text=True, env=env,
+                            creationflags=subprocess.CREATE_NO_WINDOW)
+        with process:
+            try:
+                stdout, stderr = process.communicate(timeout=timeout)
+            except BaseException:
+                job.terminate()
+                process.wait()
+                raise
+        if not job.wait_empty(max(0, deadline - time.monotonic())):
+            logger.warning("Auto-update: ending descendants of PID %s (%s) that outlived it.", process.pid, args[0])
+            if not job.terminate():
+                raise RuntimeError(f"Descendants of {args[0]} did not end; restart required")
+        return subprocess.CompletedProcess(args, process.returncode, stdout, stderr)
 
 
 def _is_safe_arg(value: str) -> bool:
@@ -384,7 +427,7 @@ def _begin_update(repo_root: str, old_sha: str, target_sha: str) -> None:
         stream.flush()
         os.fsync(stream.fileno())
     if os.name != "posix":
-        return  # automatic updates are disabled; direct helpers remain portable
+        return  # Windows cannot open a directory to flush it; NTFS journals the new entry
     directory = os.open(data_dir, os.O_RDONLY)
     try:
         os.fsync(directory)
@@ -696,9 +739,16 @@ def check_and_apply_update(
 # --- Phase B: prepare a staged update (git worktree) -------------------------
 
 def _is_unredirected_path(path: str) -> bool:
-    """Reject symlinks at *path* or in its parent components."""
+    """Reject symlinks (and Windows junctions) at *path* or in its parent components.
+
+    Windows paths differ in case without naming another file.
+    """
     absolute = os.path.abspath(path)
-    return not os.path.islink(absolute) and os.path.realpath(absolute) == absolute
+    return not os.path.islink(absolute) and _same_path(os.path.realpath(absolute), absolute)
+
+
+def _same_path(first: str, second: str) -> bool:
+    return os.path.normcase(first) == os.path.normcase(second)
 
 
 def _staging_worktrees(repo_root: str, staging_parent: str, git_timeout: int):
@@ -733,8 +783,8 @@ def _staging_worktrees(repo_root: str, staging_parent: str, git_timeout: int):
             path = line[len("worktree "):].strip()
             ap = os.path.abspath(path)
             if (
-                os.path.dirname(ap) == parent
-                and ap != root
+                _same_path(os.path.dirname(ap), parent)
+                and not _same_path(ap, root)
                 and _FULL_SHA_RE.match(os.path.basename(ap))
                 and _is_unredirected_path(ap)
             ):
@@ -1388,10 +1438,51 @@ def _activate_at_startup() -> None:
 
 def _reexec_updated_server() -> None:
     try:
-        os.execv(sys.executable, [sys.executable, *sys.argv])
+        _exec_server(sys.executable, [sys.executable, *sys.argv])
     except OSError as exc:
         # Falling through would mix already-imported old modules with new files.
         raise SystemExit("Auto-update re-exec failed; restart required.") from exc
+
+
+def _exec_server(executable: str, argv: list) -> None:
+    """Replace this process with *argv*: return never, raise OSError on failure."""
+    if os.name == "nt":
+        _respawn_server(argv)
+    os.execv(executable, argv)
+
+
+def _respawn_server(argv: list) -> None:
+    """Windows has no exec: serve *argv* from a child, then exit with its code.
+
+    ``os.execv`` there starts a new process and ends this one, which the MCP client
+    started and waits on: the client would see its server exit. Instead, as exec
+    does, release this process's leases (the child waits for them otherwise), then
+    run *argv* with this process's standard handles, in a job that ends the child
+    when this process ends (src/windows_job.py).
+    """
+    from src.startup import release_leases
+    from src.windows_job import Job
+    for fd in getattr(_lock_state, "fds", ()):  # the activation's updater lock
+        _unlock(fd)
+    release_leases()
+    for stream in (sys.stdout, sys.stderr):
+        if stream is not None:
+            stream.flush()
+    job = Job()
+    stdin, stdout, stderr = (fd if _is_open(fd) else subprocess.DEVNULL for fd in (0, 1, 2))
+    process = job.start(argv, stdin=stdin, stdout=stdout, stderr=stderr, creationflags=subprocess.CREATE_NO_WINDOW)
+    code = process.wait()
+    # A Windows exit code is unsigned; os._exit takes a C int.
+    os._exit(code - 2**32 if code >= 2**31 else code)
+
+
+def _is_open(fd: int) -> bool:
+    """Whether this process has descriptor *fd*; a client may start a server without stderr."""
+    try:
+        os.fstat(fd)
+    except OSError:
+        return False
+    return True
 
 
 def _run_update_safely() -> Optional[str]:
@@ -1434,10 +1525,10 @@ def start_background_update():
     if not AUTO_UPDATE_ENABLED:
         logger.debug("Auto-update: disabled (AGENTS_AUTO_UPDATE=0).")
         return None
-    from src.startup import fcntl
-    if fcntl is None or not AUTO_UPDATE_STAGING:
-        # Unsupported locking platforms never auto-update. The legacy mode runs
-        # synchronously at startup under the exclusive installation lease.
+    from src.startup import LEASES
+    if not LEASES or not AUTO_UPDATE_STAGING:
+        # Platforms without installation leases never auto-update. The legacy mode
+        # runs synchronously at startup under the exclusive installation lease.
         return None
     thread = threading.Thread(target=_run_update_safely, name="auto-update", daemon=True)
     thread.start()
