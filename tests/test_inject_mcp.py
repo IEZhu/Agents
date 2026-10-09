@@ -193,6 +193,12 @@ def test_shared_shell_injection_uses_explicit_client_and_exact_destination(tmp_p
         assert set(settings["permissions"]["deny"]) == {
             "existing-rule", "mcp__Agents-Core-Desktop__*", "mcp__Agents_Core_Desktop__*"}
         assert not (home / ".claude/settings.json").exists()
+    elif client == "claude":
+        # The user scope serves every project: a bridge per session names its own (#253).
+        assert entry["command"] == sys.executable
+        assert entry["args"][0] == str(installation / "bridge/stdio.mjs")
+        assert json.loads(Path(entry["args"][1]).read_text())["workspace"] == "auto"
+        assert "url" not in entry
     else:
         assert entry["url"] == "http://127.0.0.1:8765/mcp"
         assert "command" not in entry and "args" not in entry

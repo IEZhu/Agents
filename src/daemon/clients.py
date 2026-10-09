@@ -117,14 +117,23 @@ class ClientMigration:
         if app: headers["X-Agents-Client"] = app
         return headers
 
-    def bridge(self, identity=None, app=None):
+    def bridge(self, identity=None, app=None, *, auto_workspace=False):
+        """A stdio bridge entry. With auto_workspace, the bridge registers the project its
+        client starts it in, once per session (#253), instead of carrying a fixed identity."""
         node = self.config.get("node")
         if not node or not Path(node).is_file(): raise ValueError("An absolute Node executable is required")
         # One file per app and workspace: the headers name the app.
-        private = self.directory / "bridges" / ((f"{app}-" if app else "") + (identity or "routing") + ".json")
+        name = "auto" if auto_workspace else identity or "routing"
+        private = self.directory / "bridges" / ((f"{app}-" if app else "") + name + ".json")
         private_dir(private.parent)
-        write_json(private, {"url": self.url, "headers": self.headers(identity, app)})
+        settings = {"url": self.url, "headers": self.headers(identity, app)}
+        if auto_workspace: settings["workspace"] = "auto"
+        write_json(private, settings)
         return {"command": node, "args": [str(Path(self.config["installation"]) / "bridge/stdio.mjs"), str(private)]}
+
+    def has_node(self):
+        node = self.config.get("node")
+        return bool(node) and Path(node).is_file()
 
     @property
     def url(self): return f"http://127.0.0.1:{self.config['port']}/mcp"
@@ -140,6 +149,11 @@ class ClientMigration:
         if client == "codex":
             original = self.read_config(path, as_json=False)
             old_entry = tomllib.loads(original).get("mcp_servers", {}).get(SERVER, {})
+            if root is None and self.has_node():
+                # Codex starts a stdio server without `cwd` in the session's working directory
+                # (codex-rs LocalStdioServerLauncher), so the bridge names that project (#253).
+                entry = transport_entry(old_entry, self.bridge(None, app, auto_workspace=True))
+                return path, replace_toml_server(original, SERVER, entry), False
             entry = transport_entry(old_entry, {})
             entry["url"] = self.url
             if tracked(path):
@@ -152,7 +166,12 @@ class ClientMigration:
             document = self.read_config(path)
             scope = document.setdefault("projects", {}).setdefault(str(root), {}) if root else document
             servers = scope.setdefault("mcpServers", {})
-            servers[SERVER] = transport_entry(servers.get(SERVER, {}), {"type": "http", "url": self.url, "headers": headers})
+            if root is None and self.has_node():
+                # The user scope serves every project: a bridge per session names its own (#253).
+                entry = self.bridge(None, app, auto_workspace=True)
+            else:
+                entry = {"type": "http", "url": self.url, "headers": headers}
+            servers[SERVER] = transport_entry(servers.get(SERVER, {}), entry)
         elif client == "claude-project":
             if root is None: raise ValueError("claude-project requires a workspace")
             document = self.read_config(path)
