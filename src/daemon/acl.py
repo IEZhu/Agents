@@ -4,8 +4,9 @@
 inherited by everything created below it later. ``is_private`` holds when every ACE that
 allows anything names the current user: a token or a bridge configuration inside a
 restricted directory passes, one that inherits the profile's ACL (SYSTEM, Administrators)
-does not. Ownership is not checked: an elevated administrator's new files are owned by
-the Administrators group, which may change their DACL anyway. Standard library only.
+does not. ``owned_by_user_or_admins`` is the counterpart of the POSIX owner check: the owner
+may rewrite the DACL at any time, and an elevated administrator's new files are owned by the
+Administrators group rather than the user. Standard library only.
 """
 import ctypes
 from ctypes import wintypes
@@ -31,12 +32,16 @@ if os.name == "nt":
                                                 ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p]
     _advapi32.SetNamedSecurityInfoW.restype = wintypes.DWORD
     _advapi32.GetNamedSecurityInfoW.argtypes = [wintypes.LPCWSTR, ctypes.c_int, wintypes.DWORD,
-                                                ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p),
-                                                ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p)]
+                                                ctypes.POINTER(ctypes.c_void_p), ctypes.c_void_p,
+                                                ctypes.POINTER(ctypes.c_void_p), ctypes.c_void_p,
+                                                ctypes.POINTER(ctypes.c_void_p)]
     _advapi32.GetNamedSecurityInfoW.restype = wintypes.DWORD
     _advapi32.GetAce.argtypes = [ctypes.c_void_p, wintypes.DWORD, ctypes.POINTER(ctypes.c_void_p)]
     _advapi32.EqualSid.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+    _advapi32.ConvertStringSidToSidW.argtypes = [wintypes.LPCWSTR, ctypes.POINTER(ctypes.c_void_p)]
 
+_OWNER_SECURITY_INFORMATION = 0x00000001
+_ADMINISTRATORS = "S-1-5-32-544"
 _TOKEN_QUERY = 0x0008
 _TOKEN_USER = 1
 _SE_FILE_OBJECT = 1
@@ -104,6 +109,27 @@ def restrict(path) -> None:
         if error:
             raise ctypes.WinError(error)
     finally:
+        _kernel32.LocalFree(descriptor)
+
+
+def owned_by_user_or_admins(path) -> bool:
+    """Whether ``path`` is owned by the current user or by the Administrators group."""
+    descriptor, owner = ctypes.c_void_p(), ctypes.c_void_p()
+    error = _advapi32.GetNamedSecurityInfoW(str(path), _SE_FILE_OBJECT, _OWNER_SECURITY_INFORMATION,
+                                            ctypes.byref(owner), None, None, None, ctypes.byref(descriptor))
+    if error:
+        raise ctypes.WinError(error)
+    admins = ctypes.c_void_p()
+    try:
+        if not owner.value:
+            return False
+        if _advapi32.EqualSid(owner, _UserSid().pointer):
+            return True
+        _check(_advapi32.ConvertStringSidToSidW(_ADMINISTRATORS, ctypes.byref(admins)))
+        return bool(_advapi32.EqualSid(owner, admins))
+    finally:
+        if admins.value:
+            _kernel32.LocalFree(admins)
         _kernel32.LocalFree(descriptor)
 
 

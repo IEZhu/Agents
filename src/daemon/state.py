@@ -38,6 +38,8 @@ def private_dir(path):
     path.mkdir(parents=True, exist_ok=True, mode=0o700)
     if os.name == "nt":
         from . import acl
+        if not acl.owned_by_user_or_admins(path):  # its owner could rewrite the DACL at any time
+            raise PermissionError("Service directory belongs to another user")
         if not acl.is_private(path):
             acl.restrict(path)
         return path

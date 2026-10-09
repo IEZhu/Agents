@@ -44,7 +44,8 @@ def repository(root: Path = INSTALL_ROOT) -> dict | None:
     """Links to the installation's repository: its page and, on GitHub, the README, docs and issues."""
     try:
         result = subprocess.run(["git", "-C", str(root), "config", "--get", "remote.origin.url"],
-                                capture_output=True, text=True, timeout=5)
+                                capture_output=True, text=True, timeout=5, stdin=subprocess.DEVNULL,
+                                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     except (OSError, subprocess.SubprocessError):
         return None
     url = web_url(result.stdout) if result.returncode == 0 else None

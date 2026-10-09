@@ -135,7 +135,8 @@ def default_state_dir() -> Path:
 
     macOS: the daemon's state directory: ``AGENTS_SERVICE_DIR`` inside the daemon, else the one an
     installed daemon recorded in ``data/.shared-service.json`` (also when installed with
-    ``--state``), else the default. Windows: the same two daemon directories (#195), else
+    ``--state``), else the default. Windows: the same two daemon directories (#195), else the
+    service's default directory when it holds settings (``uninstall`` keeps them), else
     ``%LOCALAPPDATA%\\Agents-Core\\<id>``. Others: ``$XDG_STATE_HOME/agents-core/<id>``.
     Scheduled runs pass ``--state`` explicitly, so they never depend on the environment of the scheduler.
     """
@@ -150,6 +151,11 @@ def default_state_dir() -> Path:
         from src.daemon.state import state_dir
         return state_dir() / "user-sync"
     if os.name == "nt":
+        # `uninstall` keeps the service's state, and sync's settings with it: keep finding them.
+        from src.daemon.state import default_state_dir as service_dir
+        kept = service_dir(installation_root()) / "user-sync"
+        if (kept / SETTINGS_FILE).is_file():
+            return kept
         base = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local") / "Agents-Core"
     else:
         base = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state") / "agents-core"

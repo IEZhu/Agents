@@ -21,10 +21,12 @@ def _git(*args: str) -> str | None:
     env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
     try:
         # Never the server's stdin: under stdio it is the MCP pipe with a pending read, and on
-        # Windows git blocks on that handle at startup until the client's next message.
+        # Windows git blocks on that handle at startup until the client's next message. No console
+        # either: the Windows service runs under pythonw, where git would open a visible window.
         result = subprocess.run(
             ["git", "--no-optional-locks", "-C", str(ROOT), *args], capture_output=True,
-            stdin=subprocess.DEVNULL, text=True, timeout=_TIMEOUT, check=False, env=env)
+            stdin=subprocess.DEVNULL, text=True, timeout=_TIMEOUT, check=False, env=env,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     except (OSError, subprocess.SubprocessError):
         return None
     return result.stdout if result.returncode == 0 else None

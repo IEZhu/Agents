@@ -322,9 +322,13 @@ two triggers:
 
 `install` registers the task with the repetition off, so the service starts with
 `start` or at the next login. `start` turns the repetition on and runs the task.
-`stop` and `restore-clients` drain the service, turn the repetition off and end
-the task: as on macOS, it stays stopped until `start` or the next login, and a
-start by the logon trigger turns the repetition on again. Registering the task
+`stop` and `restore-clients` drain the service, turn the repetition off and ask
+the service to exit (`POST /admin/exit`): it shuts down as it does on launchd's
+SIGTERM, flushing queued `log_interaction` writes. Task Scheduler's `/End`
+terminates the process without that, so it is only the fallback for a service
+that does not answer or does not exit within two minutes. As on macOS, the
+service stays stopped until `start` or the next login, and a start by the logon
+trigger turns the repetition on again. Registering the task
 again leaves a running instance alone, so a transaction's probation rewrites the
 task without restarting the verified process. `uninstall` deletes the task. When
 the service does not respond, `status` reads the task's XML (`schtasks /Query
@@ -341,7 +345,10 @@ the directory gets a protected DACL with one entry, full control for the current
 user, which the token, configurations, bridge configurations and backups created
 in it inherit: `icacls` shows `DOMAIN\user:(OI)(CI)(F)` on the directory and
 `DOMAIN\user:(I)(F)` on its files. `serve` refuses a token that anyone else may
-read. The bridge cannot check mode bits on Windows and relies on that ACL.
+read, and `private_dir` refuses a directory that another account owns (the
+Administrators group may own it). The bridge cannot check mode bits on Windows
+and relies on that ACL. `uninstall` keeps the state directory, and user sync
+keeps finding its settings there afterwards.
 
 Not yet available on Windows (#195): `update` and `auto-update enable|run`
 refuse with exit code 2. The update transaction hands the installation leases to

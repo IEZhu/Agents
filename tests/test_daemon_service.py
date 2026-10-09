@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+from unittest.mock import MagicMock
 from xml.etree import ElementTree
 
 import pytest
@@ -36,7 +37,8 @@ class FakeSchtasks:
         if name not in self.tasks:
             return subprocess.CompletedProcess(argv, 1, b"", b"ERROR: The system cannot find the file specified.")
         if verb == "/Query":
-            return subprocess.CompletedProcess(argv, 0, self.tasks[name], b"")  # UTF-16 with its BOM
+            # Piped, schtasks writes single-byte text that still declares UTF-16.
+            return subprocess.CompletedProcess(argv, 0, self.tasks[name].decode("utf-16").encode("utf-8"), b"")
         if verb == "/Run":
             self.running.add(name)
         elif verb == "/End":
@@ -208,6 +210,56 @@ def test_a_task_that_will_not_go_away_is_reported(windows):
     assert controller.manager.name in fake.tasks
 
 
+def test_a_failed_registration_installs_nothing(windows, monkeypatch, tmp_path):
+    controller, fake = windows
+    root = tmp_path / "install"
+    root.mkdir()
+    monkeypatch.setattr(control, "__file__", str(root / "src/daemon/control.py"))
+    monkeypatch.setattr(control.socket, "socket", MagicMock())
+    monkeypatch.setattr(control.shutil, "which", lambda name: str(tmp_path / name))
+    monkeypatch.setattr(control, "pin_model", lambda model, cache: {"model_artifact": "a", "model_path": "p"})
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "LocalAppData"))
+    fresh = control.Controller(tmp_path / "fresh")
+
+    def refuse(argv, **kwargs):
+        return subprocess.CompletedProcess(argv, 1, b"", b"ERROR: Access is denied.")
+    monkeypatch.setattr(service, "RUNNER", refuse)
+    with pytest.raises(RuntimeError, match="schtasks /Create failed"):
+        fresh.install(python=controller.config["python"])
+    assert not (fresh.directory / "service.json").exists() and not (fresh.directory / "token").exists()
+    monkeypatch.setattr(service, "RUNNER", fake)
+    assert control.Controller(fresh.directory).install(python=controller.config["python"])["state"] == "installed"
+
+
+def test_status_reports_a_scheduler_that_does_not_answer(windows, monkeypatch):
+    controller, _fake = windows
+
+    def down(*_args, **_kwargs):
+        raise ConnectionRefusedError
+
+    def hang(argv, **kwargs):
+        raise subprocess.TimeoutExpired(argv, 60)
+    monkeypatch.setattr(control.Controller, "request", down)
+    monkeypatch.setattr(service, "RUNNER", hang)  # what a TaskScheduler made from now on runs with
+    status = controller.status()
+    assert status["state"] == "unknown" and status["supervised"] is None and "TimeoutExpired" in status["error"]
+
+
+def test_a_stop_the_scheduler_refuses_resumes_the_drained_service(windows, monkeypatch):
+    controller, _fake = windows
+    calls = []
+    monkeypatch.setattr(control.Controller, "_drain", lambda self, timeout=60: calls.append("drain"))
+    monkeypatch.setattr(control.Controller, "request",
+                        lambda self, path="/health", **kwargs: calls.append(path) or {"state": "ready"})
+
+    def broken(self):
+        raise RuntimeError("schtasks /Create failed: Access is denied.")
+    monkeypatch.setattr(service.TaskScheduler, "stop", broken)
+    with pytest.raises(RuntimeError, match="Access is denied"):
+        controller._stop()
+    assert calls == ["drain", "/admin/resume"]
+
+
 def test_a_percent_sign_is_refused_before_anything_is_registered(windows):
     controller, fake = windows
     controller.config["installation"] = r"C:\%USERPROFILE%\Agents"
@@ -290,6 +342,17 @@ def test_the_sync_task_is_refused_while_the_daemon_is_installed(tmp_path):
     assert calls == []
 
 
+def test_a_logon_start_turns_the_repetition_on_through_serve(windows):
+    """bootstrap.serve calls _keep_alive under control.lock after a start by the logon trigger."""
+    from src.daemon.bootstrap import _keep_alive
+    controller, fake = windows
+    (controller.directory / "service.json").write_text(json.dumps(controller.config))
+    controller._start()
+    controller.manager.stop()
+    _keep_alive(controller.directory)
+    assert _triggers(fake, controller.manager.name)["TimeTrigger"] is True
+
+
 windows_only = pytest.mark.skipif(os.name != "nt", reason="the owner-only ACL is Windows-specific")
 
 
@@ -305,6 +368,28 @@ def test_private_state_is_readable_by_its_owner_only(tmp_path):
                             stdin=subprocess.DEVNULL, check=True).stdout
     entries = [line for line in listed.splitlines() if ":(" in line]  # "<path> DOMAIN\user:(I)(F)"
     assert len(entries) == 1 and os.environ["USERNAME"].lower() in entries[0].lower(), listed
+
+
+@windows_only
+def test_a_state_directory_another_account_owns_is_refused():
+    from src.daemon import acl
+    assert not acl.owned_by_user_or_admins(os.environ["SystemRoot"])  # owned by TrustedInstaller
+
+
+@windows_only
+def test_after_uninstall_user_sync_still_finds_its_settings(tmp_path, monkeypatch):
+    """uninstall keeps the service's state; without the marker, sync looks there before %LOCALAPPDATA%."""
+    from src.daemon.state import default_state_dir
+    from src.user_sync import engine
+    monkeypatch.delenv("AGENTS_SERVICE_DIR", raising=False)
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "profile"))
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "LocalAppData"))
+    monkeypatch.setattr(engine, "installation_root", lambda: tmp_path / "install")
+    assert engine.default_state_dir().is_relative_to(tmp_path / "LocalAppData")
+    kept = default_state_dir(tmp_path / "install") / "user-sync"
+    kept.mkdir(parents=True)
+    (kept / engine.SETTINGS_FILE).write_text("{}")
+    assert engine.default_state_dir() == kept
 
 
 @windows_only
@@ -324,3 +409,22 @@ def test_the_state_directory_is_outside_appdata_and_holds_user_sync(monkeypatch,
     assert state_dir().parent == Path(os.environ["USERPROFILE"]) / ".agents-core"
     monkeypatch.setenv("AGENTS_SERVICE_DIR", str(tmp_path / "service"))  # what serve sets
     assert engine.default_state_dir() == state_dir() / "user-sync"
+
+
+@pytest.mark.parametrize("call", ["version", "repository flows", "history sync", "web UI overview"])
+def test_git_under_the_hidden_service_opens_no_console_and_never_reads_stdin(monkeypatch, tmp_path, call):
+    """The service runs under pythonw: a console child without CREATE_NO_WINDOW opens a visible window."""
+    from src import user_flows, version
+    from src.daemon import overview
+    from src.user_sync import history
+    seen = []
+
+    def run(argv, **kwargs):
+        seen.append(kwargs)
+        return subprocess.CompletedProcess(argv, 1, "", "")
+    monkeypatch.setattr(subprocess, "run", run)
+    {"version": lambda: version._git("status"), "repository flows": lambda: user_flows._origin(tmp_path),
+     "history sync": lambda: history._top_level(str(tmp_path)),
+     "web UI overview": lambda: overview.repository(tmp_path)}[call]()
+    assert seen and all(kwargs.get("creationflags") == getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                        and kwargs.get("stdin") == subprocess.DEVNULL for kwargs in seen)

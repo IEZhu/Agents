@@ -105,7 +105,12 @@ class Controller:
         if not self.config: return {"state": "not_installed"}
         try: return self.request()
         except (OSError, URLError):
-            supervised = self.manager.loaded()
+            try:
+                supervised = self.manager.loaded()
+            except Exception as error:  # status reports; it never fails on the OS scheduler
+                return {"state": "unknown", "supervised": None, "error": f"{type(error).__name__}: {error}",
+                        "maintenance": (self.directory / "maintenance.json").exists(),
+                        "transaction": (self.directory / "transaction.json").exists()}
             return {"state": "starting" if supervised else "stopped",
                     "supervised": supervised,
                     "maintenance": (self.directory / "maintenance.json").exists(),
@@ -194,7 +199,14 @@ class Controller:
             write_json(self.directory / "service.json", config)
             atomic_private(self.directory / "token", secrets.token_urlsafe(48) + "\n")
             self.config = config
-            self.manager.install()
+            try:
+                self.manager.install()
+            except BaseException:
+                # Without its OS definition nothing is installed: the next install starts over.
+                for name in ("service.json", "token"):
+                    (self.directory / name).unlink(missing_ok=True)
+                self.config = {}
+                raise
             write_json(root / "data/.shared-service.json", {"directory": str(self.directory)})
         return {"state": "installed", "directory": str(self.directory), "port": port,
                 "scheduled_sync": stop_scheduled_sync(root), "user_sync": sync_note(self.directory)}
@@ -249,7 +261,13 @@ class Controller:
 
     def _stop(self):
         self._drain()
-        self.manager.stop()
+        try:
+            self.manager.stop()
+        except BaseException:
+            # A service the OS scheduler did not stop keeps serving instead of staying drained.
+            try: self.request("/admin/resume", method="POST")
+            except (OSError, URLError, RuntimeError, ValueError): pass
+            raise
         deadline = time.monotonic() + 60
         while True:
             try:
