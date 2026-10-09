@@ -431,15 +431,18 @@ def test_git_under_the_hidden_service_opens_no_console_and_never_reads_stdin(mon
 
 
 @windows_only
-def test_a_private_directory_whose_entry_is_not_inherited_is_restricted_again(tmp_path):
-    """A user-only ACE without inheritance flags leaves new files the creator's default DACL."""
+@pytest.mark.parametrize("grant", ["F", "(OI)(CI)(NP)F"])
+def test_a_private_directory_whose_entry_is_not_inherited_is_restricted_again(tmp_path, grant):
+    """A user-only ACE without inheritance flags, or one that stops at the first level (NP), leaves
+    files created below the directory the creator's default DACL."""
     from src.daemon import acl
     directory = tmp_path / "state"
     directory.mkdir()
-    subprocess.run(["icacls", str(directory), "/inheritance:r", "/grant:r", f"*{acl.user_sid()}:F"],
+    subprocess.run(["icacls", str(directory), "/inheritance:r", "/grant:r", f"*{acl.user_sid()}:{grant}"],
                    check=True, capture_output=True, stdin=subprocess.DEVNULL)
     assert acl.is_private(directory) and not acl.is_private(directory, inherited_below=True)
     private_dir(directory)
     assert acl.is_private(directory, inherited_below=True)
-    (directory / "token").write_text("secret\n")
-    assert acl.is_private(directory / "token")
+    (directory / "nested").mkdir()
+    (directory / "nested" / "token").write_text("secret\n")
+    assert acl.is_private(directory / "nested" / "token")
