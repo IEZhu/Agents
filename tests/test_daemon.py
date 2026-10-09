@@ -213,7 +213,10 @@ async def test_bridges_register_their_projects_without_migrate(tmp_path, monkeyp
             assert inside.status_code == 200 and inside.json()["root"] == str(other.resolve())
             outside = await http.post("/workspaces", json={"path": str(other), "roots": [project.as_uri()]}, headers=headers)
             assert (outside.status_code, outside.json()["error"]) == (400, "workspace_invalid")
-            home = await http.post("/workspaces", json={"path": str(Path.home())}, headers=headers)
+            # An isolated home: the host's own could sit below a marked ancestor.
+            fake_home = tmp_path / "home"; fake_home.mkdir()
+            monkeypatch.setenv("HOME", str(fake_home)); monkeypatch.setenv("USERPROFILE", str(fake_home))
+            home = await http.post("/workspaces", json={"path": str(fake_home)}, headers=headers)
             assert (home.status_code, home.json()["error"]) == (400, "workspace_unsafe")
             for malformed in ({"path": 1}, {"path": str(project), "roots": "file:///x"}, ["list"]):
                 response = await http.post("/workspaces", json=malformed, headers=headers)
