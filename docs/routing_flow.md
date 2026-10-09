@@ -300,9 +300,11 @@ Client connections for Google Antigravity (`~/.gemini/config/mcp_config.json`), 
 (`~/.cursor/mcp.json`) and Claude Desktop (`claude_desktop_config.json`) are configured
 during setup (`scripts/init_repo.sh`) or migrated to the shared daemon (see
 [shared daemon client migration](shared-mcp-daemon.md#client-configuration-and-alternate-profiles)).
-For Antigravity, user-scope migration provisions an auto-workspace stdio bridge
-(`bridges/antigravity-auto.json`) that dynamically binds the active workspace identity per
-session.
+For Antigravity, user-scope migration provisions a stdio bridge
+(`bridges/antigravity-auto.json`). Note that Antigravity launches stdio MCP servers
+from `/` without project environment variables or MCP roots; workspace-scoped
+memory tools report `workspace_required` until project binding via lifecycle hooks
+(#260) is configured.
 
 The installers and `scripts/install_instructions.py` use the same Claude profile:
 `$CLAUDE_CONFIG_DIR` when that variable is non-empty, otherwise `~/.claude`. It

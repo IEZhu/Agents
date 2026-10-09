@@ -3,9 +3,10 @@
 Read [CLAUDE.md](CLAUDE.md) before starting work. Its managed section contains
 the repository's persona protocol; its Repository notes describe the code. Use
 that section as the shared routing contract for this checkout, including in
-clients that discover `AGENTS.md` rather than `CLAUDE.md`. Do not maintain a second
-copy here. Explicit session instructions and higher-priority instructions still
-take precedence.
+clients that discover `AGENTS.md` rather than `CLAUDE.md`. Re-read the managed
+section before the first answer and after any context compaction. Do not maintain
+a second copy here. Explicit session instructions and higher-priority instructions
+still take precedence.
 
 ## Find the right source
 
