@@ -4,7 +4,9 @@ import { createInterface } from 'node:readline';
 import { once } from 'node:events';
 
 const path = process.argv[2];
-if (!path || (statSync(path).mode & 0o077)) throw new Error('Private config (0600) required');
+// Windows has no mode bits: there the config inherits the owner-only ACL of the service directory
+// (src/daemon/acl.py), which the controller sets and checks when it writes the config.
+if (!path || (process.platform !== 'win32' && (statSync(path).mode & 0o077))) throw new Error('Private config (0600) required');
 const config = JSON.parse(readFileSync(path, 'utf8'));
 const endpoint = new URL(config.url);
 if (endpoint.protocol !== 'http:' || endpoint.hostname !== '127.0.0.1' || endpoint.pathname !== '/mcp') {

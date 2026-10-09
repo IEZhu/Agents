@@ -32,7 +32,6 @@ from __future__ import annotations
 import argparse
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
-from datetime import datetime
 import hashlib
 import json
 import os
@@ -44,10 +43,10 @@ import subprocess
 import sys
 import tempfile
 from typing import Callable, Iterator, Sequence
-from xml.etree import ElementTree
 from xml.parsers.expat import ExpatError
 
-from src.daemon.state import atomic_private, read_json
+from src import windows_tasks
+from src.daemon.state import atomic_private, default_state_dir, read_json
 from src.file_lock import file_lock
 
 DEFAULT_INTERVAL = 5  # minutes
@@ -55,7 +54,7 @@ MIN_INTERVAL, MAX_INTERVAL = 1, 60
 RUN_TIME_LIMIT = 10  # minutes; Task Scheduler and systemd stop a run that hangs longer
 COMMAND_TIMEOUT = 60  # seconds for one scheduler command
 CRON_COMMAND_LIMIT = 999  # bytes; Debian's cron (Vixie cron 3.0) reads no more of a command
-TASK_NAMESPACE = "http://schemas.microsoft.com/windows/2004/02/mit/task"
+TASK_NAMESPACE = windows_tasks.NAMESPACE
 WRITTEN_BY = "# Written by Agents-Core (src/user_sync/schedule.py); `schedule disable` removes it.\n"
 _NO_CRONTAB = re.compile(r"no crontab|no such file", re.I)  # cronie, Debian, BSD and BusyBox wording
 _CONTROL = re.compile(r"[\x00-\x1f\x7f]")
@@ -139,6 +138,25 @@ def _report(backend: str, name: str, scheduled: bool, interval: int | None = Non
     return {"backend": backend, "name": name, "scheduled": bool(scheduled), "interval_minutes": interval, **extra}
 
 
+def _daemon_dir(job: Job, service_dir: Path) -> Path | None:
+    """The state directory of a daemon installed for this installation, or None.
+
+    A daemon keeps its state in ``service_dir`` by default, in AGENTS_SERVICE_DIR,
+    or wherever ``install --state DIR`` put it; that install records the directory
+    in the installation's ``data/.shared-service.json``, which `src.startup` reads.
+    """
+    candidates = [service_dir]
+    if os.environ.get("AGENTS_SERVICE_DIR"):
+        candidates.append(Path(os.environ["AGENTS_SERVICE_DIR"]).expanduser())
+    try:
+        marker = read_json(Path(job.installation) / "data/.shared-service.json", {})
+    except (OSError, ValueError):
+        marker = {}
+    if isinstance(marker, dict) and isinstance(marker.get("directory"), str):
+        candidates.append(Path(marker["directory"]))
+    return next((directory for directory in candidates if (directory / "service.json").is_file()), None)
+
+
 class LaunchAgent:
     """A background LaunchAgent like the auto-updater's; refused while the daemon is installed."""
     backend = "launchd"
@@ -149,29 +167,13 @@ class LaunchAgent:
         self.label = f"local.agents-core.{job.ident}.sync"
         self.plist = Path(directory or Path.home() / "Library/LaunchAgents") / (self.label + ".plist")
         # Where `src.daemon.state.state_dir` keeps the daemon's state when AGENTS_SERVICE_DIR is not set.
-        self.service_dir = Path(service_dir) if service_dir else \
-            Path.home() / "Library/Application Support/Agents-Core" / job.ident
+        self.service_dir = Path(service_dir) if service_dir else default_state_dir(job.installation)
         uid = os.getuid() if hasattr(os, "getuid") else 0  # the fake-runner tests also run on Windows
         self.domain = f"gui/{uid}"
         self.target = f"{self.domain}/{self.label}"
 
     def daemon_dir(self) -> Path | None:
-        """The state directory of a daemon installed for this installation, or None.
-
-        A daemon keeps its state in ``service_dir`` by default, in AGENTS_SERVICE_DIR,
-        or wherever ``install --state DIR`` put it; that install records the directory
-        in the installation's ``data/.shared-service.json``, which `src.startup` reads.
-        """
-        candidates = [self.service_dir]
-        if os.environ.get("AGENTS_SERVICE_DIR"):
-            candidates.append(Path(os.environ["AGENTS_SERVICE_DIR"]).expanduser())
-        try:
-            marker = read_json(Path(self.job.installation) / "data/.shared-service.json", {})
-        except (OSError, ValueError):
-            marker = {}
-        if isinstance(marker, dict) and isinstance(marker.get("directory"), str):
-            candidates.append(Path(marker["directory"]))
-        return next((directory for directory in candidates if (directory / "service.json").is_file()), None)
+        return _daemon_dir(self.job, self.service_dir)
 
     def _launchctl(self, *args: str, check: bool = True) -> subprocess.CompletedProcess:
         return _call(self.runner, ["/bin/launchctl", *args], check=check)
@@ -521,32 +523,26 @@ class SystemdOrCron:
         return systemd if usable and not cron["scheduled"] else cron
 
 
-def _windowless(python: str) -> str:
-    """``pythonw.exe`` next to the interpreter when it exists, so no console window opens on each run."""
-    candidate = Path(python).with_name("pythonw.exe")
-    return str(candidate) if candidate.is_file() else python
-
-
-def _windows_user() -> str | None:
-    user, domain = os.environ.get("USERNAME"), os.environ.get("USERDOMAIN")
-    return (f"{domain}\\{user}" if domain else user) if user else None
-
-
-def _schtasks_text(data: bytes) -> str:
-    """``schtasks`` output: UTF-16 after a byte order mark, otherwise ASCII-compatible."""
-    if data.startswith((b"\xff\xfe", b"\xfe\xff")):
-        return data.decode("utf-16", "replace")
-    return data.replace(b"\x00", b"").decode("utf-8", "replace")
+_windowless = windows_tasks.windowless
+_windows_user = windows_tasks.windows_user
+_schtasks_text = windows_tasks.schtasks_text
 
 
 class TaskScheduler:
-    """A hidden Task Scheduler task of the current user: at each logon, and every few minutes from now on."""
+    """A hidden Task Scheduler task of the current user: at each logon, and every few minutes from now on;
+    refused while the daemon is installed."""
     backend = "task-scheduler"
 
-    def __init__(self, job: Job, runner: Runner, *, temp_dir: str | Path | None = None):
+    def __init__(self, job: Job, runner: Runner, *, temp_dir: str | Path | None = None,
+                 service_dir: str | Path | None = None):
         self.job, self.runner, self.temp_dir = job, runner, temp_dir
         self.command = _windowless(job.python)
         self.user = _windows_user()
+        # Where `src.daemon.state.state_dir` keeps the daemon's state when AGENTS_SERVICE_DIR is not set.
+        self.service_dir = Path(service_dir) if service_dir else default_state_dir(job.installation)
+
+    def daemon_dir(self) -> Path | None:
+        return _daemon_dir(self.job, self.service_dir)
 
     def _schtasks(self, *args: str, check: bool = True) -> subprocess.CompletedProcess:
         return _call(self.runner, ["schtasks", *args], check=check)
@@ -556,61 +552,22 @@ class TaskScheduler:
         if any("%" in path for path in (self.command, *self.job.paths)):
             raise ValueError("Task Scheduler expands %NAME% in paths: move the installation, the interpreter "
                              "and the sync directories to paths without '%'")
-        task = ElementTree.Element("Task", {"version": "1.2", "xmlns": TASK_NAMESPACE})
-
-        def add(parent: ElementTree.Element, tag: str, text: str | None = None, **attributes: str):
-            node = ElementTree.SubElement(parent, tag, attributes)
-            node.text = text
-            return node
-
-        add(add(task, "RegistrationInfo"), "Description", "Agents-Core: sync the personal flow library")
-        triggers = add(task, "Triggers")
-        # One repeating trigger: a time trigger from now on. Task Scheduler counts its repetitions
-        # from the start boundary, so they go on after logoffs and reboots, as with
-        # `schtasks /SC MINUTE`; without a Duration they never end. The logon trigger adds one
-        # run at each logon, without a second repetition. Running the task once now with
-        # `schtasks /Run` next to a repeating logon trigger instead would leave this session
-        # without repeated runs until the next logon.
-        logon = add(triggers, "LogonTrigger")
-        add(logon, "Enabled", "true")
-        if self.user:
-            add(logon, "UserId", self.user)  # this user's logon: no administrator rights needed
-        start = add(triggers, "TimeTrigger")
-        repetition = add(start, "Repetition")
-        add(repetition, "Interval", "PT1H" if minutes == 60 else f"PT{minutes}M")
-        add(repetition, "StopAtDurationEnd", "false")
-        add(start, "StartBoundary", datetime.now().replace(microsecond=0).isoformat())
-        add(start, "Enabled", "true")
-        principal = add(add(task, "Principals"), "Principal", id="Author")
-        if self.user:
-            add(principal, "UserId", self.user)
-        add(principal, "LogonType", "InteractiveToken")  # only while logged on; no stored password
-        add(principal, "RunLevel", "LeastPrivilege")
-        settings = add(task, "Settings")
-        for tag, value in (("MultipleInstancesPolicy", "IgnoreNew"), ("DisallowStartIfOnBatteries", "false"),
-                           ("StopIfGoingOnBatteries", "false"), ("AllowHardTerminate", "true"),
-                           ("StartWhenAvailable", "false"), ("RunOnlyIfNetworkAvailable", "false")):
-            add(settings, tag, value)
-        idle = add(settings, "IdleSettings")
-        add(idle, "StopOnIdleEnd", "false")
-        add(idle, "RestartOnIdle", "false")
-        for tag, value in (("AllowStartOnDemand", "true"), ("Enabled", "true"), ("Hidden", "true"),
-                           ("RunOnlyIfIdle", "false"), ("WakeToRun", "false"),
-                           ("ExecutionTimeLimit", f"PT{RUN_TIME_LIMIT}M"), ("Priority", "7")):
-            add(settings, tag, value)
-        execute = add(add(task, "Actions", Context="Author"), "Exec")
-        add(execute, "Command", f'"{self.command}"')  # quoted for spaces; a Windows path cannot hold '"'
-        # The interpreter splits its command line by the C runtime's rules, which list2cmdline quotes for.
-        add(execute, "Arguments", subprocess.list2cmdline(self.job.argv[1:]))
-        add(execute, "WorkingDirectory", self.job.installation)  # never quoted: "Start in" rejects quotes
-        ElementTree.indent(task)
-        text = '<?xml version="1.0" encoding="UTF-16"?>\n' + ElementTree.tostring(task, encoding="unicode") + "\n"
-        return text.encode("utf-16")
+        # The logon trigger adds one run at each logon, without a second repetition. Running the task
+        # once now with `schtasks /Run` next to a repeating logon trigger instead would leave this
+        # session without repeated runs until the next logon.
+        return windows_tasks.definition(windows_tasks.Task(
+            description="Agents-Core: sync the personal flow library", command=self.command,
+            arguments=tuple(self.job.argv[1:]), working_directory=self.job.installation, interval_minutes=minutes,
+            time_limit=f"PT{RUN_TIME_LIMIT}M", priority=7, user=self.user))
 
     def _query(self) -> subprocess.CompletedProcess:
         return self._schtasks("/Query", "/TN", self.job.name, "/XML", check=False)
 
     def enable(self, minutes: int) -> dict:
+        daemon = self.daemon_dir()
+        if daemon is not None:
+            raise DaemonRunsSync(f"The Agents-Core daemon is installed for {self.job.installation} (state in "
+                                 f"{daemon}) and runs the sync loop itself; no scheduled job is needed")
         document = self.definition(minutes)
         descriptor, path = tempfile.mkstemp(prefix=self.job.name + "-", suffix=".xml", dir=self.temp_dir)
         try:
@@ -636,7 +593,12 @@ class TaskScheduler:
             found = re.search(r"<Interval>PT(?:(\d+)H)?(?:(\d+)M)?</Interval>", _schtasks_text(query.stdout or b""))
             if found:
                 interval = int(found[1] or 0) * 60 + int(found[2] or 0) or None
-        return _report(self.backend, self.job.name, query.returncode == 0, interval)
+        report = _report(self.backend, self.job.name, query.returncode == 0, interval)
+        daemon = self.daemon_dir()
+        if daemon is not None:
+            report.update(daemon=True, service_dir=str(daemon),
+                          note="the daemon runs the sync loop for this installation; no scheduled job is needed")
+        return report
 
 
 def _user_state_dir() -> Path:
@@ -716,7 +678,7 @@ def scheduler(*, installation: str | Path | None = None, python: str | None = No
     runner = runner or run_command
     platform = platform or sys.platform
     if platform == "win32":
-        backend = TaskScheduler(job, runner, temp_dir=temp_dir)
+        backend = TaskScheduler(job, runner, temp_dir=temp_dir, service_dir=service_dir)
     elif platform == "darwin":
         backend = LaunchAgent(job, runner, directory=launch_agents_dir, service_dir=service_dir, path=path)
     else:

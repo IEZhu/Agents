@@ -6,6 +6,7 @@ import importlib.metadata
 import logging
 import os
 from pathlib import Path
+import signal
 import time
 import uuid
 
@@ -180,6 +181,12 @@ class Service:
             # Sync pushes what is left; io_pending covers it until it ends or is abandoned.
             self.user_sync.drain()
             return await JSONResponse(self.health())(scope, receive, send)
+        if path == "/admin/exit" and request.method == "POST":
+            # Windows has no SIGTERM from outside: Task Scheduler's /End terminates the process, and the
+            # lifespan's shutdown, which flushes queued log writes, would never run. The controller asks
+            # here instead; uvicorn then shuts down as it does on the signal launchd sends.
+            asyncio.get_running_loop().call_soon(signal.raise_signal, signal.SIGTERM)
+            return await JSONResponse({"state": "exiting"})(scope, receive, send)
         if path == "/admin/resume" and request.method == "POST":
             if self.transport is not None:
                 self.state = "ready"

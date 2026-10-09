@@ -65,6 +65,23 @@ async def test_http_stateless_auth_and_workspace(tmp_path):
             assert (await http.post("/mcp", json=payload, headers=headers)).status_code == 503
 
 
+@pytest.mark.asyncio
+async def test_admin_exit_shuts_down_as_on_sigterm(tmp_path, monkeypatch):
+    """Windows: the controller asks the service to exit, since /End would skip the lifespan's shutdown."""
+    import signal
+    from src.daemon import app as app_module
+    raised = []
+    monkeypatch.setattr(app_module.signal, "raise_signal", raised.append)
+    app = create_app(tmp_path / "service", TOKEN, runtime_loader=fake_runtime)
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://127.0.0.1:8765") as http:
+            assert (await http.post("/admin/exit")).status_code == 401
+            answer = await http.post("/admin/exit", headers={"Authorization": "Bearer " + TOKEN})
+            assert answer.json() == {"state": "exiting"}
+            await asyncio.sleep(0)
+    assert raised == [signal.SIGTERM]
+
+
 def test_registry_identity_and_bounds(tmp_path):
     project = tmp_path / "repo"; project.mkdir()
     alias = tmp_path / "alias"; alias.symlink_to(project)

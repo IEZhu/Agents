@@ -163,11 +163,11 @@ def command(*arguments: str) -> str:
 
 
 def daemon_directory() -> Path | None:
-    """The state directory of the macOS daemon installed for this installation, or None.
+    """The state directory of the daemon installed for this installation (macOS, Windows), or None.
 
     ``python -m src.daemon install`` records it in ``data/.shared-service.json``.
     """
-    if sys.platform != "darwin":
+    if sys.platform not in ("darwin", "win32"):
         return None
     try:
         marker = json.loads((installation_root() / "data" / ".shared-service.json").read_text(encoding="utf-8"))

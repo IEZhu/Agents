@@ -22,6 +22,26 @@ def assert_service_safe(directory, *, probation=None):
         (directory / "probation.json").unlink()
 
 
+def _private_file(path):
+    if os.name == "nt":
+        from .acl import is_private
+        return is_private(path)
+    return not path.stat().st_mode & 0o077
+
+
+def _keep_alive(directory):
+    """After a ``stop`` the logon trigger starts the service with the repetition off: turn it on.
+
+    A failure is logged; the service then runs without restarts until the next ``start``.
+    """
+    try:
+        from .control import Controller
+        Controller(directory).manager.ensure_keep_alive()
+    except Exception:
+        logging.getLogger(__name__).warning("Could not turn on the service task's keep-alive trigger",
+                                            exc_info=True)
+
+
 def serve(directory=None, probation=None):
     directory = private_dir(directory or state_dir())
     config = read_json(directory / "service.json")
@@ -47,9 +67,11 @@ def serve(directory=None, probation=None):
             leases.enter_context(file_lock(directory / ".daemon.lock", blocking=False))
             leases.enter_context(file_lock(root / "data/.sessions.lock", shared=True, blocking=False))
             assert_installation_safe(str(root))
+            if os.name == "nt":  # under control.lock: a `stop` holds it while it turns the repetition off
+                _keep_alive(directory)
         token_path = directory / "token"
-        if token_path.is_symlink() or token_path.stat().st_mode & 0o077:
-            raise PermissionError("Token must be private (0600)")
+        if token_path.is_symlink() or not _private_file(token_path):
+            raise PermissionError("Token must be private (0600; on Windows an owner-only ACL)")
         token = token_path.read_text().strip()
         # Immutable process configuration, set before application imports only.
         os.environ.update(AGENTS_SERVICE_DIR=str(directory), AGENTS_TRANSPORT="http",
