@@ -228,7 +228,7 @@ The shared service switches in its update transaction instead
 | `EMBEDDING_PROMPTS` | `on` | Model-specific query and passage prompts ([embedding_prompts.py](src/engine/embedding_prompts.py)); `off` embeds text as given |
 | `EMBEDDING_BATCH_SIZE` | `4` | Documents per embedding batch (1–256) when history, skill or implant indexes are built. Memory grows with batch size, by up to about 68 MB per 512-token document with `intfloat/multilingual-e5-large` (a full harrier-270m index build peaked at about 2.8 GB with the default in the [recorded run](docs/embedding-models-eval-results.md)); larger values may be faster on machines with spare memory. Inputs are also capped at 2048 tokens |
 | `FASTEMBED_CACHE_DIR` | `~/.cache/fastembed` | Persistent model cache; the shared service's `install` reads it only from the shell ([daemon guide](docs/shared-mcp-daemon.md)) |
-| `AGENTS_CLIENT_REPO_ROOT` | Unset: the nearest `.git` or `CLAUDE.md` at or above `CLAUDE_PROJECT_DIR` or the working directory ([rules](#-repository-memory)) | Explicit stdio memory and workflow target. Refused with `workspace_unsafe` when it is a system, program or home directory. Set it in a per-project MCP entry's `env`, never in the installation `.env`, a shared registration or the Desktop entry |
+| `AGENTS_CLIENT_REPO_ROOT` | Unset: a tool call's `workspace` inside the client's MCP roots, else the nearest `.git` or `CLAUDE.md` at or above `CLAUDE_PROJECT_DIR` or the working directory ([rules](#-repository-memory)) | Explicit stdio memory and workflow target. Refused with `workspace_unsafe` when it is a system, program or home directory. Set it in a per-project MCP entry's `env`, never in the installation `.env`, a shared registration or the Desktop entry |
 | `RULES_ENABLED` | `1` | Include [shared rules](rules/README.md) in loaded context |
 | `INTENT_CLASSIFIER_ENABLED` | `0` | Enable the optional intent-based enrichment classifier |
 | `AGENTS_USER_FLOWS_DIR` | `flows/.user` in the installation | Location (absolute path) of [personal and repository flows](flows/README.md#personal-and-repository-flows), their persona choices, and the installation's rule, skill and implant switches (`components.json`) |
@@ -773,7 +773,9 @@ Do not register Agents-Core in both the Claude Desktop config and the Claude Cod
 registry: the desktop app runs its own server and injects it into the Code
 sessions it launches, while each Code session also starts one from the Code
 registry, so one session can run several server processes. `init_repo` warns
-when it configures both.
+when it configures both. The injected server is shared by all Code sessions and
+started outside any project, so its memory and flow tools need the `workspace`
+argument ([rules](#-repository-memory)).
 
 ### Cursor (`.cursor/mcp.json` in the client project)
 
@@ -895,14 +897,33 @@ root, the home directory, or a system or program directory is refused with
 `%ProgramFiles(x86)%`, `%ProgramData%` and `C:\Users` itself; on POSIX `/usr`,
 `/var`, `/home`, `/Users` and similar, plus `/etc`, `/bin`, `/usr/bin` and the other
 system subtrees (`/usr/local`, `/private/tmp` and macOS temporary directories stay
-allowed). For example, the Claude desktop app starts the servers in
-`claude_desktop_config.json` in `C:\Windows\System32` without a project hint;
-register Agents-Core with Claude Code instead. Set `AGENTS_CLIENT_REPO_ROOT` only on
-a per-project registration, never on a shared or Desktop one. If the launch directory
-no longer exists, memory falls back to the installation and workflows return an error.
+allowed). If the launch directory no longer exists, memory falls back to the
+installation and workflows return an error.
+
+One stdio process can also serve several sessions. The Claude desktop app starts the
+servers in `claude_desktop_config.json` once, in `C:\Windows\System32` without
+`CLAUDE_PROJECT_DIR`, and its Code-tab sessions reach that process when Agents-Core is
+registered there too. Its `roots/list` answer lists the folders of every open session,
+so neither the process nor its roots tell which project a call belongs to. The memory
+and flow tools therefore take `workspace`, the absolute path of the caller's working
+directory, which the routing instructions tell the model to pass. When the client
+declares the MCP roots capability, `workspace` is checked on every call: it must lie
+inside one of the client's roots, resolves like `CLAUDE_PROJECT_DIR` (a git worktree
+to its main checkout, as Claude Code does for a worktree session) and is refused when
+unsafe; `source` is then `workspace`. It takes precedence over `CLAUDE_PROJECT_DIR`
+and the launch directory, never over `AGENTS_CLIENT_REPO_ROOT`, and is never pinned
+for the process. A client without roots cannot vouch for the path, so the process
+root applies and a refusal names `AGENTS_CLIENT_REPO_ROOT`. Set
+`AGENTS_CLIENT_REPO_ROOT` only on a per-project registration, never on a shared or
+Desktop one.
+
 `log_interaction` and `read_history` results carry `workspace` (`root`, `source`) and
 `pid`, and, after a failed history write, `history_last_error`
 (`code=history_unwritable`, `errno`, `path`, `at`), which the model should mention once.
+Over stdio their workspace errors carry `pid` and `workspace_inputs` (`cwd`,
+`claude_project_dir`, `agents_client_repo_root`, `client`, `roots`); when the client
+declares roots and `workspace` was omitted, the refusal asks for it and
+`log_interaction` tells the model to retry once with it.
 Over HTTP, memory requires the registered `X-Agents-Workspace` header;
 the daemon does not infer a project from its working directory. If a memory tool
 returns `workspace_required`, `workspace_unsafe` or `workspace_invalid`, routing remains available.

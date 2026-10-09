@@ -38,7 +38,7 @@ async def test_registered_tool_schema_and_stdio_execution(environment):
     assert "list_flows" in tools
     schema = tools["run_flow"].inputSchema
     assert schema["required"] == ["flow"]
-    assert set(schema["properties"]) == {"flow", "request", "repo_path", "current_persona"}
+    assert set(schema["properties"]) == {"flow", "request", "repo_path", "current_persona", "workspace"}
     content, _ = await server.mcp.call_tool("run_flow", {"flow": "check", "request": "no-merge"})
     result = json.loads(content[0].text)
     assert result["status"] == "needs_execution"

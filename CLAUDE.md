@@ -76,7 +76,7 @@ Except for the explicit unavailable-MCP fallback below, compose the complete fin
 answer in the user's language, ending with the exact saved `footer`, including its
 component names and English labels `Agent`, `Skills`, `Implants`, `Rules`.
 On `keep`, reuse that footer; do not infer component lists. Before delivering this final answer, call
-`log_interaction(agent_name, query, response_content, persona=..., persona_action=...)`
+`log_interaction(agent_name, query, response_content, persona=..., persona_action=..., workspace=...)`
 with that exact answer text (without any time line), the applied `persona` object
 and `keep`, `switch`, `refresh`, or `restore`. Pass `persona` verbatim from the last
 `SUCCESS`/`NO_CHANGE`, with all 7 keys (`agent`, `activation_id`, `bundle_revision`, `scope`, `skills_loaded`, `implants_loaded`, `rules_loaded`);
@@ -84,7 +84,10 @@ send `persona_action` only together with `persona`; `files` and `tags` are JSON
 arrays. A caller with no retained descriptor, such as a subagent whose output a
 script parses, logs without `persona` and `persona_action` and adds no footer.
 Incomplete attribution is still written, marked `unverified`; do not retry it. Pass the current user request verbatim
-as `query`; do not paraphrase it or substitute a conversation summary. The call
+as `query`; do not paraphrase it or substitute a conversation summary. Pass
+`workspace`, the absolute path of your working directory, whenever you have one,
+here and to the other memory and flow tools: one server process can serve several
+sessions, as the one the Claude desktop app starts for its Code sessions does. The call
 returns at once; when the footer's `Rules` list includes `answer-timestamp` and the
 call returns a `timestamp`, prepend it to the answer as its first line, followed by
 an empty line. Otherwise add no time line.

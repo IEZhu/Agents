@@ -1,14 +1,32 @@
 """Explicit immutable request identity; HTTP never falls back to cwd or env."""
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from collections import OrderedDict
+import asyncio
+import logging
 import os
 import threading
 import uuid
 
 from src.file_lock import file_lock
 from .state import private_dir, read_json, write_json, state_dir
+
+logger = logging.getLogger(__name__)
+
+# How long a tool waits for the client's roots/list answer; Claude Code and the
+# Claude desktop app answer at once.
+MCP_ROOTS_TIMEOUT_SECONDS = 5.0
+
+WORKSPACE_HINT = (
+    "This server process can serve several sessions, as the one the Claude desktop app "
+    "starts for its Code sessions does: pass workspace, the absolute path of your "
+    "working directory."
+)
+NO_ROOTS_HINT = (
+    "This client declares no MCP roots, so a workspace argument cannot be checked; set "
+    "AGENTS_CLIENT_REPO_ROOT on a per-project registration."
+)
 
 
 class WorkspaceError(ValueError):
@@ -97,17 +115,21 @@ class ClientContext:
         return target
 
 
+def _http_request(ctx):
+    """The HTTP request behind an MCP context, or None (stdio, or no context)."""
+    try:
+        return ctx.request_context.request
+    except (AttributeError, ValueError):
+        return None
+
+
 def client_context(ctx=None, *, allow_install_fallback=True):
-    if ctx is not None:
-        try:
-            request = ctx.request_context.request
-        except (AttributeError, ValueError):
-            request = None
-        if request is not None:
-            context = getattr(request.state, "client_context", None)
-            if context is None:
-                raise WorkspaceError("workspace_required")
-            return context
+    request = _http_request(ctx)
+    if request is not None:
+        context = getattr(request.state, "client_context", None)
+        if context is None:
+            raise WorkspaceError("workspace_required")
+        return context
     if os.environ.get("AGENTS_TRANSPORT") == "http":
         # Prompts/tools must forward their MCP context explicitly.
         raise WorkspaceError("workspace_required")
@@ -119,6 +141,77 @@ def client_context(ctx=None, *, allow_install_fallback=True):
         # and repository flows fail, routing continues.
         return ClientContext(str(uuid.uuid4()), "stdio", error=f"{error.code}: {error}")
     return ClientContext(str(uuid.uuid4()), "stdio", root=Path(root).resolve(), source=source)
+
+
+async def resolve_client_context(ctx=None, workspace=None, *, allow_install_fallback=True):
+    """`client_context()` for async tools, honouring a stdio call's `workspace`.
+
+    One stdio process can serve several sessions: the Claude desktop app starts
+    a single one for all its Code sessions, in C:\\Windows\\System32 and without
+    CLAUDE_PROJECT_DIR. A tool call may therefore name its working directory.
+    When the client declares MCP roots, that directory is checked against them
+    on every call (`config.client_root_from_workspace`) and never pinned for
+    the process. HTTP keeps its registered workspace, AGENTS_CLIENT_REPO_ROOT
+    stays authoritative, and a client without roots keeps the process root.
+    """
+    workspace = workspace.strip() if isinstance(workspace, str) and workspace.strip() else None
+    stdio = _http_request(ctx) is None and os.environ.get("AGENTS_TRANSPORT") != "http"
+    # An override, even a refused one, decides alone; the argument would change nothing.
+    session = _roots_session(ctx) if stdio and not os.environ.get("AGENTS_CLIENT_REPO_ROOT") else None
+    if workspace is not None and session is not None:
+        return await _workspace_context(session, workspace)
+    context = client_context(ctx, allow_install_fallback=allow_install_fallback)
+    if context.transport == "stdio" and context.error is not None and not os.environ.get("AGENTS_CLIENT_REPO_ROOT"):
+        if session is not None:
+            context = replace(context, error=f"{context.error} {WORKSPACE_HINT}")
+        elif workspace is not None:
+            context = replace(context, error=f"{context.error} {NO_ROOTS_HINT}")
+    return context
+
+
+async def _workspace_context(session, workspace):
+    from src.engine import config
+    request_id = str(uuid.uuid4())
+    try:
+        answer = await asyncio.wait_for(session.list_roots(), MCP_ROOTS_TIMEOUT_SECONDS)
+        root = config.client_root_from_workspace(workspace, (str(item.uri) for item in answer.roots))
+    except config.ClientRootError as error:
+        return ClientContext(request_id, "stdio", error=f"{error.code}: {error}")
+    except Exception as error:  # a failed or malformed answer from the client
+        logger.warning("roots/list failed: %r", error)
+        return ClientContext(request_id, "stdio", error=(
+            f"workspace_invalid: could not read the client's MCP roots to check workspace {workspace!r}: {error!r}"))
+    return ClientContext(request_id, "stdio", root=Path(root), source="workspace")
+
+
+def _roots_session(ctx):
+    """The MCP session of a request whose client declared the roots capability, else None."""
+    from mcp.types import ClientCapabilities, RootsCapability
+    try:
+        session = ctx.session
+        declared = session.check_client_capability(ClientCapabilities(roots=RootsCapability()))
+    except (AttributeError, ValueError):  # no context, or one used outside a request
+        return None
+    return session if declared is True else None
+
+
+def workspace_inputs(ctx=None):
+    """What a stdio workspace is resolved from, reported with workspace errors; None over HTTP."""
+    if _http_request(ctx) is not None or os.environ.get("AGENTS_TRANSPORT") == "http":
+        return None
+    try:
+        cwd = os.getcwd()
+    except OSError:
+        cwd = None
+    try:
+        client = ctx.session.client_params.clientInfo.name
+    except (AttributeError, ValueError):
+        client = None
+    return {
+        "cwd": cwd, "claude_project_dir": bool(os.environ.get("CLAUDE_PROJECT_DIR")),
+        "agents_client_repo_root": bool(os.environ.get("AGENTS_CLIENT_REPO_ROOT")),
+        "client": client, "roots": _roots_session(ctx) is not None,
+    }
 
 
 class HistoryStores:

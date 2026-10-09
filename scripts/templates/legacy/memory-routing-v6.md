@@ -20,11 +20,10 @@ switch.
 
 Except for the unavailable-MCP fallback below, compose the answer plus saved
 footer. Before delivering it, call
-`log_interaction(agent_name, query, response_content, persona=..., persona_action=..., workspace=...)`:
+`log_interaction(agent_name, query, response_content, persona=..., persona_action=...)`:
 use the active specialist's canonical name as `agent_name`, the current user
-request verbatim as `query`, the complete composed answer plus footer as
-`response_content`, and the absolute path of your working directory as
-`workspace` whenever you have one (also for the other memory and flow tools). Pass the `persona` object of the last SUCCESS/NO_CHANGE verbatim, with all 7 keys (`agent`, `activation_id`, `bundle_revision`, `scope`, `skills_loaded`, `implants_loaded`, `rules_loaded`),
+request verbatim as `query`, and the complete composed answer plus footer as
+`response_content`. Pass the `persona` object of the last SUCCESS/NO_CHANGE verbatim, with all 7 keys (`agent`, `activation_id`, `bundle_revision`, `scope`, `skills_loaded`, `implants_loaded`, `rules_loaded`),
 and the actual keep/switch/refresh/restore action only together with it; `files`/`tags`
 are JSON arrays. Without a retained descriptor (for example a subagent), omit both and
 add no footer. Incomplete attribution is still logged as `unverified`; do not retry. The call returns at once; when the footer's `Rules` list includes

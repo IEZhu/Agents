@@ -2,11 +2,15 @@
 
 import asyncio
 import json
+import os
 import re
+from datetime import timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+from mcp.shared.memory import create_connected_server_and_client_session
+from mcp.types import Implementation, ListRootsResult, Root
 
 import src.server as server
 from src.engine import config as engine_config
@@ -236,25 +240,116 @@ async def test_logging_records_client_reported_activation(monkeypatch):
     assert active.activation_id in written_action and active.bundle_revision in written_action
 
 
-@pytest.mark.asyncio
-async def test_logging_refuses_history_in_windows_directory(tmp_path, monkeypatch):
-    """Regression: a stdio server started in C:\\Windows\\System32 wrote history.md there."""
+@pytest.fixture
+def system32_cwd(tmp_path, monkeypatch):
+    """A stdio server started like the Claude desktop app's: in (a stand-in for)
+    C:\\Windows\\System32, without CLAUDE_PROJECT_DIR."""
     windows = tmp_path / "Windows"
     (windows / "System32").mkdir(parents=True)
     # The marker keeps the walk-up inside tmp_path; its directory is still refused.
     (windows / "CLAUDE.md").write_text("")
     monkeypatch.setattr(engine_config, "_windows_directory", lambda: windows.resolve())
     monkeypatch.delenv("AGENTS_CLIENT_REPO_ROOT", raising=False)
+    monkeypatch.delenv("CLAUDE_PROJECT_DIR", raising=False)
     monkeypatch.chdir(windows / "System32")
     engine_config._reset_client_repo_root_cache()
-    try:
-        response = json.loads(await server.log_interaction("software_engineer", "q", "r"))
-    finally:
-        engine_config._reset_client_repo_root_cache()
+    yield windows
+    engine_config._reset_client_repo_root_cache()
+
+
+async def _log_over_mcp(*workspaces, roots=None):
+    """log_interaction calls, one per workspace (None: omitted), through one in-memory MCP session.
+
+    With roots, the client declares the roots capability and answers roots/list
+    with them, as the Claude desktop app does with every open session's folder.
+    """
+    options = {"client_info": Implementation(name="local-agent-mode-Agents-Core", version="1.0.0")}
+    if roots is not None:
+        async def list_roots(context):
+            return ListRootsResult(roots=[Root(uri=root.as_uri()) for root in roots])
+        options["list_roots_callback"] = list_roots
+    responses = []
+    async with create_connected_server_and_client_session(
+        server.mcp, read_timeout_seconds=timedelta(seconds=30), **options,
+    ) as client:
+        for index, workspace in enumerate(workspaces):
+            arguments = {"agent_name": "software_engineer", "query": "q", "response_content": f"answer {index}"}
+            if workspace is not None:
+                arguments["workspace"] = str(workspace)
+            responses.append(json.loads((await client.call_tool("log_interaction", arguments)).content[0].text))
+    return responses
+
+
+@pytest.mark.asyncio
+async def test_logging_refuses_history_in_windows_directory(system32_cwd):
+    """Regression: a stdio server started in C:\\Windows\\System32 wrote history.md there."""
+    response = json.loads(await server.log_interaction("software_engineer", "q", "r"))
     assert response["status"] == "ERROR"
     assert response["message"].startswith("workspace_unsafe: refusing")
     assert response["instruction"].startswith("Nothing was logged.")
-    assert sorted(path.name for path in windows.rglob("*")) == ["CLAUDE.md", "System32"]
+    assert sorted(path.name for path in system32_cwd.rglob("*")) == ["CLAUDE.md", "System32"]
+
+
+@pytest.mark.asyncio
+async def test_sessions_sharing_one_server_log_to_their_own_projects(system32_cwd, tmp_path, monkeypatch):
+    """The Claude desktop app serves all its Code sessions from one server started in System32."""
+    monkeypatch.setattr(server, "is_langfuse_configured", lambda: False)
+    monkeypatch.setattr(server, "_drain_abandoned", False)
+    first, second = tmp_path / "first", tmp_path / "second"
+    for project in (first, second):
+        (project / ".git").mkdir(parents=True)
+
+    responses = await _log_over_mcp(first, second, first, roots=[first, second])
+    assert server.drain_pending_logs(5)
+    for response, project in zip(responses, (first, second, first)):
+        assert re.fullmatch(r"\d{4}\.\d{2}\.\d{2} \d{2}:\d{2}:\d{2}", response["timestamp"])
+        assert response["workspace"] == {"root": str(project.resolve()), "source": "workspace"}
+    first_history = (first / "history.md").read_text(encoding="utf-8")
+    second_history = (second / "history.md").read_text(encoding="utf-8")
+    assert "answer 0" in first_history and "answer 2" in first_history and "answer 1" not in first_history
+    assert "answer 1" in second_history and "answer 0" not in second_history
+    assert sorted(path.name for path in system32_cwd.rglob("*")) == ["CLAUDE.md", "System32"]
+
+
+@pytest.mark.asyncio
+async def test_logging_without_workspace_asks_for_it(system32_cwd, tmp_path):
+    project = tmp_path / "project"
+    (project / ".git").mkdir(parents=True)
+    [response] = await _log_over_mcp(None, roots=[project])
+    assert response["status"] == "ERROR" and "timestamp" not in response
+    assert response["message"].startswith("workspace_unsafe: refusing")
+    assert "pass workspace" in response["message"]
+    assert "retry once with workspace" in response["instruction"]
+    assert response["pid"] == os.getpid()
+    assert response["workspace_inputs"] == {
+        "cwd": os.getcwd(), "claude_project_dir": False, "agents_client_repo_root": False,
+        "client": "local-agent-mode-Agents-Core", "roots": True,
+    }
+    assert not (project / "history.md").exists()
+
+
+@pytest.mark.asyncio
+async def test_workspace_outside_the_roots_writes_nothing(system32_cwd, tmp_path):
+    inside, outside = tmp_path / "inside", tmp_path / "outside"
+    for project in (inside, outside):
+        (project / ".git").mkdir(parents=True)
+    [response] = await _log_over_mcp(outside, roots=[inside])
+    assert response["status"] == "ERROR"
+    assert response["message"].startswith("workspace_invalid: workspace")
+    assert "do not retry logging in a loop" in response["instruction"]
+    assert not (outside / "history.md").exists()
+
+
+@pytest.mark.asyncio
+async def test_without_roots_capability_the_workspace_is_not_trusted(system32_cwd, tmp_path):
+    project = tmp_path / "project"
+    (project / ".git").mkdir(parents=True)
+    [response] = await _log_over_mcp(project)
+    assert response["status"] == "ERROR"
+    assert response["message"].startswith("workspace_unsafe: refusing")
+    assert "declares no MCP roots" in response["message"]
+    assert response["workspace_inputs"]["roots"] is False
+    assert not (project / "history.md").exists()
 
 
 @pytest.mark.asyncio
