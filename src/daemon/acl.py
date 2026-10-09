@@ -123,7 +123,8 @@ def owned_by_user_or_admins(path) -> bool:
     try:
         if not owner.value:
             return False
-        if _advapi32.EqualSid(owner, _UserSid().pointer):
+        user = _UserSid()  # held while EqualSid reads the SID inside its buffer
+        if _advapi32.EqualSid(owner, user.pointer):
             return True
         _check(_advapi32.ConvertStringSidToSidW(_ADMINISTRATORS, ctypes.byref(admins)))
         return bool(_advapi32.EqualSid(owner, admins))
