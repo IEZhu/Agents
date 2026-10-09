@@ -136,7 +136,7 @@ def test_helper_refuses_unexpected_shapes(run_helper, tmp_path, original):
     assert json.loads((tmp_path / "mcp.json").read_text(encoding="utf-8")) == original
 
 
-@pytest.mark.parametrize("client", ["claude", "cursor", "desktop"])
+@pytest.mark.parametrize("client", ["claude", "cursor", "desktop", "antigravity"])
 def test_shared_shell_injection_uses_explicit_client_and_exact_destination(tmp_path, monkeypatch, client):
     from src.daemon.state import atomic_private, write_json
 
@@ -150,7 +150,7 @@ def test_shared_shell_injection_uses_explicit_client_and_exact_destination(tmp_p
     destination = tmp_path / "custom registrations" / "selected.json"
     destination.parent.mkdir()
     original = {"mcpServers": {"Agents-Core": {"command": "old-python", "args": ["old.py"], "disabled": True},
-                               "other": {"command": "unrelated"}}, "userSetting": True}
+                                "other": {"command": "unrelated"}}, "userSetting": True}
     destination.write_text(json.dumps(original))
     defaults = [home / ".claude.json", home / ".cursor/mcp.json",
                 home / "Library/Application Support/Claude/claude_desktop_config.json"]
@@ -193,7 +193,7 @@ def test_shared_shell_injection_uses_explicit_client_and_exact_destination(tmp_p
         assert set(settings["permissions"]["deny"]) == {
             "existing-rule", "mcp__Agents-Core-Desktop__*", "mcp__Agents_Core_Desktop__*"}
         assert not (home / ".claude/settings.json").exists()
-    elif client == "claude":
+    elif client in ("claude", "antigravity"):
         # The user scope serves every project: a bridge per session names its own (#253).
         assert entry["command"] == sys.executable
         assert entry["args"][0] == str(installation / "bridge/stdio.mjs")

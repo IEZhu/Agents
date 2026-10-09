@@ -284,7 +284,7 @@ if sys.platform == 'darwin' and marker.exists():
     directory = json.loads(marker.read_text())['directory']
     destination = Path(config_path)
     client = os.environ['MCP_CLIENT']
-    if client not in ('claude', 'cursor', 'desktop'):
+    if client not in ('claude', 'cursor', 'desktop', 'antigravity'):
         raise ValueError('Unsupported installer client')
     with file_lock(Path(directory) / 'control.lock', blocking=False):
         assert_service_safe(directory)
@@ -722,6 +722,17 @@ else
         print_step "Claude Code not detected"
     fi
 
+    # --- Detect Antigravity ---
+    ANTIGRAVITY_DETECTED=false
+    ANTIGRAVITY_CONFIG="$(resolve_client_path config antigravity)"
+    ANTIGRAVITY_DIR="$(dirname "$ANTIGRAVITY_CONFIG")"
+    if [ -n "${AGENTS_ANTIGRAVITY_MCP_CONFIG:-}" ] || [ -d "$ANTIGRAVITY_DIR" ] || check_command agy; then
+        ANTIGRAVITY_DETECTED=true
+        print_success "Antigravity detected ($ANTIGRAVITY_CONFIG)"
+    else
+        print_step "Antigravity not detected"
+    fi
+
     echo ""
 
     # --- Configure Cursor ---
@@ -832,6 +843,23 @@ else
         fi # end: selected Claude profile is a directory check
     fi
 
+    # --- Configure Antigravity ---
+    if [ "$ANTIGRAVITY_DETECTED" = true ]; then
+        print_step "Configuring Antigravity MCP ($ANTIGRAVITY_CONFIG)..."
+        mkdir -p "$ANTIGRAVITY_DIR"
+
+        if [ ! -f "$ANTIGRAVITY_CONFIG" ]; then
+            echo '{ "mcpServers": {} }' > "$ANTIGRAVITY_CONFIG"
+        fi
+
+        # Backup before modifying
+        cp "$ANTIGRAVITY_CONFIG" "${ANTIGRAVITY_CONFIG}.backup.$(date +%s)"
+
+        if inject_mcp_config "$ANTIGRAVITY_CONFIG" "$ANTIGRAVITY_CONFIG" antigravity; then
+            CONFIGURED_ENVS+=("Antigravity")
+        fi
+    fi
+
     # --- Configure Codex instructions ---
     # Registration is separate: Codex's TOML configuration is not a JSON MCP file.
     print_step "Checking Codex global instructions..."
@@ -847,6 +875,7 @@ else
         echo "    • Cursor:         Install Cursor, then re-run this script"
         echo "    • Claude Desktop: Install Claude Desktop, then re-run this script"
         echo "    • Claude Code:    Install Claude Code, then re-run this script"
+        echo "    • Antigravity:    Install Antigravity, then re-run this script"
     else
         print_success "MCP configured for: ${CONFIGURED_ENVS[*]}"
         # Claude Desktop (its Code tab included) also reads the Claude Code
