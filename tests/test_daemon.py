@@ -183,3 +183,53 @@ async def test_cancelled_waiter_retains_worker_quota():
     await finish_jobs(jobs)
     assert executor.inflight == 0
     executor.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_bridges_register_their_projects_without_migrate(tmp_path, monkeypatch):
+    """#253: a session's bridge names its project; the daemon checks it and registers it."""
+    from src.engine import config as engine_config
+    monkeypatch.setattr(engine_config, "_CLIENT_ROOT_MARKERS", ("project-marker",))
+    projects = tmp_path / "projects"
+    project, other = projects / "project", projects / "other"
+    for directory in (project / "pkg", other):
+        directory.mkdir(parents=True)
+    for directory in (project, other):
+        (directory / "project-marker").write_text("")
+    registry = WorkspaceRegistry(tmp_path / "service")
+    app = create_app(registry.directory, TOKEN, runtime_loader=fake_runtime)
+    async with app.router.lifespan_context(app):
+        while app.state.service.state == "starting": await asyncio.sleep(.01)
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://127.0.0.1:8765") as http:
+            headers = {"Authorization": "Bearer " + TOKEN}
+            assert (await http.post("/workspaces", json={"path": str(project)})).status_code == 401
+            first = await http.post("/workspaces", json={"path": str(project / "pkg")}, headers=headers)
+            assert first.status_code == 200 and first.json()["root"] == str(project.resolve())
+            identity = first.json()["workspace_id"]
+            again = await http.post("/workspaces", json={"path": str(project)}, headers=headers)
+            assert again.json()["workspace_id"] == identity
+            # A tool call's workspace counts only inside the roots its client declared.
+            inside = await http.post("/workspaces", json={"path": str(other), "roots": [projects.as_uri()]}, headers=headers)
+            assert inside.status_code == 200 and inside.json()["root"] == str(other.resolve())
+            outside = await http.post("/workspaces", json={"path": str(other), "roots": [project.as_uri()]}, headers=headers)
+            assert (outside.status_code, outside.json()["error"]) == (400, "workspace_invalid")
+            # An isolated home: the host's own could sit below a marked ancestor.
+            fake_home = tmp_path / "home"; fake_home.mkdir()
+            monkeypatch.setenv("HOME", str(fake_home)); monkeypatch.setenv("USERPROFILE", str(fake_home))
+            home = await http.post("/workspaces", json={"path": str(fake_home), "origin": "CLAUDE_PROJECT_DIR"}, headers=headers)
+            assert (home.status_code, home.json()["error"]) == (400, "workspace_unsafe")
+            # A bare launch directory counts only inside a project; one the client named, as named.
+            plain = projects / "plain"; plain.mkdir()
+            launch = await http.post("/workspaces", json={"path": str(plain)}, headers=headers)
+            assert (launch.status_code, launch.json()["error"]) == (400, "workspace_required")
+            named = await http.post("/workspaces", json={"path": str(plain), "origin": "CLAUDE_PROJECT_DIR"}, headers=headers)
+            assert named.status_code == 200 and named.json()["root"] == str(plain.resolve())
+            for malformed in ({"path": 1}, {"path": str(project), "roots": "file:///x"}, ["list"],
+                              {"path": str(project), "origin": "env"}):
+                response = await http.post("/workspaces", json=malformed, headers=headers)
+                assert (response.status_code, response.json()["error"]) == (400, "workspace_invalid")
+            payload = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "identity", "arguments": {}}}
+            response = await http.post("/mcp", json=payload, headers={
+                **headers, "Accept": "application/json, text/event-stream", "X-Agents-Workspace": identity})
+            assert json.loads(response.json()["result"]["content"][0]["text"])["root"] == str(project.resolve())
+    assert not (project / "history.md").exists()
