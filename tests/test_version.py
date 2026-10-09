@@ -1,5 +1,8 @@
 """Agents-Core version string and the footer version segment."""
+from pathlib import Path
+import shutil
 import subprocess
+import time
 
 import pytest
 
@@ -97,6 +100,25 @@ def test_git_environment_is_scrubbed(monkeypatch):
     monkeypatch.setattr(version.subprocess, "run", run)
     version.agents_core_version()
     assert not any(k.startswith("GIT_") for k in seen)
+
+
+def test_git_never_gets_the_server_stdin(monkeypatch):
+    stdin = []
+    def run(args, **kwargs):
+        stdin.append(kwargs.get("stdin"))
+        return subprocess.CompletedProcess(args, 0, stdout="2026-10-01T08:01:00+00:00", stderr="")
+    monkeypatch.setattr(version.subprocess, "run", run)
+    version.agents_core_version()
+    assert stdin == [subprocess.DEVNULL] * 2
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
+def test_version_while_the_server_reads_its_stdin(monkeypatch, pending_stdin_read):
+    """Under the Claude desktop app the footer said "Agents-Core unknown": git timed out on the MCP stdin."""
+    monkeypatch.setattr(version, "ROOT", Path(__file__).resolve().parents[1])  # this checkout
+    started = time.monotonic()
+    assert version.agents_core_version() != version.UNKNOWN
+    assert time.monotonic() - started < pending_stdin_read
 
 
 def test_no_link_under_daemon_without_port(monkeypatch):

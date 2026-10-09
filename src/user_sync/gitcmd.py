@@ -121,7 +121,7 @@ def parse_remote(url: str, *, allow_file: bool = False) -> Remote:
 def git_version(executable: str = "git") -> tuple[int, ...] | None:
     """``(major, minor, patch)`` of the installed git, or None when it cannot run."""
     try:
-        result = subprocess.run([executable, "version"], capture_output=True, text=True,
+        result = subprocess.run([executable, "version"], capture_output=True, text=True, stdin=subprocess.DEVNULL,
                                 timeout=LOCAL_TIMEOUT, env=clean_environment(), **no_window())
     except (OSError, subprocess.SubprocessError):
         return None
@@ -244,10 +244,12 @@ class Git:
         command += list(args)
         extra = {"GIT_INDEX_FILE": str(index)} if index else None
         timeout = NETWORK_TIMEOUT if network else LOCAL_TIMEOUT
+        # Never the server's stdin: the stdio trigger runs inside the MCP server (see src/version.py).
+        stdin = {"input": input} if input is not None else {"stdin": subprocess.DEVNULL}
         try:
-            result = subprocess.run(command, input=input, capture_output=True, timeout=timeout,
+            result = subprocess.run(command, capture_output=True, timeout=timeout,
                                     env=self.environment(extra), cwd=self.work_tree if self.work_tree.is_dir() else None,
-                                    **no_window())
+                                    **stdin, **no_window())
         except subprocess.TimeoutExpired:
             raise GitError(args[0], "timeout" if network else "local", f"timed out after {timeout} s") from None
         except OSError as error:

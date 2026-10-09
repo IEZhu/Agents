@@ -797,9 +797,10 @@ class SecretStore(Protocol):
 
 def _run_tool(argv: list[str], what: str, *, stdin: str | None = None) -> subprocess.CompletedProcess:
     """Run a secret store's command-line tool; a secret travels only in ``stdin``, never in argv."""
+    given = {"input": stdin} if stdin is not None else {"stdin": subprocess.DEVNULL}
     try:
-        return subprocess.run(argv, input=stdin, capture_output=True, text=True, encoding="utf-8",
-                              errors="replace", timeout=STORE_TIMEOUT, check=False)
+        return subprocess.run(argv, capture_output=True, text=True, encoding="utf-8",
+                              errors="replace", timeout=STORE_TIMEOUT, check=False, **given)
     except subprocess.TimeoutExpired:
         raise GitHubError("storage", f"{what} did not answer within {STORE_TIMEOUT} seconds") from None
     except (OSError, subprocess.SubprocessError) as error:

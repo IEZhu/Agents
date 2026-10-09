@@ -71,7 +71,7 @@ def normalize_origin(url: str) -> str | None:
 def _origin(root: Path) -> str | None:
     try:
         result = subprocess.run(["git", "-C", str(root), "config", "--get", "remote.origin.url"],
-                                capture_output=True, text=True, timeout=5)
+                                capture_output=True, text=True, timeout=5, stdin=subprocess.DEVNULL)
     except (OSError, subprocess.SubprocessError):
         return None
     return normalize_origin(result.stdout) if result.returncode == 0 else None

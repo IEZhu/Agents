@@ -20,9 +20,11 @@ _TIMEOUT = 5
 def _git(*args: str) -> str | None:
     env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
     try:
+        # Never the server's stdin: under stdio it is the MCP pipe with a pending read, and on
+        # Windows git blocks on that handle at startup until the client's next message.
         result = subprocess.run(
             ["git", "--no-optional-locks", "-C", str(ROOT), *args], capture_output=True,
-            text=True, timeout=_TIMEOUT, check=False, env=env)
+            stdin=subprocess.DEVNULL, text=True, timeout=_TIMEOUT, check=False, env=env)
     except (OSError, subprocess.SubprocessError):
         return None
     return result.stdout if result.returncode == 0 else None
