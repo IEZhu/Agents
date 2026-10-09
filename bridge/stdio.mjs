@@ -26,11 +26,11 @@ function send(value) {
   });
   return output;
 }
-async function register(directory, roots) {
+async function register(request) {
   const response = await fetch(registration, {
     method: 'POST', redirect: 'error', signal: AbortSignal.timeout(30_000),
     headers: { Authorization: config.headers.Authorization, 'Content-Type': 'application/json' },
-    body: JSON.stringify(roots ? { path: directory, roots } : { path: directory }),
+    body: JSON.stringify(request),
   });
   const body = await response.json().catch(() => ({}));
   if (!response.ok || typeof body.workspace_id !== 'string') {
@@ -42,9 +42,11 @@ async function register(directory, roots) {
 }
 // Workspace "auto": the client starts this bridge once per session, in the session's directory,
 // and Claude Code also names it in CLAUDE_PROJECT_DIR; that is what a stdio server trusts too.
+// A bare cwd counts only inside a project (.git or CLAUDE.md): some hosts start servers elsewhere.
 function sessionWorkspace() {
   if (config.workspace !== 'auto') return Promise.resolve(null);
-  session ??= register(process.env.CLAUDE_PROJECT_DIR || process.cwd()).catch(error => {
+  const named = process.env.CLAUDE_PROJECT_DIR;
+  session ??= register(named ? { path: named, origin: 'CLAUDE_PROJECT_DIR' } : { path: process.cwd() }).catch(error => {
     process.stderr.write(`Agents-Core bridge: no workspace for this session (${error.message}).\n`);
     if (!error.refused) session = undefined; // the daemon may still be starting: ask again next time
     return null;
@@ -66,7 +68,7 @@ async function workspaceFor(message) {
   const workspace = message.method === 'tools/call' ? message.params?.arguments?.workspace : undefined;
   if (typeof workspace !== 'string' || !workspace.trim() || !clientRoots) return sessionWorkspace();
   if (!named.has(workspace)) {
-    const identity = ask('roots/list').then(answer => register(workspace, (answer?.roots ?? []).map(root => root.uri)));
+    const identity = ask('roots/list').then(answer => register({ path: workspace, roots: (answer?.roots ?? []).map(root => root.uri) }));
     named.set(workspace, identity);
     identity.catch(() => named.delete(workspace)); // a refusal is checked again on the next call
   }

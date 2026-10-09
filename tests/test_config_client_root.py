@@ -406,11 +406,25 @@ class TestWorkspaceArgument:
         (project / "pkg").mkdir()
         assert engine_config.client_root_from_directory(str(project / "pkg")) == str(project.resolve())
 
-    @pytest.mark.parametrize("directory,code", [("relative", "workspace_invalid"), (None, "workspace_unsafe")])
-    def test_session_directory_refuses_relative_and_unsafe(self, desktop, directory, code):
+    @pytest.mark.parametrize("directory,launch,code", [
+        ("relative", False, "workspace_invalid"),
+        (None, False, "workspace_unsafe"),  # named by the client, but a system directory
+        ("plain", True, "workspace_required"),  # a bare launch directory outside any project
+    ])
+    def test_session_directory_refuses_relative_unsafe_and_unmarked(self, desktop, tmp_path, directory, launch, code):
+        if directory == "plain":
+            directory = str(tmp_path / "plain")
+            (tmp_path / "plain").mkdir()
         with pytest.raises(engine_config.ClientRootError) as info:
-            engine_config.client_root_from_directory(directory or str(desktop / "System32"))
+            engine_config.client_root_from_directory(directory or str(desktop / "System32"), launch_directory=launch)
         assert info.value.code == code
+
+    def test_named_session_directory_is_used_without_a_marker(self, desktop, tmp_path):
+        # The Codex VS Code extension starts servers in its installation directory (openai/codex#9989);
+        # only a directory the client named, like CLAUDE_PROJECT_DIR, may lack a marker.
+        plain = tmp_path / "plain"
+        plain.mkdir()
+        assert engine_config.client_root_from_directory(str(plain), launch_directory=False) == str(plain.resolve())
 
     def test_uri_percent_escapes_are_decoded(self, tmp_path):
         folder = tmp_path / "Доработки 1С"

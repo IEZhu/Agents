@@ -228,23 +228,28 @@ class Service:
     async def register_workspace(self, request):
         """Register the project a session's bridge names and answer its workspace UUID (#253).
 
-        `{path}` is the directory the client started the bridge in; `{path, roots}` is a
-        tool call's workspace, which must lie inside the client's MCP roots. The
-        checks of `src.engine.config` decide what is a project. The route takes the
-        bearer token and is no MCP tool, so a model never reaches it.
+        `{path}` is the bridge's launch directory, which counts only with a `.git` or
+        `CLAUDE.md` at or above it; `{path, origin: "CLAUDE_PROJECT_DIR"}` is the
+        directory the client named and is used as named; `{path, roots}` is a tool
+        call's workspace, which must lie inside the client's MCP roots. The checks of
+        `src.engine.config` decide what is a project. The route takes the bearer token
+        and is no MCP tool, so a model never reaches it.
         """
         try:
             body = await request.json()
-            directory, roots = body.get("path"), body.get("roots")
-            if not isinstance(directory, str) or not (
+            directory, roots, origin = body.get("path"), body.get("roots"), body.get("origin", "cwd")
+            if not isinstance(directory, str) or origin not in ("cwd", "CLAUDE_PROJECT_DIR") or not (
                     roots is None or isinstance(roots, list) and all(isinstance(root, str) for root in roots)):
-                raise ValueError("expected {path, roots?}")
+                raise ValueError("expected {path, origin?, roots?}")
         except (ValueError, AttributeError) as error:
             return JSONResponse({"error": "workspace_invalid", "message": str(error)}, 400)
         from src.engine.config import ClientRootError, client_root_from_directory, client_root_from_workspace
 
         def register():
-            root = client_root_from_directory(directory) if roots is None else client_root_from_workspace(directory, roots)
+            if roots is None:
+                root = client_root_from_directory(directory, launch_directory=origin == "cwd")
+            else:
+                root = client_root_from_workspace(directory, roots)
             return root, self.registry.register(root)
         try:
             root, identity = await asyncio.to_thread(register)

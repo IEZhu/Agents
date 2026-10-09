@@ -216,9 +216,16 @@ async def test_bridges_register_their_projects_without_migrate(tmp_path, monkeyp
             # An isolated home: the host's own could sit below a marked ancestor.
             fake_home = tmp_path / "home"; fake_home.mkdir()
             monkeypatch.setenv("HOME", str(fake_home)); monkeypatch.setenv("USERPROFILE", str(fake_home))
-            home = await http.post("/workspaces", json={"path": str(fake_home)}, headers=headers)
+            home = await http.post("/workspaces", json={"path": str(fake_home), "origin": "CLAUDE_PROJECT_DIR"}, headers=headers)
             assert (home.status_code, home.json()["error"]) == (400, "workspace_unsafe")
-            for malformed in ({"path": 1}, {"path": str(project), "roots": "file:///x"}, ["list"]):
+            # A bare launch directory counts only inside a project; one the client named, as named.
+            plain = projects / "plain"; plain.mkdir()
+            launch = await http.post("/workspaces", json={"path": str(plain)}, headers=headers)
+            assert (launch.status_code, launch.json()["error"]) == (400, "workspace_required")
+            named = await http.post("/workspaces", json={"path": str(plain), "origin": "CLAUDE_PROJECT_DIR"}, headers=headers)
+            assert named.status_code == 200 and named.json()["root"] == str(plain.resolve())
+            for malformed in ({"path": 1}, {"path": str(project), "roots": "file:///x"}, ["list"],
+                              {"path": str(project), "origin": "env"}):
                 response = await http.post("/workspaces", json=malformed, headers=headers)
                 assert (response.status_code, response.json()["error"]) == (400, "workspace_invalid")
             payload = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "identity", "arguments": {}}}

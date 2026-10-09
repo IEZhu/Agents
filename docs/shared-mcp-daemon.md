@@ -61,10 +61,14 @@ migrations fail with `An absolute Node executable is required`.
 Registering the same realpath again returns its existing UUID. With a recorded
 Node, `migrate --clients claude` and `migrate --clients codex` write the user-scope
 entry as a stdio bridge (`bridge/stdio.mjs`, `workspace: "auto"` in its private
-`bridges/claude-code-auto.json` or `bridges/codex-auto.json`). Both clients start
-one bridge per session in the session's directory. Claude Code also names it in
-`CLAUDE_PROJECT_DIR`. Codex starts a stdio server without `cwd` in the session's
-working directory, so the Codex entry carries no `cwd`. The bridge registers that
+`bridges/claude-code-auto.json` or `bridges/codex-auto.json`). Claude Code starts
+one bridge per session in the session's directory and names it in
+`CLAUDE_PROJECT_DIR`. The Codex CLI starts a stdio server without `cwd` in the
+session's working directory, so the Codex entry carries no `cwd`. Like a stdio
+server's cwd, a bridge's launch directory counts only with a `.git` or `CLAUDE.md`
+at or above it. The Codex VS Code extension starts servers in its installation
+directory ([openai/codex#9989](https://github.com/openai/codex/issues/9989)), so its
+sessions get no workspace there instead of a wrong one. The bridge registers that
 project through `POST /workspaces` and sends its `X-Agents-Workspace` on every
 request, so new projects, clones and worktrees get memory on their first call
 without a migration. A tool call's `workspace` argument (see
@@ -803,9 +807,11 @@ service does not answer, `status` reads that summary with the engine.
 HTTP never selects a project from cwd, environment variables, or client roots.
 `X-Agents-Workspace` carries a UUID from the private registry. A bridge obtains
 one from `POST /workspaces` (bearer token; not an MCP tool, so a model cannot call
-it). `{path}` is the directory the client started the bridge in. It resolves like
-`CLAUDE_PROJECT_DIR` (nearest `.git` or `CLAUDE.md`, a git worktree to its main
-checkout), and system and home directories are refused. `{path, roots}` is a tool
+it). `{path}` is the directory the client started the bridge in, and needs a `.git`
+or `CLAUDE.md` at or above it (`workspace_required` otherwise).
+`{path, origin: "CLAUDE_PROJECT_DIR"}` is a directory the client named, and is used
+as named. Both resolve to the nearest marked directory, a git worktree to its main
+checkout, and system and home directories are refused. `{path, roots}` is a tool
 call's workspace, which must also lie inside one of those roots. The answer is
 `{workspace_id, root}`, or `{error, message}` with status 400. Errors
 `workspace_required` and `workspace_invalid` mean memory is unavailable: routing

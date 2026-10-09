@@ -310,15 +310,26 @@ def client_root_from_workspace(workspace: str, root_uris: Iterable[str]) -> str:
     return _project_root(path, "workspace")
 
 
-def client_root_from_directory(directory: str) -> str:
+def client_root_from_directory(directory: str, *, launch_directory: bool = True) -> str:
     """The project of the directory a client started a session's process in.
 
     The shared service's bridge (`bridge/stdio.mjs`) reports the
     CLAUDE_PROJECT_DIR or cwd its client gave it, the input a stdio server
-    trusts. It resolves as in `client_root_from_workspace`, without roots: the
-    client chose the directory, not a model.
+    trusts, with the same rule: a CLAUDE_PROJECT_DIR (launch_directory=False)
+    is used as named, while a bare launch directory needs a `.git` or
+    `CLAUDE.md` at or above it. Some hosts start servers outside the project:
+    the Codex VS Code extension uses its installation directory
+    (openai/codex#9989). Otherwise it resolves as in `client_root_from_workspace`.
     """
-    return _project_root(_existing_directory(directory, "directory"), "directory")
+    path = _existing_directory(directory, "directory")
+    if launch_directory and _find_marker_upwards(path) is None:
+        raise ClientRootError(
+            f"refusing {path} (from the bridge's cwd) as the client repo root for per-repo "
+            "memory and flows: it has no .git or CLAUDE.md marker, and a launch directory "
+            "says nothing about the project",
+            code="workspace_required",
+        )
+    return _project_root(path, "directory")
 
 
 def _existing_directory(value: str, label: str) -> Path:

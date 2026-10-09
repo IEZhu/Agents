@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, writeFile, rm, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
@@ -73,13 +73,15 @@ async function fakeDaemon(answer) {
 }
 
 // A client that declares roots, answers the bridge's roots/list and sends `messages` in order.
-async function session(daemon, settings, messages, env = {}) {
+async function session(daemon, settings, messages, env = {}, cwd = undefined) {
   const dir = await mkdtemp(join(tmpdir(), 'agents-bridge-'));
   try {
     const config = join(dir, 'config.json');
     await writeFile(config, JSON.stringify({ url: daemon.url, headers: { Authorization: 'Bearer test' }, ...settings }), { mode: 0o600 });
+    const environment = { ...process.env, ...env };
+    for (const [key, value] of Object.entries(environment)) if (value === undefined) delete environment[key];
     const child = spawn(process.execPath, [fileURLToPath(new URL('./stdio.mjs', import.meta.url)), config],
-      { env: { ...process.env, ...env } });
+      { env: environment, cwd });
     const responses = new Map();
     let rootsAsked = 0, buffer = '', waiting;
     child.stdout.on('data', data => {
@@ -125,7 +127,8 @@ test('auto workspace: the session directory names every request, retried while t
   const { responses, rootsAsked, header } = await session(daemon, { workspace: 'auto' },
     [{ id: 'list', method: 'tools/list' }, call('named', '/named'), call('outside', '/outside')],
     { CLAUDE_PROJECT_DIR: '/session' });
-  assert.deepEqual(daemon.registrations, [{ path: '/session' }, { path: '/session' },
+  const named = { path: '/session', origin: 'CLAUDE_PROJECT_DIR' };
+  assert.deepEqual(daemon.registrations, [named, named,
     { path: '/named', roots: ['file:///roots/a'] }, { path: '/outside', roots: ['file:///roots/a'] }]);
   assert.equal(rootsAsked, 2);
   assert.equal(header('init'), undefined);
@@ -147,4 +150,20 @@ test('a shared bridge refuses a call whose workspace lies outside the roots', as
   assert.ok(!daemon.calls.some(c => c.message.id === 'outside'));
   assert.equal(responses.get('outside').error.code, -32602);
   assert.match(responses.get('outside').error.message, /workspace_invalid: outside the roots/);
+});
+
+test('auto workspace without CLAUDE_PROJECT_DIR reports its cwd as a launch directory', async () => {
+  const daemon = await fakeDaemon(message => [200, { workspace_id: 'cwd-id', root: message.path }]);
+  const cwd = await mkdtemp(join(tmpdir(), 'agents-bridge-cwd-'));
+  try {
+    const { header } = await session(daemon, { workspace: 'auto' }, [{ id: 'list', method: 'tools/list' }],
+      { CLAUDE_PROJECT_DIR: undefined }, cwd);
+    // No origin: the daemon then requires a .git or CLAUDE.md, as it does for a stdio server's cwd.
+    assert.equal(daemon.registrations.length, 1);
+    assert.deepEqual(Object.keys(daemon.registrations[0]), ['path']);
+    assert.equal(await realpath(daemon.registrations[0].path), await realpath(cwd));
+    assert.equal(header('list'), 'cwd-id');
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
 });
