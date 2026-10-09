@@ -1,10 +1,12 @@
-"""Explicit macOS service control. No model or engine imports on ordinary commands."""
+"""Explicit service control (macOS launchd, Windows Task Scheduler: `src.daemon.service`).
+
+No model or engine imports on ordinary commands.
+"""
 import argparse
 from contextlib import ExitStack
 import json
 import os
 from pathlib import Path
-import plistlib
 import secrets
 import shutil
 import socket
@@ -16,9 +18,13 @@ from urllib.request import ProxyHandler, Request, build_opener
 
 from src.file_lock import file_lock
 from src.model_migration import DEFAULT_MODEL, GENERATION
-from .state import state_dir, private_dir, read_json, write_json, atomic_private
+from . import service
+from .state import default_state_dir, state_dir, private_dir, read_json, write_json, atomic_private
 
 
+# Seconds a graceful exit may take: the lifespan waits up to 60 s for running work, then flushes
+# queued log writes (src/server.py drain_pending_logs).
+EXIT_TIMEOUT = 120
 # The service is on loopback: no proxy from http_proxy ever sees a request or its bearer token.
 LOOPBACK = build_opener(ProxyHandler({}))
 # Models fastembed downloads into its Hugging Face cache, by cache directory.
@@ -66,10 +72,12 @@ class Controller:
         return "local.agents-core." + self.directory.name
 
     @property
-    def target(self): return f"gui/{os.getuid()}/{self.label}"
+    def manager(self):
+        """How the OS runs the service here (`src.daemon.service`)."""
+        return service.manager(self)
 
     @property
-    def plist(self): return Path.home() / "Library/LaunchAgents" / (self.label + ".plist")
+    def plist(self): return service.Launchd(self).path
 
     def launchctl(self, *args, check=True):
         return subprocess.run(["/bin/launchctl", *args], capture_output=True, text=True, check=check)
@@ -97,9 +105,14 @@ class Controller:
         if not self.config: return {"state": "not_installed"}
         try: return self.request()
         except (OSError, URLError):
-            result = self.launchctl("print", self.target, check=False)
-            return {"state": "starting" if result.returncode == 0 else "stopped",
-                    "supervised": result.returncode == 0,
+            try:
+                supervised = self.manager.loaded()
+            except Exception as error:  # status reports; it never fails on the OS scheduler
+                return {"state": "unknown", "supervised": None, "error": f"{type(error).__name__}: {error}",
+                        "maintenance": (self.directory / "maintenance.json").exists(),
+                        "transaction": (self.directory / "transaction.json").exists()}
+            return {"state": "starting" if supervised else "stopped",
+                    "supervised": supervised,
                     "maintenance": (self.directory / "maintenance.json").exists(),
                     "transaction": (self.directory / "transaction.json").exists()}
 
@@ -170,6 +183,7 @@ class Controller:
         root = Path(__file__).resolve().parents[2]
         with file_lock(self.directory / "control.lock", blocking=False), file_lock(root / "data/.sessions.lock", blocking=False):
             if self.config: raise RuntimeError("Service already installed; use start or explicit uninstall")
+            unmoved_sync(root, self.directory)
             with socket.socket() as probe:
                 probe.bind(("127.0.0.1", port))
             python = os.path.abspath(python or sys.executable)
@@ -185,30 +199,24 @@ class Controller:
             write_json(self.directory / "service.json", config)
             atomic_private(self.directory / "token", secrets.token_urlsafe(48) + "\n")
             self.config = config
-            self.write_plist()
+            try:
+                self.manager.install()
+            except BaseException:
+                # Without its OS definition nothing is installed: the next install starts over.
+                for name in ("service.json", "token"):
+                    (self.directory / name).unlink(missing_ok=True)
+                self.config = {}
+                raise
             write_json(root / "data/.shared-service.json", {"directory": str(self.directory)})
         return {"state": "installed", "directory": str(self.directory), "port": port,
                 "scheduled_sync": stop_scheduled_sync(root), "user_sync": sync_note(self.directory)}
 
     def write_plist(self, probation=None):
-        arguments = [self.config["python"], "-m", "src.daemon", "--state", str(self.directory), "serve"]
-        # One argument: a URL-safe nonce may start with "-", which argparse would read as an option.
-        if probation: arguments.append("--probation=" + probation)
-        payload = {"Label": self.label, "ProgramArguments": arguments,
-                   "WorkingDirectory": self.config["installation"],
-                   "EnvironmentVariables": {"PATH": self.config["path"], "PYTHONUNBUFFERED": "1"},
-                   "RunAtLoad": True, "KeepAlive": {"SuccessfulExit": False},
-                   "ThrottleInterval": 15, "ProcessType": "Interactive",
-                   "StandardOutPath": "/dev/null", "StandardErrorPath": "/dev/null"}
-        atomic_private(self.plist, plistlib.dumps(payload).decode())
+        """Record the service definition (a LaunchAgent plist, a Task Scheduler task) without starting it."""
+        self.manager.write(probation)
 
     def _start(self, probation=None):
-        self.write_plist(probation)
-        loaded = self.launchctl("print", self.target, check=False).returncode == 0
-        if not loaded:
-            self.launchctl("bootstrap", f"gui/{os.getuid()}", str(self.plist))
-        else:
-            self.launchctl("kickstart", self.target)
+        self.manager.start(probation)
 
     def start(self):
         with file_lock(self.directory / "control.lock", blocking=False):
@@ -230,11 +238,36 @@ class Controller:
         self.request("/admin/resume", method="POST")
         raise TimeoutError("Drain timed out; runtime resumed without killing active work")
 
+    def exit_gracefully(self, timeout=EXIT_TIMEOUT):
+        """Ask the service to shut down as on SIGTERM; True once it has released ``.daemon.lock``.
+
+        False at once when it does not answer or does not know ``/admin/exit`` (a service started
+        from older code), else after ``timeout``: the caller then ends the process the hard way.
+        """
+        try:
+            code, answer = self.request("/admin/exit", method="POST", status=True)
+        except (OSError, URLError, RuntimeError, ValueError):
+            return False
+        if code != 200 or answer.get("state") != "exiting":
+            return False
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            try:
+                with file_lock(self.directory / ".daemon.lock", blocking=False):
+                    return True
+            except BlockingIOError:
+                time.sleep(.1)
+        return False
+
     def _stop(self):
         self._drain()
-        result = self.launchctl("bootout", self.target, check=False)
-        if result.returncode and self.launchctl("print", self.target, check=False).returncode == 0:
-            raise RuntimeError("launchd could not stop the service")
+        try:
+            self.manager.stop()
+        except BaseException:
+            # A service the OS scheduler did not stop keeps serving instead of staying drained.
+            try: self.request("/admin/resume", method="POST")
+            except (OSError, URLError, RuntimeError, ValueError): pass
+            raise
         deadline = time.monotonic() + 60
         while True:
             try:
@@ -257,13 +290,39 @@ class Controller:
         disable(self)
         with file_lock(self.directory / "control.lock", blocking=False):
             self._stop()
-            self.plist.unlink(missing_ok=True)
+            self.manager.remove()
             marker = Path(self.config["installation"]) / "data/.shared-service.json"
             if read_json(marker, {}).get("directory") == str(self.directory): marker.unlink()
             (self.directory / "service.json").unlink()
         return {"state": "uninstalled", "retained": "private backups, token, workspace registry and history indexes",
                 "user_sync": "the daemon no longer syncs the library; to keep syncing without it run "
                              "`python -m src.user_sync schedule enable`"}
+
+
+UPDATES_ON_WINDOWS = (
+    "Service updates are not supported on Windows yet (#195): the update transaction hands the installation "
+    "leases to the updater through POSIX descriptor inheritance, and stdio servers on Windows take no "
+    "installation lease. Stop the service, update the checkout, then start it; its warmup rebuilds changed "
+    "skill and implant indexes.")
+
+
+def unmoved_sync(installation, directory):
+    """Refuse a Windows install while user sync keeps its settings where the service will not look.
+
+    Without the service, user sync keeps them in ``%LOCALAPPDATA%\\Agents-Core\\<id>\\user-sync``;
+    the service reads ``<state>\\user-sync``, and ``install`` removes the scheduled sync run, so
+    sync would stop without a word. Moving the directory waits for #256.
+    """
+    if service.PLATFORM != "win32":
+        return
+    identity = default_state_dir(installation).name
+    old = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData/Local") / "Agents-Core" / identity / "user-sync"
+    new = Path(directory) / "user-sync"
+    if (old / "user-sync.json").is_file() and not (new / "user-sync.json").exists():
+        raise RuntimeError(
+            f"User sync is set up for this installation in {old}, but the service keeps sync's settings in "
+            f"{new}. Run `python -m src.user_sync schedule disable`, move {old} to {new}, then run install "
+            "again (#256).")
 
 
 def sync_note(directory):
@@ -380,6 +439,10 @@ def main(argv=None):
                 parser.error("Each --client-config target must be selected by --clients")
     controller = Controller(args.state)
     exit_code = 0
+    if service.PLATFORM == "win32" and (args.command == "update" or (
+            args.command == "auto-update" and args.action in ("enable", "run"))):
+        print(json.dumps({"state": "unsupported", "error": UPDATES_ON_WINDOWS}, ensure_ascii=False, indent=2))
+        return 2
     if args.command == "serve":
         from .bootstrap import serve
         serve(controller.directory, args.probation)

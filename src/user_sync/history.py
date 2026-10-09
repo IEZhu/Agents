@@ -200,7 +200,8 @@ def _root_key(path) -> str:
 def _top_level(root: str) -> bool:
     try:
         result = subprocess.run(["git", "-C", root, "rev-parse", "--show-toplevel"],
-                                capture_output=True, text=True, timeout=5, stdin=subprocess.DEVNULL)
+                                capture_output=True, text=True, timeout=5, stdin=subprocess.DEVNULL,
+                                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     except (OSError, subprocess.SubprocessError):
         return False
     if result.returncode != 0 or not result.stdout.strip():

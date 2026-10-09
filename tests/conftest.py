@@ -194,3 +194,18 @@ def pending_stdin_read():
         reader.join(5)
         _winapi.CloseHandle(client)
         _winapi.CloseHandle(server)
+
+
+@pytest.fixture(autouse=True)
+def service_platform(monkeypatch):
+    """The daemon's tests see launchd on every platform, as they did before the Windows backend
+    (#195), and never reach Task Scheduler: a test of ``src.daemon.service.TaskScheduler`` sets
+    ``service.PLATFORM`` to ``win32`` and passes its own runner. Returns the service module.
+    """
+    from src.daemon import service
+
+    def refuse(argv, **_):
+        raise AssertionError(f"a test reached the OS scheduler: {argv}")
+    monkeypatch.setattr(service, "PLATFORM", "darwin")
+    monkeypatch.setattr(service, "RUNNER", refuse)
+    return service

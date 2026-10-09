@@ -1227,8 +1227,9 @@ def test_cli_reports_errors_without_tracebacks_and_takes_explicit_directories(pa
     assert json.loads(capsys.readouterr().out)["reason"] == "scopes_invalid"
 
 
-def test_the_macos_state_directory_follows_an_installed_daemon(tmp_path, monkeypatch):
-    monkeypatch.setattr(engine_module.sys, "platform", "darwin")
+@pytest.mark.parametrize("platform", ["darwin", "win32"])
+def test_the_state_directory_follows_an_installed_daemon(tmp_path, monkeypatch, platform):
+    monkeypatch.setattr(engine_module.sys, "platform", platform)
     monkeypatch.delenv("AGENTS_SERVICE_DIR", raising=False)
     monkeypatch.setattr(engine_module, "installation_root", lambda: tmp_path)
     (tmp_path / "data").mkdir()
@@ -1236,6 +1237,15 @@ def test_the_macos_state_directory_follows_an_installed_daemon(tmp_path, monkeyp
     assert engine_module.default_state_dir() == tmp_path / "service" / "user-sync"
     monkeypatch.setenv("AGENTS_SERVICE_DIR", str(tmp_path / "env-service"))
     assert engine_module.default_state_dir() == (tmp_path / "env-service").resolve() / "user-sync"
+
+
+@pytest.mark.skipif(os.name != "nt", reason="the %LOCALAPPDATA% default is Windows-specific")
+def test_without_a_daemon_windows_keeps_its_state_in_localappdata(tmp_path, monkeypatch):
+    monkeypatch.delenv("AGENTS_SERVICE_DIR", raising=False)
+    monkeypatch.setattr(engine_module, "installation_root", lambda: tmp_path)
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "LocalAppData"))
+    assert engine_module.default_state_dir() == (tmp_path / "LocalAppData" / "Agents-Core"
+                                                 / engine_module.installation_id() / "user-sync")
 
 
 def test_configure_validates_the_fetch_interval(pair):
