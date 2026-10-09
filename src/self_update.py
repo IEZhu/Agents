@@ -306,8 +306,9 @@ def _run_command_in_job(args, cwd: str, timeout: int, *, env=None) -> subprocess
     from src.windows_job import Job
     deadline = time.monotonic() + timeout
     with Job() as job:
+        # Git writes paths in UTF-8 whatever the ANSI code page; a stray byte must not fail the update.
         process = job.start(args, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                            stderr=subprocess.PIPE, text=True, env=env,
+                            stderr=subprocess.PIPE, encoding="utf-8", errors="replace", env=env,
                             creationflags=subprocess.CREATE_NO_WINDOW)
         with process:
             try:

@@ -946,8 +946,8 @@ refuse fails here. A failed build leaves the service and the live tree untouched
 and the next run retries it.
 
 A build can take minutes: scheduled runs build at the updater LaunchAgent's
-`Background` priority, or the updater task's below-normal one on Windows (see [automatic updates](#automatic-updates-opt-in)). The
-controller does not hold the control lock while it builds, so `stop`, `restart`
+`Background` priority, or the updater task's below-normal one on Windows (see
+[automatic updates](#automatic-updates-opt-in)). The controller does not hold the control lock while it builds, so `stop`, `restart`
 and `auto-update disable` keep working, and `AGENTS_AUTO_UPDATE_REINDEX_TIMEOUT`
 (default 3600 s) only stops a hung build. Afterwards the controller takes the
 control lock again. If the service configuration changed meanwhile, it defers,
@@ -1012,9 +1012,9 @@ that runs `auto-update run` every `--interval` seconds (default 900, minimum
 trigger repeated every interval, rounded up to whole minutes, with no logon
 trigger, so the first run comes one interval after `enable`, as with the
 LaunchAgent. It runs at Task Scheduler's background priority (7, below normal),
-without an execution time limit, and `IgnoreNew` skips a
-run while the previous one still updates. A run fetches `AGENTS_AUTO_UPDATE_REMOTE` / `AGENTS_AUTO_UPDATE_BRANCH`
-(defaults `origin` / `main`) and stops there when the installation is up to date
+without an execution time limit, and `IgnoreNew` skips a run while the previous
+one still updates. A run fetches `AGENTS_AUTO_UPDATE_REMOTE` /
+`AGENTS_AUTO_UPDATE_BRANCH` (defaults `origin` / `main`) and stops there when the installation is up to date
 and no [model switch](#embedding-model) is pending.
 Unlike stdio servers, the controller reads these variables,
 `AGENTS_AUTO_UPDATE_TIMEOUT` and `AGENTS_AUTO_UPDATE_REINDEX_TIMEOUT` from its own
@@ -1030,8 +1030,7 @@ this installation is running, since `update` would stop the service only to find
 it busy: macOS lists the processes holding the installation lease with `lsof`,
 and Windows, which does not say who holds a lock, finds the stdio slots
 (`data/stdio/<n>/.lease`) that a running server holds. A stopped service is left
-stopped. An unfinished transaction blocks
-further runs until `recover`.
+stopped. An unfinished transaction blocks further runs until `recover`.
 
 Downtime is the stop, the activation and the warmup; the build runs before the
 stop. The updater LaunchAgent runs as a `Background` process with low-priority

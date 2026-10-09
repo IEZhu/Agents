@@ -427,9 +427,9 @@ Windows differs in two places. A Windows lock belongs to the process that took
 it, so a git or reindex child cannot keep the installation leased after the
 server exits: the children run in a job object that ends them with the server,
 and the next prepare starts over. Windows also has no `exec`: after activation,
-the server runs the updated code as a child process with its own standard
-handles, releases its leases to it, and exits with the child's exit code, so the
-client keeps talking to the process it started.
+the server releases its leases, runs the updated code as a child process on the
+same standard handles, and exits with the child's exit code, so the client keeps
+talking to the process it started.
 
 Before changing the live tree, the updater flushes a recovery journal to
 `data/.update_in_progress.json`. It removes this guard only after successful
