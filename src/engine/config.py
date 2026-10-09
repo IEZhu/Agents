@@ -1,9 +1,11 @@
 import logging
 import os
 import sys
+import urllib.parse
+import urllib.request
 from functools import lru_cache
 from pathlib import Path
-from typing import Optional
+from typing import Iterable, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -156,7 +158,8 @@ def get_client_repo_root(*, allow_install_fallback: bool = True) -> str:
     With allow_install_fallback=False, an unavailable cwd raises OSError
     instead of selecting the installation as the target of a workflow.
     Memoized for the process lifetime; failures are not cached. Tests reset
-    via `_reset_client_repo_root_cache()`.
+    via `_reset_client_repo_root_cache()`. A tool call that names its own
+    `workspace` bypasses this process-wide root (`client_root_from_workspace`).
     """
     return get_client_repo_root_info(allow_install_fallback=allow_install_fallback)[0]
 
@@ -245,6 +248,83 @@ def _resolve_client_repo_root() -> tuple[str, bool, str]:
         )
     _log_resolution(str(root), source)
     return str(root), False, source
+
+
+def _root_uri_path(uri: str) -> Optional[Path]:
+    """Local path of a `file:` root URI; None for another scheme or a remote host."""
+    parts = urllib.parse.urlsplit(uri)
+    if parts.scheme != "file":
+        return None
+    if parts.netloc and parts.netloc.lower() != "localhost":
+        if not _is_windows():
+            return None
+        # file://server/share/dir is a UNC path, as Node's pathToFileURL writes it.
+        return Path(urllib.request.url2pathname(f"//{parts.netloc}{parts.path}"))
+    return Path(urllib.request.url2pathname(parts.path))
+
+
+def _main_checkout(root: Path) -> Path:
+    """The main checkout of the git worktree at *root*, else *root* itself.
+
+    Claude Code gives a worktree session's servers the main checkout as
+    CLAUDE_PROJECT_DIR, and a worktree is deleted after its branch lands, so
+    its turns belong to the main checkout's history.
+    """
+    dot_git = root / ".git"
+    if not dot_git.is_file():
+        return root
+    try:
+        pointer = dot_git.read_text(encoding="utf-8").strip()
+        if not pointer.startswith("gitdir:"):
+            return root
+        gitdir = root / pointer[len("gitdir:"):].strip()
+        # Only a worktree's git directory has commondir; a submodule's does not.
+        common = (gitdir / (gitdir / "commondir").read_text(encoding="utf-8").strip()).resolve()
+    except (OSError, UnicodeDecodeError, ValueError):
+        return root
+    main = common.parent
+    return main if common.name == ".git" and common.is_dir() and main != root else root
+
+
+def client_root_from_workspace(workspace: str, root_uris: Iterable[str]) -> str:
+    """The project of a tool call that names its `workspace` (stdio).
+
+    A server process may serve several sessions: the Claude desktop app starts
+    one for all its Code sessions, in C:\\Windows\\System32, and answers
+    roots/list with the folders of every open session. The caller names its
+    own directory; it must lie inside one of the client's MCP roots, the
+    directories the client lets servers work in, so a model cannot point
+    memory at an arbitrary repository. The directory then resolves as
+    CLAUDE_PROJECT_DIR does (nearest `.git` or `CLAUDE.md` at or above it,
+    else itself), a git worktree to its main checkout, and an unsafe result is
+    refused. Raises `ClientRootError` (`workspace_invalid` or
+    `workspace_unsafe`).
+    """
+    path = Path(workspace)
+    if not path.is_absolute():
+        raise ClientRootError(f"workspace {workspace!r} is not an absolute path", code="workspace_invalid")
+    try:
+        path = path.resolve(strict=True)
+    except (OSError, RuntimeError):
+        path = None
+    if path is None or not path.is_dir():
+        raise ClientRootError(f"workspace {workspace!r} is not an existing directory", code="workspace_invalid")
+    roots = [root.resolve() for root in map(_root_uri_path, root_uris) if root is not None]
+    if not any(_inside(path, root) for root in roots):
+        named = ", ".join(str(root) for root in roots) or "none"
+        raise ClientRootError(
+            f"workspace {path} is outside the client's MCP roots ({named})", code="workspace_invalid",
+        )
+    marked = _find_marker_upwards(path)
+    root = _main_checkout(marked if marked is not None else path)
+    reason = _unsafe_client_root_reason(root)
+    if reason is not None:
+        raise ClientRootError(
+            f"refusing {root} (from workspace {path}) as the client repo root for "
+            f"per-repo memory and flows: {reason}",
+            code="workspace_unsafe",
+        )
+    return str(root)
 
 
 def _log_resolution(root: str, source: str) -> None:

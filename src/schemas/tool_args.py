@@ -112,6 +112,10 @@ REFRESH_PERSONA_DESC = (
 )
 CHAT_HISTORY_DESC = "Optional relevant earlier conversation facts, as a JSON array of strings."
 REPO_PATH_DESC = "Optional directory within the caller workspace; defaults to the workspace."
+WORKSPACE_DESC = (
+    "Absolute path of your working directory, the project this session works in. Pass it "
+    "whenever you have one: one server can serve several sessions."
+)
 
 LOG_PERSONA_DESC = (
     "The `persona` object of the last SUCCESS/NO_CHANGE, copied verbatim, with all 7 keys: "

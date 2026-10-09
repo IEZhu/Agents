@@ -7,7 +7,7 @@ import datetime as dt
 import json
 import os
 import time
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
 
 import httpx
 import pytest
@@ -213,8 +213,8 @@ async def test_log_interaction_names_a_known_app_in_meta(tmp_path, monkeypatch, 
     monkeypatch.setattr(server, "HistoryWriter", writer)
     monkeypatch.setattr(server, "_drain_abandoned", False)
     monkeypatch.setattr(server, "is_langfuse_configured", lambda: False)
-    monkeypatch.setattr(server, "client_context",
-                        lambda ctx, **kw: ClientContext("r", "http", "w", tmp_path, client=app))
+    monkeypatch.setattr(server, "resolve_client_context",
+                        AsyncMock(return_value=ClientContext("r", "http", "w", tmp_path, client=app)))
     await server.mcp.call_tool("log_interaction", {"agent_name": "lawyer", "query": "q", "response_content": "r"})
     assert server.drain_pending_logs(5)
     metadata = writer.return_value.append_entry.call_args.args[5]
