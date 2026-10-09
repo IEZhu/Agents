@@ -57,7 +57,9 @@ if fcntl is None and os.name == "nt":
         # A shared lock over our own exclusive one, then one unlock: Windows removes the
         # exclusive lock first, so no other process can take the lease in between.
         _lock(fd, exclusive=False, blocking=False)
-        _kernel32.UnlockFileEx(msvcrt.get_osfhandle(fd), 0, 1, 0, ctypes.byref(_Overlapped()))
+        if not _kernel32.UnlockFileEx(msvcrt.get_osfhandle(fd), 0, 1, 0, ctypes.byref(_Overlapped())):
+            # Still exclusive: every other start would wait for this whole session.
+            raise ctypes.WinError(ctypes.get_last_error())
 
     def _unlock(fd):
         # Each call removes one lock of this handle: the exclusive one first, then the shared one.

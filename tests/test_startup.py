@@ -504,14 +504,20 @@ from src.startup import server_session
 root = Path(sys.argv[2])
 first = not (root / "parent.pid").exists()
 activated = []
+updater = str(root / "data" / ".update.lock")
 def activate(fd):
     activated.append(fd)
     if first:
         (root / "parent.pid").write_text(str(os.getpid()))
-        self_update._reexec_updated_server()
+        # As startup activation does: both leases registered, the updater lock innermost.
+        with self_update._inherit_lock(fd), self_update._process_lock(updater) as held:
+            assert held
+            self_update._reexec_updated_server()
         raise AssertionError("re-exec returned")
 with server_session(root, activate):
-    print("SERVING", os.getpid(), "activated" if activated else "shared", flush=True)
+    with self_update._process_lock(updater) as free:
+        print("SERVING", os.getpid(), "activated" if activated else "shared",
+              "updater-free" if free else "updater-held", flush=True)
     line = sys.stdin.readline()
     if line.strip() == "hang":
         sys.stdin.readline()
@@ -536,8 +542,8 @@ def test_windows_reexec_serves_the_updated_code_on_the_same_stdio(tmp_path):
     try:
         serving = parent.stdout.readline().split()
         assert serving[0] == "SERVING", parent.stderr.read() if parent.poll() is not None else serving
-        # The child got the session lease exclusively: the parent released it before starting it.
-        assert serving[2] == "activated"
+        # The child got both leases: the parent released them before starting it.
+        assert serving[2:] == ["activated", "updater-free"]
         # A venv's python.exe starts the interpreter as its child: compare the interpreters' PIDs.
         assert int(serving[1]) != int((root / "parent.pid").read_text())
         output, errors = parent.communicate(input="request\n", timeout=10)
@@ -586,3 +592,29 @@ def test_windows_session_lease_downgrades_without_a_gap(tmp_path):
         seen["serving"] = (other("s"), other("x"))
     assert seen == {"during": ("busy", "busy"), "serving": ("got", "busy")}
     assert other("x") == "got"
+
+
+def test_a_held_stdio_slot_is_what_the_service_updater_sees(tmp_path):
+    """On Windows the service's auto-update finds stdio readers by their slot leases alone."""
+    from types import SimpleNamespace
+    from src.daemon import autoupdate
+    if not startup.LEASES:
+        pytest.skip("no installation leases on this platform")
+    (tmp_path / "data").mkdir()
+    code = """
+import sys
+sys.path.insert(0, sys.argv[1])
+from src.startup import stdio_derived_state
+with stdio_derived_state(sys.argv[2]) as derived:
+    print(derived, flush=True)
+    sys.stdin.readline()
+"""
+    process = _child(code, ROOT, tmp_path)
+    try:
+        derived = Path(process.stdout.readline().strip())
+        installation = SimpleNamespace(config={"installation": str(tmp_path)})
+        assert autoupdate.held_slots(installation) == ["stdio slot " + derived.name]
+        process.communicate(input="exit\n", timeout=10)
+        assert autoupdate.held_slots(installation) == []
+    finally:
+        _stop(process)

@@ -426,7 +426,9 @@ those sessions stopped.
 Windows differs in two places. A Windows lock belongs to the process that took
 it, so a git or reindex child cannot keep the installation leased after the
 server exits: the children run in a job object that ends them with the server,
-and the next prepare starts over. Windows also has no `exec`: after activation,
+and the next prepare starts over. A git child ended this way can leave a lock
+file in `.git`; git names it when it next fails, and it can be deleted once no
+git process runs. Windows also has no `exec`: after activation,
 the server releases its leases, runs the updated code as a child process on the
 same standard handles, and exits with the child's exit code, so the client keeps
 talking to the process it started.
@@ -739,9 +741,9 @@ scope audits, updates, token rotation and rollback.
 
 On Windows the same commands, run with `.venv\Scripts\python.exe`, install the
 service as a hidden Task Scheduler task of the current user, with its private
-state in `%USERPROFILE%\.agents-core`. Stdio servers on Windows take no
-installation lease, so `install` cannot see them: end them yourself first.
-`update` and automatic updates are not available there yet (#195). See
+state in `%USERPROFILE%\.agents-core`; `update` and automatic updates work as on
+macOS. The controller of an older checkout refuses `update` on Windows: update
+such a checkout once with `stop`, `git pull --ff-only` and `start`. See
 [Windows](docs/shared-mcp-daemon.md#windows-task-scheduler).
 
 Setup, migration and audit read `CLAUDE_CONFIG_DIR`, `CODEX_HOME`,
@@ -957,8 +959,9 @@ and reconnect MCP before retrying memory operations; for stdio, set
 Source history and `CLAUDE.md` stay in the project. The summary hash is stored in
 the project's `data/memory/`. Derived router and history indexes live in private
 daemon state or, for standalone processes, in leased `data/stdio/` slots of the
-installation (a temporary per-process directory on Windows). These
-indexes can be rebuilt without deleting the source history.
+installation (a temporary per-process directory on a file system without
+byte-range locks). These indexes can be rebuilt without deleting the source
+history.
 
 See [service memory behavior](docs/shared-mcp-daemon.md#memory-and-errors) for the
 current transport contract and [the original memory design](docs/memory-subsystem-spec.md)

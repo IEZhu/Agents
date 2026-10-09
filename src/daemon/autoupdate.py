@@ -140,7 +140,8 @@ def _git(controller, *args, check=True):
     return subprocess.run([controller.config["git"], *args], cwd=controller.config["installation"],
                           capture_output=True, text=True, timeout=GIT_TIMEOUT, check=check,
                           stdin=subprocess.DEVNULL, creationflags=NO_WINDOW,
-                          env={**os.environ, "PATH": controller.config["path"], "GIT_TERMINAL_PROMPT": "0"})
+                          env={**os.environ, "PATH": controller.config["path"], "GIT_TERMINAL_PROMPT": "0",
+                               "GCM_INTERACTIVE": "false"})
 
 
 def check_target(controller, remote=None, branch=None):
@@ -200,7 +201,8 @@ def other_readers(controller, daemon_pid):
 
     `offline_update` stops the service before it can learn that a stdio server
     holds the lease, then restarts it. Checking first keeps a connected stdio
-    client from costing a restart on every interval. None when unknown.
+    client from costing a restart on every interval. None when unknown; on
+    Windows the held stdio slots instead (`held_slots`).
     """
     if service.PLATFORM == "win32":
         return held_slots(controller)
@@ -218,6 +220,8 @@ def held_slots(controller):
 
     Windows does not say which processes hold a lock. Each stdio server holds one slot for
     its whole session, the service none: a slot that cannot be locked has a stdio reader.
+    A reader without a slot, such as a `python -m src.user_sync` command, goes unseen: the
+    update then stops the service, finds the lease held and restarts it.
     """
     base = Path(controller.config["installation"]) / "data" / "stdio"
     held = []

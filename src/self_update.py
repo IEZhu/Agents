@@ -180,14 +180,22 @@ _lock_state = threading.local()
 
 
 def _subprocess_lock_fds():
-    """Leases a child must retain if its updater parent exits unexpectedly."""
-    return getattr(_lock_state, "fds", ()) if os.name == "posix" else ()
+    """Leases a child must retain if its updater parent exits unexpectedly.
+
+    None on Windows: a child cannot hold its parent's lock there (src/windows_job.py).
+    """
+    return _held_lock_fds() if os.name == "posix" else ()
+
+
+def _held_lock_fds():
+    """Leases registered on the current thread; a Windows re-exec releases them."""
+    return getattr(_lock_state, "fds", ())
 
 
 @contextmanager
 def _inherit_lock(fd):
     """Register a held lease for subprocesses launched on the current thread."""
-    previous = _subprocess_lock_fds()
+    previous = _held_lock_fds()
     _lock_state.fds = previous if fd is None else (*previous, fd)
     try:
         yield
@@ -344,6 +352,8 @@ def _run_git(args, cwd: str, timeout: int) -> subprocess.CompletedProcess:
         ["git", *args],
         cwd=cwd,
         timeout=timeout,
+        # A credential prompt would wait for nobody; Git Credential Manager would open a window.
+        env={**os.environ, "GIT_TERMINAL_PROMPT": "0", "GCM_INTERACTIVE": "false"},
     )
 
 
@@ -1463,7 +1473,7 @@ def _respawn_server(argv: list) -> None:
     """
     from src.startup import release_leases
     from src.windows_job import Job
-    for fd in getattr(_lock_state, "fds", ()):  # the activation's updater lock
+    for fd in _held_lock_fds():  # the activation's updater lock and session lease
         _unlock(fd)
     release_leases()
     for stream in (sys.stdout, sys.stderr):
@@ -1472,7 +1482,14 @@ def _respawn_server(argv: list) -> None:
     job = Job()
     stdin, stdout, stderr = (fd if _is_open(fd) else subprocess.DEVNULL for fd in (0, 1, 2))
     process = job.start(argv, stdin=stdin, stdout=stdout, stderr=stderr, creationflags=subprocess.CREATE_NO_WINDOW)
-    code = process.wait()
+    while True:
+        try:
+            # An untimed wait cannot be interrupted: Ctrl+C in a console ends this
+            # process between the timed waits, and with it the job and the child.
+            code = process.wait(timeout=1)
+            break
+        except subprocess.TimeoutExpired:
+            continue
     # A Windows exit code is unsigned; os._exit takes a C int.
     os._exit(code - 2**32 if code >= 2**31 else code)
 

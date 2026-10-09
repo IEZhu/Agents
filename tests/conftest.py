@@ -223,5 +223,6 @@ def no_server_restart(monkeypatch):
     from src import self_update
 
     def refuse(executable, argv):
-        raise AssertionError(f"a test restarted the test process: {argv}")
+        # Not AssertionError: activation turns any Exception into the SystemExit a test may expect.
+        pytest.fail(f"a test restarted the test process: {argv}")
     monkeypatch.setattr(self_update, "_exec_server", refuse)
