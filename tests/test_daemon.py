@@ -250,6 +250,18 @@ async def test_bridges_register_their_projects_without_migrate(tmp_path, monkeyp
             for unsafe in (plain.anchor, str(fake_home)):
                 response = await http.post("/workspaces", json={"path": unsafe, "origin": "hook"}, headers=headers)
                 assert (response.status_code, response.json()["error"]) == (400, "workspace_unsafe")
+            # A stdio client's AGENTS_CLIENT_REPO_ROOT (#266), taken as a stdio server takes it:
+            # as named, not walked up to the project marker above it.
+            override = await http.post("/workspaces", json={"path": str(project / "pkg"), "origin": "AGENTS_CLIENT_REPO_ROOT"},
+                                       headers=headers)
+            assert override.status_code == 200 and override.json()["root"] == str((project / "pkg").resolve())
+            unsafe = await http.post("/workspaces", json={"path": str(fake_home), "origin": "AGENTS_CLIENT_REPO_ROOT"},
+                                     headers=headers)
+            assert (unsafe.status_code, unsafe.json()["error"]) == (400, "workspace_unsafe")
+            # Relative, it would count from the service's working directory, the installation.
+            relative = await http.post("/workspaces", json={"path": "project", "origin": "AGENTS_CLIENT_REPO_ROOT"},
+                                       headers=headers)
+            assert (relative.status_code, relative.json()["error"]) == (400, "workspace_invalid")
             for malformed in ({"path": 1}, {"path": str(project), "roots": "file:///x"}, ["list"],
                               {"path": str(project), "origin": "env"}):
                 response = await http.post("/workspaces", json=malformed, headers=headers)

@@ -4,6 +4,8 @@ import { createInterface } from 'node:readline';
 import { once } from 'node:events';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { Buffer } from 'node:buffer';
+import { homedir } from 'node:os';
+import { resolve } from 'node:path';
 
 const path = process.argv[2];
 // Windows has no mode bits: there the config inherits the owner-only ACL of the service directory
@@ -48,11 +50,18 @@ async function register(request) {
 // Workspace "auto": the client starts this bridge once per session, in the session's directory,
 // and Claude Code also names it in CLAUDE_PROJECT_DIR; that is what a stdio server trusts too.
 // A bare cwd counts only inside a project (.git or CLAUDE.md): some hosts start servers elsewhere.
+// AGENTS_CLIENT_REPO_ROOT, the override a stdio client's configuration may set, outranks both and,
+// as in a stdio server, decides alone (#266: `src/server.py` hands its session to this bridge).
+// A relative value counts from this bridge's directory, as from a stdio server's: the daemon runs elsewhere.
+const overridden = process.env.AGENTS_CLIENT_REPO_ROOT?.trim();
+const override = config.workspace === 'auto' && overridden && resolve(overridden.replace(/^~(?=$|[\\/])/, homedir()));
 function sessionWorkspace() {
   if (config.workspace !== 'auto') return Promise.resolve(null);
   const named = process.env.CLAUDE_PROJECT_DIR;
+  const request = override ? { path: override, origin: 'AGENTS_CLIENT_REPO_ROOT' }
+    : named ? { path: named, origin: 'CLAUDE_PROJECT_DIR' } : { path: process.cwd() };
   if (!session) {
-    const identity = register(named ? { path: named, origin: 'CLAUDE_PROJECT_DIR' } : { path: process.cwd() }).catch(error => {
+    const identity = register(request).catch(error => {
       process.stderr.write(`Agents-Core bridge: no workspace for this session (${error.message}).\n`);
       // A pending launch-directory retry must not erase a newer signed binding.
       if (!error.refused && session === identity) session = undefined;
@@ -88,6 +97,10 @@ async function workspaceFor(message) {
   const args = message.method === 'tools/call' ? message.params?.arguments : undefined;
   const workspace = typeof args?.workspace === 'string' && args.workspace.trim() ? args.workspace.trim() : undefined;
   const signature = typeof args?.workspace_signature === 'string' && args.workspace_signature.trim() ? args.workspace_signature.trim() : undefined;
+  if (override) {
+    if (signature) delete message.params.arguments.workspace_signature;
+    return sessionWorkspace();
+  }
   if (signature) {
     delete message.params.arguments.workspace_signature;
     const token = (config.headers?.Authorization || '').replace(/^Bearer\s+/i, '').trim();

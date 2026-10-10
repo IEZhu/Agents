@@ -75,6 +75,8 @@ def test_install_persists_node_path_for_other_working_directories(tmp_path, monk
 
     expected = None if node_source == "missing" else str(node)
     assert read_json(controller.directory / "service.json")["node"] == expected
+    # #266: stdio servers of the installation serve through the service from install on.
+    assert (controller.directory / "bridges/stdio-auto.json").exists() == (expected is not None)
     monkeypatch.chdir(root)
     migration = ClientMigration(controller.directory)
     if expected is None:
