@@ -119,8 +119,8 @@ def test_the_line_search_keeps_a_longest_common_subsequence():
     ("common/shared.md", b"x" * (256 * 1024 + 1), "too_large"),
     (".agents-library.json", b"{}\n", "not_text"),
     ("repos/github.com-me-project/history/laptop/2026-10.md", b"a\n", "not_text"),
-])
-def test_what_is_not_merged_line_by_line(path, base, reason):
+], ids=["no-base", "persona", "marker", "not-utf8", "nul", "over-256k", "library-file", "history-segment"])
+def test_what_is_not_merged_line_by_line(path, base, reason):  # short ids: a 256 KiB one stalled the Windows log
     assert merging.text_merge_refusal(path, base, b"local\n", b"remote\n") == reason
 
 
