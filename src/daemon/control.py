@@ -208,6 +208,9 @@ class Controller:
                 self.config = {}
                 raise
             write_json(root / "data/.shared-service.json", {"directory": str(self.directory)})
+            # Stdio servers of this installation serve through the service from now on (#266).
+            from .bootstrap import stdio_bridge
+            stdio_bridge(self.directory)
         return {"state": "installed", "directory": str(self.directory), "port": port,
                 "scheduled_sync": stop_scheduled_sync(root), "user_sync": sync_note(self.directory)}
 

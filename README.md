@@ -218,7 +218,7 @@ implant and history indexes; the router cache resets. Until the indexes are read
 tools answer `warming_up`. Rerunning `init_repo.sh` or `init_repo.bat` applies the
 same switch and downloads the model during setup. A model set after the switch,
 for example e5-large again, stays: the generation marker is already current. An
-`EMBEDDING_MODEL` exported in the server's environment overrides `.env` as before.
+`EMBEDDING_MODEL` exported in a standalone server's environment overrides `.env` as before.
 The shared service switches in its update transaction instead
 ([daemon guide](docs/shared-mcp-daemon.md#embedding-model)).
 
@@ -737,7 +737,10 @@ Global registrations provide routing; project memory requires a registered
 workspace. Register each clone or worktree separately with `migrate --workspace`.
 Migration manages private bearer headers and backups. Reconnect MCP in open
 clients after migration. See [service operations](docs/shared-mcp-daemon.md) for
-scope audits, updates, token rotation and rollback.
+scope audits, updates, token rotation and rollback. A client that still starts
+`src/server.py` over stdio is served by the service as well: the stdio server
+hands its session to the bridge instead of loading a second engine (see
+[stdio servers of a service installation](docs/shared-mcp-daemon.md#stdio-servers-of-a-service-installation)).
 
 On Windows the same commands, run with `.venv\Scripts\python.exe`, install the
 service as a hidden Task Scheduler task of the current user, with its private

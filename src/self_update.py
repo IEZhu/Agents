@@ -1468,39 +1468,14 @@ def _respawn_server(argv: list) -> None:
     ``os.execv`` there starts a new process and ends this one, which the MCP client
     started and waits on: the client would see its server exit. Instead, as exec
     does, release this process's leases (the child waits for them otherwise), then
-    run *argv* with this process's standard handles, in a job that ends the child
-    when this process ends (src/windows_job.py).
+    let *argv* take this process's place (`windows_job.replace_process`).
     """
     from src.startup import release_leases
-    from src.windows_job import Job
+    from src.windows_job import replace_process
     for fd in _held_lock_fds():  # the activation's updater lock and session lease
         _unlock(fd)
     release_leases()
-    for stream in (sys.stdout, sys.stderr):
-        if stream is not None:
-            stream.flush()
-    job = Job()
-    stdin, stdout, stderr = (fd if _is_open(fd) else subprocess.DEVNULL for fd in (0, 1, 2))
-    process = job.start(argv, stdin=stdin, stdout=stdout, stderr=stderr, creationflags=subprocess.CREATE_NO_WINDOW)
-    while True:
-        try:
-            # An untimed wait cannot be interrupted: Ctrl+C in a console ends this
-            # process between the timed waits, and with it the job and the child.
-            code = process.wait(timeout=1)
-            break
-        except subprocess.TimeoutExpired:
-            continue
-    # A Windows exit code is unsigned; os._exit takes a C int.
-    os._exit(code - 2**32 if code >= 2**31 else code)
-
-
-def _is_open(fd: int) -> bool:
-    """Whether this process has descriptor *fd*; a client may start a server without stderr."""
-    try:
-        os.fstat(fd)
-    except OSError:
-        return False
-    return True
+    replace_process(argv)
 
 
 def _run_update_safely() -> Optional[str]:

@@ -129,6 +129,35 @@ command holds the lock. Do not rerun setup while the service runs (see
 [Updates and recovery](#updates-and-recovery)); use `restore-clients` and
 `uninstall` to return to stdio.
 
+### Stdio servers of a service installation
+
+A client that still starts this installation's `src/server.py` over stdio, one that
+was never migrated or was added later by hand, is served by the service too, so the
+installation runs one engine (#266). Such a stdio server loads no engine: it hands
+its session to the bridge that migrated clients run (`bridge/stdio.mjs`), with the
+configuration the service keeps for it, `bridges/stdio-auto.json`
+(`X-Agents-Client: stdio`, `workspace: "auto"`). The service writes that file at
+`install` and at every start, and `token rotate` rewrites it with the other bridge
+configurations. On macOS the bridge replaces the server process; Windows, which has
+no exec, runs it as a child on the same standard handles, in a job object that ends
+it with the server.
+
+The session's workspace comes from `AGENTS_CLIENT_REPO_ROOT` when the client's
+configuration sets it, which then decides alone, as it does for a stdio server; else
+from `CLAUDE_PROJECT_DIR` or the launch directory, as for a migrated client's bridge,
+and a tool call may name its workspace inside the client's MCP roots. Such a server
+holds no installation lease, so it does not hold up `update` or `auto-update`. While
+the service is stopped its requests fail, as a migrated client's do; during
+maintenance it exits at startup, as before. Without a recorded Node or that
+configuration file, the stdio server serves standalone and says so on stderr.
+`AGENTS_STDIO_STANDALONE=1` in the client's environment keeps it standalone, for
+debugging the server itself. Through the service the session runs on the
+service's configuration: other settings in the client's environment, such as
+`EMBEDDING_MODEL` or `RULES_ENABLED`, do not apply, and `describe_repo` answers
+`needs_summary` instead of sampling the client, as for every bridge client.
+Migrating the client remains the better setup: its bridge starts directly, without
+a Python process first.
+
 ### Sync at installation
 
 `install` reports `user_sync`: `set up`, `pending` (set up but not started) or
@@ -362,10 +391,11 @@ keeps finding its settings there afterwards.
 by `LockFileEx` instead of `flock`. Such a lock belongs to the process that took
 it: a child does not inherit it. The controller's git and reindex children
 therefore run in a job object that ends them when the controller exits, instead
-of keeping the leases after it, as they do on macOS. Stdio servers of this
-installation hold the shared installation lease too, so `install` and `update`
-refuse while one runs; a stdio server started from code before #195 holds none,
-so restart such servers once after updating the checkout. `auto-update enable`
+of keeping the leases after it, as they do on macOS. A standalone stdio server of
+this installation holds the shared installation lease too, so `install` and
+`update` refuse while one runs (one that serves through the service holds none); a
+stdio server started from code before #195 holds none, so restart such servers once
+after updating the checkout. `auto-update enable`
 registers a second hidden task, `agents-core-daemon-<state-directory-name>-updater`,
 with only the repeating trigger (see [automatic updates](#automatic-updates-opt-in)).
 
@@ -760,9 +790,10 @@ text of a query or an answer.
   open notification stream, or a request within `connected_window_seconds`, 300),
   when it was last seen, its requests today, and the client name and version
   from its latest MCP `initialize` with the workspace it named. With stateless HTTP,
-  `initialize` is the only request that carries them. Apps that run Agents-Core
-  over stdio do not show as connected; their answers still count through
-  `history.md`.
+  `initialize` is the only request that carries them. Clients that start
+  `src/server.py` over stdio reach the service through the bridge and count
+  together as `stdio`. A standalone stdio server does not show as connected; its
+  answers still count through `history.md`.
 
 `log_interaction` from a known app also writes `client` into the entry's `**Meta:**`,
 so answers count per app from then on; older entries count as `unknown`.
@@ -964,7 +995,7 @@ builds anew.
 
 Only then does the controller enter maintenance, wait up to 60 seconds for drain,
 stop the service, and acquire the exclusive installation lease and the updater
-lock. A running stdio server of this installation blocks the update. Activation
+lock. A running standalone stdio server of this installation blocks the update. Activation
 backs up the live indexes, fast-forwards the checkout to the built commit and
 moves the built indexes into `data/`. These are file operations only, so the
 service is down for its stop, the activation and its warmup. Before the build
@@ -975,8 +1006,10 @@ reconnected by hand. A failed fast-forward or move restores the previous code
 and indexes. If the tree changed after the build was checked, activation discards
 the build and the service restarts on the previous code. A rollback or `recover`
 also discards the build, so a partly moved build is never activated later. Git
-and reindex subprocesses retain leases until they exit. While the service is installed, this installation's stdio servers do not
-self-update, and during maintenance or an unfinished transaction they exit at
+and reindex subprocesses retain leases until they exit. While the service is
+installed, this installation's stdio servers serve through it
+([stdio servers](#stdio-servers-of-a-service-installation)); a standalone one does
+not self-update. During maintenance or an unfinished transaction they exit at
 startup with `Shared service is in maintenance; use the controller to recover`.
 
 After the file transaction, writer leases are released and the same LaunchAgent
@@ -1034,8 +1067,9 @@ runs the same transaction as `update`. It also waits while any stdio server of
 this installation is running, since `update` would stop the service only to find
 it busy: macOS lists the processes holding the installation lease with `lsof`,
 and Windows, which does not say who holds a lock, finds the stdio slots
-(`data/stdio/<n>/.lease`) that a running server holds. A stopped service is left
-stopped. An unfinished transaction blocks further runs until `recover`.
+(`data/stdio/<n>/.lease`) that a running server holds. A stdio server that serves
+through the service holds neither and does not defer a run. A stopped service is
+left stopped. An unfinished transaction blocks further runs until `recover`.
 
 Downtime is the stop, the activation and the warmup; the build runs before the
 stop. The updater LaunchAgent runs as a `Background` process with low-priority
