@@ -320,6 +320,117 @@ def test_an_older_entry_that_was_not_previewed_changes_the_preview(tmp_path, two
     assert sorted(a.exported()) == ["older, in another checkout", "previewed"]
 
 
+# --- history share all ---------------------------------------------------------------------------
+
+OTHER_KEY = "github.com-me-other"
+
+
+def shared_intents(box: Box, key: str = KEY) -> list[str]:
+    """Intents in ``box``'s own segments of ``key``, in file order."""
+    base = box.machine.lib / "repos" / key / "history" / box.label
+    return [entry.intent for path in sorted(base.glob("*.md"))
+            for entry, _ in journal.entry_blocks(path.read_text(encoding="utf-8"))] if base.is_dir() else []
+
+
+def test_share_all_shares_every_repository_and_its_past_without_a_preview(tmp_path, two, clock, capsys):
+    a, _ = two
+    other = Box(tmp_path, "a-other", a.machine.remote, origin="git@github.com:me/other.git", machine=a.machine)
+    a.log("past in the project")
+    other.log("past in the other repository")
+    assert a.segments() == {} and len(a.status()["history_waiting"]) == 2
+
+    assert run_cli(a, "history", "share", "all", "--json") == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["status"] == "changed" and result["history_share"] == "all" and result["exported"] == 2
+    assert shared_intents(a) == ["past in the project"]
+    assert shared_intents(a, OTHER_KEY) == ["past in the other repository"]
+    status = a.status()
+    assert status["history_share"] == "all" and status["history_waiting"] == []
+    assert status["history_repositories"] == [] and status["history_revoked"] == []
+    assert a.export()["status"] == "up_to_date"
+
+    a.log("a new turn follows by itself")
+    third = Box(tmp_path, "a-third", a.machine.remote, origin="git@github.com:me/third.git", machine=a.machine)
+    third.log("a repository this machine had never seen")
+    assert shared_intents(a)[-1] == "a new turn follows by itself"
+    assert shared_intents(a, "github.com-me-third") == ["a repository this machine had never seen"]
+    a.sync()
+    assert f"repos/github.com-me-third/history/{a.label}/2026-10.md" in remote_files(a.machine.remote)
+
+    assert run_cli(a, "status") == 0
+    assert "history: every repository is shared" in capsys.readouterr().out
+    assert run_cli(a, "history", "share", "all", "--json") == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "unchanged"
+
+
+def test_share_all_also_shares_the_unreviewed_past_of_a_joining_clone(tmp_path, shared, clock):
+    a, _ = shared
+    clone = Box(tmp_path, "a3", a.machine.remote, machine=a.machine)
+    clock.now = datetime(2026, 9, 1, 8, 0, tzinfo=timezone.utc)
+    clone.writer.append_entry("old work in a second clone", "a", "o")
+    clock.now = datetime(2026, 10, 5, 13, 0, tzinfo=timezone.utc)
+    clone.read()  # registers it; its past waits for a review
+    assert history_sync.drain(60)
+    assert "old work in a second clone" not in a.exported()
+    assert history_sync.share("all", state_dir=a.machine.state, library=a.machine.lib)["status"] == "changed"
+    assert "old work in a second clone" in a.exported()
+    assert a.status()["history_waiting"] == []
+    later = Box(tmp_path, "a4", a.machine.remote, machine=a.machine)
+    later.writer.append_entry("past of a clone that joins under share all", "a", "o")
+    later.log("its first turn")
+    assert {"past of a clone that joins under share all", "its first turn"} <= set(a.exported())
+    roots = history_sync._roots(history_sync._machine(a.machine.state, a.machine.lib))
+    assert not roots[str(later.repo.resolve())].get("unreviewed")
+
+
+def test_revoke_under_share_all_keeps_one_key_out_until_it_is_approved_again(tmp_path, two, clock, capsys):
+    a, _ = two
+    other = Box(tmp_path, "a-other", a.machine.remote, origin="git@github.com:me/other.git", machine=a.machine)
+    history_sync.share("all", state_dir=a.machine.state, library=a.machine.lib)
+    a.log("shared before the revoke")
+
+    assert run_cli(a, "history", "revoke", KEY, "--json") == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "revoked"
+    a.log("after the revoke")
+    other.log("the other repository still follows")
+    assert shared_intents(a) == ["shared before the revoke"]
+    assert shared_intents(a, OTHER_KEY) == ["the other repository still follows"]
+    status = a.status()
+    assert status["history_revoked"] == [KEY]
+    assert status["history_waiting"] == [{"key": KEY, "origin": NORMALIZED, "entries": 1}]
+    result = history_sync.share("all", state_dir=a.machine.state, library=a.machine.lib)
+    assert result["status"] == "unchanged" and KEY in result["message"]  # the revoke survives a repeat
+    assert shared_intents(a) == ["shared before the revoke"]
+
+    preview = a.export()
+    assert [repo["key"] for repo in preview["repositories"]] == [KEY]
+    assert a.export(confirm=preview["hash"])["status"] == "exported"
+    assert shared_intents(a) == ["shared before the revoke", "after the revoke"]
+    status = a.status()
+    assert status["history_revoked"] == [] and status["history_repositories"] == [KEY]
+
+
+def test_share_approved_returns_to_approval_one_repository_at_a_time(tmp_path, two, clock):
+    a, _ = two
+    other = Box(tmp_path, "a-other", a.machine.remote, origin="git@github.com:me/other.git", machine=a.machine)
+    a.log("in the project")
+    a.approve()
+    history_sync.share("all", state_dir=a.machine.state, library=a.machine.lib)
+    other.log("shared under share all")
+    result = history_sync.share("approved", state_dir=a.machine.state, library=a.machine.lib)
+    assert result["status"] == "changed" and result["history_share"] == "approved"
+    other.log("waits again")
+    a.log("an approved key keeps following")
+    assert shared_intents(a, OTHER_KEY) == ["shared under share all"]
+    assert shared_intents(a)[-1] == "an approved key keeps following"
+    status = a.status()
+    assert status["history_share"] == "approved" and status["history_repositories"] == [KEY]
+    assert status["history_waiting"] == [{"key": OTHER_KEY, "origin": "github.com/me/other", "entries": 1}]
+    with pytest.raises(engine_module.SyncError) as caught:
+        history_sync.share("everything", state_dir=a.machine.state, library=a.machine.lib)
+    assert caught.value.reason == "invalid"
+
+
 # --- when entries are shared ------------------------------------------------------------------
 
 

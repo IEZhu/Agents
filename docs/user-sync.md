@@ -45,6 +45,7 @@ python -m src.user_sync github logout         # Forget account
 python -m src.user_sync history export [--repo KEY]... [--path PATH]...   # entries not shared yet
 python -m src.user_sync history export --confirm <hash from the preview>
 python -m src.user_sync history revoke <key>
+python -m src.user_sync history share all|approved     # every repository's history, or approved ones
 ```
 
 Each command takes `--json`; prompts and the sign-in code then go to stderr. `configure --name`,
@@ -319,13 +320,16 @@ split first: the path moves to `.repo.local.json`.
 
 Each checkout's `history.md`, which `log_interaction` appends to, stays that checkout's append-only
 journal: entries from other machines are never written into it. A repository's entries leave this
-machine only after the owner has seen them:
+machine only after the owner has seen them, or once the owner chose to share every repository
+(`history share all`, below):
 
 ```bash
 python -m src.user_sync history export                        # every entry waiting here
 python -m src.user_sync history export --repo <key> --json    # one repository, the full list
 python -m src.user_sync history export --confirm <hash>       # approve them and share them
 python -m src.user_sync history revoke <key>                  # share nothing more of it from here
+python -m src.user_sync history share all                     # every repository, without a review
+python -m src.user_sync history share approved                # back to approval one repository at a time
 ```
 
 Approval covers a repository's future entries on this machine and exactly the past entries the
@@ -350,9 +354,19 @@ approval: nothing more is shared, segments already shared stay, and its failure 
 reports are cleared. Approval is per machine: another machine's approval never shares this
 machine's entries.
 
+`history share all` (`history_share` in the settings) replaces the review on this machine: every
+repository with an `origin` is shared as soon as this machine sees one of its checkouts, past
+entries included, and nothing waits as unreviewed, also for a checkout that joins later. Switching
+catches up every checkout seen so far at once (within a few seconds; the rest follows in a later
+run). `revoke <key>` still stops one repository and remembers it (`history_revoked`), so it stays
+out until an `export --confirm` approves it again. The scope exclusions and the secret scanner
+apply as always. `history share approved` returns to the review: keys approved before stay
+approved, and the other repositories' new entries wait again; what was shared stays.
+
 `status` reports, without changing the sync state: `history_waiting`, the repositories with entries
 waiting for the owner here and how many could be shared (entries the scanner keeps local are not
-counted, so approving always clears it); `history_repositories`, the approved keys;
+counted, so approving always clears it); `history_share`, `all` or `approved`;
+`history_repositories`, the approved keys; `history_revoked`, the keys `share all` leaves out;
 `history_error`, the last failure of an approved repository with its reason and time; and
 `history_other_origin`, keys whose segments or group name another origin, approved or not.
 

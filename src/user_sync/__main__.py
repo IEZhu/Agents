@@ -14,6 +14,7 @@
     python -m src.user_sync github login | status | logout | libraries | create [NAME] | add-key | regenerate-key
     python -m src.user_sync history export [--repo KEY]... [--path PATH]... [--confirm HASH]
     python -m src.user_sync history revoke KEY
+    python -m src.user_sync history share all|approved
 
 Every command accepts ``--json`` for machine-readable output; prompts and sign-in codes then go
 to stderr. The exit code is 0 unless sync needs attention, a command failed or was cancelled, or
@@ -136,6 +137,11 @@ def _parser() -> argparse.ArgumentParser:
     revoke = history_commands.add_parser("revoke", help="share nothing more of a repository from this machine")
     revoke.add_argument("--json", action="store_true", help="print JSON")
     revoke.add_argument("key", help="the repository key")
+    share = history_commands.add_parser(
+        "share", help="all: share every repository's history without a preview (history revoke leaves one "
+                      "out); approved: only repositories approved with history export")
+    share.add_argument("--json", action="store_true", help="print JSON")
+    share.add_argument("mode", choices=["all", "approved"])
     hub = commands.add_parser("github", help="the GitHub account: sign-in, the library repository, deploy keys")
     actions = hub.add_subparsers(dest="github_command", required=True)
     for name, help_text in (("login", "sign in with a device code"),
@@ -228,6 +234,8 @@ def _execute(syncer: Syncer, arguments, console: SimpleNamespace) -> dict | list
         from src.user_sync import history
         if arguments.history_command == "revoke":
             return history.revoke(arguments.key, state_dir=syncer.state_dir, library=arguments.library)
+        if arguments.history_command == "share":
+            return history.share(arguments.mode, state_dir=syncer.state_dir, library=arguments.library)
         return history.export(state_dir=syncer.state_dir, library=arguments.library, keys=arguments.repo,
                               paths=arguments.path, confirm=arguments.confirm)
     if name == "scope":
@@ -325,6 +333,9 @@ def _print(result, command: str) -> None:
                   f"{'repository' if count == 1 else 'repositories'}")
     if result.get("history_catch_up", {}).get("message"):  # resume
         print(f"  history: {result['history_catch_up']['message']}")
+    if command == "status" and result.get("history_share") == "all":
+        revoked = result.get("history_revoked") or []
+        print("  history: every repository is shared" + (f", except {', '.join(revoked)}" if revoked else ""))
     for repo in result.get("history_waiting", []):  # status
         print(f"  history waiting for approval: {repo['origin']} ({repo['key']}), {repo['entries']} entries")
     if result.get("history_error"):
