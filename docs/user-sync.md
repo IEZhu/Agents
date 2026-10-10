@@ -7,10 +7,34 @@ the merge of each repository's history across machines (#172,
 and the installers' step with setup from the environment (#171) are implemented, as parts of the
 [epic #173](https://github.com/IEZhu/Agents/issues/173).
 
-Sync keeps the personal library (`flows/.user`, or `AGENTS_USER_FLOWS_DIR`) the same on a user's
-machines through one private git repository with one branch, which is never force-pushed. The
-library becomes the working tree of a git repository at `flows/.user/.git`; nothing else in the
-installation changes.
+Installation creates the personal library (`flows/.user`, or `AGENTS_USER_FLOWS_DIR`) as a
+managed local Git repository at `flows/.user/.git`, even without remote sync, a network or SSH.
+Each flow save, deletion and restoration is committed before the operation returns. Local
+commits use an Agents-Core service identity without changing global Git configuration. Repeated
+installation preserves the repository's commits and remote; a foreign `.git` is refused without
+modification.
+
+Sync connects that same repository to one private remote with one branch for current files,
+which is never force-pushed. `refs/agents-core/history` preserves the complete local flow
+history. Separate `refs/agents-core/portable/*` chains publish permitted flow versions only;
+their commits never have private commits as ancestors. Incoming version refs are fetched into
+`refs/agents-core/incoming/*`, and the flow tools read them alongside local history. The
+locally retained `refs/agents-core/received/*` tips keep received versions available when a
+remote history ref is later deleted or rewritten, including after Git garbage collection.
+These retained refs are never pushed. The
+`.agents-history-event.json` records in these Git trees are transport metadata, never another
+directory of snapshot files in the library.
+This separation lets another machine restore intermediate versions, such as B after A → B → C,
+while retaining scope exclusions and scanning historical content for secrets. Nothing else in
+the installation changes.
+
+Git is the sole store for flow versions. The earlier `.history` snapshot directories are
+imported automatically with their original timestamps and version IDs, then removed after
+verifying every imported text. Interrupted migration resumes safely and repeated installation
+does not duplicate versions. Older sync clients refuse the newer library format. Existing
+published commits are preserved, including legacy snapshot files already in their historical
+trees. The interaction journal `history.md` and approved `repos/<key>/history/**` segments keep
+their separate purpose; they are not duplicate flow-version stores.
 
 ## Command line
 
@@ -186,7 +210,9 @@ sync lock; a run that finds it busy is tried again a few seconds later. The comm
 
 `scripts/init_repo.sh` and `scripts/init_repo.bat` run `python -m src.user_sync installer`
 (`src/user_sync/installer.py`) after the client configuration, and `installer --summary` in their
-summary. The summary says whether sync is on, whether it runs in the background (the daemon, or the
+summary. The step first initializes local history and migrates older snapshots under the library
+lock, including under `--yes` or without a terminal. Git is required for that local step; SSH and
+remote credentials are required only when connecting a remote. The summary says whether sync is on, whether it runs in the background (the daemon, or the
 scheduled run) and how to turn either on. With a terminal and without `--yes`, the step asks once:
 "Set up sync between your machines now? [y/N]". On macOS, yes opens the daemon's settings page
 when the daemon answers `/health` as ready and serves the Sync page (its page calls
@@ -197,10 +223,10 @@ default, runs `schedule enable`. It asks nothing under `--yes` or `AGENTS_ASSUME
 (`install.sh` always passes `--yes`; on Windows `--yes` stops only this question), without a
 terminal (on Windows, a console that answers `GetConsoleMode`: `isatty` is true for NUL too), when
 sync is set up (it reports the state), when git 2.32 or newer or `ssh-keygen` is missing, or when
-the library has a `.git` that sync did not create, which it only reads. By itself the step changes
-no settings, key or `.git`: it only holds the installation's session lease (`data/.sessions.lock`)
+the library has a foreign `.git`, which it only reads. With no remote requested the step creates
+no sync settings or SSH key; it holds the installation's session lease (`data/.sessions.lock`)
 while it runs and deletes a marker of setup from the environment that a disconnected setup left
-behind (see below). A failure never fails setup; a setup that did not start exits 1, so the
+behind (see below). A failure never fails the remaining setup; a setup that did not start exits 1, so the
 installer warns. For a setup that has not started, the summary names where it stopped and the
 next step: confirming another host's key, confirming privacy, waiting for the network, adding the
 deploy key, or reviewing the preview and starting with its hash. The daemon's `update` and
@@ -279,9 +305,10 @@ a key as the deploy key of one repository only: once the new repository has pass
 from the old repository through the API and the settings forget its id (`deploy_key_id`); without
 the API, or when that fails, this machine gets a new key pair, and setup names the old repository,
 which may still hold the old key. A key GitHub still refuses is reported with that repository and `disconnect`. Every
-other setup that has not started is refused, as is a library `.git` while sync has no settings
-here, even one left by an earlier sync; the message lists the ways out: finish it with the wizard,
-or `disconnect` (and move the library's `.git` away, when there is one) and run again. Once sync has started it
+other setup that has not started is refused; the message lists the ways out: finish it with the
+wizard, or `disconnect` and run again. A managed local repository without sync settings is reused,
+including one left after disconnecting an earlier remote. Only a foreign `.git` must be moved
+away. Once sync has started it
 changes nothing. The exit code is 1 when setup stopped, sync did not start (`offline`,
 `lock_held` and the like, reported as `attention` with that reason) or sync needs attention;
 waiting for the deploy key is not an error.
@@ -290,13 +317,14 @@ waiting for the deploy key is not an error.
 
 | Synced by default | Never synced |
 |---|---|
-| `common/**` (personal flows), `personas/**`, `components.json`, `.history/**` | `.lock`, `.tmp-*`, `__pycache__`, `*.pyc`, `.DS_Store` and other file-manager junk |
+| `common/**` (personal flows), `personas/**`, `components.json`, permitted Git flow versions | `.lock`, `.tmp-*`, `__pycache__`, `*.pyc`, `.DS_Store` and other file-manager junk |
 | `repos/<key>/**` for keys derived from an `origin`, with their personas, flow history and [repository history](#repository-history) | repository groups without an `origin` (machine-local), `**/.repo.local.json` |
 | `.agents-library.json`, `.gitignore`, `.gitattributes`, `.agents-sync/**` | symlinks, files over 5 MiB, names some platform cannot store, anything else at the root |
 
 Scope groups are `common`, `personas`, `history`, `components` and `repos/<key>`; a repository's
-shared history segments (`repos/<key>/history/**`) belong to both `history` and `repos/<key>`, and
-like `.history/**` they are neither named in commit messages nor counted by the mass-deletion guard. Exclusions live
+shared history segments (`repos/<key>/history/**`) belong to both `history` and `repos/<key>`.
+These segments and flow-version metadata are neither named in commit messages nor counted by
+the mass-deletion guard. Exclusions live
 in the tracked `.agents-sync/scopes.json`, so every machine agrees. Excluding takes the files out
 of the repository but never deletes them from any machine. A missing `scopes.json` is restored
 from the last commit: losing it must not lift every exclusion. Including a group or file again,
@@ -305,6 +333,14 @@ covers the list of files it would upload. When another machine includes a group 
 this machine's own copies wait for `scope --approve <group>` (or `--approve-file`) here. A
 repository group that is new to the library is uploaded and announced in the activity; with
 `--ask-new-repositories` it waits for `scope --approve repos/<key>` instead.
+
+Excluding `history` also stops publication of flow-version events. For permitted history,
+the current group and file exclusions apply to every local version before publication, and the
+secret scanner checks earlier contents as well as current files. A skipped historical secret
+is reported as `history_blocked`; it remains available locally. Permissions apply before any
+private event is rewritten into a portable commit. Already published commits remain in the
+remote's Git history when a scope is later excluded, as do previously shared repository-history
+segments; exclusion cannot revoke a copy another machine has already received.
 
 Sync carries contents, not permissions: a file another tool committed as executable keeps its mode
 in the repository while its content is unchanged, and is written to the library without the

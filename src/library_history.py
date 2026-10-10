@@ -1,0 +1,711 @@
+"""Git-backed versions of the personal library, independent of sync's HEAD and index.
+
+All mutating calls, including ``ensure`` and ``import_legacy``, require the caller
+to hold the library's ``.lock``. A prepared commit is pinned before any working
+file changes; its trees and metadata are the write-ahead journal. Recovery can
+finish an interrupted operation without keeping another copy of file contents.
+Portable history commits are read from incoming refs but never checked out.
+"""
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from functools import wraps
+import hashlib
+import json
+import os
+from pathlib import Path, PurePosixPath
+import re
+import stat
+import time
+from typing import Mapping
+import uuid
+
+from src.flows import FlowError
+from src.user_sync import gitcmd
+from src.user_sync.gitcmd import Git, GitError
+from src.user_sync.scope import is_link
+
+HISTORY_REF = "refs/agents-core/history"
+PENDING_REF = "refs/agents-core/history-pending"
+ABANDONED_PREFIX = "refs/agents-core/abandoned/"
+INCOMING_PREFIX = "refs/agents-core/incoming/"
+RECEIVED_PREFIX = "refs/agents-core/received/"
+MANAGED_KEY = "agents-sync.managed"
+MESSAGE_PREFIX = "Agents-Core-History: "
+PORTABLE_METADATA = ".agents-history-event.json"
+ZERO = "0" * 40
+_LEGACY_VERSION = re.compile(r"\d{8}T\d{12}Z-[0-9a-f]{12}(?:-deleted)?")
+_VERSION = re.compile(r"(?:git-[0-9a-f]{40}|\d{8}T\d{12}Z-[0-9a-f]{12}(?:-deleted)?)")
+_FLOW_PATH = re.compile(r"(?:common|repos/[a-z0-9_][a-z0-9._-]*)/[a-z0-9]+(?:-[a-z0-9]+)*\.md")
+_RESERVED = re.compile(r"(?:con|prn|aux|nul|com[0-9]|lpt[0-9])(?:\..*)?", re.I)
+
+
+class HistoryError(FlowError):
+    """A refused input or recoverable Git/working-tree operation failure."""
+
+
+def commit_message(metadata: dict) -> bytes:
+    """Encode one local history event. Public rewrites retain ``source_id``."""
+    return ("library history\n\n" + MESSAGE_PREFIX +
+            json.dumps({"format": 1, **metadata}, sort_keys=True, ensure_ascii=True) + "\n").encode()
+
+
+def _git_errors(function):
+    @wraps(function)
+    def wrapped(self, *arguments, **options):
+        try:
+            return function(self, *arguments, **options)
+        except GitError as error:
+            raise self._fail(str(error)) from None
+    return wrapped
+
+
+def _is_link(path: Path) -> bool:
+    """Include Windows junctions/name-surrogate reparse points without following them."""
+    try:
+        return is_link(path.lstat(), path)
+    except FileNotFoundError:
+        return False
+
+
+class LibraryHistory:
+    def __init__(self, root: str | Path):
+        self.root = Path(root).expanduser().resolve()
+        self.directory = self.root / ".git" / "agents-core-history"
+        self.git = Git(self.root, config=self.directory / "gitconfig", ssh=None)
+        self._trees: dict[str, dict[str, str]] = {}
+        self._blobs: dict[str, bytes] = {}
+        self._ready = False
+        self._migrating = False
+
+    def _fail(self, message: str) -> HistoryError:
+        return HistoryError("flow_history: " + message)
+
+    def _lexical_path(self, path: str) -> Path:
+        """Validate a portable Git path without inspecting the current working tree."""
+        if not isinstance(path, str) or not path or "\\" in path \
+                or any(ord(char) < 32 or ord(char) == 127 or char in ':<>"|?*' for char in path):
+            raise HistoryError("flow_invalid: invalid history path")
+        try:
+            path.encode("utf-8")
+        except UnicodeError:
+            raise HistoryError("flow_invalid: history path is not UTF-8") from None
+        parts = path.split("/")
+        if any(part in ("", ".", "..") or part[-1:] in (".", " ") or _RESERVED.fullmatch(part)
+               for part in parts) or parts[0] in (".git", ".history"):
+            raise HistoryError("flow_invalid: invalid history path")
+        target = self.root.joinpath(*parts)
+        if not target.is_relative_to(self.root):
+            raise HistoryError("flow_invalid: history path escapes the library")
+        return target
+
+    def _safe_path(self, path: str, *, deleting: bool = False) -> Path:
+        target = self._lexical_path(path)
+        for ancestor in list(target.parents):
+            if ancestor == self.root:
+                break
+            if _is_link(ancestor):
+                raise HistoryError("flow_invalid: history path has a symlink directory")
+        if _is_link(target) and (not deleting or not target.is_symlink()):
+            raise HistoryError("flow_invalid: history cannot follow a symlink or reparse point")
+        if target.exists() and target.is_dir() and not target.is_symlink():
+            raise HistoryError("flow_invalid: history target is a directory")
+        return target
+
+    def _disk(self, path: str, *, deleting: bool = False) -> bytes | None:
+        target = self._safe_path(path, deleting=deleting)
+        if target.is_symlink():
+            return None  # deleting removes the link, never reads its target
+        try:
+            return target.read_bytes()
+        except FileNotFoundError:
+            return None
+
+    def _rev(self, ref: str) -> str | None:
+        result = self.git.run("rev-parse", "--verify", "--quiet", ref + "^{commit}", check=False)
+        return result.stdout.decode().strip() if result.returncode == 0 else None
+
+    def _tree(self, commit: str | None) -> dict[str, str]:
+        if commit is None:
+            return {}
+        if commit in self._trees:
+            return dict(self._trees[commit])
+        result = {}
+        for entry in self.git.run("ls-tree", "-r", "-z", "--full-tree", commit).stdout.split(b"\0"):
+            if not entry:
+                continue
+            header, separator, raw = entry.partition(b"\t")
+            try:
+                mode, kind, oid = header.decode("ascii").split()
+                path = raw.decode("utf-8")
+            except (UnicodeError, ValueError):
+                raise self._fail("a history tree has an invalid entry") from None
+            if separator and mode in ("100644", "100755") and kind == "blob":
+                result[path] = oid
+        self._trees[commit] = result
+        return dict(result)
+
+    def _blob(self, oid: str | None) -> bytes | None:
+        if oid is None:
+            return None
+        if oid not in self._blobs:
+            self._blobs[oid] = self.git.run("cat-file", "blob", oid).stdout
+        return self._blobs[oid]
+
+    def _make_tree(self, parent: str | None, changes: Mapping[str, bytes | None]) -> str:
+        index = self.directory / ("index-" + uuid.uuid4().hex)
+        try:
+            self.git.run("read-tree", parent or "--empty", index=index)
+            records = []
+            for path, content in sorted(changes.items()):
+                oid = ZERO if content is None else self.git.text("hash-object", "-w", "--stdin", input=content)
+                records.append((f"{'0' if content is None else '100644'} {oid}\t{path}").encode() + b"\0")
+            if records:
+                self.git.run("update-index", "-z", "--index-info", index=index, input=b"".join(records))
+            return self.git.text("write-tree", index=index)
+        finally:
+            index.unlink(missing_ok=True)
+            Path(str(index) + ".lock").unlink(missing_ok=True)
+
+    def _commit(self, changes: Mapping[str, bytes | None], metadata: dict,
+                *, parent: str | None = None, update: bool = True) -> str:
+        if parent is None:
+            parent = self._rev(HISTORY_REF)
+        tree = self._make_tree(parent, changes)
+        arguments = ["commit-tree", tree]
+        if parent:
+            arguments += ["-p", parent]
+        commit = self.git.text(*arguments, input=commit_message(metadata))
+        if update:
+            self.git.run("update-ref", HISTORY_REF, commit, parent or ZERO)
+        return commit
+
+    def _now(self) -> str:
+        return datetime.now(timezone.utc).isoformat(timespec="microseconds")
+
+    def _scan(self) -> dict[str, bytes]:
+        """Current owned library files, excluding archives and machine/transaction records."""
+        from src.user_library import MARKER, REPO_LOCAL
+        result = {}
+        for directory, dirs, files in os.walk(self.root, followlinks=False):
+            dirs[:] = [name for name in dirs if name not in (".git", ".history", ".agents-sync", "__pycache__")
+                       and not _is_link(Path(directory) / name)]
+            for name in files:
+                full = Path(directory) / name
+                relative = full.relative_to(self.root).as_posix()
+                if _is_link(full) or name in (".lock", REPO_LOCAL, ".DS_Store", "Thumbs.db") \
+                        or name.startswith(".tmp-") or name.endswith((".pyc", "~", ".swp")):
+                    continue
+                if relative.split("/")[0] not in ("common", "repos", "personas") \
+                        and relative not in (MARKER, ".gitignore", ".gitattributes", "components.json"):
+                    continue
+                try:
+                    self._safe_path(relative)
+                except HistoryError:
+                    continue  # a non-portable manually added filename stays outside history
+                result[relative] = full.read_bytes()
+        return result
+
+    def _ensure_repository(self) -> None:
+        from src import user_library
+        marker = self.root / user_library.MARKER
+        if marker.exists() and not _is_link(marker):
+            try:
+                value = json.loads(marker.read_text(encoding="utf-8"))
+            except (OSError, ValueError, UnicodeError):
+                raise self._fail("the library marker cannot be read") from None
+            version = value.get("format") if isinstance(value, dict) else None
+            if not isinstance(version, int) or isinstance(version, bool) or version < 1:
+                raise self._fail("the library marker has an invalid format")
+            if version > user_library.FORMAT:
+                raise self._fail("the library format is newer than this installation")
+        elif _is_link(marker):
+            raise self._fail("the library marker is a symlink")
+        if self._ready:
+            return
+        wanted = gitcmd.MIN_GIT_VERSION
+        version = gitcmd.git_version()
+        if version is None or version < wanted:
+            raise self._fail("Git " + ".".join(map(str, wanted)) + " or newer is required")
+        self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
+        dot_git = self.root / ".git"
+        if _is_link(dot_git) or (dot_git.exists() and not dot_git.is_dir()):
+            raise self._fail("the library's .git is not a managed repository")
+        if _is_link(self.directory) or _is_link(self.git.config):
+            raise self._fail("the history state directory or configuration is a link")
+        if not dot_git.exists():
+            self.git.run("init", "--quiet", "--initial-branch=main", str(self.root), repository=False)
+            self.git.run("config", MANAGED_KEY, "true")
+        elif self.git.text("config", "--get", MANAGED_KEY, check=False) != "true":
+            raise self._fail("the library's .git was not created by Agents-Core")
+        if _is_link(self.directory):
+            raise self._fail("the history state directory is a symlink")
+        self.directory.mkdir(exist_ok=True, mode=0o700)
+        hooks = self.directory / "hooks"
+        if _is_link(hooks):
+            raise self._fail("the history hooks directory is a symlink")
+        hooks.mkdir(exist_ok=True, mode=0o700)
+        user_library.atomic_write(self.git.config,
+            gitcmd.isolated_config(name="Agents-Core", email="agents-core@localhost", hooks=hooks).encode())
+        user_library.ensure_root_files(self.root)
+        self._ready = True
+
+    def ensure(self) -> dict:
+        """Initialize/reuse managed Git, recover, and migrate. Caller holds ``root/.lock``."""
+        try:
+            self._ensure_repository()
+            self.recover()
+            if self._rev(HISTORY_REF) is None:
+                files = self._scan()
+                self._commit(files, {"action": "baseline", "path": None, "paths": sorted(files),
+                                     "archive": False, "deleted": False, "time": self._now()})
+            return self.import_legacy()
+        except GitError as error:
+            raise self._fail(str(error)) from None
+
+    def _commits(self, refs: list[str]) -> list[tuple[str, str | None, dict]]:
+        if not refs:
+            return []
+        ids = self.git.text("rev-list", "--reverse", *refs).splitlines()
+        if not ids:
+            return []
+        raw = self.git.run("cat-file", "--batch", input=("\n".join(ids) + "\n").encode()).stdout
+        cursor, commits = 0, []
+        for expected in ids:
+            line_end = raw.index(b"\n", cursor)
+            header = raw[cursor:line_end].decode().split()
+            if len(header) != 3 or header[0] != expected or header[1] != "commit":
+                raise self._fail("a history ref does not contain commits")
+            size = int(header[2])
+            data = raw[line_end + 1:line_end + 1 + size]
+            cursor = line_end + 1 + size + 1
+            headers, _, body = data.partition(b"\n\n")
+            parents = [line[7:].decode() for line in headers.splitlines() if line.startswith(b"parent ")]
+            metadata = None
+            for line in body.decode("utf-8", "replace").splitlines():
+                if line.startswith(MESSAGE_PREFIX):
+                    try:
+                        metadata = json.loads(line[len(MESSAGE_PREFIX):])
+                    except ValueError:
+                        pass
+                    break
+            if isinstance(metadata, dict) and metadata.get("format") == 1:
+                commits.append((expected, parents[0] if parents else None, metadata))
+            else:
+                tree = self._tree(expected)
+                if PORTABLE_METADATA in tree:
+                    try:
+                        metadata = json.loads(self._blob(tree[PORTABLE_METADATA]).decode("utf-8"))
+                    except (ValueError, UnicodeError):
+                        continue
+                    if isinstance(metadata, dict) and metadata.get("format") == 1:
+                        commits.append((expected, parents[0] if parents else None, {**metadata, "portable": True}))
+        return commits
+
+    def _refs(self) -> list[str]:
+        refs = self.git.text("for-each-ref", "--format=%(refname)", INCOMING_PREFIX, RECEIVED_PREFIX).splitlines()
+        if self._rev(HISTORY_REF):
+            refs.append(HISTORY_REF)
+        return refs
+
+    def _event(self, commit: str, parent: str | None, metadata: dict) -> dict:
+        path = metadata.get("path")
+        if path is not None:
+            self._lexical_path(path)
+        if not isinstance(metadata.get("time", ""), str) or not isinstance(metadata.get("archive", False), bool) \
+                or not isinstance(metadata.get("deleted", False), bool):
+            raise self._fail("a history event has invalid metadata")
+        tree, before = self._tree(commit), self._tree(parent)
+        source_id = metadata.get("source_id") or metadata.get("version") or "git-" + commit
+        if not isinstance(source_id, str) or not _VERSION.fullmatch(source_id):
+            raise self._fail("a history event has an invalid version")
+        archive = bool(metadata.get("archive"))
+        if metadata.get("portable"):
+            def data(name):
+                entry = metadata.get(name)
+                if entry is None:
+                    return None
+                if not isinstance(entry, str) or entry not in tree:
+                    raise self._fail("a portable history event names a missing blob")
+                return self._blob(tree[entry])
+            previous, content = data("previous_path"), data("content_path")
+            changes = metadata.get("changes", {})
+            if not isinstance(changes, dict):
+                raise self._fail("a portable history event has invalid changes")
+            resolved = {}
+            for target, stored in changes.items():
+                self._lexical_path(target)
+                if stored is not None and (not isinstance(stored, str) or stored not in tree):
+                    raise self._fail("a portable history change names a missing blob")
+                resolved[target] = self._blob(tree.get(stored)) if stored is not None else None
+        else:
+            previous = self._blob(before.get(path)) if path else None
+            content = self._blob(tree.get(path)) if path else None
+            paths = metadata.get("paths", [])
+            if not isinstance(paths, list) or not all(isinstance(item, str) for item in paths):
+                raise self._fail("a history event has invalid changes")
+            resolved = {}
+            for target in paths:
+                self._lexical_path(target)
+                resolved[target] = self._blob(tree.get(target))
+        return {"id": source_id, "version": source_id, "commit": commit, "parent": parent,
+                "action": metadata.get("action"), "path": path, "paths": sorted(resolved),
+                "time": metadata.get("time", ""), "archive": archive,
+                "deleted": bool(metadata.get("deleted")), "content": content, "previous": previous,
+                "changes": resolved, "legacy_id": metadata.get("legacy_id") or metadata.get("version")}
+
+    def _combine_events(self, preferred: dict, other: dict, *, native: bool) -> dict:
+        """Combine filtered copies of an event, refusing contradictory bytes."""
+        def conflict():
+            raise self._fail("conflicting copies of a history event: " + preferred["id"])
+        if preferred["deleted"] != other["deleted"]:
+            conflict()
+        first, second = self._archived(preferred), self._archived(other)
+        if first is not None and second is not None and first != second:
+            conflict()
+        if preferred["archive"] != other["archive"]:
+            # A locally imported source is an archive of the original event's
+            # predecessor. Its content/changes have a different meaning from
+            # the original transition's successor, but the version bytes agree.
+            if native or first is not None:
+                return preferred
+            return other if second is not None else preferred
+        merged = dict(preferred)
+        for field in ("content", "previous"):
+            if field == "previous" and preferred["archive"]:
+                continue  # an archive's parent tree is unrelated bookkeeping
+            left, right = preferred[field], other[field]
+            if left is not None and right is not None and left != right:
+                conflict()
+            if not native and left is None:
+                merged[field] = right
+        changes = dict(preferred["changes"])
+        for path, raw in other["changes"].items():
+            if native and path != preferred["path"]:
+                continue  # portable repository metadata may be normalized
+            if path in changes and changes[path] != raw:
+                conflict()
+            if not native:
+                changes[path] = raw
+        if not native:
+            merged["changes"], merged["paths"] = changes, sorted(changes)
+        return merged
+
+    @_git_errors
+    def events(self, refs: list[str] | None = None) -> list[dict]:
+        """Complete event stream; private and fetched portable history by default.
+
+        Values include exact ``content``, ``previous`` and ``changes`` bytes.
+        ``export_events`` restricts this to the private local stream.
+        """
+        self._ensure_repository()
+        result = {}
+        for commit, parent, metadata in self._commits(self._refs() if refs is None else refs):
+            event = self._event(commit, parent, metadata)
+            key = (event["path"], event["id"])
+            portable = bool(metadata.get("portable"))
+            if key in result:
+                previous, previous_portable = result[key]
+                if not portable and previous_portable:
+                    event = self._combine_events(event, previous, native=True)
+                else:
+                    event = self._combine_events(previous, event, native=not previous_portable)
+                    portable = previous_portable
+            result[key] = event, portable
+        return sorted((event for event, _ in result.values()),
+                      key=lambda event: (event["time"], event["commit"]))
+
+    def export_events(self) -> list[dict]:
+        return self.events([HISTORY_REF]) if self._rev(HISTORY_REF) else []
+
+    def _archived(self, event: dict) -> bytes | None:
+        if event["archive"]:
+            return event["content"]
+        if event["action"] in ("baseline", "initialize"):
+            return None
+        return event["previous"]
+
+    def history(self, path: str) -> list[dict]:
+        self._lexical_path(path)
+        versions = []
+        for event in reversed(self.events()):
+            raw = self._archived(event)
+            if event["path"] == path and raw is not None:
+                versions.append({"version": event["id"], "revision_prefix": hashlib.sha256(raw).hexdigest()[:12],
+                                 "deleted": event["deleted"], "time": event["time"]})
+        return versions
+
+    def read(self, path: str, version: str) -> bytes:
+        self._lexical_path(path)
+        if not isinstance(version, str) or not _VERSION.fullmatch(version):
+            raise HistoryError("flow_invalid: unknown version")
+        for event in self.events():
+            if event["path"] == path and version in (event["id"], event["legacy_id"]):
+                raw = self._archived(event)
+                if raw is not None:
+                    return raw
+        raise HistoryError("flow_not_found: version not found")
+
+    def _reconcile(self, paths: list[str], *, flow_path: str | None = None) -> None:
+        parent = self._rev(HISTORY_REF)
+        tree = self._tree(parent)
+        changes = {path: self._disk(path, deleting=True) for path in paths}
+        changes = {path: raw for path, raw in changes.items() if raw != self._blob(tree.get(path))}
+        if not changes:
+            return
+        primary = flow_path if flow_path in changes else None
+        self._commit(changes, {"action": "external", "path": primary, "paths": sorted(changes),
+                               "archive": False, "deleted": bool(primary and changes[primary] is None),
+                               "time": self._now()})
+
+    @_git_errors
+    def reconcile(self) -> int:
+        """Capture direct edits/deletions before sync; do not change working files.
+
+        Each observed flow transition gets its own version event. Other library
+        changes form one bookkeeping event. Caller holds ``root/.lock``.
+        """
+        self.ensure()
+        actual = self._scan()
+        tree = self._tree(self._rev(HISTORY_REF))
+        # An explicit mutation may also track machine-local metadata; retain its
+        # actual bytes while scanning instead of fabricating a deletion.
+        for path in set(tree) - set(actual):
+            try:
+                actual[path] = self._disk(path, deleting=True)
+            except HistoryError:
+                # A skipped link/directory is unknown, not a removed file. Keep
+                # its prior Git state; mutations still preflight and refuse it.
+                actual[path] = self._blob(tree[path])
+        changed = [path for path in sorted(set(tree) | set(actual))
+                   if actual.get(path) != self._blob(tree.get(path))]
+        others = []
+        for path in changed:
+            if _FLOW_PATH.fullmatch(path):
+                self._reconcile([path], flow_path=path)
+            else:
+                others.append(path)
+        if others:
+            self._reconcile(others)
+        return len(changed)
+
+    @_git_errors
+    def apply(self, changes: Mapping[str, bytes | None], *, action: str = "save",
+              flow_path: str | None = None) -> str | None:
+        """Durably record and apply the supplied file changes. Caller holds ``.lock``.
+
+        The returned ID names the transition; historical reads return the old
+        flow bytes. A creation has an ID but no archived predecessor. No-op is None.
+        A failed multi-file write stays pinned and is completed by ``recover``.
+        """
+        self.ensure()
+        proposed = dict(changes)
+        if flow_path is not None:
+            self._safe_path(flow_path, deleting=proposed.get(flow_path) is None)
+        links = {}
+        for path, raw in proposed.items():
+            if raw is not None and not isinstance(raw, bytes):
+                raise HistoryError("flow_invalid: history changes must contain bytes")
+            target = self._safe_path(path, deleting=raw is None)
+            if target.is_symlink():
+                links[path] = os.readlink(target)
+        actual = {path: self._disk(path, deleting=raw is None) for path, raw in proposed.items()}
+        changed = {path: raw for path, raw in proposed.items() if raw != actual[path] or path in links}
+        self._reconcile(list(proposed), flow_path=flow_path)
+        if not changed:
+            return None
+        primary = flow_path if flow_path in changed else None
+        parent = self._rev(HISTORY_REF)
+        metadata = {"action": action, "path": primary, "paths": sorted(changed),
+                    "archive": False, "deleted": bool(primary and changed[primary] is None),
+                    "time": self._now(), "unlink_links": links}
+        commit = self._commit(changed, metadata, parent=parent, update=False)
+        self.git.run("update-ref", PENDING_REF, commit, ZERO)
+        self.recover()
+        return "git-" + commit
+
+    @_git_errors
+    def recover(self) -> bool:
+        """Finish a pinned mutation, refusing unexpected external bytes or links."""
+        self._ensure_repository()
+        self._clear_stale_ref_locks()
+        pending = self._rev(PENDING_REF)
+        if pending is None:
+            return False
+        records = self._commits([PENDING_REF])
+        if not records or records[-1][0] != pending:
+            raise self._fail("the pending history transaction is invalid")
+        _, parent, metadata = records[-1]
+        old, new = self._tree(parent), self._tree(pending)
+        head = self._rev(HISTORY_REF)
+        if head not in (parent, pending):
+            raise self._fail("history changed while a pending transaction was open")
+        links = metadata.get("unlink_links", {})
+        if not isinstance(links, dict):
+            raise self._fail("the pending history transaction has invalid links")
+        paths = metadata.get("paths", [])
+        if not isinstance(paths, list):
+            raise self._fail("the pending history transaction has invalid paths")
+        operations = []
+        for path in paths:
+            target = self._safe_path(path, deleting=path not in new)
+            before, after = self._blob(old.get(path)), self._blob(new.get(path))
+            if target.is_symlink():
+                if path not in links or after is not None or os.readlink(target) != links[path]:
+                    raise self._fail("a pending target was replaced by an unexpected symlink")
+                operations.append((target, None))
+                continue
+            actual = self._disk(path, deleting=True)
+            if actual == after:
+                continue
+            if actual != before:
+                raise self._fail(f"a pending target changed externally: {path}")
+            operations.append((target, after))
+        from src.user_library import atomic_write
+        for target, after in operations:
+            if after is None:
+                target.unlink(missing_ok=True)
+            else:
+                atomic_write(target, after)
+        if head != pending:
+            self.git.run("update-ref", HISTORY_REF, pending, parent or ZERO)
+        self.git.run("update-ref", "-d", PENDING_REF, pending)
+        return True
+
+    def _clear_stale_ref_locks(self) -> None:
+        """Remove only old private ref locks. Caller holds the library ``.lock``."""
+        directory = self.root / ".git" / "refs" / "agents-core"
+        if _is_link(directory.parent) or _is_link(directory):
+            return
+        now = time.time()
+        for name in ("history.lock", "history-pending.lock"):
+            path = directory / name
+            try:
+                value = path.lstat()
+            except FileNotFoundError:
+                continue
+            if stat.S_ISREG(value.st_mode) and not is_link(value, path) \
+                    and now - value.st_mtime >= gitcmd.STALE_GIT_LOCK_SECONDS:
+                path.unlink(missing_ok=True)
+
+    @_git_errors
+    def abandon_pending(self) -> bool:
+        """Preserve a caught failed write's intent without changing working files.
+
+        Sync calls this while holding ``.lock`` after a caught working-file write
+        failure. The private proposal ref survives garbage collection but is
+        excluded from successful history and publication. Unhandled crashes use
+        strict ``recover`` instead, which finishes their prepared transaction.
+        """
+        self._ensure_repository()
+        self._clear_stale_ref_locks()
+        pending = self._rev(PENDING_REF)
+        if pending is None:
+            return False
+        records = self._commits([PENDING_REF])
+        if not records or records[-1][0] != pending:
+            raise self._fail("the pending history transaction is invalid")
+        parent = records[-1][1]
+        if self._rev(HISTORY_REF) not in (parent, pending):
+            raise self._fail("history changed while a pending transaction was open")
+        archived = ABANDONED_PREFIX + pending
+        if self._rev(archived) != pending:
+            self.git.run("update-ref", archived, pending, ZERO)
+        self.git.run("update-ref", "-d", PENDING_REF, pending)
+        return True
+
+    @_git_errors
+    def record(self, path: str, raw: bytes, *, deleted: bool = False,
+               version: str | None = None) -> str:
+        """Pin an archived value in Git without writing its working file.
+
+        ``version`` retains a legacy ID, including conflict aliases; repeated
+        imports of the same path/ID/bytes are a no-op. Caller holds ``.lock``.
+        """
+        self._ensure_repository()
+        self.recover()
+        self._lexical_path(path)
+        if not isinstance(raw, bytes) or (version is not None and not _VERSION.fullmatch(version)):
+            raise HistoryError("flow_invalid: invalid archived version")
+        if version:
+            for event in self.export_events():
+                if event["path"] == path and version in (event["id"], event["legacy_id"]):
+                    if self._archived(event) != raw or event["deleted"] != deleted:
+                        raise self._fail("an archived version ID already names different bytes")
+                    return version
+        stamp = self._now()
+        if version and _LEGACY_VERSION.fullmatch(version):
+            try:
+                stamp = datetime.strptime(version.split("-")[0], "%Y%m%dT%H%M%S%fZ").replace(
+                    tzinfo=timezone.utc).isoformat(timespec="microseconds")
+            except ValueError:
+                raise self._fail("an archived version has an invalid timestamp") from None
+        metadata = {"action": "archive", "path": path, "paths": [path], "archive": True,
+                    "deleted": deleted, "time": stamp}
+        if version:
+            metadata.update(version=version, legacy_id=version)
+        parent = self._rev(HISTORY_REF)
+        previous = self._blob(self._tree(parent).get(path))
+        commit = self._commit({path: raw}, metadata, parent=parent, update=False)
+        restored = self._commit({path: previous},
+            {"action": "baseline", "path": None, "paths": [path], "archive": False,
+             "deleted": False, "time": self._now()}, parent=commit, update=False)
+        # Publish both commits at once: an interrupted archive cannot change the
+        # current native tree or feed archive bytes into a later external event.
+        self.git.run("update-ref", HISTORY_REF, restored, parent or ZERO)
+        return version or "git-" + commit
+
+    def import_legacy(self) -> dict:
+        """Import and verify known archives before removing them; retries are idempotent."""
+        if self._migrating:
+            return {"status": "migrating", "imported": 0}
+        self._ensure_repository()
+        self.recover()
+        legacy = self.root / ".history"
+        if _is_link(legacy):
+            raise self._fail("the legacy history directory is a symlink")
+        self._migrating = True
+        imported = []
+        try:
+            if legacy.exists():
+                for directory, dirs, files in os.walk(legacy, followlinks=False):
+                    if any(_is_link(Path(directory) / name) for name in dirs + files):
+                        raise self._fail("legacy history contains a symlink")
+                    for name in files:
+                        relative = (Path(directory) / name).relative_to(legacy)
+                        version = Path(name).stem
+                        if len(relative.parts) < 3:
+                            raise self._fail(f"legacy history contains an unrecognized file: {relative.as_posix()}")
+                        path = (PurePosixPath(*relative.parts[:-2]) / (relative.parts[-2] + ".md")).as_posix()
+                        if not name.endswith(".md") or not _LEGACY_VERSION.fullmatch(version) \
+                                or not _FLOW_PATH.fullmatch(path):
+                            raise self._fail(f"legacy history contains an unrecognized file: {relative.as_posix()}")
+                        raw = (Path(directory) / name).read_bytes()
+                        expected = version.split("-")[1]
+                        if hashlib.sha256(raw).hexdigest()[:12] != expected:
+                            raise self._fail(f"legacy archive checksum differs: {relative.as_posix()}")
+                        imported.append((version, path, Path(directory) / name, raw))
+                for version, path, _, raw in sorted(imported):
+                    self.record(path, raw, version=version, deleted=version.endswith("-deleted"))
+                for version, path, _, raw in imported:
+                    if self.read(path, version) != raw:
+                        raise self._fail("legacy history verification failed")
+                for _, _, target, _ in imported:
+                    target.unlink()
+                for directory, _, _ in os.walk(legacy, topdown=False):
+                    Path(directory).rmdir()
+            self._upgrade_marker()
+            return {"status": "ready", "imported": len(imported)}
+        except GitError as error:
+            raise self._fail(str(error)) from None
+        finally:
+            self._migrating = False
+
+    def _upgrade_marker(self) -> None:
+        from src import user_library
+        marker = self.root / user_library.MARKER
+        value = json.loads(marker.read_text(encoding="utf-8"))
+        if value["format"] < user_library.FORMAT:
+            value["format"] = user_library.FORMAT
+            user_library.atomic_write(marker, (json.dumps(value, indent=2) + "\n").encode())
+            self._reconcile([user_library.MARKER])

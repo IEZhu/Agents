@@ -205,13 +205,14 @@ def test_a_flow_edited_on_two_machines_merges_on_both(started):
     [merged] = result["merged"]
     assert (merged["path"], merged["flow"]) == ("common/shared.md", "user:shared")
     assert b.text("common/shared.md") == both
-    assert b.text(merged["local_version"]) == BASE.replace("second", "second, edited on B")
+    assert b.version_text(merged["local_version"]) == BASE.replace("second", "second, edited on B")
     assert "merged 1 file line by line" in head_message(b)
     assert b.sync.status()["activity"][-1]["merged"] == ["user:shared"]
     a.run()
     assert a.text("common/shared.md") == both
     assert records(a) == records(b) == []
-    assert b.flows.get("user:shared")["history"][0]["version"] in merged["local_version"]
+    assert any(item["version"] in merged["local_version"]
+               for item in b.flows.get("user:shared")["history"])
 
 
 def test_a_merge_this_machine_could_not_write_is_not_reported_until_it_lands(started, monkeypatch):
@@ -296,7 +297,7 @@ def test_overlapping_edits_are_a_conflict_that_says_why(started):
     [record] = records(b)
     assert (record["kind"], record["reason"], record["overlaps"]) == ("both_changed", "overlapping_changes", 1)
     assert b.text("common/shared.md") == BASE.replace("first", "A's first")
-    assert b.text(record["local_version"]) == BASE.replace("first", "B's first").replace("second", "B's second")
+    assert b.version_text(record["local_version"]) == BASE.replace("first", "B's first").replace("second", "B's second")
     assert "1 conflict" in head_message(b)
 
 

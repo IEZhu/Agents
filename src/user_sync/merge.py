@@ -10,11 +10,11 @@ join without shared history), this machine's commit and the remote's. Per path:
 * a text file the owner edits (a flow's Markdown, a script; not JSON, history or records) changed
   differently on both sides: a line-based three-way merge (``merge_text``, the diff3 algorithm)
   against the common base. When the changes touch different lines, the merged text goes to both
-  sides; a flow's local text before the merge becomes a normal ``.history`` version, and
+  sides; a flow's local text before the merge becomes a normal Git history version, and
   ``MergeResult.merged`` lists the file;
 * changed differently on both sides otherwise (the changes overlap, there is no common base, or
   the file is not mergeable text): the remote version, because it reached the remote first. The
-  local text of a flow becomes a normal ``.history`` version; for other files the record carries
+  local text of a flow becomes a normal Git history version; for other files the record carries
   it. A conflict record goes to ``.agents-sync/conflicts/<id>.json``, with the ``reason`` the
   text could not be merged (``overlapping_changes`` with the number of ``overlaps``,
   ``no_common_base``, ``not_text``, ``too_large`` or ``too_complex``, when the changed lines are too
@@ -24,8 +24,9 @@ join without shared history), this machine's commit and the remote's. Per path:
   "deletion undone" record. A flow's text, override marker and persona overlay move as one: a flow
   deleted on one machine and edited on the other comes back whole.
 
-Names in ``.history`` and of conflict records are unique (UTC time to the microsecond plus a
-hash), so the union of two machines' entries never collides.
+Conflict records and archive aliases are unique (UTC time to the microsecond
+plus a hash). Archive aliases retain the legacy pathname syntax for old callers;
+the engine records their bytes in Git and never writes an archive file.
 """
 from __future__ import annotations
 
@@ -90,7 +91,7 @@ def flow_reference(path: str) -> dict:
 
 
 def history_path(directory: str, flow_id: str, data: bytes, now: datetime) -> str:
-    """Where ``src.user_flows.FlowLibrary`` keeps an earlier version of this flow."""
+    """A legacy-compatible alias for a version the engine pins in Git."""
     stamp = now.strftime("%Y%m%dT%H%M%S%fZ")
     return f".history/{directory}/{flow_id}/{stamp}-{hashlib.sha256(data).hexdigest()[:12]}.md"
 
@@ -305,8 +306,9 @@ def record_file(record: dict) -> tuple[str, bytes]:
 def keep_local(path: str, data: bytes, now: datetime) -> tuple[dict, dict[str, bytes]]:
     """Where a losing local version goes: ``(record details, new files)``.
 
-    A flow's text becomes a normal ``.history`` version, so the editor lists it and "use mine" is
-    an ordinary restore; any other file is carried inside the record.
+    A flow's text becomes a Git history event, so the editor lists it and "use
+    mine" is an ordinary restore. The returned archive path is a virtual alias;
+    any other file is carried inside the record.
     """
     unit = flow_unit(path)
     if unit and path.endswith(".md"):
@@ -357,7 +359,7 @@ class Merger:
         return record
 
     def _keep_merged_away(self, path: str, data: bytes) -> dict:
-        """Keep a flow's local text that a merge replaces as a ``.history`` version, once.
+        """Keep a flow's replaced local text as a Git archive, once.
 
         A version with the same content already in this machine's history (an earlier cycle that
         stopped half way, or a save) is enough: it is named after the content's hash.

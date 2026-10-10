@@ -5,7 +5,9 @@ git repository whose only remote is one private repository per user, on one bran
 force-pushed. Every runner uses this module: the macOS daemon, the OS scheduler, stdio servers, the
 web UI, the installer and the command line (``python -m src.user_sync``).
 
-History is linear and holds only what was meant to sync. The local branch always points at the
+The synchronized snapshot branch is linear and holds only what was meant to sync.
+Complete local versions live in a private Git ref; separate, filtered event chains
+carry permitted intermediate versions without private parent commits. The local branch always points at the
 last remote commit this machine integrated (or its own pushed commit). A cycle never commits the
 working tree on its own: it builds one new commit on top of the remote head, whose tree is the
 three-way merge of the last integrated tree, the working tree and the remote tree, filtered by the
@@ -17,7 +19,7 @@ One cycle:
 1. ``git fetch`` without any lock.
 2. Under the library's ``.lock``, which every writer of ``src.user_flows`` and
    ``src.component_toggles`` takes: read the working tree once (scope rules, size limit, secret
-   scanner), merge by the policy of ``src.user_sync.merge``, write new archives and conflict
+   scanner), merge by the policy of ``src.user_sync.merge``, pin archived versions in Git and write conflict
    records first and then the result, and build the commit to push. Writers wait for these local
    steps only, never for the network. Before replacing or deleting a file the engine checks that it
    still holds the bytes it read, so even an edit that bypasses the lock is kept: the file stays,
@@ -60,8 +62,10 @@ import traceback
 
 from src import executables, user_library
 from src.file_lock import file_lock
+from src.library_history import HistoryError
 from src.user_library import FORMAT, MARKER, REPO_LOCAL, REPO_META
 from src.user_sync import github as github_api, gitcmd, keys, merge as merging, scope
+from src.user_sync import versions
 from src.user_sync.gitcmd import Git, GitError, Remote, RemoteError, parse_remote
 from src.user_sync.scope import CONFLICTS_DIR, MAX_FILE_BYTES, SCOPES_PATH, Rules, Scopes, Snapshot
 
@@ -82,7 +86,7 @@ PUSH_ATTEMPTS = 3
 ACTIVITY_LIMIT = 20
 ANNOUNCED_LIMIT = 50
 SIZE_WARNING = 200 * 1024 * 1024
-STALE_GIT_LOCK_SECONDS = 10
+STALE_GIT_LOCK_SECONDS = gitcmd.STALE_GIT_LOCK_SECONDS
 # A status probe takes the sync lock for a moment; a runner that starts just then waits this long.
 SYNC_LOCK_GRACE_SECONDS = 0.2
 TRAILER = "Agents-Sync-Machine"
@@ -581,7 +585,7 @@ class _Plan:
     remote_other: dict                      # non-file entries of the remote tree, kept as they are
     base: dict
     target: dict                            # the tree to push; blob ids or new bytes
-    generated: dict = field(default_factory=dict)   # new archives and records, also local-only ones
+    generated: dict = field(default_factory=dict)   # virtual Git archives and new conflict records
     conflicts: list = field(default_factory=list)
     merged: list = field(default_factory=list)      # text files merged line by line
     kind: str = "none"                      # none, push, fast_forward, merge, join
@@ -592,6 +596,8 @@ class _Plan:
     rules: Rules | None = None                       # scope rules of the target
     remote_executable: set = field(default_factory=set)  # remote files with mode 100755
     remote_sizes: dict = field(default_factory=dict)  # blob id -> size, for the preview
+    publication: versions.Publication | None = None
+    history_pending: int = 0
 
 
 class Syncer:
@@ -752,6 +758,9 @@ class Syncer:
             pass
         now = time.time()
         for path in candidates:
+            if path.parent == git_dir / "refs" / "agents-core" \
+                    and path.name in ("history.lock", "history-pending.lock"):
+                continue  # flow writers own these under .lock, independently of the sync lock
             try:
                 age = now - path.lstat().st_mtime
             except OSError:
@@ -791,20 +800,37 @@ class Syncer:
         if url != settings.remote:
             git.run("remote", "set-url" if url else "add", "origin", settings.remote)
         # A glob refspec: fetching a branch the remote does not have yet must not fail.
-        refspec = "+refs/heads/*:refs/remotes/origin/*"
-        if git.text("config", "--get-all", "remote.origin.fetch", check=False) != refspec:
-            git.run("config", "--replace-all", "remote.origin.fetch", refspec)
+        refspecs = ["+refs/heads/*:refs/remotes/origin/*",
+                    f"+{versions.PORTABLE_REFS}*:{versions.INCOMING_REFS}*"]
+        if git.text("config", "--get-all", "remote.origin.fetch", check=False).splitlines() != refspecs:
+            git.run("config", "--replace-all", "remote.origin.fetch", refspecs[0])
+            git.run("config", "--add", "remote.origin.fetch", refspecs[1])
         if git.text("symbolic-ref", "HEAD", check=False) != f"refs/heads/{settings.branch}":
             git.run("symbolic-ref", "HEAD", f"refs/heads/{settings.branch}")
         return git
 
     def _forget_history(self, git: Git) -> None:
-        """Start a new history: the next upload is one root commit with the current files only.
+        """Start a new snapshot branch while retaining the complete local version history.
 
-        Used when sync moves to another remote, so old commits (and what was excluded since) never
-        travel to it. The objects stay in ``.git`` until git prunes them.
+        A new remote receives a root snapshot and separately filtered historical
+        events after its first-upload preview is confirmed. Existing snapshot
+        ancestry and excluded contents never travel to the new remote.
         """
-        for ref in git.text("for-each-ref", "--format=%(refname)", "refs/heads", "refs/remotes").split():
+        # Detaching a remote must not make its received intermediate versions
+        # disappear locally when unreachable objects are eventually pruned.
+        from src.library_history import LibraryHistory
+        with self._library_lock():
+            backend = LibraryHistory(self.library)
+            backend.ensure()
+            self._retain_incoming(git)
+            incoming = git.text("for-each-ref", "--format=%(refname)", versions.INCOMING_REFS,
+                                versions.RECEIVED_REFS).splitlines()
+            for event in backend.events(incoming):
+                raw = event["content"] if event["archive"] else event["previous"]
+                if event["path"] and raw is not None:
+                    backend.record(event["path"], raw, version=event["id"], deleted=event["deleted"])
+        for ref in git.text("for-each-ref", "--format=%(refname)", "refs/heads", "refs/remotes",
+                            versions.PORTABLE_REFS, versions.INCOMING_REFS).split():
             git.run("update-ref", "-d", ref)
 
     def _rev(self, git: Git, ref: str) -> str | None:
@@ -925,6 +951,9 @@ class Syncer:
         that a ``.repo.json`` from before #169 still holds into ``.repo.local.json``.
         """
         user_library.ensure_root_files(self.library)
+        from src.library_history import LibraryHistory
+        LibraryHistory(self.library).ensure()
+        self._import_tree_versions(git, self._tree(git, head))
         scopes_file = self.library / SCOPES_PATH
         if not scopes_file.exists() and not scopes_file.is_symlink():
             committed = self._tree(git, head).get(SCOPES_PATH)
@@ -945,6 +974,7 @@ class Syncer:
                 user_library.atomic_write(local, _json_bytes({"path": value["path"]}))
             origin = value.get("origin") if isinstance(value.get("origin"), str) else None
             user_library.atomic_write(meta, _json_bytes({"origin": origin}))
+        LibraryHistory(self.library).reconcile()
 
     def _working_scopes(self) -> Scopes:
         path = self.library / SCOPES_PATH
@@ -994,10 +1024,12 @@ class Syncer:
         (``held_remote``). Committing the working tree over them would delete or replace other text
         without a conflict.
         """
-        desired = dict(snap.files)
+        desired = {path: blob for path, blob in snap.files.items() if not path.startswith(".history/")}
         keep = set(snap.blocked) | set(unwritten) | {
             path for path, entry in snap.outside.items() if entry["reason"] == "pending"}
         for path, blob in current.items():
+            if path.startswith(".history/"):
+                continue  # legacy archives are imported into Git, never new snapshot files
             if path in keep or snap.hides(path) or scope.groups(path) is None:
                 desired[path] = blob
         return desired
@@ -1044,10 +1076,18 @@ class Syncer:
             held_groups, held_files = self._held(settings, dict(state), working, working, current, remote)
             snap = scope.snapshot(self.library, working, held_groups=held_groups, held_files=held_files)
             paths = changed_paths(remote, self._desired(snap, current, state.get("held_remote", ())))
-        except (GitError, OSError, scope.ScopeError):
+            from src.library_history import LibraryHistory
+            publication = versions.publication(LibraryHistory(self.library).export_events(),
+                                               Rules(working, snap.portable, held_groups, held_files))
+            known = self._published_sources(git, publication.policy)
+            historical = {change_label(json.loads(tree[versions.EVENT_FILE])["path"])
+                          for source, tree in publication.events if source not in known
+                          and json.loads(tree[versions.EVENT_FILE]).get("path")}
+        except (GitError, HistoryError, OSError, scope.ScopeError):
             return 0
         named = {name for name in map(change_label, paths) if name}
-        return len(named) or (1 if paths else 0)
+        return len(named | historical) or (1 if paths or any(source not in known
+                                                           for source, _ in publication.events) else 0)
 
     def status(self) -> dict:
         settings = self.settings()
@@ -1120,7 +1160,8 @@ class Syncer:
         Returns ``waiting_for_access`` with the public key to add as a deploy key with write
         access, or ``host_key_unconfirmed`` with fingerprints to confirm for hosts other than
         github.com. Run ``check`` and ``preview``, then ``start`` with the preview's hash. Moving to
-        another remote starts a new history, so old commits never reach it.
+        another remote starts a new snapshot branch; the first-upload preview
+        includes permitted saved versions from the retained local history.
         """
         self._check_git()
         existing = self.settings()
@@ -1344,8 +1385,23 @@ class Syncer:
                                             "on this machine to keep syncing")
 
     def _fetch(self, git: Git, settings: Settings) -> str | None:
+        with self._library_lock():
+            self._retain_incoming(git)
         git.run("fetch", "--no-tags", "--prune", "--quiet", "origin", network=True)
         return self._rev(git, f"refs/remotes/origin/{settings.branch}")
+
+    def _retain_incoming(self, git: Git) -> None:
+        """Pin received ancestry before a fetch can replace or prune its refs.
+
+        Remote history is the owner's data even if another machine removes its
+        publication ref. These immutable local tips never enter a push refspec.
+        Caller holds the library lock.
+        """
+        tips = git.text("for-each-ref", "--format=%(objectname)", versions.INCOMING_REFS).splitlines()
+        for tip in set(tips):
+            ref = versions.RECEIVED_REFS + tip
+            if self._rev(git, ref) is None:
+                git.run("update-ref", ref, tip, _ZERO)
 
     # --- privacy ----------------------------------------------------------------------
 
@@ -1716,10 +1772,10 @@ class Syncer:
                      scopes=effective, rules=Rules(effective, snap.portable, held_groups, held_files))
         if remote_head is None:
             plan.kind = "push" if desired and (desired != current or head is None) else "none"
-            return plan
+            return self._with_versions(plan, git)
         if integrated and not rewritten and head == remote_head:
             plan.kind = "push" if desired != current else "none"
-            return plan
+            return self._with_versions(plan, git)
         if not integrated or rewritten:
             if not joining:
                 raise SyncError("confirmation_needed",
@@ -1728,12 +1784,19 @@ class Syncer:
                                 "review the preview and start sync")
         merged = merging.merge(base, desired, remote_tree, read, label=settings.label, now=self._clock(),
                                local_commit=head, remote_commit=remote_head)
+        marker = merged.tree.get(MARKER)
+        if marker is not None:
+            value = json.loads(marker if isinstance(marker, bytes) else read(marker))
+            if value.get("format", FORMAT) < FORMAT:
+                value["format"] = FORMAT
+                merged.tree[MARKER] = _json_bytes(value)
         self._drop_known_conflicts(merged, desired)
         # New archives and records; merged components.json and scopes.json replace existing files
         plan.generated = {path: value for path, value in merged.tree.items() if isinstance(value, bytes)
                           and path not in base and path not in desired and path not in remote_tree}
         rules = self._rules_for(merged.tree, read, held_groups, held_files)
-        target = {path: value for path, value in merged.tree.items() if rules.reason(path) is None}
+        target = {path: value for path, value in merged.tree.items()
+                  if rules.reason(path) is None and not path.startswith(".history/")}
         for path, blob in remote_tree.items():
             # Paths sync never handles, and paths this machine holds for approval, keep the remote's
             # version: dropping them would delete them from the remote and from every other machine.
@@ -1744,7 +1807,23 @@ class Syncer:
             plan.kind = "fast_forward"  # nothing of this machine's is missing on the remote
         else:
             plan.kind = "join" if not integrated or rewritten else "merge"
+        return self._with_versions(plan, git)
+
+    def _with_versions(self, plan: _Plan, git: Git) -> _Plan:
+        from src.library_history import LibraryHistory
+        plan.publication = versions.publication(LibraryHistory(self.library).export_events(), plan.rules)
+        known = self._published_sources(git, plan.publication.policy)
+        plan.history_pending = sum(source not in known and versions.restorable(tree)
+                                   for source, tree in plan.publication.events)
         return plan
+
+    def _published_sources(self, git: Git, policy: str) -> set[str]:
+        publisher = git.text("config", "--get", "agents-history.publisher", check=False)
+        if not re.fullmatch(r"[0-9a-f]{32}", publisher):
+            return set()
+        commit = self._rev(git, versions.INCOMING_REFS + f"{publisher}-{policy}")
+        return {line.rsplit(" ", 1)[-1] for line in git.text("log", "--format=%s", commit).splitlines()} \
+            if commit else set()
 
     def _preview_of(self, plan: _Plan) -> dict:
         """The owner-facing summary of a plan, and the hash that confirms exactly this plan."""
@@ -1784,6 +1863,8 @@ class Syncer:
                              if isinstance(v, bytes) and p in merged_paths),
             "blocked": sorted((b["path"], b["sha256"]) for b in blocked),
             "pending": [sorted(plan.held_groups), sorted(plan.held_files)],
+            "versions": plan.publication.identity() if plan.publication else [],
+            "versions_blocked": plan.publication.blocked if plan.publication else [],
         }, sort_keys=True)
         return {
             "kind": plan.kind, "remote_head": plan.remote_head, "head": plan.head,
@@ -1794,6 +1875,8 @@ class Syncer:
             "pending_groups": sorted(plan.held_groups), "pending_files": sorted(plan.held_files),
             "repository_groups": sorted(groups.values(), key=lambda g: g["group"]),
             "upload_bytes": sum(e["size"] or 0 for e in upload),
+            "history_versions": plan.history_pending,
+            "history_blocked": plan.publication.blocked if plan.publication else [],
             "hash": hashlib.sha256(identity.encode()).hexdigest(),
         }
 
@@ -1871,10 +1954,54 @@ class Syncer:
         executable = {path for path in plan.remote_executable if tree.get(path) == plan.remote_tree.get(path)}
         return self._commit(git, settings, tree, parents, summary, plan.remote_other, executable)
 
+    def _publisher(self, git: Git) -> str:
+        identifier = git.text("config", "--get", "agents-history.publisher", check=False)
+        if not re.fullmatch(r"[0-9a-f]{32}", identifier):
+            identifier = secrets.token_hex(16)
+            git.run("config", "agents-history.publisher", identifier)
+        return identifier
+
+    def _prepare_publication(self, git: Git, settings: Settings, plan: _Plan) -> list[tuple[str, str]]:
+        """Append filtered events to a public-only chain under the library lock.
+
+        Only refs in the portable namespace are pushed. Parent commits always
+        come from that same namespace, so excluded private blobs cannot travel
+        as otherwise invisible ancestors of a permitted revision.
+        """
+        from src.library_history import LibraryHistory
+        publish = versions.publication(LibraryHistory(self.library).export_events(), plan.rules)
+        plan.publication = publish
+        if not publish.events:
+            return []
+        suffix = f"{self._publisher(git)}-{publish.policy}"
+        ref = versions.PORTABLE_REFS + suffix
+        parent = self._rev(git, ref)
+        known = {line.rsplit(" ", 1)[-1] for line in git.text("log", "--format=%s", parent).splitlines()} \
+            if parent else set()
+        old = parent
+        for source, files in publish.events:
+            if source in known:
+                continue
+            tree = {path: self._store_bytes(git, raw) for path, raw in files.items()}
+            parent = self._commit(git, settings, tree, [parent] if parent else [], f"history {source}")
+            known.add(source)
+        if parent != old:
+            git.run("update-ref", ref, parent, old or _ZERO)
+        incoming = self._rev(git, versions.INCOMING_REFS + suffix)
+        return [] if incoming == parent else [(ref, parent)]
+
+    def _push_publication(self, git: Git, refs: list[tuple[str, str]]) -> bool:
+        if not refs:
+            return False
+        git.run("push", "--porcelain", "origin", *(f"{commit}:{ref}" for ref, commit in refs), network=True)
+        for ref, commit in refs:
+            git.run("update-ref", versions.INCOMING_REFS + ref[len(versions.PORTABLE_REFS):], commit)
+        return True
+
     def _apply(self, git: Git, state: dict, plan: _Plan) -> dict:
         """Write ``plan.target`` over the working tree; never touches a file this run did not read.
 
-        New archives and conflict records go first, including those the exclusions keep on this
+        Git archives and conflict records go first, including those the exclusions keep on this
         machine only; a failure stops before any other file changes. A held, blocked or outside
         file, or one that changed since the snapshot, stays as it is; its path goes to
         ``held_remote`` and the next cycle reconciles it as a conflict. A file this run could not
@@ -1887,7 +2014,12 @@ class Syncer:
         Paths sync never handles are neither written nor deleted.
         """
         snap, old, new = plan.snapshot, plan.desired, plan.target
+        # A format-1 remote may still contain archive files. Import them before
+        # dropping them from the new format-2 snapshot; the old commits stay intact.
+        self._import_tree_versions(git, plan.remote_tree)
         for path, data in sorted(plan.generated.items()):
+            if self._keep_version(path, data):
+                continue
             target = self._safe_target(path)
             if target is None or target.exists():
                 raise OSError(f"could not keep {path}: the path is taken or unsafe")
@@ -1937,6 +2069,36 @@ class Syncer:
         state["held_merges"] = {p: item for p, item in held_merges.items() if p in state["failed_writes"]}
         return {"written": written, "deleted": deleted}
 
+    @staticmethod
+    def _legacy_version(path: str) -> tuple[str, str] | None:
+        match = re.fullmatch(r"\.history/(common|repos/[a-z0-9_][a-z0-9._-]*)/"
+                             r"([a-z0-9]+(?:-[a-z0-9]+)*)/([^/]+)\.md", path)
+        if match is None or not _VERSION_FILE.fullmatch(match[3] + ".md"):
+            return None
+        return f"{match[1]}/{match[2]}.md", match[3]
+
+    def _import_tree_versions(self, git: Git, tree: dict[str, str]) -> None:
+        for path, blob in sorted(tree.items()):
+            if self._legacy_version(path) is None:
+                continue
+            if self._blob_sizes(git, [blob]).get(blob, MAX_FILE_BYTES + 1) > MAX_FILE_BYTES:
+                raise OSError(f"legacy history version {path} is too large to import")
+            self._keep_version(path, self._read_blobs(git, [blob])[blob])
+
+    def _keep_version(self, alias: str, raw: bytes) -> bool:
+        """Keep a legacy-compatible conflict alias as a Git event, without an archive file."""
+        version = self._legacy_version(alias)
+        if version is None:
+            return False
+        from src.library_history import LibraryHistory
+        path, identifier = version
+        digest = re.search(r"-([0-9a-f]{12})(?:-deleted)?$", identifier)
+        if digest is None or digest[1] != hashlib.sha256(raw).hexdigest()[:12]:
+            raise OSError(f"legacy history version {alias} has an invalid content hash")
+        LibraryHistory(self.library).record(path, raw, deleted=identifier.endswith("-deleted"),
+                                            version=identifier)
+        return True
+
     def _safe_target(self, path: str) -> Path | None:
         """``library/path`` with every parent a real directory inside the library (created as needed)."""
         if not scope.portable_name(path):
@@ -1982,7 +2144,18 @@ class Syncer:
         target = self._safe_target(path)
         if target is None or self._current_blob(target) != expected:
             raise _Changed(path)
-        if data is None:
+        if merging.flow_unit(path) and path.endswith(".md"):
+            from src.library_history import LibraryHistory
+            backend = LibraryHistory(self.library)
+            try:
+                backend.apply({path: data}, action="sync", flow_path=path)
+            except OSError:
+                # A retry must check disk again before replacing it. Pin the
+                # failed intent privately and let the sync reconciler preserve
+                # edits made while the previous write was held open.
+                backend.abandon_pending()
+                raise
+        elif data is None:
             target.unlink()
         else:
             user_library.atomic_write(target, data)
@@ -2016,6 +2189,10 @@ class Syncer:
             settled = path in failed_writes and failed_writes[path] == local and intended
             reason = "changed_during_sync" if path not in failed_writes or failed_writes[path] != local else "held_open"
             if local == committed or (committed is None and not settled):
+                if local == committed and intended and path in held_merges:
+                    # The Git transaction may have recovered this write before
+                    # the cycle's snapshot. Report its completed merge once.
+                    landed.append(held_merges[path])
                 continue  # nothing to reconcile: the local file or its absence simply wins or matches
             target = self._safe_target(path)
             if target is None or (committed is not None
@@ -2036,6 +2213,8 @@ class Syncer:
                 kept.update([merging.record_file(record)])
             try:
                 for name, data in kept.items():
+                    if self._keep_version(name, data):
+                        continue
                     destination = self._safe_target(name)
                     if destination is None:
                         raise OSError(f"{name} cannot be written")
@@ -2095,6 +2274,8 @@ class Syncer:
                 plan.remote_sizes = self._blob_sizes(git, plan.remote_tree.values())
             except GitError as error:
                 raise self._git_failure(error, settings) from None
+            except HistoryError as error:
+                raise SyncError("history_unavailable", str(error)) from None
         return self._preview_of(plan)
 
     def start(self, confirm: str) -> dict:
@@ -2158,11 +2339,13 @@ class Syncer:
                 result["merged"] = [item for item in result["merged"]
                                     if item["path"] not in overruled | again] + outcome["merged"]
                 if outcome["push"] is None:
+                    result["pushed"] = self._push_publication(git, outcome["version_push"]) or result["pushed"]
                     break
                 if self._push(git, settings, outcome["push"], outcome["integrated"]):
                     result["pushed"] = True
                     result["sent"] += outcome["sent"]
                     state["_new_groups"] = outcome["new_groups"]
+                    self._push_publication(git, outcome["version_push"])
                     break
                 if joining:
                     raise SyncError("confirmation_needed", "the remote changed while starting; "
@@ -2175,6 +2358,8 @@ class Syncer:
             return self._finish_failure(settings, state, self._git_failure(error, settings), result)
         except scope.ScopeError as error:
             return self._finish_failure(settings, state, SyncError("scopes_invalid", str(error)), result)
+        except HistoryError as error:
+            return self._finish_failure(settings, state, SyncError("history_unavailable", str(error)), result)
         except _ChangedWhileReading as error:
             return self._finish_failure(settings, state, SyncError(
                 "busy", f"{error} changed while sync read it; sync will retry", state="pending"), result)
@@ -2241,6 +2426,8 @@ class Syncer:
             state["blocked"] = [{"path": p, "pattern": v["pattern"], "sha256": v["sha256"]}
                                 for p, v in sorted(plan.snapshot.blocked.items())]
             state["held"] = [{"path": p, **v} for p, v in sorted(plan.snapshot.held.items())]
+            outcome["version_push"] = self._prepare_publication(git, settings, plan)
+            state["blocked"] += plan.publication.blocked
         return outcome
 
     def _pending_message(self, state: dict) -> str:
@@ -2455,15 +2642,18 @@ class Syncer:
             return
         if "local_version" in record:
             version = record["local_version"]
-            directory, flow_id = unit if is_flow else (None, None)
-            expected = f".history/{directory}/{flow_id}/"
-            if not is_flow or not isinstance(version, str) or not version.startswith(expected) \
-                    or not _VERSION_FILE.fullmatch(version[len(expected):]):
+            parsed = self._legacy_version(version) if isinstance(version, str) else None
+            identifier = parsed[1] if parsed and parsed[0] == path else version
+            if not is_flow or not isinstance(identifier, str) or (parsed is not None and parsed[0] != path):
                 raise SyncError("invalid", "the conflict names an unexpected kept version")
-            source = self._safe_target(version)
-            if source is None or not source.exists():
+            from src.library_history import LibraryHistory
+            try:
+                with self._library_lock():
+                    backend = LibraryHistory(self.library)
+                    backend.ensure()
+                    data = backend.read(path, identifier)
+            except (HistoryError, KeyError, ValueError):
                 raise SyncError("invalid", "the kept local version is gone")
-            data = source.read_bytes()
         elif isinstance(record.get("local_content"), str):
             data = record["local_content"].encode("utf-8")
         elif isinstance(record.get("local_content_base64"), str):
@@ -2574,10 +2764,22 @@ class Syncer:
                 after = scope.snapshot(self.library, updated, held_groups=held_groups - approved_groups,
                                        held_files=held_files - approved_files)
                 uploads = sorted(set(after.files) - set(before.files))
+                from src.library_history import LibraryHistory
+                events = LibraryHistory(self.library).export_events()
+                before_history = versions.publication(events, Rules(current, before.portable,
+                                                                     held_groups, held_files))
+                after_history = versions.publication(events, Rules(updated, after.portable,
+                                                                    held_groups - approved_groups,
+                                                                    held_files - approved_files))
+                old_versions = dict(before_history.events)
+                added_versions = sum(old_versions.get(identifier) != tree and versions.restorable(tree)
+                                     for identifier, tree in after_history.events)
                 change = hashlib.sha256(json.dumps({"more": sorted(more), "scopes": updated.dump().decode(),
-                                                    "upload": uploads}, sort_keys=True).encode()).hexdigest()
+                                                    "upload": uploads,
+                                                    "history": after_history.identity()}, sort_keys=True).encode()).hexdigest()
                 if confirm != change:
-                    return {"status": "confirmation_needed", "hash": change, "upload": uploads}
+                    return {"status": "confirmation_needed", "hash": change, "upload": uploads,
+                            "history_versions": added_versions, "history_blocked": after_history.blocked}
             if updated != current:
                 target = self._safe_target(SCOPES_PATH)
                 user_library.atomic_write(target, updated.dump())

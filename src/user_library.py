@@ -28,7 +28,7 @@ import tempfile
 import threading
 from typing import Callable, Iterable
 
-FORMAT = 1
+FORMAT = 2
 MARKER = ".agents-library.json"
 REPO_META = ".repo.json"         # a repository group's normalized origin; may be shared
 REPO_LOCAL = ".repo.local.json"  # this machine's clone path for that group; never shared

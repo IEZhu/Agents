@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -18,6 +19,7 @@ import pytest
 
 from src import component_toggles, user_library
 from src.file_lock import file_lock
+from src.library_history import LibraryHistory
 from src.user_flows import FlowLibrary
 from src.user_sync import engine as engine_module, gitcmd, keys, merge as merging, scope
 from src.user_sync import __main__ as cli_module
@@ -89,6 +91,16 @@ class Machine:
 
     def text(self, path: str) -> str:
         return (self.lib / path).read_text(encoding="utf-8")
+
+    def version_text(self, alias: str, path: str | None = None) -> str:
+        parsed = Syncer._legacy_version(alias)
+        identifier = parsed[1] if parsed else Path(alias).stem
+        path = parsed[0] if parsed else path or "common/shared.md"
+        return LibraryHistory(self.lib).read(path, identifier).decode("utf-8")
+
+    def archived_texts(self, path: str) -> set[bytes]:
+        backend = LibraryHistory(self.lib)
+        return {backend.read(path, item["version"]) for item in backend.history(path)}
 
     def connect(self, **setup) -> dict:
         self.sync.setup(remote=str(self.remote), name="Owner", email="owner@example.com",
@@ -277,10 +289,10 @@ def test_flow_changed_on_two_machines_keeps_the_remote_version(pair):
     assert b.text("common/shared.md") == "# Shared\n\nA's edit\n"
     [record] = records(b)
     assert (record["kind"], record["kept"], record["machine"]) == ("both_changed", "remote", "machine-b")
-    assert (b.lib / record["local_version"]).read_text() == "# Shared\n\nB's edit\n"
+    assert b.version_text(record["local_version"]) == "# Shared\n\nB's edit\n"
     a.run()
     assert a.text("common/shared.md") == "# Shared\n\nA's edit\n"
-    assert (a.lib / record["local_version"]).read_text() == "# Shared\n\nB's edit\n"
+    assert a.version_text(record["local_version"]) == "# Shared\n\nB's edit\n"
     assert [r["id"] for r in records(a)] == [record["id"]]
 
 
@@ -336,9 +348,10 @@ def test_history_from_two_machines_merges_without_conflicts(pair):
         b.run()
     a.run()
     assert records(a) == records(b) == []
-    histories = [sorted(p.relative_to(m.lib).as_posix() for p in (m.lib / ".history").rglob("*.md"))
-                 for m in (a, b)]
-    assert histories[0] == histories[1] and len(histories[0]) == 4
+    for m in (a, b):
+        assert {b"# Alpha\n", b"# Alpha\n\nround 0\n"} <= m.archived_texts("common/alpha.md")
+        assert {b"# Beta\n", b"# Beta\n\nround 0\n"} <= m.archived_texts("common/beta.md")
+        assert not (m.lib / ".history").exists()
 
 
 def set_overlay(m: Machine, agent: str) -> None:
@@ -412,7 +425,9 @@ def test_machine_local_groups_never_sync(pair):
     a, b = pair
     _repo_group(a, "scratch-1a2b3c4d", None)  # its history stays local as well
     (a.lib / ".history" / "repos" / "scratch-1a2b3c4d" / "deploy").mkdir(parents=True)
-    (a.lib / ".history/repos/scratch-1a2b3c4d/deploy/20261005T000000000000Z-0123456789ab.md").write_text("old\n")
+    old = b"old\n"
+    digest = hashlib.sha256(old).hexdigest()[:12]
+    (a.lib / f".history/repos/scratch-1a2b3c4d/deploy/20261005T000000000000Z-{digest}.md").write_bytes(old)
     a.run()
     assert not [path for path in remote_files(a.remote) if "scratch-1a2b3c4d" in path]
     assert b"scratch-1a2b3c4d" not in remote_objects(a.remote) and b"old\n" not in remote_objects(a.remote)
@@ -589,7 +604,7 @@ def test_an_edit_that_bypasses_the_lock_is_kept_and_reconciled(pair, monkeypatch
     a.run()
     assert a.text("common/shared.md") == "# Shared\n\nfrom B\n"
     [record] = records(a)
-    assert (a.lib / record["local_version"]).read_text() == "# Shared\n\nmanual edit on A\n"
+    assert a.version_text(record["local_version"]) == "# Shared\n\nmanual edit on A\n"
 
 
 def test_a_push_race_between_two_machines_retries(pair, monkeypatch):
@@ -628,6 +643,19 @@ def test_a_stale_index_lock_is_removed(pair):
     assert a.run()["status"] == "synced"
     assert not lock.exists()
     assert "common/after-crash.md" in remote_files(a.remote)
+
+
+def test_sync_does_not_remove_a_concurrent_history_writers_locks(pair):
+    a, _ = pair
+    locks = [a.lib / ".git" / "refs/agents-core" / name
+             for name in ("history.lock", "history-pending.lock")]
+    old = time.time() - 60
+    for path in locks:
+        path.write_text("active history writer")
+        os.utime(path, (old, old))
+    with file_lock(a.lib / ".git" / "agents-sync.lock", blocking=False):
+        a.sync._clear_stale_git_locks()
+    assert all(path.read_text() == "active history writer" for path in locks)
 
 
 def _fake_ssh(tmp_path: Path, message: str) -> tuple[str, Path]:
@@ -967,7 +995,9 @@ def test_random_edits_on_two_machines_converge_without_losing_text(machine, seed
         assert m.run()["status"] == "synced"
     assert _library_files(a) == _library_files(b)
     kept = set(_library_files(a).values())
-    assert {text for text in written if text not in kept} == set()  # every text: current, in .history or a record
+    for flow in ("f1", "f2", "f3"):
+        kept |= a.archived_texts(f"common/{flow}.md")
+    assert written <= kept  # every saved text remains current or available in Git history
 
 
 
@@ -1016,7 +1046,7 @@ def test_a_conflict_keeps_the_local_text_when_history_is_excluded(pair):
     b.run()
     assert b.text("common/shared.md") == "# Shared\n\nA\n"
     [record] = records(b)
-    assert (b.lib / record["local_version"]).read_text() == "# Shared\n\nB\n"  # kept on this machine only
+    assert b.version_text(record["local_version"]) == "# Shared\n\nB\n"  # kept on this machine only
     b.sync.resolve(record["id"], "mine")
     assert b.text("common/shared.md") == "# Shared\n\nB\n"
 
@@ -1071,18 +1101,17 @@ def test_reconciling_never_overwrites_before_the_local_text_is_kept(pair, monkey
     monkeypatch.setattr(a.sync, "_apply", apply_after_a_manual_edit)
     a.run()
     monkeypatch.undo()
-    history = a.lib / ".history" / "common" / "shared"
-    history.mkdir(parents=True, exist_ok=True)
-    history.chmod(0o500)
-    try:
-        result = a.run()
-        assert a.text("common/shared.md") == "# Shared\n\nmanual edit on A\n"
-        assert result["reason"] == "library_unreadable" and "common/shared.md" in result["message"]
-    finally:
-        history.chmod(0o700)
+    def cannot_keep(*args, **kwargs):
+        raise OSError("archive write failed")
+
+    monkeypatch.setattr(LibraryHistory, "record", cannot_keep)
+    result = a.run()
+    assert a.text("common/shared.md") == "# Shared\n\nmanual edit on A\n"
+    assert result["reason"] == "library_unreadable" and "common/shared.md" in result["message"]
+    monkeypatch.undo()
     a.run()
     [record] = records(a)
-    assert (a.lib / record["local_version"]).read_text() == "# Shared\n\nmanual edit on A\n"
+    assert a.version_text(record["local_version"]) == "# Shared\n\nmanual edit on A\n"
     assert a.text("common/shared.md") == "# Shared\n\nfrom B\n"
 
 
@@ -1101,8 +1130,11 @@ def test_resolving_a_deletion_with_mine_deletes_through_the_flow_library(pair):
     a.run()
     b.run()
     assert not (b.lib / "common/shared.md").exists() and not (b.lib / "personas/common/shared.json").exists()
-    kept = [p.read_text() for p in (b.lib / ".history/common/shared").glob("*-deleted.md")]
+    backend = LibraryHistory(b.lib)
+    kept = [backend.read("common/shared.md", item["version"]).decode()
+            for item in backend.history("common/shared.md") if item["deleted"]]
     assert "# Shared\n\nedited on B\n" in kept
+    assert not (b.lib / ".history").exists()
 
 
 def test_the_mass_deletion_guard_ignores_history(pair):
@@ -1478,7 +1510,7 @@ def test_a_group_included_again_elsewhere_is_never_deleted_from_the_remote(pair)
     b.run()
     assert "B edit while excluded" in a.text("repos/github.com-me-tool/deploy.md")
     [record] = records(a)
-    assert "shared v1" in (a.lib / record["local_version"]).read_text()
+    assert "shared v1" in a.version_text(record["local_version"])
 
 
 def test_an_exclusion_withdraws_an_earlier_approval(pair):
@@ -1602,7 +1634,7 @@ def test_an_edit_made_while_a_write_is_retried_is_never_overwritten(pair, monkey
     a.run()
     assert a.text("common/shared.md") == "# Shared\n\nfrom B\n"
     [record] = records(a)
-    assert (a.lib / record["local_version"]).read_text() == "# Shared\n\nmanual edit on A\n"
+    assert a.version_text(record["local_version"]) == "# Shared\n\nmanual edit on A\n"
 
 
 @pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs a privilege on Windows")
@@ -1674,7 +1706,7 @@ def test_a_lost_version_whose_replacement_failed_is_kept_once(pair, monkeypatch)
     a.run()
     assert a.text("common/shared.md") == "# Shared\n\nB\n"
     [record] = records(a)
-    assert (a.lib / record["local_version"]).read_text() == "# Shared\n\nA\n"
+    assert a.version_text(record["local_version"]) == "# Shared\n\nA\n"
 
 
 def test_text_changed_between_reading_and_merging_is_never_uploaded(pair, monkeypatch):

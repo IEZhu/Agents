@@ -11,6 +11,7 @@ scheduler, or the user's library. ``test_installer_sync.py`` runs the installers
 from __future__ import annotations
 
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -151,7 +152,70 @@ def test_the_step_never_asks_under_yes_or_without_a_terminal(tmp_path, assume_ye
     result, said = run_step(syncer, assume_yes=assume_yes, interactive=interactive)
     assert result == {"status": "off", "reason": "not_asked"}
     assert "Sync between machines is off" in said and "summary below" in said
-    assert files(tmp_path) == before  # no settings, no key, no .git
+    assert files(tmp_path) == before  # existing local history, no settings or key
+
+
+@pytest.mark.parametrize("assume_yes, interactive", [(True, True), (True, False), (False, False)])
+def test_fresh_install_creates_local_history_without_remote_or_ssh(
+        tmp_path, monkeypatch, assume_yes, interactive):
+    syncer = machine(tmp_path)
+    monkeypatch.setattr(installer, "missing_tools", lambda: ["ssh-keygen (OpenSSH)"])
+    result, said = run_step(syncer, assume_yes=assume_yes, interactive=interactive)
+    assert result["reason"] == "ssh"
+    assert "Local library history is ready" in said
+    assert (syncer.library / ".git").is_dir() and not installer.foreign_git(syncer.library)
+    assert syncer.settings() is None and not syncer.state_dir.exists()
+
+
+def test_install_preserves_local_versions_and_remote_on_repeat(tmp_path, bare):
+    syncer = machine(tmp_path)
+    run_step(syncer, assume_yes=True)
+    save(syncer, text="# First\n")
+    flow = FlowLibrary(user_dir=syncer.library).get("user:hello")
+    FlowLibrary(user_dir=syncer.library).save("user:hello", "# Second\n", expected_revision=flow["flow"]["revision"])
+    plain_git("-C", str(syncer.library), "remote", "add", "origin", str(bare))
+    refs = plain_git("-C", str(syncer.library), "show-ref")
+    before = files(syncer.library)
+    result, _ = run_step(syncer, assume_yes=True)
+    assert result["reason"] == "not_asked"
+    assert plain_git("-C", str(syncer.library), "show-ref") == refs
+    assert plain_git("-C", str(syncer.library), "remote", "get-url", "origin").strip() == str(bare)
+    assert files(syncer.library) == before
+
+
+def test_install_commits_with_service_identity_and_preserves_global_config(tmp_path, monkeypatch):
+    syncer = machine(tmp_path)
+    global_config = tmp_path / "global-gitconfig"
+    configured = b"[user]\n\tname = Owner\n\temail = owner@example.com\n"
+    global_config.write_bytes(configured)
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(global_config))
+    result, _ = run_step(syncer, assume_yes=True)
+    assert result["reason"] == "not_asked"
+    author = plain_git("-C", str(syncer.library), "log", "--all", "-1", "--format=%an <%ae>")
+    assert author == "Agents-Core <agents-core@localhost>"
+    assert global_config.read_bytes() == configured
+
+
+def test_install_imports_legacy_versions_and_reuses_their_ids_on_repeat(tmp_path):
+    syncer = machine(tmp_path)
+    old_text = b"# Previous\n"
+    version = "20261010T120000000000Z-" + hashlib.sha256(old_text).hexdigest()[:12]
+    archive = syncer.library / ".history" / "common" / "hello" / f"{version}.md"
+    archive.parent.mkdir(parents=True)
+    archive.write_bytes(old_text)
+    current = syncer.library / "common" / "hello.md"
+    current.parent.mkdir()
+    current.write_text("# Current\n", encoding="utf-8")
+    result, _ = run_step(syncer, assume_yes=True)
+    assert result["reason"] == "not_asked"
+    assert not (syncer.library / ".history").exists()
+    library = FlowLibrary(user_dir=syncer.library)
+    assert library.get("user:hello", version=version)["content"] == old_text.decode()
+    assert current.read_text(encoding="utf-8") == "# Current\n"
+    before = plain_git("-C", str(syncer.library), "show-ref")
+    run_step(syncer, assume_yes=True)
+    assert plain_git("-C", str(syncer.library), "show-ref") == before
+    assert library.get("user:hello", version=version)["content"] == old_text.decode()
 
 
 @pytest.mark.parametrize("answer", ["", "n", "No", "later"])
@@ -208,7 +272,7 @@ def test_a_settings_page_that_cannot_set_sync_up_means_the_wizard_without_an_err
     runs = []
     result, said = run_step(machine(tmp_path), ask=Script("y"),
                             run_wizard=lambda: runs.append("wizard") or {"status": "cancelled"})
-    assert runs == ["wizard"] and said == "" and result["status"] == "cancelled"
+    assert runs == ["wizard"] and "Local library history is ready" in said and result["status"] == "cancelled"
 
 
 @pytest.mark.parametrize("failure, status", [
@@ -294,21 +358,20 @@ def test_a_git_in_the_library_that_sync_did_not_create_is_never_touched(tmp_path
     assert result["reason"] == "foreign_git" and "leaves it as it is" in said
     result, said = run_step(syncer, assume_yes=True,
                             environ={installer.REMOTE: "git@git.example.com:me/library.git", **IDENTITY})
-    assert result["reason"] == "foreign_git" and "Sync was not set up" in said
+    assert result["reason"] == "foreign_git" and "Local library history was not initialized" in said
     assert files(tmp_path) == before and syncer.settings() is None
 
 
-def test_a_git_left_from_an_earlier_sync_is_offered_to_the_wizard_but_never_set_up_unattended(tmp_path, bare):
+def test_a_managed_git_left_from_an_earlier_sync_is_reused_unattended(tmp_path, bare):
     syncer = machine(tmp_path)
     syncer.setup(remote=str(bare), name="Owner", email="owner@example.com", label="laptop")
     syncer.disconnect()  # the library and its .git stay
     assert (syncer.library / ".git").is_dir() and installer.foreign_git(syncer.library) is False
     result, _ = run_step(syncer, ask=Script("n"))
     assert result["reason"] == "declined"  # the owner may set it up again in the wizard
-    before = files(tmp_path)
     result, said = run_step(syncer, assume_yes=True, environ={installer.REMOTE: str(bare), **IDENTITY})
-    assert result["reason"] == "existing_git" and "move it away" in said and "-m src.user_sync setup" in said
-    assert files(tmp_path) == before and syncer.settings() is None
+    assert result["status"] == "synced", said
+    assert syncer.settings().remote == str(bare) and syncer.settings().started
 
 
 def test_missing_tools_are_named_and_nothing_is_asked(tmp_path, monkeypatch):
@@ -623,7 +686,7 @@ def test_env_setup_never_replaces_a_setup_it_did_not_make(tmp_path, bare):
         from_env(syncer, {installer.REMOTE: str(other), **IDENTITY})
     message = refused.value.message
     assert refused.value.reason == "connected" and syncer.settings().remote == str(bare)
-    assert "-m src.user_sync disconnect" in message and f"move {syncer.library / '.git'} away" in message
+    assert "-m src.user_sync disconnect" in message and ", move " not in message
     assert "-m src.user_sync setup" in message
 
 
@@ -743,7 +806,7 @@ def test_cli_installer_step_asks_only_with_a_terminal_and_without_yes(tmp_path, 
     assert ask.prompts == [installer.PROMPT] and "Sync stays off" in capsys.readouterr().out
     assert run_cli(tmp_path, "installer", "--summary") == 0
     assert "To turn it on" in capsys.readouterr().out
-    assert not (tmp_path / "state").exists() and not (tmp_path / "library").exists()
+    assert not (tmp_path / "state").exists() and (tmp_path / "library" / ".git").is_dir()
     assert (tmp_path / "installation" / "data" / ".sessions.lock").exists()  # the lease, not the checkout's
 
 
@@ -754,7 +817,7 @@ def test_cli_installer_yes_starts_the_terminal_wizard(tmp_path, capsys, monkeypa
     assert ask.prompts[1].startswith("Where is the library's repository?")
     assert ask.prompts[2].startswith("SSH URL of the repository")
     assert "cancelled; nothing was uploaded" in capsys.readouterr().out
-    assert not (tmp_path / "state").exists() and not (tmp_path / "library").exists()
+    assert not (tmp_path / "state").exists() and (tmp_path / "library" / ".git").is_dir()
 
 
 def test_cli_setup_from_env_without_variables_and_with_identity_flags(tmp_path, capsys, monkeypatch):

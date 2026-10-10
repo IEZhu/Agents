@@ -266,9 +266,13 @@ normalized `origin` remote without credentials, for example
 `github.com-owner-project`, so clones of one remote share their flows; without a
 remote it is the folder name plus a path hash. Each repository folder keeps the
 origin in `.repo.json` and this machine's clone path in `.repo.local.json`; a
-folder without an origin belongs to this machine only. The library root holds
-`.agents-library.json`, `.gitignore` and `.gitattributes`, which prepare it for
-[sync between machines](../docs/user-sync.md). Once sync is set up (setup offers it;
+folder without an origin belongs to this machine only. Installation creates a
+managed local Git repository inside the library, even with `--yes` and without
+remote access or SSH. The library root holds `.agents-library.json`, `.gitignore`
+and `.gitattributes`; Git records local versions on private refs before each
+save or deletion returns. This never changes the installation's branch or the
+caller's repository. Connecting [sync between machines](../docs/user-sync.md)
+reuses that repository and publishes only permitted files and versions. Once sync is set up (setup offers it;
 later `python -m src.user_sync setup`, or the Sync page of the daemon's settings),
 personal and repository flows, persona choices, the switches and the flows'
 history reach your other machines whenever both sides sync: with the shared
@@ -315,15 +319,23 @@ copy.
 
 `save_flow` returns `status` `created`, `saved` or `unchanged` with the flow
 metadata; `delete_flow` returns `status="deleted"` with the scoped `id` and the
-archived `version`, and also removes that flow's persona choice. Every save or delete keeps the previous text in
-`flows/.user/.history`. To restore, read the text with
+archived `version`, and also removes that flow's persona choice. Every save or
+delete keeps the previous text in the library's Git history. Restoration creates
+a new commit and keeps the earlier versions. To restore, read the text with
 `get_flow(flow, version=...)` and pass it to `save_flow` with the current
 revision from `get_flow(flow)`, not the old version's `revision`; omit
 `expected_revision` when the flow was deleted, and pass `override=true` for a copy
 of a built-in. A deleted flow and its history list disappear from `list_flows`,
 `get_flow(flow)` and the editor, so keep the `version` that `delete_flow` returns;
-otherwise find the archived file under `.history/common/<id>/` or
-`.history/repos/<repo-key>/<id>/` in the library. An update with an outdated
+otherwise inspect `refs/agents-core/history` and the synchronized
+`refs/agents-core/incoming/*` in `flows/.user/.git`. New version
+IDs are `git-<commit ID>`. Earlier `.history/common/<id>/` and
+`.history/repos/<repo-key>/<id>/` snapshots are migrated automatically, preserving
+their timestamps and version IDs as aliases in Git metadata; their files are
+removed only after the imported texts have been verified. Migration can resume
+after interruption and does not duplicate versions. The library format is
+versioned so an older sync client refuses it instead of recreating snapshots.
+An update with an outdated
 `expected_revision` returns `flow_conflict` with the current revision instead of
 overwriting a change made from another chat or the editor.
 Writes are atomic, and a file lock (`flock` on macOS and Linux, `LockFileEx` on

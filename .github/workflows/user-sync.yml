@@ -5,6 +5,7 @@ on:
     paths:
       - src/user_sync/**
       - src/user_library.py
+      - src/library_history.py
       - src/user_flows.py
       - src/component_toggles.py
       - src/file_lock.py
@@ -12,6 +13,7 @@ on:
       - src/executables.py
       - tests/test_user_sync*.py
       - tests/test_executables.py
+      - tests/test_library_history.py
       - tests/conftest.py
       - .github/workflows/user-sync.yml
   push:
@@ -19,6 +21,7 @@ on:
     paths:
       - src/user_sync/**
       - src/user_library.py
+      - src/library_history.py
       - src/user_flows.py
       - src/component_toggles.py
       - src/file_lock.py
@@ -26,6 +29,7 @@ on:
       - src/executables.py
       - tests/test_user_sync*.py
       - tests/test_executables.py
+      - tests/test_library_history.py
       - tests/conftest.py
       - .github/workflows/user-sync.yml
   workflow_dispatch:
@@ -77,7 +81,7 @@ jobs:
           # and use the real Keychain and Credential Manager where the matrix allows it.
           AGENTS_TEST_REAL_SCHEDULER: "1"
           AGENTS_TEST_REAL_SECRET_STORE: ${{ matrix.real_secret_store || '0' }}
-        run: python -m pytest tests/test_user_sync*.py -v --durations=15
+        run: python -m pytest tests/test_library_history.py tests/test_user_sync*.py -v --durations=15
       # Sync starts git, ssh-keygen and ssh-keyscan through src/executables.py (#244); its POSIX
       # checks (root-owned chains, symlinks, the service's environment) run nowhere else.
       - name: Tool paths and the service's environment

@@ -101,8 +101,11 @@ def run(syncer: Syncer, *, ask: Ask = input, say: Say = print,
 
 
 def describe_preview(preview: dict) -> list[str]:
-    """The preview for a terminal: transfers, conflicts, scanner hits and repository groups."""
-    lines = [f"Preview: {_KINDS.get(preview.get('kind'), preview.get('kind'))}"]
+    """The preview for a terminal: file/version transfers, scanner hits and repository groups."""
+    kind = preview.get("kind")
+    description = ("upload saved flow versions" if kind == "none" and preview.get("history_versions")
+                   else _KINDS.get(kind, kind))
+    lines = [f"Preview: {description}"]
     for key, title in (("upload", "Upload"), ("download", "Download"), ("delete_local", "Delete on this machine"),
                        ("remove_from_remote", "Remove from the repository")):
         lines += _listed(title, [_entry(item) for item in preview.get(key, [])])
@@ -110,6 +113,10 @@ def describe_preview(preview: dict) -> list[str]:
                      [f"{_entry(item)}: {item.get('kind')}" for item in preview.get("conflicts", [])])
     lines += _listed("Not uploaded, possible credentials (allow one with scope --allow-secret)",
                      [f"{item['path']} ({item.get('pattern')})" for item in preview.get("blocked", [])])
+    if preview.get("history_versions") is not None:
+        lines.append(f"Flow versions to upload: {preview['history_versions']}")
+    lines += _listed("Flow versions not uploaded, possible credentials (allow one with scope --allow-secret)",
+                     [f"{item['path']} ({item.get('pattern')})" for item in preview.get("history_blocked", [])])
     lines += _listed("Waiting for approval on this machine",
                      list(preview.get("pending_groups", [])) + list(preview.get("pending_files", [])))
     lines += _listed("Repository groups", [

@@ -1,0 +1,183 @@
+"""Complete Git history transport, including privacy of superseded versions."""
+import hashlib
+import json
+
+from src.library_history import HISTORY_REF, LibraryHistory
+from src.user_sync.versions import INCOMING_REFS, PORTABLE_REFS
+from tests.test_user_sync import (TOKEN, machine, pair, plain_git, remote, remote_objects)  # noqa: F401
+
+
+def test_offline_intermediate_versions_arrive_on_another_machine(machine):
+    a, b = machine("a"), machine("b")
+    for content in ("# A\n", "# B\n", "# C\n"):
+        a.save("user:shared", content)
+    a.connect()
+    b.connect()
+    assert b.archived_texts("common/shared.md") == {b"# A\n", b"# B\n"}
+    assert b.text("common/shared.md") == "# C\n"
+    for m in (a, b):
+        assert not (m.lib / ".history").exists()
+        plain_git("gc", "--prune=now", cwd=m.lib)
+        assert {b"# A\n", b"# B\n"} <= m.archived_texts("common/shared.md")
+
+
+def test_history_only_changes_sync_when_current_snapshot_is_identical(pair):
+    a, b = pair
+    current = a.text("common/shared.md")
+    a.save("user:shared", "# Intermediate\n")
+    a.save("user:shared", current)
+    result = a.run()
+    assert result["pushed"] and result["status"] == "synced"
+    b.run()
+    assert b.text("common/shared.md") == current
+    assert b"# Intermediate\n" in b.archived_texts("common/shared.md")
+    assert a.sync.preview()["history_versions"] == 0
+
+
+def test_historical_secret_and_excluded_versions_never_reach_remote(machine):
+    a, b = machine("a"), machine("b")
+    a.save("user:shared", f"# Secret\n{TOKEN}\n")
+    a.save("user:shared", "# Clean\n")
+    a.save("user:private", "# Private historical content\n")
+    a.save("user:private", "# Private current content\n")
+    a.sync.change_scopes(exclude_files=["common/private.md"])
+    a.sync.setup(remote=str(a.remote), name="Owner", email="owner@example.com", label="a")
+    preview = a.sync.preview()
+    assert any(item["pattern"] == "github_token" for item in preview["history_blocked"])
+    assert a.sync.start(preview["hash"])["reason"] == "secret"
+    b.connect()
+    objects = remote_objects(a.remote)
+    assert TOKEN.encode() not in objects
+    assert b"Private historical content" not in objects
+    assert b"Private current content" not in objects
+    private = plain_git("rev-parse", HISTORY_REF, cwd=a.lib)
+    assert private not in plain_git("--git-dir", str(a.remote), "rev-list", "--all").splitlines()
+    assert plain_git("--git-dir", str(a.remote), "for-each-ref", "--format=%(refname)", PORTABLE_REFS)
+    assert plain_git("for-each-ref", "--format=%(refname)", INCOMING_REFS, cwd=b.lib)
+
+
+def test_history_group_exclusion_preserves_local_versions_without_export(machine):
+    a, b = machine("a"), machine("b")
+    a.save("user:shared", "# Private old version\n")
+    a.save("user:shared", "# Public current version\n")
+    a.sync.change_scopes(exclude=["history"])
+    a.connect()
+    b.connect()
+    assert b"Private old version" not in remote_objects(a.remote)
+    assert a.archived_texts("common/shared.md") == {b"# Private old version\n"}
+    assert b.archived_texts("common/shared.md") == set()
+
+
+def test_historical_edit_invalidates_first_upload_preview(machine):
+    a = machine("a")
+    a.save("user:shared", "# Current\n")
+    a.sync.setup(remote=str(a.remote), name="Owner", email="owner@example.com", label="a")
+    preview = a.sync.preview()
+    a.save("user:shared", "# Extra version\n")
+    a.save("user:shared", "# Current\n")
+    assert a.sync.start(preview["hash"])["reason"] == "confirmation_needed"
+    assert not plain_git("--git-dir", str(a.remote), "for-each-ref", "--format=%(refname)")
+
+
+def test_legacy_remote_archive_migrates_to_git_on_both_machines(machine, tmp_path):
+    a, b = machine("a"), machine("b")
+    old = b"# Legacy version\n"
+    version = "20261005T000000000000Z-" + hashlib.sha256(old).hexdigest()[:12]
+    clone = tmp_path / "legacy"
+    plain_git("init", "--quiet", "--initial-branch=main", str(clone))
+    (clone / ".agents-library.json").write_text('{"format": 1}\n')
+    (clone / "common").mkdir()
+    (clone / "common/shared.md").write_text("# Current version\n")
+    archive = clone / ".history/common/shared" / (version + ".md")
+    archive.parent.mkdir(parents=True)
+    archive.write_bytes(old)
+    plain_git("add", ".", cwd=clone)
+    plain_git("commit", "--quiet", "-m", "Legacy library", cwd=clone)
+    plain_git("push", "--quiet", str(a.remote), "main:main", cwd=clone)
+    a.connect()
+    b.connect()
+    for m in (a, b):
+        assert m.version_text(version) == old.decode()
+        assert not (m.lib / ".history").exists()
+    assert json.loads(plain_git("--git-dir", str(a.remote), "show", "main:.agents-library.json"))["format"] == 2
+    assert not any(name.startswith(".history/") for name in
+                   plain_git("--git-dir", str(a.remote), "ls-tree", "-r", "--name-only", "main").splitlines())
+
+
+def test_remote_move_preserves_received_intermediate_versions_locally(machine, tmp_path):
+    a, b = machine("a"), machine("b")
+    for content in ("# A\n", "# B\n", "# C\n"):
+        a.save("user:shared", content)
+    a.connect()
+    b.connect()
+    assert b.archived_texts("common/shared.md") == {b"# A\n", b"# B\n"}
+    b.sync.disconnect()
+    fresh = tmp_path / "fresh.git"
+    plain_git("init", "--bare", "--quiet", "--initial-branch=main", str(fresh))
+    b.sync.setup(remote=str(fresh), name="Owner", email="owner@example.com", label="b")
+    plain_git("gc", "--prune=now", cwd=b.lib)
+    assert {b"# A\n", b"# B\n"} <= b.archived_texts("common/shared.md")
+    assert b.sync.start(b.sync.preview()["hash"])["status"] == "synced"
+
+
+def test_legacy_repository_clone_path_is_scrubbed_from_every_published_version(machine):
+    a = machine("a")
+    group = a.lib / "repos/github.com-owner-project"
+    group.mkdir(parents=True)
+    private_path = "/private/user/company/never-publish-this-clone-path"
+    (group / ".repo.json").write_text(json.dumps({"origin": "github.com/owner/project", "path": private_path}))
+    (group / "deploy.md").write_text("# Deploy\n")
+    a.connect()
+    assert json.loads((group / ".repo.local.json").read_text())["path"] == private_path
+    assert private_path.encode() not in remote_objects(a.remote)
+
+
+def test_matching_legacy_aliases_for_distinct_flows_both_transfer(machine):
+    a, b = machine("a"), machine("b")
+    raw = b"# Identical earlier version\n"
+    version = "20261005T000000000000Z-" + hashlib.sha256(raw).hexdigest()[:12]
+    for flow in ("first", "second"):
+        a.save("user:" + flow, "# Current\n")
+        LibraryHistory(a.lib).record(f"common/{flow}.md", raw, version=version)
+    a.connect()
+    b.connect()
+    for flow in ("first", "second"):
+        assert b.version_text(version, path=f"common/{flow}.md") == raw.decode()
+
+
+def test_remote_history_prune_keeps_received_versions_after_gc(machine):
+    a, b = machine("a"), machine("b")
+    for content in ("# A\n", "# B\n", "# C\n"):
+        a.save("user:shared", content)
+    a.connect()
+    b.connect()
+    refs = plain_git("--git-dir", str(a.remote), "for-each-ref", "--format=%(refname)", PORTABLE_REFS)
+    for ref in refs.splitlines():
+        plain_git("--git-dir", str(a.remote), "update-ref", "-d", ref)
+    assert b.run()["status"] == "synced"
+    plain_git("gc", "--prune=now", cwd=b.lib)
+    assert {b"# A\n", b"# B\n"} <= b.archived_texts("common/shared.md")
+
+
+def test_legacy_archive_file_exclusion_survives_migration_and_neighbouring_archives(machine):
+    a, b = machine("a"), machine("b")
+    a.save("user:shared", "# Current\n")
+    private = b"# Excluded legacy version\n"
+    public = b"# Allowed legacy version\n"
+    private_id = "20261005T000000000000Z-" + hashlib.sha256(private).hexdigest()[:12]
+    public_id = "20261006T000000000000Z-" + hashlib.sha256(public).hexdigest()[:12]
+    alias = f".history/common/shared/{private_id}.md"
+    archive = a.lib / alias
+    archive.parent.mkdir(parents=True)
+    archive.write_bytes(private)
+    (archive.parent / (public_id + ".md")).write_bytes(public)
+    a.sync.change_scopes(exclude_files=[alias])
+    a.connect()
+    b.connect()
+    assert private not in remote_objects(a.remote)
+    assert public in remote_objects(a.remote)
+    assert a.version_text(private_id) == private.decode()
+    assert b.version_text(public_id) == public.decode()
+    assert not (a.lib / ".history").exists()
+    proposal = a.sync.change_scopes(include_files=[alias])
+    assert proposal["status"] == "confirmation_needed" and proposal["history_versions"] == 1

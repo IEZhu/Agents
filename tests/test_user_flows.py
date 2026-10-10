@@ -171,6 +171,32 @@ def test_history_and_restore(library):
         library.resolve("mine")
 
 
+def test_successful_save_is_in_git_without_snapshot_files(library):
+    library.save("mine", "# One\n")
+    library.save("mine", "# Two\n", expected_revision=revision("# One\n"))
+    shown = subprocess.run(["git", "-C", str(library.user_dir), "show",
+                            "refs/agents-core/history:common/mine.md"],
+                           check=True, capture_output=True).stdout
+    assert shown == b"# Two\n"
+    assert not (library.user_dir / ".history").exists()
+    version = library.history("user", "mine")[0]["version"]
+    assert version.startswith("git-")
+    fresh = FlowLibrary(library.catalog, user_dir=library.user_dir, repo_root=library.repo_root)
+    assert fresh.get("user:mine", version=version)["content"] == "# One\n"
+    with pytest.raises(FlowError, match="not_found"):
+        fresh.get("user:other", version=version)
+
+
+def test_deleted_git_version_restores_after_restart(library):
+    created = library.save("mine", "# Mine\n")
+    deleted = library.delete("mine", expected_revision=created["flow"]["revision"])
+    fresh = FlowLibrary(library.catalog, user_dir=library.user_dir)
+    old = fresh.get("user:mine", version=deleted["version"])
+    assert old["content"] == "# Mine\n"
+    assert fresh.save("mine", old["content"])["status"] == "created"
+    assert fresh.history("user", "mine")[0]["deleted"]
+
+
 def test_plain_save_clears_a_stale_override_marker(library, install):
     saved = library.save("review", "# Mine\n", override=True)
     (install / "review.md").unlink()  # The built-in is removed upstream.
@@ -1068,7 +1094,8 @@ def test_writes_report_their_changed_paths(library, changes):
     assert changes == []
     library.save("mine", "# Mine v2\n", expected_revision=revision("# Mine\n"))
     [(_root, paths)] = changes
-    assert paths[0].startswith(".history/common/mine/") and paths[1:] == ("common/mine.md",)
+    assert paths == ("common/mine.md",)
+    assert not (library.user_dir / ".history").exists()
     changes.clear()
     library.save("here", "# Here\n", scope="repo")
     assert changes[0][1] == ("repos/github.com-owner-project/here.md",
@@ -1076,15 +1103,16 @@ def test_writes_report_their_changed_paths(library, changes):
                              "repos/github.com-owner-project/.repo.json")
 
 
-def test_a_write_that_fails_part_way_reports_what_it_changed(library, changes):
+def test_invalid_transaction_destination_preserves_all_files(library, changes):
     library.save("mine", "# Mine\n")  # the root files exist from here on
     changes.clear()
     group = library.user_dir / "repos" / "github.com-owner-project"
     (group / user_library.REPO_META).mkdir(parents=True)  # .repo.json cannot be written
     with pytest.raises(OSError):
         library.save("here", "# Here\n", scope="repo")
-    assert changes == [(library.user_dir, ("repos/github.com-owner-project/here.md",
-                                           "repos/github.com-owner-project/.repo.local.json"))]
+    assert changes == []
+    assert not (group / "here.md").exists()
+    assert not (group / user_library.REPO_LOCAL).exists()
 
 
 def test_failed_writes_report_nothing(install, tmp_path, changes, known_components):
@@ -1111,8 +1139,8 @@ def test_persona_and_delete_report_their_changed_paths(install, tmp_path, change
     changes.clear()
     library.delete("user:mine", expected_revision=revision("# Mine\n"))
     [(_root, paths)] = changes
-    assert paths[0].startswith(".history/common/mine/") and paths[0].endswith("-deleted.md")
-    assert paths[1:] == ("common/mine.md", "personas/common/mine.json")
+    assert paths == ("common/mine.md", "personas/common/mine.json")
+    assert library.history("user", "mine")[0]["deleted"]
 
 
 def test_a_failing_listener_never_fails_the_write(library, changes):
