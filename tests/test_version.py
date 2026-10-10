@@ -1,4 +1,5 @@
 """Agents-Core version string and the footer version segment."""
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -15,6 +16,9 @@ from src.schemas.protocol import PersonaDescriptor
 def fresh(tmp_path, monkeypatch):
     (tmp_path / ".git").mkdir()  # the version helper only trusts the installation's own checkout
     monkeypatch.setattr(version, "ROOT", tmp_path)
+    # The version and line-ending lookups are git calls of their own (#279); these tests count the footer's.
+    monkeypatch.setattr(version.executables, "_installed_git_version", lambda: (2, 45))
+    monkeypatch.setattr(version.executables, "_line_endings", lambda repository: [])
     version.agents_core_version.cache_clear()
     yield
     version.agents_core_version.cache_clear()
@@ -99,7 +103,10 @@ def test_git_environment_is_scrubbed(monkeypatch):
         return subprocess.CompletedProcess(args, 0, stdout="2026-10-01T08:01:00+00:00", stderr="")
     monkeypatch.setattr(version.subprocess, "run", run)
     version.agents_core_version()
-    assert not any(k.startswith("GIT_") for k in seen)
+    # Inherited GIT_* variables are gone; only the isolation from the user's configuration is set (#279).
+    assert {k for k in seen if k.startswith("GIT_")} == {"GIT_CONFIG_GLOBAL", "GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0",
+                                                         "GIT_CONFIG_VALUE_0"}
+    assert seen["GIT_CONFIG_GLOBAL"] == os.devnull and seen["GIT_CONFIG_KEY_0"] == "safe.directory"
 
 
 def test_git_never_gets_the_server_stdin(monkeypatch):
