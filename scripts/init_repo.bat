@@ -439,6 +439,7 @@ set "MCP_SETTINGS_FILE="
 set "CLAUDE_DESKTOP_CONFIG="
 set "CLAUDE_CODE_DIR="
 set "CLAUDE_CODE_MCP="
+set "CLAUDE_CODE_SETTINGS="
 for /f "tokens=1,* delims==" %%K in ('""%PYTHON_ABS%" "%HELPERS%\client_config_paths.py""') do set "%%K=%%L"
 if not defined MCP_SETTINGS_FILE (
     endlocal
@@ -462,6 +463,12 @@ if not defined CLAUDE_CODE_MCP (
     endlocal
     set "_FATAL_EC=1"
     set "_FATAL_CTX=Failed to resolve CLAUDE_CODE_MCP"
+    goto :fatal_exit
+)
+if not defined CLAUDE_CODE_SETTINGS (
+    endlocal
+    set "_FATAL_EC=1"
+    set "_FATAL_CTX=Failed to resolve CLAUDE_CODE_SETTINGS"
     goto :fatal_exit
 )
 for %%I in ("%MCP_SETTINGS_FILE%") do set "CURSOR_DIR=%%~dpI"
@@ -503,6 +510,10 @@ if exist "!CLAUDE_CODE_DIR!" set "CLAUDE_CODE_DETECTED=true"
 
 if "!CLAUDE_CODE_DETECTED!"=="true" (
     echo   %GREEN%+%NC% Claude Code detected
+) else if "!CLAUDE_DESKTOP_DETECTED!"=="true" (
+    REM The desktop app's Code tab runs Claude Code with this profile (#231).
+    set "CLAUDE_CODE_DETECTED=true"
+    echo   %GREEN%+%NC% Claude Code not installed; configuring it for the Code tab of Claude Desktop
 ) else (
     echo   %GREEN%^>%NC% Claude Code not detected
 )
@@ -539,9 +550,11 @@ if not exist "!CLAUDE_DESKTOP_CONFIG!" echo {} > "!CLAUDE_DESKTOP_CONFIG!"
 REM Backup before modifying
 copy /Y "!CLAUDE_DESKTOP_CONFIG!" "!CLAUDE_DESKTOP_CONFIG!.backup.%BACKUP_TS%" >nul 2>&1
 
-"%PYTHON_ABS%" "%HELPERS%\inject_mcp.py" "!CLAUDE_DESKTOP_CONFIG!" "%PYTHON_ABS%" "%SERVER_ABS%"
+REM Its own name, which Claude Code denies below: the app injects its servers into the Code-tab
+REM sessions it launches, and those must use Claude Code's per-project Agents-Core (#231).
+"%PYTHON_ABS%" "%HELPERS%\inject_mcp.py" "!CLAUDE_DESKTOP_CONFIG!" "%PYTHON_ABS%" "%SERVER_ABS%" --desktop
 if !errorlevel! equ 0 (
-    echo   %GREEN%+%NC% Agents-Core added to Claude Desktop config
+    echo   %GREEN%+%NC% Agents-Core-Desktop added to Claude Desktop config
     set "CONFIGURED_ENVS=!CONFIGURED_ENVS! Claude-Desktop"
 ) else (
     echo   %RED%x%NC% Failed to update Claude Desktop config
@@ -565,6 +578,18 @@ if !errorlevel! equ 0 (
     set "CONFIGURED_ENVS=!CONFIGURED_ENVS! Claude-Code"
 ) else (
     echo   %RED%x%NC% Failed to update Claude Code config
+)
+REM The desktop app's entry stays out of Claude Code, its Code tab included (#231).
+set "_DESKTOP_DENIED=false"
+if "!CLAUDE_DESKTOP_DETECTED!"=="true" (
+    if exist "!CLAUDE_CODE_SETTINGS!" copy /Y "!CLAUDE_CODE_SETTINGS!" "!CLAUDE_CODE_SETTINGS!.backup.%BACKUP_TS%" >nul 2>&1
+    "%PYTHON_ABS%" "%HELPERS%\deny_desktop_mcp.py" "!CLAUDE_CODE_SETTINGS!" >nul
+    if !errorlevel! equ 0 (
+        set "_DESKTOP_DENIED=true"
+        echo   %GREEN%+%NC% Agents-Core-Desktop denied in Claude Code !CLAUDE_CODE_SETTINGS!
+    ) else (
+        echo   %RED%x%NC% Failed to deny Agents-Core-Desktop in Claude Code settings
+    )
 )
 
 REM 2. Global CLAUDE.md with routing instructions
@@ -621,15 +646,14 @@ if defined CONFIGURED_ENVS (
     echo   %GREEN%^>%NC% You can configure MCP manually later
 )
 
-REM Claude Desktop (its Code tab included) also reads the Claude Code registry,
-REM so one session can start the server twice or more.
+REM Claude Desktop (its Code tab included) also reads the Claude Code registry.
 set "_BOTH_CLIENTS=false"
 echo !CONFIGURED_ENVS! | findstr /C:"Claude-Desktop" >nul 2>&1
 if not errorlevel 1 (
     echo !CONFIGURED_ENVS! | findstr /C:"Claude-Code" >nul 2>&1
     if not errorlevel 1 set "_BOTH_CLIENTS=true"
 )
-if "!_BOTH_CLIENTS!"=="true" call :warn_duplicate_registration
+if "!_BOTH_CLIENTS!"=="true" call :note_desktop_registration
 
 :mcp_done
 
@@ -777,9 +801,15 @@ exit /b !_FATAL_EC!
 
 goto :eof
 
-:warn_duplicate_registration
-echo   %YELLOW%WARNING:%NC% Agents-Core is registered in both the Claude Desktop config and the Claude Code registry
-echo     Each client starts its own server process, so a Desktop session that uses Claude Code
-echo     can run several at once and slow every start. Keep one registration, and raise
-echo     MCP_TIMEOUT ^(milliseconds^) for Claude Code if the first start is still slow.
+:note_desktop_registration
+if not "!_DESKTOP_DENIED!"=="true" (
+    echo   %YELLOW%WARNING:%NC% Claude Code does not deny Agents-Core-Desktop, so a Code-tab session of the
+    echo     desktop app can reach the app's shared server, started outside any project. Add
+    echo     mcp__Agents-Core-Desktop__* to permissions.deny in !CLAUDE_CODE_SETTINGS!.
+    goto :eof
+)
+echo   %GREEN%^>%NC% Claude Desktop runs Agents-Core-Desktop for its chats, outside any project.
+echo     Claude Code denies it, so a Code-tab session of the app uses Claude Code's own
+echo     Agents-Core for its project instead of the app's shared server. Each still starts
+echo     its own process: raise MCP_TIMEOUT ^(milliseconds^) for Claude Code if a start is slow.
 goto :eof

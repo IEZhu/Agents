@@ -5,6 +5,11 @@ import sys
 
 
 CLIENTS = ("codex", "claude", "cursor", "desktop", "claude-project", "claude-deny-desktop", "antigravity")
+# The Claude desktop app starts its servers once, outside any project, and injects them into the
+# Code-tab sessions it launches (#231). Its Agents-Core entry therefore has a name of its own that
+# Claude Code denies, so such a session uses Claude Code's own per-project Agents-Core instead.
+DESKTOP_SERVER = "Agents-Core-Desktop"
+DESKTOP_DENY_RULES = tuple(f"mcp__{name}__*" for name in (DESKTOP_SERVER, DESKTOP_SERVER.replace("-", "_")))
 
 
 def absolute_path(value):

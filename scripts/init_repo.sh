@@ -297,7 +297,7 @@ if sys.platform == 'darwin' and marker.exists():
     sys.exit(0)
 
 try:
-    with open(config_path) as f:
+    with open(config_path, encoding='utf-8-sig') as f:  # also a file saved with a BOM
         config = json.load(f)
 except (json.JSONDecodeError, FileNotFoundError):
     config = {}
@@ -312,9 +312,25 @@ if not isinstance(servers, dict):
     print(f'ERROR: {config_path} mcpServers must be a JSON object', file=sys.stderr)
     sys.exit(1)
 
+# The Claude desktop app's entry has a name of its own, which Claude Code denies: the app
+# injects its servers into the Code-tab sessions it launches, and those must use Claude
+# Code's per-project Agents-Core (#231). It takes over an older Agents-Core entry.
+name = 'Agents-Core-Desktop' if os.environ['MCP_CLIENT'] == 'desktop' else 'Agents-Core'
+# While the shared service is installed, an entry migrate wrote (HTTP, or the stdio bridge)
+# stays: setup writes standalone stdio registrations again only after uninstall.
+current = servers.get(name)
+arguments = current.get('args') if isinstance(current, dict) else None
+bridge = isinstance(arguments, list) and arguments and str(arguments[0]).replace(chr(92), '/').endswith('bridge/stdio.mjs')
+if marker.exists() and isinstance(current, dict) and (current.get('url') or bridge):
+    if name != 'Agents-Core':
+        servers.pop('Agents-Core', None)
+    with open(config_path, 'w') as f:
+        json.dump(config, f, indent=2, ensure_ascii=False)
+    print('OK: kept the shared service entry')
+    sys.exit(0)
 # Preserve existing entry to avoid clobbering user-added fields (e.g. env);
 # a non-object entry is ours and unusable, so start over.
-entry = servers.get('Agents-Core')
+entry = servers.pop('Agents-Core', servers.get(name)) if name != 'Agents-Core' else servers.get(name)
 if not isinstance(entry, dict):
     entry = {}
 entry['command'] = python_abs
@@ -334,13 +350,13 @@ if is_nixos and nix_ld_path:
         env['LD_LIBRARY_PATH'] = f'{nix_ld_path}:{existing}' if existing else nix_ld_path
     entry['env'] = env
 
-servers['Agents-Core'] = entry
+servers[name] = entry
 
 with open(config_path, 'w') as f:
     json.dump(config, f, indent=2, ensure_ascii=False)
 
 print('OK')
-" && print_success "Agents-Core added to $label" \
+" && print_success "$([ "$client" = desktop ] && echo Agents-Core-Desktop || echo Agents-Core) added to $label" \
   || { print_error "Failed to update $label"; return 1; }
 }
 
@@ -718,6 +734,10 @@ else
     if [ -n "${CLAUDE_CONFIG_DIR:-}" ] || check_command claude || [ -f "$CLAUDE_CODE_MCP" ] || [ -d "$CLAUDE_CODE_DIR" ]; then
         CLAUDE_CODE_DETECTED=true
         print_success "Claude Code detected"
+    elif [ "$CLAUDE_DESKTOP_DETECTED" = true ]; then
+        # The desktop app's Code tab runs Claude Code with this profile (#231).
+        CLAUDE_CODE_DETECTED=true
+        print_success "Claude Code not installed; configuring it for the Code tab of Claude Desktop"
     else
         print_step "Claude Code not detected"
     fi
@@ -789,6 +809,20 @@ else
 
             if inject_mcp_config "$CLAUDE_CODE_MCP" "$CLAUDE_CODE_MCP" claude; then
                 CONFIGURED_ENVS+=("Claude Code")
+            fi
+
+            # The desktop app's entry stays out of Claude Code, its Code tab included (#231).
+            if [ "$CLAUDE_DESKTOP_DETECTED" = true ]; then
+                CLAUDE_CODE_SETTINGS="$(resolve_client_path config claude-deny-desktop)"
+                if [ -f "$CLAUDE_CODE_SETTINGS" ]; then
+                    cp "$CLAUDE_CODE_SETTINGS" "${CLAUDE_CODE_SETTINGS}.backup.$(date +%s)"
+                fi
+                if "$PYTHON_ABS" "$REPO_ROOT/scripts/_helpers/deny_desktop_mcp.py" "$CLAUDE_CODE_SETTINGS" >/dev/null; then
+                    DESKTOP_DENIED=true
+                    print_success "Agents-Core-Desktop denied in Claude Code $CLAUDE_CODE_SETTINGS"
+                else
+                    print_error "Failed to deny Agents-Core-Desktop in Claude Code settings"
+                fi
             fi
 
             # 2. Replace the managed routing section, preserving personal instructions.
@@ -878,14 +912,19 @@ else
         echo "    • Antigravity:    Install Antigravity, then re-run this script"
     else
         print_success "MCP configured for: ${CONFIGURED_ENVS[*]}"
-        # Claude Desktop (its Code tab included) also reads the Claude Code
-        # registry, so one session can start the server twice or more.
+        # Claude Desktop (its Code tab included) also reads the Claude Code registry.
         case " ${CONFIGURED_ENVS[*]} " in
             *" Claude Desktop "*" Claude Code "*|*" Claude Code "*" Claude Desktop "*)
-                print_warn "Agents-Core is registered in both the Claude Desktop config and the Claude Code registry"
-                echo "    Each client starts its own server process, so a Desktop session that uses Claude Code"
-                echo "    can run several at once and slow every start. Keep one registration, and raise"
-                echo "    MCP_TIMEOUT (milliseconds) for Claude Code if the first start is still slow."
+                if [ "${DESKTOP_DENIED:-false}" != true ]; then
+                    print_warn "Claude Code does not deny Agents-Core-Desktop, so a Code-tab session of the"
+                    echo "    desktop app can reach the app's shared server, started outside any project. Add"
+                    echo "    mcp__Agents-Core-Desktop__* to permissions.deny in $CLAUDE_CODE_SETTINGS."
+                else
+                    print_step "Claude Desktop runs Agents-Core-Desktop for its chats, outside any project."
+                    echo "    Claude Code denies it, so a Code-tab session of the app uses Claude Code's own"
+                    echo "    Agents-Core for its project instead of the app's shared server. Each still starts"
+                    echo "    its own process: raise MCP_TIMEOUT (milliseconds) for Claude Code if a start is slow."
+                fi
                 ;;
         esac
     fi

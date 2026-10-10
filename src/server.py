@@ -60,7 +60,8 @@ from src.memory.describer import RepoDescriber
 from src.memory.history import ENTRY_ID, HistoryReader, HistoryWriter
 from src.memory.history_results import listing, to_json
 from src.result_size import RESULT_SIZE_CEILING
-from src.daemon.workspaces import resolve_client_context, workspace_inputs, WorkspaceError, HistoryStores
+from src.daemon.workspaces import (resolve_client_context, workspace_inputs, desktop_started_hint,
+                                   WorkspaceError, HistoryStores)
 from src import flow_persona
 from src.flows import MAX_FLOW_BYTES, FlowCatalog, FlowError, execution_bundle
 from src.user_flows import FlowLibrary
@@ -327,8 +328,22 @@ async def _flow_library(ctx: Context | None, workspace: str | None = None) -> Fl
     return FlowLibrary(FlowCatalog(), repo_root=root, repo_error=error)
 
 
-def _flow_error(error: Exception) -> str:
-    return json.dumps({"status": "error", "error": str(error)}, ensure_ascii=False)
+def _workspace_error_details(inputs: dict | None) -> dict:
+    """What a stdio workspace error adds: the PID, the inputs and, for a desktop-started server, a hint (#231)."""
+    if inputs is None:
+        return {}
+    details = {"pid": os.getpid(), "workspace_inputs": inputs}
+    if hint := desktop_started_hint(inputs):
+        details["hint"] = hint
+    return details
+
+
+def _flow_error(error: Exception, ctx: Context | None = None) -> str:
+    payload = {"status": "error", "error": str(error)}
+    # A repo: flow without a workspace fails as FlowError repo_scope_unavailable (user_flows.py).
+    if isinstance(error, WorkspaceError) or str(error).startswith("repo_scope_unavailable:"):
+        payload.update(_workspace_error_details(workspace_inputs(ctx)))
+    return json.dumps(payload, ensure_ascii=False)
 
 
 # Claude Code shows a result's JSON escaped a second time (src/result_size.py): a control character,
@@ -370,7 +385,7 @@ async def list_flows(
         library = await _flow_library(ctx, workspace)
         return json.dumps(await asyncio.to_thread(library.list, scope), ensure_ascii=False)
     except (FlowError, OSError, RuntimeError) as error:
-        return _flow_error(error)
+        return _flow_error(error, ctx)
 
 
 @mcp.tool(meta=FLOW_RESULT_META)
@@ -386,7 +401,7 @@ async def get_flow(flow: str, version: ta.opt_str("Optional version id of the fl
         library = await _flow_library(ctx, workspace)
         return json.dumps(await asyncio.to_thread(library.get, flow, version), ensure_ascii=False)
     except (FlowError, OSError, RuntimeError) as error:
-        return _flow_error(error)
+        return _flow_error(error, ctx)
 
 
 @mcp.tool()
@@ -416,7 +431,7 @@ async def save_flow(
                                          expected_revision=expected_revision, override=override)
         return json.dumps(result, ensure_ascii=False)
     except (FlowError, OSError, RuntimeError) as error:
-        return _flow_error(error)
+        return _flow_error(error, ctx)
 
 
 @mcp.tool()
@@ -431,7 +446,7 @@ async def delete_flow(flow: str, expected_revision: str, ctx: Context | None = N
         result = await asyncio.to_thread(library.delete, flow, expected_revision=expected_revision)
         return json.dumps(result, ensure_ascii=False)
     except (FlowError, OSError, RuntimeError) as error:
-        return _flow_error(error)
+        return _flow_error(error, ctx)
 
 
 @mcp.tool(meta=FLOW_RESULT_META)
@@ -461,7 +476,9 @@ async def run_flow(
     response for it: pass current_persona and apply it as a switch before executing.
     This tool only reads instructions: it does not run commands, edit files,
     create a background task, sample a model or claim the workflow is complete.
-    Returns status=error for an invalid source or unavailable caller workspace.
+    Returns status=error for an invalid source or unavailable caller workspace; over
+    stdio a workspace error adds pid, workspace_inputs and, when the Claude desktop
+    app started this server, hint.
     """
     try:
         client = await resolve_client_context(ctx, workspace, allow_install_fallback=False)
@@ -488,7 +505,7 @@ async def run_flow(
                 selection=flow_persona.selection(spec)))
         return json.dumps(bundle, ensure_ascii=False)
     except (FlowError, WorkspaceError, OSError, RuntimeError) as error:
-        return _flow_error(error)
+        return _flow_error(error, ctx)
 
 
 @mcp.tool()
@@ -528,7 +545,7 @@ async def set_flow_persona(
         result = await asyncio.to_thread(library.set_persona, flow, persona, reset=reset)
         return json.dumps(result, ensure_ascii=False)
     except (FlowError, OSError, RuntimeError) as error:
-        return _flow_error(error)
+        return _flow_error(error, ctx)
 
 
 @mcp.tool()
@@ -1066,8 +1083,7 @@ async def log_interaction(
                 "retry logging in a loop."
             )
         payload = json.loads(error_response(error, request_id, instruction=instruction))
-        if inputs is not None:
-            payload.update(pid=os.getpid(), workspace_inputs=inputs)
+        payload.update(_workspace_error_details(inputs))
         return json.dumps(payload, ensure_ascii=False)
     attribution_status = logged.status or ("unverified" if persona_action is not None else None)
     attribution = {}
@@ -1195,7 +1211,8 @@ async def describe_repo(
         {status, reason, word_count, has_heading, summary_preview}
       needs_summary (no sampling, or sampling failed; nothing written):
         {status, workspace_id, repo_hash, repo_path, prompt, instruction}
-      error: {status, error}
+      error: {status, error}; over stdio a workspace error adds pid, workspace_inputs
+        and, from a server the Claude desktop app started, hint
     Pass workspace_id, repo_path and repo_hash unchanged to write_repo_summary;
     the key names intentionally match its parameters.
     """
@@ -1248,6 +1265,11 @@ async def describe_repo(
         }
         debug_log("describe_repo", "res", payload)
         return json.dumps(payload, ensure_ascii=False)
+    except WorkspaceError as e:
+        # A known condition (no usable workspace): no traceback per call.
+        payload = {"status": "error", "error": str(e), **_workspace_error_details(workspace_inputs(ctx))}
+        debug_log("describe_repo", "error", payload)
+        return json.dumps(payload, ensure_ascii=False)
     except Exception as e:
         logger.error("describe_repo failed: %s", e, exc_info=True)
         payload = {"status": "error", "error": str(e)}
@@ -1277,7 +1299,8 @@ async def write_repo_summary(
       rejected, stale repo_hash: {status, reason}
       rejected, summary failed the sanity check:
         {status, reason, word_count, has_heading, summary_preview}
-      error: {status, error}
+      error: {status, error}; over stdio a workspace error adds pid, workspace_inputs
+        and, from a server the Claude desktop app started, hint
     """
     try:
         client = await resolve_client_context(ctx, workspace)
@@ -1297,6 +1320,11 @@ async def write_repo_summary(
             None, describer.write_summary, summary, repo_hash
         )
         debug_log("write_repo_summary", "res", payload)
+        return json.dumps(payload, ensure_ascii=False)
+    except WorkspaceError as e:
+        # A known condition (no usable workspace): no traceback per call.
+        payload = {"status": "error", "error": str(e), **_workspace_error_details(workspace_inputs(ctx))}
+        debug_log("write_repo_summary", "error", payload)
         return json.dumps(payload, ensure_ascii=False)
     except Exception as e:
         logger.error("write_repo_summary failed: %s", e, exc_info=True)
@@ -1388,9 +1416,7 @@ async def read_history(
         return to_json(payload)
     except WorkspaceError as e:
         # A known condition (no usable workspace): no traceback per call.
-        payload = {"status": "error", "error": str(e)}
-        if (inputs := workspace_inputs(ctx)) is not None:
-            payload.update(pid=os.getpid(), workspace_inputs=inputs)
+        payload = {"status": "error", "error": str(e), **_workspace_error_details(workspace_inputs(ctx))}
         debug_log("read_history", "error", payload)
         return json.dumps(payload, ensure_ascii=False)
     except Exception as e:

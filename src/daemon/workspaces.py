@@ -214,6 +214,26 @@ def workspace_inputs(ctx=None):
     }
 
 
+# How the Claude desktop app names its MCP client: `local-agent-mode-<server>` (#231).
+DESKTOP_CLIENT_PREFIX = "local-agent-mode-"
+
+
+def desktop_started_hint(inputs):
+    """What a workspace error in a server the Claude desktop app started should add, or None (#231).
+
+    The app starts its servers once, outside any project, and serves all its sessions with them, so
+    "start the server in a project" does not apply there.
+    """
+    if not inputs or not str(inputs.get("client") or "").startswith(DESKTOP_CLIENT_PREFIX):
+        return None
+    from src.client_paths import DESKTOP_SERVER, client_config_path
+    return (f"The Claude desktop app started this server from {client_config_path('desktop')}, outside any "
+            "project, and serves all its sessions with it. A Code-tab session should use Claude Code's own "
+            "Agents-Core: run setup (scripts/init_repo) or `python -m src.daemon migrate --clients desktop` "
+            f"again, which names the app's entry {DESKTOP_SERVER} and denies it in Claude Code, then restart "
+            "the app. Any other call needs workspace inside a folder the app shares as an MCP root.")
+
+
 class HistoryStores:
     """Bounded LRU whose active entries cannot be evicted."""
     def __init__(self, capacity=8):
