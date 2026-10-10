@@ -116,7 +116,8 @@ The interactive script:
   detected client's user-level configuration (Claude Code `~/.claude.json`, Cursor
   `~/.cursor/mcp.json`, Claude Desktop `claude_desktop_config.json` as
   `Agents-Core-Desktop`, Google Antigravity `~/.gemini/config/mcp_config.json`), and
-  with Claude Desktop present denies that entry in Claude Code's `settings.json`
+  with Claude Desktop present also configures Claude Code, which the app's Code tab
+  runs, and denies the desktop entry in Claude Code's `settings.json`
   ([why](#claude-code-mcpjson-in-project-root)), after copying each file to
   `<file>.backup.<epoch>`;
 - asks before installing protocol 2 instructions in the global Claude
@@ -800,9 +801,10 @@ The Claude desktop app starts the servers of `claude_desktop_config.json` once, 
 any project, and injects them into the Code sessions it launches, which also start their
 own from the Claude Code registry. `init_repo` (like `python -m src.daemon migrate
 --clients desktop`) therefore names the desktop entry `Agents-Core-Desktop`, taking over
-an older `Agents-Core` entry there, and, when Claude Code is configured too, denies its
-tools in Claude Code (`permissions.deny`: `mcp__Agents-Core-Desktop__*` in
-`~/.claude/settings.json`, or the `CLAUDE_CONFIG_DIR` profile's). A Code-tab session
+an older `Agents-Core` entry there, and denies its tools in Claude Code
+(`permissions.deny`: `mcp__Agents-Core-Desktop__*` in `~/.claude/settings.json`, or the
+`CLAUDE_CONFIG_DIR` profile's). Setup configures Claude Code with the desktop app even
+when Claude Code is not installed on its own, since the Code tab runs it. A Code-tab session
 then uses Claude Code's own `Agents-Core` for its project, while the app's chats keep
 `Agents-Core-Desktop` (#231); the session still sees both servers' instructions, and
 calls to the denied tools are refused. The desktop app reads the profile its own

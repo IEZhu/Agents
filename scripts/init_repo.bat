@@ -510,6 +510,10 @@ if exist "!CLAUDE_CODE_DIR!" set "CLAUDE_CODE_DETECTED=true"
 
 if "!CLAUDE_CODE_DETECTED!"=="true" (
     echo   %GREEN%+%NC% Claude Code detected
+) else if "!CLAUDE_DESKTOP_DETECTED!"=="true" (
+    REM The desktop app's Code tab runs Claude Code with this profile (#231).
+    set "CLAUDE_CODE_DETECTED=true"
+    echo   %GREEN%+%NC% Claude Code not installed; configuring it for the Code tab of Claude Desktop
 ) else (
     echo   %GREEN%^>%NC% Claude Code not detected
 )

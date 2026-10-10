@@ -734,6 +734,10 @@ else
     if [ -n "${CLAUDE_CONFIG_DIR:-}" ] || check_command claude || [ -f "$CLAUDE_CODE_MCP" ] || [ -d "$CLAUDE_CODE_DIR" ]; then
         CLAUDE_CODE_DETECTED=true
         print_success "Claude Code detected"
+    elif [ "$CLAUDE_DESKTOP_DETECTED" = true ]; then
+        # The desktop app's Code tab runs Claude Code with this profile (#231).
+        CLAUDE_CODE_DETECTED=true
+        print_success "Claude Code not installed; configuring it for the Code tab of Claude Desktop"
     else
         print_step "Claude Code not detected"
     fi

@@ -167,6 +167,21 @@ def test_explicit_paths_create_missing_parent_directories(profile_installer):
     assert not (home / ".cursor").exists()
 
 
+def test_a_desktop_only_installation_configures_claude_code_for_the_code_tab(profile_installer):
+    """The desktop app's Code tab runs Claude Code with the default profile (#231)."""
+    run, home, checkout, _, desktop = profile_installer
+    desktop.parent.mkdir(parents=True)
+
+    result = run({})
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert set(json.loads(desktop.read_text())["mcpServers"]) == {"Agents-Core-Desktop"}
+    registry = json.loads((home / ".claude.json").read_text())["mcpServers"]
+    assert registry["Agents-Core"]["args"] == [str(checkout / "src/server.py")]
+    assert set(json.loads((home / ".claude/settings.json").read_text())["permissions"]["deny"]) == {
+        "mcp__Agents-Core-Desktop__*", "mcp__Agents_Core_Desktop__*"}
+
+
 @pytest.mark.parametrize("profile_installer", ["cmd"], indirect=True)
 @pytest.mark.parametrize("missing", ["helper", "MCP_SETTINGS_FILE", "CLAUDE_DESKTOP_CONFIG",
                                      "CLAUDE_CODE_DIR", "CLAUDE_CODE_MCP", "CLAUDE_CODE_SETTINGS"])

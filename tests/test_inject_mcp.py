@@ -308,6 +308,32 @@ def test_deny_helper_creates_missing_settings(deny_helper, tmp_path):
     assert deny_helper() == {"permissions": {"deny": list(DESKTOP_DENY_RULES)}}
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX file modes")
+def test_deny_helper_keeps_a_private_settings_mode(deny_helper, tmp_path):
+    path = tmp_path / "claude profile" / "settings.json"
+    path.parent.mkdir(parents=True)
+    path.write_text("{}", encoding="utf-8")
+    path.chmod(0o600)
+    deny_helper()
+    assert path.stat().st_mode & 0o777 == 0o600
+
+
+def test_deny_helper_writes_through_a_symlinked_settings_file(deny_helper, tmp_path):
+    from src.client_paths import DESKTOP_DENY_RULES
+    target = tmp_path / "dotfiles" / "settings.json"
+    target.parent.mkdir()
+    target.write_text("{}", encoding="utf-8")
+    link = tmp_path / "claude profile" / "settings.json"
+    link.parent.mkdir()
+    try:
+        link.symlink_to(target)
+    except OSError:
+        pytest.skip("creating symlinks needs a privilege here")
+    deny_helper()
+    assert link.is_symlink()
+    assert json.loads(target.read_text(encoding="utf-8")) == {"permissions": {"deny": list(DESKTOP_DENY_RULES)}}
+
+
 @pytest.mark.parametrize("original", [[], {"permissions": []}, {"permissions": {"deny": "x"}}])
 def test_deny_helper_refuses_unexpected_shapes(deny_helper, tmp_path, original):
     with pytest.raises(SystemExit) as exc:

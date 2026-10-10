@@ -10,7 +10,9 @@ the shared service. Other settings and rules are kept; the file is created if mi
 import json
 import os
 from pathlib import Path
+import shutil
 import sys
+import tempfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
@@ -21,7 +23,7 @@ def main():
     if len(sys.argv) != 2:
         print(f"Usage: {sys.argv[0]} <settings_path>", file=sys.stderr)
         sys.exit(1)
-    path = Path(sys.argv[1])
+    path = Path(sys.argv[1]).resolve()  # a symlinked settings file (dotfiles) keeps its link
     try:
         settings = json.loads(path.read_bytes())  # bytes: a file saved with a BOM (PowerShell 5.1) reads too
     except FileNotFoundError:
@@ -46,9 +48,17 @@ def main():
         deny.extend(missing)
         path.parent.mkdir(parents=True, exist_ok=True)
         # Claude Code watches this file: replace it whole, never let it read a half-written one.
-        temporary = path.with_name(f".{path.name}.agents-core-tmp")
-        temporary.write_bytes((json.dumps(settings, indent=2, ensure_ascii=False) + "\n").encode("utf-8"))
-        os.replace(temporary, path)
+        # mkstemp creates the copy private, and it takes the original's mode before replacing it.
+        fd, temporary = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
+        try:
+            with os.fdopen(fd, "wb") as output:
+                output.write((json.dumps(settings, indent=2, ensure_ascii=False) + "\n").encode("utf-8"))
+            if path.exists():
+                shutil.copymode(path, temporary)
+            os.replace(temporary, path)
+        finally:
+            if os.path.exists(temporary):
+                os.unlink(temporary)
     print("OK")
 
 
