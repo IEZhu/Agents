@@ -63,9 +63,10 @@ from src.file_lock import file_lock
 from src.user_library import MARKER
 
 DEFAULT_HOST = "github.com"
-# Client ID of the Agents-Core OAuth App. The owner fills it in after registering
-# the app (#166); until then sign-in needs AGENTS_GITHUB_CLIENT_ID.
-DEFAULT_CLIENT_ID = ""
+# Client ID of the Agents-Core OAuth App (owned by the IEZhu organization, Device Flow
+# enabled; #166). Device sign-in needs no client secret, so none ships.
+# AGENTS_GITHUB_CLIENT_ID selects another app, for a fork or GitHub Enterprise Server.
+DEFAULT_CLIENT_ID = "Ov23liRjusHxm5QTAskN"
 SCOPE = "repo"  # GitHub requires it to create a private repository
 API_VERSION = "2022-11-28"
 USER_AGENT = "Agents-Core"
@@ -166,7 +167,7 @@ def api_base(host: str) -> str:
 
 
 def default_client_id() -> str:
-    """``AGENTS_GITHUB_CLIENT_ID``, else the Agents-Core OAuth App's (empty until it is registered)."""
+    """``AGENTS_GITHUB_CLIENT_ID``, else the Agents-Core OAuth App's."""
     return os.environ.get("AGENTS_GITHUB_CLIENT_ID", "").strip() or DEFAULT_CLIENT_ID
 
 
