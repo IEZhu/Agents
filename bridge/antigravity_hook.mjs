@@ -4,6 +4,14 @@ import { createHmac } from 'node:crypto';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
+function respond(overwrite) {
+  // PreToolUse requires a decision. ask honors cached Always Allow grants;
+  // allow would bypass the user's confirmation policy, even for another server.
+  const response = { decision: 'ask' };
+  if (overwrite) response.overwrite = overwrite;
+  process.stdout.write(JSON.stringify(response) + '\n');
+}
+
 function findConfig(arg) {
   if (arg) return arg;
   if (process.env.AGENTS_BRIDGE_CONFIG) return process.env.AGENTS_BRIDGE_CONFIG;
@@ -36,7 +44,7 @@ async function main() {
   let raw = '';
   for await (const chunk of process.stdin) raw += chunk;
   if (!raw.trim()) {
-    process.stdout.write('{}\n');
+    respond();
     return;
   }
 
@@ -44,7 +52,7 @@ async function main() {
   try {
     input = JSON.parse(raw);
   } catch {
-    process.stdout.write('{}\n');
+    respond();
     return;
   }
 
@@ -53,7 +61,7 @@ async function main() {
   const workspace = Array.isArray(workspacePaths) && workspacePaths[0] ? String(workspacePaths[0]).trim() : null;
 
   if (!token || !workspace || !toolCall) {
-    process.stdout.write('{}\n');
+    respond();
     return;
   }
 
@@ -63,7 +71,7 @@ async function main() {
   const isEagerAgentsCore = name.startsWith('mcp_Agents-Core_') || name.startsWith('mcp_Agents_Core_');
 
   if (!isLazyAgentsCore && !isEagerAgentsCore) {
-    process.stdout.write('{}\n');
+    respond();
     return;
   }
 
@@ -78,23 +86,13 @@ async function main() {
       args = {};
     }
     const updatedArgs = { ...args, workspace, workspace_signature: signature };
-    process.stdout.write(JSON.stringify({
-      overwrite: {
-        Arguments: isString ? JSON.stringify(updatedArgs) : updatedArgs,
-      },
-    }) + '\n');
+    respond({ Arguments: isString ? JSON.stringify(updatedArgs) : updatedArgs });
   } else {
     const args = toolCall.args && typeof toolCall.args === 'object' ? toolCall.args : {};
-    process.stdout.write(JSON.stringify({
-      overwrite: {
-        ...args,
-        workspace,
-        workspace_signature: signature,
-      },
-    }) + '\n');
+    respond({ ...args, workspace, workspace_signature: signature });
   }
 }
 
 main().catch(() => {
-  process.stdout.write('{}\n');
+  respond();
 });

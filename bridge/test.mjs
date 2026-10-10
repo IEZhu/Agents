@@ -50,7 +50,7 @@ test('stdio forwards concurrent IDs and notifications, suppresses callbacks, nev
 });
 
 // A fake daemon: /workspaces answers from `answer`, /mcp records each request's workspace header.
-async function fakeDaemon(answer) {
+async function fakeDaemon(answer, onCall = undefined) {
   const registrations = [], calls = [];
   const server = createServer(async (request, response) => {
     let body = '';
@@ -59,12 +59,14 @@ async function fakeDaemon(answer) {
     assert.equal(request.headers.authorization, 'Bearer test');
     if (request.url === '/workspaces') {
       registrations.push(message);
-      const [status, reply] = answer(message, registrations.length);
+      const [status, reply] = await answer(message, registrations.length);
       response.writeHead(status, { 'content-type': 'application/json' });
       response.end(JSON.stringify(reply));
       return;
     }
-    calls.push({ message, workspace: request.headers['x-agents-workspace'] });
+    const call = { message, workspace: request.headers['x-agents-workspace'] };
+    calls.push(call);
+    await onCall?.(call);
     if (!Object.hasOwn(message, 'id')) { response.writeHead(202); response.end(); return; }
     response.writeHead(200, { 'content-type': 'application/json' });
     response.end(JSON.stringify({ jsonrpc: '2.0', id: message.id, result: {} }));
@@ -73,7 +75,7 @@ async function fakeDaemon(answer) {
   return { server, registrations, calls, url: `http://127.0.0.1:${server.address().port}/mcp` };
 }
 
-// A client that declares roots, answers the bridge's roots/list and sends `messages` in order.
+// A client that declares roots and answers roots/list; nested message arrays run concurrently.
 async function session(daemon, settings, messages, env = {}, cwd = undefined, capabilities = { roots: { listChanged: true } }) {
   const dir = await mkdtemp(join(tmpdir(), 'agents-bridge-'));
   try {
@@ -83,8 +85,8 @@ async function session(daemon, settings, messages, env = {}, cwd = undefined, ca
     for (const [key, value] of Object.entries(environment)) if (value === undefined) delete environment[key];
     const child = spawn(process.execPath, [fileURLToPath(new URL('./stdio.mjs', import.meta.url)), config],
       { env: environment, cwd });
-    const responses = new Map();
-    let rootsAsked = 0, buffer = '', waiting;
+    const responses = new Map(), waiters = new Map();
+    let rootsAsked = 0, buffer = '';
     child.stdout.on('data', data => {
       buffer += data;
       for (let end; (end = buffer.indexOf('\n')) >= 0; buffer = buffer.slice(end + 1)) {
@@ -94,17 +96,19 @@ async function session(daemon, settings, messages, env = {}, cwd = undefined, ca
           child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: message.id, result: { roots: [{ uri: 'file:///roots/a' }] } }) + '\n');
         } else {
           responses.set(message.id, message);
-          waiting?.();
+          waiters.get(message.id)?.();
+          waiters.delete(message.id);
         }
       }
     });
     const write = message => child.stdin.write(JSON.stringify({ jsonrpc: '2.0', ...message }) + '\n');
-    const answered = id => new Promise(resolve => { waiting = () => responses.has(id) && resolve(); waiting(); });
+    const answered = id => responses.has(id) ? Promise.resolve() : new Promise(resolve => waiters.set(id, resolve));
     write({ id: 'init', method: 'initialize', params: { capabilities } });
     await answered('init');
-    for (const message of messages) {
-      write(message);
-      await answered(message.id);
+    for (const entry of messages) {
+      const batch = Array.isArray(entry) ? entry : [entry];
+      for (const message of batch) write(message);
+      await Promise.all(batch.map(message => answered(message.id)));
     }
     child.stdin.end();
     const [code] = await once(child, 'exit');
@@ -188,7 +192,7 @@ test('auto workspace: AGENTS_CLIENT_REPO_ROOT names the session and decides alon
 });
 
 test('a relative AGENTS_CLIENT_REPO_ROOT counts from the bridge directory, not the daemon one', async () => {
-  const cwd = await mkdtemp(join(tmpdir(), 'agents-bridge-cwd-'));
+  const cwd = await realpath(await mkdtemp(join(tmpdir(), 'agents-bridge-cwd-')));
   try {
     for (const [value, expected] of [['sub', join(cwd, 'sub')], ['~', homedir()]]) {
       const daemon = await fakeDaemon(message => [200, { workspace_id: 'override-id', root: message.path }]);
@@ -209,13 +213,100 @@ test('signed workspace: a tool call with valid workspace_signature registers wit
     [call('tool-1', '/signed/project', signature)],
     { CLAUDE_PROJECT_DIR: undefined }, undefined, {});
   assert.equal(daemon.registrations.length, 1);
-  assert.deepEqual(daemon.registrations[0], { path: '/signed/project' });
+  assert.deepEqual(daemon.registrations[0], { path: '/signed/project', origin: 'hook' });
   assert.equal(header('tool-1'), 'signed-id');
   assert.ok(!responses.get('tool-1').error);
   // Verify workspace_signature was stripped before forwarding to daemon
   const forwardedCall = daemon.calls.find(c => c.message.id === 'tool-1');
   assert.equal(forwardedCall.message.params.arguments.workspace, '/signed/project');
   assert.equal(forwardedCall.message.params.arguments.workspace_signature, undefined);
+});
+
+test('signed workspace replaces a refused auto cwd and follows authenticated workspace switches', async () => {
+  const daemon = await fakeDaemon(message => message.origin === 'hook'
+    ? [200, { workspace_id: message.path, root: message.path }]
+    : [400, { error: 'workspace_unsafe', message: 'refused launch directory' }]);
+  const signature = path => createHmac('sha256', 'test').update('workspace:' + path).digest('hex');
+  const { header, rootsAsked } = await session(daemon, { workspace: 'auto' }, [
+    call('first', '/project/first', signature('/project/first')),
+    { id: 'first-list', method: 'tools/list' }, call('first-unsigned'),
+    call('second', '/project/second', signature('/project/second')),
+    { id: 'second-list', method: 'tools/list' }, call('second-unsigned'),
+  ], { CLAUDE_PROJECT_DIR: undefined }, '/', {});
+  assert.deepEqual(daemon.registrations, [
+    { path: '/' },
+    { path: '/project/first', origin: 'hook' },
+    { path: '/project/second', origin: 'hook' },
+  ]);
+  assert.equal(header('init'), undefined);
+  for (const id of ['first', 'first-list', 'first-unsigned']) assert.equal(header(id), '/project/first');
+  for (const id of ['second', 'second-list', 'second-unsigned']) assert.equal(header(id), '/project/second');
+  assert.equal(rootsAsked, 0);
+});
+
+test('concurrent signed workspace switches retain the newer authenticated request', async () => {
+  let secondForwarded;
+  const secondCall = new Promise(resolve => { secondForwarded = resolve; });
+  const daemon = await fakeDaemon(async message => {
+    if (message.origin !== 'hook') return [400, { error: 'workspace_unsafe', message: 'refused launch directory' }];
+    // B has published its session binding before its /mcp request is observed.
+    if (message.path === '/project/first') await secondCall;
+    return [200, { workspace_id: message.path, root: message.path }];
+  }, ({ message }) => { if (message.id === 'second') secondForwarded(); });
+  const signature = path => createHmac('sha256', 'test').update('workspace:' + path).digest('hex');
+  const { header, rootsAsked, responses } = await session(daemon, { workspace: 'auto' }, [
+    [call('first', '/project/first', signature('/project/first')),
+      call('second', '/project/second', signature('/project/second'))],
+    { id: 'list', method: 'tools/list' }, call('unsigned'),
+  ], { CLAUDE_PROJECT_DIR: undefined }, '/', {});
+  assert.deepEqual(daemon.registrations.map(request => request.path).sort(), ['/', '/project/first', '/project/second']);
+  assert.equal(header('init'), undefined);
+  assert.equal(header('first'), '/project/first');
+  for (const id of ['second', 'list', 'unsigned']) {
+    assert.equal(header(id), '/project/second');
+    assert.ok(!responses.get(id).error);
+  }
+  assert.equal(rootsAsked, 0);
+});
+
+test('a pending transient cwd refusal cannot clear a published signed session', async () => {
+  let retryStarted, signedForwarded, launchRegistrations = 0;
+  const retry = new Promise(resolve => { retryStarted = resolve; });
+  const signedCall = new Promise(resolve => { signedForwarded = resolve; });
+  const daemon = await fakeDaemon(async message => {
+    if (message.origin === 'hook') {
+      await retry;
+      return [200, { workspace_id: 'signed-id', root: message.path }];
+    }
+    if (++launchRegistrations === 2) {
+      retryStarted();
+      // The cwd retry fails only after the signed binding has been published.
+      await signedCall;
+    }
+    return [503, {}];
+  }, ({ message }) => { if (message.id === 'signed') signedForwarded(); });
+  const signature = createHmac('sha256', 'test').update('workspace:/signed/project').digest('hex');
+  const { header, rootsAsked } = await session(daemon, { workspace: 'auto' }, [
+    [{ id: 'pending-cwd', method: 'tools/list' }, call('signed', '/signed/project', signature)],
+    { id: 'list', method: 'tools/list' }, call('unsigned'),
+  ], { CLAUDE_PROJECT_DIR: undefined }, '/', {});
+  assert.equal(launchRegistrations, 2);
+  assert.equal(header('init'), undefined);
+  assert.equal(header('pending-cwd'), undefined);
+  for (const id of ['signed', 'list', 'unsigned']) assert.equal(header(id), 'signed-id');
+  assert.equal(rootsAsked, 0);
+});
+
+test('a refused signed workspace leaves the auto session binding intact', async () => {
+  const daemon = await fakeDaemon(message => message.path === '/refused'
+    ? [400, { error: 'workspace_unsafe', message: 'unsafe workspace' }]
+    : [200, { workspace_id: 'session-id', root: message.path }]);
+  const signature = createHmac('sha256', 'test').update('workspace:/refused').digest('hex');
+  const { header } = await session(daemon, { workspace: 'auto' },
+    [call('refused', '/refused', signature), { id: 'list', method: 'tools/list' }],
+    { CLAUDE_PROJECT_DIR: '/session' }, undefined, {});
+  assert.equal(header('refused'), 'session-id');
+  assert.equal(header('list'), 'session-id');
 });
 
 test('invalid workspace_signature is rejected and stripped, falling back without registering', async () => {
@@ -246,7 +337,7 @@ test('antigravity hook signs workspacePaths for lazy and eager tool calls', asyn
       child.stdout.on('data', d => out += d);
       child.stderr.on('data', d => err += d);
       child.on('close', code => code === 0 ? resolve(JSON.parse(out)) : reject(new Error(err || `Exit ${code}`)));
-      child.stdin.end(JSON.stringify(payload));
+      child.stdin.end(typeof payload === 'string' ? payload : JSON.stringify(payload));
     });
 
     const expectedSig = createHmac('sha256', 'test').update('workspace:/my/test/repo').digest('hex');
@@ -256,7 +347,7 @@ test('antigravity hook signs workspacePaths for lazy and eager tool calls', asyn
       toolCall: { name: 'call_mcp_tool', args: { ServerName: 'Agents-Core', ToolName: 'read_history', Arguments: { limit: 5 } } },
       workspacePaths: ['/my/test/repo'],
     });
-    assert.equal(lazyRes.decision, undefined);
+    assert.equal(lazyRes.decision, 'ask');
     assert.equal(lazyRes.overwrite.Arguments.workspace, '/my/test/repo');
     assert.equal(lazyRes.overwrite.Arguments.workspace_signature, expectedSig);
     assert.equal(lazyRes.overwrite.Arguments.limit, 5);
@@ -266,7 +357,7 @@ test('antigravity hook signs workspacePaths for lazy and eager tool calls', asyn
       toolCall: { name: 'mcp_Agents-Core_read_history', args: { limit: 10 } },
       workspacePaths: ['/my/test/repo'],
     });
-    assert.equal(eagerRes.decision, undefined);
+    assert.equal(eagerRes.decision, 'ask');
     assert.equal(eagerRes.overwrite.workspace, '/my/test/repo');
     assert.equal(eagerRes.overwrite.workspace_signature, expectedSig);
     assert.equal(eagerRes.overwrite.limit, 10);
@@ -276,7 +367,23 @@ test('antigravity hook signs workspacePaths for lazy and eager tool calls', asyn
       toolCall: { name: 'call_mcp_tool', args: { ServerName: 'Other', ToolName: 'read_history' } },
       workspacePaths: ['/my/test/repo'],
     });
-    assert.deepEqual(otherRes, {});
+    assert.deepEqual(otherRes, { decision: 'ask' });
+
+    const stringRes = await runHook({
+      toolCall: { name: 'call_mcp_tool', args: { ServerName: 'Agents_Core', ToolName: 'read_history', Arguments: '{"limit":3}' } },
+      workspacePaths: ['/my/test/repo'],
+    });
+    assert.equal(stringRes.decision, 'ask');
+    assert.deepEqual(JSON.parse(stringRes.overwrite.Arguments), {
+      limit: 3, workspace: '/my/test/repo', workspace_signature: expectedSig,
+    });
+    for (const payload of ['', '{invalid json', {}, { toolCall: { name: 'mcp_Agents_Core_read_history' } }]) {
+      assert.deepEqual(await runHook(payload), { decision: 'ask' });
+    }
+    await writeFile(config, '{}', { mode: 0o600 });
+    assert.deepEqual(await runHook({
+      toolCall: { name: 'mcp_Agents_Core_read_history', args: {} }, workspacePaths: ['/my/test/repo'],
+    }), { decision: 'ask' });
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

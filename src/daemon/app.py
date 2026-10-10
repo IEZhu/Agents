@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 MAX_INFLIGHT = 32
 MAX_STREAMS = 32
 # Where a bridge's `/workspaces` path came from (`register_workspace`).
-ORIGINS = ("cwd", "CLAUDE_PROJECT_DIR", "AGENTS_CLIENT_REPO_ROOT")
+ORIGINS = ("cwd", "CLAUDE_PROJECT_DIR", "AGENTS_CLIENT_REPO_ROOT", "hook")
 
 
 def load_runtime(port):
@@ -239,9 +239,10 @@ class Service:
 
         `{path}` is the bridge's launch directory, which counts only with a `.git` or
         `CLAUDE.md` at or above it; `{path, origin: "CLAUDE_PROJECT_DIR"}` is the
-        directory the client named and is used as named; `{path, origin:
-        "AGENTS_CLIENT_REPO_ROOT"}` is a stdio client's override (#266), taken as a
-        stdio server takes it; `{path, roots}` is a tool
+        directory the client named and is used as named; `origin: "hook"` is a
+        client path authenticated by the stdio bridge's HMAC verification;
+        `{path, origin: "AGENTS_CLIENT_REPO_ROOT"}` is a stdio client's override
+        (#266), taken as a stdio server takes it; `{path, roots}` is a tool
         call's workspace, which must lie inside the client's MCP roots. The checks of
         `src.engine.config` decide what is a project. The route takes the bearer token
         and is no MCP tool, so a model never reaches it.

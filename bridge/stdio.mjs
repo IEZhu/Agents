@@ -24,6 +24,7 @@ const named = new Map(); // a tool call's workspace -> its UUID; cleared when th
 let protocolVersion = '2025-11-25';
 let clientRoots = false;
 let session; // the session's workspace UUID (workspace "auto"), or null
+let signedRequest = 0, boundSignedRequest = 0;
 let requests = 0;
 let output = Promise.resolve();
 function send(value) {
@@ -59,11 +60,15 @@ function sessionWorkspace() {
   const named = process.env.CLAUDE_PROJECT_DIR;
   const request = override ? { path: override, origin: 'AGENTS_CLIENT_REPO_ROOT' }
     : named ? { path: named, origin: 'CLAUDE_PROJECT_DIR' } : { path: process.cwd() };
-  session ??= register(request).catch(error => {
-    process.stderr.write(`Agents-Core bridge: no workspace for this session (${error.message}).\n`);
-    if (!error.refused) session = undefined; // the daemon may still be starting: ask again next time
-    return null;
-  });
+  if (!session) {
+    const identity = register(request).catch(error => {
+      process.stderr.write(`Agents-Core bridge: no workspace for this session (${error.message}).\n`);
+      // A pending launch-directory retry must not erase a newer signed binding.
+      if (!error.refused && session === identity) session = undefined;
+      return null;
+    });
+    session = identity;
+  }
   return session;
 }
 function ask(method) {
@@ -100,14 +105,23 @@ async function workspaceFor(message) {
     delete message.params.arguments.workspace_signature;
     const token = (config.headers?.Authorization || '').replace(/^Bearer\s+/i, '').trim();
     if (workspace && verifySignature(token, workspace, signature)) {
+      const request = ++signedRequest;
       if (!named.has(workspace)) {
-        const identity = register({ path: workspace });
+        const identity = register({ path: workspace, origin: 'hook' });
         named.set(workspace, identity);
         identity.catch(() => named.delete(workspace));
       }
       try {
         const identity = await named.get(workspace);
-        if (config.workspace === 'auto' && !session) session = Promise.resolve(identity);
+        // Initialization from / may have cached a refused launch directory.
+        // The authenticated client workspace replaces that result and follows
+        // later signed workspace switches for calls without a workspace argument.
+        // Concurrent registrations may finish in reverse order. Publish only
+        // the newest successful authenticated request, not the last completion.
+        if (config.workspace === 'auto' && request > boundSignedRequest) {
+          boundSignedRequest = request;
+          session = Promise.resolve(identity);
+        }
         return identity;
       } catch (error) {
         process.stderr.write(`Agents-Core bridge: signed workspace refused (${error.message}).\n`);
