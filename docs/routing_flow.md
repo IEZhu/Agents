@@ -306,6 +306,10 @@ during setup (`scripts/init_repo.sh`) or migrated to the shared daemon (see
 For Antigravity, user-scope migration provisions a stdio bridge
 (`bridges/antigravity-auto.json`) and an Antigravity plugin
 (`~/.gemini/config/plugins/agents-core`) with a `PreToolUse` lifecycle hook.
+The same migration registers and enables `plugins.agents-core` in
+`~/.gemini/config/config.json`, preserving other plugins, user settings and
+existing custom fields. The registry, manifest and hooks share the migration's
+backup and rollback; malformed registry objects are refused without replacing them.
 Because Antigravity launches stdio MCP servers from `/` without project
 environment variables or MCP roots, the lifecycle hook authenticates the active
 workspace path (`workspacePaths[0]`) using an HMAC-SHA256 signature keyed by the

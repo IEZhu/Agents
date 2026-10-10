@@ -16,7 +16,7 @@ import tomllib
 from src import executables
 from .state import atomic_private, read_json, write_json, private_dir
 from .workspaces import WorkspaceRegistry
-from src.client_paths import DESKTOP_DENY_RULES, DESKTOP_SERVER, client_config_path, desktop_config_paths
+from src.client_paths import DESKTOP_DENY_RULES, DESKTOP_SERVER, absolute_path, client_config_path, desktop_config_paths
 
 
 SERVER = "Agents-Core"
@@ -157,18 +157,37 @@ class ClientMigration:
             self.bridge(app=STDIO_APP, auto_workspace=True)
         return private
 
-    def provision_antigravity_plugin(self, *, home=None, bridge_config=None):
-        """Prepares ~/.gemini/config/plugins/agents-core plugin manifest and
-        PreToolUse hook for HMAC-authenticated workspace binding (#260)."""
+    def provision_antigravity_plugin(self, *, home=None, bridge_config=None, registry_document=None):
+        """Prepares the Antigravity plugin, workspace hook and enabled registration."""
         node = self.config.get("node")
         if not node or not Path(node).is_file():
             return []
-        home = Path(home or Path.home())
-        plugin_dir = home / ".gemini" / "config" / "plugins" / "agents-core"
+        home = absolute_path(home or Path.home())
+        config_dir = home / ".gemini" / "config"
+        plugin_dir = config_dir / "plugins" / "agents-core"
         installation = Path(self.config.get("installation", Path(__file__).resolve().parents[2]))
         hook_script = installation / "bridge" / "antigravity_hook.mjs"
         bridge_path = str(bridge_config) if bridge_config else str(self.directory / "bridges" / "antigravity-auto.json")
         cmd = shlex.join([str(node), str(hook_script), bridge_path])
+
+        registry_json = config_dir / "config.json"
+        try:
+            raw_registry = self.read_config(registry_json) if registry_document is None else registry_document
+        except (ValueError, OSError) as e:
+            raise ValueError(f"Invalid JSON in {registry_json}: {e}") from e
+        if not isinstance(raw_registry, dict):
+            raise ValueError(f"Plugin registry in {registry_json} must be a JSON object")
+        raw_plugins = raw_registry.get("plugins", {})
+        if not isinstance(raw_plugins, dict):
+            raise ValueError(f"plugins in {registry_json} must be a JSON object")
+        raw_plugin = raw_plugins.get("agents-core", {})
+        if not isinstance(raw_plugin, dict):
+            raise ValueError(f"plugins.agents-core in {registry_json} must be a JSON object")
+        registry = dict(raw_registry)
+        plugins = dict(raw_plugins)
+        plugins["agents-core"] = {**raw_plugin, "enabled": True}
+        registry["plugins"] = plugins
+        registry_content = json.dumps(registry, ensure_ascii=False, indent=2) + "\n"
 
         plugin_json = plugin_dir / "plugin.json"
         try:
@@ -209,6 +228,7 @@ class ClientMigration:
         return [
             (plugin_json, plugin_content, False),
             (hooks_json, hooks_content, False),
+            (registry_json, registry_content, False),
         ]
 
     def has_node(self):
@@ -219,7 +239,7 @@ class ClientMigration:
     def url(self): return f"http://127.0.0.1:{self.config['port']}/mcp"
 
     def prepare(self, client, workspace=None, *, home=None, config_path=None):
-        home = Path(home or Path.home())
+        home = absolute_path(home or Path.home())
         root = Path(workspace).resolve() if workspace else None
         path = client_config_path(client, root, home=home, config_path=config_path)
         self.config_targets[str(path)] = {"client": client, "path": str(path), "workspace": str(root) if root else None}
@@ -278,7 +298,17 @@ class ClientMigration:
             entry = self.bridge(identity, app, auto_workspace=root is None)
             servers[SERVER] = transport_entry(servers.get(SERVER, {}), entry)
             if root is None and self.has_node():
-                self.staged_changes[str(path)] = self.provision_antigravity_plugin(home=home, bridge_config=entry["args"][1])
+                registry_document = document if path == home / ".gemini/config/config.json" else None
+                plugin_changes = self.provision_antigravity_plugin(
+                    home=home, bridge_config=entry["args"][1], registry_document=registry_document,
+                )
+                self.staged_changes[str(path)] = []
+                for plugin_path, plugin_content, secret in plugin_changes:
+                    if plugin_path == path:
+                        # An alternate MCP config can share the application registry.
+                        document["plugins"] = json.loads(plugin_content)["plugins"]
+                    else:
+                        self.staged_changes[str(path)].append((plugin_path, plugin_content, secret))
         else: raise ValueError("Unknown client")
         content = json.dumps(document, ensure_ascii=False, indent=2) + "\n"
         return path, content, self.token in content
