@@ -29,6 +29,7 @@ import errno
 from functools import lru_cache
 import logging
 import os
+from pathlib import Path
 import re
 import stat
 import subprocess
@@ -84,23 +85,95 @@ def service_path() -> str:
     return os.pathsep.join(system_directories())
 
 
-def service_environment(environment: Mapping[str, str] | None = None) -> dict[str, str]:
-    """``environment`` (default: this process's) with the service's ``PATH``.
-
-    Without ``MSYSTEM`` as well: Git for Windows puts its own directories in ``PATH`` only when it
-    is unset, and Git Bash sets it, so a controller command run there would otherwise start a git
-    whose helpers cannot load their DLLs.
+def _left_out_of_service(name: str) -> bool:
+    """``MSYSTEM``: Git for Windows puts its own directories in ``PATH`` only when it is unset, and Git
+    Bash sets it, so a controller command run there would otherwise start a git whose helpers cannot
+    load their DLLs. ``GIT_*`` and ``DEVELOPER_DIR``: they redirect git, or what macOS's
+    ``/usr/bin/git`` runs, and reach the service from ``launchctl setenv`` or the user's environment (#279).
     """
-    environment = dict(os.environ if environment is None else environment)
-    environment.pop("MSYSTEM", None)
+    return name in ("MSYSTEM", "DEVELOPER_DIR") or name.startswith("GIT_")
+
+
+def service_environment(environment: Mapping[str, str] | None = None) -> dict[str, str]:
+    """``environment`` (default: this process's) with the service's ``PATH`` and without the variables
+    of ``_left_out_of_service``."""
+    environment = {name: value for name, value in (os.environ if environment is None else environment).items()
+                   if not _left_out_of_service(name)}
     environment["PATH"] = service_path()
     return environment
 
 
 def enter_service_environment() -> None:
     """Give this process (the service, an update) the service's environment (``service_environment``)."""
-    os.environ.pop("MSYSTEM", None)
+    for name in [name for name in os.environ if _left_out_of_service(name)]:
+        del os.environ[name]
     os.environ["PATH"] = service_path()
+
+
+def git_environment(repository: str | os.PathLike, environment: Mapping[str, str] | None = None) -> dict[str, str]:
+    """``environment`` (default: this process's) for unattended git on the installation's own ``repository`` (#279).
+
+    Without the user's global git configuration, which can run programs (``core.fsmonitor`` on
+    ``status``, ``core.hooksPath``, filter drivers) or redirect a fetch (``url.<base>.insteadOf``),
+    and without inherited ``GIT_*`` variables. The system configuration stays: it holds Git for
+    Windows' credential manager and TLS settings and Apple git's ``osxkeychain``. As command-line
+    configuration: ``repository`` as ``safe.directory``, so an installation that relied on a global
+    entry keeps working, and the user's line-ending settings (``_line_endings``).
+
+    Git before 2.38 reads ``safe.directory`` only from the system and global configuration, so
+    there the global configuration stays, as before #279; only the inherited variables go.
+    """
+    repository = Path(repository).resolve().as_posix()
+    environment = {name: value for name, value in (os.environ if environment is None else environment).items()
+                   if not name.startswith("GIT_")}
+    if (_installed_git_version() or (0, 0)) < SAFE_DIRECTORY_ON_COMMAND_LINE:
+        return environment
+    settings = [("safe.directory", repository), *_line_endings(repository)]
+    environment.update(GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_COUNT=str(len(settings)))
+    for index, (key, value) in enumerate(settings):
+        environment.update({f"GIT_CONFIG_KEY_{index}": key, f"GIT_CONFIG_VALUE_{index}": value})
+    return environment
+
+
+# The first git that reads safe.directory from command-line configuration.
+SAFE_DIRECTORY_ON_COMMAND_LINE = (2, 38)
+_git_versions: dict[str, tuple[int, int] | None] = {}
+
+
+def _installed_git_version() -> tuple[int, int] | None:
+    """The version of the git ``path`` starts, looked up once per process and path; None when unknown."""
+    try:
+        git = path("git")
+    except FileNotFoundError:
+        return None
+    if git not in _git_versions:
+        _git_versions[git] = _version(git)
+    return _git_versions[git]
+
+
+# How the checkout's line endings were written; without them git would see a clean checkout as modified.
+_LINE_ENDINGS = r"^core\.(autocrlf|eol)$"
+_line_endings_found: dict[str, list[tuple[str, str]]] = {}
+
+
+def _line_endings(repository: str) -> list[tuple[str, str]]:
+    """``core.autocrlf`` and ``core.eol`` as the user's own git reads them for ``repository``, in order.
+
+    A global ``core.autocrlf=true`` writes CRLF files on checkout; a git that does not know it
+    reports every text file as modified, and the updater then refuses to update. These keys run
+    nothing; ``git config`` reads the files without starting a program. Looked up once per process.
+    """
+    if repository not in _line_endings_found:
+        try:
+            listed = subprocess.run(
+                [path("git"), "-C", repository, "config", "--get-regexp", _LINE_ENDINGS], capture_output=True,
+                text=True, stdin=subprocess.DEVNULL, timeout=_PROBE_TIMEOUT, creationflags=_NO_WINDOW,
+                env={name: value for name, value in os.environ.items() if not name.startswith("GIT_")})
+            found = [tuple(line.split(" ", 1)) for line in listed.stdout.splitlines() if " " in line]
+        except (OSError, subprocess.SubprocessError):
+            found = []
+        _line_endings_found[repository] = found
+    return _line_endings_found[repository]
 
 
 def _secure(path: str) -> bool:
@@ -157,8 +230,10 @@ def protected(path: str) -> bool:
 def _developer_git() -> str | None:
     """macOS: the git that ``/usr/bin/git`` forwards to (Command Line Tools or Xcode), None without one."""
     try:
+        # Without DEVELOPER_DIR, which the service drops too (``_left_out_of_service``).
         selected = subprocess.run(["/usr/bin/xcode-select", "-p"], capture_output=True, text=True,
-                                  stdin=subprocess.DEVNULL, timeout=_PROBE_TIMEOUT)
+                                  stdin=subprocess.DEVNULL, timeout=_PROBE_TIMEOUT,
+                                  env={name: value for name, value in os.environ.items() if name != "DEVELOPER_DIR"})
     except (OSError, subprocess.SubprocessError):
         return None
     git = os.path.join(selected.stdout.strip(), "usr", "bin", "git")
@@ -287,6 +362,8 @@ def reset() -> None:
     _configured, _search = False, None
     _pins.clear()
     _found.clear()
+    _line_endings_found.clear()
+    _git_versions.clear()
     for cached in (_windows_directory, _protected_roots, _developer_git):
         cached.cache_clear()
 

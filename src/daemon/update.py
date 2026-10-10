@@ -50,7 +50,7 @@ def restore_files(controller, journal):
     if journal.get("old_sha"):
         current = subprocess.run([executables.path("git"), "rev-parse", "HEAD"], cwd=root, check=True,
                                  capture_output=True, text=True, stdin=subprocess.DEVNULL,
-                                 creationflags=NO_WINDOW).stdout.strip()
+                                 env=executables.git_environment(root), creationflags=NO_WINDOW).stdout.strip()
         if current not in (journal["old_sha"], journal.get("target_sha")):
             raise RuntimeError("Installation HEAD changed outside this transaction; manual recovery required")
         # The file updater starts from a verified clean tree and retains the leases.
@@ -225,8 +225,8 @@ def prepare(controller, expected_target=None):
         if expected_target and target != expected_target:
             raise TargetMoved(f"branch moved from checked {expected_target[:12]} to {target[:12]}")
         changed = subprocess.run([executables.path("git"), "diff", "--name-only", old, target, "--", *DEPENDENCIES],
-                                 cwd=root, capture_output=True, text=True, check=True,
-                                 stdin=subprocess.DEVNULL, creationflags=NO_WINDOW)
+                                 cwd=root, capture_output=True, text=True, check=True, stdin=subprocess.DEVNULL,
+                                 env=executables.git_environment(root), creationflags=NO_WINDOW)
         if changed.stdout.strip():
             raise RuntimeError("Dependency manifests changed; update the environment in explicit maintenance")
 
@@ -359,6 +359,7 @@ def offline_update(controller, expected_target=None, precheck=None):
                         raise TargetMoved("the embedding settings changed after the update was built")
                     old = subprocess.run([executables.path("git"), "rev-parse", "HEAD"], cwd=root, check=True,
                                          capture_output=True, text=True, stdin=subprocess.DEVNULL,
+                                         env=executables.git_environment(root),
                                          creationflags=NO_WINDOW).stdout.strip()
                     backup = private_dir(controller.directory / "rollback" / old)
                     backup_indexes(controller, backup)
