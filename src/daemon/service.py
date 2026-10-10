@@ -19,6 +19,9 @@ process exits, so the repetition restarts a stopped or killed service within a m
 ``IgnoreNew`` makes it a no-op while the service runs. ``stop`` disables the repetition and
 ends the task; the logon trigger then starts the service at the next login, which turns the
 repetition on again (``ensure_keep_alive``), as launchd loads a LaunchAgent at each login.
+
+Unattended updates (`src.daemon.autoupdate`) are a second LaunchAgent, or a second task with
+only the repeating trigger (``write_updater``).
 """
 from __future__ import annotations
 
@@ -137,13 +140,18 @@ class TaskScheduler:
             raise RuntimeError(f"schtasks {args[0]} failed: {message[-500:] or f'exit code {result.returncode}'}")
         return result
 
-    def definition(self, probation=None, *, keep_alive=True) -> bytes:
-        config = self.controller.config
-        command = windows_tasks.windowless(config["python"])
-        arguments = serve_arguments(self.controller, probation)
-        if any("%" in value for value in (command, config["installation"], *arguments)):
+    def _command(self, arguments) -> str:
+        """The windowless interpreter that runs ``arguments``, once nothing would be expanded."""
+        command = windows_tasks.windowless(self.controller.config["python"])
+        if any("%" in value for value in (command, self.controller.config["installation"], *arguments)):
             raise ValueError("Task Scheduler expands %NAME% in paths: move the installation, the interpreter "
                              "and the service directory to paths without '%'")
+        return command
+
+    def definition(self, probation=None, *, keep_alive=True) -> bytes:
+        config = self.controller.config
+        arguments = serve_arguments(self.controller, probation)
+        command = self._command(arguments)
         return windows_tasks.definition(windows_tasks.Task(
             description="Agents-Core: the shared MCP service", command=command, arguments=tuple(arguments),
             working_directory=config["installation"], interval_minutes=KEEP_ALIVE_MINUTES,
@@ -157,18 +165,21 @@ class TaskScheduler:
 
     def write(self, probation=None, *, keep_alive=True) -> None:
         """Register the task, replacing one of the same name; a running instance keeps running."""
-        document = self.definition(probation, keep_alive=keep_alive)
-        descriptor, path = tempfile.mkstemp(prefix=self.name + "-", suffix=".xml", dir=self.controller.directory)
+        self._register(self.name, self.definition(probation, keep_alive=keep_alive))
+
+    def _register(self, name: str, document: bytes) -> None:
+        """``/Create /F`` replaces a task in one step: a failure leaves the previous one."""
+        descriptor, path = tempfile.mkstemp(prefix=name + "-", suffix=".xml", dir=self.controller.directory)
         try:
             with os.fdopen(descriptor, "wb") as stream:
                 stream.write(document)
-            self._schtasks("/Create", "/XML", path, "/TN", self.name, "/F")
+            self._schtasks("/Create", "/XML", path, "/TN", name, "/F")
         finally:
             os.unlink(path)
 
-    def triggers(self) -> dict[str, bool] | None:
+    def triggers(self, name: str | None = None) -> dict[str, bool] | None:
         """The enabled state of the registered task's triggers, or None without a task."""
-        query = self._schtasks("/Query", "/TN", self.name, "/XML", check=False)
+        query = self._schtasks("/Query", "/TN", name or self.name, "/XML", check=False)
         if query.returncode:
             return None
         return windows_tasks.enabled_triggers(windows_tasks.schtasks_text(query.stdout or b""))
@@ -193,9 +204,36 @@ class TaskScheduler:
     def remove(self) -> None:
         """Delete the task; without one, /Delete fails and changes nothing. A task left behind
         would start ``serve`` every minute for a service that is no longer installed."""
-        result = self._schtasks("/Delete", "/TN", self.name, "/F", check=False)
-        if result.returncode and self.triggers() is not None:
-            raise RuntimeError("Task Scheduler could not delete the service task")
+        self._delete(self.name, "the service task")
+
+    def _delete(self, name: str, what: str) -> None:
+        result = self._schtasks("/Delete", "/TN", name, "/F", check=False)
+        if result.returncode and self.triggers(name) is not None:
+            raise RuntimeError(f"Task Scheduler could not delete {what}")
+
+    @property
+    def updater_name(self) -> str:
+        return self.name + "-updater"
+
+    def write_updater(self, interval: int) -> None:
+        """Run ``auto-update run`` every ``interval`` seconds, rounded up to whole minutes.
+
+        Only the repeating trigger, as launchd's StartInterval without RunAtLoad: the first run
+        comes one interval after registration. Background priority; ``IgnoreNew`` skips a run
+        while the previous one still updates. Replaces an earlier updater task.
+        """
+        arguments = ("-m", "src.daemon", "--state", str(self.controller.directory), "auto-update", "run")
+        self._register(self.updater_name, windows_tasks.definition(windows_tasks.Task(
+            description="Agents-Core: unattended updates of the shared MCP service", command=self._command(arguments),
+            arguments=arguments, working_directory=self.controller.config["installation"],
+            interval_minutes=-(-interval // 60),
+            time_limit="PT0S", priority=7, at_logon=False, user=windows_tasks.windows_user())))
+
+    def updater_scheduled(self) -> bool:
+        return bool((self.triggers(self.updater_name) or {}).get("TimeTrigger"))
+
+    def remove_updater(self) -> None:
+        self._delete(self.updater_name, "the updater task; it is still scheduled")
 
     def ensure_keep_alive(self) -> None:
         """Turn the repetition on again after a ``stop``, when the logon trigger started the service."""

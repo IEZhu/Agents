@@ -309,23 +309,86 @@ def test_unmoved_sync_is_a_windows_concern_only(tmp_path, monkeypatch):
     control.unmoved_sync(tmp_path / "install", tmp_path / "state")  # the conftest pins launchd
 
 
-@pytest.mark.parametrize("command", [["update"], ["auto-update", "enable"], ["auto-update", "run"]])
-def test_updates_are_refused_on_windows(tmp_path, monkeypatch, capsys, service_platform, command):
-    monkeypatch.setattr(service_platform, "PLATFORM", "win32")
-    assert control.main(["--state", str(tmp_path / "state"), *command]) == 2
-    answer = json.loads(capsys.readouterr().out)
-    assert answer["state"] == "unsupported" and "#195" in answer["error"]
-
-
-def test_auto_update_status_and_disable_on_windows_never_call_launchd(windows, monkeypatch):
+@pytest.mark.parametrize("command", [["update"], ["auto-update", "run"]])
+def test_updates_run_on_windows(windows, monkeypatch, capsys, command):
+    from src.daemon import update
     controller, _fake = windows
     (controller.directory / "service.json").write_text(json.dumps(controller.config))
+    calls = []
+    monkeypatch.setattr(update, "offline_update", lambda current: calls.append("update") or {"state": "UP_TO_DATE"})
+    monkeypatch.setattr(autoupdate, "run", lambda current: calls.append("run") or {"state": "up_to_date"})
+    assert control.main(["--state", str(controller.directory), *command]) == 0
+    assert calls == [command[-1]] and "state" in json.loads(capsys.readouterr().out)
 
+
+@pytest.fixture
+def no_launchd(monkeypatch):
     def launchd(*_args, **_kwargs):
         raise AssertionError("launchctl on Windows")
     monkeypatch.setattr(control.Controller, "launchctl", launchd)
+
+
+def test_auto_update_on_windows_is_a_second_hidden_task(windows, no_launchd):
+    controller, fake = windows
+    (controller.directory / "service.json").write_text(json.dumps(controller.config))
     assert autoupdate.status(controller)["scheduled"] is False
+    status = autoupdate.enable(controller, interval=600, idle_seconds=300)
+    assert status["enabled"] and status["scheduled"] and status["interval"] == 600 and status["idle_seconds"] == 300
+    name = "agents-core-daemon-state-updater"
+    task = fake.xml(name)
+    execute = task.find("t:Actions/t:Exec", NS)
+    assert execute.find("t:Command", NS).text == '"' + controller.config["python"].replace("python.exe", "pythonw.exe") + '"'
+    assert execute.find("t:Arguments", NS).text == subprocess.list2cmdline(
+        ["-m", "src.daemon", "--state", str(controller.directory), "auto-update", "run"])
+    assert execute.find("t:WorkingDirectory", NS).text == controller.config["installation"]
+    settings = task.find("t:Settings", NS)
+    for tag, value in (("MultipleInstancesPolicy", "IgnoreNew"), ("ExecutionTimeLimit", "PT0S"), ("Priority", "7"),
+                       ("Hidden", "true")):
+        assert settings.find(f"t:{tag}", NS).text == value, tag
+    # Every interval from registration, as launchd's StartInterval without RunAtLoad; never at logon.
+    assert _triggers(fake, name) == {"LogonTrigger": False, "TimeTrigger": True}
+    assert task.find("t:Triggers/t:TimeTrigger/t:Repetition/t:Interval", NS).text == "PT10M"
+    assert json.loads((controller.directory / "service.json").read_text())["auto_update"]["enabled"] is True
+    autoupdate.enable(controller, interval=90)  # replaces the task; whole minutes, rounded up
+    assert fake.xml(name).find("t:Triggers/t:TimeTrigger/t:Repetition/t:Interval", NS).text == "PT2M"
     assert autoupdate.disable(controller) == {"enabled": False}
+    assert name not in fake.tasks and autoupdate.status(controller)["scheduled"] is False
+    assert json.loads((controller.directory / "service.json").read_text())["auto_update"]["enabled"] is False
+    assert autoupdate.disable(controller) == {"enabled": False}  # without a task
+
+
+def test_a_refused_updater_task_changes_no_setting(windows, no_launchd, monkeypatch):
+    controller, fake = windows
+    (controller.directory / "service.json").write_text(json.dumps(controller.config))
+    autoupdate.enable(controller, interval=600)
+
+    def refuse(argv, **kwargs):
+        if argv[1] in ("/Create", "/Delete"):
+            return subprocess.CompletedProcess(argv, 1, b"", b"ERROR: Access is denied.")
+        return fake(argv, **kwargs)
+    monkeypatch.setattr(service, "RUNNER", refuse)
+    with pytest.raises(RuntimeError, match="schtasks /Create failed"):
+        autoupdate.enable(controller, interval=1200)
+    with pytest.raises(RuntimeError, match="still scheduled"):
+        autoupdate.disable(controller)
+    assert json.loads((controller.directory / "service.json").read_text())["auto_update"] == {
+        "enabled": True, "interval": 600, "idle_seconds": autoupdate.DEFAULT_IDLE_SECONDS}
+    assert "PT10M" in fake.tasks["agents-core-daemon-state-updater"].decode("utf-16")
+
+
+def test_stdio_readers_on_windows_are_the_held_slots(windows):
+    """Windows does not say who holds a lock: a stdio server holds its slot's lease for its session."""
+    from src.file_lock import file_lock
+    controller, _fake = windows
+    slots = Path(controller.config["installation"]) / "data" / "stdio"
+    for slot in ("0", "1", "2"):
+        (slots / slot).mkdir(parents=True)
+        (slots / slot / ".lease").touch()
+    assert autoupdate.other_readers(controller, daemon_pid=1) == []
+    with file_lock(slots / "1" / ".lease", blocking=False):
+        assert autoupdate.other_readers(controller, daemon_pid=1) == ["stdio slot 1"]
+        assert autoupdate._readers_refusal(controller, 1)["state"] == "deferred"
+    assert autoupdate.other_readers(controller, daemon_pid=1) == []
 
 
 def test_the_sync_task_is_refused_while_the_daemon_is_installed(tmp_path):

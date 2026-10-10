@@ -253,7 +253,9 @@ def test_disabled_spawns_no_thread(monkeypatch):
 
 
 def test_background_thread_runs_when_enabled(tmp_path, monkeypatch):
-    pytest.importorskip("fcntl")
+    from src.startup import LEASES
+    if not LEASES:
+        pytest.skip("no installation leases on this platform")
     monkeypatch.setattr(self_update, "AUTO_UPDATE_ENABLED", True)
     monkeypatch.setattr(self_update, "AUTO_UPDATE_STAGING", True)
     monkeypatch.setattr(self_update, "PREPARED_MARKER", str(tmp_path / "missing.json"))
@@ -286,7 +288,6 @@ def test_throttle_skips_check(tmp_path, monkeypatch):
 
 
 def test_lock_contention_skips_check(tmp_path, monkeypatch):
-    fcntl = pytest.importorskip("fcntl")
     lock = str(tmp_path / ".update.lock")
     monkeypatch.setattr(self_update, "AUTO_UPDATE_STAGING", False)
     monkeypatch.setattr(self_update, "LOCK_FILE", lock)
@@ -296,13 +297,9 @@ def test_lock_contention_skips_check(tmp_path, monkeypatch):
     monkeypatch.setattr(self_update, "check_and_apply_update",
                         lambda: calls.append(1) or UpdateStatus.UP_TO_DATE)
 
-    holder = open(lock, "w")
-    fcntl.flock(holder.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-    try:
+    with self_update._process_lock(lock) as held:  # another open of the file excludes this one
+        assert held
         self_update._run_update_safely()
-    finally:
-        fcntl.flock(holder.fileno(), fcntl.LOCK_UN)
-        holder.close()
 
     assert calls == []  # another holder -> skipped
 
@@ -1087,7 +1084,7 @@ def test_run_activation_safely_activates_when_marker_present(tmp_path, monkeypat
     monkeypatch.setattr(self_update, "STAGING_ROOT", str(tmp_path / "staging"))
     monkeypatch.setattr(self_update, "LOCK_FILE", str(tmp_path / ".update.lock"))
     execs = []
-    monkeypatch.setattr(self_update.os, "execv", lambda exe, argv: execs.append((exe, argv)))
+    monkeypatch.setattr(self_update, "_exec_server", lambda exe, argv: execs.append((exe, argv)))
     calls = []
     monkeypatch.setattr(self_update, "activate_prepared_update",
                         lambda *a, **k: calls.append(1) or ActivationStatus.ACTIVATED)
@@ -1108,7 +1105,7 @@ def test_run_activation_safely_reexecs_after_activation(tmp_path, monkeypatch):
     monkeypatch.setattr(self_update, "activate_prepared_update",
                         lambda *a, **k: ActivationStatus.ACTIVATED)
     execs = []
-    monkeypatch.setattr(self_update.os, "execv", lambda exe, argv: execs.append((exe, argv)))
+    monkeypatch.setattr(self_update, "_exec_server", lambda exe, argv: execs.append((exe, argv)))
     self_update.run_activation_safely()
     assert len(execs) == 1
     exe, argv = execs[0]
@@ -1128,7 +1125,7 @@ def test_run_activation_safely_no_reexec_when_discarded(tmp_path, monkeypatch):
     monkeypatch.setattr(self_update, "activate_prepared_update",
                         lambda *a, **k: ActivationStatus.INVALID_MARKER)
     execs = []
-    monkeypatch.setattr(self_update.os, "execv", lambda exe, argv: execs.append((exe, argv)))
+    monkeypatch.setattr(self_update, "_exec_server", lambda exe, argv: execs.append((exe, argv)))
     self_update.run_activation_safely()
     assert execs == []
 
@@ -1227,8 +1224,9 @@ def test_incomplete_marker_is_rejected_before_merge(repos, phase_a_env, field, v
 
 
 def test_live_reader_keeps_prepared_update_pending(repos, phase_a_env):
-    from src.startup import server_session
-    pytest.importorskip("fcntl")
+    from src.startup import LEASES, server_session
+    if not LEASES:
+        pytest.skip("no installation leases on this platform")
     _commit(repos.upstream, "file.txt", "v2\n", "update")
     original = _head(repos.local)
     assert _prepare(repos, phase_a_env) == PreparedStatus.PREPARED
@@ -1398,7 +1396,7 @@ def test_unsafe_activation_failure_does_not_fall_through(tmp_path, monkeypatch, 
     def fail_exec(*args):
         raise OSError("exec failed")
 
-    monkeypatch.setattr(self_update.os, "execv", fail_exec)
+    monkeypatch.setattr(self_update, "_exec_server", fail_exec)
     with pytest.raises(SystemExit, match="restart required"):
         self_update.run_activation_safely()
 

@@ -3,8 +3,13 @@
 Keep this bootstrap stdlib-only: another process may be replacing the application
 while we wait for its exclusive lease. Server sessions retain a shared lease until
 exit; only a startup with no existing readers can activate an update.
+
+POSIX leases are ``flock`` locks; Windows leases are ``LockFileEx`` locks on the first
+byte of the same files (``src.file_lock`` locks them the same way). A Windows file
+system without byte-range locks serves without leases and never auto-updates.
 """
 
+import errno
 import logging
 import importlib
 import os
@@ -16,8 +21,66 @@ UPDATE_JOURNAL = ".update_in_progress.json"
 
 try:
     import fcntl
-except ImportError:  # Windows: serve normally, but do not auto-update.
+except ImportError:  # Windows
     fcntl = None
+
+if fcntl is None and os.name == "nt":
+    import ctypes
+    from ctypes import wintypes
+    import msvcrt
+
+    class _Overlapped(ctypes.Structure):
+        """OVERLAPPED with only the fields LockFileEx reads: the lock starts at offset 0."""
+        _fields_ = [("Internal", ctypes.c_void_p), ("InternalHigh", ctypes.c_void_p),
+                    ("Offset", wintypes.DWORD), ("OffsetHigh", wintypes.DWORD),
+                    ("hEvent", wintypes.HANDLE)]
+
+    _kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    _kernel32.LockFileEx.argtypes = [wintypes.HANDLE, wintypes.DWORD, wintypes.DWORD, wintypes.DWORD,
+                                     wintypes.DWORD, ctypes.POINTER(_Overlapped)]
+    _kernel32.UnlockFileEx.argtypes = [wintypes.HANDLE, wintypes.DWORD, wintypes.DWORD, wintypes.DWORD,
+                                       ctypes.POINTER(_Overlapped)]
+
+    def _lock(fd, *, exclusive, blocking):
+        """Lock the lease byte; BlockingIOError when held, False without byte-range locks."""
+        flags = (0x2 if exclusive else 0) | (0 if blocking else 0x1)  # LOCKFILE_EXCLUSIVE_LOCK, _FAIL_IMMEDIATELY
+        if _kernel32.LockFileEx(msvcrt.get_osfhandle(fd), flags, 0, 1, 0, ctypes.byref(_Overlapped())):
+            return True
+        code = ctypes.get_last_error()
+        if code == 33:  # ERROR_LOCK_VIOLATION
+            raise BlockingIOError(errno.EWOULDBLOCK, "The lease is held by another process")
+        if code in (1, 50):  # ERROR_INVALID_FUNCTION, ERROR_NOT_SUPPORTED
+            return False
+        raise ctypes.WinError(code)
+
+    def _downgrade(fd):
+        # A shared lock over our own exclusive one, then one unlock: Windows removes the
+        # exclusive lock first, so no other process can take the lease in between.
+        _lock(fd, exclusive=False, blocking=False)
+        if not _kernel32.UnlockFileEx(msvcrt.get_osfhandle(fd), 0, 1, 0, ctypes.byref(_Overlapped())):
+            # Still exclusive: every other start would wait for this whole session.
+            raise ctypes.WinError(ctypes.get_last_error())
+
+    def _unlock(fd):
+        # Each call removes one lock of this handle: the exclusive one first, then the shared one.
+        while _kernel32.UnlockFileEx(msvcrt.get_osfhandle(fd), 0, 1, 0, ctypes.byref(_Overlapped())):
+            pass
+
+elif fcntl is not None:
+    def _lock(fd, *, exclusive, blocking):
+        fcntl.flock(fd, (fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH) | (0 if blocking else fcntl.LOCK_NB))
+        return True
+
+    def _downgrade(fd):
+        fcntl.flock(fd, fcntl.LOCK_SH)
+
+    def _unlock(fd):
+        fcntl.flock(fd, fcntl.LOCK_UN)
+
+# Whether this platform has installation leases; without them a server never auto-updates.
+LEASES = fcntl is not None or os.name == "nt"
+# Descriptors of the leases this process holds (Windows re-exec releases them, see release_leases).
+_HELD = []
 
 
 def assert_installation_safe(repo_root):
@@ -41,35 +104,64 @@ def server_session(repo_root, activate):
     readers here. Lock failures propagate: importing during an unknown writer's
     critical section would be unsafe.
     """
-    if fcntl is None:
-        assert_installation_safe(repo_root)
-        logging.getLogger(__name__).warning(
-            "Auto-update disabled: shared installation locks are unavailable."
-        )
-        _migrate_model(repo_root)
-        yield
+    if not LEASES:
+        yield from _without_leases(repo_root)
         return
 
     data_dir = os.path.join(repo_root, "data")
     os.makedirs(data_dir, exist_ok=True)
     with open(os.path.join(data_dir, ".sessions.lock"), "a+b") as lease:
         # Python descriptors are non-inheritable: exec releases the lease.
+        fd = lease.fileno()
+        _HELD.append(fd)
         try:
-            fcntl.flock(lease, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            # Existing readers permit an immediate start. An activating writer
-            # must finish before we load config, prompts, stores or engine code.
-            fcntl.flock(lease, fcntl.LOCK_SH)
-        else:
-            assert_installation_safe(repo_root)
-            activate(lease.fileno())
-            fcntl.flock(lease, fcntl.LOCK_SH)
-        try:
+            if not _acquire_session(repo_root, fd, activate):
+                yield from _without_leases(repo_root)
+                return
             # The writer we waited for may have crashed or failed rollback.
             assert_installation_safe(repo_root)
             yield
         finally:
-            fcntl.flock(lease, fcntl.LOCK_UN)
+            _HELD.remove(fd)
+            _unlock(fd)
+
+
+def _acquire_session(repo_root, fd, activate):
+    """Hold the session lease, shared; False on a file system without byte-range locks.
+
+    Only a start that gets the lease exclusively, with no other reader, activates.
+    """
+    try:
+        if not _lock(fd, exclusive=True, blocking=False):
+            return False
+    except BlockingIOError:
+        # Existing readers permit an immediate start. An activating writer
+        # must finish before we load config, prompts, stores or engine code.
+        return _lock(fd, exclusive=False, blocking=True)
+    assert_installation_safe(repo_root)
+    activate(fd)
+    _downgrade(fd)
+    return True
+
+
+def _without_leases(repo_root):
+    assert_installation_safe(repo_root)
+    logging.getLogger(__name__).warning(
+        "Auto-update disabled: shared installation locks are unavailable."
+    )
+    _migrate_model(repo_root)
+    yield
+
+
+def release_leases():
+    """Release every lease of this process, which must not read the installation afterwards.
+
+    Windows has no exec: a re-exec starts the updated server as a child
+    (``self_update._reexec_updated_server``), which would wait for the leases this
+    process still holds. On POSIX, exec closes their descriptors.
+    """
+    for fd in _HELD:
+        _unlock(fd)
 
 
 def _activate(repo_root, session_fd):
@@ -86,8 +178,8 @@ def _migrate_model(repo_root):
     """Move .env to the current default embedding model once (src/model_migration.py).
 
     Runs under the exclusive installation lease, so no running server shares
-    stores with a different model; without locks (Windows) at every start. A
-    failure keeps the configured model.
+    stores with a different model; without leases at every start. A failure
+    keeps the configured model.
     """
     try:
         from src.model_migration import migrate_env_file
@@ -110,35 +202,48 @@ def stdio_derived_state(repo_root):
     Each running stdio server leases one slot for its lifetime. The first free
     slot is reused after exit (including a crash), while concurrent processes
     get distinct stores. History stores additionally namespace by workspace.
-    Call only inside the installation reader lease.
+    Call only inside the installation reader lease. Without leases each server
+    gets a temporary directory.
     """
-    if fcntl is None:
-        import tempfile
-        with tempfile.TemporaryDirectory(prefix="agents-stdio-") as derived:
-            yield derived
-        return
+    if LEASES:
+        base = os.path.join(repo_root, "data", "stdio")
+        os.makedirs(base, mode=0o700, exist_ok=True)
+        slot = 0
+        while True:
+            derived = os.path.join(base, str(slot))
+            os.makedirs(derived, mode=0o700, exist_ok=True)
+            fd = _open_slot_lease(os.path.join(derived, ".lease"))
+            try:
+                locked = _lock(fd, exclusive=True, blocking=False)
+            except BlockingIOError:
+                os.close(fd)
+                slot += 1
+                continue
+            except BaseException:
+                os.close(fd)
+                raise
+            if not locked:  # a file system without byte-range locks
+                os.close(fd)
+                break
+            _HELD.append(fd)
+            try:
+                yield derived
+            finally:
+                _HELD.remove(fd)
+                if os.name == "nt":
+                    _unlock(fd)  # closing would release it too, but not at a defined time
+                os.close(fd)
+            return
 
-    base = os.path.join(repo_root, "data", "stdio")
-    os.makedirs(base, mode=0o700, exist_ok=True)
-    slot = 0
-    while True:
-        derived = os.path.join(base, str(slot))
-        os.makedirs(derived, mode=0o700, exist_ok=True)
-        fd = os.open(os.path.join(derived, ".lease"), os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
-        try:
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            os.close(fd)
-            slot += 1
-            continue
-        except BaseException:
-            os.close(fd)
-            raise
-        try:
-            yield derived
-        finally:
-            os.close(fd)
-        return
+    import tempfile
+    with tempfile.TemporaryDirectory(prefix="agents-stdio-") as derived:
+        yield derived
+
+
+def _open_slot_lease(path):
+    if os.name == "nt" and os.path.islink(path):  # Windows has no O_NOFOLLOW
+        raise OSError(errno.ELOOP, "A lease file must not be a symlink", path)
+    return os.open(path, os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0), 0o600)
 
 
 def run_server(server_path):

@@ -1,6 +1,7 @@
 """Unattended updates: decide without touching the service, then reuse the update transaction."""
 import os
 import plistlib
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -207,6 +208,7 @@ def test_enable_schedules_a_background_agent_and_disable_removes_it(scheduled):
         autoupdate.enable(controller, interval=10)
 
 
+@pytest.mark.skipif(os.name == "nt", reason="launchd plists, written as text, exist on macOS only")
 def test_enable_changes_nothing_when_launchd_fails(scheduled):
     controller, *_ = scheduled
     autoupdate.enable(controller, interval=600)
@@ -284,6 +286,8 @@ def test_git_timeout_is_recorded_not_raised(scheduled, monkeypatch):
     assert controller.stops == 0
 
 
+@pytest.mark.skipif(not shutil.which("lsof"), reason="lsof lists the lease's readers; Windows probes "
+                    "stdio slots (tests/test_daemon_service.py)")
 def test_stdio_reader_defers_without_stopping_the_service(scheduled):
     controller, root, old, _ = scheduled
     lease = root / "data/.sessions.lock"

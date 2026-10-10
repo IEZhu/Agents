@@ -209,3 +209,20 @@ def service_platform(monkeypatch):
     monkeypatch.setattr(service, "PLATFORM", "darwin")
     monkeypatch.setattr(service, "RUNNER", refuse)
     return service
+
+
+@pytest.fixture(autouse=True)
+def no_server_restart(monkeypatch):
+    """A test never restarts the test process as the updated server.
+
+    ``self_update._reexec_updated_server`` execs ``sys.argv`` again, which here is pytest: on
+    POSIX it would replace the session, and on Windows, which serves the restarted server from
+    a child, every child would run the session again. A test that expects a restart replaces
+    ``_exec_server`` or ``_reexec_updated_server`` itself.
+    """
+    from src import self_update
+
+    def refuse(executable, argv):
+        # Not AssertionError: activation turns any Exception into the SystemExit a test may expect.
+        pytest.fail(f"a test restarted the test process: {argv}")
+    monkeypatch.setattr(self_update, "_exec_server", refuse)

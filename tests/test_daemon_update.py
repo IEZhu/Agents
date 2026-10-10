@@ -1,5 +1,7 @@
 from pathlib import Path
 import json
+import os
+import shutil
 import subprocess
 import sys
 
@@ -20,9 +22,10 @@ def git(root, *args):
 class FakeController:
     def __init__(self, root, directory):
         self.directory = directory
-        self.config = {"installation": str(root), "git": "/usr/bin/git", "model": "test",
+        # The controller runs git with this PATH: the test host's, so that git is found on Windows too.
+        self.config = {"installation": str(root), "git": shutil.which("git"), "model": "test",
                        "model_cache": "/unused", "model_artifact": "test", "model_path": "/unused",
-                       "path": "/usr/bin:/bin", "autostart": True, "python": sys.executable,
+                       "path": os.environ["PATH"], "autostart": True, "python": sys.executable,
                        "model_generation": GENERATION}
         self.running = True
         self.fail_ready = 0
@@ -84,7 +87,8 @@ def installation(tmp_path, monkeypatch):
         assert controller.running  # the service keeps serving while the update is built
         with pytest.raises(BlockingIOError):  # under the updater lease: no stdio server prepares meanwhile
             with file_lock(root / "data/.update.lock", blocking=False): pass
-        assert self_update._subprocess_lock_fds()  # and the reindex child inherits that lease
+        # The reindex child inherits that lease; on Windows it runs in a job that ends with this process.
+        assert self_update._subprocess_lock_fds() or os.name == "nt"
         # Without the control lock: stop, restart and disable work during a long build.
         with file_lock(controller.directory / "control.lock", blocking=False): pass
         staged = Path(staging_dir) / "data"; staged.mkdir(parents=True, exist_ok=True)
@@ -428,7 +432,7 @@ def test_prepare_reindex_uses_the_service_interpreter_model_and_live_stores(tmp_
     assert args == [controller.config["python"], "-m", "src.reindex"] and cwd == str(tmp_path / "stage")
     assert timeout == 4321  # AGENTS_AUTO_UPDATE_REINDEX_TIMEOUT
     assert (env["EMBEDDING_MODEL"], env["AGENTS_MODEL_PATH"], env["PATH"], env["AGENTS_AUTO_UPDATE"]) == \
-        ("test", "/unused", "/usr/bin:/bin", "0")
+        ("test", "/unused", controller.config["path"], "0")
     assert env["EMBEDDING_PROMPTS"] == "off"
     assert (tmp_path / "stage/data/skills_store.npz").read_text() == "live-index"
     assert not (tmp_path / "stage/data/implants_store.npz").exists()

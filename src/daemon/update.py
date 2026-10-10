@@ -15,6 +15,8 @@ from .state import read_json, write_json, private_dir, atomic_private
 INDEX_FILES = ("skills_store.npz", "skills_store.json", ".skills_hash",
                "implants_store.npz", "implants_store.json", ".implants_hash")
 DEPENDENCIES = ("pyproject.toml", "requirements.txt", "uv.lock", "bridge/package.json", "bridge/package-lock.json")
+# A console child of the windowless controller (Task Scheduler's pythonw) would open a window.
+NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 
 def phase(controller, journal, name):
@@ -28,9 +30,10 @@ def probation(controller, journal):
     phase(controller, journal, "probation")
     controller._start(probation=nonce)
     ready = controller.wait_ready()
-    # Rewrite future launchd admission without restarting the verified PID.
-    # launchd retains the original argv until bootout; the nonce is accepted only
-    # while maintenance exists. Normal post-commit restarts ignore this nonce.
+    # Rewrite future admission without restarting the verified PID. launchd
+    # retains the original argv until bootout, a running task its command line;
+    # the nonce is accepted only while maintenance exists. Normal post-commit
+    # restarts ignore this nonce.
     controller.write_plist()
     return ready
 
@@ -45,7 +48,8 @@ def restore_files(controller, journal):
     root = Path(controller.config["installation"])
     if journal.get("old_sha"):
         git = controller.config["git"]
-        current = subprocess.run([git, "rev-parse", "HEAD"], cwd=root, check=True, capture_output=True, text=True).stdout.strip()
+        current = subprocess.run([git, "rev-parse", "HEAD"], cwd=root, check=True, capture_output=True, text=True,
+                                 stdin=subprocess.DEVNULL, creationflags=NO_WINDOW).stdout.strip()
         if current not in (journal["old_sha"], journal.get("target_sha")):
             raise RuntimeError("Installation HEAD changed outside this transaction; manual recovery required")
         # The file updater starts from a verified clean tree and retains the leases.
@@ -220,7 +224,8 @@ def prepare(controller, expected_target=None):
         if expected_target and target != expected_target:
             raise TargetMoved(f"branch moved from checked {expected_target[:12]} to {target[:12]}")
         changed = subprocess.run([config["git"], "diff", "--name-only", old, target, "--", *DEPENDENCIES],
-                                 cwd=root, capture_output=True, text=True, check=True)
+                                 cwd=root, capture_output=True, text=True, check=True,
+                                 stdin=subprocess.DEVNULL, creationflags=NO_WINDOW)
         if changed.stdout.strip():
             raise RuntimeError("Dependency manifests changed; update the environment in explicit maintenance")
 
@@ -351,7 +356,8 @@ def offline_update(controller, expected_target=None, precheck=None):
                         # the stores. The next run builds again.
                         raise TargetMoved("the embedding settings changed after the update was built")
                     old = subprocess.run([controller.config["git"], "rev-parse", "HEAD"], cwd=root, check=True,
-                                         capture_output=True, text=True).stdout.strip()
+                                         capture_output=True, text=True, stdin=subprocess.DEVNULL,
+                                         creationflags=NO_WINDOW).stdout.strip()
                     backup = private_dir(controller.directory / "rollback" / old)
                     backup_indexes(controller, backup)
                     journal.update(old_sha=old, target_sha=target, backup=str(backup))
