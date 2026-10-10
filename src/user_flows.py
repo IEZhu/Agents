@@ -38,11 +38,15 @@ from src.file_lock import file_lock
 from src.flows import (FLOW_ID, MAX_FLOW_BYTES, Flow, FlowCatalog, FlowError,
                        flow_title, read_flow)
 from src.user_library import REPO_LOCAL, REPO_META, atomic_write as _atomic_write
+from src.user_sync.scope import CONFLICTS_DIR
 
 SCOPES = ("builtin", "user", "repo")
 _REFERENCE = re.compile(r"(?:(builtin|user|repo):)?(?:flows/)?([a-z0-9]+(?:-[a-z0-9]+)*)(?:\.md)?")
 _REPO_KEY = re.compile(r"[a-z0-9_][a-z0-9._-]*")  # what repo_key() can generate
 _VERSION = re.compile(r"\d{8}T\d{12}Z-[0-9a-f]{12}(?:-deleted)?")
+# What a flow's metadata carries of a sync conflict record (src.user_sync.merge.conflict_record).
+SYNC_CONFLICT_FIELDS = ("path", "kind", "kept", "reason", "overlaps", "machine", "time",
+                        "local_version", "deleted_on")
 
 
 def parse_reference(name: str) -> tuple[str | None, str]:
@@ -279,9 +283,37 @@ class FlowLibrary:
                 details.append(("upstream_changed", True))
         if scope == "repo":
             details.append(("repo", self.repo()[1] or str(self.repo_root or self.repo()[0])))
+        conflicts = self._sync_conflicts(scope, flow_id)
+        if conflicts:
+            details.append(("sync_conflicts", conflicts))
         return self._with_persona(scope, flow_id, read_flow(
             directory, flow_id, flow_ref=f"{scope}:{flow_id}", source=scope,
             details=tuple(details)))
+
+    def _sync_conflicts(self, scope: str, flow_id: str) -> list[dict]:
+        """Open conflict records of library sync about this flow's text, override marker or persona.
+
+        Sync writes one ``.agents-sync/conflicts/<id>.json`` when it could not merge two machines'
+        changes (``src.user_sync.merge``); the record stays until the owner resolves it.
+        """
+        directory = self.user_dir / CONFLICTS_DIR
+        if not directory.is_dir():
+            return []
+        relative = self._relative(scope).as_posix()
+        members = {f"{relative}/{flow_id}.md", f"{relative}/{flow_id}.meta.json",
+                   f"personas/{relative}/{flow_id}.json"}
+        found = []
+        for path in sorted(directory.glob("*.json")):
+            if path.is_symlink():
+                continue
+            try:
+                record = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, UnicodeError, ValueError):
+                continue
+            if isinstance(record, dict) and record.get("path") in members:
+                found.append({**{name: record[name] for name in SYNC_CONFLICT_FIELDS if name in record},
+                              "id": path.stem})
+        return found
 
     def _exists(self, scope: str, flow_id: str) -> bool:
         if scope == "builtin":
