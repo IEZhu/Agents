@@ -380,11 +380,11 @@ def test_the_installation_is_a_safe_directory_without_the_users_configuration(tm
     # system configuration as well: a CI runner's may allow every directory, which would hide the refusal.
     dubious = {"GIT_TEST_ASSUME_DIFFERENT_OWNER": "1", "GIT_CONFIG_NOSYSTEM": "1"}
     command = [REAL_GIT.path, "-C", str(repository), "rev-parse", "HEAD"]
+    # needs_isolating_git means git 2.38 or later, which knows GIT_TEST_ASSUME_DIFFERENT_OWNER (2.35.2 on):
+    # a success here is a failure, never a reason to skip.
     refused = subprocess.run(command, capture_output=True, text=True,
                              env={**executables.service_environment(), "GIT_CONFIG_GLOBAL": os.devnull, **dubious})
-    if refused.returncode == 0:
-        pytest.skip("this git does not act as if another user owned the repository")
-    assert "dubious ownership" in refused.stderr
+    assert refused.returncode and "dubious ownership" in refused.stderr
     allowed = subprocess.run(command, capture_output=True, text=True,
                              env={**executables.git_environment(repository), **dubious})
     assert allowed.returncode == 0, allowed.stderr
