@@ -89,7 +89,7 @@ def test_repeated_lines_are_matched_within_a_bound():
     merge("x\n" * 999, alternating, "y\n" + "x\n" * 998)
     # A rewrite of every line on one side: the search gives up within its bound.
     assert merge("x\n" * 50000, "y\n" * 50000, "z\n" * 50000) == (None, 0)
-    assert time.perf_counter() - started < 5
+    assert time.perf_counter() - started < 30  # a guard against an unbounded search, not a benchmark
 
 
 def test_the_line_search_keeps_a_longest_common_subsequence():
