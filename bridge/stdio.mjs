@@ -2,6 +2,8 @@
 import { readFileSync, statSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { once } from 'node:events';
+import { createHmac, timingSafeEqual } from 'node:crypto';
+import { Buffer } from 'node:buffer';
 
 const path = process.argv[2];
 // Windows has no mode bits: there the config inherits the owner-only ACL of the service directory
@@ -64,11 +66,44 @@ function ask(method) {
   send({ jsonrpc: '2.0', id, method });
   return answer;
 }
+function verifySignature(token, workspace, signature) {
+  if (!token || typeof workspace !== 'string' || typeof signature !== 'string') return false;
+  const expected = createHmac('sha256', token).update('workspace:' + workspace).digest('hex');
+  if (signature.length !== expected.length) return false;
+  try {
+    return timingSafeEqual(Buffer.from(signature, 'hex'), Buffer.from(expected, 'hex'));
+  } catch {
+    return false;
+  }
+}
 // One bridge can serve several sessions (the Claude desktop app): a tool call may name its
 // workspace, which counts only inside the client's MCP roots; the daemon checks that.
+// Clients without roots (such as Google Antigravity) authenticate the workspace via a local HMAC hook.
 async function workspaceFor(message) {
-  const workspace = message.method === 'tools/call' ? message.params?.arguments?.workspace : undefined;
-  if (typeof workspace !== 'string' || !workspace.trim() || !clientRoots) return sessionWorkspace();
+  const args = message.method === 'tools/call' ? message.params?.arguments : undefined;
+  const workspace = typeof args?.workspace === 'string' && args.workspace.trim() ? args.workspace.trim() : undefined;
+  const signature = typeof args?.workspace_signature === 'string' && args.workspace_signature.trim() ? args.workspace_signature.trim() : undefined;
+  if (signature) {
+    delete message.params.arguments.workspace_signature;
+    const token = (config.headers?.Authorization || '').replace(/^Bearer\s+/i, '').trim();
+    if (workspace && verifySignature(token, workspace, signature)) {
+      if (!named.has(workspace)) {
+        const identity = register({ path: workspace });
+        named.set(workspace, identity);
+        identity.catch(() => named.delete(workspace));
+      }
+      try {
+        const identity = await named.get(workspace);
+        if (config.workspace === 'auto' && !session) session = Promise.resolve(identity);
+        return identity;
+      } catch (error) {
+        process.stderr.write(`Agents-Core bridge: signed workspace refused (${error.message}).\n`);
+      }
+    } else {
+      process.stderr.write('Agents-Core bridge: invalid workspace signature; ignored.\n');
+    }
+  }
+  if (!workspace || !clientRoots) return sessionWorkspace();
   if (!named.has(workspace)) {
     const identity = ask('roots/list').then(answer => register({ path: workspace, roots: (answer?.roots ?? []).map(root => root.uri) }));
     named.set(workspace, identity);
