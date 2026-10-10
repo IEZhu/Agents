@@ -522,6 +522,13 @@ class TestResolveClientContext:
         assert session.asked == 0
         assert workspaces.workspace_inputs(ctx) is None
 
+    def test_a_desktop_started_server_hints_at_its_configuration(self):
+        """The Claude desktop app names its MCP client local-agent-mode-<server> (#231)."""
+        hint = workspaces.desktop_started_hint({"client": "local-agent-mode-Agents-Core"})
+        assert "claude_desktop_config.json" in hint and "Agents-Core-Desktop" in hint
+        for inputs in (None, {"client": None}, {"client": "claude-code"}):
+            assert workspaces.desktop_started_hint(inputs) is None
+
     def test_workspace_inputs_describe_the_process(self, desktop):
         inputs = workspaces.workspace_inputs(SimpleNamespace(session=FakeSession()))
         assert inputs == {"cwd": os.getcwd(), "claude_project_dir": False, "agents_client_repo_root": False,
