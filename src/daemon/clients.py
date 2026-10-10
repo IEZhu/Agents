@@ -3,17 +3,19 @@ from pathlib import Path
 import base64
 import hashlib
 import json
+import locale
 import os
 import re
 import shutil
 import shlex
 import subprocess
+import sys
 import time
 import tomllib
 
 from .state import atomic_private, read_json, write_json, private_dir
 from .workspaces import WorkspaceRegistry
-from src.client_paths import client_config_path
+from src.client_paths import client_config_path, desktop_config_paths
 
 
 SERVER = "Agents-Core"
@@ -340,7 +342,9 @@ class ClientMigration:
                 current = base64.b64encode(path.read_bytes()).decode() if path.exists() else None
                 if current != record["before"]:
                     raise ValueError("Client config changed during migration")
-                atomic_private(path, content)
+                # The journaled bytes exactly: a str would be written in text mode, CRLF and the ANSI
+                # code page on Windows, and neither restore nor the rollback below would match it.
+                atomic_private(path, content.encode())
                 written.append(record)
                 if secret: exclude_private(path)
         except BaseException:
@@ -360,15 +364,45 @@ class ClientMigration:
         records = read_json(Path(backup) / "changes.json", [])
         # Keep discovery metadata, including restored legacy paths. A later profile
         # migration must not prevent restoring an unrelated earlier client backup.
-        records = [record for record in records if not record.get("inventory")]
+        records = [(record, restore_target(record)) for record in records if not record.get("inventory")]
         if check:
-            for record in records:
-                path = Path(record["path"])
-                if not path.exists() or path.read_bytes() != base64.b64decode(record["after"]):
+            for record, path in records:
+                if not path.exists() or path.read_bytes() not in written_forms(base64.b64decode(record["after"])):
                     raise ValueError("Client config changed after migration; restore would overwrite user edits")
-        for record in records:
-            path = Path(record["path"])
+        for record, path in records:
             if record["before"] is None:
                 path.unlink(missing_ok=True)
             else:
                 atomic_private(path, base64.b64decode(record["before"]))
+
+
+def written_forms(after):
+    """The bytes a journaled write can have left in its file: ``after`` itself, or, on Windows,
+    the text-mode form that migrations wrote before #270 (CRLF, the ANSI code page)."""
+    forms = {after}
+    if sys.platform == "win32":
+        try:
+            forms.add(after.decode("utf-8").replace("\n", "\r\n").encode(locale.getpreferredencoding(False)))
+        except (UnicodeError, LookupError):  # the old write of such content failed before writing
+            pass
+    return forms
+
+
+def restore_target(record):
+    """The file a journaled change restores: its path, except for a Claude desktop configuration
+    journaled under %APPDATA% before #270 by a migration that ran inside the app's MSIX package.
+    That write went to the package's copy, which then holds what the journal says was written."""
+    path = Path(record["path"])
+    forms = written_forms(base64.b64decode(record["after"]))
+    try:
+        if sys.platform != "win32" or path.read_bytes() in forms:
+            return path
+    except OSError:
+        pass
+    appdata, package_copy = desktop_config_paths()
+    try:
+        if package_copy is not None and path == appdata and package_copy.read_bytes() in forms:
+            return package_copy
+    except OSError:
+        pass
+    return path
