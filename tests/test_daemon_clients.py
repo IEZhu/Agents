@@ -14,7 +14,8 @@ from src.daemon.state import write_json, atomic_private
 @pytest.fixture
 def migration(tmp_path):
     state = tmp_path / "service"; state.mkdir(mode=0o700)
-    write_json(state / "service.json", {"installation": str(tmp_path), "port": 8765, "node": "/usr/bin/true"})
+    # Any existing absolute file stands in for Node: the bridge entry only names it.
+    write_json(state / "service.json", {"installation": str(tmp_path), "port": 8765, "node": sys.executable})
     atomic_private(state / "token", "private-token-for-tests-only" * 2)
     return ClientMigration(state)
 
@@ -49,8 +50,12 @@ def test_migration_backup_and_conflicting_restore(migration, tmp_path):
     result = json.loads(path.read_text())
     assert result["projects"][str(project)]["otherPolicy"]
     assert result["projects"][str(project)]["mcpServers"]["Agents-Core"]["type"] == "http"
-    assert path.stat().st_mode & 0o777 == 0o600
-    assert (backup / "changes.json").stat().st_mode & 0o777 == 0o600
+    if os.name == "posix":
+        assert path.stat().st_mode & 0o777 == 0o600
+        assert (backup / "changes.json").stat().st_mode & 0o777 == 0o600
+    else:  # no mode bits: the backup directory gets an owner-only DACL, the client file keeps its own
+        from src.daemon.bootstrap import _private_file
+        assert _private_file(backup / "changes.json")
     migration.restore(backup)
     assert json.loads(path.read_text()) == original
     with pytest.raises(ValueError, match="changed"): migration.restore(backup)
