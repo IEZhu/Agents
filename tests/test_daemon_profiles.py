@@ -2,6 +2,7 @@
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 import tomllib
 
@@ -25,6 +26,13 @@ def setup(tmp_path, monkeypatch):
     write_json(state / "service.json", {"installation": str(tmp_path), "port": 8765, "node": sys.executable})
     atomic_private(state / "token", "test-profile-token")
     return home, state, ClientMigration(state)
+
+
+def _acl_entries(path):
+    """The access entries `icacls` lists for ``path``; the first line starts with the path itself."""
+    listed = subprocess.run(["icacls", str(path)], capture_output=True, text=True, stdin=subprocess.DEVNULL,
+                            check=True).stdout
+    return [line.replace(str(path), "", 1).strip() for line in listed.splitlines() if ":(" in line]
 
 
 @pytest.mark.parametrize("client,variable,filename", [
@@ -53,8 +61,12 @@ def test_profile_migration_changes_selected_file_only(setup, tmp_path, monkeypat
     assert servers["Agents-Core"]["args"][0].endswith("stdio.mjs")
     assert "url" not in servers["Agents-Core"]
     assert servers["other"] == {"command": "safe"}
-    if os.name == "posix":  # Windows has no mode bits; the file keeps its directory's ACL
+    if os.name == "posix":
         assert target.stat().st_mode & 0o777 == 0o600
+    else:  # no mode bits: the migrated file keeps the ACL of its directory, like a file created there
+        reference = profile / "acl-reference"
+        reference.write_text("")
+        assert _acl_entries(target) == _acl_entries(reference)
     migration.restore(backup)
     assert target.read_text() == original
 

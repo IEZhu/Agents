@@ -10,7 +10,7 @@ import asyncio
 import importlib.util
 import os
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from types import SimpleNamespace
 
 import pytest
@@ -627,8 +627,11 @@ class TestCacheReset:
 
 
 def test_darwin_case_variants_are_unsafe(tmp_path, monkeypatch):
+    # POSIX paths and no Windows branch on any host: a Windows path compares without case on its own,
+    # which would hide a loss of the macOS case folding in _inside.
+    monkeypatch.setattr(engine_config, "Path", PurePosixPath)
     monkeypatch.setattr(engine_config.sys, "platform", "darwin")
-    monkeypatch.setattr(engine_config, "_is_windows", lambda: False)  # also on a Windows host
+    monkeypatch.setattr(engine_config, "_is_windows", lambda: False)
     monkeypatch.setattr(engine_config, "_real", lambda path: engine_config.Path(path) if path else None)
     monkeypatch.setattr(engine_config, "_home_directory", lambda: engine_config.Path("/Users/Alex"))
     assert "system directory" in engine_config._unsafe_client_root_reason(engine_config.Path("/users"))
