@@ -61,24 +61,29 @@ the recorded interpreters (by default, the Python running `install` and the firs
 migrations fail with `An absolute Node executable is required`.
 
 Registering the same realpath again returns its existing UUID. With a recorded
-Node, `migrate --clients claude` and `migrate --clients codex` write the user-scope
-entry as a stdio bridge (`bridge/stdio.mjs`, `workspace: "auto"` in its private
-`bridges/claude-code-auto.json` or `bridges/codex-auto.json`). Claude Code starts
+Node, `migrate --clients claude`, `migrate --clients codex` and `migrate --clients antigravity`
+write the user-scope entry as a stdio bridge (`bridge/stdio.mjs`, `workspace: "auto"` in its private
+`bridges/claude-code-auto.json`, `bridges/codex-auto.json` or `bridges/antigravity-auto.json`). Claude Code starts
 one bridge per session in the session's directory and names it in
 `CLAUDE_PROJECT_DIR`. The Codex CLI starts a stdio server without `cwd` in the
 session's working directory, so the Codex entry carries no `cwd`. Like a stdio
 server's cwd, a bridge's launch directory counts only with a `.git` or `CLAUDE.md`
 at or above it. The Codex VS Code extension starts servers in its installation
 directory ([openai/codex#9989](https://github.com/openai/codex/issues/9989)), so its
-sessions get no workspace there instead of a wrong one. The bridge registers that
+sessions get no workspace there instead of a wrong one. Antigravity starts MCP servers
+from `/` without project environment variables or MCP roots; for it, user-scope migration
+also provisions an Antigravity plugin (`~/.gemini/config/plugins/agents-core`) with a
+`PreToolUse` lifecycle hook (`bridge/antigravity_hook.mjs`) that signs the active
+workspace path (`workspacePaths[0]`) with an HMAC-SHA256 signature using the daemon bearer
+token (`workspace_signature`). The bridge registers that
 project through `POST /workspaces` and sends its `X-Agents-Workspace` on every
 request, so new projects, clones and worktrees get memory on their first call
 without a migration. A tool call's `workspace` argument (see
 [Repository Memory](../README.md#-repository-memory)) is registered the same way,
-but only inside the MCP roots the bridge's client declares; when the daemon refuses
-it, a session's bridge keeps using the session's project. A session that started
+either verified via HMAC `workspace_signature` or inside the MCP roots the bridge's client declares;
+when the daemon refuses it, a session's bridge keeps using the session's project. A session that started
 while the daemon was unreachable registers on its next request. An existing
-installation gets the bridge when `migrate --clients claude,codex`, or setup, runs again.
+installation gets the bridge when `migrate --clients claude,codex,antigravity`, or setup, runs again.
 Without a recorded Node these entries stay HTTP. Cursor's global entry provides routing,
 personas, and built-in and personal flows without a workspace; its memory,
 repository (`repo:`) flows and `run_flow` require project configuration. For it,

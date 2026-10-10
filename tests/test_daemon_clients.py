@@ -198,6 +198,17 @@ def test_user_scope_antigravity_gets_auto_workspace_bridge(migration, tmp_path):
     assert settings["workspace"] == "auto" and "X-Agents-Workspace" not in settings["headers"]
     assert settings["headers"]["X-Agents-Client"] == "antigravity"
     assert not secret and migration.token not in text
+    # #260: User scope also provisions the Antigravity plugin with PreToolUse hook for signed workspace binding.
+    plugin_file = home / ".gemini/config/plugins/agents-core/plugin.json"
+    hooks_file = home / ".gemini/config/plugins/agents-core/hooks.json"
+    assert plugin_file.exists() and hooks_file.exists()
+    manifest = json.loads(plugin_file.read_text())
+    assert manifest["name"] == "agents-core"
+    hooks = json.loads(hooks_file.read_text())
+    hook_entry = hooks["agents-core-workspace"]["PreToolUse"][0]
+    assert hook_entry["matcher"] == "call_mcp_tool|mcp_Agents-Core_.*"
+    cmd = hook_entry["hooks"][0]["command"]
+    assert sys.executable in cmd and "antigravity_hook.mjs" in cmd and str(bridge) in cmd
     # A pinned project gets a workspace bridge with its workspace identity.
     project = tmp_path / "repo"; project.mkdir()
     _, text, _ = migration.prepare("antigravity", project, home=home)
@@ -226,3 +237,31 @@ def test_conftest_clears_inherited_client_config_overrides(tmp_path):
     )
     report = json.loads(result.stdout.strip().splitlines()[-1])
     assert report == {"left": [], "claude": str(home / ".claude.json")}
+
+
+def test_provision_antigravity_plugin_merges_and_preserves_customizations(migration, tmp_path):
+    home = tmp_path / "home"
+    plugin_dir = home / ".gemini/config/plugins/agents-core"
+    plugin_dir.mkdir(parents=True)
+    # Existing plugin.json with custom description or rules
+    write_json(plugin_dir / "plugin.json", {"name": "agents-core", "description": "Custom", "version": "1.0.0"})
+    # Existing hooks.json with a user hook
+    write_json(plugin_dir / "hooks.json", {"user-hook": {"enabled": True, "Stop": []}})
+
+    migration.config["node"] = sys.executable
+    migration.provision_antigravity_plugin(home=home)
+
+    manifest = json.loads((plugin_dir / "plugin.json").read_text())
+    assert manifest["version"] == "1.0.0"
+    assert manifest["description"] == "Custom"
+
+    hooks = json.loads((plugin_dir / "hooks.json").read_text())
+    assert "user-hook" in hooks
+    assert "agents-core-workspace" in hooks
+    assert hooks["agents-core-workspace"]["PreToolUse"][0]["matcher"] == "call_mcp_tool|mcp_Agents-Core_.*"
+
+    # When node is not a valid file, it does nothing
+    empty_home = tmp_path / "empty_home"
+    migration.config["node"] = str(tmp_path / "nonexistent-node")
+    migration.provision_antigravity_plugin(home=empty_home)
+    assert not (empty_home / ".gemini").exists()

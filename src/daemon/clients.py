@@ -131,6 +131,45 @@ class ClientMigration:
         write_json(private, settings)
         return {"command": node, "args": [str(Path(self.config["installation"]) / "bridge/stdio.mjs"), str(private)]}
 
+    def provision_antigravity_plugin(self, *, home=None, bridge_config=None):
+        """Provisions ~/.gemini/config/plugins/agents-core with plugin manifest and
+        PreToolUse hook for HMAC-authenticated workspace binding (#260)."""
+        node = self.config.get("node")
+        if not node or not Path(node).is_file():
+            return
+        home = Path(home or Path.home())
+        plugin_dir = home / ".gemini" / "config" / "plugins" / "agents-core"
+        plugin_dir.mkdir(parents=True, exist_ok=True)
+        installation = Path(self.config.get("installation", Path(__file__).resolve().parents[2]))
+        hook_script = installation / "bridge" / "antigravity_hook.mjs"
+        bridge_path = str(bridge_config) if bridge_config else str(self.directory / "bridges" / "antigravity-auto.json")
+        cmd = shlex.join([str(node), str(hook_script), bridge_path])
+
+        plugin_json = plugin_dir / "plugin.json"
+        manifest = read_json(plugin_json, {}) or {}
+        manifest.setdefault("name", "agents-core")
+        manifest.setdefault("description", "Agents-Core workspace binding and session management for Antigravity.")
+        write_json(plugin_json, manifest)
+
+        hooks_json = plugin_dir / "hooks.json"
+        hooks = read_json(hooks_json, {}) or {}
+        hooks["agents-core-workspace"] = {
+            "enabled": True,
+            "PreToolUse": [
+                {
+                    "matcher": "call_mcp_tool|mcp_Agents-Core_.*",
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": cmd,
+                            "timeout": 5,
+                        }
+                    ],
+                }
+            ],
+        }
+        write_json(hooks_json, hooks)
+
     def has_node(self):
         node = self.config.get("node")
         return bool(node) and Path(node).is_file()
@@ -199,6 +238,8 @@ class ClientMigration:
             servers = document.setdefault("mcpServers", {})
             entry = self.bridge(identity, app, auto_workspace=root is None)
             servers[SERVER] = transport_entry(servers.get(SERVER, {}), entry)
+            if root is None and self.has_node():
+                self.provision_antigravity_plugin(home=home, bridge_config=entry["args"][1])
         else: raise ValueError("Unknown client")
         content = json.dumps(document, ensure_ascii=False, indent=2) + "\n"
         return path, content, self.token in content

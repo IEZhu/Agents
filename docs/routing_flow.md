@@ -301,10 +301,14 @@ Client connections for Google Antigravity (`~/.gemini/config/mcp_config.json`), 
 during setup (`scripts/init_repo.sh`) or migrated to the shared daemon (see
 [shared daemon client migration](shared-mcp-daemon.md#client-configuration-and-alternate-profiles)).
 For Antigravity, user-scope migration provisions a stdio bridge
-(`bridges/antigravity-auto.json`). Note that Antigravity launches stdio MCP servers
-from `/` without project environment variables or MCP roots; workspace-scoped
-memory tools report `workspace_required` until project binding via lifecycle hooks
-(#260) is configured.
+(`bridges/antigravity-auto.json`) and an Antigravity plugin
+(`~/.gemini/config/plugins/agents-core`) with a `PreToolUse` lifecycle hook.
+Because Antigravity launches stdio MCP servers from `/` without project
+environment variables or MCP roots, the lifecycle hook authenticates the active
+workspace path (`workspacePaths[0]`) using an HMAC-SHA256 signature keyed by the
+daemon bearer token (`workspace_signature`). `bridge/stdio.mjs` verifies the
+signature, registers the workspace dynamically with the daemon, and attaches
+`X-Agents-Workspace` to tool requests (#260).
 
 The installers and `scripts/install_instructions.py` use the same Claude profile:
 `$CLAUDE_CONFIG_DIR` when that variable is non-empty, otherwise `~/.claude`. It
