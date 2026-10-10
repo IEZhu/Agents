@@ -309,11 +309,12 @@ inputs have verified.
 - **Subprocesses.** The daemon starts `git`, `ssh-keygen`, `ssh-keyscan` and
   `lsof` by the absolute paths `install` recorded, preferring ones the user cannot
   replace, and runs with system directories as `PATH` (#244). A tool found only in
-  a user-writable directory still runs from there, with a warning at install. The
-  updater's and the version footer's git still read the user's global git
-  configuration (for example `core.fsmonitor` or `core.hooksPath`), and the service
-  inherits variables set with `launchctl setenv`; a separate-user design must isolate
-  those too, as user sync already does (`src/user_sync/gitcmd.py`).
+  a user-writable directory still runs from there, with a warning at install. Git on
+  the installation repository runs without the user's global git configuration, and
+  the service drops inherited `GIT_*` variables and `DEVELOPER_DIR` (#279). The
+  interpreter still reads `PYTHONPATH` and other `PYTHON*` variables of its
+  environment before any Agents-Core code runs; a separate-user design must start it
+  with `-E` or a clean environment.
 
 ## 13. Implementation outline
 

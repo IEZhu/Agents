@@ -9,7 +9,6 @@ update always starts a new process.
 from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
-import os
 import subprocess
 
 from src import executables
@@ -20,7 +19,8 @@ _TIMEOUT = 5
 
 
 def _git(*args: str) -> str | None:
-    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    # Without the user's git configuration: a core.fsmonitor there would run on `status` (#279).
+    env = executables.git_environment(ROOT)
     try:
         # Never the server's stdin: under stdio it is the MCP pipe with a pending read, and on
         # Windows git blocks on that handle at startup until the client's next message. No console

@@ -222,10 +222,11 @@ def service_platform(monkeypatch):
 @pytest.fixture(autouse=True)
 def tool_paths(monkeypatch):
     """A test that configures a service's tools (`src.executables.configure`) leaves no pins behind,
-    and one that enters the service's environment gives Git Bash's ``MSYSTEM`` back."""
+    and one that enters the service's environment gives back what it drops (Git Bash's ``MSYSTEM``,
+    ``GIT_*``, ``DEVELOPER_DIR``)."""
     from src import executables
-    if "MSYSTEM" in os.environ:
-        monkeypatch.setenv("MSYSTEM", os.environ["MSYSTEM"])
+    for name in [name for name in os.environ if executables._left_out_of_service(name)]:
+        monkeypatch.setenv(name, os.environ[name])
     yield executables
     executables.reset()
 

@@ -99,9 +99,10 @@ def serve(directory=None, probation=None):
                           AGENTS_MODEL_ARTIFACT=config["model_artifact"],
                           AGENTS_MODEL_PATH=config["model_path"],
                           FASTEMBED_CACHE_DIR=config["model_cache"])
-        executables.enter_service_environment()
         from dotenv import load_dotenv
         load_dotenv(root / ".env", override=False)
+        # After .env, which could otherwise bring back what the service leaves out (#279).
+        executables.enter_service_environment()
         from .app import create_app
         import uvicorn
         # The daemon runs the sync loop, so it removes the scheduled sync run of #168.

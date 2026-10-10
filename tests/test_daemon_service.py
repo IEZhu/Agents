@@ -355,6 +355,22 @@ def no_launchd(monkeypatch):
     monkeypatch.setattr(control.Controller, "launchctl", launchd)
 
 
+def test_enabling_updates_checks_the_remote_after_releasing_the_control_lock(windows, no_launchd, monkeypatch):
+    """The check can take GIT_TIMEOUT; a stop or disable meanwhile must not find the lock taken (#279)."""
+    from src.file_lock import file_lock
+    controller, _ = windows
+    (controller.directory / "service.json").write_text(json.dumps(controller.config))
+    checked = []
+
+    def check(controller):
+        with file_lock(controller.directory / "control.lock", blocking=False):
+            checked.append(True)
+        return {"enabled": True}
+    monkeypatch.setattr(autoupdate, "_enabled", check)
+    assert autoupdate.enable(controller, interval=600) == {"enabled": True}
+    assert checked == [True]
+
+
 def test_auto_update_on_windows_is_a_second_hidden_task(windows, no_launchd):
     controller, fake = windows
     (controller.directory / "service.json").write_text(json.dumps(controller.config))
