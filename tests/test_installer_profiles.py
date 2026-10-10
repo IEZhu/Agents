@@ -47,7 +47,8 @@ def profile_installer(request, tmp_path):
     cwd = tmp_path / "unrelated working directory"
     cwd.mkdir()
     env = dict(os.environ, HOME=str(home), USERPROFILE=str(home),
-               APPDATA=str(home / "AppData/Roaming"), REPO_ROOT=str(checkout),
+               APPDATA=str(home / "AppData/Roaming"), LOCALAPPDATA=str(home / "AppData/Local"),
+               REPO_ROOT=str(checkout),
                PYTHON_ABS=sys.executable, SERVER_ABS=str(checkout / "src/server.py"),
                HELPERS=str(helpers), ROUTING_TEMPLATE=str(templates / "routing-protocol-core.md"),
                IS_NIXOS="false", NIX_LD_LIB_PATH="", PYTHONUTF8="1",

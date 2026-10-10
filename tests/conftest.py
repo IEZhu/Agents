@@ -91,6 +91,14 @@ os.environ.pop("CLAUDE_PROJECT_DIR", None)
 # session, they would make those tests rewrite the user's real client config.
 for _name in CLIENT_CONFIG_OVERRIDES:
     os.environ.pop(_name, None)
+# Windows: the Claude desktop app's configuration is %APPDATA%\Claude\claude_desktop_config.json
+# or its MSIX copy under %LOCALAPPDATA%\Packages, which src/client_paths.py prefers (#270). Both
+# outrank the temporary home that tests pass in, so a test that isolates only the home would
+# otherwise reach the user's real files. A test that needs its own APPDATA or LOCALAPPDATA sets it.
+if os.name == "nt":
+    for _name in ("APPDATA", "LOCALAPPDATA"):
+        os.environ[_name] = tempfile.mkdtemp(prefix=f"agents-tests-{_name.lower()}-")
+        atexit.register(shutil.rmtree, os.environ[_name], ignore_errors=True)
 
 from src.engine import config as _config  # noqa: E402  (must follow the env pins)
 
