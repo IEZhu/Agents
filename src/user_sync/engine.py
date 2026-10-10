@@ -2159,6 +2159,11 @@ class Syncer:
                                                            "review the preview again")
             else:
                 raise SyncError("offline", "the remote kept changing; sync will retry", state="offline")
+            # A merge an attempt wrote before its push was rejected stays in the report unless a
+            # later attempt overruled it with a conflict on the same file.
+            conflicted = {conflict["path"] for conflict in result["conflicts"]}
+            result["merged"] = list({item["path"]: item for item in result["merged"]
+                                     if item["path"] not in conflicted}.values())
         except SyncError as error:
             return self._finish_failure(settings, state, error, result)
         except GitError as error:

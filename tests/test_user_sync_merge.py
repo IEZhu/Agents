@@ -73,6 +73,20 @@ def test_line_endings_and_a_missing_final_newline_round_trip():
     assert merge(odd, odd.replace("a\f", "A\f"), odd.replace("d\n", "D\n")) == ("A\fx\nb y\nc\nD\n", 0)
 
 
+def test_repeated_lines_are_matched_within_a_bound():
+    import time
+    many = "x\n" * 20000
+    started = time.perf_counter()
+    assert merge(many, "A\n" + many, many + "B\n") == ("A\n" + many + "B\n", 0)  # edits at both ends
+    middle = many[:20000] + "M\n" + many[20000:]
+    assert merge(many, middle, many.replace("x", "y", 1))[1] == 0
+    # Changed first and last lines leave no common start or end: the middle is too large to match.
+    side = "A\n" + "x\n" * 1998 + "Z\n"
+    assert merge("x\n" * 2000, side, "B\n" + "x\n" * 1998 + "Y\n") == (None, 0)
+    assert merge("x\n" * 2000, side, "x\n" * 2000) == (side, 0)  # one side alone needs no matching
+    assert time.perf_counter() - started < 5
+
+
 @pytest.mark.parametrize("path, base, reason", [
     ("common/shared.md", None, "no_common_base"),
     ("personas/common/shared.json", b"{}\n", "not_text"),
@@ -328,3 +342,27 @@ def test_flow_tools_report_an_open_conflict_until_it_is_resolved(started, tmp_pa
     assert "sync_conflicts" not in b.flows.get("user:shared")["flow"]
     b.save("user:other", "# Other\n")
     assert "sync_conflicts" not in b.flows.get("user:other")["flow"]
+
+
+def test_a_merge_overruled_by_a_retry_is_not_reported(started, monkeypatch):
+    """B merges, its push is rejected, and the retry finds an overlap with what A pushed meanwhile:
+    the run reports the conflict, not the merge it discarded."""
+    a, b = started
+    a.save("user:shared", BASE.replace("first", "first, edited on A"))
+    b.save("user:shared", BASE.replace("second", "second, edited on B"))
+    a.run()
+    real_push, calls = b.sync._push, []
+
+    def push_after_a(*args, **kwargs):
+        if not calls:
+            current = a.flows.get("user:shared")["content"]
+            a.save("user:shared", current.replace("second", "second, edited on A too"))
+            assert a.run()["pushed"]
+        calls.append(1)
+        return real_push(*args, **kwargs)
+
+    monkeypatch.setattr(b.sync, "_push", push_after_a)
+    result = b.run()
+    assert len(calls) == 2 and result["merged"] == []
+    [conflict] = result["conflicts"]
+    assert (conflict["path"], conflict["reason"]) == ("common/shared.md", "overlapping_changes")

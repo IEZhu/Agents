@@ -488,7 +488,8 @@ version that reached the remote first stays in place and the other one is kept.
 Records are `.agents-sync/conflicts/<id>.json`, one per conflict, so records from two machines
 never collide; they sync like other files. A record of two changed versions says why they were not
 merged in `reason`: `overlapping_changes` (with the number of `overlaps`), `no_common_base`,
-`not_text` (JSON, binary or not the owner's text), `too_large` (over 256 KiB),
+`not_text` (JSON, binary or not the owner's text), `too_large` (over 256 KiB), `too_complex` (so
+many changed lines that matching them could hold the library lock for long),
 `changed_during_sync` (edited while a cycle wrote it) or `held_open` (a reader kept the file open
 while a cycle wrote a merge, and the remote rejected that cycle's commit). A merge a reader kept
 from being written here is reported by the cycle that finally writes it. The Sync page shows the reason, the

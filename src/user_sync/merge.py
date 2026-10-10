@@ -17,7 +17,8 @@ join without shared history), this machine's commit and the remote's. Per path:
   local text of a flow becomes a normal ``.history`` version; for other files the record carries
   it. A conflict record goes to ``.agents-sync/conflicts/<id>.json``, with the ``reason`` the
   text could not be merged (``overlapping_changes`` with the number of ``overlaps``,
-  ``no_common_base``, ``not_text`` or ``too_large``; the engine adds ``changed_during_sync`` and
+  ``no_common_base``, ``not_text``, ``too_large`` or ``too_complex``, when the changed lines are too
+  many to match within ``MATCH_WORK``; the engine adds ``changed_during_sync`` and
   ``held_open`` for files it could not write);
 * changed on one side and deleted on the other: the changed version (edits beat deletions), with a
   "deletion undone" record. A flow's text, override marker and persona overlay move as one: a flow
@@ -46,6 +47,11 @@ _FLOW_FILE = re.compile(rf"(?P<dir>{_FLOW_DIR})/(?P<id>{_FLOW_ID})(?P<kind>\.md|
 _PERSONA_FILE = re.compile(rf"personas/(?P<dir>{_FLOW_DIR})/(?P<id>{_FLOW_ID})\.json")
 _COMPONENT_KINDS = ("rules", "skills", "implants")
 _TEXT_LIMIT = 256 * 1024  # also the largest text merged line by line (flows are at most 256 KiB)
+# The most work matching one side's changed lines may take: base lines times that side's lines,
+# between their common start and end. difflib's matcher is quadratic on repeated lines, and a
+# merge runs under the library lock: about 0.25 s for both sides at this bound (1,000 repeated
+# lines), while a real flow of 500 lines with edits on both sides merges in milliseconds.
+MATCH_WORK = 1_000_000
 
 Tree = dict[str, str]
 
@@ -126,16 +132,28 @@ def _lines(text: str) -> list[str]:
     return [part + "\n" for part in parts[:-1]] + ([parts[-1]] if parts[-1] else [])
 
 
-def _matches(base: list[str], other: list[str]) -> dict[int, int]:
-    """Base line -> the other side's line, for the lines a diff keeps (increasing on both sides)."""
-    pairs = {}
-    for i, j, size in difflib.SequenceMatcher(None, base, other, autojunk=False).get_matching_blocks():
-        pairs.update((i + k, j + k) for k in range(size))
+def _matches(base: list[str], other: list[str]) -> dict[int, int] | None:
+    """Base line -> the other side's line, for the lines a diff keeps (increasing on both sides).
+
+    The common start and end match as they are; only the lines between them go to difflib. None
+    when that middle would take more than ``MATCH_WORK``.
+    """
+    shortest = min(len(base), len(other))
+    start = next((i for i in range(shortest) if base[i] != other[i]), shortest)
+    end = next((k for k in range(shortest - start) if base[-1 - k] != other[-1 - k]), shortest - start)
+    middle, changed = base[start:len(base) - end], other[start:len(other) - end]
+    if len(middle) * len(changed) > MATCH_WORK:
+        return None
+    pairs = {i: i for i in range(start)}
+    for i, j, size in difflib.SequenceMatcher(None, middle, changed, autojunk=False).get_matching_blocks():
+        pairs.update((start + i + k, start + j + k) for k in range(size))
+    pairs.update((len(base) - end + k, len(other) - end + k) for k in range(end))
     return pairs
 
 
 def merge_lines(base: list[str], local: list[str], remote: list[str]) -> tuple[list[str] | None, int]:
-    """The diff3 merge: ``(lines, 0)``, or ``(None, overlaps)`` when both sides changed one region.
+    """The diff3 merge: ``(lines, 0)``, or ``(None, overlaps)`` when both sides changed one region;
+    ``(None, 0)`` when matching a side's changes would take too long (``MATCH_WORK``).
 
     Lines kept in the same order by both sides split the texts into stable runs and the regions
     between them. A region only one side changed takes that side's text; one both sides changed
@@ -143,7 +161,13 @@ def merge_lines(base: list[str], local: list[str], remote: list[str]) -> tuple[l
     different lines at one place, overlaps. Changes on adjacent lines, with no unchanged line
     between them, form one region, so they overlap too.
     """
+    if local == base or local == remote:
+        return remote, 0
+    if remote == base:
+        return local, 0
     to_local, to_remote = _matches(base, local), _matches(base, remote)
+    if to_local is None or to_remote is None:
+        return None, 0
     merged: list[str] = []
     overlaps = 0
     o = a = b = 0  # the next line of base, local and remote
@@ -192,7 +216,8 @@ def text_merge_refusal(path: str, base: bytes | None, local: bytes, remote: byte
 
 
 def merge_text(base: bytes, local: bytes, remote: bytes) -> tuple[bytes | None, int]:
-    """``merge_lines`` on UTF-8 text: ``(merged bytes, 0)``, or ``(None, overlaps)``."""
+    """``merge_lines`` on UTF-8 text: ``(merged bytes, 0)``, or ``(None, overlaps)``; no overlaps
+    with None means the changes were too large to match."""
     lines, overlaps = merge_lines(*(_lines(data.decode("utf-8")) for data in (base, local, remote)))
     return (None, overlaps) if lines is None else ("".join(lines).encode("utf-8"), 0)
 
@@ -366,7 +391,7 @@ class Merger:
                     details = self._keep_merged_away(path, local)
                 self.result.merged.append({"path": path, **flow_reference(path), **details})
                 return
-            reason = "overlapping_changes"
+            reason = "overlapping_changes" if overlaps else "too_complex"
         self._put(path, r)
         self._record(path, "both_changed", "remote", reason=reason,
                      **({"overlaps": overlaps} if overlaps else {}), **self._keep_local_text(path, local))
