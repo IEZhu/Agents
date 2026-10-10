@@ -122,7 +122,8 @@ def test_a_git_too_old_for_sync_counts_only_without_a_newer_one(two_directories,
     user_git = plant(two_directories["user"].parent, "git", Path("unused"))
     probed = []
     versions = {str(system_git): (2, 25), str(user_git): (2, 45)}
-    monkeypatch.setattr(executables, "_version", lambda candidate: probed.append(candidate) or versions[candidate])
+    # A git in this machine's system directories (/usr/bin/git on POSIX) is a candidate too: unknown, not recent.
+    monkeypatch.setattr(executables, "_version", lambda candidate: probed.append(candidate) or versions.get(candidate))
     search = os.pathsep.join(str(path.parent) for path in (user_git, system_git))
     assert executables.find("git", search).path == str(user_git)
     versions[str(user_git)] = (2, 20)
