@@ -158,7 +158,11 @@ def replace_process(argv) -> None:
             stream.flush()
     job = Job()
     stdin, stdout, stderr = (fd if _is_open(fd) else subprocess.DEVNULL for fd in (0, 1, 2))
-    process = job.start(argv, stdin=stdin, stdout=stdout, stderr=stderr, creationflags=subprocess.CREATE_NO_WINDOW)
+    try:
+        process = job.start(argv, stdin=stdin, stdout=stdout, stderr=stderr, creationflags=subprocess.CREATE_NO_WINDOW)
+    except BaseException:
+        job.close()  # a caller that serves on by itself keeps no empty job
+        raise
     while True:
         try:
             # An untimed wait cannot be interrupted: Ctrl+C in a console ends this

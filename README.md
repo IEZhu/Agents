@@ -218,7 +218,7 @@ implant and history indexes; the router cache resets. Until the indexes are read
 tools answer `warming_up`. Rerunning `init_repo.sh` or `init_repo.bat` applies the
 same switch and downloads the model during setup. A model set after the switch,
 for example e5-large again, stays: the generation marker is already current. An
-`EMBEDDING_MODEL` exported in the server's environment overrides `.env` as before.
+`EMBEDDING_MODEL` exported in a standalone server's environment overrides `.env` as before.
 The shared service switches in its update transaction instead
 ([daemon guide](docs/shared-mcp-daemon.md#embedding-model)).
 

@@ -3,6 +3,7 @@
 import os
 import json
 import shutil
+import socket
 import subprocess
 import sys
 import time
@@ -629,7 +630,10 @@ process.stdin.once('data', data => { process.stdout.write('ECHO ' + data); proce
 
 @pytest.fixture
 def service_install(leased_install):
-    """An installation with a shared service: its stdio server serves through the bridge (#266)."""
+    """An installation with a shared service: its stdio server serves through the bridge (#266).
+
+    The service's port accepts connections while the test holds the returned listener open.
+    """
     node = shutil.which("node")
     if not node:
         pytest.skip("Node.js runs the stdio bridge")
@@ -639,10 +643,15 @@ def service_install(leased_install):
     (root / "bridge/stdio.mjs").write_text(_FAKE_BRIDGE, encoding="utf-8")
     state = root / "state"
     (state / "bridges").mkdir(parents=True)
-    (state / "service.json").write_text(json.dumps({"node": node}))
-    (state / "bridges/stdio-auto.json").write_text("{}")
+    listener = socket.create_server(("127.0.0.1", 0))
+    (state / "service.json").write_text(json.dumps({"node": node, "installation": str(root),
+                                                    "port": listener.getsockname()[1]}))
+    config = state / "bridges/stdio-auto.json"
+    config.write_text("{}")
+    config.chmod(0o600)
     (root / "data/.shared-service.json").write_text(json.dumps({"directory": str(state)}))
-    return root, server, state
+    with listener:
+        yield root, server, state, listener
 
 
 def _stdio_server(server, cwd, **environ):
@@ -653,9 +662,12 @@ def _stdio_server(server, cwd, **environ):
                             stderr=subprocess.PIPE, text=True)
 
 
-def test_a_stdio_server_of_a_service_installation_hands_its_session_to_the_bridge(service_install):
+@pytest.mark.parametrize("service", ["running", "stopped"])
+def test_a_stdio_server_of_a_service_installation_hands_its_session_to_the_bridge(service_install, service):
     """One application instance: the service's, reached through the bridge migrated clients run."""
-    root, server, state = service_install
+    root, server, state, listener = service_install
+    if service == "stopped":
+        listener.close()
     process = _stdio_server(server, root.parent)
     try:
         assert process.stdout.readline().split() == ["BRIDGE", str(state / "bridges" / "stdio-auto.json")]
@@ -665,18 +677,31 @@ def test_a_stdio_server_of_a_service_installation_hands_its_session_to_the_bridg
         assert output.strip() == "ECHO request", errors
         assert process.returncode == 5  # the bridge's exit code, also where Windows has no exec
         assert "OLD_SERVER" not in output
+        # A stopped service is named, with what to do, instead of a second engine.
+        assert ("does not answer" in errors) == (service == "stopped")
+        assert "src.daemon start" in errors or service == "running"
     finally:
         _stop(process)
 
 
-@pytest.mark.parametrize("cause", ["no bridge configuration", "no node", "standalone requested"])
+@pytest.mark.parametrize("cause", ["no bridge configuration", "no bridge", "no node", "relative node",
+                                   "another installation", "readable configuration", "standalone requested"])
 def test_a_stdio_server_serves_standalone_when_it_cannot_or_should_not_use_the_bridge(service_install, cause):
-    root, server, state = service_install
+    root, server, state, _ = service_install
+    service = json.loads((state / "service.json").read_text())
     environ = {}
     if cause == "no bridge configuration":
         (state / "bridges/stdio-auto.json").unlink()
-    elif cause == "no node":
-        (state / "service.json").write_text(json.dumps({"node": None}))
+    elif cause == "no bridge":
+        (root / "bridge/stdio.mjs").unlink()
+    elif cause in ("no node", "relative node", "another installation"):
+        service.update({"no node": {"node": None}, "relative node": {"node": "node"},
+                        "another installation": {"installation": str(root / "elsewhere")}}[cause])
+        (state / "service.json").write_text(json.dumps(service))
+    elif cause == "readable configuration":
+        if os.name != "posix":
+            pytest.skip("Windows keeps the configuration private by the state directory's ACL")
+        (state / "bridges/stdio-auto.json").chmod(0o644)  # the bridge would refuse it after exec
     else:
         environ[startup.STANDALONE] = "1"
     process = _stdio_server(server, root.parent, **environ)
@@ -691,7 +716,7 @@ def test_a_stdio_server_serves_standalone_when_it_cannot_or_should_not_use_the_b
 
 
 def test_a_stdio_server_of_a_service_in_maintenance_refuses_to_start(service_install):
-    root, server, state = service_install
+    root, server, state, _ = service_install
     (state / "maintenance.json").write_text("{}")
     process = _stdio_server(server, root.parent)
     try:

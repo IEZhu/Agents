@@ -351,3 +351,17 @@ def test_staged_changes_preserved_on_failed_apply(migration, tmp_path):
     assert plugin_file.exists()
     assert str(change[0]) not in migration.staged_changes
 
+
+
+def test_the_service_start_keeps_the_stdio_bridge_configuration_and_survives_a_failure(migration, caplog):
+    """`serve` writes it at every start, so an installation from before #266 gets it; a failure
+    leaves stdio servers standalone, never the service down."""
+    from src.daemon import bootstrap
+    from src.daemon.state import read_json
+    config = read_json(migration.directory / "service.json")
+    write_json(migration.directory / "service.json", {**config, "node": sys.executable})
+    bootstrap.stdio_bridge(migration.directory)
+    assert (migration.directory / "bridges/stdio-auto.json").is_file()
+    (migration.directory / "service.json").unlink()
+    bootstrap.stdio_bridge(migration.directory)  # logs and returns
+    assert "serve standalone" in caplog.text

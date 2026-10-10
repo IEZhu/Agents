@@ -151,8 +151,12 @@ the service is stopped its requests fail, as a migrated client's do; during
 maintenance it exits at startup, as before. Without a recorded Node or that
 configuration file, the stdio server serves standalone and says so on stderr.
 `AGENTS_STDIO_STANDALONE=1` in the client's environment keeps it standalone, for
-debugging the server itself. Migrating the client remains the better setup: its
-bridge starts directly, without a Python process first.
+debugging the server itself. Through the service the session runs on the
+service's configuration: other settings in the client's environment, such as
+`EMBEDDING_MODEL` or `RULES_ENABLED`, do not apply, and `describe_repo` answers
+`needs_summary` instead of sampling the client, as for every bridge client.
+Migrating the client remains the better setup: its bridge starts directly, without
+a Python process first.
 
 ### Sync at installation
 
@@ -387,10 +391,11 @@ keeps finding its settings there afterwards.
 by `LockFileEx` instead of `flock`. Such a lock belongs to the process that took
 it: a child does not inherit it. The controller's git and reindex children
 therefore run in a job object that ends them when the controller exits, instead
-of keeping the leases after it, as they do on macOS. Stdio servers of this
-installation hold the shared installation lease too, so `install` and `update`
-refuse while one runs; a stdio server started from code before #195 holds none,
-so restart such servers once after updating the checkout. `auto-update enable`
+of keeping the leases after it, as they do on macOS. A standalone stdio server of
+this installation holds the shared installation lease too, so `install` and
+`update` refuse while one runs (one that serves through the service holds none); a
+stdio server started from code before #195 holds none, so restart such servers once
+after updating the checkout. `auto-update enable`
 registers a second hidden task, `agents-core-daemon-<state-directory-name>-updater`,
 with only the repeating trigger (see [automatic updates](#automatic-updates-opt-in)).
 
@@ -785,9 +790,10 @@ text of a query or an answer.
   open notification stream, or a request within `connected_window_seconds`, 300),
   when it was last seen, its requests today, and the client name and version
   from its latest MCP `initialize` with the workspace it named. With stateless HTTP,
-  `initialize` is the only request that carries them. Apps that run Agents-Core
-  over stdio do not show as connected; their answers still count through
-  `history.md`.
+  `initialize` is the only request that carries them. Clients that start
+  `src/server.py` over stdio reach the service through the bridge and count
+  together as `stdio`. A standalone stdio server does not show as connected; its
+  answers still count through `history.md`.
 
 `log_interaction` from a known app also writes `client` into the entry's `**Meta:**`,
 so answers count per app from then on; older entries count as `unknown`.
@@ -989,7 +995,7 @@ builds anew.
 
 Only then does the controller enter maintenance, wait up to 60 seconds for drain,
 stop the service, and acquire the exclusive installation lease and the updater
-lock. A running stdio server of this installation blocks the update. Activation
+lock. A running standalone stdio server of this installation blocks the update. Activation
 backs up the live indexes, fast-forwards the checkout to the built commit and
 moves the built indexes into `data/`. These are file operations only, so the
 service is down for its stop, the activation and its warmup. Before the build

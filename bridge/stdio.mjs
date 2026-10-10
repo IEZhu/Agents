@@ -4,6 +4,8 @@ import { createInterface } from 'node:readline';
 import { once } from 'node:events';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { Buffer } from 'node:buffer';
+import { homedir } from 'node:os';
+import { resolve } from 'node:path';
 
 const path = process.argv[2];
 // Windows has no mode bits: there the config inherits the owner-only ACL of the service directory
@@ -49,7 +51,9 @@ async function register(request) {
 // A bare cwd counts only inside a project (.git or CLAUDE.md): some hosts start servers elsewhere.
 // AGENTS_CLIENT_REPO_ROOT, the override a stdio client's configuration may set, outranks both and,
 // as in a stdio server, decides alone (#266: `src/server.py` hands its session to this bridge).
-const override = config.workspace === 'auto' && process.env.AGENTS_CLIENT_REPO_ROOT?.trim();
+// A relative value counts from this bridge's directory, as from a stdio server's: the daemon runs elsewhere.
+const overridden = process.env.AGENTS_CLIENT_REPO_ROOT?.trim();
+const override = config.workspace === 'auto' && overridden && resolve(overridden.replace(/^~(?=$|[\\/])/, homedir()));
 function sessionWorkspace() {
   if (config.workspace !== 'auto') return Promise.resolve(null);
   const named = process.env.CLAUDE_PROJECT_DIR;

@@ -259,6 +259,11 @@ class Service:
 
         def register():
             if origin == "AGENTS_CLIENT_REPO_ROOT" and roots is None:
+                # The bridge resolves a relative value where its client started it; here it would
+                # count from the installation, the service's working directory.
+                if not os.path.isabs(directory):
+                    raise ClientRootError(f"AGENTS_CLIENT_REPO_ROOT {directory!r} is not an absolute path",
+                                          code="workspace_invalid")
                 root = client_root_from_override(directory)
             elif roots is None:
                 root = client_root_from_directory(directory, launch_directory=origin == "cwd")

@@ -2,8 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { mkdtemp, writeFile, rm, realpath } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { homedir, tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { once } from 'node:events';
@@ -181,10 +181,24 @@ test('auto workspace: AGENTS_CLIENT_REPO_ROOT names the session and decides alon
     [{ id: 'list', method: 'tools/list' }, call('named', '/named'), call('signed', '/signed', signature)],
     { AGENTS_CLIENT_REPO_ROOT: '/override', CLAUDE_PROJECT_DIR: '/session' });
   // As in a stdio server: neither CLAUDE_PROJECT_DIR nor a tool call's workspace changes it.
-  assert.deepEqual(daemon.registrations, [{ path: '/override', origin: 'AGENTS_CLIENT_REPO_ROOT' }]);
+  assert.deepEqual(daemon.registrations, [{ path: resolve('/override'), origin: 'AGENTS_CLIENT_REPO_ROOT' }]);
   assert.equal(rootsAsked, 0);
   for (const id of ['list', 'named', 'signed']) assert.equal(header(id), 'override-id');
   assert.ok(!('workspace_signature' in daemon.calls.find(c => c.message.id === 'signed').message.params.arguments));
+});
+
+test('a relative AGENTS_CLIENT_REPO_ROOT counts from the bridge directory, not the daemon one', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'agents-bridge-cwd-'));
+  try {
+    for (const [value, expected] of [['sub', join(cwd, 'sub')], ['~', homedir()]]) {
+      const daemon = await fakeDaemon(message => [200, { workspace_id: 'override-id', root: message.path }]);
+      await session(daemon, { workspace: 'auto' }, [{ id: 'list', method: 'tools/list' }],
+        { AGENTS_CLIENT_REPO_ROOT: value }, cwd);
+      assert.deepEqual(daemon.registrations, [{ path: resolve(expected), origin: 'AGENTS_CLIENT_REPO_ROOT' }]);
+    }
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
 });
 
 test('signed workspace: a tool call with valid workspace_signature registers without roots and without cwd', async () => {

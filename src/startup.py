@@ -257,26 +257,30 @@ def _serve_through_service(repo_root, directory):
     A second engine next to the service would load the embedding model again and miss the
     service's updates. The bridge that migrated clients run (`bridge/stdio.mjs`) takes this
     process's place instead, with the configuration the service keeps for stdio servers
-    (`bridges/stdio-auto.json`, written at install and at every service start). Without
-    Node or that configuration, returns to serve standalone and says why.
+    (`bridges/stdio-auto.json`, written at install and at every service start). When the
+    bridge could not serve (`_bridge_problem`), returns to serve standalone and says why.
     """
     import json
     try:
         with open(os.path.join(directory, "service.json")) as stream:
-            node = json.load(stream).get("node")
+            service = json.load(stream)
     except (OSError, ValueError):
-        node = None
+        service = {}
     config = os.path.join(directory, "bridges", "stdio-auto.json")
-    missing = [what for what, path in (("Node", node), ("bridge configuration", config))
-               if not path or not os.path.isfile(path)]
-    if missing:
-        sys.stderr.write(f"Agents-Core: the shared service is installed, but there is no "
-                         f"{' and no '.join(missing)}; serving standalone.\n")
+    bridge = os.path.join(repo_root, "bridge", "stdio.mjs")
+    problem = _bridge_problem(repo_root, service, config, bridge)
+    if problem:
+        sys.stderr.write(f"Agents-Core: the shared service is installed, but {problem}; serving standalone.\n")
         return
-    argv = [node, os.path.join(repo_root, "bridge", "stdio.mjs"), config]
+    if not _answers(service.get("port")):
+        # Requests fail until it runs, as a migrated client's do: one engine, the service's.
+        sys.stderr.write(f"Agents-Core: the shared service does not answer on port {service.get('port')}: start "
+                         "it with `python -m src.daemon start`, or set AGENTS_STDIO_STANDALONE=1 to serve "
+                         "standalone.\n")
+    argv = [service["node"], bridge, config]
     try:
         if os.name != "nt":
-            os.execv(node, argv)
+            os.execv(argv[0], argv)
         # No installation lease is held: a service installation changes only in
         # maintenance, which check_service refused.
         from src.windows_job import replace_process
@@ -284,6 +288,40 @@ def _serve_through_service(repo_root, directory):
     except OSError as error:
         sys.stderr.write(f"Agents-Core: the bridge to the shared service did not start ({error}); "
                          "serving standalone.\n")
+
+
+def _bridge_problem(repo_root, service, config, bridge):
+    """Why the service's bridge cannot serve this stdio server, or None.
+
+    Checked before exec, which leaves no way back: the bridge refuses a configuration
+    others may read on POSIX, and an installation copied with its `data/` would
+    otherwise serve through the other installation's service.
+    """
+    node = service.get("node")
+    if not node or not os.path.isabs(node) or not os.path.isfile(node):
+        return "it records no Node executable"
+    installation = service.get("installation")
+    if not installation or os.path.normcase(os.path.realpath(installation)) != os.path.normcase(
+            os.path.realpath(repo_root)):
+        return f"it serves the installation {installation}"
+    for path in (config, bridge):
+        if not os.path.isfile(path):
+            return f"{path} is missing"
+    if os.name == "posix":
+        status = os.stat(config)
+        if status.st_uid != os.getuid() or status.st_mode & 0o077:
+            return f"{config} is not private (0600)"
+    return None
+
+
+def _answers(port):
+    """Whether something accepts connections on the service's local port."""
+    import socket
+    try:
+        with socket.create_connection(("127.0.0.1", int(port)), timeout=0.5):
+            return True
+    except (OSError, TypeError, ValueError):
+        return False
 
 
 def run_server(server_path):

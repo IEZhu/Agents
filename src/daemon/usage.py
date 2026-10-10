@@ -8,7 +8,8 @@ Two sources, both local:
   which the managed client configurations send (``clients.py``); one without it counts as
   ``unknown``. The MCP ``initialize`` request also carries the client's name and version in
   ``clientInfo``; with stateless HTTP it is the only request that does, so the daemon keeps the
-  latest one per app. Apps that run Agents-Core over stdio never reach the daemon.
+  latest one per app. A standalone stdio server never reaches the daemon; one of a service
+  installation does, through the bridge, as app ``stdio`` (#266).
 
 Nothing here leaves the machine, and nothing holds the text of a query or an answer.
 """
