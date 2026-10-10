@@ -628,6 +628,7 @@ class TestCacheReset:
 
 def test_darwin_case_variants_are_unsafe(tmp_path, monkeypatch):
     monkeypatch.setattr(engine_config.sys, "platform", "darwin")
+    monkeypatch.setattr(engine_config, "_is_windows", lambda: False)  # also on a Windows host
     monkeypatch.setattr(engine_config, "_real", lambda path: engine_config.Path(path) if path else None)
     monkeypatch.setattr(engine_config, "_home_directory", lambda: engine_config.Path("/Users/Alex"))
     assert "system directory" in engine_config._unsafe_client_root_reason(engine_config.Path("/users"))

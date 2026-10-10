@@ -21,7 +21,8 @@ def setup(tmp_path, monkeypatch):
     for key in ("CLAUDE_CONFIG_DIR", "CODEX_HOME", "AGENTS_CURSOR_MCP_CONFIG", "AGENTS_CLAUDE_DESKTOP_CONFIG"):
         monkeypatch.delenv(key, raising=False)
     state = tmp_path / "state"
-    write_json(state / "service.json", {"installation": str(tmp_path), "port": 8765, "node": "/usr/bin/true"})
+    # Any existing absolute file stands in for Node: the bridge entry only names it.
+    write_json(state / "service.json", {"installation": str(tmp_path), "port": 8765, "node": sys.executable})
     atomic_private(state / "token", "test-profile-token")
     return home, state, ClientMigration(state)
 
@@ -52,7 +53,8 @@ def test_profile_migration_changes_selected_file_only(setup, tmp_path, monkeypat
     assert servers["Agents-Core"]["args"][0].endswith("stdio.mjs")
     assert "url" not in servers["Agents-Core"]
     assert servers["other"] == {"command": "safe"}
-    assert target.stat().st_mode & 0o777 == 0o600
+    if os.name == "posix":  # Windows has no mode bits; the file keeps its directory's ACL
+        assert target.stat().st_mode & 0o777 == 0o600
     migration.restore(backup)
     assert target.read_text() == original
 
