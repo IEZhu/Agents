@@ -238,7 +238,7 @@ The shared service switches in its update transaction instead
 | `INTENT_CLASSIFIER_ENABLED` | `0` | Enable the optional intent-based enrichment classifier |
 | `AGENTS_USER_FLOWS_DIR` | `flows/.user` in the installation | Location (absolute path) of [personal and repository flows](flows/README.md#personal-and-repository-flows), their persona choices, and the installation's rule, skill and implant switches (`components.json`) |
 | `AGENTS_GITHUB_HOST` | `github.com` | GitHub host that [library sync](docs/user-sync.md#github) signs in to and calls; set it for GitHub Enterprise Server |
-| `AGENTS_GITHUB_CLIENT_ID` | The Agents-Core OAuth App, once registered | Client ID of an OAuth App with Device Flow enabled for [library sync](docs/user-sync.md#github) sign-in; required until the Agents-Core app is registered, and for forks |
+| `AGENTS_GITHUB_CLIENT_ID` | The Agents-Core OAuth App | Client ID of an OAuth App with Device Flow enabled for [library sync](docs/user-sync.md#github) sign-in; set it for a fork or GitHub Enterprise Server |
 | `WARMUP_WAIT_SECONDS` | `20` | Seconds (1–600) a retrieval tool waits for background startup (stores, embedding model, rules) before it answers `warming_up`; the MCP handshake never waits ([details](docs/routing_flow.md#startup-and-readiness)) |
 
 Routing thresholds and enrichment settings are defined in
@@ -348,10 +348,11 @@ where to run them: `cd <installation> && …` on macOS and Linux, `in <installat
 run …` on Windows, where cmd and PowerShell chain commands differently.
 
 GitHub sign-in in the wizard and on the Sync page is the OAuth device flow of the
-Agents-Core OAuth App, so `gh` is not needed. The app's client ID ships once the
-app is registered; until then, set `AGENTS_GITHUB_CLIENT_ID` in `.env` to an OAuth
-App of your own with Device Flow enabled (see [Environment Variables](#environment-variables)),
-use `AGENTS_GITHUB_TOKEN`, or give an SSH URL and add the deploy key by hand.
+Agents-Core OAuth App, so `gh` is not needed; its client ID ships in the code. A fork
+or GitHub Enterprise Server sets `AGENTS_GITHUB_CLIENT_ID` in `.env` to an OAuth App of
+its own with Device Flow enabled (see [Environment Variables](#environment-variables)).
+Without sign-in, use `AGENTS_GITHUB_TOKEN`, or give an SSH URL and add the deploy key by
+hand.
 
 Changes reach your other machines when each machine syncs. With the shared
 service, it syncs every few minutes and after each save; `install` says whether
