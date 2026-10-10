@@ -127,7 +127,8 @@ def test_a_git_too_old_for_sync_counts_only_without_a_newer_one(two_directories,
     user_git = plant(two_directories["user"].parent, "git", Path("unused"))
     probed = []
     versions = {str(system_git): (2, 25), str(user_git): (2, 45)}
-    monkeypatch.setattr(executables, "_version", lambda candidate: probed.append(candidate) or versions[candidate])
+    # A git in this machine's system directories (/usr/bin/git on POSIX) is a candidate too: unknown, not recent.
+    monkeypatch.setattr(executables, "_version", lambda candidate: probed.append(candidate) or versions.get(candidate))
     search = os.pathsep.join(str(path.parent) for path in (user_git, system_git))
     assert executables.find("git", search).path == str(user_git)
     versions[str(user_git)] = (2, 20)
@@ -375,9 +376,12 @@ def test_macos_git_shim_counts_only_with_its_developer_tools(tmp_path, monkeypat
 @needs_isolating_git
 def test_the_installation_is_a_safe_directory_without_the_users_configuration(tmp_path):
     repository = committed_repository(tmp_path / "installation")
-    # As if another user owned it, which a global safe.directory entry would have allowed.
-    dubious = {"GIT_TEST_ASSUME_DIFFERENT_OWNER": "1"}
+    # As if another user owned it, which a global safe.directory entry would have allowed. Without the
+    # system configuration as well: a CI runner's may allow every directory, which would hide the refusal.
+    dubious = {"GIT_TEST_ASSUME_DIFFERENT_OWNER": "1", "GIT_CONFIG_NOSYSTEM": "1"}
     command = [REAL_GIT.path, "-C", str(repository), "rev-parse", "HEAD"]
+    # needs_isolating_git means git 2.38 or later, which knows GIT_TEST_ASSUME_DIFFERENT_OWNER (2.35.2 on):
+    # a success here is a failure, never a reason to skip.
     refused = subprocess.run(command, capture_output=True, text=True,
                              env={**executables.service_environment(), "GIT_CONFIG_GLOBAL": os.devnull, **dubious})
     assert refused.returncode and "dubious ownership" in refused.stderr

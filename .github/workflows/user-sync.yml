@@ -9,7 +9,9 @@ on:
       - src/component_toggles.py
       - src/file_lock.py
       - src/memory/history.py
+      - src/executables.py
       - tests/test_user_sync*.py
+      - tests/test_executables.py
       - tests/conftest.py
       - .github/workflows/user-sync.yml
   push:
@@ -21,7 +23,9 @@ on:
       - src/component_toggles.py
       - src/file_lock.py
       - src/memory/history.py
+      - src/executables.py
       - tests/test_user_sync*.py
+      - tests/test_executables.py
       - tests/conftest.py
       - .github/workflows/user-sync.yml
   workflow_dispatch:
@@ -74,3 +78,7 @@ jobs:
           AGENTS_TEST_REAL_SCHEDULER: "1"
           AGENTS_TEST_REAL_SECRET_STORE: ${{ matrix.real_secret_store || '0' }}
         run: python -m pytest tests/test_user_sync*.py -v --durations=15
+      # Sync starts git, ssh-keygen and ssh-keyscan through src/executables.py (#244); its POSIX
+      # checks (root-owned chains, symlinks, the service's environment) run nowhere else.
+      - name: Tool paths and the service's environment
+        run: python -m pytest tests/test_executables.py -v
