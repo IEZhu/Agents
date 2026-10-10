@@ -864,6 +864,11 @@ def _write(repo: _Repository, items: list[_Item], *, wait: float, tombstones=())
 # --- the reconcile ------------------------------------------------------------------------------
 
 
+def _full_stamp() -> str:
+    """A new value of a registry record's ``full``: which release asked for a full read."""
+    return f"{_now()}-{os.urandom(4).hex()}"
+
+
 def _unreviewed(machine: _Machine, record: dict) -> set[str]:
     """A checkout's entries that wait for a review; none under ``history share all``."""
     return set() if machine.share_all else set(record.get("unreviewed") or ())
@@ -948,8 +953,11 @@ def _reconcile(root, *, state_dir, library, full: bool, wait: float, fresh) -> d
         return {"status": "skipped", "reason": "not_top_level"}
     if not _shared(workspace):
         return {"status": "skipped", "reason": "no_origin"}
-    repo = _Repository(machine, workspace.key, workspace.origin)
     record = _register(machine, workspace, fresh)
+    # A release changes the settings before it stamps ``full``: a run that sees its stamp must
+    # also see the settings it released under.
+    machine = _machine(state_dir, library) or machine
+    repo = _Repository(machine, workspace.key, workspace.origin)
     approved = machine.shares(repo.key)
     try:
         scopes = _scopes(repo.library)
@@ -971,8 +979,12 @@ def _reconcile(root, *, state_dir, library, full: bool, wait: float, fresh) -> d
     if _excluded(repo, scopes):
         return {"status": "skipped", "reason": "excluded"}
     # ``full`` in the record: a catch-up that releases older entries (an approval, ``share all``)
-    # has not finished this checkout yet, so archives before the watermark still count.
-    since_month = None if full or record.get("full") else _archive_month(record.get("watermark"))
+    # has not finished this checkout yet, so archives before the watermark still count. It is a
+    # stamp: only a run that read this very stamp may clear it, so a run that began before the
+    # release (with the old settings and record) never does.
+    stamp = record.get("full")
+    full_read = full or bool(stamp)
+    since_month = None if full_read else _archive_month(record.get("watermark"))
     entries = sorted(_journal(workspace.root, since_month).values(), key=lambda pair: (pair[0].timestamp, pair[0].id))
     known = _shared_ids(repo, scopes)
     unreviewed = _unreviewed(machine, record)
@@ -997,7 +1009,8 @@ def _reconcile(root, *, state_dir, library, full: bool, wait: float, fresh) -> d
     if outcome["status"] == "skipped" and outcome.get("reason") == "other_origin":
         _note_other_origin(machine, repo, sorted(set(others) | set(outcome.get("found", []))))
     # The watermark (which archive months a run skips) moves past every entry handled; the first
-    # one left (failed or held) stops it.
+    # one left (failed or held) stops it. After a read of every archive it is set, not only moved
+    # forward, so an older entry left over keeps its month readable without another full read.
     pending = {item.id for item in items} - set(outcome["written"]) - set(outcome["present"])
     stop = next((entry.timestamp for entry, _ in entries if entry.id in pending), None)
     reached = [entry.timestamp for entry, _ in entries if stop is None or entry.timestamp < stop]
@@ -1005,10 +1018,13 @@ def _reconcile(root, *, state_dir, library, full: bool, wait: float, fresh) -> d
 
     def change(state):
         current = state.setdefault("roots", {}).setdefault(workspace.root, {"key": repo.key, "origin": repo.origin})
-        if reached and outcome["status"] != "skipped":
-            current["watermark"] = max([reached[-1]] + ([current["watermark"]] if current.get("watermark") else []))
-        if not pending and outcome["status"] not in ("failed", "skipped"):
-            current.pop("full", None)  # every archive was read and nothing is left over
+        if outcome["status"] != "skipped":
+            if full_read and (reached or pending):
+                current["watermark"] = reached[-1] if reached else None
+            elif reached:
+                current["watermark"] = max([reached[-1]] + ([current["watermark"]] if current.get("watermark") else []))
+        if stamp and current.get("full") == stamp and outcome["status"] not in ("failed", "skipped"):
+            current.pop("full", None)  # this release's full read is done
         if failed:
             state["error"] = {"reason": outcome["reason"], "message": outcome.get("message"), "key": repo.key,
                               "time": _now()}
@@ -1401,6 +1417,7 @@ def export(*, state_dir=None, library=None, keys=(), paths=(), confirm: str | No
                    "review them and confirm")
         return {"status": "confirmation_needed", **result, "hash": token, "message": message}
     covered = _covered(repositories, _iso(match["cutoff"]))
+    stamp = _full_stamp()
 
     def approve(settings):  # a confirmation also takes a key back from history revoke
         settings.history_repositories = sorted(_approved(settings) | set(covered))
@@ -1412,7 +1429,7 @@ def export(*, state_dir=None, library=None, keys=(), paths=(), confirm: str | No
         for root, record in state.get("roots", {}).items():
             if _root_key(root) in checkouts:
                 record.pop("unreviewed", None)
-                record["full"] = True  # until a run reads every archive of it
+                record["full"] = stamp  # until a run reads every archive of it
     _change_state(machine.state_dir, release)
     results = reconcile_all(state_dir=machine.state_dir, library=machine.library, keys=set(covered), full=True,
                             deadline=time.monotonic() + (CLI_WAIT_SECONDS if wait is None else wait))
@@ -1476,9 +1493,11 @@ def share(mode: str, *, state_dir=None, library=None, wait: float | None = None)
         engine.Syncer(machine.library, machine.state_dir)._update_settings(
             lambda settings: setattr(settings, "history_share", mode))
     if mode == SHARE_ALL:
+        stamp = _full_stamp()
+
         def read_whole(state):  # entries before a watermark may wait: read every archive once more
             for record in state.get("roots", {}).values():
-                record["full"] = True
+                record["full"] = stamp
         _change_state(machine.state_dir, read_whole)
     results = reconcile_all(state_dir=machine.state_dir, library=machine.library, full=mode == SHARE_ALL,
                             deadline=time.monotonic() + (CLI_WAIT_SECONDS if wait is None else wait))

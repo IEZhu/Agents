@@ -398,8 +398,9 @@ def test_a_clone_seen_under_share_all_is_reviewed_again_after_share_approved(tmp
     assert a.status()["history_waiting"] == [{"key": KEY, "origin": NORMALIZED, "entries": 1}]
 
 
-def test_share_all_reads_older_archives_until_a_run_finishes_each_checkout(tmp_path, shared, clock):
-    a, _ = shared
+def archived_clone(tmp_path, a: Box, clock) -> Box:
+    """A clone of the approved project whose unreviewed past sits in a September archive, while
+    its watermark is in October."""
     clone = Box(tmp_path, "a3", a.machine.remote, machine=a.machine)
     clock.now = datetime(2026, 9, 1, 8, 0, tzinfo=timezone.utc)
     clone.writer.append_entry("archived past of a clone", "a", "o")
@@ -410,12 +411,72 @@ def test_share_all_reads_older_archives_until_a_run_finishes_each_checkout(tmp_p
     assert history_sync.drain(60)
     clone.log("a new turn in the clone")  # shared, and the watermark moves to October
     assert "archived past of a clone" not in a.exported()
+    return clone
+
+
+def clone_record(a: Box, clone: Box) -> dict:
+    return history_sync._roots(history_sync._machine(a.machine.state, a.machine.lib))[
+        history_sync._root_key(clone.repo)]
+
+
+def test_share_all_reads_older_archives_until_a_run_finishes_each_checkout(tmp_path, shared, clock):
+    a, _ = shared
+    archived_clone(tmp_path, a, clock)
     left = history_sync.share("all", state_dir=a.machine.state, library=a.machine.lib, wait=0)
     assert left["left"] and "archived past of a clone" not in a.exported()  # the deadline left it
     history_sync.request_catch_up(a.machine.state, a.machine.lib)  # an ordinary later run
     assert "archived past of a clone" in a.exported()
     roots = history_sync._roots(history_sync._machine(a.machine.state, a.machine.lib))
     assert not any(record.get("full") for record in roots.values())
+
+
+def test_a_confirmed_export_the_deadline_cut_short_still_reads_older_archives(tmp_path, shared, clock):
+    a, _ = shared
+    archived_clone(tmp_path, a, clock)
+    preview = a.export()
+    done = a.export(confirm=preview["hash"], wait=0)
+    assert done["left"] and "archived past of a clone" not in a.exported()
+    history_sync.request_catch_up(a.machine.state, a.machine.lib)
+    assert "archived past of a clone" in a.exported()
+
+
+def test_only_a_run_that_read_the_release_clears_its_full_read(tmp_path, shared, clock, monkeypatch):
+    """A run that began before ``share all`` stamped the record (old record, old settings) leaves
+    the stamp for a run that reads every archive."""
+    a, _ = shared
+    clone = archived_clone(tmp_path, a, clock)
+    history_sync.share("all", state_dir=a.machine.state, library=a.machine.lib, wait=0)
+    stamp = clone_record(a, clone)["full"]
+    real_register = history_sync._register
+
+    def register_before_the_release(machine, workspace, fresh=frozenset()):
+        record = dict(real_register(machine, workspace, fresh))
+        record.pop("full", None)
+        return record
+    monkeypatch.setattr(history_sync, "_register", register_before_the_release)
+    history_sync.reconcile(str(clone.repo), state_dir=a.machine.state, library=a.machine.lib)
+    assert clone_record(a, clone)["full"] == stamp and "archived past of a clone" not in a.exported()
+    monkeypatch.undo()
+    history_sync.request_catch_up(a.machine.state, a.machine.lib)
+    assert "archived past of a clone" in a.exported() and not clone_record(a, clone).get("full")
+
+
+def test_a_full_read_that_leaves_an_old_entry_over_lowers_the_watermark(tmp_path, shared, clock, monkeypatch):
+    a, _ = shared
+    clone = archived_clone(tmp_path, a, clock)
+    october = clone_record(a, clone)["watermark"]
+    real_write = history_sync._write
+
+    def write_all_but_the_archived(repo, items, **options):  # as a part excluded file by file
+        return real_write(repo, [item for item in items if item.intent != "archived past of a clone"], **options)
+    monkeypatch.setattr(history_sync, "_write", write_all_but_the_archived)
+    history_sync.share("all", state_dir=a.machine.state, library=a.machine.lib)
+    record = clone_record(a, clone)
+    assert not record.get("full")  # the full read finished; no full read on every later turn
+    assert record["watermark"] is None or record["watermark"] < october
+    monkeypatch.undo()
+    clone.log("another turn")  # an ordinary run reads the September archive again
+    assert "archived past of a clone" in a.exported()
 
 
 def test_revoke_under_share_all_keeps_one_key_out_until_it_is_approved_again(tmp_path, two, clock, capsys):
