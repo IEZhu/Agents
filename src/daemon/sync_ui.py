@@ -49,7 +49,7 @@ CONFLICTS_LISTED = 50    # conflict records the status lists; `conflict_total` c
 # The title GitHubClient.add_deploy_key gives a machine's deploy key ("Agents-Core <label>"): keys
 # with another title are not machines of this library, and the page never removes them.
 DEPLOY_KEY_TITLE = "Agents-Core "
-CONFLICT_FIELDS = ("id", "path", "flow", "repo_key", "kind", "kept", "machine", "time", "deleted_on")
+CONFLICT_FIELDS = ("id", "path", "flow", "repo_key", "kind", "kept", "machine", "time", "deleted_on", "reason")
 DEVICE = f"{PREFIX}/github/device"  # a GitHub sign-in: its start (POST) and polls (GET)
 
 # path -> {method: handler}
@@ -206,6 +206,8 @@ def _read_library(library: Path, relative) -> tuple[str | None, bool]:
 def _summary(record: dict) -> dict:
     """What the page lists of a conflict record; the kept text stays out (see ``_conflict``)."""
     summary = {name: record.get(name) if isinstance(record.get(name), str) else None for name in CONFLICT_FIELDS}
+    overlaps = record.get("overlaps")
+    summary["overlaps"] = overlaps if isinstance(overlaps, int) and not isinstance(overlaps, bool) else None
     if isinstance(record.get("local_version"), str):
         summary["mine"] = "version"
     elif isinstance(record.get("local_content"), str) or isinstance(record.get("local_content_base64"), str):

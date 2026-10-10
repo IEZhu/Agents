@@ -481,21 +481,36 @@ Commits carry the configured identity and messages such as
 
 ## Conflicts
 
-No text is merged automatically. The version that reached the remote first stays in place, and the
-other one is kept.
+A text file the owner edits (a flow's Markdown, a script or another file of `common/` and
+`repos/<key>/`) that two machines changed differently is merged line by line against the version
+both started from (a diff3 merge, like `git merge-file`'s): when the changes touch different
+lines, the merged text goes to every machine, and the flow's local text from before the merge
+becomes a normal `.history` version. Changes to the same lines, or to adjacent lines with no
+unchanged line between them, overlap; then, as for files that are not merged line by line, the
+version that reached the remote first stays in place and the other one is kept.
 
 | Case | Working tree | Kept |
 |---|---|---|
-| A flow changed differently on two machines | the remote version | the local text as a normal `.history` version, and a conflict record |
+| A flow or script changed on different lines on two machines | the merged text | a flow's local text as a normal `.history` version; no record |
+| A flow changed on the same lines on two machines | the remote version | the local text as a normal `.history` version, and a conflict record (`overlapping_changes`) |
 | Changed on one machine, deleted on the other | the changed version | a "deletion undone" record; a flow's text, override marker and persona overlay return together |
 | The same change, or deleted on both | no conflict | — |
 | `.history/**` | union (names are unique) | — |
-| Persona overlay, `*.meta.json`, other files | the remote version | the local content inside the record |
+| Persona overlay, `*.meta.json`, other files | the remote version | the local content inside the record (`not_text`) |
 | `components.json`, `.agents-sync/scopes.json` | a three-way merge of their sets; it cannot conflict | — |
-| Joining a library that has its own flows | matching paths as "changed on two machines", the rest merged | as above; preview required |
+| Joining a library that has its own flows | matching paths as "changed on two machines" without a common version (`no_common_base`), the rest merged | as above; preview required |
 
 Records are `.agents-sync/conflicts/<id>.json`, one per conflict, so records from two machines
-never collide; they sync like other files. When `history` is excluded, the kept local version
+never collide; they sync like other files. A record of two changed versions says why they were not
+merged in `reason`: `overlapping_changes` (with the number of `overlaps`), `no_common_base`,
+`not_text` (JSON, binary or not the owner's text), `too_large` (over 256 KiB), `too_complex` (so
+many changed lines that matching them could hold the library lock for long),
+`changed_during_sync` (edited while a cycle wrote it) or `held_open` (a reader kept the file open
+while a cycle wrote a merge, and the remote rejected that cycle's commit). A merge a reader kept
+from being written here is reported by the cycle that finally writes it. The Sync page shows the reason, the
+activity lists the files a cycle merged (`merged`), and so do `run` and `preview`. `list_flows`,
+`get_flow` and `run_flow` return a flow's open records as `sync_conflicts`, so the model tells
+the user before it edits or runs that flow. When `history` is excluded, the kept local version
 stays on the machine that lost it. `resolve <id> mine` restores the kept local version with a
 normal save (or, for a deletion, a normal delete, which keeps the text in the flow's history);
 `keep` and `dismiss` delete the record.
@@ -541,8 +556,8 @@ machine), `scopes_invalid`, `foreign_git`, `library_mismatch`, `library_unreadab
 `internal` (an unexpected error; the traceback is in `user-sync.log`, and the next cycle tries
 again) or `stale`. It also reports the conflict count, the last success, the activity of the
 last 20 cycles (sent and received flows, the labels of the machines whose commits a cycle
-received, from their `Agents-Sync-Machine` trailers, as `received_from`, and changed non-Markdown
-files listed separately), newly uploaded repository groups and the
+received, from their `Agents-Sync-Machine` trailers, as `received_from`, the files merged line by
+line as `merged`, and changed non-Markdown files listed separately), newly uploaded repository groups and the
 [repository history](#repository-history) fields (`history_waiting`, `history_repositories`,
 `history_error`, `history_other_origin`). `stale` turns true 24 hours after the last success, and
 the state turns
@@ -615,6 +630,11 @@ heading or by a lost final blank line, caches that tell a replaced file by its i
 token storage and every API call against a fake GitHub on `127.0.0.1`, and
 `tests/test_user_sync_github_setup.py` the privacy check, `setup --github`, `add-key`, a new key, port 443
 and the wizard, with git going to a local bare repository through a fake SSH command.
+`tests/test_user_sync_merge.py` covers the line merge: the diff3 rules, the line search (a longest
+common subsequence, and its bound on repeated lines), clean merges compared with
+`git merge-file` for random edits, overlaps that never merge, what is not merged and why, two
+machines merging a flow and a script, a conflict with its reason, a join without a common version,
+the preview and its hash, and `sync_conflicts` in the flow tools until the record is resolved.
 `tests/test_user_sync_install.py` covers the installers' step and setup from the environment: the
 question, the settings page on a fake daemon, background sync with a fake scheduler, the token
 kept from child processes, `.env` ignored, exit codes, reruns, replacing a setup (a deploy key

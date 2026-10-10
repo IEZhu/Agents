@@ -3365,8 +3365,21 @@ function conflictText(record) {
     return what + (record.deleted_on === "local" ? ": deleted here and changed on another machine; the changed version is back."
       : ": changed here and deleted on another machine; your version stays.");
   }
-  return what + ": changed differently on two machines. The version that reached the repository first is current; yours is kept.";
+  const places = record.overlaps > 1 ? " (" + record.overlaps + " places)" : "";
+  return what + ": changed differently on two machines and " + (MERGE_REFUSALS[record.reason] || "not merged")
+    + (record.reason === "overlapping_changes" ? places : "") + ". The version that reached the repository first is current; yours is kept.";
 }
+
+// Why sync could not merge the two versions line by line (record.reason, src/user_sync/merge.py).
+const MERGE_REFUSALS = {
+  overlapping_changes: "could not be merged: both changed the same lines",
+  no_common_base: "could not be merged: the libraries joined without a common earlier version",
+  not_text: "not merged: only text files such as flows and scripts merge line by line",
+  too_large: "not merged: the file is larger than 256 KiB",
+  too_complex: "not merged: too many lines changed to merge line by line quickly",
+  changed_during_sync: "not merged: it changed here while sync wrote it",
+  held_open: "not merged: the file was open here while sync wrote it, and the merge did not reach the repository",
+};
 
 function renderConflictsPart() {
   const host = rebuildPart("conflicts"), records = sync.status.conflict_list || [];
@@ -3592,6 +3605,10 @@ function renderActivityPart() {
     }
     if ((entry.scripts || []).length) {
       node("div", text, "Non-Markdown files changed (scripts): " + entry.scripts.join(", ") + ". Review them before a flow runs them.", "notice");
+    }
+    if ((entry.merged || []).length) {
+      node("div", text, "Changed on two machines and merged line by line: " + entry.merged.join(", ")
+        + ". The text from before the merge is in the flow's history.");
     }
     if (entry.conflicts) node("div", text, plural(entry.conflicts, "conflict"));
     if ((entry.new_groups || []).length) node("div", text, "Repositories uploaded for the first time: " + entry.new_groups.join(", "));

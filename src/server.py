@@ -379,7 +379,9 @@ async def list_flows(
     (e.g. pr-review); personal flows are user:<id> (every repository) and
     repo:<id> (only the caller's repository). overridden_by marks a built-in
     replaced by a local copy; upstream_changed marks a copy whose built-in has
-    changed since it was saved. No workspace is needed except for repo flows.
+    changed since it was saved. sync_conflicts marks a flow whose versions from
+    two machines library sync could not merge: tell the user. No workspace is
+    needed except for repo flows.
     """
     try:
         library = await _flow_library(ctx, workspace)
@@ -396,6 +398,8 @@ async def get_flow(flow: str, version: ta.opt_str("Optional version id of the fl
     flow: a bare ID or builtin:/user:/repo:<id>. version: an entry from history,
     to view or restore older text (restore = save_flow with that content).
     For a local copy of a built-in, upstream holds the current built-in text.
+    flow.sync_conflicts: library sync could not merge two machines' versions
+    (reason, local_version); tell the user before editing.
     """
     try:
         library = await _flow_library(ctx, workspace)

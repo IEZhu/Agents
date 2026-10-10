@@ -841,6 +841,11 @@ def test_the_sync_page_shows_every_section_once_sync_runs(dashboard):
     assert "mac-1a2b (this machine)" in page["machines"] and page["machine_buttons"] == 1  # no Remove for this one
     assert "Received from laptop: user:tool" in page["activity"]
     assert "Non-Markdown files changed (scripts): common/tool.py" in page["activity"]
+    assert "Changed on two machines and merged line by line: user:doc." in page["activity"]
+    assert "user:doc: changed differently on two machines and could not be merged: both changed the same " \
+           "lines (2 places)." in page["conflicts"]
+    assert "user:doc (persona): changed differently on two machines and not merged: only text files such as " \
+           "flows and scripts merge line by line." in page["conflicts"]
     assert "github.com/o/r" in page["scopes"] and "Exclude" in page["scopes"] and "Approve" in page["scopes"]
     assert "GitHub: @octocat" in page["access"] and "Regenerate key" in page["access"]
     assert dashboard["chip"]["text"] == "2 conflicts"
