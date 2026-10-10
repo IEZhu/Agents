@@ -101,9 +101,9 @@ deploy keys. Git never uses the GitHub token: it runs on this machine's deploy k
   `https://github.com/login/device`, enter the printed code, and approve the `repo` scope, which
   creating a private repository needs. The page opens in a graphical browser when there is one; in
   an SSH session without `DISPLAY` or `WAYLAND_DISPLAY`, or with only a console browser such as
-  lynx or w3m, you open the printed link yourself. The app's client ID ships in the code once the
-  owner has registered the app; until then, and for forks or GitHub Enterprise Server, set
-  `AGENTS_GITHUB_CLIENT_ID` (and `AGENTS_GITHUB_HOST`), for example in the installation's `.env`.
+  lynx or w3m, you open the printed link yourself. The app's client ID ships in the code
+  (`DEFAULT_CLIENT_ID`); a fork or GitHub Enterprise Server sets `AGENTS_GITHUB_CLIENT_ID` (and
+  `AGENTS_GITHUB_HOST`) to its own app, for example in the installation's `.env`.
 - **The token** is kept in the macOS Keychain, the Windows Credential Manager or the Secret Service
   (`secret-tool`), never in the library, logs or settings. Where none of them works, it goes to a
   private file in the state directory, and `github status` says so. `github logout` (Forget
