@@ -51,6 +51,14 @@ LANGFUSE_TRACING_ENABLED=false ./scripts/run_tests.sh -k russian
 The wrapper runs the whole selected suite, not only language detection tests.
 Use the direct Python command when you need to select specific test files.
 
+The User sync workflow keeps the complete suite on Linux and macOS and splits
+the same collection across four Windows jobs. Its opt-in `tests.ci_shard` plugin
+assigns each node ID to exactly one shard; ordinary pytest runs stay unchanged.
+To reproduce one part, set `AGENTS_TEST_SHARD_COUNT=4` and
+`AGENTS_TEST_SHARD_INDEX=0` (indices 0 through 3), then add `-p tests.ci_shard`
+to the workflow's pytest command. Invalid or incomplete settings fail before
+collection. `test_ci_shard.py` checks complete, disjoint and stable coverage.
+
 ### Checks outside pytest
 
 Agent metadata and the Node bridge have their own checks:

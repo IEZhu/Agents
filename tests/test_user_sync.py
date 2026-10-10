@@ -4,6 +4,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -96,7 +97,10 @@ class Machine:
         parsed = Syncer._legacy_version(alias)
         identifier = parsed[1] if parsed else Path(alias).stem
         path = parsed[0] if parsed else path or "common/shared.md"
-        return LibraryHistory(self.lib).read(path, identifier).decode("utf-8")
+        data = LibraryHistory(self.lib).read(path, identifier)
+        # Match Path.read_text's universal newlines without changing archived bytes.
+        with io.TextIOWrapper(io.BytesIO(data), encoding="utf-8") as stream:
+            return stream.read()
 
     def archived_texts(self, path: str) -> set[bytes]:
         backend = LibraryHistory(self.lib)
@@ -594,7 +598,7 @@ def test_an_edit_that_bypasses_the_lock_is_kept_and_reconciled(pair, monkeypatch
     real_apply = a.sync._apply
 
     def apply_after_a_manual_edit(*args, **kwargs):
-        (a.lib / "common" / "shared.md").write_text("# Shared\n\nmanual edit on A\n")
+        (a.lib / "common" / "shared.md").write_bytes(b"# Shared\r\n\r\nmanual edit on A\r\n")
         return real_apply(*args, **kwargs)
 
     monkeypatch.setattr(a.sync, "_apply", apply_after_a_manual_edit)
@@ -605,6 +609,7 @@ def test_an_edit_that_bypasses_the_lock_is_kept_and_reconciled(pair, monkeypatch
     assert a.text("common/shared.md") == "# Shared\n\nfrom B\n"
     [record] = records(a)
     assert a.version_text(record["local_version"]) == "# Shared\n\nmanual edit on A\n"
+    assert b"# Shared\r\n\r\nmanual edit on A\r\n" in a.archived_texts("common/shared.md")
 
 
 def test_a_push_race_between_two_machines_retries(pair, monkeypatch):
@@ -1622,7 +1627,7 @@ def test_an_edit_made_while_a_write_is_retried_is_never_overwritten(pair, monkey
     def edited_while_held_open(path, data):
         if Path(path) == target and not failures:
             failures.append(path)
-            target.write_text("# Shared\n\nmanual edit on A\n")  # bypasses the lock, between two attempts
+            target.write_bytes(b"# Shared\r\n\r\nmanual edit on A\r\n")  # bypasses the lock between attempts
             raise sharing_violation(path)
         return real_write(path, data)
 
@@ -1635,6 +1640,7 @@ def test_an_edit_made_while_a_write_is_retried_is_never_overwritten(pair, monkey
     assert a.text("common/shared.md") == "# Shared\n\nfrom B\n"
     [record] = records(a)
     assert a.version_text(record["local_version"]) == "# Shared\n\nmanual edit on A\n"
+    assert b"# Shared\r\n\r\nmanual edit on A\r\n" in a.archived_texts("common/shared.md")
 
 
 @pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs a privilege on Windows")
