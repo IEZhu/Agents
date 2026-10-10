@@ -311,13 +311,17 @@ environment variables or MCP roots, the lifecycle hook authenticates the active
 workspace path (`workspacePaths[0]`) using an HMAC-SHA256 signature keyed by the
 daemon bearer token (`workspace_signature`). The hook returns `decision: "ask"`
 to preserve Antigravity's approval policy, including the user's **Always Allow**
-choice. `bridge/stdio.mjs` verifies the signature and registers the workspace
+choice. Unless a non-empty `AGENTS_CLIENT_REPO_ROOT` overrides the auto session,
+`bridge/stdio.mjs` verifies the signature and registers the workspace
 with `origin: "hook"`: a safe existing folder needs no `.git` or `CLAUDE.md`
 marker, but the filesystem root and the user's home directory are refused.
 After successful verification and registration, the auto bridge binds the
 session to that workspace and attaches `X-Agents-Workspace` to tool requests.
 Later authenticated workspace switches update the binding, so calls without a
-`workspace` argument follow the active project (#260).
+`workspace` argument follow the active project (#260). A non-empty
+`AGENTS_CLIENT_REPO_ROOT` remains authoritative: it selects the auto session
+workspace before signature verification, so signed calls do not register or
+change that binding.
 
 The installers and `scripts/install_instructions.py` use the same Claude profile:
 `$CLAUDE_CONFIG_DIR` when that variable is non-empty, otherwise `~/.claude`. It
