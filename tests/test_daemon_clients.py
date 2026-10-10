@@ -464,9 +464,9 @@ def test_repeated_antigravity_migration_preserves_settings_without_duplicate_hoo
     assert len(hooks["agents-core-workspace"]["PreToolUse"][0]["hooks"]) == 1
 
 
-@pytest.mark.parametrize("relative_home", [False, True])
+@pytest.mark.parametrize("home_form", ["absolute", "relative", "directory_alias"])
 def test_antigravity_config_override_can_share_plugin_registry_and_restores_once(
-    migration, tmp_path, monkeypatch, relative_home,
+    migration, tmp_path, monkeypatch, home_form,
 ):
     home = tmp_path / "home"
     registry_file = home / ".gemini/config/config.json"
@@ -479,8 +479,15 @@ def test_antigravity_config_override_can_share_plugin_registry_and_restores_once
     registry_file.write_text(json.dumps(original, indent=4) + "\n\n")
     original_bytes = registry_file.read_bytes()
     monkeypatch.chdir(tmp_path)
+    supplied_home = Path("home") if home_form == "relative" else home
+    if home_form == "directory_alias":
+        supplied_home = tmp_path / "home-alias"
+        try:
+            supplied_home.symlink_to(home, target_is_directory=True)
+        except OSError:
+            pytest.skip("Directory symlinks are unavailable")
     change = migration.prepare(
-        "antigravity", home=Path("home") if relative_home else home, config_path=registry_file,
+        "antigravity", home=supplied_home, config_path=registry_file,
     )
     backup = migration.apply([change])
 
@@ -498,6 +505,32 @@ def test_antigravity_config_override_can_share_plugin_registry_and_restores_once
     migration.restore(backup)
 
     assert registry_file.read_bytes() == original_bytes
+    plugin_dir = home / ".gemini/config/plugins/agents-core"
+    assert not (plugin_dir / "plugin.json").exists()
+    assert not (plugin_dir / "hooks.json").exists()
+
+
+@pytest.mark.parametrize("config_target", ["default", "registry", "referent"])
+def test_antigravity_registry_file_symlink_is_rejected(migration, tmp_path, config_target):
+    home = tmp_path / "home"
+    registry_file = home / ".gemini/config/config.json"
+    referent = home / "original-config.json"
+    write_json(referent, {"userSettings": {"theme": "keep"}, "plugins": {"other": {"enabled": True}}})
+    original_bytes = referent.read_bytes()
+    registry_file.parent.mkdir(parents=True)
+    try:
+        registry_file.symlink_to(referent)
+    except OSError:
+        pytest.skip("File symlinks are unavailable")
+    config_path = {"default": None, "registry": registry_file, "referent": referent}[config_target]
+    change = migration.prepare("antigravity", home=home, config_path=config_path)
+
+    with pytest.raises(ValueError, match="cannot be a symlink"):
+        migration.apply([change])
+
+    assert registry_file.is_symlink()
+    assert referent.read_bytes() == original_bytes
+    assert not (home / ".gemini/config/mcp_config.json").exists()
     plugin_dir = home / ".gemini/config/plugins/agents-core"
     assert not (plugin_dir / "plugin.json").exists()
     assert not (plugin_dir / "hooks.json").exists()

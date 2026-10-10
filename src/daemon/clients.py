@@ -298,13 +298,16 @@ class ClientMigration:
             entry = self.bridge(identity, app, auto_workspace=root is None)
             servers[SERVER] = transport_entry(servers.get(SERVER, {}), entry)
             if root is None and self.has_node():
-                registry_document = document if path == home / ".gemini/config/config.json" else None
+                registry_path = home / ".gemini/config/config.json"
+                # Resolve directory aliases while retaining final-file symlink checks.
+                shared_registry = path.parent.resolve() / path.name == registry_path.parent.resolve() / registry_path.name
+                registry_document = document if shared_registry else None
                 plugin_changes = self.provision_antigravity_plugin(
                     home=home, bridge_config=entry["args"][1], registry_document=registry_document,
                 )
                 self.staged_changes[str(path)] = []
                 for plugin_path, plugin_content, secret in plugin_changes:
-                    if plugin_path == path:
+                    if shared_registry and plugin_path == registry_path:
                         # An alternate MCP config can share the application registry.
                         document["plugins"] = json.loads(plugin_content)["plugins"]
                     else:
