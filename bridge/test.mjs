@@ -79,7 +79,7 @@ async function session(daemon, settings, messages, env = {}, cwd = undefined, ca
   try {
     const config = join(dir, 'config.json');
     await writeFile(config, JSON.stringify({ url: daemon.url, headers: { Authorization: 'Bearer test' }, ...settings }), { mode: 0o600 });
-    const environment = { ...process.env, ...env };
+    const environment = { ...process.env, AGENTS_CLIENT_REPO_ROOT: undefined, ...env };
     for (const [key, value] of Object.entries(environment)) if (value === undefined) delete environment[key];
     const child = spawn(process.execPath, [fileURLToPath(new URL('./stdio.mjs', import.meta.url)), config],
       { env: environment, cwd });
@@ -172,6 +172,19 @@ test('auto workspace without CLAUDE_PROJECT_DIR reports its cwd as a launch dire
   } finally {
     await rm(cwd, { recursive: true, force: true });
   }
+});
+
+test('auto workspace: AGENTS_CLIENT_REPO_ROOT names the session and decides alone', async () => {
+  const daemon = await fakeDaemon(message => [200, { workspace_id: 'override-id', root: message.path }]);
+  const signature = createHmac('sha256', 'test').update('workspace:/signed').digest('hex');
+  const { header, rootsAsked } = await session(daemon, { workspace: 'auto' },
+    [{ id: 'list', method: 'tools/list' }, call('named', '/named'), call('signed', '/signed', signature)],
+    { AGENTS_CLIENT_REPO_ROOT: '/override', CLAUDE_PROJECT_DIR: '/session' });
+  // As in a stdio server: neither CLAUDE_PROJECT_DIR nor a tool call's workspace changes it.
+  assert.deepEqual(daemon.registrations, [{ path: '/override', origin: 'AGENTS_CLIENT_REPO_ROOT' }]);
+  assert.equal(rootsAsked, 0);
+  for (const id of ['list', 'named', 'signed']) assert.equal(header(id), 'override-id');
+  assert.ok(!('workspace_signature' in daemon.calls.find(c => c.message.id === 'signed').message.params.arguments));
 });
 
 test('signed workspace: a tool call with valid workspace_signature registers without roots and without cwd', async () => {

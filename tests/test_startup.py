@@ -618,3 +618,85 @@ with stdio_derived_state(sys.argv[2]) as derived:
         assert autoupdate.held_slots(installation) == []
     finally:
         _stop(process)
+
+
+# A stand-in for bridge/stdio.mjs: it shows the configuration it got and answers one line.
+_FAKE_BRIDGE = """
+process.stdout.write('BRIDGE ' + process.argv[2] + '\\n');
+process.stdin.once('data', data => { process.stdout.write('ECHO ' + data); process.exit(5); });
+"""
+
+
+@pytest.fixture
+def service_install(leased_install):
+    """An installation with a shared service: its stdio server serves through the bridge (#266)."""
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("Node.js runs the stdio bridge")
+    root, server, _ = leased_install
+    shutil.copy(ROOT / "src/windows_job.py", root / "src/windows_job.py")
+    (root / "bridge").mkdir()
+    (root / "bridge/stdio.mjs").write_text(_FAKE_BRIDGE, encoding="utf-8")
+    state = root / "state"
+    (state / "bridges").mkdir(parents=True)
+    (state / "service.json").write_text(json.dumps({"node": node}))
+    (state / "bridges/stdio-auto.json").write_text("{}")
+    (root / "data/.shared-service.json").write_text(json.dumps({"directory": str(state)}))
+    return root, server, state
+
+
+def _stdio_server(server, cwd, **environ):
+    env = {key: value for key, value in os.environ.items() if key not in ("PYTHONPATH", startup.STANDALONE)}
+    env.update(environ)
+    return subprocess.Popen([sys.executable, "-c", 'import runpy, sys; runpy.run_path(sys.argv[1], run_name="__main__")',
+                             str(server)], cwd=cwd, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE, text=True)
+
+
+def test_a_stdio_server_of_a_service_installation_hands_its_session_to_the_bridge(service_install):
+    """One application instance: the service's, reached through the bridge migrated clients run."""
+    root, server, state = service_install
+    process = _stdio_server(server, root.parent)
+    try:
+        assert process.stdout.readline().split() == ["BRIDGE", str(state / "bridges" / "stdio-auto.json")]
+        # No installation lease: the service's updates are not held up by a stdio client.
+        assert _free(root / "data/.update.lock") and _free(root / "data/.sessions.lock")
+        output, errors = process.communicate(input="request\n", timeout=30)
+        assert output.strip() == "ECHO request", errors
+        assert process.returncode == 5  # the bridge's exit code, also where Windows has no exec
+        assert "OLD_SERVER" not in output
+    finally:
+        _stop(process)
+
+
+@pytest.mark.parametrize("cause", ["no bridge configuration", "no node", "standalone requested"])
+def test_a_stdio_server_serves_standalone_when_it_cannot_or_should_not_use_the_bridge(service_install, cause):
+    root, server, state = service_install
+    environ = {}
+    if cause == "no bridge configuration":
+        (state / "bridges/stdio-auto.json").unlink()
+    elif cause == "no node":
+        (state / "service.json").write_text(json.dumps({"node": None}))
+    else:
+        environ[startup.STANDALONE] = "1"
+    process = _stdio_server(server, root.parent, **environ)
+    try:
+        output, errors = process.communicate(timeout=30)
+        assert process.returncode == 0, errors
+        assert output.strip() == "OLD_SERVER"
+        if cause != "standalone requested":
+            assert "serving standalone" in errors
+    finally:
+        _stop(process)
+
+
+def test_a_stdio_server_of_a_service_in_maintenance_refuses_to_start(service_install):
+    root, server, state = service_install
+    (state / "maintenance.json").write_text("{}")
+    process = _stdio_server(server, root.parent)
+    try:
+        output, errors = process.communicate(timeout=30)
+        assert process.returncode != 0
+        assert "Shared service is in maintenance" in errors and "BRIDGE" not in output
+    finally:
+        _stop(process)

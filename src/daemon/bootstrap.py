@@ -42,6 +42,20 @@ def _keep_alive(directory):
                                             exc_info=True)
 
 
+def stdio_bridge(directory):
+    """Keep the bridge configuration that stdio servers of this installation serve through (#266).
+
+    Written at every start, so an installation from before #266 gets it too; a failure only
+    leaves stdio servers serving standalone.
+    """
+    from .clients import ClientMigration
+    try:
+        ClientMigration(directory).stdio_bridge()
+    except (OSError, ValueError):
+        logging.getLogger(__name__).warning("Stdio servers will serve standalone: the stdio bridge "
+                                            "configuration could not be written", exc_info=True)
+
+
 def serve(directory=None, probation=None):
     directory = private_dir(directory or state_dir())
     config = read_json(directory / "service.json")
@@ -73,6 +87,7 @@ def serve(directory=None, probation=None):
         if token_path.is_symlink() or not _private_file(token_path):
             raise PermissionError("Token must be private (0600; on Windows an owner-only ACL)")
         token = token_path.read_text().strip()
+        stdio_bridge(directory)
         # Immutable process configuration, set before application imports only.
         os.environ.update(AGENTS_SERVICE_DIR=str(directory), AGENTS_TRANSPORT="http",
                           AGENTS_ROUTER_DATA_DIR=str(directory / "router"),

@@ -26,6 +26,8 @@ logger = logging.getLogger(__name__)
 
 MAX_INFLIGHT = 32
 MAX_STREAMS = 32
+# Where a bridge's `/workspaces` path came from (`register_workspace`).
+ORIGINS = ("cwd", "CLAUDE_PROJECT_DIR", "AGENTS_CLIENT_REPO_ROOT")
 
 
 def load_runtime(port):
@@ -237,7 +239,9 @@ class Service:
 
         `{path}` is the bridge's launch directory, which counts only with a `.git` or
         `CLAUDE.md` at or above it; `{path, origin: "CLAUDE_PROJECT_DIR"}` is the
-        directory the client named and is used as named; `{path, roots}` is a tool
+        directory the client named and is used as named; `{path, origin:
+        "AGENTS_CLIENT_REPO_ROOT"}` is a stdio client's override (#266), taken as a
+        stdio server takes it; `{path, roots}` is a tool
         call's workspace, which must lie inside the client's MCP roots. The checks of
         `src.engine.config` decide what is a project. The route takes the bearer token
         and is no MCP tool, so a model never reaches it.
@@ -245,15 +249,18 @@ class Service:
         try:
             body = await request.json()
             directory, roots, origin = body.get("path"), body.get("roots"), body.get("origin", "cwd")
-            if not isinstance(directory, str) or origin not in ("cwd", "CLAUDE_PROJECT_DIR") or not (
+            if not isinstance(directory, str) or origin not in ORIGINS or not (
                     roots is None or isinstance(roots, list) and all(isinstance(root, str) for root in roots)):
                 raise ValueError("expected {path, origin?, roots?}")
         except (ValueError, AttributeError) as error:
             return JSONResponse({"error": "workspace_invalid", "message": str(error)}, 400)
-        from src.engine.config import ClientRootError, client_root_from_directory, client_root_from_workspace
+        from src.engine.config import (ClientRootError, client_root_from_directory, client_root_from_override,
+                                       client_root_from_workspace)
 
         def register():
-            if roots is None:
+            if origin == "AGENTS_CLIENT_REPO_ROOT" and roots is None:
+                root = client_root_from_override(directory)
+            elif roots is None:
                 root = client_root_from_directory(directory, launch_directory=origin == "cwd")
             else:
                 root = client_root_from_workspace(directory, roots)

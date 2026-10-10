@@ -737,7 +737,10 @@ Global registrations provide routing; project memory requires a registered
 workspace. Register each clone or worktree separately with `migrate --workspace`.
 Migration manages private bearer headers and backups. Reconnect MCP in open
 clients after migration. See [service operations](docs/shared-mcp-daemon.md) for
-scope audits, updates, token rotation and rollback.
+scope audits, updates, token rotation and rollback. A client that still starts
+`src/server.py` over stdio is served by the service as well: the stdio server
+hands its session to the bridge instead of loading a second engine (see
+[stdio servers of a service installation](docs/shared-mcp-daemon.md#stdio-servers-of-a-service-installation)).
 
 On Windows the same commands, run with `.venv\Scripts\python.exe`, install the
 service as a hidden Task Scheduler task of the current user, with its private

@@ -129,6 +129,31 @@ command holds the lock. Do not rerun setup while the service runs (see
 [Updates and recovery](#updates-and-recovery)); use `restore-clients` and
 `uninstall` to return to stdio.
 
+### Stdio servers of a service installation
+
+A client that still starts this installation's `src/server.py` over stdio, one that
+was never migrated or was added later by hand, is served by the service too, so the
+installation runs one engine (#266). Such a stdio server loads no engine: it hands
+its session to the bridge that migrated clients run (`bridge/stdio.mjs`), with the
+configuration the service keeps for it, `bridges/stdio-auto.json`
+(`X-Agents-Client: stdio`, `workspace: "auto"`). The service writes that file at
+`install` and at every start, and `token rotate` rewrites it with the other bridge
+configurations. On macOS the bridge replaces the server process; Windows, which has
+no exec, runs it as a child on the same standard handles, in a job object that ends
+it with the server.
+
+The session's workspace comes from `AGENTS_CLIENT_REPO_ROOT` when the client's
+configuration sets it, which then decides alone, as it does for a stdio server; else
+from `CLAUDE_PROJECT_DIR` or the launch directory, as for a migrated client's bridge,
+and a tool call may name its workspace inside the client's MCP roots. Such a server
+holds no installation lease, so it does not hold up `update` or `auto-update`. While
+the service is stopped its requests fail, as a migrated client's do; during
+maintenance it exits at startup, as before. Without a recorded Node or that
+configuration file, the stdio server serves standalone and says so on stderr.
+`AGENTS_STDIO_STANDALONE=1` in the client's environment keeps it standalone, for
+debugging the server itself. Migrating the client remains the better setup: its
+bridge starts directly, without a Python process first.
+
 ### Sync at installation
 
 `install` reports `user_sync`: `set up`, `pending` (set up but not started) or
@@ -975,8 +1000,10 @@ reconnected by hand. A failed fast-forward or move restores the previous code
 and indexes. If the tree changed after the build was checked, activation discards
 the build and the service restarts on the previous code. A rollback or `recover`
 also discards the build, so a partly moved build is never activated later. Git
-and reindex subprocesses retain leases until they exit. While the service is installed, this installation's stdio servers do not
-self-update, and during maintenance or an unfinished transaction they exit at
+and reindex subprocesses retain leases until they exit. While the service is
+installed, this installation's stdio servers serve through it
+([stdio servers](#stdio-servers-of-a-service-installation)); a standalone one does
+not self-update. During maintenance or an unfinished transaction they exit at
 startup with `Shared service is in maintenance; use the controller to recover`.
 
 After the file transaction, writer leases are released and the same LaunchAgent
@@ -1034,8 +1061,9 @@ runs the same transaction as `update`. It also waits while any stdio server of
 this installation is running, since `update` would stop the service only to find
 it busy: macOS lists the processes holding the installation lease with `lsof`,
 and Windows, which does not say who holds a lock, finds the stdio slots
-(`data/stdio/<n>/.lease`) that a running server holds. A stopped service is left
-stopped. An unfinished transaction blocks further runs until `recover`.
+(`data/stdio/<n>/.lease`) that a running server holds. A stdio server that serves
+through the service holds neither and does not defer a run. A stopped service is
+left stopped. An unfinished transaction blocks further runs until `recover`.
 
 Downtime is the stop, the activation and the warmup; the build runs before the
 stop. The updater LaunchAgent runs as a `Background` process with low-priority

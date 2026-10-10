@@ -241,6 +241,14 @@ async def test_bridges_register_their_projects_without_migrate(tmp_path, monkeyp
             assert (launch.status_code, launch.json()["error"]) == (400, "workspace_required")
             named = await http.post("/workspaces", json={"path": str(plain), "origin": "CLAUDE_PROJECT_DIR"}, headers=headers)
             assert named.status_code == 200 and named.json()["root"] == str(plain.resolve())
+            # A stdio client's AGENTS_CLIENT_REPO_ROOT (#266), taken as a stdio server takes it:
+            # as named, not walked up to the project marker above it.
+            override = await http.post("/workspaces", json={"path": str(project / "pkg"), "origin": "AGENTS_CLIENT_REPO_ROOT"},
+                                       headers=headers)
+            assert override.status_code == 200 and override.json()["root"] == str((project / "pkg").resolve())
+            unsafe = await http.post("/workspaces", json={"path": str(fake_home), "origin": "AGENTS_CLIENT_REPO_ROOT"},
+                                     headers=headers)
+            assert (unsafe.status_code, unsafe.json()["error"]) == (400, "workspace_unsafe")
             for malformed in ({"path": 1}, {"path": str(project), "roots": "file:///x"}, ["list"],
                               {"path": str(project), "origin": "env"}):
                 response = await http.post("/workspaces", json=malformed, headers=headers)

@@ -181,20 +181,9 @@ def _resolve_client_repo_root() -> tuple[str, bool, str]:
     """Pin one identity for both memory and flows: (root, install fallback, source)."""
     override = os.environ.get("AGENTS_CLIENT_REPO_ROOT")
     if override:
-        resolved = Path(os.path.realpath(os.path.expanduser(override)))
-        # Validate before any filesystem side effect: a mistaken `~` or `C:\\`
-        # would otherwise collect every project's history.
-        reason = _unsafe_client_root_reason(resolved)
-        if reason is not None:
-            raise ClientRootError(
-                f"refusing {resolved} (from AGENTS_CLIENT_REPO_ROOT) as the client repo "
-                f"root for per-repo memory and flows: {reason}. Set "
-                "AGENTS_CLIENT_REPO_ROOT only to one project's directory, and only "
-                "on a per-project registration.",
-                code="workspace_unsafe",
-            )
-        _log_resolution(str(resolved), "env")
-        return str(resolved), False, "env"
+        resolved = client_root_from_override(override)
+        _log_resolution(resolved, "env")
+        return resolved, False, "env"
 
     project_dir = os.environ.get("CLAUDE_PROJECT_DIR")
     if project_dir and os.path.isdir(project_dir):
@@ -308,6 +297,26 @@ def client_root_from_workspace(workspace: str, root_uris: Iterable[str]) -> str:
             f"workspace {path} is outside the client's MCP roots ({named})", code="workspace_invalid",
         )
     return _project_root(path, "workspace")
+
+
+def client_root_from_override(value: str) -> str:
+    """The project an `AGENTS_CLIENT_REPO_ROOT` names, used as named after its safety check.
+
+    A stdio server reads it from its environment; the service's bridge reports it (#266).
+    """
+    resolved = Path(os.path.realpath(os.path.expanduser(value)))
+    # Validate before any filesystem side effect: a mistaken `~` or `C:\\`
+    # would otherwise collect every project's history.
+    reason = _unsafe_client_root_reason(resolved)
+    if reason is not None:
+        raise ClientRootError(
+            f"refusing {resolved} (from AGENTS_CLIENT_REPO_ROOT) as the client repo "
+            f"root for per-repo memory and flows: {reason}. Set "
+            "AGENTS_CLIENT_REPO_ROOT only to one project's directory, and only "
+            "on a per-project registration.",
+            code="workspace_unsafe",
+        )
+    return str(resolved)
 
 
 def client_root_from_directory(directory: str, *, launch_directory: bool = True) -> str:
