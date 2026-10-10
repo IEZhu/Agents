@@ -2146,7 +2146,13 @@ class Syncer:
                 result["received_from"] += [label for label in outcome["received_from"]
                                             if label not in result["received_from"]]
                 result["conflicts"] += outcome["conflicts"]
-                result["merged"] += outcome["merged"]
+                # A merge an earlier attempt wrote before its push was rejected stays reported,
+                # unless this attempt overruled it (a conflict of two changed versions) or
+                # merged the file again.
+                overruled = {c["path"] for c in outcome["conflicts"] if c.get("kind") == "both_changed"}
+                again = {item["path"] for item in outcome["merged"]}
+                result["merged"] = [item for item in result["merged"]
+                                    if item["path"] not in overruled | again] + outcome["merged"]
                 if outcome["push"] is None:
                     break
                 if self._push(git, settings, outcome["push"], outcome["integrated"]):
@@ -2159,11 +2165,6 @@ class Syncer:
                                                            "review the preview again")
             else:
                 raise SyncError("offline", "the remote kept changing; sync will retry", state="offline")
-            # A merge an attempt wrote before its push was rejected stays in the report unless a
-            # later attempt overruled it with a conflict on the same file.
-            conflicted = {conflict["path"] for conflict in result["conflicts"]}
-            result["merged"] = list({item["path"]: item for item in result["merged"]
-                                     if item["path"] not in conflicted}.values())
         except SyncError as error:
             return self._finish_failure(settings, state, error, result)
         except GitError as error:

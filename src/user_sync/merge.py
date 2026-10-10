@@ -18,7 +18,7 @@ join without shared history), this machine's commit and the remote's. Per path:
   it. A conflict record goes to ``.agents-sync/conflicts/<id>.json``, with the ``reason`` the
   text could not be merged (``overlapping_changes`` with the number of ``overlaps``,
   ``no_common_base``, ``not_text``, ``too_large`` or ``too_complex``, when the changed lines are too
-  many to match within ``MATCH_WORK``; the engine adds ``changed_during_sync`` and
+  many to match within ``MATCH_STEPS``; the engine adds ``changed_during_sync`` and
   ``held_open`` for files it could not write);
 * changed on one side and deleted on the other: the changed version (edits beat deletions), with a
   "deletion undone" record. A flow's text, override marker and persona overlay move as one: a flow
@@ -32,7 +32,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 import base64
-import difflib
 import hashlib
 import json
 import re
@@ -47,11 +46,11 @@ _FLOW_FILE = re.compile(rf"(?P<dir>{_FLOW_DIR})/(?P<id>{_FLOW_ID})(?P<kind>\.md|
 _PERSONA_FILE = re.compile(rf"personas/(?P<dir>{_FLOW_DIR})/(?P<id>{_FLOW_ID})\.json")
 _COMPONENT_KINDS = ("rules", "skills", "implants")
 _TEXT_LIMIT = 256 * 1024  # also the largest text merged line by line (flows are at most 256 KiB)
-# The most work matching one side's changed lines may take: base lines times that side's lines,
-# between their common start and end. difflib's matcher is quadratic on repeated lines, and a
-# merge runs under the library lock: about 0.25 s for both sides at this bound (1,000 repeated
-# lines), while a real flow of 500 lines with edits on both sides merges in milliseconds.
-MATCH_WORK = 1_000_000
+# The most steps the search for one side's changed lines may take. The search (Myers) costs
+# about (N + M) * D steps for N and M lines that differ in D lines, whatever repeats; a merge
+# runs under the library lock, and this bound keeps a side at about 0.2 s (measured on an Apple
+# M-series laptop), while a real flow of 500 lines with edits on both sides merges in milliseconds.
+MATCH_STEPS = 1_000_000
 
 Tree = dict[str, str]
 
@@ -132,28 +131,90 @@ def _lines(text: str) -> list[str]:
     return [part + "\n" for part in parts[:-1]] + ([parts[-1]] if parts[-1] else [])
 
 
+def _common(a: list[str], b: list[str], budget: int) -> list[tuple[int, int]] | None:
+    """The line pairs a shortest edit script between ``a`` and ``b`` keeps, in order (Myers, 1986).
+
+    Round d finds, for each diagonal k = x - y in -d, -d + 2, ..., d, the furthest point a path
+    with d insertions and deletions reaches, so the search takes about (N + M) * D steps for D
+    differing lines, whatever repeats; it gives up with None after ``budget`` steps. Each round
+    keeps its predecessor's points (D * D numbers at most) to walk back along the path.
+    """
+    n, m = len(a), len(b)
+    if not n or not m:
+        return []
+    previous = [0, 0]   # round d - 1's furthest x of diagonal k at index k + d; round -1: x 0 on k 1
+    rounds, steps = [], 0
+    for d in range(n + m + 1):
+        rounds.append(previous)
+        current = [0] * (2 * d + 3)  # this round's furthest x of diagonal k at index k + d + 1
+        steps += d + 1
+        for k in range(-d, d + 1, 2):
+            # The inline form of _down: this loop is the hot path.
+            if d == 0 or k == -d or (k != d and previous[k - 1 + d] < previous[k + 1 + d]):
+                x = previous[k + 1 + d]       # from diagonal k + 1: a line of b inserted
+            else:
+                x = previous[k - 1 + d] + 1   # from diagonal k - 1: a line of a deleted
+            y = x - k
+            run = x
+            while x < n and y < m and a[x] == b[y]:
+                x += 1
+                y += 1
+            steps += x - run
+            if steps > budget:
+                return None
+            current[k + d + 1] = x
+            if x >= n and y >= m:
+                return _walk_back(rounds, n, m)
+        previous = current
+    return None  # not reached: round n + m always ends at (n, m)
+
+
+def _down(previous: list[int], d: int, k: int) -> bool:
+    """Whether round ``d`` reaches diagonal ``k`` from diagonal k + 1 (an insertion)."""
+    return d == 0 or k == -d or (k != d and previous[k - 1 + d] < previous[k + 1 + d])
+
+
+def _walk_back(rounds: list[list[int]], x: int, y: int) -> list[tuple[int, int]]:
+    """The kept line pairs of the path ``_common`` found, walking from its end to its start."""
+    pairs = []
+    for d in range(len(rounds) - 1, -1, -1):
+        previous, k = rounds[d], x - y
+        if d == 0:
+            arrival, back = 0, (0, 0)
+        else:
+            down = _down(previous, d, k)
+            from_k = k + 1 if down else k - 1
+            from_x = previous[from_k + d]
+            arrival, back = (from_x if down else from_x + 1), (from_x, from_x - from_k)
+        while x > arrival:  # the diagonal run this round followed after its move
+            x, y = x - 1, y - 1
+            pairs.append((x, y))
+        x, y = back
+    pairs.reverse()
+    return pairs
+
+
 def _matches(base: list[str], other: list[str]) -> dict[int, int] | None:
     """Base line -> the other side's line, for the lines a diff keeps (increasing on both sides).
 
-    The common start and end match as they are; only the lines between them go to difflib. None
-    when that middle would take more than ``MATCH_WORK``.
+    The common start and end match as they are; the lines between them go to ``_common``. None
+    when that search would take more than ``MATCH_STEPS``.
     """
     shortest = min(len(base), len(other))
     start = next((i for i in range(shortest) if base[i] != other[i]), shortest)
     end = next((k for k in range(shortest - start) if base[-1 - k] != other[-1 - k]), shortest - start)
-    middle, changed = base[start:len(base) - end], other[start:len(other) - end]
-    if len(middle) * len(changed) > MATCH_WORK:
+    middle = _common(base[start:len(base) - end], other[start:len(other) - end], MATCH_STEPS)
+    if middle is None:
         return None
     pairs = {i: i for i in range(start)}
-    for i, j, size in difflib.SequenceMatcher(None, middle, changed, autojunk=False).get_matching_blocks():
-        pairs.update((start + i + k, start + j + k) for k in range(size))
+    pairs.update((start + i, start + j) for i, j in middle)
     pairs.update((len(base) - end + k, len(other) - end + k) for k in range(end))
     return pairs
 
 
 def merge_lines(base: list[str], local: list[str], remote: list[str]) -> tuple[list[str] | None, int]:
     """The diff3 merge: ``(lines, 0)``, or ``(None, overlaps)`` when both sides changed one region;
-    ``(None, 0)`` when matching a side's changes would take too long (``MATCH_WORK``).
+    ``(None, 0)`` when matching a side's changes would take too long (``MATCH_STEPS``).
 
     Lines kept in the same order by both sides split the texts into stable runs and the regions
     between them. A region only one side changed takes that side's text; one both sides changed
@@ -165,7 +226,8 @@ def merge_lines(base: list[str], local: list[str], remote: list[str]) -> tuple[l
         return remote, 0
     if remote == base:
         return local, 0
-    to_local, to_remote = _matches(base, local), _matches(base, remote)
+    to_local = _matches(base, local)
+    to_remote = _matches(base, remote) if to_local is not None else None
     if to_local is None or to_remote is None:
         return None, 0
     merged: list[str] = []

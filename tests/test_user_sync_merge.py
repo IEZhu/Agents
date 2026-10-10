@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import random
 import subprocess
+import time
 
 import pytest
 
@@ -74,17 +75,39 @@ def test_line_endings_and_a_missing_final_newline_round_trip():
 
 
 def test_repeated_lines_are_matched_within_a_bound():
-    import time
     many = "x\n" * 20000
     started = time.perf_counter()
     assert merge(many, "A\n" + many, many + "B\n") == ("A\n" + many + "B\n", 0)  # edits at both ends
     middle = many[:20000] + "M\n" + many[20000:]
     assert merge(many, middle, many.replace("x", "y", 1))[1] == 0
-    # Changed first and last lines leave no common start or end: the middle is too large to match.
+    # Both sides changed the first and the last line differently: two overlaps, found at once.
     side = "A\n" + "x\n" * 1998 + "Z\n"
-    assert merge("x\n" * 2000, side, "B\n" + "x\n" * 1998 + "Y\n") == (None, 0)
+    assert merge("x\n" * 2000, side, "B\n" + "x\n" * 1998 + "Y\n") == (None, 2)
     assert merge("x\n" * 2000, side, "x\n" * 2000) == (side, 0)  # one side alone needs no matching
+    # Alternating repeats made difflib's matcher cubic (12 s for 1,000 lines).
+    alternating = "".join("x\n" if n % 2 else "z\n" for n in range(1000))
+    merge("x\n" * 999, alternating, "y\n" + "x\n" * 998)
+    # A rewrite of every line on one side: the search gives up within its bound.
+    assert merge("x\n" * 50000, "y\n" * 50000, "z\n" * 50000) == (None, 0)
     assert time.perf_counter() - started < 5
+
+
+def test_the_line_search_keeps_a_longest_common_subsequence():
+    def longest(a, b):
+        table = [[0] * (len(b) + 1) for _ in range(len(a) + 1)]
+        for i in range(len(a) - 1, -1, -1):
+            for j in range(len(b) - 1, -1, -1):
+                table[i][j] = table[i + 1][j + 1] + 1 if a[i] == b[j] else max(table[i + 1][j], table[i][j + 1])
+        return table[0][0]
+    generator = random.Random(1986)
+    for _ in range(2000):
+        a = [generator.choice("xyz") for _ in range(generator.randint(0, 20))]
+        b = [generator.choice("xyz") for _ in range(generator.randint(0, 20))]
+        pairs = merging._common(a, b, 10 ** 9)
+        assert all(a[i] == b[j] for i, j in pairs)
+        assert all(i1 < i2 and j1 < j2 for (i1, j1), (i2, j2) in zip(pairs, pairs[1:]))
+        assert len(pairs) == longest(a, b), (a, b, pairs)
+    assert merging._common(["x"] * 1000, ["y"] * 1000, 1000) is None
 
 
 @pytest.mark.parametrize("path, base, reason", [
@@ -366,3 +389,29 @@ def test_a_merge_overruled_by_a_retry_is_not_reported(started, monkeypatch):
     assert len(calls) == 2 and result["merged"] == []
     [conflict] = result["conflicts"]
     assert (conflict["path"], conflict["reason"]) == ("common/shared.md", "overlapping_changes")
+
+
+def test_a_merge_after_an_earlier_attempt_s_conflict_is_reported(started, monkeypatch):
+    """Attempt 1 records a conflict; while its push runs, the owner edits the file and A pushes
+    again; attempt 2 merges cleanly. The run reports both, the merge included (review of #277)."""
+    a, b = started
+    a.save("user:shared", BASE.replace("first", "first, A"))
+    b.save("user:shared", BASE.replace("first", "first, B"))
+    a.run()
+    real_push, calls = b.sync._push, []
+
+    def push_after_edits(*args, **kwargs):
+        if not calls:
+            here = b.flows.get("user:shared")["content"]
+            b.save("user:shared", here.replace("intro", "intro, B later"))
+            a.save("user:shared", a.flows.get("user:shared")["content"].replace("second", "second, A"))
+            assert a.run()["pushed"]
+        calls.append(1)
+        return real_push(*args, **kwargs)
+
+    monkeypatch.setattr(b.sync, "_push", push_after_edits)
+    result = b.run()
+    text = b.text("common/shared.md")
+    assert "intro, B later" in text and "second, A" in text
+    assert [item["path"] for item in result["merged"]] == ["common/shared.md"]
+    assert [conflict["reason"] for conflict in result["conflicts"]] == ["overlapping_changes"]

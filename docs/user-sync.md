@@ -615,7 +615,8 @@ heading or by a lost final blank line, caches that tell a replaced file by its i
 token storage and every API call against a fake GitHub on `127.0.0.1`, and
 `tests/test_user_sync_github_setup.py` the privacy check, `setup --github`, `add-key`, a new key, port 443
 and the wizard, with git going to a local bare repository through a fake SSH command.
-`tests/test_user_sync_merge.py` covers the line merge: the diff3 rules, clean merges compared with
+`tests/test_user_sync_merge.py` covers the line merge: the diff3 rules, the line search (a longest
+common subsequence, and its bound on repeated lines), clean merges compared with
 `git merge-file` for random edits, overlaps that never merge, what is not merged and why, two
 machines merging a flow and a script, a conflict with its reason, a join without a common version,
 the preview and its hash, and `sync_conflicts` in the flow tools until the record is resolved.
