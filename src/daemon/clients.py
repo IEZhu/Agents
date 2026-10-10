@@ -262,10 +262,14 @@ class ClientMigration:
 
     def apply(self, changes, *, on_prepared=None):
         changes = list(changes)
+        applied_staged_keys = []
         if self.staged_changes:
             extra = []
             for path, _, _ in changes:
-                extra.extend(self.staged_changes.pop(str(path), []))
+                key = str(path)
+                if key in self.staged_changes:
+                    extra.extend(self.staged_changes[key])
+                    applied_staged_keys.append(key)
             if extra:
                 seen = {str(p) for p, _, _ in changes}
                 for c in extra:
@@ -325,6 +329,8 @@ class ClientMigration:
                     else: atomic_private(path, base64.b64decode(record["before"]))
             raise
         write_json(self.directory / "migration.json", {"backup": str(backups), "state": "applied"})
+        for key in applied_staged_keys:
+            self.staged_changes.pop(key, None)
         return backups
 
     def restore(self, backup, *, check=True):

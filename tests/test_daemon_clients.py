@@ -310,3 +310,25 @@ def test_staged_changes_do_not_leak_to_other_clients(migration, tmp_path):
     # Now apply antigravity change
     migration.apply([antigravity_change])
     assert plugin_file.exists()
+
+
+def test_staged_changes_preserved_on_failed_apply(migration, tmp_path):
+    home = tmp_path / "home"; home.mkdir()
+    migration.config["node"] = sys.executable
+    change = migration.prepare("antigravity", home=home)
+    # Simulate a failure during apply (e.g. on_prepared callback raises)
+    def failing_callback(_backup):
+        raise RuntimeError("simulated callback failure")
+
+    with pytest.raises(RuntimeError, match="simulated callback failure"):
+        migration.apply([change], on_prepared=failing_callback)
+
+    plugin_file = home / ".gemini/config/plugins/agents-core/plugin.json"
+    assert not plugin_file.exists()
+    assert str(change[0]) in migration.staged_changes
+
+    # Retry applying the change without failure
+    migration.apply([change])
+    assert plugin_file.exists()
+    assert str(change[0]) not in migration.staged_changes
+
