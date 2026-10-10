@@ -358,8 +358,11 @@ service, it syncs every few minutes and after each save; `install` says whether
 sync is set up. Without it, the scheduled run (`.venv/bin/python -m src.user_sync
 schedule enable`) syncs every 5 minutes; without that, a machine sends and
 receives changes only in the cycle that follows each save made through its stdio
-servers. The [command reference](docs/user-sync.md#command-line) covers status,
-conflicts, pausing and the scope.
+servers. A flow edited on two machines is merged line by line when the edits touch
+different lines; otherwise both versions are kept as a [conflict](docs/user-sync.md#conflicts),
+which the Sync page and the flow tools (`sync_conflicts`) report. The
+[command reference](docs/user-sync.md#command-line) covers status, conflicts, pausing and
+the scope.
 
 ### Updates
 

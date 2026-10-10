@@ -1,4 +1,4 @@
-"""The conflict policy: a three-way merge of whole files, never of text.
+"""The conflict policy: a three-way merge of whole files, and of the lines of text files.
 
 Inputs are trees as maps of relative path to blob id: the common base (empty when two libraries
 join without shared history), this machine's commit and the remote's. Per path:
@@ -7,9 +7,17 @@ join without shared history), this machine's commit and the remote's. Per path:
 * ``.agents-library.json`` created on both sides: the remote marker (only ``format`` matters);
 * ``components.json`` and ``.agents-sync/scopes.json``: a three-way merge of their sets, which
   cannot conflict, because each machine can only add or remove entries relative to the base;
-* changed differently on both sides: the remote version, because it reached the remote first.
-  The local text of a flow becomes a normal ``.history`` version; for other files the record
-  carries it. A conflict record goes to ``.agents-sync/conflicts/<id>.json``;
+* a text file the owner edits (a flow's Markdown, a script; not JSON, history or records) changed
+  differently on both sides: a line-based three-way merge (``merge_text``, the diff3 algorithm)
+  against the common base. When the changes touch different lines, the merged text goes to both
+  sides; a flow's local text before the merge becomes a normal ``.history`` version, and
+  ``MergeResult.merged`` lists the file;
+* changed differently on both sides otherwise (the changes overlap, there is no common base, or
+  the file is not mergeable text): the remote version, because it reached the remote first. The
+  local text of a flow becomes a normal ``.history`` version; for other files the record carries
+  it. A conflict record goes to ``.agents-sync/conflicts/<id>.json``, with the ``reason`` the
+  text could not be merged (``overlapping_changes`` with the number of ``overlaps``,
+  ``no_common_base``, ``not_text`` or ``too_large``);
 * changed on one side and deleted on the other: the changed version (edits beat deletions), with a
   "deletion undone" record. A flow's text, override marker and persona overlay move as one: a flow
   deleted on one machine and edited on the other comes back whole.
@@ -22,30 +30,35 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 import base64
+import difflib
 import hashlib
 import json
 import re
 from typing import Callable
 
 from src.user_library import MARKER
-from src.user_sync.scope import COMPONENTS, CONFLICTS_DIR, SCOPES_PATH, merge_scopes, parse_scopes
+from src.user_sync.scope import COMPONENTS, CONFLICTS_DIR, SCOPES_PATH, is_content, merge_scopes, parse_scopes
 
 _FLOW_ID = r"[a-z0-9]+(?:-[a-z0-9]+)*"
 _FLOW_DIR = r"common|repos/[a-z0-9_][a-z0-9._-]*"
 _FLOW_FILE = re.compile(rf"(?P<dir>{_FLOW_DIR})/(?P<id>{_FLOW_ID})(?P<kind>\.md|\.meta\.json)")
 _PERSONA_FILE = re.compile(rf"personas/(?P<dir>{_FLOW_DIR})/(?P<id>{_FLOW_ID})\.json")
 _COMPONENT_KINDS = ("rules", "skills", "implants")
-_TEXT_LIMIT = 256 * 1024
+_TEXT_LIMIT = 256 * 1024  # also the largest text merged line by line (flows are at most 256 KiB)
 
 Tree = dict[str, str]
 
 
 @dataclass
 class MergeResult:
-    """``tree`` maps each path to an existing blob id, or to new bytes the caller stores."""
+    """``tree`` maps each path to an existing blob id, or to new bytes the caller stores.
+
+    ``merged`` lists the text files whose changes from both sides were merged line by line.
+    """
 
     tree: dict[str, str | bytes] = field(default_factory=dict)
     conflicts: list[dict] = field(default_factory=list)
+    merged: list[dict] = field(default_factory=list)
 
 
 def flow_unit(path: str) -> tuple[str, str] | None:
@@ -101,6 +114,89 @@ def _merge_components(b: bytes | None, l: bytes | None, r: bytes | None) -> byte
               for kind in _COMPONENT_KINDS}
     # The format of src.component_toggles, so a later switch rewrites nothing.
     return json.dumps({"disabled": merged}, indent=2).encode("utf-8") + b"\n"
+
+
+# --- text ---------------------------------------------------------------------------------
+
+
+def _lines(text: str) -> list[str]:
+    """Lines with their ``\n``; only ``\n`` ends a line, so every other character round-trips."""
+    parts = text.split("\n")
+    return [part + "\n" for part in parts[:-1]] + ([parts[-1]] if parts[-1] else [])
+
+
+def _matches(base: list[str], other: list[str]) -> dict[int, int]:
+    """Base line -> the other side's line, for the lines a diff keeps (increasing on both sides)."""
+    pairs = {}
+    for i, j, size in difflib.SequenceMatcher(None, base, other, autojunk=False).get_matching_blocks():
+        pairs.update((i + k, j + k) for k in range(size))
+    return pairs
+
+
+def merge_lines(base: list[str], local: list[str], remote: list[str]) -> tuple[list[str] | None, int]:
+    """The diff3 merge: ``(lines, 0)``, or ``(None, overlaps)`` when both sides changed one region.
+
+    Lines kept in the same order by both sides split the texts into stable runs and the regions
+    between them. A region only one side changed takes that side's text; one both sides changed
+    the same way is taken once; one both sides changed differently, or where both inserted
+    different lines at one place, overlaps. Changes on adjacent lines, with no unchanged line
+    between them, form one region, so they overlap too.
+    """
+    to_local, to_remote = _matches(base, local), _matches(base, remote)
+    merged: list[str] = []
+    overlaps = 0
+    o = a = b = 0  # the next line of base, local and remote
+    while True:
+        stable = 0
+        while o + stable < len(base) and to_local.get(o + stable) == a + stable \
+                and to_remote.get(o + stable) == b + stable:
+            stable += 1
+        if stable:
+            merged += base[o:o + stable]
+            o, a, b = o + stable, a + stable, b + stable
+            continue
+        end = next((j for j in range(o, len(base)) if to_local.get(j, -1) >= a and to_remote.get(j, -1) >= b),
+                   len(base))
+        end_a, end_b = (to_local[end], to_remote[end]) if end < len(base) else (len(local), len(remote))
+        region, ours, theirs = base[o:end], local[a:end_a], remote[b:end_b]
+        if not (region or ours or theirs):
+            break
+        if ours == region or ours == theirs:
+            merged += theirs
+        elif theirs == region:
+            merged += ours
+        else:
+            overlaps += 1
+        o, a, b = end, end_a, end_b
+    return (None, overlaps) if overlaps else (merged, 0)
+
+
+def text_merge_refusal(path: str, base: bytes | None, local: bytes, remote: bytes) -> str | None:
+    """Why ``path`` cannot be merged line by line, or None when it can.
+
+    Only text the owner edits merges: flows, scripts and other files of ``common/`` and
+    ``repos/<key>/``; JSON (persona overlays, override markers) would merge into invalid JSON.
+    """
+    if not is_content(path) or path.endswith(".json"):
+        return "not_text"
+    if base is None:
+        return "no_common_base"
+    if max(len(base), len(local), len(remote)) > _TEXT_LIMIT:
+        return "too_large"
+    try:
+        texts = [data.decode("utf-8") for data in (base, local, remote)]
+    except UnicodeDecodeError:
+        return "not_text"
+    return "not_text" if any("\0" in text for text in texts) else None
+
+
+def merge_text(base: bytes, local: bytes, remote: bytes) -> tuple[bytes | None, int]:
+    """``merge_lines`` on UTF-8 text: ``(merged bytes, 0)``, or ``(None, overlaps)``."""
+    lines, overlaps = merge_lines(*(_lines(data.decode("utf-8")) for data in (base, local, remote)))
+    return (None, overlaps) if lines is None else ("".join(lines).encode("utf-8"), 0)
+
+
+# --- records ------------------------------------------------------------------------------
 
 
 def conflict_record(path: str, kind: str, kept: str, *, label: str, now: datetime,
@@ -172,6 +268,17 @@ class Merger:
         self._put(*record_file(record))
         return record
 
+    def _keep_merged_away(self, path: str, data: bytes) -> dict:
+        """Keep a flow's local text that a merge replaces as a ``.history`` version, once.
+
+        A version with the same content already in this machine's history (an earlier cycle that
+        stopped half way, or a save) is enough: it is named after the content's hash.
+        """
+        directory, flow_id = flow_unit(path)
+        prefix, suffix = f".history/{directory}/{flow_id}/", f"-{hashlib.sha256(data).hexdigest()[:12]}.md"
+        known = next((name for name in self.local if name.startswith(prefix) and name.endswith(suffix)), None)
+        return {"local_version": known} if known else self._keep_local_text(path, data)
+
     def _keep_local_text(self, path: str, data: bytes) -> dict:
         details, files = keep_local(path, data, self.now)
         for name, content in files.items():
@@ -241,8 +348,27 @@ class Merger:
             self._put(path, l)
             self._record(path, "deletion_undone", "local", deleted_on="remote")
         else:
-            self._put(path, r)
-            self._record(path, "both_changed", "remote", **self._keep_local_text(path, self.read(l)))
+            self._both_changed(path, b, l, r)
+
+    def _both_changed(self, path: str, b: str | None, l: str, r: str) -> None:
+        """Merge the lines of a text file both sides changed, else keep the remote version."""
+        local = self.read(l)
+        remote = self.read(r)
+        reason = text_merge_refusal(path, self._bytes(b), local, remote)
+        overlaps = 0
+        if reason is None:
+            merged, overlaps = merge_text(self.read(b), local, remote)
+            if merged is not None:
+                self._put(path, l if merged == local else r if merged == remote else merged)
+                details = {}
+                if flow_unit(path) and path.endswith(".md") and merged != local:
+                    details = self._keep_merged_away(path, local)
+                self.result.merged.append({"path": path, **flow_reference(path), **details})
+                return
+            reason = "overlapping_changes"
+        self._put(path, r)
+        self._record(path, "both_changed", "remote", reason=reason,
+                     **({"overlaps": overlaps} if overlaps else {}), **self._keep_local_text(path, local))
 
 
 def merge(base: Tree, local: Tree, remote: Tree, read: Callable[[str], bytes], *, label: str,

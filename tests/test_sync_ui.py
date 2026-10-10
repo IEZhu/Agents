@@ -269,7 +269,8 @@ async def test_the_status_says_what_the_page_needs(tmp_path, account):
         assert status["conflict_list"] == [{"id": "20261005T120000000000Z-aaaaaaaaaa", "path": record["path"],
                                             "flow": "user:doc", "repo_key": None, "kind": "both_changed",
                                             "kept": "remote", "machine": "laptop", "time": record["time"],
-                                            "deleted_on": None, "mine": "content"}]
+                                            "deleted_on": None, "reason": None, "overlaps": None,
+                                            "mine": "content"}]  # a record from before reasons
         assert "local_content" not in response.text  # the kept text stays out of the status
         no_secrets(call.texts)
 

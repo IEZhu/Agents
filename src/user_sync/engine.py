@@ -579,6 +579,7 @@ class _Plan:
     target: dict                            # the tree to push; blob ids or new bytes
     generated: dict = field(default_factory=dict)   # new archives and records, also local-only ones
     conflicts: list = field(default_factory=list)
+    merged: list = field(default_factory=list)      # text files merged line by line
     kind: str = "none"                      # none, push, fast_forward, merge, join
     rewritten: bool = False
     held_groups: frozenset = frozenset()
@@ -1734,7 +1735,7 @@ class Syncer:
             # version: dropping them would delete them from the remote and from every other machine.
             if rules.reason(path) in ("never", "pending"):
                 target[path] = blob
-        plan.target, plan.conflicts, plan.rules = target, merged.conflicts, rules
+        plan.target, plan.conflicts, plan.merged, plan.rules = target, merged.conflicts, merged.merged, rules
         if target == remote_tree and not plan.generated:
             plan.kind = "fast_forward"  # nothing of this machine's is missing on the remote
         else:
@@ -1765,21 +1766,25 @@ class Syncer:
                 groups.setdefault(group, {"group": group, "origin": plan.snapshot.portable.get(group),
                                           "files": 0, "new": group not in self._groups_in(plan.remote_tree)})
                 groups[group]["files"] += 1
-        conflicts = [{"path": c["path"], "kind": c["kind"], **merging.flow_reference(c["path"])}
-                     for c in plan.conflicts]
+        conflicts = [{"path": c["path"], "kind": c["kind"], **merging.flow_reference(c["path"]),
+                      **({"reason": c["reason"]} if c.get("reason") else {})} for c in plan.conflicts]
+        merged = [{"path": m["path"], **merging.flow_reference(m["path"])} for m in plan.merged]
+        merged_paths = {m["path"] for m in merged}
         blocked = [{"path": p, **v} for p, v in sorted(plan.snapshot.blocked.items())]
         identity = json.dumps({
             "remote": plan.remote_head, "head": plan.head,
             "desired": sorted(plan.desired.items()),
             "target": sorted((p, v) for p, v in target.items() if isinstance(v, str)),
             "conflicts": sorted((c["path"], c["kind"]) for c in conflicts),
+            "merged": sorted((p, hashlib.sha256(v).hexdigest()) for p, v in target.items()
+                             if isinstance(v, bytes) and p in merged_paths),
             "blocked": sorted((b["path"], b["sha256"]) for b in blocked),
             "pending": [sorted(plan.held_groups), sorted(plan.held_files)],
         }, sort_keys=True)
         return {
             "kind": plan.kind, "remote_head": plan.remote_head, "head": plan.head,
             "upload": upload, "remove_from_remote": removed, "download": download,
-            "delete_local": delete_local, "conflicts": conflicts, "blocked": blocked,
+            "delete_local": delete_local, "conflicts": conflicts, "merged": merged, "blocked": blocked,
             "held": [{"path": p, **v} for p, v in sorted(plan.snapshot.held.items())],
             "excluded": sorted(p for p, v in plan.snapshot.outside.items() if v["reason"] == "excluded"),
             "pending_groups": sorted(plan.held_groups), "pending_files": sorted(plan.held_files),
@@ -1855,6 +1860,8 @@ class Syncer:
         else:
             parents, old = ([plan.head] if plan.head else []), plan.current
         summary = describe(old, tree)
+        if plan.merged:
+            summary += f" (merged {len(plan.merged)} file{'s' if len(plan.merged) > 1 else ''} line by line)"
         if plan.conflicts:
             summary += f" ({len(plan.conflicts)} conflict{'s' if len(plan.conflicts) > 1 else ''})"
         executable = {path for path in plan.remote_executable if tree.get(path) == plan.remote_tree.get(path)}
@@ -2001,7 +2008,8 @@ class Syncer:
                 else:
                     details, kept = merging.keep_local(path, target.read_bytes(), now)
                     record = merging.conflict_record(path, "both_changed", "remote", label=settings.label,
-                                                     now=now, local_blob=local, remote_blob=committed, **details)
+                                                     now=now, local_blob=local, remote_blob=committed,
+                                                     reason="changed_during_sync", **details)
                 kept.update([merging.record_file(record)])
             try:
                 for name, data in kept.items():
@@ -2099,7 +2107,7 @@ class Syncer:
     def _run_locked(self, settings: Settings, state: dict, confirm: str | None) -> dict:
         state["last_attempt"] = _now_iso(self._clock())
         result = {"status": "synced", "sent": [], "received": [], "received_from": [], "conflicts": [],
-                  "pushed": False}
+                  "merged": [], "pushed": False}
         try:
             self._check_git()
             git = self._repository(settings, create=True)
@@ -2113,6 +2121,7 @@ class Syncer:
                 result["received_from"] += [label for label in outcome["received_from"]
                                             if label not in result["received_from"]]
                 result["conflicts"] += outcome["conflicts"]
+                result["merged"] += outcome["merged"]
                 if outcome["push"] is None:
                     break
                 if self._push(git, settings, outcome["push"], outcome["integrated"]):
@@ -2170,7 +2179,8 @@ class Syncer:
                         raise SyncError("confirmation_needed", f"{len(deleted)} of {total} library files would "
                                                                f"be deleted from {place}; review the preview and confirm")
             self._withdraw_approvals(plan.scopes)
-            outcome = {"received": [], "received_from": [], "conflicts": plan.conflicts, "push": None,
+            outcome = {"received": [], "received_from": [], "conflicts": plan.conflicts,
+                       "merged": plan.merged, "push": None,
                        "integrated": plan.head,
                        "sent": changed_paths(plan.remote_tree if remote_head else plan.current, plan.target),
                        "new_groups": sorted(self._groups_in(plan.target) - self._groups_in(plan.remote_tree))}
@@ -2323,14 +2333,15 @@ class Syncer:
         self._save_state(state)
         if result["sent"] or result["received"]:
             self._log(f"synced: sent {len(result['sent'])}, received {len(result['received'])}, "
-                      f"conflicts {len(result['conflicts'])}")
+                      f"merged {len(result['merged'])}, conflicts {len(result['conflicts'])}")
         return {**result, "status": state["state"], "reason": state.get("reason"),
                 "message": state.get("message"), "head": head}
 
     def _remember(self, state: dict, result: dict, *, outcome: str, settings: Settings,
                   new_groups: list | None = None) -> None:
         """Add the cycle to the activity feed when something happened or it failed."""
-        if outcome == "ok" and not (result["sent"] or result["received"] or result["conflicts"]):
+        if outcome == "ok" and not (result["sent"] or result["received"] or result["conflicts"]
+                                    or result.get("merged")):
             return
         activity = state.setdefault("activity", [])
         if outcome != "ok" and activity and activity[-1].get("result") == outcome:
@@ -2345,6 +2356,8 @@ class Syncer:
                  "sent": flows(result["sent"]), "received": flows(result["received"]),
                  "received_from": list(result.get("received_from") or ())[:SENDERS_SHOWN] if result["received"] else [],
                  "scripts": scripts, "conflicts": len(result["conflicts"])}
+        if result.get("merged"):
+            entry["merged"] = flows(item["path"] for item in result["merged"])
         if new_groups:
             entry["new_groups"] = new_groups
         activity.append(entry)

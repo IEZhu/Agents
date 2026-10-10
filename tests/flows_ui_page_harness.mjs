@@ -282,10 +282,10 @@ const hold = (key) => {
 const minutesAgo = (minutes) => new Date(Date.now() - minutes * 60000).toISOString();
 const FLOW_CONFLICT = { id: "20261005T120000000000Z-aaaaaaaaaa", path: "common/doc.md", flow: "user:doc", repo_key: null,
                         kind: "both_changed", kept: "remote", machine: "laptop", time: "2026-10-05T12:00:00+00:00",
-                        deleted_on: null, mine: "version" };
+                        deleted_on: null, reason: "overlapping_changes", overlaps: 2, mine: "version" };
 const PERSONA_CONFLICT = { id: "20261005T120100000000Z-bbbbbbbbbb", path: "personas/common/doc.json", flow: "user:doc",
                            repo_key: null, kind: "both_changed", kept: "remote", machine: "laptop",
-                           time: "2026-10-05T12:01:00+00:00", deleted_on: null, mine: "content" };
+                           time: "2026-10-05T12:01:00+00:00", deleted_on: null, reason: "not_text", mine: "content" };
 const OLD_ENTRY = { time: "2026-10-05T09:00:00+00:00", result: "ok", machine: "mac-1a2b", sent: ["user:old"], received: [],
                     received_from: [], scripts: [], conflicts: 0 };
 const started = () => ({
@@ -295,7 +295,8 @@ const started = () => ({
   label: "mac-1a2b", identity: { name: "Owner", email: "owner@example.com" }, pending: 0, stale: false,
   conflicts: 2, conflict_list: [FLOW_CONFLICT, PERSONA_CONFLICT], fetch_minutes: 5, ask_new_repositories: false,
   activity: [OLD_ENTRY, { time: "2026-10-05T11:00:00+00:00", result: "ok", machine: "mac-1a2b", sent: [],
-                          received: ["user:tool"], received_from: ["laptop"], scripts: ["common/tool.py"], conflicts: 0 }],
+                          received: ["user:tool"], received_from: ["laptop"], scripts: ["common/tool.py"], conflicts: 0,
+                          merged: ["user:doc"] }],
   announced_groups: [{ group: "repos/abc", origin: "github.com/o/r", time: "2026-10-05T11:00:00+00:00" }],
   pending_groups: ["repos/def"], pending_files: [], blocked: [], public_key: PUBLIC_KEY,
   github: { connected: true, login: "octocat", host: "github.com", reconnect_needed: false, warning: null },
