@@ -215,6 +215,13 @@ def test_a_change_while_another_holds_the_lock_is_reported_busy(host):
     assert on("darwin", host)["scheduled"]
 
 
+def test_windows_keeps_the_schedule_lock_outside_appdata(host):
+    """A lock file that a process of the Claude desktop app creates under AppData lands in its MSIX
+    package's copy, so a scheduled run and that process would never exclude each other (#256)."""
+    lock = schedule.scheduler(platform="win32", **host.options).lock_path
+    assert lock == host.tmp / "home" / ".agents-core" / f"user-sync-schedule-{host.ident}.lock"
+
+
 # --- macOS: a LaunchAgent ---------------------------------------------------------------
 
 def label(host):

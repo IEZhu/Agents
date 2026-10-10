@@ -601,11 +601,16 @@ class TaskScheduler:
         return report
 
 
-def _user_state_dir() -> Path:
-    """This user's own Agents-Core directory, which holds the schedule locks."""
-    if sys.platform == "win32":
-        return Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData/Local") / "Agents-Core"
-    if sys.platform == "darwin":
+def _user_state_dir(platform: str) -> Path:
+    """This user's own Agents-Core directory, which holds the schedule locks.
+
+    On Windows the parent of the daemon's (`src.daemon.state.default_state_dir`), not
+    ``%LOCALAPPDATA%``: a lock file that a process of the Claude desktop app creates there can land
+    in its MSIX package's private copy, which Task Scheduler runs never see (#256).
+    """
+    if platform == "win32":
+        return Path(os.environ.get("USERPROFILE") or Path.home()) / ".agents-core"
+    if platform == "darwin":
         return Path.home() / "Library/Application Support/Agents-Core"
     configured = os.environ.get("XDG_STATE_HOME", "")
     return (Path(configured) if os.path.isabs(configured) else Path.home() / ".local/state") / "agents-core"
@@ -684,7 +689,7 @@ def scheduler(*, installation: str | Path | None = None, python: str | None = No
     else:
         backend = SystemdOrCron(SystemdTimer(job, runner, directory=systemd_dir, path=path),
                                 Cron(job, runner, path=path))
-    return Schedule(backend, Path(lock_dir or _user_state_dir()) / f"user-sync-schedule-{job.ident}.lock")
+    return Schedule(backend, Path(lock_dir or _user_state_dir(platform)) / f"user-sync-schedule-{job.ident}.lock")
 
 
 def _minutes(value: int) -> int:

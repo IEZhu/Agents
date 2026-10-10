@@ -40,7 +40,7 @@ in a private per-installation directory (``default_state_dir``), never in the li
 """
 from __future__ import annotations
 
-from contextlib import ExitStack, contextmanager
+from contextlib import ExitStack, contextmanager, suppress
 from dataclasses import asdict, dataclass, field, fields, replace
 from datetime import datetime, timedelta, timezone
 import base64
@@ -50,6 +50,7 @@ import os
 from pathlib import Path
 import re
 import secrets
+import shutil
 import stat
 import subprocess
 import sys
@@ -133,12 +134,13 @@ def installation_id(root: Path | None = None) -> str:
 def default_state_dir() -> Path:
     """``<per-installation private directory>/user-sync``.
 
-    macOS: the daemon's state directory: ``AGENTS_SERVICE_DIR`` inside the daemon, else the one an
-    installed daemon recorded in ``data/.shared-service.json`` (also when installed with
-    ``--state``), else the default. Windows: the same two daemon directories (#195), else the
-    service's default directory when it holds settings (``uninstall`` keeps them), else
-    ``%LOCALAPPDATA%\\Agents-Core\\<id>``. Others: ``$XDG_STATE_HOME/agents-core/<id>``.
-    Scheduled runs pass ``--state`` explicitly, so they never depend on the environment of the scheduler.
+    macOS and Windows: the daemon's state directory: ``AGENTS_SERVICE_DIR`` inside the daemon, else
+    the one an installed daemon recorded in ``data/.shared-service.json`` (also when installed with
+    ``--state``), else the daemon's default, which ``uninstall`` keeps: on Windows
+    ``%USERPROFILE%\\.agents-core\\<id>``, where `adopt_appdata_state` first moves a state from
+    ``%LOCALAPPDATA%`` (#256). Others: ``$XDG_STATE_HOME/agents-core/<id>``.
+    Scheduled runs pass ``--state`` explicitly, so they never depend on the environment of the
+    scheduler; only a Windows task scheduled before #256 needs `scheduled_state_dir`.
     """
     if sys.platform in ("darwin", "win32"):
         configured = os.environ.get("AGENTS_SERVICE_DIR")
@@ -151,15 +153,177 @@ def default_state_dir() -> Path:
         from src.daemon.state import state_dir
         return state_dir() / "user-sync"
     if os.name == "nt":
-        # `uninstall` keeps the service's state, and sync's settings with it: keep finding them.
         from src.daemon.state import default_state_dir as service_dir
-        kept = service_dir(installation_root()) / "user-sync"
-        if (kept / SETTINGS_FILE).is_file():
-            return kept
-        base = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local") / "Agents-Core"
-    else:
-        base = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state") / "agents-core"
+        return adopt_appdata_state(service_dir(installation_root()) / "user-sync")
+    base = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state") / "agents-core"
     return base / installation_id() / "user-sync"
+
+
+def scheduled_state_dir(state_dir: str | None) -> str | Path | None:
+    """The ``--state`` of a scheduled ``run``. A Windows task scheduled before #256 still passes the
+    AppData directory, which means `default_state_dir`: its state moves there."""
+    if state_dir and os.name == "nt" and Path(state_dir).expanduser().resolve() == \
+            _appdata_state_dir(_local_app_data(), installation_id()).resolve():
+        return default_state_dir()
+    return state_dir
+
+
+# --- user sync's Windows state from before #256 ---------------------------------------------
+
+ADOPTED_FILE = "appdata-moved.json"  # in a state directory: a state from AppData moved there once
+# (id, %LOCALAPPDATA%) found without such a state; this version never writes one there.
+_NOTHING_IN_APPDATA: set[tuple[str, str]] = set()
+
+
+def _local_app_data() -> Path:
+    return Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
+
+
+def _appdata_state_dir(local_app_data: Path, ident: str) -> Path:
+    return Path(local_app_data) / "Agents-Core" / ident / "user-sync"
+
+
+def appdata_state_dirs(ident: str | None = None, *,
+                       local_app_data: Path | None = None) -> tuple[list[Path], Path | None]:
+    """User sync's Windows states from before #256 that hold settings, the one to move first, and
+    the AppData directory itself when this process cannot tell it apart from a package's copy.
+
+    The states are ``%LOCALAPPDATA%\\Agents-Core\\<id>\\user-sync`` and its copies in
+    ``%LOCALAPPDATA%\\Packages\\<package>\\LocalCache\\Local``. An MSIX package with write
+    virtualization, such as the Claude desktop app, redirects there what the processes it starts
+    write under AppData, unless the directory they write into existed outside the package first.
+    Only those processes see the copy; a Task Scheduler run never does. They see AppData merged with
+    it instead, a file of the copy hiding the one of the same name, so for them the AppData directory
+    is not a state of its own once it shows a file of a copy. Started states come first, then the
+    most recently used.
+    """
+    local = Path(local_app_data or _local_app_data())
+    home = _appdata_state_dir(local, ident or installation_id())
+    relative = home.relative_to(local)
+    try:
+        packages = sorted((local / "Packages").iterdir())
+    except OSError:
+        packages = []
+    # os.path, not Path.is_dir and is_file: a package directory this user cannot read raises there.
+    copies = [path for path in (package / "LocalCache" / "Local" / relative for package in packages)
+              if os.path.isdir(path)]
+    found = [copy for copy in copies if os.path.isfile(copy / SETTINGS_FILE)]
+    merged = home if any(_shows(home, copy) for copy in copies) else None
+    if merged is None and os.path.isfile(home / SETTINGS_FILE):
+        found.append(home)
+    return sorted(found, key=_rank, reverse=True), merged
+
+
+def _shows(home: Path, copy: Path) -> bool:
+    """True when ``home`` shows a file of ``copy`` to this process: it runs inside that copy's package."""
+    for path in copy.rglob("*"):
+        with suppress(OSError):
+            if os.path.samefile(path, home / path.relative_to(copy)):
+                return True
+    return False
+
+
+def _rank(state_dir: Path) -> tuple[bool, float]:
+    """Started before not started, then when sync last wrote its settings or state (each cycle does)."""
+    settings = _read_json(state_dir / SETTINGS_FILE)
+    times = []
+    for name in (SETTINGS_FILE, STATE_FILE):
+        with suppress(OSError):
+            times.append((state_dir / name).stat().st_mtime)
+    return isinstance(settings, dict) and bool(settings.get("started")), max(times, default=0.0)
+
+
+def _private_key(state_dir: Path) -> bytes | None:
+    try:
+        return keys.key_path(state_dir).read_bytes()
+    except OSError:
+        return None
+
+
+def adopt_appdata_state(target: Path, ident: str | None = None, *, local_app_data: Path | None = None) -> Path:
+    """Move user sync's Windows state from AppData into ``target`` once, unless ``target`` is set up (#256).
+
+    The first state of `appdata_state_dirs` is copied beside ``target`` and then renamed into place;
+    a ``target`` that holds files but no settings is renamed aside first. Then that state and every
+    other one with the same private key are removed. A state with another key stays, and so does the
+    AppData directory that this process sees merged with a copy; ``target``'s log names them.
+    ``appdata-moved.json`` records the move, so a later ``disconnect`` does not bring back a state
+    that stayed. Returns ``target``.
+    """
+    target = Path(target)
+    if os.path.isfile(target / SETTINGS_FILE) or os.path.exists(target / ADOPTED_FILE):
+        return target
+    ident = ident or installation_id()
+    local = Path(local_app_data or _local_app_data())
+    if (ident, str(local)) in _NOTHING_IN_APPDATA:
+        return target
+    if not appdata_state_dirs(ident, local_app_data=local)[0]:
+        _NOTHING_IN_APPDATA.add((ident, str(local)))
+        return target
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with file_lock(target.parent / "user-sync-adopt.lock"):
+        found, merged = appdata_state_dirs(ident, local_app_data=local)
+        if os.path.isfile(target / SETTINGS_FILE) or os.path.exists(target / ADOPTED_FILE) or not found:
+            return target  # another process moved it meanwhile
+        source = found[0]
+        aside = _move_in(source, target)
+        notes = [f"moved the sync state here from {source} (#256)"]
+        if aside is not None:
+            notes.append(f"what was here without settings is now in {aside}")
+        kept = [str(merged)] if merged is not None else []
+        key = _private_key(source)
+        for state in found:
+            if state != source and (key is None or _private_key(state) != key):
+                kept.append(str(state))
+                continue
+            try:
+                shutil.rmtree(state)
+            except OSError as error:
+                notes.append(f"could not remove {state} ({error.strerror or error}); it holds a copy of this "
+                             "machine's key, remove it by hand")
+            for directory in (state.parent, state.parent.parent):  # <id> and Agents-Core, once empty
+                with suppress(OSError):
+                    directory.rmdir()
+        if kept:
+            notes.append("left as they are: " + ", ".join(kept))
+        if merged is not None:
+            notes.append(f"this process sees {merged} merged with a package's copy and cannot read it alone")
+        record = {"from": str(source), "kept": kept}
+        _write_private(target / ADOPTED_FILE, (json.dumps(record, indent=2) + "\n").encode("utf-8"))
+        _append_log(target, "; ".join(notes))
+    return target
+
+
+def _move_in(source: Path, target: Path) -> Path | None:
+    """Copy every directory and regular file of ``source`` beside ``target``, then rename the copy to
+    ``target``; returns where a ``target`` that already held files went."""
+    staging = target.with_name(f".{target.name}-moving")
+    if staging.exists():  # an interrupted move
+        shutil.rmtree(staging)
+    _private_dir(staging)
+    for path in sorted(source.rglob("*")):
+        relative = path.relative_to(source)
+        if path.is_symlink():
+            continue
+        if path.is_dir():
+            _private_dir(staging / relative)
+        elif path.is_file():
+            _write_private(staging / relative, path.read_bytes())
+    aside = None
+    if target.exists():
+        if any(target.iterdir()):
+            aside = target.with_name(f"{target.name}-before-move-{datetime.now(timezone.utc):%Y%m%dT%H%M%S%fZ}")
+            os.replace(target, aside)
+        else:
+            target.rmdir()
+    os.replace(staging, target)
+    return aside
+
+
+def _append_log(state_dir: Path, message: str) -> None:
+    """One line in ``user-sync.log`` outside a `Syncer`."""
+    with suppress(OSError), open(state_dir / LOG_FILE, "a", encoding="utf-8") as stream:
+        stream.write(f"{_now_iso(datetime.now(timezone.utc))} {message}\n")
 
 
 def default_library() -> Path:

@@ -12,6 +12,7 @@ import subprocess
 import sys
 import threading
 import time
+from types import SimpleNamespace
 
 import pytest
 
@@ -19,6 +20,7 @@ from src import component_toggles, user_library
 from src.file_lock import file_lock
 from src.user_flows import FlowLibrary
 from src.user_sync import engine as engine_module, gitcmd, keys, merge as merging, scope
+from src.user_sync import __main__ as cli_module
 from src.user_sync.__main__ import main as cli
 from src.user_sync.engine import SyncError, Syncer
 
@@ -1239,13 +1241,202 @@ def test_the_state_directory_follows_an_installed_daemon(tmp_path, monkeypatch, 
     assert engine_module.default_state_dir() == (tmp_path / "env-service").resolve() / "user-sync"
 
 
-@pytest.mark.skipif(os.name != "nt", reason="the %LOCALAPPDATA% default is Windows-specific")
-def test_without_a_daemon_windows_keeps_its_state_in_localappdata(tmp_path, monkeypatch):
+IDENT = "0123456789abcdef"
+
+
+def _appdata(local: Path, ident: str = IDENT, package: str | None = None) -> Path:
+    """Where user sync kept its Windows state before #256: AppData, or an MSIX package's copy of it."""
+    base = local / "Packages" / package / "LocalCache" / "Local" if package else local
+    return base / "Agents-Core" / ident / "user-sync"
+
+
+def _old_state(directory: Path, key: str, *, used: float | None = None, started: bool = False) -> Path:
+    """A sync state with settings, a state file, this machine's key pair, hooks and a log."""
+    (directory / "hooks").mkdir(parents=True)
+    settings = {"label": key, "started": "2026-01-01T00:00:00+00:00" if started else None}
+    (directory / engine_module.SETTINGS_FILE).write_text(json.dumps(settings))
+    (directory / engine_module.STATE_FILE).write_text("{}")
+    (directory / keys.KEY_NAME).write_text(f"private {key}\n")
+    (directory / (keys.KEY_NAME + ".pub")).write_text(f"ssh-ed25519 {key} agents-core-sync:test\n")
+    (directory / engine_module.LOG_FILE).write_text("earlier\n")
+    if used is not None:
+        for name in (engine_module.SETTINGS_FILE, engine_module.STATE_FILE):
+            os.utime(directory / name, (used, used))
+    return directory
+
+
+def _files(directory: Path) -> dict[str, bytes]:
+    return {path.relative_to(directory).as_posix(): path.read_bytes() for path in directory.rglob("*") if path.is_file()}
+
+
+def _machine_key(state: Path) -> str:
+    return keys.public_key(state).split()[1]
+
+
+def test_a_windows_state_in_appdata_moves_with_its_key(tmp_path):
+    local = tmp_path / "LocalAppData"
+    old = _old_state(_appdata(local), "A")
+    before = _files(old)
+    target = tmp_path / "profile" / ".agents-core" / IDENT / "user-sync"
+    assert engine_module.adopt_appdata_state(target, IDENT, local_app_data=local) == target
+    after = _files(target)
+    record = json.loads(after.pop(engine_module.ADOPTED_FILE))
+    del after[engine_module.LOG_FILE], before[engine_module.LOG_FILE]
+    assert after == before and (target / "hooks").is_dir() and record == {"from": str(old), "kept": []}
+    assert not (local / "Agents-Core").exists()  # with the directories above it, once empty
+    assert not target.with_name(".user-sync-moving").exists()
+    log = (target / engine_module.LOG_FILE).read_text(encoding="utf-8")
+    assert log.startswith("earlier\n") and f"moved the sync state here from {old} (#256)" in log
+
+
+def test_the_copy_an_msix_package_made_of_it_moves_too(tmp_path):
+    """Only the package's own processes see that copy; a Task Scheduler run never does."""
+    local = tmp_path / "LocalAppData"
+    copy = _old_state(_appdata(local, package="Claude_pzs8sxrjxfjjc"), "A")
+    (local / "Packages" / "Another_1x2y3z").mkdir()
+    target = tmp_path / "target"
+    engine_module.adopt_appdata_state(target, IDENT, local_app_data=local)
+    assert _machine_key(target) == "A" and not copy.exists()
+
+
+def test_the_most_recently_used_state_moves_and_one_with_another_key_stays(tmp_path):
+    local = tmp_path / "LocalAppData"
+    older = _old_state(_appdata(local), "A", used=1_700_000_000)
+    newer = _old_state(_appdata(local, package="Claude_pzs8sxrjxfjjc"), "B", used=1_800_000_000)
+    same = _old_state(_appdata(local, package="Another_1x2y3z"), "B", used=1_750_000_000)
+    target = tmp_path / "target"
+    engine_module.adopt_appdata_state(target, IDENT, local_app_data=local)
+    assert _machine_key(target) == "B"
+    assert not newer.exists() and not same.exists()  # the same private key: nothing is lost
+    assert _machine_key(older) == "A" and (older / engine_module.SETTINGS_FILE).is_file()
+    assert json.loads((target / engine_module.ADOPTED_FILE).read_text())["kept"] == [str(older)]
+    assert f"left as they are: {older}" in (target / engine_module.LOG_FILE).read_text()
+
+
+def test_a_started_state_moves_before_a_newer_one_that_never_started(tmp_path):
+    local = tmp_path / "LocalAppData"
+    started = _old_state(_appdata(local), "A", used=1_700_000_000, started=True)
+    pending = _old_state(_appdata(local, package="Claude_pzs8sxrjxfjjc"), "B", used=1_800_000_000)
+    target = tmp_path / "target"
+    engine_module.adopt_appdata_state(target, IDENT, local_app_data=local)
+    assert _machine_key(target) == "A" and not started.exists() and _machine_key(pending) == "B"
+
+
+def test_appdata_seen_merged_with_a_package_copy_is_left_alone(tmp_path):
+    """A process inside the MSIX package sees AppData merged with the package's copy, a file of the copy
+    hiding the one of the same name, so removing through AppData would remove a mix of two states. A hard
+    link gives the same view here: the AppData settings are the copy's file."""
+    local = tmp_path / "LocalAppData"
+    copy = _old_state(_appdata(local, package="Claude_pzs8sxrjxfjjc"), "B")
+    home = _appdata(local)
+    home.mkdir(parents=True)
+    os.link(copy / engine_module.SETTINGS_FILE, home / engine_module.SETTINGS_FILE)
+    (home / keys.KEY_NAME).write_text("private A\n")  # only in AppData itself
+    target = tmp_path / "target"
+    engine_module.adopt_appdata_state(target, IDENT, local_app_data=local)
+    assert _machine_key(target) == "B" and not copy.exists()
+    assert (home / keys.KEY_NAME).read_text() == "private A\n" and (home / engine_module.SETTINGS_FILE).is_file()
+    assert json.loads((target / engine_module.ADOPTED_FILE).read_text())["kept"] == [str(home)]
+    assert f"this process sees {home} merged with a package's copy" in (target / engine_module.LOG_FILE).read_text()
+
+
+def test_a_disconnect_after_the_move_does_not_bring_back_a_state_that_stayed(tmp_path):
+    local = tmp_path / "LocalAppData"
+    other = _old_state(_appdata(local), "A", used=1_700_000_000)
+    _old_state(_appdata(local, package="Claude_pzs8sxrjxfjjc"), "B", used=1_800_000_000)
+    target = tmp_path / "target"
+    engine_module.adopt_appdata_state(target, IDENT, local_app_data=local)
+    for name in (engine_module.SETTINGS_FILE, engine_module.STATE_FILE, keys.KEY_NAME, keys.KEY_NAME + ".pub"):
+        (target / name).unlink()  # what disconnect deletes
+    engine_module.adopt_appdata_state(target, IDENT, local_app_data=local)
+    assert not (target / engine_module.SETTINGS_FILE).exists() and _machine_key(other) == "A"
+
+
+def test_a_set_up_state_directory_is_never_replaced(tmp_path):
+    local = tmp_path / "LocalAppData"
+    old = _old_state(_appdata(local), "A")
+    target = _old_state(tmp_path / "target", "B")
+    engine_module.adopt_appdata_state(target, IDENT, local_app_data=local)
+    assert _machine_key(target) == "B" and _machine_key(old) == "A"
+
+
+def test_files_already_in_the_state_directory_without_settings_are_set_aside(tmp_path):
+    """They never mix with the moved state, such as the record of another GitHub account."""
+    local = tmp_path / "LocalAppData"
+    _old_state(_appdata(local), "A")
+    target = tmp_path / "target"
+    target.mkdir()
+    (target / "github-account.json").write_text('{"login": "someone-else"}')
+    engine_module.adopt_appdata_state(target, IDENT, local_app_data=local)
+    assert _machine_key(target) == "A" and not (target / "github-account.json").exists()
+    aside, = tmp_path.glob("target-before-move-*")
+    assert (aside / "github-account.json").read_text() == '{"login": "someone-else"}'
+    assert str(aside) in (target / engine_module.LOG_FILE).read_text()
+
+
+def test_an_interrupted_move_is_made_again(tmp_path, monkeypatch):
+    local = tmp_path / "LocalAppData"
+    old = _old_state(_appdata(local), "A")
+    target = tmp_path / "target"
+    write = engine_module._write_private
+
+    def full_disk_at_the_settings(path, data):
+        if path.name == engine_module.SETTINGS_FILE:
+            raise OSError(28, "No space left on device")
+        write(path, data)
+    monkeypatch.setattr(engine_module, "_write_private", full_disk_at_the_settings)
+    with pytest.raises(OSError):
+        engine_module.adopt_appdata_state(target, IDENT, local_app_data=local)
+    assert not target.exists() and _files(old)  # nothing changes before the copy is whole
+    monkeypatch.setattr(engine_module, "_write_private", write)
+    engine_module.adopt_appdata_state(target, IDENT, local_app_data=local)
+    assert _machine_key(target) == "A" and not old.exists() and not target.with_name(".target-moving").exists()
+
+
+def test_only_a_run_reads_its_state_directory_through_scheduled_state_dir(tmp_path, monkeypatch, capsys):
+    """Another command keeps the state directory it names, even AppData's from before #256."""
+    asked = []
+    monkeypatch.setattr(cli_module, "scheduled_state_dir", lambda state: asked.append(state) or state)
+    state = str(tmp_path / "state")
+    cli(["--state", state, "--library", str(tmp_path / "library"), "status", "--json"])
+    assert asked == []
+    cli(["--state", state, "--library", str(tmp_path / "library"), "run", "--json"])
+    assert asked == [state]
+    capsys.readouterr()
+
+
+windows_only = pytest.mark.skipif(os.name != "nt", reason="the AppData state is Windows-specific")
+
+
+@pytest.fixture
+def windows_home(tmp_path, monkeypatch):
+    """An installation without a daemon whose AppData and home are in tmp_path."""
     monkeypatch.delenv("AGENTS_SERVICE_DIR", raising=False)
-    monkeypatch.setattr(engine_module, "installation_root", lambda: tmp_path)
+    monkeypatch.setattr(engine_module, "installation_root", lambda: tmp_path / "install")
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "LocalAppData"))
-    assert engine_module.default_state_dir() == (tmp_path / "LocalAppData" / "Agents-Core"
-                                                 / engine_module.installation_id() / "user-sync")
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "profile"))
+    ident = engine_module.installation_id()
+    return SimpleNamespace(old=_appdata(tmp_path / "LocalAppData", ident),
+                           new=tmp_path / "profile" / ".agents-core" / ident / "user-sync")
+
+
+@windows_only
+def test_without_a_daemon_windows_keeps_its_state_outside_appdata(windows_home):
+    """The Claude desktop app's MSIX package virtualizes what its processes write under AppData (#256)."""
+    _old_state(windows_home.old, "A")
+    assert engine_module.default_state_dir() == windows_home.new
+    assert _machine_key(windows_home.new) == "A" and not windows_home.old.exists()
+    assert engine_module.default_state_dir() == windows_home.new
+
+
+@windows_only
+def test_a_task_scheduled_before_the_move_still_finds_the_state(windows_home, tmp_path):
+    """Its --state still names the AppData directory: runs use the new one, the first moves it there."""
+    _old_state(windows_home.old, "A")
+    assert engine_module.scheduled_state_dir(str(windows_home.old)) == windows_home.new
+    assert _machine_key(windows_home.new) == "A" and not windows_home.old.exists()
+    assert engine_module.scheduled_state_dir(str(windows_home.old).upper() + "\\") == windows_home.new
+    assert engine_module.scheduled_state_dir(str(tmp_path / "other")) == str(tmp_path / "other")
 
 
 def test_configure_validates_the_fetch_interval(pair):
@@ -1504,7 +1695,6 @@ def test_text_changed_between_reading_and_merging_is_never_uploaded(pair, monkey
 
 
 def test_windows_links_are_name_surrogates_and_placeholders_are_files():
-    from types import SimpleNamespace
     reparse = 0x400
 
     def info(tag):
