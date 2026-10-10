@@ -353,13 +353,16 @@ Administrators group may own it). The bridge cannot check mode bits on Windows
 and relies on that ACL. `uninstall` keeps the state directory, and user sync
 keeps finding its settings there afterwards.
 
-Not yet available on Windows (#195): `update` and `auto-update enable|run`
-refuse with exit code 2. The update transaction hands the installation leases to
-the updater through POSIX descriptor inheritance, and stdio servers on Windows
-take no installation lease, so `install` cannot see them either: end this
-installation's stdio servers before `migrate`. To update, stop the service,
-update the checkout, then start it; its warmup rebuilds changed skill and
-implant indexes.
+`update` and `auto-update` work as on macOS, with the installation leases taken
+by `LockFileEx` instead of `flock`. Such a lock belongs to the process that took
+it: a child does not inherit it. The controller's git and reindex children
+therefore run in a job object that ends them when the controller exits, instead
+of keeping the leases after it, as they do on macOS. Stdio servers of this
+installation hold the shared installation lease too, so `install` and `update`
+refuse while one runs; a stdio server started from code before #195 holds none,
+so restart such servers once after updating the checkout. `auto-update enable`
+registers a second hidden task, `agents-core-daemon-<state-directory-name>-updater`,
+with only the repeating trigger (see [automatic updates](#automatic-updates-opt-in)).
 
 User sync set up without the service keeps its settings in
 `%LOCALAPPDATA%\Agents-Core\<installation-hash>\user-sync`, while the service
@@ -943,8 +946,8 @@ refuse fails here. A failed build leaves the service and the live tree untouched
 and the next run retries it.
 
 A build can take minutes: scheduled runs build at the updater LaunchAgent's
-`Background` priority (see [automatic updates](#automatic-updates-opt-in)). The
-controller does not hold the control lock while it builds, so `stop`, `restart`
+`Background` priority, or the updater task's below-normal one on Windows (see
+[automatic updates](#automatic-updates-opt-in)). The controller does not hold the control lock while it builds, so `stop`, `restart`
 and `auto-update disable` keep working, and `AGENTS_AUTO_UPDATE_REINDEX_TIMEOUT`
 (default 3600 s) only stops a hung build. Afterwards the controller takes the
 control lock again. If the service configuration changed meanwhile, it defers,
@@ -990,7 +993,8 @@ manifests. For such a target, `stop` the service and close this installation's
 stdio servers, fast-forward the checkout (`git pull --ff-only`), install the
 dependencies as setup does (`.venv/bin/python -m pip install -r requirements.txt`),
 then `start` the service; its warmup rebuilds changed skill and implant indexes.
-Git credentials and SSH must work with the LaunchAgent's PATH and environment.
+Git credentials and SSH must work with the LaunchAgent's (on Windows, the
+task's) PATH and environment.
 
 ### Automatic updates (opt-in)
 
@@ -1003,8 +1007,14 @@ Git credentials and SSH must work with the LaunchAgent's PATH and environment.
 
 `enable` installs a second LaunchAgent, `local.agents-core.<state-directory-name>.updater`,
 that runs `auto-update run` every `--interval` seconds (default 900, minimum
-60). A run fetches `AGENTS_AUTO_UPDATE_REMOTE` / `AGENTS_AUTO_UPDATE_BRANCH`
-(defaults `origin` / `main`) and stops there when the installation is up to date
+60). On Windows it is a hidden Task Scheduler task,
+`agents-core-daemon-<state-directory-name>-updater`, of the same user: a time
+trigger repeated every interval, rounded up to whole minutes, with no logon
+trigger, so the first run comes one interval after `enable`, as with the
+LaunchAgent. It runs at Task Scheduler's background priority (7, below normal),
+without an execution time limit, and `IgnoreNew` skips a run while the previous
+one still updates. A run fetches `AGENTS_AUTO_UPDATE_REMOTE` /
+`AGENTS_AUTO_UPDATE_BRANCH` (defaults `origin` / `main`) and stops there when the installation is up to date
 and no [model switch](#embedding-model) is pending.
 Unlike stdio servers, the controller reads these variables,
 `AGENTS_AUTO_UPDATE_TIMEOUT` and `AGENTS_AUTO_UPDATE_REINDEX_TIMEOUT` from its own
@@ -1017,8 +1027,10 @@ logged once per target. Otherwise it waits until the service is ready, has no
 work in flight, and has been idle for `--idle-seconds` (default 120), and then
 runs the same transaction as `update`. It also waits while any stdio server of
 this installation is running, since `update` would stop the service only to find
-it busy. A stopped service is left stopped. An unfinished transaction blocks
-further runs until `recover`.
+it busy: macOS lists the processes holding the installation lease with `lsof`,
+and Windows, which does not say who holds a lock, finds the stdio slots
+(`data/stdio/<n>/.lease`) that a running server holds. A stopped service is left
+stopped. An unfinished transaction blocks further runs until `recover`.
 
 Downtime is the stop, the activation and the warmup; the build runs before the
 stop. The updater LaunchAgent runs as a `Background` process with low-priority

@@ -15,9 +15,14 @@ from src import startup, self_update
 ROOT = Path(__file__).resolve().parents[1]
 
 
+posix_only = pytest.mark.skipif(os.name != "posix", reason="POSIX children inherit flock leases")
+windows_only = pytest.mark.skipif(os.name != "nt", reason="Windows job objects")
+
+
 @pytest.fixture
 def leased_install(tmp_path):
-    pytest.importorskip("fcntl")
+    if not startup.LEASES:
+        pytest.skip("no installation leases on this platform")
     source = tmp_path / "src"
     source.mkdir()
     (source / "__init__.py").touch()
@@ -93,7 +98,7 @@ def test_contending_start_rereads_server_after_activation(leased_install, launch
     bootstrap.write_text(bootstrap_source + '\nOBSOLETE_API = True\n', encoding="utf-8")
     # Another process owns the writer lease while changing the server file.
     with open(root / "data/.sessions.lock", "a+b") as lease:
-        startup.fcntl.flock(lease, startup.fcntl.LOCK_EX)
+        assert startup._lock(lease.fileno(), exclusive=True, blocking=True)
         code = '''
 import runpy, sys
 print("STARTING", flush=True)
@@ -110,7 +115,7 @@ else:
             # A new server can depend on APIs added to startup.py by the writer.
             bootstrap.write_text(bootstrap_source + '\nNEW_API = "NEW_SERVER"\n', encoding="utf-8")
             server.write_text(prefix + 'from src import startup\nassert not hasattr(startup, "OBSOLETE_API")\nprint(startup.NEW_API, flush=True)\n')
-            startup.fcntl.flock(lease, startup.fcntl.LOCK_UN)
+            startup._unlock(lease.fileno())
             output, errors = process.communicate(timeout=5)
             assert process.returncode == 0, errors
             assert output.strip() == "NEW_SERVER"
@@ -163,7 +168,7 @@ def test_background_prepare_lock_does_not_block_startup(leased_install, monkeypa
 
 
 def test_unsupported_locking_disables_updates_but_serves(tmp_path, monkeypatch):
-    monkeypatch.setattr(startup, "fcntl", None)
+    monkeypatch.setattr(startup, "LEASES", False)
     monkeypatch.setattr(self_update, "AUTO_UPDATE_ENABLED", True)
     monkeypatch.setattr(self_update, "AUTO_UPDATE_STAGING", True)
     with startup.server_session(tmp_path, lambda fd: pytest.fail("unsafe activation")):
@@ -184,9 +189,9 @@ def test_unfinished_update_blocks_before_application_imports(leased_install, jou
         _stop(process)
 
 
+@posix_only
 @pytest.mark.parametrize("staged", [True, False])
 def test_reindex_child_retains_leases_after_parent_exits(tmp_path, staged):
-    pytest.importorskip("fcntl")
     root = tmp_path / "install"
     source = root / "src"
     source.mkdir(parents=True)
@@ -260,10 +265,10 @@ with server_session(root, run_worker):
                 pass
 
 
+@posix_only
 @pytest.mark.parametrize("staged", [True, False])
 @pytest.mark.parametrize("outcome", ["success", "timeout", "detached_timeout"])
 def test_reindex_descendant_finishes_before_leases_are_released(tmp_path, staged, outcome):
-    pytest.importorskip("fcntl")
     root = tmp_path / "install"
     source = root / "src"
     source.mkdir(parents=True)
@@ -354,8 +359,8 @@ with server_session(root, run_worker):
                 pass
 
 
+@posix_only
 def test_process_lock_close_does_not_unlock_inherited_descriptor(tmp_path):
-    pytest.importorskip("fcntl")
     lock = str(tmp_path / "update.lock")
     process = None
     try:
@@ -375,3 +380,241 @@ def test_process_lock_close_does_not_unlock_inherited_descriptor(tmp_path):
     finally:
         if process is not None:
             _stop(process)
+
+
+def _ended(pid, timeout=5):
+    """Windows: whether process ``pid`` ended within ``timeout`` seconds (``os.kill`` would end it)."""
+    import ctypes
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.OpenProcess.restype = ctypes.c_void_p
+    handle = kernel32.OpenProcess(0x00100000, False, pid)  # SYNCHRONIZE
+    if not handle:
+        return True  # no such process
+    try:
+        return kernel32.WaitForSingleObject(ctypes.c_void_p(handle), int(timeout * 1000)) == 0
+    finally:
+        kernel32.CloseHandle(ctypes.c_void_p(handle))
+
+
+def _wait_for(predicate, what):
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        if predicate():
+            return
+        time.sleep(0.02)
+    pytest.fail(what + " timed out")
+
+
+def _free(path):
+    with self_update._process_lock(str(path)) as acquired:
+        return acquired
+
+
+@windows_only
+@pytest.mark.parametrize("staged", [True, False])
+def test_windows_reindex_child_ends_with_the_lease_holder(tmp_path, staged):
+    """A LockFileEx lease ends with its process: the updater's child must not write without it."""
+    root = tmp_path / "install"
+    source = root / "src"
+    source.mkdir(parents=True)
+    (source / "__init__.py").touch()
+    (source / "reindex.py").write_text('''
+import os, time
+from pathlib import Path
+Path("worker.pid").write_text(str(os.getpid()))
+deadline = time.monotonic() + 15
+while not Path("finish").exists() and time.monotonic() < deadline:
+    time.sleep(0.02)
+Path("finished").touch()
+''', encoding="utf-8")
+    code = '''
+import sys
+sys.path.insert(0, sys.argv[1])
+from src import self_update as su
+from src.startup import server_session
+root, staged = sys.argv[2], sys.argv[3] == "True"
+def run_worker(session_fd):
+    with su._inherit_lock(None if staged else session_fd):
+        with su._process_lock(root + "/data/.update.lock") as acquired:
+            assert acquired
+            worker = su._run_reindex_at if staged else su._run_reindex
+            worker(root, 15)
+with server_session(root, run_worker):
+    pass
+'''
+    parent = _child(code, ROOT, root, staged, cwd=tmp_path)
+    try:
+        pid_file = root / "worker.pid"
+        _wait_for(lambda: pid_file.exists() and bool(pid_file.read_text()), "worker start")
+        worker_pid = int(pid_file.read_text())
+        assert not _free(root / "data/.update.lock")
+        parent.kill()  # abrupt stdio server exit while its updater thread waits on a child
+        parent.communicate(timeout=5)
+        assert _ended(worker_pid)
+        (root / "finish").touch()
+        time.sleep(0.2)
+        assert not (root / "finished").exists()
+        assert _free(root / "data/.update.lock") and _free(root / "data/.sessions.lock")
+    finally:
+        _stop(parent)
+
+
+@windows_only
+@pytest.mark.parametrize("outcome", ["success", "timeout", "detached"])
+def test_windows_descendants_end_before_the_command_returns(tmp_path, outcome, caplog):
+    """A grandchild of the command, even a detached one, never writes after ``_run_command`` returns."""
+    descendant = '''
+import os, time
+from pathlib import Path
+Path("descendant.pid").write_text(str(os.getpid()))
+deadline = time.monotonic() + 15
+while not Path("finish").exists() and time.monotonic() < deadline:
+    time.sleep(0.02)
+Path("late_write").touch()
+'''
+    flags = "subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP" if outcome == "detached" else "0"
+    leader = (f"import subprocess, sys, time\nsubprocess.Popen([sys.executable, '-c', {descendant!r}], "
+              f"creationflags={flags}, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, "
+              "stderr=subprocess.DEVNULL)\n"
+              "from pathlib import Path\n"
+              "while not Path('descendant.pid').exists(): time.sleep(0.02)\n"
+              + ("time.sleep(15)\n" if outcome == "timeout" else ""))
+    started = time.monotonic()
+    if outcome == "timeout":
+        with pytest.raises(subprocess.TimeoutExpired):
+            self_update._run_command([sys.executable, "-c", leader], cwd=str(tmp_path), timeout=2)
+    else:
+        result = self_update._run_command([sys.executable, "-c", leader], cwd=str(tmp_path), timeout=2)
+        assert result.returncode == 0
+        assert "outlived it" in caplog.text
+    assert time.monotonic() - started < 10
+    # Ended or ending: TerminateJobObject stops every thread before the process object is signaled.
+    assert _ended(int((tmp_path / "descendant.pid").read_text()))
+    (tmp_path / "finish").touch()
+    time.sleep(0.2)
+    assert not (tmp_path / "late_write").exists()
+
+
+_RESPAWNING_SERVER = '''
+import os, sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from src import self_update
+from src.startup import server_session
+root = Path(sys.argv[2])
+first = not (root / "parent.pid").exists()
+activated = []
+updater = str(root / "data" / ".update.lock")
+def activate(fd):
+    activated.append(fd)
+    if first:
+        (root / "parent.pid").write_text(str(os.getpid()))
+        # As startup activation does: both leases registered, the updater lock innermost.
+        with self_update._inherit_lock(fd), self_update._process_lock(updater) as held:
+            assert held
+            self_update._reexec_updated_server()
+        raise AssertionError("re-exec returned")
+with server_session(root, activate):
+    with self_update._process_lock(updater) as free:
+        print("SERVING", os.getpid(), "activated" if activated else "shared",
+              "updater-free" if free else "updater-held", flush=True)
+    line = sys.stdin.readline()
+    if line.strip() == "hang":
+        sys.stdin.readline()
+    print("ECHO " + line.strip(), flush=True)
+sys.exit(7)
+'''
+
+
+def _respawning_server(tmp_path):
+    root = tmp_path / "install"
+    (root / "data").mkdir(parents=True)
+    script = tmp_path / "server.py"
+    script.write_text(_RESPAWNING_SERVER, encoding="utf-8")
+    return root, subprocess.Popen([sys.executable, str(script), str(ROOT), str(root)], cwd=tmp_path,
+                                  stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+
+@windows_only
+def test_windows_reexec_serves_the_updated_code_on_the_same_stdio(tmp_path):
+    """Windows has no exec: the child takes over the client's pipes, the leases and the exit code."""
+    root, parent = _respawning_server(tmp_path)
+    try:
+        serving = parent.stdout.readline().split()
+        assert serving[0] == "SERVING", parent.stderr.read() if parent.poll() is not None else serving
+        # The child got both leases: the parent released them before starting it.
+        assert serving[2:] == ["activated", "updater-free"]
+        # A venv's python.exe starts the interpreter as its child: compare the interpreters' PIDs.
+        assert int(serving[1]) != int((root / "parent.pid").read_text())
+        output, errors = parent.communicate(input="request\n", timeout=10)
+        assert output.strip() == "ECHO request", errors
+        assert parent.returncode == 7
+        assert _free(root / "data/.sessions.lock")
+    finally:
+        _stop(parent)
+
+
+@windows_only
+def test_windows_reexec_child_ends_when_the_client_ends_its_server(tmp_path):
+    root, parent = _respawning_server(tmp_path)
+    try:
+        serving = parent.stdout.readline().split()
+        assert serving[0] == "SERVING"
+        parent.stdin.write("hang\n")
+        parent.stdin.flush()
+        assert not _free(root / "data/.sessions.lock")
+        parent.kill()  # what an MCP client does to the process it started
+        parent.communicate(timeout=5)
+        assert _ended(int(serving[1]))
+        assert _free(root / "data/.sessions.lock")
+    finally:
+        _stop(parent)
+
+
+@windows_only
+def test_windows_session_lease_downgrades_without_a_gap(tmp_path):
+    """The activating start keeps the lease from writers between activation and serving."""
+    data = tmp_path / "data"
+    data.mkdir()
+    probe = ('import sys; sys.path.insert(0, sys.argv[1]); from src import startup\n'
+             'lease = open(sys.argv[2], "a+b")\n'
+             'try:\n    startup._lock(lease.fileno(), exclusive=sys.argv[3] == "x", blocking=False); print("got")\n'
+             'except BlockingIOError:\n    print("busy")\n')
+
+    def other(kind):
+        result = subprocess.run([sys.executable, "-c", probe, str(ROOT), str(data / ".sessions.lock"), kind],
+                                capture_output=True, text=True, timeout=30)
+        assert result.returncode == 0, result.stderr
+        return result.stdout.strip()
+
+    seen = {}
+    with startup.server_session(tmp_path, lambda fd: seen.update(during=(other("s"), other("x")))):
+        seen["serving"] = (other("s"), other("x"))
+    assert seen == {"during": ("busy", "busy"), "serving": ("got", "busy")}
+    assert other("x") == "got"
+
+
+def test_a_held_stdio_slot_is_what_the_service_updater_sees(tmp_path):
+    """On Windows the service's auto-update finds stdio readers by their slot leases alone."""
+    from types import SimpleNamespace
+    from src.daemon import autoupdate
+    if not startup.LEASES:
+        pytest.skip("no installation leases on this platform")
+    (tmp_path / "data").mkdir()
+    code = """
+import sys
+sys.path.insert(0, sys.argv[1])
+from src.startup import stdio_derived_state
+with stdio_derived_state(sys.argv[2]) as derived:
+    print(derived, flush=True)
+    sys.stdin.readline()
+"""
+    process = _child(code, ROOT, tmp_path)
+    try:
+        derived = Path(process.stdout.readline().strip())
+        installation = SimpleNamespace(config={"installation": str(tmp_path)})
+        assert autoupdate.held_slots(installation) == ["stdio slot " + derived.name]
+        process.communicate(input="exit\n", timeout=10)
+        assert autoupdate.held_slots(installation) == []
+    finally:
+        _stop(process)

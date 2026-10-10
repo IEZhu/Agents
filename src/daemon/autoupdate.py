@@ -1,8 +1,9 @@
 """Opt-in unattended updates of a shared installation from its tracked branch.
 
-A second LaunchAgent runs ``auto-update run`` every ``interval`` seconds. Each
-run is cheap when there is nothing to do: it fetches the tracked branch and
-returns. When a fast-forward is available it waits for the service to be idle
+A second LaunchAgent, or on Windows a second Task Scheduler task
+(`src.daemon.service.TaskScheduler.write_updater`), runs ``auto-update run``
+every ``interval`` seconds. Each run is cheap when there is nothing to do: it
+fetches the tracked branch and returns. When a fast-forward is available it waits for the service to be idle
 and then runs the same controller transaction as ``update``: build the target
 and its stores while the service serves, check again that it is idle, then
 drain, stop, fast-forward, move the stores in, probation, ready, rollback on
@@ -30,7 +31,7 @@ import subprocess
 from src.file_lock import file_lock
 from . import service
 from .state import atomic_private, read_json, write_json
-from .update import DEPENDENCIES
+from .update import DEPENDENCIES, NO_WINDOW
 
 DEFAULT_INTERVAL = 900
 DEFAULT_IDLE_SECONDS = 120
@@ -79,6 +80,11 @@ def enable(controller, interval=DEFAULT_INTERVAL, idle_seconds=DEFAULT_IDLE_SECO
     if interval < 60 or idle_seconds < 0:
         raise ValueError("interval must be at least 60 seconds and idle_seconds not negative")
     with file_lock(controller.directory / "control.lock", blocking=False):
+        if service.PLATFORM == "win32":
+            # One /Create replaces the task; a failure leaves the previous task and config.
+            service.TaskScheduler(controller).write_updater(interval)
+            _save_settings(controller, enabled=True, interval=interval, idle_seconds=idle_seconds)
+            return status(controller)
         # Config and plist change only once launchd runs the new job; any failure
         # leaves the previous config, plist and job as they were.
         domain, target = f"gui/{os.getuid()}", f"gui/{os.getuid()}/{label(controller)}"
@@ -106,7 +112,8 @@ def enable(controller, interval=DEFAULT_INTERVAL, idle_seconds=DEFAULT_IDLE_SECO
 
 def disable(controller):
     with file_lock(controller.directory / "control.lock", blocking=False):
-        if service.PLATFORM == "win32":  # `enable` is refused there, so no updater was ever scheduled
+        if service.PLATFORM == "win32":
+            service.TaskScheduler(controller).remove_updater()
             if controller.config:
                 _save_settings(controller, enabled=False)
             return {"enabled": False}
@@ -122,9 +129,9 @@ def disable(controller):
 
 def status(controller):
     if service.PLATFORM == "win32":
-        return {**settings(controller), "scheduled": False, "supported": False,
-                "last_run": read_json(controller.directory / "auto-update.json", {})}
-    loaded = controller.launchctl("print", f"gui/{os.getuid()}/{label(controller)}", check=False).returncode == 0
+        loaded = service.TaskScheduler(controller).updater_scheduled()
+    else:
+        loaded = controller.launchctl("print", f"gui/{os.getuid()}/{label(controller)}", check=False).returncode == 0
     return {**settings(controller), "scheduled": loaded,
             "last_run": read_json(controller.directory / "auto-update.json", {})}
 
@@ -132,7 +139,9 @@ def status(controller):
 def _git(controller, *args, check=True):
     return subprocess.run([controller.config["git"], *args], cwd=controller.config["installation"],
                           capture_output=True, text=True, timeout=GIT_TIMEOUT, check=check,
-                          env={**os.environ, "PATH": controller.config["path"], "GIT_TERMINAL_PROMPT": "0"})
+                          stdin=subprocess.DEVNULL, creationflags=NO_WINDOW,
+                          env={**os.environ, "PATH": controller.config["path"], "GIT_TERMINAL_PROMPT": "0",
+                               "GCM_INTERACTIVE": "false"})
 
 
 def check_target(controller, remote=None, branch=None):
@@ -192,14 +201,39 @@ def other_readers(controller, daemon_pid):
 
     `offline_update` stops the service before it can learn that a stdio server
     holds the lease, then restarts it. Checking first keeps a connected stdio
-    client from costing a restart on every interval. None when unknown.
+    client from costing a restart on every interval. None when unknown; on
+    Windows the held stdio slots instead (`held_slots`).
     """
+    if service.PLATFORM == "win32":
+        return held_slots(controller)
     lsof = shutil.which("lsof", path=controller.config["path"] + ":/usr/sbin")
     if not lsof:
         return None
     lease = Path(controller.config["installation"]) / "data/.sessions.lock"
-    listed = subprocess.run([lsof, "-t", "--", str(lease)], capture_output=True, text=True, timeout=GIT_TIMEOUT)
+    listed = subprocess.run([lsof, "-t", "--", str(lease)], capture_output=True, text=True, timeout=GIT_TIMEOUT,
+                            stdin=subprocess.DEVNULL)
     return sorted({int(pid) for pid in listed.stdout.split()} - {daemon_pid, os.getpid()})
+
+
+def held_slots(controller):
+    """Windows: the stdio slots whose lease a running server holds (`src.startup.stdio_derived_state`).
+
+    Windows does not say which processes hold a lock. Each stdio server holds one slot for
+    its whole session, the service none: a slot that cannot be locked has a stdio reader.
+    A reader without a slot, such as a `python -m src.user_sync` command, goes unseen: the
+    update then stops the service, finds the lease held and restarts it.
+    """
+    base = Path(controller.config["installation"]) / "data" / "stdio"
+    held = []
+    for lease in sorted(base.glob("*/.lease")):
+        if lease.is_symlink():
+            continue
+        try:
+            with file_lock(lease, blocking=False):
+                pass
+        except BlockingIOError:
+            held.append("stdio slot " + lease.parent.name)
+    return held
 
 
 def _enabled_on_disk(controller):
