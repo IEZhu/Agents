@@ -237,7 +237,9 @@ class Service:
 
         `{path}` is the bridge's launch directory, which counts only with a `.git` or
         `CLAUDE.md` at or above it; `{path, origin: "CLAUDE_PROJECT_DIR"}` is the
-        directory the client named and is used as named; `{path, roots}` is a tool
+        directory the client named and is used as named; `origin: "hook"` is a
+        client path authenticated by the stdio bridge's HMAC verification;
+        `{path, roots}` is a tool
         call's workspace, which must lie inside the client's MCP roots. The checks of
         `src.engine.config` decide what is a project. The route takes the bearer token
         and is no MCP tool, so a model never reaches it.
@@ -245,7 +247,7 @@ class Service:
         try:
             body = await request.json()
             directory, roots, origin = body.get("path"), body.get("roots"), body.get("origin", "cwd")
-            if not isinstance(directory, str) or origin not in ("cwd", "CLAUDE_PROJECT_DIR") or not (
+            if not isinstance(directory, str) or origin not in ("cwd", "CLAUDE_PROJECT_DIR", "hook") or not (
                     roots is None or isinstance(roots, list) and all(isinstance(root, str) for root in roots)):
                 raise ValueError("expected {path, origin?, roots?}")
         except (ValueError, AttributeError) as error:
