@@ -361,7 +361,8 @@ catches up every checkout seen so far at once (within a few seconds; the rest fo
 run). `revoke <key>` still stops one repository and remembers it (`history_revoked`), so it stays
 out until an `export --confirm` approves it again. The scope exclusions and the secret scanner
 apply as always. `history share approved` returns to the review: keys approved before stay
-approved, and the other repositories' new entries wait again; what was shared stays.
+approved, and the other repositories' new entries wait again, as does the unshared past of a
+clone that joined an approved repository meanwhile; what was shared stays.
 
 `status` reports, without changing the sync state: `history_waiting`, the repositories with entries
 waiting for the owner here and how many could be shared (entries the scanner keeps local are not

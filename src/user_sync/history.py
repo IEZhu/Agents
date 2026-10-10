@@ -269,7 +269,8 @@ def _register(machine: _Machine, workspace: _Workspace, fresh=frozenset()) -> di
 
     A checkout that joins an approved key (first seen, or its origin changed) keeps its existing
     entries as ``unreviewed``: approval covered what the owner saw, not this checkout's past.
-    Under ``history share all`` nothing waits for a review, so nothing is marked.
+    Under ``history share all`` the marks are kept but not applied (``_unreviewed``), so they
+    hold again for anything still unshared once ``history share approved`` returns to the review.
     ``fresh`` are ids this process appended through sync in that checkout: new turns, not past.
     """
     registry = _roots(machine)
@@ -278,7 +279,7 @@ def _register(machine: _Machine, workspace: _Workspace, fresh=frozenset()) -> di
         current = next((value for root, value in registry.items() if _root_key(root) == workspace.root), None)
     joins = current is None or current.get("key") != workspace.key or current.get("origin") != workspace.origin
     unreviewed = sorted(_journal_ids(workspace.root) - set(fresh)) \
-        if joins and workspace.key in _approved(machine.settings) and not machine.share_all else []
+        if joins and workspace.key in _approved(machine.settings) else []
 
     def change(state):
         roots = state.setdefault("roots", {})
@@ -969,7 +970,9 @@ def _reconcile(root, *, state_dir, library, full: bool, wait: float, fresh) -> d
         return {"status": "skipped", "reason": "paused"}
     if _excluded(repo, scopes):
         return {"status": "skipped", "reason": "excluded"}
-    since_month = None if full else _archive_month(record.get("watermark"))
+    # ``full`` in the record: a catch-up that releases older entries (an approval, ``share all``)
+    # has not finished this checkout yet, so archives before the watermark still count.
+    since_month = None if full or record.get("full") else _archive_month(record.get("watermark"))
     entries = sorted(_journal(workspace.root, since_month).values(), key=lambda pair: (pair[0].timestamp, pair[0].id))
     known = _shared_ids(repo, scopes)
     unreviewed = _unreviewed(machine, record)
@@ -1004,6 +1007,8 @@ def _reconcile(root, *, state_dir, library, full: bool, wait: float, fresh) -> d
         current = state.setdefault("roots", {}).setdefault(workspace.root, {"key": repo.key, "origin": repo.origin})
         if reached and outcome["status"] != "skipped":
             current["watermark"] = max([reached[-1]] + ([current["watermark"]] if current.get("watermark") else []))
+        if not pending and outcome["status"] not in ("failed", "skipped"):
+            current.pop("full", None)  # every archive was read and nothing is left over
         if failed:
             state["error"] = {"reason": outcome["reason"], "message": outcome.get("message"), "key": repo.key,
                               "time": _now()}
@@ -1407,6 +1412,7 @@ def export(*, state_dir=None, library=None, keys=(), paths=(), confirm: str | No
         for root, record in state.get("roots", {}).items():
             if _root_key(root) in checkouts:
                 record.pop("unreviewed", None)
+                record["full"] = True  # until a run reads every archive of it
     _change_state(machine.state_dir, release)
     results = reconcile_all(state_dir=machine.state_dir, library=machine.library, keys=set(covered), full=True,
                             deadline=time.monotonic() + (CLI_WAIT_SECONDS if wait is None else wait))
@@ -1469,6 +1475,11 @@ def share(mode: str, *, state_dir=None, library=None, wait: float | None = None)
     if mode != previous:
         engine.Syncer(machine.library, machine.state_dir)._update_settings(
             lambda settings: setattr(settings, "history_share", mode))
+    if mode == SHARE_ALL:
+        def read_whole(state):  # entries before a watermark may wait: read every archive once more
+            for record in state.get("roots", {}).values():
+                record["full"] = True
+        _change_state(machine.state_dir, read_whole)
     results = reconcile_all(state_dir=machine.state_dir, library=machine.library, full=mode == SHARE_ALL,
                             deadline=time.monotonic() + (CLI_WAIT_SECONDS if wait is None else wait))
     summary = _summary(results)

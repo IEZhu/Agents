@@ -379,8 +379,43 @@ def test_share_all_also_shares_the_unreviewed_past_of_a_joining_clone(tmp_path, 
     later.writer.append_entry("past of a clone that joins under share all", "a", "o")
     later.log("its first turn")
     assert {"past of a clone that joins under share all", "its first turn"} <= set(a.exported())
+
+
+def test_a_clone_seen_under_share_all_is_reviewed_again_after_share_approved(tmp_path, shared, clock):
+    a, _ = shared
+    history_sync.share("all", state_dir=a.machine.state, library=a.machine.lib)
+    a.machine.sync.pause()  # its past cannot be shared before the owner returns to the review
+    clone = Box(tmp_path, "a3", a.machine.remote, machine=a.machine)
+    clone.writer.append_entry("past of a clone seen under share all", "a", "o")
+    clone.read()
+    assert history_sync.drain(60)
+    history_sync.share("approved", state_dir=a.machine.state, library=a.machine.lib)
+    a.machine.sync.resume()
+    assert history_sync.drain(60)
+    clone.log("a new turn in the clone")
+    assert "a new turn in the clone" in a.exported()
+    assert "past of a clone seen under share all" not in a.exported()
+    assert a.status()["history_waiting"] == [{"key": KEY, "origin": NORMALIZED, "entries": 1}]
+
+
+def test_share_all_reads_older_archives_until_a_run_finishes_each_checkout(tmp_path, shared, clock):
+    a, _ = shared
+    clone = Box(tmp_path, "a3", a.machine.remote, machine=a.machine)
+    clock.now = datetime(2026, 9, 1, 8, 0, tzinfo=timezone.utc)
+    clone.writer.append_entry("archived past of a clone", "a", "o")
+    (clone.repo / "history").mkdir()
+    clone.history.rename(clone.repo / "history" / "2026-09.md")  # as rotation leaves a past month
+    clock.now = datetime(2026, 10, 5, 13, 0, tzinfo=timezone.utc)
+    clone.read()
+    assert history_sync.drain(60)
+    clone.log("a new turn in the clone")  # shared, and the watermark moves to October
+    assert "archived past of a clone" not in a.exported()
+    left = history_sync.share("all", state_dir=a.machine.state, library=a.machine.lib, wait=0)
+    assert left["left"] and "archived past of a clone" not in a.exported()  # the deadline left it
+    history_sync.request_catch_up(a.machine.state, a.machine.lib)  # an ordinary later run
+    assert "archived past of a clone" in a.exported()
     roots = history_sync._roots(history_sync._machine(a.machine.state, a.machine.lib))
-    assert not roots[str(later.repo.resolve())].get("unreviewed")
+    assert not any(record.get("full") for record in roots.values())
 
 
 def test_revoke_under_share_all_keeps_one_key_out_until_it_is_approved_again(tmp_path, two, clock, capsys):
