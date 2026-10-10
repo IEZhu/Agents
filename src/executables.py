@@ -117,18 +117,38 @@ def git_environment(repository: str | os.PathLike, environment: Mapping[str, str
     ``status``, ``core.hooksPath``, filter drivers) or redirect a fetch (``url.<base>.insteadOf``),
     and without inherited ``GIT_*`` variables. The system configuration stays: it holds Git for
     Windows' credential manager and TLS settings and Apple git's ``osxkeychain``. As command-line
-    configuration: ``repository`` as ``safe.directory`` (git 2.38 and later read it there), so an
-    installation that relied on a global entry keeps working, and the user's line-ending settings
-    (``_line_endings``).
+    configuration: ``repository`` as ``safe.directory``, so an installation that relied on a global
+    entry keeps working, and the user's line-ending settings (``_line_endings``).
+
+    Git before 2.38 reads ``safe.directory`` only from the system and global configuration, so
+    there the global configuration stays, as before #279; only the inherited variables go.
     """
     repository = Path(repository).resolve().as_posix()
     environment = {name: value for name, value in (os.environ if environment is None else environment).items()
                    if not name.startswith("GIT_")}
+    if (_installed_git_version() or (0, 0)) < SAFE_DIRECTORY_ON_COMMAND_LINE:
+        return environment
     settings = [("safe.directory", repository), *_line_endings(repository)]
     environment.update(GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_COUNT=str(len(settings)))
     for index, (key, value) in enumerate(settings):
         environment.update({f"GIT_CONFIG_KEY_{index}": key, f"GIT_CONFIG_VALUE_{index}": value})
     return environment
+
+
+# The first git that reads safe.directory from command-line configuration.
+SAFE_DIRECTORY_ON_COMMAND_LINE = (2, 38)
+_git_versions: dict[str, tuple[int, int] | None] = {}
+
+
+def _installed_git_version() -> tuple[int, int] | None:
+    """The version of the git ``path`` starts, looked up once per process and path; None when unknown."""
+    try:
+        git = path("git")
+    except FileNotFoundError:
+        return None
+    if git not in _git_versions:
+        _git_versions[git] = _version(git)
+    return _git_versions[git]
 
 
 # How the checkout's line endings were written; without them git would see a clean checkout as modified.
@@ -343,6 +363,7 @@ def reset() -> None:
     _pins.clear()
     _found.clear()
     _line_endings_found.clear()
+    _git_versions.clear()
     for cached in (_windows_directory, _protected_roots, _developer_git):
         cached.cache_clear()
 

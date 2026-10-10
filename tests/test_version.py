@@ -16,7 +16,8 @@ from src.schemas.protocol import PersonaDescriptor
 def fresh(tmp_path, monkeypatch):
     (tmp_path / ".git").mkdir()  # the version helper only trusts the installation's own checkout
     monkeypatch.setattr(version, "ROOT", tmp_path)
-    # The line-ending lookup is a git call of its own (#279); these tests count the footer's.
+    # The version and line-ending lookups are git calls of their own (#279); these tests count the footer's.
+    monkeypatch.setattr(version.executables, "_installed_git_version", lambda: (2, 45))
     monkeypatch.setattr(version.executables, "_line_endings", lambda repository: [])
     version.agents_core_version.cache_clear()
     yield

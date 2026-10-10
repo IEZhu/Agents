@@ -83,31 +83,35 @@ def enable(controller, interval=DEFAULT_INTERVAL, idle_seconds=DEFAULT_IDLE_SECO
         if service.PLATFORM == "win32":
             # One /Create replaces the task; a failure leaves the previous task and config.
             service.TaskScheduler(controller).write_updater(interval)
-            _save_settings(controller, enabled=True, interval=interval, idle_seconds=idle_seconds)
-            return _enabled(controller)
-        # Config and plist change only once launchd runs the new job; any failure
-        # leaves the previous config, plist and job as they were.
-        domain, target = f"gui/{os.getuid()}", f"gui/{os.getuid()}/{label(controller)}"
-        plist = plist_path(controller)
-        previous_plist = plist.read_bytes() if plist.exists() else None
-        was_loaded = controller.launchctl("print", target, check=False).returncode == 0
-        if was_loaded:  # reload a changed interval
-            controller.launchctl("bootout", target, check=False)
-            if controller.launchctl("print", target, check=False).returncode == 0:
-                raise RuntimeError("launchd could not unload the current updater; nothing changed")
-        try:
-            write_plist(controller, interval)
-            controller.launchctl("bootstrap", domain, str(plist))
-        except BaseException:
-            if previous_plist is None:
-                plist.unlink(missing_ok=True)
-            else:
-                atomic_private(plist, previous_plist.decode())
-                if was_loaded:
-                    controller.launchctl("bootstrap", domain, str(plist), check=False)
-            raise
+        else:
+            _bootstrap_updater(controller, interval)
         _save_settings(controller, enabled=True, interval=interval, idle_seconds=idle_seconds)
+    # After the lock: the remote check can take GIT_TIMEOUT, which stop and disable need not wait for.
     return _enabled(controller)
+
+
+def _bootstrap_updater(controller, interval):
+    """Config and plist change only once launchd runs the new job; any failure leaves the previous
+    config, plist and job as they were."""
+    domain, target = f"gui/{os.getuid()}", f"gui/{os.getuid()}/{label(controller)}"
+    plist = plist_path(controller)
+    previous_plist = plist.read_bytes() if plist.exists() else None
+    was_loaded = controller.launchctl("print", target, check=False).returncode == 0
+    if was_loaded:  # reload a changed interval
+        controller.launchctl("bootout", target, check=False)
+        if controller.launchctl("print", target, check=False).returncode == 0:
+            raise RuntimeError("launchd could not unload the current updater; nothing changed")
+    try:
+        write_plist(controller, interval)
+        controller.launchctl("bootstrap", domain, str(plist))
+    except BaseException:
+        if previous_plist is None:
+            plist.unlink(missing_ok=True)
+        else:
+            atomic_private(plist, previous_plist.decode())
+            if was_loaded:
+                controller.launchctl("bootstrap", domain, str(plist), check=False)
+        raise
 
 
 def _enabled(controller):

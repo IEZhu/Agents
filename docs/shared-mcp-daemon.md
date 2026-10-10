@@ -186,8 +186,8 @@ Other processes, such as a stdio server or `python -m src.user_sync`, run the to
 their own PATH names first, as the user's shell would, except from an empty or
 relative entry.
 
-Git on the installation's own repository does not read the user's global git
-configuration (`~/.gitconfig`, `$XDG_CONFIG_HOME/git/config`; #279). That git runs in
+With git 2.38 or later, git on the installation's own repository does not read the
+user's global git configuration (`~/.gitconfig`, `$XDG_CONFIG_HOME/git/config`; #279). That git runs in
 the updater, in `update` and for the version footer, also outside the service (a
 standalone installation's own auto-update). Keys there can run programs:
 `core.fsmonitor` on `git status`, `core.hooksPath` on the update's merges and
@@ -211,9 +211,10 @@ or `GIT_SSL_CAINFO` variables, which this git no longer inherits.
 `auto-update enable` checks that the remote answers without the global configuration
 and adds a `warning` when it does not.
 
-With git 2.38 or later the installation is `safe.directory` for these commands, so
-a global entry for it is not needed; older git reads that setting only from the
-system and global configuration.
+The installation is `safe.directory` for these commands, so a global entry for it is
+not needed. This needs git 2.38 or later: older git reads that setting only from the
+system and global configuration, so it keeps reading the user's global configuration
+for these commands, as before #279, and drops only the inherited `GIT_*` variables.
 
 Git on the user's own repositories (a workspace's origin, client configuration files)
 keeps the user's configuration, and user sync has its own isolation

@@ -21,6 +21,11 @@ needs_protected_git = pytest.mark.skipif(REAL_GIT is None or not REAL_GIT.protec
                                          reason="needs a git that only an administrator can replace")
 # Root owns whatever a test plants, so nothing it plants is replaceable by "the user".
 not_root = pytest.mark.skipif(hasattr(os, "geteuid") and os.geteuid() == 0, reason="root owns the planted files")
+GIT_VERSION = executables._version(REAL_GIT.path) if REAL_GIT else None
+# Older git keeps the user's global configuration (git_environment, #279).
+needs_isolating_git = pytest.mark.skipif(
+    REAL_GIT is None or not REAL_GIT.protected or (GIT_VERSION or (0, 0)) < executables.SAFE_DIRECTORY_ON_COMMAND_LINE,
+    reason="needs a protected git that reads safe.directory from the command line (2.38 or later)")
 
 
 def plant(directory: Path, name: str, marker: Path) -> Path:
@@ -206,6 +211,7 @@ def test_the_service_environment_has_system_directories_and_nothing_that_steers_
 
 
 def test_git_on_the_installation_runs_without_the_users_configuration(tmp_path, monkeypatch):
+    monkeypatch.setattr(executables, "_installed_git_version", lambda: (2, 45))
     monkeypatch.setenv("GIT_DIR", str(tmp_path / "elsewhere"))
     environment = executables.git_environment(tmp_path, {**os.environ, "GIT_CONFIG_GLOBAL": "~/.gitconfig"})
     assert "GIT_DIR" not in environment and environment["GIT_CONFIG_GLOBAL"] == os.devnull
@@ -215,6 +221,15 @@ def test_git_on_the_installation_runs_without_the_users_configuration(tmp_path, 
     # Then the line-ending settings of the user's git, if any (test_the_users_line_endings_come_along).
     assert all(environment[f"GIT_CONFIG_KEY_{index}"] in ("core.autocrlf", "core.eol")
                for index in range(1, int(environment["GIT_CONFIG_COUNT"])))
+
+
+def test_git_before_2_38_keeps_the_users_configuration(tmp_path, monkeypatch):
+    """It reads safe.directory only from the system and global configuration: hiding the global one
+    would refuse an installation that relied on it there."""
+    monkeypatch.setattr(executables, "_installed_git_version", lambda: (2, 37))
+    monkeypatch.setenv("GIT_DIR", str(tmp_path / "elsewhere"))
+    environment = executables.git_environment(tmp_path)
+    assert not any(name.startswith("GIT_") for name in environment)
 
 
 def setup_git(*args, cwd):
@@ -260,7 +275,7 @@ def committed_repository(directory):
     return directory
 
 
-@needs_protected_git
+@needs_isolating_git
 def test_the_version_footers_git_ignores_the_users_configuration(tmp_path, monkeypatch):
     # A repository of its own: the real checkout may enable FSMonitor in its own configuration.
     monkeypatch.setattr(version, "ROOT", committed_repository(tmp_path / "installation"))
@@ -273,7 +288,7 @@ def test_the_version_footers_git_ignores_the_users_configuration(tmp_path, monke
     assert not marker.exists()
 
 
-@needs_protected_git
+@needs_isolating_git
 def test_the_updaters_check_ignores_the_users_configuration(tmp_path, monkeypatch):
     """Neither a global core.fsmonitor runs nor a global url.insteadOf redirects the update's fetch."""
     origin, evil, installation, other = (tmp_path / name for name in ("origin.git", "evil.git", "installation", "other"))
@@ -322,6 +337,7 @@ def test_the_updaters_git_on_the_installation_drops_the_users_configuration(tmp_
 def test_the_updaters_git_runs_in_the_service_environment(two_directories, tmp_path, monkeypatch):
     monkeypatch.setenv("MSYSTEM", "MINGW64")
     executables.configure({"git": str(two_directories["system"])})
+    monkeypatch.setattr(executables, "_installed_git_version", lambda: (2, 45))
     monkeypatch.setattr(executables, "_line_endings", lambda repository: [])
     seen = []
     monkeypatch.setattr(autoupdate.subprocess, "run", lambda argv, **options: seen.append((argv, options["env"])))
@@ -356,11 +372,7 @@ def test_macos_git_shim_counts_only_with_its_developer_tools(tmp_path, monkeypat
     assert executables._usable("/usr/bin/ssh-keygen") and executables._usable("/opt/local/bin/git")
 
 
-GIT_VERSION = executables._version(REAL_GIT.path) if REAL_GIT else None
-
-
-@pytest.mark.skipif(GIT_VERSION is None or GIT_VERSION < (2, 38),
-                    reason="git reads safe.directory from the command line from 2.38 on")
+@needs_isolating_git
 def test_the_installation_is_a_safe_directory_without_the_users_configuration(tmp_path):
     repository = committed_repository(tmp_path / "installation")
     # As if another user owned it, which a global safe.directory entry would have allowed.
@@ -375,6 +387,7 @@ def test_the_installation_is_a_safe_directory_without_the_users_configuration(tm
 
 
 def test_the_users_line_endings_come_along(tmp_path, monkeypatch):
+    monkeypatch.setattr(executables, "_installed_git_version", lambda: (2, 45))
     repository = committed_repository(tmp_path / "installation")
     hostile_configuration(tmp_path, monkeypatch, extra=("\teol = crlf",))
     environment = executables.git_environment(repository)
@@ -384,7 +397,7 @@ def test_the_users_line_endings_come_along(tmp_path, monkeypatch):
     assert "core.fsmonitor" not in settings
 
 
-@needs_protected_git
+@needs_isolating_git
 def test_a_checkout_written_with_the_users_autocrlf_stays_clean(tmp_path, monkeypatch):
     """A global core.autocrlf=true wrote CRLF files; without it the updater would see them as modified."""
     if plain_git("config", "--system", "--get", "core.autocrlf", cwd=tmp_path).stdout.strip():
