@@ -476,6 +476,10 @@ class Settings:
     deploy_key_id: int | None = None
     deploy_key_added: bool = False  # ``setup --github`` added that key, so ``check`` may withdraw it
     history_repositories: list[str] = field(default_factory=list)  # keys whose history.md this machine shares
+    # "all" shares every repository's history.md without a preview, except the keys in
+    # history_revoked; "approved" shares only history_repositories.
+    history_share: str = "approved"
+    history_revoked: list[str] = field(default_factory=list)
 
     @classmethod
     def load(cls, path: Path) -> "Settings | None":

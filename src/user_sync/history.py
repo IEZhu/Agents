@@ -2,15 +2,19 @@
 
 Every checkout keeps its own append-only ``history.md`` (``src.memory.history``); nothing from other
 machines is ever written into it. A repository's entries are shared only after the owner has seen
-them: ``python -m src.user_sync history export`` lists every entry not shared yet, and
-``--confirm`` records the repository's key as approved on this machine (``history_repositories``
-in the settings) and exports exactly the entries it listed. Approval covers the repository's future
-entries on this machine and the past entries the owner saw. A checkout that joins an approved key
-later (another clone, or a checkout whose origin changed) brings a past nobody reviewed: its entries
-from before it was first seen wait as unreviewed until a preview lists them and a confirmation
-releases them. ``history revoke`` stops sharing a key; what was shared stays. Approval is per
-machine; another machine's approval never shares this one's entries. Shared entries live in this
-machine's segments of the library::
+them (or chose ``history share all``, below): ``python -m src.user_sync history export`` lists every
+entry not shared yet, and ``--confirm`` records the repository's key as approved on this machine
+(``history_repositories`` in the settings) and exports exactly the entries it listed. Approval
+covers the repository's future entries on this machine and the past entries the owner saw. A
+checkout that joins an approved key later (another clone, or a checkout whose origin changed) brings
+a past nobody reviewed: its entries from before it was first seen wait as unreviewed until a preview
+lists them and a confirmation releases them. ``history revoke`` stops sharing a key; what was shared
+stays. Approval is per machine; another machine's approval never shares this one's entries.
+``history share all`` (``history_share`` in the settings) replaces the approval on this machine:
+every repository's entries are shared without a preview, past entries included, except keys
+``history revoke`` took out (``history_revoked``), which a confirmed export approves again; nothing
+waits as unreviewed. ``history share approved`` returns to approval one repository at a time. Shared
+entries live in this machine's segments of the library::
 
     repos/<key>/history/<label>/<YYYY-MM>.md     this machine's entries of that month (UTC)
     repos/<key>/history/<label>/<YYYY-MM>-2.md   the continuation once a part would pass 4 MiB
@@ -89,6 +93,7 @@ _LABEL = re.compile(r"[a-z0-9][a-z0-9-]{0,31}")   # what the engine accepts as a
 _PART = re.compile(r"(?P<month>[0-9]{4}-(?:0[1-9]|1[0-2]))(?:-(?P<number>[2-9]|[1-9][0-9]+))?\.md")
 _MONTH = re.compile(r"[0-9]{4}-(?:0[1-9]|1[0-2])")
 _TOKEN = re.compile(r"(?P<digest>[0-9a-f]{64})-(?P<cutoff>[0-9]{8}T[0-9]{6})")
+SHARE_APPROVED, SHARE_ALL = "approved", "all"   # Settings.history_share
 _MACHINE_LINE = "**Machine:**"
 _STATE_LOCK = "history-state.lock"
 
@@ -111,14 +116,36 @@ class _Machine:
         return self.settings.label
 
     @property
-    def approved(self) -> frozenset[str]:
-        return _approved(self.settings)
+    def share_all(self) -> bool:
+        return _share_all(self.settings)
+
+    def shares(self, key: str) -> bool:
+        return _shares(self.settings, key)
+
+
+def _keys(value) -> frozenset[str]:
+    """A list of repository keys from the settings; anything malformed counts as none."""
+    return frozenset(key for key in value if isinstance(key, str)) if isinstance(value, list) else frozenset()
 
 
 def _approved(settings: Settings | None) -> frozenset[str]:
-    """The keys whose history this machine shares; anything malformed counts as none."""
-    value = settings.history_repositories if settings is not None else None
-    return frozenset(key for key in value if isinstance(key, str)) if isinstance(value, list) else frozenset()
+    """The keys the owner approved one by one (``history export --confirm``)."""
+    return _keys(settings.history_repositories if settings is not None else None)
+
+
+def _share_all(settings: Settings | None) -> bool:
+    """``history share all``: every repository is shared without a preview, except revoked keys."""
+    return settings is not None and settings.history_share == SHARE_ALL
+
+
+def _revoked(settings: Settings | None) -> frozenset[str]:
+    """The keys ``history revoke`` took out of ``history share all``."""
+    return _keys(settings.history_revoked if settings is not None else None)
+
+
+def _shares(settings: Settings | None, key: str) -> bool:
+    """Whether this machine shares ``key``'s history: approved, or every key but the revoked ones."""
+    return key in _approved(settings) or (_share_all(settings) and key not in _revoked(settings))
 
 
 def _machine(state_dir=None, library=None) -> _Machine | None:
@@ -242,6 +269,8 @@ def _register(machine: _Machine, workspace: _Workspace, fresh=frozenset()) -> di
 
     A checkout that joins an approved key (first seen, or its origin changed) keeps its existing
     entries as ``unreviewed``: approval covered what the owner saw, not this checkout's past.
+    Under ``history share all`` the marks are kept but not applied (``_unreviewed``), so they
+    hold again for anything still unshared once ``history share approved`` returns to the review.
     ``fresh`` are ids this process appended through sync in that checkout: new turns, not past.
     """
     registry = _roots(machine)
@@ -250,7 +279,7 @@ def _register(machine: _Machine, workspace: _Workspace, fresh=frozenset()) -> di
         current = next((value for root, value in registry.items() if _root_key(root) == workspace.root), None)
     joins = current is None or current.get("key") != workspace.key or current.get("origin") != workspace.origin
     unreviewed = sorted(_journal_ids(workspace.root) - set(fresh)) \
-        if joins and workspace.key in machine.approved else []
+        if joins and workspace.key in _approved(machine.settings) else []
 
     def change(state):
         roots = state.setdefault("roots", {})
@@ -697,7 +726,7 @@ def _write(repo: _Repository, items: list[_Item], *, wait: float, tombstones=())
         with ExitStack() as stack:
             _acquire(stack, library / ".lock", wait)
             settings = Settings.load(repo.machine.state_dir / SETTINGS_FILE)
-            if repo.key not in _approved(settings):
+            if not _shares(settings, repo.key):
                 return {"status": "skipped", "reason": "not_approved", **empty}
             if settings.paused or not settings.started:
                 return {"status": "skipped", "reason": "paused" if settings.paused else "not_started", **empty}
@@ -835,17 +864,27 @@ def _write(repo: _Repository, items: list[_Item], *, wait: float, tombstones=())
 # --- the reconcile ------------------------------------------------------------------------------
 
 
+def _full_stamp() -> str:
+    """A new value of a registry record's ``full``: which release asked for a full read."""
+    return f"{_now()}-{os.urandom(4).hex()}"
+
+
+def _unreviewed(machine: _Machine, record: dict) -> set[str]:
+    """A checkout's entries that wait for a review; none under ``history share all``."""
+    return set() if machine.share_all else set(record.get("unreviewed") or ())
+
+
 def _waiting(repo: _Repository, roots: dict[str, dict], approved: bool) -> int:
     """Entries of the key's checkouts that wait for the owner here and could be shared.
 
     Not approved: every entry not shared yet. Approved: the unreviewed entries of checkouts that
-    joined after the approval. Entries the scanner keeps on this machine never count, so the count
-    can always be cleared by approving.
+    joined after the approval (none under ``history share all``). Entries the scanner keeps on this
+    machine never count, so the count can always be cleared by approving.
     """
     shared = _shared_ids(repo)
     candidates: dict[str, str] = {}   # id -> root
     for root, record in roots.items():
-        ids = _journal_ids(root) if not approved else set(record.get("unreviewed") or ())
+        ids = _journal_ids(root) if not approved else _unreviewed(repo.machine, record)
         for entry_id in ids - shared:
             candidates.setdefault(entry_id, root)
     # The verdicts are counted from this call's own copy: the cache is bounded, and with more
@@ -914,9 +953,12 @@ def _reconcile(root, *, state_dir, library, full: bool, wait: float, fresh) -> d
         return {"status": "skipped", "reason": "not_top_level"}
     if not _shared(workspace):
         return {"status": "skipped", "reason": "no_origin"}
-    repo = _Repository(machine, workspace.key, workspace.origin)
     record = _register(machine, workspace, fresh)
-    approved = repo.key in machine.approved
+    # A release changes the settings before it stamps ``full``: a run that sees its stamp must
+    # also see the settings it released under.
+    machine = _machine(state_dir, library) or machine
+    repo = _Repository(machine, workspace.key, workspace.origin)
+    approved = machine.shares(repo.key)
     try:
         scopes = _scopes(repo.library)
     except scope.ScopeError as error:
@@ -936,10 +978,16 @@ def _reconcile(root, *, state_dir, library, full: bool, wait: float, fresh) -> d
         return {"status": "skipped", "reason": "paused"}
     if _excluded(repo, scopes):
         return {"status": "skipped", "reason": "excluded"}
-    since_month = None if full else _archive_month(record.get("watermark"))
+    # ``full`` in the record: a catch-up that releases older entries (an approval, ``share all``)
+    # has not finished this checkout yet, so archives before the watermark still count. It is a
+    # stamp: only a run that read this very stamp may clear it, so a run that began before the
+    # release (with the old settings and record) never does.
+    stamp = record.get("full")
+    full_read = full or bool(stamp)
+    since_month = None if full_read else _archive_month(record.get("watermark"))
     entries = sorted(_journal(workspace.root, since_month).values(), key=lambda pair: (pair[0].timestamp, pair[0].id))
     known = _shared_ids(repo, scopes)
-    unreviewed = set(record.get("unreviewed") or ())
+    unreviewed = _unreviewed(machine, record)
     tombstones = _tombstones(machine.state_dir, repo.key)
     dropped = set(tombstones)
     items, skipped = [], Counter()
@@ -961,7 +1009,8 @@ def _reconcile(root, *, state_dir, library, full: bool, wait: float, fresh) -> d
     if outcome["status"] == "skipped" and outcome.get("reason") == "other_origin":
         _note_other_origin(machine, repo, sorted(set(others) | set(outcome.get("found", []))))
     # The watermark (which archive months a run skips) moves past every entry handled; the first
-    # one left (failed or held) stops it.
+    # one left (failed or held) stops it. After a read of every archive it is set, not only moved
+    # forward, so an older entry left over keeps its month readable without another full read.
     pending = {item.id for item in items} - set(outcome["written"]) - set(outcome["present"])
     stop = next((entry.timestamp for entry, _ in entries if entry.id in pending), None)
     reached = [entry.timestamp for entry, _ in entries if stop is None or entry.timestamp < stop]
@@ -969,8 +1018,13 @@ def _reconcile(root, *, state_dir, library, full: bool, wait: float, fresh) -> d
 
     def change(state):
         current = state.setdefault("roots", {}).setdefault(workspace.root, {"key": repo.key, "origin": repo.origin})
-        if reached and outcome["status"] != "skipped":
-            current["watermark"] = max([reached[-1]] + ([current["watermark"]] if current.get("watermark") else []))
+        if outcome["status"] != "skipped":
+            if full_read and (reached or pending):
+                current["watermark"] = reached[-1] if reached else None
+            elif reached:
+                current["watermark"] = max([reached[-1]] + ([current["watermark"]] if current.get("watermark") else []))
+        if stamp and current.get("full") == stamp and outcome["status"] not in ("failed", "skipped"):
+            current.pop("full", None)  # this release's full read is done
         if failed:
             state["error"] = {"reason": outcome["reason"], "message": outcome.get("message"), "key": repo.key,
                               "time": _now()}
@@ -1196,18 +1250,19 @@ def install(*, state_dir=None, library=None) -> Integration:
 def status(state_dir) -> dict:
     """What ``status`` shows about history: waiting repositories, the last failure, other origins.
 
-    A failure of a repository that is not approved here (any more) is not shown.
+    A failure of a repository that is not shared from here (any more) is not shown.
     """
     state = _read_state(Path(state_dir))
     settings = Settings.load(Path(state_dir) / SETTINGS_FILE)
     waiting = state.get("waiting") if isinstance(state.get("waiting"), dict) else {}
     other = state.get("other_origin") if isinstance(state.get("other_origin"), dict) else {}
-    approved = sorted(_approved(settings))
     error = state.get("error") if isinstance(state.get("error"), dict) else None
-    if error is not None and error.get("key") is not None and error.get("key") not in approved:
+    if error is not None and error.get("key") is not None and not _shares(settings, error.get("key")):
         error = None
     return {
-        "history_repositories": approved,
+        "history_share": SHARE_ALL if _share_all(settings) else SHARE_APPROVED,
+        "history_repositories": sorted(_approved(settings)),
+        "history_revoked": sorted(_revoked(settings)),
         "history_waiting": [{"key": key, "origin": value.get("origin"), "entries": value.get("entries", 0)}
                             for key, value in sorted(waiting.items()) if isinstance(value, dict)
                             and value.get("entries")],
@@ -1240,9 +1295,10 @@ def _cut(text: str) -> str:
 def _plan(machine: _Machine, keys=(), paths=()) -> dict:
     """The entries that wait for the owner on this machine, by repository.
 
-    For a repository not approved here: every entry not shared yet. For an approved one: the
-    unreviewed entries of checkouts that joined after the approval. Each repository lists its
-    checkouts, which the confirmation covers too.
+    For a repository not shared here: every entry not shared yet. For an approved one: the
+    unreviewed entries of checkouts that joined after the approval; under ``history share all``
+    only revoked repositories wait. Each repository lists its checkouts, which the confirmation
+    covers too.
     """
     for path in paths:
         workspace = _workspace(path)
@@ -1264,12 +1320,12 @@ def _plan(machine: _Machine, keys=(), paths=()) -> dict:
         if workspace.root not in roots.get(key, []):
             roots.setdefault(key, []).append(workspace.root)
         origins[key] = workspace.origin
-        unreviewed.setdefault(workspace.root, set()).update(record.get("unreviewed") or ())
+        unreviewed.setdefault(workspace.root, set()).update(_unreviewed(machine, record))
     scopes = _scopes(machine.library)
     repositories, notes = [], []
     for key in sorted(roots):
         repo = _Repository(machine, key, origins[key])
-        approved = key in machine.approved
+        approved = machine.shares(key)
         review = set().union(*(unreviewed.get(root, set()) for root in roots[key])) if approved else None
         if approved and not review:
             notes.append({"key": key, "origin": repo.origin, "reason": "approved"})
@@ -1361,14 +1417,19 @@ def export(*, state_dir=None, library=None, keys=(), paths=(), confirm: str | No
                    "review them and confirm")
         return {"status": "confirmation_needed", **result, "hash": token, "message": message}
     covered = _covered(repositories, _iso(match["cutoff"]))
-    engine.Syncer(machine.library, machine.state_dir)._update_settings(
-        lambda settings: setattr(settings, "history_repositories", sorted(_approved(settings) | set(covered))))
+    stamp = _full_stamp()
+
+    def approve(settings):  # a confirmation also takes a key back from history revoke
+        settings.history_repositories = sorted(_approved(settings) | set(covered))
+        settings.history_revoked = sorted(_revoked(settings) - set(covered))
+    engine.Syncer(machine.library, machine.state_dir)._update_settings(approve)
 
     def release(state):  # the owner saw these checkouts' past entries
         checkouts = {root for value in covered.values() for root in value["checkouts"]}
         for root, record in state.get("roots", {}).items():
             if _root_key(root) in checkouts:
                 record.pop("unreviewed", None)
+                record["full"] = stamp  # until a run reads every archive of it
     _change_state(machine.state_dir, release)
     results = reconcile_all(state_dir=machine.state_dir, library=machine.library, keys=set(covered), full=True,
                             deadline=time.monotonic() + (CLI_WAIT_SECONDS if wait is None else wait))
@@ -1389,12 +1450,20 @@ def _iso(compact: str) -> str:
 
 
 def revoke(key: str, *, state_dir=None, library=None) -> dict:
-    """``history revoke``: share nothing more of ``key`` from this machine; shared segments stay."""
+    """``history revoke``: share nothing more of ``key`` from this machine; shared segments stay.
+
+    Under ``history share all`` the key is also remembered as revoked, so it stays out until a
+    confirmed ``history export`` approves it again.
+    """
     machine = _require(state_dir, library)
-    if key not in machine.approved:
+    if not machine.shares(key):
         return {"status": "unchanged", "key": key, "message": f"{key} is not shared from this machine"}
-    engine.Syncer(machine.library, machine.state_dir)._update_settings(
-        lambda settings: setattr(settings, "history_repositories", sorted(_approved(settings) - {key})))
+
+    def withdraw(settings):
+        settings.history_repositories = sorted(_approved(settings) - {key})
+        if _share_all(settings):
+            settings.history_revoked = sorted(_revoked(settings) | {key})
+    engine.Syncer(machine.library, machine.state_dir)._update_settings(withdraw)
     _change_state(machine.state_dir, lambda state: _clear_key(state, key))
     roots = {root: record for root, record in _roots(machine).items()
              if record.get("key") == key and os.path.isdir(root)}
@@ -1404,3 +1473,43 @@ def revoke(key: str, *, state_dir=None, library=None) -> dict:
         _set_waiting(machine, repo, _waiting(repo, roots, approved=False))
     return {"status": "revoked", "key": key,
             "message": "nothing more of it is shared from this machine; entries already shared stay in the library"}
+
+
+def share(mode: str, *, state_dir=None, library=None, wait: float | None = None) -> dict:
+    """``history share all|approved``: share every repository's history, or only approved ones.
+
+    ``all`` shares, without a preview, every checkout's journal this machine has seen (its past
+    entries included) and every repository it sees later; ``history revoke`` leaves single keys
+    out, and the scope exclusions and the secret scanner apply as always. ``approved`` returns to
+    approval one repository at a time: keys approved before stay approved, the others wait again.
+    Either way the registered checkouts are caught up at once, waiting at most ``wait`` seconds
+    (``CLI_WAIT_SECONDS``) in total for the library; what it does not reach follows in a later run.
+    """
+    if mode not in (SHARE_ALL, SHARE_APPROVED):
+        raise SyncError("invalid", f"history share takes {SHARE_ALL} or {SHARE_APPROVED}, not {mode!r}")
+    machine = _require(state_dir, library)
+    previous = SHARE_ALL if machine.share_all else SHARE_APPROVED
+    if mode != previous:
+        engine.Syncer(machine.library, machine.state_dir)._update_settings(
+            lambda settings: setattr(settings, "history_share", mode))
+    if mode == SHARE_ALL:
+        stamp = _full_stamp()
+
+        def read_whole(state):  # entries before a watermark may wait: read every archive once more
+            for record in state.get("roots", {}).values():
+                record["full"] = stamp
+        _change_state(machine.state_dir, read_whole)
+    results = reconcile_all(state_dir=machine.state_dir, library=machine.library, full=mode == SHARE_ALL,
+                            deadline=time.monotonic() + (CLI_WAIT_SECONDS if wait is None else wait))
+    summary = _summary(results)
+    settings = Settings.load(machine.state_dir / SETTINGS_FILE)
+    if mode == SHARE_ALL:
+        message = "every repository's history is shared from this machine"
+        revoked = sorted(_revoked(settings))
+        if revoked:
+            message += f", except {', '.join(revoked)} (history revoke)"
+    else:
+        message = "only approved repositories' history is shared from this machine; the others wait for history export"
+    return {"status": "unchanged" if mode == previous else "changed", "history_share": mode,
+            "history_revoked": sorted(_revoked(settings)), "exported": summary["shared"], "left": summary["left"],
+            "results": results, "message": f"{message}; {summary['message']}"}
