@@ -25,11 +25,13 @@ import shlex
 import subprocess
 import sys
 
+from src import executables
+
 LOCAL_TIMEOUT = 10
 NETWORK_TIMEOUT = 60
 GITHUB_443_HOST = "ssh.github.com"  # GitHub's SSH over port 443, for networks that block port 22
 # GIT_CONFIG_GLOBAL, on which the isolation rests, arrived in git 2.32.
-MIN_GIT_VERSION = (2, 32)
+MIN_GIT_VERSION = executables.MIN_GIT_VERSION
 
 _SCP = re.compile(r"(?P<user>[A-Za-z0-9_][A-Za-z0-9._-]*)@(?P<host>[A-Za-z0-9][A-Za-z0-9.-]*)"
                   r":(?P<path>[A-Za-z0-9_][A-Za-z0-9._/~-]*)")
@@ -118,11 +120,11 @@ def parse_remote(url: str, *, allow_file: bool = False) -> Remote:
     return Remote(url, kind, host.lower(), port, path)
 
 
-def git_version(executable: str = "git") -> tuple[int, ...] | None:
+def git_version(executable: str | None = None) -> tuple[int, ...] | None:
     """``(major, minor, patch)`` of the installed git, or None when it cannot run."""
     try:
-        result = subprocess.run([executable, "version"], capture_output=True, text=True, stdin=subprocess.DEVNULL,
-                                timeout=LOCAL_TIMEOUT, env=clean_environment(), **no_window())
+        result = subprocess.run([executable or executables.path("git"), "version"], capture_output=True, text=True,
+                                stdin=subprocess.DEVNULL, timeout=LOCAL_TIMEOUT, env=clean_environment(), **no_window())
     except (OSError, subprocess.SubprocessError):
         return None
     match = re.search(r"(\d+)\.(\d+)(?:\.(\d+))?", result.stdout)
@@ -216,7 +218,7 @@ class Git:
     """Runs git on one library with the isolation described in the module docstring."""
 
     def __init__(self, work_tree: Path, *, config: Path, ssh: str | None, allow_file: bool = False,
-                 executable: str = "git"):
+                 executable: str | None = None):
         self.work_tree = Path(work_tree)
         self.git_dir = self.work_tree / ".git"
         self.config, self.ssh, self.allow_file, self.executable = config, ssh, allow_file, executable
@@ -238,18 +240,17 @@ class Git:
         ``index`` selects a temporary index file; ``repository=False`` omits ``--git-dir`` and
         ``--work-tree`` for commands such as ``init`` and ``version``.
         """
-        command = [self.executable]
-        if repository:
-            command += [f"--git-dir={self.git_dir}", f"--work-tree={self.work_tree}"]
-        command += list(args)
+        arguments = [f"--git-dir={self.git_dir}", f"--work-tree={self.work_tree}"] if repository else []
+        arguments += list(args)
         extra = {"GIT_INDEX_FILE": str(index)} if index else None
         timeout = NETWORK_TIMEOUT if network else LOCAL_TIMEOUT
         # Never the server's stdin: the stdio trigger runs inside the MCP server (see src/version.py).
         stdin = {"input": input} if input is not None else {"stdin": subprocess.DEVNULL}
         try:
-            result = subprocess.run(command, capture_output=True, timeout=timeout,
-                                    env=self.environment(extra), cwd=self.work_tree if self.work_tree.is_dir() else None,
-                                    **stdin, **no_window())
+            # The lookup is inside: a missing git is a GitError like one that cannot start.
+            result = subprocess.run([self.executable or executables.path("git"), *arguments], capture_output=True,
+                                    timeout=timeout, env=self.environment(extra),
+                                    cwd=self.work_tree if self.work_tree.is_dir() else None, **stdin, **no_window())
         except subprocess.TimeoutExpired:
             raise GitError(args[0], "timeout" if network else "local", f"timed out after {timeout} s") from None
         except OSError as error:

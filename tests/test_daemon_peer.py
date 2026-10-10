@@ -97,7 +97,7 @@ def test_lsof_listing(monkeypatch, listing, expected):
     seen = []
     monkeypatch.setattr(peer.sys, "platform", "darwin")
     monkeypatch.setattr(peer.os, "getuid", lambda: 501, raising=False)
-    monkeypatch.setattr(peer.shutil, "which", lambda name, path=None: "/usr/sbin/lsof")
+    monkeypatch.setattr(peer.executables, "path", lambda name: "/usr/sbin/" + name)
     monkeypatch.setattr(peer.subprocess, "run", lambda args, **kwargs: seen.append((args, kwargs["check"])) or
                         subprocess.CompletedProcess(args, 0, stdout=listing, stderr=""))
     assert peer.loopback_peer_is_owner(CLIENT, SERVER) is expected
@@ -107,8 +107,13 @@ def test_lsof_listing(monkeypatch, listing, expected):
 @pytest.mark.parametrize("failure", ["missing", "timeout", "oserror", "exit_status"])
 def test_lsof_failures_are_refusals(monkeypatch, failure):
     monkeypatch.setattr(peer.sys, "platform", "darwin")
-    monkeypatch.setattr(peer.shutil, "which",
-                        lambda name, path=None: None if failure == "missing" else "/usr/sbin/lsof")
+
+    def lookup(name):
+        if failure == "missing":
+            raise FileNotFoundError(2, "not found", name)
+        return "/usr/sbin/" + name
+
+    monkeypatch.setattr(peer.executables, "path", lookup)
 
     def run(args, **kwargs):
         if failure == "timeout":
@@ -218,7 +223,7 @@ def real_check_available():
         return os.path.exists("/proc/net/tcp")
     if sys.platform == "win32":
         return True
-    return bool(peer.shutil.which("lsof", path=os.environ.get("PATH", "") + os.pathsep + "/usr/sbin"))
+    return peer.executables.available("lsof")
 
 
 def connect_from_child(server_socket, **popen):

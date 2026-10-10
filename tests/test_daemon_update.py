@@ -12,18 +12,23 @@ from src.daemon.state import write_json, read_json
 from src.daemon.update import offline_update, recover
 from src.daemon.bootstrap import assert_service_safe
 from src.file_lock import file_lock
+from src import executables
 from src.model_migration import DEFAULT_MODEL, GENERATION
 
 
+# By absolute path: an update gives the test process the service's PATH, which on Windows has no git.
+GIT = shutil.which("git")
+
+
 def git(root, *args):
-    return subprocess.run(["git", "-C", str(root), *args], check=True, capture_output=True, text=True).stdout.strip()
+    return subprocess.run([GIT, "-C", str(root), *args], check=True, capture_output=True, text=True).stdout.strip()
 
 
 class FakeController:
     def __init__(self, root, directory):
         self.directory = directory
-        # The controller runs git with this PATH: the test host's, so that git is found on Windows too.
-        self.config = {"installation": str(root), "git": shutil.which("git"), "model": "test",
+        # Where the controller looks up a tool without a recorded path: the test host's PATH.
+        self.config = {"installation": str(root), "git": GIT, "model": "test",
                        "model_cache": "/unused", "model_artifact": "test", "model_path": "/unused",
                        "path": os.environ["PATH"], "autostart": True, "python": sys.executable,
                        "model_generation": GENERATION}
@@ -70,7 +75,7 @@ def installation(tmp_path, monkeypatch):
     git(root, "commit", "-am", "new")
     target = git(root, "rev-parse", "HEAD")
     remote = tmp_path / "remote.git"
-    subprocess.run(["git", "clone", "--bare", str(root), str(remote)], check=True, capture_output=True)
+    subprocess.run([GIT, "clone", "--bare", str(root), str(remote)], check=True, capture_output=True)
     git(root, "reset", "--hard", old)
     git(root, "remote", "add", "origin", str(remote))
     data = root / "data"; data.mkdir()
@@ -306,7 +311,7 @@ def test_target_commit_cannot_redirect_the_build_record_into_the_live_env(instal
     controller, root, old, target = installation
     (root / ".env").write_text("SECRET=keep\n")
     work = root.parent / "work"  # the target plants a symlink where a build record could be written
-    subprocess.run(["git", "clone", "--quiet", str(root.parent / "remote.git"), str(work)], check=True)
+    subprocess.run([GIT, "clone", "--quiet", str(root.parent / "remote.git"), str(work)], check=True)
     git(work, "config", "user.email", "test@example.invalid")
     git(work, "config", "user.name", "Test")
     for name in (".embedding-inputs", "prepared-build.json"):
@@ -371,7 +376,7 @@ def test_build_for_an_older_target_is_rebuilt_for_the_new_one(installation):
     assert offline_update(controller, expected_target=target, precheck=lambda: next(checks)) == busy
 
     work = root.parent / "work"  # the branch moves on before the next run
-    subprocess.run(["git", "clone", "--quiet", str(root.parent / "remote.git"), str(work)], check=True)
+    subprocess.run([GIT, "clone", "--quiet", str(root.parent / "remote.git"), str(work)], check=True)
     git(work, "config", "user.email", "test@example.invalid")
     git(work, "config", "user.name", "Test")
     (work / "README.md").write_text("newer")
@@ -431,8 +436,9 @@ def test_prepare_reindex_uses_the_service_interpreter_model_and_live_stores(tmp_
     args, cwd, env, timeout = calls[0]
     assert args == [controller.config["python"], "-m", "src.reindex"] and cwd == str(tmp_path / "stage")
     assert timeout == 4321  # AGENTS_AUTO_UPDATE_REINDEX_TIMEOUT
+    # The reindex runs with system directories, never the installer's PATH (#244).
     assert (env["EMBEDDING_MODEL"], env["AGENTS_MODEL_PATH"], env["PATH"], env["AGENTS_AUTO_UPDATE"]) == \
-        ("test", "/unused", controller.config["path"], "0")
+        ("test", "/unused", executables.service_path(), "0")
     assert env["EMBEDDING_PROMPTS"] == "off"
     assert (tmp_path / "stage/data/skills_store.npz").read_text() == "live-index"
     assert not (tmp_path / "stage/data/implants_store.npz").exists()

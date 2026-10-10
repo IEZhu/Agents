@@ -306,9 +306,14 @@ inputs have verified.
   change visible in `/ui`, and `.history` lets the owner revert it.
 - **Rollback.** An older library seal stays valid for its own bytes, because
   restoring old text is a feature. The updater only fast-forwards.
-- **Subprocesses.** The daemon starts `git`, `ssh-keygen` and `lsof` through
-  `PATH`, which today includes user-writable directories. Absolute paths are a
-  prerequisite for the separate-user design.
+- **Subprocesses.** The daemon starts `git`, `ssh-keygen`, `ssh-keyscan` and
+  `lsof` by the absolute paths `install` recorded, preferring ones the user cannot
+  replace, and runs with system directories as `PATH` (#244). A tool found only in
+  a user-writable directory still runs from there, with a warning at install. The
+  updater's and the version footer's git still read the user's global git
+  configuration (for example `core.fsmonitor` or `core.hooksPath`), and the service
+  inherits variables set with `launchctl setenv`; a separate-user design must isolate
+  those too, as user sync already does (`src/user_sync/gitcmd.py`).
 
 ## 13. Implementation outline
 
