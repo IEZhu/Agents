@@ -376,12 +376,15 @@ def test_macos_git_shim_counts_only_with_its_developer_tools(tmp_path, monkeypat
 @needs_isolating_git
 def test_the_installation_is_a_safe_directory_without_the_users_configuration(tmp_path):
     repository = committed_repository(tmp_path / "installation")
-    # As if another user owned it, which a global safe.directory entry would have allowed.
-    dubious = {"GIT_TEST_ASSUME_DIFFERENT_OWNER": "1"}
+    # As if another user owned it, which a global safe.directory entry would have allowed. Without the
+    # system configuration as well: a CI runner's may allow every directory, which would hide the refusal.
+    dubious = {"GIT_TEST_ASSUME_DIFFERENT_OWNER": "1", "GIT_CONFIG_NOSYSTEM": "1"}
     command = [REAL_GIT.path, "-C", str(repository), "rev-parse", "HEAD"]
     refused = subprocess.run(command, capture_output=True, text=True,
                              env={**executables.service_environment(), "GIT_CONFIG_GLOBAL": os.devnull, **dubious})
-    assert refused.returncode and "dubious ownership" in refused.stderr
+    if refused.returncode == 0:
+        pytest.skip("this git does not act as if another user owned the repository")
+    assert "dubious ownership" in refused.stderr
     allowed = subprocess.run(command, capture_output=True, text=True,
                              env={**executables.git_environment(repository), **dubious})
     assert allowed.returncode == 0, allowed.stderr
