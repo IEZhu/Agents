@@ -188,20 +188,141 @@ def test_update_starts_the_tools_in_service_json(two_directories, tmp_path):
     assert executables.path("git") == str(two_directories["system"])
 
 
-def test_the_service_environment_has_system_directories_and_no_msystem(tmp_path, monkeypatch):
+def test_the_service_environment_has_system_directories_and_nothing_that_steers_git(tmp_path, monkeypatch):
     monkeypatch.setenv("PATH", str(tmp_path / "bin"))
     monkeypatch.setenv("MSYSTEM", "MINGW64")  # Git Bash's, which keeps Git for Windows off its own PATH
+    # From launchctl setenv or the user's environment: they redirect git or /usr/bin/git (#279).
+    monkeypatch.setenv("GIT_EXEC_PATH", str(tmp_path / "exec"))
+    monkeypatch.setenv("DEVELOPER_DIR", str(tmp_path / "Xcode.app"))
+    monkeypatch.setenv("AGENTS_KEPT", "1")
+    left_out = ("MSYSTEM", "GIT_EXEC_PATH", "DEVELOPER_DIR")
     environment = executables.service_environment()
-    assert environment["PATH"] == executables.service_path() and "MSYSTEM" not in environment
+    assert environment["PATH"] == executables.service_path() and environment["AGENTS_KEPT"] == "1"
+    assert not any(name in environment for name in left_out)
     assert executables.service_path().split(os.pathsep) == executables.system_directories()
     assert os.environ["MSYSTEM"] == "MINGW64"  # a copy
     executables.enter_service_environment()
-    assert os.environ["PATH"] == executables.service_path() and "MSYSTEM" not in os.environ
+    assert os.environ["PATH"] == executables.service_path() and not any(name in os.environ for name in left_out)
+
+
+def test_git_on_the_installation_runs_without_the_users_configuration(tmp_path, monkeypatch):
+    monkeypatch.setenv("GIT_DIR", str(tmp_path / "elsewhere"))
+    environment = executables.git_environment(tmp_path, {**os.environ, "GIT_CONFIG_GLOBAL": "~/.gitconfig"})
+    assert "GIT_DIR" not in environment and environment["GIT_CONFIG_GLOBAL"] == os.devnull
+    assert "GIT_CONFIG_NOSYSTEM" not in environment  # the system configuration stays
+    assert (environment["GIT_CONFIG_KEY_0"], environment["GIT_CONFIG_VALUE_0"]) == \
+        ("safe.directory", tmp_path.resolve().as_posix())
+    # Then the line-ending settings of the user's git, if any (test_the_users_line_endings_come_along).
+    assert all(environment[f"GIT_CONFIG_KEY_{index}"] in ("core.autocrlf", "core.eol")
+               for index in range(1, int(environment["GIT_CONFIG_COUNT"])))
+
+
+def setup_git(*args, cwd):
+    """git for building fixtures, never with the hostile configuration below."""
+    environment = {**{name: value for name, value in os.environ.items() if not name.startswith("GIT_")},
+                   "GIT_CONFIG_GLOBAL": os.devnull, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
+                   "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
+    return subprocess.run([REAL_GIT.path, *args], cwd=cwd, env=environment, check=True, capture_output=True,
+                          text=True).stdout.strip()
+
+
+def hostile_configuration(tmp_path, monkeypatch, *, insteadof=None, extra=()):
+    """The user's global git configuration, as HOME's .gitconfig: a core.fsmonitor that leaves a marker
+    (it runs on `git status`), ``extra`` lines in its [core] section and, with ``insteadof=(url, base)``,
+    a fetch redirected from base to url."""
+    marker, hook = tmp_path / "fsmonitor-ran", tmp_path / "fsmonitor.sh"
+    hook.write_text(f"#!/bin/sh\ntouch '{marker.as_posix()}'\nexit 1\n")
+    hook.chmod(0o755)
+    home = tmp_path / "home"
+    home.mkdir()
+    # Git runs the hook through a shell: quoted, a temporary path with a space still works.
+    lines = ["[core]", f"\tfsmonitor = \"'{hook.as_posix()}'\"", *extra]
+    if insteadof:
+        lines += [f'[url "{insteadof[0]}"]', f"\tinsteadOf = {insteadof[1]}"]
+    (home / ".gitconfig").write_text("\n".join(lines) + "\n")
+    monkeypatch.setenv("HOME", str(home))
+    for name in ("XDG_CONFIG_HOME", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_NOSYSTEM", "GIT_DIR"):
+        monkeypatch.delenv(name, raising=False)
+    return marker
+
+
+def plain_git(*args, cwd):
+    """git as the user's shell runs it, with the hostile configuration."""
+    return subprocess.run([REAL_GIT.path, *args], cwd=cwd, capture_output=True, text=True,
+                          env={name: value for name, value in os.environ.items() if name != "MSYSTEM"})
+
+
+def committed_repository(directory):
+    setup_git("init", "--quiet", "--initial-branch=main", str(directory), cwd=directory.parent)
+    (directory / "README.md").write_bytes(b"line one\nline two\n")
+    setup_git("add", "README.md", cwd=directory)
+    setup_git("commit", "--quiet", "-m", "first", cwd=directory)
+    return directory
+
+
+@needs_protected_git
+def test_the_version_footers_git_ignores_the_users_configuration(tmp_path, monkeypatch):
+    # A repository of its own: the real checkout may enable FSMonitor in its own configuration.
+    monkeypatch.setattr(version, "ROOT", committed_repository(tmp_path / "installation"))
+    marker = hostile_configuration(tmp_path, monkeypatch)
+    status = ("--no-optional-locks", "-C", str(version.ROOT), "status", "--porcelain", "--untracked-files=no")
+    plain_git(*status, cwd=tmp_path)
+    assert marker.exists(), "the hostile configuration must be live for this test to mean anything"
+    marker.unlink()
+    assert version._git("status", "--porcelain", "--untracked-files=no") is not None
+    assert not marker.exists()
+
+
+@needs_protected_git
+def test_the_updaters_check_ignores_the_users_configuration(tmp_path, monkeypatch):
+    """Neither a global core.fsmonitor runs nor a global url.insteadOf redirects the update's fetch."""
+    origin, evil, installation, other = (tmp_path / name for name in ("origin.git", "evil.git", "installation", "other"))
+    for bare in (origin, evil):
+        setup_git("init", "--quiet", "--bare", "--initial-branch=main", str(bare), cwd=tmp_path)
+    setup_git("init", "--quiet", "--initial-branch=main", str(installation), cwd=tmp_path)
+    (installation / "README.md").write_text("installed\n")
+    setup_git("add", "README.md", cwd=installation)
+    setup_git("commit", "--quiet", "-m", "installed", cwd=installation)
+    setup_git("remote", "add", "origin", origin.as_posix(), cwd=installation)
+    setup_git("push", "--quiet", "origin", "main", cwd=installation)
+    head = setup_git("rev-parse", "HEAD", cwd=installation)
+    setup_git("clone", "--quiet", origin.as_posix(), str(other), cwd=tmp_path)
+    (other / "README.md").write_text("updated\n")
+    setup_git("commit", "--quiet", "-am", "update", cwd=other)
+    setup_git("push", "--quiet", "origin", "main", cwd=other)
+    target = setup_git("rev-parse", "HEAD", cwd=other)
+    setup_git("commit", "--quiet", "--allow-empty", "-m", "evil", cwd=other)
+    setup_git("push", "--quiet", evil.as_posix(), "main", cwd=other)
+    evil_head = setup_git("rev-parse", "HEAD", cwd=other)
+
+    marker = hostile_configuration(tmp_path, monkeypatch, insteadof=(evil.as_posix(), origin.as_posix()))
+    # The hostile configuration is live for plain git: the hook runs, the fetch goes to evil.
+    plain_git("status", "--porcelain", cwd=installation)
+    assert marker.exists()
+    assert plain_git("ls-remote", "origin", "main", cwd=installation).stdout.split()[0] == evil_head
+    marker.unlink()
+
+    controller = SimpleNamespace(config={"installation": str(installation)})
+    assert autoupdate.check_target(controller, "origin", "main") == {"state": "available", "head": head,
+                                                                      "target": target}
+    assert not marker.exists()
+
+
+def test_the_updaters_git_on_the_installation_drops_the_users_configuration(tmp_path, monkeypatch):
+    from src import self_update
+    monkeypatch.setenv("GIT_DIR", str(tmp_path / "elsewhere"))
+    seen = []
+    monkeypatch.setattr(self_update, "_run_command", lambda args, cwd, timeout, env: seen.append(env))
+    self_update._run_git(["status"], str(tmp_path), 5)
+    (environment,) = seen
+    assert environment["GIT_CONFIG_GLOBAL"] == os.devnull and "GIT_DIR" not in environment
+    assert environment["GIT_TERMINAL_PROMPT"] == "0"
 
 
 def test_the_updaters_git_runs_in_the_service_environment(two_directories, tmp_path, monkeypatch):
     monkeypatch.setenv("MSYSTEM", "MINGW64")
     executables.configure({"git": str(two_directories["system"])})
+    monkeypatch.setattr(executables, "_line_endings", lambda repository: [])
     seen = []
     monkeypatch.setattr(autoupdate.subprocess, "run", lambda argv, **options: seen.append((argv, options["env"])))
     autoupdate._git(SimpleNamespace(config={"installation": str(tmp_path)}), "status")
@@ -233,3 +354,63 @@ def test_macos_git_shim_counts_only_with_its_developer_tools(tmp_path, monkeypat
         returncode=2 if developer_tools == "unselected" else 0, stdout=f"{developer}\n"))
     assert executables._usable("/usr/bin/git") is (developer_tools == "present")
     assert executables._usable("/usr/bin/ssh-keygen") and executables._usable("/opt/local/bin/git")
+
+
+GIT_VERSION = executables._version(REAL_GIT.path) if REAL_GIT else None
+
+
+@pytest.mark.skipif(GIT_VERSION is None or GIT_VERSION < (2, 38),
+                    reason="git reads safe.directory from the command line from 2.38 on")
+def test_the_installation_is_a_safe_directory_without_the_users_configuration(tmp_path):
+    repository = committed_repository(tmp_path / "installation")
+    # As if another user owned it, which a global safe.directory entry would have allowed.
+    dubious = {"GIT_TEST_ASSUME_DIFFERENT_OWNER": "1"}
+    command = [REAL_GIT.path, "-C", str(repository), "rev-parse", "HEAD"]
+    refused = subprocess.run(command, capture_output=True, text=True,
+                             env={**executables.service_environment(), "GIT_CONFIG_GLOBAL": os.devnull, **dubious})
+    assert refused.returncode and "dubious ownership" in refused.stderr
+    allowed = subprocess.run(command, capture_output=True, text=True,
+                             env={**executables.git_environment(repository), **dubious})
+    assert allowed.returncode == 0, allowed.stderr
+
+
+def test_the_users_line_endings_come_along(tmp_path, monkeypatch):
+    repository = committed_repository(tmp_path / "installation")
+    hostile_configuration(tmp_path, monkeypatch, extra=("\teol = crlf",))
+    environment = executables.git_environment(repository)
+    settings = {environment[f"GIT_CONFIG_KEY_{index}"]: environment[f"GIT_CONFIG_VALUE_{index}"]
+                for index in range(int(environment["GIT_CONFIG_COUNT"]))}
+    assert settings["core.eol"] == "crlf" and settings["safe.directory"] == repository.resolve().as_posix()
+    assert "core.fsmonitor" not in settings
+
+
+@needs_protected_git
+def test_a_checkout_written_with_the_users_autocrlf_stays_clean(tmp_path, monkeypatch):
+    """A global core.autocrlf=true wrote CRLF files; without it the updater would see them as modified."""
+    if plain_git("config", "--system", "--get", "core.autocrlf", cwd=tmp_path).stdout.strip():
+        pytest.skip("the system configuration sets core.autocrlf for every git here")
+    origin = committed_repository(tmp_path / "origin")
+    hostile_configuration(tmp_path, monkeypatch, extra=("\tautocrlf = true",))
+    installation = tmp_path / "installation"
+    assert plain_git("clone", "--quiet", str(origin), str(installation), cwd=tmp_path).returncode == 0
+    assert b"\r\n" in (installation / "README.md").read_bytes()
+    status = ("--no-optional-locks", "status", "--porcelain", "--untracked-files=no")
+    without = subprocess.run([REAL_GIT.path, *status], cwd=installation, capture_output=True, text=True,
+                             env={**executables.service_environment(), "GIT_CONFIG_GLOBAL": os.devnull})
+    assert without.stdout.strip(), "without the user's autocrlf the checkout looks modified"
+    clean = subprocess.run([REAL_GIT.path, *status], cwd=installation, capture_output=True, text=True,
+                           env=executables.git_environment(installation))
+    assert clean.returncode == 0 and clean.stdout == ""
+
+
+@pytest.mark.parametrize("returncode, stderr", [(0, ""), (128, "fatal: could not read Username for 'https://x'")])
+def test_enabling_updates_warns_when_the_remote_needs_the_users_configuration(tmp_path, monkeypatch, returncode,
+                                                                                 stderr):
+    monkeypatch.setattr(autoupdate, "status", lambda controller: {"enabled": True})
+    monkeypatch.setattr(autoupdate, "_git", lambda controller, *args, check=True: subprocess.CompletedProcess(
+        args, returncode, "", stderr))
+    result = autoupdate._enabled(SimpleNamespace(config={"installation": str(tmp_path)}))
+    if returncode:
+        assert "could not read Username" in result["warning"] and "repository configuration" in result["warning"]
+    else:
+        assert result == {"enabled": True}

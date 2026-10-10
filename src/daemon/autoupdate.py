@@ -84,7 +84,7 @@ def enable(controller, interval=DEFAULT_INTERVAL, idle_seconds=DEFAULT_IDLE_SECO
             # One /Create replaces the task; a failure leaves the previous task and config.
             service.TaskScheduler(controller).write_updater(interval)
             _save_settings(controller, enabled=True, interval=interval, idle_seconds=idle_seconds)
-            return status(controller)
+            return _enabled(controller)
         # Config and plist change only once launchd runs the new job; any failure
         # leaves the previous config, plist and job as they were.
         domain, target = f"gui/{os.getuid()}", f"gui/{os.getuid()}/{label(controller)}"
@@ -107,7 +107,32 @@ def enable(controller, interval=DEFAULT_INTERVAL, idle_seconds=DEFAULT_IDLE_SECO
                     controller.launchctl("bootstrap", domain, str(plist), check=False)
             raise
         _save_settings(controller, enabled=True, interval=interval, idle_seconds=idle_seconds)
-    return status(controller)
+    return _enabled(controller)
+
+
+def _enabled(controller):
+    """``status`` after ``enable``, with a ``warning`` when the updater cannot reach its remote.
+
+    The updater's git runs without the user's global git configuration (#279): a fork that needs a
+    credential helper, proxy, CA file or SSH command set only there would fail every fetch.
+    """
+    from src.engine.config import AUTO_UPDATE_BRANCH, AUTO_UPDATE_REMOTE
+    from src.self_update import _is_safe_arg
+    result = status(controller)
+    if not (_is_safe_arg(AUTO_UPDATE_REMOTE) and _is_safe_arg(AUTO_UPDATE_BRANCH)):
+        return result  # every run reports it (check_target)
+    try:
+        listed = _git(controller, "ls-remote", "--quiet", "--exit-code", AUTO_UPDATE_REMOTE,
+                      "refs/heads/" + AUTO_UPDATE_BRANCH, check=False)
+        problem = (listed.stderr.strip()[-300:] or f"exit code {listed.returncode}") if listed.returncode else None
+    except (OSError, subprocess.SubprocessError) as error:
+        problem = str(error)
+    if problem:
+        result["warning"] = (f"the updater cannot reach {AUTO_UPDATE_REMOTE}/{AUTO_UPDATE_BRANCH} without your global "
+                             f"git configuration ({problem}); put what it needs (credential helper, proxy, CA file, "
+                             "SSH command) in the installation's repository configuration: "
+                             "docs/shared-mcp-daemon.md#tools-and-path")
+    return result
 
 
 def disable(controller):
@@ -140,7 +165,9 @@ def _git(controller, *args, check=True):
     return subprocess.run([executables.path("git"), *args], cwd=controller.config["installation"],
                           capture_output=True, text=True, timeout=GIT_TIMEOUT, check=check,
                           stdin=subprocess.DEVNULL, creationflags=NO_WINDOW,
-                          env={**executables.service_environment(), "GIT_TERMINAL_PROMPT": "0",
+                          env={**executables.git_environment(controller.config["installation"],
+                                                             executables.service_environment()),
+                               "GIT_TERMINAL_PROMPT": "0",
                                "GCM_INTERACTIVE": "false"})
 
 

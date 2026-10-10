@@ -170,7 +170,9 @@ The service, its updater and the controller commands start the recorded tools an
 run with system directories as PATH (`/usr/bin:/bin:/usr/sbin:/sbin`; on Windows
 `System32`, the Windows directory, `Wbem`, Windows PowerShell and `OpenSSH`), not
 with the installing shell's, and without Git Bash's `MSYSTEM`, which would keep Git
-for Windows from setting up its own PATH. The service's LaunchAgent carries that
+for Windows from setting up its own PATH. Inherited `GIT_*` variables and macOS's
+`DEVELOPER_DIR`, which `launchctl setenv` or the user's environment could set, are
+dropped too (#279). The service's LaunchAgent carries that
 PATH from its next start; an updater LaunchAgent written before #244 keeps the old
 one until `auto-update enable` runs again, which changes nothing because the
 updater sets its own. A recorded path that is gone, that the user could replace
@@ -183,6 +185,39 @@ used instead of the recorded one, and one the user could replace.
 Other processes, such as a stdio server or `python -m src.user_sync`, run the tool
 their own PATH names first, as the user's shell would, except from an empty or
 relative entry.
+
+Git on the installation's own repository does not read the user's global git
+configuration (`~/.gitconfig`, `$XDG_CONFIG_HOME/git/config`; #279). That git runs in
+the updater, in `update` and for the version footer, also outside the service (a
+standalone installation's own auto-update). Keys there can run programs:
+`core.fsmonitor` on `git status`, `core.hooksPath` on the update's merges and
+worktrees, filter drivers. `url.<base>.insteadOf` can redirect the update's fetch.
+
+Still applied:
+
+- the system configuration: Git for Windows keeps its credential manager and TLS
+  settings there, Apple's git `osxkeychain`;
+- the installation's repository configuration;
+- the user's `core.autocrlf` and `core.eol`, which decide how the checkout's line
+  endings were written and run nothing. Without them a CRLF checkout would look
+  modified and the updater would refuse to update;
+- the user-level attributes and ignore files, which name no programs.
+
+Put a setting the update needs in the system or the installation's repository
+configuration, for example `git -C <installation> config http.proxy
+http://proxy:8080`. This applies to `http.proxy`, `http.sslCAInfo`, `core.sshCommand`
+and a credential helper for a private fork. The same goes for the `GIT_SSH_COMMAND`
+or `GIT_SSL_CAINFO` variables, which this git no longer inherits.
+`auto-update enable` checks that the remote answers without the global configuration
+and adds a `warning` when it does not.
+
+With git 2.38 or later the installation is `safe.directory` for these commands, so
+a global entry for it is not needed; older git reads that setting only from the
+system and global configuration.
+
+Git on the user's own repositories (a workspace's origin, client configuration files)
+keeps the user's configuration, and user sync has its own isolation
+(`src/user_sync/gitcmd.py`).
 
 User sync's SSH stays `ssh` inside `GIT_SSH_COMMAND`: git runs it through a shell
 with the service's PATH, which finds `/usr/bin/ssh` on macOS, and Git for Windows

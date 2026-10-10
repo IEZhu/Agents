@@ -353,8 +353,9 @@ def _run_git(args, cwd: str, timeout: int) -> subprocess.CompletedProcess:
         [executables.path("git"), *args],
         cwd=cwd,
         timeout=timeout,
-        # A credential prompt would wait for nobody; Git Credential Manager would open a window.
-        env={**os.environ, "GIT_TERMINAL_PROMPT": "0", "GCM_INTERACTIVE": "false"},
+        # Without the user's git configuration (#279). A credential prompt would wait for nobody;
+        # Git Credential Manager would open a window.
+        env={**executables.git_environment(cwd), "GIT_TERMINAL_PROMPT": "0", "GCM_INTERACTIVE": "false"},
     )
 
 
