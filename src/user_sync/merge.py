@@ -17,7 +17,8 @@ join without shared history), this machine's commit and the remote's. Per path:
   local text of a flow becomes a normal ``.history`` version; for other files the record carries
   it. A conflict record goes to ``.agents-sync/conflicts/<id>.json``, with the ``reason`` the
   text could not be merged (``overlapping_changes`` with the number of ``overlaps``,
-  ``no_common_base``, ``not_text`` or ``too_large``);
+  ``no_common_base``, ``not_text`` or ``too_large``; the engine adds ``changed_during_sync`` and
+  ``held_open`` for files it could not write);
 * changed on one side and deleted on the other: the changed version (edits beat deletions), with a
   "deletion undone" record. A flow's text, override marker and persona overlay move as one: a flow
   deleted on one machine and edited on the other comes back whole.

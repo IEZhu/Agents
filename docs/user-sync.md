@@ -488,8 +488,10 @@ version that reached the remote first stays in place and the other one is kept.
 Records are `.agents-sync/conflicts/<id>.json`, one per conflict, so records from two machines
 never collide; they sync like other files. A record of two changed versions says why they were not
 merged in `reason`: `overlapping_changes` (with the number of `overlaps`), `no_common_base`,
-`not_text` (JSON, binary or not the owner's text), `too_large` (over 256 KiB) or
-`changed_during_sync` (edited while a cycle wrote it). The Sync page shows the reason, the
+`not_text` (JSON, binary or not the owner's text), `too_large` (over 256 KiB),
+`changed_during_sync` (edited while a cycle wrote it) or `held_open` (a reader kept the file open
+while a cycle wrote a merge, and the remote rejected that cycle's commit). A merge a reader kept
+from being written here is reported by the cycle that finally writes it. The Sync page shows the reason, the
 activity lists the files a cycle merged (`merged`), and so do `run` and `preview`. `list_flows`,
 `get_flow` and `run_flow` return a flow's open records as `sync_conflicts`, so the model tells
 the user before it edits or runs that flow. When `history` is excluded, the kept local version

@@ -1876,8 +1876,11 @@ class Syncer:
         ``held_remote`` and the next cycle reconciles it as a conflict. A file this run could not
         write or delete (Windows refuses while a reader holds it open; that is retried briefly
         first) is held as well, and ``failed_writes`` keeps its local blob: this run already
-        settled its text, so the next cycle finishes it without a conflict. Paths sync never
-        handles are neither written nor deleted.
+        settled its text, so the next cycle finishes it without a conflict. ``failed_targets``
+        keeps what it meant to write there (None for a deletion), because that settlement holds
+        only while the integrated commit carries it: a merged text whose commit the remote
+        rejected does not. ``held_merges`` keeps such a file's merge, reported once it lands.
+        Paths sync never handles are neither written nor deleted.
         """
         snap, old, new = plan.snapshot, plan.desired, plan.target
         for path, data in sorted(plan.generated.items()):
@@ -1889,6 +1892,9 @@ class Syncer:
                                 plan.held_groups, plan.held_files)
         held_remote = set(state.get("held_remote", []))
         failed_writes = dict(state.get("failed_writes", {}))
+        failed_targets = dict(state.get("failed_targets", {}))
+        held_merges = dict(state.get("held_merges", {}))
+        merged = {item["path"]: item for item in plan.merged}
         paths = [p for p in changed_paths(old, new) if p not in plan.generated and scope.groups(p) is not None]
         wanted = [new[p] for p in paths if isinstance(new.get(p), str)]
         sizes = self._blob_sizes(git, wanted)
@@ -1916,10 +1922,15 @@ class Syncer:
                 self._log(f"could not {'delete' if after is None else 'write'} {path}: {error}")
                 held_remote.add(path)
                 failed_writes[path] = local
+                failed_targets[path] = scope.blob_id(after) if isinstance(after, bytes) else after
+                if path in merged:
+                    held_merges[path] = merged[path]
                 continue
             (deleted if after is None else written).append(path)
         state["held_remote"] = sorted(held_remote)
         state["failed_writes"] = {p: blob for p, blob in failed_writes.items() if p in held_remote}
+        state["failed_targets"] = {p: blob for p, blob in failed_targets.items() if p in state["failed_writes"]}
+        state["held_merges"] = {p: item for p, item in held_merges.items() if p in state["failed_writes"]}
         return {"written": written, "deleted": deleted}
 
     def _safe_target(self, path: str) -> Path | None:
@@ -1979,11 +1990,16 @@ class Syncer:
         tree and the local text is kept like any losing version, with a conflict record. The kept
         copy and the record are written first; the file is replaced only after both exist. A file
         that is still what an earlier run failed to write over (``failed_writes``) was settled by
-        that run: the committed version, or its absence, replaces it without a record.
-        Returns True when files were written, so the caller reads the library again.
+        that run: the committed version, or its absence, replaces it without a record, as long as
+        it is what that run meant to write (``failed_targets``). Otherwise, as when a merged text's
+        commit was rejected and the branch holds the remote's version, the local text is kept with
+        a record (``held_open``). A merge that lands here goes to ``landed_merges`` for the cycle's
+        report. Returns True when files were written, so the caller reads the library again.
         """
-        remaining, wrote, failed = [], False, []
+        remaining, wrote, failed, landed = [], False, [], []
         failed_writes = dict(state.get("failed_writes", {}))
+        failed_targets = dict(state.get("failed_targets", {}))
+        held_merges = dict(state.get("held_merges", {}))
         snap, now = plan.snapshot, self._clock()
         for path in state.get("held_remote", []):
             committed = plan.current.get(path)
@@ -1991,7 +2007,10 @@ class Syncer:
                 remaining.append(path)
                 continue
             local = snap.files.get(path)
-            settled = path in failed_writes and failed_writes[path] == local
+            # A state written before failed_targets existed settles as it did then.
+            intended = failed_targets.get(path, committed) == committed
+            settled = path in failed_writes and failed_writes[path] == local and intended
+            reason = "changed_during_sync" if path not in failed_writes or failed_writes[path] != local else "held_open"
             if local == committed or (committed is None and not settled):
                 continue  # nothing to reconcile: the local file or its absence simply wins or matches
             target = self._safe_target(path)
@@ -2009,7 +2028,7 @@ class Syncer:
                     details, kept = merging.keep_local(path, target.read_bytes(), now)
                     record = merging.conflict_record(path, "both_changed", "remote", label=settings.label,
                                                      now=now, local_blob=local, remote_blob=committed,
-                                                     reason="changed_during_sync", **details)
+                                                     reason=reason, **details)
                 kept.update([merging.record_file(record)])
             try:
                 for name, data in kept.items():
@@ -2023,6 +2042,7 @@ class Syncer:
                     remaining.append(path)
                     continue
                 failed_writes[path] = local  # the local text is kept now; only the replacement is left
+                failed_targets[path] = committed
                 data = None if committed is None else self._read_blobs(git, [committed])[committed]
                 _retrying(self._replace, path, local, data)
             except _Changed:  # edited without the lock while the replacement was retried
@@ -2034,8 +2054,13 @@ class Syncer:
                 failed.append(path)
                 continue
             wrote = True
+            if settled and path in held_merges:
+                landed.append(held_merges[path])
         state["held_remote"], state["reconcile_failed"] = remaining, failed
         state["failed_writes"] = {p: blob for p, blob in failed_writes.items() if p in remaining}
+        state["failed_targets"] = {p: blob for p, blob in failed_targets.items() if p in state["failed_writes"]}
+        state["held_merges"] = {p: item for p, item in held_merges.items() if p in state["failed_writes"]}
+        state["landed_merges"] = state.get("landed_merges", []) + landed
         return wrote
 
     # --- the cycle --------------------------------------------------------------------
@@ -2199,6 +2224,8 @@ class Syncer:
                 self._set_head(git, settings, remote_head, plan.head)
                 outcome["integrated"] = remote_head
                 outcome["received"] = sorted(applied["written"] + applied["deleted"])
+            # Merges an earlier cycle could not write here, written by _reconcile_held now.
+            outcome["merged"] = state.pop("landed_merges", []) + outcome["merged"]
             state["pending_groups"] = sorted(g for g in plan.held_groups)
             state["pending_files"] = sorted(plan.held_files)
             state["blocked"] = [{"path": p, "pattern": v["pattern"], "sha256": v["sha256"]}

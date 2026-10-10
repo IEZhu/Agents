@@ -3377,6 +3377,7 @@ const MERGE_REFUSALS = {
   not_text: "not merged: only text files such as flows and scripts merge line by line",
   too_large: "not merged: the file is larger than 256 KiB",
   changed_during_sync: "not merged: it changed here while sync wrote it",
+  held_open: "not merged: the file was open here while sync wrote it, and the merge did not reach the repository",
 };
 
 function renderConflictsPart() {

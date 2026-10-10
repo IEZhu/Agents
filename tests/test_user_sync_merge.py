@@ -186,15 +186,54 @@ def test_a_merge_this_machine_could_not_write_is_not_reported_until_it_lands(sta
     result = b.run()
     assert result["merged"] == [] and "merged" not in b.sync.status()["activity"][-1]
     assert b.sync._state()["held_remote"] == ["common/shared.md"]
+    assert "merged 1 file line by line" in head_message(b)  # the pushed commit carries the merge
     monkeypatch.undo()
-    b.run()
+    landed = b.run()
     both = BASE.replace("first", "first, edited on A").replace("second", "second, edited on B")
     assert b.text("common/shared.md") == both and records(b) == []
+    assert [item["path"] for item in landed["merged"]] == ["common/shared.md"]  # reported once it lands
+    assert b.sync.status()["activity"][-1]["merged"] == ["user:shared"]
+    a.run()
+    assert a.text("common/shared.md") == both
+
+
+SCRIPT = "import sys\n\n\ndef one():\n    return 1\n\n\ndef two():\n    return 2\n"
+
+
+def test_a_held_merge_whose_push_is_rejected_keeps_the_local_text(started, monkeypatch):
+    """The merge commit never reached the remote: the next cycle must not settle the file with
+    the remote's version as if the merge had landed (review of #277)."""
+    a, b = started
+    user_library.atomic_write(a.lib / "common/tool/run.py", SCRIPT.encode())
+    a.run()
+    b.run()
+    user_library.atomic_write(a.lib / "common/tool/run.py", SCRIPT.replace("return 1", "return 10").encode())
+    user_library.atomic_write(b.lib / "common/tool/run.py", SCRIPT.replace("return 2", "return 20").encode())
+    a.run()
+    held_open(monkeypatch, {b.lib / "common" / "tool" / "run.py"})
+    real_push, calls = b.sync._push, []
+
+    def push_after_a(*args, **kwargs):
+        if not calls:
+            monkeypatch.undo()  # the reader closes the file; this also drops the wrapper
+            a.save("user:other", "# Other\n")
+            assert a.run()["pushed"]  # A gets in first: B's merge commit is rejected
+        calls.append(1)
+        return real_push(*args, **kwargs)
+
+    monkeypatch.setattr(b.sync, "_push", push_after_a)
+    b.run()
+    b.run()
+    a.run()
+    [record] = records(b)
+    assert (record["path"], record["reason"]) == ("common/tool/run.py", "held_open")
+    assert "return 20" in record["local_content"]  # B's edit is kept, and the record says why
+    assert "return 10" in b.text("common/tool/run.py")
 
 
 def test_a_script_edited_on_two_machines_merges(started):
     a, b = started
-    script = "import sys\n\n\ndef one():\n    return 1\n\n\ndef two():\n    return 2\n"
+    script = SCRIPT
     for m in (a,):
         user_library.atomic_write(m.lib / "common/tool/run.py", script.encode())
     a.run()
