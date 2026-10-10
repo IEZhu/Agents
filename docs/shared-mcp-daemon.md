@@ -52,8 +52,9 @@ the service reads and appends to the same file.
 .venv/bin/python -m src.daemon status
 ```
 
-Installation records absolute Python, Node, and Git paths, PATH, and the local
-model snapshot. It checks port availability before changing configurations and
+Installation records absolute Python, Node, `git`, `ssh-keygen`, `ssh-keyscan` and
+(macOS) `lsof` paths, the installing shell's PATH, and the local model snapshot
+([tools and PATH](#tools-and-path)). It checks port availability before changing configurations and
 does not terminate another process occupying the port. Use `install --port NUMBER`
 to select another port. `install --python PATH` and `install --node PATH` override
 the recorded interpreters (by default, the Python running `install` and the first
@@ -139,6 +140,53 @@ private backup, and it fails during maintenance or while another controller
 command holds the lock. Do not rerun setup while the service runs (see
 [Updates and recovery](#updates-and-recovery)); use `restore-clients` and
 `uninstall` to return to stdio.
+
+### Tools and PATH
+
+The service starts `git`, `ssh-keygen`, `ssh-keyscan` and, on macOS, `lsof` by
+absolute path (`src/executables.py`, #244). `install` looks each one up in its own
+PATH and then in the system directories, skips empty and relative PATH entries
+(the current directory), and takes the first one that the user's own processes
+cannot replace over earlier ones they can:
+
+- on macOS and Linux, the file and every directory above it belong to root and are not
+  writable by group or others, both where it is found and where its symlinks lead;
+- on Windows, its real path (junctions resolved) lies under the Windows directory or
+  Program Files, as the registry (`HKLM`) names them. Default ACLs leave these to
+  administrators. `install` records that real path. This is a heuristic: `os.access` ignores ACLs,
+  so loosened ACLs or a user-writable folder such as `C:\Windows\Temp` in PATH go unnoticed.
+
+A git older than 2.32, which user sync needs, counts only when no newer one exists;
+a git the user could replace is run to learn its version only when no protected one
+is recent enough. macOS's `/usr/bin/git` counts only when the git it forwards to,
+under `xcode-select -p` (Command Line Tools or Xcode), exists, and is protected only
+when that one is. A tool found only where the user can write, such as
+`/opt/homebrew/bin` without the Command Line Tools, is still recorded, and `install`
+adds a line to `warnings`. The output's `tools` shows each recorded path (`null`
+when none was found). `service.json` keeps them as `git`, `ssh_keygen`,
+`ssh_keyscan` and `lsof`.
+
+The service, its updater and the controller commands start the recorded tools and
+run with system directories as PATH (`/usr/bin:/bin:/usr/sbin:/sbin`; on Windows
+`System32`, the Windows directory, `Wbem`, Windows PowerShell and `OpenSSH`), not
+with the installing shell's, and without Git Bash's `MSYSTEM`, which would keep Git
+for Windows from setting up its own PATH. The service's LaunchAgent carries that
+PATH from its next start; an updater LaunchAgent written before #244 keeps the old
+one until `auto-update enable` runs again, which changes nothing because the
+updater sets its own. A recorded path that is gone, that the user could replace
+(an installation from before #244 recorded `git` from its PATH alone) or that is
+unusable is looked up again as `install` does. The recorded directory comes first among
+the replaceable candidates; the recorded installer PATH (`path`) serves only for these
+lookups, as for a tool the installation did not record. `service.log` names a tool
+used instead of the recorded one, and one the user could replace.
+
+Other processes, such as a stdio server or `python -m src.user_sync`, run the tool
+their own PATH names first, as the user's shell would, except from an empty or
+relative entry.
+
+User sync's SSH stays `ssh` inside `GIT_SSH_COMMAND`: git runs it through a shell
+with the service's PATH, which finds `/usr/bin/ssh` on macOS, and Git for Windows
+puts its own `usr/bin` first in that shell.
 
 ### Stdio servers of a service installation
 
@@ -1070,8 +1118,8 @@ manifests. For such a target, `stop` the service and close this installation's
 stdio servers, fast-forward the checkout (`git pull --ff-only`), install the
 dependencies as setup does (`.venv/bin/python -m pip install -r requirements.txt`),
 then `start` the service; its warmup rebuilds changed skill and implant indexes.
-Git credentials and SSH must work with the LaunchAgent's (on Windows, the
-task's) PATH and environment.
+Git credentials and SSH must work with the service's system-directory PATH and
+the LaunchAgent's (on Windows, the task's) environment ([tools and PATH](#tools-and-path)).
 
 ### Automatic updates (opt-in)
 

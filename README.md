@@ -738,6 +738,12 @@ Run controller commands from the installation checkout (`~/.agents-core`, or
 .venv/bin/python -m src.daemon migrate --clients desktop
 ```
 
+`install` prints the absolute paths it records for `git`, `ssh-keygen`, `ssh-keyscan`
+and, on macOS, `lsof`, preferring copies only an administrator can change, and warns
+about one that only a directory the user can write holds. The service starts these
+tools by those paths and runs with system directories in its `PATH`, not the
+installing shell's (see [tools and PATH](docs/shared-mcp-daemon.md#tools-and-path)).
+
 Global registrations provide routing; project memory requires a registered
 workspace. Register each clone or worktree separately with `migrate --workspace`.
 Migration manages private bearer headers and backups. Reconnect MCP in open

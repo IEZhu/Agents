@@ -14,11 +14,12 @@ the check runs (and is tested) where the rest of the daemon is not installed.
 """
 import ipaddress
 import os
-import shutil
 import struct
 import subprocess
 import sys
 from pathlib import Path
+
+from src import executables
 
 LOOPBACK = "127.0.0.1"
 LSOF_TIMEOUT = 5
@@ -93,8 +94,9 @@ def lsof_owners(listing: str, client_port: int, server_port: int) -> set[int]:
 
 
 def _lsof_peer_is_owner(client_port: int, server_port: int) -> bool:
-    lsof = shutil.which("lsof", path=os.environ.get("PATH", "") + os.pathsep + "/usr/sbin")
-    if not lsof:
+    try:
+        lsof = executables.path("lsof")
+    except FileNotFoundError:
         return False
     listed = subprocess.run(
         [lsof, "-nP", f"-iTCP@{LOOPBACK}:{client_port}", "-sTCP:ESTABLISHED", "-Fpun"],

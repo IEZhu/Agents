@@ -32,7 +32,7 @@ import subprocess
 import sys
 import tempfile
 
-from src import windows_tasks
+from src import executables, windows_tasks
 from .state import atomic_private
 
 KEEP_ALIVE_MINUTES = 1
@@ -93,7 +93,7 @@ class Launchd:
         payload = {"Label": self.controller.label,
                    "ProgramArguments": [config["python"], *serve_arguments(self.controller, probation)],
                    "WorkingDirectory": config["installation"],
-                   "EnvironmentVariables": {"PATH": config["path"], "PYTHONUNBUFFERED": "1"},
+                   "EnvironmentVariables": {"PATH": executables.service_path(), "PYTHONUNBUFFERED": "1"},
                    "RunAtLoad": True, "KeepAlive": {"SuccessfulExit": False},
                    "ThrottleInterval": 15, "ProcessType": "Interactive",
                    "StandardOutPath": "/dev/null", "StandardErrorPath": "/dev/null"}

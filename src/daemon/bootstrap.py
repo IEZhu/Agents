@@ -6,6 +6,7 @@ import logging
 import os
 import sys
 
+from src import executables
 from src.file_lock import file_lock
 from src.startup import assert_installation_safe
 from .state import private_dir, read_json, state_dir
@@ -88,6 +89,8 @@ def serve(directory=None, probation=None):
             raise PermissionError("Token must be private (0600; on Windows an owner-only ACL)")
         token = token_path.read_text().strip()
         stdio_bridge(directory)
+        # Tools by the absolute paths install resolved, other programs from system directories (#244).
+        executables.configure(config)
         # Immutable process configuration, set before application imports only.
         os.environ.update(AGENTS_SERVICE_DIR=str(directory), AGENTS_TRANSPORT="http",
                           AGENTS_ROUTER_DATA_DIR=str(directory / "router"),
@@ -95,8 +98,8 @@ def serve(directory=None, probation=None):
                           EMBEDDING_MODEL=config["model"],
                           AGENTS_MODEL_ARTIFACT=config["model_artifact"],
                           AGENTS_MODEL_PATH=config["model_path"],
-                          FASTEMBED_CACHE_DIR=config["model_cache"],
-                          PATH=config["path"])
+                          FASTEMBED_CACHE_DIR=config["model_cache"])
+        executables.enter_service_environment()
         from dotenv import load_dotenv
         load_dotenv(root / ".env", override=False)
         from .app import create_app

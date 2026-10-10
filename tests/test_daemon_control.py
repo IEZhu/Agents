@@ -4,6 +4,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from src import executables
 from src.daemon import control
 from src.daemon.control import stop_scheduled_sync as real_stop_scheduled_sync  # before conftest's recorder
 from src.daemon.clients import ClientMigration
@@ -14,6 +15,11 @@ from src.model_migration import DEFAULT_MODEL, GENERATION
 
 # tests/conftest.py records every call of control.stop_scheduled_sync (scheduled_sync_calls), so no
 # test here reaches the OS scheduler.
+
+
+def recorded_tools():
+    """What install records here, whatever this machine has (#244)."""
+    return {**dict.fromkeys(executables.TOOLS), "git": executables.Tool("git", "/usr/bin/git", True)}
 
 
 def _default_model_copy(cache):
@@ -30,7 +36,8 @@ def test_install_reports_missing_model_cache_before_writing_service(tmp_path, mo
     root.mkdir()
     monkeypatch.setattr(control, "__file__", str(root / "src/daemon/control.py"))
     monkeypatch.setattr(control.socket, "socket", MagicMock())
-    monkeypatch.setattr(control.shutil, "which", lambda name: "/usr/bin/" + name)
+    monkeypatch.setattr(control.shutil, "which", lambda name: "/usr/bin/" + name)  # node
+    monkeypatch.setattr(control.executables, "find_all", recorded_tools)
     plist = tmp_path / "launchagent.plist"
     monkeypatch.setattr(control.Controller, "plist", property(lambda self: plist))
     cache = tmp_path / "cache"
@@ -66,8 +73,9 @@ def test_install_persists_node_path_for_other_working_directories(tmp_path, monk
     node.parent.mkdir()
     node.touch()
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(control.shutil, "which", lambda name: "/usr/bin/git" if name == "git" else
-                        "bin/node" if node_source == "discovered_relative" else None)
+    monkeypatch.setattr(control.shutil, "which", lambda name: "bin/node" if node_source == "discovered_relative"
+                        else None)
+    monkeypatch.setattr(control.executables, "find_all", recorded_tools)
     selected = {"relative": "bin/node", "absolute": str(node)}.get(node_source)
     controller = control.Controller(tmp_path / "state")
 
@@ -92,7 +100,8 @@ def test_install_treats_blank_cache_dir_as_default(tmp_path, monkeypatch):
     root.mkdir()
     monkeypatch.setattr(control, "__file__", str(root / "src/daemon/control.py"))
     monkeypatch.setattr(control.socket, "socket", MagicMock())
-    monkeypatch.setattr(control.shutil, "which", lambda name: "/usr/bin/" + name)
+    monkeypatch.setattr(control.shutil, "which", lambda name: "/usr/bin/" + name)  # node
+    monkeypatch.setattr(control.executables, "find_all", recorded_tools)
     monkeypatch.setattr(control.Controller, "plist", property(lambda self: tmp_path / "launchagent.plist"))
     home = tmp_path / "home"
     cache = home / ".cache/fastembed"
@@ -112,7 +121,8 @@ def _installable(tmp_path, monkeypatch):
     root.mkdir()
     monkeypatch.setattr(control, "__file__", str(root / "src/daemon/control.py"))
     monkeypatch.setattr(control.socket, "socket", MagicMock())
-    monkeypatch.setattr(control.shutil, "which", lambda name: "/usr/bin/" + name)
+    monkeypatch.setattr(control.shutil, "which", lambda name: "/usr/bin/" + name)  # node
+    monkeypatch.setattr(control.executables, "find_all", recorded_tools)
     monkeypatch.setattr(control.Controller, "plist", property(lambda self: tmp_path / "launchagent.plist"))
     cache = tmp_path / "cache"
     monkeypatch.setenv("FASTEMBED_CACHE_DIR", str(cache))
@@ -130,6 +140,35 @@ def test_install_pins_the_default_models_plain_file_copy(tmp_path, monkeypatch):
     assert config["model_path"] == str(copy)
     assert config["model_artifact"] == pinned_revision(DEFAULT_MODEL)  # what the standalone fingerprint uses
     assert config["model_generation"] == GENERATION
+
+
+def test_install_records_and_prints_its_tools(tmp_path, monkeypatch):
+    """The service starts each tool by the path install shows; one the user could replace is a warning (#244)."""
+    controller, cache = _installable(tmp_path, monkeypatch)
+    _default_model_copy(cache)
+    tools = {"git": executables.Tool("git", "/usr/bin/git", True),
+             "ssh-keygen": executables.Tool("ssh-keygen", "/opt/homebrew/bin/ssh-keygen", False),
+             "ssh-keyscan": None, "lsof": executables.Tool("lsof", "/usr/sbin/lsof", True)}
+    monkeypatch.setattr(control.executables, "find_all", lambda: tools)
+
+    result = controller.install()
+
+    paths = {"git": "/usr/bin/git", "ssh-keygen": "/opt/homebrew/bin/ssh-keygen", "ssh-keyscan": None,
+             "lsof": "/usr/sbin/lsof"}
+    assert result["tools"] == paths
+    assert result["warnings"] == [executables.warning(tools["ssh-keygen"])]
+    config = read_json(controller.directory / "service.json")
+    assert {name: config[key] for name, key in executables.CONFIG_KEYS.items()} == paths
+
+
+def test_install_requires_git(tmp_path, monkeypatch):
+    controller, cache = _installable(tmp_path, monkeypatch)
+    _default_model_copy(cache)
+    monkeypatch.setattr(control.executables, "find_all", lambda: dict.fromkeys(executables.TOOLS))
+
+    with pytest.raises(RuntimeError, match="An absolute Git executable is required"):
+        controller.install()
+    assert not (controller.directory / "service.json").exists()
 
 
 def test_install_refuses_an_incomplete_default_model_copy(tmp_path, monkeypatch):
@@ -187,7 +226,8 @@ def test_install_removes_the_scheduled_sync_run(tmp_path, monkeypatch, scheduled
     root.mkdir()
     monkeypatch.setattr(control, "__file__", str(root / "src/daemon/control.py"))
     monkeypatch.setattr(control.socket, "socket", MagicMock())
-    monkeypatch.setattr(control.shutil, "which", lambda name: "/usr/bin/" + name)
+    monkeypatch.setattr(control.shutil, "which", lambda name: "/usr/bin/" + name)  # node
+    monkeypatch.setattr(control.executables, "find_all", recorded_tools)
     monkeypatch.setattr(control.Controller, "plist", property(lambda self: tmp_path / "launchagent.plist"))
     monkeypatch.setattr(control, "pin_model", lambda model, cache: {"model_artifact": "a", "model_path": "p"})
     result = control.Controller(tmp_path / "state").install()

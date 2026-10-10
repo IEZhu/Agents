@@ -25,9 +25,9 @@ from logging.handlers import RotatingFileHandler
 import os
 from pathlib import Path
 import plistlib
-import shutil
 import subprocess
 
+from src import executables
 from src.file_lock import file_lock
 from . import service
 from .state import atomic_private, read_json, write_json
@@ -60,7 +60,7 @@ def write_plist(controller, interval):
                "ProgramArguments": [controller.config["python"], "-m", "src.daemon", "--state",
                                     str(controller.directory), "auto-update", "run"],
                "WorkingDirectory": controller.config["installation"],
-               "EnvironmentVariables": {"PATH": controller.config["path"], "PYTHONUNBUFFERED": "1"},
+               "EnvironmentVariables": {"PATH": executables.service_path(), "PYTHONUNBUFFERED": "1"},
                "StartInterval": interval, "RunAtLoad": False,
                "ProcessType": "Background", "LowPriorityIO": True,
                "StandardOutPath": "/dev/null", "StandardErrorPath": "/dev/null"}
@@ -137,10 +137,10 @@ def status(controller):
 
 
 def _git(controller, *args, check=True):
-    return subprocess.run([controller.config["git"], *args], cwd=controller.config["installation"],
+    return subprocess.run([executables.path("git"), *args], cwd=controller.config["installation"],
                           capture_output=True, text=True, timeout=GIT_TIMEOUT, check=check,
                           stdin=subprocess.DEVNULL, creationflags=NO_WINDOW,
-                          env={**os.environ, "PATH": controller.config["path"], "GIT_TERMINAL_PROMPT": "0",
+                          env={**executables.service_environment(), "GIT_TERMINAL_PROMPT": "0",
                                "GCM_INTERACTIVE": "false"})
 
 
@@ -206,8 +206,9 @@ def other_readers(controller, daemon_pid):
     """
     if service.PLATFORM == "win32":
         return held_slots(controller)
-    lsof = shutil.which("lsof", path=controller.config["path"] + ":/usr/sbin")
-    if not lsof:
+    try:
+        lsof = executables.path("lsof")
+    except FileNotFoundError:
         return None
     lease = Path(controller.config["installation"]) / "data/.sessions.lock"
     listed = subprocess.run([lsof, "-t", "--", str(lease)], capture_output=True, text=True, timeout=GIT_TIMEOUT,

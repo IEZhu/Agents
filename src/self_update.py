@@ -55,6 +55,7 @@ import time
 from contextlib import contextmanager
 from typing import Optional
 
+from src import executables
 from src.startup import UPDATE_JOURNAL
 
 from src.engine.config import (
@@ -349,7 +350,7 @@ def _run_git(args, cwd: str, timeout: int) -> subprocess.CompletedProcess:
     callers handle those where the distinction matters.
     """
     return _run_command(
-        ["git", *args],
+        [executables.path("git"), *args],
         cwd=cwd,
         timeout=timeout,
         # A credential prompt would wait for nobody; Git Credential Manager would open a window.

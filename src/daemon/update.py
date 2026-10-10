@@ -8,6 +8,7 @@ import secrets
 import shutil
 import subprocess
 
+from src import executables
 from src.file_lock import file_lock
 from .state import read_json, write_json, private_dir, atomic_private
 
@@ -47,9 +48,9 @@ def restore_files(controller, journal):
     """Called only while stopped, holding exclusive installation + updater leases."""
     root = Path(controller.config["installation"])
     if journal.get("old_sha"):
-        git = controller.config["git"]
-        current = subprocess.run([git, "rev-parse", "HEAD"], cwd=root, check=True, capture_output=True, text=True,
-                                 stdin=subprocess.DEVNULL, creationflags=NO_WINDOW).stdout.strip()
+        current = subprocess.run([executables.path("git"), "rev-parse", "HEAD"], cwd=root, check=True,
+                                 capture_output=True, text=True, stdin=subprocess.DEVNULL,
+                                 creationflags=NO_WINDOW).stdout.strip()
         if current not in (journal["old_sha"], journal.get("target_sha")):
             raise RuntimeError("Installation HEAD changed outside this transaction; manual recovery required")
         # The file updater starts from a verified clean tree and retains the leases.
@@ -139,7 +140,7 @@ def reindex_env(config):
     from dotenv import dotenv_values
     installed = {key: value for key, value in dotenv_values(Path(config["installation"]) / ".env").items()
                  if value is not None}
-    return {**installed, **os.environ, **model_env(config), "PATH": config["path"], "AGENTS_AUTO_UPDATE": "0"}
+    return {**installed, **executables.service_environment(), **model_env(config), "AGENTS_AUTO_UPDATE": "0"}
 
 
 def embedding_inputs(config):
@@ -223,7 +224,7 @@ def prepare(controller, expected_target=None):
         # Auto-update checked one commit before preparing; build only that one.
         if expected_target and target != expected_target:
             raise TargetMoved(f"branch moved from checked {expected_target[:12]} to {target[:12]}")
-        changed = subprocess.run([config["git"], "diff", "--name-only", old, target, "--", *DEPENDENCIES],
+        changed = subprocess.run([executables.path("git"), "diff", "--name-only", old, target, "--", *DEPENDENCIES],
                                  cwd=root, capture_output=True, text=True, check=True,
                                  stdin=subprocess.DEVNULL, creationflags=NO_WINDOW)
         if changed.stdout.strip():
@@ -283,6 +284,7 @@ def load_service(controller):
     controller.config = read_json(controller.directory / "service.json")
     if not controller.config:
         raise RuntimeError("Service is not installed")
+    executables.configure(controller.config)
 
 
 def offline_update(controller, expected_target=None, precheck=None):
@@ -314,7 +316,7 @@ def offline_update(controller, expected_target=None, precheck=None):
     # controller starts, and it inherits the leases it runs under.
     os.environ["AGENTS_AUTO_UPDATE"] = "0"
     os.environ.update(model_env(controller.config))
-    os.environ["PATH"] = controller.config["path"]
+    executables.enter_service_environment()
     from src import self_update
     prepared = prepare(controller, expected_target)
     if prepared in PREPARE_FAILED or prepared.startswith("INVALID_"):
@@ -355,7 +357,7 @@ def offline_update(controller, expected_target=None, precheck=None):
                         # .env changed after the build: the restarted service would re-embed
                         # the stores. The next run builds again.
                         raise TargetMoved("the embedding settings changed after the update was built")
-                    old = subprocess.run([controller.config["git"], "rev-parse", "HEAD"], cwd=root, check=True,
+                    old = subprocess.run([executables.path("git"), "rev-parse", "HEAD"], cwd=root, check=True,
                                          capture_output=True, text=True, stdin=subprocess.DEVNULL,
                                          creationflags=NO_WINDOW).stdout.strip()
                     backup = private_dir(controller.directory / "rollback" / old)

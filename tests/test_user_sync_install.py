@@ -367,7 +367,7 @@ def test_the_summary_says_how_to_turn_sync_and_background_sync_on(tmp_path, bare
 ])
 def test_missing_tools_needs_git_2_32_and_ssh_keygen(monkeypatch, version, keygen, expected):
     monkeypatch.setattr(installer.gitcmd, "git_version", lambda: version)
-    monkeypatch.setattr(installer.shutil, "which", lambda name: keygen if name == "ssh-keygen" else None)
+    monkeypatch.setattr(installer.executables, "available", lambda name: name == "ssh-keygen" and keygen is not None)
     missing = REAL_MISSING_TOOLS()
     assert len(missing) == len(expected) and all(word in item for word, item in zip(expected, missing))
 

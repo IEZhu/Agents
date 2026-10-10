@@ -72,7 +72,7 @@ import subprocess
 import threading
 import time
 
-from src import user_library
+from src import executables, user_library
 from src.file_lock import file_lock
 from src.memory import history as journal
 from src.user_library import REPO_META
@@ -226,7 +226,7 @@ def _root_key(path) -> str:
 
 def _top_level(root: str) -> bool:
     try:
-        result = subprocess.run(["git", "-C", root, "rev-parse", "--show-toplevel"],
+        result = subprocess.run([executables.path("git"), "-C", root, "rev-parse", "--show-toplevel"],
                                 capture_output=True, text=True, timeout=5, stdin=subprocess.DEVNULL,
                                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     except (OSError, subprocess.SubprocessError):

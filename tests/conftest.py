@@ -220,6 +220,17 @@ def service_platform(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def tool_paths(monkeypatch):
+    """A test that configures a service's tools (`src.executables.configure`) leaves no pins behind,
+    and one that enters the service's environment gives Git Bash's ``MSYSTEM`` back."""
+    from src import executables
+    if "MSYSTEM" in os.environ:
+        monkeypatch.setenv("MSYSTEM", os.environ["MSYSTEM"])
+    yield executables
+    executables.reset()
+
+
+@pytest.fixture(autouse=True)
 def no_server_restart(monkeypatch):
     """A test never restarts the test process as the updated server.
 
