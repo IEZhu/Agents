@@ -183,7 +183,7 @@ class Controller:
         root = Path(__file__).resolve().parents[2]
         with file_lock(self.directory / "control.lock", blocking=False), file_lock(root / "data/.sessions.lock", blocking=False):
             if self.config: raise RuntimeError("Service already installed; use start or explicit uninstall")
-            unmoved_sync(root, self.directory)
+            adopt_sync_state(root, self.directory)
             with socket.socket() as probe:
                 probe.bind(("127.0.0.1", port))
             python = os.path.abspath(python or sys.executable)
@@ -302,23 +302,29 @@ class Controller:
                              "`python -m src.user_sync schedule enable`"}
 
 
-def unmoved_sync(installation, directory):
-    """Refuse a Windows install while user sync keeps its settings where the service will not look.
+def adopt_sync_state(installation, directory):
+    """Make sure a Windows install finds user sync's settings in ``<directory>\\user-sync``.
 
-    Without the service, user sync keeps them in ``%LOCALAPPDATA%\\Agents-Core\\<id>\\user-sync``;
-    the service reads ``<state>\\user-sync``, and ``install`` removes the scheduled sync run, so
-    sync would stop without a word. Moving the directory waits for #256.
+    ``install`` removes the scheduled sync run, so sync must not stay where the service will not
+    look. Without the service, sync keeps its settings in the service's default directory, and kept
+    them in ``%LOCALAPPDATA%`` before #256: such a state moves to the default directory as sync
+    itself moves it (`adopt_appdata_state`), never straight into another ``--state``, which an
+    install that fails later would leave where nothing looks. An install with another ``--state``
+    refuses while the default directory holds the settings.
     """
     if service.PLATFORM != "win32":
         return
-    identity = default_state_dir(installation).name
-    old = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData/Local") / "Agents-Core" / identity / "user-sync"
+    from src.user_sync.engine import SETTINGS_FILE, adopt_appdata_state
+    default = default_state_dir(installation) / "user-sync"
     new = Path(directory) / "user-sync"
-    if (old / "user-sync.json").is_file() and not (new / "user-sync.json").exists():
+    if (new / SETTINGS_FILE).exists():
+        return
+    adopt_appdata_state(default, default.parent.name)
+    if (default / SETTINGS_FILE).is_file() and new.resolve() != default.resolve():
         raise RuntimeError(
-            f"User sync is set up for this installation in {old}, but the service keeps sync's settings in "
-            f"{new}. Run `python -m src.user_sync schedule disable`, move {old} to {new}, then run install "
-            "again (#256).")
+            f"User sync is set up for this installation in {default}, but this service keeps sync's settings "
+            f"in {new}. Run `python -m src.user_sync schedule disable`, move {default} to {new}, then run "
+            "install again.")
 
 
 def sync_note(directory):

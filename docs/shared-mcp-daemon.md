@@ -410,13 +410,19 @@ after updating the checkout. `auto-update enable`
 registers a second hidden task, `agents-core-daemon-<state-directory-name>-updater`,
 with only the repeating trigger (see [automatic updates](#automatic-updates-opt-in)).
 
-User sync set up without the service keeps its settings in
-`%LOCALAPPDATA%\Agents-Core\<installation-hash>\user-sync`, while the service
-reads `<state>\user-sync` and `install` removes the scheduled sync run. So that
-sync never stops without a word, `install` refuses while only the former exists:
-run `python -m src.user_sync schedule disable`, move that directory into the
-service's state directory, then run `install` again. Moving it automatically is
-#256, which also covers the AppData virtualization for user sync itself.
+User sync set up without the service keeps its settings in the same
+`%USERPROFILE%\.agents-core\<installation-hash>\user-sync`, so an `install` with
+the default state directory finds them in place. Before #256 it kept them in
+`%LOCALAPPDATA%\Agents-Core\<installation-hash>\user-sync`, or in an MSIX
+package's copy of that directory. `install` first moves such a state into the
+default directory, as user sync itself does (see
+[Private files](user-sync.md#private-files)). It never moves the state straight
+into another `--state`: an install that failed later would leave it where
+nothing looks. `install` also removes the scheduled sync run. So that sync never
+stops without a word, an `install --state` into another directory refuses while
+the default one holds the settings: run `python -m src.user_sync schedule
+disable`, move that directory into the service's state directory, then run
+`install` again.
 
 ### Drain and connected clients
 

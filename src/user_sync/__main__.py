@@ -26,8 +26,10 @@ process inherits it; only those two receive it.
 
 ``--state DIR`` and ``--library DIR`` (before the command) name the private state directory and
 the library explicitly; scheduled runs pass both, so they never depend on the scheduler's
-environment. The installation's ``.env`` is read first, as the MCP servers read it. While a command
-runs it holds the installation's shared session lease, so an update never replaces the code under it.
+environment. A ``run`` whose ``--state`` is the Windows AppData directory from before #256 uses
+the directory its state moved to (``engine.scheduled_state_dir``). The installation's ``.env``
+is read first, as the MCP servers read it. While a command runs it holds the installation's shared
+session lease, so an update never replaces the code under it.
 """
 from __future__ import annotations
 
@@ -41,7 +43,7 @@ import time
 from types import SimpleNamespace
 
 from src.file_lock import file_lock
-from src.user_sync.engine import SyncError, Syncer, installation_root
+from src.user_sync.engine import SyncError, Syncer, installation_root, scheduled_state_dir
 from src.user_sync.github import DEFAULT_REPO_NAME, GitHubError
 
 
@@ -497,7 +499,9 @@ def main(argv=None, *, ask=None, say=None, open_browser=None, sleep=None, intera
     interrupted = raised = False
     try:
         with _session_lease():
-            result = _execute(Syncer(arguments.library, arguments.state), arguments, console)
+            # Only the scheduled run: another command keeps a state directory it names, even an old one.
+            state = scheduled_state_dir(arguments.state) if arguments.command == "run" else arguments.state
+            result = _execute(Syncer(arguments.library, state), arguments, console)
     except (SyncError, ScopeError, SSHKeyError, GitError, RemoteError, FlowError, GitHubError,
             Cancelled, EOFError, OSError, RuntimeError, ValueError, subprocess.SubprocessError) as error:
         result, raised = _failure(error, arguments.command), True

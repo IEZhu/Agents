@@ -546,10 +546,35 @@ in the OS secret store is named `agents-core-sync-<id>`:
 - macOS: `~/Library/Application Support/Agents-Core/<id>/user-sync`, inside the daemon's state
   directory (`AGENTS_SERVICE_DIR`, or the directory an installed daemon recorded in
   `data/.shared-service.json`);
-- Windows: `%LOCALAPPDATA%\Agents-Core\<id>\user-sync`;
+- Windows: `%USERPROFILE%\.agents-core\<id>\user-sync`, inside the daemon's state directory in
+  the same way;
 - Linux and others: `$XDG_STATE_HOME/agents-core/<id>/user-sync` (default `~/.local/state`).
 
 `<id>` is the first 16 hex digits of the SHA-256 of the installation path, as for the daemon.
+
+On Windows the directory is outside AppData because the Claude desktop app is an MSIX package
+with write virtualization: what the processes it starts (Code sessions, their terminals, stdio
+servers) write under AppData lands in the package's private copy,
+`%LOCALAPPDATA%\Packages\<package>\LocalCache\Local`, which a Task Scheduler run never sees. The
+schedule's lock files (`user-sync-schedule-<id>.lock`) are in `%USERPROFILE%\.agents-core` for
+the same reason. Before #256 sync kept its state in `%LOCALAPPDATA%\Agents-Core\<id>\user-sync`.
+The first lookup of the state directory that finds no settings there moves such a state in, once:
+
+- It takes one state from AppData itself or from any package's copy, a started one before one that
+  never started, then the most recently used. It copies the state beside the new directory and
+  renames the copy into place, so an interrupted move leaves nothing half done. Files that were
+  already in the new directory without settings are renamed aside, never mixed in.
+- It then removes that state and every other one with the same private key. A state with another
+  key stays where it is.
+- A process inside a package sees AppData merged with that package's copy, a file of the copy hiding
+  the one of the same name. Such a process leaves the AppData directory as it is, since it cannot
+  read it alone.
+- `user-sync.log` names what moved and what stayed, and `appdata-moved.json` records the move, so a
+  later `disconnect` does not bring back a state that stayed.
+
+A task scheduled before the move still passes the old directory as `--state`. Its `run` reads that
+as the new directory, while any other command keeps a directory it is given. The next
+`schedule enable` writes the new path into the task.
 `disconnect` deletes the settings, both state files and the key; the library files and
 `flows/.user/.git` stay.
 

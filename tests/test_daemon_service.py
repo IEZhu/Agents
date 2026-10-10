@@ -288,25 +288,52 @@ def _sync_set_up(root: Path, local_app_data: Path):
     return old
 
 
-def test_windows_install_refuses_while_sync_lives_where_the_service_will_not_look(windows, monkeypatch, tmp_path):
-    """Without the service, user sync keeps its settings in %LOCALAPPDATA%; the service reads its own
-    <state>/user-sync and install removes the scheduled run: sync would stop without a word."""
+def _home(monkeypatch, tmp_path):
+    """AppData and the home in tmp_path; src.daemon.state picks the macOS directory off Windows."""
+    for variable, value in (("LOCALAPPDATA", "LocalAppData"), ("USERPROFILE", "profile"), ("HOME", "profile")):
+        monkeypatch.setenv(variable, str(tmp_path / value))
+
+
+def test_windows_install_moves_sync_state_from_appdata_to_the_default_directory(windows, monkeypatch, tmp_path):
+    """Before #256, user sync without the service kept its settings in %LOCALAPPDATA%; the service reads
+    its own <state>/user-sync and install removes the scheduled run: sync would stop without a word.
+    The state moves where sync itself looks without the service, never straight into another --state,
+    which an install that fails later would leave where nothing looks."""
+    from src.daemon.state import default_state_dir
     controller, _fake = windows
     root = tmp_path / "install"
-    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "LocalAppData"))
+    _home(monkeypatch, tmp_path)
     old = _sync_set_up(root, tmp_path / "LocalAppData")
-    with pytest.raises(RuntimeError, match="#256") as refused:
-        control.unmoved_sync(root, controller.directory)
-    assert str(old) in str(refused.value) and str(controller.directory / "user-sync") in str(refused.value)
-    (controller.directory / "user-sync").mkdir()
-    (controller.directory / "user-sync" / "user-sync.json").write_text("{}")
-    control.unmoved_sync(root, controller.directory)  # moved: install goes on
+    default = default_state_dir(root)
+    control.adopt_sync_state(root, default)
+    assert (default / "user-sync" / "user-sync.json").read_text() == "{}" and not old.exists()
+    control.adopt_sync_state(root, default)  # set up there: nothing more to do
+    with pytest.raises(RuntimeError, match="move"):
+        control.adopt_sync_state(root, controller.directory)  # another --state
 
 
-def test_unmoved_sync_is_a_windows_concern_only(tmp_path, monkeypatch):
+def test_windows_install_elsewhere_refuses_while_sync_lives_in_the_default_directory(windows, monkeypatch, tmp_path):
+    """Since #256 user sync without the service keeps its settings in the service's default directory."""
+    from src.daemon.state import default_state_dir
+    controller, _fake = windows
+    root = tmp_path / "install"
+    _home(monkeypatch, tmp_path)
+    old = _sync_set_up(root, tmp_path / "LocalAppData")  # older, and ignored while the default one is set up
+    default = default_state_dir(root) / "user-sync"
+    default.mkdir(parents=True)
+    (default / "user-sync.json").write_text("{}")
+    with pytest.raises(RuntimeError, match="move") as refused:
+        control.adopt_sync_state(root, controller.directory)
+    assert str(default) in str(refused.value) and str(controller.directory / "user-sync") in str(refused.value)
+    assert old.exists() and not (controller.directory / "user-sync").exists()
+    control.adopt_sync_state(root, default.parent)  # an install into the default directory finds it there
+
+
+def test_adopting_sync_state_is_a_windows_concern_only(tmp_path, monkeypatch):
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "LocalAppData"))
     _sync_set_up(tmp_path / "install", tmp_path / "LocalAppData")
-    control.unmoved_sync(tmp_path / "install", tmp_path / "state")  # the conftest pins launchd
+    control.adopt_sync_state(tmp_path / "install", tmp_path / "state")  # the conftest pins launchd
+    assert not (tmp_path / "state").exists()
 
 
 @pytest.mark.parametrize("command", [["update"], ["auto-update", "run"]])
@@ -441,15 +468,15 @@ def test_a_state_directory_another_account_owns_is_refused():
 
 @windows_only
 def test_after_uninstall_user_sync_still_finds_its_settings(tmp_path, monkeypatch):
-    """uninstall keeps the service's state; without the marker, sync looks there before %LOCALAPPDATA%."""
+    """uninstall keeps the service's state, and without the marker sync keeps its own there (#256)."""
     from src.daemon.state import default_state_dir
     from src.user_sync import engine
     monkeypatch.delenv("AGENTS_SERVICE_DIR", raising=False)
     monkeypatch.setenv("USERPROFILE", str(tmp_path / "profile"))
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "LocalAppData"))
     monkeypatch.setattr(engine, "installation_root", lambda: tmp_path / "install")
-    assert engine.default_state_dir().is_relative_to(tmp_path / "LocalAppData")
     kept = default_state_dir(tmp_path / "install") / "user-sync"
+    assert engine.default_state_dir() == kept
     kept.mkdir(parents=True)
     (kept / engine.SETTINGS_FILE).write_text("{}")
     assert engine.default_state_dir() == kept
