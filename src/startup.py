@@ -7,6 +7,9 @@ exit; only a startup with no existing readers can activate an update.
 POSIX leases are ``flock`` locks; Windows leases are ``LockFileEx`` locks on the first
 byte of the same files (``src.file_lock`` locks them the same way). A Windows file
 system without byte-range locks serves without leases and never auto-updates.
+
+An installation with a shared service runs no second engine: its stdio servers hand
+their session to the service's bridge (``_serve_through_service``, #266).
 """
 
 import errno
@@ -18,6 +21,8 @@ import sys
 from contextlib import contextmanager
 
 UPDATE_JOURNAL = ".update_in_progress.json"
+# Set to 1, a stdio server of a shared service installation serves standalone (for debugging).
+STANDALONE = "AGENTS_STDIO_STANDALONE"
 
 try:
     import fcntl
@@ -246,6 +251,79 @@ def _open_slot_lease(path):
     return os.open(path, os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0), 0o600)
 
 
+def _serve_through_service(repo_root, directory):
+    """Let the stdio bridge serve this session through the shared service (#266).
+
+    A second engine next to the service would load the embedding model again and miss the
+    service's updates. The bridge that migrated clients run (`bridge/stdio.mjs`) takes this
+    process's place instead, with the configuration the service keeps for stdio servers
+    (`bridges/stdio-auto.json`, written at install and at every service start). When the
+    bridge could not serve (`_bridge_problem`), returns to serve standalone and says why.
+    """
+    import json
+    try:
+        with open(os.path.join(directory, "service.json")) as stream:
+            service = json.load(stream)
+    except (OSError, ValueError):
+        service = {}
+    config = os.path.join(directory, "bridges", "stdio-auto.json")
+    bridge = os.path.join(repo_root, "bridge", "stdio.mjs")
+    problem = _bridge_problem(repo_root, service, config, bridge)
+    if problem:
+        sys.stderr.write(f"Agents-Core: the shared service is installed, but {problem}; serving standalone.\n")
+        return
+    if not _answers(service.get("port")):
+        # Requests fail until it runs, as a migrated client's do: one engine, the service's.
+        sys.stderr.write(f"Agents-Core: the shared service does not answer on port {service.get('port')}: start "
+                         "it with `python -m src.daemon start`, or set AGENTS_STDIO_STANDALONE=1 to serve "
+                         "standalone.\n")
+    argv = [service["node"], bridge, config]
+    try:
+        if os.name != "nt":
+            os.execv(argv[0], argv)
+        # No installation lease is held: a service installation changes only in
+        # maintenance, which check_service refused.
+        from src.windows_job import replace_process
+        replace_process(argv)
+    except OSError as error:
+        sys.stderr.write(f"Agents-Core: the bridge to the shared service did not start ({error}); "
+                         "serving standalone.\n")
+
+
+def _bridge_problem(repo_root, service, config, bridge):
+    """Why the service's bridge cannot serve this stdio server, or None.
+
+    Checked before exec, which leaves no way back: the bridge refuses a configuration
+    others may read on POSIX, and an installation copied with its `data/` would
+    otherwise serve through the other installation's service.
+    """
+    node = service.get("node")
+    if not node or not os.path.isabs(node) or not os.path.isfile(node):
+        return "it records no Node executable"
+    installation = service.get("installation")
+    if not installation or os.path.normcase(os.path.realpath(installation)) != os.path.normcase(
+            os.path.realpath(repo_root)):
+        return f"it serves the installation {installation}"
+    for path in (config, bridge):
+        if not os.path.isfile(path):
+            return f"{path} is missing"
+    if os.name == "posix":
+        status = os.stat(config)
+        if status.st_uid != os.getuid() or status.st_mode & 0o077:
+            return f"{config} is not private (0600)"
+    return None
+
+
+def _answers(port):
+    """Whether something accepts connections on the service's local port."""
+    import socket
+    try:
+        with socket.create_connection(("127.0.0.1", int(port)), timeout=0.5):
+            return True
+    except (OSError, TypeError, ValueError):
+        return False
+
+
 def run_server(server_path):
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(server_path)))
     # Bootstrap stays stdlib-only even while another process changes src/.
@@ -255,13 +333,16 @@ def run_server(server_path):
         try:
             with open(marker_path) as stream: marker = json.load(stream)
         except FileNotFoundError:
-            return
+            return None
         directory = marker["directory"]
         if any(os.path.lexists(os.path.join(directory, name)) for name in
                ("maintenance.json", "transaction.json")):
             raise SystemExit("Shared service is in maintenance; use the controller to recover")
         os.environ["AGENTS_AUTO_UPDATE"] = "0"
-    check_service()
+        return directory
+    directory = check_service()
+    if directory is not None and os.environ.get(STANDALONE) != "1":
+        _serve_through_service(repo_root, directory)  # returns only to serve standalone
     with server_session(repo_root, lambda fd: _activate(repo_root, fd)), stdio_derived_state(repo_root) as derived:
         check_service()
         os.environ["AGENTS_DERIVED_DIR"] = derived

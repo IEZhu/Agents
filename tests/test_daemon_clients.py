@@ -91,6 +91,25 @@ def test_each_client_names_its_app_in_its_headers_and_bridge(migration, tmp_path
     assert json.loads(bridge.read_text())["headers"]["X-Agents-Client"] == "antigravity"
 
 
+def test_stdio_servers_get_their_bridge_configuration_where_startup_looks(migration, tmp_path):
+    """#266: `src.startup` hands a stdio session to the bridge with `bridges/stdio-auto.json`."""
+    from src.daemon.state import read_json
+    path = migration.directory / "bridges" / "stdio-auto.json"
+    migration.config["node"] = str(tmp_path / "missing-node")
+    assert migration.stdio_bridge() is None and not path.exists()  # stdio servers serve standalone
+    migration.config["node"] = sys.executable
+    assert migration.stdio_bridge() == path
+    assert read_json(path) == {"url": "http://127.0.0.1:8765/mcp", "workspace": "auto",
+                               "headers": {"Authorization": "Bearer " + migration.token, "X-Agents-Client": "stdio"}}
+    written = path.stat().st_mtime_ns
+    os.utime(path, ns=(written - 10**9, written - 10**9))
+    migration.stdio_bridge()  # unchanged: left alone
+    assert path.stat().st_mtime_ns == written - 10**9
+    migration.token = "rotated-" + migration.token
+    migration.stdio_bridge()
+    assert read_json(path)["headers"]["Authorization"] == "Bearer " + migration.token
+
+
 def test_user_scope_claude_gets_a_bridge_that_names_each_session_project(migration, tmp_path):
     """#253: the user scope serves every project, so a bridge per session registers its own;
     no project needs `migrate --workspace` first."""
@@ -332,3 +351,17 @@ def test_staged_changes_preserved_on_failed_apply(migration, tmp_path):
     assert plugin_file.exists()
     assert str(change[0]) not in migration.staged_changes
 
+
+
+def test_the_service_start_keeps_the_stdio_bridge_configuration_and_survives_a_failure(migration, caplog):
+    """`serve` writes it at every start, so an installation from before #266 gets it; a failure
+    leaves stdio servers standalone, never the service down."""
+    from src.daemon import bootstrap
+    from src.daemon.state import read_json
+    config = read_json(migration.directory / "service.json")
+    write_json(migration.directory / "service.json", {**config, "node": sys.executable})
+    bootstrap.stdio_bridge(migration.directory)
+    assert (migration.directory / "bridges/stdio-auto.json").is_file()
+    (migration.directory / "service.json").unlink()
+    bootstrap.stdio_bridge(migration.directory)  # logs and returns
+    assert "serve standalone" in caplog.text

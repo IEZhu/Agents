@@ -21,6 +21,8 @@ DESKTOP_SERVER = "Agents-Core-Desktop"
 # X-Agents-Client of each managed client: the daemon counts requests per app (usage.py, #187).
 APPS = {"claude": "claude-code", "claude-project": "claude-code", "codex": "codex", "cursor": "cursor",
         "desktop": "claude-desktop", "antigravity": "antigravity"}
+# The app of a client that still starts `src/server.py` over stdio (`stdio_bridge`, #266).
+STDIO_APP = "stdio"
 TRANSPORT_KEYS = {"type", "command", "args", "env", "env_vars", "cwd", "url", "headers", "http_headers",
                   "env_http_headers", "bearer_token", "bearer_token_env_var", "http_headers_helper"}
 
@@ -123,14 +125,35 @@ class ClientMigration:
         client starts it in, once per session (#253), instead of carrying a fixed identity."""
         node = self.config.get("node")
         if not node or not Path(node).is_file(): raise ValueError("An absolute Node executable is required")
-        # One file per app and workspace: the headers name the app.
-        name = "auto" if auto_workspace else identity or "routing"
-        private = self.directory / "bridges" / ((f"{app}-" if app else "") + name + ".json")
+        private, settings = self._bridge_file(identity, app, auto_workspace=auto_workspace)
         private_dir(private.parent)
-        settings = {"url": self.url, "headers": self.headers(identity, app)}
-        if auto_workspace: settings["workspace"] = "auto"
         write_json(private, settings)
         return {"command": node, "args": [str(Path(self.config["installation"]) / "bridge/stdio.mjs"), str(private)]}
+
+    def _bridge_file(self, identity=None, app=None, *, auto_workspace=False):
+        # One file per app and workspace: the headers name the app.
+        name = "auto" if auto_workspace else identity or "routing"
+        settings = {"url": self.url, "headers": self.headers(identity, app)}
+        if auto_workspace: settings["workspace"] = "auto"
+        return self.directory / "bridges" / ((f"{app}-" if app else "") + name + ".json"), settings
+
+    def stdio_bridge(self):
+        """The bridge configuration that stdio servers of this installation serve through (#266).
+
+        `src.startup` runs `bridge/stdio.mjs` with `bridges/stdio-auto.json` in place of a
+        second engine; `token rotate` rewrites it with every other bridge configuration. It is
+        written only when it changed. None without Node: stdio servers then serve standalone.
+        """
+        if not self.has_node():
+            return None
+        private, settings = self._bridge_file(app=STDIO_APP, auto_workspace=True)
+        try:
+            current = read_json(private)
+        except ValueError:  # torn: write it again
+            current = None
+        if current != settings:
+            self.bridge(app=STDIO_APP, auto_workspace=True)
+        return private
 
     def provision_antigravity_plugin(self, *, home=None, bridge_config=None):
         """Prepares ~/.gemini/config/plugins/agents-core plugin manifest and

@@ -99,8 +99,11 @@ plain Markdown segment `Agents-Core <version>`. The version is the UTC commit
 time of the installation's `HEAD` as `YY.MM.DD.HHMM` (`-dirty` when tracked files
 have uncommitted changes, `unknown` without git metadata), computed once per
 process by `src/version.py`. Under the shared daemon the version text is a link,
-`[Agents-Core <version>](http://127.0.0.1:<port>/ui)`, to the web UI; stdio servers
-show the version as plain text. The footer contains no HTML.
+`[Agents-Core <version>](http://127.0.0.1:<port>/ui)`, to the web UI; standalone stdio
+servers show the version as plain text. A stdio server of a service installation
+serves through the service
+([stdio servers](shared-mcp-daemon.md#stdio-servers-of-a-service-installation)), so its
+footer has the link. The footer contains no HTML.
 The segment belongs to the installation, so it is not part of the descriptor or
 the revision. A `NO_CHANGE` response rebuilds its footer in the current process,
 but clients keep the footer saved with the active activation, so its segment

@@ -74,3 +74,16 @@ def test_custom_profile_rotation_survives_removed_environment(installation, tmp_
     entry = json.loads((profile / ".claude.json").read_text())["mcpServers"]["Agents-Core"]
     assert entry["headers"]["Authorization"] == "Bearer " + token
     assert token != "original-profile-token"
+
+
+def test_rotation_rewrites_the_stdio_bridge_configuration(installation):
+    """#266: a stdio server of the installation reaches the service with the rotated token."""
+    import sys
+    controller, _, _, _ = installation
+    controller.config.update(node=sys.executable, port=8765)
+    write_json(controller.directory / "service.json", controller.config)
+    atomic_private(controller.directory / "token", "old-private-token-" * 4 + "\n")
+    path = ClientMigration(controller.directory).stdio_bridge()
+    assert rotate_token(controller)["state"] == "rotated"
+    token = (controller.directory / "token").read_text().strip()
+    assert json.loads(path.read_text())["headers"]["Authorization"] == "Bearer " + token
