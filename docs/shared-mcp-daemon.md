@@ -75,10 +75,21 @@ from `/` without project environment variables or MCP roots; for it, user-scope 
 also provisions an Antigravity plugin (`~/.gemini/config/plugins/agents-core`) with a
 `PreToolUse` lifecycle hook (`bridge/antigravity_hook.mjs`) that signs the active
 workspace path (`workspacePaths[0]`) with an HMAC-SHA256 signature using the daemon bearer
-token (`workspace_signature`). The bridge registers that
-project through `POST /workspaces` and sends its `X-Agents-Workspace` on every
-request, so new projects, clones and worktrees get memory on their first call
-without a migration. A tool call's `workspace` argument (see
+token (`workspace_signature`). The hook returns `decision: "ask"`, preserving
+Antigravity's approval policy, including the user's **Always Allow** choice.
+Unless a non-empty `AGENTS_CLIENT_REPO_ROOT` overrides the auto session,
+the bridge verifies the signature and registers that project through
+`POST /workspaces` with `origin: "hook"`. This origin accepts a safe existing
+folder without a `.git` or `CLAUDE.md` marker, but refuses the filesystem root
+and the user's home directory. After successful verification and registration,
+an auto bridge binds the session to that workspace and sends its
+`X-Agents-Workspace` on later requests. A subsequent authenticated workspace
+switch updates the binding, including for calls without a `workspace` argument.
+A non-empty `AGENTS_CLIENT_REPO_ROOT` remains authoritative for an auto bridge:
+it selects the session workspace before signature verification, and signed calls
+do not register or change that binding.
+New projects, clones and worktrees get memory on their first call without a
+migration. A tool call's `workspace` argument (see
 [Repository Memory](../README.md#-repository-memory)) is registered the same way,
 either verified via HMAC `workspace_signature` or inside the MCP roots the bridge's client declares;
 when the daemon refuses it, a session's bridge keeps using the session's project. A session that started

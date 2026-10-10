@@ -79,10 +79,17 @@ def model_cache(tmp_path, monkeypatch):
     import src.engine.config as config
     from src.engine.fingerprint import fingerprint
 
+    # Use a snapshot-backed model regardless of the installation's configured
+    # model; plain-file exports have pinned fingerprints that ignore cache refs.
+    model_name = "intfloat/multilingual-e5-large"
+    monkeypatch.setattr(config, "EMBEDDING_MODEL", model_name)
+    monkeypatch.setattr(embedder, "EMBEDDING_MODEL", model_name)
     monkeypatch.setattr(config, "FASTEMBED_CACHE_DIR", str(tmp_path))
     monkeypatch.setattr(embedder, "FASTEMBED_CACHE_DIR", str(tmp_path))
     monkeypatch.delenv("AGENTS_MODEL_ARTIFACT", raising=False)
     monkeypatch.delenv("AGENTS_MODEL_PATH", raising=False)
+    monkeypatch.setattr(embedder, "register_custom", lambda model: None)
+    monkeypatch.setattr(embedder, "materialize", lambda model, cache_dir: None)
     monkeypatch.setitem(sys.modules, "fastembed", types.SimpleNamespace(TextEmbedding=FakeTextEmbedding))
     monkeypatch.setattr(FakeTextEmbedding, "during_load", None)
     monkeypatch.setattr(embedder, "_model", None)

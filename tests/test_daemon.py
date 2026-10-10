@@ -241,6 +241,15 @@ async def test_bridges_register_their_projects_without_migrate(tmp_path, monkeyp
             assert (launch.status_code, launch.json()["error"]) == (400, "workspace_required")
             named = await http.post("/workspaces", json={"path": str(plain), "origin": "CLAUDE_PROJECT_DIR"}, headers=headers)
             assert named.status_code == 200 and named.json()["root"] == str(plain.resolve())
+            # A bridge verified the local hook's HMAC before naming this markerless folder.
+            hook_body = {"path": str(plain), "origin": "hook"}
+            assert (await http.post("/workspaces", json=hook_body)).status_code == 401
+            hooked = await http.post("/workspaces", json=hook_body, headers=headers)
+            assert hooked.status_code == 200 and hooked.json()["root"] == str(plain.resolve())
+            assert hooked.json()["workspace_id"] == named.json()["workspace_id"]
+            for unsafe in (plain.anchor, str(fake_home)):
+                response = await http.post("/workspaces", json={"path": unsafe, "origin": "hook"}, headers=headers)
+                assert (response.status_code, response.json()["error"]) == (400, "workspace_unsafe")
             # A stdio client's AGENTS_CLIENT_REPO_ROOT (#266), taken as a stdio server takes it:
             # as named, not walked up to the project marker above it.
             override = await http.post("/workspaces", json={"path": str(project / "pkg"), "origin": "AGENTS_CLIENT_REPO_ROOT"},
