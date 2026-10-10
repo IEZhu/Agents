@@ -25,6 +25,7 @@ listeners of ``src.user_library``, also when it failed part way.
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
 import hashlib
 import json
 import os
@@ -194,6 +195,17 @@ class FlowLibrary:
         history = LibraryHistory(self.user_dir)
         history.ensure()
         return history
+
+    @contextmanager
+    def _library_lock(self):
+        """Refuse an unowned library before the lock or root files are created."""
+        history = LibraryHistory(self.user_dir)
+        history.validate_repository()
+        self.user_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+        with file_lock(self.user_dir / ".lock"):
+            # Ownership or format may have changed while waiting for another writer.
+            history.validate_repository()
+            yield
 
     def _persona_dir(self, scope: str) -> Path:
         """``personas/<scope dir>``, relative to the library."""
@@ -408,7 +420,7 @@ class FlowLibrary:
         if scope == "builtin" or not self.user_dir.exists():
             return []
         path = self._version_path(scope, flow_id)
-        with file_lock(self.user_dir / ".lock"):
+        with self._library_lock():
             return self._versions().history(path)
 
     def get(self, name: str, version: str | None = None) -> dict:
@@ -421,7 +433,7 @@ class FlowLibrary:
             if scope in (None, "builtin"):
                 raise FlowError("flow_not_found: version not found")
             try:
-                with file_lock(self.user_dir / ".lock"):
+                with self._library_lock():
                     history = self._versions()
                     path = self._version_path(scope, flow_id)
                     content = history.read(path, version).decode("utf-8")
@@ -444,7 +456,7 @@ class FlowLibrary:
     def _history_has(self, scope: str, flow_id: str, version: str) -> bool:
         try:
             path = self._version_path(scope, flow_id)
-            with file_lock(self.user_dir / ".lock"):
+            with self._library_lock():
                 self._versions().read(path, version)
             return True
         except (FlowError, OSError):
@@ -537,10 +549,9 @@ class FlowLibrary:
             raise FlowError(f"flow_invalid: override=true needs an existing builtin:{flow_id}")
         directory = self._directory(scope)
         relative = self._relative(scope)
-        self.user_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
         changed = []
         try:
-            with file_lock(self.user_dir / ".lock"):
+            with self._library_lock():
                 roots = user_library.ensure_root_files(self.user_dir)
                 history = self._versions()
                 path, current = self._current(scope, flow_id)
@@ -580,7 +591,7 @@ class FlowLibrary:
         relative = self._relative(scope)
         changed = []
         try:
-            with file_lock(self.user_dir / ".lock"):
+            with self._library_lock():
                 roots = user_library.ensure_root_files(self.user_dir)
                 history = self._versions()
                 path, current = self._current(scope, flow_id)
@@ -618,10 +629,9 @@ class FlowLibrary:
             flow_persona.check_known(spec)
         path = self._persona_path(scope, flow_id)
         relative = (self._persona_dir(scope) / path.name).as_posix()
-        self.user_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
         changed = []
         try:
-            with file_lock(self.user_dir / ".lock"):
+            with self._library_lock():
                 roots = user_library.ensure_root_files(self.user_dir)
                 history = self._versions()
                 # A delete may have finished meanwhile: never leave an orphan overlay

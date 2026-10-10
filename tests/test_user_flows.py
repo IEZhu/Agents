@@ -197,6 +197,47 @@ def test_deleted_git_version_restores_after_restart(library):
     assert fresh.history("user", "mine")[0]["deleted"]
 
 
+@pytest.mark.parametrize("operation", ["save", "delete", "persona", "history", "get", "version"])
+@pytest.mark.parametrize("marker", [None, b'{"format":1,"custom":"keep"}\n'])
+def test_foreign_library_is_refused_before_any_files_change(install, tmp_path, changes, operation, marker):
+    root = tmp_path / "foreign"
+    (root / "common").mkdir(parents=True)
+    (root / "common" / "mine.md").write_bytes(b"# Mine\n")
+    subprocess.run(["git", "init", "--quiet", str(root)], check=True)
+    if marker is not None:
+        (root / user_library.MARKER).write_bytes(marker)
+    before = {path.relative_to(root): path.read_bytes() for path in root.rglob("*") if path.is_file()}
+    library = FlowLibrary(FlowCatalog(install), user_dir=root)
+    with pytest.raises(FlowError, match="not created by Agents-Core"):
+        if operation == "save":
+            library.save("user:mine", "# Changed\n", expected_revision=revision("# Mine\n"))
+        elif operation == "delete":
+            library.delete("user:mine", expected_revision=revision("# Mine\n"))
+        elif operation == "persona":
+            library.set_persona("user:mine", None, reset=True)
+        elif operation == "history":
+            library.history("user", "mine")
+        elif operation == "get":
+            library.get("user:mine")
+        else:
+            library.get("user:mine", version="git-" + "a" * 40)
+    after = {path.relative_to(root): path.read_bytes() for path in root.rglob("*") if path.is_file()}
+    assert after == before and changes == []
+    assert not (root / ".lock").exists()
+
+
+@pytest.mark.parametrize("marker", [b'{"format":999}\n', b'{"format":false}\n', b"invalid JSON\n"])
+def test_invalid_library_format_is_refused_before_support_files(install, tmp_path, marker):
+    root = tmp_path / "library"
+    root.mkdir()
+    (root / user_library.MARKER).write_bytes(marker)
+    library = FlowLibrary(FlowCatalog(install), user_dir=root)
+    with pytest.raises(FlowError, match="flow_history"):
+        library.save("mine", "# Mine\n")
+    assert {path.name for path in root.iterdir()} == {user_library.MARKER}
+    assert (root / user_library.MARKER).read_bytes() == marker
+
+
 def test_plain_save_clears_a_stale_override_marker(library, install):
     saved = library.save("review", "# Mine\n", override=True)
     (install / "review.md").unlink()  # The built-in is removed upstream.

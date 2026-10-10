@@ -206,10 +206,33 @@ class LibraryHistory:
                 result[relative] = full.read_bytes()
         return result
 
-    def _ensure_repository(self) -> None:
+    @_git_errors
+    def validate_repository(self) -> None:
+        """Read-only ownership/path preflight before creating even ``root/.lock``.
+
+        An absent repository is allowed. Existing state must belong to
+        Agents-Core and use supported marker formats and ordinary support paths.
+        ``ensure`` repeats this check while the caller holds the library lock.
+        """
         from src import user_library
+        if self.root.exists() and not self.root.is_dir():
+            raise self._fail("the library root is not a directory")
+
+        def ordinary(path: Path, *, directory: bool = False) -> None:
+            if _is_link(path):
+                raise self._fail(f"the library support path is a symlink or reparse point: {path.relative_to(self.root)}")
+            try:
+                value = path.lstat()
+            except FileNotFoundError:
+                return
+            expected = stat.S_ISDIR if directory else stat.S_ISREG
+            if not expected(value.st_mode):
+                raise self._fail(f"the library support path has an invalid file type: {path.relative_to(self.root)}")
+
+        for name in (user_library.MARKER, ".gitignore", ".gitattributes", ".lock"):
+            ordinary(self.root / name)
         marker = self.root / user_library.MARKER
-        if marker.exists() and not _is_link(marker):
+        if marker.exists():
             try:
                 value = json.loads(marker.read_text(encoding="utf-8"))
             except (OSError, ValueError, UnicodeError):
@@ -219,31 +242,33 @@ class LibraryHistory:
                 raise self._fail("the library marker has an invalid format")
             if version > user_library.FORMAT:
                 raise self._fail("the library format is newer than this installation")
-        elif _is_link(marker):
-            raise self._fail("the library marker is a symlink")
-        if self._ready:
+        dot_git = self.root / ".git"
+        ordinary(dot_git, directory=True)
+        if not dot_git.exists():
+            return
+        ordinary(dot_git / "config")
+        ordinary(self.directory, directory=True)
+        ordinary(self.git.config)
+        ordinary(self.directory / "hooks", directory=True)
+        if self.git.text("config", "--local", "--get", MANAGED_KEY, check=False) != "true":
+            raise self._fail("the library's .git was not created by Agents-Core")
+
+    def _ensure_repository(self) -> None:
+        from src import user_library
+        self.validate_repository()
+        dot_git = self.root / ".git"
+        if self._ready and dot_git.exists():
             return
         wanted = gitcmd.MIN_GIT_VERSION
         version = gitcmd.git_version()
         if version is None or version < wanted:
             raise self._fail("Git " + ".".join(map(str, wanted)) + " or newer is required")
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
-        dot_git = self.root / ".git"
-        if _is_link(dot_git) or (dot_git.exists() and not dot_git.is_dir()):
-            raise self._fail("the library's .git is not a managed repository")
-        if _is_link(self.directory) or _is_link(self.git.config):
-            raise self._fail("the history state directory or configuration is a link")
         if not dot_git.exists():
             self.git.run("init", "--quiet", "--initial-branch=main", str(self.root), repository=False)
             self.git.run("config", MANAGED_KEY, "true")
-        elif self.git.text("config", "--get", MANAGED_KEY, check=False) != "true":
-            raise self._fail("the library's .git was not created by Agents-Core")
-        if _is_link(self.directory):
-            raise self._fail("the history state directory is a symlink")
         self.directory.mkdir(exist_ok=True, mode=0o700)
         hooks = self.directory / "hooks"
-        if _is_link(hooks):
-            raise self._fail("the history hooks directory is a symlink")
         hooks.mkdir(exist_ok=True, mode=0o700)
         user_library.atomic_write(self.git.config,
             gitcmd.isolated_config(name="Agents-Core", email="agents-core@localhost", hooks=hooks).encode())

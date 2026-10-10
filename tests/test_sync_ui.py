@@ -468,7 +468,8 @@ async def test_including_a_scope_again_needs_the_hash_of_its_upload_list(tmp_pat
         assert excluded["status"] == "saved" and {"group": "history", "syncs": False} in excluded["groups"]
         asked = (await call("PUT", "/ui/api/sync/scopes", {"include": ["history"]})).json()
         assert asked["status"] == "confirmation_needed" and len(asked["hash"]) == 64
-        assert len(asked["upload"]) == 1 and asked["upload"][0].startswith(".history/common/a/")
+        assert asked["upload"] == []
+        assert asked["history_versions"] == 1 and asked["history_blocked"] == []
         wrong = (await call("PUT", "/ui/api/sync/scopes", {"include": ["history"], "confirm": "0" * 64})).json()
         assert wrong == asked  # nothing changed
         assert "history" in json.loads((syncer.library / ".agents-sync" / "scopes.json").read_text())["exclude"]

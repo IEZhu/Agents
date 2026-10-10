@@ -385,6 +385,121 @@ def test_foreign_git_is_refused_without_touching_it(tmp_path):
     assert not (root / ".git" / "agents-core-history").exists()
 
 
+def test_repository_preflight_accepts_missing_root_without_creating_anything(tmp_path):
+    root = tmp_path / "not-created"
+    history = LibraryHistory(root)
+    assert history.validate_repository() is None
+    assert not root.exists()
+    root.mkdir()
+    assert history.validate_repository() is None
+    assert list(root.iterdir()) == []
+
+
+def test_repository_preflight_refuses_foreign_git_without_even_creating_library_lock(tmp_path):
+    root = tmp_path / "library"
+    root.mkdir()
+    subprocess.run(["git", "init", "--quiet", str(root)], check=True)
+    before = {path.relative_to(root): path.read_bytes() for path in root.rglob("*") if path.is_file()}
+    with pytest.raises(HistoryError, match="not created by Agents-Core"):
+        LibraryHistory(root).validate_repository()
+    after = {path.relative_to(root): path.read_bytes() for path in root.rglob("*") if path.is_file()}
+    assert after == before
+    assert {path.name for path in root.iterdir()} == {".git"}
+
+
+def test_repository_preflight_requires_local_managed_flag(tmp_path):
+    root = tmp_path / "library"
+    root.mkdir()
+    subprocess.run(["git", "init", "--quiet", str(root)], check=True)
+    history = LibraryHistory(root)
+    history.directory.mkdir()
+    history.git.config.write_bytes(b"[agents-sync]\nmanaged = true\n")
+    before = history.git.config.read_bytes(), (root / ".git/config").read_bytes()
+    assert history.git.text("config", "--get", "agents-sync.managed") == "true"
+    with pytest.raises(HistoryError, match="not created by Agents-Core"):
+        history.validate_repository()
+    assert (history.git.config.read_bytes(), (root / ".git/config").read_bytes()) == before
+    assert {path.name for path in root.iterdir()} == {".git"}
+
+
+@pytest.mark.parametrize("raw", [b"malformed", b"[]", b'{"format":true}', b'{"format":0}',
+                                  b'{"format":999,"custom":"preserved"}'])
+def test_repository_preflight_refuses_invalid_markers_without_writes(tmp_path, raw):
+    root = tmp_path / "library"
+    root.mkdir()
+    marker = root / user_library.MARKER
+    marker.write_bytes(raw)
+    with pytest.raises(HistoryError, match="flow_history"):
+        LibraryHistory(root).validate_repository()
+    assert marker.read_bytes() == raw
+    assert list(root.iterdir()) == [marker]
+
+
+def test_repository_preflight_accepts_legacy_marker_without_upgrading_it(tmp_path):
+    root = tmp_path / "library"
+    root.mkdir()
+    marker = root / user_library.MARKER
+    raw = b'{"format":1,"custom":"preserved"}\n'
+    marker.write_bytes(raw)
+    LibraryHistory(root).validate_repository()
+    assert marker.read_bytes() == raw
+    assert list(root.iterdir()) == [marker]
+
+
+@pytest.mark.parametrize("relative", [user_library.MARKER, ".gitignore", ".gitattributes", ".lock",
+                                      ".git", ".git/config", ".git/agents-core-history",
+                                      ".git/agents-core-history/gitconfig", ".git/agents-core-history/hooks"])
+def test_repository_preflight_refuses_linked_support_paths_without_following_them(tmp_path, relative):
+    root = tmp_path / "library"
+    root.mkdir()
+    if relative.startswith(".git/"):
+        subprocess.run(["git", "init", "--quiet", str(root)], check=True)
+        subprocess.run(["git", "-C", str(root), "config", "--local", "agents-sync.managed", "true"], check=True)
+    outside = tmp_path / "outside"
+    outside.write_bytes(b"outside must stay unchanged\n")
+    target = root / relative
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.unlink(missing_ok=True)
+    target.symlink_to(outside)
+    with pytest.raises(HistoryError, match="symlink or reparse point"):
+        LibraryHistory(root).validate_repository()
+    assert target.is_symlink()
+    assert outside.read_bytes() == b"outside must stay unchanged\n"
+    if relative == ".lock":
+        assert (root / ".lock").is_symlink()
+    else:
+        assert not (root / ".lock").exists()
+    if relative != user_library.MARKER:
+        assert not (root / user_library.MARKER).exists()
+
+
+@pytest.mark.parametrize("relative", [user_library.MARKER, ".gitignore", ".gitattributes", ".lock"])
+def test_repository_preflight_refuses_directories_in_support_file_paths(tmp_path, relative):
+    root = tmp_path / "library"
+    (root / relative).mkdir(parents=True)
+    with pytest.raises(HistoryError, match="invalid file type"):
+        LibraryHistory(root).validate_repository()
+    assert list(root.iterdir()) == [root / relative]
+
+
+def test_cached_backend_revalidates_repository_ownership_before_writes(history):
+    old = history._rev(HISTORY_REF)
+    history.git.run("config", "--local", "agents-sync.managed", "false")
+    before = (history.root / ".git/config").read_bytes()
+    with pytest.raises(HistoryError, match="not created by Agents-Core"):
+        history.ensure()
+    assert (history.root / ".git/config").read_bytes() == before
+    assert history._rev(HISTORY_REF) == old
+
+
+def test_repository_preflight_refuses_file_as_library_root_without_mutation(tmp_path):
+    root = tmp_path / "library"
+    root.write_bytes(b"keep this file\n")
+    with pytest.raises(HistoryError, match="root is not a directory"):
+        LibraryHistory(root).validate_repository()
+    assert root.read_bytes() == b"keep this file\n"
+
+
 def test_newer_marker_is_preserved_before_git_is_created(tmp_path):
     root = tmp_path / "library"
     root.mkdir()
