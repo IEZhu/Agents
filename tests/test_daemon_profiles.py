@@ -317,6 +317,22 @@ def test_the_msix_desktop_app_copy_is_the_configuration_it_reads(msix_desktop, t
     assert client_config_path("desktop") == tmp_path / "chosen.json"
 
 
+def test_of_two_claude_packages_the_one_with_a_configuration_is_the_copy(msix_desktop, tmp_path):
+    """A folder-only package sorting first must not win over the one whose copy exists; two copies are
+    ambiguous, so the AppData file stays and AGENTS_CLAUDE_DESKTOP_CONFIG selects."""
+    _, _, _, appdata, copy = msix_desktop
+    packages = tmp_path / "Local/Packages"
+    (packages / "Claude_000older/LocalCache/Roaming/Claude").mkdir(parents=True)
+    package = copy()  # Claude_pzs8sxrjxfjjc
+    appdata.unlink()
+    assert client_config_path("desktop") == package
+    atomic_private(packages / "Claude_000older/LocalCache/Roaming/Claude/claude_desktop_config.json", b"{}")
+    assert client_config_path("desktop") == appdata
+    package.unlink()
+    (packages / "Claude_000older/LocalCache/Roaming/Claude/claude_desktop_config.json").unlink()
+    assert client_config_path("desktop") == appdata  # two folders and no file: no guess either
+
+
 def test_migrate_edits_and_restores_the_copy_the_msix_desktop_app_reads(msix_desktop):
     _, state, migration, appdata, copy = msix_desktop
     package = copy()

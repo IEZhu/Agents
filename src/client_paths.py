@@ -68,7 +68,9 @@ def desktop_config_paths(*, home=None, environ=None):
     with that copy, a file of the copy hiding the AppData one. A process outside the package, such
     as a terminal or the service's scheduled task, sees only AppData (#270). So the copy is the file
     to edit once it exists, and also before, when the app keeps its Claude folder there and no
-    AppData file exists for it to read instead; otherwise it is None.
+    AppData file exists for it to read instead; otherwise it is None. With more than one such
+    package nothing tells which app runs, so it is None as well: ``AGENTS_CLAUDE_DESKTOP_CONFIG``
+    then selects the file.
     """
     env = os.environ if environ is None else environ
     home = absolute_path(home or Path.home())
@@ -78,12 +80,12 @@ def desktop_config_paths(*, home=None, environ=None):
         packages = sorted((local / "Packages").glob("Claude_*"))  # MSIX names hold no "_": only the "Claude" package
     except OSError:
         packages = []
+    copies = [package / "LocalCache/Roaming/Claude/claude_desktop_config.json" for package in packages]
     # os.path, not Path.is_file and is_dir: a package directory this user cannot read raises there.
-    for package in packages:
-        copy = package / "LocalCache/Roaming/Claude/claude_desktop_config.json"
-        if os.path.isfile(copy) or (os.path.isdir(copy.parent) and not os.path.lexists(appdata)):
-            return appdata, copy
-    return appdata, None
+    written = [copy for copy in copies if os.path.isfile(copy)]
+    if not written and not os.path.lexists(appdata):
+        written = [copy for copy in copies if os.path.isdir(copy.parent)]
+    return appdata, written[0] if len(written) == 1 else None
 
 
 def parse_client_configs(values, *, multiple=False):

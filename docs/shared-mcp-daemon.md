@@ -226,8 +226,10 @@ merged with it: once the copy of `claude_desktop_config.json` exists, it hides
 outside the package (a terminal, the service's scheduled task) sees only the
 AppData file. Setup, `migrate` and `audit` therefore use the copy when it exists,
 and also when the app keeps its Claude folder there and no AppData file exists
-for it to read instead (#270). `AGENTS_CLAUDE_DESKTOP_CONFIG` and
-`--client-config desktop=` still select any file. `audit` lists the servers of an
+for it to read instead (#270). With more than one `Claude_*` package holding
+such a copy, nothing tells which app runs, and the AppData file stays the
+default. `AGENTS_CLAUDE_DESKTOP_CONFIG` and `--client-config desktop=` still
+select any file. `audit` lists the servers of an
 AppData file that differs from the copy under the scope `desktop:unread`; run
 inside the package, where the AppData path shows the copy itself, it lists only
 the copy.
