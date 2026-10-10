@@ -13,6 +13,7 @@ import sys
 import time
 import tomllib
 
+from src import executables
 from .state import atomic_private, read_json, write_json, private_dir
 from .workspaces import WorkspaceRegistry
 from src.client_paths import DESKTOP_DENY_RULES, DESKTOP_SERVER, client_config_path, desktop_config_paths
@@ -44,7 +45,7 @@ def tracked(path):
     cwd = path.parent
     while not cwd.exists():
         cwd = cwd.parent
-    result = subprocess.run(["git", "-C", str(cwd), "ls-files", "--error-unmatch", str(path)],
+    result = subprocess.run([executables.path("git"), "-C", str(cwd), "ls-files", "--error-unmatch", str(path)],
                             capture_output=True, text=True)
     return result.returncode == 0
 
@@ -52,12 +53,12 @@ def tracked(path):
 def exclude_private(path):
     """Local git exclusion only; never commit a token-bearing configuration."""
     path = Path(path)
-    result = subprocess.run(["git", "-C", str(path.parent), "rev-parse", "--show-toplevel"],
+    result = subprocess.run([executables.path("git"), "-C", str(path.parent), "rev-parse", "--show-toplevel"],
                             capture_output=True, text=True)
     if result.returncode:
         return
     root = Path(result.stdout.strip())
-    result = subprocess.run(["git", "-C", str(root), "rev-parse", "--git-path", "info/exclude"],
+    result = subprocess.run([executables.path("git"), "-C", str(root), "rev-parse", "--git-path", "info/exclude"],
                             capture_output=True, text=True, check=True)
     exclude = Path(result.stdout.strip())
     if not exclude.is_absolute(): exclude = root / exclude

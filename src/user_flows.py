@@ -33,7 +33,7 @@ from pathlib import Path
 import re
 import subprocess
 
-from src import flow_persona, user_library
+from src import executables, flow_persona, user_library
 from src.file_lock import file_lock
 from src.flows import (FLOW_ID, MAX_FLOW_BYTES, Flow, FlowCatalog, FlowError,
                        flow_title, read_flow)
@@ -70,7 +70,7 @@ def normalize_origin(url: str) -> str | None:
 
 def _origin(root: Path) -> str | None:
     try:
-        result = subprocess.run(["git", "-C", str(root), "config", "--get", "remote.origin.url"],
+        result = subprocess.run([executables.path("git"), "-C", str(root), "config", "--get", "remote.origin.url"],
                                 capture_output=True, text=True, timeout=5, stdin=subprocess.DEVNULL,
                                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     except (OSError, subprocess.SubprocessError):

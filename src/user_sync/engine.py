@@ -58,7 +58,7 @@ import tempfile
 import time
 import traceback
 
-from src import user_library
+from src import executables, user_library
 from src.file_lock import file_lock
 from src.user_library import FORMAT, MARKER, REPO_LOCAL, REPO_META
 from src.user_sync import github as github_api, gitcmd, keys, merge as merging, scope
@@ -1367,7 +1367,7 @@ class Syncer:
                            GIT_TERMINAL_PROMPT="0", GIT_ALLOW_PROTOCOL="https",
                            GIT_CEILING_DIRECTORIES=str(self.state_dir.parent))
         try:
-            result = subprocess.run(["git", "ls-remote", remote.https_url],
+            result = subprocess.run([executables.path("git"), "ls-remote", remote.https_url],
                                     capture_output=True, timeout=30, env=environment, cwd=self.state_dir,
                                     stdin=subprocess.DEVNULL, **gitcmd.no_window())
         except (OSError, subprocess.SubprocessError):

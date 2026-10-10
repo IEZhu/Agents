@@ -16,6 +16,7 @@ import time
 from urllib.error import HTTPError, URLError
 from urllib.request import ProxyHandler, Request, build_opener
 
+from src import executables
 from src.file_lock import file_lock
 from src.model_migration import DEFAULT_MODEL, GENERATION
 from . import service
@@ -187,12 +188,15 @@ class Controller:
             with socket.socket() as probe:
                 probe.bind(("127.0.0.1", port))
             python = os.path.abspath(python or sys.executable)
-            git = shutil.which("git")
-            if not git: raise RuntimeError("An absolute Git executable is required")
+            # Absolute paths for the service's tools; it runs with system directories only (#244).
+            tools = executables.find_all()
+            if not tools["git"]: raise RuntimeError("An absolute Git executable is required")
             node = node or shutil.which("node")
             config = {"installation": str(root), "python": python, "node": os.path.abspath(node) if node else None,
-                      "git": git, "port": port, "model": model or DEFAULT_MODEL,
+                      **{executables.CONFIG_KEYS[name]: tool and tool.path for name, tool in tools.items()},
+                      "port": port, "model": model or DEFAULT_MODEL,
                       "model_cache": str(Path(os.environ.get("FASTEMBED_CACHE_DIR", "").strip() or "~/.cache/fastembed").expanduser()),
+                      # The installer's PATH: where a tool installed later is looked up, not the service's PATH.
                       "path": os.environ.get("PATH", "/usr/bin:/bin:/usr/sbin:/sbin"), "autostart": True,
                       "model_generation": GENERATION}
             config.update(pin_model(config["model"], config["model_cache"]))
@@ -211,8 +215,11 @@ class Controller:
             # Stdio servers of this installation serve through the service from now on (#266).
             from .bootstrap import stdio_bridge
             stdio_bridge(self.directory)
-        return {"state": "installed", "directory": str(self.directory), "port": port,
-                "scheduled_sync": stop_scheduled_sync(root), "user_sync": sync_note(self.directory)}
+        installed = {"state": "installed", "directory": str(self.directory), "port": port,
+                     "tools": {name: tool and tool.path for name, tool in tools.items()}}
+        if warnings := [executables.warning(tool) for tool in tools.values() if tool and not tool.protected]:
+            installed["warnings"] = warnings
+        return {**installed, "scheduled_sync": stop_scheduled_sync(root), "user_sync": sync_note(self.directory)}
 
     def write_plist(self, probation=None):
         """Record the service definition (a LaunchAgent plist, a Task Scheduler task) without starting it."""
@@ -440,6 +447,8 @@ def main(argv=None):
             if any(client not in clients for client, _ in overrides):
                 parser.error("Each --client-config target must be selected by --clients")
     controller = Controller(args.state)
+    # Commands of an installed service start its tools as the service does (#244).
+    if controller.config: executables.configure(controller.config)
     exit_code = 0
     if args.command == "serve":
         from .bootstrap import serve

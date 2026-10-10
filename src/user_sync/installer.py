@@ -46,12 +46,12 @@ import os
 from pathlib import Path
 import re
 import shlex
-import shutil
 import subprocess
 import sys
 from typing import Callable, Iterable, Mapping, MutableMapping
 from urllib.request import ProxyHandler, Request, build_opener
 
+from src import executables
 from src.user_sync import gitcmd, keys
 from src.user_sync.engine import (MANAGED_KEY, Settings, SyncError, Syncer, hosted_repository,
                                   installation_root, validate_identity)
@@ -216,7 +216,7 @@ def missing_tools() -> list[str]:
                        else f"git {wanted} or newer")
     elif version < gitcmd.MIN_GIT_VERSION:
         missing.append(f"git {wanted} or newer (this machine has {'.'.join(map(str, version))})")
-    if shutil.which("ssh-keygen") is None:
+    if not executables.available("ssh-keygen"):
         missing.append("ssh-keygen (the OpenSSH Client: Settings > System > Optional features)"
                        if os.name == "nt" else "ssh-keygen (OpenSSH)")
     return missing
@@ -233,8 +233,8 @@ def foreign_git(library: Path) -> bool:
     environment.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull)
     try:
         # --file reads that one file without includes, takes no lock and writes nothing.
-        result = subprocess.run(["git", "config", "--file", str(dot_git / "config"), "--get", MANAGED_KEY],
-                                capture_output=True, text=True, timeout=gitcmd.LOCAL_TIMEOUT,
+        result = subprocess.run([executables.path("git"), "config", "--file", str(dot_git / "config"),
+                                 "--get", MANAGED_KEY], capture_output=True, text=True, timeout=gitcmd.LOCAL_TIMEOUT,
                                 env=environment, stdin=subprocess.DEVNULL, **gitcmd.no_window())
     except (OSError, subprocess.SubprocessError):
         return True  # it cannot be told apart: leave it alone

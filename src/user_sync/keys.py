@@ -21,6 +21,7 @@ import subprocess
 import tempfile
 from urllib.request import Request, urlopen
 
+from src import executables
 from src.user_sync.gitcmd import clean_environment, no_window
 
 KEY_NAME = "id_ed25519"
@@ -93,9 +94,9 @@ def derive_public(private: Path, label: str | None = None) -> str | None:
     ``-P ""`` makes a key with a passphrase fail at once instead of asking for it.
     """
     try:
-        result = subprocess.run(["ssh-keygen", "-y", "-P", "", "-f", str(private)], capture_output=True,
-                                text=True, timeout=30, env=clean_environment(), stdin=subprocess.DEVNULL,
-                                **no_window())
+        result = subprocess.run([executables.path("ssh-keygen"), "-y", "-P", "", "-f", str(private)],
+                                capture_output=True, text=True, timeout=30, env=clean_environment(),
+                                stdin=subprocess.DEVNULL, **no_window())
     except (OSError, subprocess.SubprocessError):
         return None
     material = key_material(result.stdout) if result.returncode == 0 else None
@@ -108,7 +109,7 @@ def generate_key(private: Path, label: str) -> str:
     """A new ed25519 pair at ``private`` and ``<private>.pub``, replacing any; returns its public line."""
     discard_key(private)
     try:
-        result = subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C",
+        result = subprocess.run([executables.path("ssh-keygen"), "-q", "-t", "ed25519", "-N", "", "-C",
                                  f"agents-core-sync:{label}", "-f", str(private)],
                                 capture_output=True, text=True, timeout=30, env=clean_environment(),
                                 stdin=subprocess.DEVNULL, **no_window())
@@ -232,12 +233,13 @@ def github_host_keys(fetch=None) -> list[str]:
 
 def scan_host_keys(host: str, port: int | None) -> list[str]:
     """Keys offered by ``host`` (``type base64``), for the owner to confirm by fingerprint."""
-    command = ["ssh-keyscan", "-T", "10", "-t", "ed25519,ecdsa,rsa"]
+    options = ["-T", "10", "-t", "ed25519,ecdsa,rsa"]
     if port not in (None, 22):
-        command += ["-p", str(port)]
+        options += ["-p", str(port)]
     try:
-        result = subprocess.run(command + ["--", host], capture_output=True, text=True, timeout=30,
-                                env=clean_environment(), stdin=subprocess.DEVNULL, **no_window())
+        result = subprocess.run([executables.path("ssh-keyscan"), *options, "--", host], capture_output=True,
+                                text=True, timeout=30, env=clean_environment(), stdin=subprocess.DEVNULL,
+                                **no_window())
     except (OSError, subprocess.SubprocessError) as error:
         raise SSHKeyError(f"ssh-keyscan could not run ({error})") from None
     keys = []
