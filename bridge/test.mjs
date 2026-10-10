@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { once } from 'node:events';
+import { createHmac } from 'node:crypto';
 
 test('stdio forwards concurrent IDs and notifications, suppresses callbacks, never retries', async () => {
   const seen = [];
@@ -73,7 +74,7 @@ async function fakeDaemon(answer) {
 }
 
 // A client that declares roots, answers the bridge's roots/list and sends `messages` in order.
-async function session(daemon, settings, messages, env = {}, cwd = undefined) {
+async function session(daemon, settings, messages, env = {}, cwd = undefined, capabilities = { roots: { listChanged: true } }) {
   const dir = await mkdtemp(join(tmpdir(), 'agents-bridge-'));
   try {
     const config = join(dir, 'config.json');
@@ -99,7 +100,7 @@ async function session(daemon, settings, messages, env = {}, cwd = undefined) {
     });
     const write = message => child.stdin.write(JSON.stringify({ jsonrpc: '2.0', ...message }) + '\n');
     const answered = id => new Promise(resolve => { waiting = () => responses.has(id) && resolve(); waiting(); });
-    write({ id: 'init', method: 'initialize', params: { capabilities: { roots: { listChanged: true } } } });
+    write({ id: 'init', method: 'initialize', params: { capabilities } });
     await answered('init');
     for (const message of messages) {
       write(message);
@@ -116,7 +117,12 @@ async function session(daemon, settings, messages, env = {}, cwd = undefined) {
   }
 }
 
-const call = (id, workspace) => ({ id, method: 'tools/call', params: { name: 'log_interaction', arguments: { workspace } } });
+const call = (id, workspace, workspace_signature = undefined) => ({
+  id, method: 'tools/call', params: {
+    name: 'log_interaction',
+    arguments: { ...(workspace ? { workspace } : {}), ...(workspace_signature ? { workspace_signature } : {}) },
+  },
+});
 
 test('auto workspace: the session directory names every request, retried while the daemon is not up', async () => {
   const daemon = await fakeDaemon((message, count) => {
@@ -165,5 +171,86 @@ test('auto workspace without CLAUDE_PROJECT_DIR reports its cwd as a launch dire
     assert.equal(header('list'), 'cwd-id');
   } finally {
     await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test('signed workspace: a tool call with valid workspace_signature registers without roots and without cwd', async () => {
+  const daemon = await fakeDaemon(message => [200, { workspace_id: message.path === '/signed/project' ? 'signed-id' : 'session-id', root: message.path }]);
+  const signature = createHmac('sha256', 'test').update('workspace:/signed/project').digest('hex');
+  // Client declares empty capabilities (no roots), runs in a shared bridge (no per-session cwd registration).
+  const { header, responses } = await session(daemon, {},
+    [call('tool-1', '/signed/project', signature)],
+    { CLAUDE_PROJECT_DIR: undefined }, undefined, {});
+  assert.equal(daemon.registrations.length, 1);
+  assert.deepEqual(daemon.registrations[0], { path: '/signed/project' });
+  assert.equal(header('tool-1'), 'signed-id');
+  assert.ok(!responses.get('tool-1').error);
+  // Verify workspace_signature was stripped before forwarding to daemon
+  const forwardedCall = daemon.calls.find(c => c.message.id === 'tool-1');
+  assert.equal(forwardedCall.message.params.arguments.workspace, '/signed/project');
+  assert.equal(forwardedCall.message.params.arguments.workspace_signature, undefined);
+});
+
+test('invalid workspace_signature is rejected and stripped, falling back without registering', async () => {
+  const daemon = await fakeDaemon(message => [200, { workspace_id: 'bad-id', root: message.path }]);
+  // In a shared bridge without roots, an invalid signature must not register the forged path.
+  const { header } = await session(daemon, {},
+    [call('tool-bad', '/forged/path', '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef')],
+    { CLAUDE_PROJECT_DIR: undefined }, undefined, {});
+  // Daemon never received a registration for the forged path
+  assert.equal(daemon.registrations.length, 0);
+  assert.equal(header('tool-bad'), undefined);
+  // workspace_signature was still stripped before forwarding
+  const forwardedCall = daemon.calls.find(c => c.message.id === 'tool-bad');
+  assert.equal(forwardedCall.message.params.arguments.workspace_signature, undefined);
+});
+
+test('antigravity hook signs workspacePaths for lazy and eager tool calls', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'agents-hook-test-'));
+  try {
+    const config = join(dir, 'config.json');
+    await writeFile(config, JSON.stringify({
+      url: 'http://127.0.0.1:8765/mcp',
+      headers: { Authorization: 'Bearer test' },
+    }), { mode: 0o600 });
+    const runHook = payload => new Promise((resolve, reject) => {
+      const child = spawn(process.execPath, [fileURLToPath(new URL('./antigravity_hook.mjs', import.meta.url)), config]);
+      let out = '', err = '';
+      child.stdout.on('data', d => out += d);
+      child.stderr.on('data', d => err += d);
+      child.on('close', code => code === 0 ? resolve(JSON.parse(out)) : reject(new Error(err || `Exit ${code}`)));
+      child.stdin.end(JSON.stringify(payload));
+    });
+
+    const expectedSig = createHmac('sha256', 'test').update('workspace:/my/test/repo').digest('hex');
+
+    // 1. Lazy tool call (call_mcp_tool)
+    const lazyRes = await runHook({
+      toolCall: { name: 'call_mcp_tool', args: { ServerName: 'Agents-Core', ToolName: 'read_history', Arguments: { limit: 5 } } },
+      workspacePaths: ['/my/test/repo'],
+    });
+    assert.equal(lazyRes.decision, undefined);
+    assert.equal(lazyRes.overwrite.Arguments.workspace, '/my/test/repo');
+    assert.equal(lazyRes.overwrite.Arguments.workspace_signature, expectedSig);
+    assert.equal(lazyRes.overwrite.Arguments.limit, 5);
+
+    // 2. Eager tool call (mcp_Agents-Core_read_history)
+    const eagerRes = await runHook({
+      toolCall: { name: 'mcp_Agents-Core_read_history', args: { limit: 10 } },
+      workspacePaths: ['/my/test/repo'],
+    });
+    assert.equal(eagerRes.decision, undefined);
+    assert.equal(eagerRes.overwrite.workspace, '/my/test/repo');
+    assert.equal(eagerRes.overwrite.workspace_signature, expectedSig);
+    assert.equal(eagerRes.overwrite.limit, 10);
+
+    // 3. Other server call
+    const otherRes = await runHook({
+      toolCall: { name: 'call_mcp_tool', args: { ServerName: 'Other', ToolName: 'read_history' } },
+      workspacePaths: ['/my/test/repo'],
+    });
+    assert.deepEqual(otherRes, {});
+  } finally {
+    await rm(dir, { recursive: true, force: true });
   }
 });

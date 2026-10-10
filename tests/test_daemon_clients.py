@@ -189,15 +189,30 @@ def test_user_scope_antigravity_gets_auto_workspace_bridge(migration, tmp_path):
     """#257: Antigravity gets a stdio bridge with auto_workspace for user scope, and fixed workspace for projects."""
     home = tmp_path / "home"; home.mkdir()
     migration.config["node"] = sys.executable
-    _, text, secret = migration.prepare("antigravity", home=home)
-    entry = json.loads(text)["mcpServers"]["Agents-Core"]
+    change = migration.prepare("antigravity", home=home)
+    backup = migration.apply([change])
+    entry = json.loads(Path(change[0]).read_text())["mcpServers"]["Agents-Core"]
     assert entry["command"] == sys.executable and entry["args"][0].endswith("stdio.mjs")
     bridge = Path(entry["args"][1])
     assert bridge.name == "antigravity-auto.json"
     settings = json.loads(bridge.read_text())
     assert settings["workspace"] == "auto" and "X-Agents-Workspace" not in settings["headers"]
     assert settings["headers"]["X-Agents-Client"] == "antigravity"
-    assert not secret and migration.token not in text
+    assert not change[2] and migration.token not in change[1]
+    # #260: User scope also provisions the Antigravity plugin with PreToolUse hook for signed workspace binding.
+    plugin_file = home / ".gemini/config/plugins/agents-core/plugin.json"
+    hooks_file = home / ".gemini/config/plugins/agents-core/hooks.json"
+    assert plugin_file.exists() and hooks_file.exists()
+    manifest = json.loads(plugin_file.read_text())
+    assert manifest["name"] == "agents-core"
+    hooks = json.loads(hooks_file.read_text())
+    hook_entry = hooks["agents-core-workspace"]["PreToolUse"][0]
+    assert hook_entry["matcher"] == "call_mcp_tool|mcp_Agents-Core_.*|mcp_Agents_Core_.*"
+    cmd = hook_entry["hooks"][0]["command"]
+    assert sys.executable in cmd and "antigravity_hook.mjs" in cmd and str(bridge) in cmd
+    # Restore removes the provisioned plugin files when they were created by migration
+    migration.restore(backup)
+    assert not plugin_file.exists() and not hooks_file.exists()
     # A pinned project gets a workspace bridge with its workspace identity.
     project = tmp_path / "repo"; project.mkdir()
     _, text, _ = migration.prepare("antigravity", project, home=home)
@@ -226,3 +241,94 @@ def test_conftest_clears_inherited_client_config_overrides(tmp_path):
     )
     report = json.loads(result.stdout.strip().splitlines()[-1])
     assert report == {"left": [], "claude": str(home / ".claude.json")}
+
+
+def test_provision_antigravity_plugin_merges_and_preserves_customizations(migration, tmp_path):
+    home = tmp_path / "home"
+    plugin_dir = home / ".gemini/config/plugins/agents-core"
+    plugin_dir.mkdir(parents=True)
+    # Existing plugin.json with custom description or rules
+    write_json(plugin_dir / "plugin.json", {"name": "agents-core", "description": "Custom", "version": "1.0.0"})
+    # Existing hooks.json with a user hook
+    write_json(plugin_dir / "hooks.json", {"user-hook": {"enabled": True, "Stop": []}})
+
+    migration.config["node"] = sys.executable
+    changes = migration.provision_antigravity_plugin(home=home)
+    backup = migration.apply(changes)
+
+    manifest = json.loads((plugin_dir / "plugin.json").read_text())
+    assert manifest["version"] == "1.0.0"
+    assert manifest["description"] == "Custom"
+
+    hooks = json.loads((plugin_dir / "hooks.json").read_text())
+    assert "user-hook" in hooks
+    assert "agents-core-workspace" in hooks
+    assert hooks["agents-core-workspace"]["PreToolUse"][0]["matcher"] == "call_mcp_tool|mcp_Agents-Core_.*|mcp_Agents_Core_.*"
+
+    # Restoring backup reverts the workspace hook while preserving the user hook
+    migration.restore(backup)
+    restored_hooks = json.loads((plugin_dir / "hooks.json").read_text())
+    assert "user-hook" in restored_hooks
+    assert "agents-core-workspace" not in restored_hooks
+
+    # When node is not a valid file, it returns empty changes and does nothing
+    empty_home = tmp_path / "empty_home"
+    migration.config["node"] = str(tmp_path / "nonexistent-node")
+    changes = migration.provision_antigravity_plugin(home=empty_home)
+    assert changes == []
+    assert not (empty_home / ".gemini").exists()
+
+    # Invalid JSON or non-object values raise ValueError naming the file
+    migration.config["node"] = sys.executable
+    (plugin_dir / "plugin.json").write_text("invalid json {")
+    with pytest.raises(ValueError, match="Invalid JSON.*plugin.json"):
+        migration.provision_antigravity_plugin(home=home)
+    (plugin_dir / "plugin.json").write_text("[1, 2, 3]")
+    with pytest.raises(ValueError, match="must be a JSON object"):
+        migration.provision_antigravity_plugin(home=home)
+    write_json(plugin_dir / "plugin.json", {"name": "agents-core"})
+    (plugin_dir / "hooks.json").write_text("invalid hooks {")
+    with pytest.raises(ValueError, match="Invalid JSON.*hooks.json"):
+        migration.provision_antigravity_plugin(home=home)
+    (plugin_dir / "hooks.json").write_text('"not an object"')
+    with pytest.raises(ValueError, match="must be a JSON object"):
+        migration.provision_antigravity_plugin(home=home)
+
+
+def test_staged_changes_do_not_leak_to_other_clients(migration, tmp_path):
+    home = tmp_path / "home"; home.mkdir()
+    migration.config["node"] = sys.executable
+    # Prepare antigravity (stages plugin changes)
+    antigravity_change = migration.prepare("antigravity", home=home)
+    # Prepare cursor (different client)
+    cursor_change = migration.prepare("cursor", home=home)
+    # Apply only cursor change
+    migration.apply([cursor_change])
+    # Antigravity plugin files must not have been created
+    plugin_file = home / ".gemini/config/plugins/agents-core/plugin.json"
+    assert not plugin_file.exists()
+    # Now apply antigravity change
+    migration.apply([antigravity_change])
+    assert plugin_file.exists()
+
+
+def test_staged_changes_preserved_on_failed_apply(migration, tmp_path):
+    home = tmp_path / "home"; home.mkdir()
+    migration.config["node"] = sys.executable
+    change = migration.prepare("antigravity", home=home)
+    # Simulate a failure during apply (e.g. on_prepared callback raises)
+    def failing_callback(_backup):
+        raise RuntimeError("simulated callback failure")
+
+    with pytest.raises(RuntimeError, match="simulated callback failure"):
+        migration.apply([change], on_prepared=failing_callback)
+
+    plugin_file = home / ".gemini/config/plugins/agents-core/plugin.json"
+    assert not plugin_file.exists()
+    assert str(change[0]) in migration.staged_changes
+
+    # Retry applying the change without failure
+    migration.apply([change])
+    assert plugin_file.exists()
+    assert str(change[0]) not in migration.staged_changes
+
