@@ -4,6 +4,7 @@ Covers both injectors: the inline Python in ``scripts/init_repo.sh`` (extracted
 the same way as in ``test_daemon_migration_guards.py``) and
 ``scripts/_helpers/inject_mcp.py`` used by ``init_repo.bat``.
 """
+import codecs
 import importlib
 import json
 import sys
@@ -15,13 +16,13 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 NIX_LD = "/run/current-system/sw/share/nix-ld/lib"
 
 
-def _run_shell_injection(tmp_path, monkeypatch, config=None, nixos=False):
+def _run_shell_injection(tmp_path, monkeypatch, config=None, nixos=False, client="claude"):
     """Write ``config`` (None re-runs on the current file) and inject into it."""
     path = tmp_path / "mcp.json"
     if config is not None:
         path.write_text(json.dumps(config), encoding="utf-8")
     monkeypatch.setenv("CLAUDE_CONFIG_PATH", str(path))
-    monkeypatch.setenv("MCP_CLIENT", "claude")
+    monkeypatch.setenv("MCP_CLIENT", client)
     monkeypatch.setenv("MCP_PYTHON", "/venv/bin/python")
     # No data/.shared-service.json under this install, so the stdio path runs.
     monkeypatch.setenv("MCP_SERVER", str(tmp_path / "install/src/server.py"))
@@ -92,11 +93,11 @@ def run_helper(tmp_path, monkeypatch):
     inject_mcp = importlib.import_module("inject_mcp")
     path = tmp_path / "mcp.json"
 
-    def run(config=None):
+    def run(config=None, *options):
         """Write ``config`` (None re-runs on the current file) and inject into it."""
         if config is not None:
             path.write_text(json.dumps(config), encoding="utf-8")
-        monkeypatch.setattr(sys, "argv", ["inject_mcp.py", str(path), "/venv/bin/python", "/srv/server.py"])
+        monkeypatch.setattr(sys, "argv", ["inject_mcp.py", str(path), "/venv/bin/python", "/srv/server.py", *options])
         inject_mcp.main()
         return json.loads(path.read_text(encoding="utf-8"))
 
@@ -202,3 +203,127 @@ def test_shared_shell_injection_uses_explicit_client_and_exact_destination(tmp_p
     else:
         assert entry["url"] == "http://127.0.0.1:8765/mcp"
         assert "command" not in entry and "args" not in entry
+
+
+# --- the Claude desktop app's entry (#231) -------------------------------------------------
+
+DESKTOP_ORIGINAL = {"mcpServers": {"Agents-Core": {"command": "old", "env": {"A": "1"}},
+                                   "other": {"command": "other"}}}
+
+
+def test_shell_injection_names_the_desktop_entry_and_takes_over_the_old_one(tmp_path, monkeypatch):
+    """The app injects its servers into its Code-tab sessions; Claude Code denies this name (#231)."""
+    from src.client_paths import DESKTOP_SERVER
+    config = _run_shell_injection(tmp_path, monkeypatch, DESKTOP_ORIGINAL, client="desktop")
+    assert set(config["mcpServers"]) == {DESKTOP_SERVER, "other"}
+    assert config["mcpServers"][DESKTOP_SERVER] == {
+        "command": "/venv/bin/python", "args": [str(tmp_path / "install/src/server.py")], "env": {"A": "1"}}
+    assert _run_shell_injection(tmp_path, monkeypatch, client="desktop") == config  # idempotent
+
+
+def test_helper_names_the_desktop_entry_and_takes_over_the_old_one(run_helper):
+    config = run_helper(DESKTOP_ORIGINAL, "--desktop")
+    assert set(config["mcpServers"]) == {"Agents-Core-Desktop", "other"}
+    assert config["mcpServers"]["Agents-Core-Desktop"] == {
+        "command": "/venv/bin/python", "args": ["/srv/server.py"], "env": {"A": "1"}}
+    assert run_helper(None, "--desktop") == config  # idempotent
+    assert run_helper(None)["mcpServers"]["Agents-Core"] == {"command": "/venv/bin/python",
+                                                             "args": ["/srv/server.py"]}  # default name
+
+
+def test_with_both_names_the_old_entry_takes_over_as_migrate_does(run_helper):
+    config = run_helper({"mcpServers": {"Agents-Core": {"env": {"A": "1"}},
+                                        "Agents-Core-Desktop": {"disabled": True}}}, "--desktop")
+    assert config["mcpServers"] == {"Agents-Core-Desktop": {
+        "env": {"A": "1"}, "command": "/venv/bin/python", "args": ["/srv/server.py"]}}
+
+
+def test_helper_reads_a_config_saved_with_a_bom(run_helper, tmp_path):
+    (tmp_path / "mcp.json").write_bytes(codecs.BOM_UTF8 + json.dumps({"mcpServers": {"other": {}}}).encode())
+    assert set(run_helper(None)["mcpServers"]) == {"Agents-Core", "other"}
+
+
+BRIDGE = {"command": "/usr/bin/node", "args": ["/install/bridge/stdio.mjs", "/state/bridges/claude-desktop-routing.json"]}
+
+
+@pytest.mark.parametrize("installed", [True, False])
+def test_setup_keeps_the_shared_services_entries_only_while_it_is_installed(tmp_path, monkeypatch, installed):
+    """migrate's bridge stays while the service is installed; after uninstall setup writes stdio again."""
+    monkeypatch.syspath_prepend(str(REPO_ROOT / "scripts" / "_helpers"))
+    inject_mcp = importlib.import_module("inject_mcp")
+    server = tmp_path / "install" / "src" / "server.py"
+    if installed:
+        (tmp_path / "install" / "data").mkdir(parents=True)
+        (tmp_path / "install" / "data" / ".shared-service.json").write_text("{}")
+    path = tmp_path / "claude_desktop_config.json"
+    path.write_text(json.dumps({"mcpServers": {"Agents-Core-Desktop": BRIDGE, "Agents-Core": {"command": "old"}}}))
+    monkeypatch.setattr(sys, "argv", ["inject_mcp.py", str(path), "/venv/bin/python", str(server), "--desktop"])
+    inject_mcp.main()
+    servers = json.loads(path.read_text())["mcpServers"]
+    if installed:
+        assert servers == {"Agents-Core-Desktop": BRIDGE}  # the older duplicate goes
+    else:
+        assert servers == {"Agents-Core-Desktop": {"command": "/venv/bin/python", "args": [str(server)]}}
+
+
+@pytest.fixture
+def deny_helper(tmp_path, monkeypatch):
+    monkeypatch.syspath_prepend(str(REPO_ROOT / "scripts" / "_helpers"))
+    deny = importlib.import_module("deny_desktop_mcp")
+    path = tmp_path / "claude profile" / "settings.json"
+
+    def run(settings=None):
+        if settings is not None:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(settings), encoding="utf-8")
+        monkeypatch.setattr(sys, "argv", ["deny_desktop_mcp.py", str(path)])
+        deny.main()
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    return run
+
+
+def test_deny_helper_adds_the_desktop_rules_once_and_keeps_the_rest(deny_helper):
+    from src.client_paths import DESKTOP_DENY_RULES
+    original = {"permissions": {"deny": ["existing-rule"], "allow": ["x"]}, "userSetting": True}
+    settings = deny_helper(original)
+    assert settings["permissions"] == {"deny": ["existing-rule", *DESKTOP_DENY_RULES], "allow": ["x"]}
+    assert settings["userSetting"] is True
+    assert deny_helper() == settings
+
+
+def test_deny_helper_reads_settings_saved_with_a_bom(deny_helper, tmp_path):
+    """PowerShell 5.1 writes UTF-8 with a BOM; the rewrite has none."""
+    from src.client_paths import DESKTOP_DENY_RULES
+    path = tmp_path / "claude profile" / "settings.json"
+    path.parent.mkdir(parents=True)
+    path.write_bytes(codecs.BOM_UTF8 + json.dumps({"userSetting": True}).encode())
+    assert deny_helper() == {"userSetting": True, "permissions": {"deny": list(DESKTOP_DENY_RULES)}}
+    assert not path.read_bytes().startswith(codecs.BOM_UTF8)
+    assert [entry.name for entry in path.parent.iterdir()] == ["settings.json"]  # no temporary file left
+
+
+def test_deny_helper_creates_missing_settings(deny_helper, tmp_path):
+    from src.client_paths import DESKTOP_DENY_RULES
+    assert deny_helper() == {"permissions": {"deny": list(DESKTOP_DENY_RULES)}}
+
+
+@pytest.mark.parametrize("original", [[], {"permissions": []}, {"permissions": {"deny": "x"}}])
+def test_deny_helper_refuses_unexpected_shapes(deny_helper, tmp_path, original):
+    with pytest.raises(SystemExit) as exc:
+        deny_helper(original)
+    assert exc.value.code == 1
+    assert json.loads((tmp_path / "claude profile" / "settings.json").read_text(encoding="utf-8")) == original
+
+
+def test_shell_injection_keeps_the_shared_services_entry_while_it_is_installed(tmp_path, monkeypatch):
+    if sys.platform == "darwin":
+        pytest.skip("on macOS the installed service takes the ClientMigration branch")
+    (tmp_path / "install" / "data").mkdir(parents=True)
+    (tmp_path / "install" / "data" / ".shared-service.json").write_text("{}")
+    with pytest.raises(SystemExit) as exc:
+        _run_shell_injection(tmp_path, monkeypatch, {"mcpServers": {"Agents-Core-Desktop": BRIDGE,
+                                                                    "Agents-Core": {"command": "old"}}},
+                             client="desktop")
+    assert exc.value.code == 0
+    assert json.loads((tmp_path / "mcp.json").read_text())["mcpServers"] == {"Agents-Core-Desktop": BRIDGE}

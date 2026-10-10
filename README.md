@@ -114,8 +114,11 @@ The interactive script:
   recreate it, pass `--yes`, or run `.venv/bin/pip install -r requirements.txt`;
 - registers Agents-Core without asking as a standalone stdio server in each
   detected client's user-level configuration (Claude Code `~/.claude.json`, Cursor
-  `~/.cursor/mcp.json`, Claude Desktop `claude_desktop_config.json`, Google Antigravity
-  `~/.gemini/config/mcp_config.json`), after copying each file to `<file>.backup.<epoch>`;
+  `~/.cursor/mcp.json`, Claude Desktop `claude_desktop_config.json` as
+  `Agents-Core-Desktop`, Google Antigravity `~/.gemini/config/mcp_config.json`), and
+  with Claude Desktop present denies that entry in Claude Code's `settings.json`
+  ([why](#claude-code-mcpjson-in-project-root)), after copying each file to
+  `<file>.backup.<epoch>`;
 - asks before installing protocol 2 instructions in the global Claude
   configuration. When Codex is detected, it installs the same protocol in Codex's
   global instructions without asking; this does not connect Codex to MCP (see
@@ -793,13 +796,20 @@ tool called before that finishes waits up to `WARMUP_WAIT_SECONDS` (default 20) 
 then returns `warming_up`, so the call can be retried ([details](docs/routing_flow.md#startup-and-readiness)).
 Claude Code gives a server 30 seconds to connect by default; raise it with the
 `MCP_TIMEOUT` environment variable (milliseconds) if a slow machine still times out.
-Do not register Agents-Core in both the Claude Desktop config and the Claude Code
-registry: the desktop app runs its own server and injects it into the Code
-sessions it launches, while each Code session also starts one from the Code
-registry, so one session can run several server processes. `init_repo` warns
-when it configures both. The injected server is shared by all Code sessions and
-started outside any project, so its memory and flow tools need the `workspace`
-argument ([rules](#-repository-memory)).
+The Claude desktop app starts the servers of `claude_desktop_config.json` once, outside
+any project, and injects them into the Code sessions it launches, which also start their
+own from the Claude Code registry. `init_repo` (like `python -m src.daemon migrate
+--clients desktop`) therefore names the desktop entry `Agents-Core-Desktop`, taking over
+an older `Agents-Core` entry there, and, when Claude Code is configured too, denies its
+tools in Claude Code (`permissions.deny`: `mcp__Agents-Core-Desktop__*` in
+`~/.claude/settings.json`, or the `CLAUDE_CONFIG_DIR` profile's). A Code-tab session
+then uses Claude Code's own `Agents-Core` for its project, while the app's chats keep
+`Agents-Core-Desktop` (#231); the session still sees both servers' instructions, and
+calls to the denied tools are refused. The desktop app reads the profile its own
+environment selects: when setup runs with `CLAUDE_CONFIG_DIR`, the app must see the
+same value. While the shared service is installed, setup keeps the entries `migrate`
+wrote. The shared desktop server still needs the `workspace` argument for its memory
+and flow tools ([rules](#-repository-memory)).
 
 ### Cursor (`.cursor/mcp.json` in the client project)
 
@@ -926,8 +936,9 @@ installation and workflows return an error.
 
 One stdio process can also serve several sessions. The Claude desktop app starts the
 servers in `claude_desktop_config.json` once, in `C:\Windows\System32` without
-`CLAUDE_PROJECT_DIR`, and its Code-tab sessions reach that process when Agents-Core is
-registered there too. Its `roots/list` answer lists the folders of every open session,
+`CLAUDE_PROJECT_DIR`, and injects them into its Code-tab sessions; setup and `migrate`
+deny that entry in Claude Code (see above), so those sessions use their own server.
+Its `roots/list` answer lists the folders of every open session,
 so neither the process nor its roots tell which project a call belongs to. The memory
 and flow tools therefore take `workspace`, the absolute path of the caller's working
 directory, which the routing instructions tell the model to pass. When the client
@@ -945,7 +956,9 @@ Desktop one.
 `pid`, and, after a failed history write, `history_last_error`
 (`code=history_unwritable`, `errno`, `path`, `at`), which the model should mention once.
 Over stdio their workspace errors carry `pid` and `workspace_inputs` (`cwd`,
-`claude_project_dir`, `agents_client_repo_root`, `client`, `roots`); when the client
+`claude_project_dir`, `agents_client_repo_root`, `client`, `roots`), and, in a server the
+Claude desktop app started (client `local-agent-mode-<server>`), a `hint` that names its
+`claude_desktop_config.json` and how its Code tab gets its own server; when the client
 declares roots and `workspace` was omitted, the refusal asks for it and
 `log_interaction` tells the model to retry once with it.
 Over HTTP, memory requires the registered `X-Agents-Workspace` header;

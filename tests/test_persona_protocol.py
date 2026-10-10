@@ -287,6 +287,7 @@ async def test_logging_refuses_history_in_windows_directory(system32_cwd):
     assert response["status"] == "ERROR"
     assert response["message"].startswith("workspace_unsafe: refusing")
     assert response["instruction"].startswith("Nothing was logged.")
+    assert "hint" not in response  # no client named it: nothing says the desktop app started it
     assert sorted(path.name for path in system32_cwd.rglob("*")) == ["CLAUDE.md", "System32"]
 
 
@@ -325,6 +326,8 @@ async def test_logging_without_workspace_asks_for_it(system32_cwd, tmp_path):
         "cwd": os.getcwd(), "claude_project_dir": False, "agents_client_repo_root": False,
         "client": "local-agent-mode-Agents-Core", "roots": True,
     }
+    # The desktop app started this server: the refusal says so and names its configuration (#231).
+    assert "claude_desktop_config.json" in response["hint"] and "Agents-Core-Desktop" in response["hint"]
     assert not (project / "history.md").exists()
 
 

@@ -15,11 +15,10 @@ import tomllib
 
 from .state import atomic_private, read_json, write_json, private_dir
 from .workspaces import WorkspaceRegistry
-from src.client_paths import client_config_path, desktop_config_paths
+from src.client_paths import DESKTOP_DENY_RULES, DESKTOP_SERVER, client_config_path, desktop_config_paths
 
 
 SERVER = "Agents-Core"
-DESKTOP_SERVER = "Agents-Core-Desktop"
 # X-Agents-Client of each managed client: the daemon counts requests per app (usage.py, #187).
 APPS = {"claude": "claude-code", "claude-project": "claude-code", "codex": "codex", "cursor": "cursor",
         "desktop": "claude-desktop", "antigravity": "antigravity"}
@@ -261,9 +260,7 @@ class ClientMigration:
         elif client == "claude-deny-desktop":
             document = self.read_config(path)
             deny = document.setdefault("permissions", {}).setdefault("deny", [])
-            for namespace in (DESKTOP_SERVER, DESKTOP_SERVER.replace("-", "_")):
-                rule = "mcp__" + namespace + "__*"
-                if rule not in deny: deny.append(rule)
+            deny.extend(rule for rule in DESKTOP_DENY_RULES if rule not in deny)
         elif client == "cursor":
             document = self.read_config(path)
             servers = document.setdefault("mcpServers", {})

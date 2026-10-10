@@ -60,7 +60,8 @@ from src.memory.describer import RepoDescriber
 from src.memory.history import ENTRY_ID, HistoryReader, HistoryWriter
 from src.memory.history_results import listing, to_json
 from src.result_size import RESULT_SIZE_CEILING
-from src.daemon.workspaces import resolve_client_context, workspace_inputs, WorkspaceError, HistoryStores
+from src.daemon.workspaces import (resolve_client_context, workspace_inputs, desktop_started_hint,
+                                   WorkspaceError, HistoryStores)
 from src import flow_persona
 from src.flows import MAX_FLOW_BYTES, FlowCatalog, FlowError, execution_bundle
 from src.user_flows import FlowLibrary
@@ -1068,6 +1069,8 @@ async def log_interaction(
         payload = json.loads(error_response(error, request_id, instruction=instruction))
         if inputs is not None:
             payload.update(pid=os.getpid(), workspace_inputs=inputs)
+            if hint := desktop_started_hint(inputs):
+                payload["hint"] = hint
         return json.dumps(payload, ensure_ascii=False)
     attribution_status = logged.status or ("unverified" if persona_action is not None else None)
     attribution = {}
@@ -1391,6 +1394,8 @@ async def read_history(
         payload = {"status": "error", "error": str(e)}
         if (inputs := workspace_inputs(ctx)) is not None:
             payload.update(pid=os.getpid(), workspace_inputs=inputs)
+            if hint := desktop_started_hint(inputs):
+                payload["hint"] = hint
         debug_log("read_history", "error", payload)
         return json.dumps(payload, ensure_ascii=False)
     except Exception as e:

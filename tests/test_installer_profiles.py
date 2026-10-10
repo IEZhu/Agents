@@ -35,7 +35,8 @@ def profile_installer(request, tmp_path):
     (checkout / "src").mkdir()
     for name in ("__init__.py", "client_paths.py"):
         shutil.copyfile(ROOT / "src" / name, checkout / "src" / name)
-    for name in ("inject_mcp.py", "inject_claude_md.py", "migrate_routing_memory.py", "client_config_paths.py"):
+    for name in ("inject_mcp.py", "inject_claude_md.py", "migrate_routing_memory.py", "client_config_paths.py",
+                 "deny_desktop_mcp.py"):
         shutil.copyfile(ROOT / "scripts/_helpers" / name, helpers / name)
     for name in ("routing-protocol-core.md", "memory-routing.md",
                  "legacy/memory-routing-v1.md", "legacy/memory-routing-v2.md",
@@ -128,14 +129,20 @@ def test_installer_configures_effective_paths_and_preserves_other_profiles(profi
     result = run(overrides)
 
     assert result.returncode == 0, result.stdout + result.stderr
-    for path in paths.values():
+    for client, path in paths.items():
         document = json.loads(path.read_text())
-        entry = document["mcpServers"]["Agents-Core"]
+        # The desktop app's entry has its own name, taking over the old one (#231).
+        name = "Agents-Core-Desktop" if client == "desktop" else "Agents-Core"
+        entry = document["mcpServers"][name]
         assert entry["command"] == sys.executable
         assert entry["args"] == [str(checkout / "src/server.py")]
         assert entry["disabled"] is True
+        assert set(document["mcpServers"]) == {name, "other"}
         assert document["mcpServers"]["other"] == original["mcpServers"]["other"]
         assert document["projects"] == original["projects"]
+    # ...and Claude Code, the app's Code tab included, denies it.
+    assert set(json.loads((claude_home / "settings.json").read_text())["permissions"]["deny"]) == {
+        "mcp__Agents-Core-Desktop__*", "mcp__Agents_Core_Desktop__*"}
     assert target.read_bytes().startswith(b"Selected personal instructions\r\n")
     assert (templates / "routing-protocol-core.md").read_bytes().strip() in target.read_bytes()
     assert reminder.read_bytes() == (templates / "memory-routing.md").read_bytes()
@@ -152,8 +159,9 @@ def test_explicit_paths_create_missing_parent_directories(profile_installer):
                   "AGENTS_CLAUDE_DESKTOP_CONFIG": str(desktop)})
 
     assert result.returncode == 0, result.stdout + result.stderr
-    for path in (claude_home / ".claude.json", cursor, desktop):
-        assert json.loads(path.read_text())["mcpServers"]["Agents-Core"]["args"] == [str(checkout / "src/server.py")]
+    for path, name in ((claude_home / ".claude.json", "Agents-Core"), (cursor, "Agents-Core"),
+                       (desktop, "Agents-Core-Desktop")):
+        assert json.loads(path.read_text())["mcpServers"][name]["args"] == [str(checkout / "src/server.py")]
     assert not (home / ".claude.json").exists()
     assert not (home / ".claude").exists()
     assert not (home / ".cursor").exists()
@@ -161,7 +169,7 @@ def test_explicit_paths_create_missing_parent_directories(profile_installer):
 
 @pytest.mark.parametrize("profile_installer", ["cmd"], indirect=True)
 @pytest.mark.parametrize("missing", ["helper", "MCP_SETTINGS_FILE", "CLAUDE_DESKTOP_CONFIG",
-                                     "CLAUDE_CODE_DIR", "CLAUDE_CODE_MCP"])
+                                     "CLAUDE_CODE_DIR", "CLAUDE_CODE_MCP", "CLAUDE_CODE_SETTINGS"])
 def test_windows_path_resolution_failure_reports_context_before_writes(profile_installer, missing):
     run, home, checkout, _, desktop = profile_installer
     helper = checkout / "scripts/_helpers/client_config_paths.py"
@@ -172,7 +180,8 @@ def test_windows_path_resolution_failure_reports_context_before_writes(profile_i
         paths = {"MCP_SETTINGS_FILE": home / ".cursor/mcp.json",
                  "CLAUDE_DESKTOP_CONFIG": desktop,
                  "CLAUDE_CODE_DIR": home / ".claude",
-                 "CLAUDE_CODE_MCP": home / ".claude.json"}
+                 "CLAUDE_CODE_MCP": home / ".claude.json",
+                 "CLAUDE_CODE_SETTINGS": home / ".claude/settings.json"}
         helper.write_text("\n".join(f"print({str(key + '=' + str(path))!r})"
                                     for key, path in paths.items() if key != missing) + "\n",
                           encoding="utf-8")
