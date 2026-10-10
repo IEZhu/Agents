@@ -99,6 +99,7 @@ class ClientMigration:
         self.registry = WorkspaceRegistry(directory)
         self.expected_versions = {}
         self.config_targets = {}
+        self.staged_changes = []
 
     def read_config(self, path, *, as_json=True):
         path = Path(path)
@@ -132,32 +133,31 @@ class ClientMigration:
         return {"command": node, "args": [str(Path(self.config["installation"]) / "bridge/stdio.mjs"), str(private)]}
 
     def provision_antigravity_plugin(self, *, home=None, bridge_config=None):
-        """Provisions ~/.gemini/config/plugins/agents-core with plugin manifest and
+        """Prepares ~/.gemini/config/plugins/agents-core plugin manifest and
         PreToolUse hook for HMAC-authenticated workspace binding (#260)."""
         node = self.config.get("node")
         if not node or not Path(node).is_file():
-            return
+            return []
         home = Path(home or Path.home())
         plugin_dir = home / ".gemini" / "config" / "plugins" / "agents-core"
-        plugin_dir.mkdir(parents=True, exist_ok=True)
         installation = Path(self.config.get("installation", Path(__file__).resolve().parents[2]))
         hook_script = installation / "bridge" / "antigravity_hook.mjs"
         bridge_path = str(bridge_config) if bridge_config else str(self.directory / "bridges" / "antigravity-auto.json")
         cmd = shlex.join([str(node), str(hook_script), bridge_path])
 
         plugin_json = plugin_dir / "plugin.json"
-        manifest = read_json(plugin_json, {}) or {}
+        manifest = dict(self.read_config(plugin_json))
         manifest.setdefault("name", "agents-core")
         manifest.setdefault("description", "Agents-Core workspace binding and session management for Antigravity.")
-        write_json(plugin_json, manifest)
+        plugin_content = json.dumps(manifest, ensure_ascii=False, indent=2) + "\n"
 
         hooks_json = plugin_dir / "hooks.json"
-        hooks = read_json(hooks_json, {}) or {}
+        hooks = dict(self.read_config(hooks_json))
         hooks["agents-core-workspace"] = {
             "enabled": True,
             "PreToolUse": [
                 {
-                    "matcher": "call_mcp_tool|mcp_Agents-Core_.*",
+                    "matcher": "call_mcp_tool|mcp_Agents-Core_.*|mcp_Agents_Core_.*",
                     "hooks": [
                         {
                             "type": "command",
@@ -168,7 +168,11 @@ class ClientMigration:
                 }
             ],
         }
-        write_json(hooks_json, hooks)
+        hooks_content = json.dumps(hooks, ensure_ascii=False, indent=2) + "\n"
+        return [
+            (plugin_json, plugin_content, False),
+            (hooks_json, hooks_content, False),
+        ]
 
     def has_node(self):
         node = self.config.get("node")
@@ -239,13 +243,20 @@ class ClientMigration:
             entry = self.bridge(identity, app, auto_workspace=root is None)
             servers[SERVER] = transport_entry(servers.get(SERVER, {}), entry)
             if root is None and self.has_node():
-                self.provision_antigravity_plugin(home=home, bridge_config=entry["args"][1])
+                self.staged_changes.extend(self.provision_antigravity_plugin(home=home, bridge_config=entry["args"][1]))
         else: raise ValueError("Unknown client")
         content = json.dumps(document, ensure_ascii=False, indent=2) + "\n"
         return path, content, self.token in content
 
     def apply(self, changes, *, on_prepared=None):
         changes = list(changes)
+        if self.staged_changes:
+            seen = {str(p) for p, _, _ in changes}
+            for c in self.staged_changes:
+                if str(c[0]) not in seen:
+                    changes.append(c)
+                    seen.add(str(c[0]))
+            self.staged_changes.clear()
         if len({str(path) for path, _, _ in changes}) != len(changes):
             raise ValueError("Duplicate configuration target")
         targets = [self.config_targets[str(path)] for path, _, _ in changes if str(path) in self.config_targets]

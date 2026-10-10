@@ -229,7 +229,7 @@ test('antigravity hook signs workspacePaths for lazy and eager tool calls', asyn
       toolCall: { name: 'call_mcp_tool', args: { ServerName: 'Agents-Core', ToolName: 'read_history', Arguments: { limit: 5 } } },
       workspacePaths: ['/my/test/repo'],
     });
-    assert.equal(lazyRes.decision, 'allow');
+    assert.equal(lazyRes.decision, undefined);
     assert.equal(lazyRes.overwrite.Arguments.workspace, '/my/test/repo');
     assert.equal(lazyRes.overwrite.Arguments.workspace_signature, expectedSig);
     assert.equal(lazyRes.overwrite.Arguments.limit, 5);
@@ -239,7 +239,7 @@ test('antigravity hook signs workspacePaths for lazy and eager tool calls', asyn
       toolCall: { name: 'mcp_Agents-Core_read_history', args: { limit: 10 } },
       workspacePaths: ['/my/test/repo'],
     });
-    assert.equal(eagerRes.decision, 'allow');
+    assert.equal(eagerRes.decision, undefined);
     assert.equal(eagerRes.overwrite.workspace, '/my/test/repo');
     assert.equal(eagerRes.overwrite.workspace_signature, expectedSig);
     assert.equal(eagerRes.overwrite.limit, 10);
@@ -249,7 +249,7 @@ test('antigravity hook signs workspacePaths for lazy and eager tool calls', asyn
       toolCall: { name: 'call_mcp_tool', args: { ServerName: 'Other', ToolName: 'read_history' } },
       workspacePaths: ['/my/test/repo'],
     });
-    assert.deepEqual(otherRes, { decision: 'allow' });
+    assert.deepEqual(otherRes, {});
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

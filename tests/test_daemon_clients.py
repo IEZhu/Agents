@@ -189,15 +189,16 @@ def test_user_scope_antigravity_gets_auto_workspace_bridge(migration, tmp_path):
     """#257: Antigravity gets a stdio bridge with auto_workspace for user scope, and fixed workspace for projects."""
     home = tmp_path / "home"; home.mkdir()
     migration.config["node"] = sys.executable
-    _, text, secret = migration.prepare("antigravity", home=home)
-    entry = json.loads(text)["mcpServers"]["Agents-Core"]
+    change = migration.prepare("antigravity", home=home)
+    backup = migration.apply([change])
+    entry = json.loads(Path(change[0]).read_text())["mcpServers"]["Agents-Core"]
     assert entry["command"] == sys.executable and entry["args"][0].endswith("stdio.mjs")
     bridge = Path(entry["args"][1])
     assert bridge.name == "antigravity-auto.json"
     settings = json.loads(bridge.read_text())
     assert settings["workspace"] == "auto" and "X-Agents-Workspace" not in settings["headers"]
     assert settings["headers"]["X-Agents-Client"] == "antigravity"
-    assert not secret and migration.token not in text
+    assert not change[2] and migration.token not in change[1]
     # #260: User scope also provisions the Antigravity plugin with PreToolUse hook for signed workspace binding.
     plugin_file = home / ".gemini/config/plugins/agents-core/plugin.json"
     hooks_file = home / ".gemini/config/plugins/agents-core/hooks.json"
@@ -206,9 +207,12 @@ def test_user_scope_antigravity_gets_auto_workspace_bridge(migration, tmp_path):
     assert manifest["name"] == "agents-core"
     hooks = json.loads(hooks_file.read_text())
     hook_entry = hooks["agents-core-workspace"]["PreToolUse"][0]
-    assert hook_entry["matcher"] == "call_mcp_tool|mcp_Agents-Core_.*"
+    assert hook_entry["matcher"] == "call_mcp_tool|mcp_Agents-Core_.*|mcp_Agents_Core_.*"
     cmd = hook_entry["hooks"][0]["command"]
     assert sys.executable in cmd and "antigravity_hook.mjs" in cmd and str(bridge) in cmd
+    # Restore removes the provisioned plugin files when they were created by migration
+    migration.restore(backup)
+    assert not plugin_file.exists() and not hooks_file.exists()
     # A pinned project gets a workspace bridge with its workspace identity.
     project = tmp_path / "repo"; project.mkdir()
     _, text, _ = migration.prepare("antigravity", project, home=home)
@@ -249,7 +253,8 @@ def test_provision_antigravity_plugin_merges_and_preserves_customizations(migrat
     write_json(plugin_dir / "hooks.json", {"user-hook": {"enabled": True, "Stop": []}})
 
     migration.config["node"] = sys.executable
-    migration.provision_antigravity_plugin(home=home)
+    changes = migration.provision_antigravity_plugin(home=home)
+    backup = migration.apply(changes)
 
     manifest = json.loads((plugin_dir / "plugin.json").read_text())
     assert manifest["version"] == "1.0.0"
@@ -258,10 +263,17 @@ def test_provision_antigravity_plugin_merges_and_preserves_customizations(migrat
     hooks = json.loads((plugin_dir / "hooks.json").read_text())
     assert "user-hook" in hooks
     assert "agents-core-workspace" in hooks
-    assert hooks["agents-core-workspace"]["PreToolUse"][0]["matcher"] == "call_mcp_tool|mcp_Agents-Core_.*"
+    assert hooks["agents-core-workspace"]["PreToolUse"][0]["matcher"] == "call_mcp_tool|mcp_Agents-Core_.*|mcp_Agents_Core_.*"
 
-    # When node is not a valid file, it does nothing
+    # Restoring backup reverts the workspace hook while preserving the user hook
+    migration.restore(backup)
+    restored_hooks = json.loads((plugin_dir / "hooks.json").read_text())
+    assert "user-hook" in restored_hooks
+    assert "agents-core-workspace" not in restored_hooks
+
+    # When node is not a valid file, it returns empty changes and does nothing
     empty_home = tmp_path / "empty_home"
     migration.config["node"] = str(tmp_path / "nonexistent-node")
-    migration.provision_antigravity_plugin(home=empty_home)
+    changes = migration.provision_antigravity_plugin(home=empty_home)
+    assert changes == []
     assert not (empty_home / ".gemini").exists()

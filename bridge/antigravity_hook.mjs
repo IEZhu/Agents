@@ -36,7 +36,7 @@ async function main() {
   let raw = '';
   for await (const chunk of process.stdin) raw += chunk;
   if (!raw.trim()) {
-    process.stdout.write(JSON.stringify({ decision: 'allow' }) + '\n');
+    process.stdout.write('{}\n');
     return;
   }
 
@@ -44,7 +44,7 @@ async function main() {
   try {
     input = JSON.parse(raw);
   } catch {
-    process.stdout.write(JSON.stringify({ decision: 'allow' }) + '\n');
+    process.stdout.write('{}\n');
     return;
   }
 
@@ -53,7 +53,7 @@ async function main() {
   const workspace = Array.isArray(workspacePaths) && workspacePaths[0] ? String(workspacePaths[0]).trim() : null;
 
   if (!token || !workspace || !toolCall) {
-    process.stdout.write(JSON.stringify({ decision: 'allow' }) + '\n');
+    process.stdout.write('{}\n');
     return;
   }
 
@@ -63,7 +63,7 @@ async function main() {
   const isEagerAgentsCore = name.startsWith('mcp_Agents-Core_') || name.startsWith('mcp_Agents_Core_');
 
   if (!isLazyAgentsCore && !isEagerAgentsCore) {
-    process.stdout.write(JSON.stringify({ decision: 'allow' }) + '\n');
+    process.stdout.write('{}\n');
     return;
   }
 
@@ -79,7 +79,6 @@ async function main() {
     }
     const updatedArgs = { ...args, workspace, workspace_signature: signature };
     process.stdout.write(JSON.stringify({
-      decision: 'allow',
       overwrite: {
         Arguments: isString ? JSON.stringify(updatedArgs) : updatedArgs,
       },
@@ -87,7 +86,6 @@ async function main() {
   } else {
     const args = toolCall.args && typeof toolCall.args === 'object' ? toolCall.args : {};
     process.stdout.write(JSON.stringify({
-      decision: 'allow',
       overwrite: {
         ...args,
         workspace,
@@ -98,5 +96,5 @@ async function main() {
 }
 
 main().catch(() => {
-  process.stdout.write(JSON.stringify({ decision: 'allow' }) + '\n');
+  process.stdout.write('{}\n');
 });
