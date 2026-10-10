@@ -277,3 +277,36 @@ def test_provision_antigravity_plugin_merges_and_preserves_customizations(migrat
     changes = migration.provision_antigravity_plugin(home=empty_home)
     assert changes == []
     assert not (empty_home / ".gemini").exists()
+
+    # Invalid JSON or non-object values raise ValueError naming the file
+    migration.config["node"] = sys.executable
+    (plugin_dir / "plugin.json").write_text("invalid json {")
+    with pytest.raises(ValueError, match="Invalid JSON.*plugin.json"):
+        migration.provision_antigravity_plugin(home=home)
+    (plugin_dir / "plugin.json").write_text("[1, 2, 3]")
+    with pytest.raises(ValueError, match="must be a JSON object"):
+        migration.provision_antigravity_plugin(home=home)
+    write_json(plugin_dir / "plugin.json", {"name": "agents-core"})
+    (plugin_dir / "hooks.json").write_text("invalid hooks {")
+    with pytest.raises(ValueError, match="Invalid JSON.*hooks.json"):
+        migration.provision_antigravity_plugin(home=home)
+    (plugin_dir / "hooks.json").write_text('"not an object"')
+    with pytest.raises(ValueError, match="must be a JSON object"):
+        migration.provision_antigravity_plugin(home=home)
+
+
+def test_staged_changes_do_not_leak_to_other_clients(migration, tmp_path):
+    home = tmp_path / "home"; home.mkdir()
+    migration.config["node"] = sys.executable
+    # Prepare antigravity (stages plugin changes)
+    antigravity_change = migration.prepare("antigravity", home=home)
+    # Prepare cursor (different client)
+    cursor_change = migration.prepare("cursor", home=home)
+    # Apply only cursor change
+    migration.apply([cursor_change])
+    # Antigravity plugin files must not have been created
+    plugin_file = home / ".gemini/config/plugins/agents-core/plugin.json"
+    assert not plugin_file.exists()
+    # Now apply antigravity change
+    migration.apply([antigravity_change])
+    assert plugin_file.exists()

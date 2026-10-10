@@ -99,7 +99,7 @@ class ClientMigration:
         self.registry = WorkspaceRegistry(directory)
         self.expected_versions = {}
         self.config_targets = {}
-        self.staged_changes = []
+        self.staged_changes = {}
 
     def read_config(self, path, *, as_json=True):
         path = Path(path)
@@ -146,13 +146,25 @@ class ClientMigration:
         cmd = shlex.join([str(node), str(hook_script), bridge_path])
 
         plugin_json = plugin_dir / "plugin.json"
-        manifest = dict(self.read_config(plugin_json))
+        try:
+            raw_manifest = self.read_config(plugin_json)
+        except Exception as e:
+            raise ValueError(f"Invalid JSON in {plugin_json}: {e}") from e
+        if not isinstance(raw_manifest, dict):
+            raise ValueError(f"Plugin configuration in {plugin_json} must be a JSON object")
+        manifest = dict(raw_manifest)
         manifest.setdefault("name", "agents-core")
         manifest.setdefault("description", "Agents-Core workspace binding and session management for Antigravity.")
         plugin_content = json.dumps(manifest, ensure_ascii=False, indent=2) + "\n"
 
         hooks_json = plugin_dir / "hooks.json"
-        hooks = dict(self.read_config(hooks_json))
+        try:
+            raw_hooks = self.read_config(hooks_json)
+        except Exception as e:
+            raise ValueError(f"Invalid JSON in {hooks_json}: {e}") from e
+        if not isinstance(raw_hooks, dict):
+            raise ValueError(f"Hooks configuration in {hooks_json} must be a JSON object")
+        hooks = dict(raw_hooks)
         hooks["agents-core-workspace"] = {
             "enabled": True,
             "PreToolUse": [
@@ -243,7 +255,7 @@ class ClientMigration:
             entry = self.bridge(identity, app, auto_workspace=root is None)
             servers[SERVER] = transport_entry(servers.get(SERVER, {}), entry)
             if root is None and self.has_node():
-                self.staged_changes.extend(self.provision_antigravity_plugin(home=home, bridge_config=entry["args"][1]))
+                self.staged_changes[str(path)] = self.provision_antigravity_plugin(home=home, bridge_config=entry["args"][1])
         else: raise ValueError("Unknown client")
         content = json.dumps(document, ensure_ascii=False, indent=2) + "\n"
         return path, content, self.token in content
@@ -251,12 +263,15 @@ class ClientMigration:
     def apply(self, changes, *, on_prepared=None):
         changes = list(changes)
         if self.staged_changes:
-            seen = {str(p) for p, _, _ in changes}
-            for c in self.staged_changes:
-                if str(c[0]) not in seen:
-                    changes.append(c)
-                    seen.add(str(c[0]))
-            self.staged_changes.clear()
+            extra = []
+            for path, _, _ in changes:
+                extra.extend(self.staged_changes.pop(str(path), []))
+            if extra:
+                seen = {str(p) for p, _, _ in changes}
+                for c in extra:
+                    if str(c[0]) not in seen:
+                        changes.append(c)
+                        seen.add(str(c[0]))
         if len({str(path) for path, _, _ in changes}) != len(changes):
             raise ValueError("Duplicate configuration target")
         targets = [self.config_targets[str(path)] for path, _, _ in changes if str(path) in self.config_targets]
