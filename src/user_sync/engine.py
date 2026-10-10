@@ -2191,6 +2191,10 @@ class Syncer:
             if plan.kind in ("merge", "join", "fast_forward"):
                 outcome["received_from"] = senders
                 applied = self._apply(git, state, plan)
+                # A merge _apply could not install here (the file changed or stayed open) is not
+                # reported; the commit still carries it, and the next cycle settles the file.
+                held = set(state.get("held_remote", ()))
+                outcome["merged"] = [item for item in plan.merged if item["path"] not in held]
                 self._save_state(state)  # held_remote is on disk before the branch moves
                 self._set_head(git, settings, remote_head, plan.head)
                 outcome["integrated"] = remote_head

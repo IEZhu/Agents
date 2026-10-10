@@ -13,7 +13,8 @@ import pytest
 
 from src import user_library
 from src.user_sync import merge as merging
-from tests.test_user_sync import Machine, machine, pair, plain_git, records, remote  # noqa: F401 (fixtures)
+from tests.test_user_sync import (Machine, held_open, machine, pair, plain_git, records,  # noqa: F401 (fixtures)
+                                  remote)
 
 BASE = "# Shared\n\nintro\n\n## One\n\nfirst\n\n## Two\n\nsecond\n"
 
@@ -174,6 +175,21 @@ def test_a_flow_edited_on_two_machines_merges_on_both(started):
     assert a.text("common/shared.md") == both
     assert records(a) == records(b) == []
     assert b.flows.get("user:shared")["history"][0]["version"] in merged["local_version"]
+
+
+def test_a_merge_this_machine_could_not_write_is_not_reported_until_it_lands(started, monkeypatch):
+    a, b = started
+    a.save("user:shared", BASE.replace("first", "first, edited on A"))
+    b.save("user:shared", BASE.replace("second", "second, edited on B"))
+    a.run()
+    held_open(monkeypatch, {b.lib / "common" / "shared.md"})  # a reader keeps the file open
+    result = b.run()
+    assert result["merged"] == [] and "merged" not in b.sync.status()["activity"][-1]
+    assert b.sync._state()["held_remote"] == ["common/shared.md"]
+    monkeypatch.undo()
+    b.run()
+    both = BASE.replace("first", "first, edited on A").replace("second", "second, edited on B")
+    assert b.text("common/shared.md") == both and records(b) == []
 
 
 def test_a_script_edited_on_two_machines_merges(started):
