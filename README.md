@@ -957,7 +957,8 @@ Desktop one.
 `log_interaction` and `read_history` results carry `workspace` (`root`, `source`) and
 `pid`, and, after a failed history write, `history_last_error`
 (`code=history_unwritable`, `errno`, `path`, `at`), which the model should mention once.
-Over stdio their workspace errors carry `pid` and `workspace_inputs` (`cwd`,
+Over stdio their workspace errors, and those of `describe_repo`, `write_repo_summary` and
+the flow tools, carry `pid` and `workspace_inputs` (`cwd`,
 `claude_project_dir`, `agents_client_repo_root`, `client`, `roots`), and, in a server the
 Claude desktop app started (client `local-agent-mode-<server>`), a `hint` that names its
 `claude_desktop_config.json` and how its Code tab gets its own server; when the client

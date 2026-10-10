@@ -1,15 +1,17 @@
 """Exercise the registered tools over MCP and the daemon's real workspace binding."""
 import asyncio
 import json
+import os
+from types import SimpleNamespace
 
 import httpx
 import pytest
 
 import src.server as server
 from src.daemon.app import create_app
-from src.daemon.workspaces import WorkspaceRegistry
+from src.daemon.workspaces import WorkspaceError, WorkspaceRegistry
 from src.engine import config
-from src.flows import FlowCatalog
+from src.flows import FlowCatalog, FlowError
 
 
 TOKEN = "f" * 48
@@ -112,6 +114,27 @@ async def test_stdio_cwd_in_windows_directory_is_refused(environment, tmp_path, 
     assert result["error"].startswith("workspace_unsafe: refusing")
     listing = json.loads(await server.list_flows())
     assert listing["status"] == "success" and listing["repo"]["status"] == "unavailable"
+    # Workspace errors say which process refused and what it saw (#231); no client named the desktop app.
+    repo_flow = json.loads(await server.get_flow("repo:check"))
+    assert repo_flow["error"].startswith("repo_scope_unavailable: workspace_unsafe: refusing")
+    for refused in (result, repo_flow):
+        assert refused["pid"] == os.getpid() and refused["workspace_inputs"]["cwd"] == os.getcwd()
+        assert "hint" not in refused
+
+
+def test_flow_workspace_errors_from_a_desktop_started_server_carry_a_hint(monkeypatch):
+    monkeypatch.delenv("AGENTS_TRANSPORT", raising=False)
+    session = SimpleNamespace(check_client_capability=lambda _: True, client_params=SimpleNamespace(
+        clientInfo=SimpleNamespace(name="local-agent-mode-Agents-Core")))
+    ctx = SimpleNamespace(session=session)
+    for error in (WorkspaceError("workspace_unsafe: refusing"),
+                  FlowError("repo_scope_unavailable: workspace_unsafe: refusing")):
+        result = json.loads(server._flow_error(error, ctx))
+        assert result["pid"] == os.getpid() and result["workspace_inputs"]["client"] == session.client_params.clientInfo.name
+        assert "claude_desktop_config.json" in result["hint"]
+    # Any other flow error stays as it was.
+    assert json.loads(server._flow_error(FlowError("flow_not_found: x"), ctx)) == {
+        "status": "error", "error": "flow_not_found: x"}
 
 
 @pytest.mark.asyncio

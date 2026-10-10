@@ -11,6 +11,7 @@ direct write and the fallback when sampling fails.
 from __future__ import annotations
 
 import json
+import os
 from types import SimpleNamespace
 
 import pytest
@@ -217,4 +218,6 @@ async def test_memory_tools_refuse_markerless_cwd(tmp_path, monkeypatch):
     for result in (history, described, written):
         assert result["status"] == "error", result
         assert "workspace_required" in result["error"]
+        # Which process refused and what it saw (#231).
+        assert result["pid"] == os.getpid() and result["workspace_inputs"]["cwd"] == os.getcwd()
     assert list(plain.iterdir()) == []
