@@ -197,7 +197,7 @@ workspace identity is supplied separately with `--workspace`.
 | `claude-deny-desktop` | `~/.claude/settings.json` | `CLAUDE_CONFIG_DIR` selects `<dir>/settings.json` |
 | `codex` | `~/.codex/config.toml`, or `<workspace>/.codex/config.toml` with `--workspace` | `CODEX_HOME` selects the user configuration directory; project paths stay unchanged |
 | `cursor` | `~/.cursor/mcp.json`, or `<workspace>/.cursor/mcp.json` with `--workspace` | `AGENTS_CURSOR_MCP_CONFIG` selects the user MCP file; project paths stay unchanged |
-| `desktop` | macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`; setup on Linux: `$XDG_CONFIG_HOME/Claude/claude_desktop_config.json` (default `~/.config`); setup on Windows: `%APPDATA%\Claude\claude_desktop_config.json` | `AGENTS_CLAUDE_DESKTOP_CONFIG` selects an exact configuration file |
+| `desktop` | macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`; setup on Linux: `$XDG_CONFIG_HOME/Claude/claude_desktop_config.json` (default `~/.config`); setup on Windows: the Microsoft Store (MSIX) app's copy in `%LOCALAPPDATA%\Packages\Claude_<publisher>\LocalCache\Roaming\Claude\claude_desktop_config.json` once it exists, otherwise `%APPDATA%\Claude\claude_desktop_config.json` (see below) | `AGENTS_CLAUDE_DESKTOP_CONFIG` selects an exact configuration file |
 | `antigravity` | `~/.gemini/config/mcp_config.json` | `AGENTS_ANTIGRAVITY_MCP_CONFIG` selects an exact configuration file |
 | `claude-project` | `<workspace>/.mcp.json` | No environment override; requires `--workspace` |
 
@@ -217,6 +217,28 @@ audit and setup which existing client file to manage; they do not reconfigure
 the client application's own path selection. In particular, a Cursor
 `--user-data-dir` or UI profile does not establish the location of its MCP
 file. Supply the file that the client actually reads.
+
+On Windows the Claude desktop app from the Microsoft Store is an MSIX package with
+file system write virtualization. It writes under AppData into its own copy in
+`%LOCALAPPDATA%\Packages\Claude_<publisher>\LocalCache\Roaming` and reads AppData
+merged with it: once the copy of `claude_desktop_config.json` exists, it hides
+`%APPDATA%\Claude\claude_desktop_config.json` from the app, while a process
+outside the package (a terminal, the service's scheduled task) sees only the
+AppData file. Setup, `migrate` and `audit` therefore use the copy when it exists,
+and also when the app keeps its Claude folder there and no AppData file exists
+for it to read instead (#270). With more than one `Claude_*` package holding
+such a copy, nothing tells which app runs, and the AppData file stays the
+default. `AGENTS_CLAUDE_DESKTOP_CONFIG` and `--client-config desktop=` still
+select any file. `audit` lists the servers of an
+AppData file that differs from the copy under the scope `desktop:unread`; run
+inside the package, where the AppData path shows the copy itself, it lists only
+the copy.
+
+`restore-clients` puts back the file that a migration journaled. Migrations
+before #270 wrote Windows configurations in text mode (CRLF line ends, the ANSI
+code page) while journaling the plain bytes, so restoring their backups failed;
+it now accepts that form. A backup taken before #270 and journaled as the AppData
+file restores the copy when the migration ran inside the package and wrote there.
 
 Select a Claude profile for both user and project-local registrations:
 

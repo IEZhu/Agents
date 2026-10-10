@@ -13,14 +13,14 @@ def test_unreadable_claude_config_does_not_abort_other_scopes(tmp_path, monkeypa
     claude = home / ".claude.json"
     claude.write_text("{" if failure == "invalid_json" else "{}")
     if failure == "unreadable":
-        read_text = Path.read_text
+        read_bytes = Path.read_bytes  # audit reads client files as bytes (UTF-8, #270)
 
         def read(path, *args, **kwargs):
             if path == claude:
                 raise PermissionError("access denied")
-            return read_text(path, *args, **kwargs)
+            return read_bytes(path, *args, **kwargs)
 
-        monkeypatch.setattr(Path, "read_text", read)
+        monkeypatch.setattr(Path, "read_bytes", read)
     cursor = home / ".cursor/mcp.json"
     cursor.parent.mkdir()
     cursor.write_text(json.dumps({"mcpServers": {"Agents-Core": {"url": "http://127.0.0.1:8765/mcp"}}}))

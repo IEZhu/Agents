@@ -1,5 +1,6 @@
 """Alternate client profiles must not silently keep a standalone model process."""
 import json
+import os
 from pathlib import Path
 import sys
 import tomllib
@@ -274,3 +275,146 @@ def test_later_profile_migration_does_not_block_restoring_earlier_backup(setup, 
     assert first.read_bytes() == original
     assert json.loads(second.read_text())["mcpServers"]["Agents-Core"]["url"]
     assert any(row["path"] == str(first) and row.get("transport") == "stdio" for row in inventory(directory=state))
+
+
+@pytest.fixture
+def msix_desktop(setup, tmp_path, monkeypatch):
+    """Windows with the Claude desktop app's AppData file and, once ``copy()`` runs, its MSIX copy (#270)."""
+    home, state, migration = setup
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setenv("APPDATA", str(tmp_path / "Roaming"))
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "Local"))
+    migration.config["node"] = sys.executable
+    appdata = tmp_path / "Roaming/Claude/claude_desktop_config.json"
+    package = tmp_path / "Local/Packages/Claude_pzs8sxrjxfjjc/LocalCache/Roaming/Claude/claude_desktop_config.json"
+
+    def copy(content='{"mcpServers": {"in-app": {"command": "app"}}}'):
+        atomic_private(package, content.encode() if isinstance(content, str) else content)
+        return package
+    atomic_private(appdata, b'{"mcpServers": {"stale": {"command": "old"}}}')
+    return home, state, migration, appdata, copy
+
+
+def _legacy(content: bytes) -> bytes:
+    """What a migration before #270 left on Windows: its text-mode write turned LF into CRLF."""
+    return content.replace(b"\n", b"\r\n")
+
+
+def test_the_msix_desktop_app_copy_is_the_configuration_it_reads(msix_desktop, tmp_path, monkeypatch):
+    """A terminal or the service's task sees only the AppData file; the app reads its copy once it exists."""
+    _, _, _, appdata, copy = msix_desktop
+    assert client_config_path("desktop") == appdata
+    folder = tmp_path / "Local/Packages/Claude_pzs8sxrjxfjjc/LocalCache/Roaming/Claude"
+    folder.mkdir(parents=True)
+    (tmp_path / "Local/Packages/Claude.Other_1x2y3z/LocalCache/Roaming/Claude").mkdir(parents=True)
+    assert client_config_path("desktop") == appdata  # the app still reads the AppData file through its merged view
+    appdata.unlink()
+    assert client_config_path("desktop") == folder / "claude_desktop_config.json"  # a fresh install writes there
+    package = copy()
+    atomic_private(appdata, b"{}")
+    assert client_config_path("desktop") == package
+    monkeypatch.setenv("AGENTS_CLAUDE_DESKTOP_CONFIG", str(tmp_path / "chosen.json"))
+    assert client_config_path("desktop") == tmp_path / "chosen.json"
+
+
+def test_of_two_claude_packages_the_one_with_a_configuration_is_the_copy(msix_desktop, tmp_path):
+    """A folder-only package sorting first must not win over the one whose copy exists; two copies are
+    ambiguous, so the AppData file stays and AGENTS_CLAUDE_DESKTOP_CONFIG selects."""
+    _, _, _, appdata, copy = msix_desktop
+    packages = tmp_path / "Local/Packages"
+    (packages / "Claude_000older/LocalCache/Roaming/Claude").mkdir(parents=True)
+    package = copy()  # Claude_pzs8sxrjxfjjc
+    appdata.unlink()
+    assert client_config_path("desktop") == package
+    atomic_private(packages / "Claude_000older/LocalCache/Roaming/Claude/claude_desktop_config.json", b"{}")
+    assert client_config_path("desktop") == appdata
+    package.unlink()
+    (packages / "Claude_000older/LocalCache/Roaming/Claude/claude_desktop_config.json").unlink()
+    assert client_config_path("desktop") == appdata  # two folders and no file: no guess either
+
+
+def test_migrate_edits_and_restores_the_copy_the_msix_desktop_app_reads(msix_desktop):
+    _, state, migration, appdata, copy = msix_desktop
+    package = copy()
+    before = package.read_bytes()
+    change = migration.prepare("desktop")
+    assert change[0] == package
+    backup = migration.apply([change])
+    assert package.read_bytes() == change[1].encode()  # the journaled bytes: no CRLF, no ANSI code page
+    servers = json.loads(package.read_text())["mcpServers"]
+    assert "Agents-Core-Desktop" in servers and "in-app" in servers
+    assert json.loads(appdata.read_text())["mcpServers"] == {"stale": {"command": "old"}}
+    registered = json.loads((state / "client-configs.json").read_text())["configs"]
+    assert {"client": "desktop", "path": str(package), "workspace": None} in registered
+    migration.restore(backup)
+    assert package.read_bytes() == before
+
+
+def test_a_backup_from_before_the_fix_restores_its_text_mode_write(msix_desktop):
+    """Migrations before #270 wrote in text mode on Windows while journaling LF bytes."""
+    _, _, migration, appdata, _ = msix_desktop
+    original = appdata.read_bytes()
+    backup = migration.apply([migration.prepare("desktop")])
+    atomic_private(appdata, _legacy(appdata.read_bytes()))
+    migration.restore(backup)
+    assert appdata.read_bytes() == original
+
+
+def test_a_backup_journaled_under_appdata_restores_the_copy_a_migration_inside_the_package_wrote(msix_desktop):
+    """Before #270 migrate journaled %APPDATA%; run inside the MSIX package, its write went to the copy."""
+    _, _, migration, appdata, copy = msix_desktop
+    original = appdata.read_bytes()
+    change = migration.prepare("desktop")
+    assert change[0] == appdata
+    backup = migration.apply([change])
+    package = copy(_legacy(appdata.read_bytes()))  # where the package's virtualization put that text-mode write
+    atomic_private(appdata, original)  # while the real AppData file kept its content
+    migration.restore(backup)
+    assert package.read_bytes() == original and appdata.read_bytes() == original
+
+
+def test_audit_lists_the_appdata_file_the_msix_desktop_app_no_longer_reads_apart(msix_desktop, tmp_path):
+    home, state, migration, appdata, copy = msix_desktop
+    package = copy()
+    rows = [row for row in inventory(home=home, directory=state) if row.get("server")]
+    assert {(row["path"], row["scope"], row["server"]) for row in rows if row["scope"].startswith("desktop")} == {
+        (str(package), "desktop", "in-app"), (str(appdata), "desktop:unread", "stale")}
+    # A migration journaled before #270 registered the AppData file: it is still not what the app reads.
+    write_json(state / "client-configs.json", {"version": 1, "configs": [
+        {"client": "desktop", "path": str(appdata), "workspace": None}]})
+    scopes = {row["scope"] for row in inventory(home=home, directory=state) if row.get("path") == str(appdata)}
+    assert scopes == {"desktop:unread"}
+    copy(appdata.read_bytes())  # the same bytes: nothing to report about the AppData file
+    assert not any(row.get("path") == str(appdata) for row in inventory(home=home, directory=state))
+
+
+def test_audit_lists_a_desktop_file_an_override_names_as_it_is(msix_desktop, monkeypatch):
+    home, state, _, appdata, copy = msix_desktop
+    copy()
+    as_named = {row["scope"] for row in inventory(home=home, client_configs=[("desktop", appdata)])
+                if row.get("path") == str(appdata)}
+    assert as_named == {"desktop"}
+    monkeypatch.setenv("AGENTS_CLAUDE_DESKTOP_CONFIG", str(appdata))
+    assert {row["scope"] for row in inventory(home=home) if row.get("path") == str(appdata)} == {"desktop"}
+
+
+def test_audit_inside_the_msix_package_does_not_list_the_copy_twice(msix_desktop):
+    """Inside the package the AppData path shows the copy itself; a hard link gives the same view here."""
+    home, state, _, appdata, copy = msix_desktop
+    package = copy()
+    appdata.unlink()
+    os.link(package, appdata)
+    write_json(state / "client-configs.json", {"version": 1, "configs": [
+        {"client": "desktop", "path": str(appdata), "workspace": None}]})
+    rows = [row for row in inventory(home=home, directory=state) if row.get("server")]
+    assert {(row["path"], row["scope"]) for row in rows if row["scope"].startswith("desktop")} == {
+        (str(package), "desktop")}
+
+
+def test_audit_reads_client_files_as_utf8(setup, tmp_path, monkeypatch):
+    """migrate writes UTF-8 bytes; read in the ANSI code page on Windows, a non-ASCII name would garble."""
+    home, state, _ = setup
+    target = tmp_path / "Профиль" / "mcp.json"
+    atomic_private(target, json.dumps({"mcpServers": {"Агент": {"command": "x"}}}, ensure_ascii=False).encode())
+    rows = inventory(home=home, client_configs=[("cursor", target)])
+    assert any(row.get("server") == "Агент" for row in rows)
