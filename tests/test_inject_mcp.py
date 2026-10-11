@@ -198,8 +198,9 @@ def test_shared_shell_injection_uses_explicit_client_and_exact_destination(tmp_p
         assert set(settings["permissions"]["deny"]) == {
             "existing-rule", "mcp__Agents-Core-Desktop__*", "mcp__Agents_Core_Desktop__*"}
         assert not (home / ".claude/settings.json").exists()
-    elif client in ("claude", "antigravity"):
-        # The user scope serves every project: a bridge per session names its own (#253).
+    else:
+        # The user scope serves every project: a bridge per session names its own (#253),
+        # Cursor's too, so its layers share one transport (#292).
         assert entry["command"] == sys.executable
         assert entry["args"][0] == str(installation / "bridge/stdio.mjs")
         assert json.loads(Path(entry["args"][1]).read_text())["workspace"] == "auto"
@@ -208,9 +209,6 @@ def test_shared_shell_injection_uses_explicit_client_and_exact_destination(tmp_p
             rules = home / ".gemini/config/plugins/agents-core/rules/AGENTS.md"
             assert template.read_bytes().strip() in rules.read_bytes()
             assert json.loads((home / ".gemini/config/config.json").read_text())["plugins"]["agents-core"]["enabled"] is True
-    else:
-        assert entry["url"] == "http://127.0.0.1:8765/mcp"
-        assert "command" not in entry and "args" not in entry
 
 
 # --- the Claude desktop app's entry (#231) -------------------------------------------------

@@ -1144,6 +1144,11 @@ def test_each_block_renders_from_the_api(landing):
     assert "● connected" in cards["apps"] and "○ configured" in cards["apps"] and "– not set up" in cards["apps"]
     assert "claude-code 2.0.14 · last seen 1m ago · 12 requests today" in cards["apps"]
     assert "3 requests today came without an app's name" in cards["apps"]
+    # #292: what the service changed in the registrations at its last start, and what it left alone.
+    assert "The service last updated the Agents-Core registration of Claude Code. Sessions that were open" in cards["apps"]
+    assert ("Codex: its registrations were left as they are. /home/u/repo/.codex/config.toml: its Agents-Core "
+            "entry was not written by this installation") in cards["apps"]
+    assert "Cursor" not in cards["apps"].split("Codex: its registrations")[1]
     assert "45 agents; 6 rules, 70 skills, 57 implants" in cards["how"] and "2 repositories in 30 days" in cards["how"]
     assert "microsoft/harrier-oss-v1-270m · 1.1 GiB" in cards["system"]
     assert "28 built-in, 3 personal, 2 in repositories" in cards["system"]

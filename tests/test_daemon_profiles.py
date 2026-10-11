@@ -291,7 +291,7 @@ def test_later_profile_migration_does_not_block_restoring_earlier_backup(setup, 
     later.apply([later.prepare("cursor", config_path=second)])
     later.restore(backup)
     assert first.read_bytes() == original
-    assert json.loads(second.read_text())["mcpServers"]["Agents-Core"]["url"]
+    assert json.loads(second.read_text())["mcpServers"]["Agents-Core"]["args"][0].endswith("stdio.mjs")
     assert any(row["path"] == str(first) and row.get("transport") == "stdio" for row in inventory(directory=state))
 
 
