@@ -175,14 +175,24 @@ mcp = _WorkerInputMCP(
         "tools. Then send the final answer. When the footer lists answer-timestamp and logging "
         "returns timestamp, prepend it on its own first line followed by an empty line.\n"
         "\n"
-        "Delegation: call get_subagent_context for a suitable canonical role, one task, "
-        "acceptance criteria, relevant context, scope/non-goals and result type. Retain the "
-        "original contract and forward worker_context to a fresh native worker. Keep the "
-        "parent persona unchanged. Validate the returned result with validate_subagent_result "
-        "and the retained contract, then assess evidence and acceptance criteria; structural "
-        "validity is not proof of correctness. MCP does not spawn workers or enforce runtime "
-        "budgets. If preparation is unavailable, report an explicit full-persona/manual "
-        "fallback. Workers do not switch roles or delegate further unless assigned.\n\n"
+        "Every AI delegation, including reviewers, verifiers and parallel workers: call "
+        "get_subagent_context before spawning with a canonical agent_name, task, "
+        "acceptance_criteria, relevant context, scope, non_goals and result_type. "
+        "Default compact budgets are max_skills=3, max_implants=0, max_context_chars=16000. "
+        "Require status: prepared, retain the original contract in the parent, and forward "
+        "worker_context unchanged with only necessary task materials. Use a fresh native "
+        "worker without inherited history when supported (Codex: fork_turns=\"none\"); do not "
+        "substitute a full persona, parent bundle or transcript. Keep the parent persona unchanged. "
+        "Call validate_subagent_result with the parent-retained contract and every returned or "
+        "revised output, unchanged. Require valid: true before accepting, integrating or marking "
+        "the delegated work complete; then check evidence and acceptance criteria. Structural "
+        "validity is not correctness. Invalid output requires correction and revalidation. "
+        "A new execution attempt needs a new attempt_id and prepared contract; never edit "
+        "identities or the contract to make a result pass. If either endpoint or native spawning "
+        "is unavailable, report the limitation and work in the parent when practical. No "
+        "unprepared/full-persona worker or unvalidated result is an automatic fallback. MCP "
+        "does not spawn workers or enforce runtime budgets. Workers do not switch roles or "
+        "delegate further unless assigned; authorized nested delegation uses this same exchange.\n\n"
         "Response statuses:\n"
         "- SUCCESS → validate the complete `persona` descriptor and `persona_block`, "
         "`rules_block`, `skills_block`, `implants_block`. Apply only if `replaces_activation_id` "
@@ -834,8 +844,11 @@ async def get_subagent_context(
     contract and your own persona; forward worker_context to a fresh native worker.
     This tool does not spawn workers. The worker uses this role without another
     activation or conversation footer/log, and returns exactly the JSON envelope.
-    Then call validate_subagent_result with YOUR retained contract, and assess
-    evidence/acceptance criteria yourself. Missing compact sources or an
+    Require status: prepared before spawning. For every returned or revised output,
+    call validate_subagent_result with YOUR retained contract and the unchanged
+    output. Require valid: true before accepting or integrating it, then assess
+    evidence/acceptance criteria yourself. Endpoint failure does not authorize an
+    unprepared worker or unvalidated result. Missing compact sources or an
     insufficient mandatory-context budget return an error with no partial package.
     """
     arguments = dict(agent_name=agent_name, task=task, acceptance_criteria=acceptance_criteria,
@@ -852,6 +865,9 @@ async def validate_subagent_result(
 ) -> ValidationResponse:
     """Validate worker output structurally against the parent's retained contract.
 
+    Required for every returned or revised worker output before acceptance or
+    integration. Require valid: true, then independently assess its evidence.
+    Correct and revalidate invalid output; never rewrite its original contract.
     Rejects unknown tool arguments. Checks fixed built-in payloads, closed shapes,
     task/attempt/revision identity, statuses and evidence references. Limits: nesting 12, 10000 JSON nodes,
     100 items per result array (50 for text lists), strings 4000 characters,

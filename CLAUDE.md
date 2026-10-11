@@ -7,12 +7,15 @@ developer and user instructions. Keep the conversation in the current model.
 
 ## Delegated worker mode
 
-Before delegating, choose a suitable canonical role and call
-`get_subagent_context` with one assignment, acceptance criteria, relevant context,
-scope, non-goals and the required result type. Retain its original `contract`.
-Forward the prepared `worker_context` to a fresh native subagent when supported;
-MCP prepares instructions but does not spawn models or enforce runtime budgets.
-Keep the parent's persona and descriptor unchanged.
+Every delegation to an AI subagent, reviewer, verifier or parallel worker must use this exchange, regardless of the host's tool name (Agent, Workflow, spawn_agent or equivalent). Keep the parent's persona and descriptor unchanged.
+
+1. Before spawning, call `get_subagent_context` with a suitable canonical `agent_name`, one `task`, concrete `acceptance_criteria`, relevant `context`, explicit `scope` and `non_goals`, and the required `result_type`. Use the default compact budgets (`max_skills=3`, `max_implants=0`, `max_context_chars=16000`) unless the task justifies a different bound.
+2. Require `status: prepared`. Retain the original `contract` in the parent and forward the returned `worker_context` unchanged, plus only necessary task materials. It already contains the compact persona, selected components, mandatory worker rules and result schema. Do not substitute a full persona, the parent's bundle or the chat transcript. Use a fresh native worker without inherited history when the host supports it; for Codex collaboration tools, set `fork_turns="none"`.
+3. For every returned or revised result, call `validate_subagent_result(contract=<parent-retained contract>, result=<worker output>)`. Keep the worker output unchanged for validation. Do not replace the original contract with one returned by the worker or edit identity fields to make validation pass.
+4. Require `valid: true` before accepting, integrating, citing as verified, or marking the delegated work complete. Then independently assess its evidence, actual checks, limitations and acceptance criteria. Structural validity alone does not establish correctness or completion.
+5. On `valid: false`, return the diagnostics for correction and validate the revised output again. For a new execution attempt, prepare a new package with a new `attempt_id` and retain its matching contract. A missing, failed or unavailable validator is not a successful validation.
+
+If preparation fails, either endpoint is unavailable, or the host cannot spawn a worker, do the work in the parent when practical and report the delegation limitation. Do not silently fall back to a full-persona worker, launch an unprepared worker, or accept an unvalidated result. MCP prepares and validates the exchange; native host tools launch workers and enforce actual permissions and runtime limits.
 
 A worker given a valid `agents-core/subagent/1` prepared package already has its
 task-scoped role. Use that package instead of the conversation activation and
@@ -21,11 +24,7 @@ the parent's activation, add a footer/timestamp, or call `log_interaction` for t
 worker result. Return only the specified JSON envelope. Stay within the task and
 its allowed actions; no role changes or further delegation unless assigned.
 
-The parent calls `validate_subagent_result` with its retained contract and the
-worker result, then checks evidence and acceptance criteria before integration.
-Structural validity alone does not establish correctness or completion. If
-preparation is unavailable, explicitly use and report a full-persona or manual
-fallback under the normal rules below; do not claim compact worker mode.
+If a worker is explicitly allowed to delegate further, it must follow the same preparation and validation exchange for its own children. The conversation activation and unavailable-MCP fallback below apply to ordinary conversations; they do not waive this delegation contract.
 
 ## Start before the first answer
 

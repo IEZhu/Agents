@@ -140,7 +140,7 @@ The interactive script:
 available options (`--yes` accepts all defaults). For the shared macOS service and
 client connections, continue with [MCP client configuration](#-mcp-client-configuration).
 
-For an existing installation, refresh global Codex and Claude instructions with
+For an existing installation, refresh Codex, Claude and existing Antigravity plugin instructions with
 `python3 scripts/install_instructions.py`. This standalone command needs Python
 3.11 or newer and does not rerun setup; see the [instruction update options](#codex-instruction-installation).
 
@@ -591,8 +591,7 @@ remaining validation gaps for each tested client/model.
 
 Delegated workers use a separate [subagent contract](docs/subagent-contract.md):
 the parent prepares an authored compact role with `get_subagent_context`, forwards
-its `worker_context` through native spawning, and validates the returned JSON with
-`validate_subagent_result` and the original retained contract. Default packages
+its unchanged `worker_context` through native spawning only after `status: prepared`, and validates every returned or revised JSON result with `validate_subagent_result` and the original retained contract. Require `valid: true` before accepting or integrating it; a failed or unavailable endpoint means work stays with the parent, without an unprepared worker or unvalidated result. Default packages
 select up to three skills and zero implants under a 16,000-character context
 budget. The parent then checks the evidence and acceptance criteria. The tools
 do not launch a model or enforce its runtime permissions or token budget. A valid
@@ -607,8 +606,7 @@ answer with the exact bundle footer, calls `log_interaction`, and sends the answ
 
 Antigravity shared-daemon user-scope setup and migration install this protocol in the
 enabled plugin's `~/.gemini/config/plugins/agents-core/rules/AGENTS.md`, which
-Antigravity loads as startup rules. Rerun `migrate --clients antigravity` to update
-an existing installation, then restart Antigravity and begin a new chat. The rules
+Antigravity loads as startup rules. Use `python3 scripts/install_instructions.py --clients antigravity` to refresh existing rules without changing its MCP connection, plugin registry or hooks, then begin a fresh Antigravity session. Use `migrate --clients antigravity` only when client connection or plugin setup also needs updating. The rules
 file and workspace hook serve different steps: rules start persona activation;
 the hook authenticates the project for memory calls. See
 [Antigravity client setup](docs/routing_flow.md#installation-migration-and-rollback).
@@ -742,8 +740,7 @@ can override global guidance, so review any old project-level routing rules too.
 Start a fresh Codex session after updating instructions. See the
 [official Codex instruction guide](https://learn.chatgpt.com/docs/agent-configuration/agents-md).
 
-To refresh global instructions for detected Codex and Claude clients from the
-current checkout without rerunning setup:
+To refresh global Codex and Claude instructions and an existing Antigravity plugin's rules from the current checkout without rerunning setup:
 
 ```bash
 python3 scripts/install_instructions.py
@@ -751,8 +748,7 @@ python3 scripts/install_instructions.py
 
 On Windows, use `py -3 scripts\install_instructions.py`. The command needs Python
 3.11 or newer and only uses its standard library; no virtual environment is
-required. Add `--clients codex` to update only Codex. The command uses the installer's
-managed-section replacement and backup retention. It migrates an existing exact
+required. Add `--clients codex`, `--clients claude` or `--clients antigravity` to select a client, or pass a comma-separated selection. By default it refreshes detected Codex and Claude profiles and an existing `~/.gemini/config/plugins/agents-core/rules/AGENTS.md`. An absent Antigravity rules file is skipped; this command does not provision or enable the plugin. It uses the installer's managed-section replacement and backup retention. It migrates an existing exact
 generated Claude routing reminder and its entry in `memory/MEMORY.md` of the Claude
 configuration directory (`$CLAUDE_CONFIG_DIR` when set, otherwise `~/.claude`),
 but does not create an absent reminder. Like the installers, it reads
@@ -763,7 +759,7 @@ entry, and their managed backups. It does not install dependencies, change `.env
 or vector indexes, register MCP connections, or change
 service configuration. The shared daemon migration below configures Codex's MCP
 connection on macOS; without the service, add the [standalone Codex entry](#codex-configtoml).
-Refreshing instructions alone does not require restarting the daemon.
+Refreshing client instruction files alone does not require restarting the daemon. Start fresh client sessions to load them. Cursor and standalone Claude Desktop receive the shared contract through MCP initialization; this instruction-only command does not manage a global rules file for them. After updating server-side initialization instructions, restart or reconnect the server and reconnect those clients to receive the new initialization response. Existing project-level rules can override global guidance, so update their managed sections with the same template when they restate an older contract.
 
 ### Shared macOS service
 

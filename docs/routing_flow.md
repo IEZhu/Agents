@@ -43,10 +43,7 @@ does not select a persona protocol.
 
 The separate [subagent API](subagent-contract.md) uses
 `agents-core/subagent/1`; it does not replace conversation persona protocol 2.
-Choose the role, call `get_subagent_context` with one assignment and acceptance
-criteria, retain its original `contract`, and forward `worker_context` through
-the host's native spawning tool. Prefer a fresh worker context. Preparation does
-not mutate the parent's descriptor or routing cache.
+Every AI delegation, including a reviewer, verifier or parallel worker, requires `get_subagent_context` before the host's spawning tool. Supply the canonical role, task, acceptance criteria, relevant context, scope/non-goals and result type; require `status: prepared`. Retain its original `contract` and forward `worker_context` unchanged with only necessary task materials. Use a fresh worker without inherited history when supported (Codex collaboration: `fork_turns="none"`). Do not substitute a full persona or parent transcript. Preparation does not mutate the parent's descriptor or routing cache.
 
 The prepared package supplies the worker's task role. That worker returns the
 specified JSON envelope without a second full activation, inherited parent
@@ -55,12 +52,9 @@ to honor scope and allowed actions, report missing input, and stop at completion
 or return partial work. Native host controls enforce actual permissions and
 runtime limits; the prompt itself does not.
 
-The parent runs `validate_subagent_result` against its retained contract before
-assessing evidence and acceptance criteria. `valid: true` means structural
-conformance only. It does not verify source claims or execute reported checks.
-If preparation is unavailable, use an explicit full-persona/manual fallback and
-report it; do not claim compact mode. The conversation rules below apply to the
-parent and ordinary conversation/fallback activations.
+The parent must run `validate_subagent_result` against its original contract for every returned or revised output, without rewriting the output or contract. Require `valid: true` before accepting or integrating delegated work, then independently check evidence and acceptance criteria. Structural conformance does not verify source claims or execute reported checks. Invalid output requires correction and revalidation; a new execution attempt requires a new `attempt_id` and prepared contract.
+
+If preparation fails, either endpoint is unavailable, or native spawning is unavailable, report the limitation and work in the parent when practical. Do not launch an unprepared/full-persona worker or accept an unvalidated result. Authorized nested delegation follows the same exchange. The conversation fallback below does not waive these requirements.
 
 ## Client decisions
 
@@ -375,6 +369,8 @@ The installers and `scripts/install_instructions.py` use the same Claude profile
 holds `CLAUDE.md` and `memory/`. A non-empty `CLAUDE_CONFIG_DIR`, an existing
 profile directory or `~/.claude.json`, or an available `claude` command counts as
 a detected Claude client.
+
+`scripts/install_instructions.py` also refreshes an existing Antigravity plugin's `~/.gemini/config/plugins/agents-core/rules/AGENTS.md`; select it with `--clients antigravity`. It skips an absent rules file and does not provision or enable the plugin or change connection settings and hooks. Cursor and standalone Claude Desktop receive the shared contract in MCP initialization rather than a global file managed by this command; reconnect them after a server instruction update. Fresh sessions are needed for changed client startup rules.
 
 The checked-in `CLAUDE.md` uses the same managed section. Global installation does
 not modify this tracked file. After editing the template, run

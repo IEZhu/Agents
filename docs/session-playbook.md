@@ -49,6 +49,10 @@ for Langfuse analysis.
   [flows/thread-close.md](../flows/thread-close.md) to verify the thread's results
   and secure unsaved work.
 
+## Delegated work
+
+Before every AI delegation, follow the [shared worker contract](routing_flow.md#delegated-workers): `get_subagent_context` must return `status: prepared` before native spawning, and `validate_subagent_result` must return `valid: true` for the original retained contract before the result is accepted. Forward the compact persona and rules in `worker_context` unchanged, without the parent transcript; use `fork_turns="none"` with Codex collaboration. Independently verify evidence after structural validation. Correct and revalidate invalid output, and report unavailable preparation or validation instead of using an unprepared worker or unvalidated report. An unmet independent-review requirement still blocks the relevant workflow.
+
 ## PR review loop
 
 Execute [flows/pr-review.md](../flows/pr-review.md) for the review and merge

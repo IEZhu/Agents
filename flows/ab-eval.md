@@ -106,11 +106,7 @@ Skip the writing when the request names a case set; still check it.
    user voice and concrete details; never name the change. Rubrics have 3–4
    checkable items, at least one about the change's behavior; every factual claim in
    them must be right.
-2. Give the set to one independent subagent with web access, not the writer, to
-   check every rubric item and user message: wrong or outdated facts, claims a
-   correct expert answer could violate, inconsistent dates or constraints. Apply the
-   fixes, add `"checked": true` and `checker_notes` naming the review, and validate
-   that case ids are unique.
+2. Prepare one independent reviewer with `get_subagent_context`, an appropriate canonical role, `result_type="review"`, and an explicit scope allowing web research. Assign it to check every rubric item and user message for wrong or outdated facts, constraints a correct expert answer could violate, and inconsistent dates. Follow the [delegation contract](README.md#delegated-workers): retain the prepared contract, launch a fresh native worker with the unchanged compact context and case set, and require `validate_subagent_result` to return `valid: true` before using its report. Check its evidence, apply the fixes, add `"checked": true` and `checker_notes` naming the review, and validate that case IDs are unique. An unavailable or invalid review does not authorize marking cases checked.
 3. Save it as `evals/datasets/<name>_cases.json` and commit it on `eval/<name>`.
 
 ## 4. Build the contexts once

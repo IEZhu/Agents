@@ -217,15 +217,11 @@ owner merged. In `draft` mode, run only reads and checks without side effects.
    - Read the helper's `corrections`: they are candidates, not conclusions.
    - Find decisions the thread reversed and statements contradicted by later turns.
    - The claims they invalidate become ✗, with the later evidence.
-3. **Fresh-context verifier.** Give a subagent (Agent or Workflow tool) the claim
-   list and the sources, but not the conversation. Ask it to check each claim
-   against the sources and to return confirmed, refuted with counter-evidence, or
-   unconfirmed with what blocked the check.
+3. **Fresh-context verifier.** Call `get_subagent_context` for a suitable canonical role with `result_type="research"`, the claim list, source references, a read-only scope and criteria covering every claim. Require `status: prepared`, retain the original contract, and launch a fresh native worker with `worker_context` unchanged and the sources, without the conversation. Ask it to classify each claim as confirmed, refuted with counter-evidence, or unconfirmed with the blocker, within the prescribed JSON payload. Call `validate_subagent_result` with its unchanged output and the retained contract; require `valid: true` and check the evidence before using its conclusions. Follow the [delegation contract](README.md#delegated-workers) for invalid or unavailable results.
    - Refuted claims become ✗.
    - Unconfirmed claims keep their level, or become `?`.
    - A claim reaches V3 only if the verifier actually checked its sources.
-   - Without subagents, re-check the most important claims yourself and say that
-     no independent verifier ran. Nothing then reaches V3 through this step.
+   - Without a prepared worker and a validated result, re-check the most important claims yourself and say that no validated independent verification completed. Nothing then reaches V3 through this step.
 4. **What the thread got wrong.** List each error, its effect, whether it was
    fixed, and the lesson.
 
