@@ -284,10 +284,10 @@ async def _log_over_mcp(*workspaces, roots=None):
 async def test_logging_refuses_history_in_windows_directory(system32_cwd):
     """Regression: a stdio server started in C:\\Windows\\System32 wrote history.md there."""
     response = json.loads(await server.log_interaction("software_engineer", "q", "r"))
-    assert response["status"] == "ERROR"
-    assert response["message"].startswith("workspace_unsafe: refusing")
-    assert response["instruction"].startswith("Nothing was logged.")
+    # #292: the turn goes to the fallback journal, never into the refused directory.
+    assert response["workspace"]["source"] == "fallback" and response["workspace"]["reason"] == "workspace_unsafe"
     assert "hint" not in response  # no client named it: nothing says the desktop app started it
+    assert server.drain_pending_logs(5)
     assert sorted(path.name for path in system32_cwd.rglob("*")) == ["CLAUDE.md", "System32"]
 
 
@@ -337,9 +337,11 @@ async def test_workspace_outside_the_roots_writes_nothing(system32_cwd, tmp_path
     for project in (inside, outside):
         (project / ".git").mkdir(parents=True)
     [response] = await _log_over_mcp(outside, roots=[inside])
-    assert response["status"] == "ERROR"
-    assert response["message"].startswith("workspace_invalid: workspace")
-    assert "do not retry logging in a loop" in response["instruction"]
+    # #292: kept in the fallback journal, the directory the call named only recorded.
+    assert response["workspace"] == {"root": None, "source": "fallback", "claimed": str(outside),
+                                     "reason": "workspace_invalid", "journal": response["workspace"]["journal"]}
+    assert "do not retry logging" in response["instruction"]
+    assert server.drain_pending_logs(5)
     assert not (outside / "history.md").exists()
 
 
@@ -348,10 +350,9 @@ async def test_without_roots_capability_the_workspace_is_not_trusted(system32_cw
     project = tmp_path / "project"
     (project / ".git").mkdir(parents=True)
     [response] = await _log_over_mcp(project)
-    assert response["status"] == "ERROR"
-    assert response["message"].startswith("workspace_unsafe: refusing")
-    assert "declares no MCP roots" in response["message"]
-    assert response["workspace_inputs"]["roots"] is False
+    assert response["workspace"]["source"] == "fallback" and response["workspace"]["reason"] == "workspace_unsafe"
+    assert response["workspace"]["claimed"] == str(project)
+    assert server.drain_pending_logs(5)
     assert not (project / "history.md").exists()
 
 

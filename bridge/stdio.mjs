@@ -147,17 +147,30 @@ async function workspaceFor(message) {
     return own;
   }
 }
+// History tools keep a turn whose workspace did not resolve: the daemon writes it to its fallback
+// journal, with the directory named here as unverified metadata, and never into that directory (#292).
+const HISTORY_TOOLS = new Set(['log_interaction', 'read_history']);
+function claimedWorkspace(message) {
+  const args = message.params?.arguments;
+  const named = typeof args?.workspace === 'string' && args.workspace.trim();
+  return named || override || process.env.CLAUDE_PROJECT_DIR || process.cwd();
+}
 async function forward(message) {
   const hasId = Object.hasOwn(message, 'id');
   if (message.method === 'initialize') clientRoots = Boolean(message.params?.capabilities?.roots);
   if (message.method === 'notifications/roots/list_changed') named.clear();
+  const tool = message.method === 'tools/call' ? message.params?.name : undefined;
   let workspace;
   try {
     workspace = await workspaceFor(message);
   } catch (error) {
-    if (hasId) await send({ jsonrpc: '2.0', id: message.id, error: { code: -32602, message: `Agents-Core refused the workspace: ${error.message}` } });
-    return;
+    if (!HISTORY_TOOLS.has(tool)) {
+      if (hasId) await send({ jsonrpc: '2.0', id: message.id, error: { code: -32602, message: `Agents-Core refused the workspace: ${error.message}` } });
+      return;
+    }
+    process.stderr.write(`Agents-Core bridge: workspace refused (${error.message}); the turn goes to the fallback journal.\n`);
   }
+  const claim = tool && !workspace && !config.headers?.['X-Agents-Workspace'] ? claimedWorkspace(message) : undefined;
   try {
     if (message.method === 'initialize') {
       // The upstream stateless transport cannot make server-to-client requests.
@@ -166,7 +179,8 @@ async function forward(message) {
     }
     const response = await fetch(endpoint, {
       method: 'POST', redirect: 'error', signal: AbortSignal.timeout(120_000),
-      headers: { ...config.headers, ...(workspace && { 'X-Agents-Workspace': workspace }), 'Content-Type': 'application/json',
+      headers: { ...config.headers, ...(workspace && { 'X-Agents-Workspace': workspace }),
+        ...(claim && { 'X-Agents-Claimed-Workspace': encodeURIComponent(claim) }), 'Content-Type': 'application/json',
         Accept: 'application/json, text/event-stream', 'MCP-Protocol-Version': protocolVersion },
       body: JSON.stringify(message),
     });

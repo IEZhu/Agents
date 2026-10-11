@@ -30,6 +30,17 @@ MAX_STREAMS = 32
 ORIGINS = ("cwd", "CLAUDE_PROJECT_DIR", "AGENTS_CLIENT_REPO_ROOT", "hook")
 
 
+def claimed_workspace(headers):
+    """The directory a bridge names when no workspace resolved (#292): an absolute path, percent-encoded
+    in X-Agents-Claimed-Workspace. Unverified; it only travels with a turn into the fallback journal."""
+    from urllib.parse import unquote
+    value = headers.get("x-agents-claimed-workspace")
+    if not value or len(value) > 8192:
+        return None
+    path = unquote(value)
+    return path if "\x00" not in path and os.path.isabs(path) else None
+
+
 def load_runtime(port):
     from src import server
     from src.engine import readiness
@@ -286,7 +297,8 @@ class Service:
             root = await asyncio.to_thread(self.registry.resolve, identity)
         except WorkspaceError as failure:
             error = str(failure)
-        context = ClientContext(str(uuid.uuid4()), "http", identity, root, error, client=app)
+        context = ClientContext(str(uuid.uuid4()), "http", identity, root, error, client=app,
+                                claimed=None if root else claimed_workspace(request.headers))
         scope.setdefault("state", {})["client_context"] = context
         if request.method == "POST":
             # Only an initialize names the client (clientInfo); the transport still reads every byte.

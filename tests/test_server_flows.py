@@ -10,6 +10,7 @@ import pytest
 import src.server as server
 from src.daemon.app import create_app
 from src.daemon.workspaces import WorkspaceError, WorkspaceRegistry
+from src.memory import fallback
 from src.engine import config
 from src.flows import FlowCatalog, FlowError
 
@@ -144,7 +145,7 @@ async def test_error_results_and_listing_without_workspace(environment, monkeypa
     assert catalog["status"] == "success"
     assert [flow["id"] for flow in catalog["flows"]] == ["check"]
     result = json.loads(await server.run_flow("check"))
-    assert result == {"status": "error", "error": "workspace_required"}
+    assert result == {"status": "error", "error": "workspace_required", "remedy": fallback.REMEDY}
     monkeypatch.delenv("AGENTS_TRANSPORT")
     for name, code in [("absent", "flow_not_found"), ("../check", "flow_invalid")]:
         result = json.loads(await server.run_flow(name))
@@ -189,7 +190,7 @@ async def test_http_calls_are_isolated_and_cannot_override_identity(environment,
                 assert result["flow"]["source_path"] == str(install / "check.md")
             for identity, code in [(None, "workspace_required"), ("invalid", "workspace_invalid")]:
                 result = await call(identity, repo_path=str(first))
-                assert result == {"status": "error", "error": code}
+                assert result == {"status": "error", "error": code, "remedy": fallback.REMEDY}
             rejected = await call(first_id, repo_path=str(second))
             assert rejected["status"] == "error"
             assert "within workspace" in rejected["error"]
