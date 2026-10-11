@@ -1,6 +1,7 @@
 """An existing remote requires a reviewed connection decision; discarded history stays private."""
 from __future__ import annotations
 
+from contextlib import contextmanager
 import hashlib
 import os
 import shutil
@@ -252,6 +253,36 @@ def test_cancelled_setup_fetches_remain_comparison_data_on_reconnect(machine):
     assert not preview["connection_choice_required"]
     assert preview["comparison"]["history"]["local_versions"] == 0
     assert b.sync.start(preview["hash"])["status"] == "synced"
+
+
+def test_disconnect_preserves_history_when_initial_sync_finishes_while_waiting_for_lock(machine, monkeypatch):
+    a, b = machine("a"), machine("b")
+    a.save("user:deleted", "# Received deleted version\n")
+    a.flows.delete("user:deleted", expected_revision=a.revision("user:deleted"))
+    a.connect()
+    setup(b)
+    preview = b.sync.preview()
+    original_lock = b.sync._sync_lock_for
+    completed = False
+
+    @contextmanager
+    def start_before_lock(settings, *, create=True):
+        nonlocal completed
+        if not completed:
+            completed = True
+            assert b.sync.start(preview["hash"])["status"] == "synced"
+        with original_lock(settings, create=create):
+            yield
+
+    with monkeypatch.context() as patch:
+        patch.setattr(b.sync, "_sync_lock_for", start_before_lock)
+        b.sync.disconnect()
+    a.save("user:new", "# New remote flow\n")
+    a.run()
+    setup(b)
+    reconnect = b.sync.preview()
+    assert reconnect["connection_choice_required"]
+    assert reconnect["comparison"]["history"]["local_versions"] > 0
 
 
 def test_replace_accepts_remote_legacy_aliases_without_republishing_local_legacy_versions(machine, tmp_path):

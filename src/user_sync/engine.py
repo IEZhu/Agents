@@ -3603,6 +3603,7 @@ class Syncer:
         settings = self._require_settings()
         # The settings lock keeps a concurrent pause or approval from saving the settings back.
         with self._sync_lock_for(settings, create=False), file_lock(self.state_dir / "settings.lock"):
+            settings = self._require_settings()  # A first start may have finished while the sync lock waited.
             if (self.library / ".git").is_dir():
                 with self._library_lock():
                     self._preserve_connected_history(self._git(), archive_received=bool(settings.started))
