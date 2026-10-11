@@ -172,3 +172,17 @@ async def test_older_entries_of_a_claim_are_found_behind_newer_ones_of_others(mo
         await log(monkeypatch, "/work/two", f"newer {number}")
     assert server.drain_pending_logs(5)
     assert [entry["intent"] for entry in (await read(monkeypatch, "/work/one"))["entries"]] == ["old question"]
+
+
+@pytest.mark.asyncio
+async def test_an_action_that_holds_a_claim_is_no_claimed_turn(monkeypatch):
+    """The claim is a field of its own in the dedupe identity, not text appended to the action."""
+    monkeypatch.setattr(server, "is_langfuse_configured", lambda: False)
+    monkeypatch.setattr(server, "resolve_client_context", AsyncMock(return_value=refusing(None)))
+    await server.log_interaction("software_engineer", "same question", "same answer",
+                                 action="Agent: software_engineer\n/work/one")
+    monkeypatch.setattr(server, "resolve_client_context", AsyncMock(return_value=refusing("/work/one")))
+    await server.log_interaction("software_engineer", "same question", "same answer",
+                                 action="Agent: software_engineer")
+    assert server.drain_pending_logs(5)
+    assert [entry["intent"] for entry in (await read(monkeypatch, "/work/one"))["entries"]] == ["same question"]

@@ -1326,9 +1326,10 @@ async def log_interaction(
             eff_intent = (intent or query or "").strip()
             eff_action = (action or f"Agent: {agent_name}").strip()
             dedupe_action = eff_action
-            if unresolved is not None and unresolved.claimed:
-                # One fallback journal holds every claim: the same turn in two directories is two entries.
-                dedupe_action += "\n" + unresolved.claimed
+            if unresolved is not None:
+                # One fallback journal holds every claim: the same turn in two directories is two
+                # entries. Action and claim stay separate fields, whatever the action holds.
+                dedupe_action = json.dumps([eff_action, unresolved.claimed], ensure_ascii=False)
             if line := persona_history_line(logged, persona_action):
                 eff_action += "\n" + line
             eff_outcome = (outcome or response_content or "").strip()
