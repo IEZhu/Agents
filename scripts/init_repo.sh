@@ -931,13 +931,14 @@ else
 fi
 
 # ============== Sync Between Machines ==============
-# The personal library (flows/.user) can sync between the user's machines through a
-# private git repository (docs/user-sync.md). The step is src/user_sync/installer.py:
+# The personal library gets local Git version history on every installation,
+# including --yes and offline. It can also sync through a private remote
+# (docs/user-sync.md). The step is src/user_sync/installer.py:
 # with a terminal and without --yes it asks once; --yes (install.sh, updates) never
 # asks; AGENTS_USER_SYNC_REPO or AGENTS_USER_SYNC_REMOTE in the environment (never
 # from .env) set sync up without a question. Only this command receives the GitHub
-# token. It never touches an existing flows/.user/.git by itself, and a failure
-# here never fails setup.
+# token. Managed Git history is migrated and reused; foreign repositories stay
+# untouched. A failure here never fails the remaining setup.
 
 print_header "🔄 Sync Between Machines"
 SYNC_FLAG=""

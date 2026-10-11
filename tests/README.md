@@ -51,6 +51,14 @@ LANGFUSE_TRACING_ENABLED=false ./scripts/run_tests.sh -k russian
 The wrapper runs the whole selected suite, not only language detection tests.
 Use the direct Python command when you need to select specific test files.
 
+The User sync workflow keeps the complete suite on Linux and macOS and splits
+the same collection across four Windows jobs. Its opt-in `tests.ci_shard` plugin
+assigns each node ID to exactly one shard; ordinary pytest runs stay unchanged.
+To reproduce one part, set `AGENTS_TEST_SHARD_COUNT=4` and
+`AGENTS_TEST_SHARD_INDEX=0` (indices 0 through 3), then add `-p tests.ci_shard`
+to the workflow's pytest command. Invalid or incomplete settings fail before
+collection. `test_ci_shard.py` checks complete, disjoint and stable coverage.
+
 ### Checks outside pytest
 
 Agent metadata and the Node bridge have their own checks:
@@ -79,6 +87,7 @@ described in [daemon validation](../docs/shared-mcp-daemon.md#validation).
 | Installed workflows and caller targeting | `test_flows.py`, `test_server_flows.py`, `test_flow_result_size.py` (the result size `run_flow` and `get_flow` declare), `test_config_client_root.py`, `test_daemon.py`, `test_thread_inventory.py` (the `thread-close` helper) |
 | Cloud issue-agent dispatch, startup acknowledgement and its deletion, reactions and receipt collapse | `test_issue_agent_bridge.py` (template and installed workflow, mocked APIs; no live sessions) |
 | Personal and repository flows, the `/ui` settings page and its sign-in | `test_user_flows.py`, `test_component_toggles.py` (switches and the Agents listing), `test_daemon_peer.py` (loopback owner lookup per OS), `test_flows_ui_page.py` (page script in Node through `flows_ui_page_harness.mjs`; skipped without `node`) |
+| Git-backed local flow versions and migration | `test_library_history.py` (durable writes, recovery, legacy aliases and Git isolation), `test_user_flows.py` (MCP/editor read and restore contract), `test_user_sync_versions.py` (complete filtered history across machines); the User sync workflow runs the backend and sync suites on Linux, Windows and macOS |
 | Sync of the personal library between machines | `test_user_sync.py` (two libraries as two machines against a local bare repository), `test_user_sync_github.py` and `test_user_sync_github_setup.py` (GitHub sign-in, API and the wizard against a fake GitHub), `test_user_sync_history.py` (each repository's history merged across machines), `test_user_sync_schedule.py` and `test_user_sync_trigger.py` (scheduled runs with a fake OS, the stdio trigger), `test_user_sync_install.py` (the installers' sync step and setup from `AGENTS_USER_SYNC_*`); the User sync workflow runs them on Linux, Windows and macOS. `test_daemon_user_sync.py` covers the daemon's sync loop, its admin endpoints and `user-sync` command with a fake engine (no git); `test_sync_ui.py` the web UI's `/ui/api/sync` routes (access checks, the queue, no secret in any answer) with a fake engine and a fake GitHub, and `test_flows_ui_page.py` the header chip, the Sync page and its wizard |
 | The settings page's landing page: answer counts from history files, connected AI apps, `X-Agents-Client` and the overview | `test_usage_stats.py` (fixture histories, a fake clock and a test daemon; no model), `test_daemon_clients.py` (the header per client), `test_landing_overview.py` (repository links, sizes, configured apps), `test_flows_ui_page.py` (the page itself) |
 | The settings page's History tab | `test_history_ui.py` (`/ui/api/history…`: access checks, registered workspaces and history files only, portions, search; a test daemon), `test_flows_ui_page.py` (the tab, portions on scroll, Contents by day, Source, files, search and links) |

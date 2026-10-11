@@ -244,7 +244,7 @@ def test_only_the_step_sees_the_github_token(sync_section, exported_copy):
 
 def test_the_real_step_asks_in_the_terminal_and_yes_starts_the_wizard(tmp_path):
     """The Unix section with the real step in a copy of the installation: the question in a
-    terminal, then the wizard's first one. Nothing is written but the copy's session lease."""
+    terminal, then the wizard's first one. Local Git history is created in the private library."""
     bash = shutil.which("bash")
     if sys.platform == "win32" or not bash:
         pytest.skip("a pseudo-terminal and bash on Unix")
@@ -273,5 +273,6 @@ def test_the_real_step_asks_in_the_terminal_and_yes_starts_the_wizard(tmp_path):
     assert accepted.returncode == 0, accepted.stdout + accepted.stderr
     assert "Where is the library's repository?" in accepted.stdout
     assert "cancelled; nothing was uploaded" in accepted.stdout and "REACHED THE END" in accepted.stdout
-    assert not any((tmp_path / name).exists() for name in ("library", "state", "service"))
+    assert (tmp_path / "library" / ".git").is_dir()
+    assert not any((tmp_path / name).exists() for name in ("state", "service"))
     assert (installation / "data" / ".sessions.lock").exists()  # the copy's lease, not the checkout's

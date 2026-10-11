@@ -610,8 +610,11 @@ seconds while the browser tab is visible (see
   selected, and an existing repository flow is opened, saved, deleted and its
   history shown by key. *System* lists the read-only built-in flows. Creating a
   repository flow, or "Edit copy for a repository", asks which registered
-  workspace it belongs to. Personal and repository flows keep saved versions,
-  compare a local copy with its built-in flow ("Show built-in") and detect
+  workspace it belongs to. Personal and repository flows keep saved versions in
+  the library's local Git repository, created during installation without
+  requiring remote sync. The editor reads those Git versions and restoration
+  creates a new version. Earlier `.history` snapshots are imported automatically.
+  The editor also compares a local copy with its built-in flow ("Show built-in") and detects
   conflicts with edits made from chat.
   The **Persona** panel of an open flow (built-in ones included) chooses the
   agent and, per kind, either the agent's default or an exact list of skills,

@@ -18,6 +18,7 @@ from src.daemon.app import create_app
 from src.daemon.workspaces import WorkspaceRegistry
 from src.engine import config
 from src.flows import FlowCatalog, FlowError
+from src.library_history import HistoryError, LibraryHistory
 from src.user_flows import FlowLibrary, normalize_origin, parse_reference, repo_key
 from src.utils.prompt_loader import split_frontmatter
 
@@ -169,6 +170,126 @@ def test_history_and_restore(library):
     assert history[0]["deleted"] and len(history) == 3
     with pytest.raises(FlowError, match="flow_not_found"):
         library.resolve("mine")
+
+
+def test_successful_save_is_in_git_without_snapshot_files(library):
+    library.save("mine", "# One\n")
+    library.save("mine", "# Two\n", expected_revision=revision("# One\n"))
+    shown = subprocess.run(["git", "-C", str(library.user_dir), "show",
+                            "refs/agents-core/history:common/mine.md"],
+                           check=True, capture_output=True).stdout
+    assert shown == b"# Two\n"
+    assert not (library.user_dir / ".history").exists()
+    version = library.history("user", "mine")[0]["version"]
+    assert version.startswith("git-")
+    fresh = FlowLibrary(library.catalog, user_dir=library.user_dir, repo_root=library.repo_root)
+    assert fresh.get("user:mine", version=version)["content"] == "# One\n"
+    with pytest.raises(FlowError, match="not_found"):
+        fresh.get("user:other", version=version)
+
+
+def test_deleted_git_version_restores_after_restart(library):
+    created = library.save("mine", "# Mine\n")
+    deleted = library.delete("mine", expected_revision=created["flow"]["revision"])
+    fresh = FlowLibrary(library.catalog, user_dir=library.user_dir)
+    old = fresh.get("user:mine", version=deleted["version"])
+    assert old["content"] == "# Mine\n"
+    assert fresh.save("mine", old["content"])["status"] == "created"
+    assert fresh.history("user", "mine")[0]["deleted"]
+
+
+def test_bare_history_without_repository_falls_back_to_user(library):
+    library.save("user:mine", "# One\n")
+    library.save("user:mine", "# Two\n", expected_revision=revision("# One\n"))
+    version = library.history("user", "mine")[0]["version"]
+    assert library.get("mine", version=version)["flow"]["id"] == "user:mine"
+    fresh = FlowLibrary(library.catalog, user_dir=library.user_dir)
+    assert fresh.get("mine", version=version)["flow"]["id"] == "user:mine"
+    assert fresh.get("mine", version=version)["content"] == "# One\n"
+    with pytest.raises(FlowError, match="repo_scope_unavailable"):
+        fresh.get("repo:mine", version=version)
+    with pytest.raises(FlowError, match="flow_not_found"):
+        fresh.get("missing", version=version)
+
+
+@pytest.mark.parametrize("name", ["mine", "user:mine", "repo:mine"])
+@pytest.mark.parametrize("message", ["flow_history: Git command failed",
+                                    "flow_history: working tree changed externally"])
+def test_version_lookup_preserves_backend_failure(library, monkeypatch, name, message):
+    failure = HistoryError(message)
+    def fail_read(self, path, version):
+        raise failure
+    monkeypatch.setattr(LibraryHistory, "read", fail_read)
+    with pytest.raises(HistoryError) as caught:
+        library.get(name, version="git-" + "a" * 40)
+    assert caught.value is failure
+
+
+def test_bare_history_does_not_hide_repository_path_failure(library, monkeypatch):
+    failure = FlowError("flow_invalid: repository history path is unsafe")
+    def fail_path(scope, flow_id):
+        raise failure
+    monkeypatch.setattr(library, "_version_path", fail_path)
+    with pytest.raises(FlowError) as caught:
+        library.get("mine", version="git-" + "a" * 40)
+    assert caught.value is failure
+
+
+def test_bare_history_does_not_hide_backend_io_failure(library, monkeypatch):
+    failure = PermissionError("cannot read library Git objects")
+    def fail_read(self, path, version):
+        raise failure
+    monkeypatch.setattr(LibraryHistory, "read", fail_read)
+    with pytest.raises(PermissionError) as caught:
+        library.get("mine", version="git-" + "a" * 40)
+    assert caught.value is failure
+
+
+@pytest.mark.parametrize("operation", ["save", "delete", "persona", "history", "get", "version", "bare_version"])
+@pytest.mark.parametrize("marker", [None, b'{"format":1,"custom":"keep"}\n'])
+def test_foreign_library_is_refused_before_any_files_change(install, tmp_path, changes, operation, marker):
+    root = tmp_path / "foreign"
+    (root / "common").mkdir(parents=True)
+    (root / "common" / "mine.md").write_bytes(b"# Mine\n")
+    subprocess.run(["git", "init", "--quiet", str(root)], check=True)
+    if marker is not None:
+        (root / user_library.MARKER).write_bytes(marker)
+    before = {path.relative_to(root): path.read_bytes() for path in root.rglob("*") if path.is_file()}
+    library = FlowLibrary(FlowCatalog(install), user_dir=root)
+    with pytest.raises(FlowError, match="not created by Agents-Core"):
+        if operation == "save":
+            library.save("user:mine", "# Changed\n", expected_revision=revision("# Mine\n"))
+        elif operation == "delete":
+            library.delete("user:mine", expected_revision=revision("# Mine\n"))
+        elif operation == "persona":
+            library.set_persona("user:mine", None, reset=True)
+        elif operation == "history":
+            library.history("user", "mine")
+        elif operation == "get":
+            library.get("user:mine")
+        elif operation == "version":
+            library.get("user:mine", version="git-" + "a" * 40)
+        else:
+            library.get("mine", version="git-" + "a" * 40)
+    after = {path.relative_to(root): path.read_bytes() for path in root.rglob("*") if path.is_file()}
+    assert after == before and changes == []
+    assert not (root / ".lock").exists()
+
+
+@pytest.mark.parametrize("marker", [b'{"format":999}\n', b'{"format":false}\n', b"invalid JSON\n"])
+@pytest.mark.parametrize("operation", ["save", "bare_version", "scoped_version"])
+def test_invalid_library_format_is_refused_before_support_files(install, tmp_path, marker, operation):
+    root = tmp_path / "library"
+    root.mkdir()
+    (root / user_library.MARKER).write_bytes(marker)
+    library = FlowLibrary(FlowCatalog(install), user_dir=root)
+    with pytest.raises(FlowError, match="flow_history"):
+        if operation == "save":
+            library.save("mine", "# Mine\n")
+        else:
+            library.get("mine" if operation == "bare_version" else "user:mine", version="git-" + "a" * 40)
+    assert {path.name for path in root.iterdir()} == {user_library.MARKER}
+    assert (root / user_library.MARKER).read_bytes() == marker
 
 
 def test_plain_save_clears_a_stale_override_marker(library, install):
@@ -1068,7 +1189,8 @@ def test_writes_report_their_changed_paths(library, changes):
     assert changes == []
     library.save("mine", "# Mine v2\n", expected_revision=revision("# Mine\n"))
     [(_root, paths)] = changes
-    assert paths[0].startswith(".history/common/mine/") and paths[1:] == ("common/mine.md",)
+    assert paths == ("common/mine.md",)
+    assert not (library.user_dir / ".history").exists()
     changes.clear()
     library.save("here", "# Here\n", scope="repo")
     assert changes[0][1] == ("repos/github.com-owner-project/here.md",
@@ -1076,15 +1198,16 @@ def test_writes_report_their_changed_paths(library, changes):
                              "repos/github.com-owner-project/.repo.json")
 
 
-def test_a_write_that_fails_part_way_reports_what_it_changed(library, changes):
+def test_invalid_transaction_destination_preserves_all_files(library, changes):
     library.save("mine", "# Mine\n")  # the root files exist from here on
     changes.clear()
     group = library.user_dir / "repos" / "github.com-owner-project"
     (group / user_library.REPO_META).mkdir(parents=True)  # .repo.json cannot be written
     with pytest.raises(OSError):
         library.save("here", "# Here\n", scope="repo")
-    assert changes == [(library.user_dir, ("repos/github.com-owner-project/here.md",
-                                           "repos/github.com-owner-project/.repo.local.json"))]
+    assert changes == []
+    assert not (group / "here.md").exists()
+    assert not (group / user_library.REPO_LOCAL).exists()
 
 
 def test_failed_writes_report_nothing(install, tmp_path, changes, known_components):
@@ -1111,8 +1234,8 @@ def test_persona_and_delete_report_their_changed_paths(install, tmp_path, change
     changes.clear()
     library.delete("user:mine", expected_revision=revision("# Mine\n"))
     [(_root, paths)] = changes
-    assert paths[0].startswith(".history/common/mine/") and paths[0].endswith("-deleted.md")
-    assert paths[1:] == ("common/mine.md", "personas/common/mine.json")
+    assert paths == ("common/mine.md", "personas/common/mine.json")
+    assert library.history("user", "mine")[0]["deleted"]
 
 
 def test_a_failing_listener_never_fails_the_write(library, changes):

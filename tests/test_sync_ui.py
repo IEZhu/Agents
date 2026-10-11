@@ -11,6 +11,7 @@ import json
 import os
 import socket
 import threading
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -20,6 +21,7 @@ from src.daemon import sync_ui
 from src.daemon.sync_loop import DRAINING, UserSync
 from src.daemon.sync_ui import ROUTES
 from src.flows import FlowCatalog
+from src.library_history import LibraryHistory
 from src.user_flows import FlowLibrary
 from src.user_sync import keys
 from src.user_sync.engine import Syncer, SyncError
@@ -183,6 +185,31 @@ def no_secrets(texts):
 
 
 # --- access -----------------------------------------------------------------------------------
+
+
+def test_conflict_text_is_read_from_git_with_native_and_legacy_ids(tmp_path):
+    library = tmp_path / "library"
+    user_library.ensure_root_files(library)
+    current = library / "common" / "doc.md"
+    current.parent.mkdir(parents=True)
+    current.write_text("# Current\n")
+    history = LibraryHistory(library)
+    history.ensure()
+    native = history.record("common/doc.md", b"# Native\n")
+    legacy = "20261005T120000000000Z-aaaaaaaaaaaa"
+    history.record("common/doc.md", b"# Legacy\n", version=legacy)
+    records = [
+        {"id": "native", "path": "common/doc.md", "local_version": native},
+        {"id": "legacy", "path": "common/doc.md", "local_version": f".history/common/doc/{legacy}.md"},
+        {"id": "other", "path": "common/other.md", "local_version": native},
+        {"id": "private", "path": ".env", "local_version": native},
+    ]
+    syncer = SimpleNamespace(library=library, conflicts=lambda: records)
+    assert sync_ui._conflict(syncer, "native")["mine"] == "# Native\n"
+    assert sync_ui._conflict(syncer, "legacy")["mine"] == "# Legacy\n"
+    assert sync_ui._conflict(syncer, "other")["mine"] is None
+    assert sync_ui._conflict(syncer, "private")["mine"] is None
+    assert not (library / ".history").exists()
 
 
 @pytest.mark.asyncio
@@ -441,7 +468,8 @@ async def test_including_a_scope_again_needs_the_hash_of_its_upload_list(tmp_pat
         assert excluded["status"] == "saved" and {"group": "history", "syncs": False} in excluded["groups"]
         asked = (await call("PUT", "/ui/api/sync/scopes", {"include": ["history"]})).json()
         assert asked["status"] == "confirmation_needed" and len(asked["hash"]) == 64
-        assert len(asked["upload"]) == 1 and asked["upload"][0].startswith(".history/common/a/")
+        assert asked["upload"] == []
+        assert asked["history_versions"] == 1 and asked["history_blocked"] == []
         wrong = (await call("PUT", "/ui/api/sync/scopes", {"include": ["history"], "confirm": "0" * 64})).json()
         assert wrong == asked  # nothing changed
         assert "history" in json.loads((syncer.library / ".agents-sync" / "scopes.json").read_text())["exclude"]

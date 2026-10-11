@@ -176,14 +176,17 @@ def run_with_terminal(argv, env, typed: bytes, timeout=240):
     return answer["code"], answer["output"]
 
 
-def library_git(checkout):
-    """A personal library with its own .git, as sync (#173) or the user leaves it; its files' bytes."""
+def foreign_library_git(checkout):
+    """A library repository without the Agents-Core marker; return its Git files' bytes."""
     library = checkout / "flows/.user"
-    library.mkdir(parents=True)
+    library.mkdir(parents=True, exist_ok=True)
     git("init", "-q", "-b", "main", cwd=library)
     (library / "notes.md").write_text("mine")
     git("add", "-A", cwd=library)
     git("commit", "-q", "-m", "library", cwd=library)
+    # The first installation now creates managed history. Remove its ownership
+    # marker to model a foreign repository the following update must leave alone.
+    git("config", "--unset", "agents-sync.managed", cwd=library)
     return lambda: {str(path.relative_to(library)): path.read_bytes()
                     for path in sorted((library / ".git").rglob("*")) if path.is_file()}
 
@@ -216,7 +219,7 @@ def sync_upstream(tmp_path):
 
 def test_an_update_from_a_terminal_with_sync_variables_leaves_the_library_git_byte_for_byte(tmp_path, sync_upstream):
     """install.sh asks only its own confirmation; init_repo.sh --yes runs the real sync step, whose
-    setup from the environment refuses the library's own .git and leaves it as it was (#171)."""
+    local-history initialization refuses a foreign .git before remote setup and preserves it."""
     checkout = tmp_path / "home/.agents-core"
     sync_env = {name: "" for name in SYNC_VARIABLES}
     sync_env.update(TEST_PYTHON=sys.executable, XDG_STATE_HOME=str(tmp_path / "state"),
@@ -224,7 +227,7 @@ def test_an_update_from_a_terminal_with_sync_variables_leaves_the_library_git_by
                     AGENTS_USER_FLOWS_DIR=str(checkout / "flows/.user"))  # the real step's library, pinned
     first = run_install(tmp_path, sync_upstream, extra_env=sync_env)
     assert first.returncode == 0, first.stdout + first.stderr
-    snapshot = library_git(checkout)
+    snapshot = foreign_library_git(checkout)
     before = snapshot()
     (sync_upstream / "new.txt").write_text("x")
     git("add", "-A", cwd=sync_upstream)
@@ -239,8 +242,9 @@ def test_an_update_from_a_terminal_with_sync_variables_leaves_the_library_git_by
     assert code == 0, output
     assert "Proceed with these defaults? [Y/n]" in output and (checkout / "new.txt").exists()
     assert (checkout / "ran.txt").read_text().strip() == f"init:--yes token:{TOKEN}"
-    assert "Setting up sync between machines from AGENTS_USER_SYNC_REMOTE" in output
-    assert "Sync was not set up" in output and "was not created by Agents-Core sync" in output
+    assert "Local library history was not initialized" in output
+    assert "was not created by Agents-Core" in output and "installation leaves it as it is" in output
+    assert "Setting up sync between machines from AGENTS_USER_SYNC_REMOTE" not in output
     assert "REACHED THE END" in output
     assert snapshot() == before
     assert not (tmp_path / "state").exists() and not (tmp_path / "service").exists()

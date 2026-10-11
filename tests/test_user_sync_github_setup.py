@@ -19,7 +19,7 @@ import pytest
 from src.flows import FlowCatalog
 from src.user_flows import FlowLibrary
 from src.user_sync import engine as engine_module, keys, wizard
-from src.user_sync.__main__ import main as cli
+from src.user_sync.__main__ import _print, main as cli
 from src.user_sync.engine import SyncError, Syncer
 from src.user_sync.github import GitHubAccount, GitHubClient, GitHubError
 from src.user_sync.gitcmd import parse_remote
@@ -386,6 +386,30 @@ def test_the_wizard_stops_when_privacy_is_not_confirmed(tmp_path, bare):
 
 
 # --- the command line -----------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("kind", ["push", "none"], ids=["first-upload", "history-only"])
+def test_terminal_preview_shows_version_uploads_and_historical_secret_paths(kind):
+    preview = {"kind": kind, "upload": [], "history_versions": 3,
+               "history_blocked": [{"path": "common/deploy.md", "pattern": "github_token"}]}
+    text = "\n".join(wizard.describe_preview(preview))
+    assert "Flow versions to upload: 3" in text
+    assert "Flow versions not uploaded, possible credentials" in text
+    assert "common/deploy.md (github_token)" in text
+    assert "nothing to transfer" not in text
+
+
+@pytest.mark.parametrize("command", ["preview", "scope"])
+@pytest.mark.parametrize("count", [0, 3], ids=["blocked-only", "history-only"])
+def test_cli_preview_shows_version_count_and_historical_secret_patterns(capsys, command, count):
+    _print({"status": "confirmation_needed", "upload": [], "history_versions": count,
+            "history_blocked": [{"path": "common/deploy.md", "pattern": "github_token"}],
+            "hash": "preview-hash"}, command)
+    text = capsys.readouterr().out
+    assert f"flow versions: {count}" in text
+    assert "flow versions not uploaded, possible credentials" in text
+    assert "common/deploy.md (github_token)" in text
+    assert "confirm with: --confirm preview-hash" in text
 
 
 @pytest.fixture
