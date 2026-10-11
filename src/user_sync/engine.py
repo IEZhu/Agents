@@ -2318,6 +2318,7 @@ class Syncer:
         state["last_attempt"] = _now_iso(self._clock())
         result = {"status": "synced", "sent": [], "received": [], "received_from": [], "conflicts": [],
                   "merged": [], "pushed": False}
+        publication_error = None
         try:
             self._check_git()
             git = self._repository(settings, create=True)
@@ -2345,7 +2346,13 @@ class Syncer:
                     result["pushed"] = True
                     result["sent"] += outcome["sent"]
                     state["_new_groups"] = outcome["new_groups"]
-                    self._push_publication(git, outcome["version_push"])
+                    try:
+                        self._push_publication(git, outcome["version_push"])
+                    except GitError as error:
+                        # The snapshot is already remote. Preserve its successful
+                        # activity and announcements while history remains retryable.
+                        publication_error = self._git_failure(error, settings)
+                        result["history_pending"] = True
                     break
                 if joining:
                     raise SyncError("confirmation_needed", "the remote changed while starting; "
@@ -2371,7 +2378,7 @@ class Syncer:
             self._finish_failure(settings, state, SyncError(
                 "internal", f"unexpected {type(error).__name__}: {error}"), result)
             raise
-        return self._finish_success(git, settings, state, result)
+        return self._finish_success(git, settings, state, result, publication_error=publication_error)
 
     def _cycle(self, git: Git, settings: Settings, state: dict, *, confirm: str | None) -> dict:
         """Fetch, then plan, write and commit under the library lock; returns the commit to push."""
@@ -2531,12 +2538,15 @@ class Syncer:
         return {**result, "status": state["state"], "reason": error.reason, "message": error.message,
                 "retry_at": state.get("retry_at")}
 
-    def _finish_success(self, git: Git, settings: Settings, state: dict, result: dict) -> dict:
+    def _finish_success(self, git: Git, settings: Settings, state: dict, result: dict, *,
+                        publication_error: SyncError | None = None) -> dict:
         now = _now_iso(self._clock())
         head = self._rev(git, f"refs/heads/{settings.branch}")
-        state.update(state="synced", reason=None, message=None, failures=0, retry_at=None,
-                     last_success=now, head=head, remote_head=self._rev(git, f"refs/remotes/origin/{settings.branch}"),
+        state.update(state="synced", reason=None, message=None,
+                     head=head, remote_head=self._rev(git, f"refs/remotes/origin/{settings.branch}"),
                      access="ok")
+        if publication_error is None:
+            state.update(last_success=now, failures=0, retry_at=None)
         if not settings.started:
             self._update_settings(lambda current: setattr(current, "started", current.started or now))
         new_groups = state.pop("_new_groups", [])
@@ -2555,8 +2565,13 @@ class Syncer:
                          message="files with possible credentials were not uploaded")
         elif state.get("pending_groups") or state.get("pending_files"):
             state.update(state="attention", reason="new_repository", message=self._pending_message(state))
+        if publication_error is not None:
+            self._record_failure(state, publication_error)
+            state["message"] = "files were sent; saved versions are waiting to be sent: " + publication_error.message
+            result["retry_at"] = state.get("retry_at")
+            self._log(f"history publication stopped: {publication_error.reason}: {publication_error.message}")
         state["size"] = self._repository_size(git)
-        self._remember(state, result, outcome="ok", settings=settings,
+        self._remember(state, result, outcome=publication_error.reason if publication_error else "ok", settings=settings,
                        new_groups=new_groups if result["pushed"] else [])
         self._save_state(state)
         if result["sent"] or result["received"]:
@@ -2572,7 +2587,9 @@ class Syncer:
                                     or result.get("merged")):
             return
         activity = state.setdefault("activity", [])
-        if outcome != "ok" and activity and activity[-1].get("result") == outcome:
+        if outcome != "ok" and activity and activity[-1].get("result") == outcome \
+                and not (result["sent"] or result["received"] or result["conflicts"]
+                         or result.get("merged") or new_groups):
             return  # a failure that repeats every few minutes is one entry
 
         def flows(paths):

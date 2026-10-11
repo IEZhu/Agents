@@ -2,9 +2,13 @@
 import hashlib
 import json
 
+import pytest
+
 from src.library_history import HISTORY_REF, LibraryHistory
+from src.user_sync.gitcmd import Git, GitError
 from src.user_sync.versions import INCOMING_REFS, PORTABLE_REFS
-from tests.test_user_sync import (TOKEN, machine, pair, plain_git, remote, remote_objects)  # noqa: F401
+from tests.test_user_sync import (TOKEN, _repo_group, machine, pair, plain_git, remote, remote_files,
+                                  remote_objects)  # noqa: F401
 
 
 def test_offline_intermediate_versions_arrive_on_another_machine(machine):
@@ -31,6 +35,53 @@ def test_history_only_changes_sync_when_current_snapshot_is_identical(pair):
     b.run()
     assert b.text("common/shared.md") == current
     assert b"# Intermediate\n" in b.archived_texts("common/shared.md")
+    assert a.sync.preview()["history_versions"] == 0
+
+
+@pytest.mark.parametrize("snapshot_changes", [True, False])
+def test_failed_history_push_keeps_snapshot_activity_and_retries(pair, monkeypatch, snapshot_changes):
+    a, b = pair
+    before_success = a.sync.status()["last_success"]
+    current = a.text("common/shared.md")
+    a.save("user:shared", "# Intermediate before interrupted publication\n")
+    if snapshot_changes:
+        a.save("user:shared", "# Updated snapshot\n")
+        _repo_group(a, "github.com-me-tool", "github.com/me/tool")
+    else:
+        a.save("user:shared", current)
+    original_run = Git.run
+
+    def reject_history(git, *args, **kwargs):
+        if args and args[0] == "push" and any(PORTABLE_REFS in arg for arg in args):
+            raise GitError("push", "network", "connection interrupted")
+        return original_run(git, *args, **kwargs)
+
+    monkeypatch.setattr(Git, "run", reject_history)
+    result = a.run()
+    assert result["status"] == "offline" and result["reason"] == "network"
+    assert result["retry_at"] and a.sync.status()["last_success"] == before_success
+    assert a.sync.preview()["history_versions"] > 0
+    if snapshot_changes:
+        assert result["pushed"] and result["history_pending"]
+        assert "common/shared.md" in result["sent"]
+        assert remote_files(a.remote)["common/shared.md"] == b"# Updated snapshot\n"
+        status = a.sync.status()
+        assert [group["group"] for group in status["announced_groups"]] == ["repos/github.com-me-tool"]
+        assert status["activity"][-1]["new_groups"] == ["repos/github.com-me-tool"]
+        assert "user:shared" in status["activity"][-1]["sent"]
+        assert "files were sent" in result["message"]
+        a.save("user:another", "# Another sent snapshot\n")
+        again = a.run(force=True)
+        assert again["status"] == "offline" and again["history_pending"]
+        assert "user:another" in a.sync.status()["activity"][-1]["sent"]
+        assert remote_files(a.remote)["common/another.md"] == b"# Another sent snapshot\n"
+    else:
+        assert not result["pushed"] and not result["sent"]
+        assert remote_files(a.remote)["common/shared.md"] == current.encode()
+    monkeypatch.undo()
+    assert a.run(force=True)["status"] == "synced"
+    b.run()
+    assert b"# Intermediate before interrupted publication\n" in b.archived_texts("common/shared.md")
     assert a.sync.preview()["history_versions"] == 0
 
 

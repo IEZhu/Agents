@@ -14,9 +14,10 @@ import pytest
 
 from src import user_library
 from src.file_lock import file_lock
-from src.library_history import (ABANDONED_PREFIX, HISTORY_REF, INCOMING_PREFIX, PENDING_REF, PORTABLE_METADATA,
+from src.library_history import (ABANDONED_PREFIX, HISTORY_REF, INCOMING_PREFIX, LEGACY_SUPPORT_MANIFEST,
+                                 LEGACY_SUPPORT_REF, PENDING_REF, PORTABLE_METADATA,
                                  RECEIVED_PREFIX, HistoryError, LibraryHistory)
-from src.user_sync import scope, versions
+from src.user_sync import gitcmd, scope, versions
 
 
 @pytest.fixture
@@ -292,7 +293,7 @@ def test_old_private_ref_locks_are_removed_under_library_lock_only(history, monk
                 history.apply({path: b"# Two\n"}, flow_path=path)
         assert history._rev(PENDING_REF)
     directory = history.root / ".git/refs/agents-core"
-    locks = [directory / name for name in ("history.lock", "history-pending.lock")]
+    locks = [directory / name for name in ("history.lock", "history-pending.lock", "legacy-support.lock")]
     unrelated = directory / "portable" / "other.lock"
     unrelated.parent.mkdir(exist_ok=True)
     old = time.time() - 60
@@ -688,3 +689,186 @@ def test_native_baseline_keeps_legacy_metadata_over_sanitized_own_publication(hi
         combined = next(item for item in history.events(refs) if item["id"] == event["id"])
         assert combined["commit"] == event["commit"]
         assert combined["changes"][path] == raw
+
+
+def test_fresh_history_requests_batch_objects_and_never_rewrite_unchanged_config(history, monkeypatch):
+    expected = {}
+    for number in range(40):
+        path = "common/mine.md" if number % 2 else "repos/sample/other.md"
+        raw = f"# Revision {number}\r\n".encode() + b"\0\xff"
+        commit = history._commit({path: raw}, {"action": "save", "path": path, "paths": [path],
+            "archive": False, "deleted": False, "time": history._now()})
+        expected["git-" + commit] = raw
+    config = history.git.config.read_bytes()
+    original, calls = gitcmd.subprocess.run, []
+    def counted(*arguments, **options):
+        calls.append(arguments[0])
+        return original(*arguments, **options)
+    def refuse_config_write(*arguments, **options):
+        pytest.fail("an unchanged history request must not rewrite support files")
+    monkeypatch.setattr(user_library, "atomic_write", refuse_config_write)
+    monkeypatch.setattr(gitcmd.subprocess, "run", counted)
+    for _ in range(2):
+        calls.clear()
+        events = LibraryHistory(history.root).events()
+        assert {item["id"]: item["content"] for item in events if item["id"] in expected} == expected
+        assert len(calls) <= 12, calls
+        assert not any("ls-tree" in arguments for arguments in calls)
+        assert not any("cat-file" in arguments and "blob" in arguments for arguments in calls)
+        assert any("--local" in arguments and "config" in arguments for arguments in calls)
+    assert history.git.config.read_bytes() == config
+
+
+def test_batch_reader_observes_new_private_and_received_refs_without_shared_content_cache(history):
+    reader = LibraryHistory(history.root)
+    initial = reader.events()
+    path = "common/mine.md"
+    commit = history._commit({path: b"# New local\r\n"}, {"action": "save", "path": path, "paths": [path],
+        "archive": False, "deleted": False, "time": history._now()})
+    event = source_event(previous=b"# Received before\r\n")
+    incoming = portable(history, event, "received")
+    tip = history._rev(incoming)
+    history.git.run("update-ref", RECEIVED_PREFIX + tip, tip)
+    history.git.run("update-ref", "-d", incoming)
+    observed = {item["id"]: item for item in reader.events()}
+    assert len(observed) == len(initial) + 2
+    assert observed["git-" + commit]["content"] == b"# New local\r\n"
+    assert observed[event["id"]]["previous"] == b"# Received before\r\n"
+    assert all(item["id"] != event["id"] for item in reader.export_events())
+    history.git.run("config", "--local", "agents-sync.managed", "false")
+    with pytest.raises(HistoryError, match="not created by Agents-Core"):
+        reader.events()
+
+
+def test_batched_history_rejects_invalid_utf8_tree_entries_with_typed_error(history):
+    blob = history.git.text("hash-object", "-w", "--stdin", input=b"# Bytes\n")
+    raw = b"100644 invalid-\xff\0" + bytes.fromhex(blob)
+    tree = history.git.text("hash-object", "-w", "-t", "tree", "--stdin", input=raw)
+    commit = history.git.text("commit-tree", tree, input=b"unknown incoming commit\n")
+    history.git.run("update-ref", INCOMING_PREFIX + "invalid", commit)
+    with pytest.raises(HistoryError, match="invalid entry"):
+        LibraryHistory(history.root).events()
+
+
+def saved_support(history):
+    commit = history._rev(LEGACY_SUPPORT_REF)
+    assert commit
+    tree = history._tree(commit)
+    manifest = json.loads(history._blob(tree[LEGACY_SUPPORT_MANIFEST]))
+    return {item["path"]: history._blob(tree[item["stored"]]) for item in manifest["files"]}
+
+
+def test_legacy_editor_and_os_leftovers_are_preserved_exactly_and_never_exported(tmp_path):
+    root = tmp_path / "library"
+    alias, _ = legacy(root, "common/mine.md", b"# Confirmed archive\r\n")
+    values = {".DS_Store": b"\0Finder metadata\xff", "Thumbs.db": b"\0Thumbnail bytes\xfe",
+              "common/mine/.tmp-pending.md": b"# Unconfirmed flow edit\r\n",
+              "common/mine/unsaved.md~": b"# Editor backup\r\n", "common/mine/.unsaved.md.swp": b"\0Swap bytes\xff"}
+    for name, raw in values.items():
+        target = root / ".history" / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(raw)
+    with file_lock(root / ".lock"):
+        history = LibraryHistory(root)
+        assert history.ensure() == {"status": "ready", "imported": 1}
+        assert history.read("common/mine.md", alias) == b"# Confirmed archive\r\n"
+        assert not (root / ".history").exists()
+        history.git.run("gc", "--prune=now")
+        reopened = LibraryHistory(root)
+        reopened.ensure()
+        assert saved_support(reopened) == values
+        assert reopened.events([LEGACY_SUPPORT_REF]) == []
+        for event in reopened.export_events():
+            assert event["content"] not in values.values()
+            assert not any(raw in values.values() for raw in event["changes"].values())
+
+
+def test_legacy_support_verification_failure_preserves_working_files_and_retries(history, monkeypatch):
+    target = history.root / ".history/.tmp-pending.md"
+    target.parent.mkdir()
+    target.write_bytes(b"# Pending bytes\r\n")
+    original = history._blob
+    with monkeypatch.context() as patch:
+        def corrupt_verified_read(oid):
+            raw = original(oid)
+            return b"corrupt read" if raw == b"# Pending bytes\r\n" else raw
+        patch.setattr(history, "_blob", corrupt_verified_read)
+        with pytest.raises(HistoryError, match="support file verification failed"):
+            history.import_legacy()
+    assert target.read_bytes() == b"# Pending bytes\r\n"
+    tip = history._rev(LEGACY_SUPPORT_REF)
+    assert tip
+    history.import_legacy()
+    assert history._rev(LEGACY_SUPPORT_REF) == tip
+    assert saved_support(history) == {".tmp-pending.md": b"# Pending bytes\r\n"}
+    assert not target.exists()
+
+
+def test_legacy_support_changed_before_removal_keeps_both_exact_rounds(history, monkeypatch):
+    target = history.root / ".history/.tmp-pending.md"
+    target.parent.mkdir()
+    target.write_bytes(b"# Initial pending\n")
+    original = history._store_legacy_support
+    with monkeypatch.context() as patch:
+        def edit_after_store(entries):
+            original(entries)
+            target.write_bytes(b"# Changed pending\r\n")
+        patch.setattr(history, "_store_legacy_support", edit_after_store)
+        with pytest.raises(HistoryError, match="changed before removal"):
+            history.import_legacy()
+    old = history._rev(LEGACY_SUPPORT_REF)
+    assert saved_support(history) == {".tmp-pending.md": b"# Initial pending\n"}
+    assert target.read_bytes() == b"# Changed pending\r\n"
+    history.import_legacy()
+    assert saved_support(history) == {".tmp-pending.md": b"# Changed pending\r\n"}
+    assert history.git.text("rev-parse", LEGACY_SUPPORT_REF + "^") == old
+    history.git.run("gc", "--prune=now")
+    old_tree = history._tree(old)
+    old_manifest = json.loads(history._blob(old_tree[LEGACY_SUPPORT_MANIFEST]))
+    assert history._blob(old_tree[old_manifest["files"][0]["stored"]]) == b"# Initial pending\n"
+
+
+@pytest.mark.parametrize("invalid", ["unknown", "checksum", pytest.param("link",
+    marks=pytest.mark.skipif(os.name == "nt", reason="Windows symlinks require privileges"))])
+def test_known_legacy_leftovers_do_not_hide_invalid_archive_entries(history, tmp_path, invalid):
+    _, archive = legacy(history.root, "common/mine.md", b"# Archive\n")
+    target = history.root / ".history/.tmp-pending.md"
+    target.write_bytes(b"# Pending\n")
+    if invalid == "unknown":
+        (history.root / ".history/notes.txt").write_bytes(b"# Unrecognized\n")
+    elif invalid == "checksum":
+        archive.write_bytes(b"# Different\n")
+    else:
+        external = tmp_path / "external"
+        external.write_bytes(b"# External\n")
+        target.unlink()
+        target.symlink_to(external)
+    with pytest.raises(HistoryError):
+        history.import_legacy()
+    assert archive.exists()
+    assert target.exists()
+    assert history._rev(LEGACY_SUPPORT_REF) is None
+    if invalid == "link":
+        assert external.read_bytes() == b"# External\n"
+
+
+@pytest.mark.parametrize("stale", [False, True])
+def test_private_legacy_support_lock_recovery_preserves_active_writer(history, stale):
+    target = history.root / ".history/.tmp-pending.md"
+    target.parent.mkdir()
+    target.write_bytes(b"# Pending\n")
+    lock = history.root / ".git/refs/agents-core/legacy-support.lock"
+    lock.write_bytes(b"crashed writer" if stale else b"active writer")
+    if stale:
+        old = time.time() - 60
+        os.utime(lock, (old, old))
+        history.ensure()
+        assert not lock.exists()
+        assert saved_support(history) == {".tmp-pending.md": b"# Pending\n"}
+        assert not target.exists()
+    else:
+        with pytest.raises(HistoryError, match="flow_history"):
+            history.ensure()
+        assert lock.read_bytes() == b"active writer"
+        assert target.read_bytes() == b"# Pending\n"
+        assert history._rev(LEGACY_SUPPORT_REF) is None

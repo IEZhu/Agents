@@ -18,6 +18,7 @@ from src.daemon.app import create_app
 from src.daemon.workspaces import WorkspaceRegistry
 from src.engine import config
 from src.flows import FlowCatalog, FlowError
+from src.library_history import HistoryError, LibraryHistory
 from src.user_flows import FlowLibrary, normalize_origin, parse_reference, repo_key
 from src.utils.prompt_loader import split_frontmatter
 
@@ -197,7 +198,54 @@ def test_deleted_git_version_restores_after_restart(library):
     assert fresh.history("user", "mine")[0]["deleted"]
 
 
-@pytest.mark.parametrize("operation", ["save", "delete", "persona", "history", "get", "version"])
+def test_bare_history_without_repository_falls_back_to_user(library):
+    library.save("user:mine", "# One\n")
+    library.save("user:mine", "# Two\n", expected_revision=revision("# One\n"))
+    version = library.history("user", "mine")[0]["version"]
+    assert library.get("mine", version=version)["flow"]["id"] == "user:mine"
+    fresh = FlowLibrary(library.catalog, user_dir=library.user_dir)
+    assert fresh.get("mine", version=version)["flow"]["id"] == "user:mine"
+    assert fresh.get("mine", version=version)["content"] == "# One\n"
+    with pytest.raises(FlowError, match="repo_scope_unavailable"):
+        fresh.get("repo:mine", version=version)
+    with pytest.raises(FlowError, match="flow_not_found"):
+        fresh.get("missing", version=version)
+
+
+@pytest.mark.parametrize("name", ["mine", "user:mine", "repo:mine"])
+@pytest.mark.parametrize("message", ["flow_history: Git command failed",
+                                    "flow_history: working tree changed externally"])
+def test_version_lookup_preserves_backend_failure(library, monkeypatch, name, message):
+    failure = HistoryError(message)
+    def fail_read(self, path, version):
+        raise failure
+    monkeypatch.setattr(LibraryHistory, "read", fail_read)
+    with pytest.raises(HistoryError) as caught:
+        library.get(name, version="git-" + "a" * 40)
+    assert caught.value is failure
+
+
+def test_bare_history_does_not_hide_repository_path_failure(library, monkeypatch):
+    failure = FlowError("flow_invalid: repository history path is unsafe")
+    def fail_path(scope, flow_id):
+        raise failure
+    monkeypatch.setattr(library, "_version_path", fail_path)
+    with pytest.raises(FlowError) as caught:
+        library.get("mine", version="git-" + "a" * 40)
+    assert caught.value is failure
+
+
+def test_bare_history_does_not_hide_backend_io_failure(library, monkeypatch):
+    failure = PermissionError("cannot read library Git objects")
+    def fail_read(self, path, version):
+        raise failure
+    monkeypatch.setattr(LibraryHistory, "read", fail_read)
+    with pytest.raises(PermissionError) as caught:
+        library.get("mine", version="git-" + "a" * 40)
+    assert caught.value is failure
+
+
+@pytest.mark.parametrize("operation", ["save", "delete", "persona", "history", "get", "version", "bare_version"])
 @pytest.mark.parametrize("marker", [None, b'{"format":1,"custom":"keep"}\n'])
 def test_foreign_library_is_refused_before_any_files_change(install, tmp_path, changes, operation, marker):
     root = tmp_path / "foreign"
@@ -219,21 +267,27 @@ def test_foreign_library_is_refused_before_any_files_change(install, tmp_path, c
             library.history("user", "mine")
         elif operation == "get":
             library.get("user:mine")
-        else:
+        elif operation == "version":
             library.get("user:mine", version="git-" + "a" * 40)
+        else:
+            library.get("mine", version="git-" + "a" * 40)
     after = {path.relative_to(root): path.read_bytes() for path in root.rglob("*") if path.is_file()}
     assert after == before and changes == []
     assert not (root / ".lock").exists()
 
 
 @pytest.mark.parametrize("marker", [b'{"format":999}\n', b'{"format":false}\n', b"invalid JSON\n"])
-def test_invalid_library_format_is_refused_before_support_files(install, tmp_path, marker):
+@pytest.mark.parametrize("operation", ["save", "bare_version", "scoped_version"])
+def test_invalid_library_format_is_refused_before_support_files(install, tmp_path, marker, operation):
     root = tmp_path / "library"
     root.mkdir()
     (root / user_library.MARKER).write_bytes(marker)
     library = FlowLibrary(FlowCatalog(install), user_dir=root)
     with pytest.raises(FlowError, match="flow_history"):
-        library.save("mine", "# Mine\n")
+        if operation == "save":
+            library.save("mine", "# Mine\n")
+        else:
+            library.get("mine" if operation == "bare_version" else "user:mine", version="git-" + "a" * 40)
     assert {path.name for path in root.iterdir()} == {user_library.MARKER}
     assert (root / user_library.MARKER).read_bytes() == marker
 

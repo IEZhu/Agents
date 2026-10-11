@@ -30,6 +30,8 @@ PENDING_REF = "refs/agents-core/history-pending"
 ABANDONED_PREFIX = "refs/agents-core/abandoned/"
 INCOMING_PREFIX = "refs/agents-core/incoming/"
 RECEIVED_PREFIX = "refs/agents-core/received/"
+LEGACY_SUPPORT_REF = "refs/agents-core/legacy-support"
+LEGACY_SUPPORT_MANIFEST = "legacy-support.json"
 MANAGED_KEY = "agents-sync.managed"
 MESSAGE_PREFIX = "Agents-Core-History: "
 PORTABLE_METADATA = ".agents-history-event.json"
@@ -75,6 +77,8 @@ class LibraryHistory:
         self.git = Git(self.root, config=self.directory / "gitconfig", ssh=None)
         self._trees: dict[str, dict[str, str]] = {}
         self._blobs: dict[str, bytes] = {}
+        self._commit_trees: dict[str, str] = {}
+        self._raw_trees: dict[str, list[tuple[str, str, str]]] = {}
         self._ready = False
         self._migrating = False
 
@@ -151,6 +155,98 @@ class LibraryHistory:
         if oid not in self._blobs:
             self._blobs[oid] = self.git.run("cat-file", "blob", oid).stdout
         return self._blobs[oid]
+
+    def _objects(self, ids: list[str], kind: str) -> dict[str, bytes]:
+        """Read exact object bytes with one plumbing process, not one per object."""
+        ids = list(dict.fromkeys(ids))
+        if not ids:
+            return {}
+        raw = self.git.run("cat-file", "--batch", input=("\n".join(ids) + "\n").encode()).stdout
+        cursor, result = 0, {}
+        for expected in ids:
+            try:
+                line_end = raw.index(b"\n", cursor)
+                header = raw[cursor:line_end].decode("ascii").split()
+                if len(header) != 3 or header[:2] != [expected, kind]:
+                    raise ValueError
+                size = int(header[2])
+                end = line_end + 1 + size
+                if size < 0 or end >= len(raw) or raw[end:end + 1] != b"\n":
+                    raise ValueError
+            except (ValueError, UnicodeError):
+                raise self._fail("a history object has invalid data") from None
+            result[expected] = raw[line_end + 1:end]
+            cursor = end + 1
+        return result
+
+    def _prime_trees(self, commits: list[str]) -> None:
+        """Batch unique trees by directory depth and flatten them in memory."""
+        commits = list(dict.fromkeys(commit for commit in commits if commit not in self._trees))
+        for commit in commits:
+            if commit not in self._commit_trees:
+                self._tree(commit)
+        pending = {self._commit_trees[commit] for commit in commits if commit in self._commit_trees}
+        visited = set()
+        while pending:
+            missing = sorted(pending - self._raw_trees.keys())
+            children = set()
+            for oid, raw in self._objects(missing, "tree").items():
+                cursor, entries = 0, []
+                while cursor < len(raw):
+                    try:
+                        end = raw.index(b"\0", cursor)
+                        mode, name = raw[cursor:end].split(b" ", 1)
+                        mode, name = mode.decode("ascii"), name.decode("utf-8")
+                        if end + 21 > len(raw):
+                            raise ValueError
+                        child = raw[end + 1:end + 21].hex()
+                    except (ValueError, UnicodeError):
+                        raise self._fail("a history tree has an invalid entry") from None
+                    entries.append((mode, name, child))
+                    cursor = end + 21
+                    if mode == "40000":
+                        children.add(child)
+                self._raw_trees[oid] = entries
+            for oid in pending:
+                children.update(child for mode, _, child in self._raw_trees[oid] if mode == "40000")
+            visited.update(pending)
+            pending = children - visited
+        for commit in commits:
+            if commit in self._trees:
+                continue
+            result, stack = {}, [("", self._commit_trees[commit])]
+            while stack:
+                prefix, oid = stack.pop()
+                for mode, name, child in self._raw_trees[oid]:
+                    path = prefix + name
+                    if mode == "40000":
+                        stack.append((path + "/", child))
+                    elif mode in ("100644", "100755"):
+                        result[path] = child
+            self._trees[commit] = result
+
+    def _prime_blobs(self, ids: list[str]) -> None:
+        self._blobs.update(self._objects([oid for oid in ids if oid not in self._blobs], "blob"))
+
+    def _prime_events(self, records: list[tuple[str, str | None, dict]]) -> None:
+        self._prime_trees([commit for record in records for commit in record[:2] if commit])
+        blobs = []
+        for commit, parent, metadata in records:
+            tree, before = self._tree(commit), self._tree(parent)
+            if metadata.get("portable"):
+                paths = [metadata.get("previous_path"), metadata.get("content_path")]
+                changes = metadata.get("changes", {})
+                if isinstance(changes, dict):
+                    paths.extend(changes.values())
+                blobs.extend(tree[path] for path in paths if isinstance(path, str) and path in tree)
+            else:
+                path = metadata.get("path")
+                if isinstance(path, str):
+                    blobs.extend(oid for oid in (tree.get(path), before.get(path)) if oid)
+                paths = metadata.get("paths", [])
+                if isinstance(paths, list):
+                    blobs.extend(tree[path] for path in paths if isinstance(path, str) and path in tree)
+        self._prime_blobs(blobs)
 
     def _make_tree(self, parent: str | None, changes: Mapping[str, bytes | None]) -> str:
         index = self.directory / ("index-" + uuid.uuid4().hex)
@@ -270,8 +366,9 @@ class LibraryHistory:
         self.directory.mkdir(exist_ok=True, mode=0o700)
         hooks = self.directory / "hooks"
         hooks.mkdir(exist_ok=True, mode=0o700)
-        user_library.atomic_write(self.git.config,
-            gitcmd.isolated_config(name="Agents-Core", email="agents-core@localhost", hooks=hooks).encode())
+        config = gitcmd.isolated_config(name="Agents-Core", email="agents-core@localhost", hooks=hooks).encode()
+        if not self.git.config.exists() or self.git.config.read_bytes() != config:
+            user_library.atomic_write(self.git.config, config)
         user_library.ensure_root_files(self.root)
         self._ready = True
 
@@ -294,18 +391,18 @@ class LibraryHistory:
         ids = self.git.text("rev-list", "--reverse", *refs).splitlines()
         if not ids:
             return []
-        raw = self.git.run("cat-file", "--batch", input=("\n".join(ids) + "\n").encode()).stdout
-        cursor, commits = 0, []
+        records = []
+        objects = self._objects(ids, "commit")
         for expected in ids:
-            line_end = raw.index(b"\n", cursor)
-            header = raw[cursor:line_end].decode().split()
-            if len(header) != 3 or header[0] != expected or header[1] != "commit":
-                raise self._fail("a history ref does not contain commits")
-            size = int(header[2])
-            data = raw[line_end + 1:line_end + 1 + size]
-            cursor = line_end + 1 + size + 1
+            data = objects[expected]
             headers, _, body = data.partition(b"\n\n")
-            parents = [line[7:].decode() for line in headers.splitlines() if line.startswith(b"parent ")]
+            try:
+                fields = headers.splitlines()
+                self._commit_trees[expected] = next(line[5:].decode("ascii") for line in fields
+                                                    if line.startswith(b"tree "))
+                parents = [line[7:].decode("ascii") for line in fields if line.startswith(b"parent ")]
+            except (StopIteration, UnicodeError):
+                raise self._fail("a history commit has invalid headers") from None
             metadata = None
             for line in body.decode("utf-8", "replace").splitlines():
                 if line.startswith(MESSAGE_PREFIX):
@@ -314,9 +411,15 @@ class LibraryHistory:
                     except ValueError:
                         pass
                     break
-            if isinstance(metadata, dict) and metadata.get("format") == 1:
-                commits.append((expected, parents[0] if parents else None, metadata))
-            else:
+            records.append((expected, parents[0] if parents else None, metadata))
+        unknown = [commit for commit, _, metadata in records
+                   if not isinstance(metadata, dict) or metadata.get("format") != 1]
+        self._prime_trees(unknown)
+        self._prime_blobs([self._tree(commit)[PORTABLE_METADATA] for commit in unknown
+                           if PORTABLE_METADATA in self._tree(commit)])
+        commits = []
+        for expected, parent, metadata in records:
+            if not isinstance(metadata, dict) or metadata.get("format") != 1:
                 tree = self._tree(expected)
                 if PORTABLE_METADATA in tree:
                     try:
@@ -324,7 +427,9 @@ class LibraryHistory:
                     except (ValueError, UnicodeError):
                         continue
                     if isinstance(metadata, dict) and metadata.get("format") == 1:
-                        commits.append((expected, parents[0] if parents else None, {**metadata, "portable": True}))
+                        commits.append((expected, parent, {**metadata, "portable": True}))
+            else:
+                commits.append((expected, parent, metadata))
         return commits
 
     def _refs(self) -> list[str]:
@@ -425,7 +530,9 @@ class LibraryHistory:
         """
         self._ensure_repository()
         result = {}
-        for commit, parent, metadata in self._commits(self._refs() if refs is None else refs):
+        records = self._commits(self._refs() if refs is None else refs)
+        self._prime_events(records)
+        for commit, parent, metadata in records:
             event = self._event(commit, parent, metadata)
             key = (event["path"], event["id"])
             portable = bool(metadata.get("portable"))
@@ -603,7 +710,7 @@ class LibraryHistory:
         if _is_link(directory.parent) or _is_link(directory):
             return
         now = time.time()
-        for name in ("history.lock", "history-pending.lock"):
+        for name in ("history.lock", "history-pending.lock", "legacy-support.lock"):
             path = directory / name
             try:
                 value = path.lstat()
@@ -680,6 +787,43 @@ class LibraryHistory:
         self.git.run("update-ref", HISTORY_REF, restored, parent or ZERO)
         return version or "git-" + commit
 
+    def _store_legacy_support(self, entries: list[tuple[Path, bytes]]) -> None:
+        """Keep unconfirmed editor/OS leftovers reachable on a private-only ref."""
+        if not entries:
+            return
+        legacy = self.root / ".history"
+        parent = self._rev(LEGACY_SUPPORT_REF)
+        tree = self._tree(parent)
+        records, files = [], {}
+        for target, raw in sorted(entries):
+            relative = target.relative_to(legacy).as_posix()
+            stored = "files/" + hashlib.sha256(os.fsencode(relative) + b"\0" + raw).hexdigest()
+            records.append({"path": relative, "stored": stored})
+            files[stored] = raw
+        files[LEGACY_SUPPORT_MANIFEST] = (json.dumps({"format": 1, "files": records},
+                                                   sort_keys=True, ensure_ascii=True) + "\n").encode()
+        changes = {path: raw for path, raw in files.items() if self._blob(tree.get(path)) != raw}
+        if changes:
+            arguments = ["commit-tree", self._make_tree(parent, changes)]
+            if parent:
+                arguments += ["-p", parent]
+            commit = self.git.text(*arguments, input=b"preserve legacy history support files\n")
+            self.git.run("update-ref", LEGACY_SUPPORT_REF, commit, parent or ZERO)
+            tree = self._tree(commit)
+        if any(self._blob(tree.get(path)) != raw for path, raw in files.items()):
+            raise self._fail("legacy support file verification failed")
+
+    def _legacy_bytes(self, target: Path) -> bytes:
+        legacy = self.root / ".history"
+        for path in (target, *target.parents):
+            if _is_link(path):
+                raise self._fail("legacy history contains a symlink")
+            if path == legacy:
+                break
+        if not stat.S_ISREG(target.lstat().st_mode):
+            raise self._fail("legacy history contains a non-regular file")
+        return target.read_bytes()
+
     def import_legacy(self) -> dict:
         """Import and verify known archives before removing them; retries are idempotent."""
         if self._migrating:
@@ -690,14 +834,19 @@ class LibraryHistory:
         if _is_link(legacy):
             raise self._fail("the legacy history directory is a symlink")
         self._migrating = True
-        imported = []
+        imported, support = [], []
         try:
             if legacy.exists():
                 for directory, dirs, files in os.walk(legacy, followlinks=False):
                     if any(_is_link(Path(directory) / name) for name in dirs + files):
                         raise self._fail("legacy history contains a symlink")
                     for name in files:
-                        relative = (Path(directory) / name).relative_to(legacy)
+                        target = Path(directory) / name
+                        relative = target.relative_to(legacy)
+                        if name in (".DS_Store", "Thumbs.db") or name.startswith(".tmp-") \
+                                or name.endswith(("~", ".swp")):
+                            support.append((target, self._legacy_bytes(target)))
+                            continue
                         version = Path(name).stem
                         if len(relative.parts) < 3:
                             raise self._fail(f"legacy history contains an unrecognized file: {relative.as_posix()}")
@@ -705,17 +854,21 @@ class LibraryHistory:
                         if not name.endswith(".md") or not _LEGACY_VERSION.fullmatch(version) \
                                 or not _FLOW_PATH.fullmatch(path):
                             raise self._fail(f"legacy history contains an unrecognized file: {relative.as_posix()}")
-                        raw = (Path(directory) / name).read_bytes()
+                        raw = self._legacy_bytes(target)
                         expected = version.split("-")[1]
                         if hashlib.sha256(raw).hexdigest()[:12] != expected:
                             raise self._fail(f"legacy archive checksum differs: {relative.as_posix()}")
-                        imported.append((version, path, Path(directory) / name, raw))
+                        imported.append((version, path, target, raw))
+                self._store_legacy_support(support)
                 for version, path, _, raw in sorted(imported):
                     self.record(path, raw, version=version, deleted=version.endswith("-deleted"))
                 for version, path, _, raw in imported:
                     if self.read(path, version) != raw:
                         raise self._fail("legacy history verification failed")
-                for _, _, target, _ in imported:
+                for target, raw in [(target, raw) for _, _, target, raw in imported] + support:
+                    if self._legacy_bytes(target) != raw:
+                        raise self._fail("a legacy history file changed before removal")
+                for target, _ in [(target, raw) for _, _, target, raw in imported] + support:
                     target.unlink()
                 for directory, _, _ in os.walk(legacy, topdown=False):
                     Path(directory).rmdir()

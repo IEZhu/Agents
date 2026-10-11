@@ -28,10 +28,20 @@ This separation lets another machine restore intermediate versions, such as B af
 while retaining scope exclusions and scanning historical content for secrets. Nothing else in
 the installation changes.
 
+Current files and saved versions are sent in separate Git pushes. If the current-file push
+succeeds but the version push fails, the activity and new-repository announcements retain the
+files already sent. Status reports that saved versions are still waiting, with the usual
+network retry or access error. The pending version refs are retried; `last_success` advances
+only when both parts finish.
+
 Git is the sole store for flow versions. The earlier `.history` snapshot directories are
 imported automatically with their original timestamps and version IDs, then removed after
 verifying every imported text. Interrupted migration resumes safely and repeated installation
-does not duplicate versions. Older sync clients refuse the newer library format. Existing
+does not duplicate versions. Known OS/editor leftovers (`.DS_Store`, `Thumbs.db`, `.tmp-*`,
+`*~`, `*.swp`) are preserved byte for byte on the private `refs/agents-core/legacy-support`
+ref and verified before removal. In the personal library repository, `git show
+refs/agents-core/legacy-support:legacy-support.json` lists their original relative names;
+these leftovers are never published. Older sync clients refuse the newer library format. Existing
 published commits are preserved, including legacy snapshot files already in their historical
 trees. The interaction journal `history.md` and approved `repos/<key>/history/**` segments keep
 their separate purpose; they are not duplicate flow-version stores.

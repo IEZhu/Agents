@@ -456,11 +456,18 @@ class FlowLibrary:
     def _history_has(self, scope: str, flow_id: str, version: str) -> bool:
         try:
             path = self._version_path(scope, flow_id)
+        except FlowError as error:
+            if scope == "repo" and str(error).startswith("repo_scope_unavailable:"):
+                return False
+            raise
+        try:
             with self._library_lock():
                 self._versions().read(path, version)
             return True
-        except (FlowError, OSError):
-            return False
+        except FlowError as error:
+            if str(error).startswith("flow_not_found:"):
+                return False
+            raise
 
     # --- writing -------------------------------------------------------------------
 

@@ -284,7 +284,7 @@ To set it up:
   machine without the service, setup also asks "Also sync every 5 minutes in the
   background? [Y/n]". Setup does not ask under `--yes` (which `install.sh` always
   passes), without a terminal, while git 2.32 or newer or `ssh-keygen` is missing,
-  or when the library holds a `.git` that sync did not create, which it leaves
+  or when the library holds a `.git` that Agents-Core did not create, which it leaves
   alone. Updates never ask: `install.sh` runs setup with `--yes`, and the
   service's `update` and `auto-update` do not run it. Sync that is set up is only
   reported, and the summary says whether background sync is on.
