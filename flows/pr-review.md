@@ -129,6 +129,8 @@ English description explaining the concrete problem, final behavior, and relevan
 validation. Follow the repository template when present. Describe the final diff
 for a reviewer who has not seen the conversation.
 
+Keep each prose paragraph and list item on one physical line in the submitted description. Do not insert line breaks to meet a fixed column width. Preserve paragraph breaks, separate list items, tables and code blocks.
+
 After **every commit**, compare the title and description with the complete
 current diff. Update them when the scope, behavior, or validation has changed.
 Remove obsolete claims and abandoned approaches. A wording update does not

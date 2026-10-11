@@ -17,6 +17,7 @@ also applies to AI instructions, plans, and reports.
 | Keep a standalone installation updated | [Standalone stdio auto-update](../README.md#standalone-stdio-auto-update), [model switch on update](../README.md#model-switch-on-update) | `src/self_update.py`, `src/startup.py`, `src/model_migration.py`, `src/reindex.py`, `src/engine/config.py` |
 | Install or refresh global client instructions | [Instruction installation and updates](../README.md#codex-instruction-installation) | `scripts/install_instructions.py`, `scripts/_helpers/install_codex_instructions.py`, `scripts/_helpers/inject_claude_md.py`, `scripts/_helpers/migrate_routing_memory.py`, `src/client_paths.py`, `scripts/templates/` |
 | Understand persona continuity and routing | [Routing](routing_flow.md) | `src/server.py`, `src/engine/persona.py`, `src/engine/persona_bundle.py`, `src/engine/router.py`, `src/schemas/protocol.py` |
+| Delegate a bounded task and validate its result | [Subagent contract and API](subagent-contract.md) | `src/engine/subagent.py`, `src/engine/subagent_validation.py`, `src/schemas/subagent.py`, `src/server.py`, `agents/*/subagent.mdc`, `rules/subagents/` |
 | Operate the shared macOS MCP daemon | [Daemon operations](shared-mcp-daemon.md) | `src/daemon/`, `src/client_paths.py`, `bridge/stdio.mjs`, `scripts/daemon_smoke.py` |
 | Use repository memory | [Repository Memory](../README.md#-repository-memory), [memory and errors](shared-mcp-daemon.md#memory-and-errors) | `src/memory/`, `src/server.py`, `src/daemon/workspaces.py`, `src/engine/config.py` |
 | Choose or add agents | [Agent catalog](../agents/README.md), [creation guide](../README.md#-creating-new-agents) | `agents/*/system_prompt.mdc`, `agents/common/agent-schema.json` |
@@ -80,6 +81,8 @@ the maintained references above for current commands and behavior.
 
 | Document | Status / scope |
 |---|---|
+| [Subagent validation results](subagent-validation-results.md) | Recorded contract tests, default-budget coverage and controlled context-size measurements; model quality/cost evaluation remains pending |
+| [Subagent implementation plan](subagent-implementation-plan.md) | Issue #291: compact profiles, task-scoped context, worker rules and structural validation; current API is the [subagent contract](subagent-contract.md) |
 | [Instruction signing specification](instruction-signing-spec.md) | Draft proposal, not implemented: an OpenSSF Model Signing profile (`agent-instructions/v1`) that seals installation and library instruction files and verifies them before they reach a model |
 | [Personal flow library](user-flows-design.md) | Implemented decision record: file-based personal and repository flows, chat management and the local editor; the current reference is the [flow guide](../flows/README.md#personal-and-repository-flows) |
 | [Persona switching plan](persona-switch-plan.md) | Implemented design; current contracts are in the [routing reference](routing_flow.md) |

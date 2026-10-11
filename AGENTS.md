@@ -64,6 +64,7 @@ their recorded revision; they do not override the current implementation.
   or restarting the shared daemon.
 - Run checks appropriate to the changed contract and report their actual result.
   Run only one heavy test or embedding process at a time.
+- In GitHub issue and PR descriptions, keep each prose paragraph and list item on one physical line. Do not hard-wrap text to a fixed width; preserve meaningful paragraph, list, table and code-block boundaries.
 - For PR/MR submission and review, follow [flows/pr-review.md](flows/pr-review.md):
   keep the English description aligned with every commit, handle review threads,
   and obtain fresh bot reviews before merging under its completion conditions.

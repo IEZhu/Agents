@@ -127,3 +127,20 @@ LOG_PERSONA_ACTION_DESC = (
 )
 LOG_FILES_DESC = 'Optional files touched, as a JSON array of paths, e.g. ["src/a.py"].'
 LOG_TAGS_DESC = 'Optional tags, as a JSON array of strings, e.g. ["bug", "fix"].'
+
+
+def unparsed_arg(schema_type: str, description: str, *, items: dict | None = None):
+    """Advertise a plain schema while preserving exact input for body validation.
+
+    FastMCP 1.28 pre-parses every string whose field annotation is not ``str``;
+    that discards duplicate object keys and accepts stringified arrays. A str
+    annotation with a plain validator deliberately passes values through unchanged.
+    The worker tools then validate every shape strictly and return bounded errors.
+    No existing permissive tool arguments use this helper.
+    """
+    from pydantic import PlainValidator
+
+    schema = {"type": schema_type, "description": description}
+    if items is not None:
+        schema["items"] = items
+    return Annotated[str, PlainValidator(lambda value: value), WithJsonSchema(schema)]

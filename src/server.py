@@ -73,6 +73,9 @@ from src.engine.persona import (
 )
 from src.schemas import tool_args as ta
 from src.engine import readiness
+from src.engine.subagent import prepare_subagent
+from src.engine.subagent_validation import validate_result
+from src.schemas.subagent import PreparationResponse, ValidationResponse
 
 READINESS_SHUTDOWN_WAIT_SECONDS = 5.0
 
@@ -122,34 +125,39 @@ _history_stores = HistoryStores()
 mcp = FastMCP(
     "Agents-Core",
     instructions=(
-        "Agents-Core uses persona protocol 2; pass protocol_version=2 to route_and_load "
-        "and get_agent_context.\n"
-        "Before the first final answer, when MCP is available and there is no prior persona "
-        "activation, call get_agent_context for an explicitly requested known role, or "
-        "route_and_load for the user's request with protocol_version=2 and current_persona=null. "
-        "This includes greetings and project-status questions. Do not wait for the user to "
-        "mention Agents-Core, the footer, or logging. Discovery and memory tools do not "
-        "activate a persona. Complete ROUTE_REQUIRED with get_agent_context in the same turn "
-        "before answering; do not ask permission to complete activation. On activation failure, "
-        "report the failure and follow the error or MCP-unavailable instructions below.\n"
-        "Silently assess whether the active persona fits each request. On keep, "
-        "retain the applied bundle, descriptor and exact footer; keep cannot skip initial "
-        "activation. Do not route, enumerate agents, or enrich. Route only for initial selection or a needed "
-        "specialization change, with protocol_version=2 and current_persona. Load an explicitly "
-        "named role directly. Restore lost instructions with force_reload=True; refresh skills "
-        "with refresh_persona_context. Preserve higher-priority instructions, the conversation "
-        "and user constraints. Ignore stale or replayed activations. Never clear caches to "
-        "switch personas. Except for the MCP-unavailable fallback below, compose the answer "
-        "with the returned footer, call log_interaction "
-        "with that answer (without any time line), the current user request verbatim as query, "
-        "and persona (the last descriptor object, all 7 keys: agent, activation_id, bundle_revision, "
-        "scope, skills_loaded, implants_loaded, rules_loaded) with persona_action only together "
-        "with it; a caller with no retained descriptor omits both. files/tags are JSON arrays. "
-        "Pass workspace, the absolute path of your working directory, to log_interaction and "
-        "the other memory and flow tools whenever you have one. "
-        "Then send the final answer. When the footer lists the "
-        "`answer-timestamp` rule and the call returned a `timestamp`, put that `timestamp` on its own "
-        "first line followed by an empty line.\n\n"
+        "Agents-Core uses persona protocol 2; pass protocol_version=2 to route_and_load and "
+        "get_agent_context.\n"
+        "A worker with a prepared agents-core/subagent/1 package uses that task role: no full "
+        "persona activation, inherited parent descriptor, footer, timestamp or log_interaction. "
+        "Return its JSON result only. Ordinary conversations follow the steps below.\n"
+        "Before the first final answer with MCP available and no prior activation, load an "
+        "explicitly requested known role with get_agent_context, otherwise route_and_load with "
+        "current_persona=null. This includes greetings and project-status questions. Complete "
+        "ROUTE_REQUIRED with get_agent_context in the same turn before answering; do not ask "
+        "permission. Discovery and memory tools do not activate a persona. Report activation "
+        "failures and follow the fallback below.\n"
+        "Silently assess the active role. On keep, retain its bundle, descriptor and exact footer "
+        "without routing, catalog lookup or enrichment. keep cannot skip initial activation. "
+        "Switch only for another specialization; load a named role directly. Restore with "
+        "force_reload=True; refresh with refresh_persona_context. Pass current_persona. Preserve "
+        "higher-priority instructions, conversation and user constraints. Ignore stale/replayed "
+        "activations; never clear caches to switch.\n"
+        "Compose the answer with the saved footer. Before delivery call log_interaction with that "
+        "answer (without any time line), query verbatim, and persona (all 7 keys: agent, "
+        "activation_id, bundle_revision, scope, skills_loaded, implants_loaded, rules_loaded). "
+        "Pass persona_action only with persona; callers without a descriptor omit both. files/tags "
+        "are JSON arrays. Pass workspace, the absolute working directory, to memory and flow "
+        "tools. Then send the final answer. When the footer lists answer-timestamp and logging "
+        "returns timestamp, prepend it on its own first line followed by an empty line.\n"
+        "\n"
+        "Delegation: call get_subagent_context for a suitable canonical role, one task, "
+        "acceptance criteria, relevant context, scope/non-goals and result type. Retain the "
+        "original contract and forward worker_context to a fresh native worker. Keep the "
+        "parent persona unchanged. Validate the returned result with validate_subagent_result "
+        "and the retained contract, then assess evidence and acceptance criteria; structural "
+        "validity is not proof of correctness. MCP does not spawn workers or enforce runtime "
+        "budgets. If preparation is unavailable, report an explicit full-persona/manual "
+        "fallback. Workers do not switch roles or delegate further unless assigned.\n\n"
         "Response statuses:\n"
         "- SUCCESS → validate the complete `persona` descriptor and `persona_block`, "
         "`rules_block`, `skills_block`, `implants_block`. Apply only if `replaces_activation_id` "
@@ -780,6 +788,54 @@ async def _persona_debug_response(tool: str, call_id: str, response: str) -> str
 
 
 @mcp.tool()
+async def get_subagent_context(
+    agent_name: ta.unparsed_arg("string", "Required canonical existing persona name; at most 80 characters."),
+    task: ta.unparsed_arg("string", "Required nonempty assignment; at most 4000 characters."),
+    acceptance_criteria: ta.unparsed_arg("array", "Required 1..50 nonempty completion criteria, each at most 4000 characters; use a JSON array, not text.", items={"type": "string"}),
+    task_id: ta.unparsed_arg("string", "Optional caller ID (1..128 letters, digits, underscore, dot, colon, hyphen); generated when omitted.") = None,
+    attempt_id: ta.unparsed_arg("string", "Attempt ID in the same format as task_id; change for a new attempt.") = "1",
+    context: ta.unparsed_arg("array", "Up to 50 relevant facts/references, each 1..4000 characters; not the whole transcript. References are not opened.", items={"type": "string"}) = [],
+    scope: ta.unparsed_arg("array", "Up to 50 allowed areas/actions, each 1..4000 characters.", items={"type": "string"}) = [],
+    non_goals: ta.unparsed_arg("array", "Up to 50 excluded tasks, each 1..4000 characters.", items={"type": "string"}) = [],
+    result_type: ta.unparsed_arg("string", "One of generic, review, implementation, research; fixed built-in result schema.") = "generic",
+    max_skills: ta.unparsed_arg("integer", "Maximum selected skills, integer 0..5; default 3.") = 3,
+    max_implants: ta.unparsed_arg("integer", "Maximum full-body implants, integer 0..2; default 0.") = 0,
+    max_context_chars: ta.unparsed_arg("integer", "Complete worker-context character budget, integer 2000..64000; default 16000.") = 16000,
+) -> PreparationResponse:
+    """Prepare a stateless task-scoped worker package without switching your persona.
+
+    Total request limit: 48000 canonical JSON characters. Retain the returned
+    contract and your own persona; forward worker_context to a fresh native worker.
+    This tool does not spawn workers. The worker uses this role without another
+    activation or conversation footer/log, and returns exactly the JSON envelope.
+    Then call validate_subagent_result with YOUR retained contract, and assess
+    evidence/acceptance criteria yourself. Missing compact sources or an
+    insufficient mandatory-context budget return an error with no partial package.
+    """
+    arguments = dict(agent_name=agent_name, task=task, acceptance_criteria=acceptance_criteria,
+                     task_id=task_id, attempt_id=attempt_id, context=context, scope=scope,
+                     non_goals=non_goals, result_type=result_type, max_skills=max_skills,
+                     max_implants=max_implants, max_context_chars=max_context_chars)
+    return PreparationResponse(await asyncio.to_thread(prepare_subagent, arguments))
+
+
+@mcp.tool()
+async def validate_subagent_result(
+    contract: ta.unparsed_arg("object", "Original contract object retained by the parent from get_subagent_context, including expected bundle_revision and contract_revision. Never use a worker replacement."),
+    result: ta.unparsed_arg("object", "Worker result object or raw JSON string (at most 128000 characters). Raw text must be exactly one JSON object: no fences, duplicate keys, non-finite numbers or trailing prose."),
+) -> ValidationResponse:
+    """Validate worker output structurally against the parent's retained contract.
+
+    Checks fixed built-in payloads, closed shapes, task/attempt/revision identity,
+    statuses and evidence references. Limits: nesting 12, 10000 JSON nodes,
+    100 items per result array (50 for text lists), strings 4000 characters,
+    and at most 20 diagnostics. Reads no paths/URLs, reruns no checks, writes no
+    memory and never establishes truth, authorization or issue completion.
+    """
+    return validate_result(contract, result)
+
+
+@mcp.tool()
 @observe(name="route_and_load")
 async def route_and_load(
     query: Annotated[str, Field(description="The user request to route.")],
@@ -1068,8 +1124,9 @@ async def log_interaction(
     persona: the `persona` object of the last SUCCESS/NO_CHANGE, copied verbatim
     with all 7 keys (agent, activation_id, bundle_revision, scope, skills_loaded,
     implants_loaded, rules_loaded); persona_action (keep/switch/refresh/restore)
-    only together with it. A caller with no retained descriptor, such as a
-    subagent, omits both and adds no footer. files and tags are JSON arrays.
+    only together with it. Compact subagents return their data envelope without
+    calling this tool. Other callers without a retained descriptor omit both and
+    add no footer; this does not waive initial activation. files/tags are JSON arrays.
     Persona and persona_action are client-reported attribution, not proof of
     instruction compliance. A partial, malformed or mismatching persona never
     costs the turn: it is written marked ``unverified`` or ``mismatch`` and the

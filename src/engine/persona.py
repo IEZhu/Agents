@@ -16,6 +16,10 @@ from src.version import agents_core_version
 logger = logging.getLogger(__name__)
 
 APPLY_INSTRUCTION = (
+    "A worker already given a prepared agents-core/subagent/1 package uses that "
+    "task role and JSON result contract, without this conversation activation, "
+    "a parent descriptor, footer, timestamp or per-result log_interaction. "
+    "For ordinary conversation activations: "
     "Apply this complete persona bundle only if replaces_activation_id matches your "
     "current activation (null for initial load). Ignore replayed or stale activations. "
     "On SUCCESS, replace all four previous blocks with persona_block, rules_block, "
@@ -30,7 +34,12 @@ APPLY_INSTRUCTION = (
     "persona_action. This also applies to the first answer after initial activation. "
     "When a log_interaction or read_history result carries history_last_error, or "
     "returns workspace_required, workspace_unsafe or workspace_invalid, mention it "
-    "once in the answer and do not retry logging in a loop."
+    "once in the answer and do not retry logging in a loop. For delegation, use "
+    "get_subagent_context for the assigned role and scope, retain its contract, "
+    "and send worker_context to a fresh native worker without switching the parent. "
+    "Call validate_subagent_result against that contract, then assess evidence and "
+    "acceptance criteria; structural validity does not prove completion. Report "
+    "an explicit full-persona/manual fallback if compact preparation is unavailable."
 )
 
 

@@ -5,6 +5,17 @@ type: feedback
 ---
 
 Follow the Agents-Core Persona Protocol in the managed CLAUDE.md section.
+For delegation, prepare a compact role with `get_subagent_context`, keep the
+original contract and forward only the prepared worker context plus required
+task materials into a fresh native worker. A valid `agents-core/subagent/1`
+worker package supplies the role: no full persona activation, inherited parent
+descriptor, footer, timestamp or per-result `log_interaction`. Return the required
+JSON envelope within the assigned scope. The parent uses
+`validate_subagent_result` with its original contract, then checks evidence and
+acceptance criteria. Preparation and validation do not launch models, enforce
+runtime limits or prove correctness. Report an explicit full-persona/manual
+fallback when preparation is unavailable; never claim compact mode then.
+The following activation and logging steps apply to ordinary conversations.
 Before the first final answer, when MCP is available and there is no prior persona
 activation, load an explicitly requested known role with `get_agent_context`, or
 call `route_and_load` with `protocol_version=2` and `current_persona=null`. Do not
@@ -35,8 +46,9 @@ request verbatim as `query`, the complete composed answer plus footer as
 `response_content`, and the absolute path of your working directory as
 `workspace` whenever you have one (also for the other memory and flow tools). Pass the `persona` object of the last SUCCESS/NO_CHANGE verbatim, with all 7 keys (`agent`, `activation_id`, `bundle_revision`, `scope`, `skills_loaded`, `implants_loaded`, `rules_loaded`),
 and the actual keep/switch/refresh/restore action only together with it; `files`/`tags`
-are JSON arrays. Without a retained descriptor (for example a subagent), omit both and
-add no footer. Incomplete attribution is still logged as `unverified`; do not retry. The call returns at once; when the footer's `Rules` list includes
+are JSON arrays. Compact workers use the mode above. Other callers without a
+retained descriptor omit both and add no footer; that logging compatibility does
+not waive initial activation. Incomplete attribution is still logged as `unverified`; do not retry. The call returns at once; when the footer's `Rules` list includes
 `answer-timestamp` and it returns a `timestamp`, deliver the answer with that
 `timestamp` as its first line followed by an empty line (it is not part of
 `response_content`), otherwise with no time line. The final answer may end the tool loop.
