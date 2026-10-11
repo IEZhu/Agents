@@ -926,12 +926,12 @@ if (isSync) {
     out.scope = { ...snapshot(), boxes: boxes() };
     reply("PUT /ui/api/sync/scopes", [200, { status: "saved", groups: [{ group: "common", syncs: true },
       { group: "personas", syncs: true }, { group: "history", syncs: false }, { group: "components", syncs: true }] }],
-          [200, { status: "confirmation_needed", hash: "inc1", upload: [".history/common/a/20261005T1-x.md"] }],
+          [200, { status: "confirmation_needed", hash: "inc1", upload: [], history_versions: 2 }],
           [200, { status: "saved", groups: [{ group: "common", syncs: true }, { group: "history", syncs: true }] }]);
     await toggle("Saved versions (history)", false);
     out.excluded = { alert: alertText(), boxes: boxes() };
     await toggle("Saved versions (history)", true);
-    out.include_asks = snapshot();
+    out.include_asks = { ...snapshot(), text: textOf(root()) };
     await click("Upload them");
     out.included = { alert: alertText(), boxes: boxes() };
     reply("PUT /ui/api/sync/settings", [200, { state: "waiting_for_access" }]);
@@ -941,6 +941,8 @@ if (isSync) {
       upload: [{ path: "common/a.md", flow: "user:a", size: 120 }], download: [], delete_local: [],
       remove_from_remote: [], conflicts: [], held: [], excluded: [], pending_groups: [], pending_files: [],
       blocked: [{ path: "common/secret.md", pattern: "github_token", sha256: "x" }],
+      history_versions: 3,
+      history_blocked: [{ path: "common/old-secret.md", pattern: "private_key", version: "git-deadbeef" }],
       repository_groups: [{ group: "repos/abc", origin: "github.com/o/r", files: 2, new: true }] }]);
     await click("Continue to the preview");
     await sleep(30);

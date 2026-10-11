@@ -750,7 +750,8 @@ function renderHistory(versions) {
   for (const item of versions) {
     const option = document.createElement("option");
     option.value = item.version;
-    const stamp = item.version.slice(0, 15).replace(/(\d{4})(\d\d)(\d\d)T(\d\d)(\d\d)(\d\d)/, "$1-$2-$3 $4:$5:$6");
+    const stamp = item.time ? item.time.replace("T", " ").replace(/(?:\.\d+)?(?:Z|\+00:00)$/, "") :
+      item.version.slice(0, 15).replace(/(\d{4})(\d\d)(\d\d)T(\d\d)(\d\d)(\d\d)/, "$1-$2-$3 $4:$5:$6");
     option.textContent = stamp + " UTC" + (item.deleted ? " (deleted)" : "");
     select.appendChild(option);
   }
@@ -2951,6 +2952,9 @@ function renderPreview(parent, preview) {
     (preview.conflicts || []).map(entry));
   previewList(box, "Not uploaded: possible credentials found by the scanner",
     (preview.blocked || []).map((item) => item.path + " (" + item.pattern + ")"));
+  if (preview.history_versions) node("p", box, plural(preview.history_versions, "saved version") + " to share.", "meta");
+  previewList(box, "Not uploaded: possible credentials in saved versions",
+    (preview.history_blocked || []).map((item) => item.path + " (" + item.pattern + ")"));
   previewList(box, "Waiting for approval on this machine", [...(preview.pending_groups || []), ...(preview.pending_files || [])]);
   previewList(box, "Repository groups", (preview.repository_groups || []).map((group) =>
     (group.origin || "no origin") + ": " + plural(group.files, "file") + (group.new ? ", new to the library" : "")));
@@ -3074,6 +3078,9 @@ function renderScopeList(host) {
     for (const path of pending.upload.slice(0, 50)) node("li", files, path);
     if (pending.upload.length > 50) node("li", files, "and " + (pending.upload.length - 50) + " more");
   }
+  if (pending.history_versions) node("p", box, plural(pending.history_versions, "saved version") + " to share.");
+  previewList(box, "Not uploaded: possible credentials in saved versions",
+    (pending.history_blocked || []).map((item) => item.path + " (" + item.pattern + ")"));
   const bar = node("div", box, null, "bar");
   action(bar, "Upload them", () => changeScope(pending.target, pending.how, pending.hash), "primary");
   action(bar, "Cancel", () => { sync.scopeConfirm = null; renderScopes(); });
@@ -3105,7 +3112,8 @@ async function changeScope(target, how, confirmHash) {
   if (confirmHash) body.confirm = confirmHash;
   const result = await syncTask(() => api("/ui/api/sync/scopes", { method: "PUT", body }));
   if (result && result.status === "confirmation_needed") {
-    sync.scopeConfirm = { target, how, hash: result.hash, upload: result.upload || [] };
+    sync.scopeConfirm = { target, how, hash: result.hash, upload: result.upload || [],
+      history_versions: result.history_versions || 0, history_blocked: result.history_blocked || [] };
   } else if (result) {
     sync.scopeConfirm = null;
     sync.scopes = { ...result, ask_new_repositories: !!(sync.scopes && sync.scopes.ask_new_repositories) };

@@ -354,6 +354,12 @@ def _print(result, command: str) -> None:
             print(f"  {key}:")
             for item in items:
                 print(f"    {item.get('flow') or item.get('path') if isinstance(item, dict) else item}")
+    if result.get("history_versions") is not None:
+        print(f"  flow versions: {result['history_versions']}")
+    if result.get("history_blocked"):
+        print("  flow versions not uploaded, possible credentials (allow one with scope --allow-secret):")
+        for item in result["history_blocked"]:
+            print(f"    {item['path']} ({item.get('pattern')})")
     for group in result.get("repository_groups", []):
         marker = " (new)" if group.get("new") else ""
         print(f"  repository {group['group']}: {group.get('origin')}, {group['files']} files{marker}")

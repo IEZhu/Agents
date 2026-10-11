@@ -789,6 +789,7 @@ def test_the_wizard_scope_is_all_on_by_default_and_including_needs_the_upload_li
                      "Ask before uploading the flows of a repository that is new to the library": (False, False)}
     assert wizard["excluded"]["alert"]["text"] == "history no longer syncs; its files stay on every machine."
     assert wizard["include_asks"]["buttons"][:2] == ["Upload them", "Cancel"]
+    assert "2 saved versions to share." in wizard["include_asks"]["text"]
     assert wizard["included"]["alert"]["text"] == "history syncs again."
     scopes = [call[2] for call in wizard["calls"] if call[:2] == ["PUT", "/ui/api/sync/scopes"]]
     assert scopes == [{"exclude": ["history"]}, {"include": ["history"]}, {"include": ["history"], "confirm": "inc1"}]
@@ -799,6 +800,8 @@ def test_the_wizard_preview_lists_the_plan_and_start_sends_its_hash(wizard):
     text = wizard["preview"]["text"]
     for part in ("Upload this library to the empty repository.", "Upload (1)", "user:a  common/a.md (120 B)",
                  "Not uploaded: possible credentials found by the scanner (1)", "common/secret.md (github_token)",
+                 "3 saved versions to share.", "Not uploaded: possible credentials in saved versions (1)",
+                 "common/old-secret.md (private_key)",
                  "github.com/o/r: 2 files, new to the library"):
         assert part in text, part
     assert wizard["preview"]["buttons"] == ["Back", "Prepare again", "Start sync"]

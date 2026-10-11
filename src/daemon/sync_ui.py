@@ -37,6 +37,9 @@ from starlette.requests import ClientDisconnect
 from starlette.responses import JSONResponse
 
 from src.user_sync import keys, scope
+from src.file_lock import file_lock
+from src.flows import FlowError
+from src.library_history import LibraryHistory
 from src.user_sync.engine import SyncError, default_label, hosted_repository, validate_identity
 from src.user_sync.github import DEFAULT_REPO_NAME, GitHubError, parse_public_key
 from src.user_sync.gitcmd import RemoteError, config_value, parse_remote
@@ -227,6 +230,23 @@ def _conflict(syncer, conflict_id: str) -> dict:
     if isinstance(version, str):
         if version.startswith(".history/"):
             mine, binary = _read_library(syncer.library, version)
+        if mine is None and not binary:
+            # Migrated conflict records keep their old alias, but no snapshot file.
+            parts = Path(version).parts
+            path = (Path(*parts[1:-2]) / f"{parts[-2]}.md").as_posix() \
+                if len(parts) >= 4 and parts[0] == ".history" else record.get("path")
+            alias = Path(version).stem if version.startswith(".history/") else version
+            try:
+                if not isinstance(path, str) or not scope.portable_name(path) or scope.groups(path) is None:
+                    raise ValueError("not a library path")
+                with file_lock(syncer.library / ".lock"):
+                    data = LibraryHistory(syncer.library).read(path, alias)
+                if len(data) <= TEXT_LIMIT:
+                    mine = data.decode("utf-8")
+            except UnicodeError:
+                binary = True
+            except (FlowError, OSError, ValueError, TypeError):
+                pass
     elif isinstance(record.get("local_content"), str):
         mine = record["local_content"]
     elif isinstance(record.get("local_content_base64"), str):

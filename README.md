@@ -254,9 +254,18 @@ registered workspace header instead of `AGENTS_CLIENT_REPO_ROOT`.
 
 Personal (`user:`) and repository (`repo:`) flows, persona choices and the
 component switches live in the personal library (`flows/.user`, or
-`AGENTS_USER_FLOWS_DIR`). Sync keeps that library the same on your machines
+`AGENTS_USER_FLOWS_DIR`). Installation creates a managed local Git repository
+inside that library, including with `--yes`, without a remote or network, and
+without SSH tools. Each flow save, deletion and restoration records a local
+version before returning; older `.history` snapshots are imported into Git.
+Local history uses a fixed Agents-Core commit identity and never changes your
+global Git configuration. Reinstalling preserves its commits and remote.
+
+Sync keeps that library the same on your machines
 through one private git repository per user, on macOS, Windows and Linux
-([reference](docs/user-sync.md)). It is off until you set it up.
+([reference](docs/user-sync.md)). Remote sync is off until you set it up, and
+connecting it reuses the local repository. A foreign repository in the library
+is refused without changing it.
 
 By default it syncs everything with a portable identity: personal flows, persona
 choices, the switches, the flows' history, and the flows of every repository that
@@ -275,7 +284,7 @@ To set it up:
   machine without the service, setup also asks "Also sync every 5 minutes in the
   background? [Y/n]". Setup does not ask under `--yes` (which `install.sh` always
   passes), without a terminal, while git 2.32 or newer or `ssh-keygen` is missing,
-  or when the library holds a `.git` that sync did not create, which it leaves
+  or when the library holds a `.git` that Agents-Core did not create, which it leaves
   alone. Updates never ask: `install.sh` runs setup with `--yes`, and the
   service's `update` and `auto-update` do not run it. Sync that is set up is only
   reported, and the summary says whether background sync is on.
@@ -364,6 +373,13 @@ different lines; otherwise both versions are kept as a [conflict](docs/user-sync
 which the Sync page and the flow tools (`sync_conflicts`) report. The
 [command reference](docs/user-sync.md#command-line) covers status, conflicts, pausing and
 the scope.
+
+Git also carries the permitted intermediate flow versions: after A → B → C on
+one machine, another can restore B after syncing. Local history is kept on
+private Git refs, while the remote publishes only permitted files and
+versions; excluded repository groups and historical secrets are checked before
+publication. A restoration creates a new version. Git is the only version
+store; the interaction journal `history.md` retains its separate role.
 
 ### Updates
 

@@ -658,12 +658,14 @@ if "!_BOTH_CLIENTS!"=="true" call :note_desktop_registration
 :mcp_done
 
 REM ============== Sync Between Machines ==============
-REM The personal library (flows\.user) can sync between the user's machines through a
-REM private git repository (docs\user-sync.md). The step is src\user_sync\installer.py,
-REM as in init_repo.sh: with a terminal and without --yes it asks once; --yes never
+REM The personal library gets local Git version history on every installation,
+REM including --yes and offline, then can sync through a private remote
+REM (docs\user-sync.md). The step is src\user_sync\installer.py, as in init_repo.sh:
+REM with a terminal and without --yes it asks once about remote sync; --yes never
 REM asks; AGENTS_USER_SYNC_REPO or AGENTS_USER_SYNC_REMOTE in the environment (never
-REM from .env) set sync up without a question, without the GitHub token here. It never
-REM touches an existing flows\.user\.git by itself, and a failure here never fails setup.
+REM from .env) set sync up without a question, without the GitHub token here. Managed
+REM Git history is migrated and reused; foreign repositories stay untouched. A
+REM failure here never fails the remaining setup.
 
 echo(
 echo %CYAN%===============================%NC%

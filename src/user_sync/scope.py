@@ -1,6 +1,6 @@
 """What syncs: scope rules, shared exclusions, the working-tree snapshot and the secret scanner.
 
-Synced by default: ``common/**``, ``personas/**``, ``components.json``, ``.history/**`` and
+Synced by default: ``common/**``, ``personas/**``, ``components.json`` and
 ``repos/<key>/**`` for keys derived from an ``origin``, plus the library files
 (``.agents-library.json``, ``.gitignore``, ``.gitattributes``) and ``.agents-sync/**`` (shared
 exclusions and conflict records). Never synced: machine-local repository groups, ``.lock``,
@@ -9,7 +9,9 @@ store, and anything else at the library root.
 
 Each path belongs to one or two scope groups: ``common``, ``personas``, ``history`` or
 ``components``, and for per-repository data (``repos/<key>/``, ``personas/repos/<key>/``,
-``.history/repos/<key>/``) also ``repos/<key>``. Excluding any of its groups keeps a path out of
+legacy ``.history/repos/<key>/``) also ``repos/<key>``. The history group
+also governs Git revision events, whose prior bytes follow the owning file's
+exclusions and repository portability. Excluding any of its groups keeps a path out of
 the tree. Exclusions live in the tracked ``.agents-sync/scopes.json``, so all machines agree;
 excluding takes a path out of the tree but never deletes it from any working tree.
 
@@ -17,7 +19,7 @@ A repository group is portable when its ``.repo.json`` holds an origin: its key 
 same repository on every machine. A group without one has a key made from this machine's path
 (``src.user_flows.repo_key``) and never syncs, with its personas and history.
 
-The scanner looks for credentials in every file about to be committed. A hit keeps that file out
+The scanner looks for credentials in every file and historical event about to be published. A hit keeps that file out
 of the commit until the user edits it or allows that exact content by its SHA-256.
 """
 from __future__ import annotations

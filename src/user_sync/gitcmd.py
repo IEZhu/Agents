@@ -29,6 +29,7 @@ from src import executables
 
 LOCAL_TIMEOUT = 10
 NETWORK_TIMEOUT = 60
+STALE_GIT_LOCK_SECONDS = 10
 GITHUB_443_HOST = "ssh.github.com"  # GitHub's SSH over port 443, for networks that block port 22
 # GIT_CONFIG_GLOBAL, on which the isolation rests, arrived in git 2.32.
 MIN_GIT_VERSION = executables.MIN_GIT_VERSION

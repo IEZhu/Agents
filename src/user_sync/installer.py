@@ -1,15 +1,19 @@
-"""The installers' sync step and unattended setup from the environment (#171).
+"""Install local Git history and optionally connect the personal library to a remote.
 
 ``scripts/init_repo.sh`` and ``scripts/init_repo.bat`` run ``python -m src.user_sync installer``
 after the client configuration, with ``--yes`` when they run with ``--yes`` (``install.sh`` always
-passes it), and ``installer --summary`` in their final summary. The step never fails setup, and by
-itself it changes nothing: no settings, no key, nothing in the library's ``.git``.
+passes it), and ``installer --summary`` in their final summary. The step first creates the local
+managed repository and imports legacy flow snapshots, including without a terminal, network or
+SSH tools. Repeated installation preserves its refs and remote. Local commits use a fixed service
+identity without reading or changing the user's global Git configuration. A failure is reported
+without aborting the rest of the installation.
 
 * Sync already set up: it says so and asks nothing.
 * ``AGENTS_USER_SYNC_REPO`` (``OWNER/NAME`` on GitHub) or ``AGENTS_USER_SYNC_REMOTE`` (an SSH URL)
   set: ``from_env`` sets sync up without a question, also under ``--yes``.
-* git 2.32 or newer or ``ssh-keygen`` missing, or a ``.git`` in the library that sync did not
-  create: it says why and asks nothing. That ``.git`` is only read, never changed.
+* git 2.32 or newer missing: local history cannot be installed; it says why and asks nothing.
+* ``ssh-keygen`` missing: local history still works, but remote setup asks nothing.
+* a foreign ``.git`` in the library: it says why and asks nothing. It only reads that repository.
 * ``--yes`` (or ``AGENTS_ASSUME_YES``) or no terminal: it asks nothing.
 * Otherwise it asks once. Yes opens the daemon's settings page, whose Sync page sets sync up, on
   macOS when the daemon answers and serves that page (``settings_page``); otherwise it starts the
@@ -33,8 +37,8 @@ conflicts stops at "confirmation needed" with the commands to review and confirm
 started without the daemon, it enables the scheduled run. Run again with the same variables, it
 continues a setup that stopped, and it changes nothing once sync has started. A setup it made
 itself that never started may be replaced by a run with another remote (a marker in the sync state
-directory records it); every other setup, and a ``.git`` the library holds while sync has no
-settings here, stays as it is, with the steps that clear the way.
+directory records it); every other pending setup stays as it is, with the steps that clear the
+way. A managed local repository without sync settings is reused when connecting a remote.
 
 Its own text is ASCII, since a Windows pipe may not encode anything else; names it repeats from the
 library or the remote may not be, so the command line replaces what its output cannot encode.
@@ -52,6 +56,7 @@ from typing import Callable, Iterable, Mapping, MutableMapping
 from urllib.request import ProxyHandler, Request, build_opener
 
 from src import executables
+from src.library_history import LibraryHistory
 from src.user_sync import gitcmd, keys
 from src.user_sync.engine import (MANAGED_KEY, Settings, SyncError, Syncer, hosted_repository,
                                   installation_root, validate_identity)
@@ -223,7 +228,7 @@ def missing_tools() -> list[str]:
 
 
 def foreign_git(library: Path) -> bool:
-    """Whether the library holds a ``.git`` that sync did not create. It is read, never changed."""
+    """Whether the library holds a ``.git`` that Agents-Core did not create. Read only."""
     dot_git = Path(library) / ".git"
     if not dot_git.exists() and not dot_git.is_symlink():
         return False
@@ -248,9 +253,22 @@ def blocker(syncer: Syncer) -> SyncError | None:
         reason = "ssh" if all(item.startswith("ssh-keygen") for item in missing) else "git_too_old"
         return SyncError(reason, "it needs " + " and ".join(missing))
     if foreign_git(syncer.library):
-        return SyncError("foreign_git", f"{syncer.library / '.git'} was not created by Agents-Core sync, and "
+        return SyncError("foreign_git", f"{syncer.library / '.git'} was not created by Agents-Core, and "
                                         "sync leaves it as it is; move it away to set up sync")
     return None
+
+
+def ensure_local_history(syncer: Syncer) -> None:
+    """Initialize or migrate the library under the same lock as flow writes.
+
+    Check a foreign repository before creating even a lock file in it. SSH and the remote are
+    irrelevant to local history; ``LibraryHistory`` enforces the Git requirement itself.
+    """
+    if foreign_git(syncer.library):
+        raise SyncError("foreign_git", f"{syncer.library / '.git'} was not created by Agents-Core; "
+                                      "installation leaves it as it is; move it away to create local history")
+    with syncer._library_lock():
+        LibraryHistory(syncer.library).ensure()
 
 
 def background() -> dict:
@@ -423,6 +441,16 @@ def step(syncer: Syncer, *, assume_yes: bool, interactive: bool, ask: Ask, say: 
     and ``token`` the GitHub token; ``ignored`` names what ``.env`` set and does not count.
     """
     environ = {} if environ is None else environ
+    new_repository = not (syncer.library / ".git").exists()
+    try:
+        ensure_local_history(syncer)
+    except Exception as error:
+        message = _reason(error)
+        say(f"  Local library history was not initialized: {message}.")
+        reason = getattr(error, "reason", None) or getattr(error, "code", None) or "error"
+        return {"status": "attention", "reason": reason, "message": message}
+    if new_repository:
+        say(f"  Local library history is ready: {syncer.library / '.git'}.")
     settings = syncer.settings()
     if settings is None:
         _unmark(syncer)  # a marker without a setup is left from one that was disconnected
@@ -729,7 +757,7 @@ def _setup_refused(syncer: Syncer, error: SyncError, *, repository: str, old: st
 
 def _clear_the_way(syncer: Syncer) -> str:
     dot_git = syncer.library / ".git"
-    move = f", move {dot_git} away" if dot_git.exists() or dot_git.is_symlink() else ""
+    move = f", move {dot_git} away" if foreign_git(syncer.library) else ""
     return (f"finish it with the wizard ({command('src.user_sync', 'setup')}), or remove it "
             f"({command('src.user_sync', 'disconnect')}){move} and run setup from the environment again")
 
@@ -792,11 +820,6 @@ def from_env(syncer: Syncer, *, say: Say, environ: Mapping[str, str] | None = No
     problem = blocker(syncer)
     if problem is not None:
         raise problem
-    dot_git = syncer.library / ".git"
-    if existing is None and (dot_git.exists() or dot_git.is_symlink()):
-        raise SyncError("existing_git", f"{dot_git} is left from an earlier sync, and setup without questions never "
-                                        f"touches an existing .git; move it away and run setup from the environment "
-                                        f"again, or set sync up with the wizard ({command('src.user_sync', 'setup')})")
     options = {"name": name, "email": email, "label": label, "branch": branch, "trust_host_key": trust_host_key,
                "ask_new_repositories": ask_new_repositories}
     mark = existing is None or ours
