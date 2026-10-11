@@ -76,7 +76,8 @@ def mark(root: Path) -> Path:
 def is_journal_root(root) -> bool:
     """Whether ``root`` is a fallback journal's directory, by its marker; never runs git."""
     try:
-        return (Path(root) / MARKER).read_text(encoding="utf-8") == str(Path(root).resolve())
+        named = (Path(root) / MARKER).read_text(encoding="utf-8")
+        return os.path.normcase(named) == os.path.normcase(str(Path(root).resolve()))  # case on Windows
     except (OSError, UnicodeError):
         return False
 
