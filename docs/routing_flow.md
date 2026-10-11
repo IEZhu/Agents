@@ -41,6 +41,15 @@ does not select a persona protocol.
 
 ## Client decisions
 
+With MCP available, a conversation without a prior persona activation must load
+a persona before its first final answer. This includes greetings and ordinary
+project-status questions without any reminder about Agents-Core. An explicit
+known role loads directly; otherwise the client routes with `current_persona=null`.
+`ROUTE_REQUIRED` is intermediate and must be followed by `get_agent_context` in
+the same turn. Discovery, history and workflow tools do not activate a persona.
+The first answer follows the same exact-footer and log-before-final contract as
+later answers. Failed activation follows the error or unavailable-MCP rules.
+
 `keep` includes confirmations, continuations, formatting requests, and new tasks
 within the current persona's scope. It does not compare candidates. A specialist
 change triggers routing; an explicit known role loads directly. `universal_agent`
@@ -48,6 +57,8 @@ does not retain clearly specialized work merely because its description is broad
 A justified refresh acquires skills for the same role. Restore reloads lost
 instructions for a known role without selecting another one. Cache expiry has no
 bearing on the client's retained instructions.
+It requires a previously applied bundle, descriptor and exact footer, so it cannot
+replace initial activation.
 
 See the complete [client protocol](../scripts/templates/routing-protocol-core.md).
 The installers switched to version 2 on 2026-09-26, and protocol 1 was removed on
@@ -306,10 +317,19 @@ during setup (`scripts/init_repo.sh`) or migrated to the shared daemon (see
 For Antigravity, user-scope migration provisions a stdio bridge
 (`bridges/antigravity-auto.json`) and an Antigravity plugin
 (`~/.gemini/config/plugins/agents-core`) with a `PreToolUse` lifecycle hook.
+The plugin also installs `rules/AGENTS.md` from the canonical managed routing
+template. Antigravity merges these plugin rules into its active rule set before
+the first response, so bootstrap does not depend on the model first discovering
+or choosing an MCP tool. The rules require initial activation, completing
+`ROUTE_REQUIRED`, the exact footer and logging before final output.
 The same migration registers and enables `plugins.agents-core` in
 `~/.gemini/config/config.json`, preserving other plugins, user settings and
-existing custom fields. The registry, manifest and hooks share the migration's
-backup and rollback; malformed registry objects are refused without replacing them.
+existing custom fields. The registry, manifest, hooks and rules share the migration's
+backup, rollback and restore. Rules outside the managed markers are preserved;
+malformed marker pairs or registry objects stop migration before files are changed.
+Rerun user-scope migration and restart Antigravity for existing installations;
+verify a fresh chat without a role, footer or logging reminder. Installer and
+server tests verify delivered instructions, not guaranteed compliance by every model.
 Because Antigravity launches stdio MCP servers from `/` without project
 environment variables or MCP roots, the lifecycle hook authenticates the active
 workspace path (`workspacePaths[0]`) using an HMAC-SHA256 signature keyed by the
