@@ -440,6 +440,7 @@ set "CLAUDE_DESKTOP_CONFIG="
 set "CLAUDE_CODE_DIR="
 set "CLAUDE_CODE_MCP="
 set "CLAUDE_CODE_SETTINGS="
+set "ANTIGRAVITY_CONFIG="
 for /f "tokens=1,* delims==" %%K in ('""%PYTHON_ABS%" "%HELPERS%\client_config_paths.py""') do set "%%K=%%L"
 if not defined MCP_SETTINGS_FILE (
     endlocal
@@ -471,8 +472,15 @@ if not defined CLAUDE_CODE_SETTINGS (
     set "_FATAL_CTX=Failed to resolve CLAUDE_CODE_SETTINGS"
     goto :fatal_exit
 )
+if not defined ANTIGRAVITY_CONFIG (
+    endlocal
+    set "_FATAL_EC=1"
+    set "_FATAL_CTX=Failed to resolve ANTIGRAVITY_CONFIG"
+    goto :fatal_exit
+)
 for %%I in ("%MCP_SETTINGS_FILE%") do set "CURSOR_DIR=%%~dpI"
 for %%I in ("%CLAUDE_DESKTOP_CONFIG%") do set "CLAUDE_DESKTOP_DIR=%%~dpI"
+for %%I in ("%ANTIGRAVITY_CONFIG%") do set "ANTIGRAVITY_DIR=%%~dpI"
 setlocal EnableDelayedExpansion
 
 REM --- Detect Cursor ---
@@ -516,6 +524,18 @@ if "!CLAUDE_CODE_DETECTED!"=="true" (
     echo   %GREEN%+%NC% Claude Code not installed; configuring it for the Code tab of Claude Desktop
 ) else (
     echo   %GREEN%^>%NC% Claude Code not detected
+)
+
+REM --- Detect Antigravity ---
+set "ANTIGRAVITY_DETECTED=false"
+if defined AGENTS_ANTIGRAVITY_MCP_CONFIG set "ANTIGRAVITY_DETECTED=true"
+if exist "!ANTIGRAVITY_DIR!" set "ANTIGRAVITY_DETECTED=true"
+where agy >nul 2>&1
+if !errorlevel! equ 0 set "ANTIGRAVITY_DETECTED=true"
+if "!ANTIGRAVITY_DETECTED!"=="true" (
+    echo   %GREEN%+%NC% Antigravity detected
+) else (
+    echo   %GREEN%^>%NC% Antigravity not detected
 )
 
 echo(
@@ -631,6 +651,28 @@ if "!CLAUDE_MD_CONFIGURED!"=="true" (
 )
 :skip_claude_code
 
+REM --- Configure Antigravity ---
+if not "!ANTIGRAVITY_DETECTED!"=="true" goto :skip_antigravity
+echo   %GREEN%^>%NC% Configuring Antigravity MCP (!ANTIGRAVITY_CONFIG!)...
+if not exist "!ANTIGRAVITY_DIR!" mkdir "!ANTIGRAVITY_DIR!"
+
+REM Preserve the existing file before the helper updates only the managed entry.
+if exist "!ANTIGRAVITY_CONFIG!" (
+    copy /Y "!ANTIGRAVITY_CONFIG!" "!ANTIGRAVITY_CONFIG!.backup.%BACKUP_TS%" >nul 2>&1
+    if !errorlevel! neq 0 (
+        echo   %RED%x%NC% Failed to back up Antigravity config; leaving it unchanged
+        goto :skip_antigravity
+    )
+)
+"%PYTHON_ABS%" "%HELPERS%\inject_mcp.py" "!ANTIGRAVITY_CONFIG!" "%PYTHON_ABS%" "%SERVER_ABS%"
+if !errorlevel! equ 0 (
+    echo   %GREEN%+%NC% Agents-Core added to Antigravity config
+    set "CONFIGURED_ENVS=!CONFIGURED_ENVS! Antigravity"
+) else (
+    echo   %RED%x%NC% Failed to update Antigravity config
+)
+:skip_antigravity
+
 REM --- Configure Codex instructions ---
 REM MCP registration is separate from these global persona instructions.
 echo   %GREEN%^>%NC% Checking Codex global instructions...
@@ -696,6 +738,7 @@ if defined CONFIGURED_ENVS (
     echo !CONFIGURED_ENVS! | findstr /C:"Cursor" >nul 2>&1 && echo   2. Restart Cursor IDE to activate MCP servers && echo(
     echo !CONFIGURED_ENVS! | findstr /C:"Claude-Desktop" >nul 2>&1 && echo   3. Restart Claude Desktop to activate MCP servers && echo(
     echo !CONFIGURED_ENVS! | findstr /C:"Claude-Code" >nul 2>&1 && echo   4. Claude Code is configured globally - start it in any directory: && echo      %CYAN%claude%NC% && echo(
+    echo !CONFIGURED_ENVS! | findstr /C:"Antigravity" >nul 2>&1 && echo   5. Restart Antigravity to activate MCP servers && echo(
 )
 
 echo   Test with a command:

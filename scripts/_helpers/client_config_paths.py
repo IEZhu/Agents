@@ -16,6 +16,7 @@ def main():
         "CLAUDE_CODE_MCP": client_config_path("claude"),
         # Claude Code settings: where the desktop app's Agents-Core entry is denied (#231).
         "CLAUDE_CODE_SETTINGS": client_config_path("claude-deny-desktop"),
+        "ANTIGRAVITY_CONFIG": client_config_path("antigravity"),
     }
     for name, path in paths.items():
         print(f"{name}={path}")
