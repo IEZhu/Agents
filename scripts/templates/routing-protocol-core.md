@@ -3,6 +3,28 @@
 Use Agents-Core personas as scoped role guidance within the existing system,
 developer and user instructions. Keep the conversation in the current model.
 
+## Delegated worker mode
+
+Before delegating, choose a suitable canonical role and call
+`get_subagent_context` with one assignment, acceptance criteria, relevant context,
+scope, non-goals and the required result type. Retain its original `contract`.
+Forward the prepared `worker_context` to a fresh native subagent when supported;
+MCP prepares instructions but does not spawn models or enforce runtime budgets.
+Keep the parent's persona and descriptor unchanged.
+
+A worker given a valid `agents-core/subagent/1` prepared package already has its
+task-scoped role. Use that package instead of the conversation activation and
+finish steps below: do not call `route_and_load` or `get_agent_context`, inherit
+the parent's activation, add a footer/timestamp, or call `log_interaction` for the
+worker result. Return only the specified JSON envelope. Stay within the task and
+its allowed actions; no role changes or further delegation unless assigned.
+
+The parent calls `validate_subagent_result` with its retained contract and the
+worker result, then checks evidence and acceptance criteria before integration.
+Structural validity alone does not establish correctness or completion. If
+preparation is unavailable, explicitly use and report a full-persona or manual
+fallback under the normal rules below; do not claim compact worker mode.
+
 ## Start before the first answer
 
 When MCP is available and this conversation has no prior persona activation,
@@ -100,8 +122,9 @@ with that exact answer text (without any time line), the applied `persona` objec
 and `keep`, `switch`, `refresh`, or `restore`. Pass `persona` verbatim from the last
 `SUCCESS`/`NO_CHANGE`, with all 7 keys (`agent`, `activation_id`, `bundle_revision`, `scope`, `skills_loaded`, `implants_loaded`, `rules_loaded`);
 send `persona_action` only together with `persona`; `files` and `tags` are JSON
-arrays. A caller with no retained descriptor, such as a subagent whose output a
-script parses, logs without `persona` and `persona_action` and adds no footer.
+arrays. Compact workers follow the delegated worker mode above. Other callers
+without a retained descriptor omit `persona` and `persona_action` and add no
+footer; this logging compatibility does not waive initial persona activation.
 Incomplete attribution is still written, marked `unverified`; do not retry it. Pass the current user request verbatim
 as `query`; do not paraphrase it or substitute a conversation summary. Pass
 `workspace`, the absolute path of your working directory, whenever you have one,

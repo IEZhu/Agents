@@ -504,6 +504,8 @@ The server exposes MCP tools that any compatible client can call:
 | `route_and_load(query, chat_history?, protocol_version=2, current_persona?)` | Semantic routing when selection is requested; returns a loaded role or candidates for the client to choose |
 | `get_agent_context(agent_name, query, reasoning?, chat_history?, protocol_version=2, current_persona?, force_reload=False)` | Direct agent loading when the target is already known; the active agent returns `NO_CHANGE` unless `force_reload=True` restores lost instructions |
 | `refresh_persona_context(query, current_persona, chat_history?)` | Refresh skills/implants for the active role without reselecting it |
+| `get_subagent_context(agent_name, task, acceptance_criteria, ...)` | Prepare a compact task-scoped worker role, bounded components and a versioned result contract; [worker guide](docs/subagent-contract.md) |
+| `validate_subagent_result(contract, result)` | Check the worker result against the parent-retained contract; structural validation only, without opening references |
 | `load_implants(query\|task_type)` | Load cognitive reasoning strategies by semantic query or preset bundle |
 | `list_agents()` | Enumerate all available agents with metadata |
 | `list_flows(scope="all")` | Discover built-in, personal (`user:`) and repository (`repo:`) Markdown workflows, with IDs and content revisions |
@@ -587,7 +589,17 @@ returns `ERROR` without loading a persona. [Client decisions](docs/routing_flow.
 records the telemetry and evaluation evidence for the switch and links the
 remaining validation gaps for each tested client/model.
 
-With MCP available, a new conversation activates a persona before its first final
+Delegated workers use a separate [subagent contract](docs/subagent-contract.md):
+the parent prepares an authored compact role with `get_subagent_context`, forwards
+its `worker_context` through native spawning, and validates the returned JSON with
+`validate_subagent_result` and the original retained contract. Default packages
+select up to three skills and zero implants under a 16,000-character context
+budget. The parent then checks the evidence and acceptance criteria. The tools
+do not launch a model or enforce its runtime permissions or token budget. A valid
+worker package supplies the role without another full activation, chat footer or
+per-result interaction log; ordinary conversation attribution remains unchanged.
+
+With MCP available, a new ordinary conversation activates a persona before its first final
 answer, even for a greeting or project-status question. `ROUTE_REQUIRED` must be
 completed with `get_agent_context` in that turn. The client then composes the
 answer with the exact bundle footer, calls `log_interaction`, and sends the answer.

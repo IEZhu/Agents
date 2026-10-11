@@ -52,6 +52,25 @@ removed, renamed or reprioritized.
   `rules_block` like `RULES_ENABLED=0`. The per-query path used by the evaluation
   harnesses ignores the switches. See [Flow editor](../docs/shared-mcp-daemon.md#flow-editor).
 
+## Task-scoped worker collection
+
+[`subagents/`](subagents/README.md) contains a separate mandatory rule collection
+for `get_subagent_context`. The conversation loader's root-only glob does not
+load these files. They define assignment scope, permitted action mode, missing
+input, completion and effort limits, and the exact JSON result contract.
+
+Worker preparation keeps installation-enabled non-presentation universal rules
+but excludes `answer-timestamp` and `language-match`; assignment language and the
+result schema control worker output. Worker scope rules do not depend on those
+presentation rules and are not added as applicability fields to universal files.
+The worker package supplies the role without a new conversation activation,
+footer, or per-answer log call. Parent logging follows protocol 2 as before.
+
+Edit the worker collection and its focused validation checks when changing the
+worker contract. Do not add worker names to the universal `_EXPECTED_RULE_NAMES`
+set. See [compact profiles](../agents/README.md#compact-worker-profiles) and the
+[subagent specification](../docs/subagent-contract.md).
+
 ## Frontmatter
 
 ```yaml

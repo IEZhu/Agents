@@ -39,6 +39,29 @@ to `protocol_version=2`, and clients pass it explicitly; any other value returns
 take no `protocol_version`. Slash prompts always return protocol 2 bundles. Choosing HTTP or stdio
 does not select a persona protocol.
 
+## Delegated workers
+
+The separate [subagent API](subagent-contract.md) uses
+`agents-core/subagent/1`; it does not replace conversation persona protocol 2.
+Choose the role, call `get_subagent_context` with one assignment and acceptance
+criteria, retain its original `contract`, and forward `worker_context` through
+the host's native spawning tool. Prefer a fresh worker context. Preparation does
+not mutate the parent's descriptor or routing cache.
+
+The prepared package supplies the worker's task role. That worker returns the
+specified JSON envelope without a second full activation, inherited parent
+descriptor, footer, timestamp or `log_interaction` call. Worker rules require it
+to honor scope and allowed actions, report missing input, and stop at completion
+or return partial work. Native host controls enforce actual permissions and
+runtime limits; the prompt itself does not.
+
+The parent runs `validate_subagent_result` against its retained contract before
+assessing evidence and acceptance criteria. `valid: true` means structural
+conformance only. It does not verify source claims or execute reported checks.
+If preparation is unavailable, use an explicit full-persona/manual fallback and
+report it; do not claim compact mode. The conversation rules below apply to the
+parent and ordinary conversation/fallback activations.
+
 ## Client decisions
 
 With MCP available, a conversation without a prior persona activation must load

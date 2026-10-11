@@ -1,0 +1,7 @@
+---
+name: worker-completion
+description: Stop at acceptance or allocated effort and preserve partial work.
+---
+Check the result against the supplied acceptance criteria. Stop when they are met; do not add unrelated polish, investigation, or deliverables. Stay within the allocated effort and host execution limits. Prompt instructions are not a runtime meter: never invent elapsed time, remaining tokens, or budget enforcement.
+
+If effort ends before completion, return partial with usable work, evidence, limitations, and specific remaining_work. Use failed when execution cannot produce the intended result and explain the failure in limitations. Use completed only when the criteria are satisfied, with no remaining_work and question null. Missing critical input uses input_required. Preserve the selected result payload shape for every status.

@@ -57,6 +57,65 @@ with its identity, routing fields, skills by tier, preferred implants and prompt
 body. The tab is read-only: agents cannot be switched off there, and their files
 are never changed. See [Flow editor](../docs/shared-mcp-daemon.md#flow-editor).
 
+## Compact worker profiles
+
+Every shipped persona also has an authored `agents/<name>/subagent.mdc` for one
+delegated assignment. `get_subagent_context` reads this profile without switching
+the parent's conversation persona. The full `system_prompt.mdc` remains the
+source for ordinary conversation activation and the role's component allowlist.
+
+```yaml
+---
+agent: code_reviewer
+skills:
+- skill-dev-clean-code
+- skill-dev-testing
+- skill-dev-security
+implants:
+- implant-chain-of-verification
+---
+Review the assigned change against its intent, surrounding source, and tests.
+Identify concrete defects with locations, impact, evidence, and remedies.
+Review does not authorize edits. Preserve uncertainty and actual check results.
+```
+
+Author the English body individually from the full persona, with at most **250
+words**. Keep professional judgment, necessary methods, and critical boundaries;
+remove greeting scripts, fixed chat templates, compulsory broad workflows,
+timestamps, footers, and conversation activation instructions. Do not import
+example clients or scenarios as facts about the worker's assignment. The loader
+does not summarize or truncate the full persona at request time. Missing or
+invalid compact profiles fail preparation explicitly.
+
+Frontmatter contains exactly `agent`, `skills`, and `implants`. The identity must
+match the canonical agent directory. Candidate lists are ordered canonical file
+stems without `.mdc`; use `[]` when empty. Select a small useful set, rather than
+copying every available skill:
+
+- Skills must occur in that role's `core_skills`, `preferred_skills`, or
+  `capable_skills`, and have meaningful authored `compiled` text in their source
+  files. A title or description is not an instruction substitute.
+- Implants must occur in the role's `preferred_implants`. Explicitly enabled
+  implants use their complete source instructions, not a `one_liner`.
+- List order supplies deterministic preference, not mandatory loading. The
+  builder selects task-relevant candidates, honors installation switches and
+  request caps, and may omit whole optional components to fit the context budget.
+  Defaults permit at most three skills and zero implants. No component is cut
+  mid-instruction.
+
+The reusable body does not define the final answer format: the prepared package
+provides the task, acceptance criteria, worker rules, and exact result schema.
+Workers return that envelope without a full persona activation or conversation
+footer/log call. The parent validates structure and separately assesses the
+evidence. See the [worker rules](../rules/subagents/README.md) and
+[task contract](../docs/subagent-contract.md).
+
+When adding or changing a persona, check compact coverage, identity, body length,
+component eligibility, compiled skill content, and domain-critical safeguards.
+Changing a full persona's declarations may require updating its compact candidate
+lists. Measure package size separately from task quality; a shorter prompt alone
+does not demonstrate equal results or lower total token use including retries.
+
 ## Research & Analytics
 
 | Agent | Trigger | Role |
@@ -155,5 +214,5 @@ The single `lawyer` agent replaced nine country-specific clones (`colombian_lawy
 
 ---
 
-**Total agents**: 43
+**Total agents**: 44
 **Updated**: 2026-09-30
