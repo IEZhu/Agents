@@ -64,7 +64,8 @@ async function fakeDaemon(answer, onCall = undefined) {
       response.end(JSON.stringify(reply));
       return;
     }
-    const call = { message, workspace: request.headers['x-agents-workspace'] };
+    const call = { message, workspace: request.headers['x-agents-workspace'],
+      claimed: request.headers['x-agents-claimed-workspace'], refused: request.headers['x-agents-workspace-refused'] };
     calls.push(call);
     await onCall?.(call);
     if (!Object.hasOwn(message, 'id')) { response.writeHead(202); response.end(); return; }
@@ -114,7 +115,9 @@ async function session(daemon, settings, messages, env = {}, cwd = undefined, ca
     const [code] = await once(child, 'exit');
     assert.equal(code, 0);
     const header = id => daemon.calls.find(call => call.message.id === id)?.workspace;
-    return { responses, rootsAsked, header };
+    const claimed = id => daemon.calls.find(call => call.message.id === id)?.claimed;
+    const refused = id => daemon.calls.find(call => call.message.id === id)?.refused;
+    return { responses, rootsAsked, header, claimed, refused };
   } finally {
     await new Promise(resolve => daemon.server.close(resolve));
     await rm(dir, { recursive: true, force: true });
@@ -150,16 +153,54 @@ test('auto workspace: the session directory names every request, retried while t
   assert.deepEqual(daemon.calls.find(c => c.message.id === 'init').message.params.capabilities, {});
 });
 
+const describe = (id, workspace) => ({ id, method: 'tools/call', params: { name: 'describe_repo', arguments: { workspace } } });
+
 test('a shared bridge refuses a call whose workspace lies outside the roots', async () => {
   const daemon = await fakeDaemon(message => message.path === '/outside'
     ? [400, { error: 'workspace_invalid', message: 'outside the roots' }]
     : [200, { workspace_id: 'named-id', root: message.path }]);
-  const { responses, header } = await session(daemon, {}, [call('named', '/named'), call('outside', '/outside')]);
+  const { responses, header } = await session(daemon, {}, [describe('named', '/named'), describe('outside', '/outside')]);
   assert.deepEqual(daemon.registrations.map(r => r.path), ['/named', '/outside']);
   assert.equal(header('named'), 'named-id');
   assert.ok(!daemon.calls.some(c => c.message.id === 'outside'));
   assert.equal(responses.get('outside').error.code, -32602);
   assert.match(responses.get('outside').error.message, /workspace_invalid: outside the roots/);
+});
+
+test('history calls without a workspace reach the daemon with the directory they name (#292)', async () => {
+  // The daemon keeps such a turn in its fallback journal; the claim is metadata, never a target.
+  const daemon = await fakeDaemon(message => message.path === '/outside'
+    ? [400, { error: 'workspace_invalid', message: 'outside the roots' }]
+    : [200, { workspace_id: 'named-id', root: message.path }]);
+  const read = { id: 'read', method: 'tools/call', params: { name: 'read_history', arguments: {} } };
+  const long = call('long', '/' + 'a'.repeat(5000));
+  const { responses, header, claimed, refused } = await session(daemon, {},
+    [call('outside', '/outside'), call('plain'), read, describe('describe'), long,
+     { id: 'list', method: 'tools/list' }, call('named', '/named')],
+    { CLAUDE_PROJECT_DIR: '/projects/ünicode dir' });
+  assert.ok(!responses.get('outside').error);
+  assert.equal(header('outside'), undefined);
+  assert.equal(decodeURIComponent(claimed('outside')), '/outside');
+  assert.equal(refused('outside'), 'workspace_invalid'); // why, for the turn's metadata
+  // Without a workspace argument, the session's directory; percent-encoded, as a header must be ASCII.
+  assert.equal(claimed('plain'), encodeURIComponent('/projects/ünicode dir'));
+  assert.equal(refused('plain'), undefined);
+  assert.equal(claimed('read'), encodeURIComponent('/projects/ünicode dir'));
+  // Only history calls carry a claim; one too long for any directory is left out, the call goes on.
+  assert.equal(claimed('describe'), undefined);
+  assert.equal(claimed('long'), undefined);
+  assert.ok(!responses.get('long').error);
+  assert.equal(claimed('list'), undefined);
+  assert.equal(header('named'), 'named-id');
+  assert.equal(claimed('named'), undefined); // a resolved workspace claims nothing
+});
+
+test('a pinned bridge never sends a claim', async () => {
+  const daemon = await fakeDaemon(() => [500, {}]);
+  const { header, claimed } = await session(daemon, { headers: { Authorization: 'Bearer test', 'X-Agents-Workspace': 'pinned-id' } },
+    [call('logged')], {}, undefined, {});
+  assert.equal(header('logged'), 'pinned-id');
+  assert.equal(claimed('logged'), undefined);
 });
 
 test('auto workspace without CLAUDE_PROJECT_DIR reports its cwd as a launch directory', async () => {

@@ -214,10 +214,20 @@ async def test_memory_tools_refuse_markerless_cwd(tmp_path, monkeypatch):
         ))
     finally:
         engine_config._reset_client_repo_root_cache()
-    assert logged["status"] == "ERROR" and logged["message"].startswith("workspace_required")
-    for result in (history, described, written):
+    # #292: the turn goes to the fallback journal with the directory named, which stays untouched.
+    assert logged["timestamp"] and logged["workspace"]["source"] == "fallback"
+    assert logged["workspace"]["claimed"] == str(plain) and logged["workspace"]["reason"] == "workspace_required"
+    assert history["workspace"]["source"] == "fallback"
+    for result in (described, written):
         assert result["status"] == "error", result
-        assert "workspace_required" in result["error"]
+        assert "workspace_required" in result["error"] and "migrate --workspace" in result["remedy"]
         # Which process refused and what it saw (#231).
         assert result["pid"] == os.getpid() and result["workspace_inputs"]["cwd"] == os.getcwd()
+    assert server.drain_pending_logs(5)
+    try:
+        kept = json.loads(await server.read_history())
+    finally:
+        engine_config._reset_client_repo_root_cache()
+    assert [entry["intent"] for entry in kept["entries"]] == ["q"]
+    assert kept["entries"][0]["metadata"]["claimed_workspace"] == str(plain)
     assert list(plain.iterdir()) == []

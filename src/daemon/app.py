@@ -30,6 +30,32 @@ MAX_STREAMS = 32
 ORIGINS = ("cwd", "CLAUDE_PROJECT_DIR", "AGENTS_CLIENT_REPO_ROOT", "hook")
 
 
+# How a bridge says why the workspace a call named was refused (#292).
+REFUSED = ("workspace_required", "workspace_invalid", "workspace_unsafe")
+
+
+def claimed_workspace(headers):
+    """The directory a bridge names when no workspace resolved (#292): an absolute path, percent-encoded
+    in X-Agents-Claimed-Workspace. Unverified; it only travels with a turn into the fallback journal."""
+    from urllib.parse import unquote
+    from src.memory.fallback import MAX_CLAIM, clean_claim
+    value = headers.get("x-agents-claimed-workspace")
+    if not value or len(value) > 3 * MAX_CLAIM:
+        return None
+    try:
+        return clean_claim(unquote(value, errors="strict"))
+    except UnicodeDecodeError:
+        return None
+
+
+def refusal(headers, error):
+    """The reason a bridge gives for a refused named workspace, else the daemon's own error."""
+    reason = headers.get("x-agents-workspace-refused")
+    if reason in REFUSED:
+        return f"{reason}: the workspace this call named was refused (see the bridge's stderr for details)"
+    return error
+
+
 def load_runtime(port):
     from src import server
     from src.engine import readiness
@@ -286,7 +312,10 @@ class Service:
             root = await asyncio.to_thread(self.registry.resolve, identity)
         except WorkspaceError as failure:
             error = str(failure)
-        context = ClientContext(str(uuid.uuid4()), "http", identity, root, error, client=app)
+        if root is None:
+            error = refusal(request.headers, error)
+        context = ClientContext(str(uuid.uuid4()), "http", identity, root, error, client=app,
+                                claimed=None if root else claimed_workspace(request.headers))
         scope.setdefault("state", {})["client_context"] = context
         if request.method == "POST":
             # Only an initialize names the client (clientInfo); the transport still reads every byte.

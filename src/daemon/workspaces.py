@@ -83,6 +83,10 @@ class ClientContext:
     error: str | None = None
     source: str | None = None
     client: str | None = None  # the app named by X-Agents-Client (usage.py), over HTTP
+    # The directory the client named when no workspace resolved (X-Agents-Claimed-Workspace, the
+    # call's workspace, or a stdio server's start directory). Unverified: the fallback journal
+    # records it with the turn and nothing is written there (#292).
+    claimed: str | None = None
 
     def workspace_root(self):
         if self.error or self.root is None:
@@ -139,8 +143,15 @@ def client_context(ctx=None, *, allow_install_fallback=True):
     except ClientRootError as error:
         # Same contract as an HTTP request without a workspace: memory tools
         # and repository flows fail, routing continues.
-        return ClientContext(str(uuid.uuid4()), "stdio", error=f"{error.code}: {error}")
+        return ClientContext(str(uuid.uuid4()), "stdio", error=f"{error.code}: {error}", claimed=_start_directory())
     return ClientContext(str(uuid.uuid4()), "stdio", root=Path(root).resolve(), source=source)
+
+
+def _start_directory():
+    try:
+        return os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
+    except OSError:
+        return None
 
 
 async def resolve_client_context(ctx=None, workspace=None, *, allow_install_fallback=True):
@@ -159,13 +170,16 @@ async def resolve_client_context(ctx=None, workspace=None, *, allow_install_fall
     # An override, even a refused one, decides alone; the argument would change nothing.
     session = _roots_session(ctx) if stdio and not os.environ.get("AGENTS_CLIENT_REPO_ROOT") else None
     if workspace is not None and session is not None:
-        return await _workspace_context(session, workspace)
+        context = await _workspace_context(session, workspace)
+        return replace(context, claimed=workspace) if context.error else context
     context = client_context(ctx, allow_install_fallback=allow_install_fallback)
     if context.transport == "stdio" and context.error is not None and not os.environ.get("AGENTS_CLIENT_REPO_ROOT"):
         if session is not None:
             context = replace(context, error=f"{context.error} {WORKSPACE_HINT}")
         elif workspace is not None:
             context = replace(context, error=f"{context.error} {NO_ROOTS_HINT}")
+    if (context.error is not None or context.root is None) and workspace is not None:
+        context = replace(context, claimed=workspace)  # what the call names says more than the start directory
     return context
 
 

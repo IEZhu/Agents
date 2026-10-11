@@ -108,6 +108,15 @@ _config.DATA_DIR = _config.INSTALL_DATA_DIR = TEST_DATA_DIR
 _config.AUTO_UPDATE_STAGING_DIR = os.path.join(TEST_DATA_DIR, ".prepared")
 
 
+@pytest.fixture(autouse=True)
+def fallback_journal(tmp_path_factory, monkeypatch):
+    """A turn without a project goes to the installation's fallback journal (#292): never the live one."""
+    from src.memory import fallback
+    root = tmp_path_factory.mktemp("fallback-journal")
+    monkeypatch.setattr(fallback, "ROOT_OVERRIDE", root)
+    return root
+
+
 @pytest.fixture
 def persona_components(tmp_path, monkeypatch):
     """A minimal installation tree for flow personas: two agents and one of each component.
