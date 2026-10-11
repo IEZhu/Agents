@@ -4083,7 +4083,32 @@ function renderApps() {
       + ago(unknown.last_seen, now) + ". A configuration written before this version names no app; run "
       + "python -m src.daemon migrate again to name it.", "meta");
   }
+  renderRegistrations(body, landing.overview && landing.overview.registrations);
   node("p", body, "An app that runs Agents-Core over stdio, without the service, never shows as connected; its answers still count.", "meta");
+}
+
+// The service brings the registrations it wrote up to date at every start (#292).
+const REGISTRATION_APPS = { claude: "claude-code", codex: "codex", cursor: "cursor" };
+
+function renderRegistrations(body, registrations) {
+  if (!registrations) return;
+  const clients = registrations.clients || {};
+  const name = (key) => APP_NAMES[REGISTRATION_APPS[key]] || key;
+  const updated = Object.keys(clients).filter((key) => clients[key].status === "upgraded").map(name);
+  if (updated.length) {
+    node("p", body, "At its last start the service updated the Agents-Core registration of " + updated.join(", ")
+      + ". Sessions that were open keep the old one: reconnect Agents-Core there (/mcp in Claude Code) or restart the app.",
+      "meta");
+  }
+  for (const [key, item] of Object.entries(clients)) {
+    if (item.status === "skipped" || item.status === "failed") {
+      node("p", body, name(key) + ": its registrations were left as they are. " + (item.reason || ""), "meta");
+    }
+  }
+  if (registrations.auto === false) {
+    node("p", body, "Keeping registrations up to date is off: python -m src.daemon registrations enable turns it on.",
+      "meta");
+  }
 }
 
 function fact(parent, term, value) {

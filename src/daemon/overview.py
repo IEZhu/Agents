@@ -97,6 +97,15 @@ def configured_apps(directory: Path, home: Path | None = None) -> dict:
     return {app: {"configured": bool(scopes), "scopes": sorted(scopes)} for app, scopes in found.items()}
 
 
+def registration_report(directory: Path) -> dict:
+    """The last time the service brought the client registrations it wrote up to date (#292)."""
+    from .registrations import state
+    try:
+        return state(directory)
+    except (OSError, ValueError):
+        return {"auto": True}
+
+
 def counts() -> dict:
     from src.component_catalog import list_agents, list_components
     from src.user_flows import FlowLibrary
@@ -162,4 +171,5 @@ class Overview:
                 self._sizes = (self.clock(), {"model": model(), "directories": directories(self.service.directory)})
             sizes = self._sizes[1]
         return {"version": agents_core_version(), "repository": repository(), "counts": counts(),
-                "apps": configured_apps(self.service.directory, self.home), **sizes}
+                "apps": configured_apps(self.service.directory, self.home),
+                "registrations": registration_report(self.service.directory), **sizes}

@@ -330,6 +330,10 @@ const LANDING_OVERVIEW = {
                 { id: "logs", label: "Logs of stdio servers", path: "/opt/agents/logs", size: null }],
   apps: { "claude-code": { configured: true, scopes: ["claude:user"] }, "claude-desktop": { configured: false, scopes: [] },
           codex: { configured: true, scopes: ["codex:user"] }, cursor: { configured: false, scopes: [] } },
+  registrations: { auto: true, updated_at: "2026-10-11T08:30:00+00:00", clients: {
+    claude: { status: "upgraded", files: ["/home/u/.claude.json"], backup: "/state/backups/1" },
+    codex: { status: "skipped", files: [], reason: "/home/u/repo/.codex/config.toml: its Agents-Core entry was not written by this installation" },
+    cursor: { status: "current", files: [] } } },
 };
 const landingDay = (offset, answers) => ({ date: new Date(Date.now() - offset * 86400000).toISOString().slice(0, 10), answers });
 const landingEvent = (number, app, agent, action, repository) => ({
