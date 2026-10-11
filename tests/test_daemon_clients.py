@@ -76,12 +76,19 @@ def test_tracked_codex_gets_a_pinned_bridge_without_secret(migration, tmp_path):
     path = root / ".codex/config.toml"; path.parent.mkdir()
     path.write_text('[mcp_servers."Agents-Core"]\ncommand="python"\n')
     subprocess.run(["git", "-C", str(root), "add", ".codex/config.toml"], check=True)
-    _, text, secret = migration.prepare("codex", root)
+    home = tmp_path / "home"; (home / ".codex").mkdir(parents=True)
+    _, text, secret = migration.prepare("codex", root, home=home)
     entry = tomllib.loads(text)["mcp_servers"]["Agents-Core"]
     assert entry["args"][0].endswith("stdio.mjs") and "http_headers_helper" not in entry
     assert json.loads(Path(entry["args"][1]).read_text())["headers"]["X-Agents-Workspace"]
     assert migration.token not in text
     assert not secret
+    # Under a user layer that is still HTTP it stays HTTP, and the helper keeps the token out.
+    (home / ".codex/config.toml").write_text('[mcp_servers."Agents-Core"]\nurl = "http://127.0.0.1:8765/mcp"\n')
+    _, text, secret = migration.prepare("codex", root, home=home)
+    entry = tomllib.loads(text)["mcp_servers"]["Agents-Core"]
+    assert entry["url"].endswith("/mcp") and isinstance(entry["http_headers_helper"], str)
+    assert migration.token not in text and not secret
 
 
 def codex_merge(user, project):
@@ -108,6 +115,20 @@ def test_codex_layers_merge_into_one_transport(migration, tmp_path):
         else:  # without Node every layer stays HTTP
             assert merged["url"].endswith("/mcp") and "command" not in merged
             assert merged["http_headers"]["X-Agents-Workspace"]
+
+
+def test_a_codex_project_layer_takes_the_transport_of_the_user_layer(migration, tmp_path):
+    """#292: `migrate --workspace` must not put a bridge under a user layer that is still HTTP."""
+    home = tmp_path / "home"; (home / ".codex").mkdir(parents=True)
+    (home / ".codex/config.toml").write_text(
+        '[mcp_servers."Agents-Core"]\nurl = "http://127.0.0.1:8765/mcp"\n')
+    project = tmp_path / "repo"; project.mkdir()
+    migration.config["node"] = sys.executable
+    pinned = tomllib.loads(migration.prepare("codex", project, home=home)[1])["mcp_servers"]["Agents-Core"]
+    assert pinned["url"].endswith("/mcp") and pinned["http_headers"]["X-Agents-Workspace"]
+    # An explicit transport decides alone: the upgrade moves every layer in one transaction.
+    pinned = tomllib.loads(migration.prepare("codex", project, home=home, transport="bridge")[1])
+    assert pinned["mcp_servers"]["Agents-Core"]["args"][0].endswith("stdio.mjs")
 
 
 def test_cursor_layers_get_bridges(migration, tmp_path):
@@ -209,7 +230,8 @@ def test_user_scope_codex_gets_the_same_bridge(migration, tmp_path):
         'model = "test"\n[mcp_servers."Agents-Core"]\nurl = "http://127.0.0.1:8765/mcp"\ncwd = "/elsewhere"\n'
         '[mcp_servers."Agents-Core".http_headers]\nAuthorization = "Bearer old"\n[mcp_servers.other]\ncommand = "safe"\n')
     migration.config["node"] = sys.executable
-    _, text, secret = migration.prepare("codex", home=home)
+    change = migration.prepare("codex", home=home)
+    _, text, secret = change
     parsed = tomllib.loads(text)
     entry = parsed["mcp_servers"]["Agents-Core"]
     assert entry["command"] == sys.executable and entry["args"][0].endswith("stdio.mjs")
@@ -221,6 +243,7 @@ def test_user_scope_codex_gets_the_same_bridge(migration, tmp_path):
     assert settings["workspace"] == "auto" and settings["headers"]["X-Agents-Client"] == "codex"
     assert not secret and migration.token not in text
     # A project's own .codex/config.toml keeps its fixed identity, through the same transport (#292).
+    migration.apply([change])
     project = tmp_path / "repo"; project.mkdir()
     _, text, _ = migration.prepare("codex", project, home=home)
     pinned = tomllib.loads(text)["mcp_servers"]["Agents-Core"]

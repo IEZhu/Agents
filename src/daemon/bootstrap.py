@@ -63,9 +63,12 @@ def keep_registrations_current(directory):
     At every start, so an installation from before a change of their form gets it without a
     `migrate`; it waits while an update's probation holds control.lock.
     """
-    import threading
-    from .registrations import keep_current
-    threading.Thread(target=keep_current, args=(directory,), name="registrations", daemon=True).start()
+    try:
+        import threading
+        from .registrations import keep_current
+        threading.Thread(target=keep_current, args=(directory,), name="registrations", daemon=True).start()
+    except Exception:  # never keeps the service from starting
+        logging.getLogger(__name__).warning("Client registrations will not be brought up to date", exc_info=True)
 
 
 def serve(directory=None, probation=None):

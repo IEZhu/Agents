@@ -315,3 +315,179 @@ def test_the_service_start_runs_it_in_the_background(setup, monkeypatch):
     assert called.wait(5)
     started = [thread for thread in threading.enumerate() if thread.name == "registrations"]
     assert all(thread.daemon for thread in started)
+
+
+
+# --- what has to stay as it is (#292 review) ---------------------------------------------------
+
+def test_a_symlinked_layer_fails_its_client_and_the_others_go_on(setup, tmp_path):
+    """Dotfile managers link ~/.codex/config.toml; migrate refuses to write through a link."""
+    state, home = setup
+    (home / ".codex").mkdir()
+    real = tmp_path / "dotfiles-codex.toml"; real.write_text(http_codex())
+    (home / ".codex/config.toml").symlink_to(real)
+    (home / ".cursor").mkdir()
+    write_json(home / ".cursor/mcp.json", {"mcpServers": {"Agents-Core": http_json()}})
+
+    result = registrations.run(state, home)
+
+    assert result["clients"]["codex"]["status"] == "failed" and "symbolic link" in result["clients"]["codex"]["reason"]
+    assert result["clients"]["cursor"]["status"] == "upgraded"
+    assert real.read_text() == http_codex() and (home / ".codex/config.toml").is_symlink()
+
+
+def test_a_failure_writing_one_client_does_not_stop_the_others(setup, monkeypatch):
+    state, home = setup
+    (home / ".codex").mkdir()
+    (home / ".codex/config.toml").write_text(http_codex())
+    (home / ".cursor").mkdir()
+    write_json(home / ".cursor/mcp.json", {"mcpServers": {"Agents-Core": http_json()}})
+    original_apply = clients.ClientMigration.apply
+
+    def apply(self, changes, **options):
+        if any(str(path).endswith("config.toml") for path, _, _ in changes):
+            raise OSError("disk full")
+        return original_apply(self, changes, **options)
+    monkeypatch.setattr(clients.ClientMigration, "apply", apply)
+
+    report = registrations.upgrade(state, home)
+
+    assert report["codex"] == {"status": "failed", "files": [], "reason": "OSError: disk full"}
+    assert report["cursor"]["status"] == "upgraded"
+
+
+def test_an_entry_that_only_overrides_settings_is_left_alone(setup, tmp_path):
+    """A project layer may only turn a setting on or off; Codex merges the transport into it."""
+    state, home = setup
+    (home / ".codex").mkdir()
+    (home / ".codex/config.toml").write_text(http_codex())
+    root, _ = project(tmp_path, state, "override")
+    (root / ".codex").mkdir()
+    override = '[mcp_servers."Agents-Core"]\nenabled = false\nstartup_timeout_sec = 30\n'
+    (root / ".codex/config.toml").write_text(override)
+
+    report = registrations.upgrade(state, home)
+
+    assert report["codex"]["status"] == "upgraded" and report["codex"]["files"] == [str(home / ".codex/config.toml")]
+    assert (root / ".codex/config.toml").read_text() == override
+    merged = {**entry(home / ".codex/config.toml"), **entry(root / ".codex/config.toml")}
+    assert "command" in merged and "url" not in merged and merged["enabled"] is False
+
+
+def test_a_tracked_layer_is_left_for_migrate(setup, tmp_path):
+    """Rewriting a file the project's repository tracks would leave a diff the user never asked for."""
+    import subprocess
+    state, home = setup
+    (home / ".codex").mkdir()
+    (home / ".codex/config.toml").write_text(http_codex())
+    root, identity = project(tmp_path, state, "tracked")
+    subprocess.run(["git", "init", "-q", str(root)], check=True)
+    (root / ".codex").mkdir()
+    (root / ".codex/config.toml").write_text(
+        f'[mcp_servers."Agents-Core"]\nurl = "{URL}"\n'
+        f'http_headers_helper = "node {tmp_path}/install/bridge/headers.mjs {state}/bridges/codex-{identity}.json"\n')
+    subprocess.run(["git", "-C", str(root), "add", ".codex/config.toml"], check=True)
+    before = [(home / ".codex/config.toml").read_bytes(), (root / ".codex/config.toml").read_bytes()]
+
+    report = registrations.upgrade(state, home)
+
+    assert report["codex"]["status"] == "skipped" and "tracked by Git" in report["codex"]["reason"]
+    assert f"migrate --workspace {root} --clients codex" in report["codex"]["reason"]
+    assert [(home / ".codex/config.toml").read_bytes(), (root / ".codex/config.toml").read_bytes()] == before
+
+
+def test_a_stdio_server_entry_becomes_the_bridge(setup, tmp_path):
+    state, home = setup
+    server = {"command": sys.executable, "args": [str(tmp_path / "install/src/server.py")],
+              "env": {"LD_LIBRARY_PATH": "/nix/lib"}}
+    write_json(home / ".claude.json", {"mcpServers": {"Agents-Core": server}})
+
+    assert registrations.upgrade(state, home)["claude"]["status"] == "upgraded"
+    assert set(entry(home / ".claude.json", "claude")) == {"command", "args"}
+
+
+@pytest.mark.parametrize("adapted", [
+    {"env": {"AGENTS_CLIENT_REPO_ROOT": "/work/project"}},
+    {"cwd": "/work/project"},
+])
+def test_an_entry_the_user_adapted_is_not_touched(setup, tmp_path, adapted):
+    """The upgrade would drop the override that decides the project."""
+    state, home = setup
+    server = {"command": sys.executable, "args": [str(tmp_path / "install/src/server.py")], **adapted}
+    write_json(home / ".claude.json", {"mcpServers": {"Agents-Core": server}})
+
+    assert registrations.upgrade(state, home)["claude"]["status"] == "skipped"
+    assert entry(home / ".claude.json", "claude") == server
+
+
+def test_a_pin_to_another_workspace_is_not_touched(setup, tmp_path):
+    state, home = setup
+    root, _ = project(tmp_path, state, "here")
+    _, elsewhere = project(tmp_path, state, "elsewhere")
+    (root / ".codex").mkdir()
+    (root / ".codex/config.toml").write_text(http_codex(elsewhere))
+
+    report = registrations.upgrade(state, home)
+
+    assert report["codex"]["status"] == "skipped"
+    assert entry(root / ".codex/config.toml")["http_headers"]["X-Agents-Workspace"] == elsewhere
+
+
+def test_a_missing_node_is_reported_not_acted_on(setup, tmp_path):
+    """Turning every bridge back into HTTP would write the token into every project."""
+    state, home = setup
+    (home / ".codex").mkdir()
+    (home / ".codex/config.toml").write_text(http_codex())
+    registrations.upgrade(state, home)  # with Node: bridges
+    bridged = (home / ".codex/config.toml").read_bytes()
+    config = json.loads((state / "service.json").read_text())
+    write_json(state / "service.json", {**config, "node": str(tmp_path / "removed-node")})
+
+    report = registrations.upgrade(state, home)
+
+    assert report["codex"]["status"] == "failed" and "Node" in report["codex"]["reason"]
+    assert (home / ".codex/config.toml").read_bytes() == bridged
+
+
+def test_a_damaged_state_file_reads_as_the_default(setup):
+    state, _ = setup
+    (state / registrations.STATE_FILE).write_text("[1, 2]")
+    assert registrations.state(state) == {"auto": True}
+
+
+# --- migrate keeps a client's layers on one transport -----------------------------------------
+
+def test_migrate_moves_codex_project_layers_with_the_user_layer(setup, tmp_path, monkeypatch, capsys):
+    from src.daemon.control import main
+    state, home = setup
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+    (home / ".codex").mkdir()
+    (home / ".codex/config.toml").write_text(http_codex())
+    root, identity = project(tmp_path, state, "pinned")
+    (root / ".codex").mkdir()
+    (root / ".codex/config.toml").write_text(http_codex(identity))
+
+    assert main(["--state", str(state), "migrate", "--clients", "codex"]) == 0
+
+    assert set(json.loads(capsys.readouterr().out)["files"]) >= {
+        str(home / ".codex/config.toml"), str(root / ".codex/config.toml")}
+    merged = {**entry(home / ".codex/config.toml"), **entry(root / ".codex/config.toml")}
+    assert "url" not in merged and json.loads(Path(merged["args"][1]).read_text())["headers"]["X-Agents-Workspace"] == identity
+
+
+def test_migrate_changes_nothing_when_a_project_layer_must_stay(setup, tmp_path, monkeypatch, capsys):
+    from src.daemon.control import main
+    state, home = setup
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+    (home / ".codex").mkdir()
+    (home / ".codex/config.toml").write_text(http_codex())
+    root, identity = project(tmp_path, state, "edited")
+    (root / ".codex").mkdir()
+    (root / ".codex/config.toml").write_text(http_codex(identity, extra='X-Team = "mine"\n'))
+    before = (home / ".codex/config.toml").read_bytes()
+
+    assert main(["--state", str(state), "migrate", "--clients", "codex"]) == 1
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["state"] == "not_migrated" and str(root / ".codex/config.toml") in result["error"]
+    assert (home / ".codex/config.toml").read_bytes() == before

@@ -485,7 +485,24 @@ def main(argv=None):
             assert_service_safe(controller.directory)
             migration = ClientMigration(controller.directory)
             changes = [migration.prepare(client, args.workspace, config_path=selected.get(client)) for client in dict.fromkeys(clients)]
-            result = {"backup": str(migration.apply(changes)), "files": [str(p) for p, _, _ in changes]}
+            blocked = None
+            if args.workspace is None:
+                # Codex merges a server's fields across its layers: the project layers take the
+                # user layer's new transport in the same transaction (#292).
+                from .registrations import Blocked, find_layers, plan_client
+                layers = find_layers(controller.directory)
+                for client in ("codex", "cursor"):
+                    if client in clients and client not in selected:
+                        projects = [layer for layer in layers[client] if layer.workspace is not None]
+                        try:
+                            changes += plan_client(migration, client, projects,
+                                                   transport=migration.layer_transport(client))[0]
+                        except Blocked as error:
+                            blocked = f"{client}: {error.reason}"
+            if blocked:
+                result, exit_code = {"state": "not_migrated", "error": blocked + "; nothing was changed"}, 1
+            else:
+                result = {"backup": str(migration.apply(changes)), "files": [str(p) for p, _, _ in changes]}
     elif args.command == "restore-clients":
         from .clients import ClientMigration
         from .bootstrap import assert_service_safe
@@ -502,7 +519,8 @@ def main(argv=None):
             try:
                 result = registrations.run(controller.directory, force=True)
             except BlockingIOError:
-                result = {"state": "not_run", "error": "another control command is running; try again"}
+                result = {"state": "not_run",
+                          "error": "another control command is running or the service is in maintenance; try again"}
         else:
             result = registrations.set_auto(controller.directory, args.action == "enable")
     elif args.command in ("update", "recover"):

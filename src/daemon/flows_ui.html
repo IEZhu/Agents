@@ -4096,7 +4096,7 @@ function renderRegistrations(body, registrations) {
   const name = (key) => APP_NAMES[REGISTRATION_APPS[key]] || key;
   const updated = Object.keys(clients).filter((key) => clients[key].status === "upgraded").map(name);
   if (updated.length) {
-    node("p", body, "At its last start the service updated the Agents-Core registration of " + updated.join(", ")
+    node("p", body, "The service last updated the Agents-Core registration of " + updated.join(", ")
       + ". Sessions that were open keep the old one: reconnect Agents-Core there (/mcp in Claude Code) or restart the app.",
       "meta");
   }

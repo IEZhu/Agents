@@ -1145,7 +1145,7 @@ def test_each_block_renders_from_the_api(landing):
     assert "claude-code 2.0.14 · last seen 1m ago · 12 requests today" in cards["apps"]
     assert "3 requests today came without an app's name" in cards["apps"]
     # #292: what the service changed in the registrations at its last start, and what it left alone.
-    assert "updated the Agents-Core registration of Claude Code. Sessions that were open" in cards["apps"]
+    assert "The service last updated the Agents-Core registration of Claude Code. Sessions that were open" in cards["apps"]
     assert ("Codex: its registrations were left as they are. /home/u/repo/.codex/config.toml: its Agents-Core "
             "entry was not written by this installation") in cards["apps"]
     assert "Cursor" not in cards["apps"].split("Codex: its registrations")[1]

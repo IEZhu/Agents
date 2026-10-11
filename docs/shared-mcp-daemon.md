@@ -127,9 +127,13 @@ user layer merged with an HTTP project layer is an entry Codex refuses (`url is 
 supported for stdio`), and the threads of that project stop resuming. With Node,
 a Codex or Cursor project layer is therefore the bridge with the project's fixed
 identity; without Node every layer is HTTP. Claude Code takes an entry whole from
-one scope, so its local and project pins stay HTTP. Tracked configurations use the
-Node bridge with a private configuration outside the repository; an older tracked
-Codex configuration with `http_headers_helper` is replaced by it at the next start.
+one scope, so its local and project pins stay HTTP. `migrate --clients codex` (or
+`cursor`) moves that client's project layers to the user layer's new transport in
+the same transaction, and refuses, changing nothing, when one of them has to stay
+as it is; `migrate --workspace` gives a project layer the transport of the user
+layer it is merged with. Tracked configurations hold no token: the bridge, or for a
+tracked Codex project under an HTTP user layer, an `http_headers_helper` that reads
+a private configuration outside the repository.
 Secrets are neither printed nor written to tracked configurations. Untracked files
 containing a token are added to the local Git exclude file.
 
@@ -175,11 +179,20 @@ workspace. Claude Code's local and project pins stay as they are.
 - It changes only entries this installation wrote: its endpoint with no headers
   other than `Authorization`, `X-Agents-Workspace` and `X-Agents-Client` and its
   token, the old `http_headers_helper`, its bridge, or its `src/server.py`. It never
-  adds an entry where none exists.
-- A client's layers change together in one backup, or not at all: one entry the
-  installation did not write, or one unreadable file, leaves all of that client's
-  files as they are, with the reason in the report. A client that writes its file
-  meanwhile (Claude Code writes `~/.claude.json` often) is prepared again.
+  adds an entry where none exists. An entry with a `cwd`, an
+  `AGENTS_CLIENT_REPO_ROOT` override, or a project pin to another registered
+  workspace counts as the user's own. A project entry without transport fields
+  (only `enabled` or tool approvals, say) is left as it is: Codex merges the user
+  layer's transport into it.
+- A client's layers change together in one backup, or not at all. A layer the
+  installation did not write, an unreadable file, a symbolic link (which migrate
+  never writes through) or a Git-tracked file that would change leaves all of that
+  client's files as they are, with the reason in the report; for a tracked file the
+  reason names the `migrate` command that changes it on purpose. With the recorded
+  Node missing, bridges are reported, not turned into HTTP entries that would put
+  the token into every project. A client that writes its file meanwhile (Claude
+  Code writes `~/.claude.json` often) is prepared again. `control.lock` is held only
+  while files are written.
 - Open sessions keep the registration they started with: reconnect MCP there
   (`/mcp` in Claude Code) or restart the app. New sessions use the new one.
 
