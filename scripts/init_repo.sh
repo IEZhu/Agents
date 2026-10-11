@@ -771,9 +771,8 @@ else
         # Backup before modifying
         cp "$MCP_SETTINGS_FILE" "${MCP_SETTINGS_FILE}.backup.$(date +%s)"
 
-        if inject_mcp_config "$MCP_SETTINGS_FILE" "$MCP_SETTINGS_FILE" cursor; then
-            CONFIGURED_ENVS+=("Cursor")
-        fi
+        inject_mcp_config "$MCP_SETTINGS_FILE" "$MCP_SETTINGS_FILE" cursor || exit 1
+        CONFIGURED_ENVS+=("Cursor")
     fi
 
     # --- Configure Claude Desktop ---
@@ -788,9 +787,8 @@ else
         # Backup before modifying
         cp "$CLAUDE_DESKTOP_CONFIG" "${CLAUDE_DESKTOP_CONFIG}.backup.$(date +%s)"
 
-        if inject_mcp_config "$CLAUDE_DESKTOP_CONFIG" "Claude Desktop config" desktop; then
-            CONFIGURED_ENVS+=("Claude Desktop")
-        fi
+        inject_mcp_config "$CLAUDE_DESKTOP_CONFIG" "Claude Desktop config" desktop || exit 1
+        CONFIGURED_ENVS+=("Claude Desktop")
     fi
 
     # --- Configure Claude Code ---
@@ -811,9 +809,8 @@ else
             # Backup before modifying
             cp "$CLAUDE_CODE_MCP" "${CLAUDE_CODE_MCP}.backup.$(date +%s)"
 
-            if inject_mcp_config "$CLAUDE_CODE_MCP" "$CLAUDE_CODE_MCP" claude; then
-                CONFIGURED_ENVS+=("Claude Code")
-            fi
+            inject_mcp_config "$CLAUDE_CODE_MCP" "$CLAUDE_CODE_MCP" claude || exit 1
+            CONFIGURED_ENVS+=("Claude Code")
 
             # The desktop app's entry stays out of Claude Code, its Code tab included (#231).
             if [ "$CLAUDE_DESKTOP_DETECTED" = true ]; then
@@ -893,9 +890,8 @@ else
         # Backup before modifying
         cp "$ANTIGRAVITY_CONFIG" "${ANTIGRAVITY_CONFIG}.backup.$(date +%s)"
 
-        if inject_mcp_config "$ANTIGRAVITY_CONFIG" "$ANTIGRAVITY_CONFIG" antigravity; then
-            CONFIGURED_ENVS+=("Antigravity")
-        fi
+        inject_mcp_config "$ANTIGRAVITY_CONFIG" "$ANTIGRAVITY_CONFIG" antigravity || exit 1
+        CONFIGURED_ENVS+=("Antigravity")
     fi
 
     # --- Configure Codex instructions ---
