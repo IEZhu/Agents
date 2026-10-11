@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import queue
 import uuid
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
@@ -18,6 +19,7 @@ TOOLS = ("route_and_load", "get_agent_context", "refresh_persona_context")
 
 
 def descriptor(revision="a" * 64, agent="software_engineer"):
+    """Create a complete protocol descriptor for a previous activation."""
     return PersonaDescriptor(
         agent=agent, activation_id="existing-activation",
         bundle_revision=revision, scope="Implementation and debugging",
@@ -28,6 +30,7 @@ def descriptor(revision="a" * 64, agent="software_engineer"):
 
 @pytest.fixture
 def diagnostics(tmp_path, monkeypatch):
+    """Isolate debug files and persona assembly from the live installation."""
     root = tmp_path / "debug"
     monkeypatch.setattr(debug_logger, "AGENTS_DEBUG", True)
     monkeypatch.setattr(debug_logger, "_queue", None)
@@ -35,6 +38,7 @@ def diagnostics(tmp_path, monkeypatch):
     monkeypatch.setattr(server, "_readiness_problem", AsyncMock(return_value=None))
 
     async def build(agent, query, history, tier=None, selection=None):
+        """Return a full bundle large enough to reveal truncated snapshots."""
         return SimpleNamespace(
             agent=agent, bundle_revision="b" * 64, scope=f"Scope of {agent}",
             persona_block="Persona\n" + "Полная инструкция. " * 100,
@@ -56,6 +60,7 @@ def diagnostics(tmp_path, monkeypatch):
 
 
 def arguments(tool, active=None, *, history=None, force_reload=False):
+    """Build effective arguments with each tool's declared defaults."""
     args = {
         "query": "Проверь полную инструкцию\nwith a second line",
         "current_persona": active,
@@ -72,6 +77,7 @@ def arguments(tool, active=None, *, history=None, force_reload=False):
 
 
 def read_pair(root, tool, response, expected_args):
+    """Verify correlated snapshots preserve the exact inputs and response."""
     snapshots = [json.loads(path.read_text(encoding="utf-8")) for path in root.rglob("*.json")]
     assert len(snapshots) == 2
     assert {snapshot["tool"] for snapshot in snapshots} == {tool}
@@ -94,6 +100,7 @@ def read_pair(root, tool, response, expected_args):
 async def test_success_snapshots_preserve_all_inputs_and_complete_bundle(
     diagnostics, tool, representation, history,
 ):
+    """Save raw inputs and all bundle blocks without changing the response."""
     root, builder = diagnostics
     active = descriptor(agent="lawyer" if tool == "route_and_load" else "software_engineer")
     supplied = {
@@ -121,6 +128,7 @@ async def test_success_snapshots_preserve_all_inputs_and_complete_bundle(
 @pytest.mark.asyncio
 @pytest.mark.parametrize("tool", ["route_and_load", "get_agent_context"])
 async def test_default_arguments_are_present_in_request_snapshot(diagnostics, tool):
+    """Include default values even when callers omit optional arguments."""
     root, _ = diagnostics
     if tool == "get_agent_context":
         response = await server.get_agent_context("software_engineer", "default arguments")
@@ -139,6 +147,7 @@ async def test_default_arguments_are_present_in_request_snapshot(diagnostics, to
     ("refresh_persona_context", "NO_CHANGE"),
 ])
 async def test_non_success_results_are_saved_whole(diagnostics, monkeypatch, tool, status):
+    """Preserve routing and unchanged results with their full attribution."""
     root, _ = diagnostics
     active = descriptor(revision="b" * 64 if tool == "refresh_persona_context" else "a" * 64)
     args = arguments(tool, active.model_dump())
@@ -158,6 +167,7 @@ async def test_non_success_results_are_saved_whole(diagnostics, monkeypatch, too
 @pytest.mark.asyncio
 @pytest.mark.parametrize("tool", ["route_and_load", "get_agent_context"])
 async def test_unsupported_protocol_logs_request_and_error_before_readiness(diagnostics, tool):
+    """Record an invalid protocol without waiting for persona readiness."""
     root, builder = diagnostics
     args = arguments(tool, descriptor().model_dump())
     args["protocol_version"] = 3
@@ -173,6 +183,7 @@ async def test_unsupported_protocol_logs_request_and_error_before_readiness(diag
 @pytest.mark.parametrize("tool", TOOLS)
 @pytest.mark.parametrize("problem", ["warming_up", "store is corrupt"])
 async def test_readiness_errors_include_both_snapshots(diagnostics, tool, problem):
+    """Pair readiness errors with the request that could not be served."""
     root, builder = diagnostics
     server._readiness_problem.return_value = problem
     args = arguments(tool, descriptor().model_dump())
@@ -186,6 +197,7 @@ async def test_readiness_errors_include_both_snapshots(diagnostics, tool, proble
 @pytest.mark.asyncio
 @pytest.mark.parametrize("tool", TOOLS)
 async def test_malformed_descriptor_is_logged_without_hiding_raw_input(diagnostics, tool):
+    """Save invalid descriptor fields together with the validation error."""
     root, builder = diagnostics
     malformed = {**descriptor().model_dump(), "bundle_revision": "not-a-sha256"}
     args = arguments(tool, malformed)
@@ -199,6 +211,7 @@ async def test_malformed_descriptor_is_logged_without_hiding_raw_input(diagnosti
 @pytest.mark.asyncio
 @pytest.mark.parametrize("tool", TOOLS)
 async def test_invalid_string_descriptor_is_preserved_in_error_snapshot(diagnostics, tool):
+    """Keep unsupported raw JSON strings intact in error diagnostics."""
     root, builder = diagnostics
     args = arguments(tool, descriptor().model_dump_json())
     response = await getattr(server, tool)(**args)
@@ -210,6 +223,7 @@ async def test_invalid_string_descriptor_is_preserved_in_error_snapshot(diagnost
 
 @pytest.mark.asyncio
 async def test_failed_bundle_is_logged_without_inventing_activation(diagnostics):
+    """Log a bundle failure without creating a successful activation."""
     root, builder = diagnostics
     builder.side_effect = FileNotFoundError("Missing required rule")
     args = arguments("get_agent_context", descriptor().model_dump(), force_reload=True)
@@ -222,6 +236,7 @@ async def test_failed_bundle_is_logged_without_inventing_activation(diagnostics)
 
 @pytest.mark.asyncio
 async def test_concurrent_calls_have_distinct_matching_ids(diagnostics):
+    """Match concurrent responses to requests using distinct diagnostic IDs."""
     root, _ = diagnostics
     requests = [arguments("get_agent_context", force_reload=True) for _ in range(2)]
     requests[0]["query"], requests[1]["query"] = "first conversation", "second conversation"
@@ -240,6 +255,7 @@ async def test_concurrent_calls_have_distinct_matching_ids(diagnostics):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("tool", TOOLS)
 async def test_disabled_logging_does_not_write_or_change_tool_result(diagnostics, monkeypatch, tool):
+    """Leave successful persona responses intact when diagnostics are off."""
     root, _ = diagnostics
     writer = Mock(side_effect=AssertionError("disabled debug logging must not write"))
     monkeypatch.setattr(debug_logger, "AGENTS_DEBUG", False)
@@ -255,6 +271,7 @@ async def test_disabled_logging_does_not_write_or_change_tool_result(diagnostics
 @pytest.mark.asyncio
 @pytest.mark.parametrize("tool", TOOLS)
 async def test_failed_debug_write_does_not_change_tool_result(diagnostics, monkeypatch, caplog, tool):
+    """Retain persona results when the synchronous writer cannot write."""
     root, _ = diagnostics
     monkeypatch.setattr(debug_logger, "get_debug_log_dir", Mock(side_effect=OSError("unwritable")))
     active = None if tool == "route_and_load" else descriptor().model_dump()
@@ -262,3 +279,25 @@ async def test_failed_debug_write_does_not_change_tool_result(diagnostics, monke
     assert json.loads(response)["status"] == "SUCCESS"
     assert not root.exists()
     assert "failed to write" in caplog.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tool", TOOLS)
+@pytest.mark.parametrize("error_type", [OSError, RuntimeError])
+async def test_http_directory_errors_do_not_change_tool_result(
+    diagnostics, monkeypatch, caplog, tool, error_type,
+):
+    """Keep HTTP request and response diagnostics from breaking persona calls."""
+    root, _ = diagnostics
+    pending = queue.Queue(maxsize=256)
+    directory = Mock(side_effect=error_type("invalid service directory"))
+    monkeypatch.setattr(debug_logger, "_queue", pending)
+    monkeypatch.setattr(debug_logger, "queue", queue, raising=False)
+    monkeypatch.setattr(debug_logger, "state_dir", directory, raising=False)
+    active = None if tool == "route_and_load" else descriptor().model_dump()
+    response = await getattr(server, tool)(**arguments(tool, active, force_reload=True))
+    assert json.loads(response)["status"] == "SUCCESS"
+    assert directory.call_count == 2
+    assert pending.empty() and not root.exists()
+    assert "persona debug request snapshot failed" in caplog.text
+    assert "persona debug response snapshot failed" in caplog.text

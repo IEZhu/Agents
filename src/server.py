@@ -756,15 +756,21 @@ def _supports_sampling(ctx: Context | None) -> bool:
 def _persona_debug_request(tool: str, **arguments) -> str:
     """Correlate full persona diagnostics without changing protocol request ids."""
     call_id = str(uuid.uuid4())
-    if isinstance(arguments.get("current_persona"), PersonaDescriptor):
-        arguments["current_persona"] = arguments["current_persona"].model_dump()
-    debug_log(tool, "req", {"call_id": call_id, **arguments})
+    try:
+        if isinstance(arguments.get("current_persona"), PersonaDescriptor):
+            arguments["current_persona"] = arguments["current_persona"].model_dump()
+        debug_log(tool, "req", {"call_id": call_id, **arguments})
+    except Exception:
+        logger.warning("persona debug request snapshot failed for %s", tool, exc_info=True)
     return call_id
 
 
 def _persona_debug_response(tool: str, call_id: str, response: str) -> str:
     """Keep the exact JSON delivered to the client, including the full bundle."""
-    debug_log(tool, "res", {"call_id": call_id, "response": response})
+    try:
+        debug_log(tool, "res", {"call_id": call_id, "response": response})
+    except Exception:
+        logger.warning("persona debug response snapshot failed for %s", tool, exc_info=True)
     return response
 
 
