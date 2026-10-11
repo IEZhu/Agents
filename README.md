@@ -122,7 +122,9 @@ The interactive script:
   `<file>.backup.<epoch>`. Both Unix and Windows setup detect Antigravity through
   its configuration directory, an available `agy` command or the explicit path
   override below. An existing invalid JSON file is left unchanged and reported
-  as a failed client update; fix it manually or restore a backup before retrying;
+  as a failed client update. Unix setup then exits with a nonzero status instead
+  of continuing or reporting successful initialization; fix the file manually
+  or restore a backup before retrying;
 - asks before installing protocol 2 instructions in the global Claude
   configuration. When Codex is detected, it installs the same protocol in Codex's
   global instructions without asking; this does not connect Codex to MCP (see

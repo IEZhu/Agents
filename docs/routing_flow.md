@@ -333,8 +333,10 @@ Client connections for Google Antigravity (`~/.gemini/config/mcp_config.json`), 
 during setup (`scripts/init_repo.sh` or `scripts\init_repo.bat`) or migrated to the shared daemon (see
 [shared daemon client migration](shared-mcp-daemon.md#client-configuration-and-alternate-profiles)).
 Both installers preserve an existing MCP configuration that contains invalid JSON,
-report the affected path and skip its registration update. Repair the file or
-restore a backup before rerunning setup. A missing file can still be created.
+report the affected path and refuse its registration update. Unix setup stops
+with a nonzero exit status when a client registration fails; it does not print
+the successful initialization summary. Repair the file or restore a backup
+before rerunning setup. A missing file can still be created.
 Standalone Antigravity setup registers the MCP connection; its native plugin,
 startup rules and workspace hook are provisioned by shared-daemon migration.
 For Antigravity, user-scope migration provisions a stdio bridge
