@@ -1105,6 +1105,9 @@ to the client, including all four instruction blocks, the descriptor, and footer
 on `SUCCESS`. These snapshots show what the server returned; they do not prove
 that the client applied the instructions.
 
+Persona snapshots run outside the asyncio event-loop thread, in request/response
+order. Diagnostic failures leave the protocol response unchanged.
+
 Debug files can contain complete prompts, instructions, and supplied chat
 history. Standalone logs are never pruned; `logs/` is ignored only in this
 checkout, so exclude it in the client project or delete the files after

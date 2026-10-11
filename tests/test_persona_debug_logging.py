@@ -3,6 +3,7 @@
 import asyncio
 import json
 import queue
+import threading
 import uuid
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
@@ -250,6 +251,34 @@ async def test_concurrent_calls_have_distinct_matching_ids(diagnostics):
     for call_id, request in req.items():
         uuid.UUID(call_id)
         assert res[call_id]["response"] == expected[request["query"]]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tool", TOOLS)
+async def test_persona_snapshots_run_outside_event_loop_in_request_response_order(
+    diagnostics, monkeypatch, tool,
+):
+    """Write both snapshots off the event-loop thread before returning the response."""
+    root, _ = diagnostics
+    event_loop_thread = threading.get_ident()
+    original_debug_log = server.debug_log
+    calls = []
+
+    def record_debug_log(name, direction, data):
+        """Record the writing thread while preserving the real JSON snapshots."""
+        calls.append((threading.get_ident(), name, direction, data))
+        original_debug_log(name, direction, data)
+
+    monkeypatch.setattr(server, "debug_log", record_debug_log)
+    active = None if tool == "route_and_load" else descriptor().model_dump()
+    args = arguments(tool, active, force_reload=True)
+    response = await getattr(server, tool)(**args)
+
+    assert [(name, direction) for _, name, direction, _ in calls] == [(tool, "req"), (tool, "res")]
+    assert all(thread_id != event_loop_thread for thread_id, _, _, _ in calls)
+    assert calls[0][3]["call_id"] == calls[1][3]["call_id"]
+    assert calls[1][3]["response"] == response
+    assert read_pair(root, tool, response, args)["status"] == "SUCCESS"
 
 
 @pytest.mark.asyncio
