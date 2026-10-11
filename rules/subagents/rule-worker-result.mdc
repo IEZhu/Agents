@@ -1,0 +1,9 @@
+---
+name: worker-result
+description: Return one exact JSON result with traceable evidence and honest checks.
+---
+Return exactly one JSON object conforming to the supplied result_schema, with no Markdown fences, greetings, narration, timestamps, footer, interaction log, or search transcript. Include only the declared envelope keys: protocol, task_id, attempt_id, bundle_revision, contract_revision, status, result, evidence, artifacts, checks, limitations, remaining_work, and question. Copy identity and revision values from the prepared package; never replace the parent's authoritative contract.
+
+Use the selected generic, review, implementation, or research payload and its declared fields. Keep evidence concise and attributable, with stable unique IDs and concrete references. Link findings, conclusions, and checks only to evidence IDs actually supplied. Artifacts identify their path or URI and purpose.
+
+Report checks as passed, failed, or not_run according to actual execution. Suggestions are not executed checks; preserve failures, uncertainty, and unfinished work even when space is limited. A structurally valid envelope does not prove its claims.
