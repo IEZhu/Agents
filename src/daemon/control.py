@@ -401,6 +401,11 @@ def main(argv=None):
     migrate.add_argument("--clients", default="codex,claude,cursor")
     migrate.add_argument("--client-config", action="append", default=[], metavar="CLIENT=PATH")
     restore = commands.add_parser("restore-clients"); restore.add_argument("backup", type=Path)
+    registrations = commands.add_parser(
+        "registrations", help="client registrations this installation wrote; the service brings them "
+                              "up to date at every start (#292)")
+    registrations.add_argument("action", choices=["status", "run", "enable", "disable"],
+                               help="run: now, also while turned off; disable: leave them as they are")
     token = commands.add_parser("token"); token.add_argument("action", choices=["rotate"])
     auto = commands.add_parser("auto-update", help="unattended updates from the tracked branch")
     auto.add_argument("action", choices=["enable", "disable", "status", "run"])
@@ -480,7 +485,24 @@ def main(argv=None):
             assert_service_safe(controller.directory)
             migration = ClientMigration(controller.directory)
             changes = [migration.prepare(client, args.workspace, config_path=selected.get(client)) for client in dict.fromkeys(clients)]
-            result = {"backup": str(migration.apply(changes)), "files": [str(p) for p, _, _ in changes]}
+            blocked = None
+            if args.workspace is None:
+                # Codex merges a server's fields across its layers: the project layers take the
+                # user layer's new transport in the same transaction (#292).
+                from .registrations import Blocked, find_layers, plan_client
+                layers = find_layers(controller.directory)
+                for client in ("codex", "cursor"):
+                    if client in clients and client not in selected:
+                        projects = [layer for layer in layers[client] if layer.workspace is not None]
+                        try:
+                            changes += plan_client(migration, client, projects,
+                                                   transport=migration.layer_transport(client))[0]
+                        except Blocked as error:
+                            blocked = f"{client}: {error.reason}"
+            if blocked:
+                result, exit_code = {"state": "not_migrated", "error": blocked + "; nothing was changed"}, 1
+            else:
+                result = {"backup": str(migration.apply(changes)), "files": [str(p) for p, _, _ in changes]}
     elif args.command == "restore-clients":
         from .clients import ClientMigration
         from .bootstrap import assert_service_safe
@@ -489,6 +511,18 @@ def main(argv=None):
             controller._stop()
             ClientMigration(controller.directory).restore(args.backup)
         result = {"state": "restored"}
+    elif args.command == "registrations":
+        from . import registrations
+        if args.action == "status":
+            result = registrations.state(controller.directory)
+        elif args.action == "run":
+            try:
+                result = registrations.run(controller.directory, force=True)
+            except BlockingIOError:
+                result = {"state": "not_run",
+                          "error": "another control command is running or the service is in maintenance; try again"}
+        else:
+            result = registrations.set_auto(controller.directory, args.action == "enable")
     elif args.command in ("update", "recover"):
         from .update import offline_update, recover
         result = (recover if args.command == "recover" else offline_update)(controller)

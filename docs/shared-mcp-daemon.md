@@ -108,22 +108,34 @@ migration. A tool call's `workspace` argument (see
 either verified via HMAC `workspace_signature` or inside the MCP roots the bridge's client declares;
 when the daemon refuses it, a session's bridge keeps using the session's project. A session that started
 while the daemon was unreachable registers on its next request. An existing
-installation gets the bridge when `migrate --clients claude,codex,antigravity`, or setup, runs again.
-Without a recorded Node these entries stay HTTP. Cursor's global entry provides routing,
-personas, and built-in and personal flows without a workspace; its memory,
-repository (`repo:`) flows and `run_flow` require project configuration. For it,
-after creating a clone or worktree, run `migrate --workspace /absolute/worktree`
-before connecting. `migrate --workspace` also pins a Claude Code or Codex project to
-one registration. Do not copy an MCP configuration containing another project's UUID.
+installation gets the bridge without a command: the service brings the registrations
+it wrote up to date at every start (see [Registrations kept current](#registrations-kept-current)).
+Without a recorded Node these entries stay HTTP. Cursor's user entry is the same
+session bridge; where Cursor starts it outside a project (reported for some hosts,
+not checked), memory, repository (`repo:`) flows and `run_flow` still need project
+configuration: after creating a clone or worktree, run
+`migrate --workspace /absolute/worktree` before connecting. `migrate --workspace`
+also pins a Claude Code or Codex project to one registration. Do not copy an MCP
+configuration containing another project's UUID.
 
 Codex reads project `.codex/config.toml` in a trusted project; Claude Code uses
 local scope in its selected user configuration; Cursor uses project
 `.cursor/mcp.json`. An existing Claude project `.mcp.json` is also updated.
-Tracked Codex configurations use a
-string `http_headers_helper`; tracked JSON configurations use the Node bridge
-with a private configuration outside the repository. Secrets are neither printed
-nor written to tracked configurations. Untracked files containing a token are
-added to the local Git exclude file.
+Codex merges a server's fields across `~/.codex/config.toml` and a project's
+`.codex/config.toml`, so all layers of a client take the same transport: a stdio
+user layer merged with an HTTP project layer is an entry Codex refuses (`url is not
+supported for stdio`), and the threads of that project stop resuming. With Node,
+a Codex or Cursor project layer is therefore the bridge with the project's fixed
+identity; without Node every layer is HTTP. Claude Code takes an entry whole from
+one scope, so its local and project pins stay HTTP. `migrate --clients codex` (or
+`cursor`) moves that client's project layers to the user layer's new transport in
+the same transaction, and refuses, changing nothing, when one of them has to stay
+as it is; `migrate --workspace` gives a project layer the transport of the user
+layer it is merged with. Tracked configurations hold no token: the bridge, or for a
+tracked Codex project under an HTTP user layer, an `http_headers_helper` that reads
+a private configuration outside the repository.
+Secrets are neither printed nor written to tracked configurations. Untracked files
+containing a token are added to the local Git exclude file.
 
 Each managed entry also names its app in an `X-Agents-Client` header
 (`claude-code`, `claude-desktop`, `codex` or `cursor`), so the settings page
@@ -153,6 +165,51 @@ private backup, and it fails during maintenance or while another controller
 command holds the lock. Do not rerun setup while the service runs (see
 [Updates and recovery](#updates-and-recovery)); use `restore-clients` and
 `uninstall` to return to stdio.
+
+### Registrations kept current
+
+At every start, and so after every update, the service brings the client
+registrations it wrote to the form `migrate` writes now (`src/daemon/registrations.py`).
+It runs in the background; during an update's probation it waits until the
+controller releases `control.lock`. It covers the user entries of Claude Code
+(`~/.claude.json` and every Claude registry `client-configs.json` records), Codex
+and Cursor, and the Codex and Cursor project files of every registered or recorded
+workspace. Claude Code's local and project pins stay as they are.
+
+- It changes only entries this installation wrote: its endpoint with no headers
+  other than `Authorization`, `X-Agents-Workspace` and `X-Agents-Client` and its
+  token, the old `http_headers_helper`, its bridge, or its `src/server.py`. It never
+  adds an entry where none exists. An entry with a `cwd`, an
+  `AGENTS_CLIENT_REPO_ROOT` override, or a project pin to another registered
+  workspace counts as the user's own. A project entry without transport fields
+  (only `enabled` or tool approvals, say) is left as it is: Codex merges the user
+  layer's transport into it.
+- A client's layers change together in one backup, or not at all. A layer the
+  installation did not write, an unreadable file, a symbolic link (which migrate
+  never writes through) or a Git-tracked file that would change leaves all of that
+  client's files as they are, with the reason in the report; for a tracked file the
+  reason names the `migrate` command that changes it on purpose. With the recorded
+  Node missing, bridges are reported, not turned into HTTP entries that would put
+  the token into every project. A client that writes its file meanwhile (Claude
+  Code writes `~/.claude.json` often) is prepared again. `control.lock` is held only
+  while files are written.
+- Open sessions keep the registration they started with: reconnect MCP there
+  (`/mcp` in Claude Code) or restart the app. New sessions use the new one.
+
+The report of the last run is in `registrations.json` in the service state and on
+the overview page's AI apps card.
+
+```bash
+.venv/bin/python -m src.daemon registrations status    # the switch and the last report
+.venv/bin/python -m src.daemon registrations run       # now, also while turned off
+.venv/bin/python -m src.daemon registrations disable   # leave registrations as they are
+.venv/bin/python -m src.daemon registrations enable
+```
+
+Each upgraded client's report names its backup; `restore-clients <backup>` returns
+those files to their previous content (see
+[Client rollback and uninstall](#client-rollback-and-uninstall)). Turn the
+automatic run off first, or the next start upgrades them again.
 
 ### Tools and PATH
 

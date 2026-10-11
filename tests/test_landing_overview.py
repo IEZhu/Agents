@@ -140,3 +140,17 @@ async def test_the_overview_needs_a_session_and_the_page_header_and_carries_no_t
     assert body["directories"][0]["size"] == 512 and set(body["apps"]) == set(overview.APPS)
     assert set(body["counts"]) == {"agents", "rules", "skills", "implants", "flows"} and body["counts"]["agents"] > 0
     assert TOKEN not in response.text
+
+
+def test_the_overview_reports_the_last_registration_upgrade(tmp_path, monkeypatch):
+    """#292: the landing page says which apps to reconnect and what was left alone."""
+    from src.daemon.state import write_json
+    monkeypatch.setattr(overview, "model", lambda: {"name": "m", "size": 1})
+    monkeypatch.setattr(overview, "directories", lambda directory: [])
+    monkeypatch.setattr(overview, "counts", lambda: {})
+    monkeypatch.setattr(overview, "configured_apps", lambda directory, home: {})
+    service = type("Service", (), {"directory": tmp_path})()
+    assert overview.Overview(service).read()["registrations"] == {"auto": True}
+    report = {"updated_at": "2026-10-11T08:30:00+00:00", "clients": {"codex": {"status": "upgraded", "files": []}}}
+    write_json(tmp_path / "registrations.json", report)
+    assert overview.Overview(service).read()["registrations"] == {"auto": True, **report}

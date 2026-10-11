@@ -30,6 +30,10 @@ TRANSPORT_KEYS = {"type", "command", "args", "env", "env_vars", "cwd", "url", "h
                   "env_http_headers", "bearer_token", "bearer_token_env_var", "http_headers_helper"}
 
 
+class ConfigChanged(ValueError):
+    """A client changed its configuration between our read and our write; preparing again is safe."""
+
+
 def transport_entry(previous, replacement):
     return {**{key: value for key, value in previous.items() if key not in TRANSPORT_KEYS}, **replacement}
 
@@ -41,26 +45,35 @@ def toml_value(value):
     return json.dumps(value)
 
 
+def _git(*arguments, check=False):
+    # The service starts git too (#292): no console window and no inherited stdin on Windows.
+    return subprocess.run([executables.path("git"), *arguments], capture_output=True, text=True, check=check,
+                          stdin=subprocess.DEVNULL, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+
+
 def tracked(path):
+    """Whether Git tracks the file. A Git failure other than "not tracked" or "not a repository",
+    such as a repository with dubious ownership, counts as tracked: a token must not reach it."""
     path = Path(path)
     cwd = path.parent
     while not cwd.exists():
         cwd = cwd.parent
-    result = subprocess.run([executables.path("git"), "-C", str(cwd), "ls-files", "--error-unmatch", str(path)],
-                            capture_output=True, text=True)
-    return result.returncode == 0
+    result = _git("-C", str(cwd), "ls-files", "--error-unmatch", str(path))
+    if result.returncode in (0, 1):
+        return result.returncode == 0
+    if "did not match any file" in result.stderr or "not a git repository" in result.stderr.lower():
+        return False
+    return True
 
 
 def exclude_private(path):
     """Local git exclusion only; never commit a token-bearing configuration."""
     path = Path(path)
-    result = subprocess.run([executables.path("git"), "-C", str(path.parent), "rev-parse", "--show-toplevel"],
-                            capture_output=True, text=True)
+    result = _git("-C", str(path.parent), "rev-parse", "--show-toplevel")
     if result.returncode:
         return
     root = Path(result.stdout.strip())
-    result = subprocess.run([executables.path("git"), "-C", str(root), "rev-parse", "--git-path", "info/exclude"],
-                            capture_output=True, text=True, check=True)
+    result = _git("-C", str(root), "rev-parse", "--git-path", "info/exclude", check=True)
     exclude = Path(result.stdout.strip())
     if not exclude.is_absolute(): exclude = root / exclude
     pattern = "/" + path.relative_to(root).as_posix()
@@ -243,10 +256,40 @@ class ClientMigration:
         node = self.config.get("node")
         return bool(node) and Path(node).is_file()
 
+    def layer_transport(self, client, root=None, *, home=None, requested=None):
+        """``bridge`` or ``http`` for a Codex or Cursor layer (#292).
+
+        Codex merges a server's fields across ~/.codex/config.toml and a project's
+        .codex/config.toml, so a project layer takes the transport of the user layer it is
+        merged with; a stdio layer over an HTTP one is an entry Codex refuses. Otherwise, and
+        for the user layer, the bridge when Node is recorded. ``requested`` decides alone.
+        """
+        if requested is not None:
+            if requested not in ("bridge", "http"):
+                raise ValueError("Unknown transport: " + str(requested))
+            return requested
+        if root is not None:
+            try:
+                user = client_config_path(client, home=home)
+                text = user.read_text(encoding="utf-8")
+                servers = (tomllib.loads(text).get("mcp_servers", {}) if client == "codex"
+                           else json.loads(text).get("mcpServers", {}))
+                entry = servers.get(SERVER)
+            except (OSError, ValueError, AttributeError):
+                entry = None
+            if isinstance(entry, dict) and set(entry) & TRANSPORT_KEYS:
+                return "http" if "url" in entry else "bridge"
+        return "bridge" if self.has_node() else "http"
+
     @property
     def url(self): return f"http://127.0.0.1:{self.config['port']}/mcp"
 
-    def prepare(self, client, workspace=None, *, home=None, config_path=None):
+    def prepare(self, client, workspace=None, *, home=None, config_path=None, transport=None):
+        """One client configuration's change: ``(path, content, holds_a_secret)``.
+
+        ``transport`` (``bridge`` or ``http``) sets a Codex or Cursor layer's transport; by
+        default it follows ``layer_transport``.
+        """
         home = absolute_path(home or Path.home())
         root = Path(workspace).resolve() if workspace else None
         path = client_config_path(client, root, home=home, config_path=config_path)
@@ -257,19 +300,21 @@ class ClientMigration:
         if client == "codex":
             original = self.read_config(path, as_json=False)
             old_entry = tomllib.loads(original).get("mcp_servers", {}).get(SERVER, {})
-            if root is None and self.has_node():
+            if self.layer_transport(client, root, home=home, requested=transport) == "bridge":
                 # Codex starts a stdio server without `cwd` in the session's working directory
-                # (codex-rs LocalStdioServerLauncher), so the bridge names that project (#253).
-                entry = transport_entry(old_entry, self.bridge(None, app, auto_workspace=True))
+                # (codex-rs LocalStdioServerLauncher), so the user layer's bridge names that
+                # project (#253); a project layer's bridge keeps its fixed identity.
+                entry = transport_entry(old_entry, self.bridge(identity, app, auto_workspace=root is None))
                 return path, replace_toml_server(original, SERVER, entry), False
-            entry = transport_entry(old_entry, {})
-            entry["url"] = self.url
             if tracked(path):
-                # Helper reads a private bridge config; it never embeds the token.
+                # HTTP like the layer it is merged with, and the token stays out of the file:
+                # the helper reads a private bridge config.
                 bridge = self.bridge(identity, app)
-                entry["http_headers_helper"] = shlex.join([bridge["command"], str(Path(self.config["installation"]) / "bridge/headers.mjs"), bridge["args"][1]])
-            else: entry["http_headers"] = headers
-            return path, replace_toml_server(original, SERVER, entry), bool("http_headers" in entry)
+                entry = transport_entry(old_entry, {"url": self.url, "http_headers_helper": shlex.join(
+                    [bridge["command"], str(Path(self.config["installation"]) / "bridge/headers.mjs"), bridge["args"][1]])})
+                return path, replace_toml_server(original, SERVER, entry), False
+            entry = transport_entry(old_entry, {"url": self.url, "http_headers": headers})
+            return path, replace_toml_server(original, SERVER, entry), True
         if client == "claude":
             document = self.read_config(path)
             scope = document.setdefault("projects", {}).setdefault(str(root), {}) if root else document
@@ -293,7 +338,13 @@ class ClientMigration:
         elif client == "cursor":
             document = self.read_config(path)
             servers = document.setdefault("mcpServers", {})
-            entry = self.bridge(identity, app) if tracked(path) else {"url": self.url, "headers": headers}
+            # One transport in every layer, as for Codex (#292): whether Cursor merges a server
+            # across ~/.cursor/mcp.json and a project's .cursor/mcp.json is not documented. A
+            # tracked file never holds the token, so it takes the bridge either way.
+            if self.layer_transport(client, root, home=home, requested=transport) == "bridge" or tracked(path):
+                entry = self.bridge(identity, app, auto_workspace=root is None)
+            else:
+                entry = {"url": self.url, "headers": headers}
             servers[SERVER] = transport_entry(servers.get(SERVER, {}), entry)
         elif client == "desktop":
             document = self.read_config(path)
@@ -376,7 +427,7 @@ class ClientMigration:
             current = path.read_bytes() if path.exists() else None
             digest = hashlib.sha256(current).hexdigest() if current is not None else None
             if str(path) in self.expected_versions and digest != self.expected_versions[str(path)]:
-                raise ValueError("Client config changed after preparation; prepare the migration again")
+                raise ConfigChanged("Client config changed after preparation; prepare the migration again")
             record = {"path": str(path), "before": base64.b64encode(path.read_bytes()).decode() if path.exists() else None,
                       "after": base64.b64encode(content.encode()).decode()}
             if path == self.directory / "client-configs.json":
@@ -392,7 +443,7 @@ class ClientMigration:
                 path = Path(path)
                 current = base64.b64encode(path.read_bytes()).decode() if path.exists() else None
                 if current != record["before"]:
-                    raise ValueError("Client config changed during migration")
+                    raise ConfigChanged("Client config changed during migration")
                 # The journaled bytes exactly: a str would be written in text mode, CRLF and the ANSI
                 # code page on Windows, and neither restore nor the rollback below would match it.
                 atomic_private(path, content.encode())
