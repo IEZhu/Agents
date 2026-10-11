@@ -58,6 +58,7 @@ from src.utils.prompt_loader import load_agent_prompt, get_agent_metadata
 from src.utils.debug_logger import debug_log
 from src.utils import debug_logger
 from src.memory.describer import RepoDescriber
+from src.memory import fallback
 from src.memory.history import ENTRY_ID, HistoryReader, HistoryWriter
 from src.memory.history_results import listing, to_json
 from src.result_size import RESULT_SIZE_CEILING
@@ -214,6 +215,8 @@ mcp = _WorkerInputMCP(
         "Append the exact footer returned with the active bundle.\n"
         "HTTP memory tools require X-Agents-Workspace. On workspace_required, workspace_unsafe or workspace_invalid, "
         "continue routing/persona, report unavailable project memory, and do not retry logging in a loop. "
+        "When log_interaction or read_history reports workspace.source fallback, the turn is kept in the "
+        "installation's fallback journal: follow its instruction. "
         "When log_interaction or read_history carries history_last_error, mention it once in the answer. "
         "For needs_summary preserve workspace_id, repo_path and repo_hash in write_repo_summary. "
         "Never replay an ambiguous write automatically; read the result first.\n"
@@ -383,10 +386,11 @@ async def _flow_library(ctx: Context | None, workspace: str | None = None) -> Fl
 
 
 def _workspace_error_details(inputs: dict | None) -> dict:
-    """What a stdio workspace error adds: the PID, the inputs and, for a desktop-started server, a hint (#231)."""
+    """What a workspace error adds: what the user can do about it (#292, #253) and, over stdio, the
+    PID, the inputs and, for a desktop-started server, a hint (#231)."""
     if inputs is None:
-        return {}
-    details = {"pid": os.getpid(), "workspace_inputs": inputs}
+        return {"remedy": fallback.REMEDY}
+    details = {"remedy": fallback.REMEDY, "pid": os.getpid(), "workspace_inputs": inputs}
     if hint := desktop_started_hint(inputs):
         details["hint"] = hint
     return details
@@ -1123,6 +1127,33 @@ def _workspace_report(client, root: Path) -> dict:
     return report
 
 
+# How many of the fallback journal's newest entries read_history filters by claim and text.
+FALLBACK_READ_LIMIT = 2000
+
+
+def _fallback_report(unresolved: "fallback.Unresolved", inputs: dict | None = None) -> dict:
+    """Where a turn without a project went (#292): the fallback journal, what the client named and,
+    over stdio, what the project was looked up from (#231)."""
+    report = {"workspace": unresolved.report(), "pid": os.getpid()}
+    details = _workspace_error_details(inputs)
+    report.update({key: details[key] for key in ("workspace_inputs", "hint") if key in details})
+    with _history_errors_lock:
+        failure = _history_errors.get(str(unresolved.root))
+    if failure:
+        report["history_last_error"] = {key: failure[key] for key in ("code", "errno", "path", "at")}
+    return report
+
+
+def _fallback_instruction(unresolved: "fallback.Unresolved", *, reading: bool = False) -> str:
+    named = f" for {json.dumps(unresolved.claimed, ensure_ascii=False)}" if unresolved.claimed else ""
+    what = ("these are entries of the Agents-Core installation's fallback journal, not of a project's "
+            "history.md" if reading else
+            "the turn went to the fallback journal of the Agents-Core installation, not to the project's "
+            "history.md")
+    return (f"No project resolved{named} ({unresolved.reason}), so {what}. Mention this once in the "
+            "conversation and do not retry. " + fallback.REMEDY)
+
+
 def install_history_sync() -> None:
     """Share each repository's history with the user's other machines through user library sync.
 
@@ -1197,11 +1228,16 @@ async def log_interaction(
     background with that timestamp and do not prevent each other; a full queue
     can also drop a write. A failed history write is logged once per path and
     errno (WARNING, ``code=history_unwritable``) and reported on the next result
-    as ``history_last_error``; Langfuse failures are only logged. The only
-    request-level rejection is an unavailable workspace: it returns a protocol
-    ERROR without ``timestamp``, over stdio with ``pid`` and ``workspace_inputs``
-    (``cwd``, ``claude_project_dir``, ``agents_client_repo_root``, ``client``,
-    ``roots``).
+    as ``history_last_error``; Langfuse failures are only logged. When no project
+    resolves, the turn goes to the installation's fallback journal (#292):
+    ``workspace`` is ``{root: null, source: "fallback", claimed, reason, journal}``,
+    ``claimed`` the directory the client named (recorded, never written), and the
+    ``instruction`` says to mention it once. The only request-level rejection left
+    is a stdio client with MCP roots that named no workspace, asked to retry once
+    with it, or a fallback journal directory that cannot be created (a later write
+    failure shows as ``history_last_error``): a protocol ERROR without
+    ``timestamp``, over stdio with ``pid`` and ``workspace_inputs`` (``cwd``,
+    ``claude_project_dir``, ``agents_client_repo_root``, ``client``, ``roots``).
     """
     if not request_id:
         request_id = str(uuid.uuid4())
@@ -1225,26 +1261,36 @@ async def log_interaction(
         "persona_action": persona_action,
         "warnings": warnings,
     })
+    client, unresolved = None, None
     try:
         client = await resolve_client_context(ctx, workspace)
         root = client.require_root()
     except ValueError as error:
         inputs = workspace_inputs(ctx)
-        if inputs and inputs["roots"] and not inputs["agents_client_repo_root"] and not workspace:
-            instruction = (
-                "Nothing was logged. Keep the current activation and retry once with workspace "
-                "set to the absolute path of your working directory; if that fails too, report "
-                "unavailable logging and do not retry again."
-            )
-        else:
-            instruction = (
-                "Nothing was logged. Keep the current activation; on workspace_required, "
-                "workspace_unsafe or workspace_invalid report unavailable logging, and do not "
-                "retry logging in a loop."
-            )
-        payload = json.loads(error_response(error, request_id, instruction=instruction))
-        payload.update(_workspace_error_details(inputs))
-        return json.dumps(payload, ensure_ascii=False)
+        # A stdio client with MCP roots resolves its project on a retry that names it.
+        retry = inputs and inputs["roots"] and not inputs["agents_client_repo_root"] and not workspace
+        if not retry:
+            try:
+                unresolved = fallback.unresolved(error, getattr(client, "claimed", None) or workspace)
+            except (OSError, ValueError):  # ValueError: a symbolic link where its directory belongs
+                logger.warning("The fallback journal is unavailable", exc_info=True)
+        if unresolved is None:
+            if retry:
+                instruction = (
+                    "Nothing was logged. Keep the current activation and retry once with workspace "
+                    "set to the absolute path of your working directory; if that fails too, report "
+                    "unavailable logging and do not retry again."
+                )
+            else:
+                instruction = (
+                    "Nothing was logged. Keep the current activation; on workspace_required, "
+                    "workspace_unsafe or workspace_invalid report unavailable logging, and do not "
+                    "retry logging in a loop."
+                )
+            payload = json.loads(error_response(error, request_id, instruction=instruction))
+            payload.update(_workspace_error_details(inputs))
+            return json.dumps(payload, ensure_ascii=False)
+        root = unresolved.root
     attribution_status = logged.status or ("unverified" if persona_action is not None else None)
     attribution = {}
     if attribution_status:
@@ -1296,6 +1342,10 @@ async def log_interaction(
             eff_intent = (intent or query or "").strip()
             eff_action = (action or f"Agent: {agent_name}").strip()
             dedupe_action = eff_action
+            if unresolved is not None:
+                # One fallback journal holds every claim: the same turn in two directories is two
+                # entries. Action and claim stay separate fields, whatever the action holds.
+                dedupe_action = json.dumps([eff_action, unresolved.claimed], ensure_ascii=False)
             if line := persona_history_line(logged, persona_action):
                 eff_action += "\n" + line
             eff_outcome = (outcome or response_content or "").strip()
@@ -1303,6 +1353,8 @@ async def log_interaction(
             client_app = getattr(client, "client", None)  # the app named by X-Agents-Client (#187)
             if client_app:
                 metadata["client"] = client_app
+            if unresolved is not None:
+                metadata.update(unresolved.metadata())
             result = writer.append_entry(
                 eff_intent, eff_action, eff_outcome, files, tags,
                 metadata, dedupe_action=dedupe_action,
@@ -1316,7 +1368,8 @@ async def log_interaction(
 
     # Snapshot before the workers run: a failure of this very write must show
     # up on the next call, not nondeterministically on this one.
-    workspace_report = _workspace_report(client, root)
+    workspace_report = (_workspace_report(client, root) if unresolved is None
+                        else _fallback_report(unresolved, workspace_inputs(ctx)))
 
     # Both sinks are independent; the response does not wait for either.
     # While startup runs, importing Langfuse would compete with it: skip the trace.
@@ -1333,12 +1386,17 @@ async def log_interaction(
         **workspace_report,
         **attribution,
     }
+    instructions = []
+    if unresolved is not None:
+        instructions.append(_fallback_instruction(unresolved))
     if warnings:
-        payload["instruction"] = (
+        instructions.append(
             "The turn was logged with unverified attribution. Do not retry logging. "
             "Next time pass the full `persona` object from the last SUCCESS/NO_CHANGE "
             "verbatim, and persona_action only together with it."
         )
+    if instructions:
+        payload["instruction"] = " ".join(instructions)
     debug_log("log_interaction", "res", payload)
     return json.dumps(payload, ensure_ascii=False)
 
@@ -1526,16 +1584,33 @@ async def read_history(
     repository are merged in, one per entry hash; ``machine`` keeps one
     machine label's entries, or ``local`` this checkout's own.
 
+    Without a project, it reads the installation's fallback journal (#292):
+    the entries kept for the same claimed directory, ``query`` as a text match.
+
     Returns JSON: {entries, total, mode, omitted?, instruction?, workspace,
     pid, history_last_error?}; mode is recency, semantic or entry. Entries
     (machine: null for this checkout's own):
     - recency and entry: {id, timestamp, intent, action, outcome, files, tags, metadata, machine}.
     - semantic: {id, distance, timestamp, intent, action, outcome, tags, machine}.
     """
+    client, unresolved = None, None
     try:
-        client = await resolve_client_context(ctx, workspace)
-        root = client.require_root()
-        workspace_report = _workspace_report(client, root)
+        try:
+            client = await resolve_client_context(ctx, workspace)
+            root = client.require_root()
+            workspace_report = _workspace_report(client, root)
+        except WorkspaceError as error:
+            # Without a project, the turns this session kept in the fallback journal (#292); a stdio
+            # client with MCP roots resolves its project by naming it, which the error tells it.
+            inputs = workspace_inputs(ctx)
+            if inputs and inputs["roots"] and not inputs["agents_client_repo_root"] and not workspace:
+                raise
+            try:
+                unresolved = fallback.unresolved(error, getattr(client, "claimed", None) or workspace)
+            except (OSError, ValueError):
+                raise error from None
+            root = unresolved.root
+            workspace_report = _fallback_report(unresolved, inputs)
         limit = max(1, min(limit, 500))
         offset = max(0, offset)
         query = (query or "").strip() or None
@@ -1546,13 +1621,36 @@ async def read_history(
         loop = asyncio.get_running_loop()
         reader = HistoryReader(str(root / "history.md"), str(root / "history"))
 
-        if entry_id:
+        if unresolved is not None and not entry_id:
+            def unresolved_recent():
+                # A claim keeps its own entries; text search stands in for the semantic index. The
+                # scan widens until the page is full or the journal ends, so newer entries of other
+                # claims never hide older ones of this claim.
+                needle = query.lower() if query else None
+
+                def wanted(entry):
+                    return fallback.matches(entry.metadata, unresolved.claimed) and (
+                        needle is None or needle in f"{entry.intent}\n{entry.action}\n{entry.outcome}".lower())
+                scan = FALLBACK_READ_LIMIT
+                while True:
+                    batch = reader.read_recent(limit=scan, since=since, machine=machine)
+                    entries = [entry.to_dict() for entry in batch if wanted(entry)]
+                    if len(entries) >= offset + limit or len(batch) < scan:
+                        break
+                    scan *= 4
+                return listing("recency", entries[offset:offset + limit], workspace_report, offset)
+            payload = await loop.run_in_executor(None, unresolved_recent)
+            payload["instruction"] = " ".join(filter(None, (payload.get("instruction"),
+                                                             _fallback_instruction(unresolved, reading=True))))
+        elif entry_id:
             if not ENTRY_ID.fullmatch(entry_id):
                 payload = {"status": "error", "error": "entry_id is an entry's id: 12 hexadecimal characters",
                            **workspace_report}
                 debug_log("read_history", "error", payload)
                 return to_json(payload)
             entry = await loop.run_in_executor(None, reader.find, entry_id)
+            if entry and unresolved is not None and not fallback.matches(entry.metadata, unresolved.claimed):
+                entry = None  # another claimed directory's turn
             entries = [entry.to_dict()] if entry else []
             payload = {"mode": "entry", "total": len(entries), "entries": entries, **workspace_report}
         elif query:
