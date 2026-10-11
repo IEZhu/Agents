@@ -1087,8 +1087,23 @@ as named. Both resolve to the nearest marked directory, a git worktree to its ma
 checkout, and system and home directories are refused. `{path, roots}` is a tool
 call's workspace, which must also lie inside one of those roots. The answer is
 `{workspace_id, root}`, or `{error, message}` with status 400. Errors
-`workspace_required` and `workspace_invalid` mean memory is unavailable: routing
-can continue, and logging must not be retried in a loop. `run_flow` also requires
+`workspace_required` and `workspace_invalid` mean project memory is unavailable:
+routing can continue, and logging must not be retried in a loop.
+
+A turn whose project does not resolve is not dropped: `log_interaction` appends it
+to the installation's fallback journal, `unresolved/history.md` in the service's
+private state, and answers with `workspace: {root: null, source: "fallback",
+claimed, reason, journal}` and an `instruction` to mention it once. `claimed` is
+the directory the client named: a bridge sends it, percent-encoded, in
+`X-Agents-Claimed-Workspace` when no workspace resolved (the call's `workspace`,
+else `AGENTS_CLIENT_REPO_ROOT`, `CLAUDE_PROJECT_DIR` or its working directory), and
+over stdio it is the call's `workspace` or the start directory. It is recorded as
+`claimed_workspace` with the entry and never written to. A history call whose
+named workspace the daemon refuses goes on without it, so the shared Desktop
+bridge keeps such a turn too; other tools still fail with the reason.
+`read_history` without a project lists the fallback entries of the same claimed
+directory, `query` as a text match. `describe_repo`, `write_repo_summary` and
+`repo:` flows still refuse, with a `remedy` that says how to register the project. `run_flow` also requires
 this header and never uses `repo_path` as a replacement for workspace identity.
 `list_flows`, `get_flow`, `save_flow`, `delete_flow` and `set_flow_persona` for
 built-in and personal (`user:`) flows work without it; `repo:` flows need it. See the
