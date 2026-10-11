@@ -388,7 +388,9 @@ class LibraryHistory:
     def _commits(self, refs: list[str]) -> list[tuple[str, str | None, dict]]:
         if not refs:
             return []
-        ids = self.git.text("rev-list", "--reverse", *refs).splitlines()
+        # Retained history tips can exceed Windows' command-line limit.
+        ids = self.git.text("rev-list", "--reverse", "--stdin",
+                            input=("\n".join(refs) + "\n").encode()).splitlines()
         if not ids:
             return []
         records = []

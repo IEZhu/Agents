@@ -872,3 +872,28 @@ def test_private_legacy_support_lock_recovery_preserves_active_writer(history, s
         assert lock.read_bytes() == b"active writer"
         assert target.read_bytes() == b"# Pending\n"
         assert history._rev(LEGACY_SUPPORT_REF) is None
+
+
+def test_retained_ref_inventory_exceeds_windows_command_limit_without_breaking_reads(history, monkeypatch):
+    path = "common/mine.md"
+    history.apply({path: b"# Before\r\n"}, flow_path=path)
+    version = history.apply({path: b"# Current\r\n"}, flow_path=path)
+    expected = history.events()
+    tip = history._rev(HISTORY_REF)
+    refs = [RECEIVED_PREFIX + f"{number:040x}" for number in range(600)]
+    assert sum(len(ref) + 1 for ref in refs) > 32767
+    history.git.run("update-ref", "--stdin", input="".join(f"create {ref} {tip}\n" for ref in refs).encode())
+    original = gitcmd.subprocess.run
+
+    def windows_command_limit(arguments, **options):
+        if len(subprocess.list2cmdline([os.fspath(arg) for arg in arguments])) > 32767:
+            raise OSError("simulated Windows CreateProcess command-line limit")
+        return original(arguments, **options)
+
+    monkeypatch.setattr(gitcmd.subprocess, "run", windows_command_limit)
+    reader = LibraryHistory(history.root)
+    assert reader.events() == expected
+    assert reader.read(path, version) == b"# Before\r\n"
+    assert reader.events([HISTORY_REF, "^" + tip]) == []
+    assert reader.events([]) == []
+    assert len(reader.git.text("for-each-ref", "--format=%(refname)", RECEIVED_PREFIX).splitlines()) == 600
