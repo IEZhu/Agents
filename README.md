@@ -1030,7 +1030,10 @@ session's project and sends that header itself ([details](docs/shared-mcp-daemon
 When no project resolves, `log_interaction` keeps the turn in the installation's
 fallback journal (`unresolved/history.md` next to user sync's private state) with the
 directory the client named as unverified metadata, and `read_history` reads the
-entries kept for that directory; nothing is written to the named directory
+entries kept for that directory; nothing is written to the named directory.
+They move into a project only on request: `python -m src.daemon history adopt
+--to /absolute/project --claimed <dir>`, or "Move to a project" on the History tab;
+with user library sync they are shared like a repository's history
 ([details](docs/shared-mcp-daemon.md#memory-and-errors)). `describe_repo`,
 `write_repo_summary` and `repo:` flows still return `workspace_required`,
 `workspace_unsafe` or `workspace_invalid`, with a `remedy`; routing remains

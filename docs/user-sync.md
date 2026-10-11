@@ -425,6 +425,14 @@ python -m src.user_sync history share all                     # every repository
 python -m src.user_sync history share approved                # back to approval one repository at a time
 ```
 
+The fallback journal, which keeps the turns whose project did not resolve (#292), is shared like a
+repository under the key `_unresolved` with the origin `agents-core:unresolved`, the same on every
+machine; `repo_key` never makes a key without `-`, so it is no repository's. Its directory is told
+by a marker that holds its own path, never by git, so a dotfiles repository around the state
+directory does not lend it an origin. Approval, `history share all`, `history revoke _unresolved`,
+the scope exclusions and the secret scanner apply as to any repository; its entries carry the
+directory each session named (`claimed_workspace`).
+
 Approval covers a repository's future entries on this machine and exactly the past entries the
 owner saw. The preview lists, for each repository with an `origin`, every entry that waits on this
 machine, as one line (UTC time, the intent cut to about 80 characters, and the entry hash), with
