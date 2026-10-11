@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Refresh Agents-Core global instructions for detected Codex and Claude clients."""
+"""Refresh Agents-Core instructions for Codex, Claude and an installed Antigravity plugin."""
 import argparse
 import os
 from pathlib import Path
@@ -24,8 +24,8 @@ from migrate_routing_memory import migrate  # noqa: E402
 
 def parse_clients(value: str) -> tuple[str, ...]:
     clients = tuple(dict.fromkeys(client.strip() for client in value.split(",")))
-    if any(client not in ("codex", "claude") for client in clients):
-        raise argparse.ArgumentTypeError("clients must be codex, claude, or codex,claude")
+    if any(client not in ("codex", "claude", "antigravity") for client in clients):
+        raise argparse.ArgumentTypeError("clients must be a comma-separated selection of codex, claude, antigravity")
     return clients
 
 
@@ -54,6 +54,20 @@ def install_claude_instructions(template: Path) -> int:
     return 0
 
 
+def install_antigravity_instructions(template: Path) -> int:
+    """Refresh an existing plugin's rules without provisioning or enabling it."""
+    target = Path.home() / ".gemini/config/plugins/agents-core/rules/AGENTS.md"
+    if not target.exists() and not target.is_symlink():
+        print("Antigravity Agents-Core rules not found; instruction refresh skipped. "
+              "Use the normal client setup to install the plugin first.")
+        return 0
+    changed = inject(target, template)
+    state = "configured" if changed else "already current"
+    print(f"Antigravity plugin instructions {state}: {target}")
+    print("Start a fresh Antigravity session to load these instructions.")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=__doc__,
@@ -61,8 +75,9 @@ def main(argv: list[str] | None = None) -> int:
                "Client connections and the Agents-Core installation stay unchanged.",
     )
     parser.add_argument(
-        "--clients", type=parse_clients, default=("codex", "claude"), metavar="codex,claude",
-        help="clients to refresh (default: both, when detected)",
+        "--clients", type=parse_clients, default=("codex", "claude", "antigravity"),
+        metavar="codex,claude,antigravity",
+        help="clients to refresh (default: all detected clients and existing Antigravity rules)",
     )
     args = parser.parse_args(argv)
     template = SCRIPT_DIR / "templates" / "routing-protocol-core.md"
@@ -78,8 +93,10 @@ def main(argv: list[str] | None = None) -> int:
         try:
             if client == "codex":
                 result = codex_instructions.main([str(template)])
-            else:
+            elif client == "claude":
                 result = install_claude_instructions(template)
+            else:
+                result = install_antigravity_instructions(template)
         except (OSError, ValueError) as exc:
             print(f"ERROR: Could not configure {client} instructions: {exc}. "
                   "Check the reported path, permissions, and routing markers, "

@@ -1,6 +1,6 @@
 # Task-scoped subagent context and exchange contract
 
-Status: approved scope for implementation, 2026-10-11.
+Status: implemented; mandatory delegation guidance updated 2026-10-11.
 Tracking: [Issue #291](https://github.com/IEZhu/Agents/issues/291). This specification describes
 the new worker API; the ordinary persona protocol remains version 2.
 
@@ -89,10 +89,7 @@ for missing input, incomplete work and finishing. It directs the worker to use
 this package without activating a full conversation persona. Parent descriptors
 visible in inherited history are references, not the worker's activation.
 
-The parent forwards the prepared context into a fresh worker context when the
-host supports it. The parent keeps its original contract and descriptor, launches
-the worker with native tools, and passes the returned data plus its retained
-contract to validation. A worker must not replace the authoritative contract.
+Every AI delegation, including reviewers, verifiers and parallel workers, requires `get_subagent_context` and `status: prepared` before native spawning. The parent forwards `worker_context` unchanged with only necessary task materials into a fresh worker without inherited history when supported (Codex: `fork_turns="none"`). It keeps its original contract and descriptor and validates every returned or revised output unchanged against that contract. A worker must not replace the authoritative contract. `valid: true` is required before acceptance or integration, followed by independent evidence and acceptance-criteria checks.
 
 ## Authored compact personas and component selection
 
@@ -152,8 +149,7 @@ MCP initialization and APPLY_INSTRUCTION must explicitly recognize this worker
 mode before the first-answer/full-persona rule. A valid worker package supplies
 its role. The worker returns the data envelope without a second full activation
 or per-answer conversation footer/log call; parent interaction logging remains
-under the existing v2 contract. If worker preparation is unavailable, use an
-explicit full-persona/manual fallback and report it; never claim compact mode.
+under the existing v2 contract. If preparation fails, either worker endpoint is unavailable, or the host cannot spawn a worker, report the limitation and do the work in the parent when practical. Do not launch an unprepared/full-persona worker or accept unvalidated output. Ordinary conversation fallback does not waive this requirement; explicitly authorized nested delegation follows the same exchange.
 
 ## Worker result
 
@@ -286,11 +282,7 @@ following is the success shape, not a claim that the worker's conclusions are tr
 {"valid": true, "errors": [], "verification": "structural_only"}
 ```
 
-On failure, inspect `errors[].path`, `code` and `message`. Return concrete
-diagnostics to the same assignment or prepare a new attempt with a different
-`attempt_id`; never change the parent contract to match an invalid result.
-The parent finally verifies the evidence and acceptance criteria before accepting
-or integrating work. No validator operation opens a path or URI.
+On `valid: false`, inspect `errors[].path`, `code` and `message`, return concrete diagnostics for correction, and validate the revised output again. A new execution attempt requires a new package with a different `attempt_id` and its matching retained contract. Never rewrite identities or the parent contract to make an invalid result pass. A missing, failed or unavailable validation is not success. Require `valid: true`, then independently verify evidence and acceptance criteria before accepting, integrating, citing as verified, or marking the delegated work complete. No validator operation opens a path or URI.
 
 Component selection uses lexical overlap between task/criteria/scope/context
 and each eligible component's ID, description and keywords, with profile order

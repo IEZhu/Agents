@@ -60,10 +60,7 @@ scope.
 1. **Self code-review.** Read the complete diff against the default branch as a
    reviewer: correctness, edge cases, error handling, security, tests, naming,
    dead code, documentation. Fix what you find.
-2. **Independent review.** Multi-agent orchestration is intended here: use the
-   Agent or Workflow tool to have a fresh reviewer, without your reasoning, read
-   the plan and the diff and report findings with file and line. Verify each
-   finding against the code; fix real ones and note rejected ones with a reason.
+2. **Independent review.** Prepare a `code_reviewer` with `get_subagent_context` (`result_type="review"`), a read-only scope, the plan and diff, and concrete review criteria. Require `status: prepared`, retain its original contract, and send `worker_context` unchanged to a fresh native worker without your reasoning or inherited history. Validate its unchanged JSON result with `validate_subagent_result` and that contract; require `valid: true` before using the review. Verify each finding against the code, fix real ones, and note rejected ones with a reason. Follow the [delegation contract](README.md#delegated-workers) for errors and revised results. If preparation, spawning or validation is unavailable, report the independent review as incomplete.
 3. **Pre-mortem.** Assume this pull request caused a problem after merge. List the
    three to five most likely causes and check each against the diff and tests.
    Fix what is fixable now; record the rest as known risks.

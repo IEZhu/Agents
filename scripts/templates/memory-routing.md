@@ -5,16 +5,12 @@ type: feedback
 ---
 
 Follow the Agents-Core Persona Protocol in the managed CLAUDE.md section.
-For delegation, prepare a compact role with `get_subagent_context`, keep the
-original contract and forward only the prepared worker context plus required
-task materials into a fresh native worker. A valid `agents-core/subagent/1`
-worker package supplies the role: no full persona activation, inherited parent
-descriptor, footer, timestamp or per-result `log_interaction`. Return the required
-JSON envelope within the assigned scope. The parent uses
-`validate_subagent_result` with its original contract, then checks evidence and
-acceptance criteria. Preparation and validation do not launch models, enforce
-runtime limits or prove correctness. Report an explicit full-persona/manual
-fallback when preparation is unavailable; never claim compact mode then.
+Every AI delegation, including reviewers, verifiers and parallel workers, requires `get_subagent_context` before spawning. Supply a canonical role, one task, acceptance criteria, relevant context, scope/non-goals and result type. Default to `max_skills=3`, `max_implants=0` and `max_context_chars=16000`. Require `status: prepared`, retain the original contract in the parent, and forward `worker_context` unchanged with only necessary task materials. It contains the compact persona and mandatory worker rules. Use a fresh native worker without inherited history when supported (Codex: `fork_turns="none"`); never substitute a full persona, parent bundle or chat transcript.
+
+A valid `agents-core/subagent/1` package supplies the worker's role: no full persona activation, inherited parent descriptor, footer, timestamp or per-result `log_interaction`. Return only the required JSON envelope within scope. Explicitly authorized nested delegation follows the same exchange.
+
+The parent must call `validate_subagent_result` for every returned or revised output, unchanged, against its original contract. Require `valid: true` before accepting, integrating or marking delegated work complete; then independently check evidence and acceptance criteria. Invalid output requires correction and revalidation. A new execution attempt requires a new `attempt_id` and prepared contract. Never change identities or the contract to make a result pass. If either endpoint or native spawning is unavailable, report the limitation and work in the parent when practical, without launching an unprepared/full-persona worker or accepting unvalidated output. Ordinary conversation fallback does not waive this requirement. Preparation and validation do not launch models, enforce runtime limits or prove correctness.
+
 The following activation and logging steps apply to ordinary conversations.
 Before the first final answer, when MCP is available and there is no prior persona
 activation, load an explicitly requested known role with `get_agent_context`, or
