@@ -1,12 +1,15 @@
 """Exercise advertised schemas and untouched strict inputs through FastMCP."""
 import json
+from types import SimpleNamespace
 
 import jsonschema
 import pytest
+from mcp.server.fastmcp import FastMCP
+from mcp.types import CallToolRequest, CallToolRequestParams
 
 import src.server as server
 from tests.test_subagent import worker_tree, request, report
-from src.schemas.subagent import PreparedPackage
+from src.schemas.subagent import MAX_REQUEST_CHARS, PreparedPackage
 
 
 async def call(name, arguments):
@@ -121,3 +124,63 @@ async def test_mcp_retained_contract_and_evidence_errors(worker_tree):
     package["contract"]["budgets"]["max_skills"] = True
     response = await call("validate_subagent_result", {"contract": package["contract"], "result": value})
     assert not response["valid"] and response["errors"][0]["path"].startswith("$.contract")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("name", ["get_subagent_context", "validate_subagent_result"])
+async def test_mcp_rejects_unknown_worker_arguments(worker_tree, name, monkeypatch):
+    package = await call("get_subagent_context", request())
+    arguments = (request(max_context_chars_typo=2000) if name == "get_subagent_context" else
+                 {"contract": package["contract"], "result": report(PreparedPackage.model_validate(package)),
+                  "unexpected": "must not be echoed"})
+
+    def unexpected(*args, **kwargs):
+        pytest.fail("Unknown arguments reached the worker tool body")
+    monkeypatch.setattr(server, "prepare_subagent", unexpected)
+    monkeypatch.setattr(server, "validate_result", unexpected)
+    # Exercise the handler installed for real MCP requests, including output validation.
+    response = (await server.mcp._mcp_server.request_handlers[CallToolRequest](
+        CallToolRequest(params=CallToolRequestParams(name=name, arguments=arguments))
+    )).root
+    assert not response.isError
+    structured = response.structuredContent
+    assert json.loads(response.content[0].text) == structured
+    assert structured.get("status") == "error" or structured.get("valid") is False
+    assert structured["errors"][0]["code"] == "extra_forbidden"
+    assert "worker_context" not in structured
+    assert "must not be echoed" not in response.content[0].text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("value", ["x" * MAX_REQUEST_CHARS, "\n" * (MAX_REQUEST_CHARS // 2)],
+                         ids=["raw-characters", "canonical-escaping"])
+async def test_mcp_bounds_original_preparation_arguments(worker_tree, value):
+    arguments = request(unexpected=value)
+    response = await call("get_subagent_context", arguments)
+    assert response["status"] == "error"
+    assert response["errors"][0]["code"] == "payload_too_large"
+    assert "worker_context" not in response
+
+
+@pytest.mark.asyncio
+async def test_mcp_validation_unknown_arguments_have_bounded_errors(worker_tree):
+    package = await call("get_subagent_context", request())
+    arguments = {"contract": package["contract"], "result": report(PreparedPackage.model_validate(package)),
+                 "unexpected" * 10000: "must not be echoed" * 10000,
+                 **{f"extra_{i}": "must not be echoed" for i in range(1000)}}
+    response = await call("validate_subagent_result", arguments)
+    assert not response["valid"]
+    assert response["errors"][0]["code"] == "extra_forbidden"
+    assert len(response["errors"]) <= 20
+    assert len(json.dumps(response)) < 1000
+    assert "must not be echoed" not in json.dumps(response)
+
+
+@pytest.mark.asyncio
+async def test_mcp_ordinary_tools_keep_fastmcp_dispatch(monkeypatch):
+    monkeypatch.setattr(server, "router", SimpleNamespace(available_agents=["engineer"]))
+    arguments = {"include_metadata": "false", "unexpected": "x" * MAX_REQUEST_CHARS}
+    actual = await server.mcp.call_tool("list_agents", arguments)
+    expected = await FastMCP.call_tool(server.mcp, "list_agents", arguments)
+    assert actual == expected
+    assert json.loads(actual[0][0].text) == {"agents": ["engineer"]}

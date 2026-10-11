@@ -230,7 +230,11 @@ names use lowercase letters, digits and underscores, start with a letter or
 digit, and are at most 80 characters. Task, attempt and evidence IDs are at most
 128 characters: start with an ASCII letter or digit, then use letters, digits,
 underscore, dot, colon or hyphen. Hashes are 64 lowercase hexadecimal characters.
-The preparation request is limited to 48,000 canonical JSON characters.
+The preparation request is limited to 48,000 canonical JSON characters, measured
+on the original arguments before MCP parsing, including unknown fields. Both
+worker tools reject unknown top-level arguments with bounded structured errors;
+misspelled fields are never silently discarded. This check does not change other
+tools' argument handling.
 
 Results are limited to 128,000 raw/canonical JSON characters, 12 nesting levels,
 10,000 JSON nodes and 100 keys per object. Result arrays hold at most 100 items;

@@ -74,8 +74,9 @@ from src.engine.persona import (
 from src.schemas import tool_args as ta
 from src.engine import readiness
 from src.engine.subagent import prepare_subagent
-from src.engine.subagent_validation import validate_result
-from src.schemas.subagent import PreparationResponse, ValidationResponse
+from src.engine.subagent_validation import ContractError, bounded_object, diagnostics, validate_result
+from src.schemas.subagent import (MAX_REQUEST_CHARS, PreparationError, PreparationRequest,
+                                 PreparationResponse, ValidationResponse)
 
 READINESS_SHUTDOWN_WAIT_SECONDS = 5.0
 
@@ -122,7 +123,31 @@ def _persona_not_ready(problem: str) -> str:
 # from a content fingerprint.
 _history_stores = HistoryStores()
 
-mcp = FastMCP(
+class _WorkerInputMCP(FastMCP):
+    """Check worker arguments before FastMCP silently discards unknown keys."""
+
+    async def call_tool(self, name: str, arguments: dict):
+        if name not in ("get_subagent_context", "validate_subagent_result"):
+            return await super().call_tool(name, arguments)
+        try:
+            if name == "get_subagent_context":
+                bounded_object(arguments, max_chars=MAX_REQUEST_CHARS)
+                fields = PreparationRequest.model_fields
+            else:
+                fields = ("contract", "result")
+            for key in arguments:
+                if key not in fields:
+                    raise ContractError("extra_forbidden", "Unknown tool arguments are forbidden.",
+                                        f"$.{key[:240]}")
+        except ContractError as error:
+            errors = diagnostics(error)
+            response = (PreparationError(errors=errors) if name == "get_subagent_context" else
+                        ValidationResponse(valid=False, errors=errors)).model_dump(mode="json")
+            return [TextContent(type="text", text=json.dumps(response))], response
+        return await super().call_tool(name, arguments)
+
+
+mcp = _WorkerInputMCP(
     "Agents-Core",
     instructions=(
         "Agents-Core uses persona protocol 2; pass protocol_version=2 to route_and_load and "
@@ -804,7 +829,8 @@ async def get_subagent_context(
 ) -> PreparationResponse:
     """Prepare a stateless task-scoped worker package without switching your persona.
 
-    Total request limit: 48000 canonical JSON characters. Retain the returned
+    Unknown arguments are rejected. Total original request limit: 48000 canonical
+    JSON characters, including unknown fields. Retain the returned
     contract and your own persona; forward worker_context to a fresh native worker.
     This tool does not spawn workers. The worker uses this role without another
     activation or conversation footer/log, and returns exactly the JSON envelope.
@@ -826,8 +852,8 @@ async def validate_subagent_result(
 ) -> ValidationResponse:
     """Validate worker output structurally against the parent's retained contract.
 
-    Checks fixed built-in payloads, closed shapes, task/attempt/revision identity,
-    statuses and evidence references. Limits: nesting 12, 10000 JSON nodes,
+    Rejects unknown tool arguments. Checks fixed built-in payloads, closed shapes,
+    task/attempt/revision identity, statuses and evidence references. Limits: nesting 12, 10000 JSON nodes,
     100 items per result array (50 for text lists), strings 4000 characters,
     and at most 20 diagnostics. Reads no paths/URLs, reruns no checks, writes no
     memory and never establishes truth, authorization or issue completion.
