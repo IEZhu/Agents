@@ -1270,6 +1270,18 @@ def test_a_link_opens_the_repository_at_its_entry(history):
     assert history["reads"][-1] == "/ui/api/history?workspace=w-1&limit=20&entry=00000000001f"
 
 
+def test_a_fallback_entry_moves_into_the_project_of_its_named_folder():
+    """#292: "Without a project" offers the project that holds the folder the session named."""
+    result = run("history_adopt")
+    assert result["list"]["list"][:3] == ["History (4)", "Without a project", "agents"]
+    assert "Named directory: /code/project-a/sub" in result["entry"] and "Move to a project" in result["entry"]
+    question, suggested = result["prompt"]
+    assert "1. agents (/code/agents)" in question and "2. project-a (/code/project-a)" in question
+    assert suggested == "2"
+    assert result["posted"] == [{"to": "w-2", "entries": ["0000000000c8"]}]
+    assert result["title"] == "project-a"  # the journal is empty now: the project opens
+
+
 def test_delete_entry_asks_naming_the_entry_then_shows_the_file_again(history):
     delete = history["delete"]
     assert re.fullmatch(r"Delete the entry \d\d\.\d\d 12:00 · ux_designer · keep \(000000000001\) from history\.md\? "

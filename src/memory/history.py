@@ -582,6 +582,38 @@ class HistoryWriter:
             result["rotated_to"] = rotated_to
         return result
 
+    def append_existing(self, entry: "HistoryEntry") -> Dict[str, Any]:
+        """Append an entry kept elsewhere as it is: its id, time, fields and metadata (#292).
+
+        Moving the fallback journal's entries into a project uses it. A journal that already
+        holds the id, in ``history.md`` or an archive, keeps its own copy: ``duplicate``.
+        """
+        if entry.id in {known.id for known in HistoryReader(self.history_path, self.archive_dir).journal_entries()}:
+            return {"status": "duplicate", "entry_id": entry.id, "path": self.history_path}
+        os.makedirs(os.path.dirname(self.history_path) or ".", exist_ok=True)
+        with _WRITE_LOCK, file_lock(_sidecar(self.history_path)):
+            with open(self.history_path, "a+", encoding="utf-8", newline="") as fh:
+                try:
+                    _lock_exclusive(fh)
+                    fh.seek(0, os.SEEK_END)
+                    if fh.tell() == 0:
+                        fh.write(self._render_header())
+                        fh.flush()
+                    if self._is_duplicate_from_handle(fh, entry.id):
+                        return {"status": "duplicate", "entry_id": entry.id, "path": self.history_path}
+                    fh.write(self._render_entry(entry.id, entry.timestamp, entry.intent, entry.action,
+                                                entry.outcome, entry.files, entry.tags, entry.metadata))
+                    fh.flush()
+                    os.fsync(fh.fileno())
+                finally:
+                    _unlock(fh)
+            try:
+                self._maybe_rotate_locked()
+            except Exception as err:
+                logger.warning("history rotation failed for %s: %s", self.history_path, err)
+        _appended(self.history_path, entry.id)
+        return {"status": "recorded", "entry_id": entry.id, "path": self.history_path, "timestamp": entry.timestamp}
+
     # ------------------------------------------------------------------ helpers
     @staticmethod
     def _compute_entry_hash(intent: str, action: str, outcome: str) -> str:

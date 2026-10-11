@@ -53,10 +53,11 @@ const posts = [];
 const requests = [];  // every path the page fetched, in order
 const isUi = scenario.startsWith("ui");
 const isSync = scenario.startsWith("sync");
-let signedIn = ["search", "render", "persona_race", "agents", "history"].includes(scenario) || isUi || isSync;
+let signedIn = ["search", "render", "persona_race", "agents", "history", "history_adopt"].includes(scenario) || isUi || isSync;
 const revisions = {};  // sync_notice: a flow's revision after another machine changed it
 const deletedFlows = new Set();  // sync_notice: flows a cycle deleted (GET answers 404)
 const confirms = [];  // every question the page asked with confirm()
+const prompts = [];  // every question the page asked with prompt(), and the answer it suggested
 const puts = [];
 let putStatus = 200;
 const savedText = {};  // what a PUT stored, served back by the next GET
@@ -104,7 +105,7 @@ async function fetchStub(path, init = {}) {
     return respond(200, searchData(path));
   }
   if (scenario === "persona_race") return personaRace(path, init);
-  if (scenario === "history") return respond(...historyData(path, init));
+  if (scenario === "history" || scenario === "history_adopt") return respond(...historyData(path, init));
   if (path.startsWith("/ui/api/flows")) return respond(200, { flows: [], repositories: [] });
   return respond(200, { workspaces: [], items: [] });
 }
@@ -179,8 +180,28 @@ const HISTORY_REPOS = [
   { workspace: "w-gone", name: "gone", root: "/code/gone", available: false, entries: 0, bytes: 0, newest: null, files: [] },
 ];
 const historyPosts = [];  // every deletion the page asked for
+// history_adopt (#292): the fallback journal holds one turn whose session named a folder of project-a.
+const UNRESOLVED_ENTRIES = [{ ...historyEntry(200, new Date()), intent: "kept without a project",
+  metadata: { unresolved: "workspace_required", claimed_workspace: "/code/project-a/sub" } }];
+const UNRESOLVED_REPO = { workspace: "unresolved", name: "Without a project", root: "/state/unresolved", available: true,
+  unresolved: true, entries: 1, bytes: 300, newest: new Date().toISOString(), files: [{ file: "current", entries: 1 }] };
+const historyAdopts = [];  // every move the page asked for
 function historyData(path, init) {
   const url = new URL("http://127.0.0.1" + path), query = url.searchParams;
+  if (url.pathname === "/ui/api/history/adopt" && init.method === "POST") {
+    const body = JSON.parse(init.body);
+    historyAdopts.push(body);
+    UNRESOLVED_ENTRIES.splice(0, UNRESOLVED_ENTRIES.length);
+    return [200, { status: "adopted", moved: [{ id: body.entries[0] }], already: [], changed: [], missing: [] }];
+  }
+  if (url.pathname === "/ui/api/history/repos" && scenario === "history_adopt" && UNRESOLVED_ENTRIES.length) {
+    return [200, { repos: [UNRESOLVED_REPO, ...HISTORY_REPOS] }];
+  }
+  if (url.pathname === "/ui/api/history" && query.get("workspace") === "unresolved") {
+    return [200, { workspace: "unresolved", name: "Without a project", root: "/state/unresolved", file: "current",
+                   files: ["current"], total: UNRESOLVED_ENTRIES.length, bytes: 300, entries: UNRESOLVED_ENTRIES,
+                   index: UNRESOLVED_ENTRIES.map(({ id, timestamp, agent, persona_action }) => ({ id, timestamp, agent, persona_action })) }];
+  }
   if (url.pathname === "/ui/api/history/delete" && init.method === "POST") {
     const body = JSON.parse(init.body);
     historyPosts.push(body);
@@ -417,6 +438,7 @@ const context = vm.createContext({
   location: { hash: scenario === "used_code" ? "#code=used-code" : "", pathname: "/ui" },
   history: { replaceState() {} },
   fetch: fetchStub, alert() {}, confirm: (question) => { confirms.push(question); return true; },
+  prompt: (question, suggested) => { prompts.push([question, suggested]); return suggested; },
   setTimeout: pageSetTimeout, clearTimeout: pageClearTimeout,
   console, URLSearchParams,
   Option: function Option(text, value) { return Object.assign(element(), { text, value }); },
@@ -1440,6 +1462,24 @@ if (isSync) {
   }
 }
 
+if (scenario === "history_adopt") {
+  // #292: an entry of the fallback journal moves into the project its named folder belongs to.
+  const out = {};
+  const textOf = (node) => (node.nodeType === 3 ? node.textContent : (node.textContent || "") + node.children.map(textOf).join(""));
+  const view = byId("h-view"), doc = () => findAll(view, hasClass("md"))[0];
+  const rendered = () => findAll(doc(), hasClass("h-entry"));
+  await openTab("history");
+  out.list = shown();
+  await open(0);
+  out.entry = textOf(rendered()[0]);
+  fire(findAll(rendered()[0], hasClass("h-adopt"))[0], "click");
+  await sleep(80);
+  out.prompt = prompts.at(-1);
+  out.posted = historyAdopts;
+  out.title = byId("h-title").textContent;
+  console.log(JSON.stringify(out));
+  process.exit(0);
+}
 if (scenario === "history") {
   const out = {};
   const textOf = (node) => (node.nodeType === 3 ? node.textContent : (node.textContent || "") + node.children.map(textOf).join(""));

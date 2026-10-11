@@ -22,6 +22,11 @@ the UI session. Entries of other machines (user library sync) live in the librar
   entry, matched by its heading's hash and time, under the lock ``log_interaction`` appends under
   (``src.memory.history.delete_entry``); 409 ``entry_changed`` when it is not there as shown. With
   user library sync the entry then leaves what this machine shared (``src.user_sync.history``).
+
+The fallback journal (#292), the turns whose project did not resolve, is listed and read as the
+workspace ``unresolved`` ("Without a project"). ``POST /ui/api/history/adopt`` with
+``{to, entries}`` moves those entries (ids) into the registered workspace ``to``'s history.md
+(``src.memory.fallback.adopt``): only on the user's click, never by itself.
 """
 from __future__ import annotations
 
@@ -43,6 +48,7 @@ from .workspaces import WorkspaceError
 
 PREFIX = "/ui/api/history"
 CURRENT = "current"
+UNRESOLVED = "unresolved"  # the fallback journal's workspace id (#292); never a registry UUID
 PORTION = 20
 MAX_PORTION = 200
 MAX_BODY = 8 * 1024
@@ -99,7 +105,7 @@ class HistoryUI:
         self.summaries = summaries or getattr(usage, "files", None) or FileSummaries()
 
     async def handle(self, request: Request, path: str):
-        if path == PREFIX + "/delete":
+        if path in (PREFIX + "/delete", PREFIX + "/adopt"):
             if request.method != "POST":
                 return self._json({"error": "method_not_allowed"}, 405, headers={"Allow": "POST"})
             raw = await request.body()
@@ -109,6 +115,8 @@ class HistoryUI:
                 body = None
             if not isinstance(body, dict):
                 return self._json({"status": "error", "error": "invalid_request: the body must be a small JSON object"}, 400)
+            if path == PREFIX + "/adopt":
+                return await self._run(lambda: self.adopt(body.get("to", ""), body.get("entries")))
             return await self._run(lambda: self.delete(body.get("workspace", ""), body.get("file"), body.get("entry"),
                                                        body.get("time")))
         if request.method != "GET":
@@ -145,12 +153,33 @@ class HistoryUI:
         except ValueError:
             raise HistoryError("registry_unreadable", "the workspace registry cannot be read", 500) from None
         if not isinstance(records, dict):
-            return []
-        return [(identity, Path(root)) for identity, root in records.items()
-                if isinstance(identity, str) and isinstance(root, str)]
+            records = {}
+        workspaces = [(identity, Path(root)) for identity, root in records.items()
+                      if isinstance(identity, str) and isinstance(root, str)]
+        if self._journal().is_dir():
+            workspaces.append((UNRESOLVED, self._journal()))
+        return workspaces
+
+    def _journal(self) -> Path:
+        return Path(self.service.directory) / "unresolved"
 
     def _root(self, workspace: str) -> Path:
+        if workspace == UNRESOLVED:
+            if not self._journal().is_dir():
+                raise WorkspaceError("workspace_invalid")
+            return self._journal()
         return Path(self.service.registry.resolve(workspace))
+
+    def adopt(self, to: str, entries) -> dict:
+        """Move fallback entries into a registered workspace's history.md, on the user's click (#292)."""
+        from src.memory import fallback
+        if not isinstance(entries, list) or not entries or len(entries) > MAX_PORTION or not all(
+                isinstance(entry, str) and ENTRY_ID.fullmatch(entry) for entry in entries):
+            raise HistoryError("invalid_request", "entries must be a list of entry ids")
+        if to == UNRESOLVED:
+            raise HistoryError("invalid_request", "to must be a project's workspace")
+        target = self._root(to)  # a registered workspace, or WorkspaceError
+        return {"status": "adopted", "to": to, **fallback.adopt(target, entry_ids=entries, root=self._root(UNRESOLVED))}
 
     # --- the routes ------------------------------------------------------------------
 
@@ -180,7 +209,8 @@ class HistoryUI:
                               "newest": max((answer.time for answer in answers), default=None)})
             if not files:
                 continue
-            out.append({"workspace": identity, "name": root.name, "root": str(root), "available": True,
+            out.append({"workspace": identity, "name": "Without a project" if identity == UNRESOLVED else root.name,
+                        "root": str(root), "available": True, "unresolved": identity == UNRESOLVED,
                         "files": files, "entries": sum(f["entries"] or 0 for f in files),
                         "bytes": sum(f["bytes"] or 0 for f in files),
                         "newest": max((f["newest"] for f in files if f["newest"]), default=None)})
