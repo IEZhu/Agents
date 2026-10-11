@@ -176,3 +176,20 @@ def test_the_command_line_tells_sync_what_moved(service, tmp_path, monkeypatch, 
     main(["--state", str(service), "history", "adopt", "--to", str(project), "--entry", entry_id])
 
     assert ("appended", "project", entry_id) in heard and ("deleted", "unresolved", entry_id) in heard
+
+
+
+@pytest.mark.parametrize("arguments", [["--claimed", "relative/dir"], ["--to-journal", "--claimed", "/work/one"]])
+def test_refused_arguments_register_nothing(service, tmp_path, arguments, capsys):
+    from src.daemon.control import main
+    project = tmp_path / "project"; project.mkdir()
+    kept(service / "unresolved", "question", "/work/one")
+    to = service / "unresolved" if arguments[0] == "--to-journal" else project
+    arguments = [argument for argument in arguments if argument != "--to-journal"]
+
+    with pytest.raises(SystemExit):
+        main(["--state", str(service), "history", "adopt", "--to", str(to), *arguments])
+
+    registry = service / "workspaces.json"
+    assert not registry.exists() or str(to.resolve()) not in json.loads(registry.read_text()).values()
+    assert intents(service / "unresolved") == ["question"]

@@ -547,21 +547,22 @@ def main(argv=None):
                 target = Path(client_root_from_directory(str(args.to.expanduser()), launch_directory=False))
             except ClientRootError as error:
                 parser.error(f"--to: {error}")
-            if not args.dry_run:
-                WorkspaceRegistry(controller.directory).register(target)
-            # As in a server: user sync hears the appends and forgets the moved entries it shared.
-            from src.memory import history as journal_module
-            from src.user_sync import history as history_sync
-            previous = journal_module.set_sync(None if args.dry_run else history_sync.Integration())
-            try:
+            try:  # the arguments are checked before anything is registered or moved
                 result = fallback.adopt(target, claimed=args.claimed, entry_ids=args.entry, root=journal,
-                                        dry_run=args.dry_run)
+                                        dry_run=True)
             except ValueError as error:
                 parser.error(str(error))
-            finally:
-                if not args.dry_run:
+            if not args.dry_run:
+                WorkspaceRegistry(controller.directory).register(target)
+                # As in a server: user sync hears the appends and forgets the moved entries it shared.
+                from src.memory import history as journal_module
+                from src.user_sync import history as history_sync
+                previous = journal_module.set_sync(history_sync.Integration())
+                try:
+                    result = fallback.adopt(target, claimed=args.claimed, entry_ids=args.entry, root=journal)
+                finally:
                     history_sync.drain(history_sync.CLI_WAIT_SECONDS)
-                journal_module.set_sync(previous)
+                    journal_module.set_sync(previous)
     elif args.command in ("update", "recover"):
         from .update import offline_update, recover
         result = (recover if args.command == "recover" else offline_update)(controller)
