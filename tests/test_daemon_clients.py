@@ -214,6 +214,8 @@ def test_user_scope_antigravity_gets_auto_workspace_bridge(migration, tmp_path):
     home = tmp_path / "home"; home.mkdir()
     migration.config["node"] = sys.executable
     change = migration.prepare("antigravity", home=home)
+    registry_file = home / ".gemini/config/config.json"
+    assert not registry_file.exists()  # registration stays in the staged transaction
     backup = migration.apply([change])
     entry = json.loads(Path(change[0]).read_text())["mcpServers"]["Agents-Core"]
     assert entry["command"] == sys.executable and entry["args"][0].endswith("stdio.mjs")
@@ -227,6 +229,9 @@ def test_user_scope_antigravity_gets_auto_workspace_bridge(migration, tmp_path):
     plugin_file = home / ".gemini/config/plugins/agents-core/plugin.json"
     hooks_file = home / ".gemini/config/plugins/agents-core/hooks.json"
     assert plugin_file.exists() and hooks_file.exists()
+    assert json.loads(registry_file.read_text())["plugins"]["agents-core"] == {"enabled": True}
+    journal_paths = {record["path"] for record in json.loads((backup / "changes.json").read_text())}
+    assert {str(change[0]), str(registry_file), str(plugin_file), str(hooks_file)} <= journal_paths
     manifest = json.loads(plugin_file.read_text())
     assert manifest["name"] == "agents-core"
     hooks = json.loads(hooks_file.read_text())
@@ -237,6 +242,7 @@ def test_user_scope_antigravity_gets_auto_workspace_bridge(migration, tmp_path):
     # Restore removes the provisioned plugin files when they were created by migration
     migration.restore(backup)
     assert not plugin_file.exists() and not hooks_file.exists()
+    assert not registry_file.exists()
     # A pinned project gets a workspace bridge with its workspace identity.
     project = tmp_path / "repo"; project.mkdir()
     _, text, _ = migration.prepare("antigravity", project, home=home)
@@ -275,6 +281,17 @@ def test_provision_antigravity_plugin_merges_and_preserves_customizations(migrat
     write_json(plugin_dir / "plugin.json", {"name": "agents-core", "description": "Custom", "version": "1.0.0"})
     # Existing hooks.json with a user hook
     write_json(plugin_dir / "hooks.json", {"user-hook": {"enabled": True, "Stop": []}})
+    registry_file = home / ".gemini/config/config.json"
+    original_registry = {
+        "theme": "custom",
+        "plugins": {
+            "other-plugin": {"enabled": False, "custom": ["keep"]},
+            "agents-core": {"enabled": False, "custom": {"option": "keep"}},
+        },
+    }
+    # Byte-exact restore includes the existing registry's formatting.
+    registry_file.write_text(json.dumps(original_registry, indent=4) + "\n\n")
+    original_registry_bytes = registry_file.read_bytes()
 
     migration.config["node"] = sys.executable
     changes = migration.provision_antigravity_plugin(home=home)
@@ -288,12 +305,21 @@ def test_provision_antigravity_plugin_merges_and_preserves_customizations(migrat
     assert "user-hook" in hooks
     assert "agents-core-workspace" in hooks
     assert hooks["agents-core-workspace"]["PreToolUse"][0]["matcher"] == "call_mcp_tool|mcp_Agents-Core_.*|mcp_Agents_Core_.*"
+    updated_registry = json.loads(registry_file.read_text())
+    assert updated_registry == {
+        **original_registry,
+        "plugins": {
+            **original_registry["plugins"],
+            "agents-core": {"enabled": True, "custom": {"option": "keep"}},
+        },
+    }
 
     # Restoring backup reverts the workspace hook while preserving the user hook
     migration.restore(backup)
     restored_hooks = json.loads((plugin_dir / "hooks.json").read_text())
     assert "user-hook" in restored_hooks
     assert "agents-core-workspace" not in restored_hooks
+    assert registry_file.read_bytes() == original_registry_bytes
 
     # When node is not a valid file, it returns empty changes and does nothing
     empty_home = tmp_path / "empty_home"
@@ -319,6 +345,234 @@ def test_provision_antigravity_plugin_merges_and_preserves_customizations(migrat
         migration.provision_antigravity_plugin(home=home)
 
 
+@pytest.mark.parametrize("document", [
+    [], "invalid root", None,
+    {"plugins": []}, {"plugins": "invalid plugins"}, {"plugins": None},
+    {"plugins": {"agents-core": []}},
+    {"plugins": {"agents-core": "invalid entry"}},
+    {"plugins": {"agents-core": None}},
+    {"plugins": {"agents-core": False}},
+])
+def test_antigravity_rejects_non_object_plugin_registry_before_apply(migration, tmp_path, document):
+    home = tmp_path / "home"
+    registry_file = home / ".gemini/config/config.json"
+    write_json(registry_file, document)
+    original = registry_file.read_bytes()
+
+    with pytest.raises(ValueError, match="must be a JSON object"):
+        migration.prepare("antigravity", home=home)
+
+    assert registry_file.read_bytes() == original
+    assert not (home / ".gemini/config/mcp_config.json").exists()
+    assert not (home / ".gemini/config/plugins/agents-core").exists()
+    assert migration.staged_changes == {}
+
+
+def test_antigravity_rejects_invalid_json_plugin_registry_before_apply(migration, tmp_path):
+    home = tmp_path / "home"
+    registry_file = home / ".gemini/config/config.json"
+    registry_file.parent.mkdir(parents=True)
+    registry_file.write_text("invalid json {")
+
+    with pytest.raises(ValueError, match="Invalid JSON.*config.json"):
+        migration.prepare("antigravity", home=home)
+
+    assert registry_file.read_text() == "invalid json {"
+    assert not (home / ".gemini/config/mcp_config.json").exists()
+    assert not (home / ".gemini/config/plugins/agents-core").exists()
+
+
+@pytest.mark.parametrize("edit_when", ["before_apply", "during_apply"])
+@pytest.mark.parametrize("existing_registry", [False, True])
+def test_antigravity_registry_concurrent_edit_preserves_user_changes_and_rolls_back(
+    migration, tmp_path, edit_when, existing_registry,
+):
+    home = tmp_path / "home"
+    registry_file = home / ".gemini/config/config.json"
+    if existing_registry:
+        write_json(registry_file, {"plugins": {"other": {"enabled": True}}})
+    change = migration.prepare("antigravity", home=home)
+    user_edit = {"plugins": {"other": {"enabled": False}}, "userChanged": True}
+
+    if edit_when == "before_apply":
+        write_json(registry_file, user_edit)
+        callback = None
+        error = "changed after preparation"
+    else:
+        def callback(_backup):
+            write_json(registry_file, user_edit)
+        error = "changed during migration"
+
+    with pytest.raises(ValueError, match=error):
+        migration.apply([change], on_prepared=callback)
+
+    assert json.loads(registry_file.read_text()) == user_edit
+    assert not change[0].exists()
+    plugin_dir = home / ".gemini/config/plugins/agents-core"
+    assert not (plugin_dir / "plugin.json").exists()
+    assert not (plugin_dir / "hooks.json").exists()
+    assert str(change[0]) in migration.staged_changes
+
+
+def test_antigravity_restore_rejects_user_edited_plugin_registry(migration, tmp_path):
+    home = tmp_path / "home"
+    change = migration.prepare("antigravity", home=home)
+    backup = migration.apply([change])
+    registry_file = home / ".gemini/config/config.json"
+    user_edit = {"plugins": {"agents-core": {"enabled": False}}, "userChanged": True}
+    write_json(registry_file, user_edit)
+
+    with pytest.raises(ValueError, match="changed after migration"):
+        migration.restore(backup)
+
+    assert json.loads(registry_file.read_text()) == user_edit
+    assert change[0].exists()
+    assert (home / ".gemini/config/plugins/agents-core/plugin.json").exists()
+    assert (home / ".gemini/config/plugins/agents-core/hooks.json").exists()
+
+
+def test_repeated_antigravity_migration_preserves_settings_without_duplicate_hooks(migration, tmp_path):
+    home = tmp_path / "home"
+    registry_file = home / ".gemini/config/config.json"
+    original_registry = {
+        "userSettings": {"theme": "custom"},
+        "plugins": {"other-plugin": {"enabled": True}, "agents-core": {"custom": "keep"}},
+    }
+    write_json(registry_file, original_registry)
+    plugin_dir = home / ".gemini/config/plugins/agents-core"
+    write_json(plugin_dir / "plugin.json", {"name": "agents-core", "description": "Custom"})
+    write_json(plugin_dir / "hooks.json", {"user-hook": {"enabled": True, "Stop": []}})
+    change = migration.prepare("antigravity", home=home)
+    migration.apply([change])
+    paths = [change[0], registry_file, plugin_dir / "plugin.json", plugin_dir / "hooks.json"]
+    first_contents = {path: path.read_bytes() for path in paths}
+
+    second_change = migration.prepare("antigravity", home=home)
+    migration.apply([second_change])
+
+    assert {path: path.read_bytes() for path in paths} == first_contents
+    registry = json.loads(registry_file.read_text())
+    assert registry["userSettings"] == original_registry["userSettings"]
+    assert registry["plugins"] == {
+        "other-plugin": {"enabled": True}, "agents-core": {"custom": "keep", "enabled": True},
+    }
+    assert json.loads((plugin_dir / "plugin.json").read_text())["description"] == "Custom"
+    hooks = json.loads((plugin_dir / "hooks.json").read_text())
+    assert set(hooks) == {"user-hook", "agents-core-workspace"}
+    assert hooks["user-hook"] == {"enabled": True, "Stop": []}
+    assert len(hooks["agents-core-workspace"]["PreToolUse"]) == 1
+    assert len(hooks["agents-core-workspace"]["PreToolUse"][0]["hooks"]) == 1
+
+
+@pytest.mark.parametrize("home_form", ["absolute", "relative", "directory_alias"])
+def test_antigravity_config_override_can_share_plugin_registry_and_restores_once(
+    migration, tmp_path, monkeypatch, home_form,
+):
+    home = tmp_path / "home"
+    registry_file = home / ".gemini/config/config.json"
+    registry_file.parent.mkdir(parents=True)
+    original = {
+        "userSettings": {"theme": "custom"},
+        "plugins": {"other-plugin": {"enabled": False}, "agents-core": {"custom": "keep"}},
+        "mcpServers": {"other": {"command": "safe", "args": ["keep"]}},
+    }
+    registry_file.write_text(json.dumps(original, indent=4) + "\n\n")
+    original_bytes = registry_file.read_bytes()
+    monkeypatch.chdir(tmp_path)
+    supplied_home = Path("home") if home_form == "relative" else home
+    if home_form == "directory_alias":
+        supplied_home = tmp_path / "home-alias"
+        try:
+            supplied_home.symlink_to(home, target_is_directory=True)
+        except OSError:
+            pytest.skip("Directory symlinks are unavailable")
+    change = migration.prepare(
+        "antigravity", home=supplied_home, config_path=registry_file,
+    )
+    backup = migration.apply([change])
+
+    document = json.loads(registry_file.read_text())
+    assert document["userSettings"] == original["userSettings"]
+    assert document["mcpServers"]["other"] == original["mcpServers"]["other"]
+    entry = document["mcpServers"]["Agents-Core"]
+    assert entry["command"] == sys.executable and entry["args"][0].endswith("stdio.mjs")
+    assert document["plugins"] == {
+        "other-plugin": {"enabled": False}, "agents-core": {"custom": "keep", "enabled": True},
+    }
+    journal = json.loads((backup / "changes.json").read_text())
+    assert sum(record["path"] == str(registry_file) for record in journal) == 1
+
+    migration.restore(backup)
+
+    assert registry_file.read_bytes() == original_bytes
+    plugin_dir = home / ".gemini/config/plugins/agents-core"
+    assert not (plugin_dir / "plugin.json").exists()
+    assert not (plugin_dir / "hooks.json").exists()
+
+
+@pytest.mark.parametrize("config_target", ["default", "registry", "referent"])
+def test_antigravity_registry_file_symlink_is_rejected(migration, tmp_path, config_target):
+    home = tmp_path / "home"
+    registry_file = home / ".gemini/config/config.json"
+    referent = home / "original-config.json"
+    write_json(referent, {"userSettings": {"theme": "keep"}, "plugins": {"other": {"enabled": True}}})
+    original_bytes = referent.read_bytes()
+    registry_file.parent.mkdir(parents=True)
+    try:
+        registry_file.symlink_to(referent)
+    except OSError:
+        pytest.skip("File symlinks are unavailable")
+    config_path = {"default": None, "registry": registry_file, "referent": referent}[config_target]
+    change = migration.prepare("antigravity", home=home, config_path=config_path)
+
+    with pytest.raises(ValueError, match="cannot be a symlink"):
+        migration.apply([change])
+
+    assert registry_file.is_symlink()
+    assert referent.read_bytes() == original_bytes
+    assert not (home / ".gemini/config/mcp_config.json").exists()
+    plugin_dir = home / ".gemini/config/plugins/agents-core"
+    assert not (plugin_dir / "plugin.json").exists()
+    assert not (plugin_dir / "hooks.json").exists()
+
+
+def test_antigravity_shared_registry_edit_during_preparation_is_preserved(migration, tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    registry_file = home / ".gemini/config/config.json"
+    write_json(registry_file, {
+        "userSettings": {"theme": "original"},
+        "plugins": {"other-plugin": {"enabled": True}},
+        "mcpServers": {"other": {"command": "original"}},
+    })
+    user_edit = {
+        "userSettings": {"theme": "changed", "language": "custom"},
+        "plugins": {"other-plugin": {"enabled": False}, "agents-core": {"custom": "added"}},
+        "mcpServers": {"other": {"command": "changed"}, "added": {"command": "keep"}},
+    }
+    read_config = migration.read_config
+    edited = False
+
+    def edit_after_first_snapshot(path, **kwargs):
+        nonlocal edited
+        document = read_config(path, **kwargs)
+        if Path(path) == registry_file and not edited:
+            edited = True
+            write_json(registry_file, user_edit)
+        return document
+
+    monkeypatch.setattr(migration, "read_config", edit_after_first_snapshot)
+    change = migration.prepare("antigravity", home=home, config_path=registry_file)
+    assert edited and json.loads(registry_file.read_text()) == user_edit
+
+    with pytest.raises(ValueError, match="changed after preparation"):
+        migration.apply([change])
+
+    assert json.loads(registry_file.read_text()) == user_edit
+    plugin_dir = home / ".gemini/config/plugins/agents-core"
+    assert not (plugin_dir / "plugin.json").exists()
+    assert not (plugin_dir / "hooks.json").exists()
+
+
 def test_staged_changes_do_not_leak_to_other_clients(migration, tmp_path):
     home = tmp_path / "home"; home.mkdir()
     migration.config["node"] = sys.executable
@@ -331,9 +585,12 @@ def test_staged_changes_do_not_leak_to_other_clients(migration, tmp_path):
     # Antigravity plugin files must not have been created
     plugin_file = home / ".gemini/config/plugins/agents-core/plugin.json"
     assert not plugin_file.exists()
+    registry_file = home / ".gemini/config/config.json"
+    assert not registry_file.exists()
     # Now apply antigravity change
     migration.apply([antigravity_change])
     assert plugin_file.exists()
+    assert json.loads(registry_file.read_text())["plugins"]["agents-core"]["enabled"] is True
 
 
 def test_staged_changes_preserved_on_failed_apply(migration, tmp_path):
