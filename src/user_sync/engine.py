@@ -826,28 +826,38 @@ class Syncer:
         events after its first-upload preview is confirmed. Existing snapshot
         ancestry and excluded contents never travel to the new remote.
         """
-        # Detaching a remote must not make its received intermediate versions
-        # disappear locally when unreachable objects are eventually pruned.
-        from src.library_history import LibraryHistory
         with self._library_lock():
-            backend = LibraryHistory(self.library)
-            adoption = backend.adoption()
-            if adoption and adoption["pending"]:
-                raise SyncError("adoption_pending", "finish the accepted replacement before changing remotes")
-            backend.ensure()
-            if backend.generation():
-                git.run("config", "agents-sync.adopted-boundary", backend.generation())
-            self._retain_incoming(git)
-            incoming = backend.accepted_refs() if backend.generation() else git.text(
-                "for-each-ref", "--format=%(refname)", versions.INCOMING_REFS,
-                versions.RECEIVED_REFS).splitlines()
-            for event in backend.events(incoming):
-                raw = event["content"] if event["archive"] else event["previous"]
-                if event["path"] and raw is not None:
-                    backend.record(event["path"], raw, version=event["id"], deleted=event["deleted"])
+            self._preserve_connected_history(git)
         for ref in git.text("for-each-ref", "--format=%(refname)", "refs/heads", "refs/remotes",
                             versions.PORTABLE_REFS, versions.INCOMING_REFS).split():
             git.run("update-ref", "-d", ref)
+
+    def _preserve_connected_history(self, git: Git, *, archive_received: bool = True) -> None:
+        """Freeze received versions as local history before detaching. Caller holds ``.lock``.
+
+        A subsequent connection compares them as existing local data even if all
+        current flows were deleted. Fresh comparison fetches remain remote data.
+        Only the active generation may become new native history after Replace.
+        """
+        from src.library_history import LibraryHistory
+        backend = LibraryHistory(self.library)
+        adoption = backend.adoption()
+        if adoption and adoption["pending"]:
+            raise SyncError("adoption_pending", "finish the accepted replacement before detaching the remote")
+        backend.ensure()
+        generation = backend.generation()
+        if generation:
+            git.run("config", "agents-sync.adopted-boundary", generation)
+        elif not archive_received:
+            return  # An unconfirmed setup has only fetched comparison data.
+        self._retain_incoming(git)
+        incoming = backend.accepted_refs() if generation else git.text(
+            "for-each-ref", "--format=%(refname)", versions.INCOMING_REFS,
+            versions.RECEIVED_REFS).splitlines()
+        for event in backend.events(incoming):
+            raw = event["content"] if event["archive"] else event["previous"]
+            if event["path"] and raw is not None:
+                backend.record(event["path"], raw, version=event["id"], deleted=event["deleted"])
 
     def _rev(self, git: Git, ref: str) -> str | None:
         result = git.run("rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}", check=False)
@@ -2667,7 +2677,8 @@ class Syncer:
                 git = self._repository(settings, create=True)
                 self._clear_stale_git_locks()
                 if self._unfinished_adoption(git, settings):
-                    raise SyncError("adoption_pending", "finish the replacement already accepted before another preview")
+                    raise SyncError("adoption_pending", "finish the accepted replacement with "
+                                    "python -m src.user_sync run before another preview")
                 remote_head, _ = self._inspect_remote(git, settings)
                 with self._library_lock():
                     self._prepare_library(git, self._rev(git, f"refs/heads/{settings.branch}"))
@@ -2746,7 +2757,8 @@ class Syncer:
                 git = self._repository(settings, create=True)
                 self._clear_stale_git_locks()
                 if self._unfinished_adoption(git, settings):
-                    raise SyncError("adoption_pending", "finish the replacement already accepted before another preview")
+                    raise SyncError("adoption_pending", "finish the accepted replacement with "
+                                    "python -m src.user_sync run before another preview")
                 remote_head, _ = self._inspect_remote(git, settings)
                 with self._library_lock():
                     self._prepare_library(git, self._rev(git, f"refs/heads/{settings.branch}"))
@@ -3592,14 +3604,8 @@ class Syncer:
         # The settings lock keeps a concurrent pause or approval from saving the settings back.
         with self._sync_lock_for(settings, create=False), file_lock(self.state_dir / "settings.lock"):
             if (self.library / ".git").is_dir():
-                from src.library_history import LibraryHistory
                 with self._library_lock():
-                    backend = LibraryHistory(self.library)
-                    adoption = backend.adoption()
-                    if adoption and adoption["pending"]:
-                        raise SyncError("adoption_pending", "finish the accepted replacement before disconnecting")
-                    if backend.generation():
-                        self._git().run("config", "agents-sync.adopted-boundary", backend.generation())
+                    self._preserve_connected_history(self._git(), archive_received=bool(settings.started))
             for name in (SETTINGS_FILE, STATE_FILE, HISTORY_STATE_FILE, keys.KEY_NAME, f"{keys.KEY_NAME}.pub"):
                 (self.state_dir / name).unlink(missing_ok=True)
         self._log("disconnected")

@@ -3017,6 +3017,11 @@ async function loadConnectionComparison(wizard, preview, path) {
     wizard.comparison = detail;
   } catch (error) {
     if (error.signedOut || sync.wizard !== wizard || wizard.preview !== preview || wizard.comparisonRequest !== request) return;
+    if (error.data && error.data.reason === "adoption_pending") {
+      goWizard({ preview: null, previewError: { message: error.message, reason: "adoption_pending" },
+        comparison: null, comparisonError: null });
+      return;
+    }
     if (error.data && error.data.reason === "confirmation_needed") {
       goWizard({ preview: null, comparison: null, comparisonError: null });
       syncAlert(error.message + ". Review the new preview.", "error");
@@ -3030,7 +3035,12 @@ async function loadConnectionComparison(wizard, preview, path) {
 function wizardPreview(card, wizard) {
   node("h3", card, "Preview");
   if (wizard.previewError) {
-    node("p", card, wizard.previewError, "notice error");
+    node("p", card, wizard.previewError.message, "notice error");
+    if (wizard.previewError.reason === "adoption_pending") {
+      node("p", card, "The replacement was already confirmed. Finish applying the accepted contents before preparing another preview.", "meta");
+      action(node("div", card, null, "bar"), "Finish replacement", finishReplacement, "primary");
+      return;
+    }
     const bar = node("div", card, null, "bar");
     action(bar, "Back", () => goWizard({ step: "scope" }));
     action(bar, "Try again", () => goWizard({ preview: null, previewError: null }), "primary");
@@ -3089,7 +3099,7 @@ async function loadPreview(wizard) {
     if (wizard.connectionMode === mode) wizard.preview = preview;
   } catch (error) {
     if (error.signedOut) return;
-    wizard.previewError = error.message;
+    wizard.previewError = { message: error.message, reason: error.data && error.data.reason };
   } finally {
     wizard.previewLoading = false;
   }
@@ -3121,6 +3131,19 @@ async function startSync() {
   await refreshSync(true);
   if (sync.status && sync.status.started) syncAlert("Sync started: " + cycleText(result), "ok");
   else syncAlert(result.message || "Sync did not start.", "error");
+}
+
+// An interrupted replacement resumes its accepted plan, without asking for a new decision.
+async function finishReplacement() {
+  const wizard = sync.wizard;
+  if (!wizard || !wizard.previewError || wizard.previewError.reason !== "adoption_pending") return;
+  await syncTask(async () => {
+    const result = await post("/run");
+    if (sync.wizard !== wizard) return;
+    await refreshSync(true);
+    if (sync.status && sync.status.started) syncAlert("Replacement finished: " + cycleText(result), "ok");
+    else syncAlert(result.message || "Replacement did not finish. Try again.", "error");
+  });
 }
 
 // --- what syncs: groups, the "ask first" setting and uploads that need a confirmation --------

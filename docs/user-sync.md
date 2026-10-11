@@ -133,6 +133,9 @@ shows the merged result and conflicts. **Replace local with repository** install
 permitted data and shows every local replacement and deletion; retained paths are listed
 separately. Replacement does not delete or rewrite the remote. An empty remote cannot replace
 local data. Empty local libraries can use the reviewed download without a merge/replace choice.
+Disconnecting an established connection preserves received restorable versions in local Git
+history, so reconnecting to the same repository still requires a choice when only deleted
+flows' versions remain locally.
 
 The chosen mode and exact local files, local history, remote revision, remote history and sharing
 policy are bound to the preview hash. Changing the mode requires a new preview. If any of those
@@ -147,6 +150,8 @@ and retains the older private history. Its publication boundary excludes discard
 from future uploads, including after reconnecting, changing remotes or enabling a scope again.
 Accepted remote versions remain available. An interrupted replacement retains its exact approved
 transaction for recovery; unexpected external edits are refused instead of overwritten.
+If replacement is interrupted, use **Finish replacement** in the web wizard or run
+`python -m src.user_sync run` to finish the already accepted transaction before another preview.
 
 ### The web UI
 

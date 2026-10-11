@@ -303,10 +303,12 @@ const started = () => ({
   loop: { state: "running", active: true, syncing: false, held: null, next_fetch_seconds: 240, last_cycle: null },
 });
 if (["sync_dashboard", "sync_notice", "sync_more", "sync_round2"].includes(scenario)) syncState = started();
-// Set up over SSH, stopped at the host's fingerprints, then the page was reloaded.
-if (scenario === "sync_hostkey" || scenario === "sync_busy_radio" || scenario === "sync_connection_choice") {
+// Set up over SSH, then the page was reloaded; some setups stopped at the host's fingerprints.
+if (["sync_hostkey", "sync_busy_radio", "sync_connection_choice", "sync_connection_recovery",
+     "sync_comparison_recovery", "sync_preview_error"].includes(scenario)) {
   syncState = { ...SYNC_OFF, state: "waiting_for_access", set_up: true, started: null, suggested_label: undefined,
-                repository: "git.example.com/me/library", ssh: true, host_key_unconfirmed: scenario !== "sync_connection_choice", label: "laptop",
+                repository: "git.example.com/me/library", ssh: true,
+                host_key_unconfirmed: ["sync_hostkey", "sync_busy_radio"].includes(scenario), label: "laptop",
                 identity: { name: "Owner", email: "owner@example.com" }, public_key: PUBLIC_KEY };
 }
 // Set up on GitHub, stopped before GitHub's host keys were stored, then the page was reloaded.
@@ -1060,6 +1062,62 @@ if (isSync) {
     reply("POST /ui/api/sync/start", [200, { status: "synced", sent: [], received: ["common/remote.md"] }]);
     syncState = started();
     await click("Replace local and connect");
+    out.calls = calls();
+    console.log(JSON.stringify(out));
+    process.exit(0);
+  }
+
+  if (["sync_connection_recovery", "sync_comparison_recovery", "sync_preview_error"].includes(scenario)) {
+    const message = "finish the accepted replacement with python -m src.user_sync run before another preview";
+    const pending = { status: "attention", reason: "adoption_pending", message };
+    reply("POST /ui/api/sync/check", [200, { status: "ok", remote_state: "library", remote_head: "remote1" }]);
+    reply("GET /ui/api/sync/scopes", [200, { groups: [{ group: "common", syncs: true }], ask_new_repositories: false }]);
+    await openPage();
+    await click("Check access");
+    if (scenario === "sync_comparison_recovery") {
+      const preview = (mode) => ({ kind: "join", hash: mode ? "replace1" : "provisional", privacy: "unknown",
+        connection_choice_required: !mode, connection_mode: mode, allowed_modes: ["merge", "replace"],
+        comparison: { files: [{ path: "common/a.md", state: "different", merge: { action: "merge" },
+                               replace: { action: "replace" } }] } });
+      reply("GET /ui/api/sync/preview", [200, preview(null)]);
+      await click("Continue to the preview");
+      reply("GET /ui/api/sync/preview", [200, preview("replace")]);
+      await choose("replace");
+      await sleep(30);
+      reply("GET /ui/api/sync/comparison", [409, pending]);
+      await click("Inspect common/a.md");
+    } else {
+      reply("GET /ui/api/sync/preview", [409, scenario === "sync_preview_error" ? { ...pending, reason: "auth" } : pending]);
+      await click("Continue to the preview");
+    }
+    await sleep(30);
+    out.pending = { ...snapshot(), text: textOf(root()),
+      inputs: findAll(root(), (n) => n.tag === "input").length };
+    if (scenario === "sync_preview_error") {
+      out.calls = calls();
+      console.log(JSON.stringify(out));
+      process.exit(0);
+    }
+    reply("POST /ui/api/sync/run", [500, { status: "attention", reason: "write_failed", message: "could not finish the replacement" }],
+          [200, { status: "synced", sent: [], received: ["common/a.md"], conflicts: [] }]);
+    await click("Finish replacement");
+    out.failed = snapshot();
+    const mark = syncCalls.length, fresh = freshReads(), wait = hold("POST /ui/api/sync/run");
+    await click("Finish replacement");
+    await click("Finish replacement");
+    out.waiting = { runs: calls(mark).filter((call) => call[1].endsWith("/run")).length,
+      ariaDisabled: buttonsNamed("Finish replacement", root())[0].attrs["aria-disabled"] };
+    syncState = started();
+    const statusWait = hold("GET /ui/api/sync");
+    wait.release();
+    await sleep(10);
+    await click("Finish replacement");
+    out.refreshing = { runs: calls(mark).filter((call) => call[1].endsWith("/run")).length,
+      ariaDisabled: buttonsNamed("Finish replacement", root())[0].attrs["aria-disabled"] };
+    statusWait.release();
+    await sleep(30);
+    out.finished = { ...snapshot(), fresh_reads: freshReads() - fresh, chip: chip() };
+    out.recovery_calls = syncCalls.slice(mark);
     out.calls = calls();
     console.log(JSON.stringify(out));
     process.exit(0);

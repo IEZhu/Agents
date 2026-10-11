@@ -206,6 +206,54 @@ def test_saved_versions_alone_require_choice_and_empty_remote_cannot_replace(mac
         c.sync.preview(connection_mode="replace")
 
 
+@pytest.mark.parametrize("mode", ["merge", "replace"])
+def test_received_only_history_requires_choice_on_same_remote_reconnect(machine, mode):
+    a, b = machine("a"), machine("b")
+    a.save("user:deleted", "# Received deleted version\n")
+    a.flows.delete("user:deleted", expected_revision=a.revision("user:deleted"))
+    a.connect()
+    setup(b)
+    # Fetches for access checks and repeated previews are comparison data, not
+    # an existing local library on this first connection.
+    for _ in range(2):
+        preview = b.sync.preview()
+        assert not preview["connection_choice_required"]
+        assert preview["comparison"]["history"]["local_versions"] == 0
+        b.sync.check()
+    assert b.sync.start(preview["hash"])["status"] == "synced"
+    assert b"# Received deleted version\n" in b.archived_texts("common/deleted.md")
+    assert not any(e["path"] == "common/deleted.md" for e in LibraryHistory(b.lib).events([HISTORY_REF]))
+    b.sync.disconnect()
+    a.save("user:new", "# New remote flow\n")
+    a.run()
+    setup(b)
+    before = refs(b)
+    neutral = b.sync.preview()
+    assert neutral["connection_choice_required"] and neutral["connection_mode"] is None
+    assert neutral["comparison"]["history"]["local_versions"] > 0
+    assert b.sync.start(neutral["hash"])["reason"] == "connection_choice_required"
+    assert b.sync.settings().started is None and refs(b) == before
+    chosen = b.sync.preview(connection_mode=mode)
+    assert b.sync.start(chosen["hash"], connection_mode=mode)["status"] == "synced"
+    assert b.text("common/new.md") == "# New remote flow\n"
+    assert b"# Received deleted version\n" in b.archived_texts("common/deleted.md")
+
+
+def test_cancelled_setup_fetches_remain_comparison_data_on_reconnect(machine):
+    a, b = machine("a"), machine("b")
+    a.save("user:shared", "# Earlier remote version\n")
+    a.save("user:shared", "# Current remote version\n")
+    a.connect()
+    setup(b)
+    assert b.sync.preview()["comparison"]["history"]["remote_versions"] > 0
+    b.sync.disconnect()
+    setup(b)
+    preview = b.sync.preview()
+    assert not preview["connection_choice_required"]
+    assert preview["comparison"]["history"]["local_versions"] == 0
+    assert b.sync.start(preview["hash"])["status"] == "synced"
+
+
 def test_replace_accepts_remote_legacy_aliases_without_republishing_local_legacy_versions(machine, tmp_path):
     a, b = machine("a"), machine("b")
     clone = tmp_path / "legacy"
@@ -274,6 +322,10 @@ def test_interrupted_replace_resumes_exact_accepted_manifest_without_publication
     result = b.sync.start(preview["hash"], connection_mode="replace")
     assert result["reason"] == "library_unreadable" and b.sync.settings().started is None
     assert LibraryHistory(b.lib).adoption()["pending"] and refs(b) == before
+    for read in (b.sync.preview, lambda: b.sync.comparison("common/shared.md", confirm=preview["hash"])):
+        with pytest.raises(SyncError, match="python -m src.user_sync run") as failure:
+            read()
+        assert failure.value.reason == "adoption_pending"
     with pytest.raises(SyncError, match="accepted"):
         b.sync.preview(connection_mode="merge")
     with pytest.raises(SyncError, match="accepted"):
