@@ -108,6 +108,11 @@ def test_replace_keeps_private_recovery_but_never_publishes_discarded_versions(m
     assert b"# Discarded current\n" in b.archived_texts("common/shared.md")
     b.save("user:shared", "# Post adoption edit\n")
     assert b.run()["status"] == "synced"
+    assert a.run()["status"] == "synced"
+    assert a.text("common/shared.md") == "# Post adoption edit\n"
+    assert b"# Discarded old\n" not in a.archived_texts("common/shared.md")
+    assert b"# Discarded current\n" not in a.archived_texts("common/shared.md")
+    assert b"# Discarded local only\n" not in a.archived_texts("common/local-only.md")
     assert b"Discarded" not in remote_objects(b.remote)
     assert b"Remote old" in remote_objects(b.remote)
     private = plain_git("rev-parse", HISTORY_REF, cwd=b.lib)
