@@ -88,9 +88,17 @@ def _parser() -> argparse.ArgumentParser:
                        help="with --github: remove this machine's deploy key from the repository an "
                             "earlier setup chose")
     command("check", "check access to the remote")
-    command("preview", "show what starting or confirming sync would upload and download")
+    preview = command("preview", "compare libraries and show the exact connection plan")
+    preview.add_argument("--connection-mode", choices=("merge", "replace"),
+                         help="explicitly merge libraries or replace local contents from an existing repository")
+    comparison = command("comparison", "read Local, Remote and Result for a path in a reviewed preview")
+    comparison.add_argument("path")
+    comparison.add_argument("--confirm", metavar="HASH", required=True, help="the preview's hash")
+    comparison.add_argument("--connection-mode", choices=("merge", "replace"))
     start = command("start", "start sync after reviewing the preview")
     start.add_argument("--confirm", metavar="HASH", required=True, help="the preview's hash")
+    start.add_argument("--connection-mode", choices=("merge", "replace"),
+                       help="the same connection choice used to prepare the preview")
     command("conflicts", "list conflicts")
     resolve = command("resolve", "resolve a conflict")
     resolve.add_argument("id")
@@ -207,9 +215,12 @@ def _execute(syncer: Syncer, arguments, console: SimpleNamespace) -> dict | list
     if name == "check":
         return syncer.check()
     if name == "preview":
-        return syncer.preview()
+        return syncer.preview(connection_mode=arguments.connection_mode) if arguments.connection_mode else syncer.preview()
+    if name == "comparison":
+        return syncer.comparison(arguments.path, confirm=arguments.confirm, connection_mode=arguments.connection_mode)
     if name == "start":
-        return syncer.start(arguments.confirm)
+        return (syncer.start(arguments.confirm, connection_mode=arguments.connection_mode)
+                if arguments.connection_mode else syncer.start(arguments.confirm))
     if name == "conflicts":
         return syncer.conflicts()
     if name == "resolve":
@@ -289,6 +300,22 @@ def _github(syncer: Syncer, action: str, arguments, console: SimpleNamespace) ->
 
 
 def _print(result, command: str) -> None:
+    if command == "comparison" and "path" in result and "result" in result:
+        from src.user_sync.wizard import describe_comparison
+        for line in describe_comparison(result):
+            print(line)
+        return
+    if command == "preview" and result.get("comparison"):
+        from src.user_sync.wizard import describe_preview
+        for line in describe_preview(result):
+            print(line)
+        if result.get("connection_choice_required") and not result.get("connection_mode"):
+            print("Choose explicitly: python -m src.user_sync preview --connection-mode merge (or replace).")
+        elif result.get("hash"):
+            option = f" --connection-mode {result['connection_mode']}" if result.get("connection_mode") else ""
+            print(f"Start with: python -m src.user_sync start{option} --confirm {result['hash']}")
+            print(f"Read a path: python -m src.user_sync comparison PATH{option} --confirm {result['hash']}")
+        return
     if isinstance(result, list):  # conflicts
         if not result:
             print("No conflicts.")

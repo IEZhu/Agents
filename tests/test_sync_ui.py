@@ -217,7 +217,7 @@ async def test_every_sync_route_needs_the_session_the_header_and_the_pages_origi
     syncer = UISyncer(tmp_path, account, started=False)
     app, service = make_app(tmp_path, syncer)
     routes = [(method, path) for path, methods in ROUTES.items() for method in methods]
-    assert len(routes) == 21
+    assert len(routes) == 22
     async with running(app) as http:
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://127.0.0.1:8765") as stranger:
             for method, path in routes:
@@ -273,6 +273,89 @@ async def test_bad_requests_get_json_answers_and_change_nothing(tmp_path, accoun
 
 
 # --- status -----------------------------------------------------------------------------------
+
+
+class ConnectionUISyncer(UISyncer):
+    """A mode-bound preview and its text details, without network or library writes."""
+
+    def preview(self, *, connection_mode=None):
+        self._record("preview", connection_mode=connection_mode)
+        return {"hash": connection_mode or "unselected", "connection_mode": connection_mode,
+                "connection_choice_required": True, "allowed_modes": ["merge", "replace"],
+                "comparison": {"files": [{"path": "common/a.md", "state": "different"}]},
+                "upload": [], "download": []}
+
+    def comparison(self, path, *, confirm, connection_mode=None, text_limit):
+        self._record("comparison", path=path, confirm=confirm, connection_mode=connection_mode,
+                     text_limit=text_limit)
+        if confirm != (connection_mode or "unselected"):
+            raise SyncError("confirmation_needed", "the preview changed; review it again")
+        side = {"text": "# A\n", "binary": False, "too_large": False, "size": 4, "blob": "a" * 40}
+        return {"path": path, "hash": confirm, "connection_mode": connection_mode,
+                "entry": {"path": path, "state": "different"}, "local": side, "remote": side,
+                "result": side, "base": None}
+
+    def start(self, confirm, *, connection_mode=None):
+        self._record("start", confirm=confirm, connection_mode=connection_mode)
+        return {"status": "synced", "sent": [], "received": [], "conflicts": [], "pushed": False}
+
+
+@pytest.mark.asyncio
+async def test_connection_modes_and_comparison_parameters_are_checked_before_engine_work(tmp_path, account):
+    syncer = ConnectionUISyncer(tmp_path, account, started=False)
+    async with ui(tmp_path, syncer) as (call, service):
+        for path in ("/ui/api/sync/preview?connection_mode=discard",
+                     "/ui/api/sync/preview?unexpected=merge",
+                     "/ui/api/sync/comparison",
+                     "/ui/api/sync/comparison?path=common/a.md",
+                     "/ui/api/sync/comparison?path=common/a.md&confirm=x&connection_mode=discard"):
+            response = await call("GET", path)
+            assert response.status_code == 400 and response.json()["error"] == "invalid_request"
+        for mode in (True, 1, "discard", ""):
+            response = await call("POST", "/ui/api/sync/start",
+                                  {"confirm": "x", "confirm_private": True, "connection_mode": mode})
+            assert response.status_code == 400 and response.json()["error"] == "invalid_request"
+        assert syncer.calls == []
+        assert not syncer.config.started and not syncer.config.private_confirmed
+
+
+@pytest.mark.asyncio
+async def test_selected_connection_mode_and_hash_bound_details_use_the_sync_queue(tmp_path, account):
+    syncer = ConnectionUISyncer(tmp_path, account, started=False)
+    async with ui(tmp_path, syncer) as (call, service):
+        decided = []
+        perform = service.user_sync.perform
+
+        async def recording(command, operation, *, queued, plain=False):
+            decided.append((command, queued))
+            return await perform(command, operation, queued=queued, plain=plain)
+        service.user_sync.perform = recording
+        preview = await call("GET", "/ui/api/sync/preview?connection_mode=replace")
+        assert preview.status_code == 200 and preview.json()["connection_mode"] == "replace"
+        assert preview.json()["comparison"]["files"][0]["path"] == "common/a.md"
+        detail = await call("GET", "/ui/api/sync/comparison?path=common%2Fa.md&confirm=replace"
+                                  "&connection_mode=replace")
+        assert detail.status_code == 200 and detail.json()["result"]["text"] == "# A\n"
+        assert detail.headers["cache-control"] == "no-store"
+        result = await call("POST", "/ui/api/sync/start", {"confirm": "replace", "connection_mode": "replace"})
+        assert result.status_code == 200
+        assert decided == [("preview", True), ("comparison", True), ("start", True)]
+        assert syncer.calls == [
+            ("preview", {"connection_mode": "replace"}),
+            ("comparison", {"path": "common/a.md", "confirm": "replace", "connection_mode": "replace",
+                             "text_limit": sync_ui.TEXT_LIMIT}),
+            ("start", {"confirm": "replace", "connection_mode": "replace"})]
+
+
+@pytest.mark.asyncio
+async def test_stale_comparison_is_refused_without_starting_sync(tmp_path, account):
+    syncer = ConnectionUISyncer(tmp_path, account, started=False)
+    async with ui(tmp_path, syncer) as (call, service):
+        response = await call("GET", "/ui/api/sync/comparison?path=common%2Fa.md&confirm=merge"
+                                    "&connection_mode=replace")
+        assert response.status_code == 409 and response.json()["reason"] == "confirmation_needed"
+        assert not syncer.config.started
+        assert [name for name, _ in syncer.calls] == ["comparison"]
 
 
 @pytest.mark.asyncio

@@ -510,7 +510,7 @@ async def test_admin_endpoints_need_the_token(tmp_path):
     app, service = make_app(tmp_path, syncer)
     async with running(app):
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://127.0.0.1:8765") as anonymous:
-            for command in ("status", "run", "setup", "check", "preview", "start", "pause", "resume", "disconnect"):
+            for command in sync_loop.COMMANDS:
                 method = anonymous.get if command == "status" else anonymous.post
                 response = await method(f"/admin/user-sync/{command}")
                 assert response.status_code == 401 and response.json() == {"error": "unauthorized"}
@@ -668,6 +668,73 @@ async def test_a_client_that_leaves_while_sending_gets_json(tmp_path):
 
 
 # --- the command line -------------------------------------------------------------------------
+
+
+class ConnectionSyncer(FakeSyncer):
+    def preview(self, *, connection_mode=None):
+        self._record("preview", connection_mode=connection_mode)
+        return {"hash": connection_mode or "unselected", "connection_mode": connection_mode}
+
+    def comparison(self, path, *, confirm, connection_mode=None):
+        self._record("comparison", path=path, confirm=confirm, connection_mode=connection_mode)
+        return {"path": path, "hash": confirm, "connection_mode": connection_mode}
+
+    def start(self, confirm, *, connection_mode=None):
+        self._record("start", confirm=confirm, connection_mode=connection_mode)
+        return {"status": "synced", "sent": [], "received": [], "conflicts": [], "pushed": False}
+
+
+@pytest.mark.asyncio
+async def test_admin_connection_preview_details_and_start_keep_the_selected_mode(tmp_path):
+    syncer = ConnectionSyncer(tmp_path / "library", started=False)
+    app, service = make_app(tmp_path, syncer)
+    async with running(app) as http:
+        await until(lambda: service.user_sync.armed)
+        preview = await http.post("/admin/user-sync/preview", json={"connection_mode": "replace"})
+        assert preview.status_code == 200 and preview.json()["hash"] == "replace"
+        details = await http.post("/admin/user-sync/comparison", json={
+            "path": "common/a.md", "confirm": "replace", "connection_mode": "replace"})
+        assert details.status_code == 200 and details.json()["path"] == "common/a.md"
+        result = await http.post("/admin/user-sync/start", json={
+            "confirm": "replace", "connection_mode": "replace"})
+        assert result.status_code == 200 and result.json()["status"] == "synced"
+    assert syncer.calls == [
+        ("preview", {"connection_mode": "replace"}),
+        ("comparison", {"path": "common/a.md", "confirm": "replace", "connection_mode": "replace"}),
+        ("start", {"confirm": "replace", "connection_mode": "replace"})]
+    assert not syncer.runs
+
+
+@pytest.mark.parametrize("command,arguments", [
+    ("preview", {"connection_mode": "discard"}),
+    ("start", {"confirm": "x", "connection_mode": True}),
+    ("comparison", {"confirm": "x"}),
+    ("comparison", {"path": "common/a.md"}),
+    ("comparison", {"path": "common/a.md", "confirm": "x", "connection_mode": ""}),
+])
+def test_admin_connection_arguments_are_refused_before_operations(command, arguments):
+    with pytest.raises(ValueError):
+        sync_loop.operation(command, arguments)
+
+
+@pytest.mark.parametrize("command,options,expected", [
+    ("preview", ["--connection-mode", "merge"], {"connection_mode": "merge"}),
+    ("comparison", ["common/a.md", "--connection-mode", "replace", "--confirm", "h"],
+     {"path": "common/a.md", "confirm": "h", "connection_mode": "replace"}),
+    ("start", ["--connection-mode", "replace", "--confirm", "h"],
+     {"confirm": "h", "connection_mode": "replace"}),
+])
+def test_daemon_command_line_forwards_connection_choice_and_preview_hash(tmp_path, monkeypatch, capsys,
+                                                                       command, options, expected):
+    calls = []
+
+    def perform(self, operation, arguments=None):
+        calls.append((operation, arguments))
+        return False, {"status": "ok", "via": "service"}
+    monkeypatch.setattr(control.Controller, "user_sync", perform)
+    assert control.main(["--state", str(tmp_path / "state"), "user-sync", command, *options]) == 0
+    assert calls == [(command, expected)]
+    assert json.loads(capsys.readouterr().out)["via"] == "service"
 
 
 def test_cli_falls_back_to_the_engine_when_the_service_is_down(tmp_path, monkeypatch, capsys):
@@ -862,7 +929,8 @@ async def test_service_and_direct_runs_never_overlap(tmp_path, monkeypatch, caps
              started="2026-10-05T00:00:00+00:00").save(service.directory / "user-sync" / "user-sync.json")
     entered, release = threading.Event(), threading.Event()
 
-    def locked(self, settings, state, confirm):
+    def locked(self, settings, state, confirm, *, connection_mode=None):
+        assert connection_mode is None  # ordinary service/direct runs choose no onboarding mode
         entered.set()
         release.wait(10)
         return {"status": "synced", "sent": [], "received": [], "conflicts": [], "pushed": False}
