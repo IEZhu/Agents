@@ -587,6 +587,20 @@ returns `ERROR` without loading a persona. [Client decisions](docs/routing_flow.
 records the telemetry and evaluation evidence for the switch and links the
 remaining validation gaps for each tested client/model.
 
+With MCP available, a new conversation activates a persona before its first final
+answer, even for a greeting or project-status question. `ROUTE_REQUIRED` must be
+completed with `get_agent_context` in that turn. The client then composes the
+answer with the exact bundle footer, calls `log_interaction`, and sends the answer.
+`keep` applies only after a bundle has been activated and retained.
+
+Antigravity shared-daemon user-scope setup and migration install this protocol in the
+enabled plugin's `~/.gemini/config/plugins/agents-core/rules/AGENTS.md`, which
+Antigravity loads as startup rules. Rerun `migrate --clients antigravity` to update
+an existing installation, then restart Antigravity and begin a new chat. The rules
+file and workspace hook serve different steps: rules start persona activation;
+the hook authenticates the project for memory calls. See
+[Antigravity client setup](docs/routing_flow.md#installation-migration-and-rollback).
+
 The checked-in `CLAUDE.md` uses the same template; the global installer does not
 change this tracked file. After editing the template, refresh this checkout's
 managed section:

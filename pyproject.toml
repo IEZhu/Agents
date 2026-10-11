@@ -35,7 +35,7 @@ evals = [
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["src*", "evals*"]
+include = ["src*", "evals*", "scripts._helpers*"]
 
 [tool.pytest.ini_options]
 addopts = ["-m", "not slow"]

@@ -91,10 +91,10 @@ def write_with_backup(path: Path, content: bytes) -> bool:
     return True
 
 
-def inject(md_path: Path, src_path: Path) -> bool:
-    section = src_path.read_bytes().rstrip(b"\r\n")
+def render(content: bytes, section: bytes, md_path: Path) -> bytes:
+    """Render the managed section without writes, preserving all surrounding bytes."""
+    section = section.rstrip(b"\r\n")
     block = MARKER_BEGIN.encode() + b"\n\n" + section + b"\n\n" + MARKER_END.encode()
-    content = md_path.read_bytes() if md_path.exists() else b""
     pairs = [(MARKER_BEGIN.encode(), MARKER_END.encode()),
              (LEGACY_MARKER_BEGIN.encode(), LEGACY_MARKER_END.encode())]
     present = [(begin, end) for begin, end in pairs if begin in content or end in content]
@@ -111,7 +111,13 @@ def inject(md_path: Path, src_path: Path) -> bool:
     else:
         separator = b"" if not content or content.endswith(b"\n") else b"\n"
         content += separator + block + b"\n"
-    return write_with_backup(md_path, content)
+    return content
+
+
+def inject(md_path: Path, src_path: Path) -> bool:
+    section = src_path.read_bytes()
+    content = md_path.read_bytes() if md_path.exists() else b""
+    return write_with_backup(md_path, render(content, section, md_path))
 
 
 def main():

@@ -5,7 +5,16 @@ type: feedback
 ---
 
 Follow the Agents-Core Persona Protocol in the managed CLAUDE.md section.
-Before each answer, silently assess whether the current role fits. On continuations,
+Before the first final answer, when MCP is available and there is no prior persona
+activation, load an explicitly requested known role with `get_agent_context`, or
+call `route_and_load` with `protocol_version=2` and `current_persona=null`. Do not
+wait for a reminder about Agents-Core, the footer, or logging. `ROUTE_REQUIRED` is
+intermediate: select its best candidate and complete `get_agent_context` in the
+same turn before answering. Discovery and memory tools do not activate a persona.
+On activation failure, report it and follow the error or unavailable-MCP rules.
+
+Before each later answer, silently assess whether the current role fits. `keep`
+requires a previously applied bundle, descriptor and exact footer. On continuations,
 confirmations, format changes, and tasks within its scope, keep the role without
 routing, selecting another agent, or refreshing its bundle. Route or directly load
 a known role only for a necessary switch. Restore lost instructions for a known
