@@ -88,6 +88,32 @@ def test_shell_injection_refuses_unexpected_shapes(tmp_path, monkeypatch, origin
     assert json.loads((tmp_path / "mcp.json").read_text(encoding="utf-8")) == original
 
 
+@pytest.mark.parametrize("client", ["claude", "cursor", "desktop", "antigravity"])
+@pytest.mark.parametrize("original", [b'{"mcpServers": {"other":', b"", codecs.BOM_UTF8 + b'{"unfinished":'])
+def test_shell_injection_preserves_invalid_json(tmp_path, monkeypatch, capsys, client, original):
+    path = tmp_path / "mcp.json"
+    path.write_bytes(original)
+
+    with pytest.raises(SystemExit) as error:
+        _run_shell_injection(tmp_path, monkeypatch, client=client)
+
+    assert error.value.code == 1
+    assert path.read_bytes() == original
+    captured = capsys.readouterr()
+    assert f"{path} contains invalid JSON" in captured.err
+    assert "fix the file manually or restore from backup" in captured.err
+    assert "OK" not in captured.out
+
+
+@pytest.mark.parametrize("client", ["claude", "cursor", "desktop", "antigravity"])
+def test_shell_injection_creates_missing_config(tmp_path, monkeypatch, client):
+    config = _run_shell_injection(tmp_path, monkeypatch, client=client)
+    name = "Agents-Core-Desktop" if client == "desktop" else "Agents-Core"
+    assert config == {"mcpServers": {name: {
+        "command": "/venv/bin/python", "args": [str(tmp_path / "install/src/server.py")],
+    }}}
+
+
 @pytest.fixture
 def run_helper(tmp_path, monkeypatch):
     monkeypatch.syspath_prepend(str(REPO_ROOT / "scripts" / "_helpers"))
