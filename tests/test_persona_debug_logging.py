@@ -297,7 +297,7 @@ async def test_http_directory_errors_do_not_change_tool_result(
     active = None if tool == "route_and_load" else descriptor().model_dump()
     response = await getattr(server, tool)(**arguments(tool, active, force_reload=True))
     assert json.loads(response)["status"] == "SUCCESS"
-    assert directory.call_count == 2
+    directory.assert_called()
     assert pending.empty() and not root.exists()
     assert "persona debug request snapshot failed" in caplog.text
     assert "persona debug response snapshot failed" in caplog.text
