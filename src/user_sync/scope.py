@@ -244,7 +244,8 @@ class Rules:
 
     ``held_groups`` and ``held_files`` wait for this machine's approval: repository groups that
     are new to the library when the owner asked to be asked, and groups or files another machine
-    included again while this one still has its own copies of them.
+    included again while this one still has its own copies of them. A retained unsafe directory
+    also holds its descendants until that directory's explicit approval.
     """
 
     scopes: Scopes
@@ -262,7 +263,8 @@ class Rules:
         group = next((g for g in found if g.startswith("repos/")), None)
         if group is not None and group not in self.portable:
             return "local"
-        if path in self.held_files or any(g in self.held_groups for g in found):
+        if path in self.held_files or any(path.startswith(held + "/") for held in self.held_files) \
+                or any(g in self.held_groups for g in found):
             return "pending"
         return None
 

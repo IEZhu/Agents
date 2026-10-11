@@ -612,20 +612,24 @@ def test_env_setup_on_github_without_a_token_prints_the_key_and_a_second_run_fin
     assert fake.requests == []  # no account: GitHub's API was never asked
 
 
-def test_env_setup_stops_a_join_with_conflicts_at_confirmation_needed(tmp_path, bare, scheduler):
+@pytest.mark.parametrize("conflicting", [False, True], ids=["conflict-free", "conflicts"])
+def test_env_setup_requires_an_explicit_connection_choice_for_a_populated_join(tmp_path, bare, scheduler, conflicting):
     first = machine(tmp_path, "first")
     save(first, text="# Hello from the first machine\n")
     first.setup(remote=str(bare), name="Owner", email="owner@example.com", label="first")
     assert first.start(first.preview()["hash"])["status"] == "synced"
     pushed = remote_files(bare)
     second = machine(tmp_path, "second")
-    save(second, text="# Hello from the second machine\n")
+    save(second, name="user:hello" if conflicting else "user:local", text="# Hello from the second machine\n")
+    local = (second.library / "common" / ("hello.md" if conflicting else "local.md")).read_bytes()
     result, text = from_env(second, {installer.REMOTE: str(bare), **IDENTITY, installer.LABEL: "second"})
-    assert (result["status"], result["reason"]) == ("attention", "confirmation_needed")
-    assert f"start --confirm {result['hash']}" in text and "-m src.user_sync preview" in text
-    assert "nothing was uploaded" in text and "user:hello" in text
+    assert (result["status"], result["reason"]) == ("attention", "connection_choice_required")
+    assert "preview --connection-mode merge" in text and "preview --connection-mode replace" in text
+    assert "library contents have not changed" in text and "common/hello.md" in text
     assert remote_files(bare) == pushed and second.settings().started is None and scheduler.enabled == []
-    assert second.start(result["hash"])["status"] == "synced"  # the owner confirms that preview
+    assert (second.library / "common" / ("hello.md" if conflicting else "local.md")).read_bytes() == local
+    preview = second.preview(connection_mode="merge")
+    assert second.start(preview["hash"], connection_mode="merge")["status"] == "synced"
 
 
 def test_env_setup_on_another_host_uploads_schedules_and_a_second_run_changes_nothing(tmp_path, bare, scheduler):

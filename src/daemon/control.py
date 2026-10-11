@@ -411,7 +411,6 @@ def main(argv=None):
     sync_commands = sync.add_subparsers(dest="sync_command", required=True)
     for name, text in (("status", "show the sync state and the service's loop"),
                        ("check", "check access to the remote"),
-                       ("preview", "show what starting or confirming sync would upload and download"),
                        ("pause", "pause sync on this machine"), ("resume", "resume sync on this machine"),
                        ("disconnect", "stop syncing on this machine; files and .git stay")):
         sync_commands.add_parser(name, help=text)
@@ -419,6 +418,13 @@ def main(argv=None):
     sync_run.add_argument("--confirm", metavar="HASH", help="confirm a previewed join or rewritten remote")
     sync_start = sync_commands.add_parser("start", help="start sync after reviewing the preview")
     sync_start.add_argument("--confirm", metavar="HASH", required=True, help="the preview's hash")
+    sync_preview = sync_commands.add_parser("preview", help="compare libraries and review the connection result")
+    sync_comparison = sync_commands.add_parser("comparison", help="inspect a path from a confirmed preview")
+    sync_comparison.add_argument("path", help="library-relative path from the comparison")
+    sync_comparison.add_argument("--confirm", metavar="HASH", required=True, help="the preview's hash")
+    for command in (sync_preview, sync_comparison, sync_start):
+        command.add_argument("--connection-mode", choices=["merge", "replace"],
+                             help="explicitly choose the result when connecting an existing library")
     sync_setup = sync_commands.add_parser("setup", help="configure the remote, identity and this machine's key")
     sync_setup.add_argument("--remote", required=True, help="git@host:owner/repo, ssh://… or https://…")
     sync_setup.add_argument("--name", required=True, help="commit author name")
@@ -539,6 +545,7 @@ def _sync_arguments(args):
                   "branch": args.branch, "ask_new_repositories": args.ask_new_repositories,
                   "trust_host_key": args.trust_host_key, "confirm_private": args.confirm_private}
         return {key: value for key, value in values.items() if value is not None}
-    if args.sync_command in ("run", "start") and args.confirm is not None:
-        return {"confirm": args.confirm}
+    if args.sync_command in ("run", "start", "preview", "comparison"):
+        return {key: getattr(args, key) for key in ("confirm", "connection_mode", "path")
+                if getattr(args, key, None) is not None}
     return {}

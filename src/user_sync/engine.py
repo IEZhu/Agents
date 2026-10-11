@@ -598,6 +598,16 @@ class _Plan:
     remote_sizes: dict = field(default_factory=dict)  # blob id -> size, for the preview
     publication: versions.Publication | None = None
     history_pending: int = 0
+    connection_mode: str | None = None
+    connection_identity: str | None = None
+    connection_choice_required: bool = False
+    allowed_modes: list[str] = field(default_factory=list)
+    comparison: dict = field(default_factory=dict)
+    native_head: str | None = None
+    generation: str | None = None
+    accepted_tips: dict[str, str] = field(default_factory=dict)
+    replacement: dict[str, str | bytes | None] = field(default_factory=dict)
+    shape_holds: dict[str, str] = field(default_factory=dict)
 
 
 class Syncer:
@@ -816,22 +826,38 @@ class Syncer:
         events after its first-upload preview is confirmed. Existing snapshot
         ancestry and excluded contents never travel to the new remote.
         """
-        # Detaching a remote must not make its received intermediate versions
-        # disappear locally when unreachable objects are eventually pruned.
-        from src.library_history import LibraryHistory
         with self._library_lock():
-            backend = LibraryHistory(self.library)
-            backend.ensure()
-            self._retain_incoming(git)
-            incoming = git.text("for-each-ref", "--format=%(refname)", versions.INCOMING_REFS,
-                                versions.RECEIVED_REFS).splitlines()
-            for event in backend.events(incoming):
-                raw = event["content"] if event["archive"] else event["previous"]
-                if event["path"] and raw is not None:
-                    backend.record(event["path"], raw, version=event["id"], deleted=event["deleted"])
+            self._preserve_connected_history(git)
         for ref in git.text("for-each-ref", "--format=%(refname)", "refs/heads", "refs/remotes",
                             versions.PORTABLE_REFS, versions.INCOMING_REFS).split():
             git.run("update-ref", "-d", ref)
+
+    def _preserve_connected_history(self, git: Git, *, archive_received: bool = True) -> None:
+        """Freeze received versions as local history before detaching. Caller holds ``.lock``.
+
+        A subsequent connection compares them as existing local data even if all
+        current flows were deleted. Fresh comparison fetches remain remote data.
+        Only the active generation may become new native history after Replace.
+        """
+        from src.library_history import LibraryHistory
+        backend = LibraryHistory(self.library)
+        adoption = backend.adoption()
+        if adoption and adoption["pending"]:
+            raise SyncError("adoption_pending", "finish the accepted replacement before detaching the remote")
+        backend.ensure()
+        generation = backend.generation()
+        if generation:
+            git.run("config", "agents-sync.adopted-boundary", generation)
+        elif not archive_received:
+            return  # An unconfirmed setup has only fetched comparison data.
+        self._retain_incoming(git)
+        incoming = backend.accepted_refs() if generation else git.text(
+            "for-each-ref", "--format=%(refname)", versions.INCOMING_REFS,
+            versions.RECEIVED_REFS).splitlines()
+        for event in backend.events(incoming):
+            raw = event["content"] if event["archive"] else event["previous"]
+            if event["path"] and raw is not None:
+                backend.record(event["path"], raw, version=event["id"], deleted=event["deleted"])
 
     def _rev(self, git: Git, ref: str) -> str | None:
         result = git.run("rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}", check=False)
@@ -1015,7 +1041,7 @@ class Syncer:
                        and group not in approved_groups and group not in effective.exclude}
         return frozenset(groups), frozenset(files)
 
-    def _desired(self, snap: Snapshot, current: dict, unwritten=()) -> dict:
+    def _desired(self, snap: Snapshot, current: dict, unwritten=(), *, held_files=()) -> dict:
         """The tree to commit: the snapshot's files, with some paths kept at their committed version.
 
         Kept are held and blocked files, files under directories that could not be read or are
@@ -1030,7 +1056,8 @@ class Syncer:
         for path, blob in current.items():
             if path.startswith(".history/"):
                 continue  # legacy archives are imported into Git, never new snapshot files
-            if path in keep or snap.hides(path) or scope.groups(path) is None:
+            if path in keep or snap.hides(path) or scope.groups(path) is None \
+                    or any(path == held or path.startswith(held + "/") for held in held_files):
                 desired[path] = blob
         return desired
 
@@ -1075,11 +1102,17 @@ class Syncer:
             working = self._working_scopes()
             held_groups, held_files = self._held(settings, dict(state), working, working, current, remote)
             snap = scope.snapshot(self.library, working, held_groups=held_groups, held_files=held_files)
-            paths = changed_paths(remote, self._desired(snap, current, state.get("held_remote", ())))
+            paths = changed_paths(remote, self._desired(snap, current, state.get("held_remote", ()),
+                                                        held_files=held_files))
             from src.library_history import LibraryHistory
-            publication = versions.publication(LibraryHistory(self.library).export_events(),
-                                               Rules(working, snap.portable, held_groups, held_files))
+            backend = LibraryHistory(self.library)
+            publication = versions.publication(backend.export_events(),
+                                               Rules(working, snap.portable, held_groups, held_files),
+                                               generation=backend.generation())
             known = self._published_sources(git, publication.policy)
+            if backend.generation():
+                received = self._incoming_version_trees(git, Rules(working, snap.portable, held_groups, held_files))
+                known |= {source for source, tree in publication.events if received.get(source) == tree}
             historical = {change_label(json.loads(tree[versions.EVENT_FILE])["path"])
                           for source, tree in publication.events if source not in known
                           and json.loads(tree[versions.EVENT_FILE]).get("path")}
@@ -1230,6 +1263,11 @@ class Syncer:
 
     def _refuse_another_repository(self, existing: Settings | None, remote: str, branch: str) -> None:
         """A started sync keeps its repository and branch; the same repository by another URL is fine."""
+        if existing and (not same_repository(existing.remote, remote, allow_file=self.allow_file_remote)
+                         or existing.branch != branch) and (self.library / ".git").is_dir():
+            adoption = self._unfinished_adoption(self._git(), existing)
+            if adoption and adoption["pending"]:
+                raise SyncError("adoption_pending", "finish the accepted replacement before changing remotes")
         if existing and existing.started and (
                 not same_repository(existing.remote, remote, allow_file=self.allow_file_remote)
                 or existing.branch != branch):
@@ -1731,7 +1769,261 @@ class Syncer:
     # --- planning ---------------------------------------------------------------------
 
     def _plan(self, git: Git, settings: Settings, state: dict, remote_head: str | None,
-              *, joining: bool) -> _Plan:
+              *, joining: bool, connection_mode: str | None = None, details: bool = True) -> _Plan:
+        self._validate_connection_mode(settings, connection_mode)
+        plan = self._merge_plan(git, settings, state, remote_head, joining=joining)
+        plan.connection_identity = self._remote_identity(settings)
+        from src.library_history import HISTORY_REF, LibraryHistory
+        backend = LibraryHistory(self.library)
+        plan.native_head = self._rev(git, HISTORY_REF)
+        plan.generation = backend.generation()
+        plan.accepted_tips = self._incoming_tips(git)
+        if settings.started and not details:
+            return self._with_versions(plan, git)
+        plan.shape_holds = self._shape_holds(plan) if not settings.started else {}
+        local_versions = self._version_count(backend.events([HISTORY_REF]))
+        has_local = local_versions > 0 or any(self._meaningful(path, plan.snapshot)
+            for path in set(plan.snapshot.files) | set(plan.snapshot.outside) | set(plan.snapshot.blocked)
+            | set(plan.snapshot.held))
+        has_local = has_local or any(scope.groups(path + "/placeholder.md") is not None
+                                      for path in plan.snapshot.unreadable)
+        if not has_local:
+            has_local = any(path.startswith("repos/") and path.endswith("/" + REPO_LOCAL)
+                            for path, _ in scope.walk(self.library))
+        has_local = has_local or any(reason != "unsafe_remote" for reason in plan.shape_holds.values())
+        if not settings.started:
+            plan.allowed_modes = ["merge", "replace"] if remote_head else ["merge"]
+            if connection_mode == "replace" and remote_head is None:
+                raise SyncError("connection_mode", "an empty remote cannot replace this library")
+            plan.connection_choice_required = bool(remote_head and has_local and connection_mode is None)
+            plan.connection_mode = connection_mode or (None if plan.connection_choice_required else "merge")
+        if not settings.started:
+            self._retain_connection_shapes(plan)
+        merge_target, merge_conflicts = dict(plan.target), list(plan.conflicts)
+        replacement = self._replacement(plan, git)
+        if plan.connection_mode == "replace":
+            plan.target = {path: value for path, value in plan.remote_tree.items()
+                           if not path.startswith(".history/")}
+            if SCOPES_PATH in plan.desired or SCOPES_PATH in plan.remote_tree:
+                plan.target[SCOPES_PATH] = plan.scopes.dump()
+            if MARKER in replacement:
+                plan.target[MARKER] = replacement[MARKER]
+            for path, value in replacement.items():
+                if isinstance(value, bytes):
+                    plan.target[path] = value
+            plan.generated, plan.conflicts, plan.merged = {}, [], []
+            plan.kind, plan.replacement = "replace", replacement
+        self._with_versions(plan, git)
+        plan.comparison = self._comparison_of(plan, git, merge_target, merge_conflicts,
+                                              replacement, local_versions)
+        return plan
+
+    @staticmethod
+    def _validate_connection_mode(settings: Settings, mode: str | None) -> None:
+        if mode is not None and mode not in ("merge", "replace"):
+            raise SyncError("connection_mode", "choose merge or replace")
+        if settings.started and mode is not None:
+            raise SyncError("already_started", "connection mode is chosen only before sync starts")
+
+    @staticmethod
+    def _incoming_tips(git: Git) -> dict[str, str]:
+        return {ref.removeprefix(versions.INCOMING_REFS): oid for ref, oid in
+                (line.split(" ", 1) for line in git.text("for-each-ref", "--format=%(refname) %(objectname)",
+                                                        versions.INCOMING_REFS).splitlines())}
+
+    @staticmethod
+    def _version_count(events: list[dict]) -> int:
+        return len({(e["path"], e["id"]) for e in events if e.get("path")
+                    and (e.get("content") if e.get("archive") else e.get("previous")) is not None})
+
+    def _meaningful(self, path: str, snap: Snapshot) -> bool:
+        if path in scope.LIBRARY_FILES:
+            return False
+        if path == scope.COMPONENTS:
+            try:
+                value = json.loads(self._local_content(path, snap.local_blob(path), MAX_FILE_BYTES)[0] or b"{}")
+                return True if not isinstance(value, dict) else bool(value) and any(value.values())
+            except (OSError, ValueError):
+                return True
+        return True
+
+    def _replacement(self, plan: _Plan, git: Git) -> dict[str, str | bytes | None]:
+        """The explicitly discardable working paths; scanner blocks only govern uploads."""
+        snap = plan.snapshot
+        paths = set(snap.files) | set(snap.blocked) | set(snap.outside) | set(snap.held) \
+            | set(plan.remote_tree)
+        plan.remote_sizes = self._blob_sizes(git, plan.remote_tree.values())
+        result = {}
+        for path in sorted(paths):
+            if path.startswith(".history/") or scope.groups(path) is None or snap.hides(path) \
+                    or path in snap.outside or plan.rules.reason(path) is not None or self._shape_reason(plan, path):
+                continue
+            after = plan.remote_tree.get(path)
+            if after is not None and plan.remote_sizes.get(after, MAX_FILE_BYTES + 1) > MAX_FILE_BYTES:
+                continue
+            if path in plan.remote_other:
+                continue
+            if path == SCOPES_PATH:
+                after = plan.scopes.dump()  # accepting a library never lifts this machine's exclusions
+            elif path == MARKER and after:
+                marker = json.loads(self._read_blobs(git, [after])[after])
+                marker["format"] = FORMAT
+                after = _json_bytes(marker)
+            elif path.startswith("repos/") and path.count("/") == 2 and path.endswith("/" + REPO_META) and after:
+                origin = scope.portable_origin(self._read_blobs(git, [after])[after])
+                after = _json_bytes({"origin": origin})
+            local = snap.local_blob(path)
+            identifier = scope.blob_id(after) if isinstance(after, bytes) else after
+            if local != identifier:
+                result[path] = after
+        return result
+
+    def _shape_holds(self, plan: _Plan) -> dict[str, str]:
+        """A file/directory/link collision retains the entire smallest conflicting subtree."""
+        snap = plan.snapshot
+        known = set(snap.files) | set(snap.blocked) | set(snap.outside) | set(snap.held) | set(plan.remote_tree)
+        known = {path for path in known if scope.groups(path) is not None and not path.startswith(".history/")}
+
+        def owned(path):
+            # Container entries such as common or repos/<key> do not themselves
+            # sync, but their descendants are library data that must be retained.
+            return scope.groups(path) is not None or path in ("common", "repos", "personas") \
+                or any(child.startswith(path + "/") for child in known)
+
+        holds = {path: "unsafe_remote" for path in plan.remote_other if owned(path)}
+        for path in plan.remote_tree:
+            if not owned(path) or path.startswith(".history/"):
+                continue
+            current = self.library
+            parts = path.split("/")
+            for index, part in enumerate(parts):
+                current /= part
+                try:
+                    info = os.lstat(current)
+                except FileNotFoundError:
+                    break
+                except OSError:
+                    holds["/".join(parts[:index + 1])] = "unreadable"
+                    break
+                if scope.is_link(info, current) or (index < len(parts) - 1 and not stat.S_ISDIR(info.st_mode)) \
+                        or (index == len(parts) - 1 and not stat.S_ISREG(info.st_mode)):
+                    root = "/".join(parts[:index + 1])
+                    holds.setdefault(root, "not_regular")
+                    break
+        return holds
+
+    @staticmethod
+    def _shape_reason(plan: _Plan, path: str) -> str | None:
+        for root in sorted(plan.shape_holds, key=lambda value: (value.count("/"), value)):
+            if path == root or path.startswith(root + "/"):
+                return plan.shape_holds[root]
+        return None
+
+    def _retain_connection_shapes(self, plan: _Plan) -> None:
+        """Make the initial merge preserve both sides of every structural collision."""
+        if not plan.shape_holds:
+            return
+        roots = {path for path in plan.shape_holds
+                 if not any(path.startswith(parent + "/") for parent in plan.shape_holds if parent != path)}
+        plan.held_files = frozenset(roots | set(plan.held_files))
+        plan.rules = replace(plan.rules, held_files=plan.held_files)
+        discarded = set()
+        for record in plan.conflicts:
+            if self._shape_reason(plan, record["path"]):
+                discarded.add(merging.record_file(record)[0])
+                if record.get("local_version"):
+                    discarded.add(record["local_version"])
+        for path in plan.generated:
+            archived = self._legacy_version(path)
+            if archived and self._shape_reason(plan, archived[0]):
+                discarded.add(path)
+        plan.generated = {path: value for path, value in plan.generated.items() if path not in discarded}
+        plan.conflicts = [record for record in plan.conflicts if not self._shape_reason(plan, record["path"])]
+        plan.merged = [item for item in plan.merged if not self._shape_reason(plan, item["path"])]
+        plan.target = {path: value for path, value in plan.target.items()
+                       if not self._shape_reason(plan, path) and path not in discarded}
+        plan.target.update({path: value for path, value in plan.remote_tree.items()
+                            if self._shape_reason(plan, path) and not path.startswith(".history/")})
+        if plan.target == plan.remote_tree and not plan.generated:
+            plan.kind = "fast_forward"
+
+    def _comparison_of(self, plan: _Plan, git: Git, merge_target: dict, conflicts: list,
+                       replacement: dict, local_versions: int) -> dict:
+        snap = plan.snapshot
+        local_paths = set(snap.files) | set(snap.blocked) | set(snap.outside) | set(snap.held)
+        paths = local_paths | set(plan.remote_tree) | set(plan.remote_other) | set(plan.shape_holds)
+        local_metadata = {}
+        # Clone locations are part of the inventory, but their private contents are never returned.
+        for path, entry in scope.walk(self.library):
+            if path.startswith("repos/") and path.endswith("/" + REPO_LOCAL):
+                paths.add(path)
+                try:
+                    local_metadata[path] = entry.stat(follow_symlinks=False).st_size
+                except OSError:
+                    local_metadata[path] = None
+        paths |= {p for p in snap.unreadable if scope.groups(p + "/placeholder.md") is not None}
+        conflict_map = {c["path"]: c for c in conflicts}
+        rows, summary = [], dict.fromkeys(("local_only", "remote_only", "different", "equal", "retained"), 0)
+        for path in sorted(paths):
+            private_metadata = path.startswith("repos/") and path.endswith("/" + REPO_LOCAL)
+            if path.startswith(".history/") or (scope.groups(path) is None and path not in local_metadata
+                                                and path not in snap.unreadable and not private_metadata
+                                                and path not in plan.shape_holds):
+                continue
+            local, remote = snap.local_blob(path), plan.remote_tree.get(path)
+            shape_reason = self._shape_reason(plan, path)
+            unknown = snap.hides(path) or path in snap.unreadable or path in plan.remote_other or bool(shape_reason)
+            local_present = (local is not None or path in snap.held or path in local_metadata or path in snap.unreadable
+                             or (path in plan.shape_holds and shape_reason != "unsafe_remote")
+                             or any(p.startswith(path + "/") for p in local_paths))
+            state = ("unknown" if unknown else "different" if local_present and remote and local != remote
+                     else "equal" if local_present and remote else "local_only" if local_present else "remote_only")
+            if state in summary:
+                summary[state] += 1
+            reason = ("machine_local" if private_metadata else snap.held.get(path, {}).get("reason")
+                      or ("unreadable" if snap.hides(path) or path in snap.unreadable else None)
+                      or snap.outside.get(path, {}).get("reason") or plan.rules.reason(path))
+            reason = shape_reason or reason
+            if path in plan.remote_other:
+                reason = "unsafe_remote"
+            if remote and plan.remote_sizes.get(remote, MAX_FILE_BYTES + 1) > MAX_FILE_BYTES:
+                reason = "size"
+            if reason:
+                summary["retained"] += 1
+            target = merge_target.get(path)
+            target_id = scope.blob_id(target) if isinstance(target, bytes) else target
+            conflict = conflict_map.get(path)
+            merge_action = ("retain" if reason or path in snap.blocked else "conflict" if conflict
+                            else "keep" if local == remote else "upload" if remote is None
+                            else "download" if local is None else "merge" if isinstance(target, bytes)
+                            else "download" if target == remote else "upload")
+            replaced = replacement.get(path, local)
+            replace_id = scope.blob_id(replaced) if isinstance(replaced, bytes) else replaced
+            replace_action = ("retain" if reason else "keep" if path not in replacement
+                              else "delete" if replaced is None else "download" if local is None else "replace")
+            rows.append({"path": path, "groups": list(scope.groups(path) or ()), **merging.flow_reference(path),
+                         "state": state,
+                         "local": {"blob": local, "size": snap.sizes.get(path, local_metadata.get(path))}
+                         if local_present else None,
+                         "remote": {"blob": remote, "size": plan.remote_sizes.get(remote)}
+                         if remote or path in plan.remote_other else None,
+                         "retained_reason": reason,
+                         "merge": {"action": merge_action, "result_blob": local if reason else target_id,
+                                   "conflict": ({k: conflict.get(k) for k in
+                                                 ("kind", "reason", "overlaps", "base_blob")} if conflict else None)},
+                         "replace": {"action": replace_action, "result_blob": replace_id}})
+        from src.library_history import LibraryHistory
+        remote_events = LibraryHistory(self.library).events(
+            [versions.INCOMING_REFS + key for key in plan.accepted_tips])
+        remote_versions = self._version_count(remote_events) + sum(self._legacy_version(p) is not None
+                                                                  for p in plan.remote_tree)
+        return {"summary": summary, "files": rows,
+                "history": {"local_versions": local_versions, "remote_versions": remote_versions,
+                            "merge_upload_versions": plan.history_pending,
+                            "replace_private_versions": local_versions}}
+
+    def _merge_plan(self, git: Git, settings: Settings, state: dict, remote_head: str | None,
+                    *, joining: bool) -> _Plan:
         """Read the library and work out the cycle. Call under the library lock; changes nothing."""
         head = self._rev(git, f"refs/heads/{settings.branch}")
         current, _, _ = self._tree_entries(git, head)
@@ -1765,17 +2057,17 @@ class Syncer:
         held_groups, held_files = self._held(settings, state, effective, committed, current, remote_tree)
         snap = scope.snapshot(self.library, effective, held_groups=held_groups, held_files=held_files)
         local_files.update({blob: path for path, blob in snap.files.items()})
-        desired = self._desired(snap, current, state.get("held_remote", ()))
+        desired = self._desired(snap, current, state.get("held_remote", ()), held_files=held_files)
         plan = _Plan(head, remote_head, snap, current, desired, remote_tree, remote_other, base,
                      remote_executable=remote_executable,
                      target=desired, rewritten=rewritten, held_groups=held_groups, held_files=held_files,
                      scopes=effective, rules=Rules(effective, snap.portable, held_groups, held_files))
         if remote_head is None:
             plan.kind = "push" if desired and (desired != current or head is None) else "none"
-            return self._with_versions(plan, git)
+            return plan
         if integrated and not rewritten and head == remote_head:
             plan.kind = "push" if desired != current else "none"
-            return self._with_versions(plan, git)
+            return plan
         if not integrated or rewritten:
             if not joining:
                 raise SyncError("confirmation_needed",
@@ -1807,15 +2099,26 @@ class Syncer:
             plan.kind = "fast_forward"  # nothing of this machine's is missing on the remote
         else:
             plan.kind = "join" if not integrated or rewritten else "merge"
-        return self._with_versions(plan, git)
+        return plan
 
     def _with_versions(self, plan: _Plan, git: Git) -> _Plan:
         from src.library_history import LibraryHistory
-        plan.publication = versions.publication(LibraryHistory(self.library).export_events(), plan.rules)
+        backend = LibraryHistory(self.library)
+        plan.publication = versions.publication(backend.export_events(), plan.rules,
+                                               generation=backend.generation())
         known = self._published_sources(git, plan.publication.policy)
+        if plan.generation:
+            received = self._incoming_version_trees(git, plan.rules)
+            known |= {source for source, tree in plan.publication.events if received.get(source) == tree}
         plan.history_pending = sum(source not in known and versions.restorable(tree)
                                    for source, tree in plan.publication.events)
         return plan
+
+    def _incoming_version_trees(self, git: Git, rules: Rules) -> dict[str, dict[str, bytes]]:
+        """Only exact currently permitted copies are already shared; thin copies cannot hide bytes."""
+        from src.library_history import LibraryHistory
+        refs = [versions.INCOMING_REFS + key for key in self._incoming_tips(git)]
+        return dict(versions.publication(LibraryHistory(self.library).events(refs), rules).events)
 
     def _published_sources(self, git: Git, policy: str) -> set[str]:
         publisher = git.text("config", "--get", "agents-history.publisher", check=False)
@@ -1839,9 +2142,10 @@ class Syncer:
         upload = [entry(p, plan.snapshot.sizes) for p in changed_paths(plan.remote_tree, target)
                   if p in target and ours(p)]
         removed = [p for p in changed_paths(plan.remote_tree, target) if p not in target]
-        download = [entry(p, remote_sizes) for p in changed_paths(plan.desired, target) if p in target and ours(p)]
+        download = [entry(p, remote_sizes) for p in changed_paths(plan.desired, target)
+                    if p in target and ours(p) and not self._shape_reason(plan, p)]
         delete_local = [p for p in changed_paths(plan.desired, target) if p not in target and ours(p)
-                        and p in plan.snapshot.files]
+                        and p in plan.snapshot.files and not self._shape_reason(plan, p)]
         groups = {}
         for path in target:
             group = scope.repo_group(path)
@@ -1854,6 +2158,10 @@ class Syncer:
         merged = [{"path": m["path"], **merging.flow_reference(m["path"])} for m in plan.merged]
         merged_paths = {m["path"] for m in merged}
         blocked = [{"path": p, **v} for p, v in sorted(plan.snapshot.blocked.items())]
+        if plan.connection_mode == "replace":
+            upload, removed = [], []
+            download = [entry(p, remote_sizes) for p, value in plan.replacement.items() if value is not None]
+            delete_local = [p for p, value in plan.replacement.items() if value is None]
         identity = json.dumps({
             "remote": plan.remote_head, "head": plan.head,
             "desired": sorted(plan.desired.items()),
@@ -1865,6 +2173,17 @@ class Syncer:
             "pending": [sorted(plan.held_groups), sorted(plan.held_files)],
             "versions": plan.publication.identity() if plan.publication else [],
             "versions_blocked": plan.publication.blocked if plan.publication else [],
+            "connection_mode": plan.connection_mode,
+            "connection_identity": plan.connection_identity,
+            "connection_choice_required": plan.connection_choice_required,
+            "native_head": plan.native_head, "generation": plan.generation,
+            "accepted_tips": plan.accepted_tips,
+            "scopes": plan.scopes.dump().decode(),
+            "local": [plan.snapshot.files, plan.snapshot.blocked, plan.snapshot.outside,
+                      plan.snapshot.held, sorted(plan.snapshot.unreadable)],
+            "generated_values": sorted((p, hashlib.sha256(v).hexdigest()) for p, v in target.items()
+                                       if isinstance(v, bytes) and p not in plan.generated),
+            "comparison": plan.comparison,
         }, sort_keys=True)
         return {
             "kind": plan.kind, "remote_head": plan.remote_head, "head": plan.head,
@@ -1875,8 +2194,12 @@ class Syncer:
             "pending_groups": sorted(plan.held_groups), "pending_files": sorted(plan.held_files),
             "repository_groups": sorted(groups.values(), key=lambda g: g["group"]),
             "upload_bytes": sum(e["size"] or 0 for e in upload),
-            "history_versions": plan.history_pending,
-            "history_blocked": plan.publication.blocked if plan.publication else [],
+            "history_versions": 0 if plan.connection_mode == "replace" else plan.history_pending,
+            "history_blocked": (plan.publication.blocked if plan.publication else [])
+                               if plan.connection_mode != "replace" else [],
+            "connection_choice_required": plan.connection_choice_required,
+            "connection_mode": plan.connection_mode, "allowed_modes": plan.allowed_modes,
+            "comparison": plan.comparison,
             "hash": hashlib.sha256(identity.encode()).hexdigest(),
         }
 
@@ -1969,7 +2292,8 @@ class Syncer:
         as otherwise invisible ancestors of a permitted revision.
         """
         from src.library_history import LibraryHistory
-        publish = versions.publication(LibraryHistory(self.library).export_events(), plan.rules)
+        backend = LibraryHistory(self.library)
+        publish = versions.publication(backend.export_events(), plan.rules, generation=backend.generation())
         plan.publication = publish
         if not publish.events:
             return []
@@ -1979,8 +2303,9 @@ class Syncer:
         known = {line.rsplit(" ", 1)[-1] for line in git.text("log", "--format=%s", parent).splitlines()} \
             if parent else set()
         old = parent
+        received = self._incoming_version_trees(git, plan.rules) if plan.generation else {}
         for source, files in publish.events:
-            if source in known:
+            if source in known or received.get(source) == files:
                 continue
             tree = {path: self._store_bytes(git, raw) for path, raw in files.items()}
             parent = self._commit(git, settings, tree, [parent] if parent else [], f"history {source}")
@@ -1989,6 +2314,87 @@ class Syncer:
             git.run("update-ref", ref, parent, old or _ZERO)
         incoming = self._rev(git, versions.INCOMING_REFS + suffix)
         return [] if incoming == parent else [(ref, parent)]
+
+    def _legacy_accepted_tip(self, git: Git, settings: Settings, plan: _Plan) -> str | None:
+        """Convert selected format-1 remote archives into a private, independent portable chain."""
+        parent = None
+        for alias, blob in sorted(plan.remote_tree.items()):
+            version = self._legacy_version(alias)
+            if version is None or plan.rules.reason(alias) is not None or plan.rules.reason(version[0]) is not None:
+                continue
+            if plan.remote_sizes.get(blob, MAX_FILE_BYTES + 1) > MAX_FILE_BYTES:
+                continue
+            path, identifier = version
+            raw = self._read_blobs(git, [blob])[blob]
+            digest = re.search(r"-([0-9a-f]{12})(?:-deleted)?$", identifier)
+            if digest is None or digest[1] != hashlib.sha256(raw).hexdigest()[:12]:
+                raise HistoryError(f"legacy history version {alias} has an invalid content hash")
+            files = versions.legacy_event(path, identifier, raw)
+            tree = {name: self._store_bytes(git, data) for name, data in files.items()}
+            parent = self._commit(git, settings, tree, [parent] if parent else [], "accepted legacy history")
+        return parent
+
+    def _remote_identity(self, settings: Settings) -> str:
+        remote = self._remote(settings)
+        repository = [p.lower() for p in remote.github] if remote.github else [remote.host, remote.path.removesuffix(".git")]
+        if remote.kind == "file":
+            repository = [remote.url]
+        return hashlib.sha256(json.dumps([repository, settings.branch],
+                                         sort_keys=True).encode()).hexdigest()
+
+    def _unfinished_adoption(self, git: Git, settings: Settings) -> dict | None:
+        if settings.started:
+            return None
+        from src.library_history import LibraryHistory
+        adoption = LibraryHistory(self.library).adoption()
+        finished = git.text("config", "--get", "agents-sync.adopted-boundary", check=False)
+        return adoption if adoption and (adoption["pending"] or adoption["boundary"] != finished) else None
+
+    def _adoption_outcome(self, git: Git, settings: Settings, state: dict, adoption: dict) -> dict:
+        """Finalize the already accepted immutable manifest, including after interrupted disk writes."""
+        from src.library_history import LibraryHistory
+        backend = LibraryHistory(self.library)
+        if adoption.get("remote_identity") != self._remote_identity(settings):
+            raise SyncError("adoption_pending", "finish the accepted replacement with its original remote first")
+        backend.ensure()  # strict recovery rolls forward exactly the pinned proposal
+        adopted = backend.adoption()
+        remote_head = adopted["remote_head"]
+        self._set_head(git, settings, remote_head, self._rev(git, f"refs/heads/{settings.branch}"))
+        git.run("update-ref", f"refs/remotes/origin/{settings.branch}", remote_head)
+        retained = set(adopted.get("retained_paths", {}))
+        pending = sorted(set(state.get("pending_included_files", [])) | retained)
+        if retained & set(settings.approved_files):
+            self._update_settings(lambda current: setattr(current, "approved_files",
+                                  [path for path in current.approved_files if path not in retained]))
+        state.update(held_remote=[], failed_writes={}, failed_targets={}, held_merges={},
+                     reconcile_failed=[], pending_groups=state.get("pending_included", []),
+                     pending_files=pending, pending_included_files=pending, blocked=[], held=[])
+        return {"received": sorted(adopted["changes"]), "received_from": [], "conflicts": [],
+                "merged": [], "push": None, "integrated": remote_head, "sent": [], "new_groups": [],
+                "version_push": []}
+
+    def _replace_connection(self, git: Git, settings: Settings, state: dict, plan: _Plan,
+                            confirm: str) -> dict:
+        from src.library_history import LibraryHistory
+        blobs = [value for value in plan.replacement.values() if isinstance(value, str)]
+        contents = self._read_blobs(git, blobs)
+        changes = {path: contents[value] if isinstance(value, str) else value
+                   for path, value in plan.replacement.items()}
+        expected = {row["path"]: plan.snapshot.local_blob(row["path"]) for row in plan.comparison["files"]
+                    if row["retained_reason"] is None}
+        accepted = dict(plan.accepted_tips)
+        legacy = self._legacy_accepted_tip(git, settings, plan)
+        if legacy:
+            accepted["legacy-" + plan.remote_head] = legacy
+        backend = LibraryHistory(self.library)
+        retained = {row["path"]: row["retained_reason"] for row in plan.comparison["files"]
+                    if row["retained_reason"] in ("unsafe_remote", "unreadable", "not_regular", "size")}
+        retained = {path: retained[path] for path in sorted(retained)
+                    if not any(path.startswith(parent + "/") for parent in retained if parent != path)}
+        backend.adopt(changes, expected_before=expected, accepted_tips=accepted,
+                      decision="replace", remote_head=plan.remote_head, decision_hash=confirm,
+                      remote_identity=self._remote_identity(settings), retained_paths=retained)
+        return self._adoption_outcome(git, settings, state, backend.adoption())
 
     def _push_publication(self, git: Git, refs: list[tuple[str, str]]) -> bool:
         if not refs:
@@ -2038,6 +2444,8 @@ class Syncer:
         contents.update({value: value for value in map(new.get, paths) if isinstance(value, bytes)})
         written, deleted = [], []
         for path in paths:
+            if self._shape_reason(plan, path):
+                continue
             before, after = old.get(path), new.get(path)
             local = snap.local_blob(path)
             if snap.hides(path) or local != before or (after is not None and after not in contents):
@@ -2254,23 +2662,28 @@ class Syncer:
             raise SyncError("not_set_up", "sync is not set up; run setup first", state="off")
         return settings
 
-    def preview(self) -> dict:
+    def preview(self, *, connection_mode: str | None = None) -> dict:
         """What starting (or confirming) sync would upload and download.
 
         Commits and uploads nothing; it only creates missing library files and restores a missing
         ``scopes.json`` from the last commit, as every cycle does first.
         """
         settings = self._require_settings()
+        self._validate_connection_mode(settings, connection_mode)
         self._check_library(settings)
         with self._sync_lock_for(settings):
             state = self._state()
             try:
                 git = self._repository(settings, create=True)
                 self._clear_stale_git_locks()
+                if self._unfinished_adoption(git, settings):
+                    raise SyncError("adoption_pending", "finish the accepted replacement with "
+                                    "python -m src.user_sync run before another preview")
                 remote_head, _ = self._inspect_remote(git, settings)
                 with self._library_lock():
                     self._prepare_library(git, self._rev(git, f"refs/heads/{settings.branch}"))
-                    plan = self._plan(git, settings, state, remote_head, joining=True)
+                    plan = self._plan(git, settings, state, remote_head, joining=True,
+                                      connection_mode=connection_mode)
                 plan.remote_sizes = self._blob_sizes(git, plan.remote_tree.values())
             except GitError as error:
                 raise self._git_failure(error, settings) from None
@@ -2278,12 +2691,134 @@ class Syncer:
                 raise SyncError("history_unavailable", str(error)) from None
         return self._preview_of(plan)
 
-    def start(self, confirm: str) -> dict:
+    def _local_content(self, path: str, expected: str | None, limit: int) -> tuple[bytes | None, int]:
+        """Bounded, non-mutating file read; refuse links, devices and changed ancestor directories."""
+        if not scope.portable_name(path):
+            raise SyncError("invalid", "invalid comparison path")
+        current, parents = self.library, []
+        for part in path.split("/")[:-1]:
+            current /= part
+            info = os.lstat(current)
+            if not stat.S_ISDIR(info.st_mode) or scope.is_link(info, current):
+                raise OSError("comparison path is unsafe")
+            parents.append((current, (info.st_dev, info.st_ino)))
+        target = current / path.split("/")[-1]
+        before = os.lstat(target)
+        if not stat.S_ISREG(before.st_mode) or scope.is_link(before, target):
+            raise OSError("comparison path is unsafe")
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+        descriptor = os.open(target, flags)
+        try:
+            info = os.fstat(descriptor)
+            if not stat.S_ISREG(info.st_mode) or (info.st_dev, info.st_ino) != (before.st_dev, before.st_ino):
+                raise _ChangedWhileReading(path)
+            data = None
+            if info.st_size <= limit:
+                with os.fdopen(os.dup(descriptor), "rb") as stream:
+                    data = stream.read(limit + 1)
+                if len(data) > limit:
+                    data = None
+                elif expected is not None and scope.blob_id(data) != expected:
+                    raise _ChangedWhileReading(path)
+            after = os.lstat(target)
+            if (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns) != \
+                    (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns) or scope.is_link(after, target):
+                raise _ChangedWhileReading(path)
+            for parent, identity in parents:
+                final = os.lstat(parent)
+                if (final.st_dev, final.st_ino) != identity or scope.is_link(final, parent):
+                    raise _ChangedWhileReading(path)
+            return data, info.st_size
+        finally:
+            os.close(descriptor)
+
+    @staticmethod
+    def _text_side(data: bytes | None, size: int | None, blob: str | None) -> dict:
+        text, binary = None, False
+        if data is not None:
+            try:
+                text = data.decode("utf-8")
+                if "\0" in text:
+                    text, binary = None, True
+            except UnicodeDecodeError:
+                binary = True
+        return {"text": text, "binary": binary, "too_large": data is None and size is not None,
+                "size": size, "blob": blob}
+
+    def comparison(self, path: str, *, confirm: str, connection_mode: str | None = None,
+                   text_limit: int = 512 * 1024) -> dict:
+        """Read exact previewed text only after revalidating its fingerprint under both locks."""
+        settings = self._require_settings()
+        self._validate_connection_mode(settings, connection_mode)
+        self._check_library(settings)
+        limit = max(0, min(int(text_limit), MAX_FILE_BYTES))
+        try:
+            with self._sync_lock_for(settings):
+                git = self._repository(settings, create=True)
+                self._clear_stale_git_locks()
+                if self._unfinished_adoption(git, settings):
+                    raise SyncError("adoption_pending", "finish the accepted replacement with "
+                                    "python -m src.user_sync run before another preview")
+                remote_head, _ = self._inspect_remote(git, settings)
+                with self._library_lock():
+                    self._prepare_library(git, self._rev(git, f"refs/heads/{settings.branch}"))
+                    plan = self._plan(git, settings, self._state(), remote_head, joining=True,
+                                      connection_mode=connection_mode)
+                    preview = self._preview_of(plan)
+                    if preview["hash"] != confirm:
+                        raise SyncError("confirmation_needed", "the preview changed; review it again")
+                    row = next((item for item in plan.comparison["files"] if item["path"] == path), None)
+                    if row is None or not scope.portable_name(path):
+                        raise SyncError("invalid", "path is not in this comparison")
+
+                    def git_side(blob):
+                        if blob is None:
+                            return None
+                        size = self._blob_sizes(git, [blob]).get(blob)
+                        if row["retained_reason"] == "machine_local":
+                            return {"text": None, "binary": False, "too_large": False,
+                                    "size": size, "blob": blob}
+                        raw = self._read_blobs(git, [blob])[blob] if size is not None and size <= limit else None
+                        return self._text_side(raw, size, blob)
+
+                    local = None
+                    if row["local"] is not None:
+                        descriptor = row["local"]
+                        if descriptor["blob"] is not None:
+                            raw, size = self._local_content(path, descriptor["blob"], limit)
+                            local = self._text_side(raw, size, descriptor["blob"])
+                        else:
+                            local = {"text": None, "binary": False, "too_large": False,
+                                     "size": descriptor["size"], "blob": None}
+                    remote = git_side(row["remote"]["blob"]) if row["remote"] else None
+                    selected = row["replace" if plan.connection_mode == "replace" else "merge"]
+                    result_blob = selected["result_blob"]
+                    if selected["action"] == "retain" or result_blob == plan.snapshot.local_blob(path):
+                        result = local
+                    elif isinstance(plan.target.get(path), bytes):
+                        raw = plan.target[path]
+                        result = self._text_side(raw if len(raw) <= limit else None, len(raw), scope.blob_id(raw))
+                    else:
+                        result = git_side(result_blob)
+                    return {"path": path, "hash": preview["hash"], "connection_mode": plan.connection_mode,
+                            "entry": row, "local": local, "remote": remote, "result": result,
+                            "base": git_side(plan.base.get(path))}
+        except GitError as error:
+            raise self._git_failure(error, settings) from None
+        except HistoryError as error:
+            raise SyncError("history_unavailable", str(error)) from None
+        except _ChangedWhileReading:
+            raise SyncError("confirmation_needed", "the preview changed; review it again") from None
+        except OSError:
+            raise SyncError("confirmation_needed", "the comparison path changed or cannot be safely read") from None
+
+    def start(self, confirm: str, *, connection_mode: str | None = None) -> dict:
         """Start sync after the owner confirmed the preview with this hash: the first upload or join."""
         settings = self._require_settings()
+        self._validate_connection_mode(settings, connection_mode)
         if settings.started:
             return self.run(confirm=confirm, force=True)
-        return self._run(settings, confirm=confirm, force=True)
+        return self._run(settings, confirm=confirm, force=True, connection_mode=connection_mode)
 
     def run(self, *, force: bool = False, confirm: str | None = None) -> dict:
         """One sync cycle. ``force`` ignores the retry delay; ``confirm`` approves a previewed plan."""
@@ -2293,11 +2828,14 @@ class Syncer:
         if settings.paused:
             return {"status": "paused"}
         if not settings.started and confirm is None:
-            return {"status": "attention", "reason": "confirmation_needed",
-                    "message": "finish setup: run preview, then start with its hash"}
+            git = self._git() if (self.library / ".git").is_dir() else None
+            if git is None or not self._unfinished_adoption(git, settings):
+                return {"status": "attention", "reason": "confirmation_needed",
+                        "message": "finish setup: run preview, then start with its hash"}
         return self._run(settings, confirm=confirm, force=force)
 
-    def _run(self, settings: Settings, *, confirm: str | None, force: bool) -> dict:
+    def _run(self, settings: Settings, *, confirm: str | None, force: bool,
+             connection_mode: str | None = None) -> dict:
         state = self._state()
         retry_at = _parse_time(state.get("retry_at"))
         if not force and retry_at is not None and self._clock() < retry_at:
@@ -2306,7 +2844,7 @@ class Syncer:
             self._check_library(settings)
             with self._sync_lock_for(settings):
                 state = self._state()  # another runner may have written it while we waited
-                return self._run_locked(settings, state, confirm)
+                return self._run_locked(settings, state, confirm, connection_mode=connection_mode)
         except SyncError as error:
             if error.reason == "lock_held":
                 return {"status": "lock_held", "message": error.message}
@@ -2314,7 +2852,8 @@ class Syncer:
                 return {"status": "attention", "reason": error.reason, "message": error.message}
             raise
 
-    def _run_locked(self, settings: Settings, state: dict, confirm: str | None) -> dict:
+    def _run_locked(self, settings: Settings, state: dict, confirm: str | None,
+                    *, connection_mode: str | None = None) -> dict:
         state["last_attempt"] = _now_iso(self._clock())
         result = {"status": "synced", "sent": [], "received": [], "received_from": [], "conflicts": [],
                   "merged": [], "pushed": False}
@@ -2325,9 +2864,11 @@ class Syncer:
             self._clear_stale_git_locks()
             validate_identity(settings.name, settings.email, settings.label)
             joining = confirm is not None
-            self._check_visibility(settings, state, required=not settings.started)
+            adopting = self._unfinished_adoption(git, settings) is not None
+            if not adopting:
+                self._check_visibility(settings, state, required=not settings.started)
             for attempt in range(PUSH_ATTEMPTS):
-                outcome = self._cycle(git, settings, state, confirm=confirm)
+                outcome = self._cycle(git, settings, state, confirm=confirm, connection_mode=connection_mode)
                 result["received"] += outcome["received"]
                 result["received_from"] += [label for label in outcome["received_from"]
                                             if label not in result["received_from"]]
@@ -2380,8 +2921,18 @@ class Syncer:
             raise
         return self._finish_success(git, settings, state, result, publication_error=publication_error)
 
-    def _cycle(self, git: Git, settings: Settings, state: dict, *, confirm: str | None) -> dict:
+    def _cycle(self, git: Git, settings: Settings, state: dict, *, confirm: str | None,
+               connection_mode: str | None = None) -> dict:
         """Fetch, then plan, write and commit under the library lock; returns the commit to push."""
+        from src.library_history import LibraryHistory
+        if not settings.started:
+            with self._library_lock():
+                adoption = self._unfinished_adoption(git, settings)
+                if adoption:
+                    if connection_mode not in (None, "replace") or (confirm is not None
+                            and confirm != adoption.get("decision_hash")):
+                        raise SyncError("adoption_pending", "finish the replacement already accepted by this preview")
+                    return self._adoption_outcome(git, settings, state, adoption)
         remote_head = self._fetch(git, settings)
         if remote_head is not None:
             self._check_marker(git, remote_head)
@@ -2393,11 +2944,25 @@ class Syncer:
         senders = self._senders(git, integrated, remote_head) if remote_head and remote_head != integrated else []
         with self._library_lock():
             self._prepare_library(git, self._rev(git, f"refs/heads/{settings.branch}"))
-            plan = self._plan(git, settings, state, remote_head, joining=confirm is not None)
+            plan = self._plan(git, settings, state, remote_head, joining=confirm is not None,
+                              connection_mode=connection_mode, details=confirm is not None or not settings.started)
+            if plan.connection_choice_required:
+                raise SyncError("connection_choice_required", "choose merge or replace, then review its preview")
             if confirm is None and self._reconcile_held(git, settings, state, plan):
-                plan = self._plan(git, settings, state, remote_head, joining=False)
+                plan = self._plan(git, settings, state, remote_head, joining=False, details=False)
             if confirm is not None and self._preview_of(plan)["hash"] != confirm:
                 raise SyncError("confirmation_needed", "the preview changed; review it again and confirm")
+            if plan.connection_mode == "replace":
+                if confirm is None:
+                    raise SyncError("confirmation_needed", "review the replacement preview and confirm it")
+                return self._replace_connection(git, settings, state, plan, confirm)
+            if not settings.started and plan.shape_holds:
+                # New holds become durable only after the exact initial merge
+                # was accepted, so preview and cancellation do not change policy.
+                state["pending_included_files"] = sorted(plan.held_files)
+                if set(plan.held_files) & set(settings.approved_files):
+                    self._update_settings(lambda current: setattr(current, "approved_files",
+                        [path for path in current.approved_files if path not in plan.held_files]))
             deletions = self._deletions(plan)
             if confirm is None:
                 for where, (deleted, total) in deletions.items():
@@ -2433,6 +2998,8 @@ class Syncer:
             state["blocked"] = [{"path": p, "pattern": v["pattern"], "sha256": v["sha256"]}
                                 for p, v in sorted(plan.snapshot.blocked.items())]
             state["held"] = [{"path": p, **v} for p, v in sorted(plan.snapshot.held.items())]
+            if LibraryHistory(self.library).generation():
+                LibraryHistory(self.library).accept(plan.accepted_tips)
             outcome["version_push"] = self._prepare_publication(git, settings, plan)
             state["blocked"] += plan.publication.blocked
         return outcome
@@ -2549,6 +3116,10 @@ class Syncer:
             state.update(last_success=now, failures=0, retry_at=None)
         if not settings.started:
             self._update_settings(lambda current: setattr(current, "started", current.started or now))
+        from src.library_history import LibraryHistory
+        generation = LibraryHistory(self.library).generation()
+        if generation:
+            git.run("config", "agents-sync.adopted-boundary", generation)
         new_groups = state.pop("_new_groups", [])
         if result["pushed"] and new_groups:
             announced = state.setdefault("announced_groups", [])
@@ -2782,12 +3353,15 @@ class Syncer:
                                        held_files=held_files - approved_files)
                 uploads = sorted(set(after.files) - set(before.files))
                 from src.library_history import LibraryHistory
-                events = LibraryHistory(self.library).export_events()
+                backend = LibraryHistory(self.library)
+                events = backend.export_events()
                 before_history = versions.publication(events, Rules(current, before.portable,
-                                                                     held_groups, held_files))
+                                                                     held_groups, held_files),
+                                                       generation=backend.generation())
                 after_history = versions.publication(events, Rules(updated, after.portable,
                                                                     held_groups - approved_groups,
-                                                                    held_files - approved_files))
+                                                                    held_files - approved_files),
+                                                      generation=backend.generation())
                 old_versions = dict(before_history.events)
                 added_versions = sum(old_versions.get(identifier) != tree and versions.restorable(tree)
                                      for identifier, tree in after_history.events)
@@ -3029,6 +3603,10 @@ class Syncer:
         settings = self._require_settings()
         # The settings lock keeps a concurrent pause or approval from saving the settings back.
         with self._sync_lock_for(settings, create=False), file_lock(self.state_dir / "settings.lock"):
+            settings = self._require_settings()  # A first start may have finished while the sync lock waited.
+            if (self.library / ".git").is_dir():
+                with self._library_lock():
+                    self._preserve_connected_history(self._git(), archive_received=bool(settings.started))
             for name in (SETTINGS_FILE, STATE_FILE, HISTORY_STATE_FILE, keys.KEY_NAME, f"{keys.KEY_NAME}.pub"):
                 (self.state_dir / name).unlink(missing_ok=True)
         self._log("disconnected")

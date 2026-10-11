@@ -8,6 +8,7 @@ library reader expose intermediate revisions without checkout archive files.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 import hashlib
 import json
 import re
@@ -19,6 +20,17 @@ PORTABLE_REFS = "refs/agents-core/portable/"
 INCOMING_REFS = "refs/agents-core/incoming/"
 RECEIVED_REFS = "refs/agents-core/received/"
 EVENT_FILE = ".agents-history-event.json"
+
+
+def legacy_event(path: str, identifier: str, raw: bytes) -> dict[str, bytes]:
+    """An accepted old remote archive, kept privately until normal publication filtering."""
+    content = "content/" + path
+    stamp = datetime.strptime(identifier.split("-", 1)[0], "%Y%m%dT%H%M%S%fZ").replace(tzinfo=timezone.utc)
+    metadata = {"format": 1, "source_id": identifier, "version": identifier,
+                "path": path, "action": "import", "time": stamp.isoformat(),
+                "archive": True, "deleted": identifier.endswith("-deleted"),
+                "previous_path": None, "content_path": content, "changes": {}}
+    return {content: raw, EVENT_FILE: json.dumps(metadata, sort_keys=True).encode() + b"\n"}
 
 
 def restorable(tree: dict[str, bytes]) -> bool:
@@ -38,16 +50,18 @@ class Publication:
                 for source, tree in self.events]
 
 
-def publication(events: list[dict], rules: scope.Rules) -> Publication:
+def publication(events: list[dict], rules: scope.Rules, *, generation: str | None = None) -> Publication:
     """Filter current and prior bytes of each event using today's publication policy.
 
     History exclusion applies to the entire event stream. A per-file exclusion
     also excludes that file's old contents. Credentials are checked even if they
     have already disappeared from the working tree.
     """
-    policy = json.dumps({"scopes": rules.scopes.dump().decode(), "portable": rules.portable,
-                         "held_groups": sorted(rules.held_groups), "held_files": sorted(rules.held_files)},
-                        sort_keys=True)
+    identity = {"scopes": rules.scopes.dump().decode(), "portable": rules.portable,
+                "held_groups": sorted(rules.held_groups), "held_files": sorted(rules.held_files)}
+    if generation is not None:
+        identity["generation"] = generation
+    policy = json.dumps(identity, sort_keys=True)
     result = Publication(hashlib.sha256(policy.encode()).hexdigest()[:20])
     if "history" in rules.scopes.exclude or "history" in rules.held_groups:
         return result

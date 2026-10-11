@@ -806,10 +806,23 @@ While sync is off, the page is a wizard:
    again), and Check access.
 4. **What syncs**: every scope group on by default; including one again first lists
    the files it would upload. "Ask before uploading" is set here too.
-5. **Preview**: uploads, downloads, deletions on this machine, conflicts, files the
-   scanner held back and repository groups with their origins. Where privacy cannot
-   be checked, the owner confirms it. Start sync sends the preview's hash, so a plan
-   that changed meanwhile is shown again instead of started.
+5. **Compare and choose**: the complete library inventory lists identical, local-only,
+   remote-only and changed paths, settings, versions and retained local paths. When
+   local content or saved versions meet an existing remote, choose **Merge libraries**
+   or **Replace local with repository**; neither is selected automatically.
+6. **Review and confirm**: the selected result lists uploads, downloads, local deletions,
+   conflicts, scanner hits and repository groups. Open a path to compare its local,
+   remote and resulting text. Replacement keeps discarded versions in private Git
+   history and excludes them from later uploads. Where privacy cannot be checked,
+   the owner confirms it. Confirmation sends the selected mode and preview hash,
+   so a changed plan is shown again instead of started.
+
+The page reads `GET /ui/api/sync/preview?connection_mode=merge|replace` for a selected
+plan and `GET /ui/api/sync/comparison?path=PATH&confirm=HASH&connection_mode=MODE` for
+its bounded text details. `POST /ui/api/sync/start` carries `confirm` and
+`connection_mode`. These operations run through the sync queue and require the
+editor session, loopback Host and same-origin UI header. Comparison details are
+refused if their plan has changed; oversized or binary files have no text preview.
 
 Once sync has started, the page has these sections:
 
@@ -872,7 +885,9 @@ a sign-in's device code.
 | `POST /ui/api/sync/github/device`, then `GET …/github/device?attempt=` | — | at once; a poll sooner than GitHub's interval is answered without asking GitHub, polls of one sign-in run one at a time, and a sign-in that GitHub grants after Forget account keeps nothing |
 | `GET …/github/libraries`, `POST …/github/create` (`name`), `…/github/forget` | — | at once (GitHub's API only) |
 | `POST /ui/api/sync/setup` | `github` (`owner/name`) or `remote`; `name`, `email`; optional `label`, `trust_host_key`, `ask_new_repositories`; or `again` (with an optional `trust_host_key`): setup with the remote and identity sync keeps, followed on a repository of the signed-in GitHub account by this machine's deploy key | queued |
-| `POST …/check`, `GET …/preview`, `POST …/start` (`confirm`, optional `confirm_private`), `POST …/run` (optional `confirm`), `POST …/key/regenerate`, `POST …/github/add-key`, `POST …/disconnect` | | queued |
+| `GET …/preview` | optional `connection_mode`: `merge` or `replace` | queued |
+| `GET …/comparison` | `path`, `confirm`; optional `connection_mode` | queued; hash-bound bounded local, remote, base and result text |
+| `POST …/check`, `POST …/start` (`confirm`, optional `confirm_private`, `connection_mode`), `POST …/run` (optional `confirm`), `POST …/key/regenerate`, `POST …/github/add-key`, `POST …/disconnect` | | queued |
 | `PUT /ui/api/sync/settings` | `fetch_minutes`, `ask_new_repositories`, `name`, `email`, `label`, `paused` | at once |
 | `GET …/conflict?id=`, `POST …/conflicts/resolve` (`id`, `action`: `keep`, `mine` or `dismiss`) | | at once |
 | `GET`, `PUT …/scopes` | `exclude`, `include`, `approve`, `approve_files`, `confirm` | at once; including or approving answers `confirmation_needed` with `hash` and `upload` until the same request carries that hash |
@@ -1002,6 +1017,9 @@ time, and the other reports `lock_held`. The scan picks up the files it changes.
 .venv/bin/python -m src.daemon user-sync check
 .venv/bin/python -m src.daemon user-sync preview
 .venv/bin/python -m src.daemon user-sync start --confirm <hash from preview>
+.venv/bin/python -m src.daemon user-sync preview --connection-mode merge
+.venv/bin/python -m src.daemon user-sync comparison common/example.md --connection-mode merge --confirm <hash>
+.venv/bin/python -m src.daemon user-sync start --connection-mode merge --confirm <hash from that preview>
 .venv/bin/python -m src.daemon user-sync run [--confirm <hash>]   # Sync now
 .venv/bin/python -m src.daemon user-sync pause | resume | disconnect
 ```
@@ -1027,8 +1045,10 @@ The service's endpoints need the bearer token like every `/admin` path:
 | `GET /admin/user-sync/status` | — | the engine's status and `loop`: `state`, `active`, `syncing`, `held`, `next_fetch_seconds`, `last_cycle` |
 | `POST /admin/user-sync/run` | optional `confirm` | one cycle that ignores the retry delay |
 | `POST /admin/user-sync/setup` | `remote`, `name`, `email`; optional `label`, `branch`, `ask_new_repositories`, `trust_host_key`, `confirm_private` | the engine's setup result, with the public key to add as a deploy key |
-| `POST /admin/user-sync/check`, `preview` | — | the engine's results |
-| `POST /admin/user-sync/start` | `confirm`: the preview's hash | the first upload or join |
+| `POST /admin/user-sync/check` | — | the engine's access result |
+| `POST /admin/user-sync/preview` | optional `connection_mode`: `merge` or `replace` | the engine's comparison and selected preview |
+| `POST /admin/user-sync/comparison` | `path`, `confirm`; optional `connection_mode` | bounded text details for the same preview |
+| `POST /admin/user-sync/start` | `confirm`: the preview's hash; `connection_mode` when a choice is required | the confirmed initial connection |
 | `POST /admin/user-sync/pause`, `resume`, `disconnect` | — | the engine's results |
 
 An engine refusal answers 409 with `status`, `reason` and `message` (for example

@@ -19,7 +19,7 @@ import pytest
 from src.flows import FlowCatalog
 from src.user_flows import FlowLibrary
 from src.user_sync import engine as engine_module, keys, wizard
-from src.user_sync.__main__ import _print, main as cli
+from src.user_sync.__main__ import _execute, _parser, _print, main as cli
 from src.user_sync.engine import SyncError, Syncer
 from src.user_sync.github import GitHubAccount, GitHubClient, GitHubError
 from src.user_sync.gitcmd import parse_remote
@@ -386,6 +386,123 @@ def test_the_wizard_stops_when_privacy_is_not_confirmed(tmp_path, bare):
 
 
 # --- the command line -----------------------------------------------------------------------
+
+
+class ConnectionReview:
+    """A populated join; each choice has a distinct executable preview."""
+
+    def __init__(self):
+        self.calls = []
+
+    def preview(self, *, connection_mode=None):
+        self.calls.append(("preview", connection_mode))
+        files = [{"path": f"common/flow-{index}.md", "state": "different",
+                  "merge": {"action": "merge", "conflict": {"kind": "both_changed", "overlaps": 2}},
+                  "replace": {"action": "replace"}, "retained_reason": None} for index in range(120)]
+        files.append({"path": "repos/local/private.md", "state": "local_only", "retained_reason": "local",
+                      "merge": {"action": "retain"}, "replace": {"action": "retain"}})
+        return {"kind": "join", "hash": connection_mode or "provisional", "connection_mode": connection_mode,
+                "connection_choice_required": connection_mode is None, "allowed_modes": ["merge", "replace"],
+                "comparison": {"summary": {"different": 120, "retained": 1}, "files": files,
+                               "history": {"local_versions": 3, "remote_versions": 4}},
+                "upload": [{"path": f"common/upload-{index}.md"} for index in range(30)]}
+
+    def comparison(self, path, *, confirm, connection_mode=None):
+        self.calls.append(("comparison", path, confirm, connection_mode))
+        side = lambda text: {"text": text, "binary": False, "too_large": False, "size": len(text)}
+        return {"path": path, "local": side("# Local <script>text</script>\n"), "remote": side("# Remote\n"),
+                "result": side("# Merged exactly\n"), "base": None}
+
+    def start(self, confirm, *, connection_mode=None):
+        self.calls.append(("start", confirm, connection_mode))
+        return {"status": "synced", "sent": [], "received": []}
+
+
+def test_terminal_connection_requires_choice_then_reconfirms_a_changed_mode():
+    syncer, said = ConnectionReview(), []
+    ask = Script("", "yes", "m", "inspect common/flow-119.md", "replace", "yes")
+    assert wizard.review_connection(syncer, ask=ask, say=said.append)["status"] == "synced"
+    assert syncer.calls == [("preview", None), ("preview", "merge"),
+                            ("comparison", "common/flow-119.md", "merge", "merge"),
+                            ("preview", "replace"), ("start", "replace", "replace")]
+    text = "\n".join(said)
+    for part in ("there is no default", "common/flow-119.md", "common/upload-29.md", "retained: local",
+                 "2 overlaps", "# Local <script>text</script>", "# Merged exactly", "private Git recovery"):
+        assert part in text
+    assert "and 10 more" not in text and ask.answers == []
+
+
+@pytest.mark.parametrize("answers", [("cancel",), ("replace", "cancel")])
+def test_cancelling_terminal_connection_never_starts(answers):
+    syncer = ConnectionReview()
+    assert wizard.review_connection(syncer, ask=Script(*answers), say=lambda text: None)["status"] == "cancelled"
+    assert all(call[0] != "start" for call in syncer.calls)
+
+
+def test_terminal_connection_repreviews_a_changed_plan_before_another_yes():
+    syncer, starts = ConnectionReview(), []
+    def start(confirm, *, connection_mode=None):
+        starts.append((confirm, connection_mode))
+        return {"status": "attention", "reason": "confirmation_needed", "message": "changed"} if len(starts) == 1 else {"status": "synced"}
+    syncer.start = start
+    ask = Script("merge", "yes", "yes")
+    assert wizard.review_connection(syncer, ask=ask, say=lambda text: None)["status"] == "synced"
+    assert syncer.calls == [("preview", None), ("preview", "merge"), ("preview", "merge")]
+    assert starts == [("merge", "merge"), ("merge", "merge")] and ask.answers == []
+
+
+@pytest.mark.parametrize("mode", ["merge", "replace"])
+def test_terminal_wizard_connects_populated_libraries_only_after_the_selected_preview(tmp_path, bare, mode):
+    seed = Syncer(tmp_path / "seed-library", tmp_path / "seed-state", allow_file_remote=True,
+                  visibility=lambda remote: "private")
+    FlowLibrary(user_dir=seed.library).save("user:remote", "# Remote\n")
+    seed.setup(remote=str(bare), name="Owner", email="owner@example.com", label="seed")
+    assert seed.start(seed.preview()["hash"])["status"] == "synced"
+    remote_before = remote_files(bare)
+    syncer = Syncer(tmp_path / "library", tmp_path / "state", allow_file_remote=True,
+                    visibility=lambda remote: "private")
+    FlowLibrary(user_dir=syncer.library).save("user:local", "# Local\n")
+    ask, said = Script("m", str(bare), "Owner", "owner@example.com", "laptop", mode,
+                       "inspect common/local.md", "yes"), []
+    result = wizard.run(syncer, ask=ask, say=said.append, open_browser=lambda url: None)
+    assert result["status"] == "synced" and ask.answers == []
+    assert (syncer.library / "common" / "remote.md").read_text() == "# Remote\n"
+    assert "Comparison: common/local.md" in "\n".join(said)
+    if mode == "merge":
+        assert (syncer.library / "common" / "local.md").read_text() == "# Local\n"
+        assert remote_files(bare)["common/local.md"] == b"# Local\n"
+    else:
+        assert not (syncer.library / "common" / "local.md").exists()
+        assert remote_files(bare) == remote_before
+
+
+def test_cli_comparison_failure_uses_the_expected_error_printer(capsys):
+    _print({"status": "attention", "reason": "confirmation_needed", "message": "preview changed"}, "comparison")
+    assert "comparison: attention (confirmation_needed)" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("arguments, expected", [
+    (["preview", "--connection-mode", "replace"], ("preview", "replace")),
+    (["start", "--connection-mode", "merge", "--confirm", "merge"], ("start", "merge", "merge")),
+    (["comparison", "common/doc.md", "--connection-mode", "replace", "--confirm", "replace"],
+     ("comparison", "common/doc.md", "replace", "replace")),
+])
+def test_cli_passes_explicit_connection_mode_to_the_reviewed_operation(arguments, expected):
+    syncer = ConnectionReview()
+    _execute(syncer, _parser().parse_args(arguments), None)
+    assert syncer.calls == [expected]
+
+
+def test_cli_provisional_preview_has_no_start_command_and_chosen_preview_names_its_mode(capsys):
+    syncer = ConnectionReview()
+    _print(syncer.preview(), "preview")
+    text = capsys.readouterr().out
+    assert "common/flow-119.md" in text and "preview --connection-mode merge (or replace)" in text
+    assert "start --confirm provisional" not in text
+    _print(syncer.preview(connection_mode="replace"), "preview")
+    text = capsys.readouterr().out
+    assert "start --connection-mode replace --confirm replace" in text
+    assert "comparison PATH --connection-mode replace --confirm replace" in text
 
 
 @pytest.mark.parametrize("kind", ["push", "none"], ids=["first-upload", "history-only"])

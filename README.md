@@ -271,7 +271,11 @@ By default it syncs everything with a portable identity: personal flows, persona
 choices, the switches, the flows' history, and the flows of every repository that
 has an `origin` remote, work repositories included. Repository folders without an
 `origin` and machine-local files stay on the machine. The wizard and the Sync page
-show a preview and wait for your confirmation before the first upload or a join;
+compare the complete local library with an existing remote and offer **Merge libraries**
+or **Replace local with repository**. The comparison lists identical, local-only,
+remote-only and changed files, conflicts, history and paths that remain local.
+The selected result needs confirmation before connection; discarded versions remain
+restorable in private Git history and are excluded from later uploads.
 `python -m src.user_sync scope --exclude repos/<key>` (or `--exclude-file PATH`)
 later keeps a group or a file out on every machine without deleting it anywhere.
 
@@ -339,9 +343,12 @@ the separate command. Never keep the token in `.env`.
 Without a token or an earlier `github login`, setup prints this machine's public
 key to add to the repository as a deploy key with write access; run it again
 afterwards, and the installer's summary says so. Setup then checks access and
-privacy, prints the preview and starts sync without waiting, except that joining
-a library with conflicts stops at "confirmation needed" with the commands to
-review the preview and to start with its hash. Where privacy cannot be checked,
+privacy and prints the preview. An existing remote with local content or saved
+versions stops at `connection_choice_required`, even without conflicts. Review
+`preview --connection-mode merge` or `preview --connection-mode replace`, then
+run `start` with the same mode and the selected preview's `--confirm` hash.
+An empty remote accepts only merge; an empty local library can download the
+remote after the preview. Where privacy cannot be checked,
 another host's key needs confirming, or the repository belongs to another owner,
 it says to run it again with `--confirm-private`, `--trust-host-key` or
 `--confirm-owner OWNER`. On a machine without the shared service
