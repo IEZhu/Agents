@@ -784,8 +784,12 @@ about one that only a directory the user can write holds. The service starts the
 tools by those paths and runs with system directories in its `PATH`, not the
 installing shell's (see [tools and PATH](docs/shared-mcp-daemon.md#tools-and-path)).
 
-Global registrations provide routing; project memory requires a registered
-workspace. Register each clone or worktree separately with `migrate --workspace`.
+Global registrations provide routing. With Node recorded, the user entries of
+Claude Code, Codex and Cursor register each session's project themselves, and the
+service keeps the registrations it wrote up to date at every start
+([details](docs/shared-mcp-daemon.md#registrations-kept-current)). Without Node,
+project memory requires a registered workspace: register each clone or worktree
+with `migrate --workspace`.
 Migration manages private bearer headers and backups. Reconnect MCP in open
 clients after migration. See [service operations](docs/shared-mcp-daemon.md) for
 scope audits, updates, token rotation and rollback. A client that still starts
@@ -1013,7 +1017,7 @@ declares roots and `workspace` was omitted, the refusal asks for it and
 `log_interaction` tells the model to retry once with it.
 Over HTTP, memory requires the registered `X-Agents-Workspace` header;
 the daemon does not infer a project from its working directory. The user-scope
-entries of Claude Code and Codex are a bridge per session that registers the
+entries of Claude Code, Codex and Cursor are a bridge per session that registers the
 session's project and sends that header itself ([details](docs/shared-mcp-daemon.md#installation-and-client-migration)).
 If a memory tool returns `workspace_required`, `workspace_unsafe` or
 `workspace_invalid`, routing remains available.
