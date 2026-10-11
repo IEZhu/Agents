@@ -70,7 +70,7 @@ def test_migration_backup_and_conflicting_restore(migration, tmp_path):
     with pytest.raises(ValueError, match="changed"): migration.restore(backup)
 
 
-def test_tracked_codex_uses_string_helper_without_secret(migration, tmp_path):
+def test_tracked_codex_gets_a_pinned_bridge_without_secret(migration, tmp_path):
     root = tmp_path / "tracked"; root.mkdir()
     subprocess.run(["git", "init", str(root)], check=True, capture_output=True)
     path = root / ".codex/config.toml"; path.parent.mkdir()
@@ -78,9 +78,53 @@ def test_tracked_codex_uses_string_helper_without_secret(migration, tmp_path):
     subprocess.run(["git", "-C", str(root), "add", ".codex/config.toml"], check=True)
     _, text, secret = migration.prepare("codex", root)
     entry = tomllib.loads(text)["mcp_servers"]["Agents-Core"]
-    assert isinstance(entry["http_headers_helper"], str)
+    assert entry["args"][0].endswith("stdio.mjs") and "http_headers_helper" not in entry
+    assert json.loads(Path(entry["args"][1]).read_text())["headers"]["X-Agents-Workspace"]
     assert migration.token not in text
     assert not secret
+
+
+def codex_merge(user, project):
+    """The entry Codex runs: it merges a server's table field by field across its layers,
+    a project's .codex/config.toml over the user's."""
+    return {**user, **project}
+
+
+def test_codex_layers_merge_into_one_transport(migration, tmp_path):
+    """#292: a stdio user layer merged with an HTTP project layer is an entry Codex refuses
+    ("url is not supported for stdio"), and every thread of that project stops resuming."""
+    home = tmp_path / "home"; (home / ".codex").mkdir(parents=True)
+    project = tmp_path / "repo"; project.mkdir()
+    for node in (sys.executable, str(tmp_path / "missing-node")):
+        migration.config["node"] = node
+        user = tomllib.loads(migration.prepare("codex", home=home)[1])["mcp_servers"]["Agents-Core"]
+        pinned = tomllib.loads(migration.prepare("codex", project, home=home)[1])["mcp_servers"]["Agents-Core"]
+        merged = codex_merge(user, pinned)
+        if node == sys.executable:
+            assert {"command", "args"} <= set(merged)
+            assert not {"url", "http_headers", "http_headers_helper"} & set(merged)
+            settings = json.loads(Path(merged["args"][1]).read_text())
+            assert settings["headers"]["X-Agents-Workspace"] and "workspace" not in settings
+        else:  # without Node every layer stays HTTP
+            assert merged["url"].endswith("/mcp") and "command" not in merged
+            assert merged["http_headers"]["X-Agents-Workspace"]
+
+
+def test_cursor_layers_get_bridges(migration, tmp_path):
+    """#292: Cursor's layers share one transport too; the user layer names each session's project."""
+    home = tmp_path / "home"; home.mkdir()
+    project = tmp_path / "repo"; project.mkdir()
+    migration.config["node"] = sys.executable
+    user = json.loads(migration.prepare("cursor", home=home)[1])["mcpServers"]["Agents-Core"]
+    assert user["args"][0].endswith("stdio.mjs") and Path(user["args"][1]).name == "cursor-auto.json"
+    assert json.loads(Path(user["args"][1]).read_text())["workspace"] == "auto"
+    _, text, secret = migration.prepare("cursor", project, home=home)
+    pinned = json.loads(text)["mcpServers"]["Agents-Core"]
+    assert "url" not in pinned and json.loads(Path(pinned["args"][1]).read_text())["headers"]["X-Agents-Workspace"]
+    assert not secret and migration.token not in text
+    migration.config["node"] = str(tmp_path / "missing-node")
+    user = json.loads(migration.prepare("cursor", home=home)[1])["mcpServers"]["Agents-Core"]
+    assert user["url"].endswith("/mcp") and "command" not in user
 
 
 def test_each_client_names_its_app_in_its_headers_and_bridge(migration, tmp_path):
@@ -88,7 +132,8 @@ def test_each_client_names_its_app_in_its_headers_and_bridge(migration, tmp_path
     home = tmp_path / "home"; home.mkdir()
     migration.config["node"] = sys.executable
     _, text, _ = migration.prepare("cursor", home=home)
-    assert json.loads(text)["mcpServers"]["Agents-Core"]["headers"]["X-Agents-Client"] == "cursor"
+    bridge = Path(json.loads(text)["mcpServers"]["Agents-Core"]["args"][1])
+    assert json.loads(bridge.read_text())["headers"]["X-Agents-Client"] == "cursor"
     _, text, _ = migration.prepare("claude", home=home)
     bridge = Path(json.loads(text)["mcpServers"]["Agents-Core"]["args"][1])
     assert json.loads(bridge.read_text())["headers"]["X-Agents-Client"] == "claude-code"
@@ -175,11 +220,13 @@ def test_user_scope_codex_gets_the_same_bridge(migration, tmp_path):
     assert Path(entry["args"][1]).name == "codex-auto.json"
     assert settings["workspace"] == "auto" and settings["headers"]["X-Agents-Client"] == "codex"
     assert not secret and migration.token not in text
-    # A project's own .codex/config.toml keeps its fixed identity over HTTP.
+    # A project's own .codex/config.toml keeps its fixed identity, through the same transport (#292).
     project = tmp_path / "repo"; project.mkdir()
     _, text, _ = migration.prepare("codex", project, home=home)
     pinned = tomllib.loads(text)["mcp_servers"]["Agents-Core"]
-    assert pinned["url"].endswith("/mcp") and pinned["http_headers"]["X-Agents-Workspace"]
+    assert pinned["command"] == sys.executable and "url" not in pinned
+    settings = json.loads(Path(pinned["args"][1]).read_text())
+    assert settings["headers"]["X-Agents-Workspace"] and "workspace" not in settings
 
 
 def test_prepared_callback_runs_before_writes(migration, tmp_path):

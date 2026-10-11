@@ -257,19 +257,18 @@ class ClientMigration:
         if client == "codex":
             original = self.read_config(path, as_json=False)
             old_entry = tomllib.loads(original).get("mcp_servers", {}).get(SERVER, {})
-            if root is None and self.has_node():
-                # Codex starts a stdio server without `cwd` in the session's working directory
-                # (codex-rs LocalStdioServerLauncher), so the bridge names that project (#253).
-                entry = transport_entry(old_entry, self.bridge(None, app, auto_workspace=True))
+            if self.has_node() or tracked(path):
+                # Codex merges a server's fields across ~/.codex/config.toml and a project's
+                # .codex/config.toml, so every layer takes the same transport: a stdio user layer
+                # over an HTTP project layer is an entry Codex refuses (#292). Codex starts a stdio
+                # server without `cwd` in the session's working directory (codex-rs
+                # LocalStdioServerLauncher), so the user layer's bridge names that project (#253);
+                # a project layer's bridge keeps its fixed identity. A tracked file never holds the
+                # token, so it needs the bridge either way.
+                entry = transport_entry(old_entry, self.bridge(identity, app, auto_workspace=root is None))
                 return path, replace_toml_server(original, SERVER, entry), False
-            entry = transport_entry(old_entry, {})
-            entry["url"] = self.url
-            if tracked(path):
-                # Helper reads a private bridge config; it never embeds the token.
-                bridge = self.bridge(identity, app)
-                entry["http_headers_helper"] = shlex.join([bridge["command"], str(Path(self.config["installation"]) / "bridge/headers.mjs"), bridge["args"][1]])
-            else: entry["http_headers"] = headers
-            return path, replace_toml_server(original, SERVER, entry), bool("http_headers" in entry)
+            entry = transport_entry(old_entry, {"url": self.url, "http_headers": headers})
+            return path, replace_toml_server(original, SERVER, entry), True
         if client == "claude":
             document = self.read_config(path)
             scope = document.setdefault("projects", {}).setdefault(str(root), {}) if root else document
@@ -293,7 +292,12 @@ class ClientMigration:
         elif client == "cursor":
             document = self.read_config(path)
             servers = document.setdefault("mcpServers", {})
-            entry = self.bridge(identity, app) if tracked(path) else {"url": self.url, "headers": headers}
+            # One transport in every layer, as for Codex (#292): whether Cursor merges a server
+            # across ~/.cursor/mcp.json and a project's .cursor/mcp.json is not documented.
+            if self.has_node() or tracked(path):
+                entry = self.bridge(identity, app, auto_workspace=root is None)
+            else:
+                entry = {"url": self.url, "headers": headers}
             servers[SERVER] = transport_entry(servers.get(SERVER, {}), entry)
         elif client == "desktop":
             document = self.read_config(path)
