@@ -1701,3 +1701,76 @@ def test_a_part_left_without_entries_is_removed_and_its_month_still_syncs(two, c
     clock.now = datetime(2026, 9, 30, 13, 0, tzinfo=timezone.utc)
     a.log("september again")
     assert "september again" in a.exported() and history_sync.status(a.machine.state).get("history_error") is None
+
+
+# --- the fallback journal (#292) ----------------------------------------------------------------
+
+FALLBACK_SEGMENTS = f"repos/{history_sync.FALLBACK_KEY}/history"
+
+
+class Unresolved:
+    """A machine's fallback journal: turns whose project did not resolve, next to its sync state."""
+
+    def __init__(self, box: Box):
+        from src.memory import fallback
+        self.box = box
+        root = box.machine.state.parent / "unresolved"
+        root.mkdir(parents=True, exist_ok=True)
+        self.root = fallback.mark(root)
+        self.history = self.root / "history.md"
+        self.writer = HistoryWriter(str(self.history), str(self.root / "history"))
+
+    def log(self, intent: str, claimed: str = "/work/unregistered") -> dict:
+        with self.box.active():
+            result = self.writer.append_entry(intent, "Agent: software_engineer", "done",
+                                              metadata={"unresolved": "workspace_required",
+                                                        "claimed_workspace": claimed})
+        assert history_sync.drain(60)
+        return result
+
+    def read(self, **options) -> list:
+        with self.box.active():
+            return HistoryReader(str(self.history), str(self.root / "history")).read_recent(**options)
+
+
+def test_the_fallback_journal_is_shared_like_a_repository(two, clock, capsys):
+    a, b = two
+    for box in (a, b):
+        assert run_cli(box, "history", "share", "all", "--json") == 0
+    capsys.readouterr()
+    on_a, on_b = Unresolved(a), Unresolved(b)
+    on_a.log("without a project on a")
+    on_b.log("without a project on b", claimed="/elsewhere")
+    for box in (a, b, a):
+        box.sync()
+
+    entries = on_a.read(limit=10)
+    assert [(e.intent, e.machine) for e in entries] == [("without a project on b", "machine-b"),
+                                                         ("without a project on a", None)]
+    assert entries[0].metadata["claimed_workspace"] == "/elsewhere"  # the claim travels with the entry
+    files = remote_files(a.machine.remote)
+    assert f"{FALLBACK_SEGMENTS}/machine-a/2026-10.md" in files and f"{FALLBACK_SEGMENTS}/machine-b/2026-10.md" in files
+    assert json.loads(files[f"repos/{history_sync.FALLBACK_KEY}/.repo.json"]) == {"origin": history_sync.FALLBACK_ORIGIN}
+
+
+def test_the_fallback_journal_waits_for_approval_like_any_repository(two, clock):
+    a, _ = two
+    Unresolved(a).log("not shared yet")
+    assert not (a.machine.lib / FALLBACK_SEGMENTS).exists()
+    assert history_sync.FALLBACK_KEY in [item["key"] for item in a.status()["history_waiting"]]
+
+
+def test_a_repository_around_the_state_lends_the_fallback_journal_no_origin(tmp_path, two, clock):
+    """A dotfiles repository that holds the state directory must not make the journal one of its own."""
+    a, _ = two
+    plain_git("init", "--quiet", str(a.machine.state.parent))
+    plain_git("-C", str(a.machine.state.parent), "remote", "add", "origin", "git@github.com:me/dotfiles.git")
+    journal_root = Unresolved(a).root
+    workspace = history_sync._workspace(journal_root)
+    assert (workspace.key, workspace.origin, workspace.top) == (
+        history_sync.FALLBACK_KEY, history_sync.FALLBACK_ORIGIN, True)
+    # A copied marker names another directory: that one stays an ordinary folder.
+    copy = tmp_path / "copy"
+    copy.mkdir()
+    (copy / ".agents-core-fallback").write_text((journal_root / ".agents-core-fallback").read_text())
+    assert history_sync._workspace(copy).key != history_sync.FALLBACK_KEY

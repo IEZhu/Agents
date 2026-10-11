@@ -13,6 +13,9 @@ from pathlib import Path
 ROOT_OVERRIDE: Path | None = None
 # A longer claim is no directory a client starts in; it is left out rather than cut.
 MAX_CLAIM = 4096
+# Names the journal's directory for user sync, which shares it under its own key (#292): it holds
+# the directory's own path, so a copy elsewhere, or the same name in a repository, is no journal.
+MARKER = ".agents-core-fallback"
 
 REMEDY = ("To keep history in the project, start the session inside it (a directory with .git or "
           "CLAUDE.md) or register it once with `python -m src.daemon migrate --workspace "
@@ -50,10 +53,32 @@ def journal_root() -> Path:
     """
     if ROOT_OVERRIDE is not None:
         Path(ROOT_OVERRIDE).mkdir(parents=True, exist_ok=True)
-        return Path(ROOT_OVERRIDE)
+        return mark(Path(ROOT_OVERRIDE))
     from src.daemon.state import private_dir
     from src.user_sync.engine import default_state_dir
-    return private_dir(default_state_dir().parent / "unresolved")
+    return mark(private_dir(default_state_dir().parent / "unresolved"))
+
+
+def mark(root: Path) -> Path:
+    """Write the marker that names ``root`` the fallback journal's directory; returns ``root``."""
+    marker = Path(root) / MARKER
+    own = str(Path(root).resolve())
+    try:
+        if marker.read_text(encoding="utf-8") == own:
+            return Path(root)
+    except OSError:
+        pass
+    from src.daemon.state import atomic_private
+    atomic_private(marker, own)
+    return Path(root)
+
+
+def is_journal_root(root) -> bool:
+    """Whether ``root`` is a fallback journal's directory, by its marker; never runs git."""
+    try:
+        return (Path(root) / MARKER).read_text(encoding="utf-8") == str(Path(root).resolve())
+    except (OSError, UnicodeError):
+        return False
 
 
 def clean_claim(value) -> str | None:

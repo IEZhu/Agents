@@ -74,7 +74,7 @@ import time
 
 from src import executables, user_library
 from src.file_lock import file_lock
-from src.memory import history as journal
+from src.memory import fallback, history as journal
 from src.user_library import REPO_META
 from src.user_sync import engine, scope
 from src.user_sync.engine import HISTORY_STATE_FILE, SETTINGS_FILE, Settings, SyncError
@@ -95,6 +95,10 @@ _MONTH = re.compile(r"[0-9]{4}-(?:0[1-9]|1[0-2])")
 _TOKEN = re.compile(r"(?P<digest>[0-9a-f]{64})-(?P<cutoff>[0-9]{8}T[0-9]{6})")
 SHARE_APPROVED, SHARE_ALL = "approved", "all"   # Settings.history_share
 _MACHINE_LINE = "**Machine:**"
+# The fallback journal's repository (#292): `repo_key` never makes a key without "-", and the
+# pseudo-origin is the same on every machine, since parts and .repo.json are compared by origin.
+FALLBACK_KEY = "_unresolved"
+FALLBACK_ORIGIN = "agents-core:unresolved"
 _STATE_LOCK = "history-state.lock"
 
 
@@ -240,8 +244,15 @@ def _top_level(root: str) -> bool:
 
 
 def _workspace(root) -> _Workspace:
-    """A checkout's key, origin and whether it is the top level; remembered for a few seconds."""
+    """A checkout's key, origin and whether it is the top level; remembered for a few seconds.
+
+    The fallback journal's directory (#292) is a repository of its own: ``FALLBACK_KEY`` with
+    ``FALLBACK_ORIGIN``, the same on every machine. It is told by its marker and never by git, so
+    a dotfiles repository around the state directory does not lend it its origin.
+    """
     root = _root_key(root)
+    if fallback.is_journal_root(root):
+        return _Workspace(root, True, FALLBACK_KEY, FALLBACK_ORIGIN)
     now = time.monotonic()
     with _WORKSPACES_GUARD:
         cached = _WORKSPACES.get(root)
