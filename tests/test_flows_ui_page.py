@@ -831,6 +831,43 @@ def test_the_ssh_wizard_confirms_the_host_key_and_the_privacy_it_cannot_check():
 
 
 @pytest.fixture(scope="module")
+def connection_choice():
+    return run_sync("sync_connection_choice")
+
+
+def test_existing_library_connection_has_no_default_and_lists_every_path(connection_choice):
+    result = connection_choice
+    assert result["unselected"]["checked"] == 0 and result["no_start"] == 0
+    assert "Start sync (disabled)" in result["unselected"]["buttons"]
+    for text in ("common/item-120.md", "retained: excluded", "120 local only", "2 overlaps", "3 local, 4 remote"):
+        assert text in result["unselected"]["text"]
+    assert "and 21 more" not in result["unselected"]["text"]
+
+
+def test_connection_details_show_exact_text_and_a_mode_change_discards_old_details(connection_choice):
+    result = connection_choice
+    assert "Merge and connect" in result["merge"]["buttons"]
+    assert "# Local <script>literal</script>" in result["detail"]
+    assert "# Exact merged result" in result["detail"]
+    assert "private Git history" in result["replace"]["text"]
+    assert "# Exact merged result" not in result["replace"]["text"]
+    requests = [path for method, path, _ in result["calls"] if method == "GET"]
+    assert "/ui/api/sync/preview?connection_mode=merge" in requests
+    assert "/ui/api/sync/preview?connection_mode=replace" in requests
+    assert "/ui/api/sync/comparison?path=common%2Fitem-0.md&confirm=merge1&connection_mode=merge" in requests
+
+
+def test_cancel_preserves_contents_and_replacement_confirms_the_current_mode_bound_hash(connection_choice):
+    result = connection_choice
+    assert result["cancelled"]["starts"] == 0
+    assert result["cancelled"]["alert"] == "Connection cancelled; library contents were not changed."
+    assert result["changed"]["alert"].startswith("the preview changed")
+    starts = [body for method, path, body in result["calls"] if method == "POST" and path.endswith("/start")]
+    assert starts == [{"confirm": "replace2", "confirm_private": False, "connection_mode": "replace"},
+                      {"confirm": "replace3", "confirm_private": False, "connection_mode": "replace"}]
+
+
+@pytest.fixture(scope="module")
 def dashboard():
     return run_sync("sync_dashboard")
 

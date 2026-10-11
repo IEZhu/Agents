@@ -111,7 +111,10 @@ class Machine:
                         label=f"machine-{self.name}", **setup)
         self.sync.check()
         preview = self.sync.preview()
-        result = self.sync.start(preview["hash"])
+        mode = "merge" if preview["connection_choice_required"] else None
+        if mode:
+            preview = self.sync.preview(connection_mode=mode)
+        result = self.sync.start(preview["hash"], connection_mode=mode)
         assert result["status"] in ("synced", "attention"), result
         return result
 
@@ -223,10 +226,10 @@ def test_join_with_own_flows_keeps_both_versions(machine):
     b.save("user:only-b", "# B\n")
     b.sync.setup(remote=str(a.remote), name="Owner", email="owner@example.com", label="b")
     assert b.sync.run()["reason"] == "confirmation_needed"
-    preview = b.sync.preview()
+    preview = b.sync.preview(connection_mode="merge")
     assert preview["kind"] == "join"
     assert [(c["path"], c["kind"]) for c in preview["conflicts"]] == [("common/differs.md", "both_changed")]
-    b.sync.start(preview["hash"])
+    b.sync.start(preview["hash"], connection_mode="merge")
     assert b.text("common/differs.md") == "# Differs\n\nA\n"  # the version that reached the remote first
     [record] = records(b)
     assert record["kind"] == "both_changed" and record["kept"] == "remote" and record["flow"] == "user:differs"
@@ -1018,9 +1021,9 @@ def test_content_excluded_elsewhere_never_reaches_the_remote_when_joining(machin
     _repo_group(b, "github.com-corp-work", "github.com/corp/work", text="# deploy\n\nCORP SECRET TEXT\n")
     b.save("user:mine", "# Mine\n")
     b.sync.setup(remote=str(b.remote), name="Owner", email="owner@example.com", label="b")
-    preview = b.sync.preview()
+    preview = b.sync.preview(connection_mode="merge")
     assert not [e for e in preview["upload"] if "corp-work" in e["path"]]
-    assert b.sync.start(preview["hash"])["status"] == "synced"
+    assert b.sync.start(preview["hash"], connection_mode="merge")["status"] == "synced"
     assert b"CORP SECRET TEXT" not in remote_objects(b.remote)
     assert "CORP SECRET TEXT" in b.text("repos/github.com-corp-work/deploy.md")
     assert "common/mine.md" in remote_files(b.remote)

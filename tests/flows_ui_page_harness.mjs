@@ -304,9 +304,9 @@ const started = () => ({
 });
 if (["sync_dashboard", "sync_notice", "sync_more", "sync_round2"].includes(scenario)) syncState = started();
 // Set up over SSH, stopped at the host's fingerprints, then the page was reloaded.
-if (scenario === "sync_hostkey" || scenario === "sync_busy_radio") {
+if (scenario === "sync_hostkey" || scenario === "sync_busy_radio" || scenario === "sync_connection_choice") {
   syncState = { ...SYNC_OFF, state: "waiting_for_access", set_up: true, started: null, suggested_label: undefined,
-                repository: "git.example.com/me/library", ssh: true, host_key_unconfirmed: true, label: "laptop",
+                repository: "git.example.com/me/library", ssh: true, host_key_unconfirmed: scenario !== "sync_connection_choice", label: "laptop",
                 identity: { name: "Owner", email: "owner@example.com" }, public_key: PUBLIC_KEY };
 }
 // Set up on GitHub, stopped before GitHub's host keys were stored, then the page was reloaded.
@@ -998,6 +998,68 @@ if (isSync) {
     await click("Start sync");
     await sleep(30);
     out.changed = { alert: alertText(), headings: snapshot().headings };
+    out.calls = calls();
+    console.log(JSON.stringify(out));
+    process.exit(0);
+  }
+
+  if (scenario === "sync_connection_choice") {
+    const inventory = Array.from({ length: 121 }, (_, index) => ({ path: "common/item-" + index + ".md",
+      state: index === 0 ? "different" : "local_only", local: { blob: "local", size: 10 }, remote: null,
+      retained_reason: index === 120 ? "excluded" : null,
+      merge: { action: index === 120 ? "retain" : "merge", conflict: index === 0 ?
+        { kind: "both_changed", reason: "overlapping_changes", overlaps: 2 } : null },
+      replace: { action: index === 120 ? "retain" : "delete" } }));
+    const preview = (mode, hash) => ({ kind: mode === "replace" ? "replace" : "join", hash,
+      privacy: "private", connection_choice_required: !mode, connection_mode: mode, allowed_modes: ["merge", "replace"],
+      comparison: { summary: { local_only: 120, different: 1, retained: 1 }, files: inventory,
+        history: { local_versions: 3, remote_versions: 4, merge_upload_versions: 3, replace_private_versions: 3 } },
+      upload: [], download: [], delete_local: [], conflicts: [], blocked: [], pending_groups: [], pending_files: [] });
+    const side = (text) => ({ text, binary: false, too_large: false, size: text.length });
+    const detail = (path) => ({ path, hash: "merge1", connection_mode: "merge", entry: inventory[0],
+      local: side("# Local <script>literal</script>\n"), remote: side("# Remote\n"),
+      result: side("# Exact merged result\n"), base: null });
+    reply("POST /ui/api/sync/check", [200, { status: "ok", remote_state: "library", remote_head: "remote1" }]);
+    reply("GET /ui/api/sync/scopes", [200, { groups: [{ group: "common", syncs: true }], ask_new_repositories: false }]);
+    await openPage();
+    await click("Check access");
+    reply("GET /ui/api/sync/preview", [200, preview(null, "provisional")]);
+    await click("Continue to the preview");
+    await sleep(30);
+    out.unselected = { ...snapshot(), text: textOf(root()), checked: findAll(root(), (n) => n.type === "radio" && n.checked).length };
+    await click("Start sync");
+    out.no_start = calls().filter(([method, path]) => method === "POST" && path.endsWith("/start")).length;
+    reply("GET /ui/api/sync/preview", [200, preview("merge", "merge1")]);
+    await choose("merge");
+    await sleep(30);
+    out.merge = { ...snapshot(), text: textOf(root()) };
+    reply("GET /ui/api/sync/comparison", [200, detail("common/item-0.md")]);
+    await click("Inspect common/item-0.md");
+    out.detail = textOf(root());
+    const stale = hold("GET /ui/api/sync/comparison");
+    await click("Inspect common/item-1.md");
+    reply("GET /ui/api/sync/preview", [200, preview("replace", "replace1")]);
+    await choose("replace");
+    await sleep(30);
+    stale.release();
+    await sleep(10);
+    out.replace = { ...snapshot(), text: textOf(root()) };
+    await click("Cancel connection");
+    out.cancelled = { ...snapshot(), starts: calls().filter((call) => call[1].endsWith("/start")).length };
+    await click("Check access");
+    reply("GET /ui/api/sync/preview", [200, preview(null, "provisional2")]);
+    await click("Continue to the preview");
+    reply("GET /ui/api/sync/preview", [200, preview("replace", "replace2")]);
+    await choose("replace");
+    await sleep(30);
+    reply("POST /ui/api/sync/start", [200, { status: "attention", reason: "confirmation_needed", message: "the preview changed" }]);
+    reply("GET /ui/api/sync/preview", [200, preview("replace", "replace3")]);
+    await click("Replace local and connect");
+    await sleep(30);
+    out.changed = { ...snapshot(), text: textOf(root()) };
+    reply("POST /ui/api/sync/start", [200, { status: "synced", sent: [], received: ["common/remote.md"] }]);
+    syncState = started();
+    await click("Replace local and connect");
     out.calls = calls();
     console.log(JSON.stringify(out));
     process.exit(0);

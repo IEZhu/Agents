@@ -308,11 +308,11 @@ def test_a_join_without_a_common_base_says_so(machine):
     b.save("user:shared", BASE.replace("second", "on B"))
     b.sync.setup(remote=str(b.remote), name="Owner", email="owner@example.com", label="machine-b")
     b.sync.check()
-    preview = b.sync.preview()
+    preview = b.sync.preview(connection_mode="merge")
     assert [(c["path"], c["kind"], c["reason"]) for c in preview["conflicts"]] == \
         [("common/shared.md", "both_changed", "no_common_base")]
     assert preview["merged"] == []
-    b.sync.start(preview["hash"])
+    b.sync.start(preview["hash"], connection_mode="merge")
     [record] = records(b)
     assert record["reason"] == "no_common_base"
 

@@ -23,7 +23,7 @@ import uuid
 from src.flows import FlowError
 from src.user_sync import gitcmd
 from src.user_sync.gitcmd import Git, GitError
-from src.user_sync.scope import is_link
+from src.user_sync.scope import blob_id, is_link
 
 HISTORY_REF = "refs/agents-core/history"
 PENDING_REF = "refs/agents-core/history-pending"
@@ -32,12 +32,14 @@ INCOMING_PREFIX = "refs/agents-core/incoming/"
 RECEIVED_PREFIX = "refs/agents-core/received/"
 LEGACY_SUPPORT_REF = "refs/agents-core/legacy-support"
 LEGACY_SUPPORT_MANIFEST = "legacy-support.json"
+ACCEPTED_PREFIX = "refs/agents-core/accepted/"
 MANAGED_KEY = "agents-sync.managed"
 MESSAGE_PREFIX = "Agents-Core-History: "
 PORTABLE_METADATA = ".agents-history-event.json"
 ZERO = "0" * 40
 _LEGACY_VERSION = re.compile(r"\d{8}T\d{12}Z-[0-9a-f]{12}(?:-deleted)?")
 _VERSION = re.compile(r"(?:git-[0-9a-f]{40}|\d{8}T\d{12}Z-[0-9a-f]{12}(?:-deleted)?)")
+_OID = re.compile(r"[0-9a-f]{40}")
 _FLOW_PATH = re.compile(r"(?:common|repos/[a-z0-9_][a-z0-9._-]*)/[a-z0-9]+(?:-[a-z0-9]+)*\.md")
 _RESERVED = re.compile(r"(?:con|prn|aux|nul|com[0-9]|lpt[0-9])(?:\..*)?", re.I)
 
@@ -246,6 +248,11 @@ class LibraryHistory:
                 paths = metadata.get("paths", [])
                 if isinstance(paths, list):
                     blobs.extend(tree[path] for path in paths if isinstance(path, str) and path in tree)
+                archive_paths = metadata.get("archive_paths", [])
+                if isinstance(archive_paths, list):
+                    for path in archive_paths:
+                        if isinstance(path, str):
+                            blobs.extend(oid for oid in (tree.get(path), before.get(path)) if oid)
         self._prime_blobs(blobs)
 
     def _make_tree(self, parent: str | None, changes: Mapping[str, bytes | None]) -> str:
@@ -435,7 +442,8 @@ class LibraryHistory:
         return commits
 
     def _refs(self) -> list[str]:
-        refs = self.git.text("for-each-ref", "--format=%(refname)", INCOMING_PREFIX, RECEIVED_PREFIX).splitlines()
+        refs = self.git.text("for-each-ref", "--format=%(refname)", INCOMING_PREFIX,
+                             RECEIVED_PREFIX, ACCEPTED_PREFIX).splitlines()
         if self._rev(HISTORY_REF):
             refs.append(HISTORY_REF)
         return refs
@@ -523,34 +531,189 @@ class LibraryHistory:
             merged["changes"], merged["paths"] = changes, sorted(changes)
         return merged
 
-    @_git_errors
-    def events(self, refs: list[str] | None = None) -> list[dict]:
-        """Complete event stream; private and fetched portable history by default.
-
-        Values include exact ``content``, ``previous`` and ``changes`` bytes.
-        ``export_events`` restricts this to the private local stream.
-        """
-        self._ensure_repository()
-        result = {}
-        records = self._commits(self._refs() if refs is None else refs)
+    def _events(self, records: list[tuple[str, str | None, dict]]) -> list[dict]:
         self._prime_events(records)
+        result = {}
         for commit, parent, metadata in records:
-            event = self._event(commit, parent, metadata)
-            key = (event["path"], event["id"])
-            portable = bool(metadata.get("portable"))
-            if key in result:
-                previous, previous_portable = result[key]
-                if not portable and previous_portable:
-                    event = self._combine_events(event, previous, native=True)
-                else:
-                    event = self._combine_events(previous, event, native=not previous_portable)
-                    portable = previous_portable
-            result[key] = event, portable
+            expanded = [self._event(commit, parent, metadata)]
+            if not metadata.get("portable") and self._adoption_data(metadata) is not None:
+                tree = self._tree(commit)
+                for path in metadata["archive_paths"]:
+                    expanded.append(self._event(commit, parent, {**metadata, "path": path, "paths": [],
+                                          "deleted": path not in tree}))
+            for event in expanded:
+                key = (event["path"], event["id"])
+                portable = bool(metadata.get("portable"))
+                if key in result:
+                    previous, previous_portable = result[key]
+                    if not portable and previous_portable:
+                        event = self._combine_events(event, previous, native=True)
+                    else:
+                        event = self._combine_events(previous, event, native=not previous_portable)
+                        portable = previous_portable
+                result[key] = event, portable
         return sorted((event for event, _ in result.values()),
                       key=lambda event: (event["time"], event["commit"]))
 
+    @_git_errors
+    def events(self, refs: list[str] | None = None) -> list[dict]:
+        """All exact versions, including discarded history retained privately."""
+        self._ensure_repository()
+        return self._events(self._commits(self._refs() if refs is None else refs))
+
+    def _adoption_data(self, metadata: dict) -> dict | None:
+        if "adoption" not in metadata:
+            return None
+        value = metadata["adoption"]
+        if not isinstance(value, dict) or value.get("decision") != "replace" \
+                or metadata.get("action") != "adopt" or metadata.get("path") is not None:
+            raise self._fail("an adoption boundary has invalid metadata")
+        tips = value.get("accepted_tips")
+        if not isinstance(tips, dict):
+            raise self._fail("an adoption boundary has invalid accepted tips")
+        self._validate_tips(tips)
+        remote_head = value.get("remote_head")
+        if remote_head is not None and (not isinstance(remote_head, str) or not _OID.fullmatch(remote_head)):
+            raise self._fail("an adoption boundary has an invalid remote head")
+        base = value.get("base_head")
+        if base is not None and (not isinstance(base, str) or not _OID.fullmatch(base)):
+            raise self._fail("an adoption boundary has an invalid base head")
+        for name in ("decision_hash", "remote_identity"):
+            item = value.get(name)
+            if item is not None and (not isinstance(item, str) or not item or len(item) > 2048
+                                     or any(ord(char) < 32 for char in item)):
+                raise self._fail("an adoption boundary has invalid " + name)
+        paths = metadata.get("archive_paths")
+        changed = metadata.get("paths", [])
+        if not isinstance(paths, list) or not all(isinstance(path, str) for path in paths) \
+                or len(paths) != len(set(paths)) or not isinstance(changed, list) \
+                or not all(isinstance(path, str) for path in changed) \
+                or any(not isinstance(path, str) or not _FLOW_PATH.fullmatch(path) or path not in changed
+                       for path in paths):
+            raise self._fail("an adoption boundary has invalid archived paths")
+        retained = value.get("retained_paths", {})
+        if not isinstance(retained, dict):
+            raise self._fail("an adoption boundary has invalid retained paths")
+        for path, reason in retained.items():
+            self._lexical_path(path)
+            if reason not in ("unsafe_remote", "unreadable", "not_regular", "size") \
+                    or any(target == path or target.startswith(path + "/") for target in changed):
+                raise self._fail("an adoption boundary has invalid retained paths")
+        unchanged = value.get("unchanged_before", {})
+        if not isinstance(unchanged, dict):
+            raise self._fail("an adoption boundary has invalid unchanged expectations")
+        for path, oid in unchanged.items():
+            self._lexical_path(path)
+            if (oid is not None and (not isinstance(oid, str) or not _OID.fullmatch(oid))) \
+                    or path in changed \
+                    or any(path == kept or path.startswith(kept + "/") for kept in retained):
+                raise self._fail("an adoption boundary has invalid unchanged expectations")
+        return value
+
+    def _validate_tips(self, tips: Mapping[str, str], *, objects: bool = False) -> None:
+        for name, oid in tips.items():
+            if not isinstance(name, str) or not isinstance(oid, str) or not _OID.fullmatch(oid) \
+                    or self.git.run("check-ref-format", ACCEPTED_PREFIX + ZERO + "/tips/" + name,
+                                    check=False).returncode:
+                raise HistoryError("flow_invalid: invalid accepted history tip")
+            if objects and self._rev(oid) != oid:
+                raise self._fail("an accepted history tip is not a local commit")
+
+    def _completed_adoption(self) -> tuple[str, str | None, dict] | None:
+        if self._rev(HISTORY_REF) is None:
+            return None
+        return next((record for record in reversed(self._commits([HISTORY_REF]))
+                     if self._adoption_data(record[2]) is not None), None)
+
+    @_git_errors
+    def adoption(self) -> dict | None:
+        """Read the pending Replace, or the latest completed Replace, without writes."""
+        self.validate_repository()
+        if not (self.root / ".git").exists():
+            return None
+        pending = self._rev(PENDING_REF)
+        record = None
+        if pending is not None:
+            records = self._commits([PENDING_REF])
+            if records and records[-1][0] == pending and self._adoption_data(records[-1][2]) is not None:
+                record = records[-1]
+        is_pending = record is not None
+        record = record or self._completed_adoption()
+        if record is None:
+            return None
+        commit, _, metadata = record
+        tree = self._tree(commit)
+        return {**metadata["adoption"], "boundary": commit, "id": "git-" + commit,
+                "pending": is_pending, "archive_paths": list(metadata["archive_paths"]),
+                "changes": {path: self._blob(tree.get(path)) for path in metadata["paths"]},
+                "time": metadata["time"]}
+
+    @_git_errors
+    def generation(self) -> str | None:
+        """The latest completed Replace boundary; pending intent is not published."""
+        self.validate_repository()
+        if not (self.root / ".git").exists():
+            return None
+        record = self._completed_adoption()
+        return record[0] if record else None
+
+    @_git_errors
+    def accepted_refs(self) -> list[str]:
+        """Only the current generation's explicitly selected remote history tips."""
+        boundary = self.generation()
+        if boundary is None:
+            return []
+        prefix = ACCEPTED_PREFIX + boundary + "/"
+        return self.git.text("for-each-ref", "--format=%(refname)", prefix + "tips/",
+                             prefix + "retained/").splitlines()
+
+    @_git_errors
+    def accept(self, tips: Mapping[str, str]) -> int:
+        """Retain currently fetched tips in the active publication generation.
+
+        Caller holds ``.lock`` and validates the connected remote's identity.
+        Immutable old tips preserve versions through upstream rewrite/pruning;
+        unrelated received refs and earlier generations remain private only.
+        """
+        self.ensure()
+        boundary = self.generation()
+        if boundary is None:
+            return 0
+        if not isinstance(tips, Mapping):
+            raise HistoryError("flow_invalid: invalid accepted history tips")
+        self._validate_tips(tips, objects=True)
+        for name, oid in tips.items():
+            if self._rev(INCOMING_PREFIX + name) != oid:
+                raise self._fail("an accepted history tip is not the current incoming tip")
+        self._events(self._commits([*self._refs(), *tips.values()]))
+        changed = 0
+        for name, oid in sorted(tips.items()):
+            ref = ACCEPTED_PREFIX + boundary + "/tips/" + name
+            previous = self._rev(ref)
+            if previous == oid:
+                continue
+            if previous is not None:
+                retained = ACCEPTED_PREFIX + boundary + "/retained/" + previous
+                pinned = self._rev(retained)
+                if pinned not in (None, previous):
+                    raise self._fail("a retained history ref names different data")
+                if pinned is None:
+                    self.git.run("update-ref", retained, previous, ZERO)
+            self.git.run("update-ref", ref, oid, previous or ZERO)
+            changed += 1
+        return changed
+
+    @_git_errors
     def export_events(self) -> list[dict]:
-        return self.events([HISTORY_REF]) if self._rev(HISTORY_REF) else []
+        """Accepted remote versions and native edits after the completed boundary."""
+        self._ensure_repository()
+        if self._rev(HISTORY_REF) is None:
+            return []
+        boundary = self.generation()
+        refs = [HISTORY_REF, *self.accepted_refs()]
+        if boundary:
+            refs.append("^" + boundary)
+        return self._events(self._commits(refs))
 
     def _archived(self, event: dict) -> bytes | None:
         if event["archive"]:
@@ -623,6 +786,103 @@ class LibraryHistory:
             self._reconcile(others)
         return len(changed)
 
+    def _pin_adoption(self, boundary: str, data: dict) -> None:
+        self._validate_tips(data["accepted_tips"], objects=True)
+        refs = {ACCEPTED_PREFIX + boundary + "/tips/" + name: oid
+                for name, oid in data["accepted_tips"].items()}
+        remote = data.get("remote_head")
+        if remote is not None:
+            if self._rev(remote) != remote:
+                raise self._fail("the adopted remote head is not a local commit")
+            refs[ACCEPTED_PREFIX + boundary + "/remote-head"] = remote
+        for ref, oid in sorted(refs.items()):
+            current = self._rev(ref)
+            if current not in (None, oid):
+                raise self._fail("an accepted history ref names different data")
+            if current is None:
+                self.git.run("update-ref", ref, oid, ZERO)
+
+    @_git_errors
+    def adopt(self, changes: Mapping[str, bytes | None], *,
+              expected_before: Mapping[str, str | None], accepted_tips: Mapping[str, str],
+              decision: str = "replace", remote_head: str | None = None,
+              decision_hash: str | None = None, remote_identity: str | None = None,
+              retained_paths: Mapping[str, str] | None = None) -> str:
+        """Apply a confirmed Replace and start a new publication generation.
+
+        Caller holds ``.lock`` and verifies the whole displayed preview. Expected
+        values are Git blob IDs, with None for an absent path. Even a zero-write
+        Replace creates a boundary. Old native versions stay private; accepted
+        tips and every discarded current flow remain reachable after recovery.
+        """
+        self.ensure()
+        if decision != "replace" or not isinstance(changes, Mapping) or not isinstance(accepted_tips, Mapping) \
+                or not isinstance(expected_before, Mapping) \
+                or (retained_paths is not None and not isinstance(retained_paths, Mapping)):
+            raise HistoryError("flow_invalid: invalid adoption decision")
+        proposed, expected, tips = dict(changes), dict(expected_before), dict(accepted_tips)
+        if not set(proposed) <= set(expected):
+            raise HistoryError("flow_invalid: adoption is missing expected before values")
+        self._validate_tips(tips, objects=True)
+        actual = {}
+        for path in set(proposed) | set(expected):
+            self._safe_path(path)  # unsafe paths are retained, never part of Replace
+            raw = proposed.get(path)
+            oid = expected[path]
+            if path in proposed and raw is not None and not isinstance(raw, bytes):
+                raise HistoryError("flow_invalid: history changes must contain bytes")
+            if oid is not None and (not isinstance(oid, str) or not _OID.fullmatch(oid)):
+                raise HistoryError("flow_invalid: invalid adoption before value")
+            actual[path] = self._disk(path)
+            if (blob_id(actual[path]) if actual[path] is not None else None) != oid:
+                raise self._fail("the confirmed adoption target changed externally: " + path)
+        # Refuse ambiguous source/version identities before any working write,
+        # preserving the existing compatible filtered-copy/native precedence rules.
+        self._events(self._commits([*self._refs(), *tips.values()]))
+        changed = {path: raw for path, raw in proposed.items() if raw != actual[path]}
+        parent = base = self._rev(HISTORY_REF)
+        data = {"decision": decision, "accepted_tips": tips, "remote_head": remote_head, "base_head": base,
+                "decision_hash": decision_hash, "remote_identity": remote_identity,
+                "retained_paths": dict(retained_paths or {}),
+                "unchanged_before": {path: oid for path, oid in expected.items() if path not in changed}}
+        metadata = {"action": "adopt", "path": None, "paths": sorted(changed),
+                    "archive": False, "deleted": False, "time": self._now(),
+                    "archive_paths": sorted(path for path in changed if _FLOW_PATH.fullmatch(path)
+                                             and actual[path] is not None), "adoption": data}
+        self._adoption_data(metadata)
+        if remote_head is not None and self._rev(remote_head) != remote_head:
+            raise self._fail("the adopted remote head is not a local commit")
+        # Capture the bytes that passed the confirmed expectation, without a
+        # second disk read or an intermediate published history tip. A later
+        # external edit then differs from the pending parent's tree and blocks.
+        tree = self._tree(parent)
+        observed = {path: raw for path, raw in actual.items() if raw != self._blob(tree.get(path))}
+        others = {}
+        for path, raw in sorted(observed.items()):
+            if _FLOW_PATH.fullmatch(path):
+                parent = self._commit({path: raw}, {"action": "external", "path": path, "paths": [path],
+                    "archive": False, "deleted": raw is None, "time": self._now()}, parent=parent, update=False)
+            else:
+                others[path] = raw
+        if others:
+            parent = self._commit(others, {"action": "external", "path": None, "paths": sorted(others),
+                "archive": False, "deleted": False, "time": self._now()}, parent=parent, update=False)
+        metadata["time"] = self._now()
+        commit = self._commit(changed, metadata, parent=parent, update=False)
+        # Pin remote objects before the intent: metadata alone is not a Git edge
+        # and would not keep an accepted tip alive through garbage collection.
+        self._pin_adoption(commit, data)
+        self.git.run("update-ref", PENDING_REF, commit, ZERO)
+        self.recover()
+        return "git-" + commit
+
+    def _check_unchanged_adoption(self, data: dict) -> None:
+        for path, expected in data.get("unchanged_before", {}).items():
+            raw = self._disk(path)
+            actual = blob_id(raw) if raw is not None else None
+            if actual != expected:
+                raise self._fail("an unchanged adoption target changed externally: " + path)
+
     @_git_errors
     def apply(self, changes: Mapping[str, bytes | None], *, action: str = "save",
               flow_path: str | None = None) -> str | None:
@@ -672,8 +932,13 @@ class LibraryHistory:
         _, parent, metadata = records[-1]
         old, new = self._tree(parent), self._tree(pending)
         head = self._rev(HISTORY_REF)
-        if head not in (parent, pending):
+        adoption = self._adoption_data(metadata)
+        base = adoption.get("base_head") if adoption is not None else parent
+        if head not in (base, pending):
             raise self._fail("history changed while a pending transaction was open")
+        if adoption is not None:
+            self._check_unchanged_adoption(adoption)
+            self._pin_adoption(pending, adoption)
         links = metadata.get("unlink_links", {})
         if not isinstance(links, dict):
             raise self._fail("the pending history transaction has invalid links")
@@ -701,8 +966,10 @@ class LibraryHistory:
                 target.unlink(missing_ok=True)
             else:
                 atomic_write(target, after)
+        if adoption is not None:
+            self._check_unchanged_adoption(adoption)
         if head != pending:
-            self.git.run("update-ref", HISTORY_REF, pending, parent or ZERO)
+            self.git.run("update-ref", HISTORY_REF, pending, base or ZERO)
         self.git.run("update-ref", "-d", PENDING_REF, pending)
         return True
 
@@ -739,6 +1006,8 @@ class LibraryHistory:
         records = self._commits([PENDING_REF])
         if not records or records[-1][0] != pending:
             raise self._fail("the pending history transaction is invalid")
+        if self._adoption_data(records[-1][2]) is not None:
+            raise self._fail("a pending adoption must be recovered or explicitly resolved")
         parent = records[-1][1]
         if self._rev(HISTORY_REF) not in (parent, pending):
             raise self._fail("history changed while a pending transaction was open")
@@ -762,7 +1031,7 @@ class LibraryHistory:
         if not isinstance(raw, bytes) or (version is not None and not _VERSION.fullmatch(version)):
             raise HistoryError("flow_invalid: invalid archived version")
         if version:
-            for event in self.export_events():
+            for event in self.events([HISTORY_REF]):
                 if event["path"] == path and version in (event["id"], event["legacy_id"]):
                     if self._archived(event) != raw or event["deleted"] != deleted:
                         raise self._fail("an archived version ID already names different bytes")

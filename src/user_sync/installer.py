@@ -902,6 +902,16 @@ def _check_and_start(syncer: Syncer, say: Say, *, where: str, manual: bool, mark
     preview = syncer.preview()
     for line in describe_preview(preview):
         say(f"  {line}")
+    if preview.get("connection_choice_required"):
+        say("  This machine and the repository already hold a library. Choose how to connect them; "
+            "library contents have not changed.")
+        say(f"  Merge:    {command('src.user_sync', 'preview', '--connection-mode', 'merge')}")
+        say(f"  Replace:  {command('src.user_sync', 'preview', '--connection-mode', 'replace')}")
+        say("  Review every listed path, then run start with the same --connection-mode and that preview's --confirm hash.")
+        return {"status": "attention", "reason": "connection_choice_required",
+                "connection_choice_required": True, "allowed_modes": preview.get("allowed_modes", []),
+                "comparison": preview.get("comparison", {}),
+                "message": "choose merge or replace explicitly, review its preview, then confirm that exact plan"}
     if preview["conflicts"]:
         say(f"  Joining keeps {len(preview['conflicts'])} conflicts, so it waits for your confirmation; "
             "nothing was uploaded.")

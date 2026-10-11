@@ -20,7 +20,6 @@ from src.user_sync import github as github_api
 from src.user_sync.engine import SyncError, Syncer, default_label, validate_identity
 from src.user_sync.gitcmd import RemoteError, parse_remote
 
-PREVIEW_LINES = 20
 _KINDS = {
     "push": "upload this library to the empty repository",
     "join": "join the library in the repository; both sides' flows are kept",
@@ -86,18 +85,84 @@ def run(syncer: Syncer, *, ask: Ask = input, say: Say = print,
     refusal = _confirm_private(syncer, ask, say, name, email, label)
     if refusal:
         return refusal
+    return review_connection(syncer, ask=ask, say=say)
+
+
+def review_connection(syncer: Syncer, *, ask: Ask, say: Say) -> dict:
+    """Compare, require a connection choice, then confirm exactly the chosen plan."""
+    mode = None
     preview = syncer.preview()
-    for line in describe_preview(preview):
-        say(line)
-    if ask("Start sync with exactly this preview? Type yes to start: ").strip().lower() != "yes":
-        say("Sync was not started. Run the wizard again, or: "
-            f"python -m src.user_sync start --confirm {preview['hash']}")
-        return {"status": "attention", "reason": "confirmation_needed", "message": "sync was not started",
-                "hash": preview["hash"]}
-    result = syncer.start(preview["hash"])
-    if result.get("status") == "synced":
-        say(f"Sync started: sent {len(result.get('sent', []))} and received {len(result.get('received', []))} files.")
-    return result
+    while True:
+        for line in describe_preview(preview):
+            say(line)
+        if preview.get("connection_choice_required") and mode is None:
+            while True:
+                answer = ask("Choose [m] merge libraries, [r] replace local with the repository, or [c] cancel: ")
+                picked = {"m": "merge", "merge": "merge", "r": "replace", "replace": "replace"}.get(answer.strip().lower())
+                if answer.strip().lower() in ("c", "cancel"):
+                    return {"status": "cancelled", "message": "connection cancelled; library contents were not changed"}
+                if picked in preview.get("allowed_modes", ["merge", "replace"]):
+                    mode = picked
+                    preview = syncer.preview(connection_mode=mode)
+                    break
+                say("Choose merge, replace or cancel; there is no default.")
+            continue
+        while True:
+            answer = ask("Start sync with exactly this preview? Type yes to start, inspect PATH, merge, replace, or cancel: ")
+            value = answer.strip()
+            if value.lower().startswith("inspect "):
+                try:
+                    detail = syncer.comparison(value[8:].strip(), confirm=preview["hash"], connection_mode=mode)
+                except SyncError as error:
+                    say(error.message)
+                    if error.reason == "confirmation_needed":
+                        preview = syncer.preview(connection_mode=mode) if mode else syncer.preview()
+                        break
+                    continue
+                for line in describe_comparison(detail):
+                    say(line)
+                continue
+            if value.lower() in ("merge", "replace"):
+                if value.lower() not in preview.get("allowed_modes", ["merge"]):
+                    say("That choice is not available for this connection.")
+                    continue
+                mode = value.lower()
+                preview = syncer.preview(connection_mode=mode)
+                break
+            if value.lower() in ("c", "cancel"):
+                return {"status": "cancelled", "message": "connection cancelled; library contents were not changed"}
+            if value.lower() != "yes":
+                option = f" --connection-mode {mode}" if mode else ""
+                say("Sync was not started. Run the wizard again, or: "
+                    f"python -m src.user_sync start{option} --confirm {preview['hash']}")
+                return {"status": "attention", "reason": "confirmation_needed", "message": "sync was not started",
+                        "hash": preview["hash"], "connection_mode": mode}
+            result = syncer.start(preview["hash"], connection_mode=mode) if mode else syncer.start(preview["hash"])
+            if result.get("reason") in ("confirmation_needed", "connection_choice_required"):
+                say(result.get("message") or "The preview changed; review it again.")
+                if result["reason"] == "connection_choice_required":
+                    mode = None
+                preview = syncer.preview(connection_mode=mode) if mode else syncer.preview()
+                break
+            if result.get("status") == "synced":
+                say(f"Sync started: sent {len(result.get('sent', []))} and received {len(result.get('received', []))} files.")
+            return result
+
+
+def describe_comparison(detail: dict) -> list[str]:
+    """Exact bounded text for a path in the confirmed comparison."""
+    lines = [f"Comparison: {detail['path']}"]
+    for key in ("local", "remote", "base", "result"):
+        side = detail.get(key)
+        label = key.capitalize()
+        if side is None:
+            lines.append(f"{label}: absent")
+        elif side.get("text") is not None:
+            lines.extend((f"{label}:", side["text"]))
+        else:
+            reason = "too large to display" if side.get("too_large") else "binary or unsafe to read"
+            lines.append(f"{label}: {reason} ({side.get('size')} bytes)")
+    return lines
 
 
 def describe_preview(preview: dict) -> list[str]:
@@ -105,7 +170,36 @@ def describe_preview(preview: dict) -> list[str]:
     kind = preview.get("kind")
     description = ("upload saved flow versions" if kind == "none" and preview.get("history_versions")
                    else _KINDS.get(kind, kind))
-    lines = [f"Preview: {description}"]
+    mode = preview.get("connection_mode") or ("merge" if not preview.get("allowed_modes")
+                                               and not preview.get("connection_choice_required") else None)
+    lines = [f"Preview: {'replace local library with the repository' if mode == 'replace' else description}"]
+    if preview.get("connection_choice_required") and not mode:
+        lines.append("Choose merge or replace before this preview can start sync.")
+    comparison = preview.get("comparison", {})
+    if comparison:
+        summary = comparison.get("summary", {})
+        lines.append("Library comparison: " + ", ".join(f"{summary.get(key, 0)} {key.replace('_', ' ')}"
+                                                       for key in ("equal", "local_only", "remote_only", "different", "retained")))
+        lines.append("Every compared path:")
+        for item in comparison.get("files", []):
+            actions = (f"{mode}: {item.get(mode, {}).get('action')}" if mode else
+                       f"merge: {item.get('merge', {}).get('action')}; replace: {item.get('replace', {}).get('action')}")
+            conflict = item.get("merge", {}).get("conflict")
+            extra = f"; retained: {item['retained_reason'].replace('_', ' ')}" if item.get("retained_reason") else ""
+            if conflict and mode != "replace":
+                reason = (conflict.get("reason") or "conflicting contents").replace("_", " ")
+                extra += f"; conflict: {conflict.get('kind')} ({reason}), {conflict.get('overlaps', 0)} overlaps"
+            lines.append(f"  {item['path']} [{item['state'].replace('_', ' ')}]; {actions}{extra}")
+        history = comparison.get("history", {})
+        lines.append(f"Saved versions: {history.get('local_versions', 0)} local, {history.get('remote_versions', 0)} remote.")
+        if mode != "replace":
+            lines.append(f"Merge shares {history.get('merge_upload_versions', 0)} local saved versions.")
+        if mode != "merge":
+            lines.append(f"Replacement retains {history.get('replace_private_versions', 0)} former local saved versions privately.")
+        lines.append("Inspect individual paths before confirmation to read Local, Remote and Result.")
+    if mode == "replace":
+        lines.append("Listed local replacements and deletions are applied only after yes. Former local contents and "
+                     "versions remain in private Git recovery history and are not uploaded by this replacement.")
     for key, title in (("upload", "Upload"), ("download", "Download"), ("delete_local", "Delete on this machine"),
                        ("remove_from_remote", "Remove from the repository")):
         lines += _listed(title, [_entry(item) for item in preview.get(key, [])])
@@ -130,9 +224,7 @@ def describe_preview(preview: dict) -> list[str]:
 def _listed(title: str, items: list[str]) -> list[str]:
     if not items:
         return []
-    shown = [f"  {item}" for item in items[:PREVIEW_LINES]]
-    if len(items) > PREVIEW_LINES:
-        shown.append(f"  and {len(items) - PREVIEW_LINES} more")
+    shown = [f"  {item}" for item in items]
     return [f"{title} ({len(items)}):", *shown]
 
 

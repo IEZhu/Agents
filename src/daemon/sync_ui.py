@@ -66,6 +66,7 @@ ROUTES = {
     f"{PREFIX}/setup": {"POST": "setup"},
     f"{PREFIX}/check": {"POST": "check"},
     f"{PREFIX}/preview": {"GET": "preview"},
+    f"{PREFIX}/comparison": {"GET": "comparison"},
     f"{PREFIX}/start": {"POST": "start"},
     f"{PREFIX}/run": {"POST": "run"},
     f"{PREFIX}/settings": {"PUT": "settings"},
@@ -444,8 +445,14 @@ def _setup_again(syncer, trust_host_key):
     return {**result, "repository": repository, "deploy_key": deploy_key, "steps": [step]}
 
 
-def _preview(syncer) -> dict:
-    preview = syncer.preview()
+def _connection_mode(value: str | None) -> str | None:
+    if value is not None and value not in ("merge", "replace"):
+        raise BadRequest("connection_mode must be merge or replace")
+    return value
+
+
+def _preview(syncer, connection_mode: str | None = None) -> dict:
+    preview = syncer.preview(**({"connection_mode": connection_mode} if connection_mode else {}))
     settings = syncer.settings()
     return {**preview, "privacy": syncer.privacy(),
             "private_confirmed": bool(settings and settings.private_confirmed)}
@@ -642,10 +649,24 @@ class SyncUI:
         return await self._queued("check", lambda syncer: syncer.check())
 
     async def preview(self, request, body):
-        return await self._queued("preview", _preview)
+        fields = _fields(dict(request.query_params), {"connection_mode": "text"})
+        mode = _connection_mode(fields.get("connection_mode"))
+        return await self._queued("preview", lambda syncer: _preview(syncer, mode))
+
+    async def comparison(self, request, body):
+        fields = _fields(dict(request.query_params), {"path": "text", "confirm": "text",
+                                                      "connection_mode": "text"})
+        mode = _connection_mode(fields.get("connection_mode"))
+        if not fields.get("path") or not fields.get("confirm"):
+            raise BadRequest("comparison needs a path and the preview's hash (confirm)")
+        options = {"confirm": fields["confirm"], "text_limit": TEXT_LIMIT}
+        if mode:
+            options["connection_mode"] = mode
+        return await self._queued("comparison", lambda syncer: syncer.comparison(fields["path"], **options))
 
     async def start(self, request, body):
-        fields = _fields(body, {"confirm": "text", "confirm_private": "flag"})
+        fields = _fields(body, {"confirm": "text", "confirm_private": "flag", "connection_mode": "text"})
+        mode = _connection_mode(fields.get("connection_mode"))
         confirm, private = fields.get("confirm"), fields.get("confirm_private", False)
         if not confirm:
             raise BadRequest("start needs the preview's hash (confirm)")
@@ -656,7 +677,7 @@ class SyncUI:
                 # As the terminal wizard does: setup again, with the same remote, records the confirmation.
                 syncer.setup(remote=settings.remote, name=settings.name, email=settings.email,
                              label=settings.label, branch=settings.branch, confirm_private=True)
-            return syncer.start(confirm)
+            return syncer.start(confirm, **({"connection_mode": mode} if mode else {}))
         return await self._queued("start", call)
 
     async def run(self, request, body):

@@ -62,6 +62,10 @@ python -m src.user_sync setup --remote git@git.example.com:me/agents-library.git
 python -m src.user_sync check      # access, and the remote is empty or an Agents-Core library
 python -m src.user_sync preview    # what would be uploaded and downloaded, and the conflicts
 python -m src.user_sync start --confirm <hash from preview>
+python -m src.user_sync preview --connection-mode merge     # choose how to connect existing data
+python -m src.user_sync preview --connection-mode replace
+python -m src.user_sync comparison common/example.md --connection-mode replace --confirm <hash>
+python -m src.user_sync start --connection-mode replace --confirm <hash from that preview>
 python -m src.user_sync run        # one cycle; --force ignores the retry delay
 python -m src.user_sync status | conflicts | pause | resume | disconnect
 python -m src.user_sync configure [--fetch-minutes 1-60] [--[no-]ask-new-repositories] \
@@ -107,8 +111,42 @@ configuration; and the machine label. It then sets up sync (on GitHub it adds th
 deploy key; elsewhere it shows the public key and the host key fingerprints to confirm), checks
 access, asks to confirm privacy where the host cannot be checked, and shows the preview: uploads,
 downloads, conflicts, files the secret scanner held back and repository groups with their
-origins. Sync starts only after you type `yes`. Without a terminal, `setup` prints its usage and
+origins. When both libraries contain data, it compares the whole library and requires a choice
+between merging and replacing local data, then shows the selected result. You can inspect the
+local, remote and resulting text of an individual path before confirmation. Sync starts only
+after you type `yes`. Without a terminal, `setup` prints its usage and
 exits with code 2.
+
+### Connecting an existing library
+
+The terminal and web wizards compare current flows, persona choices, component settings,
+repository groups and saved versions before starting. The complete file inventory distinguishes
+identical, local-only, remote-only and changed paths. It also lists excluded, machine-local,
+pending, unreadable and unsafe paths that will remain on this machine.
+If a file on one side occupies a directory used by the other side, the affected path and
+its descendants are retained in both modes. Resolve that file/directory conflict manually
+and review an explicit scope approval before those paths can be synchronized.
+
+When local content or restorable local versions already exist and the remote is populated,
+neither choice is selected automatically. **Merge libraries** keeps data from both sides and
+shows the merged result and conflicts. **Replace local with repository** installs the remote's
+permitted data and shows every local replacement and deletion; retained paths are listed
+separately. Replacement does not delete or rewrite the remote. An empty remote cannot replace
+local data. Empty local libraries can use the reviewed download without a merge/replace choice.
+
+The chosen mode and exact local files, local history, remote revision, remote history and sharing
+policy are bound to the preview hash. Changing the mode requires a new preview. If any of those
+inputs change before confirmation, start refuses the stale plan and requests another review.
+`setup --from-env` stops with `connection_choice_required` for a populated connection, including
+one without conflicts, and prints the commands for both previews. It does not discard or combine
+local data unattended.
+
+Confirmed replacement records a private Git adoption commit before writing files. It preserves
+the discarded current flow text as a restorable version, even for a flow with no earlier versions,
+and retains the older private history. Its publication boundary excludes discarded local versions
+from future uploads, including after reconnecting, changing remotes or enabling a scope again.
+Accepted remote versions remain available. An interrupted replacement retains its exact approved
+transaction for recovery; unexpected external edits are refused instead of overwritten.
 
 ### The web UI
 
@@ -117,8 +155,9 @@ of sync in its header (`Synced 2m ago`, `3 pending`, `Offline, retry 14:05`, `Ne
 `2 conflicts`, `Sync off` and so on) and opens the Sync page from there; see
 [Sync page](shared-mcp-daemon.md#sync-page). While sync is off, the page walks through the same
 steps as the terminal wizard: GitHub sign-in with the code shown on the page (or an SSH URL), the
-repository, the identity and label, what syncs (everything on by default) and the preview, whose
-hash Start sync sends. The browser never calls GitHub and never receives the token or the device
+repository, the identity and label, what syncs (everything on by default), comparison, the explicit
+merge/replace choice where needed and the selected preview. The confirmation sends that mode and
+preview hash. The browser never calls GitHub and never receives the token or the device
 code; the daemon does the work, and operations that run git go through its sync task. Once sync
 runs, the page shows the status with Sync now, Pause and Resume, the machines (the repository's
 deploy keys on GitHub), conflicts with Open, Keep current, Use mine and Dismiss, what syncs with
@@ -293,8 +332,11 @@ cannot see the repository (a private repository needs the `repo` scope), is repo
 variable's name and that scope. With it, or with an account connected earlier, setup adds
 this machine's deploy key through the API; otherwise it prints the public key to add by hand and
 stops at `waiting_for_access`, and the installer's summary suggests running it again. Setup then
-checks access and privacy, prints the preview and starts sync, except that a join that keeps
-conflicts stops at `confirmation_needed` with the `preview` and `start --confirm <hash>` commands.
+checks access and privacy and prints the preview. When local content or saved versions meet a
+populated remote, it stops at `connection_choice_required` and prints both
+`preview --connection-mode merge` and `preview --connection-mode replace` commands. Review the
+selected result, then run `start --connection-mode MODE --confirm HASH`. An empty remote uses
+the reviewed upload; an empty local library uses the reviewed download.
 Where privacy cannot be checked, another host's key needs confirming, or the repository belongs to
 another owner, it stops with the command to rerun with `--confirm-private`, `--trust-host-key` or
 `--confirm-owner OWNER`. On a machine without the daemon it then

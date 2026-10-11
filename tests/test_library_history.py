@@ -14,7 +14,7 @@ import pytest
 
 from src import user_library
 from src.file_lock import file_lock
-from src.library_history import (ABANDONED_PREFIX, HISTORY_REF, INCOMING_PREFIX, LEGACY_SUPPORT_MANIFEST,
+from src.library_history import (ABANDONED_PREFIX, ACCEPTED_PREFIX, HISTORY_REF, INCOMING_PREFIX, LEGACY_SUPPORT_MANIFEST,
                                  LEGACY_SUPPORT_REF, PENDING_REF, PORTABLE_METADATA,
                                  RECEIVED_PREFIX, HistoryError, LibraryHistory)
 from src.user_sync import gitcmd, scope, versions
@@ -897,3 +897,386 @@ def test_retained_ref_inventory_exceeds_windows_command_limit_without_breaking_r
     assert reader.events([HISTORY_REF, "^" + tip]) == []
     assert reader.events([]) == []
     assert len(reader.git.text("for-each-ref", "--format=%(refname)", RECEIVED_PREFIX).splitlines()) == 600
+
+
+
+def expectations(changes, history):
+    return {path: scope.blob_id(raw) if (raw := history._disk(path)) is not None else None for path in changes}
+
+
+def test_replace_archives_exact_current_flows_and_exports_only_accepted_generation(history):
+    replaced, deleted, kept, created = "common/replaced.md", "common/deleted.md", "common/kept.md", "common/created.md"
+    history.apply({replaced: b"# Original\n"}, flow_path=replaced)
+    old = history.apply({replaced: b"# Discarded current\r\n"}, flow_path=replaced)
+    history.apply({deleted: b"# Deleted current\n"}, flow_path=deleted)
+    history.apply({kept: b"# Retained exclusion\n"}, flow_path=kept)
+    remote = source_event()
+    remote_ref = portable(history, remote, "remote")
+    unrelated = {**source_event(), "id": "git-" + "b" * 40}
+    portable(history, unrelated, "unrelated")
+    tip = history._rev(remote_ref)
+    changes = {replaced: b"# Selected remote\n", deleted: None, created: b"# Created remote\n"}
+    head = history.git.text("symbolic-ref", "HEAD")
+    boundary = history.adopt(changes, expected_before=expectations(changes, history),
+        accepted_tips={"remote": tip}, remote_head=tip, remote_identity="remote:main", decision_hash="confirmed")
+    oid = boundary.removeprefix("git-")
+    assert history.generation() == oid
+    assert history.adoption()["remote_identity"] == "remote:main"
+    assert history.adoption()["decision_hash"] == "confirmed"
+    assert history.adoption()["archive_paths"] == [deleted, replaced]
+    assert not history.adoption()["pending"]
+    assert history.read(replaced, boundary) == b"# Discarded current\r\n"
+    assert history.read(deleted, boundary) == b"# Deleted current\n"
+    assert history.read(replaced, old) == b"# Original\n"
+    assert history.history(deleted)[0]["deleted"]
+    assert history.history(kept) == []
+    assert history.history(created) == []
+    assert (history.root / kept).read_bytes() == b"# Retained exclusion\n"
+    assert {event["id"] for event in history.export_events()} == {remote["id"]}
+    assert history.read(unrelated["path"], unrelated["id"]) == unrelated["previous"]
+    assert history.accepted_refs() == [ACCEPTED_PREFIX + oid + "/tips/remote"]
+    assert history._rev(ACCEPTED_PREFIX + oid + "/remote-head") == tip
+    assert history.git.text("symbolic-ref", "HEAD") == head
+    assert not (history.root / ".git/index").exists()
+    post = history.apply({replaced: b"# Later edit\n"}, flow_path=replaced)
+    assert {event["id"] for event in history.export_events()} == {remote["id"], post}
+    assert history.read(replaced, post) == b"# Selected remote\n"
+
+
+def test_zero_write_replace_still_creates_boundary_without_archiving_unchanged_flow(history):
+    path = "common/mine.md"
+    history.apply({path: b"# Unchanged\n"}, flow_path=path)
+    before = history._rev(HISTORY_REF)
+    boundary = history.adopt({path: b"# Unchanged\n"}, expected_before=expectations([path], history), accepted_tips={})
+    assert history._rev(HISTORY_REF) != before
+    assert history.generation() == boundary.removeprefix("git-")
+    assert history.adoption()["changes"] == {}
+    assert history.adoption()["archive_paths"] == []
+    assert history.history(path) == []
+    assert history.export_events() == []
+    assert (history.root / path).read_bytes() == b"# Unchanged\n"
+
+
+def test_replace_refuses_stale_expectation_and_merge_decision_before_content_changes(history):
+    path = "common/mine.md"
+    history.apply({path: b"# Current\n"}, flow_path=path)
+    before = history._rev(HISTORY_REF)
+    with pytest.raises(HistoryError, match="changed externally"):
+        history.adopt({path: b"# Remote\n"}, expected_before={path: scope.blob_id(b"# Earlier\n")}, accepted_tips={})
+    with pytest.raises(HistoryError, match="invalid adoption decision"):
+        history.adopt({path: b"# Remote\n"}, expected_before=expectations([path], history), accepted_tips={}, decision="merge")
+    assert history._rev(HISTORY_REF) == before
+    assert history._rev(PENDING_REF) is None
+    assert history.generation() is None
+    assert (history.root / path).read_bytes() == b"# Current\n"
+
+
+def test_interrupted_replace_retains_confirmed_manifest_and_recovers_after_gc(history, monkeypatch):
+    path, overlay = "common/mine.md", "personas/common/mine.json"
+    history.apply({path: b"# Original\n", overlay: b"old\n"}, flow_path=path)
+    (history.root / path).write_bytes(b"# Manual current\r\n")
+    event = source_event()
+    ref = portable(history, event, "remote")
+    tip, head = history._rev(ref), history._rev(HISTORY_REF)
+    original = user_library.atomic_write
+    with monkeypatch.context() as patch:
+        def fail_overlay(target, raw):
+            if Path(target) == history.root / overlay:
+                raise OSError("interrupted Replace")
+            original(target, raw)
+        patch.setattr(user_library, "atomic_write", fail_overlay)
+        with pytest.raises(OSError, match="interrupted Replace"):
+            history.adopt({path: b"# Remote\n", overlay: b"new\n"},
+                expected_before=expectations([path, overlay], history), accepted_tips={"remote": tip},
+                remote_head=tip, remote_identity="remote:branch", decision_hash="exact-plan",
+                retained_paths={"common/held.md": "unsafe_remote", "common/linked": "not_regular"})
+    intent = history.adoption()
+    assert intent["pending"]
+    assert intent["base_head"] == head
+    assert intent["changes"] == {path: b"# Remote\n", overlay: b"new\n"}
+    assert intent["remote_head"] == tip and intent["decision_hash"] == "exact-plan"
+    assert intent["retained_paths"] == {"common/held.md": "unsafe_remote", "common/linked": "not_regular"}
+    assert history._rev(HISTORY_REF) == head
+    assert history.generation() is None
+    with pytest.raises(HistoryError, match="pending adoption"):
+        history.abandon_pending()
+    history.git.run("update-ref", "-d", ref)
+    history.git.run("gc", "--prune=now")
+    reopened = LibraryHistory(history.root)
+    reopened.ensure()
+    assert not reopened.adoption()["pending"]
+    assert reopened.adoption()["retained_paths"] == intent["retained_paths"]
+    assert reopened.generation() == intent["boundary"]
+    assert reopened._rev(PENDING_REF) is None
+    assert (history.root / overlay).read_bytes() == b"new\n"
+    assert reopened.read(path, intent["id"]) == b"# Manual current\r\n"
+    assert [reopened.read(path, entry["version"]) for entry in reopened.history(path)] == [
+        b"# Manual current\r\n", b"# Original\n"]
+    assert {item["id"] for item in reopened.export_events()} == {event["id"]}
+
+
+def test_replace_refuses_external_edit_after_expectation_check_without_overwriting_it(history, monkeypatch):
+    path = "common/mine.md"
+    history.apply({path: b"# Current\n"}, flow_path=path)
+    head = history._rev(HISTORY_REF)
+    original = history._commit
+    def edit_during_prepare(changes, metadata, **options):
+        if metadata["action"] == "adopt":
+            (history.root / path).write_bytes(b"# Concurrent manual edit\n")
+        return original(changes, metadata, **options)
+    monkeypatch.setattr(history, "_commit", edit_during_prepare)
+    with pytest.raises(HistoryError, match="changed externally"):
+        history.adopt({path: b"# Remote\n"}, expected_before=expectations([path], history), accepted_tips={})
+    assert (history.root / path).read_bytes() == b"# Concurrent manual edit\n"
+    assert history._rev(HISTORY_REF) == head
+    assert history.generation() is None
+    assert history.adoption()["pending"]
+    assert history.adoption()["changes"] == {path: b"# Remote\n"}
+
+
+def test_prepared_observed_commits_do_not_publish_before_adoption_intent_is_pinned(history, monkeypatch):
+    path = "common/mine.md"
+    history.apply({path: b"# Original\n"}, flow_path=path)
+    (history.root / path).write_bytes(b"# Manual current\n")
+    head = history._rev(HISTORY_REF)
+    original = history.git.run
+    def fail_pending(*arguments, **options):
+        if arguments[:2] == ("update-ref", PENDING_REF):
+            raise OSError("interrupted pin")
+        return original(*arguments, **options)
+    monkeypatch.setattr(history.git, "run", fail_pending)
+    with pytest.raises(OSError, match="interrupted pin"):
+        history.adopt({path: b"# Remote\n"}, expected_before=expectations([path], history), accepted_tips={})
+    assert history._rev(HISTORY_REF) == head
+    assert history._rev(PENDING_REF) is None
+    assert history.generation() is None
+    assert (history.root / path).read_bytes() == b"# Manual current\n"
+
+
+def test_replace_refuses_conflicting_legacy_alias_without_changing_files_or_refs(history):
+    path = "common/shared.md"
+    raw = b"# Private version\n"
+    alias = "20261001T000000000001Z-" + hashlib.sha256(raw).hexdigest()[:12]
+    history.apply({path: b"# Current\n"}, flow_path=path)
+    history.record(path, raw, version=alias)
+    event = {**source_event(content=b"# Remote incompatible alias\n"), "id": alias, "version": alias,
+             "archive": True, "previous": None}
+    event["changes"] = {path: event["content"]}
+    ref = portable(history, event, "collision")
+    head = history._rev(HISTORY_REF)
+    with pytest.raises(HistoryError, match="conflicting copies"):
+        history.adopt({path: b"# Remote\n"}, expected_before=expectations([path], history),
+                      accepted_tips={"collision": history._rev(ref)})
+    assert history._rev(HISTORY_REF) == head
+    assert history._rev(PENDING_REF) is None
+    assert history.generation() is None
+    assert (history.root / path).read_bytes() == b"# Current\n"
+    private = next(item for item in history.events([HISTORY_REF]) if item["id"] == alias)
+    selected = history.events([ref])[0]
+    assert private["content"] == raw
+    assert selected["content"] == b"# Remote incompatible alias\n"
+    assert history.git.text("for-each-ref", "--format=%(refname)", ACCEPTED_PREFIX) == ""
+
+
+def test_replace_accepts_compatible_filtered_copies_and_keeps_native_metadata_semantics(history):
+    path = "common/shared.md"
+    secret = b"ghp_A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8\n"
+    history.apply({path: secret}, flow_path=path)
+    version = history.apply({path: b"# Clean\n"}, flow_path=path)
+    source = next(item for item in history.export_events() if item["id"] == version)
+    restricted = portable(history, source, "restricted")
+    allowed = portable(history, source, "allowed", allow=(hashlib.sha256(secret).hexdigest(),))
+    meta = "repos/sample/.repo.json"
+    original = b'{"origin":"github.com/owner/sample","path":"/local/clone"}\n'
+    history.apply({meta: original}, action="baseline")
+    baseline = history.export_events()[-1]
+    metadata_ref = portable(history, baseline, "metadata", origins={"repos/sample": "github.com/owner/sample"})
+    tips = {name: history._rev(ref) for name, ref in [("restricted", restricted), ("allowed", allowed),
+                                                   ("metadata", metadata_ref)]}
+    history.adopt({path: b"# Remote\n"}, expected_before=expectations([path], history), accepted_tips=tips)
+    assert history.read(path, version) == secret
+    exported = {item["id"]: item for item in history.export_events()}
+    assert exported[version]["previous"] == secret
+    assert json.loads(exported[baseline["id"]]["changes"][meta]) == {"origin": "github.com/owner/sample"}
+    assert (history.root / meta).read_bytes() == original
+
+
+def test_accepted_history_updates_survive_policy_rewrite_and_next_replace_stays_isolated(history):
+    first = source_event()
+    ref = portable(history, first, "stream")
+    tip = history._rev(ref)
+    first_boundary = history.adopt({}, expected_before={}, accepted_tips={"stream": tip})
+    second = {**source_event(previous=b"# New\n", content=b"# Next\n"), "id": "git-" + "b" * 40}
+    portable(history, second, "stream")
+    next_tip = history._rev(ref)
+    assert history.accept({"stream": next_tip}) == 1
+    assert history.accept({"stream": next_tip}) == 0
+    with pytest.raises(HistoryError, match="not the current incoming tip"):
+        history.accept({"stream": tip})
+    history.git.run("update-ref", "-d", ref)
+    history.git.run("gc", "--prune=now")
+    assert {item["id"] for item in history.export_events()} == {first["id"], second["id"]}
+    assert history._rev(ACCEPTED_PREFIX + first_boundary.removeprefix("git-") + "/retained/" + tip) == tip
+    third = {**source_event(), "id": "git-" + "c" * 40}
+    third_ref = portable(history, third, "different-remote")
+    history.adopt({}, expected_before={}, accepted_tips={"different-remote": history._rev(third_ref)})
+    assert {item["id"] for item in history.export_events()} == {third["id"]}
+    assert history.read(first["path"], first["id"]) == first["previous"]
+    assert history.read(second["path"], second["id"]) == second["previous"]
+
+
+def test_repeated_private_legacy_record_after_boundary_cannot_revive_discarded_export(history):
+    path, raw = "common/mine.md", b"# Old private archive\n"
+    alias = "20261001T000000000001Z-" + hashlib.sha256(raw).hexdigest()[:12]
+    history.record(path, raw, version=alias)
+    history.adopt({}, expected_before={}, accepted_tips={})
+    head = history._rev(HISTORY_REF)
+    assert history.record(path, raw, version=alias) == alias
+    assert history._rev(HISTORY_REF) == head
+    assert history.read(path, alias) == raw
+    assert history.export_events() == []
+
+
+def test_adoption_read_apis_do_not_create_a_missing_library(tmp_path):
+    root = tmp_path / "not-created"
+    history = LibraryHistory(root)
+    assert history.adoption() is None
+    assert history.generation() is None
+    assert history.accepted_refs() == []
+    assert not root.exists()
+
+
+def test_replace_retained_paths_allow_unsafe_directories_without_following_them(history, tmp_path):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    external = outside / "private.md"
+    external.write_bytes(b"# Outside\n")
+    (history.root / "common").mkdir(exist_ok=True)
+    (history.root / "common/linked").symlink_to(outside, target_is_directory=True)
+    boundary = history.adopt({}, expected_before={}, accepted_tips={},
+                             retained_paths={"common/linked": "not_regular"})
+    assert history.adoption()["retained_paths"] == {"common/linked": "not_regular"}
+    assert history.generation() == boundary.removeprefix("git-")
+    assert (history.root / "common/linked").is_symlink()
+    assert external.read_bytes() == b"# Outside\n"
+
+
+@pytest.mark.parametrize("retained", [{"../outside": "size"}, {"common/held.md": "unknown"},
+                                      {"common/held.md": []}, ["common/held.md"],
+                                      {"common/mine.md": "unsafe_remote"}, {"common": "unreadable"}])
+def test_replace_refuses_invalid_or_changed_retained_paths_before_intent(history, retained):
+    path = "common/mine.md"
+    history.apply({path: b"# Current\n"}, flow_path=path)
+    head = history._rev(HISTORY_REF)
+    with pytest.raises(HistoryError):
+        history.adopt({path: b"# Remote\n"}, expected_before=expectations([path], history),
+                      accepted_tips={}, retained_paths=retained)
+    assert history._rev(HISTORY_REF) == head
+    assert history._rev(PENDING_REF) is None
+    assert (history.root / path).read_bytes() == b"# Current\n"
+
+
+@pytest.mark.parametrize("kept_before", [b"# Kept\n", None])
+def test_replace_guards_unchanged_or_absent_paths_after_intent_preparation(history, monkeypatch, kept_before):
+    path, kept = "common/mine.md", "common/kept.md"
+    history.apply({path: b"# Current\n", kept: kept_before}, flow_path=path)
+    expected = expectations([path, kept], history)
+    head, original = history._rev(HISTORY_REF), history._commit
+    def edit_kept_during_prepare(changes, metadata, **options):
+        commit = original(changes, metadata, **options)
+        if metadata["action"] == "adopt":
+            (history.root / kept).write_bytes(b"# Concurrent kept edit\n")
+        return commit
+    monkeypatch.setattr(history, "_commit", edit_kept_during_prepare)
+    with pytest.raises(HistoryError, match="unchanged adoption target changed externally"):
+        history.adopt({path: b"# Remote\n"}, expected_before=expected, accepted_tips={})
+    assert history.adoption()["unchanged_before"] == {kept: expected[kept]}
+    assert history.adoption()["pending"]
+    assert history._rev(HISTORY_REF) == head
+    assert history.generation() is None
+    assert (history.root / path).read_bytes() == b"# Current\n"
+    assert (history.root / kept).read_bytes() == b"# Concurrent kept edit\n"
+
+
+def test_interrupted_replace_rechecks_unchanged_guards_before_any_recovery_write(history, monkeypatch):
+    path, kept, overlay = "common/mine.md", "common/kept.md", "personas/common/mine.json"
+    history.apply({path: b"# Current\n", kept: b"# Kept\n", overlay: b"old\n"}, flow_path=path)
+    head = history._rev(HISTORY_REF)
+    expected = expectations([path, kept, overlay], history)
+    original = user_library.atomic_write
+    with monkeypatch.context() as patch:
+        def interrupt_overlay(target, raw):
+            if Path(target) == history.root / overlay:
+                raise OSError("interrupted guarded Replace")
+            original(target, raw)
+        patch.setattr(user_library, "atomic_write", interrupt_overlay)
+        with pytest.raises(OSError, match="interrupted guarded Replace"):
+            history.adopt({path: b"# Remote\n", overlay: b"new\n"}, expected_before=expected, accepted_tips={})
+    intent = history.adoption()
+    assert intent["unchanged_before"] == {kept: expected[kept]}
+    assert (history.root / path).read_bytes() == b"# Remote\n"
+    (history.root / kept).write_bytes(b"# Manual edit after interruption\n")
+    history.git.run("gc", "--prune=now")
+    reopened = LibraryHistory(history.root)
+    with pytest.raises(HistoryError, match="unchanged adoption target changed externally"):
+        reopened.ensure()
+    assert reopened.adoption()["boundary"] == intent["boundary"]
+    assert reopened.adoption()["pending"]
+    assert reopened._rev(HISTORY_REF) == head
+    assert reopened.generation() is None
+    assert (history.root / overlay).read_bytes() == b"old\n"
+    assert (history.root / path).read_bytes() == b"# Remote\n"
+    assert (history.root / kept).read_bytes() == b"# Manual edit after interruption\n"
+
+
+def test_replace_rechecks_unchanged_guards_after_writes_before_publishing_boundary(history, monkeypatch):
+    path, kept = "common/mine.md", "common/kept.md"
+    history.apply({path: b"# Current\n", kept: b"# Kept\n"}, flow_path=path)
+    head = history._rev(HISTORY_REF)
+    original = user_library.atomic_write
+    with monkeypatch.context() as patch:
+        def edit_kept_after_write(target, raw):
+            original(target, raw)
+            if Path(target) == history.root / path:
+                (history.root / kept).write_bytes(b"# Concurrent kept edit\n")
+        patch.setattr(user_library, "atomic_write", edit_kept_after_write)
+        with pytest.raises(HistoryError, match="unchanged adoption target changed externally"):
+            history.adopt({path: b"# Remote\n"}, expected_before=expectations([path, kept], history),
+                          accepted_tips={})
+    assert history.adoption()["pending"]
+    assert history._rev(HISTORY_REF) == head
+    assert history.generation() is None
+    assert (history.root / path).read_bytes() == b"# Remote\n"
+    assert (history.root / kept).read_bytes() == b"# Concurrent kept edit\n"
+    (history.root / kept).write_bytes(b"# Kept\n")
+    history.ensure()
+    assert not history.adoption()["pending"]
+    assert history.generation() == history.adoption()["boundary"]
+    assert (history.root / kept).read_bytes() == b"# Kept\n"
+
+
+def test_replace_unchanged_guards_cannot_include_retained_paths(history):
+    path, kept = "common/mine.md", "common/kept.md"
+    history.apply({path: b"# Current\n", kept: b"# Kept\n"}, flow_path=path)
+    head = history._rev(HISTORY_REF)
+    with pytest.raises(HistoryError, match="invalid unchanged expectations"):
+        history.adopt({path: b"# Remote\n"}, expected_before=expectations([path, kept], history),
+                      accepted_tips={}, retained_paths={kept: "unsafe_remote"})
+    assert history._rev(HISTORY_REF) == head
+    assert history._rev(PENDING_REF) is None
+    assert (history.root / path).read_bytes() == b"# Current\n"
+    assert (history.root / kept).read_bytes() == b"# Kept\n"
+
+
+def test_replace_captures_exact_unchanged_disk_bytes_before_boundary_without_reviving_old_export(history):
+    kept = "common/kept.md"
+    private = b"# Discarded private predecessor\n"
+    selected = b"# Same selected current bytes\n"
+    history.apply({kept: private}, flow_path=kept)
+    (history.root / kept).write_bytes(selected)
+    boundary = history.adopt({}, expected_before=expectations([kept], history), accepted_tips={})
+    assert history._blob(history._tree(boundary.removeprefix("git-"))[kept]) == selected
+    assert [history.read(kept, item["version"]) for item in history.history(kept)] == [private]
+    assert history.reconcile() == 0
+    assert history.export_events() == []
+    assert (history.root / kept).read_bytes() == selected

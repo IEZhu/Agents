@@ -75,9 +75,9 @@ FETCH_MINUTES = (1, 60)
 POLL_SECONDS = .1             # how often a wait for an engine call checks for a drain
 MAX_BODY = 64 * 1024
 UPDATE_FILES = ("maintenance.json", "transaction.json")
-COMMANDS = ("status", "run", "setup", "check", "preview", "start", "pause", "resume", "disconnect")
+COMMANDS = ("status", "run", "setup", "check", "preview", "comparison", "start", "pause", "resume", "disconnect")
 # Run by the task, one at a time with the cycles; the rest answer at once.
-QUEUED = frozenset({"run", "setup", "check", "preview", "start", "disconnect"})
+QUEUED = frozenset({"run", "setup", "check", "preview", "comparison", "start", "disconnect"})
 CYCLES = frozenset({"run", "start"})
 # States in which a changed library is worth a cycle.
 UNSYNCED = ("pending", "attention")
@@ -107,12 +107,14 @@ _OPTIONAL_TEXT = (str, type(None))
 _OPTIONAL_FLAG = (bool, type(None))
 _ARGUMENTS = {
     "run": {"confirm": _OPTIONAL_TEXT},
-    "start": {"confirm": _TEXT},
+    "preview": {"connection_mode": _OPTIONAL_TEXT},
+    "comparison": {"path": _TEXT, "confirm": _TEXT, "connection_mode": _OPTIONAL_TEXT},
+    "start": {"confirm": _TEXT, "connection_mode": _OPTIONAL_TEXT},
     "setup": {"remote": _TEXT, "name": _TEXT, "email": _TEXT, "label": _OPTIONAL_TEXT,
               "branch": _OPTIONAL_TEXT, "ask_new_repositories": _OPTIONAL_FLAG,
               "trust_host_key": _OPTIONAL_TEXT, "confirm_private": _OPTIONAL_FLAG},
 }
-_REQUIRED = {"start": ("confirm",), "setup": ("remote", "name", "email")}
+_REQUIRED = {"start": ("confirm",), "comparison": ("path", "confirm"), "setup": ("remote", "name", "email")}
 
 
 def operation(command: str, arguments):
@@ -136,13 +138,15 @@ def operation(command: str, arguments):
     if missing:
         raise ValueError(f"{command} needs {', '.join(missing)}")
     given = {key: value for key, value in arguments.items() if value is not None}
+    if "connection_mode" in given and given["connection_mode"] not in ("merge", "replace"):
+        raise ValueError("connection_mode must be merge or replace")
     if command == "run":
         return lambda syncer: syncer.run(force=True, confirm=given.get("confirm"))
     if command == "start":
-        return lambda syncer: syncer.start(given["confirm"])
+        return lambda syncer: syncer.start(**given)
     if command == "setup":
         return lambda syncer: syncer.setup(**given)
-    return lambda syncer: getattr(syncer, command)()
+    return lambda syncer: getattr(syncer, command)(**given)
 
 
 def failure(error: BaseException) -> tuple[int, dict]:
