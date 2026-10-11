@@ -118,8 +118,11 @@ The interactive script:
   `Agents-Core-Desktop`, Google Antigravity `~/.gemini/config/mcp_config.json`), and
   with Claude Desktop present also configures Claude Code, which the app's Code tab
   runs, and denies the desktop entry in Claude Code's `settings.json`
-  ([why](#claude-code-mcpjson-in-project-root)), after copying each file to
-  `<file>.backup.<epoch>`;
+  ([why](#claude-code-mcpjson-in-project-root)), after copying existing files to
+  `<file>.backup.<epoch>`. Both Unix and Windows setup detect Antigravity through
+  its configuration directory, an available `agy` command or the explicit path
+  override below. An existing invalid JSON file is left unchanged and reported
+  as a failed client update; fix it manually or restore a backup before retrying;
 - asks before installing protocol 2 instructions in the global Claude
   configuration. When Codex is detected, it installs the same protocol in Codex's
   global instructions without asking; this does not connect Codex to MCP (see

@@ -299,8 +299,12 @@ if sys.platform == 'darwin' and marker.exists():
 try:
     with open(config_path, encoding='utf-8-sig') as f:  # also a file saved with a BOM
         config = json.load(f)
-except (json.JSONDecodeError, FileNotFoundError):
+except FileNotFoundError:
     config = {}
+except json.JSONDecodeError as e:
+    print(f'ERROR: {config_path} contains invalid JSON: {e}', file=sys.stderr)
+    print('Please fix the file manually or restore from backup', file=sys.stderr)
+    sys.exit(1)
 
 # Refuse to rewrite a config whose shape we do not understand: resetting it
 # would drop the user's other settings and MCP servers.

@@ -58,6 +58,10 @@ def profile_installer(request, tmp_path):
                  "AGENTS_ANTIGRAVITY_MCP_CONFIG",
                  "XDG_CONFIG_HOME", "PYTHONHOME", "PYTHONPATH", "VIRTUAL_ENV", "__PYVENV_LAUNCHER__"):
         env.pop(name, None)
+    if kind == "cmd":
+        # Client detection must not pick up applications installed on the test host.
+        system32 = Path(os.environ["SystemRoot"]) / "System32"
+        env["PATH"] = os.pathsep.join(map(str, (system32, system32 / "WindowsPowerShell/v1.0")))
 
     if kind == "bash":
         source = (ROOT / "scripts/init_repo.sh").read_text()
@@ -67,15 +71,17 @@ def profile_installer(request, tmp_path):
         script = checkout / "profiles.sh"
         script.write_text("set -e\nCONFIGURED_ENVS=()\n"
                           'python() { "$PYTHON_ABS" "$@"; }\n'
-                          "check_command() { return 1; }\n" + functions + hooks + setup)
+                          "check_command() { return 1; }\n" + functions + hooks + setup
+                          + 'printf \'CONFIGURED_ENVS=%s\\n\' "${CONFIGURED_ENVS[*]}"\n')
         command = [interpreter, str(script)]
     else:
         source = (ROOT / "scripts/init_repo.bat").read_text()
         setup = between(source, "REM Resolve the same effective client paths", "REM --- Configure Codex instructions ---")
         fatal_handler = source[source.index("REM ============== Fatal Error Handler =============="):]
         script = checkout / "profiles.bat"
-        script.write_bytes(("@echo off\nsetlocal enabledelayedexpansion\n" + setup
-                            + "exit /b 0\n" + fatal_handler).replace("\n", "\r\n").encode())
+        script.write_bytes(("@echo off\nsetlocal enabledelayedexpansion\nset \"CONFIGURED_ENVS=\"\n" + setup
+                            + "echo CONFIGURED_ENVS=!CONFIGURED_ENVS!\nexit /b 0\n"
+                            + fatal_handler).replace("\n", "\r\n").encode())
         command = [interpreter, "/d", "/c", str(script)]
 
     def run(overrides):
@@ -91,7 +97,8 @@ def profile_installer(request, tmp_path):
 @pytest.mark.parametrize("profile_kind", ["defaults", "custom-profiles", "single-exclamation", "paired-exclamations"])
 def test_installer_configures_effective_paths_and_preserves_other_profiles(profile_installer, profile_kind):
     run, home, checkout, templates, desktop = profile_installer
-    defaults = {"claude": home / ".claude.json", "cursor": home / ".cursor/mcp.json", "desktop": desktop}
+    defaults = {"claude": home / ".claude.json", "cursor": home / ".cursor/mcp.json", "desktop": desktop,
+                "antigravity": home / ".gemini/config/mcp_config.json"}
     paths = defaults
     claude_home = home / ".claude"
     overrides = {}
@@ -102,10 +109,12 @@ def test_installer_configures_effective_paths_and_preserves_other_profiles(profi
         claude_home = home / f"alternate claude {suffix}"
         paths = {"claude": claude_home / ".claude.json",
                  "cursor": home / f"custom cursor {suffix}/registration.json",
-                 "desktop": home / f"custom desktop {suffix}/registration.json"}
+                 "desktop": home / f"custom desktop {suffix}/registration.json",
+                 "antigravity": home / f"custom antigravity {suffix}/registration.json"}
         overrides = {"CLAUDE_CONFIG_DIR": str(claude_home),
                      "AGENTS_CURSOR_MCP_CONFIG": str(paths["cursor"]),
                      "AGENTS_CLAUDE_DESKTOP_CONFIG": str(paths["desktop"]),
+                     "AGENTS_ANTIGRAVITY_MCP_CONFIG": str(paths["antigravity"]),
                      # Make accidental cmd expansion change the path visibly.
                      "segment": "expanded-value"}
 
@@ -140,6 +149,8 @@ def test_installer_configures_effective_paths_and_preserves_other_profiles(profi
         assert set(document["mcpServers"]) == {name, "other"}
         assert document["mcpServers"]["other"] == original["mcpServers"]["other"]
         assert document["projects"] == original["projects"]
+        backups = list(path.parent.glob(path.name + ".backup.*"))
+        assert backups and all(json.loads(backup.read_text()) == original for backup in backups)
     # ...and Claude Code, the app's Code tab included, denies it.
     assert set(json.loads((claude_home / "settings.json").read_text())["permissions"]["deny"]) == {
         "mcp__Agents-Core-Desktop__*", "mcp__Agents_Core_Desktop__*"}
@@ -149,22 +160,26 @@ def test_installer_configures_effective_paths_and_preserves_other_profiles(profi
     assert {path: path.read_bytes() for path in preserved} == preserved
 
 
-def test_explicit_paths_create_missing_parent_directories(profile_installer):
+@pytest.mark.parametrize("suffix", ["profile", "profile!literal", "profile !segment!"])
+def test_explicit_paths_create_missing_parent_directories(profile_installer, suffix):
     run, home, checkout, _, _ = profile_installer
-    claude_home = home / "new claude profile"
-    cursor = home / "new cursor profile/mcp.json"
-    desktop = home / "new desktop profile/mcp.json"
+    claude_home = home / f"new claude {suffix}"
+    cursor = home / f"new cursor {suffix}/mcp.json"
+    desktop = home / f"new desktop {suffix}/mcp.json"
+    antigravity = home / f"new antigravity {suffix}/mcp.json"
 
     result = run({"CLAUDE_CONFIG_DIR": str(claude_home), "AGENTS_CURSOR_MCP_CONFIG": str(cursor),
-                  "AGENTS_CLAUDE_DESKTOP_CONFIG": str(desktop)})
+                  "AGENTS_CLAUDE_DESKTOP_CONFIG": str(desktop),
+                  "AGENTS_ANTIGRAVITY_MCP_CONFIG": str(antigravity), "segment": "expanded-value"})
 
     assert result.returncode == 0, result.stdout + result.stderr
     for path, name in ((claude_home / ".claude.json", "Agents-Core"), (cursor, "Agents-Core"),
-                       (desktop, "Agents-Core-Desktop")):
+                       (desktop, "Agents-Core-Desktop"), (antigravity, "Agents-Core")):
         assert json.loads(path.read_text())["mcpServers"][name]["args"] == [str(checkout / "src/server.py")]
     assert not (home / ".claude.json").exists()
     assert not (home / ".claude").exists()
     assert not (home / ".cursor").exists()
+    assert not (home / ".gemini").exists()
 
 
 def test_a_desktop_only_installation_configures_claude_code_for_the_code_tab(profile_installer):
@@ -182,9 +197,107 @@ def test_a_desktop_only_installation_configures_claude_code_for_the_code_tab(pro
         "mcp__Agents-Core-Desktop__*", "mcp__Agents_Core_Desktop__*"}
 
 
+def test_antigravity_existing_directory_creates_config_and_reinstalls(profile_installer):
+    run, home, checkout, _, _ = profile_installer
+    config = home / ".gemini/config/mcp_config.json"
+    config.parent.mkdir(parents=True)
+
+    first = run({})
+
+    assert first.returncode == 0, first.stdout + first.stderr
+    expected = {"mcpServers": {"Agents-Core": {"command": sys.executable,
+                                             "args": [str(checkout / "src/server.py")]}}}
+    assert json.loads(config.read_text()) == expected
+    configured = config.read_bytes()
+
+    second = run({})
+
+    assert second.returncode == 0, second.stdout + second.stderr
+    assert config.read_bytes() == configured
+    assert "CONFIGURED_ENVS= Antigravity" in second.stdout or "CONFIGURED_ENVS=Antigravity" in second.stdout
+    assert any(backup.read_bytes() == configured for backup in config.parent.glob(config.name + ".backup.*"))
+
+
+def test_absent_antigravity_is_skipped_without_creating_config(profile_installer):
+    run, home, _, _, _ = profile_installer
+
+    result = run({})
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Antigravity not detected" in result.stdout
+    assert "Configuring Antigravity MCP" not in result.stdout
+    assert not (home / ".gemini").exists()
+
+
+@pytest.mark.parametrize("profile_installer", ["cmd"], indirect=True)
+def test_windows_antigravity_on_path_creates_default_config(profile_installer):
+    run, home, checkout, _, _ = profile_installer
+    binaries = checkout / "fake client commands"
+    binaries.mkdir()
+    # WHERE discovers this stub. Setup must not actually launch the client.
+    (binaries / "agy.cmd").write_bytes(b"@exit /b 99\r\n")
+    system32 = Path(os.environ["SystemRoot"]) / "System32"
+    path = os.pathsep.join(map(str, (binaries, system32, system32 / "WindowsPowerShell/v1.0")))
+
+    result = run({"PATH": path})
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    config = home / ".gemini/config/mcp_config.json"
+    assert json.loads(config.read_text())["mcpServers"]["Agents-Core"]["args"] == [str(checkout / "src/server.py")]
+    assert "CONFIGURED_ENVS= Antigravity" in result.stdout
+
+
+@pytest.mark.parametrize("client", ["cursor", "desktop", "claude", "antigravity"])
+@pytest.mark.parametrize("original", [b'{"mcpServers":', b'["preserve", "this"]',
+                                     b'{"mcpServers": [], "keep": true}'],
+                         ids=["malformed-json", "non-object-root", "non-object-servers"])
+def test_invalid_client_config_is_preserved_and_not_reported_as_configured(profile_installer, client, original):
+    run, home, _, _, desktop = profile_installer
+    paths = {"cursor": home / ".cursor/mcp.json", "desktop": desktop,
+             "claude": home / ".claude.json", "antigravity": home / ".gemini/config/mcp_config.json"}
+    config = paths[client]
+    config.parent.mkdir(parents=True, exist_ok=True)
+    config.write_bytes(original)
+
+    result = run({})
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert config.read_bytes() == original
+    backups = list(config.parent.glob(config.name + ".backup.*"))
+    assert backups and all(backup.read_bytes() == original for backup in backups)
+    assert "ERROR:" in result.stdout + result.stderr
+    label = {"cursor": "Cursor", "desktop": "Claude Desktop", "claude": "Claude Code",
+             "antigravity": "Antigravity"}[client]
+    assert "Failed to update" in result.stdout
+    configured = next(line.removeprefix("CONFIGURED_ENVS=") for line in result.stdout.splitlines()
+                      if line.startswith("CONFIGURED_ENVS="))
+    assert label not in configured and label.replace(" ", "-") not in configured
+
+
+@pytest.mark.parametrize("override", [None, "custom antigravity/mcp.json", "profile!literal/mcp.json",
+                                     "profile !segment!/mcp.json"])
+def test_client_config_paths_reports_effective_antigravity_path(tmp_path, override):
+    home = tmp_path / "isolated home"
+    env = dict(os.environ, HOME=str(home), USERPROFILE=str(home))
+    env.pop("AGENTS_ANTIGRAVITY_MCP_CONFIG", None)
+    expected = home / ".gemini/config/mcp_config.json"
+    if override:
+        expected = home / override
+        env["AGENTS_ANTIGRAVITY_MCP_CONFIG"] = str(expected)
+
+    result = subprocess.run([sys.executable, str(ROOT / "scripts/_helpers/client_config_paths.py")],
+                            env=env, capture_output=True, text=True, encoding="utf-8", timeout=20)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    paths = dict(line.split("=", 1) for line in result.stdout.splitlines())
+    assert paths["ANTIGRAVITY_CONFIG"] == str(expected)
+    assert not home.exists()
+
+
 @pytest.mark.parametrize("profile_installer", ["cmd"], indirect=True)
 @pytest.mark.parametrize("missing", ["helper", "MCP_SETTINGS_FILE", "CLAUDE_DESKTOP_CONFIG",
-                                     "CLAUDE_CODE_DIR", "CLAUDE_CODE_MCP", "CLAUDE_CODE_SETTINGS"])
+                                     "CLAUDE_CODE_DIR", "CLAUDE_CODE_MCP", "CLAUDE_CODE_SETTINGS",
+                                     "ANTIGRAVITY_CONFIG"])
 def test_windows_path_resolution_failure_reports_context_before_writes(profile_installer, missing):
     run, home, checkout, _, desktop = profile_installer
     helper = checkout / "scripts/_helpers/client_config_paths.py"
@@ -196,13 +309,14 @@ def test_windows_path_resolution_failure_reports_context_before_writes(profile_i
                  "CLAUDE_DESKTOP_CONFIG": desktop,
                  "CLAUDE_CODE_DIR": home / ".claude",
                  "CLAUDE_CODE_MCP": home / ".claude.json",
-                 "CLAUDE_CODE_SETTINGS": home / ".claude/settings.json"}
+                 "CLAUDE_CODE_SETTINGS": home / ".claude/settings.json",
+                 "ANTIGRAVITY_CONFIG": home / ".gemini/config/mcp_config.json"}
         helper.write_text("\n".join(f"print({str(key + '=' + str(path))!r})"
                                     for key, path in paths.items() if key != missing) + "\n",
                           encoding="utf-8")
         expected_key = missing
 
-    result = run({})
+    result = run({missing: "stale inherited path"})
 
     assert result.returncode == 1, result.stdout + result.stderr
     assert "FATAL: init_repo.bat aborted unexpectedly" in result.stdout
