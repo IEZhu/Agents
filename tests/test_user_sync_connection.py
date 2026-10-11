@@ -4,6 +4,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 import hashlib
 import os
+import re
 import shutil
 
 import pytest
@@ -354,7 +355,7 @@ def test_interrupted_replace_resumes_exact_accepted_manifest_without_publication
     assert result["reason"] == "library_unreadable" and b.sync.settings().started is None
     assert LibraryHistory(b.lib).adoption()["pending"] and refs(b) == before
     for read in (b.sync.preview, lambda: b.sync.comparison("common/shared.md", confirm=preview["hash"])):
-        with pytest.raises(SyncError, match="python -m src.user_sync run") as failure:
+        with pytest.raises(SyncError, match=re.escape("python -m src.user_sync run")) as failure:
             read()
         assert failure.value.reason == "adoption_pending"
     with pytest.raises(SyncError, match="accepted"):
