@@ -536,3 +536,21 @@ async def test_initialization_guidance_matches_success_payload(bundle):
     }
     for removed in ("Version 1", "SUCCESS_SAMPLED", "system_prompt", "context_hash"):
         assert removed not in instructions
+
+
+def test_mcp_initialization_requires_activation_and_attribution_on_the_first_answer():
+    instructions = server.mcp._mcp_server.create_initialization_options().instructions
+    initial, continuation = instructions.split("Silently assess", 1)
+
+    # Check the guidance actually delivered during MCP initialization, rather
+    # than a separate template that a client might never load.
+    assert "before the first final answer" in initial.lower()
+    assert "get_agent_context" in initial and "route_and_load" in initial
+    assert "protocol_version=2" in initial and "current_persona=null" in initial
+    assert re.search(r"ROUTE_REQUIRED.*get_agent_context.*before answering", initial, re.DOTALL)
+    assert "do not ask permission" in initial.lower()
+    assert "keep cannot skip initial activation" in continuation
+    route_required = next(line for line in instructions.splitlines() if line.startswith("- ROUTE_REQUIRED →"))
+    assert "intermediate result" in route_required and "not an activated persona" in route_required
+    assert "Append the exact footer returned with the active bundle" in instructions
+    assert instructions.index("call log_interaction") < instructions.index("Then send the final answer")

@@ -1,6 +1,7 @@
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tomllib
@@ -11,9 +12,17 @@ from src.daemon.clients import ClientMigration, replace_toml_server
 from src.daemon.state import write_json, atomic_private
 
 
+ROOT = Path(__file__).resolve().parents[1]
+ROUTING_BEGIN = b"# >>> Agents-Core Routing Protocol (managed by init_repo) >>>"
+ROUTING_END = b"# <<< Agents-Core Routing Protocol (managed by init_repo) <<<"
+
+
 @pytest.fixture
 def migration(tmp_path):
     state = tmp_path / "service"; state.mkdir(mode=0o700)
+    template = tmp_path / "scripts/templates/routing-protocol-core.md"
+    template.parent.mkdir(parents=True)
+    shutil.copyfile(ROOT / "scripts/templates/routing-protocol-core.md", template)
     # Any existing absolute file stands in for Node: the bridge entry only names it.
     write_json(state / "service.json", {"installation": str(tmp_path), "port": 8765, "node": sys.executable})
     atomic_private(state / "token", "private-token-for-tests-only" * 2)
@@ -243,6 +252,7 @@ def test_user_scope_antigravity_gets_auto_workspace_bridge(migration, tmp_path):
     migration.restore(backup)
     assert not plugin_file.exists() and not hooks_file.exists()
     assert not registry_file.exists()
+    assert not (home / ".gemini/config/plugins/agents-core/rules/AGENTS.md").exists()
     # A pinned project gets a workspace bridge with its workspace identity.
     project = tmp_path / "repo"; project.mkdir()
     _, text, _ = migration.prepare("antigravity", project, home=home)
@@ -444,7 +454,8 @@ def test_repeated_antigravity_migration_preserves_settings_without_duplicate_hoo
     write_json(plugin_dir / "hooks.json", {"user-hook": {"enabled": True, "Stop": []}})
     change = migration.prepare("antigravity", home=home)
     migration.apply([change])
-    paths = [change[0], registry_file, plugin_dir / "plugin.json", plugin_dir / "hooks.json"]
+    paths = [change[0], registry_file, plugin_dir / "plugin.json", plugin_dir / "hooks.json",
+             plugin_dir / "rules/AGENTS.md"]
     first_contents = {path: path.read_bytes() for path in paths}
 
     second_change = migration.prepare("antigravity", home=home)
@@ -501,6 +512,9 @@ def test_antigravity_config_override_can_share_plugin_registry_and_restores_once
     }
     journal = json.loads((backup / "changes.json").read_text())
     assert sum(record["path"] == str(registry_file) for record in journal) == 1
+    rules_file = home / ".gemini/config/plugins/agents-core/rules/AGENTS.md"
+    template = Path(migration.config["installation"]) / "scripts/templates/routing-protocol-core.md"
+    assert template.read_bytes().strip() in rules_file.read_bytes()
 
     migration.restore(backup)
 
@@ -508,6 +522,7 @@ def test_antigravity_config_override_can_share_plugin_registry_and_restores_once
     plugin_dir = home / ".gemini/config/plugins/agents-core"
     assert not (plugin_dir / "plugin.json").exists()
     assert not (plugin_dir / "hooks.json").exists()
+    assert not (plugin_dir / "rules/AGENTS.md").exists()
 
 
 @pytest.mark.parametrize("config_target", ["default", "registry", "referent"])
@@ -573,6 +588,207 @@ def test_antigravity_shared_registry_edit_during_preparation_is_preserved(migrat
     assert not (plugin_dir / "hooks.json").exists()
 
 
+def test_antigravity_migration_installs_protocol_in_active_plugin_rules(migration, tmp_path):
+    home = tmp_path / "home"
+    rules_file = home / ".gemini/config/plugins/agents-core/rules/AGENTS.md"
+    change = migration.prepare("antigravity", home=home)
+    assert not rules_file.exists()  # preparation must not enable instructions early
+
+    def inspect_prepared_backup(backup):
+        journal = json.loads((backup / "changes.json").read_text())
+        paths = [record["path"] for record in journal]
+        registry_file = home / ".gemini/config/config.json"
+        assert str(rules_file) in paths
+        assert paths.index(str(rules_file)) < paths.index(str(registry_file))
+        assert not rules_file.exists() and not registry_file.exists() and not change[0].exists()
+        assert not (rules_file.parents[1] / "plugin.json").exists()
+        assert not (rules_file.parents[1] / "hooks.json").exists()
+
+    backup = migration.apply([change], on_prepared=inspect_prepared_backup)
+
+    content = rules_file.read_bytes()
+    template = Path(migration.config["installation"]) / "scripts/templates/routing-protocol-core.md"
+    assert template.read_bytes().strip() in content
+    assert content.count(ROUTING_BEGIN) == content.count(ROUTING_END) == 1
+    journal = json.loads((backup / "changes.json").read_text())
+    assert sum(record["path"] == str(rules_file) for record in journal) == 1
+    assert json.loads((home / ".gemini/config/config.json").read_text())["plugins"]["agents-core"]["enabled"] is True
+
+    migration.restore(backup)
+
+    assert not rules_file.exists()
+
+
+def test_antigravity_user_edited_rules_block_restore_without_partial_removals(migration, tmp_path):
+    home = tmp_path / "home"
+    change = migration.prepare("antigravity", home=home)
+    backup = migration.apply([change])
+    rules_file = home / ".gemini/config/plugins/agents-core/rules/AGENTS.md"
+    user_edit = b"My new personal rules\r\n"
+    rules_file.write_bytes(user_edit)
+
+    with pytest.raises(ValueError, match="changed after migration"):
+        migration.restore(backup)
+
+    assert rules_file.read_bytes() == user_edit
+    assert change[0].exists()
+    assert (home / ".gemini/config/config.json").exists()
+    assert (rules_file.parents[1] / "plugin.json").exists()
+    assert (rules_file.parents[1] / "hooks.json").exists()
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+def test_antigravity_rules_upgrade_preserves_personal_bytes_and_restores_them(migration, tmp_path, legacy):
+    home = tmp_path / "home"
+    rules_file = home / ".gemini/config/plugins/agents-core/rules/AGENTS.md"
+    rules_file.parent.mkdir(parents=True)
+    prefix = b"# Personal rules\r\nPreserve my language choice.\r\n"
+    suffix = b"\r\n# Additional rules\r\nPreserve these bytes too.\r\n"
+    begin = ROUTING_BEGIN.replace(b"init_repo)", b"init_repo.sh)") if legacy else ROUTING_BEGIN
+    end = ROUTING_END.replace(b"init_repo)", b"init_repo.sh)") if legacy else ROUTING_END
+    original = prefix + begin + b"\nStale managed protocol\n" + end + suffix
+    rules_file.write_bytes(original)
+    change = migration.prepare("antigravity", home=home)
+    assert rules_file.read_bytes() == original
+
+    backup = migration.apply([change])
+
+    updated = rules_file.read_bytes()
+    assert updated.startswith(prefix) and updated.endswith(suffix)
+    assert updated.count(ROUTING_BEGIN) == updated.count(ROUTING_END) == 1
+    template = Path(migration.config["installation"]) / "scripts/templates/routing-protocol-core.md"
+    assert template.read_bytes().strip() in updated
+    assert b"Stale managed protocol" not in updated
+
+    migration.restore(backup)
+
+    assert rules_file.read_bytes() == original
+
+
+@pytest.mark.parametrize("original", [
+    b"Personal rules without a newline",
+    b"Personal rules\r\n",
+])
+def test_antigravity_rules_append_protocol_without_replacing_personal_rules(migration, tmp_path, original):
+    home = tmp_path / "home"
+    rules_file = home / ".gemini/config/plugins/agents-core/rules/AGENTS.md"
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_bytes(original)
+
+    backup = migration.apply([migration.prepare("antigravity", home=home)])
+
+    content = rules_file.read_bytes()
+    assert content.startswith(original)
+    assert content.count(ROUTING_BEGIN) == content.count(ROUTING_END) == 1
+    migration.restore(backup)
+    assert rules_file.read_bytes() == original
+
+
+@pytest.mark.parametrize("shape", ["begin_only", "end_only", "reversed", "duplicate", "mixed", "legacy_begin_only"])
+def test_antigravity_malformed_rules_markers_refuse_entire_migration(migration, tmp_path, shape):
+    home = tmp_path / "home"
+    rules_file = home / ".gemini/config/plugins/agents-core/rules/AGENTS.md"
+    rules_file.parent.mkdir(parents=True)
+    original = {
+        "begin_only": ROUTING_BEGIN,
+        "end_only": ROUTING_END,
+        "reversed": ROUTING_END + b"\n" + ROUTING_BEGIN,
+        "duplicate": ROUTING_BEGIN + b"\n" + ROUTING_BEGIN + b"\n" + ROUTING_END,
+        "mixed": ROUTING_BEGIN + b"\n" + ROUTING_END + b"\n" + ROUTING_BEGIN.replace(b"init_repo)", b"init_repo.sh)"),
+        "legacy_begin_only": ROUTING_BEGIN.replace(b"init_repo)", b"init_repo.sh)"),
+    }[shape]
+    rules_file.write_bytes(original)
+
+    with pytest.raises(ValueError, match="marker"):
+        migration.prepare("antigravity", home=home)
+
+    assert rules_file.read_bytes() == original
+    assert not (home / ".gemini/config/mcp_config.json").exists()
+    assert not (home / ".gemini/config/config.json").exists()
+    assert not (rules_file.parents[1] / "plugin.json").exists()
+    assert not (rules_file.parents[1] / "hooks.json").exists()
+    assert not migration.staged_changes
+    assert not (migration.directory / "bridges/antigravity-auto.json").exists()
+
+
+@pytest.mark.parametrize("edit_when", ["before_apply", "during_apply"])
+def test_antigravity_rules_concurrent_edit_preserves_user_bytes_and_rolls_back(migration, tmp_path, edit_when):
+    home = tmp_path / "home"
+    rules_file = home / ".gemini/config/plugins/agents-core/rules/AGENTS.md"
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_bytes(b"Original personal rules\r\n")
+    change = migration.prepare("antigravity", home=home)
+    user_edit = b"Concurrent personal rules\r\n"
+    if edit_when == "before_apply":
+        rules_file.write_bytes(user_edit)
+        callback = None
+        error = "changed after preparation"
+    else:
+        def callback(_backup):
+            rules_file.write_bytes(user_edit)
+        error = "changed during migration"
+
+    with pytest.raises(ValueError, match=error):
+        migration.apply([change], on_prepared=callback)
+
+    assert rules_file.read_bytes() == user_edit
+    assert not change[0].exists()
+    assert not (home / ".gemini/config/config.json").exists()
+    assert not (rules_file.parents[1] / "plugin.json").exists()
+    assert not (rules_file.parents[1] / "hooks.json").exists()
+    assert str(change[0]) in migration.staged_changes
+
+
+def test_antigravity_rules_symlink_is_rejected_without_replacing_personal_target(migration, tmp_path):
+    home = tmp_path / "home"
+    rules_file = home / ".gemini/config/plugins/agents-core/rules/AGENTS.md"
+    rules_file.parent.mkdir(parents=True)
+    referent = home / "personal-rules.md"
+    referent.write_bytes(b"Personal rules\r\n")
+    try:
+        rules_file.symlink_to(referent)
+    except OSError:
+        pytest.skip("File symlinks are unavailable")
+    change = migration.prepare("antigravity", home=home)
+
+    with pytest.raises(ValueError, match="cannot be a symlink"):
+        migration.apply([change])
+
+    assert rules_file.is_symlink() and referent.read_bytes() == b"Personal rules\r\n"
+    assert not change[0].exists()
+    assert not (home / ".gemini/config/config.json").exists()
+
+
+def test_antigravity_missing_installation_protocol_refuses_migration(migration, tmp_path):
+    template = Path(migration.config["installation"]) / "scripts/templates/routing-protocol-core.md"
+    template.unlink()
+    home = tmp_path / "home"
+
+    with pytest.raises((OSError, ValueError), match="routing-protocol-core"):
+        migration.prepare("antigravity", home=home)
+
+    assert not (home / ".gemini").exists()
+    assert not migration.staged_changes
+    assert not (migration.directory / "bridges/antigravity-auto.json").exists()
+
+
+@pytest.mark.parametrize("asset", ["plugin.json", "hooks.json", "rules/AGENTS.md"])
+def test_antigravity_mcp_override_cannot_overwrite_plugin_asset(migration, tmp_path, asset):
+    home = tmp_path / "home"
+    target = home / ".gemini/config/plugins/agents-core" / asset
+    target.parent.mkdir(parents=True)
+    original = b"Personal rules\r\n" if asset.endswith(".md") else b'{"custom": "keep"}\n'
+    target.write_bytes(original)
+
+    with pytest.raises(ValueError, match="Antigravity MCP config cannot share plugin asset"):
+        migration.prepare("antigravity", home=home, config_path=target)
+
+    assert target.read_bytes() == original
+    assert not (home / ".gemini/config/config.json").exists()
+    assert not (migration.directory / "bridges/antigravity-auto.json").exists()
+    assert not migration.staged_changes
+
+
 def test_staged_changes_do_not_leak_to_other_clients(migration, tmp_path):
     home = tmp_path / "home"; home.mkdir()
     migration.config["node"] = sys.executable
@@ -587,10 +803,12 @@ def test_staged_changes_do_not_leak_to_other_clients(migration, tmp_path):
     assert not plugin_file.exists()
     registry_file = home / ".gemini/config/config.json"
     assert not registry_file.exists()
+    assert not (home / ".gemini/config/plugins/agents-core/rules/AGENTS.md").exists()
     # Now apply antigravity change
     migration.apply([antigravity_change])
     assert plugin_file.exists()
     assert json.loads(registry_file.read_text())["plugins"]["agents-core"]["enabled"] is True
+    assert (home / ".gemini/config/plugins/agents-core/rules/AGENTS.md").exists()
 
 
 def test_staged_changes_preserved_on_failed_apply(migration, tmp_path):

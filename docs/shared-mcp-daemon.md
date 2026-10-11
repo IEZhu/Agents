@@ -77,8 +77,16 @@ also provisions an Antigravity plugin (`~/.gemini/config/plugins/agents-core`) w
 `PreToolUse` lifecycle hook (`bridge/antigravity_hook.mjs`) and registers it as
 `plugins.agents-core.enabled: true` in `~/.gemini/config/config.json`. Other
 plugins, user settings and custom fields are preserved. The registry is backed
-up and restored with the manifest and hooks; invalid JSON or non-object registry
-entries stop migration without replacing the user's configuration.
+up and restored with the manifest, hooks and `rules/AGENTS.md`. The rules file
+contains the canonical managed persona protocol and is loaded by Antigravity
+before the first response. It requires initial activation before answering,
+completion of `ROUTE_REQUIRED` with `get_agent_context`, the exact bundle footer,
+and `log_interaction` before final output; `keep` requires a retained bundle.
+User text outside the managed rules section is preserved. Invalid routing
+markers, JSON or non-object registry entries stop migration before writes.
+Rerun `migrate --clients antigravity`, restart Antigravity and start a new chat
+to pick up the startup rules. A fresh ordinary query without protocol reminders
+is the behavioral check; installer tests establish which instructions are delivered.
 The hook signs the active
 workspace path (`workspacePaths[0]`) with an HMAC-SHA256 signature using the daemon bearer
 token (`workspace_signature`). The hook returns `decision: "ask"`, preserving

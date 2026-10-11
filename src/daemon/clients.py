@@ -17,6 +17,7 @@ from src import executables
 from .state import atomic_private, read_json, write_json, private_dir
 from .workspaces import WorkspaceRegistry
 from src.client_paths import DESKTOP_DENY_RULES, DESKTOP_SERVER, absolute_path, client_config_path, desktop_config_paths
+from scripts._helpers.inject_claude_md import render as render_routing_section
 
 
 SERVER = "Agents-Core"
@@ -158,7 +159,7 @@ class ClientMigration:
         return private
 
     def provision_antigravity_plugin(self, *, home=None, bridge_config=None, registry_document=None):
-        """Prepares the Antigravity plugin, workspace hook and enabled registration."""
+        """Prepares the plugin's startup protocol, workspace hook and enabled registration."""
         node = self.config.get("node")
         if not node or not Path(node).is_file():
             return []
@@ -225,9 +226,16 @@ class ClientMigration:
             ],
         }
         hooks_content = json.dumps(hooks, ensure_ascii=False, indent=2) + "\n"
+        rules_file = plugin_dir / "rules" / "AGENTS.md"
+        rules_original = self.read_config(rules_file, as_json=False)
+        template = installation / "scripts" / "templates" / "routing-protocol-core.md"
+        rules_content = render_routing_section(
+            rules_original.encode(), template.read_bytes(), rules_file,
+        ).decode()
         return [
             (plugin_json, plugin_content, False),
             (hooks_json, hooks_content, False),
+            (rules_file, rules_content, False),
             (registry_json, registry_content, False),
         ]
 
@@ -293,18 +301,30 @@ class ClientMigration:
             previous = servers.pop(SERVER, servers.get(DESKTOP_SERVER, {}))
             servers[DESKTOP_SERVER] = transport_entry(previous, self.bridge(identity, app))
         elif client == "antigravity":
+            manage_plugin = root is None and self.has_node()
+            if manage_plugin:
+                target = path.parent.resolve() / path.name
+                plugin_dir = home / ".gemini/config/plugins/agents-core"
+                for relative in ("plugin.json", "hooks.json", "rules/AGENTS.md"):
+                    plugin_path = plugin_dir / relative
+                    if target == plugin_path.parent.resolve() / plugin_path.name:
+                        raise ValueError(f"Antigravity MCP config cannot share plugin asset: {plugin_path}")
             document = self.read_config(path)
             servers = document.setdefault("mcpServers", {})
-            entry = self.bridge(identity, app, auto_workspace=root is None)
-            servers[SERVER] = transport_entry(servers.get(SERVER, {}), entry)
-            if root is None and self.has_node():
+            plugin_changes = []
+            if manage_plugin:
                 registry_path = home / ".gemini/config/config.json"
                 # Resolve directory aliases while retaining final-file symlink checks.
-                shared_registry = path.parent.resolve() / path.name == registry_path.parent.resolve() / registry_path.name
+                shared_registry = target == registry_path.parent.resolve() / registry_path.name
                 registry_document = document if shared_registry else None
+                bridge_config, _ = self._bridge_file(app=app, auto_workspace=True)
+                # Validate instructions and every plugin asset before writing bridge settings.
                 plugin_changes = self.provision_antigravity_plugin(
-                    home=home, bridge_config=entry["args"][1], registry_document=registry_document,
+                    home=home, bridge_config=bridge_config, registry_document=registry_document,
                 )
+            entry = self.bridge(identity, app, auto_workspace=root is None)
+            servers[SERVER] = transport_entry(servers.get(SERVER, {}), entry)
+            if plugin_changes:
                 self.staged_changes[str(path)] = []
                 for plugin_path, plugin_content, secret in plugin_changes:
                     if shared_registry and plugin_path == registry_path:

@@ -2,6 +2,7 @@
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tomllib
@@ -22,6 +23,9 @@ def setup(tmp_path, monkeypatch):
     for key in ("CLAUDE_CONFIG_DIR", "CODEX_HOME", "AGENTS_CURSOR_MCP_CONFIG", "AGENTS_CLAUDE_DESKTOP_CONFIG"):
         monkeypatch.delenv(key, raising=False)
     state = tmp_path / "state"
+    template = tmp_path / "scripts/templates/routing-protocol-core.md"
+    template.parent.mkdir(parents=True)
+    shutil.copyfile(Path(__file__).resolve().parents[1] / "scripts/templates/routing-protocol-core.md", template)
     # Any existing absolute file stands in for Node: the bridge entry only names it.
     write_json(state / "service.json", {"installation": str(tmp_path), "port": 8765, "node": sys.executable})
     atomic_private(state / "token", "test-profile-token")

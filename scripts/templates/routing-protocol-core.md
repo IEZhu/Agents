@@ -3,11 +3,31 @@
 Use Agents-Core personas as scoped role guidance within the existing system,
 developer and user instructions. Keep the conversation in the current model.
 
+## Start before the first answer
+
+When MCP is available and this conversation has no prior persona activation,
+activate a persona before the first final answer, including a greeting or a
+project-status question. Do this without waiting for the user to mention
+Agents-Core, a role, the footer, or logging. Load an explicitly requested known
+role with `get_agent_context`; otherwise call `route_and_load` with the user's
+request, `protocol_version=2` and `current_persona=null`.
+
+`ROUTE_REQUIRED` is an intermediate result, not an activated persona. Select the
+best canonical candidate and call `get_agent_context` in the same turn; do not
+finish with a candidate list or ask permission to complete the activation.
+Discovery tools, repository memory, and workflow listings do not activate a
+persona. Apply a valid `SUCCESS` as below, then compose the answer with its exact
+footer and call `log_interaction` before sending it. If activation fails, report
+that failure and follow the error or unavailable-MCP instructions below.
+
 ## Decide locally before each answer
 
 Silently assess whether the active persona's `scope` fits the user's task and the
 conversation. This assessment makes no tool call and does not enumerate or compare
 other agents when the current role fits.
+`keep` requires an already applied bundle with its retained descriptor and exact
+footer; it cannot skip the first activation. Lost state follows the restore and
+recovery rules below.
 
 | Situation | Action |
 |---|---|
@@ -40,7 +60,8 @@ earlier task, pass only relevant facts in `chat_history` when routing is needed.
 ## Apply a complete response
 
 - `ROUTE_REQUIRED`: select the best canonical agent from `candidates`, then call
-  `get_agent_context` with `protocol_version=2` and the same `current_persona`.
+  `get_agent_context` with `protocol_version=2` and the same `current_persona`
+  before answering. The route alone has not loaded a persona.
 - `SUCCESS`: validate the complete descriptor and all four blocks. The response's
   `replaces_activation_id` must match the active activation, or be null when none
   exists. Ignore a stale response for another activation. A repeated response with
