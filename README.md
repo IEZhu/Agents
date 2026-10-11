@@ -1094,10 +1094,24 @@ AGENTS_DEBUG=1 python src/server.py
 Standalone debug logs are written under the client project's `logs/`; HTTP
 debug logs are written under the daemon's private `debug/` directory. Files use
 `{YYYY-MM-DD}/{HH-MM-SS.fff}_{uuid}_{tool}_{direction}.json`. Logging is disabled
-unless `AGENTS_DEBUG=1` (or `true`). Standalone logs are never pruned and can
-contain query text; `logs/` is ignored only in this checkout, so exclude it in the
-client project or delete the files after diagnosis. The daemon keeps its debug
-files for at most seven days and 100 MiB.
+unless `AGENTS_DEBUG=1` (or `true`).
+
+`route_and_load`, `get_agent_context`, and `refresh_persona_context` record paired
+`req` and `res` snapshots. Their `data.call_id` identifies one invocation, including
+concurrent calls and early errors, independently of the protocol's request ID.
+The request stores all effective arguments, preserving supplied history and
+persona inputs. The response's `data.response` is the exact JSON string returned
+to the client, including all four instruction blocks, the descriptor, and footer
+on `SUCCESS`. These snapshots show what the server returned; they do not prove
+that the client applied the instructions.
+
+Persona snapshots run outside the asyncio event-loop thread, in request/response
+order. Diagnostic failures leave the protocol response unchanged.
+
+Debug files can contain complete prompts, instructions, and supplied chat
+history. Standalone logs are never pruned; `logs/` is ignored only in this
+checkout, so exclude it in the client project or delete the files after
+diagnosis. The daemon keeps its debug files for at most seven days and 100 MiB.
 
 ---
 
