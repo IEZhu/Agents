@@ -258,20 +258,29 @@ def test_invalid_client_config_is_preserved_and_not_reported_as_configured(profi
     config = paths[client]
     config.parent.mkdir(parents=True, exist_ok=True)
     config.write_bytes(original)
+    previous_backup = config.with_name(config.name + ".backup.0")
+    previous_backup.write_bytes(b"Existing backup\r\n")
 
     result = run({})
 
-    assert result.returncode == 0, result.stdout + result.stderr
     assert config.read_bytes() == original
-    backups = list(config.parent.glob(config.name + ".backup.*"))
+    assert previous_backup.read_bytes() == b"Existing backup\r\n"
+    backups = set(config.parent.glob(config.name + ".backup.*")) - {previous_backup}
     assert backups and all(backup.read_bytes() == original for backup in backups)
     assert "ERROR:" in result.stdout + result.stderr
-    label = {"cursor": "Cursor", "desktop": "Claude Desktop", "claude": "Claude Code",
-             "antigravity": "Antigravity"}[client]
     assert "Failed to update" in result.stdout
-    configured = next(line.removeprefix("CONFIGURED_ENVS=") for line in result.stdout.splitlines()
-                      if line.startswith("CONFIGURED_ENVS="))
-    assert label not in configured and label.replace(" ", "-") not in configured
+    if sys.platform == "win32":
+        assert result.returncode == 0, result.stdout + result.stderr
+        label = {"cursor": "Cursor", "desktop": "Claude Desktop", "claude": "Claude Code",
+                 "antigravity": "Antigravity"}[client]
+        configured = next(line.removeprefix("CONFIGURED_ENVS=") for line in result.stdout.splitlines()
+                          if line.startswith("CONFIGURED_ENVS="))
+        assert label not in configured and label.replace(" ", "-") not in configured
+    else:
+        assert result.returncode != 0, result.stdout + result.stderr
+        # This marker is printed only when the real setup block completes.
+        assert "CONFIGURED_ENVS=" not in result.stdout
+        assert not (home / ".claude/CLAUDE.md").exists()
 
 
 @pytest.mark.parametrize("override", [None, "custom antigravity/mcp.json", "profile!literal/mcp.json",
