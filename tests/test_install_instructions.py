@@ -33,7 +33,7 @@ def instruction_install(tmp_path, monkeypatch):
     for name in ("routing-protocol-core.md", "memory-routing.md",
                  "legacy/memory-routing-v1.md", "legacy/memory-routing-v2.md",
                  "legacy/memory-routing-v3.md", "legacy/memory-routing-v4.md",
-                 "legacy/memory-routing-v5.md", "legacy/memory-routing-v6.md", "legacy/memory-routing-v7.md", "legacy/memory-routing-v8.md"):
+                 "legacy/memory-routing-v5.md", "legacy/memory-routing-v6.md", "legacy/memory-routing-v7.md", "legacy/memory-routing-v8.md", "legacy/memory-routing-v9.md"):
         shutil.copyfile(ROOT / "scripts" / "templates" / name, templates / name)
 
     profile = tmp_path / "isolated profile"
@@ -254,7 +254,7 @@ def test_repeat_is_idempotent_and_migrations_back_up_previous_bytes(instruction_
 
 
 @pytest.mark.parametrize("legacy", ["memory-routing-v1.md", "memory-routing-v2.md", "memory-routing-v3.md", "memory-routing-v4.md",
-                                    "memory-routing-v5.md", "memory-routing-v6.md", "memory-routing-v7.md", "memory-routing-v8.md"])
+                                    "memory-routing-v5.md", "memory-routing-v6.md", "memory-routing-v7.md", "memory-routing-v8.md", "memory-routing-v9.md"])
 def test_existing_known_claude_memory_migrates_and_repeat_preserves_mtime(instruction_install, legacy):
     install = instruction_install
     client_files(install)
@@ -323,3 +323,57 @@ def test_actual_cli_runs_from_other_cwd_without_touching_connections_or_data(ins
         assert str(target) in result.stdout
     assert snapshot(protected) == before
     assert not (install.profile / ".claude" / "memory").exists()
+
+
+@pytest.mark.parametrize("arguments", [[], ["--clients", "antigravity"]])
+def test_existing_antigravity_rules_refresh_without_reconfiguring_plugin(instruction_install, arguments):
+    install = instruction_install
+    others = client_files(install)
+    for target in others.values():
+        target.write_bytes(b"Other client instructions\n")
+    old_others = snapshot(others.values())
+    config = install.profile / ".gemini/config"
+    plugin = config / "plugins/agents-core"
+    rules = plugin / "rules/AGENTS.md"
+    rules.parent.mkdir(parents=True)
+    original = b"User prefix\r\n" + BEGIN + b"\nold contract\n" + END + b"\r\nUser suffix\r\n"
+    rules.write_bytes(original)
+    assets = [config / "config.json", config / "mcp_config.json", plugin / "plugin.json", plugin / "hooks.json"]
+    for asset in assets:
+        asset.write_text('{"plugins":{"agents-core":{"enabled":false}},"keep":"unchanged"}')
+    protected = snapshot(assets)
+
+    assert install.module.main(arguments) == 0
+    assert_protocol(install, rules)
+    assert rules.read_bytes().startswith(b"User prefix\r\n")
+    assert rules.read_bytes().endswith(b"\r\nUser suffix\r\n")
+    assert snapshot(assets) == protected
+    assert [p.read_bytes() for p in rules.parent.glob("AGENTS.md.backup.*")] == [original]
+    current = snapshot([rules])
+    assert install.module.main(arguments) == 0
+    assert snapshot([rules]) == current
+    if arguments:
+        assert snapshot(others.values()) == old_others
+    else:
+        for target in others.values():
+            assert_protocol(install, target)
+
+
+def test_antigravity_missing_rules_do_not_provision_plugin(instruction_install):
+    install = instruction_install
+    assert install.module.main(["--clients", "antigravity"]) == 0
+    assert not list(install.profile.iterdir())
+
+
+def test_antigravity_malformed_rules_fail_without_blocking_other_clients(instruction_install):
+    install = instruction_install
+    others = client_files(install)
+    rules = install.profile / ".gemini/config/plugins/agents-core/rules/AGENTS.md"
+    rules.parent.mkdir(parents=True)
+    rules.write_bytes(b"User instructions\n" + BEGIN)
+    before = snapshot([rules])
+    assert install.module.main([]) == 1
+    assert snapshot([rules]) == before
+    assert not list(rules.parent.glob("AGENTS.md.backup.*"))
+    for target in others.values():
+        assert_protocol(install, target)
