@@ -615,8 +615,8 @@ normal save (or, for a deletion, a normal delete, which keeps the text in the fl
 | Empty remote | the first upload, after the owner confirms the preview |
 | Foreign content (no `.agents-library.json`) | refused |
 | Empty local library | the library is downloaded |
-| Local flows and no common history | merged by the policy above, after the owner confirms the preview |
-| Remote history rewritten, or reset to an earlier commit | as the previous row: every file from either side survives, after the owner confirms the preview |
+| Initial connection with local content or saved versions and a populated remote | the owner chooses Merge or Replace, reviews the selected comparison, and confirms its current preview |
+| Remote history rewritten or reset during an already-started connection | merge recovery preserves files from either side after the owner confirms the preview; connection modes apply only before sync starts |
 
 - The remote must be empty or hold `.agents-library.json`; a newer `format` stops with
   `format_newer`.
