@@ -41,9 +41,10 @@ async def test_a_session_reads_back_the_turns_it_kept(monkeypatch, fallback_jour
     # Text search stands in for the semantic index, within the same claim.
     found = await read(monkeypatch, "/work/one", query="SECOND")
     assert [entry["intent"] for entry in found["entries"]] == ["second question"]
-    # An entry read whole by its id.
-    whole = await read(monkeypatch, "/work/two", entry_id=found["entries"][0]["id"])
+    # An entry read whole by its id, within its own claim only.
+    whole = await read(monkeypatch, "/work/one", entry_id=found["entries"][0]["id"])
     assert whole["mode"] == "entry" and whole["entries"][0]["intent"] == "second question"
+    assert (await read(monkeypatch, "/work/two", entry_id=found["entries"][0]["id"]))["entries"] == []
     assert (fallback_journal / "history.md").is_file()
 
 
@@ -143,3 +144,31 @@ async def test_a_call_that_names_its_workspace_claims_it(monkeypatch):
     assert context.claimed == "/named/by/call"
     with pytest.raises(WorkspaceError):
         context.require_root()
+
+
+@pytest.mark.asyncio
+async def test_the_same_turn_in_two_directories_is_kept_for_each(monkeypatch):
+    monkeypatch.setattr(server, "is_langfuse_configured", lambda: False)
+    await log(monkeypatch, "/work/one", "same question", "same answer")
+    await log(monkeypatch, "/work/two", "same question", "same answer")
+    await log(monkeypatch, "/work/two", "same question", "same answer")  # a retry: still one
+    assert server.drain_pending_logs(5)
+    for claimed in ("/work/one", "/work/two"):
+        assert [entry["intent"] for entry in (await read(monkeypatch, claimed))["entries"]] == ["same question"]
+
+
+@pytest.mark.asyncio
+async def test_older_entries_of_a_claim_are_found_behind_newer_ones_of_others(monkeypatch):
+    import datetime
+    import types
+    from src.memory import history
+    moments = iter(datetime.datetime(2026, 10, 5, 9, 0, second, tzinfo=datetime.timezone.utc) for second in range(60))
+    monkeypatch.setattr(history, "_dt", types.SimpleNamespace(
+        datetime=types.SimpleNamespace(now=lambda tz=None: next(moments)), timezone=datetime.timezone))
+    monkeypatch.setattr(server, "is_langfuse_configured", lambda: False)
+    monkeypatch.setattr(server, "FALLBACK_READ_LIMIT", 2)
+    await log(monkeypatch, "/work/one", "old question")
+    for number in range(5):
+        await log(monkeypatch, "/work/two", f"newer {number}")
+    assert server.drain_pending_logs(5)
+    assert [entry["intent"] for entry in (await read(monkeypatch, "/work/one"))["entries"]] == ["old question"]

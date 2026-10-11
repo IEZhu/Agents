@@ -1326,6 +1326,9 @@ async def log_interaction(
             eff_intent = (intent or query or "").strip()
             eff_action = (action or f"Agent: {agent_name}").strip()
             dedupe_action = eff_action
+            if unresolved is not None and unresolved.claimed:
+                # One fallback journal holds every claim: the same turn in two directories is two entries.
+                dedupe_action += "\n" + unresolved.claimed
             if line := persona_history_line(logged, persona_action):
                 eff_action += "\n" + line
             eff_outcome = (outcome or response_content or "").strip()
@@ -1603,11 +1606,21 @@ async def read_history(
 
         if unresolved is not None and not entry_id:
             def unresolved_recent():
-                # A claim keeps its own entries; text search stands in for the semantic index.
+                # A claim keeps its own entries; text search stands in for the semantic index. The
+                # scan widens until the page is full or the journal ends, so newer entries of other
+                # claims never hide older ones of this claim.
                 needle = query.lower() if query else None
-                entries = [entry.to_dict() for entry in reader.read_recent(limit=FALLBACK_READ_LIMIT, since=since)
-                           if fallback.matches(entry.metadata, unresolved.claimed)
-                           and (needle is None or needle in f"{entry.intent}\n{entry.action}\n{entry.outcome}".lower())]
+
+                def wanted(entry):
+                    return fallback.matches(entry.metadata, unresolved.claimed) and (
+                        needle is None or needle in f"{entry.intent}\n{entry.action}\n{entry.outcome}".lower())
+                scan = FALLBACK_READ_LIMIT
+                while True:
+                    batch = reader.read_recent(limit=scan, since=since, machine=machine)
+                    entries = [entry.to_dict() for entry in batch if wanted(entry)]
+                    if len(entries) >= offset + limit or len(batch) < scan:
+                        break
+                    scan *= 4
                 return listing("recency", entries[offset:offset + limit], workspace_report, offset)
             payload = await loop.run_in_executor(None, unresolved_recent)
             payload["instruction"] = " ".join(filter(None, (payload.get("instruction"),
@@ -1619,6 +1632,8 @@ async def read_history(
                 debug_log("read_history", "error", payload)
                 return to_json(payload)
             entry = await loop.run_in_executor(None, reader.find, entry_id)
+            if entry and unresolved is not None and not fallback.matches(entry.metadata, unresolved.claimed):
+                entry = None  # another claimed directory's turn
             entries = [entry.to_dict()] if entry else []
             payload = {"mode": "entry", "total": len(entries), "entries": entries, **workspace_report}
         elif query:
