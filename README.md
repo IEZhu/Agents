@@ -1028,7 +1028,7 @@ the daemon does not infer a project from its working directory. The user-scope
 entries of Claude Code and Codex are a bridge per session that registers the
 session's project and sends that header itself ([details](docs/shared-mcp-daemon.md#installation-and-client-migration)).
 When no project resolves, `log_interaction` keeps the turn in the installation's
-fallback journal (`unresolved/history.md` in the service's private state) with the
+fallback journal (`unresolved/history.md` next to user sync's private state) with the
 directory the client named as unverified metadata, and `read_history` reads the
 entries kept for that directory; nothing is written to the named directory
 ([details](docs/shared-mcp-daemon.md#memory-and-errors)). `describe_repo`,

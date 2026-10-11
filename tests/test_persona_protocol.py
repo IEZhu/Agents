@@ -338,9 +338,10 @@ async def test_workspace_outside_the_roots_writes_nothing(system32_cwd, tmp_path
         (project / ".git").mkdir(parents=True)
     [response] = await _log_over_mcp(outside, roots=[inside])
     # #292: kept in the fallback journal, the directory the call named only recorded.
-    assert response["workspace"] == {"root": None, "source": "fallback", "claimed": str(outside),
-                                     "reason": "workspace_invalid", "journal": response["workspace"]["journal"]}
-    assert "do not retry logging" in response["instruction"]
+    assert {key: response["workspace"][key] for key in ("root", "source", "claimed", "reason")} == {
+        "root": None, "source": "fallback", "claimed": str(outside), "reason": "workspace_invalid"}
+    assert "outside" in response["workspace"]["detail"]  # why, as the roots check said it
+    assert "do not retry" in response["instruction"]
     assert server.drain_pending_logs(5)
     assert not (outside / "history.md").exists()
 

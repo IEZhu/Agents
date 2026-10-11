@@ -150,17 +150,24 @@ async function workspaceFor(message) {
 // History tools keep a turn whose workspace did not resolve: the daemon writes it to its fallback
 // journal, with the directory named here as unverified metadata, and never into that directory (#292).
 const HISTORY_TOOLS = new Set(['log_interaction', 'read_history']);
+const MAX_CLAIM = 4096; // the daemon leaves a longer claim out
 function claimedWorkspace(message) {
   const args = message.params?.arguments;
   const named = typeof args?.workspace === 'string' && args.workspace.trim();
-  return named || override || process.env.CLAUDE_PROJECT_DIR || process.cwd();
+  const claim = named || override || process.env.CLAUDE_PROJECT_DIR || process.cwd();
+  if (claim.length > MAX_CLAIM) return undefined;
+  try {
+    return encodeURIComponent(claim); // a header is ASCII
+  } catch {
+    return undefined; // a lone surrogate
+  }
 }
 async function forward(message) {
   const hasId = Object.hasOwn(message, 'id');
   if (message.method === 'initialize') clientRoots = Boolean(message.params?.capabilities?.roots);
   if (message.method === 'notifications/roots/list_changed') named.clear();
   const tool = message.method === 'tools/call' ? message.params?.name : undefined;
-  let workspace;
+  let workspace, refused;
   try {
     workspace = await workspaceFor(message);
   } catch (error) {
@@ -168,9 +175,11 @@ async function forward(message) {
       if (hasId) await send({ jsonrpc: '2.0', id: message.id, error: { code: -32602, message: `Agents-Core refused the workspace: ${error.message}` } });
       return;
     }
+    refused = /^workspace_(required|invalid|unsafe)\b/.exec(error.message)?.[0];
     process.stderr.write(`Agents-Core bridge: workspace refused (${error.message}); the turn goes to the fallback journal.\n`);
   }
-  const claim = tool && !workspace && !config.headers?.['X-Agents-Workspace'] ? claimedWorkspace(message) : undefined;
+  const claim = HISTORY_TOOLS.has(tool) && !workspace && !config.headers?.['X-Agents-Workspace']
+    ? claimedWorkspace(message) : undefined;
   try {
     if (message.method === 'initialize') {
       // The upstream stateless transport cannot make server-to-client requests.
@@ -180,7 +189,8 @@ async function forward(message) {
     const response = await fetch(endpoint, {
       method: 'POST', redirect: 'error', signal: AbortSignal.timeout(120_000),
       headers: { ...config.headers, ...(workspace && { 'X-Agents-Workspace': workspace }),
-        ...(claim && { 'X-Agents-Claimed-Workspace': encodeURIComponent(claim) }), 'Content-Type': 'application/json',
+        ...(claim && { 'X-Agents-Claimed-Workspace': claim }), ...(refused && { 'X-Agents-Workspace-Refused': refused }),
+        'Content-Type': 'application/json',
         Accept: 'application/json, text/event-stream', 'MCP-Protocol-Version': protocolVersion },
       body: JSON.stringify(message),
     });

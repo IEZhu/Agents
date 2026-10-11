@@ -6,10 +6,13 @@ installation's private state, with the directory the client named as unverified 
 Nothing is ever written to that directory: only a registered workspace receives memory.
 """
 from dataclasses import dataclass
+import os
 from pathlib import Path
 
 # Tests point this elsewhere so that they never write the installation's journal.
 ROOT_OVERRIDE: Path | None = None
+# A longer claim is no directory a client starts in; it is left out rather than cut.
+MAX_CLAIM = 4096
 
 REMEDY = ("To keep history in the project, start the session inside it (a directory with .git or "
           "CLAUDE.md) or register it once with `python -m src.daemon migrate --workspace "
@@ -22,6 +25,7 @@ class Unresolved:
     root: Path            # the fallback journal's directory
     reason: str           # the workspace error's code, such as workspace_required
     claimed: str | None   # unverified; metadata only
+    detail: str = ""      # the whole error message: why the project did not resolve
 
     @property
     def history_path(self) -> Path:
@@ -29,7 +33,7 @@ class Unresolved:
 
     def report(self) -> dict:
         return {"root": None, "source": "fallback", "claimed": self.claimed, "reason": self.reason,
-                "journal": str(self.history_path)}
+                "detail": self.detail, "journal": str(self.history_path)}
 
     def metadata(self) -> dict:
         metadata = {"unresolved": self.reason}
@@ -39,21 +43,44 @@ class Unresolved:
 
 
 def journal_root() -> Path:
-    """The fallback journal's directory, created private on first use."""
+    """The fallback journal's directory, created private on first use.
+
+    Next to user sync's state, which the daemon and stdio servers find the same way: the
+    daemon's state directory, also one installed with `--state`, or XDG state on Linux.
+    """
     if ROOT_OVERRIDE is not None:
         Path(ROOT_OVERRIDE).mkdir(parents=True, exist_ok=True)
         return Path(ROOT_OVERRIDE)
-    from src.daemon.state import private_dir, state_dir
-    return private_dir(state_dir() / "unresolved")
+    from src.daemon.state import private_dir
+    from src.user_sync.engine import default_state_dir
+    return private_dir(default_state_dir().parent / "unresolved")
+
+
+def clean_claim(value) -> str | None:
+    """A claimed directory as it is stored and matched, or None.
+
+    Only a normalized absolute path of printable characters: a line separator in metadata would
+    let a crafted claim forge fields of the entry it is stored with.
+    """
+    if not isinstance(value, str):
+        return None
+    value = value.strip()
+    if not value or len(value) > MAX_CLAIM or not value.isprintable() or not os.path.isabs(value):
+        return None
+    return os.path.normpath(value)
 
 
 def unresolved(error, claimed=None) -> Unresolved:
-    """The fallback for a workspace error; OSError when the journal's directory cannot be made."""
-    code = str(error).split(":", 1)[0].strip() or "workspace_required"
-    claimed = claimed.strip() if isinstance(claimed, str) and claimed.strip() else None
-    return Unresolved(journal_root(), code, claimed)
+    """The fallback for a workspace error.
+
+    Raises OSError, or ValueError for a symbolic link, when the journal's directory cannot be made.
+    """
+    detail = str(error)
+    code = detail.split(":", 1)[0].strip() or "workspace_required"
+    return Unresolved(journal_root(), code, clean_claim(claimed), detail)
 
 
 def matches(entry_metadata, claimed) -> bool:
-    """Whether a fallback entry belongs to the same claimed directory; every entry without a claim."""
+    """Whether a fallback entry belongs to the same claimed directory. Without a claim, every
+    entry: the session named no directory, and all entries are this user's own."""
     return not claimed or (entry_metadata or {}).get("claimed_workspace") == claimed

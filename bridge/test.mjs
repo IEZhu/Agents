@@ -65,7 +65,7 @@ async function fakeDaemon(answer, onCall = undefined) {
       return;
     }
     const call = { message, workspace: request.headers['x-agents-workspace'],
-      claimed: request.headers['x-agents-claimed-workspace'] };
+      claimed: request.headers['x-agents-claimed-workspace'], refused: request.headers['x-agents-workspace-refused'] };
     calls.push(call);
     await onCall?.(call);
     if (!Object.hasOwn(message, 'id')) { response.writeHead(202); response.end(); return; }
@@ -116,7 +116,8 @@ async function session(daemon, settings, messages, env = {}, cwd = undefined, ca
     assert.equal(code, 0);
     const header = id => daemon.calls.find(call => call.message.id === id)?.workspace;
     const claimed = id => daemon.calls.find(call => call.message.id === id)?.claimed;
-    return { responses, rootsAsked, header, claimed };
+    const refused = id => daemon.calls.find(call => call.message.id === id)?.refused;
+    return { responses, rootsAsked, header, claimed, refused };
   } finally {
     await new Promise(resolve => daemon.server.close(resolve));
     await rm(dir, { recursive: true, force: true });
@@ -171,15 +172,25 @@ test('history calls without a workspace reach the daemon with the directory they
   const daemon = await fakeDaemon(message => message.path === '/outside'
     ? [400, { error: 'workspace_invalid', message: 'outside the roots' }]
     : [200, { workspace_id: 'named-id', root: message.path }]);
-  const { responses, header, claimed } = await session(daemon, {},
-    [call('outside', '/outside'), call('plain'), { id: 'list', method: 'tools/list' }, call('named', '/named')],
+  const read = { id: 'read', method: 'tools/call', params: { name: 'read_history', arguments: {} } };
+  const long = call('long', '/' + 'a'.repeat(5000));
+  const { responses, header, claimed, refused } = await session(daemon, {},
+    [call('outside', '/outside'), call('plain'), read, describe('describe'), long,
+     { id: 'list', method: 'tools/list' }, call('named', '/named')],
     { CLAUDE_PROJECT_DIR: '/projects/ünicode dir' });
   assert.ok(!responses.get('outside').error);
   assert.equal(header('outside'), undefined);
   assert.equal(decodeURIComponent(claimed('outside')), '/outside');
+  assert.equal(refused('outside'), 'workspace_invalid'); // why, for the turn's metadata
   // Without a workspace argument, the session's directory; percent-encoded, as a header must be ASCII.
   assert.equal(claimed('plain'), encodeURIComponent('/projects/ünicode dir'));
-  assert.equal(claimed('list'), undefined); // only tool calls carry a claim
+  assert.equal(refused('plain'), undefined);
+  assert.equal(claimed('read'), encodeURIComponent('/projects/ünicode dir'));
+  // Only history calls carry a claim; one too long for any directory is left out, the call goes on.
+  assert.equal(claimed('describe'), undefined);
+  assert.equal(claimed('long'), undefined);
+  assert.ok(!responses.get('long').error);
+  assert.equal(claimed('list'), undefined);
   assert.equal(header('named'), 'named-id');
   assert.equal(claimed('named'), undefined); // a resolved workspace claims nothing
 });

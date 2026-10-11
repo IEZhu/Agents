@@ -1115,9 +1115,12 @@ def _workspace_report(client, root: Path) -> dict:
 FALLBACK_READ_LIMIT = 2000
 
 
-def _fallback_report(unresolved: "fallback.Unresolved") -> dict:
-    """Where a turn without a project went (#292): the fallback journal, and what the client named."""
+def _fallback_report(unresolved: "fallback.Unresolved", inputs: dict | None = None) -> dict:
+    """Where a turn without a project went (#292): the fallback journal, what the client named and,
+    over stdio, what the project was looked up from (#231)."""
     report = {"workspace": unresolved.report(), "pid": os.getpid()}
+    details = _workspace_error_details(inputs)
+    report.update({key: details[key] for key in ("workspace_inputs", "hint") if key in details})
     with _history_errors_lock:
         failure = _history_errors.get(str(unresolved.root))
     if failure:
@@ -1125,11 +1128,14 @@ def _fallback_report(unresolved: "fallback.Unresolved") -> dict:
     return report
 
 
-def _fallback_instruction(unresolved: "fallback.Unresolved") -> str:
-    named = f" for {unresolved.claimed}" if unresolved.claimed else ""
-    return (f"No project resolved{named} ({unresolved.reason}), so the turn went to the fallback journal of "
-            "the Agents-Core installation, not to the project's history.md. Mention this once in the "
-            "conversation and do not retry logging. " + fallback.REMEDY)
+def _fallback_instruction(unresolved: "fallback.Unresolved", *, reading: bool = False) -> str:
+    named = f" for {json.dumps(unresolved.claimed, ensure_ascii=False)}" if unresolved.claimed else ""
+    what = ("these are entries of the Agents-Core installation's fallback journal, not of a project's "
+            "history.md" if reading else
+            "the turn went to the fallback journal of the Agents-Core installation, not to the project's "
+            "history.md")
+    return (f"No project resolved{named} ({unresolved.reason}), so {what}. Mention this once in the "
+            "conversation and do not retry. " + fallback.REMEDY)
 
 
 def install_history_sync() -> None:
@@ -1212,7 +1218,8 @@ async def log_interaction(
     ``claimed`` the directory the client named (recorded, never written), and the
     ``instruction`` says to mention it once. The only request-level rejection left
     is a stdio client with MCP roots that named no workspace, asked to retry once
-    with it, or a fallback journal that cannot be written: a protocol ERROR without
+    with it, or a fallback journal directory that cannot be created (a later write
+    failure shows as ``history_last_error``): a protocol ERROR without
     ``timestamp``, over stdio with ``pid`` and ``workspace_inputs`` (``cwd``,
     ``claude_project_dir``, ``agents_client_repo_root``, ``client``, ``roots``).
     """
@@ -1249,7 +1256,7 @@ async def log_interaction(
         if not retry:
             try:
                 unresolved = fallback.unresolved(error, getattr(client, "claimed", None) or workspace)
-            except OSError:
+            except (OSError, ValueError):  # ValueError: a symbolic link where its directory belongs
                 logger.warning("The fallback journal is unavailable", exc_info=True)
         if unresolved is None:
             if retry:
@@ -1341,7 +1348,8 @@ async def log_interaction(
 
     # Snapshot before the workers run: a failure of this very write must show
     # up on the next call, not nondeterministically on this one.
-    workspace_report = _workspace_report(client, root) if unresolved is None else _fallback_report(unresolved)
+    workspace_report = (_workspace_report(client, root) if unresolved is None
+                        else _fallback_report(unresolved, workspace_inputs(ctx)))
 
     # Both sinks are independent; the response does not wait for either.
     # While startup runs, importing Langfuse would compete with it: skip the trace.
@@ -1572,13 +1580,17 @@ async def read_history(
             root = client.require_root()
             workspace_report = _workspace_report(client, root)
         except WorkspaceError as error:
-            # Without a project, the turns this session kept in the fallback journal (#292).
+            # Without a project, the turns this session kept in the fallback journal (#292); a stdio
+            # client with MCP roots resolves its project by naming it, which the error tells it.
+            inputs = workspace_inputs(ctx)
+            if inputs and inputs["roots"] and not inputs["agents_client_repo_root"] and not workspace:
+                raise
             try:
                 unresolved = fallback.unresolved(error, getattr(client, "claimed", None) or workspace)
-            except OSError:
+            except (OSError, ValueError):
                 raise error from None
             root = unresolved.root
-            workspace_report = _fallback_report(unresolved)
+            workspace_report = _fallback_report(unresolved, inputs)
         limit = max(1, min(limit, 500))
         offset = max(0, offset)
         query = (query or "").strip() or None
@@ -1598,7 +1610,8 @@ async def read_history(
                            and (needle is None or needle in f"{entry.intent}\n{entry.action}\n{entry.outcome}".lower())]
                 return listing("recency", entries[offset:offset + limit], workspace_report, offset)
             payload = await loop.run_in_executor(None, unresolved_recent)
-            payload["instruction"] = " ".join(filter(None, (payload.get("instruction"), _fallback_instruction(unresolved))))
+            payload["instruction"] = " ".join(filter(None, (payload.get("instruction"),
+                                                             _fallback_instruction(unresolved, reading=True))))
         elif entry_id:
             if not ENTRY_ID.fullmatch(entry_id):
                 payload = {"status": "error", "error": "entry_id is an entry's id: 12 hexadecimal characters",

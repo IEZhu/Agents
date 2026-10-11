@@ -161,7 +161,8 @@ async def test_a_turn_without_a_project_goes_to_the_fallback_journal(writer, mon
     response = await call(persona=FULL)
     assert response["timestamp"] and response["history"] == {"status": "queued"}
     assert response["workspace"] == {"root": None, "source": "fallback", "claimed": "/work/unregistered",
-                                     "reason": "workspace_required", "journal": str(fallback_journal / "history.md")}
+                                     "reason": "workspace_required", "detail": "workspace_required: no workspace",
+                                     "journal": str(fallback_journal / "history.md")}
     assert "fallback journal" in response["instruction"] and "Mention this once" in response["instruction"]
     assert server.drain_pending_logs(5)
     assert writer.call_args.args == (str(fallback_journal / "history.md"), str(fallback_journal / "history"))
@@ -175,7 +176,7 @@ async def test_without_the_fallback_journal_a_workspace_error_still_writes_nothi
     def unavailable(*args, **kwargs):
         raise PermissionError("read-only state")
     monkeypatch.setattr(server, "resolve_client_context", AsyncMock(return_value=Refusing()))
-    monkeypatch.setattr(server.fallback, "unresolved", unavailable)
+    monkeypatch.setattr(server.fallback, "journal_root", unavailable)
     response = await call(persona=FULL)
     assert response["status"] == "ERROR" and "timestamp" not in response
     assert response["instruction"].startswith("Nothing was logged.")
@@ -265,3 +266,14 @@ async def test_generated_request_id_is_in_the_request_diagnostic(writer, monkeyp
     response = await call()
     req = next(d for k, d in seen if k == "req")
     assert req["request_id"] == response["request_id"]
+
+
+@pytest.mark.asyncio
+async def test_a_symlinked_fallback_directory_is_an_error_not_a_crash(writer, monkeypatch):
+    def linked():
+        raise ValueError("Service directory must not be a symlink")
+    monkeypatch.setattr(server, "resolve_client_context", AsyncMock(return_value=Refusing()))
+    monkeypatch.setattr(server.fallback, "journal_root", linked)
+    response = await call(persona=FULL)
+    assert response["status"] == "ERROR" and response["instruction"].startswith("Nothing was logged.")
+    writer.assert_not_called()
