@@ -56,6 +56,7 @@ from src.engine.enrichment import (
 from src.engine.config import SESSION_CACHE_MAX_SIZE, SESSION_CACHE_TTL_SECONDS, get_client_repo_root
 from src.utils.prompt_loader import load_agent_prompt, get_agent_metadata
 from src.utils.debug_logger import debug_log
+from src.utils import debug_logger
 from src.memory.describer import RepoDescriber
 from src.memory.history import ENTRY_ID, HistoryReader, HistoryWriter
 from src.memory.history_results import listing, to_json
@@ -753,6 +754,31 @@ def _supports_sampling(ctx: Context | None) -> bool:
         return False
 
 
+async def _persona_debug_request(tool: str, **arguments) -> str:
+    """Correlate full persona diagnostics without changing protocol request ids."""
+    call_id = str(uuid.uuid4())
+    if not debug_logger.AGENTS_DEBUG:
+        return call_id
+    try:
+        if isinstance(arguments.get("current_persona"), PersonaDescriptor):
+            arguments["current_persona"] = arguments["current_persona"].model_dump()
+        await asyncio.to_thread(debug_log, tool, "req", {"call_id": call_id, **arguments})
+    except Exception:
+        logger.warning("persona debug request snapshot failed for %s", tool, exc_info=True)
+    return call_id
+
+
+async def _persona_debug_response(tool: str, call_id: str, response: str) -> str:
+    """Keep the exact JSON delivered to the client, including the full bundle."""
+    if not debug_logger.AGENTS_DEBUG:
+        return response
+    try:
+        await asyncio.to_thread(debug_log, tool, "res", {"call_id": call_id, "response": response})
+    except Exception:
+        logger.warning("persona debug response snapshot failed for %s", tool, exc_info=True)
+    return response
+
+
 @mcp.tool()
 @observe(name="route_and_load")
 async def route_and_load(
@@ -768,11 +794,19 @@ async def route_and_load(
     ROUTE_REQUIRED needs get_agent_context with the same version and descriptor.
     Explicit known roles can be loaded directly.
     """
+    call_id = await _persona_debug_request(
+        "route_and_load", query=query, chat_history=chat_history,
+        protocol_version=protocol_version, current_persona=current_persona,
+    )
     if protocol_version != PROTOCOL_VERSION:
-        return error_response(UNSUPPORTED_PROTOCOL)
-    if (problem := await _readiness_problem("route_and_load")) is not None:
-        return _persona_not_ready(problem)
-    return await route_persona(router, query, _normalize_chat_history(chat_history), current_persona, _is_meta_query)
+        response = error_response(UNSUPPORTED_PROTOCOL)
+    elif (problem := await _readiness_problem("route_and_load")) is not None:
+        response = _persona_not_ready(problem)
+    else:
+        response = await route_persona(
+            router, query, _normalize_chat_history(chat_history), current_persona, _is_meta_query,
+        )
+    return await _persona_debug_response("route_and_load", call_id, response)
 
 @mcp.tool()
 @observe(name="get_agent_context")
@@ -793,14 +827,21 @@ async def get_agent_context(
     SUCCESS contains separate blocks and a descriptor; apply only when its
     replaces_activation_id matches your current activation. Preserve the dialogue.
     """
-    if protocol_version != PROTOCOL_VERSION:
-        return error_response(UNSUPPORTED_PROTOCOL)
-    if (problem := await _readiness_problem("get_agent_context")) is not None:
-        return _persona_not_ready(problem)
-    return await load_persona(
-        router, agent_name, query, _normalize_chat_history(chat_history),
-        current_persona, force_reload=force_reload, reasoning=reasoning,
+    call_id = await _persona_debug_request(
+        "get_agent_context", agent_name=agent_name, query=query, reasoning=reasoning,
+        chat_history=chat_history, protocol_version=protocol_version,
+        current_persona=current_persona, force_reload=force_reload,
     )
+    if protocol_version != PROTOCOL_VERSION:
+        response = error_response(UNSUPPORTED_PROTOCOL)
+    elif (problem := await _readiness_problem("get_agent_context")) is not None:
+        response = _persona_not_ready(problem)
+    else:
+        response = await load_persona(
+            router, agent_name, query, _normalize_chat_history(chat_history),
+            current_persona, force_reload=force_reload, reasoning=reasoning,
+        )
+    return await _persona_debug_response("get_agent_context", call_id, response)
 
 @mcp.tool()
 async def refresh_persona_context(
@@ -814,18 +855,24 @@ async def refresh_persona_context(
     continuations. Identical content returns NO_CHANGE; changed content returns
     a complete SUCCESS bundle to replace the current activation atomically.
     """
+    call_id = await _persona_debug_request(
+        "refresh_persona_context", query=query, current_persona=current_persona,
+        chat_history=chat_history,
+    )
     try:
         if (problem := await _readiness_problem("refresh_persona_context")) is not None:
-            return _persona_not_ready(problem)
-        current = parse_persona(current_persona)
-        if current is None:
-            raise ValueError("current_persona is required for refresh")
-        return await load_persona(
-            router, current.agent, query, _normalize_chat_history(chat_history),
-            current, refresh=True,
-        )
+            response = _persona_not_ready(problem)
+        else:
+            current = parse_persona(current_persona)
+            if current is None:
+                raise ValueError("current_persona is required for refresh")
+            response = await load_persona(
+                router, current.agent, query, _normalize_chat_history(chat_history),
+                current, refresh=True,
+            )
     except Exception as error:
-        return error_response(error)
+        response = error_response(error)
+    return await _persona_debug_response("refresh_persona_context", call_id, response)
 
 
 @mcp.tool()

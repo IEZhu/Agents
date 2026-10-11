@@ -441,6 +441,12 @@ The service writes its output to `service.log` in the private state directory
 writes skip symlinked path components and create mode-0600 JSON files
 exclusively. Debug pruning leaves symlinked directories and JSON entries untouched.
 
+The three persona tools record complete requests and exact returned responses,
+paired by `data.call_id`; successful responses include all instruction blocks and
+the footer. See [Debug Logging](../README.md#debug-logging) for the snapshot fields
+and stored prompt/history content. The debug flag is read at process startup;
+restart the daemon after changing it in `.env`.
+
 Token rotation includes custom client paths recorded by successful migrations,
 using the same private backup journals as standard paths. Merely auditing a file
 does not make it a managed rotation target. Rotation also updates private bridge
