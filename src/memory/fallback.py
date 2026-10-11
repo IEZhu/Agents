@@ -151,8 +151,14 @@ def adopt(target: Path, *, claimed: str | None = None, entry_ids=(), root: Path 
     if not claimed and not entry_ids:
         raise ValueError("name the claimed directory or the entries to move")
     root = Path(root) if root is not None else journal_root()
+    if is_journal_root(target) or os.path.normcase(str(Path(target).resolve())) == os.path.normcase(str(root.resolve())):
+        raise ValueError("the fallback journal is no project: move its entries into a project's directory")
     wanted = set(entry_ids)
-    claimed = clean_claim(claimed) if claimed else None
+    if claimed:
+        named = clean_claim(claimed)
+        if named is None:
+            raise ValueError(f"{claimed!r} is no absolute directory: claims are stored as absolute paths")
+        claimed = named
     selected = [(month, entry) for month, entry in _entries(root)
                 if entry.id in wanted or (claimed and (entry.metadata or {}).get("claimed_workspace") == claimed)]
     result = {"target": str(target), "moved": [], "already": [], "changed": [],

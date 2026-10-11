@@ -304,3 +304,20 @@ async def test_the_fallback_journal_is_listed_and_its_entries_move_into_a_projec
                         ({**body, "to": "not-registered"}, "workspace_invalid")):
         response = await http.post("/ui/api/history/adopt", json=wrong, headers=UI)
         assert response.status_code == 400 and response.json()["error"].startswith(code), wrong
+
+
+
+@pytest.mark.asyncio
+async def test_a_journal_registered_by_mistake_is_listed_once_and_refused_as_a_target(daemon, tmp_path):
+    http, _ = daemon
+    await login(http)
+    journal = tmp_path / "service" / "unresolved"
+    entry = HistoryWriter(str(journal / "history.md")).append_entry("kept", "Agent: lawyer", "an answer")
+    mistaken = WorkspaceRegistry(tmp_path / "service").register(journal)
+
+    repos = (await http.get("/ui/api/history/repos", headers=UI)).json()["repos"]
+    assert [repo["workspace"] for repo in repos].count("unresolved") == 1
+    assert mistaken not in [repo["workspace"] for repo in repos]
+    response = await http.post("/ui/api/history/adopt", json={"to": mistaken, "entries": [entry["entry_id"]]}, headers=UI)
+    assert response.status_code == 400 and response.json()["error"].startswith("invalid_request")
+    assert entries_of(journal / "history.md") == ["kept"]

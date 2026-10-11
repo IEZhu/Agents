@@ -1184,7 +1184,12 @@ the entry leaves the fallback journal either way:
 .venv/bin/python -m src.daemon history adopt --to /absolute/project --entry <id>
 ```
 
-`adopt` registers the project as a workspace. The History tab offers the same move
+`adopt` registers the project as a workspace and refuses the fallback journal's own
+directory. Without `--state` the commands use the journal the servers write, found
+as they find it; with `--state`, that service's. With user library sync, the moved
+entries leave what this machine shared under `_unresolved` and follow the project's
+sharing like its new turns: in an approved project they are shared without another
+review. The History tab offers the same move
 (see [Overview and statistics](#overview-and-statistics)). With user library sync,
 the fallback journal is shared like a repository under the key `_unresolved`
 ([details](user-sync.md#repository-history)). `run_flow` also requires

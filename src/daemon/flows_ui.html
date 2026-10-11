@@ -2070,8 +2070,15 @@ async function adoptHistoryEntry(entry, position) {
       + "--entry " + entry.id + " to move it into a project.");
     return;
   }
-  const holds = (repo) => claimed === repo.root || claimed.startsWith(repo.root + "/");
-  const suggested = projects.findIndex(holds);
+  // The project whose root holds the named directory, the deepest one; Windows paths and case too.
+  const windows = /^[A-Za-z]:/.test(claimed);
+  const norm = (path) => { const plain = path.replace(/\\/g, "/").replace(/\/+$/, ""); return windows ? plain.toLowerCase() : plain; };
+  const named = norm(claimed);
+  const holds = (repo) => named === norm(repo.root) || named.startsWith(norm(repo.root) + "/");
+  let suggested = -1;
+  projects.forEach((repo, index) => {
+    if (holds(repo) && (suggested < 0 || norm(repo.root).length > norm(projects[suggested].root).length)) suggested = index;
+  });
   const list = projects.map((repo, index) => (index + 1) + ". " + repo.name + " (" + repo.root + ")").join("\n");
   const answer = prompt("Move the entry " + historyHeading(entry) + " into the history of which project?\n" + list,
     suggested >= 0 ? String(suggested + 1) : "");
@@ -2081,7 +2088,8 @@ async function adoptHistoryEntry(entry, position) {
     alert("There is no project " + answer + " in the list.");
     return;
   }
-  await api("/ui/api/history/adopt", { method: "POST", body: { to: chosen.workspace, entries: [entry.id] } });
+  const result = await api("/ui/api/history/adopt", { method: "POST", body: { to: chosen.workspace, entries: [entry.id] } });
+  if ((result.changed || []).length) alert("The entry changed meanwhile and stays here; try again in a moment.");
   const repos = await api("/ui/api/history/repos");
   if (state.tab !== "history" || historyState.data !== data) return;  // the reader moved on meanwhile
   historyState.repos = repos.repos;

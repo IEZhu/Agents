@@ -49,6 +49,7 @@ from .workspaces import WorkspaceError
 PREFIX = "/ui/api/history"
 CURRENT = "current"
 UNRESOLVED = "unresolved"  # the fallback journal's workspace id (#292); never a registry UUID
+UNRESOLVED_NAME = "Without a project"
 PORTION = 20
 MAX_PORTION = 200
 MAX_BODY = 8 * 1024
@@ -84,6 +85,17 @@ def _files(root: Path) -> list[str]:
     """``current`` when ``history.md`` exists, then the archives of a real month, newest first."""
     names = [name[:7] for name in reversed(_archive_names(str(root / "history"))) if _MONTH.fullmatch(name[:7])]
     return ([CURRENT] if (root / "history.md").is_file() else []) + names
+
+
+def _same(path: Path, other: Path) -> bool:
+    try:
+        return os.path.normcase(str(path.resolve())) == os.path.normcase(str(other.resolve()))
+    except OSError:
+        return False
+
+
+def _name(workspace: str, root: Path) -> str:
+    return UNRESOLVED_NAME if workspace == UNRESOLVED else root.name
 
 
 def _entry(entry) -> dict:
@@ -154,10 +166,11 @@ class HistoryUI:
             raise HistoryError("registry_unreadable", "the workspace registry cannot be read", 500) from None
         if not isinstance(records, dict):
             records = {}
+        journal = self._journal()
         workspaces = [(identity, Path(root)) for identity, root in records.items()
-                      if isinstance(identity, str) and isinstance(root, str)]
-        if self._journal().is_dir():
-            workspaces.append((UNRESOLVED, self._journal()))
+                      if isinstance(identity, str) and isinstance(root, str) and not _same(Path(root), journal)]
+        if journal.is_dir():
+            workspaces.append((UNRESOLVED, journal))
         return workspaces
 
     def _journal(self) -> Path:
@@ -179,7 +192,11 @@ class HistoryUI:
         if to == UNRESOLVED:
             raise HistoryError("invalid_request", "to must be a project's workspace")
         target = self._root(to)  # a registered workspace, or WorkspaceError
-        return {"status": "adopted", "to": to, **fallback.adopt(target, entry_ids=entries, root=self._root(UNRESOLVED))}
+        try:
+            moved = fallback.adopt(target, entry_ids=entries, root=self._root(UNRESOLVED))
+        except ValueError as error:  # the journal registered as a project, for one
+            raise HistoryError("invalid_request", str(error)) from None
+        return {"status": "adopted", "to": to, **moved}
 
     # --- the routes ------------------------------------------------------------------
 
@@ -209,7 +226,7 @@ class HistoryUI:
                               "newest": max((answer.time for answer in answers), default=None)})
             if not files:
                 continue
-            out.append({"workspace": identity, "name": "Without a project" if identity == UNRESOLVED else root.name,
+            out.append({"workspace": identity, "name": _name(identity, root),
                         "root": str(root), "available": True, "unresolved": identity == UNRESOLVED,
                         "files": files, "entries": sum(f["entries"] or 0 for f in files),
                         "bytes": sum(f["bytes"] or 0 for f in files),
@@ -260,7 +277,7 @@ class HistoryUI:
             # above the oldest one, whatever was appended since the first portion.
             start = 0 if first else max(0, total - min(_number(before, total, "before"), total))
             end = start + limit
-        result = {"workspace": workspace, "name": root.name, "root": str(root), "file": file, "files": files,
+        result = {"workspace": workspace, "name": _name(workspace, root), "root": str(root), "file": file, "files": files,
                   "total": len(entries), "bytes": _file_path(root, file).stat().st_size,
                   "entries": [_entry(item) for item in entries[(0 if entry else start):end]]}
         if first:
@@ -311,7 +328,7 @@ class HistoryUI:
                 for item in entries:
                     # As on the other tabs, the name counts too: "agents lawyer" finds lawyer's
                     # answers in the repository "agents".
-                    text = "\n".join((root.name, item.intent, item.action, item.outcome, " ".join(item.files),
+                    text = "\n".join((_name(identity, root), item.intent, item.action, item.outcome, " ".join(item.files),
                                       " ".join(item.tags))).lower()
                     if all(term in text for term in terms):
                         matches += 1

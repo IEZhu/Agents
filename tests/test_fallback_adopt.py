@@ -117,3 +117,62 @@ def test_the_history_commands(service, tmp_path, capsys):
 
     with pytest.raises(SystemExit):
         main(["--state", str(service), "history", "adopt", "--to", str(project)])
+
+
+
+def test_the_journal_is_no_project_to_move_into(tmp_path, fallback_journal):
+    """Moving into the journal itself would delete the entries it holds."""
+    kept(fallback_journal, "question", "/work/one")
+    with pytest.raises(ValueError, match="no project"):
+        fallback.adopt(fallback_journal, claimed="/work/one")
+    assert intents(fallback_journal) == ["question"]
+
+
+def test_a_claim_that_is_no_absolute_directory_is_an_error(tmp_path, fallback_journal):
+    project = tmp_path / "project"; project.mkdir()
+    with pytest.raises(ValueError, match="no absolute directory"):
+        fallback.adopt(project, claimed="relative/dir")
+
+
+def test_an_old_entry_moved_in_does_not_name_the_archive(tmp_path, fallback_journal, monkeypatch):
+    """An archive of month M must hold nothing later than M, whatever order entries arrive in."""
+    import datetime
+    import types
+    from src.memory import history
+    project = tmp_path / "project"; project.mkdir()
+    moments = iter([datetime.datetime(2026, 3, 1, tzinfo=datetime.timezone.utc)] +
+                   [datetime.datetime(2026, 10, day, tzinfo=datetime.timezone.utc) for day in range(1, 20)])
+    monkeypatch.setattr(history, "_dt", types.SimpleNamespace(
+        datetime=types.SimpleNamespace(now=lambda tz=None: next(moments)), timezone=datetime.timezone))
+    kept(fallback_journal, "from march", "/work/one")
+    writer = HistoryWriter(str(project / "history.md"), str(project / "history"), rotation_kb=1)
+    for day in range(3):
+        writer.append_entry(f"october {day} " + "x" * 400, "Agent: lawyer", "o" * 400)
+    [old] = HistoryReader(str(fallback_journal / "history.md")).journal_entries()
+    HistoryWriter(str(project / "history.md"), str(project / "history"), rotation_kb=1).append_existing(old)
+    archives = sorted(path.name for path in (project / "history").glob("*.md"))
+    assert archives and all(name.startswith("2026-10") for name in archives), archives
+
+
+def test_the_command_line_tells_sync_what_moved(service, tmp_path, monkeypatch, capsys):
+    """A move from the command line leaves what this machine shared, as one in a server does."""
+    from src.daemon.control import main
+    from src.user_sync import history as history_sync
+    heard = []
+
+    class Integration:
+        def appended(self, path, entry_id=None):
+            heard.append(("appended", Path(path).parent.name, entry_id))
+
+        def deleted(self, path, entry_id, timestamp):
+            heard.append(("deleted", Path(path).parent.name, entry_id))
+
+        def machines(self, path):
+            return None
+    monkeypatch.setattr(history_sync, "Integration", Integration)
+    entry_id = kept(service / "unresolved", "question", "/work/one")["entry_id"]
+    project = tmp_path / "project"; project.mkdir()
+
+    main(["--state", str(service), "history", "adopt", "--to", str(project), "--entry", entry_id])
+
+    assert ("appended", "project", entry_id) in heard and ("deleted", "unresolved", entry_id) in heard

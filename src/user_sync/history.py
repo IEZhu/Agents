@@ -243,15 +243,26 @@ def _top_level(root: str) -> bool:
         return False
 
 
-def _workspace(root) -> _Workspace:
+def _journal_roots(machine: "_Machine | None") -> set[str]:
+    """Where this machine's fallback journal lives: next to its sync state, or a test's override."""
+    if machine is None:
+        return set()
+    roots = {_root_key(Path(machine.state_dir).parent / "unresolved")}
+    if fallback.ROOT_OVERRIDE is not None:
+        roots.add(_root_key(fallback.ROOT_OVERRIDE))
+    return roots
+
+
+def _workspace(root, machine: "_Machine | None" = None) -> _Workspace:
     """A checkout's key, origin and whether it is the top level; remembered for a few seconds.
 
-    The fallback journal's directory (#292) is a repository of its own: ``FALLBACK_KEY`` with
-    ``FALLBACK_ORIGIN``, the same on every machine. It is told by its marker and never by git, so
-    a dotfiles repository around the state directory does not lend it its origin.
+    This machine's fallback journal (#292) is a repository of its own: ``FALLBACK_KEY`` with
+    ``FALLBACK_ORIGIN``, the same on every machine. Only its own path next to the sync state
+    counts, with the marker the journal writes, and never git: a dotfiles repository around the
+    state directory lends it no origin, and a marker planted elsewhere names nothing.
     """
     root = _root_key(root)
-    if fallback.is_journal_root(root):
+    if root in _journal_roots(machine) and fallback.is_journal_root(root):
         return _Workspace(root, True, FALLBACK_KEY, FALLBACK_ORIGIN)
     now = time.monotonic()
     with _WORKSPACES_GUARD:
@@ -959,7 +970,7 @@ def _reconcile(root, *, state_dir, library, full: bool, wait: float, fresh) -> d
         return {"status": "skipped", "reason": "not_set_up"}
     if not _LABEL.fullmatch(machine.label or ""):
         return {"status": "skipped", "reason": "label"}
-    workspace = _workspace(root)
+    workspace = _workspace(root, machine)
     if not workspace.top:
         return {"status": "skipped", "reason": "not_top_level"}
     if not _shared(workspace):
@@ -1187,7 +1198,7 @@ def machine_history(root, *, state_dir=None, library=None) -> journal.MachineHis
     machine = _machine(state_dir, library)
     if machine is None or not _LABEL.fullmatch(machine.label or ""):
         return None
-    workspace = _workspace(root)
+    workspace = _workspace(root, machine)
     if not _shared(workspace):
         return None
     repo = _Repository(machine, workspace.key, workspace.origin)
@@ -1219,7 +1230,7 @@ class Integration:
         machine = _machine(self.state_dir, self.library)
         if machine is None:
             return
-        workspace = _workspace(root)
+        workspace = _workspace(root, machine)
         if not _shared(workspace):
             return
 
@@ -1312,7 +1323,7 @@ def _plan(machine: _Machine, keys=(), paths=()) -> dict:
     covers too.
     """
     for path in paths:
-        workspace = _workspace(path)
+        workspace = _workspace(path, machine)
         if not workspace.top:
             raise SyncError("invalid", f"{path} is not the top level of a git checkout")
         if not _shared(workspace):
@@ -1325,7 +1336,7 @@ def _plan(machine: _Machine, keys=(), paths=()) -> dict:
         key = record.get("key")
         if not isinstance(key, str) or not os.path.isdir(root) or (keys and key not in keys):
             continue
-        workspace = _workspace(root)
+        workspace = _workspace(root, machine)
         if not _shared(workspace) or workspace.key != key:
             continue
         if workspace.root not in roots.get(key, []):

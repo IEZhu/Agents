@@ -431,7 +431,10 @@ machine; `repo_key` never makes a key without `-`, so it is no repository's. Its
 by a marker that holds its own path, never by git, so a dotfiles repository around the state
 directory does not lend it an origin. Approval, `history share all`, `history revoke _unresolved`,
 the scope exclusions and the secret scanner apply as to any repository; its entries carry the
-directory each session named (`claimed_workspace`).
+directory each session named (`claimed_workspace`). Only the journal next to this machine's sync
+state counts, so a marker planted in another directory names nothing. An entry moved into a
+project (`python -m src.daemon history adopt`) leaves `_unresolved` and follows that project's
+sharing like its new turns.
 
 Approval covers a repository's future entries on this machine and exactly the past entries the
 owner saw. The preview lists, for each repository with an `origin`, every entry that waits on this

@@ -1766,11 +1766,16 @@ def test_a_repository_around_the_state_lends_the_fallback_journal_no_origin(tmp_
     plain_git("init", "--quiet", str(a.machine.state.parent))
     plain_git("-C", str(a.machine.state.parent), "remote", "add", "origin", "git@github.com:me/dotfiles.git")
     journal_root = Unresolved(a).root
-    workspace = history_sync._workspace(journal_root)
+    machine = history_sync._machine(a.machine.state, a.machine.lib)
+    workspace = history_sync._workspace(journal_root, machine)
     assert (workspace.key, workspace.origin, workspace.top) == (
         history_sync.FALLBACK_KEY, history_sync.FALLBACK_ORIGIN, True)
-    # A copied marker names another directory: that one stays an ordinary folder.
-    copy = tmp_path / "copy"
-    copy.mkdir()
+    # A copied marker names another directory; a planted one that names its own directory is no
+    # journal either, outside this machine's state: both stay ordinary folders.
+    copy, planted = tmp_path / "copy", tmp_path / "planted"
+    for folder in (copy, planted):
+        folder.mkdir()
     (copy / ".agents-core-fallback").write_text((journal_root / ".agents-core-fallback").read_text())
-    assert history_sync._workspace(copy).key != history_sync.FALLBACK_KEY
+    (planted / ".agents-core-fallback").write_text(str(planted.resolve()))
+    for folder in (copy, planted):
+        assert history_sync._workspace(folder, machine).key != history_sync.FALLBACK_KEY

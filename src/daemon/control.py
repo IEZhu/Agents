@@ -533,7 +533,9 @@ def main(argv=None):
             result = registrations.set_auto(controller.directory, args.action == "enable")
     elif args.command == "history":
         from src.memory import fallback
-        journal = controller.directory / "unresolved"  # the service's, also with --state
+        # The journal the servers write: next to user sync's state, found as they find it, unless
+        # --state names another service.
+        journal = controller.directory / "unresolved" if args.state else fallback.journal_root()
         if args.history_command == "unresolved":
             result = {"journal": str(journal / "history.md"), "groups": fallback.unresolved_groups(journal)}
         else:
@@ -547,8 +549,19 @@ def main(argv=None):
                 parser.error(f"--to: {error}")
             if not args.dry_run:
                 WorkspaceRegistry(controller.directory).register(target)
-            result = fallback.adopt(target, claimed=args.claimed, entry_ids=args.entry, root=journal,
-                                    dry_run=args.dry_run)
+            # As in a server: user sync hears the appends and forgets the moved entries it shared.
+            from src.memory import history as journal_module
+            from src.user_sync import history as history_sync
+            previous = journal_module.set_sync(None if args.dry_run else history_sync.Integration())
+            try:
+                result = fallback.adopt(target, claimed=args.claimed, entry_ids=args.entry, root=journal,
+                                        dry_run=args.dry_run)
+            except ValueError as error:
+                parser.error(str(error))
+            finally:
+                if not args.dry_run:
+                    history_sync.drain(history_sync.CLI_WAIT_SECONDS)
+                journal_module.set_sync(previous)
     elif args.command in ("update", "recover"):
         from .update import offline_update, recover
         result = (recover if args.command == "recover" else offline_update)(controller)
