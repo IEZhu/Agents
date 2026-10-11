@@ -401,6 +401,11 @@ def main(argv=None):
     migrate.add_argument("--clients", default="codex,claude,cursor")
     migrate.add_argument("--client-config", action="append", default=[], metavar="CLIENT=PATH")
     restore = commands.add_parser("restore-clients"); restore.add_argument("backup", type=Path)
+    registrations = commands.add_parser(
+        "registrations", help="client registrations this installation wrote; the service brings them "
+                              "up to date at every start (#292)")
+    registrations.add_argument("action", choices=["status", "run", "enable", "disable"],
+                               help="run: now, also while turned off; disable: leave them as they are")
     token = commands.add_parser("token"); token.add_argument("action", choices=["rotate"])
     auto = commands.add_parser("auto-update", help="unattended updates from the tracked branch")
     auto.add_argument("action", choices=["enable", "disable", "status", "run"])
@@ -489,6 +494,17 @@ def main(argv=None):
             controller._stop()
             ClientMigration(controller.directory).restore(args.backup)
         result = {"state": "restored"}
+    elif args.command == "registrations":
+        from . import registrations
+        if args.action == "status":
+            result = registrations.state(controller.directory)
+        elif args.action == "run":
+            try:
+                result = registrations.run(controller.directory, force=True)
+            except BlockingIOError:
+                result = {"state": "not_run", "error": "another control command is running; try again"}
+        else:
+            result = registrations.set_auto(controller.directory, args.action == "enable")
     elif args.command in ("update", "recover"):
         from .update import offline_update, recover
         result = (recover if args.command == "recover" else offline_update)(controller)

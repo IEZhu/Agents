@@ -30,6 +30,10 @@ TRANSPORT_KEYS = {"type", "command", "args", "env", "env_vars", "cwd", "url", "h
                   "env_http_headers", "bearer_token", "bearer_token_env_var", "http_headers_helper"}
 
 
+class ConfigChanged(ValueError):
+    """A client changed its configuration between our read and our write; preparing again is safe."""
+
+
 def transport_entry(previous, replacement):
     return {**{key: value for key, value in previous.items() if key not in TRANSPORT_KEYS}, **replacement}
 
@@ -380,7 +384,7 @@ class ClientMigration:
             current = path.read_bytes() if path.exists() else None
             digest = hashlib.sha256(current).hexdigest() if current is not None else None
             if str(path) in self.expected_versions and digest != self.expected_versions[str(path)]:
-                raise ValueError("Client config changed after preparation; prepare the migration again")
+                raise ConfigChanged("Client config changed after preparation; prepare the migration again")
             record = {"path": str(path), "before": base64.b64encode(path.read_bytes()).decode() if path.exists() else None,
                       "after": base64.b64encode(content.encode()).decode()}
             if path == self.directory / "client-configs.json":
@@ -396,7 +400,7 @@ class ClientMigration:
                 path = Path(path)
                 current = base64.b64encode(path.read_bytes()).decode() if path.exists() else None
                 if current != record["before"]:
-                    raise ValueError("Client config changed during migration")
+                    raise ConfigChanged("Client config changed during migration")
                 # The journaled bytes exactly: a str would be written in text mode, CRLF and the ANSI
                 # code page on Windows, and neither restore nor the rollback below would match it.
                 atomic_private(path, content.encode())

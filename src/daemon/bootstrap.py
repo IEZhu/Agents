@@ -57,6 +57,17 @@ def stdio_bridge(directory):
                                             "configuration could not be written", exc_info=True)
 
 
+def keep_registrations_current(directory):
+    """Bring the client registrations this installation wrote up to date, in the background (#292).
+
+    At every start, so an installation from before a change of their form gets it without a
+    `migrate`; it waits while an update's probation holds control.lock.
+    """
+    import threading
+    from .registrations import keep_current
+    threading.Thread(target=keep_current, args=(directory,), name="registrations", daemon=True).start()
+
+
 def serve(directory=None, probation=None):
     directory = private_dir(directory or state_dir())
     config = read_json(directory / "service.json")
@@ -91,6 +102,7 @@ def serve(directory=None, probation=None):
         stdio_bridge(directory)
         # Tools by the absolute paths install resolved, other programs from system directories (#244).
         executables.configure(config)
+        keep_registrations_current(directory)  # after configure: it starts git by its absolute path
         # Immutable process configuration, set before application imports only.
         os.environ.update(AGENTS_SERVICE_DIR=str(directory), AGENTS_TRANSPORT="http",
                           AGENTS_ROUTER_DATA_DIR=str(directory / "router"),
