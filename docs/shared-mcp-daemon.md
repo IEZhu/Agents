@@ -74,7 +74,12 @@ directory ([openai/codex#9989](https://github.com/openai/codex/issues/9989)), so
 sessions get no workspace there instead of a wrong one. Antigravity starts MCP servers
 from `/` without project environment variables or MCP roots; for it, user-scope migration
 also provisions an Antigravity plugin (`~/.gemini/config/plugins/agents-core`) with a
-`PreToolUse` lifecycle hook (`bridge/antigravity_hook.mjs`) that signs the active
+`PreToolUse` lifecycle hook (`bridge/antigravity_hook.mjs`) and registers it as
+`plugins.agents-core.enabled: true` in `~/.gemini/config/config.json`. Other
+plugins, user settings and custom fields are preserved. The registry is backed
+up and restored with the manifest and hooks; invalid JSON or non-object registry
+entries stop migration without replacing the user's configuration.
+The hook signs the active
 workspace path (`workspacePaths[0]`) with an HMAC-SHA256 signature using the daemon bearer
 token (`workspace_signature`). The hook returns `decision: "ask"`, preserving
 Antigravity's approval policy, including the user's **Always Allow** choice.
