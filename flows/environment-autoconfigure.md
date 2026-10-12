@@ -105,14 +105,14 @@ and report RTK as not applicable unless a verified execution surface exists.
 
 OpenCode requires checking every installed CLI and Desktop runtime that shares the
 plugin directory before choosing an adapter. Do not infer Desktop's backend version
-from an external CLI or upgrade applications to simplify setup. Here Desktop 1.17.13
-and CLI 2.0.20 share one RTK file. The reviewed adapter exports one default object:
-`server` registers the V1 Bash hook and `setup` registers the V2 shell hook, using
-one rewrite helper. Verify each runtime's actual loader and hook protocol; retain
-the shared adapter and test both entrypoints before replacing it. Never add a
-second discovered RTK file or replace the shared adapter with V1-only/V2-only code.
-Desktop compatibility was checked with its installed loader and hook functions;
-full Desktop startup/model calls were not used. Report that validation limit.
+from an external CLI or upgrade applications to simplify setup. When a V1 and a V2
+runtime share one RTK file, it needs one adapter that serves both: its default
+export registers the V1 Bash hook in `server` and the V2 shell hook in `setup`,
+through one rewrite helper. Verify each runtime's actual loader and hook protocol;
+retain an existing shared adapter and test both entrypoints before replacing it.
+Never add a second discovered RTK file or replace a shared adapter with V1-only or
+V2-only code. If a runtime is checked only through its installed loader and hook
+functions, without a full startup or model call, report that validation limit.
 
 OpenCode requires a version gate. RTK 0.51's `init -g --opencode` emits V1 code;
 use it only with a verified compatible V1 client when no V2 runtime shares that file. V1 implementations do not run
@@ -122,7 +122,7 @@ shell/input schema and rewrite only supported shell commands. Preserve the actua
 config owner, existing RTK filename, other plugins, providers, models, MCP, and OAuth.
 Back up original bytes/permissions/hashes before replacing that file; avoid duplicate
 RTK discovery/config entries. Do not blindly run the V1 initializer or overwrite
-user changes. The local RTK V2 adapter is a reviewed port, not a new upstream package.
+user changes. A locally reviewed V2 adapter is a port, not an upstream package; report it as such.
 
 ## 3. Produce a concrete configuration plan
 
