@@ -392,3 +392,31 @@ def test_switch_waits_for_an_idle_service(scheduled, monkeypatch):
     result = autoupdate.run(controller)
     assert result["state"] == "deferred" and result["reason"] == "service is busy"
     assert controller.stops == 0
+
+
+def test_autodev_run_lease_defers_the_update_until_the_run_ends(scheduled):
+    from src.schedules import lease
+    controller, root, old, target = scheduled
+    with lease.hold(controller.directory):
+        result = autoupdate.run(controller)
+        assert result["state"] == "deferred" and result["reason"] == "service is busy: an autodev run holds its run lease"
+        assert git(root, "rev-parse", "HEAD") == old and controller.stops == 0
+    assert autoupdate.run(controller)["state"] == "UPDATED"
+    assert git(root, "rev-parse", "HEAD") == target
+
+
+def test_autodev_run_starting_during_the_build_defers_the_restart(scheduled, monkeypatch):
+    from contextlib import ExitStack
+    from src.daemon import update
+    from src.schedules import lease
+    controller, root, old, _ = scheduled
+    build, runs = update.prepare_reindex, ExitStack()
+
+    def build_while_a_run_starts(current, staging_dir):
+        runs.enter_context(lease.hold(controller.directory))
+        return build(current, staging_dir)
+    monkeypatch.setattr(update, "prepare_reindex", build_while_a_run_starts)
+    with runs:
+        result = autoupdate.run(controller)
+    assert result["state"] == "deferred" and "autodev run" in result["reason"]
+    assert git(root, "rev-parse", "HEAD") == old and controller.stops == 0

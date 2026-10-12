@@ -1,0 +1,1396 @@
+{
+ "_comment": "GitHub REST responses in the shape the API returns them (fields the gate reads, plus context), composed into gate snapshots by tests/test_schedules_gate.py.",
+ "repository": "IEZhu/Agents",
+ "now": "2026-10-12T10:00:00Z",
+ "max_bot_rounds": 3,
+ "objects": {
+  "issue_401_claimed": {
+   "url": "https://api.github.com/repos/IEZhu/Agents/issues/401",
+   "number": 401,
+   "title": "Issue 401",
+   "state": "open",
+   "user": {
+    "login": "WonderMr",
+    "id": 5370211,
+    "type": "User"
+   },
+   "labels": [
+    {
+     "id": 1,
+     "name": "autodev:ready",
+     "color": "ededed",
+     "default": false
+    },
+    {
+     "id": 2,
+     "name": "autodev:in-progress",
+     "color": "ededed",
+     "default": false
+    }
+   ],
+   "assignees": [],
+   "comments": 0,
+   "created_at": "2026-10-01T08:00:00Z",
+   "updated_at": "2026-10-12T08:00:00Z",
+   "performed_via_github_app": null,
+   "body": "Acceptance: ..."
+  },
+  "issue_402_claimed": {
+   "url": "https://api.github.com/repos/IEZhu/Agents/issues/402",
+   "number": 402,
+   "title": "Issue 402",
+   "state": "open",
+   "user": {
+    "login": "WonderMr",
+    "id": 5370211,
+    "type": "User"
+   },
+   "labels": [
+    {
+     "id": 2,
+     "name": "autodev:in-progress",
+     "color": "ededed",
+     "default": false
+    }
+   ],
+   "assignees": [],
+   "comments": 0,
+   "created_at": "2026-10-01T08:00:00Z",
+   "updated_at": "2026-10-12T08:00:00Z",
+   "performed_via_github_app": null,
+   "body": "Acceptance: ..."
+  },
+  "issue_403_claimed": {
+   "url": "https://api.github.com/repos/IEZhu/Agents/issues/403",
+   "number": 403,
+   "title": "Issue 403",
+   "state": "open",
+   "user": {
+    "login": "WonderMr",
+    "id": 5370211,
+    "type": "User"
+   },
+   "labels": [
+    {
+     "id": 2,
+     "name": "autodev:in-progress",
+     "color": "ededed",
+     "default": false
+    }
+   ],
+   "assignees": [],
+   "comments": 0,
+   "created_at": "2026-10-01T08:00:00Z",
+   "updated_at": "2026-10-12T08:00:00Z",
+   "performed_via_github_app": null,
+   "body": "Acceptance: ..."
+  },
+  "events_401_young": [
+   {
+    "id": 1,
+    "event": "labeled",
+    "actor": {
+     "login": "WonderMr",
+     "id": 5370211,
+     "type": "User"
+    },
+    "label": {
+     "name": "autodev:ready",
+     "color": "ededed"
+    },
+    "created_at": "2026-10-05T08:00:00Z",
+    "performed_via_github_app": null
+   },
+   {
+    "id": 2,
+    "event": "labeled",
+    "actor": {
+     "login": "WonderMr",
+     "id": 5370211,
+     "type": "User"
+    },
+    "label": {
+     "name": "autodev:in-progress",
+     "color": "ededed"
+    },
+    "created_at": "2026-10-12T08:00:00Z",
+    "performed_via_github_app": null
+   }
+  ],
+  "events_401_old": [
+   {
+    "id": 1,
+    "event": "labeled",
+    "actor": {
+     "login": "WonderMr",
+     "id": 5370211,
+     "type": "User"
+    },
+    "label": {
+     "name": "autodev:ready",
+     "color": "ededed"
+    },
+    "created_at": "2026-10-05T08:00:00Z",
+    "performed_via_github_app": null
+   },
+   {
+    "id": 2,
+    "event": "labeled",
+    "actor": {
+     "login": "WonderMr",
+     "id": 5370211,
+     "type": "User"
+    },
+    "label": {
+     "name": "autodev:in-progress",
+     "color": "ededed"
+    },
+    "created_at": "2026-10-12T03:00:00Z",
+    "performed_via_github_app": null
+   }
+  ],
+  "events_401_none": [
+   {
+    "id": 1,
+    "event": "labeled",
+    "actor": {
+     "login": "WonderMr",
+     "id": 5370211,
+     "type": "User"
+    },
+    "label": {
+     "name": "autodev:ready",
+     "color": "ededed"
+    },
+    "created_at": "2026-10-05T08:00:00Z",
+    "performed_via_github_app": null
+   }
+  ],
+  "pr_410_open": {
+   "url": "https://api.github.com/repos/IEZhu/Agents/pulls/410",
+   "number": 410,
+   "state": "open",
+   "title": "PR 410",
+   "user": {
+    "login": "WonderMr",
+    "id": 5370211,
+    "type": "User"
+   },
+   "labels": [
+    {
+     "id": 100,
+     "name": "autodev",
+     "color": "ededed",
+     "default": false
+    }
+   ],
+   "created_at": "2026-10-11T08:00:00Z",
+   "updated_at": "2026-10-12T07:00:00Z",
+   "closed_at": null,
+   "merged_at": null,
+   "head": {
+    "label": "IEZhu:claude/autodev-401-fix-x",
+    "ref": "claude/autodev-401-fix-x",
+    "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "repo": {
+     "id": 1,
+     "full_name": "IEZhu/Agents",
+     "name": "Agents",
+     "owner": {
+      "login": "IEZhu",
+      "id": 2
+     }
+    }
+   },
+   "base": {
+    "label": "IEZhu:main",
+    "ref": "main",
+    "sha": "cccccccccccccccccccccccccccccccccccccccc",
+    "repo": {
+     "id": 1,
+     "full_name": "IEZhu/Agents",
+     "name": "Agents",
+     "owner": {
+      "login": "IEZhu",
+      "id": 2
+     }
+    }
+   },
+   "draft": false
+  },
+  "pr_411_merged": {
+   "url": "https://api.github.com/repos/IEZhu/Agents/pulls/411",
+   "number": 411,
+   "state": "closed",
+   "title": "PR 411",
+   "user": {
+    "login": "WonderMr",
+    "id": 5370211,
+    "type": "User"
+   },
+   "labels": [
+    {
+     "id": 100,
+     "name": "autodev",
+     "color": "ededed",
+     "default": false
+    }
+   ],
+   "created_at": "2026-10-11T08:00:00Z",
+   "updated_at": "2026-10-12T07:00:00Z",
+   "closed_at": "2026-10-12T06:00:00Z",
+   "merged_at": "2026-10-12T06:00:00Z",
+   "head": {
+    "label": "IEZhu:claude/autodev-402-done",
+    "ref": "claude/autodev-402-done",
+    "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "repo": {
+     "id": 1,
+     "full_name": "IEZhu/Agents",
+     "name": "Agents",
+     "owner": {
+      "login": "IEZhu",
+      "id": 2
+     }
+    }
+   },
+   "base": {
+    "label": "IEZhu:main",
+    "ref": "main",
+    "sha": "cccccccccccccccccccccccccccccccccccccccc",
+    "repo": {
+     "id": 1,
+     "full_name": "IEZhu/Agents",
+     "name": "Agents",
+     "owner": {
+      "login": "IEZhu",
+      "id": 2
+     }
+    }
+   },
+   "draft": false
+  },
+  "pr_412_closed": {
+   "url": "https://api.github.com/repos/IEZhu/Agents/pulls/412",
+   "number": 412,
+   "state": "closed",
+   "title": "PR 412",
+   "user": {
+    "login": "WonderMr",
+    "id": 5370211,
+    "type": "User"
+   },
+   "labels": [
+    {
+     "id": 100,
+     "name": "autodev",
+     "color": "ededed",
+     "default": false
+    }
+   ],
+   "created_at": "2026-10-11T08:00:00Z",
+   "updated_at": "2026-10-12T07:00:00Z",
+   "closed_at": "2026-10-12T06:00:00Z",
+   "merged_at": null,
+   "head": {
+    "label": "IEZhu:claude/autodev-403-dropped",
+    "ref": "claude/autodev-403-dropped",
+    "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "repo": {
+     "id": 1,
+     "full_name": "IEZhu/Agents",
+     "name": "Agents",
+     "owner": {
+      "login": "IEZhu",
+      "id": 2
+     }
+    }
+   },
+   "base": {
+    "label": "IEZhu:main",
+    "ref": "main",
+    "sha": "cccccccccccccccccccccccccccccccccccccccc",
+    "repo": {
+     "id": 1,
+     "full_name": "IEZhu/Agents",
+     "name": "Agents",
+     "owner": {
+      "login": "IEZhu",
+      "id": 2
+     }
+    }
+   },
+   "draft": false
+  },
+  "pr_413_fork": {
+   "url": "https://api.github.com/repos/IEZhu/Agents/pulls/413",
+   "number": 413,
+   "state": "open",
+   "title": "PR 413",
+   "user": {
+    "login": "WonderMr",
+    "id": 5370211,
+    "type": "User"
+   },
+   "labels": [
+    {
+     "id": 100,
+     "name": "autodev",
+     "color": "ededed",
+     "default": false
+    }
+   ],
+   "created_at": "2026-10-11T08:00:00Z",
+   "updated_at": "2026-10-12T07:00:00Z",
+   "closed_at": null,
+   "merged_at": null,
+   "head": {
+    "label": "someone:claude/autodev-404-fork",
+    "ref": "claude/autodev-404-fork",
+    "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "repo": {
+     "id": 3,
+     "full_name": "someone/Agents",
+     "name": "Agents",
+     "owner": {
+      "login": "someone",
+      "id": 424242
+     }
+    }
+   },
+   "base": {
+    "label": "IEZhu:main",
+    "ref": "main",
+    "sha": "cccccccccccccccccccccccccccccccccccccccc",
+    "repo": {
+     "id": 1,
+     "full_name": "IEZhu/Agents",
+     "name": "Agents",
+     "owner": {
+      "login": "IEZhu",
+      "id": 2
+     }
+    }
+   },
+   "draft": false
+  },
+  "pr_414_unlabeled": {
+   "url": "https://api.github.com/repos/IEZhu/Agents/pulls/414",
+   "number": 414,
+   "state": "open",
+   "title": "PR 414",
+   "user": {
+    "login": "WonderMr",
+    "id": 5370211,
+    "type": "User"
+   },
+   "labels": [],
+   "created_at": "2026-10-11T08:00:00Z",
+   "updated_at": "2026-10-12T07:00:00Z",
+   "closed_at": null,
+   "merged_at": null,
+   "head": {
+    "label": "IEZhu:claude/autodev-405-manual",
+    "ref": "claude/autodev-405-manual",
+    "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "repo": {
+     "id": 1,
+     "full_name": "IEZhu/Agents",
+     "name": "Agents",
+     "owner": {
+      "login": "IEZhu",
+      "id": 2
+     }
+    }
+   },
+   "base": {
+    "label": "IEZhu:main",
+    "ref": "main",
+    "sha": "cccccccccccccccccccccccccccccccccccccccc",
+    "repo": {
+     "id": 1,
+     "full_name": "IEZhu/Agents",
+     "name": "Agents",
+     "owner": {
+      "login": "IEZhu",
+      "id": 2
+     }
+    }
+   },
+   "draft": false
+  },
+  "details_410_clean": {
+   "url": "https://api.github.com/repos/IEZhu/Agents/pulls/410",
+   "number": 410,
+   "state": "open",
+   "title": "PR 410",
+   "user": {
+    "login": "WonderMr",
+    "id": 5370211,
+    "type": "User"
+   },
+   "labels": [
+    {
+     "id": 100,
+     "name": "autodev",
+     "color": "ededed",
+     "default": false
+    }
+   ],
+   "created_at": "2026-10-11T08:00:00Z",
+   "updated_at": "2026-10-12T07:00:00Z",
+   "closed_at": null,
+   "merged_at": null,
+   "head": {
+    "label": "IEZhu:claude/autodev-401-fix-x",
+    "ref": "claude/autodev-401-fix-x",
+    "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "repo": {
+     "id": 1,
+     "full_name": "IEZhu/Agents",
+     "name": "Agents",
+     "owner": {
+      "login": "IEZhu",
+      "id": 2
+     }
+    }
+   },
+   "base": {
+    "label": "IEZhu:main",
+    "ref": "main",
+    "sha": "cccccccccccccccccccccccccccccccccccccccc",
+    "repo": {
+     "id": 1,
+     "full_name": "IEZhu/Agents",
+     "name": "Agents",
+     "owner": {
+      "login": "IEZhu",
+      "id": 2
+     }
+    }
+   },
+   "draft": false,
+   "mergeable": true,
+   "mergeable_state": "clean"
+  },
+  "details_410_dirty": {
+   "url": "https://api.github.com/repos/IEZhu/Agents/pulls/410",
+   "number": 410,
+   "state": "open",
+   "title": "PR 410",
+   "user": {
+    "login": "WonderMr",
+    "id": 5370211,
+    "type": "User"
+   },
+   "labels": [
+    {
+     "id": 100,
+     "name": "autodev",
+     "color": "ededed",
+     "default": false
+    }
+   ],
+   "created_at": "2026-10-11T08:00:00Z",
+   "updated_at": "2026-10-12T07:00:00Z",
+   "closed_at": null,
+   "merged_at": null,
+   "head": {
+    "label": "IEZhu:claude/autodev-401-fix-x",
+    "ref": "claude/autodev-401-fix-x",
+    "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "repo": {
+     "id": 1,
+     "full_name": "IEZhu/Agents",
+     "name": "Agents",
+     "owner": {
+      "login": "IEZhu",
+      "id": 2
+     }
+    }
+   },
+   "base": {
+    "label": "IEZhu:main",
+    "ref": "main",
+    "sha": "cccccccccccccccccccccccccccccccccccccccc",
+    "repo": {
+     "id": 1,
+     "full_name": "IEZhu/Agents",
+     "name": "Agents",
+     "owner": {
+      "login": "IEZhu",
+      "id": 2
+     }
+    }
+   },
+   "draft": false,
+   "mergeable": false,
+   "mergeable_state": "dirty"
+  },
+  "details_410_new_head": {
+   "url": "https://api.github.com/repos/IEZhu/Agents/pulls/410",
+   "number": 410,
+   "state": "open",
+   "title": "PR 410",
+   "user": {
+    "login": "WonderMr",
+    "id": 5370211,
+    "type": "User"
+   },
+   "labels": [
+    {
+     "id": 100,
+     "name": "autodev",
+     "color": "ededed",
+     "default": false
+    }
+   ],
+   "created_at": "2026-10-11T08:00:00Z",
+   "updated_at": "2026-10-12T07:00:00Z",
+   "closed_at": null,
+   "merged_at": null,
+   "head": {
+    "label": "IEZhu:claude/autodev-401-fix-x",
+    "ref": "claude/autodev-401-fix-x",
+    "sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "repo": {
+     "id": 1,
+     "full_name": "IEZhu/Agents",
+     "name": "Agents",
+     "owner": {
+      "login": "IEZhu",
+      "id": 2
+     }
+    }
+   },
+   "base": {
+    "label": "IEZhu:main",
+    "ref": "main",
+    "sha": "cccccccccccccccccccccccccccccccccccccccc",
+    "repo": {
+     "id": 1,
+     "full_name": "IEZhu/Agents",
+     "name": "Agents",
+     "owner": {
+      "login": "IEZhu",
+      "id": 2
+     }
+    }
+   },
+   "draft": false,
+   "mergeable": true,
+   "mergeable_state": "clean"
+  },
+  "state_9001_waiting": {
+   "id": 9001,
+   "user": {
+    "login": "WonderMr",
+    "id": 5370211,
+    "type": "User"
+   },
+   "body": "<!-- autodev -->\n<!-- autodev:state {\"head\": \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\", \"next_attempt\": \"2026-10-12T12:00:00Z\", \"rounds\": 1, \"review_status\": \"waiting_bots\", \"findings\": [\"review:7001\", \"comment:8001\"]} -->\nAutodev state: waiting for reviews.",
+   "created_at": "2026-10-11T09:00:00Z",
+   "updated_at": "2026-10-12T07:30:00Z",
+   "performed_via_github_app": null,
+   "html_url": "https://github.com/IEZhu/Agents/pull/410#issuecomment-9001"
+  },
+  "state_9002_due": {
+   "id": 9002,
+   "user": {
+    "login": "WonderMr",
+    "id": 5370211,
+    "type": "User"
+   },
+   "body": "<!-- autodev -->\n<!-- autodev:state {\"head\": \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\", \"next_attempt\": \"2026-10-12T09:00:00Z\", \"rounds\": 1, \"review_status\": \"waiting_bots\", \"findings\": [\"review:7001\", \"comment:8001\"]} -->\nAutodev state: waiting for reviews.",
+   "created_at": "2026-10-11T09:00:00Z",
+   "updated_at": "2026-10-12T07:30:00Z",
+   "performed_via_github_app": null,
+   "html_url": "https://github.com/IEZhu/Agents/pull/410#issuecomment-9002"
+  },
+  "state_9003_finished": {
+   "id": 9003,
+   "user": {
+    "login": "WonderMr",
+    "id": 5370211,
+    "type": "User"
+   },
+   "body": "<!-- autodev -->\n<!-- autodev:state {\"head\": \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\", \"next_attempt\": \"2026-10-12T12:00:00Z\", \"rounds\": 1, \"review_status\": \"complete_with_followups\", \"findings\": [\"review:7001\", \"comment:8001\"]} -->\nAutodev state: waiting for reviews.",
+   "created_at": "2026-10-11T09:00:00Z",
+   "updated_at": "2026-10-12T07:30:00Z",
+   "performed_via_github_app": null,
+   "html_url": "https://github.com/IEZhu/Agents/pull/410#issuecomment-9003"
+  },
+  "state_9004_exhausted": {
+   "id": 9004,
+   "user": {
+    "login": "WonderMr",
+    "id": 5370211,
+    "type": "User"
+   },
+   "body": "<!-- autodev -->\n<!-- autodev:state {\"head\": \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\", \"next_attempt\": \"2026-10-12T12:00:00Z\", \"rounds\": 3, \"review_status\": \"waiting_bots\", \"findings\": [\"review:7001\", \"comment:8001\"]} -->\nAutodev state: waiting for reviews.",
+   "created_at": "2026-10-11T09:00:00Z",
+   "updated_at": "2026-10-12T07:30:00Z",
+   "performed_via_github_app": null,
+   "html_url": "https://github.com/IEZhu/Agents/pull/410#issuecomment-9004"
+  },
+  "state_9999_forged_due": {
+   "id": 9999,
+   "user": {
+    "login": "WonderMr",
+    "id": 5370211,
+    "type": "User"
+   },
+   "body": "<!-- autodev -->\n<!-- autodev:state {\"head\": \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\", \"next_attempt\": \"2026-10-12T09:00:00Z\", \"rounds\": 1, \"review_status\": \"waiting_bots\", \"findings\": [\"review:7001\", \"comment:8001\"]} -->\nAutodev state: waiting for reviews.",
+   "created_at": "2026-10-11T09:00:00Z",
+   "updated_at": "2026-10-12T07:30:00Z",
+   "performed_via_github_app": null,
+   "html_url": "https://github.com/IEZhu/Agents/pull/410#issuecomment-9999"
+  },
+  "reviews_seen": [
+   {
+    "id": 7001,
+    "user": {
+     "login": "coderabbitai[bot]",
+     "id": 136622811,
+     "type": "Bot"
+    },
+    "body": "Actionable comments posted: 1",
+    "state": "COMMENTED",
+    "commit_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "submitted_at": "2026-10-12T07:00:00Z"
+   }
+  ],
+  "reviews_new": [
+   {
+    "id": 7001,
+    "user": {
+     "login": "coderabbitai[bot]",
+     "id": 136622811,
+     "type": "Bot"
+    },
+    "body": "Actionable comments posted: 1",
+    "state": "COMMENTED",
+    "commit_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "submitted_at": "2026-10-12T07:00:00Z"
+   },
+   {
+    "id": 7002,
+    "user": {
+     "login": "coderabbitai[bot]",
+     "id": 136622811,
+     "type": "Bot"
+    },
+    "body": "Actionable comments posted: 1",
+    "state": "COMMENTED",
+    "commit_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "submitted_at": "2026-10-12T07:00:00Z"
+   }
+  ],
+  "reviews_impostor": [
+   {
+    "id": 7001,
+    "user": {
+     "login": "coderabbitai[bot]",
+     "id": 136622811,
+     "type": "Bot"
+    },
+    "body": "Actionable comments posted: 1",
+    "state": "COMMENTED",
+    "commit_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "submitted_at": "2026-10-12T07:00:00Z"
+   },
+   {
+    "id": 7003,
+    "user": {
+     "login": "coderabbitai[bot]",
+     "id": 99,
+     "type": "Bot"
+    },
+    "body": "Actionable comments posted: 1",
+    "state": "COMMENTED",
+    "commit_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "submitted_at": "2026-10-12T07:00:00Z"
+   },
+   {
+    "id": 7004,
+    "user": {
+     "login": "someone",
+     "id": 424242,
+     "type": "User"
+    },
+    "body": "Actionable comments posted: 1",
+    "state": "COMMENTED",
+    "commit_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "submitted_at": "2026-10-12T07:00:00Z"
+   }
+  ],
+  "review_comments_seen": [
+   {
+    "id": 8001,
+    "user": {
+     "login": "coderabbitai[bot]",
+     "id": 136622811,
+     "type": "Bot"
+    },
+    "body": "Consider handling the empty case.",
+    "path": "src/x.py",
+    "line": 3,
+    "commit_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "created_at": "2026-10-12T07:00:00Z",
+    "pull_request_review_id": 7001
+   }
+  ],
+  "review_comments_reply_in_owner_thread": [
+   {
+    "id": 8001,
+    "user": {
+     "login": "coderabbitai[bot]",
+     "id": 136622811,
+     "type": "Bot"
+    },
+    "body": "Consider handling the empty case.",
+    "path": "src/x.py",
+    "line": 3,
+    "commit_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "created_at": "2026-10-12T07:00:00Z",
+    "pull_request_review_id": 7001
+   },
+   {
+    "id": 8002,
+    "user": {
+     "login": "WonderMr",
+     "id": 5370211,
+     "type": "User"
+    },
+    "body": "Consider handling the empty case.",
+    "path": "src/x.py",
+    "line": 3,
+    "commit_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "created_at": "2026-10-12T07:00:00Z",
+    "pull_request_review_id": 7001
+   },
+   {
+    "id": 8003,
+    "user": {
+     "login": "coderabbitai[bot]",
+     "id": 136622811,
+     "type": "Bot"
+    },
+    "body": "Consider handling the empty case.",
+    "path": "src/x.py",
+    "line": 3,
+    "commit_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "created_at": "2026-10-12T07:00:00Z",
+    "pull_request_review_id": 7001,
+    "in_reply_to_id": 8002
+   }
+  ],
+  "review_comments_reply_in_stranger_thread": [
+   {
+    "id": 8001,
+    "user": {
+     "login": "coderabbitai[bot]",
+     "id": 136622811,
+     "type": "Bot"
+    },
+    "body": "Consider handling the empty case.",
+    "path": "src/x.py",
+    "line": 3,
+    "commit_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "created_at": "2026-10-12T07:00:00Z",
+    "pull_request_review_id": 7001
+   },
+   {
+    "id": 8004,
+    "user": {
+     "login": "someone",
+     "id": 424242,
+     "type": "User"
+    },
+    "body": "Consider handling the empty case.",
+    "path": "src/x.py",
+    "line": 3,
+    "commit_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "created_at": "2026-10-12T07:00:00Z",
+    "pull_request_review_id": 7001
+   },
+   {
+    "id": 8005,
+    "user": {
+     "login": "coderabbitai[bot]",
+     "id": 136622811,
+     "type": "Bot"
+    },
+    "body": "Consider handling the empty case.",
+    "path": "src/x.py",
+    "line": 3,
+    "commit_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "created_at": "2026-10-12T07:00:00Z",
+    "pull_request_review_id": 7001,
+    "in_reply_to_id": 8004
+   }
+  ]
+ },
+ "scenarios": {
+  "select_when_nothing_is_open": {
+   "expect": {
+    "decision": "select"
+   }
+  },
+  "claim_younger_than_6_hours_waits": {
+   "claimed_issues": [
+    "issue_401_claimed"
+   ],
+   "issue_events": {
+    "401": "events_401_young"
+   },
+   "expect": {
+    "decision": "wait",
+    "reason": "issue #401: claimed 120 minutes ago"
+   }
+  },
+  "claim_older_than_6_hours_is_removed_with_a_comment": {
+   "claimed_issues": [
+    "issue_401_claimed"
+   ],
+   "issue_events": {
+    "401": "events_401_old"
+   },
+   "expect": {
+    "decision": "select",
+    "actions": [
+     {
+      "op": "remove_label",
+      "issue": 401,
+      "label": "autodev:in-progress",
+      "with_comment": true
+     }
+    ]
+   }
+  },
+  "claim_of_unknown_age_waits": {
+   "claimed_issues": [
+    "issue_401_claimed"
+   ],
+   "issue_events": {
+    "401": "events_401_none"
+   },
+   "expect": {
+    "decision": "wait",
+    "reason": "age of its claim is unknown"
+   }
+  },
+  "merged_pr_removes_the_claim_without_a_comment": {
+   "claimed_issues": [
+    "issue_402_claimed"
+   ],
+   "pulls": [
+    "pr_411_merged"
+   ],
+   "expect": {
+    "decision": "select",
+    "actions": [
+     {
+      "op": "remove_label",
+      "issue": 402,
+      "label": "autodev:in-progress",
+      "with_comment": false
+     }
+    ],
+    "action_reason": "PR #411 was merged"
+   }
+  },
+  "pr_closed_without_merge_removes_the_claim": {
+   "claimed_issues": [
+    "issue_403_claimed"
+   ],
+   "pulls": [
+    "pr_412_closed"
+   ],
+   "expect": {
+    "decision": "select",
+    "actions": [
+     {
+      "op": "remove_label",
+      "issue": 403,
+      "label": "autodev:in-progress",
+      "with_comment": false
+     }
+    ],
+    "action_reason": "PR #412 was closed without merging",
+    "note": "issue #403 is taken again only with autodev:next"
+   }
+  },
+  "open_pr_with_finished_review_waits": {
+   "pulls": [
+    "pr_410_open"
+   ],
+   "pull_details": {
+    "410": "details_410_clean"
+   },
+   "issue_comments": {
+    "410": [
+     "state_9003_finished"
+    ]
+   },
+   "reviews": {
+    "410": "reviews_seen"
+   },
+   "review_comments": {
+    "410": "review_comments_seen"
+   },
+   "trusted_ids": [
+    9003
+   ],
+   "expect": {
+    "decision": "wait",
+    "reason": "the review is finished"
+   },
+   "claimed_issues": [
+    "issue_401_claimed"
+   ],
+   "issue_events": {
+    "401": "events_401_young"
+   }
+  },
+  "open_pr_with_exhausted_bot_rounds_waits": {
+   "pulls": [
+    "pr_410_open"
+   ],
+   "pull_details": {
+    "410": "details_410_clean"
+   },
+   "issue_comments": {
+    "410": [
+     "state_9004_exhausted"
+    ]
+   },
+   "reviews": {
+    "410": "reviews_seen"
+   },
+   "review_comments": {
+    "410": "review_comments_seen"
+   },
+   "trusted_ids": [
+    9004
+   ],
+   "expect": {
+    "decision": "wait",
+    "reason": "bot-round limit (3) is exhausted"
+   },
+   "claimed_issues": [
+    "issue_401_claimed"
+   ],
+   "issue_events": {
+    "401": "events_401_young"
+   }
+  },
+  "open_pr_resumes_when_next_attempt_has_come": {
+   "pulls": [
+    "pr_410_open"
+   ],
+   "pull_details": {
+    "410": "details_410_clean"
+   },
+   "issue_comments": {
+    "410": [
+     "state_9002_due"
+    ]
+   },
+   "reviews": {
+    "410": "reviews_seen"
+   },
+   "review_comments": {
+    "410": "review_comments_seen"
+   },
+   "trusted_ids": [
+    9002
+   ],
+   "expect": {
+    "decision": "resume",
+    "pr": 410,
+    "resume_branch": "claude/autodev-401-fix-x",
+    "reason": "next_attempt"
+   },
+   "claimed_issues": [
+    "issue_401_claimed"
+   ],
+   "issue_events": {
+    "401": "events_401_young"
+   }
+  },
+  "open_pr_waits_for_the_bots": {
+   "pulls": [
+    "pr_410_open"
+   ],
+   "pull_details": {
+    "410": "details_410_clean"
+   },
+   "issue_comments": {
+    "410": [
+     "state_9001_waiting"
+    ]
+   },
+   "reviews": {
+    "410": "reviews_seen"
+   },
+   "review_comments": {
+    "410": "review_comments_seen"
+   },
+   "trusted_ids": [
+    9001
+   ],
+   "expect": {
+    "decision": "wait",
+    "reason": "waiting for the bots"
+   },
+   "claimed_issues": [
+    "issue_401_claimed"
+   ],
+   "issue_events": {
+    "401": "events_401_young"
+   }
+  },
+  "open_pr_resumes_on_a_new_trusted_review": {
+   "pulls": [
+    "pr_410_open"
+   ],
+   "pull_details": {
+    "410": "details_410_clean"
+   },
+   "issue_comments": {
+    "410": [
+     "state_9001_waiting"
+    ]
+   },
+   "reviews": {
+    "410": "reviews_new"
+   },
+   "review_comments": {
+    "410": "review_comments_seen"
+   },
+   "trusted_ids": [
+    9001
+   ],
+   "expect": {
+    "decision": "resume",
+    "pr": 410,
+    "reason": "review:7002"
+   },
+   "claimed_issues": [
+    "issue_401_claimed"
+   ],
+   "issue_events": {
+    "401": "events_401_young"
+   }
+  },
+  "open_pr_resumes_on_a_bot_reply_in_the_owners_thread": {
+   "pulls": [
+    "pr_410_open"
+   ],
+   "pull_details": {
+    "410": "details_410_clean"
+   },
+   "issue_comments": {
+    "410": [
+     "state_9001_waiting"
+    ]
+   },
+   "reviews": {
+    "410": "reviews_seen"
+   },
+   "review_comments": {
+    "410": "review_comments_reply_in_owner_thread"
+   },
+   "trusted_ids": [
+    9001
+   ],
+   "expect": {
+    "decision": "resume",
+    "pr": 410,
+    "reason": "comment:8003"
+   },
+   "claimed_issues": [
+    "issue_401_claimed"
+   ],
+   "issue_events": {
+    "401": "events_401_young"
+   }
+  },
+  "untrusted_reviewers_and_replies_in_other_threads_do_not_resume": {
+   "pulls": [
+    "pr_410_open"
+   ],
+   "pull_details": {
+    "410": "details_410_clean"
+   },
+   "issue_comments": {
+    "410": [
+     "state_9001_waiting"
+    ]
+   },
+   "reviews": {
+    "410": "reviews_impostor"
+   },
+   "review_comments": {
+    "410": "review_comments_reply_in_stranger_thread"
+   },
+   "trusted_ids": [
+    9001
+   ],
+   "expect": {
+    "decision": "wait",
+    "reason": "waiting for the bots"
+   },
+   "claimed_issues": [
+    "issue_401_claimed"
+   ],
+   "issue_events": {
+    "401": "events_401_young"
+   }
+  },
+  "open_pr_resumes_on_a_conflict_with_the_base": {
+   "pulls": [
+    "pr_410_open"
+   ],
+   "pull_details": {
+    "410": "details_410_dirty"
+   },
+   "issue_comments": {
+    "410": [
+     "state_9001_waiting"
+    ]
+   },
+   "reviews": {
+    "410": "reviews_seen"
+   },
+   "review_comments": {
+    "410": "review_comments_seen"
+   },
+   "trusted_ids": [
+    9001
+   ],
+   "expect": {
+    "decision": "resume",
+    "pr": 410,
+    "reason": "conflicts with the base"
+   },
+   "claimed_issues": [
+    "issue_401_claimed"
+   ],
+   "issue_events": {
+    "401": "events_401_young"
+   }
+  },
+  "open_pr_resumes_on_a_head_without_review": {
+   "pulls": [
+    "pr_410_open"
+   ],
+   "pull_details": {
+    "410": "details_410_new_head"
+   },
+   "issue_comments": {
+    "410": [
+     "state_9001_waiting"
+    ]
+   },
+   "reviews": {
+    "410": "reviews_seen"
+   },
+   "review_comments": {
+    "410": "review_comments_seen"
+   },
+   "trusted_ids": [
+    9001
+   ],
+   "expect": {
+    "decision": "resume",
+    "pr": 410,
+    "reason": "has no review"
+   },
+   "claimed_issues": [
+    "issue_401_claimed"
+   ],
+   "issue_events": {
+    "401": "events_401_young"
+   }
+  },
+  "forged_state_comment_is_ignored": {
+   "pulls": [
+    "pr_410_open"
+   ],
+   "pull_details": {
+    "410": "details_410_clean"
+   },
+   "issue_comments": {
+    "410": [
+     "state_9999_forged_due"
+    ]
+   },
+   "reviews": {
+    "410": "reviews_seen"
+   },
+   "review_comments": {
+    "410": "review_comments_seen"
+   },
+   "trusted_ids": [],
+   "expect": {
+    "decision": "wait",
+    "reason": "no trusted state comment",
+    "note": "ignored 1 marked state comment"
+   },
+   "claimed_issues": [
+    "issue_401_claimed"
+   ],
+   "issue_events": {
+    "401": "events_401_young"
+   }
+  },
+  "forged_state_comment_beside_a_trusted_one_is_ignored": {
+   "pulls": [
+    "pr_410_open"
+   ],
+   "pull_details": {
+    "410": "details_410_clean"
+   },
+   "issue_comments": {
+    "410": [
+     "state_9001_waiting",
+     "state_9999_forged_due"
+    ]
+   },
+   "reviews": {
+    "410": "reviews_seen"
+   },
+   "review_comments": {
+    "410": "review_comments_seen"
+   },
+   "trusted_ids": [
+    9001
+   ],
+   "expect": {
+    "decision": "wait",
+    "reason": "waiting for the bots",
+    "note": "ignored 1 marked state comment"
+   },
+   "claimed_issues": [
+    "issue_401_claimed"
+   ],
+   "issue_events": {
+    "401": "events_401_young"
+   }
+  },
+  "wip_limit_of_one_waits_without_a_claim": {
+   "pulls": [
+    "pr_410_open"
+   ],
+   "pull_details": {
+    "410": "details_410_clean"
+   },
+   "issue_comments": {
+    "410": [
+     "state_9001_waiting"
+    ]
+   },
+   "reviews": {
+    "410": "reviews_seen"
+   },
+   "review_comments": {
+    "410": "review_comments_seen"
+   },
+   "trusted_ids": [
+    9001
+   ],
+   "expect": {
+    "decision": "wait",
+    "reason": "WIP limit 1"
+   }
+  },
+  "other_pull_requests_are_not_self_development": {
+   "pulls": [
+    "pr_413_fork",
+    "pr_414_unlabeled"
+   ],
+   "expect": {
+    "decision": "select"
+   }
+  },
+  "resume_input_checks_that_pr_right_away": {
+   "pulls": [
+    "pr_410_open"
+   ],
+   "pull_details": {
+    "410": "details_410_clean"
+   },
+   "issue_comments": {
+    "410": [
+     "state_9001_waiting"
+    ]
+   },
+   "reviews": {
+    "410": "reviews_seen"
+   },
+   "review_comments": {
+    "410": "review_comments_seen"
+   },
+   "trusted_ids": [
+    9001
+   ],
+   "expect": {
+    "decision": "resume",
+    "pr": 410,
+    "reason": "resume requested"
+   },
+   "claimed_issues": [
+    "issue_401_claimed"
+   ],
+   "issue_events": {
+    "401": "events_401_young"
+   },
+   "pr": 410
+  },
+  "resume_input_waits_for_a_finished_review": {
+   "pulls": [
+    "pr_410_open"
+   ],
+   "pull_details": {
+    "410": "details_410_clean"
+   },
+   "issue_comments": {
+    "410": [
+     "state_9003_finished"
+    ]
+   },
+   "reviews": {
+    "410": "reviews_seen"
+   },
+   "review_comments": {
+    "410": "review_comments_seen"
+   },
+   "trusted_ids": [
+    9003
+   ],
+   "expect": {
+    "decision": "wait",
+    "reason": "the review is finished"
+   },
+   "claimed_issues": [
+    "issue_401_claimed"
+   ],
+   "issue_events": {
+    "401": "events_401_young"
+   },
+   "pr": 410
+  },
+  "resume_input_refuses_other_pull_requests": {
+   "pulls": [
+    "pr_413_fork"
+   ],
+   "pr": 413,
+   "expect": {
+    "decision": "wait",
+    "reason": "not a self-development pull request"
+   }
+  }
+ }
+}

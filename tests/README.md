@@ -94,6 +94,7 @@ described in [daemon validation](../docs/shared-mcp-daemon.md#validation).
 | The settings page's landing page: answer counts from history files, connected AI apps, `X-Agents-Client` and the overview | `test_usage_stats.py` (fixture histories, a fake clock and a test daemon; no model), `test_daemon_clients.py` (the header per client), `test_landing_overview.py` (repository links, sizes, configured apps), `test_flows_ui_page.py` (the page itself) |
 | The settings page's History tab | `test_history_ui.py` (`/ui/api/history…`: access checks, registered workspaces and history files only, portions, search; a test daemon), `test_flows_ui_page.py` (the tab, portions on scroll, Contents by day, Source, files, search and links) |
 | Daemon and client configuration | `test_daemon*.py`, `test_config_client_root.py` |
+| The autodev runner (`src/schedules/`) | `test_schedules_tick.py` (slots, catch-up, `missed`, continuations and allowed hours on a fake clock), `test_schedules_gate.py` (every gate branch on GitHub responses in `fixtures/autodev_gate.json`, forged state comments ignored), `test_schedules_github.py` (the read-only client and the keychain provider, both faked), `test_schedules_supervise.py` (a timed-out run leaves no descendant, `caffeinate`, the run lease), `test_schedules_launchagent.py` (the scheduler job with a fake `launchctl`), `test_schedules_drift.py`, `test_schedules_runner.py` (the commands, configuration and run records); `test_daemon_autoupdate.py` covers the auto-update waiting for the run lease. No test reaches GitHub, the keychain or launchd |
 | Updates, startup and readiness | `test_self_update.py`, `test_startup.py`, `test_readiness.py`, `test_startup_handshake.py` (slow; a fake `fastembed`, no model), `test_langfuse_compat.py` |
 | Data isolation and storage | `test_data_isolation.py`, `test_vector_store.py`, `test_file_lock.py` |
 | Language detection | `test_language.py` |
@@ -178,7 +179,12 @@ removes `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `AGENTS_CURSOR_MCP_CONFIG`,
 `AGENTS_CLAUDE_DESKTOP_CONFIG` and `AGENTS_ANTIGRAVITY_MCP_CONFIG`, which would
 otherwise outrank the temporary home of installer and migration tests and make
 them write the user's real client configuration. Tests that need one of these
-variables set it themselves.
+variables set it themselves. It also points `AGENTS_SERVICE_DIR` to a temporary directory,
+and the autouse `service_state_dir` fixture gives every test its own empty one.
+Without it, a test that reads or writes the service state (`src.daemon.state.state_dir`):
+the daemon's files, the autodev configuration, run records and the run lease, would
+use the live installation's directory under `~/Library/Application Support`. A test
+that needs the default location removes the variable with `monkeypatch.delenv`.
 
 Tests that build the skill or implant retriever, such as `test_data_isolation.py`,
 may still load an embedding model and re-embed the temporary stores, even when slow

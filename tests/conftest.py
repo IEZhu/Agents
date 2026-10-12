@@ -86,6 +86,12 @@ os.environ["AGENTS_ROUTER_DATA_DIR"] = os.path.join(TEST_DATA_DIR, "router")
 # it would outrank the cwd that client-root tests control and aim memory and
 # flows at the live project.
 os.environ.pop("CLAUDE_PROJECT_DIR", None)
+# The service's private state (`src.daemon.state.state_dir`): the daemon's files, the autodev
+# schedule's configuration, run records and run lease. Without this, a test that reads or writes
+# state would use the live installation's directory under ~/Library/Application Support. The
+# `service_state_dir` fixture gives every test its own empty directory on top of this one.
+os.environ["AGENTS_SERVICE_DIR"] = tempfile.mkdtemp(prefix="agents-tests-service-")
+atexit.register(shutil.rmtree, os.environ["AGENTS_SERVICE_DIR"], ignore_errors=True)
 # These select client configuration files and outrank the temporary home that
 # installer and migration tests pass in. Inherited from a shell or a Claude Code
 # session, they would make those tests rewrite the user's real client config.
@@ -115,6 +121,17 @@ def fallback_journal(tmp_path_factory, monkeypatch):
     root = tmp_path_factory.mktemp("fallback-journal")
     monkeypatch.setattr(fallback, "ROOT_OVERRIDE", root)
     return root
+
+
+@pytest.fixture(autouse=True)
+def service_state_dir(tmp_path_factory, monkeypatch):
+    """Every test gets its own empty service state directory in ``AGENTS_SERVICE_DIR``.
+
+    A test that needs the default location removes the variable itself (``monkeypatch.delenv``).
+    """
+    directory = tmp_path_factory.mktemp("service-state")
+    monkeypatch.setenv("AGENTS_SERVICE_DIR", str(directory))
+    return directory
 
 
 @pytest.fixture

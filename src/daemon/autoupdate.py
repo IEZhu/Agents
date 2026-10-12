@@ -15,6 +15,9 @@ switches the service to the default model, with no new commit needed: the
 model downloads while the service still serves, then the same transaction
 rebuilds the stores for it and verifies the restarted service.
 
+An autodev run (`src.schedules`) holds a run lease from start to finish; while it is held the
+service counts as busy, so an update never replaces the runner's code under a run.
+
 Targets that the transaction would refuse (a diverged branch, a dirty tree,
 changed dependency manifests) are rejected before the service is touched, so a
 blocked update never costs a restart.
@@ -29,6 +32,7 @@ import subprocess
 
 from src import executables
 from src.file_lock import file_lock
+from src.schedules import lease as run_lease
 from . import service
 from .state import atomic_private, read_json, write_json
 from .update import DEPENDENCIES, NO_WINDOW
@@ -273,6 +277,13 @@ def _enabled_on_disk(controller):
     return bool((read_json(controller.directory / "service.json", {}).get("auto_update") or {}).get("enabled"))
 
 
+def _run_lease_refusal(controller):
+    """Defer while an autodev run holds its lease in this state directory (`src.schedules.lease`)."""
+    if run_lease.held(controller.directory):
+        return {"state": "deferred", "reason": "service is busy: an autodev run holds its run lease"}
+    return None
+
+
 def _readers_refusal(controller, daemon_pid):
     """Defer while a stdio server holds the installation; unknown readers do not defer."""
     try:
@@ -295,6 +306,8 @@ def _precheck(controller):
     if health.get("inflight") or health.get("io_pending") or \
             health.get("idle_seconds", 0) < settings(controller)["idle_seconds"]:
         return {"state": "deferred", "reason": "service is busy"}
+    if refusal := _run_lease_refusal(controller):
+        return refusal
     # A stdio server may have started while the update was built.
     return _readers_refusal(controller, health.get("pid"))
 
@@ -323,6 +336,8 @@ def _run(controller):
     idle = settings(controller)["idle_seconds"]
     if health.get("inflight") or health.get("io_pending") or health.get("idle_seconds", 0) < idle:
         return _record(controller, {**found, "state": "deferred", "reason": "service is busy"})
+    if refusal := _run_lease_refusal(controller):
+        return _record(controller, {**found, **refusal})
     if refusal := _readers_refusal(controller, health.get("pid")):
         return _record(controller, {**found, **refusal})
     if not _enabled_on_disk(controller):
