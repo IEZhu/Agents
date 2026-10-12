@@ -10,6 +10,7 @@ import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
+BACKUP_TIMESTAMP = "1700000000"
 
 
 def between(source, start, end):
@@ -38,6 +39,10 @@ def profile_installer(request, tmp_path):
     for name in ("inject_mcp.py", "inject_claude_md.py", "migrate_routing_memory.py", "client_config_paths.py",
                  "deny_desktop_mcp.py"):
         shutil.copyfile(ROOT / "scripts/_helpers" / name, helpers / name)
+    # The pre-fix collision regression must run before this helper exists.
+    backup_helper = ROOT / "scripts/_helpers/backup_file.py"
+    if backup_helper.exists():
+        shutil.copyfile(backup_helper, helpers / backup_helper.name)
     for name in ("routing-protocol-core.md", "memory-routing.md",
                  "legacy/memory-routing-v1.md", "legacy/memory-routing-v2.md",
                  "legacy/memory-routing-v3.md", "legacy/memory-routing-v4.md",
@@ -71,12 +76,18 @@ def profile_installer(request, tmp_path):
         script = checkout / "profiles.sh"
         script.write_text("set -e\nCONFIGURED_ENVS=()\n"
                           'python() { "$PYTHON_ABS" "$@"; }\n'
+                          f'date() {{ printf "%s\\n" "{BACKUP_TIMESTAMP}"; }}\n'
                           "check_command() { return 1; }\n" + functions + hooks + setup
                           + 'printf \'CONFIGURED_ENVS=%s\\n\' "${CONFIGURED_ENVS[*]}"\n')
         command = [interpreter, str(script)]
     else:
         source = (ROOT / "scripts/init_repo.bat").read_text()
         setup = between(source, "REM Resolve the same effective client paths", "REM --- Configure Codex instructions ---")
+        # Freeze the old timestamp computation; new setup may no longer use it.
+        setup = "\n".join(
+            f'set "BACKUP_TS={BACKUP_TIMESTAMP}"'
+            if line.startswith("for /f %%T ") and 'do set "BACKUP_TS=' in line else line
+            for line in setup.splitlines()) + "\n"
         fatal_handler = source[source.index("REM ============== Fatal Error Handler =============="):]
         script = checkout / "profiles.bat"
         script.write_bytes(("@echo off\nsetlocal enabledelayedexpansion\nset \"CONFIGURED_ENVS=\"\n" + setup
@@ -258,7 +269,7 @@ def test_invalid_client_config_is_preserved_and_not_reported_as_configured(profi
     config = paths[client]
     config.parent.mkdir(parents=True, exist_ok=True)
     config.write_bytes(original)
-    previous_backup = config.with_name(config.name + ".backup.0")
+    previous_backup = config.with_name(config.name + ".backup." + BACKUP_TIMESTAMP)
     previous_backup.write_bytes(b"Existing backup\r\n")
 
     result = run({})
@@ -281,6 +292,88 @@ def test_invalid_client_config_is_preserved_and_not_reported_as_configured(profi
         # This marker is printed only when the real setup block completes.
         assert "CONFIGURED_ENVS=" not in result.stdout
         assert not (home / ".claude/CLAUDE.md").exists()
+
+
+def custom_client_profile(home, client, suffix="profile !segment!"):
+    """Select one disposable client profile with shell-sensitive path characters."""
+    directory = home / f"custom {client} {suffix}"
+    if client == "claude":
+        return directory / ".claude.json", {"CLAUDE_CONFIG_DIR": str(directory),
+                                             "segment": "expanded-value"}
+    variable = {"cursor": "AGENTS_CURSOR_MCP_CONFIG", "desktop": "AGENTS_CLAUDE_DESKTOP_CONFIG",
+                "antigravity": "AGENTS_ANTIGRAVITY_MCP_CONFIG"}[client]
+    config = directory / "registration.json"
+    return config, {variable: str(config), "segment": "expanded-value"}
+
+
+@pytest.mark.parametrize("client", ["cursor", "desktop", "claude", "antigravity"])
+@pytest.mark.parametrize("suffix", ["profile!literal", "profile !segment!"])
+def test_repeated_mcp_setup_preserves_backups_when_timestamps_collide(profile_installer, client, suffix):
+    run, home, checkout, _, _ = profile_installer
+    config, overrides = custom_client_profile(home, client, suffix)
+    config.parent.mkdir(parents=True)
+    original = b'{"mcpServers": {"other": {"command": "keep"}}, "keep": "before"}\r\n'
+    config.write_bytes(original)
+    previous_backup = config.with_name(config.name + ".backup." + BACKUP_TIMESTAMP)
+    previous_backup.write_bytes(b"Earlier client configuration\r\n")
+
+    first = run(overrides)
+
+    assert first.returncode == 0, first.stdout + first.stderr
+    assert previous_backup.read_bytes() == b"Earlier client configuration\r\n"
+    first_backups = set(config.parent.glob(config.name + ".backup.*"))
+    new_backups = first_backups - {previous_backup}
+    assert len(new_backups) == 1
+    assert next(iter(new_backups)).read_bytes() == original
+    document = json.loads(config.read_bytes())
+    name = "Agents-Core-Desktop" if client == "desktop" else "Agents-Core"
+    assert document["mcpServers"][name]["args"] == [str(checkout / "src/server.py")]
+    assert document["mcpServers"]["other"] == {"command": "keep"}
+    assert document["keep"] == "before"
+    configured = config.read_bytes()
+    preserved = {backup: backup.read_bytes() for backup in first_backups}
+
+    second = run(overrides)
+
+    assert second.returncode == 0, second.stdout + second.stderr
+    assert config.read_bytes() == configured
+    assert {backup: backup.read_bytes() for backup in preserved} == preserved
+    second_backups = set(config.parent.glob(config.name + ".backup.*")) - first_backups
+    assert len(second_backups) == 1
+    assert next(iter(second_backups)).read_bytes() == configured
+
+
+@pytest.mark.parametrize("client", ["cursor", "desktop", "claude", "antigravity"])
+def test_backup_failure_preserves_client_config_and_is_not_reported_configured(profile_installer, client):
+    run, home, checkout, _, _ = profile_installer
+    config, overrides = custom_client_profile(home, client)
+    config.parent.mkdir(parents=True)
+    original = b'{"mcpServers": {"other": {"command": "keep"}}, "keep": true}\r\n'
+    config.write_bytes(original)
+    previous_backup = config.with_name(config.name + ".backup." + BACKUP_TIMESTAMP)
+    previous_backup.write_bytes(b"Earlier client configuration\r\n")
+    helper = checkout / "scripts/_helpers/backup_file.py"
+    helper.write_text('import sys\nsys.stderr.write("ERROR: simulated backup failure\\n")\nsys.exit(1)\n',
+                      encoding="utf-8")
+
+    result = run(overrides)
+
+    assert "ERROR: simulated backup failure" in result.stdout + result.stderr
+    assert config.read_bytes() == original
+    assert previous_backup.read_bytes() == b"Earlier client configuration\r\n"
+    assert set(config.parent.glob(config.name + ".backup.*")) == {previous_backup}
+    if sys.platform == "win32":
+        configured = [line.removeprefix("CONFIGURED_ENVS=") for line in result.stdout.splitlines()
+                      if line.startswith("CONFIGURED_ENVS=")]
+        if configured:
+            label = {"cursor": "Cursor", "desktop": "Claude Desktop", "claude": "Claude Code",
+                     "antigravity": "Antigravity"}[client]
+            assert label not in configured[0] and label.replace(" ", "-") not in configured[0]
+        else:
+            assert result.returncode != 0, result.stdout + result.stderr
+    else:
+        assert result.returncode != 0, result.stdout + result.stderr
+        assert "CONFIGURED_ENVS=" not in result.stdout
 
 
 @pytest.mark.parametrize("override", [None, "custom antigravity/mcp.json", "profile!literal/mcp.json",

@@ -332,8 +332,11 @@ Client connections for Google Antigravity (`~/.gemini/config/mcp_config.json`), 
 (`~/.cursor/mcp.json`) and Claude Desktop (`claude_desktop_config.json`) are configured
 during setup (`scripts/init_repo.sh` or `scripts\init_repo.bat`) or migrated to the shared daemon (see
 [shared daemon client migration](shared-mcp-daemon.md#client-configuration-and-alternate-profiles)).
-Both installers preserve an existing MCP configuration that contains invalid JSON,
-report the affected path and refuse its registration update. Unix setup stops
+Standalone setup reserves a unique `<file>.backup.<unique-suffix>` snapshot before
+updating an existing client file, so repeated runs never overwrite a prior backup.
+A failed backup prevents the affected file's update. Both installers preserve an
+existing MCP configuration that contains invalid JSON, report the affected path
+and refuse its registration update. Unix setup stops
 with a nonzero exit status when a client registration fails; it does not print
 the successful initialization summary. Repair the file or restore a backup
 before rerunning setup. A missing file can still be created.

@@ -540,9 +540,6 @@ if "!ANTIGRAVITY_DETECTED!"=="true" (
 
 echo(
 
-REM Get timestamp for backups
-for /f %%T in ('powershell -noprofile -command "Get-Date -UFormat '%%s'"') do set "BACKUP_TS=%%T"
-
 REM --- Configure Cursor ---
 if not "!CURSOR_DETECTED!"=="true" goto :skip_cursor
 echo   %GREEN%^>%NC% Configuring Cursor MCP...
@@ -550,7 +547,11 @@ if not exist "!CURSOR_DIR!" mkdir "!CURSOR_DIR!"
 if not exist "!MCP_SETTINGS_FILE!" echo { "mcpServers": {} } > "!MCP_SETTINGS_FILE!"
 
 REM Backup before modifying
-copy /Y "!MCP_SETTINGS_FILE!" "!MCP_SETTINGS_FILE!.backup.%BACKUP_TS%" >nul 2>&1
+"%PYTHON_ABS%" "%HELPERS%\backup_file.py" "!MCP_SETTINGS_FILE!" >nul
+if !errorlevel! neq 0 (
+    echo   %RED%x%NC% Failed to back up Cursor config; leaving it unchanged
+    goto :skip_cursor
+)
 
 "%PYTHON_ABS%" "%HELPERS%\inject_mcp.py" "!MCP_SETTINGS_FILE!" "%PYTHON_ABS%" "%SERVER_ABS%"
 if !errorlevel! equ 0 (
@@ -568,7 +569,11 @@ if not exist "!CLAUDE_DESKTOP_DIR!" mkdir "!CLAUDE_DESKTOP_DIR!"
 if not exist "!CLAUDE_DESKTOP_CONFIG!" echo {} > "!CLAUDE_DESKTOP_CONFIG!"
 
 REM Backup before modifying
-copy /Y "!CLAUDE_DESKTOP_CONFIG!" "!CLAUDE_DESKTOP_CONFIG!.backup.%BACKUP_TS%" >nul 2>&1
+"%PYTHON_ABS%" "%HELPERS%\backup_file.py" "!CLAUDE_DESKTOP_CONFIG!" >nul
+if !errorlevel! neq 0 (
+    echo   %RED%x%NC% Failed to back up Claude Desktop config; leaving it unchanged
+    goto :skip_claude_desktop
+)
 
 REM Its own name, which Claude Code denies below: the app injects its servers into the Code-tab
 REM sessions it launches, and those must use Claude Code's per-project Agents-Core (#231).
@@ -590,7 +595,11 @@ echo   %GREEN%^>%NC% Configuring Claude Code MCP (!CLAUDE_CODE_MCP!)...
 if not exist "!CLAUDE_CODE_MCP!" echo {} > "!CLAUDE_CODE_MCP!"
 
 REM Backup before modifying
-copy /Y "!CLAUDE_CODE_MCP!" "!CLAUDE_CODE_MCP!.backup.%BACKUP_TS%" >nul 2>&1
+"%PYTHON_ABS%" "%HELPERS%\backup_file.py" "!CLAUDE_CODE_MCP!" >nul
+if !errorlevel! neq 0 (
+    echo   %RED%x%NC% Failed to back up Claude Code config; leaving it unchanged
+    goto :skip_claude_code
+)
 
 "%PYTHON_ABS%" "%HELPERS%\inject_mcp.py" "!CLAUDE_CODE_MCP!" "%PYTHON_ABS%" "%SERVER_ABS%"
 if !errorlevel! equ 0 (
@@ -602,7 +611,13 @@ if !errorlevel! equ 0 (
 REM The desktop app's entry stays out of Claude Code, its Code tab included (#231).
 set "_DESKTOP_DENIED=false"
 if "!CLAUDE_DESKTOP_DETECTED!"=="true" (
-    if exist "!CLAUDE_CODE_SETTINGS!" copy /Y "!CLAUDE_CODE_SETTINGS!" "!CLAUDE_CODE_SETTINGS!.backup.%BACKUP_TS%" >nul 2>&1
+    if exist "!CLAUDE_CODE_SETTINGS!" (
+        "%PYTHON_ABS%" "%HELPERS%\backup_file.py" "!CLAUDE_CODE_SETTINGS!" >nul
+        if !errorlevel! neq 0 (
+            echo   %RED%x%NC% Failed to back up Claude Code settings; leaving them unchanged
+            goto :skip_claude_code
+        )
+    )
     "%PYTHON_ABS%" "%HELPERS%\deny_desktop_mcp.py" "!CLAUDE_CODE_SETTINGS!" >nul
     if !errorlevel! equ 0 (
         set "_DESKTOP_DENIED=true"
@@ -658,7 +673,7 @@ if not exist "!ANTIGRAVITY_DIR!" mkdir "!ANTIGRAVITY_DIR!"
 
 REM Preserve the existing file before the helper updates only the managed entry.
 if exist "!ANTIGRAVITY_CONFIG!" (
-    copy /Y "!ANTIGRAVITY_CONFIG!" "!ANTIGRAVITY_CONFIG!.backup.%BACKUP_TS%" >nul 2>&1
+    "%PYTHON_ABS%" "%HELPERS%\backup_file.py" "!ANTIGRAVITY_CONFIG!" >nul
     if !errorlevel! neq 0 (
         echo   %RED%x%NC% Failed to back up Antigravity config; leaving it unchanged
         goto :skip_antigravity

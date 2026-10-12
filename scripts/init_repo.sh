@@ -249,6 +249,12 @@ print(resolver(sys.argv[3]))
 ' "$REPO_ROOT" "$@"
 }
 
+# Reserve a unique backup before any client configuration update.
+backup_mcp_config() {
+    "$PYTHON_ABS" "$REPO_ROOT/scripts/_helpers/backup_file.py" "$1" \
+      || { print_error "Failed to back up $1; leaving it unchanged"; return 1; }
+}
+
 # Inject Agents-Core MCP server entry into a JSON config file.
 # Usage: inject_mcp_config <config_path> <label> <client>
 inject_mcp_config() {
@@ -769,7 +775,7 @@ else
         fi
 
         # Backup before modifying
-        cp "$MCP_SETTINGS_FILE" "${MCP_SETTINGS_FILE}.backup.$(date +%s)"
+        backup_mcp_config "$MCP_SETTINGS_FILE" || exit 1
 
         inject_mcp_config "$MCP_SETTINGS_FILE" "$MCP_SETTINGS_FILE" cursor || exit 1
         CONFIGURED_ENVS+=("Cursor")
@@ -785,7 +791,7 @@ else
         fi
 
         # Backup before modifying
-        cp "$CLAUDE_DESKTOP_CONFIG" "${CLAUDE_DESKTOP_CONFIG}.backup.$(date +%s)"
+        backup_mcp_config "$CLAUDE_DESKTOP_CONFIG" || exit 1
 
         inject_mcp_config "$CLAUDE_DESKTOP_CONFIG" "Claude Desktop config" desktop || exit 1
         CONFIGURED_ENVS+=("Claude Desktop")
@@ -807,7 +813,7 @@ else
             fi
 
             # Backup before modifying
-            cp "$CLAUDE_CODE_MCP" "${CLAUDE_CODE_MCP}.backup.$(date +%s)"
+            backup_mcp_config "$CLAUDE_CODE_MCP" || exit 1
 
             inject_mcp_config "$CLAUDE_CODE_MCP" "$CLAUDE_CODE_MCP" claude || exit 1
             CONFIGURED_ENVS+=("Claude Code")
@@ -816,7 +822,7 @@ else
             if [ "$CLAUDE_DESKTOP_DETECTED" = true ]; then
                 CLAUDE_CODE_SETTINGS="$(resolve_client_path config claude-deny-desktop)"
                 if [ -f "$CLAUDE_CODE_SETTINGS" ]; then
-                    cp "$CLAUDE_CODE_SETTINGS" "${CLAUDE_CODE_SETTINGS}.backup.$(date +%s)"
+                    backup_mcp_config "$CLAUDE_CODE_SETTINGS" || exit 1
                 fi
                 if "$PYTHON_ABS" "$REPO_ROOT/scripts/_helpers/deny_desktop_mcp.py" "$CLAUDE_CODE_SETTINGS" >/dev/null; then
                     DESKTOP_DENIED=true
@@ -888,7 +894,7 @@ else
         fi
 
         # Backup before modifying
-        cp "$ANTIGRAVITY_CONFIG" "${ANTIGRAVITY_CONFIG}.backup.$(date +%s)"
+        backup_mcp_config "$ANTIGRAVITY_CONFIG" || exit 1
 
         inject_mcp_config "$ANTIGRAVITY_CONFIG" "$ANTIGRAVITY_CONFIG" antigravity || exit 1
         CONFIGURED_ENVS+=("Antigravity")

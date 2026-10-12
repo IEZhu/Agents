@@ -119,7 +119,9 @@ The interactive script:
   with Claude Desktop present also configures Claude Code, which the app's Code tab
   runs, and denies the desktop entry in Claude Code's `settings.json`
   ([why](#claude-code-mcpjson-in-project-root)), after copying existing files to
-  `<file>.backup.<epoch>`. Both Unix and Windows setup detect Antigravity through
+  exclusively reserved `<file>.backup.<unique-suffix>` names. Repeated runs,
+  including within the same second, preserve prior backups. If a backup fails,
+  the affected file is not updated. Both Unix and Windows setup detect Antigravity through
   its configuration directory, an available `agy` command or the explicit path
   override below. An existing invalid JSON file is left unchanged and reported
   as a failed client update. Unix setup then exits with a nonzero status instead
