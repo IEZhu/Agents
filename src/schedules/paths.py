@@ -33,8 +33,9 @@ Git runs without a shell and with a minimal environment: ``GIT_CONFIG_NOSYSTEM=1
 (``GIT_GRAFT_FILE`` at the null device), literal pathspecs, ``-C`` the trusted repository with
 discovery stopped above it, and ``--end-of-options`` before revision arguments. The trusted
 repository's own configuration, and the files it includes, is still read, with
-``core.fsmonitor=false``, ``core.hooksPath`` at the null device and ``core.quotePath=false`` set
-on the command line over it, so no fsmonitor command and no hook runs. A repository with an
+``core.fsmonitor=false``, ``core.hooksPath`` at the null device, ``core.commitGraph=false`` and
+``core.quotePath=false`` set on the command line over it, so no fsmonitor command and no hook
+runs, and parents come from the commit objects, not a commit-graph file. A repository with an
 ``info/grafts`` or ``objects/info/alternates`` file is refused (``PathsError``) before any other
 git call: grafts rewrite parents, alternates add objects from elsewhere. Every revision is a
 40-character lowercase hex SHA validated before any git call.
@@ -415,7 +416,7 @@ def _run(repository: Path, args: tuple[str, ...]) -> subprocess.CompletedProcess
     try:  # the lookup is inside: a missing git is a GitError like one that cannot start
         command = [executables.path("git"), "--no-pager", "--no-replace-objects", "--literal-pathspecs",
                    "-c", "core.quotePath=false", "-c", "core.fsmonitor=false", "-c", f"core.hooksPath={os.devnull}",
-                   "-C", str(repository), *args]
+                   "-c", "core.commitGraph=false", "-C", str(repository), *args]
         return subprocess.run(command, capture_output=True, stdin=subprocess.DEVNULL, timeout=GIT_TIMEOUT,
                               env=_environment(repository), check=False)
     except (OSError, subprocess.TimeoutExpired) as error:

@@ -86,9 +86,10 @@ arguments. Inherited `GIT_*` variables never reach it. What it reads:
   `GIT_NO_REPLACE_OBJECTS=1`) and grafts (`GIT_GRAFT_FILE` at the null device). No pager, no
   terminal prompt (`GIT_TERMINAL_PROMPT=0`), literal pathspecs.
 - **Read**: the trusted repository's own configuration (`config` and the files it includes),
-  with `-c core.fsmonitor=false`, `-c core.hooksPath=/dev/null` (the null device) and
-  `-c core.quotePath=false` on the command line taking precedence, so no fsmonitor command and
-  no hook runs. Plan 5.4 keeps sessions away from the trusted repository's `.git`.
+  with `-c core.fsmonitor=false`, `-c core.hooksPath=/dev/null` (the null device),
+  `-c core.commitGraph=false` and `-c core.quotePath=false` on the command line taking
+  precedence, so no fsmonitor command and no hook runs, and parents come from the commit objects
+  rather than a commit-graph file. Plan 5.4 keeps sessions away from the trusted repository's `.git`.
 - **Refused**: a trusted repository with an `info/grafts` or `objects/info/alternates` file in its
   common git directory. The check raises `PathsError` before it reads anything else: grafts
   rewrite parents, so a commit could hide from `base..head`, and alternates add objects from
