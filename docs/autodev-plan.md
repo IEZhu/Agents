@@ -1,6 +1,6 @@
 # Self-development: flow pipelines with contracts, execution profiles and local scheduled runs
 
-Date: 2026-10-12. Status: proposal, version 5. Nothing is implemented; the checklist plan is in [section 14](#14-implementation-plan).
+Date: 2026-10-12. Status: proposal, version 5, with the owner's answers to all questions ([section 13](#13-questions-for-the-owner)). Nothing is implemented; the checklist plan is in [section 14](#14-implementation-plan).
 
 Document history:
 
@@ -30,7 +30,7 @@ The design was first written in Russian at the owner's request. Repository polic
 - **Two modes, both under the owner's user and account** (Q6 = no).
   - **Supervised** (phase 1a): the schedule runs only `dry-run`; a real run is started by hand (`run-now`).
   - **Automatic** (phase 1b): real runs on a schedule. It can be enabled only after the runner itself has verified three conditions: the session sandbox holds, `main` is protected, and the owner's acceptance of the residual risk is recorded (5.7).
-- **Choosing the AI, model and effort works from phase 1.** The configuration sets a profile for each stage (selection, implementation, PR) and for each delegated step (review, pre-mortem). In phase 2 the same becomes a general execution profile for any flow.
+- **Choosing the AI, model and effort works from phase 1.** The configuration sets a profile for each stage (selection, implementation, PR) and for each delegated step (review, pre-mortem). The owner edits it, together with the schedule and the limits, on an autodev settings page in the daemon's web UI (Q4). In phase 2 the same becomes a general execution profile for any flow.
 - **Contracts and composite flows** are as in version 2: `contract` in frontmatter, a result envelope, linear pipelines with `when`, no state on the server. A "commit and path" flow source is added so that the engine can work with pinned text.
 - **Order of work:** phase 0 (protecting `main`, and decisions), then 1a, 1b, profiles, contracts, pipelines, full #206, evaluation.
 
@@ -193,6 +193,7 @@ The runner never executes a command sent through the socket, except the fixed wo
 - PRs: creating and editing only this run's PR (its ID in the broker log), closing keywords only for this run's issue; no merging, closing or deleting;
 - comments only on this run's issue and PR, editing only its own comments from the log; the issue body is never edited;
 - the labels `autodev`, `autodev:in-progress`, `autodev:blocked`, only on this run's issue and PR;
+- creating issues for this run's unresolved pre-mortem risks of level `medium` and above (Q3): only with the `autodev:risk` label, the marker and a link to this run's PR, at most 3 per run, never for a security-category risk (5.8);
 - resolving threads only on this run's PR, and only threads whose first comment is from an allowlisted bot or carries the agent marker;
 - reads only from a list of endpoints under `/repos/IEZhu/Agents`.
 
@@ -608,7 +609,7 @@ In the diagram, "Session" is a model that the runner started and "Runner" is cod
 | Selection | `autodev-select` | `product_manager` | a session, read-only | claude, opus, high | `decision` (`task`, `none`), `issue`, `slice`, `criteria_refs`, `scores`, `rationale` |
 | Implementation | `autodev-implement` | `software_engineer` | a session, local git only | claude, opus, xhigh | `branch`, `head_sha`, `changes`, `checks`, `reviews`, `blocked`, `blockers`, `pr_sections` |
 | └ review | `code-review-pass` | `code_reviewer` | a worker process | first review effort `high`, later ones `medium` (`effort_followup`); client per Q8 | `ReviewPayload` |
-| └ pre-mortem | `change-premortem` | `system_architect` (Q2) | a worker process | effort `high` | `ReviewPayload` (risk = `Finding`) |
+| └ pre-mortem | `change-premortem` | `sysadmin` (Q2) | a worker process | effort `high` | `ReviewPayload` (risk = `Finding`) |
 | PR and bots | `pr-review` in `autodev` mode | `code_reviewer` | a session, writes through the broker | claude, opus, high | `pr_url`, `head_sha`, `review_status`, `bots`, `followups`, `next_attempt` |
 
 ### 9.2 Gate (`autodev-gate`, runner code)
@@ -709,12 +710,12 @@ The selection session writes nothing. The runner posts the selection comment (`<
 
 **The pre-mortem comes right after a clean review, before the PR.**
 
-The premise: "The PR was merged, and a week later something broke. Why?" The session calls `{worker_cmd} premortem`. The runner's code prepares a package for the `system_architect` role (Q2) with `result_type="review"`, passes the diff, the criteria and the review log, and starts the worker with the profile from `delegates.change-premortem`.
+The premise: "The PR was merged, and a week later something broke. Why?" The session calls `{worker_cmd} premortem`. The runner's code prepares a package for the `sysadmin` role (Q2) with `result_type="review"`, passes the diff, the criteria and the review log, and starts the worker with the profile from `delegates.change-premortem`.
 
 1. The three to five most likely causes: regressions, data loss, security, compatibility, missed callers, wrong assumptions, behavior on other platforms. Each is a `Finding` with a code location and a failure scenario.
 2. The session decides on each: `fixed` (an edit is needed), `mitigated` (already covered by a test or code) or `known_risk`.
 3. **Verification review.** After the edits for `fixed`, and after fixes of `low` findings, a review covers all commits since the last full review and considers `critical` and `high`. It does not count toward `max_reviews`. If it finds anything, the stage ends with `blocked: true`. Then the checks run again.
-4. `known_risk` items go into the PR section "Pre-mortem: known risks". Security risks do not go there (5.8). The pre-mortem creates no new issues (Q3).
+4. `known_risk` items are handled by level (Q3). `low` and `info` go into the PR section "Pre-mortem: known risks". Each `medium`, `high` or `critical` risk becomes an issue with the `autodev:risk` label for later automatic analysis, created by the runner through the broker and linked from the PR. Security risks go to neither place: they stay local, and an open one blocks the PR (5.8). A risk issue enters the task pool only when the owner labels it `autodev:ready` or `autodev:next` (Q1).
 
 **The stage's output** is the session's structured output per the stage schema: `branch`, `head_sha`, `changes`, `checks`, `reviews`, `blocked`, `blockers`, `pr_sections` (the sections "Self-review", "Pre-mortem: known risks", "Declined findings"). The runner imports the final bundle, re-checks `head_sha` in the trusted repository and compares it with the last head covered by a validated review. With `blocked`, the runner sets `autodev:blocked` with a neutral list of blockers, and the bundle stays in a local quarantine ref.
 
@@ -751,6 +752,7 @@ The stage session runs `pr-review` in `autodev` mode; all writes go through the 
 | `autodev:ready` | Allowed to be taken during the calibration period | The owner |
 | `autodev:next` | Take next; allows `area:security`, protected paths and `area:evals` | The owner |
 | `autodev:skip` | Never take | The owner |
+| `autodev:risk` | An unresolved pre-mortem risk of level `medium` or above, kept for later automatic analysis (Q3); not a task until the owner labels it | The runner through the broker |
 
 ### 9.7 Modes
 
@@ -803,11 +805,11 @@ flowchart LR
 | `python -m src.schedules autodev ready` | Checks the automatic-mode conditions, including the sandbox probes, and lists what is missing |
 | `{worker_cmd}`, `{gh_cmd}`, `{heavy_cmd}` | Thin clients of the runner socket for sessions: workers, the broker, heavy processes. The runner puts their absolute paths into the prompt |
 
-Later the same will appear as a switch in the schedules tab (#211). Asking Claude to "turn on self-development" also works: it calls the same command.
+The autodev settings page in the daemon's web UI (phase 1a, Q4) has the same switch; the general schedules tab comes with #211. Asking Claude to "turn on self-development" also works: it calls the same command.
 
 ### 10.3 Configuration and AI choice
 
-The file `<state_dir>/schedules/autodev.json` is kept only on this machine and is not synced. Only the owner can write it.
+The file `<state_dir>/schedules/autodev.json` is kept only on this machine and is not synced. The owner edits it on the autodev settings page in the daemon's web UI (Q4): schedule slots and allowed hours, limits (Q5, Q10), the client, model and effort of every stage and delegated step including `effort_followup` (Q8, Q10, Q11, Q14), and the pre-mortem role (Q2). Sessions can reach neither the page nor the file (5.7). The values below are defaults.
 
 ```json
 {
@@ -924,32 +926,32 @@ Target values are set after the first ten runs, not earlier.
 
 ## 13. Questions for the owner
 
-The recommendation comes first. Without an answer, implementation follows the recommendation.
+The owner answered all questions on 2026-10-12. Each item states the decision; the original recommendation is kept where the owner accepted it.
 
-- **Q1. Task pool.** I recommend always taking only `autodev:ready` and `autodev:next`, without widening the pool: under a shared account the owner's label is the only reliable signal (5.1).
-- **Q2. Pre-mortem role.** I recommend `system_architect` as a separate worker. Alternative: `software_engineer` inside the implementation session.
-- **Q3. Unresolved pre-mortem risks.** I recommend only the "Pre-mortem: known risks" section in the PR.
-- **Q4. Schedule.** I recommend slots at 02:17 and 13:47 local time, and continuations at `next_attempt` within the allowed hours. Name your own if you prefer.
-- **Q5. Bots.** I recommend at most three rounds per PR and up to 120 minutes per wait.
+- **Q1. Task pool.** Accepted: always take only `autodev:ready` and `autodev:next`, without widening the pool; under a shared account the owner's label is the only reliable signal (5.1).
+- **Q2. Pre-mortem role.** Decided: `sysadmin` as a separate worker. The role is a setting on the autodev settings page.
+- **Q3. Unresolved pre-mortem risks.** Decided: risks of level `low` and `info` go into the "Pre-mortem: known risks" section of the PR; each risk of level `medium` or above becomes an issue with the `autodev:risk` label for later automatic analysis (9.4, 9.6). Security risks never become public issues (5.8). A risk issue becomes a task only when the owner labels it (Q1).
+- **Q4. Schedule.** Decided: the slots and allowed hours are set on the autodev settings page in the daemon's web UI; 02:17 and 13:47 local time are the defaults, with continuations at `next_attempt` within the allowed hours.
+- **Q5. Bots.** Accepted: at most three rounds per PR and up to 120 minutes per wait, both configurable on the settings page.
 - **Q6. A dedicated macOS user and GitHub account.** Decided on 2026-10-12: no. The automatic mode runs under the owner's account with the sandbox and the owner's explicit acceptance of the residual risk (5.7, section 11).
-- **Q7. Order.** I recommend 0, 1a, 1b, 2, 3, 4, 5, 6.
-- **Q8. Reviewer client.** I recommend Codex for reviewing code that Claude writes, but with a separate account with a spending limit in its `CODEX_HOME`, not with the owner's login. Without it the reviewer is Claude. The value of a different model is a hypothesis; phase 6 tests it.
+- **Q7. Order.** Left to the designer: 0, 1a, 1b, 2, 3, 4, 5, 6. Phase 1a gains the settings page, because Q4, Q5, Q8, Q10, Q11 and Q14 rely on it, and real runs inform the general profiles of phase 2.
+- **Q8. Reviewer client.** Decided: chosen on the settings page, Claude or Codex, per delegated step. A Codex worker keeps its own `CODEX_HOME` and spending limit (5.6); without a working outer sandbox the reviewer is Claude.
 - **Q9. Document language.** Decided on 2026-10-12: yes. This English translation is committed as `docs/autodev-plan.md`; the Russian draft is no longer in `docs/` in git.
-- **Q10. Review limit.** I recommend 3 reviews: the first with effort `high`, the later ones `medium`. The last one considers only `critical`, `high`, security and regressions. The verification review after the pre-mortem is counted separately.
-- **Q11. Stage models.** I recommend opus: `high` for selection and the PR, `xhigh` for implementation. Check the cost on the first runs.
-- **Q12. Typed outputs in `subagent/2`.** I recommend a separate proposal after the #327 evaluation. Alternative: a field in #324 before release.
-- **Q13. A real `run-now` under the owner's account.** I recommend allowing it from phase 1a: the owner starts it and reads the report.
-- **Q14. Codex as the client of stage sessions.** I recommend it first only as a reviewer, and for sessions after the network and sandbox checks in phase 1a.
-- **Q15. Broker credentials.** I recommend making them mandatory for any real run: a deploy key with write access (created by `gh`) and a fine-grained token of the owner's account for `IEZhu/Agents` only, with Pull requests and Issues write and Contents read (web interface only). This is not a separate account, just two minutes in the GitHub settings. Neither must be able to merge. The broker does not use the `gh` token with the `repo` and `workflow` scopes.
+- **Q10. Review limit.** Accepted: 3 reviews, the first with effort `high` and the later ones `medium`; the last one considers only `critical`, `high`, security and regressions. The lower follow-up effort is an explicit, visible setting (`effort_followup`) on the settings page, not a hidden default. The verification review after the pre-mortem is counted separately.
+- **Q11. Stage models.** Accepted: opus with `high` for selection and the PR and `xhigh` for implementation, set on the settings page. Check the cost on the first runs.
+- **Q12. Typed outputs in `subagent/2`.** Accepted: a separate proposal after the #327 evaluation.
+- **Q13. A real `run-now` under the owner's account.** Accepted from phase 1a; the first real run is done together with the owner.
+- **Q14. Codex as the client of stage sessions.** Decided: Codex is installed and selectable as a stage client on the settings page. The runner enables it only after the phase 1a network and sandbox probes pass for Codex; until then the page shows it as unavailable.
+- **Q15. Broker credentials.** Accepted and in progress: both are required for any real run. The deploy key exists, and the owner created the fine-grained token on 2026-10-12. The broker does not use the `gh` token with the `repo` and `workflow` scopes.
 
 ## 14. Implementation plan
 
 ### Phase 0. Decisions and protection
 
-- [ ] Answer questions Q1–Q15 (Q6 and Q9 are decided) or accept the recommendations.
+- [x] Answer questions Q1–Q15 (2026-10-12, section 13).
 - [x] Translate the document, commit it, add a row to the "Plans, research and recorded results" section of `docs/README.md`; remove the Russian draft from `docs/` (2026-10-12, this PR; the Russian original remains only as a local copy ignored by git).
 - [ ] Create an "Autodev" epic and issues in English with the `area:flows` label; update the bodies of #208–#210 with the slice of phases 1a and 1b, and #207, #209 and #211 with the execution fields.
-- [ ] Create the labels of section 9.6.
+- [ ] Create the labels of section 9.6, including `autodev:risk`.
 - [x] A ruleset on `main` (2026-10-12): include `~DEFAULT_BRANCH`, a required PR, no force push and no deletion, `OrganizationAdmin` bypass only through a PR; `allow_auto_merge` is off. Checked on a temporary branch: a direct push is rejected for the administrator and for the deploy key, deletion is rejected, merging a PR works.
 - [ ] The issue-agent bridge: the condition `performed_via_github_app == null` in `.github/workflows/issue-agent-bridge.yml` and `scripts/templates/issue-agent-bridge.yml`; tests in `tests/test_issue_agent_bridge.py`.
 - [ ] The issue-agent flows: ignore comments with `<!-- autodev` and comments made through an app; check `autodev:in-progress` (a mutual check).
@@ -1005,6 +1007,8 @@ The recommendation comes first. Without an answer, implementation follows the re
   - the worker: a wrong length, `valid: false`, `partial`.
 
   Isolation: `AGENTS_SERVICE_DIR` pointing to a temporary directory in `tests/conftest.py`, rows in `tests/README.md`.
+- [ ] The autodev settings page in the daemon's web UI (`src/daemon/flows_ui.py` or a sibling page): schedule slots and allowed hours, limits, the client, model and effort of every stage and delegated step with a visible `effort_followup`, the pre-mortem role, the enable switch and the run status. It writes `autodev.json` and checks values against the capability table; Codex as a stage client stays unavailable until its probes pass (Q2, Q4, Q5, Q8, Q10, Q11, Q14). Tests next to `tests/test_flows_ui_page.py`.
+- [ ] Risk issues (Q3): the broker operation of 5.6, `autodev:risk` issues for unresolved pre-mortem risks of level `medium` and above, and tests that security risks and more than 3 issues per run are refused.
 - [ ] Documentation: an "Autodev" section in `docs/` (installation, modes, cost, limitations), a row in `docs/README.md`.
 - [ ] Own review cycles, a PR, `pr-review` in `no-merge` mode.
 
@@ -1012,7 +1016,7 @@ The recommendation comes first. Without an answer, implementation follows the re
 
 - [ ] `run-now --mode dry-run` prints the decision and the top-five table. The broker log is empty; snapshots of comments, labels, PRs and remote branches before and after match.
 - [ ] Three `dry-run`s: the agent's top five is compared with the owner's; the schedule is enabled only if they broadly match.
-- [ ] A real `run-now` on a small issue with `autodev:ready` ends with one of two outcomes:
+- [ ] A real `run-now` on a small issue with `autodev:ready`, run together with the owner (Q13), ends with one of two outcomes:
   - a PR with the `autodev` label, the sections "Self-review", "Pre-mortem: known risks", "Checks", and the regular suite run;
   - `autodev:blocked` with a neutral list of blockers.
 - [ ] The run record contains a review by the Codex process with the profile from `delegates`, `valid: true`, and a head equal to the PR's head.
@@ -1101,6 +1105,7 @@ The recommendation comes first. Without an answer, implementation follows the re
 - [ ] The metrics of section 12 in the report, the PR description and the run records.
 - [ ] After ten runs, a report: the decision, cost, reviews, bot rounds and the owner's overrides for each.
 - [ ] A/B through `flows/ab-eval.md`: one reviewer versus a panel; review by the same model versus Codex on a diff with planted defects.
+- [ ] A flow that analyzes `autodev:risk` issues (Q3): propose its design after the first ten runs.
 - [ ] Acceptance: every changed default refers to this report.
 
 ## 15. Design review
