@@ -950,7 +950,7 @@ The owner answered all questions on 2026-10-12. Each item states the decision; t
 
 - [x] Answer questions Q1–Q15 (2026-10-12, section 13).
 - [x] Translate the document, commit it, add a row to the "Plans, research and recorded results" section of `docs/README.md`; remove the Russian draft from `docs/` (2026-10-12, this PR; the Russian original remains only as a local copy ignored by git).
-- [ ] Create an "Autodev" epic and issues in English with the `area:flows` label; update the bodies of #208–#210 with the slice of phases 1a and 1b, and #207, #209 and #211 with the execution fields.
+- [x] Create an "Autodev" epic and issues in English with the `area:flows` label (2026-10-12): epic #336 with parts #337–#354, also labelled `area:autodev`; #207–#211 got "Autodev additions" sections with the 1a/1b slice and the execution fields.
 - [x] Create the labels of section 9.6, including `autodev:risk` (2026-10-12, with `area:autodev` for the epic's issues).
 - [x] A ruleset on `main` (2026-10-12): include `~DEFAULT_BRANCH`, a required PR, no force push and no deletion, `OrganizationAdmin` bypass only through a PR; `allow_auto_merge` is off. Checked on a temporary branch: a direct push is rejected for the administrator and for the deploy key, deletion is rejected, merging a PR works.
 - [x] The issue-agent bridge: the condition `performed_via_github_app == null` in `.github/workflows/issue-agent-bridge.yml` and `scripts/templates/issue-agent-bridge.yml`, plus a refusal of comments carrying `<!-- autodev`; tests in `tests/test_issue_agent_bridge.py`. The completion job keeps accepting the cloud agent's app comments.
