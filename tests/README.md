@@ -122,7 +122,9 @@ It checks exact configuration targets, preserved inactive profiles, and paths wi
 spaces without modifying the user's client files. Backup regressions freeze the
 clock, preserve pre-existing and repeated snapshots, and reject updates when backup
 creation fails. `test_backup_file.py` checks the shared backup helper and partial-copy
-cleanup without changing live configuration.
+cleanup without changing live configuration. Unix-specific cases also repeat
+malformed-config failures and Claude Code permission updates, preserving each
+snapshot byte for byte.
 `test_installer_sync.py` runs each installer's token handling, argument parsing,
 sync section and summary line around a stub of `python -m src.user_sync`: `--yes`
 and `AGENTS_ASSUME_YES` reach the step, which then never asks; stdin from NUL is no

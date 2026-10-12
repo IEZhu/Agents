@@ -376,6 +376,63 @@ def test_backup_failure_preserves_client_config_and_is_not_reported_configured(p
         assert "CONFIGURED_ENVS=" not in result.stdout
 
 
+@pytest.mark.parametrize("profile_installer", ["bash"], indirect=True)
+@pytest.mark.parametrize("client", ["cursor", "desktop", "claude", "antigravity"])
+def test_unix_malformed_backups_survive_repeated_setup_in_the_same_second(profile_installer, client):
+    run, home, _, _, desktop = profile_installer
+    config = {"cursor": home / ".cursor/mcp.json", "desktop": desktop,
+              "claude": home / ".claude.json", "antigravity": home / ".gemini/config/mcp_config.json"}[client]
+    config.parent.mkdir(parents=True, exist_ok=True)
+    original = b'{"mcpServers":'
+    config.write_bytes(original)
+    previous = config.with_name(config.name + ".backup." + BACKUP_TIMESTAMP)
+    previous.write_bytes(b"Previous backup\r\n")
+    backups = {previous: previous.read_bytes()}
+
+    for _ in range(2):
+        result = run({})
+
+        assert result.returncode == 1, result.stdout + result.stderr
+        assert config.read_bytes() == original
+        assert "CONFIGURED_ENVS=" not in result.stdout
+        assert {backup: backup.read_bytes() for backup in backups} == backups
+        current = set(config.parent.glob(config.name + ".backup.*"))
+        created = current - backups.keys()
+        assert len(created) == 1
+        backup = created.pop()
+        assert backup.read_bytes() == original
+        backups[backup] = original
+
+
+@pytest.mark.parametrize("profile_installer", ["bash"], indirect=True)
+def test_unix_permission_backups_survive_repeated_setup_in_the_same_second(profile_installer):
+    run, home, _, _, desktop = profile_installer
+    desktop.parent.mkdir(parents=True)
+    settings = home / ".claude/settings.json"
+    settings.parent.mkdir()
+    settings.write_text('{"permissions": {"deny": ["existing-rule"]}, "userSetting": true}')
+    previous = settings.with_name(settings.name + ".backup." + BACKUP_TIMESTAMP)
+    previous.write_bytes(b"Previous permission backup\r\n")
+    backups = {previous: previous.read_bytes()}
+
+    for _ in range(2):
+        before = settings.read_bytes()
+        result = run({})
+
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert {backup: backup.read_bytes() for backup in backups} == backups
+        current = set(settings.parent.glob(settings.name + ".backup.*"))
+        created = current - backups.keys()
+        assert len(created) == 1
+        backup = created.pop()
+        assert backup.read_bytes() == before
+        backups[backup] = before
+        document = json.loads(settings.read_text())
+        assert document["userSetting"] is True
+        assert set(document["permissions"]["deny"]) == {
+            "existing-rule", "mcp__Agents-Core-Desktop__*", "mcp__Agents_Core_Desktop__*"}
+
+
 @pytest.mark.parametrize("override", [None, "custom antigravity/mcp.json", "profile!literal/mcp.json",
                                      "profile !segment!/mcp.json"])
 def test_client_config_paths_reports_effective_antigravity_path(tmp_path, override):
