@@ -10,6 +10,12 @@
 #   secret   CLAUDE_ROUTINE_TOKEN  API trigger token of the routine (generated at claude.ai/code/routines)
 #   variable CLAUDE_ROUTINE_ID     routine id, trig_...
 #   variable AGENT_OWNER           the only GitHub login allowed to issue commands
+#
+# Keep CLAUDE_ROUTINE_TOKEN as a secret of the environment `issue-agent` (Settings >
+# Environments) whose deployment branches are limited to the default branch, and
+# delete the repository-level copy. The dispatch job names that environment, so a
+# workflow pushed to any other branch cannot read the token. A repository-level
+# secret still works, but every branch's workflows can read it.
 name: issue-agent-bridge
 
 on:
@@ -27,19 +33,26 @@ jobs:
   fire:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # Only the default branch may deploy to this environment; it holds the routine token.
+    environment: issue-agent
     permissions:
       issues: write
       pull-requests: write  # Write the receipt and delete the startup acknowledgement in PR conversations.
     # Agent comments carry "<!-- issue-agent" and never start with /agent, so the
-    # agent cannot trigger itself even though it posts as the owner.
+    # agent cannot trigger itself even though it posts as the owner. Comments made
+    # through an app (the cloud agent, self-development) also post as the owner,
+    # so only a comment the owner typed, with no app attached, dispatches; the same
+    # holds for any comment carrying the self-development marker "<!-- autodev".
     if: >-
       github.event_name == 'issue_comment'
       && github.event.action == 'created'
       && vars.AGENT_OWNER != ''
       && github.event.comment.user.type == 'User'
       && github.event.comment.user.login == vars.AGENT_OWNER
+      && github.event.comment.performed_via_github_app == null
       && startsWith(github.event.comment.body, '/agent')
       && !contains(github.event.comment.body, '<!-- issue-agent')
+      && !contains(github.event.comment.body, '<!-- autodev')
     steps:
       # No checkout: comments and PR code never become executable runner code.
       - name: Dispatch and confirm startup
@@ -96,8 +109,9 @@ jobs:
               user = source.get("user") or {}
               body = source.get("body") or ""
               if (event.get("action") != "created" or user.get("type") != "User"
-                      or user.get("login") != owner or not re.match(r"^/agent(?:\s|$)", body)
-                      or "<!-- issue-agent" in body):
+                      or user.get("login") != owner or source.get("performed_via_github_app") is not None
+                      or not re.match(r"^/agent(?:\s|$)", body)
+                      or "<!-- issue-agent" in body or "<!-- autodev" in body):
                   return
               number = event["issue"]["number"]
 

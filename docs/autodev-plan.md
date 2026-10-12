@@ -951,16 +951,17 @@ The owner answered all questions on 2026-10-12. Each item states the decision; t
 - [x] Answer questions Q1–Q15 (2026-10-12, section 13).
 - [x] Translate the document, commit it, add a row to the "Plans, research and recorded results" section of `docs/README.md`; remove the Russian draft from `docs/` (2026-10-12, this PR; the Russian original remains only as a local copy ignored by git).
 - [ ] Create an "Autodev" epic and issues in English with the `area:flows` label; update the bodies of #208–#210 with the slice of phases 1a and 1b, and #207, #209 and #211 with the execution fields.
-- [ ] Create the labels of section 9.6, including `autodev:risk`.
+- [x] Create the labels of section 9.6, including `autodev:risk` (2026-10-12, with `area:autodev` for the epic's issues).
 - [x] A ruleset on `main` (2026-10-12): include `~DEFAULT_BRANCH`, a required PR, no force push and no deletion, `OrganizationAdmin` bypass only through a PR; `allow_auto_merge` is off. Checked on a temporary branch: a direct push is rejected for the administrator and for the deploy key, deletion is rejected, merging a PR works.
-- [ ] The issue-agent bridge: the condition `performed_via_github_app == null` in `.github/workflows/issue-agent-bridge.yml` and `scripts/templates/issue-agent-bridge.yml`; tests in `tests/test_issue_agent_bridge.py`.
-- [ ] The issue-agent flows: ignore comments with `<!-- autodev` and comments made through an app; check `autodev:in-progress` (a mutual check).
-- [ ] `CLAUDE_ROUTINE_TOKEN` moves into a GitHub environment for the default branch only; workflows on `pull_request` get `permissions: {}`.
-- [ ] `.github/autodev-protected-paths` with the list from 5.3.
+- [x] The issue-agent bridge: the condition `performed_via_github_app == null` in `.github/workflows/issue-agent-bridge.yml` and `scripts/templates/issue-agent-bridge.yml`, plus a refusal of comments carrying `<!-- autodev`; tests in `tests/test_issue_agent_bridge.py`. The completion job keeps accepting the cloud agent's app comments.
+- [x] The issue-agent flows: ignore comments with `<!-- autodev` and comments made through an app; check `autodev:in-progress` (a mutual check).
+- [x] The environment `issue-agent` exists (2026-10-12) with deployment branches limited to `main`, and the bridge's dispatch job names it. `user-sync.yml` and `windows-installer.yml` already declare `permissions: contents: read`; `tests/test_workflow_permissions.py` now requires read-only top-level permissions in every workflow and the environment for any job that reads `CLAUDE_ROUTINE_TOKEN`.
+- [ ] The owner moves `CLAUDE_ROUTINE_TOKEN` into the `issue-agent` environment and deletes the repository-level secret.
+- [x] `.github/autodev-protected-paths` with the list from 5.3.
 - [x] Deploy key (2026-10-12): `~/.config/agents-autodev/deploy_key` (mode 600), added to `IEZhu/Agents` with write access under the title `agents-autodev`. It is tied to the `gh` token: if the `gh` token is revoked, the key disappears.
 - [x] A fine-grained token (2026-10-12): created by the owner in the web interface for `IEZhu/Agents` only, Pull requests and Issues write, Contents read; stored in the keychain item `agents-autodev-github` (account `WonderMr`); expires on 2027-10-11.
 - [x] The broker token cannot create a branch or merge a PR (2026-10-12, HTTP 403 for both on throwaway branches with a temporary draft PR, #335); it can open and edit a PR and comment.
-- [ ] Check whether the deploy key can push `.github/workflows/**` to a feature branch; record the result (the broker rejects it anyway).
+- [x] The deploy key can push `.github/workflows/**` to a feature branch: a test push of a `workflow_dispatch`-only file to a side branch was accepted on 2026-10-12 (the branch was deleted at once, no workflow ran). The broker refuses `.github/**` (5.3), and the routine token must live only in the `issue-agent` environment, because a workflow on a side branch that triggers on `push` would otherwise receive repository secrets.
 
 ### Phase 1a. Supervised MVP
 
