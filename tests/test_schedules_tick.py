@@ -1,10 +1,14 @@
 """The scheduler tick on a fake clock: slots, catch-up, missed slots, continuations and blockers (#338)."""
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
+import time
+from zoneinfo import ZoneInfo
 
 import pytest
 
+from src.schedules import runner
 from src.schedules.config import DEFAULTS
-from src.schedules.tick import decide, next_slot, within
+from src.schedules.tick import decide, local_zone, next_slot, within
 from src.schedules.config import hour_ranges
 
 ZONE = timezone(timedelta(hours=3))
@@ -164,3 +168,83 @@ def test_next_slot_and_naive_time_refused():
     assert next_slot(DEFAULTS["times"], at(12, 23, 0)) == at(13, 2, 17)
     with pytest.raises(ValueError):
         decide(datetime(2026, 10, 12, 2, 20), config(), ENABLED)
+
+
+# --- a clock that was ahead (review F1) ---------------------------------------------------------------
+
+@pytest.mark.parametrize("mark", ["last_slot", "enabled_at"])
+def test_a_mark_stored_by_a_clock_that_was_ahead_does_not_silence_the_schedule(mark):
+    ahead = datetime(2027, 1, 1, 13, 47, tzinfo=ZONE).isoformat()
+    state = {**LONG_ENABLED, "last_slot": at(12, 2, 17).isoformat(), mark: ahead}
+    decision = decide(at(12, 13, 50), config(), state)
+    assert decision.action == "run" and decision.trigger["at"] == at(12, 13, 47).isoformat()
+    assert decision.reset == {"at": at(12, 13, 50).isoformat(), "marks": {mark: ahead}}
+    assert decision.to_dict()["reset"] == decision.reset and decision.state["clock_reset"] == decision.reset
+    assert decision.state["last_slot"] == at(12, 13, 47).isoformat()
+    # Stored again with a time that is not in the future: the next tick has nothing to reset.
+    later = decide(at(12, 13, 55), config(), decision.state)
+    assert later.action == "idle" and later.reset is None and "reset" not in later.to_dict()
+
+
+def test_a_continuation_mark_from_a_clock_that_was_ahead_is_reset():
+    state = continuation(at(12, 10, 0))
+    state["last_continuation"] = datetime(2027, 1, 1, tzinfo=ZONE).isoformat()
+    decision = decide(at(12, 10, 0), config(), state)
+    assert decision.action == "run" and decision.trigger["kind"] == "continuation"
+    assert list(decision.reset["marks"]) == ["last_continuation"]
+
+
+# --- daylight saving in a real zone (review F2) ------------------------------------------------------
+
+BERLIN = ZoneInfo("Europe/Berlin")
+
+
+def ticks(start_utc, hours, state, *, fixed_offset=False):
+    """Every five minutes from ``start_utc``, as the scheduler ticks; the runs and the last state."""
+    runs = []
+    for step in range(hours * 12):
+        now = (start_utc + timedelta(minutes=5 * step)).astimezone(BERLIN)
+        decision = decide(now, config(), state)
+        state = decision.state
+        if decision.action == "run":
+            runs.append((now.isoformat(), decision.trigger["at"]))
+    return runs, state
+
+
+def test_a_slot_in_the_repeated_hour_of_a_fall_back_night_runs_once():
+    # 2026-10-25 in Berlin: 03:00 CEST becomes 02:00 CET, so 02:17 happens twice.
+    runs, _ = ticks(datetime(2026, 10, 24, 22, 0, tzinfo=timezone.utc), 8,
+                    {"enabled_at": "2026-10-24T12:00:00+02:00"})
+    assert runs == [("2026-10-25T02:20:00+02:00", "2026-10-25T02:17:00+02:00")]
+
+
+def test_a_slot_skipped_by_spring_forward_runs_once_an_hour_later():
+    # 2026-03-29 in Berlin: 02:00 CET becomes 03:00 CEST, so 02:17 does not exist.
+    runs, _ = ticks(datetime(2026, 3, 28, 22, 0, tzinfo=timezone.utc), 8,
+                    {"enabled_at": "2026-03-28T12:00:00+01:00"})
+    assert runs == [("2026-03-29T03:20:00+02:00", "2026-03-29T03:17:00+02:00")]
+
+
+def test_the_catch_up_window_counts_real_time_across_the_fall_back_hour():
+    # 02:17 CEST was 2 h 59 min before 04:16 CET, although the clock shows 1 h 59 min.
+    now = datetime(2026, 10, 25, 3, 16, tzinfo=timezone.utc).astimezone(BERLIN)
+    assert now.isoformat() == "2026-10-25T04:16:00+01:00"
+    decision = decide(now, config(), {"enabled_at": "2026-10-24T14:00:00+02:00"})
+    assert decision.action == "idle" and decision.missed == ["2026-10-25T02:17:00+02:00"]
+
+
+def test_the_clock_of_the_runner_carries_the_local_zone(monkeypatch):
+    monkeypatch.setenv("TZ", "Europe/Berlin")
+    time.tzset()
+    try:
+        now = runner.Context(installation=Path("/nonexistent"), directory=Path("/nonexistent")).clock()
+        assert getattr(now.tzinfo, "key", None) == "Europe/Berlin"
+        assert local_zone() == BERLIN
+    finally:
+        monkeypatch.delenv("TZ")
+        time.tzset()
+
+
+def test_next_slot_across_a_25_hour_day():
+    now = datetime(2026, 10, 24, 2, 18, tzinfo=BERLIN)
+    assert next_slot(["02:17"], now).isoformat() == "2026-10-25T02:17:00+02:00"

@@ -16,6 +16,7 @@ from datetime import datetime
 import os
 from pathlib import Path
 import re
+import signal
 import subprocess
 import sys
 from typing import Callable
@@ -27,8 +28,8 @@ from . import config as autodev_config
 from . import drift, launchagent, lease, records
 from .gate import gate
 from .github import GitHubClient, GitHubError, NetworkError, TokenUnavailable, fetch_snapshot, token_provider
-from .supervise import run_supervised
-from .tick import decide, iso, next_slot
+from .supervise import SupervisorStopped, run_supervised
+from .tick import decide, iso, local_now, next_slot
 
 REAL_MODES = ("run", "resume")
 MISSING_FOR_REAL_MODES = ["#342 broker", "#347 run sequence", "#350 automatic mode"]
@@ -39,17 +40,13 @@ _ENVIRONMENT = ("HOME", "USER", "LOGNAME", "TMPDIR", "LANG", "LC_ALL", "LC_CTYPE
 HEAVY = (re.compile(r"\bpytest\b"), re.compile(r"\bsrc[./]reindex\b"))
 
 
-def _local_now() -> datetime:
-    return datetime.now().astimezone()
-
-
 @dataclass
 class Context:
     """Everything a command touches, so tests can replace each part."""
     installation: Path
     directory: Path
     python: str = sys.executable
-    clock: Callable[[], datetime] = _local_now
+    clock: Callable[[], datetime] = local_now  # in the local zoneinfo zone (daylight saving)
     launchctl: launchagent.Runner = launchagent.run_command
     agents_dir: Path | None = None
     client_factory: Callable[[dict], GitHubClient] | None = None
@@ -79,6 +76,11 @@ def infra(reason: str) -> dict:
 
 
 # --- probes ---------------------------------------------------------------------------------------
+
+def update_markers(directory: Path) -> list[str]:
+    """The daemon's update markers present in the state directory."""
+    return [name for name in UPDATE_MARKERS if (Path(directory) / name).exists()]
+
 
 def heavy_processes(ps: str = "/bin/ps") -> list[str]:
     """Other processes that would compete with a run: ``pytest`` and reindexing."""
@@ -136,7 +138,12 @@ def run_autodev(ctx: Context, mode: str, *, pr: int | None = None, run_id: str |
     try:
         with lease.hold(ctx.directory):
             records.write_record(run_id, record, ctx.directory)
-            record.update(_dry_run(ctx, config, now, pr))
+            # Checked again under the lease: an update that began after the tick's check holds
+            # the lease itself, and a marker left by any other update or `recover` shows here.
+            if markers := update_markers(ctx.directory):
+                record.update(infra(f"update: a daemon update or maintenance is in progress ({', '.join(markers)})"))
+            else:
+                record.update(_dry_run(ctx, config, now, pr))
     except lease.LeaseBusy as error:
         record.update(infra(f"lease: {error}"))
     record["finished"] = iso(ctx.clock())
@@ -194,6 +201,13 @@ def launch(ctx: Context, mode: str, trigger: dict, *, pr: int | None = None) -> 
     try:
         outcome = ctx.supervise(argv, timeout=timeout, cwd=ctx.installation, env=run_environment(ctx),
                                 stdout_path=run_dir / "stdout.log", stderr_path=run_dir / "stderr.log")
+    except SupervisorStopped as stopped:  # the run's tree is already swept; record it, then stop
+        record = records.read_record(run_id, ctx.directory) or {}
+        record.update(infra(f"stopped: the supervisor received {signal.Signals(stopped.signal).name}; "
+                            "the run's process tree was ended"))
+        record.setdefault("finished", iso(ctx.clock()))
+        records.write_record(run_id, record, ctx.directory)
+        raise
     except OSError as error:
         outcome, failure = None, infra(f"cli: the run could not start: {type(error).__name__}: {error}")
     else:
@@ -204,8 +218,11 @@ def launch(ctx: Context, mode: str, trigger: dict, *, pr: int | None = None) -> 
     elif outcome.timed_out:
         record.update(infra(f"timeout: the run exceeded {timeout} seconds; its process tree was ended"),
                       signalled=outcome.signalled)
-    elif record.get("status") not in ("completed", "failed: infra"):
-        record.update(infra(f"cli: the run exited with code {outcome.returncode} without a result"))
+    else:
+        if outcome.signalled:  # processes the run left behind when it exited
+            record["swept"] = outcome.signalled
+        if record.get("status") not in ("completed", "failed: infra"):
+            record.update(infra(f"cli: the run exited with code {outcome.returncode} without a result"))
     if outcome is not None:
         record["caffeinated"] = outcome.caffeinated
     record.setdefault("finished", iso(ctx.clock()))
@@ -234,11 +251,11 @@ def tick(ctx: Context) -> tuple[int, dict]:
     decision = decide(
         now, config, _tick_state(ctx),
         lease_free=lambda: not lease.held(ctx.directory),
-        update_pending=lambda: any((ctx.directory / name).exists() for name in UPDATE_MARKERS),
+        update_pending=lambda: bool(update_markers(ctx.directory)),
         heavy_processes=ctx.heavy_processes or heavy_processes,
         on_ac_power=ctx.on_ac_power or on_ac_power)
     state = dict(decision.state)
-    if decision.action != "idle" or decision.missed:
+    if decision.action != "idle" or decision.missed or decision.reset:
         state["last_decision"] = {"time": iso(now), **decision.to_dict()}
     _save_tick_state(ctx, state)  # before the run, so a crash never repeats a handled slot
     result = {"ok": True, "tick": decision.to_dict()}

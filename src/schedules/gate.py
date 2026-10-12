@@ -9,6 +9,9 @@ The snapshot holds GitHub REST responses as they arrive (`src.schedules.github.f
 * ``claimed_issues``: open issues with ``autodev:in-progress`` (``GET /repos/R/issues``);
 * ``issue_events``: per issue number, its events (``GET /repos/R/issues/N/events``);
 * ``pulls``: open and recently closed pull requests (``GET /repos/R/pulls``);
+* ``linked_issues``: per issue number, the issue (``GET /repos/R/issues/N``) that a closed
+  self-development PR names by its branch and that is not among ``claimed_issues``, usually because
+  the merge closed it; the claim label stays on a closed issue unless the gate removes it;
 * ``pull_details``, ``issue_comments``, ``reviews``, ``review_comments``: per open
   self-development PR number, ``GET /repos/R/pulls/N``, ``/issues/N/comments``,
   ``/pulls/N/reviews`` and ``/pulls/N/comments``.
@@ -199,17 +202,22 @@ def gate(snapshot: Mapping, trusted_ids: Iterable[int], *, max_bot_rounds: int,
     for pull in pulls:
         pulls_of_issue.setdefault(issue_of(pull), []).append(pull)
 
-    # Closed self-development PRs end their issue's claim (9.2, step 3).
+    # Closed self-development PRs end their issue's claim (9.2, step 3), also on an issue the merge
+    # closed, which is no longer among the open claimed issues.
+    closed_claims = {int(number): issue for number, issue in (snapshot.get("linked_issues") or {}).items()
+                     if isinstance(issue, dict) and str(number).isdigit() and "pull_request" not in issue
+                     and issue.get("number") == int(number) and CLAIM_LABEL in _labels(issue)}
     for pull in pulls:
         issue = issue_of(pull)
-        if pull.get("state") == "closed" and issue in claimed and \
+        if pull.get("state") == "closed" and issue in claimed.keys() | closed_claims.keys() and \
                 not any(other.get("state") == "open" for other in pulls_of_issue[issue]):
             if pull.get("merged_at"):
                 actions.append(_remove_claim(issue, f"PR #{pull['number']} was merged"))
             else:
                 actions.append(_remove_claim(issue, f"PR #{pull['number']} was closed without merging"))
                 notes.append(f"issue #{issue} is taken again only with autodev:next")
-            del claimed[issue]
+            claimed.pop(issue, None)
+            closed_claims.pop(issue, None)
 
     # Claims without any PR (9.2, step 2).
     for number in sorted(claimed):

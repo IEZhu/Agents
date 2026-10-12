@@ -5,10 +5,12 @@ import signal
 import subprocess
 import sys
 import textwrap
+import threading
 import time
 
 import pytest
 
+from src.file_lock import file_lock
 from src.schedules import lease, supervise
 from src.schedules.supervise import caffeinate_argv, descendants, run_supervised
 
@@ -135,3 +137,205 @@ def test_lease_held_by_a_killed_process_is_released(tmp_path):
         holder.wait()
         holder.stdout.close()
     assert not lease.held(tmp_path)
+
+
+def test_a_probe_of_the_lease_does_not_make_a_hold_fail(tmp_path):
+    """`held` takes the lock for an instant; a run or an update that collides with it waits it out."""
+    path = lease.lease_path(tmp_path)
+    path.parent.mkdir(parents=True)
+    taken, done = threading.Event(), threading.Event()
+
+    def slow_probe():
+        with file_lock(path, blocking=False):
+            taken.set()
+            time.sleep(0.3)
+        done.set()
+    thread = threading.Thread(target=slow_probe)
+    thread.start()
+    try:
+        assert taken.wait(5)
+        with lease.hold(tmp_path):
+            assert done.is_set()
+    finally:
+        thread.join(5)
+
+
+def test_concurrent_probes_never_fail_a_hold(tmp_path):
+    stop = threading.Event()
+
+    def probe():
+        while not stop.is_set():
+            lease.held(tmp_path)
+    with lease.hold(tmp_path):
+        pass
+    probes = [threading.Thread(target=probe) for _ in range(3)]
+    for thread in probes:
+        thread.start()
+    try:
+        for _ in range(50):
+            with lease.hold(tmp_path):
+                pass
+    finally:
+        stop.set()
+        for thread in probes:
+            thread.join(5)
+
+
+def test_a_lease_kept_by_another_holder_is_busy_after_the_wait(tmp_path):
+    with lease.hold(tmp_path):
+        started = time.monotonic()
+        with pytest.raises(lease.LeaseBusy):
+            with lease.hold(tmp_path, wait=0.3):
+                pass
+        assert 0.25 < time.monotonic() - started < 5
+
+
+# --- review F7 to F10: every way a run ends sweeps its tree, and no reused PID is signalled -------------
+
+REPO = Path(__file__).resolve().parents[1]
+
+
+def wait_for(path, count=1, seconds=20):
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        if path.exists() and len(path.read_text().split()) >= count:
+            return [int(pid) for pid in path.read_text().split()]
+        time.sleep(0.05)
+    raise AssertionError(f"{path} did not list {count} PIDs")
+
+
+def gone(pids, seconds=10):
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline and any(alive(pid) for pid in pids):
+        time.sleep(0.1)
+    return [pid for pid in pids if alive(pid)] == []
+
+
+def supervised(tmp_path, argv, **kwargs):
+    return run_supervised(argv, cwd=tmp_path, env=dict(os.environ), stdout_path=tmp_path / "out",
+                          stderr_path=tmp_path / "err", caffeinate=False, **{"timeout": 30, "grace": 1, **kwargs})
+
+
+def test_a_process_left_behind_by_a_normal_exit_is_swept(tmp_path):
+    pids = tmp_path / "pids"
+    result = supervised(tmp_path, ["/bin/sh", "-c", f"sleep 61 & echo $! > {pids}; exit 0"])
+    leftover = wait_for(pids)
+    assert result.returncode == 0 and not result.timed_out
+    assert gone(leftover) and result.signalled == leftover
+
+
+# The root starts a child that calls setsid, starts a grandchild and exits at once: the grandchild
+# is in another session and process group, and its parent is launchd.
+DOUBLE_FORK = textwrap.dedent("""
+    import os, subprocess, sys, time
+    pids, root_exits = sys.argv[1], sys.argv[2] == "exit"
+    grandchild = "import os, sys, time; open(sys.argv[1], 'a').write(f'{os.getpid()}\\\\n'); time.sleep(600)"
+    child = ("import os, subprocess, sys; os.setsid(); "
+             f"subprocess.Popen([sys.executable, '-c', {grandchild!r}, sys.argv[1]]); os._exit(0)")
+    subprocess.run([sys.executable, "-c", child, pids], check=True)
+    while not (os.path.exists(pids) and open(pids).read().strip()):
+        time.sleep(0.05)
+    if not root_exits:
+        time.sleep(600)
+""")
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="the marker is read with macOS ps -E")
+@pytest.mark.parametrize("ending", ["timeout", "exit"])
+def test_a_double_forked_setsid_descendant_is_swept(tmp_path, ending):
+    pids, script = tmp_path / "pids", tmp_path / "double_fork.py"
+    script.write_text(DOUBLE_FORK)
+    result = supervised(tmp_path, [sys.executable, str(script), str(pids), ending],
+                        timeout=8 if ending == "timeout" else 30)
+    grandchild = wait_for(pids)[0]
+    assert result.timed_out is (ending == "timeout")
+    assert gone([grandchild]) and grandchild in result.signalled
+
+
+SUPERVISOR = textwrap.dedent("""
+    import os, sys
+    from src.schedules.supervise import run_supervised
+    child = "import os, sys, time; open(sys.argv[1], 'a').write(f'{os.getpid()}\\\\n'); time.sleep(600)"
+    tmp = sys.argv[1]
+    run_supervised([sys.executable, "-c", child, os.path.join(tmp, "pids")], timeout=600, cwd=tmp,
+                   env=dict(os.environ), stdout_path=os.path.join(tmp, "out"), stderr_path=os.path.join(tmp, "err"),
+                   caffeinate=False, grace=1)
+""")
+
+
+@pytest.mark.parametrize("number", [signal.SIGTERM, signal.SIGHUP, signal.SIGINT])
+def test_a_stop_signal_to_the_supervisor_ends_the_run(tmp_path, number):
+    supervisor = subprocess.Popen([sys.executable, "-c", SUPERVISOR, str(tmp_path)], cwd=REPO,
+                                  stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+    try:
+        run = wait_for(tmp_path / "pids")[0]
+        supervisor.send_signal(number)
+        _, errors = supervisor.communicate(timeout=30)
+    finally:
+        if supervisor.poll() is None:
+            supervisor.kill()
+            supervisor.communicate()
+    assert supervisor.returncode == 128 + number, errors
+    assert gone([run])
+
+
+def test_the_previous_signal_handlers_are_restored(tmp_path):
+    before = {number: signal.getsignal(number) for number in supervise.STOP_SIGNALS}
+    supervised(tmp_path, [sys.executable, "-c", "pass"])
+    assert {number: signal.getsignal(number) for number in supervise.STOP_SIGNALS} == before
+
+
+def root_state(pid):
+    return subprocess.run(["/bin/ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True).stdout.strip()
+
+
+def test_the_root_stays_unreaped_until_the_sweep_ends(tmp_path):
+    process = subprocess.Popen([sys.executable, "-c", "pass"], start_new_session=True)
+    while not supervise.exited(process.pid):
+        time.sleep(0.05)
+    states = []
+
+    def table():
+        states.append(root_state(process.pid))
+        return []
+    assert supervise.terminate_tree(process, grace=0.3, table=table) == []
+    assert states and all(state.startswith("Z") for state in states), states  # PID and group reserved
+    assert process.returncode == 0 and root_state(process.pid) == ""
+
+
+def test_a_remembered_pid_that_now_names_another_process_is_not_signalled(tmp_path, monkeypatch):
+    process = subprocess.Popen([sys.executable, "-c", "pass"], start_new_session=True)
+    while not supervise.exited(process.pid):
+        time.sleep(0.05)
+    stranger = supervise.Proc(4242, 1, 4242, "Mon Oct 12 20:00:01 2026")  # PID 4242 reused since
+    sent = []
+    monkeypatch.setattr(supervise.os, "kill", lambda pid, number: sent.append(pid))
+    monkeypatch.setattr(supervise.os, "killpg", lambda group, number: sent.append(("group", group)))
+    signalled = supervise.terminate_tree(process, grace=0.3, table=lambda: [stranger],
+                                         seen={4242: "Mon Oct 12 19:00:00 2026"})
+    assert signalled == [] and 4242 not in sent
+    same = supervise.Proc(4242, 1, 4242, "Mon Oct 12 19:00:00 2026")  # still the process seen in the run
+    process = subprocess.Popen([sys.executable, "-c", "pass"], start_new_session=True)
+    while not supervise.exited(process.pid):
+        time.sleep(0.05)
+    assert supervise.terminate_tree(process, grace=0.3, table=lambda: [same],
+                                    seen={4242: "Mon Oct 12 19:00:00 2026"}) == [4242]
+
+
+def test_the_marker_finds_a_process_by_its_environment():
+    table = [supervise.Proc(30, 1, 30, "t", False, frozenset({"abc"})), supervise.Proc(31, 1, 31, "t"),
+             supervise.Proc(32, 1, 10, "t", True)]
+    assert descendants(10, table, "abc") == {30}  # 32 is a zombie of the group
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="the marker is read with macOS ps -E")
+def test_the_process_table_reads_the_marker_of_a_python_process(tmp_path):
+    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"],
+                             env={**os.environ, supervise.MARKER: "f00d"})
+    try:
+        time.sleep(0.3)
+        rows = {row.pid: row for row in supervise.process_table()}
+        assert rows[child.pid].markers == frozenset({"f00d"}) and rows[child.pid].started
+    finally:
+        child.kill()
+        child.wait()

@@ -829,7 +829,54 @@
     "pull_request_review_id": 7001,
     "in_reply_to_id": 8004
    }
-  ]
+  ],
+  "issue_402_closed_by_the_merge": {
+   "url": "https://api.github.com/repos/IEZhu/Agents/issues/402",
+   "number": 402,
+   "title": "Issue 402",
+   "state": "closed",
+   "user": {
+    "login": "WonderMr",
+    "id": 5370211,
+    "type": "User"
+   },
+   "labels": [
+    {
+     "id": 2,
+     "name": "autodev:in-progress",
+     "color": "ededed",
+     "default": false
+    }
+   ],
+   "assignees": [],
+   "comments": 0,
+   "created_at": "2026-10-01T08:00:00Z",
+   "updated_at": "2026-10-12T08:00:00Z",
+   "performed_via_github_app": null,
+   "body": "Acceptance: ...",
+   "closed_at": "2026-10-12T06:00:05Z",
+   "state_reason": "completed"
+  },
+  "issue_402_closed_without_the_claim": {
+   "url": "https://api.github.com/repos/IEZhu/Agents/issues/402",
+   "number": 402,
+   "title": "Issue 402",
+   "state": "closed",
+   "user": {
+    "login": "WonderMr",
+    "id": 5370211,
+    "type": "User"
+   },
+   "labels": [],
+   "assignees": [],
+   "comments": 0,
+   "created_at": "2026-10-01T08:00:00Z",
+   "updated_at": "2026-10-12T08:00:00Z",
+   "performed_via_github_app": null,
+   "body": "Acceptance: ...",
+   "closed_at": "2026-10-12T06:00:05Z",
+   "state_reason": "completed"
+  }
  },
  "scenarios": {
   "select_when_nothing_is_open": {
@@ -1390,6 +1437,37 @@
    "expect": {
     "decision": "wait",
     "reason": "not a self-development pull request"
+   }
+  },
+  "merged_pr_that_closed_its_issue_removes_the_claim": {
+   "pulls": [
+    "pr_411_merged"
+   ],
+   "linked_issues": {
+    "402": "issue_402_closed_by_the_merge"
+   },
+   "expect": {
+    "decision": "select",
+    "actions": [
+     {
+      "op": "remove_label",
+      "issue": 402,
+      "label": "autodev:in-progress",
+      "with_comment": false
+     }
+    ],
+    "action_reason": "PR #411 was merged"
+   }
+  },
+  "closed_issue_whose_claim_is_already_removed_needs_nothing": {
+   "pulls": [
+    "pr_411_merged"
+   ],
+   "linked_issues": {
+    "402": "issue_402_closed_without_the_claim"
+   },
+   "expect": {
+    "decision": "select"
    }
   }
  }

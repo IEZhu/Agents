@@ -48,6 +48,13 @@ running, or, with `require_ac_power`, the Mac is on battery. A due slot that wai
 every tick until the catch-up window passes. A slot older than the window is recorded as
 `missed`, and slots from before `enable` never count.
 
+Slots are wall-clock times in the local time zone (a `zoneinfo` zone), compared as instants. On
+a daylight-saving fall-back night a repeated slot runs once, at its first occurrence; a slot that
+spring-forward skips runs at the instant it maps to, an hour later on the clock. A mark in the
+tick state that lies after the current time (`last_slot`, `enabled_at`, `last_continuation`) can
+only come from a clock that was ahead. The tick replaces it with the current time minus the
+catch-up window and records the old values as `clock_reset`.
+
 ## Gate
 
 `src/schedules/gate.py` is a pure function over a GitHub snapshot and the run records. It returns
@@ -55,8 +62,9 @@ every tick until the catch-up window passes. A slot older than the window is rec
 
 1. A self-development PR has the `autodev` label and a branch `claude/autodev-<issue>-…` of
    this repository. When one is merged or closed, the gate removes its issue's
-   `autodev:in-progress` label without a comment. After a close without merge, the issue is
-   taken again only with `autodev:next`.
+   `autodev:in-progress` label without a comment, also when the merge closed the issue (the
+   snapshot reads such an issue by its number). After a close without merge, the issue is taken
+   again only with `autodev:next`.
 2. A claim without any PR waits while it is younger than 6 hours. An older claim is removed with
    a comment that starts with `<!-- autodev -->`.
 3. An open self-development PR resumes when its trusted state says the review is unfinished and
@@ -79,8 +87,8 @@ All files live in the service state directory `<state_dir>` from `src.daemon.sta
 | Path | Content |
 |---|---|
 | `schedules/autodev.json` | The configuration. Defaults are design 10.3; a missing key takes its default. Validated on every load and save, written atomically. |
-| `schedules/tick.json` | The tick state: `enabled_at`, `last_slot`, `last_continuation`, `next_attempt`, `missed` and the last decision. |
-| `schedules/run.lease` | The run lease. A run holds it from start to finish. While it is held, the daemon's auto-update defers with `service is busy: an autodev run holds its run lease`. |
+| `schedules/tick.json` | The tick state: `enabled_at`, `last_slot`, `last_continuation`, `next_attempt`, `missed`, `clock_reset` and the last decision. |
+| `schedules/run.lease` | The run lease. A run holds it from start to finish; the daemon's auto-update holds it for its whole transaction. While a run holds it, the auto-update defers with `service is busy: an autodev run holds its run lease`; while the update holds it, a run ends as `failed: infra` (`lease`). A run that takes the lease checks `maintenance.json` and `transaction.json` again and ends as `failed: infra` (`update`) when one exists. A brief probe of the lease never fails a holder: taking it retries for one second. |
 | `schedules/runs/<run-id>/record.json` | The run record: mode, trigger, status, gate decision, `pinned`, the GitHub paths read, and `comments` (the IDs of comments the runner wrote). Token-like strings are masked. |
 | `schedules/runs/<run-id>/stdout.log`, `stderr.log` | The supervised run's output. |
 | `schedules/tools.json` | The absolute paths of `claude`, `codex`, `gh` and `git` resolved at `install`. |
@@ -89,14 +97,22 @@ All files live in the service state directory `<state_dir>` from `src.daemon.sta
 
 ## Supervision and failures
 
-A run goes into a new process group under `caffeinate -i -w <pid>`. A dry-run may take 30
-minutes. On timeout the supervisor sends SIGTERM to the group and to every descendant found by
-parent PID, including one that left the group. After a grace period it sends SIGKILL to all of
-them.
+A run goes into a new process group under `caffeinate -i -w <pid>`, with a random per-run marker
+`AGENTS_SUPERVISED_RUN` in its environment. A dry-run may take 30 minutes. However the run ends,
+by a normal exit, a timeout, or SIGTERM, SIGHUP or SIGINT to the supervisor, the supervisor
+sweeps it: SIGTERM to the group and to every process of the run, then, after a grace period,
+SIGKILL. A process of the run descends from it by parent PID, is in its group, carries the
+marker (read with `ps -E`, which also finds a double-forked `setsid` descendant), or was seen in
+the run by a periodic scan and still has the same start time. The run's root stays unreaped
+until the sweep ends, so its PID and group cannot be reused, and only PIDs from a fresh scan are
+signalled. macOS hides the environment of its own binaries in `/bin`, so such a process that
+leaves the group and loses its parent before a scan sees it is not found. Processes swept after
+a normal exit are recorded as `swept`; a stopped supervisor records `failed: infra` (`stopped`)
+and exits with 128 plus the signal number.
 
 Infrastructure failures end with the status `failed: infra` and a reason prefix: `cli` (a
 command or the keychain failed, or the run exited without a result), `network`, `lease`,
-`runner drift` and `timeout`. They set no label, and the next slot retries.
+`update`, `runner drift`, `timeout` and `stopped`. They set no label, and the next slot retries.
 
 The drift check compares the runner's imported modules and `agents/`, `rules/`, `skills/` and
 `implants/`, including untracked files there, with `origin/main` of the installation. This part
@@ -107,4 +123,5 @@ does not fetch.
 The gate reads GitHub through `src/schedules/github.py`. The client sends only `GET` requests,
 only to paths under `/repos/<repository>/`. It takes the fine-grained token from the keychain
 item named by `github.token` (default `agents-autodev-github`, account `WonderMr`), never the `gh`
-token. The token is never printed, logged or recorded.
+token. The token is never printed, logged or recorded. The client follows no redirect: a 3xx
+answer is an error, and the `Authorization` header is one that urllib keeps off any redirect.

@@ -1,7 +1,10 @@
 """The read-only GitHub client and its keychain token provider, with fakes only (#338)."""
+import contextlib
 from datetime import datetime, timezone
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import subprocess
+import threading
 from types import SimpleNamespace
 
 import pytest
@@ -141,3 +144,77 @@ def test_snapshot_reads_only_what_the_gate_needs():
     paths = {url.removeprefix(github.API).partition("?")[0] for url, _ in fake.calls}
     assert f"{base}/pulls/411" not in paths
     assert all(path.startswith(base + "/") for path in paths)
+
+
+# --- redirects (review F6): a real local server ------------------------------------------------------
+
+class _Recorder(BaseHTTPRequestHandler):
+    """Answers every GET with ``answer(path)`` and records the request's headers."""
+
+    def do_GET(self):  # noqa: N802 (http.server's name)
+        self.server.seen.append((self.path, dict(self.headers)))
+        status, headers = self.server.answer(self.path)
+        self.send_response(status)
+        for name, value in headers.items():
+            self.send_header(name, value)
+        body = b"[]"
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *args):
+        pass
+
+
+@contextlib.contextmanager
+def http_server(answer):
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _Recorder)
+    server.seen, server.answer = [], answer
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield server
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(5)
+
+
+@pytest.mark.parametrize("status", [301, 302, 303, 307, 308])
+def test_a_redirect_is_refused_and_the_token_never_reaches_its_target(status):
+    with http_server(lambda path: (200, {})) as target, \
+            http_server(lambda path: (status, {"Location": f"http://127.0.0.1:{target.server_port}/stolen"})) as origin:
+        local = f"http://127.0.0.1:{origin.server_port}"
+
+        def transport(url, headers):
+            return github.urllib_transport(url.replace(github.API, local), headers)
+        api = GitHubClient("IEZhu/Agents", lambda: SECRET, transport=transport)
+        with pytest.raises(GitHubError) as raised:
+            api.get_all("/repos/IEZhu/Agents/issues")
+        assert raised.value.status == status and "redirect" in str(raised.value)
+        assert SECRET not in str(raised.value)
+        assert [path for path, _ in origin.seen] == ["/repos/IEZhu/Agents/issues"]
+        assert origin.seen[0][1]["Authorization"] == f"Bearer {SECRET}"
+    assert target.seen == []  # not followed, so nothing, and no token, reached another host or path
+
+
+def test_the_transport_returns_a_redirect_without_following_it():
+    with http_server(lambda path: (200, {})) as target, \
+            http_server(lambda path: (307, {"Location": f"http://127.0.0.1:{target.server_port}/x"})) as origin:
+        status, headers, _ = github.urllib_transport(f"http://127.0.0.1:{origin.server_port}/repos/IEZhu/Agents/x",
+                                                     {"Authorization": f"Bearer {SECRET}", "Accept": "x"})
+    assert status == 307 and target.seen == []
+
+
+def test_snapshot_reads_the_issue_a_merged_pr_closed():
+    base = "/repos/IEZhu/Agents"
+    merged = {"number": 411, "state": "closed", "merged_at": "2026-10-12T06:00:00Z", "labels": [{"name": "autodev"}],
+              "head": {"ref": "claude/autodev-402-done", "repo": {"full_name": "IEZhu/Agents"}}}
+    other = {"number": 412, "state": "closed", "labels": [], "head": {"ref": "claude/autodev-403-x",
+                                                                       "repo": {"full_name": "IEZhu/Agents"}}}
+    issue = {"number": 402, "state": "closed", "labels": [{"name": "autodev:in-progress"}]}
+    api, fake = client({f"{base}/issues": [[]], f"{base}/pulls": [[merged, other]], f"{base}/issues/402": issue})
+    snapshot = fetch_snapshot(api, NOW)
+    assert snapshot["linked_issues"] == {"402": issue}
+    paths = [url.removeprefix(github.API).partition("?")[0] for url, _ in fake.calls]
+    assert f"{base}/issues/402" in paths and f"{base}/issues/403" not in paths  # 412 is not self-development

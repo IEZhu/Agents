@@ -1,7 +1,9 @@
 """A read-only GitHub REST client for the gate, and the snapshot it reads.
 
 The client can only ``GET`` paths under ``/repos/<repository>/`` and follows ``Link: rel="next"``
-pages on ``api.github.com``. Its token comes from a provider called once per client; the default
+pages on ``api.github.com``. It never follows an HTTP redirect: urllib would send the
+``Authorization`` header to whatever ``Location`` names, so a 3xx answer is an error, and the
+header is also added as one that urllib keeps off any redirect. Its token comes from a provider called once per client; the default
 provider reads the fine-grained token from the macOS keychain item ``agents-autodev-github``
 (account ``WonderMr``), never the ``gh`` token. The token is kept in memory only: it is never
 printed, logged, put into an exception or written to a record.
@@ -15,9 +17,9 @@ import subprocess
 from typing import Any, Callable, Mapping
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlsplit
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
-from .gate import CLAIM_LABEL, is_self_development
+from .gate import CLAIM_LABEL, issue_of, is_self_development
 
 API = "https://api.github.com"
 KEYCHAIN_ACCOUNT = "WonderMr"
@@ -71,8 +73,26 @@ def token_provider(config: Mapping) -> TokenProvider:
     return lambda: keychain_token(service)
 
 
+class _NoRedirect(HTTPRedirectHandler):
+    """Refuse every redirect: the 3xx answer reaches the client as it is."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001 (urllib's signature)
+        return None
+
+
+_OPENER = build_opener(_NoRedirect)
+
+
+def urlopen(request: Request, *, timeout: float):
+    return _OPENER.open(request, timeout=timeout)
+
+
 def urllib_transport(url: str, headers: Mapping[str, str]) -> tuple[int, Mapping[str, str], bytes]:
-    request = Request(url, headers=dict(headers), method="GET")
+    plain = {name: value for name, value in headers.items() if name.lower() != "authorization"}
+    request = Request(url, headers=plain, method="GET")
+    for name, value in headers.items():
+        if name.lower() == "authorization":
+            request.add_unredirected_header(name.capitalize(), value)
     try:
         with urlopen(request, timeout=TIMEOUT) as response:  # noqa: S310 (the URL is checked by the client)
             return response.status, dict(response.headers), response.read()
@@ -115,7 +135,10 @@ class GitHubClient:
         parts = urlsplit(url)
         self.requests.append(parts.path + (f"?{parts.query}" if parts.query else ""))
         status, headers, body = self._transport(url, self._headers())
-        if status >= 400:
+        if 300 <= status < 400:
+            raise GitHubError(f"GET {parts.path}: HTTP {status}, a redirect, which the client does not follow",
+                              status)
+        if status >= 400 or status < 200:
             raise GitHubError(f"GET {parts.path}: HTTP {status}", status)
         try:
             return json.loads(body or b"null"), headers
@@ -163,8 +186,16 @@ def fetch_snapshot(client: GitHubClient, now: datetime) -> dict:
     pulls += client.get(f"{base}/pulls", {"state": "closed", "sort": "updated", "direction": "desc",
                                           "per_page": CLOSED_PULLS_PAGE}) or []
     snapshot = {"repository": client.repository, "fetched_at": now.isoformat(timespec="seconds"),
-                "claimed_issues": claimed, "issue_events": events, "pulls": pulls,
+                "claimed_issues": claimed, "issue_events": events, "pulls": pulls, "linked_issues": {},
                 "pull_details": {}, "issue_comments": {}, "reviews": {}, "review_comments": {}}
+    # A merge that closes its issue takes it out of the open claimed issues; read those issues
+    # one by one so the gate can still remove their claim.
+    open_claims = {issue["number"] for issue in claimed}
+    linked = sorted({issue_of(pull) for pull in pulls
+                     if pull.get("state") == "closed" and is_self_development(pull, client.repository)}
+                    - open_claims - {None})
+    for number in linked:
+        snapshot["linked_issues"][str(number)] = client.get(f"{base}/issues/{number}")
     for pull in pulls:
         if pull.get("state") != "open" or not is_self_development(pull, client.repository):
             continue

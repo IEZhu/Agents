@@ -5,6 +5,7 @@ import io
 import json
 import os
 from pathlib import Path
+import signal
 import stat
 from types import SimpleNamespace
 
@@ -12,7 +13,7 @@ import pytest
 
 from src.schedules import cli, config as autodev_config, lease, records, runner
 from src.schedules.github import GitHubClient, TokenUnavailable
-from src.schedules.supervise import Supervised
+from src.schedules.supervise import Supervised, SupervisorStopped
 from tests.test_schedules_github import FakeGitHub
 from tests.test_schedules_launchagent import FakeLaunchd
 
@@ -235,6 +236,26 @@ def test_a_held_lease_is_an_infrastructure_failure(ctx):
     assert code == 1 and record["status"] == "failed: infra" and record["reason"].startswith("lease:")
 
 
+def test_a_run_rechecks_the_update_markers_once_it_holds_the_lease(ctx):
+    """An update that began after the tick's check: the run ends before it reads anything."""
+    for marker in runner.UPDATE_MARKERS:
+        (ctx.directory / marker).write_text("{}")
+        code, record = call(ctx, "autodev", "run-now")
+        assert code == 1 and record["status"] == "failed: infra"
+        assert record["reason"] == f"update: a daemon update or maintenance is in progress ({marker})"
+        assert "gate" not in record and ctx.test.github.calls == []
+        (ctx.directory / marker).unlink()
+    assert call(ctx, "autodev", "run-now")[1]["status"] == "completed"
+
+
+def test_a_run_cannot_start_while_an_update_holds_the_lease(ctx, monkeypatch):
+    monkeypatch.setattr(lease, "HOLD_WAIT", 0.2)
+    with lease.hold(ctx.directory):  # as `src.daemon.autoupdate` holds it for its transaction
+        (ctx.directory / "maintenance.json").write_text("{}")
+        code, record = call(ctx, "autodev", "run-now")
+    assert code == 1 and record["reason"].startswith("lease: ") and ctx.test.github.calls == []
+
+
 def test_timeout_and_crash_of_the_run_are_infrastructure_failures(ctx):
     ctx.supervise = lambda argv, **kwargs: Supervised(-9, timed_out=True, signalled=[11, 12])
     code, record = call(ctx, "autodev", "run-now")
@@ -249,6 +270,24 @@ def test_timeout_and_crash_of_the_run_are_infrastructure_failures(ctx):
     ctx.supervise = cannot_start
     code, record = call(ctx, "autodev", "run-now")
     assert code == 1 and record["reason"].startswith("cli: the run could not start")
+
+
+def test_a_stopped_supervisor_completes_the_record_before_it_exits(ctx):
+    def stopped(argv, **kwargs):
+        raise SupervisorStopped(signal.SIGTERM)
+    ctx.supervise = stopped
+    with pytest.raises(SupervisorStopped):
+        call(ctx, "autodev", "run-now")
+    record = records.all_records(ctx.directory)[0]
+    assert record["status"] == "failed: infra" and record["finished"]
+    assert record["reason"] == "stopped: the supervisor received SIGTERM; the run's process tree was ended"
+
+
+def test_processes_swept_after_a_normal_exit_are_recorded(ctx):
+    supervise = ctx.supervise
+    ctx.supervise = lambda argv, **kwargs: Supervised(supervise(argv, **kwargs).returncode, signalled=[4242])
+    code, record = call(ctx, "autodev", "run-now")
+    assert code == 0 and record["status"] == "completed" and record["swept"] == [4242]
 
 
 def test_the_gate_trusts_state_comments_from_earlier_run_records(ctx):
