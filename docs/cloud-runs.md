@@ -438,8 +438,9 @@ preserved. A forcibly stopped runner or cloud session, or a failed completion
 callback, may leave a reaction behind. Startup timeout removes the bridge
 reaction, so a session that starts later may run without 👀.
 
-A missing `CLAUDE_ROUTINE_TOKEN` or a `CLAUDE_ROUTINE_ID` that is not a `trig_...`
-ID is reported as `Launch blocked`, and nothing is fired. A confirmed HTTP `429`
+A missing `CLAUDE_ROUTINE_TOKEN` (an environment secret of `issue-agent`, or a
+repository secret) or a `CLAUDE_ROUTINE_ID` that is not a `trig_...` ID is reported
+as `Launch blocked`, and nothing is fired. A confirmed HTTP `429`
 is reported as a routine fire limit, with the numeric `Retry-After` delay when
 supplied. Any other non-`200` response is reported, with its HTTP code, as
 `Launch rejected` (4xx) or `Launch not confirmed` (other codes). A successful
@@ -503,10 +504,22 @@ its tests exercise both that installed workflow and the reusable template.
    name does not match); a routine restricted to WonderMr/Agents.Private must
    not process IEZhu/Agents commands.
 2. In the routine's web page, add an **API** trigger and generate its token.
-3. In the target repository, add the secret `CLAUDE_ROUTINE_TOKEN` and the
-   variables `CLAUDE_ROUTINE_ID` (the routine's `trig_...` ID) and `AGENT_OWNER`,
-   then copy [scripts/templates/issue-agent-bridge.yml](../scripts/templates/issue-agent-bridge.yml)
-   to `.github/workflows/issue-agent-bridge.yml`. Give both jobs `issues: write`
+3. In the target repository, create the environment `issue-agent` (Settings >
+   Environments) and limit its deployment branches to the default branch. Add
+   `CLAUDE_ROUTINE_TOKEN` as a secret of that environment, add the variables
+   `CLAUDE_ROUTINE_ID` (the routine's `trig_...` ID) and `AGENT_OWNER`, then copy
+   [scripts/templates/issue-agent-bridge.yml](../scripts/templates/issue-agent-bridge.yml)
+   to `.github/workflows/issue-agent-bridge.yml`. The dispatch job names the
+   environment, so a workflow pushed to any other branch cannot read the token. A
+   repository-level secret of the same name still works, but every branch's
+   workflows can read it; move it into the environment and delete it. GitHub
+   creates a missing environment on the first run without any branch limit, so
+   check that `gh api repos/<owner>/<repo>/environments/issue-agent/deployment-branch-policies`
+   lists only the default branch. The bridge never dispatches a comment posted
+   through an app (the cloud agent posts through `claude`) or one carrying
+   `<!-- issue-agent` or `<!-- autodev`; local sessions and the self-development
+   broker post as the owner without an app, and those markers and the broker's
+   refusal of `/agent`-prefixed comments are what exclude them. Give both jobs `issues: write`
    for issue comments and reactions, plus `pull-requests: write` for PR
    conversations. The dispatch job posts and edits its receipt, adds the
    processing reaction and deletes Claude's startup acknowledgement; the

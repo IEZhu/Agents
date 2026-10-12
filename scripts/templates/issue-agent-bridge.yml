@@ -10,6 +10,12 @@
 #   secret   CLAUDE_ROUTINE_TOKEN  API trigger token of the routine (generated at claude.ai/code/routines)
 #   variable CLAUDE_ROUTINE_ID     routine id, trig_...
 #   variable AGENT_OWNER           the only GitHub login allowed to issue commands
+#
+# Keep CLAUDE_ROUTINE_TOKEN as a secret of the environment `issue-agent` (Settings >
+# Environments) whose deployment branches are limited to the default branch, and
+# delete the repository-level copy. The dispatch job names that environment, so a
+# workflow pushed to any other branch cannot read the token. A repository-level
+# secret still works, but every branch's workflows can read it.
 name: issue-agent-bridge
 
 on:
@@ -27,19 +33,28 @@ jobs:
   fire:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # Only the default branch may deploy to this environment; it holds the routine token.
+    environment: issue-agent
     permissions:
       issues: write
       pull-requests: write  # Write the receipt and delete the startup acknowledgement in PR conversations.
     # Agent comments carry "<!-- issue-agent" and never start with /agent, so the
-    # agent cannot trigger itself even though it posts as the owner.
+    # agent cannot trigger itself even though it posts as the owner. The app check
+    # excludes comments the cloud agent (app `claude`) or any other app posts as the
+    # owner. Local sessions, the local issue agent and the self-development broker
+    # post as the owner without an app: their markers ("<!-- issue-agent",
+    # "<!-- autodev") and the broker's refusal of comments starting with /agent are
+    # what keep them from dispatching.
     if: >-
       github.event_name == 'issue_comment'
       && github.event.action == 'created'
       && vars.AGENT_OWNER != ''
       && github.event.comment.user.type == 'User'
       && github.event.comment.user.login == vars.AGENT_OWNER
+      && github.event.comment.performed_via_github_app == null
       && startsWith(github.event.comment.body, '/agent')
       && !contains(github.event.comment.body, '<!-- issue-agent')
+      && !contains(github.event.comment.body, '<!-- autodev')
     steps:
       # No checkout: comments and PR code never become executable runner code.
       - name: Dispatch and confirm startup
@@ -96,8 +111,11 @@ jobs:
               user = source.get("user") or {}
               body = source.get("body") or ""
               if (event.get("action") != "created" or user.get("type") != "User"
-                      or user.get("login") != owner or not re.match(r"^/agent(?:\s|$)", body)
-                      or "<!-- issue-agent" in body):
+                      or user.get("login") != owner
+                      # Fail closed: GitHub always sends this key, null for a comment the owner typed.
+                      or "performed_via_github_app" not in source or source["performed_via_github_app"] is not None
+                      or not re.match(r"^/agent(?:\s|$)", body)
+                      or "<!-- issue-agent" in body or "<!-- autodev" in body):
                   return
               number = event["issue"]["number"]
 
@@ -228,7 +246,7 @@ jobs:
                   except Exception:
                       print("::warning::Could not add the bridge reaction; continuing dispatch.")
                   if not env.get("ROUTINE_TOKEN") or not re.fullmatch(r"trig_[A-Za-z0-9]+", env.get("ROUTINE_ID", "")):
-                      status("Launch blocked: configure CLAUDE_ROUTINE_TOKEN and CLAUDE_ROUTINE_ID in this repository. Send a new command after fixing the configuration.")
+                      status("Launch blocked: configure the CLAUDE_ROUTINE_TOKEN secret of the `issue-agent` environment and the CLAUDE_ROUTINE_ID variable in this repository. Send a new command after fixing the configuration.")
                       return
                   text = (f"repo={repo} event={kind} number={number} "
                           f"comment_id={source['id']} "
