@@ -123,8 +123,10 @@ spaces without modifying the user's client files. Backup regressions freeze the
 clock, preserve pre-existing and repeated snapshots, and reject updates when backup
 creation fails. `test_backup_file.py` checks the shared backup helper and partial-copy
 cleanup without changing live configuration. Unix-specific cases also repeat
-malformed-config failures and Claude Code permission updates, preserving each
-snapshot byte for byte.
+malformed-config failures (including empty files, BOM-only files, malformed JSON
+with a UTF-8 BOM, and invalid UTF-8) and require exit code 1 while preserving the
+original bytes and every backup. Repeated Claude Code permission updates also
+preserve each snapshot byte for byte.
 `test_installer_sync.py` runs each installer's token handling, argument parsing,
 sync section and summary line around a stub of `python -m src.user_sync`: `--yes`
 and `AGENTS_ASSUME_YES` reach the step, which then never asks; stdin from NUL is no

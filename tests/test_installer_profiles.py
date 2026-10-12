@@ -1,4 +1,5 @@
 """Run the installers' real MCP setup hooks against disposable client profiles."""
+import codecs
 import json
 import os
 from pathlib import Path
@@ -378,12 +379,18 @@ def test_backup_failure_preserves_client_config_and_is_not_reported_configured(p
 
 @pytest.mark.parametrize("profile_installer", ["bash"], indirect=True)
 @pytest.mark.parametrize("client", ["cursor", "desktop", "claude", "antigravity"])
-def test_unix_malformed_backups_survive_repeated_setup_in_the_same_second(profile_installer, client):
+@pytest.mark.parametrize("original", [
+    pytest.param(b'{"mcpServers":', id="malformed-json"),
+    pytest.param(b"", id="empty-file"),
+    pytest.param(codecs.BOM_UTF8, id="bom-only"),
+    pytest.param(codecs.BOM_UTF8 + b'{"mcpServers":', id="bom-malformed-json"),
+    pytest.param(b'{"mcpServers": {"other": {"command": "\xff"}}}', id="invalid-utf8"),
+])
+def test_unix_malformed_backups_survive_repeated_setup_in_the_same_second(profile_installer, client, original):
     run, home, _, _, desktop = profile_installer
     config = {"cursor": home / ".cursor/mcp.json", "desktop": desktop,
               "claude": home / ".claude.json", "antigravity": home / ".gemini/config/mcp_config.json"}[client]
     config.parent.mkdir(parents=True, exist_ok=True)
-    original = b'{"mcpServers":'
     config.write_bytes(original)
     previous = config.with_name(config.name + ".backup." + BACKUP_TIMESTAMP)
     previous.write_bytes(b"Previous backup\r\n")
