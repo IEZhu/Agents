@@ -17,10 +17,13 @@ the run. A process belongs to the run when
 The root process stays unreaped until the sweep ends (`os.waitid` with ``WNOWAIT``), so its PID
 and its process group ID cannot be reused meanwhile, and every signal goes only to PIDs found in a
 scan taken right before it, never to a PID remembered from an earlier scan without the same start
-time. macOS hides the environment of its platform binaries (``/bin/*``) from ``ps -E``: such a
-process that both leaves the group and loses its parent before a periodic scan sees it, or a
-process that starts with an emptied environment, is not found. POSIX only; the scheduler is
-macOS's (#210 brings the others).
+time. macOS hides the environment of its platform binaries (``/bin``, ``/usr/bin`` and the rest
+of the system) from ``ps -E``: such a process that both leaves the group and loses its parent
+before a periodic scan sees it, or a process that starts with an emptied environment, is not
+found; ``/usr/bin/ssh`` with ``ControlPersist`` is one, its master detaches at once and lives
+until its persist time ends. When ``ps`` fails, times out or lists nothing, the scan is blind:
+the sweep reaches only the run's process group, and `Supervised.failed_scans` counts such scans.
+POSIX only; the scheduler is macOS's (#210 brings the others).
 """
 from __future__ import annotations
 
@@ -37,6 +40,7 @@ from typing import Callable, Iterable, Mapping, NamedTuple, Sequence
 
 CAFFEINATE = "/usr/bin/caffeinate"
 PS = "/bin/ps"
+PS_TIMEOUT = 5.0  # seconds; a hung ps must not hold the run loop or the grace period
 MARKER = "AGENTS_SUPERVISED_RUN"
 GRACE_SECONDS = 10.0
 POLL_SECONDS = 0.1
@@ -69,6 +73,7 @@ class Supervised:
     timed_out: bool = False
     signalled: list[int] = field(default_factory=list)  # PIDs of the run sent a signal by the sweep
     caffeinated: bool = False
+    failed_scans: int = 0  # blind scans of the process table: the sweep saw only the run's group
 
 
 def caffeinate_argv(pid: int) -> list[str]:
@@ -81,14 +86,15 @@ def _ps_argv(ps: str) -> list[str]:
     return [ps, "-A", "-ww", *environment, "-o", "pid=,ppid=,pgid=,stat=,lstart=,command="]
 
 
-def process_table(ps: str = PS) -> list[Proc]:
-    """Every process this user can see; markers only where ``ps -E`` shows the environment."""
+def process_table(ps: str = PS) -> list[Proc] | None:
+    """Every process this user can see; markers only where ``ps -E`` shows the environment.
+    None when ``ps`` fails, times out or lists no process: a blind scan, not an empty table."""
     try:
         listed = subprocess.run(_ps_argv(ps), capture_output=True, text=True, errors="replace",
-                                stdin=subprocess.DEVNULL, timeout=30, check=False,
+                                stdin=subprocess.DEVNULL, timeout=PS_TIMEOUT, check=False,
                                 env={"LC_ALL": "C", "PATH": "/usr/bin:/bin"}).stdout
     except (OSError, subprocess.SubprocessError):
-        return []
+        return None
     prefix = MARKER + "="
     rows = []
     for line in listed.splitlines():
@@ -98,7 +104,7 @@ def process_table(ps: str = PS) -> list[Proc]:
         markers = frozenset(part[len(prefix):] for part in parts[9:] if part.startswith(prefix))
         rows.append(Proc(int(parts[0]), int(parts[1]), int(parts[2]), " ".join(parts[4:9]),
                          parts[3].startswith("Z"), markers))
-    return rows
+    return rows or None  # ps lists at least itself
 
 
 def descendants(root: int, table: Iterable[Proc], marker: str | None = None) -> set[int]:
@@ -121,9 +127,11 @@ def descendants(root: int, table: Iterable[Proc], marker: str | None = None) -> 
     return found
 
 
-def _members(root: int, marker: str | None, rows: Sequence[Proc], seen: Mapping[int, str]) -> dict[int, str]:
+def _members(root: int, marker: str | None, rows: Sequence[Proc] | None,
+             seen: Mapping[int, str]) -> dict[int, str]:
     """``{pid: start time}`` of the run's live processes in ``rows``, including those seen
-    earlier that are still the same process."""
+    earlier that are still the same process; none from a blind scan (``rows`` None)."""
+    rows = rows or []
     by_pid = {row.pid: row for row in rows}
     found = descendants(root, rows, marker)
     found |= {pid for pid, started in seen.items()
@@ -153,7 +161,7 @@ def exited(pid: int) -> bool:
 
 
 def terminate_tree(process: subprocess.Popen, *, marker: str | None = None, grace: float = GRACE_SECONDS,
-                   table: Callable[[], Sequence[Proc]] = process_table,
+                   table: Callable[[], Sequence[Proc] | None] = process_table,
                    seen: Mapping[int, str] | None = None) -> list[int]:
     """SIGTERM, then SIGKILL after ``grace`` seconds, to the run's group and all its processes;
     then reap the root. Returns the PIDs signalled (the root only while it was still running).
@@ -180,16 +188,19 @@ def terminate_tree(process: subprocess.Popen, *, marker: str | None = None, grac
     return sorted(signalled)
 
 
-def _install_stop_handlers() -> dict | None:
-    """Turn the first stop signal into `SupervisorStopped`; later ones wait for the sweep."""
+def _install_stop_handlers(state: dict) -> dict | None:
+    """Turn the first stop signal into `SupervisorStopped`; later ones wait for the sweep.
+
+    Until ``state["armed"]`` is set, the signal is only recorded in ``state["stopped"]``: raised
+    inside `Popen` after the fork, it would leave a started run without a `Popen` object to sweep."""
     if threading.current_thread() is not threading.main_thread():
         return None
-    stopping = []
 
     def stop(number, frame):
-        if not stopping:
-            stopping.append(number)
-            raise SupervisorStopped(number)
+        if state["stopped"] is None:
+            state["stopped"] = number
+            if state["armed"]:
+                raise SupervisorStopped(number)
     previous = {}
     for number in STOP_SIGNALS:
         previous[number] = signal.getsignal(number)
@@ -205,20 +216,34 @@ def _restore_handlers(previous: dict | None) -> None:
 def run_supervised(argv: Sequence[str], *, timeout: float, cwd: str | Path, env: Mapping[str, str],
                    stdout_path: str | Path, stderr_path: str | Path, caffeinate: bool = True,
                    grace: float = GRACE_SECONDS, rescan: float = RESCAN_SECONDS,
-                   table: Callable[[], Sequence[Proc]] = process_table) -> Supervised:
+                   table: Callable[[], Sequence[Proc] | None] = process_table) -> Supervised:
     """Run ``argv`` to completion or until ``timeout`` seconds; no process of the run outlives it."""
     if os.name != "posix":
         raise OSError("run supervision needs POSIX process groups")
     marker = secrets.token_hex(16)
-    previous = _install_stop_handlers()
+    stop = {"armed": False, "stopped": None}
+    previous = _install_stop_handlers(stop)
     keeper = None
+    failed_scans = 0
+
+    def scan() -> list[Proc]:
+        nonlocal failed_scans
+        rows = table()
+        if rows is None:
+            failed_scans += 1
+        return list(rows or [])
     try:
+        if stop["stopped"] is not None:
+            raise SupervisorStopped(stop["stopped"])
         with open(stdout_path, "ab") as stdout, open(stderr_path, "ab") as stderr:
             process = subprocess.Popen(list(argv), cwd=str(cwd), env={**env, MARKER: marker},
                                        stdin=subprocess.DEVNULL, stdout=stdout, stderr=stderr,
                                        start_new_session=True)
         seen: dict[int, str] = {}
         try:
+            stop["armed"] = True
+            if stop["stopped"] is not None:  # it came while the run started: end the run now
+                raise SupervisorStopped(stop["stopped"])
             if caffeinate and sys.platform == "darwin" and os.path.exists(CAFFEINATE):
                 try:
                     keeper = subprocess.Popen(caffeinate_argv(process.pid), stdin=subprocess.DEVNULL,
@@ -233,16 +258,18 @@ def run_supervised(argv: Sequence[str], *, timeout: float, cwd: str | Path, env:
                     result.timed_out = True
                     break
                 if time.monotonic() >= next_scan:  # remember members whose parent may exit later
-                    seen.update(_members(process.pid, marker, table(), seen))
+                    seen.update(_members(process.pid, marker, scan(), seen))
                     next_scan = time.monotonic() + rescan
                 time.sleep(POLL_SECONDS)
-            result.signalled = terminate_tree(process, marker=marker, grace=grace, table=table, seen=seen)
+            result.signalled = terminate_tree(process, marker=marker, grace=grace, table=scan, seen=seen)
             result.returncode = process.returncode
+            result.failed_scans = failed_scans
         except BaseException:  # the supervisor itself is stopped: the run does not outlive it
             if process.returncode is None:
-                terminate_tree(process, marker=marker, grace=grace, table=table, seen=seen)
+                terminate_tree(process, marker=marker, grace=grace, table=scan, seen=seen)
             raise
     finally:
+        stop["armed"] = False
         _restore_handlers(previous)
         if keeper is not None:
             try:

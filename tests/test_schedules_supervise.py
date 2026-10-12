@@ -339,3 +339,35 @@ def test_the_process_table_reads_the_marker_of_a_python_process(tmp_path):
     finally:
         child.kill()
         child.wait()
+
+
+# --- review round 2: a blind process scan is counted, a stop signal while the run starts sweeps it --------
+
+def test_a_failed_process_scan_is_counted_not_taken_for_an_empty_table(tmp_path):
+    assert supervise.process_table(str(tmp_path / "no-ps")) is None
+    result = supervised(tmp_path, [sys.executable, "-c", "pass"], table=lambda: None)
+    assert result.returncode == 0 and result.failed_scans >= 2  # the sweep's first and final scans
+    assert supervised(tmp_path, [sys.executable, "-c", "pass"]).failed_scans == 0
+
+
+@pytest.mark.skipif(threading.current_thread() is not threading.main_thread(),
+                    reason="the supervisor installs its stop handlers only in the main thread")
+def test_a_stop_signal_while_the_run_starts_ends_the_run(tmp_path, monkeypatch):
+    real, started = subprocess.Popen, []
+
+    def popen_then_stop(*args, **kwargs):  # the signal comes after the fork, before Popen returns
+        process = real(*args, **kwargs)
+        if not started:
+            started.append(process.pid)
+            os.kill(os.getpid(), signal.SIGTERM)
+        return process
+    monkeypatch.setattr(supervise.subprocess, "Popen", popen_then_stop)
+    try:
+        with pytest.raises(supervise.SupervisorStopped) as stopped:
+            supervised(tmp_path, [sys.executable, "-c", "import time; time.sleep(600)"])
+        assert stopped.value.signal == signal.SIGTERM
+        assert started and gone(started)
+    finally:
+        for pid in started:
+            if alive(pid):
+                os.kill(pid, signal.SIGKILL)

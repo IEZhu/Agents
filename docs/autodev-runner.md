@@ -88,7 +88,7 @@ All files live in the service state directory `<state_dir>` from `src.daemon.sta
 |---|---|
 | `schedules/autodev.json` | The configuration. Defaults are design 10.3; a missing key takes its default. Validated on every load and save, written atomically. |
 | `schedules/tick.json` | The tick state: `enabled_at`, `last_slot`, `last_continuation`, `next_attempt`, `missed`, `clock_reset` and the last decision. |
-| `schedules/run.lease` | The run lease. A run holds it from start to finish; the daemon's auto-update holds it for its whole transaction. While a run holds it, the auto-update defers with `service is busy: an autodev run holds its run lease`; while the update holds it, a run ends as `failed: infra` (`lease`). A run that takes the lease checks `maintenance.json` and `transaction.json` again and ends as `failed: infra` (`update`) when one exists. A brief probe of the lease never fails a holder: taking it retries for one second. |
+| `schedules/run.lease` | The run lease. A run holds it from start to finish; the daemon's auto-update, `python -m src.daemon update` and `recover` hold it for their whole transaction, and the manual commands refuse with `an autodev run or a daemon update holds the run lease` while a run holds it. While a run holds it, the auto-update defers with `service is busy: an autodev run holds its run lease`; while the update holds it, a run ends as `failed: infra` (`lease`). A run that takes the lease checks `maintenance.json` and `transaction.json` again and ends as `failed: infra` (`update`) when one exists. A brief probe of the lease never fails a holder: taking it retries for one second. |
 | `schedules/runs/<run-id>/record.json` | The run record: mode, trigger, status, gate decision, `pinned`, the GitHub paths read, and `comments` (the IDs of comments the runner wrote). Token-like strings are masked. |
 | `schedules/runs/<run-id>/stdout.log`, `stderr.log` | The supervised run's output. |
 | `schedules/tools.json` | The absolute paths of `claude`, `codex`, `gh` and `git` resolved at `install`. |
@@ -99,16 +99,21 @@ All files live in the service state directory `<state_dir>` from `src.daemon.sta
 
 A run goes into a new process group under `caffeinate -i -w <pid>`, with a random per-run marker
 `AGENTS_SUPERVISED_RUN` in its environment. A dry-run may take 30 minutes. However the run ends,
-by a normal exit, a timeout, or SIGTERM, SIGHUP or SIGINT to the supervisor, the supervisor
-sweeps it: SIGTERM to the group and to every process of the run, then, after a grace period,
-SIGKILL. A process of the run descends from it by parent PID, is in its group, carries the
-marker (read with `ps -E`, which also finds a double-forked `setsid` descendant), or was seen in
-the run by a periodic scan and still has the same start time. The run's root stays unreaped
-until the sweep ends, so its PID and group cannot be reused, and only PIDs from a fresh scan are
-signalled. macOS hides the environment of its own binaries in `/bin`, so such a process that
-leaves the group and loses its parent before a scan sees it is not found. Processes swept after
-a normal exit are recorded as `swept`; a stopped supervisor records `failed: infra` (`stopped`)
-and exits with 128 plus the signal number.
+by a normal exit, a timeout, or SIGTERM, SIGHUP or SIGINT to the supervisor, the supervisor sweeps
+it: SIGTERM to the group and to every process of the run, then, after a grace period, SIGKILL. A
+process of the run descends from it by parent PID, is in its group, carries the marker (read with
+`ps -E`, which also finds a double-forked `setsid` descendant), or was seen in the run by a
+periodic scan and still has the same start time. The run's root stays unreaped until the sweep
+ends, so its PID and group cannot be reused, and only PIDs from a fresh scan are signalled. macOS
+hides the environment of its platform binaries (`/bin`, `/usr/bin` and the rest of the system), so
+such a process that leaves the group and loses its parent before a scan sees it is not found:
+`/usr/bin/ssh` with `ControlPersist`, for one, detaches its master at once, which then lives until
+its persist time ends; when #347 adds git over ssh, its run environment should turn
+`ControlMaster` off. When `ps` fails or times out (5 seconds), the scan is blind and the sweep
+reaches only the run's group; the record counts such scans as `failed_process_scans`. Processes
+swept after a normal exit are recorded as `swept`; a stop signal that arrives while the run starts
+ends the run as soon as it has a PID. A stopped supervisor records `failed: infra` (`stopped`) and
+exits with 128 plus the signal number.
 
 Infrastructure failures end with the status `failed: infra` and a reason prefix: `cli` (a
 command or the keychain failed, or the run exited without a result), `network`, `lease`,

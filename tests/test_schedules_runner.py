@@ -395,3 +395,10 @@ def test_conftest_isolates_the_service_state_directory(service_state_dir):
     from src.daemon.state import state_dir
     assert state_dir() == Path(service_state_dir).resolve()
     assert "Application Support" not in str(state_dir())
+
+
+def test_a_blind_process_scan_is_recorded(ctx):
+    supervise = ctx.supervise
+    ctx.supervise = lambda argv, **kwargs: Supervised(supervise(argv, **kwargs).returncode, failed_scans=2)
+    code, record = call(ctx, "autodev", "run-now")
+    assert code == 0 and record["status"] == "completed" and record["failed_process_scans"] == 2

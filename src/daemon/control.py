@@ -564,8 +564,13 @@ def main(argv=None):
                     history_sync.drain(history_sync.CLI_WAIT_SECONDS)
                     journal_module.set_sync(previous)
     elif args.command in ("update", "recover"):
+        from src.schedules import lease as run_lease
         from .update import offline_update, recover
-        result = (recover if args.command == "recover" else offline_update)(controller)
+        try:  # as the auto-update: never replace the code under an autodev run
+            with run_lease.hold(controller.directory):
+                result = (recover if args.command == "recover" else offline_update)(controller)
+        except run_lease.LeaseBusy as error:
+            result, exit_code = {"state": "refused", "error": f"{error}; try again once it ends"}, 1
     elif args.command == "clear-cache": result = controller.request("/admin/cache/clear", method="POST")
     elif args.command == "flows-ui" and (args.revoke or args.auto):
         from .flows_ui import auto_sign_in_enabled, replace_session_key, set_auto_sign_in

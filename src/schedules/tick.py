@@ -211,7 +211,7 @@ def decide(now: datetime, config: Mapping, state: Mapping | None, *,
     if update_pending():
         blockers.append("a daemon update or maintenance is in progress")
     if not lease_free():
-        blockers.append("another run holds the run lease")
+        blockers.append("an autodev run or a daemon update holds the run lease")
     heavy = heavy_processes()
     if heavy:
         blockers.append(f"heavy processes are running: {', '.join(map(str, heavy))}")

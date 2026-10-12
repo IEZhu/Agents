@@ -1,7 +1,7 @@
 """The run lease: a lock file a running autodev run holds from start to finish.
 
-The daemon's auto-update (`src.daemon.autoupdate`) takes the same lease for its whole
-transaction, so an update and a run exclude each other whichever starts first: an update never
+The daemon's auto-update (`src.daemon.autoupdate`) and the manual ``update`` and ``recover``
+commands (`src.daemon.control`) take the same lease for their whole transaction, so an update and a run exclude each other whichever starts first: an update never
 replaces the runner's code under a run, and a run never starts during an update. A run also
 rechecks the update markers once it holds the lease (`src.schedules.runner`). The scheduler's tick
 starts no second run while the lease is held.

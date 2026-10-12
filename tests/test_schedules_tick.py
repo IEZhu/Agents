@@ -86,7 +86,7 @@ def test_missed_list_is_bounded():
 
 def test_a_busy_lease_keeps_the_slot_for_the_next_tick_until_it_is_missed():
     busy = decide(at(12, 2, 20), config(), ENABLED, lease_free=lambda: False)
-    assert busy.action == "skip" and "run lease" in busy.reason
+    assert busy.action == "skip" and busy.reason == "an autodev run or a daemon update holds the run lease"
     assert "last_slot" not in busy.state
     retried = decide(at(12, 2, 25), config(), busy.state)
     assert retried.action == "run" and retried.trigger["at"] == at(12, 2, 17).isoformat()

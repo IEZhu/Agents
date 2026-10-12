@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 import plistlib
 from unittest.mock import MagicMock
@@ -275,3 +276,22 @@ def test_stop_scheduled_sync_never_raises(monkeypatch):
         raise RuntimeError("launchctl refused")
     monkeypatch.setattr(schedule, "status", refuse)
     assert real_stop_scheduled_sync() == "failed: launchctl refused"
+
+
+@pytest.mark.parametrize("command", ["update", "recover"])
+def test_a_manual_update_never_replaces_the_code_under_an_autodev_run(tmp_path, monkeypatch, capsys, command):
+    """#338: `update` and `recover` hold the run lease for the whole transaction, as the auto-update does."""
+    from src.daemon import update
+    from src.schedules import lease
+    state, held = tmp_path / "state", []
+
+    def transaction(controller):
+        held.append(lease.held(controller.directory))
+        return {"state": "UPDATED"}
+    monkeypatch.setattr(update, "offline_update" if command == "update" else "recover", transaction)
+    with lease.hold(state):
+        assert control.main(["--state", str(state), command]) == 1
+    refused = json.loads(capsys.readouterr().out)
+    assert held == [] and refused["state"] == "refused" and "holds the run lease" in refused["error"]
+    assert control.main(["--state", str(state), command]) == 0
+    assert held == [True]

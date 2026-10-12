@@ -225,6 +225,8 @@ def launch(ctx: Context, mode: str, trigger: dict, *, pr: int | None = None) -> 
             record.update(infra(f"cli: the run exited with code {outcome.returncode} without a result"))
     if outcome is not None:
         record["caffeinated"] = outcome.caffeinated
+        if outcome.failed_scans:  # ps failed: the sweep reached only the run's process group
+            record["failed_process_scans"] = outcome.failed_scans
     record.setdefault("finished", iso(ctx.clock()))
     written = records.write_record(run_id, record, ctx.directory)
     return (0 if written.get("status") == "completed" else 1), written
