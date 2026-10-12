@@ -275,3 +275,49 @@ async def test_the_page_deletes_an_entry_with_its_header_and_a_stale_one_is_refu
                         ({**body, "workspace": "not-registered"}, "workspace_invalid")):
         response = await http.post("/ui/api/history/delete", json=wrong, headers=UI)
         assert response.status_code == 400 and response.json()["error"].startswith(code), wrong
+
+
+@pytest.mark.asyncio
+async def test_the_fallback_journal_is_listed_and_its_entries_move_into_a_project_on_request(daemon, tmp_path):
+    """#292: turns whose project did not resolve show as "Without a project" and move on a click."""
+    http, ids = daemon
+    await login(http)
+    journal = tmp_path / "service" / "unresolved"
+    writer = HistoryWriter(str(journal / "history.md"), str(journal / "history"))
+    moved = writer.append_entry("kept without a project", "Agent: lawyer", "an answer",
+                                metadata={"unresolved": "workspace_required", "claimed_workspace": "/work/project"})
+    writer.append_entry("stays", "Agent: lawyer", "another answer", metadata={"unresolved": "workspace_required"})
+
+    repos = (await http.get("/ui/api/history/repos", headers=UI)).json()["repos"]
+    [unresolved] = [repo for repo in repos if repo["workspace"] == "unresolved"]
+    assert unresolved["name"] == "Without a project" and unresolved["unresolved"] and unresolved["entries"] == 2
+    read = (await http.get("/ui/api/history?workspace=unresolved&file=current", headers=UI)).json()
+    assert read["entries"][1]["metadata"]["claimed_workspace"] == "/work/project"
+
+    body = {"to": ids["project"], "entries": [moved["entry_id"]]}
+    assert (await http.post("/ui/api/history/adopt", json=body)).status_code == 403  # no page header
+    done = await http.post("/ui/api/history/adopt", json=body, headers=UI)
+    assert done.status_code == 200 and [item["intent"] for item in done.json()["moved"]] == ["kept without a project"]
+    assert "kept without a project" in entries_of(tmp_path / "project" / "history.md")
+    assert entries_of(journal / "history.md") == ["stays"]
+    for wrong, code in (({**body, "to": "unresolved"}, "invalid_request"), ({**body, "entries": ["x"]}, "invalid_request"),
+                        ({**body, "to": "not-registered"}, "workspace_invalid")):
+        response = await http.post("/ui/api/history/adopt", json=wrong, headers=UI)
+        assert response.status_code == 400 and response.json()["error"].startswith(code), wrong
+
+
+
+@pytest.mark.asyncio
+async def test_a_journal_registered_by_mistake_is_listed_once_and_refused_as_a_target(daemon, tmp_path):
+    http, _ = daemon
+    await login(http)
+    journal = tmp_path / "service" / "unresolved"
+    entry = HistoryWriter(str(journal / "history.md")).append_entry("kept", "Agent: lawyer", "an answer")
+    mistaken = WorkspaceRegistry(tmp_path / "service").register(journal)
+
+    repos = (await http.get("/ui/api/history/repos", headers=UI)).json()["repos"]
+    assert [repo["workspace"] for repo in repos].count("unresolved") == 1
+    assert mistaken not in [repo["workspace"] for repo in repos]
+    response = await http.post("/ui/api/history/adopt", json={"to": mistaken, "entries": [entry["entry_id"]]}, headers=UI)
+    assert response.status_code == 400 and response.json()["error"].startswith("invalid_request")
+    assert entries_of(journal / "history.md") == ["kept"]

@@ -582,6 +582,38 @@ class HistoryWriter:
             result["rotated_to"] = rotated_to
         return result
 
+    def append_existing(self, entry: "HistoryEntry") -> Dict[str, Any]:
+        """Append an entry kept elsewhere as it is: its id, time, fields and metadata (#292).
+
+        Moving the fallback journal's entries into a project uses it. A journal that already
+        holds the id, in ``history.md`` or an archive, keeps its own copy: ``duplicate``.
+        """
+        if entry.id in {known.id for known in HistoryReader(self.history_path, self.archive_dir).journal_entries()}:
+            return {"status": "duplicate", "entry_id": entry.id, "path": self.history_path}
+        os.makedirs(os.path.dirname(self.history_path) or ".", exist_ok=True)
+        with _WRITE_LOCK, file_lock(_sidecar(self.history_path)):
+            with open(self.history_path, "a+", encoding="utf-8", newline="") as fh:
+                try:
+                    _lock_exclusive(fh)
+                    fh.seek(0, os.SEEK_END)
+                    if fh.tell() == 0:
+                        fh.write(self._render_header())
+                        fh.flush()
+                    if self._is_duplicate_from_handle(fh, entry.id):
+                        return {"status": "duplicate", "entry_id": entry.id, "path": self.history_path}
+                    fh.write(self._render_entry(entry.id, entry.timestamp, entry.intent, entry.action,
+                                                entry.outcome, entry.files, entry.tags, entry.metadata))
+                    fh.flush()
+                    os.fsync(fh.fileno())
+                finally:
+                    _unlock(fh)
+            try:
+                self._maybe_rotate_locked()
+            except Exception as err:
+                logger.warning("history rotation failed for %s: %s", self.history_path, err)
+        _appended(self.history_path, entry.id)
+        return {"status": "recorded", "entry_id": entry.id, "path": self.history_path, "timestamp": entry.timestamp}
+
     # ------------------------------------------------------------------ helpers
     @staticmethod
     def _compute_entry_hash(intent: str, action: str, outcome: str) -> str:
@@ -669,8 +701,9 @@ class HistoryWriter:
         if size_kb < self.rotation_kb:
             return None
 
-        # Use the timestamp of the last entry for the archive month.
-        last_ts = self._read_last_timestamp() or _dt.datetime.now(_dt.timezone.utc).isoformat()
+        # The archive month is the newest entry's: an entry moved in from elsewhere keeps its older
+        # time (#292), and an archive of month M must hold nothing later than M.
+        last_ts = self._read_newest_timestamp() or _dt.datetime.now(_dt.timezone.utc).isoformat()
         month = last_ts[:7]  # YYYY-MM
         os.makedirs(self.archive_dir, exist_ok=True)
         archive_path = os.path.join(self.archive_dir, f"{month}.md")
@@ -755,7 +788,7 @@ class HistoryWriter:
                 pass
             return ""
         matches = _HEADER_RE.findall(payload)
-        month = (matches[-1][0] if matches else _dt.datetime.now(_dt.timezone.utc).isoformat())[:7]
+        month = (max(match[0] for match in matches) if matches else _dt.datetime.now(_dt.timezone.utc).isoformat())[:7]
         os.makedirs(self.archive_dir, exist_ok=True)
         archive_path = os.path.join(self.archive_dir, f"{month}.md")
         existed = os.path.exists(archive_path)
@@ -786,7 +819,7 @@ class HistoryWriter:
         self._discard_pending(pending)
         return archive_path
 
-    def _read_last_timestamp(self) -> Optional[str]:
+    def _read_newest_timestamp(self) -> Optional[str]:
         try:
             with open(self.history_path, "r", encoding="utf-8") as fh:
                 content = fh.read()
@@ -795,7 +828,7 @@ class HistoryWriter:
         matches = _HEADER_RE.findall(content)
         if not matches:
             return None
-        return matches[-1][0]
+        return max(match[0] for match in matches)  # the newest, wherever it is in the file
 
 
 # --- Reader ------------------------------------------------------------------

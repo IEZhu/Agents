@@ -2055,6 +2055,52 @@ async function deleteHistoryEntry(entry, position) {
   historyView.focus(target);
 }
 
+// The fallback journal's workspace (src/daemon/history_ui.py): turns whose project did not resolve (#292).
+const UNRESOLVED_HISTORY = "unresolved";
+
+// Moves one fallback entry into the history of a registered project the reader picks; the project
+// that holds the named directory is offered first.
+async function adoptHistoryEntry(entry, position) {
+  const data = historyState.data;
+  if (!data) return;
+  const claimed = (entry.metadata && entry.metadata.claimed_workspace) || "";
+  const projects = (historyState.repos || []).filter((repo) => repo.workspace !== UNRESOLVED_HISTORY && repo.available);
+  if (!projects.length) {
+    alert("No project has a history here yet. Run python -m src.daemon history adopt --to /absolute/project "
+      + "--entry " + entry.id + " to move it into a project.");
+    return;
+  }
+  // The project whose root holds the named directory, the deepest one; Windows paths and case too.
+  const windows = /^[A-Za-z]:/.test(claimed);
+  const norm = (path) => { const plain = path.replace(/\\/g, "/").replace(/\/+$/, ""); return windows ? plain.toLowerCase() : plain; };
+  const named = norm(claimed);
+  const holds = (repo) => named === norm(repo.root) || named.startsWith(norm(repo.root) + "/");
+  let suggested = -1;
+  projects.forEach((repo, index) => {
+    if (holds(repo) && (suggested < 0 || norm(repo.root).length > norm(projects[suggested].root).length)) suggested = index;
+  });
+  const list = projects.map((repo, index) => (index + 1) + ". " + repo.name + " (" + repo.root + ")").join("\n");
+  const answer = prompt("Move the entry " + historyHeading(entry) + " into the history of which project?\n" + list,
+    suggested >= 0 ? String(suggested + 1) : "");
+  if (answer === null) return;
+  const chosen = projects[Number(answer) - 1];
+  if (!chosen) {
+    alert("There is no project " + answer + " in the list.");
+    return;
+  }
+  const result = await api("/ui/api/history/adopt", { method: "POST", body: { to: chosen.workspace, entries: [entry.id] } });
+  if ((result.changed || []).length) alert("The entry changed meanwhile and stays here; try again in a moment.");
+  const repos = await api("/ui/api/history/repos");
+  if (state.tab !== "history" || historyState.data !== data) return;  // the reader moved on meanwhile
+  historyState.repos = repos.repos;
+  if (!repos.repos.some((repo) => repo.workspace === UNRESOLVED_HISTORY)) return openHistory(chosen.workspace, "current");
+  await openHistory(data.workspace, data.file);
+  if (!historyState.data || !historyState.data.total) return;
+  const target = Math.min(position, historyState.data.total - 1);
+  await loadMoreHistory(target);
+  historyView.focus(target);
+}
+
 async function goToHistoryEntry(position) {
   if (historyState.view !== "rendered") setHistoryView("rendered");
   await loadMoreHistory(position);
@@ -2110,6 +2156,17 @@ function createHistoryView(id, section, button) {
       mdText([entry.timestamp, entry.id, entry.machine].filter(Boolean).join(" · "), mdEl("div", "meta", host));
       bodies.push([entry, mdEl("div", "", host)]);
       const position = view.nodes.length;
+      if (view.data && view.data.workspace === UNRESOLVED_HISTORY) {
+        // The fallback journal (#292): the directory the session named, and a move on request.
+        const claimed = entry.metadata && entry.metadata.claimed_workspace;
+        if (claimed) mdText("Named directory: " + claimed, mdEl("div", "meta", host));
+        const move = mdEl("button", "h-adopt", host);
+        move.textContent = "Move to a project";
+        move.addEventListener("click", () => {
+          move.disabled = true;
+          adoptHistoryEntry(entry, position).catch(historyFailed).finally(() => { move.disabled = false; });
+        });
+      }
       const remove = mdEl("button", "danger h-delete", host);
       remove.textContent = "Delete entry";
       remove.addEventListener("click", () => {

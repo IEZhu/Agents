@@ -406,6 +406,14 @@ def main(argv=None):
                               "up to date at every start (#292)")
     registrations.add_argument("action", choices=["status", "run", "enable", "disable"],
                                help="run: now, also while turned off; disable: leave them as they are")
+    history = commands.add_parser("history", help="the fallback journal: turns whose project did not resolve (#292)")
+    history_commands = history.add_subparsers(dest="history_command", required=True)
+    history_commands.add_parser("unresolved", help="list them by the directory each session named")
+    adopt = history_commands.add_parser("adopt", help="move them into a project's history.md")
+    adopt.add_argument("--to", type=Path, required=True, help="the project; it is registered as a workspace")
+    adopt.add_argument("--claimed", help="move the entries of this claimed directory")
+    adopt.add_argument("--entry", action="append", default=[], metavar="ID", help="move this entry (repeatable)")
+    adopt.add_argument("--dry-run", action="store_true", help="only list what would move")
     token = commands.add_parser("token"); token.add_argument("action", choices=["rotate"])
     auto = commands.add_parser("auto-update", help="unattended updates from the tracked branch")
     auto.add_argument("action", choices=["enable", "disable", "status", "run"])
@@ -523,6 +531,38 @@ def main(argv=None):
                           "error": "another control command is running or the service is in maintenance; try again"}
         else:
             result = registrations.set_auto(controller.directory, args.action == "enable")
+    elif args.command == "history":
+        from src.memory import fallback
+        # The journal the servers write: next to user sync's state, found as they find it, unless
+        # --state names another service.
+        journal = controller.directory / "unresolved" if args.state else fallback.journal_root()
+        if args.history_command == "unresolved":
+            result = {"journal": str(journal / "history.md"), "groups": fallback.unresolved_groups(journal)}
+        else:
+            if not args.claimed and not args.entry:
+                parser.error("history adopt needs --claimed or --entry")
+            from src.engine.config import ClientRootError, client_root_from_directory
+            from .workspaces import WorkspaceRegistry
+            try:
+                target = Path(client_root_from_directory(str(args.to.expanduser()), launch_directory=False))
+            except ClientRootError as error:
+                parser.error(f"--to: {error}")
+            try:  # the arguments are checked before anything is registered or moved
+                result = fallback.adopt(target, claimed=args.claimed, entry_ids=args.entry, root=journal,
+                                        dry_run=True)
+            except ValueError as error:
+                parser.error(str(error))
+            if not args.dry_run:
+                WorkspaceRegistry(controller.directory).register(target)
+                # As in a server: user sync hears the appends and forgets the moved entries it shared.
+                from src.memory import history as journal_module
+                from src.user_sync import history as history_sync
+                previous = journal_module.set_sync(history_sync.Integration())
+                try:
+                    result = fallback.adopt(target, claimed=args.claimed, entry_ids=args.entry, root=journal)
+                finally:
+                    history_sync.drain(history_sync.CLI_WAIT_SECONDS)
+                    journal_module.set_sync(previous)
     elif args.command in ("update", "recover"):
         from .update import offline_update, recover
         result = (recover if args.command == "recover" else offline_update)(controller)
