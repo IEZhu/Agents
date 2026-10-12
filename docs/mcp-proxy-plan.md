@@ -84,7 +84,7 @@ Non-functional:
 - N2 A call to an idle stdio server adds its start time once (typically 1 to 3 s for a cached `npx` package; measured values belong to the implementation), and under 5 ms of proxy overhead afterwards.
 - N3 Memory: no upstream process runs unless a call needed it within the idle window (default 10 minutes); the daemon's own footprint does not change while every upstream is idle.
 - N4 A failing or unauthenticated upstream never fails Agents-Core's own tools, the daemon's readiness or an update.
-- N5 No secret appears in the library, in a tracked file, in a UI response, in a log line or in a tool result produced by the proxy itself.
+- N5 No secret appears in the library, in a tracked file, in a UI response, in a log line the proxy writes, or in text the proxy itself produces (remedies, errors, server instructions). Upstream results pass through unchanged and are not scanned: a server that echoes its own credential does so today too, when an app connects to it directly.
 
 Constraints:
 
@@ -308,7 +308,7 @@ Written by one machine only, so it never conflicts in sync:
 
 ### Private state (`<state>/mcp/`, never synced)
 
-`machine.json` (this machine's id), `confirmations.json` (alias to the confirmed `revision`), `catalog/<alias>.json` (the last `tools/list`, `serverInfo`, `instructions`, the time), `logs/<alias>.log` (stderr and the supervisor's events, rotated at 1 MiB with three backups like `user-sync.log`), `registry-cache/` (official registry answers, 24 hours), `oauth/<alias>-flow.json` (an in-flight sign-in: state and PKCE verifier, deleted when it ends). Secrets go to the OS store under `agents-core-mcp-<installation id>-<alias>`, one JSON document per server (`{"env": {...}, "headers": {...}, "url": {...}, "oauth": {"tokens": ..., "client": ...}}`), through `default_store`; the file fallback writes a `0600` file in `<state>/mcp/secrets/` and the UI shows the same warning sync shows (`FileStore.WARNING`).
+`machine.json` (this machine's id), `confirmations.json` (alias to the confirmed `revision`), `catalog/<alias>.json` (the last `tools/list`, `serverInfo`, `instructions`, the time), `logs/<alias>.log` (stderr and the supervisor's events, rotated at 1 MiB with three backups like `user-sync.log`), `registry-cache/` (official registry answers, 24 hours), `oauth/<alias>-flow.json` (an in-flight sign-in: state and PKCE verifier, deleted when it ends). Secrets go to the OS store under `agents-core-mcp-<installation id>-<alias>`, one JSON document per server (`{"env": {...}, "headers": {...}, "url": {...}, "oauth": {"tokens": ..., "client": ...}}`), through the OS backends of `default_store` (macOS Keychain, Windows Credential Manager, `secret-tool` on Linux). There is no file fallback: on a machine without a usable OS store every server with secrets stays in `needs_secrets` with the reason `no_secret_store`, and the UI names the store to install. Sync's `FileStore` is not reused for server credentials, which are more numerous and longer-lived than one GitHub token.
 
 ## Scopes and resolution
 
@@ -345,7 +345,7 @@ The override in `src/server.py` appends, after the own tools, the resolved serve
 
 ### `tools/call`
 
-A name with `__` is split at its first `__`; an unknown alias or tool is a protocol error (`-32602`), as for an unknown own tool. The call runs with the server's timeout; the result is returned with its `content` blocks (text, image, audio, resource links, embedded resources) and `structuredContent` unchanged; `isError` passes through. A result whose shown size (`src/result_size.py`) exceeds Claude Code's inline limit is handled as `read_history` does since #212 (a file in the session's `tool-results` directory with a pointer), because FastMCP would otherwise wrap the content again. An upstream failure (not started, crashed, timed out, `needs_auth`, `needs_secrets`) is an execution error with `isError: true` and a remedy sentence naming the MCP tab and the state, never a daemon exception: the model can tell the user what to do, and Agents-Core's own tools are unaffected.
+A name with `__` is split at its first `__`; an unknown alias or tool is a protocol error (`-32602`), as for an unknown own tool. The call runs with the server's timeout; the result is returned with its `content` blocks (text, image, audio, resource links, embedded resources) and `structuredContent` unchanged; `isError` passes through. The proxy neither inspects nor redacts result content (N5): what an upstream returns is the upstream's responsibility, as when an app connects to it directly; the proxy redacts only its own logs and messages. A result whose shown size (`src/result_size.py`) exceeds Claude Code's inline limit is handled as `read_history` does since #212 (a file in the session's `tool-results` directory with a pointer), because FastMCP would otherwise wrap the content again. An upstream failure (not started, crashed, timed out, `needs_auth`, `needs_secrets`) is an execution error with `isError: true` and a remedy sentence naming the MCP tab and the state, never a daemon exception: the model can tell the user what to do, and Agents-Core's own tools are unaffected.
 
 ### Compact mode (phase 2)
 
@@ -410,7 +410,7 @@ CLI, for scripting and for parity with #205: `python -m src.daemon mcp list|show
 
 - **Trust boundary**: the proxy runs upstream programs chosen by the user, as the user, which is the trust level of any MCP server an app starts today. What is new is the channel: a definition can arrive from another machine through the remote. Confirmation per machine (default) closes it; the security setting that opens it is machine-local and logged (#205).
 - **No token passthrough**: nothing from an app's request reaches an upstream. The daemon's bearer token stays in the bridge configurations; upstream credentials are the daemon's own (the MCP authorization specification's rule for servers that act as clients).
-- **Secrets**: never in the library (writer check plus the scanner), never in a UI answer, never in a log (the supervisor redacts the store's values from stderr lines before writing them), never in a tracked file (retiring an entry writes nothing new; adding never writes to client files). The store items are per installation and server.
+- **Secrets**: never in the library (writer check plus the scanner), never in a UI answer, never in a log (the supervisor redacts the store's values from stderr lines before writing them), never in a tracked file (retiring an entry writes nothing new; adding never writes to client files), never in a file of the state directory (no file fallback: without an OS secret store a server with secrets does not start). The store items are per installation and server.
 - **Commands**: resolved to absolute paths before start; the environment of an upstream is minimal; the working directory is the definition's `cwd` or the state directory, never a workspace unless the definition says so.
 - **Web UI**: the existing protections; the callback route checks `state` and the session; the catalog search sends the user's query to the registry and nothing else.
 - **Audit**: every registry write, confirmation, secret write, sign-in and retirement goes to `service.log` without values.
@@ -422,7 +422,7 @@ CLI, for scripting and for parity with #205: `python -m src.daemon mcp list|show
 |---|---|---|
 | How the apps see upstream tools | (A) aggregate under the `Agents-Core` entry; (B) one daemon endpoint per upstream (`/mcp/<alias>`), written into each app as its own entry by `registrations.py`; (C) write the upstream entries themselves into the apps | (A). No client file changes, scopes decided server-side, works for every client the daemon serves and for stdio hand-over (#266); the cost is the `<alias>__` prefix and a reconnect after changes. (B) gives native names (`mcp__github__*`) and per-server tool search entries but multiplies the fragile client writes #292 and #298 describe; it stays a phase 3 option per server. (C) defeats "connect once" and puts secrets into client files |
 | Where definitions live | (A) one file per server, profile and machine in the library; (B) one `mcp.json`; (C) the private state directory | (A). Per-file merging and single-writer machine files avoid conflicts; (B) would conflict on every concurrent edit; (C) cannot sync |
-| Where secrets live | (A) OS secret store with a file fallback; (B) an encrypted blob in the library with a passphrase; (C) `.env` | (A). Reuses tested code and keeps the library free of secrets. (B) would make the remote a secret carrier and needs key management; it is explicitly out of scope. (C) is per installation and plain text |
+| Where secrets live | (A) OS secret store only, failing closed without one; (B) an encrypted blob in the library with a passphrase; (C) `.env` | (A). Reuses the tested store classes, keeps the library free of secrets and never writes a credential to disk; a machine without an OS store runs only servers without secrets. (B) would make the remote a secret carrier and needs key management; it is explicitly out of scope. (C) is per installation and plain text |
 | Upstream client | (A) own supervisor over the SDK transports and `ClientSession`; (B) `ClientSessionGroup` | (A). The group lacks reconnection, lazy start, idle stop and per-server catalogs, and raises on name collisions |
 | Start policy | (A) lazy start, idle stop; (B) always on; (C) a process per call | (A). Bounded memory, no cost for unused servers; the first call pays the start. (B) undoes the daemon's memory gain; (C) pays the start on every call |
 | Tool naming | (A) `<alias>__<tool>`; (B) `<alias>.<tool>`; (C) meta-tools only | (A). (B) fails the Claude API pattern; (C) costs a discovery call on every use and hides tools from permission rules; it stays the compact mode for apps that need it |
@@ -500,7 +500,7 @@ Filed on 2026-10-12 as the epic #306 and its parts #307 to #322, every one label
 | T15, #321 | MCP proxy: expose a server as its own entry in an app through a per-upstream daemon endpoint | enhancement, area:daemon, area:clients | T5 |
 | T16, #322 | MCP proxy: measure start times, memory and context cost, and record them in a validation document | documentation, area:evals, area:daemon | T5, T10 |
 
-Order of work: T1; then T2 and T8 in parallel; then T3, T4, T6 and T9 in parallel; then T5 and T7; then T10 and T11; T12 to T16 after the first release. T2 through T11 are the first release.
+Order of work: T1; then T2; then T3, T4, T6, T8 and T9 in parallel; then T5 and T7; then T10 and T11; T12 to T16 after the first release. T2 through T11 are the first release.
 
 ## References
 
