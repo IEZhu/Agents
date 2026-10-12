@@ -81,6 +81,7 @@ the maintained references above for current commands and behavior.
 
 | Document | Status / scope |
 |---|---|
+| [MCP proxy plan](mcp-proxy-plan.md) | Proposal of 2026-10-12, not implemented: the daemon as an MCP client of the user's other servers, with definitions synced through the personal library, secrets in the OS secret store, scopes per machine and app, and the tools served through the `Agents-Core` entry; filed as epic #306 with parts #307 to #322, and ends with the task breakdown |
 | [Subagent validation results](subagent-validation-results.md) | Recorded contract tests, default-budget coverage and controlled context-size measurements; model quality/cost evaluation remains pending |
 | [Subagent implementation plan](subagent-implementation-plan.md) | Issue #291: compact profiles, task-scoped context, worker rules and structural validation; current API is the [subagent contract](subagent-contract.md) |
 | [Autodev plan](autodev-plan.md) | Proposal of 2026-10-12, version 5, not implemented: a self-development pipeline (selecting a task, implementing it with review until clean and a pre-mortem, then a PR and `pr-review`) driven by a local scheduled Python runner, plus per-flow execution profiles (AI, model, effort), flow contracts and linear pipelines; ends with the checklist plan. The [review appendix](autodev-plan-review.md) records every finding of its three design reviews and the decision on it |
