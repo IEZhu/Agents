@@ -119,7 +119,10 @@ The same workflow runs Codex discovery and managed-instruction migration checks.
 `test_installer_profiles.py` also runs the actual MCP setup hooks against default
 and alternate client profiles, using native `cmd.exe` on Windows and Bash on Unix.
 It checks exact configuration targets, preserved inactive profiles, and paths with
-spaces without modifying the user's client files.
+spaces without modifying the user's client files. Backup regressions freeze the
+clock, preserve pre-existing and repeated snapshots, and reject updates when backup
+creation fails. `test_backup_file.py` checks the shared backup helper and partial-copy
+cleanup without changing live configuration.
 `test_installer_sync.py` runs each installer's token handling, argument parsing,
 sync section and summary line around a stub of `python -m src.user_sync`: `--yes`
 and `AGENTS_ASSUME_YES` reach the step, which then never asks; stdin from NUL is no
