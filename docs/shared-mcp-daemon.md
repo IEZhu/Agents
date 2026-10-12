@@ -722,7 +722,11 @@ seconds while the browser tab is visible (see
   `GET /ui/api/history/source` and
   `GET /ui/api/history/search?q=`. Like the Sync page's reads they need the page's
   `X-Agents-UI` header, and they read only `history.md` and `history/` archive
-  names of a registered workspace. Entries that other machines shared through
+  names of a registered workspace. The fallback journal (#292), the turns whose
+  project did not resolve, is listed as "Without a project": each entry shows the
+  directory its session named and offers "Move to a project", which suggests the
+  registered project that holds that directory and posts
+  `POST /ui/api/history/adopt {to, entries}`. Entries that other machines shared through
   library sync are not shown here. The text cannot be edited, but each entry has
   **Delete entry**: after a confirmation that names it, `POST
   /ui/api/history/delete` (`workspace`, `file`, `entry`, `time`) removes exactly
@@ -1165,9 +1169,30 @@ daemon refuses goes on without it, with the refusal's code in
 other tools still fail with the reason. A stdio client with MCP roots that named
 no workspace is still asked to retry once with it, which resolves its project.
 `read_history` without a project lists the fallback entries of the same claimed
-directory (all of them when nothing was claimed), `query` as a text match.
+directory (all of them when nothing was claimed), `query` as a text match, with the
+fallback entries other machines shared merged in as for a repository.
 `describe_repo`, `write_repo_summary` and `repo:` flows still refuse, with a
-`remedy` that says how to register the project. `run_flow` also requires
+`remedy` that says how to register the project.
+
+Fallback entries move into a project only when the user says so, keeping their
+id, time and metadata; a project that already holds an entry keeps its copy, and
+the entry leaves the fallback journal either way:
+
+```bash
+.venv/bin/python -m src.daemon history unresolved                     # by claimed directory
+.venv/bin/python -m src.daemon history adopt --to /absolute/project --claimed /claimed/dir --dry-run
+.venv/bin/python -m src.daemon history adopt --to /absolute/project --entry <id>
+```
+
+`adopt` registers the project as a workspace and refuses the fallback journal's own
+directory. Without `--state` the commands use the journal the servers write, found
+as they find it; with `--state`, that service's. With user library sync, the moved
+entries leave what this machine shared under `_unresolved` and follow the project's
+sharing like its new turns: in an approved project they are shared without another
+review. The History tab offers the same move
+(see [Overview and statistics](#overview-and-statistics)). With user library sync,
+the fallback journal is shared like a repository under the key `_unresolved`
+([details](user-sync.md#repository-history)). `run_flow` also requires
 this header and never uses `repo_path` as a replacement for workspace identity.
 `list_flows`, `get_flow`, `save_flow`, `delete_flow` and `set_flow_persona` for
 built-in and personal (`user:`) flows work without it; `repo:` flows need it. See the
