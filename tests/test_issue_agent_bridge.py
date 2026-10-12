@@ -219,6 +219,8 @@ def test_workflow_subscribes_only_to_new_owner_comments(workflow):
         "vars.AGENT_OWNER != ''",
         "github.event.comment.user.type == 'User'",
         "github.event.comment.user.login == vars.AGENT_OWNER",
+        "github.event.comment.performed_via_github_app == null",
+        "!contains(github.event.comment.body, '<!-- autodev')",
     ):
         assert guard in condition
     assert "pull_request_review" not in condition
@@ -281,6 +283,43 @@ def test_comment_requires_a_human_user_type(bridge, user_type):
     bridge.run()
     assert bridge.calls == []
     assert bridge.output_path.read_text() == ""
+
+
+@pytest.mark.parametrize("app", [{"id": 1, "slug": "claude"}, {"id": 2, "slug": "some-integration"}])
+def test_comments_made_through_an_app_never_dispatch(bridge, app):
+    # The cloud agent and self-development write as the owner's account, but
+    # through an app; only a comment the owner typed may start the routine.
+    bridge.event["comment"]["performed_via_github_app"] = app
+    bridge.run()
+    assert bridge.calls == []
+    assert bridge.output_path.read_text() == ""
+
+
+def test_owner_typed_command_without_an_app_dispatches(bridge):
+    bridge.event["comment"]["performed_via_github_app"] = None
+    bridge.run()
+    assert len(bridge.fires) == 1
+
+
+@pytest.mark.parametrize("body", ["/agent <!-- autodev -->", "/agent work\n<!-- autodev:state -->"])
+def test_self_development_markers_are_ignored(bridge, body):
+    bridge.event["comment"]["body"] = body
+    bridge.run()
+    assert bridge.calls == []
+    assert bridge.output_path.read_text() == ""
+
+
+def test_dispatch_job_uses_the_default_branch_environment(workflow):
+    # Only the default branch may deploy to `issue-agent`, which holds the routine token.
+    assert workflow["jobs"]["fire"]["environment"] == "issue-agent"
+    assert "environment" not in workflow["jobs"]["complete"]
+
+
+def test_completion_does_not_require_a_comment_without_an_app(workflow):
+    # The completion comment may come from the cloud agent's app; requiring no
+    # app here would leave the processing reaction of every command in place.
+    condition = " ".join(workflow["jobs"]["complete"]["if"].split())
+    assert "performed_via_github_app" not in condition
 
 
 @pytest.mark.parametrize("owner_setting", [None, ""])

@@ -1,0 +1,35 @@
+# Paths that self-development (autodev) may not change without the owner.
+# One glob per line, matched case-insensitively against repository paths.
+# Read from the pinned main commit by the autodev broker (docs/autodev-plan.md, section 5.3).
+# Control paths are never opened by any label: flows/autodev*, .github/**,
+# src/schedules/**, src/engine/**, agents/**, rules/**, skills/**, implants/**
+# and this file. The other paths are opened by the owner's `autodev:next` label.
+.github/**
+.claude/**
+**/.claude/**
+**/CLAUDE.md
+**/AGENTS.md
+**/GEMINI.md
+.cursor/**
+.mcp.json
+.codex/**
+.envrc
+.vscode/**
+.gitattributes
+.gitmodules
+flows/**
+agents/**
+skills/**
+implants/**
+rules/**
+scripts/**
+src/schedules/**
+src/engine/**
+src/schemas/**
+src/executables.py
+src/daemon/autoupdate.py
+install.sh
+requirements*.txt
+pyproject.toml
+uv.lock
+docs/cloud-runs.md

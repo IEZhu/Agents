@@ -503,10 +503,17 @@ its tests exercise both that installed workflow and the reusable template.
    name does not match); a routine restricted to WonderMr/Agents.Private must
    not process IEZhu/Agents commands.
 2. In the routine's web page, add an **API** trigger and generate its token.
-3. In the target repository, add the secret `CLAUDE_ROUTINE_TOKEN` and the
-   variables `CLAUDE_ROUTINE_ID` (the routine's `trig_...` ID) and `AGENT_OWNER`,
-   then copy [scripts/templates/issue-agent-bridge.yml](../scripts/templates/issue-agent-bridge.yml)
-   to `.github/workflows/issue-agent-bridge.yml`. Give both jobs `issues: write`
+3. In the target repository, create the environment `issue-agent` (Settings >
+   Environments) and limit its deployment branches to the default branch. Add
+   `CLAUDE_ROUTINE_TOKEN` as a secret of that environment, add the variables
+   `CLAUDE_ROUTINE_ID` (the routine's `trig_...` ID) and `AGENT_OWNER`, then copy
+   [scripts/templates/issue-agent-bridge.yml](../scripts/templates/issue-agent-bridge.yml)
+   to `.github/workflows/issue-agent-bridge.yml`. The dispatch job names the
+   environment, so a workflow pushed to any other branch cannot read the token. A
+   repository-level secret of the same name still works, but every branch's
+   workflows can read it; move it into the environment and delete it. The bridge
+   dispatches only comments the owner typed: a comment posted through an app, or
+   one carrying `<!-- issue-agent` or `<!-- autodev`, never starts the routine. Give both jobs `issues: write`
    for issue comments and reactions, plus `pull-requests: write` for PR
    conversations. The dispatch job posts and edits its receipt, adds the
    processing reaction and deletes Claude's startup acknowledgement; the
