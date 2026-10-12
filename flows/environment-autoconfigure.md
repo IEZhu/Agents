@@ -162,7 +162,9 @@ concrete before requesting any permission genuinely required.
 ## 4. Back up and prepare changes
 
 1. Capture original bytes, existence, permissions, and hashes for every affected file.
-2. Store backups in a private state directory: mode 0700 directories and mode 0600 files.
+2. Store backups in a state directory only the current user can read, and verify that before writing:
+   on POSIX, mode 0700 directories and 0600 files; on Windows, an ACL granting only the current
+   user, with inherited access removed, since mode bits do not restrict access there.
 3. Write a manifest with target/source ownership, versions, paths, before/after hashes, and rollback.
 4. Back up all affected originals before the first mutation; never rely on a rolling single `.bak`.
 5. Reject concurrent changes between planning, backup, and application; re-plan from current state.
