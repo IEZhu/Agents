@@ -392,3 +392,42 @@ def test_switch_waits_for_an_idle_service(scheduled, monkeypatch):
     result = autoupdate.run(controller)
     assert result["state"] == "deferred" and result["reason"] == "service is busy"
     assert controller.stops == 0
+
+
+def test_autodev_run_lease_defers_the_update_until_the_run_ends(scheduled):
+    from src.schedules import lease
+    controller, root, old, target = scheduled
+    with lease.hold(controller.directory):
+        result = autoupdate.run(controller)
+        assert result["state"] == "deferred" and result["reason"] == "service is busy: an autodev run holds its run lease"
+        assert git(root, "rev-parse", "HEAD") == old and controller.stops == 0
+    assert autoupdate.run(controller)["state"] == "UPDATED"
+    assert git(root, "rev-parse", "HEAD") == target
+
+
+def test_an_autodev_run_cannot_start_while_the_update_runs(scheduled, monkeypatch):
+    """The update holds the run lease from its first check to the end, so no run starts between
+    its lease check and maintenance.json (the run's side is in tests/test_schedules_runner.py)."""
+    from src.daemon import update
+    from src.schedules import lease
+    controller, root, old, target = scheduled
+    build, refused, during_maintenance = update.prepare_reindex, [], []
+
+    def build_while_a_run_tries_to_start(current, staging_dir):
+        with pytest.raises(lease.LeaseBusy):
+            with lease.hold(controller.directory, wait=0.2):
+                pass
+        refused.append("build")
+        return build(current, staging_dir)
+    monkeypatch.setattr(update, "prepare_reindex", build_while_a_run_tries_to_start)
+    stop = controller._stop
+
+    def stop_while_a_run_tries_to_start():
+        assert (controller.directory / "maintenance.json").exists()
+        during_maintenance.append(lease.held(controller.directory))
+        return stop()
+    monkeypatch.setattr(controller, "_stop", stop_while_a_run_tries_to_start)
+    result = autoupdate.run(controller)
+    assert result["state"] == "UPDATED" and git(root, "rev-parse", "HEAD") == target
+    assert refused == ["build"] and during_maintenance == [True]
+    assert not lease.held(controller.directory)  # released with the transaction
