@@ -13,6 +13,7 @@ Every flow that launches an AI reviewer, verifier or other worker follows the [m
 
 | Flow | Purpose | Result |
 |---|---|---|
+| [Environment auto-configuration](environment-autoconfigure.md) | Audit installed AI clients and reconcile their environment with the current RTK, TokenSave and CodeGraph stack | Verified configuration changes, private backups, rollback steps and explicit compatibility limits |
 | [Documentation refresh](documentation-refresh.md) | Check and update documentation for people and AI against the implementation | Reviewed documentation changes on a separate branch, with validation results |
 | [PR/MR review](pr-review.md) | Review the diff, handle bot findings one push per round until they converge, and keep the description current | A merged request or a precise blocker, with a report in the invocation language |
 | [Issue agent](issue-agent.md) | Verify an owner's `/agent` comment, keep trusted state in the issue, and dispatch; bot reviews never trigger a session | The command's result and an updated state comment |
@@ -31,6 +32,11 @@ Built-in flows declare their persona: `documentation-refresh` runs as
 The three issue flows run in a Claude Code cloud routine that a GitHub Actions
 bridge starts for the owner's `/agent` comments, not from a local request. See
 [issue agent setup](../docs/cloud-runs.md#issue-agent).
+
+`environment-autoconfigure` runs as `sysadmin` with that agent's default
+components. It audits and repairs the current host only when explicitly invoked;
+it is not an installation hook for ordinary conversations. The configured stack
+and platform determine versions and supported integrations.
 
 ## Run a flow
 
@@ -66,6 +72,15 @@ The caller does not need a local copy of `flows/`. Ask the model:
 ```text
 Use Agents-Core to run documentation-refresh in this repository.
 ```
+
+To audit and configure the local AI environment:
+
+```text
+Use Agents-Core to run builtin:environment-autoconfigure. Check what is installed and
+reconcile compatible clients with the current stack.
+```
+
+Add `audit-only` to inspect and report changes without applying them.
 
 The model discovers installed workflows with `list_flows()` and calls:
 
