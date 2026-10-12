@@ -59,7 +59,7 @@ External facts used below, verified on 2026-10-12:
 
 - MCP specification 2025-11-25, Tools: tool names should be 1 to 128 characters of letters, digits, `_`, `-` and `.`; `listChanged` is a capability and `notifications/tools/list_changed` a server-to-client notification; results carry `content` and optional `structuredContent`, `isError` marks execution errors.
 - MCP specification 2025-11-25, Authorization: HTTP transports use OAuth 2.1; stdio servers take credentials from the environment; clients discover the authorization server through Protected Resource Metadata (RFC 9728) and Authorization Server Metadata (RFC 8414); client registration is pre-registration, client ID metadata documents or dynamic registration (RFC 7591); PKCE `S256` and the `resource` parameter (RFC 8707) are mandatory; token passthrough is forbidden: a server that calls upstream APIs must not forward the token it received.
-- Claude API: a tool `name` must match `^[a-zA-Z0-9_-]{1,64}$` ([platform docs](https://platform.claude.com/docs/en/agents-and-tools/tool-use/implement-tool-use); reports of a 128-character limit exist but are not confirmed by the official page).
+- Claude API: a tool `name` must match `^[a-zA-Z0-9_-]{1,128}$` ([Define tools](https://platform.claude.com/docs/en/agents-and-tools/tool-use/define-tools), read 2026-10-12). Claude Code's tool search passes tool names in `tool_reference` blocks, whose limit is reported as 64 characters in user reports, not on an official page; the design keeps a 64-character budget as a safe margin.
 - Claude Code: tools of a server `S` are named `mcp__S__<tool>`; tool search is on by default, so only tool names and server instructions load at session start and definitions on demand; descriptions and server instructions are truncated at 2,048 characters; `_meta["anthropic/alwaysLoad"]` and `_meta["anthropic/requiresUserInteraction"]` are honoured per tool; `.mcp.json` expands `${VAR}`; OAuth for a remote server is run by Claude Code itself (`/mcp`, `claude mcp login`); `claude mcp add-from-claude-desktop` imports Desktop's stdio entries ([Claude Code MCP docs](https://code.claude.com/docs/en/mcp)).
 - Official MCP registry: `GET https://registry.modelcontextprotocol.io/v0.1/servers?search=&cursor=&limit=&version=latest&updated_since=` and `GET /v0.1/servers/{name}/versions/{version}`; entries follow the `server.json` schema 2025-12-11: `name`, `title`, `description`, `version`, `packages[]` (`registryType`, `identifier`, `transport`, `environmentVariables[]` with `isSecret`, `isRequired`, `default`, `choices`, `packageArguments[]`, `runtimeArguments[]`, `runtimeHint`), `remotes[]` (`type` `streamable-http` or `sse`, `url`, `headers[]`, `variables`) and `_meta["io.modelcontextprotocol.registry/official"]` (`status`, `isLatest`, `publishedAt`).
 - Codex and Cursor configuration keys below come from third-party documentation found on 2026-10-12 and are marked as such; the official pages must be read before the import code is written.
@@ -90,7 +90,7 @@ Constraints:
 
 - C1 The daemon is stateless towards the apps: no server-to-client notification reaches a session, so a changed tool list needs an MCP reconnect in open sessions (as registrations do today).
 - C2 The service runs with the system PATH: upstream commands must be absolute or resolved through the recorded tools.
-- C3 Tool names reach the Claude API as `mcp__Agents-Core__<name>` and must fit 64 characters of `[A-Za-z0-9_-]`.
+- C3 Tool names reach the Claude API as `mcp__Agents-Core__<name>` in characters of `[A-Za-z0-9_-]`; the API allows 128, and the design budgets 64 for the reported `tool_reference` limit of Claude Code's tool search (see Naming).
 - C4 Library files are plain JSON that two machines may edit; the sync merge is whole-file for JSON (remote wins, conflict record), set-based only for the files it knows.
 - C5 The web page cannot reach the network (CSP): every external fetch (registry search, OAuth) goes through the daemon.
 - C6 Windows and macOS have the service; Linux has none yet (#194).
@@ -337,7 +337,7 @@ Confirmation: a definition this machine wrote, through its UI or CLI, is confirm
 
 ### Naming
 
-An exposed tool is `<alias>__<tool>`. The constraint comes from the Claude API: `mcp__Agents-Core__` takes 18 of 64 characters, so `<alias>__<tool>` has 46. With an alias of at most 12 characters, the upstream name may keep 32. A longer upstream name, or one with characters outside `[A-Za-z0-9_-]` (the MCP specification also allows `.`), is shortened deterministically: unsupported characters become `_`, the name is cut to 27 characters and a 4-character hash of the original is appended after `_`; the catalog cache keeps the mapping and the UI shows both names. Agents-Core's own tools contain no `__`, so no exposed name collides with them.
+An exposed tool is `<alias>__<tool>`. The budget is 64 characters: the Claude API allows 128, but the `tool_reference` names of Claude Code's tool search are reported to keep 64 (not verified on an official page), and nothing in the design needs more. `mcp__Agents-Core__` takes 18 of 64 characters, so `<alias>__<tool>` has 46. With an alias of at most 12 characters, the upstream name may keep 32. A longer upstream name, or one with characters outside `[A-Za-z0-9_-]` (the MCP specification also allows `.`), is shortened deterministically: unsupported characters become `_`, the name is cut to 27 characters and a 4-character hash of the original is appended after `_`; the catalog cache keeps the mapping and the UI shows both names. Agents-Core's own tools contain no `__`, so no exposed name collides with them.
 
 ### `tools/list`
 
@@ -508,6 +508,6 @@ Order of work: T1; then T2 and T8 in parallel; then T3, T4, T6 and T9 in paralle
 - [MCP specification 2025-11-25: Authorization](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization)
 - [Official MCP registry API](https://registry.modelcontextprotocol.io/openapi.yaml) and the [server.json schema 2025-12-11](https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json)
 - [Claude Code: Connect to tools with MCP](https://code.claude.com/docs/en/mcp)
-- [Claude API: tool definitions](https://platform.claude.com/docs/en/agents-and-tools/tool-use/implement-tool-use)
+- [Claude API: Define tools](https://platform.claude.com/docs/en/agents-and-tools/tool-use/define-tools)
 - Codex configuration keys (third-party, to verify): [Mintlify mirror of the Codex docs](https://www.mintlify.com/openai/codex/configuration/mcp-servers); Cursor keys (official page, partially read): [Cursor MCP docs](https://cursor.com/docs/mcp)
 - This repository: [Daemon operations](shared-mcp-daemon.md), [User library sync](user-sync.md), [Routing](routing_flow.md), issues #292, #298, #297, #207, #205, #213, #233
