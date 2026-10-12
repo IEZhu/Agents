@@ -291,7 +291,7 @@ The command `python -m src.schedules autodev enable --mode run --accept-shared-a
 - no force push and no deletion;
 - bypass only for the administrator role, and only through a PR.
 
-The deploy key is not in the bypass list, so its push to `main` is rejected. What exactly the bypass mode and the rules do for deploy keys is checked in phase 0 on a test branch.
+The deploy key is not in the bypass list, so its push to `main` is rejected. The ruleset is active since 2026-10-12, and a test on a temporary branch with the same rules confirmed it: a direct push is rejected for the deploy key and for the administrator's token, deletion is rejected, and the owner can merge a PR (section 3, row 15). Still untested, and checked in phase 0: whether the deploy key can push changes to `.github/workflows/**` on a feature branch, and whether the broker token can merge.
 
 ### 5.8 Public visibility
 
