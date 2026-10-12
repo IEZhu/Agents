@@ -15,7 +15,6 @@ from dataclasses import dataclass
 from datetime import datetime
 import os
 from pathlib import Path
-import re
 import signal
 import subprocess
 import sys
@@ -25,9 +24,10 @@ from src import executables
 from src.daemon.state import private_dir, read_json, write_json
 
 from . import config as autodev_config
-from . import drift, launchagent, lease, records
+from . import drift, heavy, launchagent, lease, records
 from .gate import gate
 from .github import GitHubClient, GitHubError, NetworkError, TokenUnavailable, fetch_snapshot, token_provider
+from .heavy import HEAVY, heavy_processes  # noqa: F401 (HEAVY: moved to heavy, still importable here)
 from .supervise import SupervisorStopped, run_supervised
 from .tick import decide, iso, local_now, next_slot
 
@@ -37,7 +37,6 @@ DRY_RUN_TIMEOUT_MINUTES = 30
 TICK_STATE = "tick.json"
 UPDATE_MARKERS = ("maintenance.json", "transaction.json")
 _ENVIRONMENT = ("HOME", "USER", "LOGNAME", "TMPDIR", "LANG", "LC_ALL", "LC_CTYPE")
-HEAVY = (re.compile(r"\bpytest\b"), re.compile(r"\bsrc[./]reindex\b"))
 
 
 @dataclass
@@ -80,21 +79,6 @@ def infra(reason: str) -> dict:
 def update_markers(directory: Path) -> list[str]:
     """The daemon's update markers present in the state directory."""
     return [name for name in UPDATE_MARKERS if (Path(directory) / name).exists()]
-
-
-def heavy_processes(ps: str = "/bin/ps") -> list[str]:
-    """Other processes that would compete with a run: ``pytest`` and reindexing."""
-    try:
-        listed = subprocess.run([ps, "-A", "-o", "pid=,command="], capture_output=True, text=True,
-                                stdin=subprocess.DEVNULL, timeout=30, check=False).stdout
-    except (OSError, subprocess.SubprocessError):
-        return []
-    found = []
-    for line in listed.splitlines():
-        pid, _, command = line.strip().partition(" ")
-        if pid.isdigit() and int(pid) != os.getpid() and any(pattern.search(command) for pattern in HEAVY):
-            found.append(f"{pid} {command.strip()[:80]}")
-    return found
 
 
 def on_ac_power(pmset: str = "/usr/bin/pmset") -> bool | None:
@@ -254,6 +238,7 @@ def tick(ctx: Context) -> tuple[int, dict]:
         now, config, _tick_state(ctx),
         lease_free=lambda: not lease.held(ctx.directory),
         update_pending=lambda: bool(update_markers(ctx.directory)),
+        heavy_lease_held=lambda: heavy.held(ctx.directory),
         heavy_processes=ctx.heavy_processes or heavy_processes,
         on_ac_power=ctx.on_ac_power or on_ac_power)
     state = dict(decision.state)
@@ -314,6 +299,7 @@ def status(ctx: Context) -> tuple[int, dict]:
         "config_file": str(autodev_config.config_path(ctx.directory)),
         "scheduler": ctx.scheduler().status(),
         "lease_held": lease.held(ctx.directory),
+        "heavy_lease_held": heavy.held(ctx.directory),
         "next_slot": iso(next_slot(config["times"], now)),
         "tick": _tick_state(ctx),
         "recent_runs": [_summary(record) for record in records.all_records(ctx.directory)[:5]],

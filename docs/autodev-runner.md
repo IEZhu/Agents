@@ -1,8 +1,8 @@
 # Autodev runner
 
-The runner of the self-development schedule (issue #338, epic #336). The design is
-[autodev-plan.md](autodev-plan.md): the gate in section 9.2, the runner in 10.1, the commands
-in 10.2 and the configuration in 10.3. This page describes what the code in `src/schedules/`
+The runner of the self-development schedule (issues #338 and #340, epic #336). The design is
+[autodev-plan.md](autodev-plan.md): the session rights and the runner socket in section 5.6, the
+gate in 9.2, the runner in 10.1, the commands in 10.2 and the configuration in 10.3. This page describes what the code in `src/schedules/`
 does today.
 
 ## Current limits
@@ -14,6 +14,9 @@ does today.
   mode) and exit with code 1.
 - **The selection stage does not run yet.** A `select` decision ends the dry-run; the selection
   session comes with #347.
+- **No run opens the runner socket yet.** The socket, its thin clients and the heavy-process
+  lease exist; the run sequence of #347 will open them around its stage sessions, and only the
+  heavy-process lease answers until the broker (#342) and the worker launcher (#345) register.
 - **macOS only.** The scheduler is a LaunchAgent, and supervision uses POSIX process groups.
 
 ## Commands
@@ -43,8 +46,9 @@ one of these is due:
   midnight, such as `22:00-02:00`.
 
 A due run still waits when the run lease is held, a daemon update or maintenance is in progress
-(`transaction.json` or `maintenance.json` in the state directory), `pytest` or reindexing is
-running, or, with `require_ac_power`, the Mac is on battery. A due slot that waits is retried by
+(`transaction.json` or `maintenance.json` in the state directory), a session holds the
+heavy-process lease, `pytest` or reindexing is running, or, with `require_ac_power`, the Mac is on
+battery. A due slot that waits is retried by
 every tick until the catch-up window passes. A slot older than the window is recorded as
 `missed`, and slots from before `enable` never count.
 
@@ -79,6 +83,71 @@ holds `head`, `next_attempt`, `rounds`, `review_status` and `findings`. The comm
 when its ID appears in a run record's `comments`; a copy is ignored, however well formed. Bot
 findings count only from CodeRabbit and Copilot, matched by login and numeric ID.
 
+## Runner socket
+
+A sandboxed stage session reaches the runner only through the runner socket
+(`src/schedules/socket_service.py`, design 5.6). The session may connect to it but write nothing
+around it, and the runner never executes a command sent through it.
+
+- **Placement.** The socket is `{run_dir}/control.sock` when that absolute path fits the
+  `AF_UNIX` limit: 103 bytes on macOS, 107 on Linux. The run directory under
+  `~/Library/Application Support/Agents-Core/<id>/` is longer, so in practice the socket goes into
+  a private directory `autodev-socket-*` that `tempfile.mkdtemp` creates in the runner's own
+  temporary directory. Either directory must belong to the user, must not be a symlink, and must
+  not be writable by its group or others. It must also neither lie inside nor contain a path the
+  session can write; the caller names the one-off repository, the exchange directory and the
+  session's `TMPDIR`, so a session needs a `TMPDIR` other than the runner's. A violation, or any
+  existing file at the socket path, raises before the socket is bound, and an existing file is
+  never removed. `Endpoint.to_record()` names the socket and the clients for the run record.
+- **Lifetime.** `serve(run_dir, registry, session_writable=[…])` is a context manager. On exit,
+  normal or by an exception, it stops accepting, closes open connections, which releases what they
+  hold, and removes the socket, the clients and the private directory.
+- **Protocol.** One JSON object per line. A request is `{"type": str, "args": object}` of at most
+  64 KiB; the answer is `{"ok": true, "result": …}` or `{"ok": false, "error": str}`. A
+  connection that holds nothing must send each request within 10 seconds, and at most 16
+  connections are open at a time.
+- **Registry.** Handlers register under fixed types `gh.<operation>`, `worker.<operation>` and
+  `heavy.<operation>`, each with an argument specification (`Field`: `str`, `int` or `bool`). An
+  unknown type, a malformed request, or an unknown, missing or mistyped argument is refused before
+  a handler runs. There is no generic type: the registry refuses operations such as `exec` or
+  `shell` and argument names such as `command`, `argv` or `shell`. A string argument must match a
+  narrow pattern without spaces, slashes or shell syntax, unless its field declares free text,
+  such as a comment body, which the handler treats as data only. This part registers
+  `heavy.acquire` and `heavy.release`; the broker (#342) and the worker launcher (#345) will
+  register theirs.
+
+### Thin clients
+
+`serve` writes three executables, mode 0555, into `clients/` beside the socket: `gh`, `worker`
+and `heavy`. Each is `src/schedules/client_stub.py` with an absolute `#!<python> -I` line (the
+runner's interpreter, run isolated) and the socket path embedded. It uses only the standard
+library, so a session needs read access to that directory and the interpreter only.
+`Endpoint.commands()` gives `gh_cmd`, `worker_cmd` and `heavy_cmd`, the shell-quoted absolute
+paths for the session prompt.
+
+| Client | What it does | Exit code |
+|---|---|---|
+| `gh <operation> [JSON object]` | Sends `gh.<operation>` and prints the result as JSON | 0, or 1 when refused, with the reason on standard error |
+| `worker <operation> [JSON object]` | The same for `worker.<operation>` | 0 or 1 |
+| `heavy -- <command> [args]` | Takes the heavy-process lease, runs the command itself without a shell, with the inherited standard streams, keeps the connection open while it runs, then releases the lease. It passes SIGTERM, SIGHUP and SIGINT on to the command | The command's status, or 75 when the lease is refused, with the reason on standard error |
+
+Every client exits with 2 for wrong arguments and 69 when the socket cannot be reached; `heavy`
+exits with 127 or 126 when the command cannot be started. Until #342 and #345 land, `gh` and
+`worker` report every operation as an unknown request type.
+
+### Heavy-process lease
+
+The lease (`src/schedules/heavy.py`) is the lock file `schedules/heavy.lease` beside the run
+lease. The runner holds it for as long as the granting connection stays open, so a client that
+dies releases it. `heavy.acquire` is refused while another holder keeps the lock, and while a
+foreign heavy process runs: one whose command line names `pytest`, `src.reindex` or
+`src/reindex`. The runner itself and the requesting client with its ancestors do not count,
+because the client's command line, and its shell's, name the command it is about to start. The
+client's PID comes from the kernel (`LOCAL_PEERPID` on macOS, `SO_PEERCRED` on Linux). The
+service only grants and releases the lease; it never starts a command. The tick waits with the
+reason `the heavy-process lease is held` while the lease is held, and `autodev status` reports
+`heavy_lease_held`.
+
 ## Files
 
 All files live in the service state directory `<state_dir>` from `src.daemon.state.state_dir`:
@@ -89,6 +158,8 @@ All files live in the service state directory `<state_dir>` from `src.daemon.sta
 | `schedules/autodev.json` | The configuration. Defaults are design 10.3; a missing key takes its default. Validated on every load and save, written atomically. |
 | `schedules/tick.json` | The tick state: `enabled_at`, `last_slot`, `last_continuation`, `next_attempt`, `missed`, `clock_reset` and the last decision. |
 | `schedules/run.lease` | The run lease. A run holds it from start to finish; the daemon's auto-update, `python -m src.daemon update` and `recover` hold it for their whole transaction, and the manual commands refuse with `an autodev run or a daemon update holds the run lease` while a run holds it. While a run holds it, the auto-update defers with `service is busy: an autodev run holds its run lease`; while the update holds it, a run ends as `failed: infra` (`lease`). A run that takes the lease checks `maintenance.json` and `transaction.json` again and ends as `failed: infra` (`update`) when one exists. A brief probe of the lease never fails a holder: taking it retries for one second. |
+| `schedules/heavy.lease` | The heavy-process lease. The runner holds it while a session's `heavy` client runs a check, and the tick waits while it is held. |
+| `schedules/runs/<run-id>/control.sock`, `schedules/runs/<run-id>/clients/` | The runner socket and its thin clients while a run serves them, when the socket path fits the `AF_UNIX` limit; otherwise both live in a private `autodev-socket-*` directory in the runner's temporary directory. Removed when the run ends. |
 | `schedules/runs/<run-id>/record.json` | The run record: mode, trigger, status, gate decision, `pinned`, the GitHub paths read, and `comments` (the IDs of comments the runner wrote). Token-like strings are masked. |
 | `schedules/runs/<run-id>/stdout.log`, `stderr.log` | The supervised run's output. |
 | `schedules/tools.json` | The absolute paths of `claude`, `codex`, `gh` and `git` resolved at `install`. |

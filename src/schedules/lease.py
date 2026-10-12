@@ -40,28 +40,24 @@ def lease_path(directory: str | Path | None = None) -> Path:
     return schedules_dir(directory) / LEASE_NAME
 
 
-@contextmanager
-def hold(directory: str | Path | None = None, *, wait: float = HOLD_WAIT) -> Iterator[Path]:
-    """Hold the run lease for the body; ``LeaseBusy`` when another holder keeps it for ``wait`` seconds."""
-    path = lease_path(directory)
+def acquire(path: Path, *, wait: float = HOLD_WAIT) -> ExitStack | None:
+    """The lock on ``path`` in a stack the caller closes to release it, or None when another holder
+    keeps it for ``wait`` seconds. ``path``'s directory is created private."""
     private_dir(path.parent)
     deadline = time.monotonic() + wait
     while True:
         stack = ExitStack()
         try:
             stack.enter_context(file_lock(path, blocking=False))
-            break
+            return stack
         except BlockingIOError:
             if time.monotonic() >= deadline:
-                raise LeaseBusy("an autodev run or a daemon update holds the run lease") from None
+                return None
         time.sleep(RETRY_SECONDS)
-    with stack:
-        yield path
 
 
-def held(directory: str | Path | None = None) -> bool:
-    """Whether a run holds the lease now. Creates nothing when no run ever took it."""
-    path = lease_path(directory)
+def locked(path: Path) -> bool:
+    """Whether a holder keeps the lock on ``path`` now. Creates nothing when no one ever took it."""
     if not path.is_file():
         return False
     try:
@@ -69,3 +65,19 @@ def held(directory: str | Path | None = None) -> bool:
             return False
     except BlockingIOError:
         return True
+
+
+@contextmanager
+def hold(directory: str | Path | None = None, *, wait: float = HOLD_WAIT) -> Iterator[Path]:
+    """Hold the run lease for the body; ``LeaseBusy`` when another holder keeps it for ``wait`` seconds."""
+    path = lease_path(directory)
+    stack = acquire(path, wait=wait)
+    if stack is None:
+        raise LeaseBusy("an autodev run or a daemon update holds the run lease")
+    with stack:
+        yield path
+
+
+def held(directory: str | Path | None = None) -> bool:
+    """Whether a run holds the lease now. Creates nothing when no run ever took it."""
+    return locked(lease_path(directory))

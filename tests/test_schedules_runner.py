@@ -11,7 +11,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from src.schedules import cli, config as autodev_config, lease, records, runner
+from src.schedules import cli, config as autodev_config, heavy, lease, records, runner
 from src.schedules.github import GitHubClient, TokenUnavailable
 from src.schedules.supervise import Supervised, SupervisorStopped
 from tests.test_schedules_github import FakeGitHub
@@ -351,6 +351,17 @@ def test_tick_skips_while_a_daemon_update_runs(ctx):
     assert ctx.test.supervised == []
 
 
+def test_tick_skips_while_a_session_holds_the_heavy_process_lease(ctx):
+    autodev_config.save({**autodev_config.DEFAULTS, "enabled": True}, ctx.directory)
+    (ctx.directory / "schedules" / "tick.json").write_text(json.dumps({"enabled_at": "2026-10-12T00:00:00+03:00"}))
+    with lease.acquire(heavy.lease_path(ctx.directory)):
+        code, result = call(ctx, "tick")
+        assert result["tick"]["action"] == "skip" and result["tick"]["reason"] == "the heavy-process lease is held"
+        assert call(ctx, "autodev", "status")[1]["heavy_lease_held"] is True
+    assert ctx.test.supervised == []
+    assert call(ctx, "tick")[1]["tick"]["action"] == "run"
+
+
 def test_status_reports_state_runs_and_the_next_slot(ctx):
     call(ctx, "autodev", "run-now")
     code, result = call(ctx, "autodev", "status")
@@ -358,6 +369,7 @@ def test_status_reports_state_runs_and_the_next_slot(ctx):
     assert result["scheduler"]["label"].endswith(".scheduler") and result["scheduler"]["installed"] is False
     assert result["recent_runs"][0]["status"] == "completed" and result["recent_runs"][0]["decision"] == "select"
     assert result["lease_held"] is False and result["real_modes"]["available"] is False
+    assert result["heavy_lease_held"] is False
     assert result["config_file"] == str(ctx.directory / "schedules" / "autodev.json")
 
 

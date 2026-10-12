@@ -7,8 +7,9 @@ the schedule is enabled and either
 * a continuation's ``next_attempt`` has come and the current time is within ``allowed_hours``
   (a range may cross midnight, such as ``22:00-02:00``),
 
-and then only when the run lease is free, no daemon update is in progress, no other heavy
-process runs and, with ``require_ac_power``, the machine is not on battery. A slot that is older
+and then only when the run lease is free, no daemon update is in progress, no session holds the
+heavy-process lease (`src.schedules.heavy`), no other heavy process runs and, with
+``require_ac_power``, the machine is not on battery. A slot that is older
 than the catch-up window when a tick first sees it is recorded as ``missed``; a due slot that a
 busy machine keeps from running is retried by every tick until it becomes ``missed``.
 
@@ -162,6 +163,7 @@ def _unknown() -> None:
 def decide(now: datetime, config: Mapping, state: Mapping | None, *,
            lease_free: Callable[[], bool] = _always,
            update_pending: Callable[[], bool] = _never,
+           heavy_lease_held: Callable[[], bool] = _never,
            heavy_processes: Callable[[], list] = _nothing,
            on_ac_power: Callable[[], bool | None] = _unknown) -> TickDecision:
     """One tick. ``now`` is an aware local time; the probes run only when something is due."""
@@ -212,6 +214,8 @@ def decide(now: datetime, config: Mapping, state: Mapping | None, *,
         blockers.append("a daemon update or maintenance is in progress")
     if not lease_free():
         blockers.append("an autodev run or a daemon update holds the run lease")
+    if heavy_lease_held():
+        blockers.append("the heavy-process lease is held")
     heavy = heavy_processes()
     if heavy:
         blockers.append(f"heavy processes are running: {', '.join(map(str, heavy))}")
