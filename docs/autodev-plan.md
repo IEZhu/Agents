@@ -206,7 +206,7 @@ Every write goes into the broker log with the ID of the created object.
 | Pushing branches | A deploy key with write access | `gh repo deploy-key add --allow-write -R IEZhu/Agents` | A deploy key cannot trigger a merge through the API; the ruleset rejects a push to `main` |
 | PRs, comments, labels | A fine-grained token of the owner's account for `IEZhu/Agents` only: Pull requests and Issues write, Contents read | Only in the GitHub web interface; the fields can be pre-filled with a link | Without Contents write, the token should not be able to merge |
 
-That merging requires Contents write was recorded from a reviewer's memory and is checked in phase 0. A key added through `gh` is tied to the `gh` token and disappears if that token is revoked. Both secrets are stored where the sandbox cannot read.
+A test on 2026-10-12 with throwaway branches and a temporary draft PR confirmed the token's limits: it can open and edit a PR and comment, but creating a branch and merging the PR were both refused with HTTP 403 ("Resource not accessible by personal access token"). A key added through `gh` is tied to the `gh` token and disappears if that token is revoked. Both secrets are stored where the sandbox cannot read.
 
 **A stage session (Claude).** Launch:
 
@@ -292,7 +292,7 @@ The command `python -m src.schedules autodev enable --mode run --accept-shared-a
 - no force push and no deletion;
 - bypass only for the administrator role, and only through a PR.
 
-The deploy key is not in the bypass list, so its push to `main` is rejected. The ruleset is active since 2026-10-12, and a test on a temporary branch with the same rules confirmed it: a direct push is rejected for the deploy key and for the administrator's token, deletion is rejected, and the owner can merge a PR (section 3, row 15). Still untested, and checked in phase 0: whether the deploy key can push changes to `.github/workflows/**` on a feature branch, and whether the broker token can merge.
+The deploy key is not in the bypass list, so its push to `main` is rejected. The ruleset is active since 2026-10-12, and a test on a temporary branch with the same rules confirmed it: a direct push is rejected for the deploy key and for the administrator's token, deletion is rejected, and the owner can merge a PR (section 3, row 15). The broker token cannot merge either (5.6, tested 2026-10-12). Still untested, and checked in phase 0: whether the deploy key can push changes to `.github/workflows/**` on a feature branch.
 
 ### 5.8 Public visibility
 
@@ -892,7 +892,7 @@ It is October 2027, and self-development has been switched off. What went wrong?
 | 1 | A model under prompt injection read the owner's token or keys on the machine | low with a working sandbox | critical | `denyRead` for the home directory and `~/Library/Keychains`, `blockReadsOutsideWorkingDirectories`; no network, bypass forbidden; file tools restricted; credentials only with the runner; probes before every session with Bash. **Residual risk:** a bug or an unknown bypass in the Claude Code sandbox itself or in the nested Codex sandbox | Probe failures, decoys triggered |
 | 2 | An "owner's" decision was actually made by an agent | medium | high | The pool is limited to the owner's label; no label opens the control paths; broker writes are excluded by ID. **Residual risk:** labels, issues and edits made by any of the owner's agents under the owner's account count as the owner's | Owner labels set while agents are working |
 | 3 | Prompt injection through someone else's text led to a harmful change | medium | critical | Only trusted sources (5.2); instructions from `pinned`; the broker checks protected paths; only the owner merges | A PR touches unexpected files |
-| 4 | The agent merged or pushed to `main` | low | critical | The ruleset rejects a push to `main`; the deploy key and the broker token cannot merge (checked in phase 0); the sandbox cannot read the `gh` token. **Residual risk:** a bug in the broker, the only holder of credentials | `main` moved without the owner's merge |
+| 4 | The agent merged or pushed to `main` | low | critical | The ruleset rejects a push to `main`; the deploy key and the broker token cannot merge (the token was tested on 2026-10-12); the sandbox cannot read the `gh` token. **Residual risk:** a bug in the broker, the only holder of credentials | `main` moved without the owner's merge |
 | 5 | Auto-loaded settings from the branch (hooks, `.mcp.json`, CLAUDE.md) ran in the next session | medium | high | A fresh tree at `pinned` for every session; `--safe-mode`; separate CLI profiles; `core.hooksPath=/dev/null` | Files in quarantine refs |
 | 6 | The runner's code was replaced from the working branch, and a review was forged | medium | high | The runner's code comes from a trusted copy by absolute path; `src/schedules/**` is protected; the broker requires a validated review for the head | The runner's commit differs from `pinned` |
 | 7 | An agent comment started the issue agent | low | high | The marker and the `/agent` ban in the broker, the only write path; the app condition in the bridge | Issue-agent sessions without the owner's command |
@@ -942,7 +942,7 @@ The owner answered all questions on 2026-10-12. Each item states the decision; t
 - **Q12. Typed outputs in `subagent/2`.** Accepted: a separate proposal after the #327 evaluation.
 - **Q13. A real `run-now` under the owner's account.** Accepted from phase 1a; the first real run is done together with the owner.
 - **Q14. Codex as the client of stage sessions.** Decided: Codex is installed and selectable as a stage client on the settings page. The runner enables it only after the phase 1a network and sandbox probes pass for Codex; until then the page shows it as unavailable.
-- **Q15. Broker credentials.** Accepted and in progress: both are required for any real run. The deploy key exists, and the owner created the fine-grained token on 2026-10-12. The broker does not use the `gh` token with the `repo` and `workflow` scopes.
+- **Q15. Broker credentials.** Accepted and done on 2026-10-12: both are required for any real run. The deploy key exists; the owner created the fine-grained token and stored it in the keychain, and a test confirmed that it cannot create branches or merge (5.6). The broker does not use the `gh` token with the `repo` and `workflow` scopes.
 
 ## 14. Implementation plan
 
@@ -958,8 +958,9 @@ The owner answered all questions on 2026-10-12. Each item states the decision; t
 - [ ] `CLAUDE_ROUTINE_TOKEN` moves into a GitHub environment for the default branch only; workflows on `pull_request` get `permissions: {}`.
 - [ ] `.github/autodev-protected-paths` with the list from 5.3.
 - [x] Deploy key (2026-10-12): `~/.config/agents-autodev/deploy_key` (mode 600), added to `IEZhu/Agents` with write access under the title `agents-autodev`. It is tied to the `gh` token: if the `gh` token is revoked, the key disappears.
-- [ ] A fine-grained token in the web interface: repository `IEZhu/Agents` only, Pull requests and Issues write, Contents read. Store it in the keychain with `security add-generic-password -U -s agents-autodev-github -a WonderMr -w`, with `-w` last: this way the password is prompted for and does not end up in the shell history.
-- [ ] Check on a test branch that the broker token cannot merge a PR, and whether the deploy key can push `.github/workflows/**`; record the result (the broker rejects it anyway).
+- [x] A fine-grained token (2026-10-12): created by the owner in the web interface for `IEZhu/Agents` only, Pull requests and Issues write, Contents read; stored in the keychain item `agents-autodev-github` (account `WonderMr`); expires on 2027-10-11.
+- [x] The broker token cannot create a branch or merge a PR (2026-10-12, HTTP 403 for both on throwaway branches with a temporary draft PR, #335); it can open and edit a PR and comment.
+- [ ] Check whether the deploy key can push `.github/workflows/**` to a feature branch; record the result (the broker rejects it anyway).
 
 ### Phase 1a. Supervised MVP
 
