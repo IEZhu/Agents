@@ -303,6 +303,9 @@ def test_hex_runs_inside_a_run_do_not_raise_its_entropy(sha):
     ("ghp_" + "a" * 200000 + " b", {"github-token"}), ("%41" * 70000, set()), ("\\x41" * 50000, set()),
     ("aa " * 70000 + "zz", set()), ("0x41, " * 40000, set()), (" " * 200000 + "x", set()),
     ("\u200b" * 200000, set()), ("\n@@ -1 +1 @@\n" + "\n+" * 100000, set()),
+    # review round 2: a backslash run with no escape after it was retried from every backslash
+    ("\\" * 200000, set()), (("\\" * 5000 + " ") * 40, set()), ("\\" * 100000 + "x41", set()),
+    ("\n> " * 100000, set()), ("\\n" * 100000, set()),
 ], ids=lambda value: f"{value[:12]!r}x{len(value)}" if isinstance(value, str) else str(sorted(value)))
 def test_long_adversarial_runs_are_scanned_in_linear_time(text, names):
     started = time.perf_counter()
@@ -405,6 +408,8 @@ def test_tracked_files_are_clean_except_known_fixtures():
 # --- known secrets and tokens in normalized, split and escaped forms (review round 1, F2, F7, F9) ---
 
 LOW_ENTROPY_DECOY = "[default]\nnote = this is the decoy config\nowner = runner\n"
+# Every line shorter than KNOWN_LINE_MIN_LENGTH: only the whole value is a needle (review round 2).
+SHORT_LINE_DECOY = "[x]\nk = v1\nuser = bob\npass = hunter2x\n"
 
 
 def unified_diff(lines: list[str], *, newline: str = "\n") -> str:
@@ -422,18 +427,34 @@ DECOY_FORMS = {
     "Markdown quote": lambda value: "".join(f"> {line}\n" for line in value.splitlines()),
     "lines reordered": lambda value: "\n".join(reversed(value.splitlines())),
     "zero-width spaces": lambda value: value.replace(" ", "\u200b "),
+    "nested Markdown quote": lambda value: "".join(f"> > {line}\n" for line in value.splitlines()),
+    "JSON string": json.dumps,
+    "Python repr": repr,
+    "JSON string in a new-file diff": lambda value: unified_diff([json.dumps({"config": value})]),
+    "quoted new-file diff": lambda value: "".join(f"> {line}\n" for line in unified_diff(value.splitlines()).splitlines()),
 }
 
 
+@pytest.mark.parametrize("decoy", [LOW_ENTROPY_DECOY, SHORT_LINE_DECOY], ids=["long lines", "short lines"])
 @pytest.mark.parametrize("form", DECOY_FORMS)
-def test_low_entropy_multi_line_decoy_is_caught_in_each_form(form):
-    assert scan(LOW_ENTROPY_DECOY) == ()  # neither a pattern nor entropy: only the known value catches it
-    scanner = Scanner([KnownSecret("decoy: config", LOW_ENTROPY_DECOY)])
+def test_low_entropy_multi_line_decoy_is_caught_in_each_form(form, decoy):
+    if decoy is SHORT_LINE_DECOY and form == "lines reordered":
+        pytest.skip("reordered lines are found only through lines of KNOWN_LINE_MIN_LENGTH or more")
+    assert scan(decoy) == ()  # neither a pattern nor entropy: only the known value catches it
+    scanner = Scanner([KnownSecret("decoy: config", decoy)])
 
     # Not `embedded`: its newline after the value would complete the raw form without a final newline.
-    hits = scanner.scan(f"result: {DECOY_FORMS[form](LOW_ENTROPY_DECOY)} end")
+    hits = scanner.scan(f"result: {DECOY_FORMS[form](decoy)} end")
 
     assert found(hits, HitKind.KNOWN, "decoy: config")
+
+
+def test_a_decoy_with_quotes_and_backslashes_is_caught_in_json_and_repr():
+    decoy = 'token = "a\\b/c"\nowner = \'runner\'\n'
+    scanner = Scanner([KnownSecret("decoy: quoted", decoy)])
+
+    for form in (json.dumps(decoy), repr(decoy), json.dumps({"value": decoy}, indent=2)):
+        assert found(scanner.scan(f"output: {form} end"), HitKind.KNOWN, "decoy: quoted"), form
 
 
 def test_each_long_line_of_a_known_value_is_a_needle_of_its_own():

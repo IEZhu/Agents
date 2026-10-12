@@ -114,18 +114,23 @@ _HEX_IN_RUN = re.compile(r"[0-9A-Fa-f]{7,}")
 _ENTROPY_EXEMPT = re.compile(r"(?<=https://claude\.ai/code/)session_01[A-Za-z0-9]{22}(?![A-Za-z0-9+_-])")
 _BASE64_RUN = re.compile(rf"[A-Za-z0-9+/_-]{{{_MIN_ENCODED_RUN},}}")
 _HEX_RUN = re.compile(rf"[0-9A-Fa-f]{{{_MIN_ENCODED_RUN},}}")
-_IGNORABLE = re.compile(rf"[\s{_CF}]+")
-_DIFF_MARKERS = re.compile(rf"(?m)^[+ -]|[\s{_CF}]+")
-_DIFF_HUNK = re.compile(r"(?m)^@@ -[0-9]+(?:,[0-9]+)? \+[0-9]+(?:,[0-9]+)? @@")
+# Around a known value: Markdown quote markers at a line start (also around a diff line marker,
+# as in a quoted diff), the string escapes of JSON and
+# `repr` (a quote, backslash or slash stays as itself, a line break or tab goes), whitespace and Cf.
+_QUOTE_MARKERS = r"(?:[^\S\r\n]*>)+[^\S\r\n]?"
+_STRING_ESCAPE = r"\\[nrt\"'\\/]"
+_IGNORABLE = re.compile(rf"(?m)^{_QUOTE_MARKERS}|{_STRING_ESCAPE}|[\s{_CF}]+")
+_DIFF_MARKERS = re.compile(rf"(?m)^(?:{_QUOTE_MARKERS})?[+ -](?:{_QUOTE_MARKERS})?|^{_QUOTE_MARKERS}|{_STRING_ESCAPE}|[\s{_CF}]+")
+_DIFF_HUNK = re.compile(rf"(?m)^(?:{_QUOTE_MARKERS})?@@ -[0-9]+(?:,[0-9]+)? \+[0-9]+(?:,[0-9]+)? @@")
 # Line joins start only where a run of blanks starts: retrying inside a long run would be quadratic.
 _LINE_JOINS = re.compile(rf"[{_CF}]+|(?<![^\S\r\n])[^\S\r\n]*(?:(?:\r\n?|\n)[^\S\r\n]*)+")
 _DIFF_LINE_JOINS = re.compile(rf"[{_CF}]+|(?<![^\S\r\n])[^\S\r\n]*(?:(?:\r\n?|\n)[+ -]?[^\S\r\n]*)+")
 _HEX_PAIR = r"(?:0[xX])?[0-9A-Fa-f]{2}(?![0-9A-Za-z])"
 _ESCAPE = re.compile(
     r"%([0-9A-Fa-f]{2})"
-    r"|\\+x([0-9A-Fa-f]{2})"
-    r"|\\+u([0-9A-Fa-f]{4})"
-    r"|\\+([0-3][0-7]{2})"
+    # Only from the first backslash of a run, possessively: a run with no escape after it is tried
+    # once, not once per backslash (quadratic).
+    r"|(?<!\\)\\++(?:x([0-9A-Fa-f]{2})|u([0-9A-Fa-f]{4})|([0-3][0-7]{2}))"
     rf"|(?<![0-9A-Za-z]){_HEX_PAIR}(?:(?:[:,-]\s*|\s+){_HEX_PAIR}){{{_MIN_ENCODED_RUN // 2 - 1},}}"
 )
 _HEX_PAIR_NOISE = re.compile(r"0[xX]|[^0-9A-Fa-f]")
@@ -218,11 +223,11 @@ def _fingerprint(secret: KnownSecret) -> _Fingerprint:
 def _joined_needles(value: str) -> tuple[str, ...]:
     """What to look for in a view without whitespace and Cf characters: ``value`` so stripped,
     then each of its lines that keeps at least ``KNOWN_LINE_MIN_LENGTH`` characters so."""
-    needles = [_IGNORABLE.sub("", value)]
+    needles = [_IGNORABLE.sub(_unquote, value)]
     if len(needles[0]) < KNOWN_MIN_LENGTH:
         needles.pop()
     for line in value.splitlines():
-        joined = _IGNORABLE.sub("", line)
+        joined = _IGNORABLE.sub(_unquote, line)
         if len(joined) >= KNOWN_LINE_MIN_LENGTH:
             needles.append(joined)
     return tuple(dict.fromkeys(needles))
@@ -341,9 +346,9 @@ class Scanner:
             needle = fingerprint.text if layer.depth == 0 else fingerprint.latin
             for start in _find_all(layer.text, needle):
                 hits.add(HitKind.KNOWN, fingerprint.label, layer.origin(start, start + len(needle)))
-        views = [_View(layer, _IGNORABLE)]
+        views = [_View(layer, _IGNORABLE, _unquote)]
         if diff:
-            views.append(_View(layer, _DIFF_MARKERS))
+            views.append(_View(layer, _DIFF_MARKERS, _unquote))
         for view in views:
             for fingerprint in self._fingerprints:
                 for needle in (fingerprint.joined if layer.depth == 0 else fingerprint.joined_latin):
@@ -460,6 +465,12 @@ def _unescaped_layers(layer: _Layer) -> Iterator[_Layer]:
 
 def _shifted_origin(layer: _Layer, start: int) -> Callable[[int, int], tuple[int, int]]:
     return lambda first, end: layer.origin(start + first, start + end)
+
+
+def _unquote(match: re.Match[str]) -> str:
+    """A quoted quote, backslash or slash as itself; any other noise around a known value goes."""
+    text = match.group()
+    return text[1] if len(text) == 2 and text[0] == "\\" and text[1] in "\"'\\/" else ""
 
 
 def _unescape(match: re.Match[str]) -> str:

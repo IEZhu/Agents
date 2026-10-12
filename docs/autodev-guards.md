@@ -123,9 +123,11 @@ the run. It looks for:
   counts.
 - **Known secrets and decoy contents** (`KnownSecret`, label plus value of at least 8
   characters; #342 passes its token and key, #343 the decoys): raw; with whitespace (CR
-  included), Cf characters and unified-diff line markers removed from both the value and the
-  text, so CRLF line endings, indentation, a missing final newline, a split by a line break,
-  space, NBSP or U+200B, or the `+` lines of a diff do not hide it; each line of a multi-line
+  included), Cf characters, unified-diff line markers, Markdown quote markers at a line start and
+  the string escapes of JSON and `repr` (`\n`, `\r`, `\t` removed; `\"`, `\'`, `\\`, `\/` as the
+  character) normalized away in both the value and the text, so CRLF line endings, indentation, a
+  missing final newline, a split by a line break, space, NBSP or U+200B, the `+` lines of a diff,
+  a quoted reply or diff, or a JSON or `repr` string do not hide it; each line of a multi-line
   value with at least 16 characters once whitespace is removed (`KNOWN_LINE_MIN_LENGTH`) also on
   its own, so a partly copied or reordered decoy file is found; as base64 in either alphabet,
   padded or not, at any byte offset inside a larger blob, and as hex in either case.
@@ -177,7 +179,7 @@ Not covered: a secret split by other text or several times (only a known secret 
 any number of blanks; a token pattern takes one blank inside a line, or line breaks), compressed,
 encrypted or in another encoding (base32, ROT13, `+` for a space in form encoding); part of a
 decoy shorter than a line of 16 characters, unless the caller passes that part as its own
-`KnownSecret`; a random string shorter than the entropy limits above. Decoys (#343) should not
+`KnownSecret` (a decoy whose lines are all shorter is found only whole and in order); a random string shorter than the entropy limits above. Decoys (#343) should not
 contain lines of 16 or more characters that also occur in ordinary text, since each such line is
 a needle.
 
