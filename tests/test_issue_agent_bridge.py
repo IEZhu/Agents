@@ -50,8 +50,9 @@ def bridge_namespace(workflow, workflow_path):
     return namespace
 
 
-def comment(body, *, login=OWNER, user_type="User", comment_id=SOURCE_ID):
-    return {"id": comment_id, "body": body, "user": {"login": login, "type": user_type}}
+def comment(body, *, login=OWNER, user_type="User", comment_id=SOURCE_ID, app=None):
+    # GitHub always includes performed_via_github_app; it is null for a typed comment.
+    return {"id": comment_id, "body": body, "user": {"login": login, "type": user_type}, "performed_via_github_app": app}
 
 
 def acknowledgement(*, login=OWNER, bridge_id=STATUS_ID, user_type="User", comment_id=ACK_ID, text="Working on it."):
@@ -295,6 +296,13 @@ def test_comments_made_through_an_app_never_dispatch(bridge, app):
     assert bridge.output_path.read_text() == ""
 
 
+def test_comment_without_the_app_field_fails_closed(bridge):
+    del bridge.event["comment"]["performed_via_github_app"]
+    bridge.run()
+    assert bridge.calls == []
+    assert bridge.output_path.read_text() == ""
+
+
 def test_owner_typed_command_without_an_app_dispatches(bridge):
     bridge.event["comment"]["performed_via_github_app"] = None
     bridge.run()
@@ -307,6 +315,16 @@ def test_self_development_markers_are_ignored(bridge, body):
     bridge.run()
     assert bridge.calls == []
     assert bridge.output_path.read_text() == ""
+
+
+def test_cloud_agent_acknowledgement_posted_through_its_app_confirms_startup(bridge):
+    # The cloud agent writes its acknowledgement as the owner through the `claude`
+    # app; the startup poll must keep accepting it.
+    bridge.startup_comments[0]["performed_via_github_app"] = {"id": 1, "slug": "claude"}
+    bridge.run()
+    assert len(bridge.fires) == 1
+    assert "Claude confirmed startup" in bridge.statuses[-1]
+    assert bridge.output_path.read_text() == f"reaction_path=/issues/comments/{SOURCE_ID}/reactions/501\nkeep_reaction=true\n"
 
 
 def test_dispatch_job_uses_the_default_branch_environment(workflow):
@@ -883,7 +901,7 @@ def test_invalid_configuration_is_reported_without_fire(bridge, monkeypatch, set
     monkeypatch.setenv(setting, value)
     bridge.run()
     assert bridge.fires == []
-    assert "Launch blocked: configure CLAUDE_ROUTINE_TOKEN and CLAUDE_ROUTINE_ID" in bridge.statuses[-1]
+    assert "Launch blocked: configure the CLAUDE_ROUTINE_TOKEN secret of the `issue-agent` environment" in bridge.statuses[-1]
     assert bridge.output_path.read_text() == f"reaction_path=/issues/comments/{SOURCE_ID}/reactions/501\n"
 
 
