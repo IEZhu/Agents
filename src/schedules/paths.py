@@ -8,11 +8,12 @@ The autodev broker (#342) calls this module before it pushes a session's commits
   from the working branch. A missing, non-regular or empty list file is an error, never an empty
   list. Their syntax is a subset of gitignore: one pattern per line, blank lines and ``#``
   comments skipped, trailing whitespace stripped. Syntax this module does not implement (a
-  leading ``!``, a backslash, a ``[`` character class, leading whitespace, ``**`` inside a
-  component) raises ``PathListError`` instead of being ignored, so a list never protects less
-  than it reads.
+  leading ``!``, a backslash, a ``[`` character class, ``?``, leading whitespace, ``**`` inside
+  a component) raises ``PathListError`` instead of being ignored, so a list never protects less
+  than it reads. (``?`` would match one code point, but after folding one character can be
+  several: ``caf?.md`` would miss ``café.md``.)
 * **Matching** follows gitignore, case-insensitively after Unicode normalization (``fold``: NFD,
-  then case folding, as macOS APFS compares names): ``*`` and ``?`` never cross ``/``; ``**``
+  then case folding, as macOS APFS compares names): ``*`` never crosses ``/``; ``**``
   spans any number of directories, and a leading ``**/`` also matches at the root; a pattern with
   a slash at its start or in its middle is anchored at the root, one without matches the basename
   at any depth; a pattern ending in ``/**`` also matches the directory itself; a path matches
@@ -26,11 +27,17 @@ The autodev broker (#342) calls this module before it pushes a session's commits
   renames are a deletion plus an addition, deletions included. ``ChangeCheck.refusals`` lists
   each refused commit and path with its ``Reason``; the push is allowed only when it is empty.
 
-Git runs without a shell, with a minimal environment and a clean configuration
-(``GIT_CONFIG_NOSYSTEM=1``, ``GIT_CONFIG_GLOBAL`` at the null device, ``GIT_TERMINAL_PROMPT=0``,
-no pager, no replace objects, literal pathspecs, ``-c core.quotePath=false``), ``-C`` the trusted
-repository with discovery stopped above it, and ``--end-of-options`` before revision arguments.
-Every revision is a 40-character lowercase hex SHA validated before any git call.
+Git runs without a shell and with a minimal environment: ``GIT_CONFIG_NOSYSTEM=1`` and
+``GIT_CONFIG_GLOBAL`` at the null device, so no system or global configuration is read;
+``GIT_TERMINAL_PROMPT=0``, no pager, no replace objects (``--no-replace-objects``) and no grafts
+(``GIT_GRAFT_FILE`` at the null device), literal pathspecs, ``-C`` the trusted repository with
+discovery stopped above it, and ``--end-of-options`` before revision arguments. The trusted
+repository's own configuration, and the files it includes, is still read, with
+``core.fsmonitor=false``, ``core.hooksPath`` at the null device and ``core.quotePath=false`` set
+on the command line over it, so no fsmonitor command and no hook runs. A repository with an
+``info/grafts`` or ``objects/info/alternates`` file is refused (``PathsError``) before any other
+git call: grafts rewrite parents, alternates add objects from elsewhere. Every revision is a
+40-character lowercase hex SHA validated before any git call.
 """
 from __future__ import annotations
 
@@ -54,6 +61,8 @@ _SHA = re.compile(r"[0-9a-f]{40}")
 _RAW_HEADER = re.compile(r":([0-7]{6}) ([0-7]{6}) ([0-9a-f]{40}) ([0-9a-f]{40}) ([ADMT])")
 _ABSENT, _REGULAR, _EXECUTABLE, _SYMLINK, _GITLINK = "000000", "100644", "100755", "120000", "160000"
 _KNOWN_MODES = frozenset((_ABSENT, _REGULAR, _EXECUTABLE, _SYMLINK, _GITLINK))
+# Files of a repository that change what git reports: other parents, objects from elsewhere.
+_UNTRUSTED_FILES = ("info/grafts", "objects/info/alternates")
 
 
 class PathsError(Exception):
@@ -127,6 +136,10 @@ def _compile(line: str, where: str) -> re.Pattern[str]:
         raise PathListError(f"{where}: a backslash (escape) is not supported")
     if "[" in line:
         raise PathListError(f"{where}: '[' (character class) is not supported")
+    if "?" in line:
+        # After folding, one character can be several code points (`é` is `e` and a combining
+        # accent, `ß` is `ss`), so `?` would match less than the one character it reads as.
+        raise PathListError(f"{where}: '?' is not supported; use '*'")
     body = fold(line)
     anchored = body.startswith("/")
     body = body.removeprefix("/").removesuffix("/")
@@ -154,7 +167,7 @@ def _compile(line: str, where: str) -> re.Pattern[str]:
 
 
 def _translate(component: str) -> str:
-    return "".join("[^/]*" if c == "*" else "[^/]" if c == "?" else re.escape(c) for c in component)
+    return "".join("[^/]*" if c == "*" else re.escape(c) for c in component)
 
 
 # Both list files are control paths whatever the lists say: no label lets a session rewrite them.
@@ -188,7 +201,8 @@ class PathClasses:
 
 def load_path_classes(repository: str | os.PathLike[str], pinned: str) -> PathClasses:
     """Both lists as they are at ``pinned`` in the trusted ``repository``."""
-    repository, pinned = _repository(repository), _sha(pinned, "pinned")
+    pinned = _sha(pinned, "pinned")
+    repository = _repository(repository)
     _require_commit(repository, pinned)
     return PathClasses.from_text(_read_list(repository, pinned, PROTECTED_LIST),
                                  _read_list(repository, pinned, CONTROL_LIST))
@@ -365,9 +379,18 @@ def _sha(value: object, name: str) -> str:
 
 
 def _repository(repository: str | os.PathLike[str]) -> Path:
+    """The trusted repository's path, refused when grafts or alternates could steer git."""
     path = Path(repository).resolve()
     if not path.is_dir():
         raise PathsError(f"the trusted repository {path} is not a directory")
+    # Not `--git-path`: it reports GIT_GRAFT_FILE, the null device here, for info/grafts.
+    output = _git(path, "rev-parse", "--path-format=absolute", "--git-common-dir")
+    common = output.decode("utf-8", "surrogateescape").removesuffix("\n")
+    if not common or "\n" in common or not os.path.isabs(common):
+        raise GitError(f"unexpected rev-parse output for {path}")
+    for name in _UNTRUSTED_FILES:
+        if os.path.lexists(os.path.join(common, name)):
+            raise PathsError(f"the trusted repository {path} has {name}, which this check does not accept")
     return path
 
 
@@ -379,18 +402,20 @@ def _require_commit(repository: Path, sha: str) -> None:
 
 
 def _environment(repository: Path) -> dict[str, str]:
-    """Only what git needs; nothing inherited steers it (``GIT_DIR``, config, pager, prompts)."""
+    """Only what git needs; nothing inherited steers it (``GIT_DIR``, config, pager, prompts, grafts)."""
     environment = {key: os.environ[key] for key in ("PATH", "SYSTEMROOT") if key in os.environ}
     environment.update(LC_ALL="C", GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull,
                        GIT_TERMINAL_PROMPT="0", GIT_PAGER="cat", PAGER="cat", GIT_OPTIONAL_LOCKS="0",
-                       GIT_NO_REPLACE_OBJECTS="1", GIT_CEILING_DIRECTORIES=str(repository.parent))
+                       GIT_NO_REPLACE_OBJECTS="1", GIT_GRAFT_FILE=os.devnull,
+                       GIT_CEILING_DIRECTORIES=str(repository.parent))
     return environment
 
 
 def _run(repository: Path, args: tuple[str, ...]) -> subprocess.CompletedProcess[bytes]:
     try:  # the lookup is inside: a missing git is a GitError like one that cannot start
         command = [executables.path("git"), "--no-pager", "--no-replace-objects", "--literal-pathspecs",
-                   "-c", "core.quotePath=false", "-C", str(repository), *args]
+                   "-c", "core.quotePath=false", "-c", "core.fsmonitor=false", "-c", f"core.hooksPath={os.devnull}",
+                   "-C", str(repository), *args]
         return subprocess.run(command, capture_output=True, stdin=subprocess.DEVNULL, timeout=GIT_TIMEOUT,
                               env=_environment(repository), check=False)
     except (OSError, subprocess.TimeoutExpired) as error:

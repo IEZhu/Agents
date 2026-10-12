@@ -1,9 +1,10 @@
 """Protected and control paths, and the change check of self-development (#341).
 
-Change-check tests build throwaway bare repositories under ``tmp_path`` with git plumbing
+Change-check tests build throwaway repositories under ``tmp_path`` with git plumbing
 (``hash-object``, ``mktree``, ``commit-tree``), so trees can hold what a case-insensitive file
-system or ``update-index`` would not: case collisions, ``.git`` components, symbolic links and
-gitlinks. The live checkout is only read: the two list files' current contents.
+system or ``update-index`` would not: case collisions, ``.git`` components, symbolic links,
+gitlinks and names that are not UTF-8. The live checkout is only read: the two list files'
+current contents.
 """
 from __future__ import annotations
 
@@ -15,7 +16,7 @@ import pytest
 
 from src.schedules import paths
 from src.schedules.paths import (CONTROL_LIST, NEXT_LABEL, PROTECTED_LIST, ChangeCheck, GitError, PathClass,
-                                 PathClasses, PathListError, Reason, Refusal, check_changes, fold,
+                                 PathClasses, PathListError, PathsError, Reason, Refusal, check_changes, fold,
                                  load_path_classes, parse_patterns)
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -24,22 +25,27 @@ CONTROL_TEXT = (ROOT / CONTROL_LIST).read_text(encoding="utf-8")
 CURRENT = PathClasses.from_text(PROTECTED_TEXT, CONTROL_TEXT)
 
 
-def fixture_git(repository: Path, *args: str, input: str | None = None) -> str:
+def fixture_environment() -> dict[str, str]:
     """git for fixtures, isolated from the developer's configuration and inherited GIT_* variables."""
     environment = {key: value for key, value in os.environ.items() if not key.upper().startswith("GIT_")}
     environment.update(GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1",
                        GIT_AUTHOR_NAME="Fixture", GIT_AUTHOR_EMAIL="fixture@example.com",
                        GIT_COMMITTER_NAME="Fixture", GIT_COMMITTER_EMAIL="fixture@example.com")
-    return subprocess.run(["git", "-C", str(repository), *args], env=environment, capture_output=True,
+    return environment
+
+
+def fixture_git(repository: Path, *args: str, input: str | None = None) -> str:
+    return subprocess.run(["git", "-C", str(repository), *args], env=fixture_environment(), capture_output=True,
                           input=input, text=True, encoding="utf-8", check=True).stdout.strip()
 
 
 class Repo:
-    """A bare repository whose commits are built from ``{path: content or (mode, object)}``."""
+    """A repository, bare unless asked, whose commits are built from ``{path: content or (mode, object)}``."""
 
-    def __init__(self, path: Path):
+    def __init__(self, path: Path, *, bare: bool = True):
         self.path = path
-        fixture_git(path.parent, "init", "--quiet", "--bare", path.name)
+        fixture_git(path.parent, "init", "--quiet", *(["--bare"] if bare else []), path.name)
+        self.git_dir = path if bare else path / ".git"
 
     def blob(self, content: str) -> str:
         return fixture_git(self.path, "hash-object", "-w", "--stdin", input=content)
@@ -100,10 +106,19 @@ def test_parse_skips_blank_lines_and_comments_and_strips_trailing_whitespace():
 
 
 @pytest.mark.parametrize("line", ["!CLAUDE.md", "foo\\ bar", "\\#literal", "[Cc]laude.md", "src/[a-z]*.py",
-                                  " leading.txt", "a**b", "src/**.py", "a//b", "/", "a/../b", "./a"])
+                                  " leading.txt", "a**b", "src/**.py", "a//b", "/", "a/../b", "./a", "a?c",
+                                  "caf?.md", "docs/?"])
 def test_parse_refuses_unsupported_syntax_instead_of_ignoring_it(line):
     with pytest.raises(PathListError, match=r"<patterns>:2"):
         parse_patterns(f"ok\n{line}\n")
+
+
+def test_question_mark_is_refused_because_it_would_match_less_than_one_character():
+    """Folded, `é` is two code points and `ß` folds to `ss`: `?` would miss `café.md` and `straße`."""
+    with pytest.raises(PathListError, match=r"'\?' is not supported"):
+        parse_patterns("caf?.md\n")
+    with pytest.raises(PathListError, match=r"'\?' is not supported"):
+        PathClasses.from_text("stra?e\n", "never-matches-anything\n")
 
 
 def test_current_lists_parse_and_every_control_pattern_is_also_protected():
@@ -124,11 +139,10 @@ def test_lists_without_patterns_are_refused():
 # --- matching ------------------------------------------------------------------------------
 
 @pytest.mark.parametrize("pattern,path,expected", [
-    # `*` and `?` stay within one component.
+    # `*` stays within one component.
     ("docs/*.md", "docs/a.md", True),
     ("docs/*.md", "docs/sub/a.md", False),
-    ("a?c", "abc", True),
-    ("a?c", "a/c", False),
+    ("café*", "CAFÉ.md", True),
     ("src/*/x.py", "src/engine/x.py", True),
     ("src/*/x.py", "src/a/b/x.py", False),
     # `**` spans any number of directories, including none.
@@ -289,6 +303,14 @@ def test_next_label_opens_pyproject(repo, base):
     assert check(repo, base, head, labels=["autodev", NEXT_LABEL]).allowed
 
 
+@pytest.mark.parametrize("label", ["Autodev:Next", "AUTODEV:NEXT", "autodev:Next", " autodev:next", "autodev:next ",
+                                   "autodev: next", "autodev-next"])
+def test_next_label_in_another_spelling_does_not_open_protected_paths(repo, base, label):
+    head = repo.commit({**BASE_FILES, "pyproject.toml": "[project]\nname = 'x'\n"}, base)
+
+    assert reasons(check(repo, base, head, labels=["autodev", label])) == {("pyproject.toml", Reason.PROTECTED_PATH)}
+
+
 @pytest.mark.parametrize("path", ["flows/autodev-implement.md", ".github/workflows/x.yml", "src/engine/x.py",
                                   PROTECTED_LIST, CONTROL_LIST])
 def test_next_label_does_not_open_control_paths(repo, base, path):
@@ -365,6 +387,82 @@ def test_dot_git_component_is_refused(repo, base, path):
     assert (path, Reason.DOT_GIT) in reasons(check(repo, base, head))
 
 
+@pytest.mark.parametrize("path", [".g\u200bit/config", "sub/.\u200dGIT/hooks/post-checkout", "x/\ufeff.git",
+                                  ".git\u2060/hooks/pre-commit"])
+def test_dot_git_component_with_a_zero_width_character_is_refused(repo, base, path):
+    """HFS+ ignored format characters in names, so `.g<U+200B>it` was `.git` there."""
+    head = repo.commit({**BASE_FILES, path: "payload\n"}, base)
+
+    assert (path, Reason.DOT_GIT) in reasons(check(repo, base, head))
+
+
+def test_path_that_is_not_utf8_is_refused(repo, base):
+    blob = repo.blob("payload\n")
+    top = subprocess.run(["git", "-C", str(repo.path), "ls-tree", "-z", base], env=fixture_environment(),
+                         capture_output=True, check=True).stdout
+    entries = [entry for entry in top.split(b"\0") if entry] + [f"100644 blob {blob}\t".encode() + b"bad-\xff.txt"]
+    tree = subprocess.run(["git", "-C", str(repo.path), "mktree", "-z"], env=fixture_environment(),
+                          input=b"".join(entry + b"\0" for entry in entries), capture_output=True,
+                          check=True).stdout.decode().strip()
+    head = fixture_git(repo.path, "commit-tree", tree, "-p", base, "-m", "not UTF-8")
+
+    assert reasons(check(repo, base, head)) == {("bad-\\xff.txt", Reason.INVALID_PATH)}
+
+
+@pytest.mark.parametrize("old_mode,new_mode", [("100644", "100664"), ("000000", "040000"), ("100755", "100777"),
+                                               ("100664", "000000")])
+def test_unsupported_mode_is_refused(repo, base, monkeypatch, old_mode, new_mode):
+    """git canonicalizes the modes diff-tree prints, so the record is crafted: an unknown mode on
+    either side is refused, not passed as a regular file."""
+    head = repo.commit({**BASE_FILES, "docs/new.md": "new\n"}, base)
+    classes = load_path_classes(repo.path, base)
+    blob = repo.blob("new\n")
+    old = "0" * 40 if old_mode == "000000" else blob
+    new = "0" * 40 if new_mode == "000000" else blob
+    status = "A" if old_mode == "000000" else "D" if new_mode == "000000" else "M"
+    record = f":{old_mode} {new_mode} {old} {new} {status}\0docs/new.md\0".encode()
+    real_run = paths._run
+
+    def crafted_run(repository, args):
+        if args[0] == "diff-tree":
+            return subprocess.CompletedProcess(args, 0, record, b"")
+        return real_run(repository, args)
+    monkeypatch.setattr(paths, "_run", crafted_run)
+
+    assert (("docs/new.md", Reason.UNSUPPORTED_MODE) in reasons(check_changes(repo.path, base, head, [], classes)))
+
+
+def test_root_commit_reached_through_a_merge_is_refused(repo, base):
+    orphan = repo.commit({**BASE_FILES, "docs/orphan.md": "orphan\n"})
+    merge = repo.commit({**BASE_FILES, "docs/orphan.md": "orphan\n"}, base, orphan)
+
+    result = check(repo, base, merge)
+
+    assert Refusal(orphan, "", Reason.ROOT_COMMIT) in result.refusals
+    assert Refusal(merge, "", Reason.MERGE_COMMIT) in result.refusals
+    assert not result.allowed
+
+
+@pytest.mark.parametrize("failing,output", [("diff-tree", None), ("ls-tree", None), ("rev-list", None),
+                                            ("diff-tree", b":100644 garbage\0docs/new.md\0"),
+                                            ("rev-list", b"not a sha\n")])
+def test_git_failure_during_the_check_is_an_error_not_an_allowance(repo, base, monkeypatch, failing, output):
+    head = repo.commit({**BASE_FILES, "docs/new.md": "new\n"}, base)
+    classes = load_path_classes(repo.path, base)
+    real_run = paths._run
+
+    def failing_run(repository, args):
+        if args[0] == failing:
+            if output is None:
+                return subprocess.CompletedProcess(args, 128, b"", b"fatal: simulated failure")
+            return subprocess.CompletedProcess(args, 0, output, b"")
+        return real_run(repository, args)
+    monkeypatch.setattr(paths, "_run", failing_run)
+
+    with pytest.raises(GitError, match=f"git {failing} failed" if output is None else "unexpected"):
+        check_changes(repo.path, base, head, [], classes)
+
+
 def test_every_commit_is_checked_not_only_the_head(repo, base):
     middle = repo.commit({**BASE_FILES, "CLAUDE.md": "rewritten\n"}, base)
     head = repo.commit(BASE_FILES, middle)
@@ -432,6 +530,79 @@ def test_empty_range_is_allowed(repo, base):
     assert result.allowed and result.commits == ()
 
 
+@pytest.mark.skipif(os.name == "nt", reason="the planted fsmonitor command is a shell script")
+@pytest.mark.parametrize("planted", ["config", "include"])
+def test_fsmonitor_command_in_the_repository_configuration_does_not_run(tmp_path, planted):
+    repo = Repo(tmp_path / "trusted", bare=False)  # git runs fsmonitor only with a working tree
+    base = repo.commit(BASE_FILES)
+    head = repo.commit({**BASE_FILES, "docs/new.md": "new\n"}, base)
+    marker = tmp_path / "fsmonitor-ran"
+    command = tmp_path / "fsmonitor.sh"
+    command.write_text(f"#!/bin/sh\ntouch '{marker}'\n", encoding="utf-8")
+    command.chmod(0o755)
+    if planted == "config":
+        fixture_git(repo.path, "config", "core.fsmonitor", str(command))
+    else:
+        included = tmp_path / "included.config"
+        included.write_text(f"[core]\n\tfsmonitor = {command}\n", encoding="utf-8")
+        fixture_git(repo.path, "config", "include.path", str(included))
+    subprocess.run(["git", "-C", str(repo.path), "diff-tree", "-r", base, head], env=fixture_environment(),
+                   capture_output=True, check=True)
+    if not marker.exists():
+        pytest.skip("this git does not run core.fsmonitor for diff-tree")
+    marker.unlink()
+
+    assert check(repo, base, head).allowed
+    assert not marker.exists()
+
+
+def graft_hiding_a_commit(repo: Repo, base: str) -> tuple[str, str]:
+    """``hidden`` adds a control path and ``head`` removes it again; the graft makes ``base`` the
+    parent of ``head``, so base..head would show neither."""
+    hidden = repo.commit({**BASE_FILES, "src/schedules/evil.py": "evil\n"}, base)
+    head = repo.commit({**BASE_FILES, "docs/x.md": "x\n"}, hidden)
+    (repo.git_dir / "info").mkdir(exist_ok=True)
+    (repo.git_dir / "info" / "grafts").write_text(f"{head} {base}\n", encoding="utf-8")
+    if fixture_git(repo.path, "rev-list", "--parents", "-n", "1", head).split()[1:] != [base]:
+        pytest.skip("this git ignores info/grafts")
+    return hidden, head
+
+
+@pytest.mark.parametrize("bare", [True, False])
+def test_repository_with_grafts_is_refused(tmp_path, bare):
+    repo = Repo(tmp_path / "trusted", bare=bare)
+    base = repo.commit(BASE_FILES)
+    _, head = graft_hiding_a_commit(repo, base)
+
+    with pytest.raises(PathsError, match="info/grafts"):
+        check(repo, base, head)
+    with pytest.raises(PathsError, match="info/grafts"):
+        check_changes(repo.path, base, head, [], CURRENT)
+
+
+def test_graft_file_is_ignored_even_past_the_refusal(repo, base, monkeypatch):
+    """GIT_GRAFT_FILE at the null device: a graft planted after the refusal check changes nothing."""
+    hidden, head = graft_hiding_a_commit(repo, base)
+    classes = PathClasses.from_text(PROTECTED_TEXT, CONTROL_TEXT)
+    monkeypatch.setattr(paths, "_UNTRUSTED_FILES", (), raising=False)
+
+    result = check_changes(repo.path, base, head, [], classes)
+
+    assert result.commits == (hidden, head)
+    assert ("src/schedules/evil.py", Reason.CONTROL_PATH) in reasons(result)
+
+
+def test_repository_with_alternates_is_refused(repo, base, tmp_path):
+    other = Repo(tmp_path / "other.git")
+    (repo.git_dir / "objects" / "info").mkdir(parents=True, exist_ok=True)
+    (repo.git_dir / "objects" / "info" / "alternates").write_text(f"{other.path / 'objects'}\n", encoding="utf-8")
+
+    with pytest.raises(PathsError, match="alternates"):
+        check_changes(repo.path, base, base, [], CURRENT)
+    with pytest.raises(PathsError, match="alternates"):
+        load_path_classes(repo.path, base)
+
+
 def test_git_runs_with_a_clean_configuration_and_end_of_options(repo, base, monkeypatch):
     head = repo.commit({**BASE_FILES, "src/server.py": "changed\n"}, base)
     calls = []
@@ -447,19 +618,25 @@ def test_git_runs_with_a_clean_configuration_and_end_of_options(repo, base, monk
     assert check_changes(repo.path, base, head, [], load_path_classes(repo.path, base)).allowed
 
     assert calls
+    common_dir = ["rev-parse", "--path-format=absolute", "--git-common-dir"]
     for command, kwargs in calls:
-        assert command[1:8] == ["--no-pager", "--no-replace-objects", "--literal-pathspecs", "-c",
-                                "core.quotePath=false", "-C", str(repo.path.resolve())]
-        assert "--end-of-options" in command
+        assert command[1:12] == ["--no-pager", "--no-replace-objects", "--literal-pathspecs",
+                                 "-c", "core.quotePath=false", "-c", "core.fsmonitor=false",
+                                 "-c", f"core.hooksPath={os.devnull}", "-C", str(repo.path.resolve())]
+        # Every command with revision arguments ends its options; the common-dir lookup has none.
+        assert "--end-of-options" in command or command[12:] == common_dir
         assert kwargs.get("shell") in (None, False)
         environment = kwargs["env"]
         assert environment["GIT_CONFIG_NOSYSTEM"] == "1"
         assert environment["GIT_CONFIG_GLOBAL"] == os.devnull
         assert environment["GIT_TERMINAL_PROMPT"] == "0"
+        assert environment["GIT_GRAFT_FILE"] == os.devnull
+        assert environment["GIT_NO_REPLACE_OBJECTS"] == "1"
         assert "GIT_DIR" not in environment and "GIT_CONFIG_PARAMETERS" not in environment
-    commands = [command[8] for command, _ in calls]
+    commands = [command[12] for command, _ in calls]
     assert {"cat-file", "ls-tree", "rev-parse", "merge-base", "rev-list", "diff-tree"} <= set(commands)
-    diff_tree = next(command for command, _ in calls if command[8] == "diff-tree")
+    assert commands[0:1] == ["rev-parse"] and calls[0][0][12:] == common_dir
+    diff_tree = next(command for command, _ in calls if command[12] == "diff-tree")
     assert {"-r", "--no-renames", "--raw", "-z"} <= set(diff_tree)
-    cat_file = next(command for command, _ in calls if command[8] == "cat-file")
-    assert cat_file[9:] == ["blob", "--end-of-options", f"{base}:{PROTECTED_LIST}"]
+    cat_file = next(command for command, _ in calls if command[12] == "cat-file")
+    assert cat_file[13:] == ["blob", "--end-of-options", f"{base}:{PROTECTED_LIST}"]
