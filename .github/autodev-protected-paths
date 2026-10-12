@@ -1,9 +1,11 @@
 # Paths that self-development (autodev) may not change without the owner.
-# One glob per line, matched case-insensitively against repository paths.
+# One glob per line, matched case-insensitively against repository paths with
+# gitignore-style semantics: `**` spans any number of directories, and a leading
+# `**/` also matches at the repository root, so `**/CLAUDE.md` covers `CLAUDE.md`.
 # Read from the pinned main commit by the autodev broker (docs/autodev-plan.md, section 5.3).
-# Control paths are never opened by any label: flows/autodev*, .github/**,
-# src/schedules/**, src/engine/**, agents/**, rules/**, skills/**, implants/**
-# and this file. The other paths are opened by the owner's `autodev:next` label.
+# A change counts if either side of it matches: renames and deletions included.
+# The owner's `autodev:next` label opens these paths, except the control paths listed
+# in .github/autodev-control-paths, which no label opens.
 .github/**
 .claude/**
 **/.claude/**

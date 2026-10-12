@@ -1,0 +1,12 @@
+# Control paths of self-development (autodev): no label opens them. A task that needs
+# them stops with `autodev:blocked` and leaves a local patch for the owner
+# (docs/autodev-plan.md, section 5.3). Every path here is also a protected path.
+# Syntax as in .github/autodev-protected-paths; both list files fall under .github/**.
+flows/autodev*
+.github/**
+src/schedules/**
+src/engine/**
+agents/**
+rules/**
+skills/**
+implants/**

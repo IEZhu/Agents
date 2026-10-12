@@ -117,7 +117,7 @@ A dedicated user and account remain a possible hardening (10.5). They would move
 
 ### 5.3 Protected paths
 
-The list is kept in `.github/autodev-protected-paths` on `main` and read from `pinned`. Matching is case-insensitive, as the macOS file system behaves. Initial contents:
+The list is kept in `.github/autodev-protected-paths` on `main`, the control paths in `.github/autodev-control-paths`; both are read from `pinned`. Matching is case-insensitive, as the macOS file system behaves, with gitignore-style globs: `**` spans any number of directories, and a leading `**/` also matches at the root, so `**/CLAUDE.md` covers the root `CLAUDE.md`. A change counts when either side matches, so renames and deletions are checked by both paths. Initial contents:
 
 ```text
 .github/**
@@ -151,7 +151,7 @@ uv.lock
 docs/cloud-runs.md
 ```
 
-- **Control paths** (`flows/autodev*`, `.github/**`, `src/schedules/**`, `src/engine/**`, `agents/**`, `rules/**`, `skills/**`, `implants/**`, the list itself) are not opened by any label. If a task needs them, the runner stops the run with `autodev:blocked` and leaves a local patch that the owner reviews and pushes.
+- **Control paths** (`flows/autodev*`, `.github/**`, `src/schedules/**`, `src/engine/**`, `agents/**`, `rules/**`, `skills/**`, `implants/**`, and with them both list files) are not opened by any label. If a task needs them, the runner stops the run with `autodev:blocked` and leaves a local patch that the owner reviews and pushes.
 - **The other protected paths** are opened by the `autodev:next` label (9.3, rule 6).
 - **The broker performs the check, not the model:** before each push it compares the changed paths with the list. It rejects:
   - a match without permission;
@@ -164,7 +164,7 @@ docs/cloud-runs.md
 - **The runner** computes `pinned = git rev-parse origin/main` before starting a model. Each session gets a **one-off repository**: a separate local clone of the runner's trusted repository at `pinned`. The runner never runs git in the one-off repository after the session. The session hands its commits over as a bundle (`git bundle`) in its exchange directory. The runner imports them into the trusted repository, which the sandbox cannot write. The runner's and the broker's git runs with a clean configuration (no system or global config) and pushes to an explicit URL with an explicit `<sha>:refs/heads/...` refspec, never by remote name.
 - **The code of the runner and the workers** comes not from the clone but from the installation `~/Documents/Agents`. A session cannot write to it: `--restricted` limits the file tools to the tree, and the sandbox limits writes by commands.
 
-  It is called by absolute path, `<python> -P -m src.schedules …`. The runner checks that every module it imports, and `agents/`, `rules/`, `skills/` and `implants/` in its copy, match `pinned`. Otherwise the run is skipped as an infrastructure problem (`skipped: runner drift`).
+  It is called by absolute path, `<python> -P -m src.schedules …`. The runner checks that every module it imports, and `agents/`, `rules/`, `skills/` and `implants/` in its copy, match `pinned`. Otherwise the run ends as an infrastructure failure, `failed: infra` with the reason `runner drift` (10.1), and the next slot retries.
 - **Stage sessions** start with `--safe-mode`, their own `CLAUDE_CONFIG_DIR` and `CODEX_HOME` (no hooks, plugins, auto-memory or global CLAUDE.md), `--strict-mcp-config` with no servers, and a list of built-in tools in `--tools`. The session reads flows, personas, skills and rules through `git show <pinned>:<path>`. The session does not need Agents-Core: the runner prepares the workers.
 - **Worker packages** are built by the runner's functions with an empty personal library (`AGENTS_USER_FLOWS_DIR` pointing to a temporary directory), so personal component toggles do not affect them. The report records the `bundle_revision` of each package and the commit of the runner's copy.
 
@@ -292,7 +292,7 @@ The command `python -m src.schedules autodev enable --mode run --accept-shared-a
 - no force push and no deletion;
 - bypass only for the administrator role, and only through a PR.
 
-The deploy key is not in the bypass list, so its push to `main` is rejected. The ruleset is active since 2026-10-12, and a test on a temporary branch with the same rules confirmed it: a direct push is rejected for the deploy key and for the administrator's token, deletion is rejected, and the owner can merge a PR (section 3, row 15). The broker token cannot merge either (5.6, tested 2026-10-12). Still untested, and checked in phase 0: whether the deploy key can push changes to `.github/workflows/**` on a feature branch.
+The deploy key is not in the bypass list, so its push to `main` is rejected. The ruleset is active since 2026-10-12, and a test on a temporary branch with the same rules confirmed it: a direct push is rejected for the deploy key and for the administrator's token, deletion is rejected, and the owner can merge a PR (section 3, row 15). The broker token cannot merge either (5.6, tested 2026-10-12). The deploy key, however, can push a workflow file to a side branch, and such a push starts the branch's `push` workflows (tested 2026-10-12). A workflow may raise its `GITHUB_TOKEN` to write access, and the ruleset requires no approval, so a leaked deploy key could merge through a workflow. Requiring one approval closes that path: `GITHUB_TOKEN` cannot approve (`can_approve_pull_request_reviews` is false), and the owner merges through the administrator bypass, which works only through a PR. This is the owner's decision in phase 0.
 
 ### 5.8 Public visibility
 
@@ -892,7 +892,7 @@ It is October 2027, and self-development has been switched off. What went wrong?
 | 1 | A model under prompt injection read the owner's token or keys on the machine | low with a working sandbox | critical | `denyRead` for the home directory and `~/Library/Keychains`, `blockReadsOutsideWorkingDirectories`; no network, bypass forbidden; file tools restricted; credentials only with the runner; probes before every session with Bash. **Residual risk:** a bug or an unknown bypass in the Claude Code sandbox itself or in the nested Codex sandbox | Probe failures, decoys triggered |
 | 2 | An "owner's" decision was actually made by an agent | medium | high | The pool is limited to the owner's label; no label opens the control paths; broker writes are excluded by ID. **Residual risk:** labels, issues and edits made by any of the owner's agents under the owner's account count as the owner's | Owner labels set while agents are working |
 | 3 | Prompt injection through someone else's text led to a harmful change | medium | critical | Only trusted sources (5.2); instructions from `pinned`; the broker checks protected paths; only the owner merges | A PR touches unexpected files |
-| 4 | The agent merged or pushed to `main` | low | critical | The ruleset rejects a push to `main`; the deploy key and the broker token cannot merge (the token was tested on 2026-10-12); the sandbox cannot read the `gh` token. **Residual risk:** a bug in the broker, the only holder of credentials | `main` moved without the owner's merge |
+| 4 | The agent merged or pushed to `main` | low | critical | The ruleset rejects a push to `main`; the deploy key and the broker token cannot merge directly (tested on 2026-10-12); the sandbox cannot read the `gh` token. **Residual risk:** a bug in the broker, the only holder of credentials; a leaked deploy key can push a workflow that merges unless `main` requires an approval (5.7) | `main` moved without the owner's merge |
 | 5 | Auto-loaded settings from the branch (hooks, `.mcp.json`, CLAUDE.md) ran in the next session | medium | high | A fresh tree at `pinned` for every session; `--safe-mode`; separate CLI profiles; `core.hooksPath=/dev/null` | Files in quarantine refs |
 | 6 | The runner's code was replaced from the working branch, and a review was forged | medium | high | The runner's code comes from a trusted copy by absolute path; `src/schedules/**` is protected; the broker requires a validated review for the head | The runner's commit differs from `pinned` |
 | 7 | An agent comment started the issue agent | low | high | The marker and the `/agent` ban in the broker, the only write path; the app condition in the bridge | Issue-agent sessions without the owner's command |
@@ -955,13 +955,14 @@ The owner answered all questions on 2026-10-12. Each item states the decision; t
 - [x] A ruleset on `main` (2026-10-12): include `~DEFAULT_BRANCH`, a required PR, no force push and no deletion, `OrganizationAdmin` bypass only through a PR; `allow_auto_merge` is off. Checked on a temporary branch: a direct push is rejected for the administrator and for the deploy key, deletion is rejected, merging a PR works.
 - [x] The issue-agent bridge: the condition `performed_via_github_app == null` in `.github/workflows/issue-agent-bridge.yml` and `scripts/templates/issue-agent-bridge.yml`, plus a refusal of comments carrying `<!-- autodev`; tests in `tests/test_issue_agent_bridge.py`. The completion job keeps accepting the cloud agent's app comments.
 - [x] The issue-agent flows: ignore comments with `<!-- autodev` and comments made through an app; check `autodev:in-progress` (a mutual check).
-- [x] The environment `issue-agent` exists (2026-10-12) with deployment branches limited to `main`, and the bridge's dispatch job names it. `user-sync.yml` and `windows-installer.yml` already declare `permissions: contents: read`; `tests/test_workflow_permissions.py` now requires read-only top-level permissions in every workflow and the environment for any job that reads `CLAUDE_ROUTINE_TOKEN`.
-- [ ] The owner moves `CLAUDE_ROUTINE_TOKEN` into the `issue-agent` environment and deletes the repository-level secret.
-- [x] `.github/autodev-protected-paths` with the list from 5.3.
+- [x] The environment `issue-agent` exists (2026-10-12) with deployment branches limited to `main`, and the bridge's dispatch job names it. `user-sync.yml` and `windows-installer.yml` keep `permissions: contents: read` instead of `{}`, because `actions/checkout` needs it; on this public repository it grants nothing beyond public reads. Administrators cannot bypass the environment's branch rule. `tests/test_workflow_permissions.py` now requires read-only top-level permissions in every workflow and the environment for any job that reads `CLAUDE_ROUTINE_TOKEN`.
+- [ ] The owner moves `CLAUDE_ROUTINE_TOKEN` into the `issue-agent` environment and deletes the repository-level secret. Check: `gh api repos/IEZhu/Agents/actions/secrets` no longer lists it, and `gh api repos/IEZhu/Agents/environments/issue-agent/secrets` does (names only).
+- [ ] Owner decision: require one approving review in "Protect main" and merge through the administrator bypass, so a workflow pushed with a leaked deploy key cannot merge (5.7).
+- [x] `.github/autodev-protected-paths` with the list from 5.3, and `.github/autodev-control-paths` with the control paths.
 - [x] Deploy key (2026-10-12): `~/.config/agents-autodev/deploy_key` (mode 600), added to `IEZhu/Agents` with write access under the title `agents-autodev`. It is tied to the `gh` token: if the `gh` token is revoked, the key disappears.
 - [x] A fine-grained token (2026-10-12): created by the owner in the web interface for `IEZhu/Agents` only, Pull requests and Issues write, Contents read; stored in the keychain item `agents-autodev-github` (account `WonderMr`); expires on 2027-10-11.
 - [x] The broker token cannot create a branch or merge a PR (2026-10-12, HTTP 403 for both on throwaway branches with a temporary draft PR, #335); it can open and edit a PR and comment.
-- [x] The deploy key can push `.github/workflows/**` to a feature branch: a test push of a `workflow_dispatch`-only file to a side branch was accepted on 2026-10-12 (the branch was deleted at once, no workflow ran). The broker refuses `.github/**` (5.3), and the routine token must live only in the `issue-agent` environment, because a workflow on a side branch that triggers on `push` would otherwise receive repository secrets.
+- [x] The deploy key can push `.github/workflows/**` to a side branch, and the push starts that branch's `push` workflows (2026-10-12: a `workflow_dispatch`-only file was accepted, then an `on: push` no-op job ran; both test branches were deleted). The broker refuses `.github/**` (5.3); the routine token belongs only in the `issue-agent` environment; one required approval closes the merge path (5.7).
 
 ### Phase 1a. Supervised MVP
 

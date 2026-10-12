@@ -438,8 +438,9 @@ preserved. A forcibly stopped runner or cloud session, or a failed completion
 callback, may leave a reaction behind. Startup timeout removes the bridge
 reaction, so a session that starts later may run without 👀.
 
-A missing `CLAUDE_ROUTINE_TOKEN` or a `CLAUDE_ROUTINE_ID` that is not a `trig_...`
-ID is reported as `Launch blocked`, and nothing is fired. A confirmed HTTP `429`
+A missing `CLAUDE_ROUTINE_TOKEN` (an environment secret of `issue-agent`, or a
+repository secret) or a `CLAUDE_ROUTINE_ID` that is not a `trig_...` ID is reported
+as `Launch blocked`, and nothing is fired. A confirmed HTTP `429`
 is reported as a routine fire limit, with the numeric `Retry-After` delay when
 supplied. Any other non-`200` response is reported, with its HTTP code, as
 `Launch rejected` (4xx) or `Launch not confirmed` (other codes). A successful
@@ -511,9 +512,14 @@ its tests exercise both that installed workflow and the reusable template.
    to `.github/workflows/issue-agent-bridge.yml`. The dispatch job names the
    environment, so a workflow pushed to any other branch cannot read the token. A
    repository-level secret of the same name still works, but every branch's
-   workflows can read it; move it into the environment and delete it. The bridge
-   dispatches only comments the owner typed: a comment posted through an app, or
-   one carrying `<!-- issue-agent` or `<!-- autodev`, never starts the routine. Give both jobs `issues: write`
+   workflows can read it; move it into the environment and delete it. GitHub
+   creates a missing environment on the first run without any branch limit, so
+   check that `gh api repos/<owner>/<repo>/environments/issue-agent/deployment-branch-policies`
+   lists only the default branch. The bridge never dispatches a comment posted
+   through an app (the cloud agent posts through `claude`) or one carrying
+   `<!-- issue-agent` or `<!-- autodev`; local sessions and the self-development
+   broker post as the owner without an app, and those markers and the broker's
+   refusal of `/agent`-prefixed comments are what exclude them. Give both jobs `issues: write`
    for issue comments and reactions, plus `pull-requests: write` for PR
    conversations. The dispatch job posts and edits its receipt, adds the
    processing reaction and deletes Claude's startup acknowledgement; the
