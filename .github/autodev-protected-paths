@@ -1,0 +1,37 @@
+# Paths that self-development (autodev) may not change without the owner.
+# One glob per line, matched case-insensitively against repository paths with
+# gitignore-style semantics: `**` spans any number of directories, and a leading
+# `**/` also matches at the repository root, so `**/CLAUDE.md` covers `CLAUDE.md`.
+# Read from the pinned main commit by the autodev broker (docs/autodev-plan.md, section 5.3).
+# A change counts if either side of it matches: renames and deletions included.
+# The owner's `autodev:next` label opens these paths, except the control paths listed
+# in .github/autodev-control-paths, which no label opens.
+.github/**
+.claude/**
+**/.claude/**
+**/CLAUDE.md
+**/AGENTS.md
+**/GEMINI.md
+.cursor/**
+.mcp.json
+.codex/**
+.envrc
+.vscode/**
+.gitattributes
+.gitmodules
+flows/**
+agents/**
+skills/**
+implants/**
+rules/**
+scripts/**
+src/schedules/**
+src/engine/**
+src/schemas/**
+src/executables.py
+src/daemon/autoupdate.py
+install.sh
+requirements*.txt
+pyproject.toml
+uv.lock
+docs/cloud-runs.md

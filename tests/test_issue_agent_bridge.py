@@ -50,8 +50,9 @@ def bridge_namespace(workflow, workflow_path):
     return namespace
 
 
-def comment(body, *, login=OWNER, user_type="User", comment_id=SOURCE_ID):
-    return {"id": comment_id, "body": body, "user": {"login": login, "type": user_type}}
+def comment(body, *, login=OWNER, user_type="User", comment_id=SOURCE_ID, app=None):
+    # GitHub always includes performed_via_github_app; it is null for a typed comment.
+    return {"id": comment_id, "body": body, "user": {"login": login, "type": user_type}, "performed_via_github_app": app}
 
 
 def acknowledgement(*, login=OWNER, bridge_id=STATUS_ID, user_type="User", comment_id=ACK_ID, text="Working on it."):
@@ -219,6 +220,8 @@ def test_workflow_subscribes_only_to_new_owner_comments(workflow):
         "vars.AGENT_OWNER != ''",
         "github.event.comment.user.type == 'User'",
         "github.event.comment.user.login == vars.AGENT_OWNER",
+        "github.event.comment.performed_via_github_app == null",
+        "!contains(github.event.comment.body, '<!-- autodev')",
     ):
         assert guard in condition
     assert "pull_request_review" not in condition
@@ -281,6 +284,60 @@ def test_comment_requires_a_human_user_type(bridge, user_type):
     bridge.run()
     assert bridge.calls == []
     assert bridge.output_path.read_text() == ""
+
+
+@pytest.mark.parametrize("app", [{"id": 1, "slug": "claude"}, {"id": 2, "slug": "some-integration"}])
+def test_comments_made_through_an_app_never_dispatch(bridge, app):
+    # The cloud agent and self-development write as the owner's account, but
+    # through an app; only a comment the owner typed may start the routine.
+    bridge.event["comment"]["performed_via_github_app"] = app
+    bridge.run()
+    assert bridge.calls == []
+    assert bridge.output_path.read_text() == ""
+
+
+def test_comment_without_the_app_field_fails_closed(bridge):
+    del bridge.event["comment"]["performed_via_github_app"]
+    bridge.run()
+    assert bridge.calls == []
+    assert bridge.output_path.read_text() == ""
+
+
+def test_owner_typed_command_without_an_app_dispatches(bridge):
+    bridge.event["comment"]["performed_via_github_app"] = None
+    bridge.run()
+    assert len(bridge.fires) == 1
+
+
+@pytest.mark.parametrize("body", ["/agent <!-- autodev -->", "/agent work\n<!-- autodev:state -->"])
+def test_self_development_markers_are_ignored(bridge, body):
+    bridge.event["comment"]["body"] = body
+    bridge.run()
+    assert bridge.calls == []
+    assert bridge.output_path.read_text() == ""
+
+
+def test_cloud_agent_acknowledgement_posted_through_its_app_confirms_startup(bridge):
+    # The cloud agent writes its acknowledgement as the owner through the `claude`
+    # app; the startup poll must keep accepting it.
+    bridge.startup_comments[0]["performed_via_github_app"] = {"id": 1, "slug": "claude"}
+    bridge.run()
+    assert len(bridge.fires) == 1
+    assert "Claude confirmed startup" in bridge.statuses[-1]
+    assert bridge.output_path.read_text() == f"reaction_path=/issues/comments/{SOURCE_ID}/reactions/501\nkeep_reaction=true\n"
+
+
+def test_dispatch_job_uses_the_default_branch_environment(workflow):
+    # Only the default branch may deploy to `issue-agent`, which holds the routine token.
+    assert workflow["jobs"]["fire"]["environment"] == "issue-agent"
+    assert "environment" not in workflow["jobs"]["complete"]
+
+
+def test_completion_does_not_require_a_comment_without_an_app(workflow):
+    # The completion comment may come from the cloud agent's app; requiring no
+    # app here would leave the processing reaction of every command in place.
+    condition = " ".join(workflow["jobs"]["complete"]["if"].split())
+    assert "performed_via_github_app" not in condition
 
 
 @pytest.mark.parametrize("owner_setting", [None, ""])
@@ -844,7 +901,7 @@ def test_invalid_configuration_is_reported_without_fire(bridge, monkeypatch, set
     monkeypatch.setenv(setting, value)
     bridge.run()
     assert bridge.fires == []
-    assert "Launch blocked: configure CLAUDE_ROUTINE_TOKEN and CLAUDE_ROUTINE_ID" in bridge.statuses[-1]
+    assert "Launch blocked: configure the CLAUDE_ROUTINE_TOKEN secret of the `issue-agent` environment" in bridge.statuses[-1]
     assert bridge.output_path.read_text() == f"reaction_path=/issues/comments/{SOURCE_ID}/reactions/501\n"
 
 
