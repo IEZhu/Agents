@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import stat
 import subprocess
+import threading
 
 import pytest
 
@@ -117,6 +118,8 @@ def test_every_git_command_runs_with_a_clean_configuration_and_fsck(tmp_path, gi
                                  "-c", f"core.hooksPath={os.devnull}", "-c", "core.commitGraph=false",
                                  "-c", "advice.graftFileDeprecated=false"]
         assert "transfer.fsckObjects=true" in command and "gc.auto=0" in command
+        # review round 2: large blobs streamed, one pack thread, so git's memory stays bounded
+        assert "core.bigFileThreshold=1m" in command and "pack.threads=1" in command
         assert kwargs["env"]["GIT_CONFIG_NOSYSTEM"] == "1" and kwargs["env"]["GIT_CONFIG_GLOBAL"] == os.devnull
         assert "GIT_DIR" not in kwargs["env"]
     assert any("--batch-check" in command for command, _ in calls) is False  # no symbolic link here
@@ -748,35 +751,16 @@ def test_environment_is_built_in_a_private_sibling_and_renamed_into_place(truste
         venvs = (runner_dir / "venvs").resolve()
         seen.append(build)
         assert build.parent == venvs and build.name.startswith(".build-")
-        assert not any(name for name in os.listdir(venvs) if not name.startswith(".build-"))
+        assert not any(name for name in os.listdir(venvs) if not name.startswith(".build-") and not name.endswith(".lock"))
         (build / "bin").mkdir()
         (build / "bin" / "tool").write_text(f"#!{build}/bin/python\n")
         (build / "pyvenv.cfg").write_text(f"command = python -m venv {build}\n")
 
     venv = trusted.environment(trusted.pinned(), runner_dir, builder)
 
-    assert os.listdir(venv.parent) == [venv.name] and not seen[0].exists()
+    assert sorted(os.listdir(venv.parent)) == [venv.name, f"{venv.name}.lock"] and not seen[0].exists()
     assert (venv / "bin" / "tool").read_text() == f"#!{venv}/bin/python\n"
     assert str(seen[0]) not in (venv / "pyvenv.cfg").read_text()
-
-
-def test_concurrent_build_keeps_the_environment_that_won_the_rename(trusted, tmp_path):
-    runner_dir = tmp_path / "runner"
-    inner = FakeBuilder()
-    results = []
-
-    def racing(build: Path, files):
-        (build / "bin").mkdir()
-        (build / "bin" / "python").write_text("#!/bin/sh\n# outer\n")
-        results.append(trusted.environment(trusted.pinned(), runner_dir, inner))  # another caller finishes first
-
-    venv = trusted.environment(trusted.pinned(), runner_dir, racing)
-
-    assert results == [venv] and len(inner.calls) == 1
-    assert (venv / "bin" / "python").read_text() == "#!/bin/sh\n"  # the winner's build, untouched
-    assert os.listdir(venv.parent) == [venv.name]
-    assert (venv / repos.COMPLETE_MARKER).read_text().strip() == repos.dependency_hash(
-        trusted.dependency_files(trusted.pinned()))
 
 
 def test_default_builder_runs_with_a_minimal_environment(tmp_path, monkeypatch):
@@ -790,3 +774,46 @@ def test_default_builder_runs_with_a_minimal_environment(tmp_path, monkeypatch):
         environment = kwargs["env"]
         assert "PIP_INDEX_URL" not in environment and "PYTHONPATH" not in environment
         assert environment["PIP_CONFIG_FILE"] == os.devnull and environment["PYTHONNOUSERSITE"] == "1"
+
+
+# --- review round 2 ------------------------------------------------------------------------------
+
+def test_a_git_timeout_inside_the_import_refuses_the_bundle(trusted, tmp_path, exchange, monkeypatch):
+    one_off = session(trusted, tmp_path)
+    work(one_off.path, {"docs/new.md": "new\n"})
+    made = bundle(one_off.path, exchange, BRANCH, f"^{one_off.pinned}")
+    real = gitsafe.git
+
+    def slow_rev_list(repository, *args, **kwargs):
+        if args[:2] == ("rev-list", "--count"):
+            raise gitsafe.GitTimeout("git rev-list could not run: timed out")
+        return real(repository, *args, **kwargs)
+    monkeypatch.setattr(repos.gitsafe, "git", slow_rev_list)
+
+    with pytest.raises(BundleRefused, match="took longer than") as refused:
+        trusted.import_bundle(made, exchange, BRANCH, RUN_ID, one_off.pinned)
+    assert refused.value.quarantine_ref and refused.value.quarantine_ref in refs(trusted.path)
+
+
+def test_concurrent_callers_build_one_environment_under_the_key_lock(trusted, tmp_path):
+    runner_dir = tmp_path / "runner"
+    started, release, calls = threading.Event(), threading.Event(), []
+
+    def slow(build: Path, files):
+        calls.append(build)
+        started.set()
+        release.wait(10)
+        (build / "bin").mkdir()
+        (build / "bin" / "python").write_text("#!/bin/sh\n")
+    results = []
+    first = threading.Thread(target=lambda: results.append(trusted.environment(trusted.pinned(), runner_dir, slow)))
+    first.start()
+    assert started.wait(10)
+    second = threading.Thread(target=lambda: results.append(trusted.environment(trusted.pinned(), runner_dir, slow)))
+    second.start()
+    second.join(0.5)
+    assert second.is_alive()  # waits for the key lock instead of building or removing anything
+    release.set()
+    first.join(10)
+    second.join(10)
+    assert len(calls) == 1 and len(results) == 2 and results[0] == results[1]

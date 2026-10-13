@@ -68,7 +68,9 @@ def run(repository: Path, args: tuple[str, ...], *, config: Sequence[str] = (),
     try:  # the lookup is inside: a missing git is a GitError like one that cannot start
         return subprocess.run(command(repository, args, config), capture_output=True, stdin=subprocess.DEVNULL,
                               timeout=timeout, env=environment(repository), check=False)
-    except (OSError, subprocess.TimeoutExpired) as error:
+    except subprocess.TimeoutExpired as error:
+        raise GitTimeout(f"git {args[0]} could not run: {error}") from None
+    except OSError as error:
         raise GitError(f"git {args[0]} could not run: {error}") from None
 
 
@@ -76,6 +78,10 @@ def failure(args: Sequence[str], result: subprocess.CompletedProcess[bytes]) -> 
     """The error of a failed command, with the tail of its standard error (git's reason comes last)."""
     stderr = result.stderr.decode("utf-8", "replace").strip()[-STDERR_KEPT:]
     return GitError(f"git {args[0]} failed with exit code {result.returncode}: {stderr}")
+
+
+class GitTimeout(GitError):
+    """git did not finish before its timeout and was killed."""
 
 
 class OutputTooLarge(GitError):
@@ -118,7 +124,7 @@ def git_bounded(repository: Path, *args: str, max_output: int, input: bytes = b"
         if too_large:
             raise OutputTooLarge(f"git {args[0]} printed more than {max_output} bytes")
         if timed_out:
-            raise GitError(f"git {args[0]} could not run: timed out after {timeout} seconds")
+            raise GitTimeout(f"git {args[0]} could not run: timed out after {timeout} seconds")
         end = stderr.seek(0, os.SEEK_END)
         stderr.seek(max(0, end - 4 * STDERR_KEPT))
         result = subprocess.CompletedProcess(list(args), returncode, b"".join(chunks), stderr.read())

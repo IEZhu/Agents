@@ -263,8 +263,10 @@ fetch is `network`; an unusable trusted repository, or a file the check cannot r
 metadata a session can write. Every git command goes through `src/schedules/gitsafe.py`, which the
 change check (`src/schedules/paths.py`) uses too: no system or global configuration, no hooks
 (`core.hooksPath` at the null device), no fsmonitor, replace objects, grafts or commit-graph, and
-no inherited `GIT_*` variables. The trusted repository adds `transfer.fsckObjects=true` and turns
-automatic gc and maintenance off.
+no inherited `GIT_*` variables. The trusted repository adds `transfer.fsckObjects=true`, turns
+automatic gc and maintenance off, and sets `core.bigFileThreshold=1m` and `pack.threads=1`, so
+git streams large blobs instead of holding them whole and a bundle cannot make git's own memory
+grow with their inflated size. A git timeout inside an import refuses the bundle.
 
 - **Trusted repository.** A bare repository at `clone` in `autodev.json` (default
   `~/.local/share/agents-autodev/IEZhu-Agents`), created on first use with mode 0700 and owned by
@@ -322,8 +324,8 @@ automatic gc and maintenance off.
   `PATH`, `HOME` and `TMPDIR` inherited and pip's configuration files off) only when it is
   missing or lacks its completion marker `.autodev-complete`. The build runs in a private
   sibling `venvs/.build-*`, whose scripts are pointed at the final path, is made read-only and is
-  renamed into place; when a concurrent caller's rename wins, its environment is used. The run
-  sequence (#347) calls it.
+  renamed into place, all under a lock per key (`venvs/<hash>.lock`): a second caller waits and
+  gets the first one's environment. The run sequence (#347) calls it.
 
 ## GitHub access
 

@@ -61,14 +61,19 @@ import sys
 import tempfile
 import time
 
+from src.file_lock import file_lock
+
 from . import config as autodev_config
 from . import gitsafe
 
 PINNED_REF = "refs/remotes/origin/main"
 MAIN_REFSPEC = f"+refs/heads/main:{PINNED_REF}"
 QUARANTINE = "refs/autodev/quarantine"
-# fsck on every object that arrives; no automatic gc or maintenance, which could run later.
-CONFIG = ("transfer.fsckObjects=true", "gc.auto=0", "maintenance.auto=false", "advice.detachedHead=false")
+# fsck on every object that arrives; no automatic gc or maintenance, which could run later. Blobs over
+# 1 MiB are streamed rather than held whole, and one thread packs, so a bundle of small, highly
+# compressible blobs cannot make git's own memory grow with their inflated size (#339 review round 2).
+CONFIG = ("transfer.fsckObjects=true", "gc.auto=0", "maintenance.auto=false", "advice.detachedHead=false",
+          "core.bigFileThreshold=1m", "pack.threads=1")
 FETCH_TIMEOUT = 600
 MAX_BUNDLE_BYTES = 128 * 1024 * 1024
 # Bounds on what untrusted bundle content can make the runner do (#339 review round 1).
@@ -105,6 +110,10 @@ class RepositoryError(Exception):
 
 class FetchError(RepositoryError):
     """``main`` could not be fetched: the network or the remote failed."""
+
+
+class ImportTimeout(RepositoryError):
+    """A git command was killed at its timeout; within an import, the bundle is refused."""
 
 
 class BundleRefused(RepositoryError):
@@ -201,12 +210,16 @@ class TrustedRepository:
     def _git(self, *args: str, timeout: float = gitsafe.GIT_TIMEOUT) -> bytes:
         try:
             return gitsafe.git(self.path, *args, config=CONFIG, timeout=timeout)
+        except gitsafe.GitTimeout as error:
+            raise ImportTimeout(str(error)) from None
         except gitsafe.GitError as error:
             raise RepositoryError(str(error)) from None
 
     def _git_test(self, *args: str, timeout: float = gitsafe.GIT_TIMEOUT) -> subprocess.CompletedProcess[bytes]:
         try:
             return gitsafe.git_test(self.path, *args, config=CONFIG, timeout=timeout)
+        except gitsafe.GitTimeout as error:
+            raise ImportTimeout(str(error)) from None
         except gitsafe.GitError as error:
             raise RepositoryError(str(error)) from None
 
@@ -335,7 +348,10 @@ class TrustedRepository:
         fetched = self._git("rev-parse", "--verify", "--end-of-options", quarantine).decode().strip()
         if fetched != head:
             raise BundleRefused(f"fetched head {fetched} is not the listed head {head}", quarantine)
-        commits = self._check_range(base, head, quarantine, deadline)
+        try:
+            commits = self._check_range(base, head, quarantine, deadline)
+        except ImportTimeout:  # the bundle's content made a check outlast the deadline
+            raise BundleRefused(f"the import took longer than {deadline.seconds} seconds", quarantine) from None
         added = self._promote(branch, head, commits, quarantine, run_id)
         self._git("update-ref", "-d", "--", quarantine, head)
         return ImportedBundle(branch, head, added)
@@ -451,6 +467,8 @@ class TrustedRepository:
                                        timeout=deadline.left(gitsafe.GIT_TIMEOUT))
         except gitsafe.OutputTooLarge:
             raise BundleRefused(f"{what} are larger than {max_output} bytes", quarantine) from None
+        except gitsafe.GitTimeout:
+            raise BundleRefused(f"the import took longer than {deadline.seconds} seconds", quarantine) from None
         except gitsafe.GitError as error:
             raise RepositoryError(str(error)) from None
 
@@ -561,9 +579,9 @@ class TrustedRepository:
                     builder: Builder | None = None) -> Path:
         """The read-only virtual environment for the dependency files at ``commit`` of main.
 
-        Built in a private sibling under ``venvs/`` and renamed into place, so concurrent callers
-        never see or remove a half-built environment; when another caller wins the rename, its
-        environment is returned.
+        Built in a private sibling under ``venvs/`` and renamed into place, under a lock per key
+        (``venvs/<key>.lock``), so concurrent callers never see, remove or replace each other's
+        environment: the second caller waits and returns the first one's.
         """
         files = self.dependency_files(commit)
         root = autodev_config.runner_location(os.fspath(runner_dir), self.installation, what="the runner directory")
@@ -574,9 +592,17 @@ class TrustedRepository:
         venvs.mkdir(mode=0o700, parents=True, exist_ok=True)
         _require_own_directory(venvs)
         venv = venvs / key[:32]
+        # One caller at a time per key: no caller removes or replaces another's environment.
+        with file_lock(venvs / f"{key[:32]}.lock"):
+            return self._build_environment(venv, key, files, builder)
+
+    @staticmethod
+    def _build_environment(venv: Path, key: str, files: Mapping[str, bytes | None],
+                           builder: Callable | None) -> Path:
         if _complete(venv, key):
             _read_only(venv)
             return venv
+        venvs = venv.parent
         build: Path | None = Path(tempfile.mkdtemp(prefix=f".build-{key[:12]}-", dir=venvs))
         try:
             (builder or default_builder)(build, {name: content for name, content in files.items()
