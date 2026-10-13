@@ -7,8 +7,9 @@ does today.
 
 ## Current limits
 
-- **Dry-run only.** A dry-run checks the runner for drift, reads GitHub and prints the gate
-  decision with the cleanup actions the gate wants. It executes none of them and starts no model.
+- **Dry-run only.** A dry-run fetches `main` into the trusted repository, checks the runner for
+  drift, reads GitHub and prints the gate decision with the cleanup actions the gate wants. It
+  executes none of them and starts no model.
 - **Every real mode refuses**: `run`, `resume`, `enable --mode run` and `run-now --mode run`
   print a JSON error naming the missing parts (#342 broker, #347 run sequence, #350 automatic
   mode) and exit with code 1.
@@ -215,6 +216,7 @@ All files live in the service state directory `<state_dir>` from `src.daemon.sta
 | `schedules/runs/<run-id>/control.sock`, `schedules/runs/<run-id>/clients/` | The runner socket and its thin clients while a run serves them, when the socket path fits the `AF_UNIX` limit; otherwise both live in a private `autodev-socket-*` directory in the runner's temporary directory. Removed when the run ends, and by the runner after a killed run. |
 | `schedules/runs/<run-id>/record.json` | The run record: mode, trigger, status, gate decision, `pinned`, the GitHub paths read, and `comments` (the IDs of comments the runner wrote); `endpoint` (the socket and its clients, once a run opens them) and `endpoint_cleanup` (what the runner removed or kept after a killed run). Token-like strings are masked. |
 | `schedules/runs/<run-id>/stdout.log`, `stderr.log` | The supervised run's output. |
+| `clone` (default `~/.local/share/agents-autodev/IEZhu-Agents`) | The trusted bare repository: `refs/remotes/origin/main` (`pinned`), imported `refs/heads/claude/autodev-*` branches and refused bundles under `refs/autodev/quarantine/`. Outside the state directory. |
 | `schedules/tools.json` | The absolute paths of `claude`, `codex`, `gh` and `git` resolved at `install`. |
 | `schedules/scheduler.log` | The scheduler's standard error. |
 | `~/Library/LaunchAgents/local.agents-core.<id>.scheduler.plist` | The scheduler job, with an explicit `PATH`, `PYTHONPATH` and `AGENTS_SERVICE_DIR`. The daemon's own agents are never touched. |
@@ -243,9 +245,60 @@ Infrastructure failures end with the status `failed: infra` and a reason prefix:
 command or the keychain failed, or the run exited without a result), `network`, `lease`,
 `update`, `runner drift`, `timeout` and `stopped`. They set no label, and the next slot retries.
 
-The drift check compares the runner's imported modules and `agents/`, `rules/`, `skills/` and
-`implants/`, including untracked files there, with `origin/main` of the installation. This part
-does not fetch.
+The drift check fetches `main` into the trusted repository (below) and compares the runner's
+imported modules and `agents/`, `rules/`, `skills/` and `implants/` of the installation, including
+untracked files there, with that `pinned` commit, never with the installation's own `origin/main`
+or with a branch a session works on. A `pinned` commit the installation does not have is drift as
+well (`runner drift: pinned <sha> is not in the installation`): update the installation. A failed
+fetch is `network`, an unusable trusted repository is `cli: trusted repository: …`.
+
+## Trusted repository, one-off repositories and bundles
+
+`src/schedules/repos.py` (issue #339, design 5.4 and 9.4) keeps the runner's git away from
+metadata a session can write. Every git command goes through `src/schedules/gitsafe.py`, which the
+change check (`src/schedules/paths.py`) uses too: no system or global configuration, no hooks
+(`core.hooksPath` at the null device), no fsmonitor, replace objects, grafts or commit-graph, and
+no inherited `GIT_*` variables. The trusted repository adds `transfer.fsckObjects=true` and turns
+automatic gc and maintenance off.
+
+- **Trusted repository.** A bare repository at `clone` in `autodev.json` (default
+  `~/.local/share/agents-autodev/IEZhu-Agents`), created on first use with mode 0700 and owned by
+  the runner's user. The configuration refuses a `clone` that is relative or lies under, or
+  above, `~/Documents` or the installation. A repository with `info/grafts` or
+  `objects/info/alternates` is refused. `main` is fetched from the explicit URL
+  `https://github.com/<repository>.git` with the refspec
+  `+refs/heads/main:refs/remotes/origin/main`; the repository has no remotes, and `pinned` is
+  the SHA of `refs/remotes/origin/main`.
+- **One-off repository.** Each session gets `git clone --no-local --no-hardlinks --template=
+  --revision=refs/remotes/origin/main` of the trusted repository: its own objects, no
+  alternates, no hook samples, detached at `pinned`, without an `origin` remote, with the local
+  identity `Alexey Zhuchkov <alexey.zhuchkov@gmail.com>`. `clone --revision` needs git 2.49 or
+  later. The function returns only the path; nothing in the runner takes a one-off repository's
+  path afterwards, so hooks or configuration a session plants there never run outside the
+  sandbox.
+- **Bundles.** The session hands its commits over with
+  `git bundle create <exchange>/<name>.bundle claude/autodev-<issue>-<slug> ^<pinned>`. The
+  runner copies the file (a regular file, not a symbolic link, directly inside the exchange
+  directory, at most 128 MiB), then requires that `git bundle list-heads` names exactly
+  `refs/heads/<expected branch>` with a 40-hex head and that the bundle's prerequisites exist in
+  the trusted repository. It fetches the objects with fsck into
+  `refs/autodev/quarantine/<run-id>/<n>` and checks `pinned..head`: the head descends from
+  `pinned`, there is at least one commit, every commit has exactly one parent, and no commit adds
+  or changes a gitlink or a symbolic link that is absolute or climbs out of the tree (a `..`
+  after a named component counts as climbing out, since that component may be a link). Only then
+  is the head promoted to `refs/heads/<branch>` and the quarantine ref removed. A refusal names its
+  reason; objects already fetched stay under the quarantine ref, and nothing reaches
+  `refs/heads/`.
+- **Push.** `push_arguments(url, sha, issue, slug)` builds the arguments the broker (#342) will
+  run: `push --porcelain --no-follow-tags --no-signed <url> <sha>:refs/heads/claude/autodev-<issue>-<slug>`
+  with a GitHub URL, never a remote name. This part pushes nothing.
+- **Environment.** `TrustedRepository.environment(pinned, runner_dir)` returns
+  `<runner_dir>/venvs/<hash>`, where the hash is SHA-256 over `requirements.txt`,
+  `pyproject.toml` and `uv.lock` read at `pinned` with `git cat-file blob` (an absent file
+  counts as absent). The runner directory lies outside the trusted repository, `~/Documents` and
+  the installation. The environment is built (`python -m venv`, then
+  `pip install -r requirements.txt`) only when it is missing or lacks its completion marker
+  `.autodev-complete`, then every write bit is removed. The run sequence (#347) calls it.
 
 ## GitHub access
 

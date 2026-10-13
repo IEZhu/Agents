@@ -27,7 +27,7 @@ from src import executables
 from src.daemon.state import private_dir, read_json, write_json
 
 from . import config as autodev_config
-from . import drift, heavy, launchagent, lease, records, socket_service
+from . import drift, heavy, launchagent, lease, records, repos, socket_service
 from .gate import gate
 from .github import GitHubClient, GitHubError, NetworkError, TokenUnavailable, fetch_snapshot, token_provider
 from .heavy import HEAVY, heavy_processes  # noqa: F401 (HEAVY: moved to heavy, still importable here)
@@ -102,8 +102,10 @@ def on_ac_power(pmset: str = "/usr/bin/pmset") -> bool | None:
 
 # --- the run ----------------------------------------------------------------------------------------
 
-def default_drift(installation: Path) -> dict:
-    commit = drift.pinned(installation)
+def default_drift(installation: Path, config: dict) -> dict:
+    """Fetch ``main`` into the trusted repository and compare the installation with its ``pinned``."""
+    trusted = repos.TrustedRepository.from_config(config, installation).ensure()
+    commit = trusted.fetch()
     return {"pinned": commit, "runner_commit": drift.commit_of(installation),
             "changed": drift.check(installation, commit)}
 
@@ -140,9 +142,13 @@ def run_autodev(ctx: Context, mode: str, *, pr: int | None = None, run_id: str |
 
 def _dry_run(ctx: Context, config: dict, now: datetime, pr: int | None) -> dict:
     try:
-        checked = (ctx.drift_check or default_drift)(ctx.installation)
+        checked = ctx.drift_check(ctx.installation) if ctx.drift_check else default_drift(ctx.installation, config)
     except drift.DriftCheckFailed as error:
         return infra(f"cli: {error}")
+    except repos.FetchError as error:
+        return infra(f"network: {error}")
+    except (repos.RepositoryError, ValueError) as error:
+        return infra(f"cli: trusted repository: {error}")
     result = {"pinned": checked.get("pinned"), "runner_commit": checked.get("runner_commit")}
     if checked.get("changed"):
         return {**result, **infra("runner drift: " + ", ".join(checked["changed"][:20]))}
