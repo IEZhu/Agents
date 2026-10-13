@@ -676,3 +676,25 @@ def test_windows_states_inside_the_installation_are_found_and_kept_with_keep_dat
     assert (home / ".agents-core/flows/.user/mine.md").exists()
     assert not (state / "service.json").exists() and not (home / ".agents-core/src/server.py").exists()
     assert "Agents-Core" not in project.read_text(encoding="utf-8")
+
+
+def test_decoys_are_removed_with_the_data_but_only_real_decoy_files(home):
+    state = darwin_home(home)
+    decoy_dir = home / ".agents-autodev-decoys"
+    ssh_decoy = write(home / ".ssh/agents_autodev_decoy_ed25519", b"-----BEGIN\n" + uninstall.DECOY_LINE + b"\nM\n")
+    write(decoy_dir / "credentials.json", b'{"note": "' + uninstall.DECOY_LINE + b'"}')
+    foreign = write(home / ".ssh/id_ed25519", b"the owner's key")
+    outside = write(home.parent / "elsewhere.txt", uninstall.DECOY_LINE)
+    write(state / "schedules/decoys.json", json.dumps({"version": 1, "keychain": {"service": "agents-autodev-decoy"},
+                                                       "files": [{"path": str(ssh_decoy)}, {"path": str(foreign)},
+                                                                 {"path": str(outside)},
+                                                                 {"path": str(decoy_dir / "credentials.json")}]}))
+    runner = keychain_runner()
+    items = uninstall.build_plan(context(home, "darwin", runner))
+    decoy_targets = [item.target for item in items if "decoy" in item.detail]
+    assert decoy_targets == [str(ssh_decoy), str(decoy_dir), "keychain item agents-autodev-decoy"]
+    assert all(item.kind == "data" for item in items if "decoy" in item.detail)
+    assert main(["--yes"], ctx=context(home, "darwin", runner), interactive=False) == 0
+    assert not ssh_decoy.exists() and not decoy_dir.exists()
+    assert foreign.read_bytes() == b"the owner's key" and outside.exists()
+    assert runner.ran("/usr/bin/security", "delete-generic-password", "-s", "agents-autodev-decoy")

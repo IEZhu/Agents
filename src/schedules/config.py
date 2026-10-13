@@ -56,6 +56,10 @@ DEFAULTS: dict[str, Any] = {
         "deploy_key": "~/.config/agents-autodev/deploy_key",
         "token": "keychain:agents-autodev-github",
     },
+    # The session sandbox (#343, docs/autodev-sandbox.md): "config-dir" (a persistent
+    # CLAUDE_CONFIG_DIR the owner logs in once) or "keychain:<service>" (an OAuth token read from
+    # that keychain item); decoy_keychain plants the opt-in decoy keychain item.
+    "sandbox": {"login": "config-dir", "decoy_keychain": False},
 }
 
 _HHMM = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
@@ -217,6 +221,16 @@ def validate(config: Any) -> dict:
         token = github["token"]
         if not isinstance(token, str) or not token.startswith("keychain:") or not token[len("keychain:"):].strip():
             problems.append("github.token must name a keychain item: keychain:<service>")
+    sandbox = config.get("sandbox")
+    if not isinstance(sandbox, dict) or set(sandbox) != {"login", "decoy_keychain"}:
+        problems.append("sandbox must have login and decoy_keychain")
+    else:
+        login = sandbox["login"]
+        if not (login == "config-dir" or (isinstance(login, str) and login.startswith("keychain:")
+                                          and login[len("keychain:"):].strip())):
+            problems.append("sandbox.login must be config-dir or keychain:<service>")
+        if not isinstance(sandbox["decoy_keychain"], bool):
+            problems.append("sandbox.decoy_keychain must be true or false")
     if problems:
         raise ConfigError(problems)
     return config
