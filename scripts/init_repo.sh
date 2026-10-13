@@ -6,6 +6,7 @@
 #
 # Usage:
 #   ./scripts/init_repo.sh [--yes] [--skip-env] [--skip-index] [--skip-mcp]
+#                          [--force-claude-code-mcp]
 #   python3 scripts/install_instructions.py [--clients codex,claude]
 #     Update only client instructions, without running MCP or dependency setup.
 #
@@ -23,7 +24,16 @@
 #                  writing the default model to .env when none is set. The
 #                  one-time switch of an .env from an earlier model generation
 #                  to the default still runs.
-#   --skip-mcp     Skip MCP configuration and client instruction updates
+#   --skip-mcp     Skip MCP configuration and also the client instruction updates
+#                  (the routing section in Claude Code's CLAUDE.md, the Codex
+#                  AGENTS.md and the routing memory). A user of the agents-core
+#                  Claude Code plugin does not need it: with the plugin installed
+#                  and enabled, setup skips only Claude Code's Agents-Core entry.
+#   --force-claude-code-mcp
+#                  Register Agents-Core for Claude Code even when the agents-core
+#                  plugin is installed and enabled (also
+#                  AGENTS_FORCE_CLAUDE_CODE_MCP=1); Claude Code then lists its
+#                  tools twice.
 #   --help         Show this help message
 #
 # One-command install (macOS/Linux): see install.sh and README "Quick Start".
@@ -89,6 +99,7 @@ fi
 SKIP_ENV=false
 SKIP_INDEX=false
 SKIP_MCP=false
+FORCE_CLAUDE_CODE_MCP=false
 case "${AGENTS_ASSUME_YES:-}" in
     1|true|yes) ASSUME_YES=true ;;
     *) ASSUME_YES=false ;;
@@ -106,6 +117,10 @@ for arg in "$@"; do
             ;;
         --skip-mcp)
             SKIP_MCP=true
+            shift
+            ;;
+        --force-claude-code-mcp)
+            FORCE_CLAUDE_CODE_MCP=true
             shift
             ;;
         --yes|-y)
@@ -249,6 +264,17 @@ print(resolver(sys.argv[3]))
 ' "$REPO_ROOT" "$@"
 }
 
+# Why Claude Code's Agents-Core entry is skipped for the profile $1: the agents-core plugin is
+# installed and enabled there and starts its own server (#367). Prints the reason and succeeds,
+# or fails to register as before (no plugin, a disabled one, uncertain plugin state, or a
+# forced run).
+claude_code_plugin_skip() {
+    local force=()
+    if [ "${FORCE_CLAUDE_CODE_MCP:-false}" = true ]; then force=(--force-claude-code-mcp); fi
+    "$PYTHON_ABS" "$REPO_ROOT/scripts/_helpers/claude_code_plugin.py" --profile "$1" \
+        ${force[@]+"${force[@]}"} 2>/dev/null
+}
+
 # Reserve a unique backup before any client configuration update.
 backup_mcp_config() {
     "$PYTHON_ABS" "$REPO_ROOT/scripts/_helpers/backup_file.py" "$1" \
@@ -264,6 +290,7 @@ inject_mcp_config() {
 
     CLAUDE_CONFIG_PATH="$config_path" \
     MCP_CLIENT="$client" \
+    MCP_FORCE_CLAUDE_CODE="${FORCE_CLAUDE_CODE_MCP:-false}" \
     MCP_PYTHON="$PYTHON_ABS" \
     MCP_SERVER="$SERVER_ABS" \
     MCP_IS_NIXOS="$IS_NIXOS" \
@@ -299,6 +326,13 @@ if sys.platform == 'darwin' and marker.exists():
         if client == 'desktop':
             changes.append(migration.prepare('claude-deny-desktop'))
         migration.apply(changes)
+    if client == 'claude':
+        # A forced Claude Code entry beside the agents-core plugin stays forced in the
+        # service's upkeep for this profile (#367).
+        from src.claude_plugin import force_requested, profile_for_config
+        if os.environ.get('MCP_FORCE_CLAUDE_CODE') == 'true' or force_requested():
+            from src.daemon.registrations import remember_force
+            remember_force(directory, [profile_for_config(destination)])
     print('OK: shared daemon')
     sys.exit(0)
 
@@ -710,6 +744,8 @@ if [ "$SKIP_MCP" = true ]; then
 else
     # Track which environments were configured
     CONFIGURED_ENVS=()
+    # Set when the agents-core plugin serves Claude Code instead of an entry (#367)
+    CLAUDE_CODE_PLUGIN=false
 
     echo ""
     print_step "Detecting IDE environments..."
@@ -805,18 +841,24 @@ else
         else
             mkdir -p "$CLAUDE_CODE_DIR"
 
-            # 1. MCP server in the selected profile's user-scope registry.
-            print_step "Configuring Claude Code MCP ($CLAUDE_CODE_MCP)..."
+            # 1. MCP server in the selected profile's user-scope registry, unless the
+            #    agents-core plugin serves Claude Code already (#367).
+            if CLAUDE_CODE_PLUGIN_REASON="$(claude_code_plugin_skip "$CLAUDE_CODE_DIR")"; then
+                print_step "Skipping the Claude Code MCP entry: $CLAUDE_CODE_PLUGIN_REASON"
+                CLAUDE_CODE_PLUGIN=true
+            else
+                print_step "Configuring Claude Code MCP ($CLAUDE_CODE_MCP)..."
 
-            if [ ! -f "$CLAUDE_CODE_MCP" ]; then
-                echo '{}' > "$CLAUDE_CODE_MCP"
+                if [ ! -f "$CLAUDE_CODE_MCP" ]; then
+                    echo '{}' > "$CLAUDE_CODE_MCP"
+                fi
+
+                # Backup before modifying
+                backup_mcp_config "$CLAUDE_CODE_MCP" || exit 1
+
+                inject_mcp_config "$CLAUDE_CODE_MCP" "$CLAUDE_CODE_MCP" claude || exit 1
+                CONFIGURED_ENVS+=("Claude Code")
             fi
-
-            # Backup before modifying
-            backup_mcp_config "$CLAUDE_CODE_MCP" || exit 1
-
-            inject_mcp_config "$CLAUDE_CODE_MCP" "$CLAUDE_CODE_MCP" claude || exit 1
-            CONFIGURED_ENVS+=("Claude Code")
 
             # The desktop app's entry stays out of Claude Code, its Code tab included (#231).
             if [ "$CLAUDE_DESKTOP_DETECTED" = true ]; then
@@ -909,7 +951,9 @@ else
 
     # --- Summary ---
     echo ""
-    if [ ${#CONFIGURED_ENVS[@]} -eq 0 ]; then
+    if [ ${#CONFIGURED_ENVS[@]} -eq 0 ] && [ "${CLAUDE_CODE_PLUGIN:-false}" = true ]; then
+        print_step "Only Claude Code was found, and its agents-core plugin starts the server"
+    elif [ ${#CONFIGURED_ENVS[@]} -eq 0 ]; then
         print_warn "No MCP client registrations were configured"
         print_step "You can configure MCP manually later:"
         echo "    • Cursor:         Install Cursor, then re-run this script"
@@ -965,8 +1009,11 @@ if [ "$SKIP_MCP" = false ] && [ ${#CONFIGURED_ENVS[@]} -gt 0 ]; then
     done
 elif [ "$SKIP_MCP" = true ]; then
     echo -e "    ${YELLOW}⚠${NC} MCP configuration skipped (--skip-mcp)"
-else
+elif [ "${CLAUDE_CODE_PLUGIN:-false}" != true ]; then
     echo -e "    ${YELLOW}⚠${NC} No IDE environments were detected"
+fi
+if [ "$SKIP_MCP" = false ] && [ "${CLAUDE_CODE_PLUGIN:-false}" = true ]; then
+    echo -e "    ${GREEN}✓${NC} Claude Code — served by the agents-core plugin (no separate Agents-Core entry)"
 fi
 echo ""
 echo -e "  ${GREEN}Next steps:${NC}"

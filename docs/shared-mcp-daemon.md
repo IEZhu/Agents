@@ -206,6 +206,14 @@ the overview page's AI apps card.
 .venv/bin/python -m src.daemon registrations enable
 ```
 
+While the agents-core Claude Code plugin is installed and enabled in a Claude Code profile,
+Claude Code's report is `skipped` for that profile's `.claude.json` (other profiles are still
+kept current, and listed under `plugin` when some are skipped): the plugin starts its own server,
+and `migrate` writes no user-level Claude Code entry there either. A profile forced with
+`--force-claude-code-mcp` stays forced (`claude_code_forced`). `registrations status` and the web
+UI then warn (`warnings`) when a profile still has another `Agents-Core` entry, and name the
+command that removes it ([Claude plugin](claude-plugin.md#alongside-the-installer)).
+
 Each upgraded client's report names its backup; `restore-clients <backup>` returns
 those files to their previous content (see
 [Client rollback and uninstall](#client-rollback-and-uninstall)). Turn the
