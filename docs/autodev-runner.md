@@ -22,14 +22,18 @@ does today.
   and the worker launcher (#345) registers its types.
   #347 must pass the sandbox's real writable set as `session_writable`, name the current stage
   session's root PID (`session_root`), and write `Endpoint.to_record()` into the run record as
-  `endpoint`. The sandbox profile of #343 must let a session read the clients directory and the
-  clients' interpreter, which lies outside the virtual environment. Neither is verified in a real
-  sandbox yet: #347 checks that the clients start there and that the session cannot write the
-  socket's directory. The runner removes a killed run's socket, clients and private directory
+  `endpoint`. The sandbox settings of #343 re-open the clients directory, the socket and the
+  interpreters' installation prefixes to reads (`SessionPaths.read_roots`, `sandbox.interpreter_roots`;
+  the `probe` command passes them), since they may lie under the denied `~/` or the owner's
+  temporary directory. The probe's socket control checks the connection; that the clients start
+  in the sandbox and cannot write the socket's directory is verified only in a live session (#347). The runner removes a killed run's socket, clients and private directory
   only as the record's `endpoint` names them, so two cases leave an `autodev-socket-*` directory
   in the runner's temporary directory: a run killed before #347 has recorded `endpoint` (#347
   records it before the first session starts), and a supervisor that is itself killed, or a
   reboot, before it cleans up.
+- **The session sandbox exists, no session uses it yet.** The launcher, the probes and the decoys
+  ([autodev-sandbox.md](autodev-sandbox.md)) are in place; the run sequence (#347) must build
+  every Claude session with them and start it only after its probes passed.
 - **macOS only.** The scheduler is a LaunchAgent, and supervision uses POSIX process groups.
 
 ## Commands
@@ -48,6 +52,7 @@ failed, and 2 for wrong arguments.
 | `autodev status` | The configuration, the scheduler job, the run lease, the next slot, the tick state and the five latest runs. |
 | `autodev run-now [--mode dry-run]` | One supervised run now. |
 | `autodev ready` | A stub until #350: it lists the missing parts and exits with code 1. |
+| `probe [--mode M] [--kind K] --confirm-live-probe` | The owner's live check of the session sandbox: one probe session of kind `implement`, `submit` or `select` with exactly a run's argv, settings and environment (a real model turn, so it refuses without the flag). See [autodev-sandbox.md](autodev-sandbox.md#command). |
 
 ## Tick
 
@@ -219,6 +224,7 @@ All files live in the service state directory `<state_dir>` from `src.daemon.sta
 | `schedules/runs/<run-id>/stdout.log`, `stderr.log` | The supervised run's output. |
 | `clone` (default `~/.local/share/agents-autodev/IEZhu-Agents`) | The trusted bare repository: `refs/remotes/origin/main` (`pinned`), imported `refs/heads/claude/autodev-*` branches, bundles refused after the fetch under `refs/autodev/quarantine/<run-id>/<n>`, and bundles refused before the fetch as read-only files `autodev-quarantine/<run-id>/<n>.bundle` inside it; `prune_quarantine()` drops both after 30 days. Outside the state directory. |
 | `schedules/tools.json` | The absolute paths of `claude`, `codex`, `gh` and `git` resolved at `install`. |
+| `schedules/claude-config/`, `schedules/decoys.json`, `schedules/tripwire.json` | The sessions' `CLAUDE_CONFIG_DIR`, the decoy registry and the last decoy tripwire ([autodev-sandbox.md](autodev-sandbox.md#files)). |
 | `schedules/scheduler.log` | The scheduler's standard error. |
 | `~/Library/LaunchAgents/local.agents-core.<id>.scheduler.plist` | The scheduler job, with an explicit `PATH`, `PYTHONPATH` and `AGENTS_SERVICE_DIR`. The daemon's own agents are never touched. |
 
