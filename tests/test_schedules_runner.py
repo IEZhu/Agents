@@ -5,17 +5,20 @@ import io
 import json
 import os
 from pathlib import Path
+import shutil
 import signal
 import stat
+import tempfile
 from types import SimpleNamespace
 
 import pytest
 
-from src.schedules import cli, config as autodev_config, heavy, lease, records, runner
+from src.schedules import cli, config as autodev_config, heavy, lease, records, runner, socket_service
 from src.schedules.github import GitHubClient, TokenUnavailable
 from src.schedules.supervise import Supervised, SupervisorStopped
 from tests.test_schedules_github import FakeGitHub
 from tests.test_schedules_launchagent import FakeLaunchd
+from tests.test_schedules_socket import leave_endpoint
 
 ZONE = timezone(timedelta(hours=3))
 SECRET = "ghp_" + "Q" * 36
@@ -281,6 +284,52 @@ def test_a_stopped_supervisor_completes_the_record_before_it_exits(ctx):
     record = records.all_records(ctx.directory)[0]
     assert record["status"] == "failed: infra" and record["finished"]
     assert record["reason"] == "stopped: the supervisor received SIGTERM; the run's process tree was ended"
+
+
+@pytest.fixture
+def temp_root():
+    """A short temporary directory, as the runner's own, for private socket directories."""
+    path = Path(tempfile.mkdtemp(prefix="sock-"))
+    yield path
+    shutil.rmtree(path)
+
+
+def test_a_runner_socket_left_by_a_killed_run_is_removed(ctx, temp_root):
+    """A SIGKILL ends `serve` without its cleanup. Once the run's tree is gone, after a timeout or
+    a stopped supervisor, the runner removes the socket, clients and private directory that the
+    run record's ``endpoint`` names."""
+    run_ids = []
+
+    def leaving_an_endpoint(outcome):
+        def supervise(argv, **kwargs):
+            run_id = argv[argv.index("--run-id") + 1]
+            run_ids.append(run_id)
+            private = Path(tempfile.mkdtemp(prefix=socket_service.PRIVATE_PREFIX, dir=temp_root))
+            endpoint = leave_endpoint(private, private=True)
+            records.write_record(run_id, {**records.read_record(run_id, ctx.directory), "endpoint": endpoint},
+                                 ctx.directory)
+            return outcome()
+        return supervise
+
+    ctx.supervise = leaving_an_endpoint(lambda: Supervised(-9, timed_out=True))
+    code, record = call(ctx, "autodev", "run-now")
+    assert code == 1 and record["reason"].startswith("timeout:")
+    assert record["endpoint_cleanup"]["kept"] == []
+    assert {record["endpoint"]["socket"], *record["endpoint"]["clients"].values()} < \
+        set(record["endpoint_cleanup"]["removed"])
+    assert list(temp_root.iterdir()) == []
+
+    def stopped():
+        raise SupervisorStopped(signal.SIGTERM)
+    ctx.supervise = leaving_an_endpoint(stopped)
+    with pytest.raises(SupervisorStopped):
+        call(ctx, "autodev", "run-now")
+    record = records.read_record(run_ids[-1], ctx.directory)
+    assert record["reason"].startswith("stopped:") and record["endpoint_cleanup"]["kept"] == []
+    assert list(temp_root.iterdir()) == []
+
+    ctx.supervise = lambda argv, **kwargs: Supervised(1)  # a run that names no endpoint
+    assert "endpoint_cleanup" not in call(ctx, "autodev", "run-now")[1]
 
 
 def test_processes_swept_after_a_normal_exit_are_recorded(ctx):

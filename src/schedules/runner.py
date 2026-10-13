@@ -1,7 +1,10 @@
 """The autodev run and the scheduler tick: what the CLI commands do (design 10.1, 10.2).
 
 ``launch`` starts ``<python> -P -m src.schedules run autodev --run-id …`` under supervision
-(`src.schedules.supervise`) and completes its record when the run timed out or crashed.
+(`src.schedules.supervise`) and completes its record when the run timed out or crashed. Once the
+run's process tree is gone, it also removes a runner socket the run left behind (a SIGKILL ends
+`serve` without its cleanup) when the record names one under ``endpoint``
+(`socket_service.Endpoint.to_record`), and records what it did as ``endpoint_cleanup``.
 ``run_autodev`` is that child: it holds the run lease, checks the runner for drift, reads a
 GitHub snapshot and asks the gate. Infrastructure failures (a CLI, the network, the lease, drift,
 a timeout) end as ``failed: infra`` with a reason, set no label, and the next slot retries.
@@ -24,7 +27,7 @@ from src import executables
 from src.daemon.state import private_dir, read_json, write_json
 
 from . import config as autodev_config
-from . import drift, heavy, launchagent, lease, records
+from . import drift, heavy, launchagent, lease, records, socket_service
 from .gate import gate
 from .github import GitHubClient, GitHubError, NetworkError, TokenUnavailable, fetch_snapshot, token_provider
 from .heavy import HEAVY, heavy_processes  # noqa: F401 (HEAVY: moved to heavy, still importable here)
@@ -169,6 +172,17 @@ def run_environment(ctx: Context) -> dict[str, str]:
     return environment
 
 
+def remove_endpoint(record: dict) -> None:
+    """Remove the socket, clients and private directory a killed run left behind, when its
+    record names them under ``endpoint``; note the outcome as ``endpoint_cleanup``."""
+    endpoint = record.get("endpoint")
+    if not isinstance(endpoint, dict):
+        return
+    outcome = socket_service.remove_leftovers(endpoint)
+    if outcome["removed"] or outcome["kept"]:
+        record["endpoint_cleanup"] = outcome
+
+
 def launch(ctx: Context, mode: str, trigger: dict, *, pr: int | None = None) -> tuple[int, dict]:
     """Start one supervised run and return its completed record."""
     if mode in REAL_MODES:
@@ -187,6 +201,7 @@ def launch(ctx: Context, mode: str, trigger: dict, *, pr: int | None = None) -> 
                                 stdout_path=run_dir / "stdout.log", stderr_path=run_dir / "stderr.log")
     except SupervisorStopped as stopped:  # the run's tree is already swept; record it, then stop
         record = records.read_record(run_id, ctx.directory) or {}
+        remove_endpoint(record)
         record.update(infra(f"stopped: the supervisor received {signal.Signals(stopped.signal).name}; "
                             "the run's process tree was ended"))
         record.setdefault("finished", iso(ctx.clock()))
@@ -197,6 +212,7 @@ def launch(ctx: Context, mode: str, trigger: dict, *, pr: int | None = None) -> 
     else:
         failure = None
     record = records.read_record(run_id, ctx.directory) or {}
+    remove_endpoint(record)  # the run and everything it started are gone by now
     if failure:
         record.update(failure)
     elif outcome.timed_out:

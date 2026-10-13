@@ -4,22 +4,29 @@
 sockets of these tests live under ``tmp_path`` but are reached through a short symlink to it in a
 fresh ``mkdtemp`` directory (`short`).
 """
+from contextlib import ExitStack
 import json
 import os
 from pathlib import Path
 import re
+import select
 import shlex
 import shutil
+import signal
 import socket
 import stat
 import subprocess
 import sys
 import tempfile
+import time
 
 import pytest
 
 from src.schedules import socket_service
-from src.schedules.socket_service import Field, Registry, UnsafeSocketDirectory, serve
+from src.schedules.socket_service import Connection, Field, Registry, RequestRefused, UnsafeSocketDirectory, serve
+
+PYTHON = sys.executable
+INSTALLATION = Path(socket_service.__file__).resolve().parents[2]
 
 
 @pytest.fixture
@@ -85,6 +92,22 @@ def make_registry():
 
 def run(argv, **kwargs):
     return subprocess.run([str(part) for part in argv], capture_output=True, text=True, timeout=60, **kwargs)
+
+
+def wait_for(condition, seconds=10.0):
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        if condition():
+            return True
+        time.sleep(0.02)
+    return condition()
+
+
+def long_run_dir(tmp_path):
+    """A run directory whose socket path is too long for AF_UNIX: the socket goes private."""
+    path = tmp_path / ("long-run-directory-" * 4)
+    path.mkdir(mode=0o700)
+    return path
 
 
 # --- protocol and registry ---------------------------------------------------------------------------
@@ -155,8 +178,43 @@ def test_over_long_request_is_refused_and_the_connection_closed(run_dir):
 def test_an_idle_connection_times_out(run_dir):
     with serve(run_dir, make_registry(), read_timeout=0.2) as endpoint, Client(endpoint.socket) as client:
         answer = json.loads(client.reader.readline())
-        assert answer["ok"] is False and "no request within 0.2 seconds" in answer["error"]
+        assert answer == {"ok": False, "error": "no complete request within 0.2 seconds"}
         assert client.closed_by_server()
+
+
+def trickle(client, line, interval):
+    """Send ``line`` a byte every ``interval`` seconds until the server answers; seconds taken."""
+    started = time.monotonic()
+    for byte in line:
+        try:
+            client.sock.sendall(bytes([byte]))
+        except OSError:
+            break
+        if select.select([client.sock], [], [], interval)[0]:
+            break
+    return time.monotonic() - started
+
+
+def test_a_trickled_request_is_cut_off_after_the_read_timeout(run_dir):
+    line = json.dumps({"type": "gh.echo", "args": {"name": "trickled-request"}}).encode() + b"\n"
+    with serve(run_dir, make_registry(), read_timeout=0.5) as endpoint, Client(endpoint.socket) as client:
+        elapsed = trickle(client, line, 0.2)
+        answer = json.loads(client.reader.readline())
+        assert answer == {"ok": False, "error": "no complete request within 0.5 seconds"}
+        assert 0.4 <= elapsed < 2.0
+        assert client.closed_by_server()
+
+
+def test_a_connection_that_holds_a_resource_may_idle_but_not_trickle(run_dir):
+    registry = make_registry()
+    registry.register("gh.hold", lambda args, request: request.connection.keep("thing", ExitStack()))
+    with serve(run_dir, registry, read_timeout=0.3) as endpoint, Client(endpoint.socket) as client:
+        assert client.ask("gh.hold") == {"ok": True, "result": None}
+        time.sleep(0.6)  # idle past the timeout: allowed while the connection holds something
+        assert client.ask("gh.echo", {"name": "after-idle"})["ok"] is True
+        elapsed = trickle(client, json.dumps({"type": "gh.echo", "args": {"name": "x" * 30}}).encode() + b"\n", 0.15)
+        assert json.loads(client.reader.readline())["error"] == "no complete request within 0.3 seconds"
+        assert elapsed < 1.5
 
 
 def test_a_failing_handler_answers_without_details_and_the_server_keeps_serving(run_dir):
@@ -168,6 +226,164 @@ def test_a_failing_handler_answers_without_details_and_the_server_keeps_serving(
 def test_the_peer_pid_comes_from_the_kernel(run_dir):
     with serve(run_dir, make_registry()) as endpoint, Client(endpoint.socket) as client:
         assert client.ask("gh.whoami") == {"ok": True, "result": {"pid": os.getpid()}}
+
+
+@pytest.mark.parametrize("args, error", [
+    ({"name": "x:main"}, "argument name contains characters it may not contain"),  # a refspec that pushes elsewhere
+    ({"name": "main..HEAD"}, "argument name contains characters it may not contain"),  # a range
+    ({"name": "user@host"}, "argument name contains characters it may not contain"),
+    ({"name": "key=value"}, "argument name contains characters it may not contain"),
+    ({"name": "a+b"}, "argument name contains characters it may not contain"),
+    ({"name": "a", "count": 0}, "argument count must be between 1 and 1000000"),
+    ({"name": "a", "count": 1_000_001}, "argument count must be between 1 and 1000000"),
+    ({"name": "a", "count": -10 ** 3999}, "argument count must be between 1 and 1000000"),
+    ({"name": "a", "body": "nul\u0000"}, "argument body contains a control character or a lone surrogate"),
+    ({"name": "a", "body": "\ud800;$(id)"}, "argument body contains a control character or a lone surrogate"),
+    ({"name": "a", "body": "escape\x1b[31m"}, "argument body contains a control character or a lone surrogate"),
+    ({"name": "a", "body": "carriage\rreturn"}, "argument body contains a control character or a lone surrogate"),
+    ({"name": "a", "body": "c1\x85control"}, "argument body contains a control character or a lone surrogate"),
+    ({"name": "a", "body": "delete\x7f"}, "argument body contains a control character or a lone surrogate"),
+])
+def test_narrow_defaults_refuse_refspecs_unbounded_integers_and_control_characters(run_dir, args, error):
+    with serve(run_dir, make_registry()) as endpoint, Client(endpoint.socket) as client:
+        assert client.ask("gh.echo", args) == {"ok": False, "error": error}
+
+
+def test_free_text_keeps_newlines_and_tabs_and_has_a_default_length_limit(run_dir):
+    registry = Registry()
+    registry.register("gh.note", lambda args, request: len(args["body"]), {"body": Field(str, text=True)})
+    with serve(run_dir, registry) as endpoint, Client(endpoint.socket) as client:
+        assert client.ask("gh.note", {"body": "line one\n\tline two"}) == {"ok": True, "result": 18}
+        limit = socket_service.TEXT_MAX_LENGTH
+        assert client.ask("gh.note", {"body": "x" * limit}) == {"ok": True, "result": limit}
+        assert client.ask("gh.note", {"body": "x" * (limit + 1)}) == \
+            {"ok": False, "error": f"argument body is longer than {limit} characters"}
+
+
+def test_a_handler_gets_its_deadline_the_peer_pid_and_the_closing_check(run_dir):
+    registry = Registry()
+    registry.register("gh.context", lambda args, request: {
+        "peer": request.peer_pid, "remaining": request.remaining(), "closing": request.closing(),
+        "same": request.connection.peer_pid == request.peer_pid}, deadline=2.0)
+    with serve(run_dir, registry) as endpoint, Client(endpoint.socket) as client:
+        result = client.ask("gh.context")["result"]
+        assert result["peer"] == os.getpid() and result["same"] is True and result["closing"] is False
+        assert 1.0 < result["remaining"] <= 2.0
+
+
+def test_close_waits_once_for_all_handlers_and_a_late_handler_writes_nothing(run_dir, tmp_path):
+    entered, finished = [], []
+
+    def slow(args, request):
+        entered.append(args["name"])
+        time.sleep(1.5)  # past the server's close
+        if not request.closing():  # the check every handler makes right before an external write
+            (tmp_path / f"written-{args['name']}").touch()
+        finished.append(args["name"])
+        return {}
+    registry = Registry()
+    registry.register("gh.slow", slow, {"name": Field(str)}, deadline=2.0)
+    clients = []
+    try:
+        with serve(run_dir, registry, close_wait=0.3) as endpoint:
+            for name in ("a", "b", "c"):
+                clients.append(Client(endpoint.socket))
+                clients[-1].sock.sendall(json.dumps({"type": "gh.slow", "args": {"name": name}}).encode() + b"\n")
+            assert wait_for(lambda: len(entered) == 3)
+            closing = time.monotonic()
+        elapsed = time.monotonic() - closing
+        assert elapsed < 0.8  # one overall wait of 0.3 seconds, not 0.3 per connection, nor the handlers' 1.5
+        assert wait_for(lambda: len(finished) == 3)
+        assert list(tmp_path.glob("written-*")) == []
+    finally:
+        for client in clients:
+            client.close()
+
+
+def test_keep_refuses_and_releases_once_the_connection_is_closed():
+    connection = Connection(None)
+    released = []
+    first = ExitStack()
+    first.callback(released.append, "first")
+    connection.keep("thing", first)
+    duplicate = ExitStack()
+    duplicate.callback(released.append, "duplicate")
+    with pytest.raises(RequestRefused, match="already holds thing"):
+        connection.keep("thing", duplicate)
+    assert released == ["duplicate"] and connection.holds("thing")
+    connection.close()
+    assert released == ["duplicate", "first"] and not connection.holding and connection.closed
+    late = ExitStack()
+    late.callback(released.append, "late")
+    with pytest.raises(RequestRefused, match="the runner socket is closing"):
+        connection.keep("thing", late)
+    assert released == ["duplicate", "first", "late"] and not connection.holding
+
+
+def test_take_opens_nothing_once_the_connection_is_closed():
+    connection = Connection(None)
+    released, opened, busy = [], [], {"tries": 2}
+
+    def opener():
+        opened.append(len(opened))
+        if busy["tries"]:
+            busy["tries"] -= 1
+            return None
+        stack = ExitStack()
+        stack.callback(released.append, "taken")
+        return stack
+    assert connection.take("thing", opener, wait=1.0) is True and len(opened) == 3  # retried while busy
+    with pytest.raises(RequestRefused, match="already holds thing"):
+        connection.take("thing", opener)
+    assert len(opened) == 3 and connection.holds("thing")
+    busy["tries"] = 1_000
+    assert connection.take("other", opener, wait=0.1) is False and not connection.holds("other")
+    connection.close()
+    assert released == ["taken"]
+    tries = len(opened)
+    with pytest.raises(RequestRefused, match="the runner socket is closing"):
+        connection.take("thing", opener)
+    assert len(opened) == tries and not connection.holding  # the opener was not even called
+
+
+def test_a_session_bound_type_answers_only_the_current_session(run_dir):
+    root = {"pid": os.getpid()}
+    registry = Registry()
+    registry.register("gh.bound", lambda args, request: {"peer": request.peer_pid}, session_bound=True)
+    registry.register("gh.free", lambda args, request: {"peer": request.peer_pid})
+    helper = subprocess.Popen([PYTHON, "-c", "import time; time.sleep(60)"])
+    try:
+        with serve(run_dir, registry, session_root=lambda: root["pid"]) as endpoint, \
+                Client(endpoint.socket) as client:
+            assert client.ask("gh.bound") == {"ok": True, "result": {"peer": os.getpid()}}
+            done = run([endpoint.clients["gh"], "bound"])  # a descendant of the session root
+            assert done.returncode == 0, done.stderr
+            assert json.loads(done.stdout)["peer"] not in (None, os.getpid())
+            root["pid"] = helper.pid  # the next stage's session: checked again on the same connection
+            assert client.ask("gh.bound") == {
+                "ok": False, "error": "refused: the caller is not a process of the current stage session"}
+            assert client.ask("gh.free") == {"ok": True, "result": {"peer": os.getpid()}}
+            done = run([endpoint.clients["gh"], "bound"])
+            assert done.returncode == 1 and "not a process of the current stage session" in done.stderr
+            root["pid"] = None
+            assert client.ask("gh.bound") == {"ok": False, "error": "refused: no stage session is running"}
+    finally:
+        helper.kill()
+        helper.wait()
+
+
+def test_a_session_bound_type_fails_closed_without_a_lineage_or_a_peer():
+    registry = Registry()
+    registry.register("gh.bound", lambda args, request: "answered", session_bound=True)
+    line = b'{"type": "gh.bound", "args": {}}'
+    assert registry.handle(line, Connection(4242), session_root=lambda: 1, lineage=lambda pid: None) == \
+        {"ok": False, "error": "refused: the process table cannot be read"}
+    assert registry.handle(line, Connection(None), session_root=lambda: 1, lineage=lambda pid: {1}) == \
+        {"ok": False, "error": "refused: the caller's process is unknown"}
+    assert registry.handle(line, Connection(4242), lineage=lambda pid: {4242, 1}) == \
+        {"ok": False, "error": "refused: no stage session is running"}
+    assert registry.handle(line, Connection(4242), session_root=lambda: 1, lineage=lambda pid: {4242, 1}) == \
+        {"ok": True, "result": "answered"}
 
 
 @pytest.mark.parametrize("request_type", ["shell", "exec", "gh.exec", "worker.shell", "heavy.command",
@@ -190,12 +406,22 @@ def test_fields_and_registrations_are_checked():
         Field(int, text=True)
     with pytest.raises(ValueError):
         Field(str, text=True, pattern=re.compile("x"))
+    with pytest.raises(ValueError, match="only an integer"):
+        Field(str, minimum=1)
+    with pytest.raises(ValueError, match="minimum not above the maximum"):
+        Field(int, minimum=5, maximum=1)
+    with pytest.raises(ValueError, match="max_length"):
+        Field(str, text=True, max_length=0)
+    assert Field(int).bounds == (1, 1_000_000) and Field(int, minimum=0, maximum=9).bounds == (0, 9)
     registry = Registry()
     registry.register("gh.op", lambda args, connection: None)
     with pytest.raises(ValueError, match="already registered"):
         registry.register("gh.op", lambda args, connection: None)
     with pytest.raises(TypeError):
         registry.register("gh.other", lambda args, connection: None, {"name": str})
+    for deadline in (0, -1, socket_service.MAX_DEADLINE + 1, True, float("nan")):
+        with pytest.raises(ValueError, match="deadline"):
+            registry.register("gh.other", lambda args, connection: None, deadline=deadline)
     assert registry.types() == ["gh.op"]
 
 
@@ -254,6 +480,39 @@ def test_a_private_directory_inside_the_session_tmpdir_is_refused(tmp_path, shor
     assert list(session_tmp.iterdir()) == []  # the private directory it made is gone
 
 
+@pytest.fixture
+def aliased_run_dir(short, tmp_path):
+    """A run directory ``<tmp_path>/Sess/run`` for alias spellings of ``<tmp_path>/Sess``."""
+    (tmp_path / "Sess").mkdir()
+    path = short / "Sess" / "run"
+    path.mkdir(mode=0o700)
+    return path
+
+
+def test_a_case_variant_alias_of_a_session_writable_directory_is_refused(aliased_run_dir, tmp_path):
+    if not (tmp_path / "SESS").exists():
+        pytest.skip("a case-sensitive file system: SESS is another directory")
+    for writable in (tmp_path / "SESS", tmp_path / "SESS" / "RUN", tmp_path / "SESS" / "RUN" / "exchange"):
+        with pytest.raises(UnsafeSocketDirectory, match="session-writable"):
+            socket_service.place_socket(aliased_run_dir, [writable])
+    assert not (aliased_run_dir / "control.sock").exists()
+
+
+def test_a_firmlink_alias_of_a_session_writable_directory_is_refused(aliased_run_dir, tmp_path):
+    alias = Path("/System/Volumes/Data") / os.path.realpath(tmp_path).lstrip("/") / "Sess"
+    if sys.platform != "darwin" or not alias.is_dir():
+        pytest.skip("no /System/Volumes/Data firmlink here")
+    with pytest.raises(UnsafeSocketDirectory, match="lies inside the session-writable"):
+        socket_service.place_socket(aliased_run_dir, [alias])
+
+
+def test_unrelated_and_not_yet_existing_session_paths_are_accepted(aliased_run_dir, tmp_path):
+    (tmp_path / "repo").mkdir()
+    writable = [tmp_path / "repo", tmp_path / "missing" / "tmp", tmp_path / "Sessions"]
+    path, private = socket_service.place_socket(aliased_run_dir, writable)
+    assert path == aliased_run_dir / "control.sock" and private is False
+
+
 def test_unsafe_directories_are_refused(run_dir, short):
     run_dir.chmod(0o770)
     with pytest.raises(UnsafeSocketDirectory, match="writable by its group"):
@@ -309,6 +568,109 @@ def test_the_socket_is_removed_when_the_run_raises(tmp_path, short):
     assert not endpoint.socket.exists() and not endpoint.directory.exists()
 
 
+SERVING_CHILD = """
+import json, sys, time
+from src.schedules.socket_service import Registry, serve
+with serve(sys.argv[1], Registry(), temp_root=sys.argv[2]) as endpoint:
+    print(json.dumps(endpoint.to_record()), flush=True)
+    time.sleep(60)
+"""
+
+
+def start_serving_child(run_dir, temp_root):
+    """A process serving a run's socket until it is signalled; returns it and its endpoint record."""
+    child = subprocess.Popen([PYTHON, "-c", SERVING_CHILD, str(run_dir), str(temp_root)], cwd=INSTALLATION,
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    line = child.stdout.readline()
+    if not line:
+        child.kill()
+        child.wait()
+        pytest.fail(f"the serving child did not start: {child.stderr.read()}")
+    return child, json.loads(line)
+
+
+@pytest.mark.parametrize("number", [signal.SIGTERM, signal.SIGHUP])
+def test_a_stop_signal_inside_serve_leaves_nothing_behind(tmp_path, short, number):
+    run_dir = long_run_dir(tmp_path)
+    child, record = start_serving_child(run_dir, short)
+    try:
+        socket_path = Path(record["socket"])
+        assert record["private_directory"] is True and stat.S_ISSOCK(os.lstat(socket_path).st_mode)
+        child.send_signal(number)
+        _, stderr = child.communicate(timeout=30)
+    finally:
+        if child.poll() is None:
+            child.kill()
+            child.wait()
+    assert child.returncode == 128 + number, stderr
+    assert not socket_path.parent.exists()
+    assert list(tmp_path.glob(socket_service.PRIVATE_PREFIX + "*")) == [] and list(run_dir.iterdir()) == []
+
+
+def test_serve_restores_the_previous_signal_handlers(run_dir):
+    before = {number: signal.getsignal(number) for number in (signal.SIGTERM, signal.SIGHUP)}
+    with serve(run_dir, make_registry()):
+        assert all(signal.getsignal(number) is not handler for number, handler in before.items())
+    assert {number: signal.getsignal(number) for number in before} == before
+
+
+def test_remove_leftovers_cleans_up_after_a_killed_run(tmp_path, short):
+    child, record = start_serving_child(long_run_dir(tmp_path), short)
+    child.kill()  # SIGKILL: no cleanup in the process
+    child.communicate(timeout=30)
+    private = Path(record["socket"]).parent
+    assert stat.S_ISSOCK(os.lstat(record["socket"]).st_mode) and (private / "clients" / "heavy").exists()
+    outcome = socket_service.remove_leftovers(record)
+    assert outcome["kept"] == [] and not private.exists()
+    assert {record["socket"], str(private), *record["clients"].values()} <= set(outcome["removed"])
+    assert socket_service.remove_leftovers(record) == {"removed": [], "kept": []}
+
+
+def leave_endpoint(directory, private):
+    """The socket file and clients a killed `serve` leaves in ``directory``; its record."""
+    path = directory / "control.sock"
+    listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    listener.bind(str(path))
+    listener.close()
+    clients = socket_service.write_clients(directory / "clients", path)
+    return socket_service.Endpoint(path, directory, private, clients).to_record()
+
+
+def test_remove_leftovers_in_the_run_directory_keeps_the_directory(run_dir):
+    (run_dir / "record.json").write_text("{}")
+    record = leave_endpoint(run_dir, private=False)
+    outcome = socket_service.remove_leftovers(record)
+    assert outcome["kept"] == [] and sorted(path.name for path in run_dir.iterdir()) == ["record.json"]
+
+
+def test_remove_leftovers_keeps_what_serve_did_not_create(short):
+    foreign = Path(tempfile.mkdtemp(prefix=socket_service.PRIVATE_PREFIX, dir=short))
+    (foreign / "control.sock").write_text("a regular file")
+    outcome = socket_service.remove_leftovers({"socket": str(foreign / "control.sock"), "private_directory": True})
+    assert outcome["removed"] == [] and "not the kind of entry" in outcome["kept"][0]
+    assert (foreign / "control.sock").read_text() == "a regular file" and foreign.exists()
+
+    unnamed = short / "unnamed"
+    unnamed.mkdir(mode=0o700)
+    record = leave_endpoint(unnamed, private=True)
+    outcome = socket_service.remove_leftovers(record)
+    assert outcome["removed"] == [] and "not a private directory serve creates" in outcome["kept"][0]
+    assert (unnamed / "control.sock").exists()
+
+    crowded = Path(tempfile.mkdtemp(prefix=socket_service.PRIVATE_PREFIX, dir=short))
+    record = leave_endpoint(crowded, private=True)
+    (crowded / "notes.txt").write_text("kept")
+    outcome = socket_service.remove_leftovers(record)
+    assert outcome["removed"] == [] and "other entries" in outcome["kept"][0]
+
+    elsewhere = {**record, "clients": {"gh": str(short / "gh")}}
+    assert "do not lie beside its socket" in socket_service.remove_leftovers(elsewhere)["kept"][0]
+    assert socket_service.remove_leftovers({}) == {"removed": [], "kept": ["the record names no endpoint"]}
+    assert "not a socket path" in socket_service.remove_leftovers(
+        {"socket": str(short / ".." / "control.sock"), "private_directory": False})["kept"][0]
+    assert (crowded / "control.sock").exists() and (crowded / "clients" / "gh").exists()
+
+
 # --- thin clients ------------------------------------------------------------------------------------
 
 def test_clients_are_isolated_stdlib_scripts_with_the_socket_embedded(run_dir):
@@ -320,9 +682,20 @@ def test_clients_are_isolated_stdlib_scripts_with_the_socket_embedded(run_dir):
             assert path.parent == run_dir / "clients" and path.is_absolute()
             assert stat.S_IMODE(path.stat().st_mode) == 0o555
             text = path.read_text()
-            assert text.splitlines()[0] == f"#!{sys.executable} -I"
+            assert text.splitlines()[0] == f"#!{socket_service.client_interpreter()} -I"
             assert f"SOCKET_PATH = {str(endpoint.socket)!r}" in text and f"CLIENT = {name!r}" in text
             assert not re.search(r"^\s*(from|import)\s+src\b", text, re.M)
+
+
+def test_clients_run_on_the_resolved_base_interpreter(run_dir, monkeypatch):
+    base = os.path.realpath(getattr(sys, "_base_executable", "") or sys.executable)
+    assert socket_service.client_interpreter() == base and os.path.realpath(base) == base
+    with serve(run_dir, make_registry()) as endpoint:
+        assert endpoint.clients["gh"].read_text().splitlines()[0] == f"#!{base} -I"
+        done = run([endpoint.clients["gh"], "echo", '{"name": "base"}'])
+        assert done.returncode == 0 and json.loads(done.stdout) == {"echo": {"name": "base"}}
+    monkeypatch.setattr(sys, "_base_executable", "", raising=False)
+    assert socket_service.client_interpreter() == sys.executable
 
 
 def test_gh_and_worker_send_their_request_types_and_print_the_result(run_dir):

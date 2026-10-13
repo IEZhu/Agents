@@ -8,7 +8,8 @@ the schedule is enabled and either
   (a range may cross midnight, such as ``22:00-02:00``),
 
 and then only when the run lease is free, no daemon update is in progress, no session holds the
-heavy-process lease (`src.schedules.heavy`), no other heavy process runs and, with
+heavy-process lease (`src.schedules.heavy`), no other heavy process runs (that probe fails
+open: when ``ps`` fails it sees none, unlike a lease grant) and, with
 ``require_ac_power``, the machine is not on battery. A slot that is older
 than the catch-up window when a tick first sees it is recorded as ``missed``; a due slot that a
 busy machine keeps from running is retried by every tick until it becomes ``missed``.

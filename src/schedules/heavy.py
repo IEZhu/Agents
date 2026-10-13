@@ -7,26 +7,36 @@ service only grants and releases; it never starts a command.
 
 The lease is a lock file, ``<state_dir>/schedules/heavy.lease`` beside the run lease
 (`src.schedules.lease`), that the runner holds for as long as the granting connection stays open,
-so a client that dies releases it. A grant is refused while another holder keeps the lock, and
-while a foreign heavy process runs (`HEAVY`): one other than the runner itself and the requesting
-client with its ancestors, whose command lines name the command the client is about to start. The
-scheduler's tick waits while the lease is held (`held`).
+so a client that dies releases it. A grant is refused while another holder keeps the lock, while
+a foreign heavy process runs (`HEAVY`), and when the process table cannot be read. A foreign
+process is one other than the runner itself and the requesting client with its ancestors, whose
+command lines name the command the client is about to start; when the runner names the stage
+session's root PID, only the ancestors up to that root are excluded, so a heavy process that
+started the session, or runs beside it, still counts. The scheduler's tick waits while the lease
+is held (`held`) and while its own probe (`heavy_processes`) sees a heavy process; that probe
+counts none when ``ps`` fails, so the tick fails open there.
+
+The lease is cooperative coordination between well-behaved sessions, not a guarantee: nothing
+stops a session from running ``pytest`` without ``heavy --``, or from exhausting the user's process
+limit so that ``ps`` fails. Enforcing one heavy process against a misbehaving session belongs to
+the sandbox (#343) and the run sequence (#347).
 """
 from __future__ import annotations
 
 import os
 from pathlib import Path
 import re
-import subprocess
 from typing import Callable
 
 from . import lease
-from .socket_service import Connection, Registry, RequestRefused
+from .socket_service import (Registry, RequestContext, RequestRefused, lineage,  # noqa: F401 (re-exported)
+                             process_table)
 
 LEASE_NAME = "heavy.lease"
 RESOURCE = "the heavy-process lease"
 PS = "/bin/ps"
-PS_TIMEOUT = 30  # seconds
+PS_TIMEOUT = 10.0  # seconds
+ACQUIRE_DEADLINE = 15.0  # seconds for heavy.acquire: the lock's short wait and one ps
 HEAVY = (re.compile(r"\bpytest\b"), re.compile(r"\bsrc[./]reindex\b"))
 
 
@@ -39,80 +49,66 @@ def held(directory: str | Path | None = None) -> bool:
     return lease.locked(lease_path(directory))
 
 
-def process_table(ps: str = PS) -> dict[int, tuple[int, str]] | None:
-    """``{pid: (parent pid, command line)}`` of every process; None when ``ps`` fails."""
-    try:
-        listed = subprocess.run([ps, "-A", "-o", "pid=,ppid=,command="], capture_output=True, text=True,
-                                stdin=subprocess.DEVNULL, timeout=PS_TIMEOUT, check=False).stdout
-    except (OSError, subprocess.SubprocessError):
-        return None
-    table = {}
-    for line in listed.splitlines():
-        parts = line.split(None, 2)
-        if len(parts) >= 2 and parts[0].isdigit() and parts[1].isdigit():
-            table[int(parts[0])] = (int(parts[1]), parts[2] if len(parts) == 3 else "")
-    return table
-
-
-def lineage(table: dict[int, tuple[int, str]], pid: int) -> set[int]:
-    """``pid`` and its ancestors in ``table``."""
-    found: set[int] = set()
-    while pid > 0 and pid not in found:
-        found.add(pid)
-        if pid not in table:
-            break
-        pid = table[pid][0]
-    return found
-
-
-def heavy_processes(ps: str = PS, *, requester: int | None = None) -> list[str]:
-    """Running ``pytest`` and reindexing processes as ``"<pid> <command>"``: never this process, nor
-    ``requester`` and its ancestors, whose command lines name the command the client will start."""
-    table = process_table(ps)
+def foreign_heavy(ps: str = PS, *, requester: int | None = None, session_root: int | None = None,
+                  timeout: float = PS_TIMEOUT) -> list[str] | None:
+    """Running ``pytest`` and reindexing processes as ``"<pid> <command>"``, or None when ``ps``
+    fails. Never this process, nor ``requester`` and its ancestors, whose command lines name the
+    command the client will start; with ``session_root``, those ancestors only up to that root."""
+    table = process_table(ps, timeout=timeout)
     if table is None:
-        return []
+        return None
     excluded = {os.getpid()}
     if requester is not None:
-        excluded |= lineage(table, requester)
+        excluded |= lineage(table, requester, stop=session_root)
     return [f"{pid} {command.strip()[:80]}" for pid, (_, command) in table.items()
             if pid not in excluded and any(pattern.search(command) for pattern in HEAVY)]
+
+
+def heavy_processes(ps: str = PS, *, requester: int | None = None, session_root: int | None = None,
+                    timeout: float = PS_TIMEOUT) -> list[str]:
+    """`foreign_heavy` for the tick's probe, which fails open: no process when ``ps`` fails."""
+    return foreign_heavy(ps, requester=requester, session_root=session_root, timeout=timeout) or []
 
 
 class HeavyLease:
     """The handlers of ``heavy.acquire`` and ``heavy.release``.
 
-    ``processes(requester_pid)`` lists the foreign heavy processes (default `heavy_processes`).
+    ``processes(requester=, session_root=, timeout=)`` lists the foreign heavy processes, or
+    returns None when it cannot tell (default `foreign_heavy`).
     """
 
     def __init__(self, directory: str | Path | None = None, *,
-                 processes: Callable[[int | None], list] | None = None, wait: float = lease.HOLD_WAIT) -> None:
+                 processes: Callable[..., list | None] | None = None, wait: float = lease.HOLD_WAIT) -> None:
         self.path = lease_path(directory)
-        self.processes = processes or (lambda requester: heavy_processes(requester=requester))
+        self.processes = processes or foreign_heavy
         self.wait = wait  # a tick's probe of `held` takes the lock for an instant
 
-    def acquire(self, args: dict, connection: Connection) -> dict:
-        if connection.holds(RESOURCE):
-            raise RequestRefused(f"this connection already holds {RESOURCE}")
-        stack = lease.acquire(self.path, wait=self.wait)
-        if stack is None:
+    def acquire(self, args: dict, request: RequestContext) -> dict:
+        connection = request.connection
+        # The lock goes onto the connection as it is taken, so the server's close releases it even
+        # while the probe below still runs, and a closed connection takes it no more.
+        if not connection.take(RESOURCE, lambda: lease.acquire(self.path, wait=0),
+                               wait=min(self.wait, request.remaining())):
             raise RequestRefused(f"{RESOURCE} is held by another check")
         try:
-            running = self.processes(connection.peer_pid)
+            running = self.processes(requester=request.peer_pid, session_root=request.session_root,
+                                     timeout=request.remaining())
+            if running is None:
+                raise RequestRefused("the process table cannot be read, so the lease is not granted")
             if running:
                 raise RequestRefused(f"heavy processes are running: {', '.join(map(str, running))}")
-            connection.keep(RESOURCE, stack)
         except BaseException:
-            stack.close()
+            connection.release(RESOURCE)
             raise
         return {"lease": "granted"}
 
-    def release(self, args: dict, connection: Connection) -> dict:
-        return {"released": connection.release(RESOURCE)}
+    def release(self, args: dict, request: RequestContext) -> dict:
+        return {"released": request.connection.release(RESOURCE)}
 
 
 def register(registry: Registry, directory: str | Path | None = None, **options) -> HeavyLease:
     """Register ``heavy.acquire`` and ``heavy.release``; neither takes an argument."""
     service = HeavyLease(directory, **options)
-    registry.register("heavy.acquire", service.acquire)
+    registry.register("heavy.acquire", service.acquire, deadline=ACQUIRE_DEADLINE)
     registry.register("heavy.release", service.release)
     return service
