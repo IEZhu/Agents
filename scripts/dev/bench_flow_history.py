@@ -3,9 +3,11 @@
 
 Generates a library with at least 200 history commits in a temporary directory,
 or, with ``--library``, copies an existing library there first: the given
-library is only read. Prints each timing in milliseconds and checks the budget:
-the flow's text (what ``GET /ui/api/flow`` returns) within 300 ms on a cold
-cache, and the whole flow with its versions (MCP ``get_flow``) within 150 ms warm.
+library is only read. Prints each timing in milliseconds (the median of
+``--repeat`` samples) and checks the budget: the flow's text (what
+``GET /ui/api/flow`` returns) within 300 ms on a cold cache, and within 150 ms
+warm both the versions the editor asks for next (``GET /ui/api/flow/history``)
+and the whole flow with its versions (MCP ``get_flow``).
 
     .venv/bin/python scripts/dev/bench_flow_history.py
     .venv/bin/python scripts/dev/bench_flow_history.py --library flows/.user --flow user:day-close
@@ -91,13 +93,17 @@ def measure(root: Path, name: str, repeat: int) -> dict:
     return results
 
 
-def save_then_versions(root: Path, name: str) -> float:
-    """One more save, then the versions: the cache adds only the new commits."""
-    library = FlowLibrary(FlowCatalog(), user_dir=root)
-    library.versions(name)
-    current = library.get(name, with_history=False)["flow"]["revision"]
-    library.save(name, f"# Saved by the benchmark at {time.time()}\n", expected_revision=current)
-    return timed(lambda: FlowLibrary(FlowCatalog(), user_dir=root).versions(name))
+def save_then_versions(root: Path, name: str, repeat: int) -> float:
+    """One more save, then the versions, ``repeat`` times: the cache adds only the new commits."""
+    samples = []
+    for number in range(repeat):
+        library = FlowLibrary(FlowCatalog(), user_dir=root)
+        library.versions(name)
+        current = library.get(name, with_history=False)["flow"]["revision"]
+        library.save(name, f"# Saved by the benchmark, sample {number}, at {time.time()}\n",
+                     expected_revision=current)
+        samples.append(timed(lambda: FlowLibrary(FlowCatalog(), user_dir=root).versions(name)))
+    return statistics.median(samples)
 
 
 def main() -> int:
@@ -118,9 +124,10 @@ def main() -> int:
         else:
             name = generate(root, arguments.commits, arguments.flows)
         results = measure(root, name, arguments.repeat)
-        results["save_then_versions_ms"] = save_then_versions(root, name)
+        results["save_then_versions_ms"] = save_then_versions(root, name, arguments.repeat)
     results = {key: round(value, 1) if isinstance(value, float) else value for key, value in results.items()}
     results["budget"] = {f"content_cold<={CONTENT_COLD_MS}ms": results["content_cold_ms"] <= CONTENT_COLD_MS,
+                         f"versions_warm<={OPEN_WARM_MS}ms": results["versions_warm_ms"] <= OPEN_WARM_MS,
                          f"get_warm<={OPEN_WARM_MS}ms": results["get_warm_ms"] <= OPEN_WARM_MS}
     print(json.dumps({"library": str(arguments.library or "generated"), "flow": name, **results}, indent=2))
     return 0 if all(results["budget"].values()) else 1

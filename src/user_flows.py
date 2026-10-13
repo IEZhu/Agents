@@ -424,11 +424,38 @@ class FlowLibrary:
             return self._versions().history(path)
 
     def versions(self, name: str) -> dict:
-        """The saved versions of the flow ``name`` reaches, for the editor to load after its text."""
+        """The saved versions of the flow ``name`` reaches, for the editor to load after its text.
+
+        A deleted flow keeps its versions. A flow that neither exists nor has versions
+        is ``flow_not_found``, as ``get`` reports it. A bare ID resolves as ``get`` does,
+        and when no current flow has it, as ``get(name, version)`` does: the repository's
+        versions, then the personal ones.
+        """
         scope, flow_id = parse_reference(name)
         if scope is None:
-            scope = self.resolve(flow_id).source
-        return {"status": "success", "id": f"{scope}:{flow_id}", "history": self.history(scope, flow_id)}
+            try:
+                scope = self.resolve(flow_id).source
+            except FlowError as error:
+                if not str(error).startswith("flow_not_found:"):
+                    raise
+                for candidate in ("repo", "user"):
+                    history = self._scope_history(candidate, flow_id)
+                    if history:
+                        return {"status": "success", "id": f"{candidate}:{flow_id}", "history": history}
+                raise
+        history = self.history(scope, flow_id)
+        if not history and not self._exists(scope, flow_id):
+            raise FlowError("flow_not_found: use list_flows to discover available flows")
+        return {"status": "success", "id": f"{scope}:{flow_id}", "history": history}
+
+    def _scope_history(self, scope: str, flow_id: str) -> list[dict]:
+        """``history``, empty for the repository scope when no repository is selected."""
+        try:
+            return self.history(scope, flow_id)
+        except FlowError as error:
+            if scope == "repo" and str(error).startswith("repo_scope_unavailable:"):
+                return []
+            raise
 
     def get(self, name: str, version: str | None = None, *, with_history: bool = True) -> dict:
         """A flow's text and metadata; ``with_history=False`` leaves out its versions (see ``versions``)."""

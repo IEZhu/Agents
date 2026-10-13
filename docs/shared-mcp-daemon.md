@@ -694,9 +694,16 @@ seconds while the browser tab is visible (see
   requiring remote sync. The editor reads those Git versions and restoration
   creates a new version. A flow's text opens at once (`GET /ui/api/flow` leaves
   the versions out); the page then asks `GET /ui/api/flow/history` for the
-  History list. Each process keeps the library's computed versions in memory,
-  keyed by the commits of the history refs, and reads only the commits a save or
-  a sync added (a rewritten ref recomputes them). Earlier `.history` snapshots are imported automatically.
+  History list, which reports a flow that neither exists nor has versions as not
+  found and keeps listing a deleted flow's versions. Each process keeps the
+  library's computed versions in memory, keyed by the commits of the history
+  refs, and reads only the commits a save or a sync added, also when a rewritten
+  ref drops others; replace refs and grafts are ignored. The memory is bounded by
+  counts, not bytes: 8 libraries and 4096 version digests, and a library's entry
+  grows with its history (blob IDs, no file contents). A version list or a version
+  read now reads only that flow's blobs, so a corrupt blob of an unrelated
+  version no longer fails it; reading all versions at once still reports it.
+  Earlier `.history` snapshots are imported automatically.
   The editor also compares a local copy with its built-in flow ("Show built-in") and detects
   conflicts with edits made from chat.
   The **Persona** panel of an open flow (built-in ones included) chooses the
