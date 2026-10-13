@@ -277,6 +277,8 @@ def make_temp_root(base: Path = TMP_BASE) -> Path:
             os.mkdir(path, 0o700)
         except FileExistsError:
             continue
+        except OSError as error:
+            raise SandboxError(f"cannot create a temporary root under {base}: {type(error).__name__}") from error
         if problems := temp_root_problems(path):
             raise SandboxError("; ".join(problems))
         return path
