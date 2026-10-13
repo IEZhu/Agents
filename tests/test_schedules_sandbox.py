@@ -31,7 +31,10 @@ def fake_claude(directory: Path, scenario: dict) -> str:
 
 @pytest.fixture
 def temp_root():
-    """A fresh short temporary root under /private/tmp (`sandbox.make_temp_root`), removed afterwards."""
+    """A fresh short temporary root under /private/tmp (`sandbox.make_temp_root`), removed afterwards;
+    skipped where /private/tmp does not exist (the sandbox is macOS-only)."""
+    if not sandbox.TMP_BASE.is_dir():
+        pytest.skip(f"{sandbox.TMP_BASE} does not exist on this system")
     root = sandbox.make_temp_root()
     yield root
     sandbox.remove_temp_root(root)
@@ -358,6 +361,11 @@ def test_the_temporary_root_is_short_private_and_removable(temp_root):
     assert sandbox.temp_root_problems(temp_root) == []
     with pytest.raises(SandboxError):
         sandbox.remove_temp_root(temp_root.parent / "elsewhere")
+
+
+def test_a_missing_temporary_base_is_a_sandbox_error(tmp_path):
+    with pytest.raises(SandboxError, match="cannot create a temporary root"):
+        sandbox.make_temp_root(tmp_path / "missing")
 
 
 def test_an_over_long_temporary_root_is_refused(paths, tmp_path):
