@@ -1,7 +1,10 @@
 """The autodev run and the scheduler tick: what the CLI commands do (design 10.1, 10.2).
 
 ``launch`` starts ``<python> -P -m src.schedules run autodev --run-id …`` under supervision
-(`src.schedules.supervise`) and completes its record when the run timed out or crashed.
+(`src.schedules.supervise`) and completes its record when the run timed out or crashed. Once the
+run's process tree is gone, it also removes a runner socket the run left behind (a SIGKILL ends
+`serve` without its cleanup) when the record names one under ``endpoint``
+(`socket_service.Endpoint.to_record`), and records what it did as ``endpoint_cleanup``.
 ``run_autodev`` is that child: it holds the run lease, checks the runner for drift, reads a
 GitHub snapshot and asks the gate. Infrastructure failures (a CLI, the network, the lease, drift,
 a timeout) end as ``failed: infra`` with a reason, set no label, and the next slot retries.
@@ -15,7 +18,6 @@ from dataclasses import dataclass
 from datetime import datetime
 import os
 from pathlib import Path
-import re
 import signal
 import subprocess
 import sys
@@ -25,9 +27,10 @@ from src import executables
 from src.daemon.state import private_dir, read_json, write_json
 
 from . import config as autodev_config
-from . import drift, launchagent, lease, records
+from . import drift, heavy, launchagent, lease, records, socket_service
 from .gate import gate
 from .github import GitHubClient, GitHubError, NetworkError, TokenUnavailable, fetch_snapshot, token_provider
+from .heavy import HEAVY, heavy_processes  # noqa: F401 (HEAVY: moved to heavy, still importable here)
 from .supervise import SupervisorStopped, run_supervised
 from .tick import decide, iso, local_now, next_slot
 
@@ -37,7 +40,6 @@ DRY_RUN_TIMEOUT_MINUTES = 30
 TICK_STATE = "tick.json"
 UPDATE_MARKERS = ("maintenance.json", "transaction.json")
 _ENVIRONMENT = ("HOME", "USER", "LOGNAME", "TMPDIR", "LANG", "LC_ALL", "LC_CTYPE")
-HEAVY = (re.compile(r"\bpytest\b"), re.compile(r"\bsrc[./]reindex\b"))
 
 
 @dataclass
@@ -80,21 +82,6 @@ def infra(reason: str) -> dict:
 def update_markers(directory: Path) -> list[str]:
     """The daemon's update markers present in the state directory."""
     return [name for name in UPDATE_MARKERS if (Path(directory) / name).exists()]
-
-
-def heavy_processes(ps: str = "/bin/ps") -> list[str]:
-    """Other processes that would compete with a run: ``pytest`` and reindexing."""
-    try:
-        listed = subprocess.run([ps, "-A", "-o", "pid=,command="], capture_output=True, text=True,
-                                stdin=subprocess.DEVNULL, timeout=30, check=False).stdout
-    except (OSError, subprocess.SubprocessError):
-        return []
-    found = []
-    for line in listed.splitlines():
-        pid, _, command = line.strip().partition(" ")
-        if pid.isdigit() and int(pid) != os.getpid() and any(pattern.search(command) for pattern in HEAVY):
-            found.append(f"{pid} {command.strip()[:80]}")
-    return found
 
 
 def on_ac_power(pmset: str = "/usr/bin/pmset") -> bool | None:
@@ -185,6 +172,17 @@ def run_environment(ctx: Context) -> dict[str, str]:
     return environment
 
 
+def remove_endpoint(record: dict, run_dir: Path) -> None:
+    """Remove the socket, clients and private directory a killed run left behind, when its
+    record names them under ``endpoint``; note the outcome as ``endpoint_cleanup``."""
+    endpoint = record.get("endpoint")
+    if not isinstance(endpoint, dict):
+        return
+    outcome = socket_service.remove_leftovers(endpoint, run_directory=run_dir)
+    if outcome["removed"] or outcome["kept"]:
+        record["endpoint_cleanup"] = outcome
+
+
 def launch(ctx: Context, mode: str, trigger: dict, *, pr: int | None = None) -> tuple[int, dict]:
     """Start one supervised run and return its completed record."""
     if mode in REAL_MODES:
@@ -203,6 +201,7 @@ def launch(ctx: Context, mode: str, trigger: dict, *, pr: int | None = None) -> 
                                 stdout_path=run_dir / "stdout.log", stderr_path=run_dir / "stderr.log")
     except SupervisorStopped as stopped:  # the run's tree is already swept; record it, then stop
         record = records.read_record(run_id, ctx.directory) or {}
+        remove_endpoint(record, run_dir)
         record.update(infra(f"stopped: the supervisor received {signal.Signals(stopped.signal).name}; "
                             "the run's process tree was ended"))
         record.setdefault("finished", iso(ctx.clock()))
@@ -213,6 +212,7 @@ def launch(ctx: Context, mode: str, trigger: dict, *, pr: int | None = None) -> 
     else:
         failure = None
     record = records.read_record(run_id, ctx.directory) or {}
+    remove_endpoint(record, run_dir)  # the run and everything it started are gone by now
     if failure:
         record.update(failure)
     elif outcome.timed_out:
@@ -254,6 +254,7 @@ def tick(ctx: Context) -> tuple[int, dict]:
         now, config, _tick_state(ctx),
         lease_free=lambda: not lease.held(ctx.directory),
         update_pending=lambda: bool(update_markers(ctx.directory)),
+        heavy_lease_held=lambda: heavy.held(ctx.directory),
         heavy_processes=ctx.heavy_processes or heavy_processes,
         on_ac_power=ctx.on_ac_power or on_ac_power)
     state = dict(decision.state)
@@ -314,6 +315,7 @@ def status(ctx: Context) -> tuple[int, dict]:
         "config_file": str(autodev_config.config_path(ctx.directory)),
         "scheduler": ctx.scheduler().status(),
         "lease_held": lease.held(ctx.directory),
+        "heavy_lease_held": heavy.held(ctx.directory),
         "next_slot": iso(next_slot(config["times"], now)),
         "tick": _tick_state(ctx),
         "recent_runs": [_summary(record) for record in records.all_records(ctx.directory)[:5]],

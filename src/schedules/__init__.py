@@ -7,5 +7,9 @@ for drift (`drift`), reads GitHub through a read-only client (`github`) and asks
 for a decision. Everything it learns goes into a run record (`records`). Configuration lives in
 ``<state_dir>/schedules/autodev.json`` (`config`); the reference is docs/autodev-runner.md.
 
+Sandboxed stage sessions will reach the runner only through the runner socket (`socket_service`),
+which serves the heavy-process lease (`heavy`) to the thin clients it writes for each run; the run
+sequence of #347 opens it.
+
 Only ``dry-run`` works in this part: every real mode refuses and names the parts it needs.
 """

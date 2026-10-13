@@ -96,6 +96,7 @@ def test_a_busy_lease_keeps_the_slot_for_the_next_tick_until_it_is_missed():
 
 @pytest.mark.parametrize("probe, reason", [
     ({"update_pending": lambda: True}, "daemon update"),
+    ({"heavy_lease_held": lambda: True}, "the heavy-process lease is held"),
     ({"heavy_processes": lambda: ["4242 pytest"]}, "heavy processes are running: 4242 pytest"),
     ({"on_ac_power": lambda: False}, "battery"),
 ])
@@ -114,7 +115,7 @@ def test_probes_run_only_when_something_is_due():
     def fail():
         raise AssertionError("a probe ran on an empty tick")
     assert decide(at(12, 9, 0), config(), ENABLED, lease_free=fail, update_pending=fail,
-                  heavy_processes=fail, on_ac_power=fail).action == "idle"
+                  heavy_lease_held=fail, heavy_processes=fail, on_ac_power=fail).action == "idle"
 
 
 def continuation(when):
