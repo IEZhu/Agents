@@ -24,7 +24,7 @@ REM   --force-claude-code-mcp
 REM                  Register Agents-Core for Claude Code even when the agents-core
 REM                  plugin is installed and enabled (also
 REM                  AGENTS_FORCE_CLAUDE_CODE_MCP=1). The plugin's start script does
-REM                  not run on Windows, so the plugin is rarely found here.
+REM                  not run on Windows, so the check never skips the entry here.
 REM   --help         Show this help message
 
 setlocal enabledelayedexpansion

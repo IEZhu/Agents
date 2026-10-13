@@ -472,12 +472,21 @@ def main(argv=None):
             if "claude" in clients and args.workspace and (args.workspace / ".mcp.json").exists(): clients.append("claude-project")
             if any(client not in clients for client, _ in overrides):
                 parser.error("Each --client-config target must be selected by --clients")
-            if any(client in clients for client in ("claude", "claude-project")):
-                # The agents-core plugin serves Claude Code: no second Agents-Core entry (#367).
-                from .clients import CLAUDE_CODE_CLIENTS, claude_code_plugin_skip
-                claude_code_skipped = claude_code_plugin_skip(force=args.force_claude_code_mcp)
+            if "claude" in clients:
+                # The agents-core plugin serves this Claude Code profile: no second user-level
+                # Agents-Core entry (#367). A project's shared .mcp.json (claude-project) is still
+                # written: collaborators may not have the plugin.
+                from src.claude_plugin import profile_for_config
+                from src.client_paths import client_config_path
+                from .clients import claude_code_plugin_skip
+                from .registrations import forced_profiles
+                claude_profile = profile_for_config(dict(overrides).get("claude") or client_config_path("claude"))
+                claude_code_skipped = claude_code_plugin_skip(
+                    profile=claude_profile, workspaces=[args.workspace] if args.workspace else (),
+                    force=args.force_claude_code_mcp
+                    or str(claude_profile) in forced_profiles(Path(args.state or state_dir())))
                 if claude_code_skipped:
-                    clients = [client for client in clients if client not in CLAUDE_CODE_CLIENTS]
+                    clients = [client for client in clients if client != "claude"]
     controller = Controller(args.state)
     # Commands of an installed service start its tools as the service does (#244).
     if controller.config: executables.configure(controller.config)
@@ -528,6 +537,10 @@ def main(argv=None):
                 result = {"backup": str(migration.apply(changes)), "files": [str(p) for p, _, _ in changes]}
             if claude_code_skipped:
                 result["claude_code"] = "skipped: " + claude_code_skipped
+            elif args.force_claude_code_mcp and "claude" in clients and not blocked:
+                # The service's upkeep keeps this profile's forced entry current too (#367).
+                from .registrations import remember_force
+                remember_force(controller.directory, [claude_profile])
     elif args.command == "restore-clients":
         from .clients import ClientMigration
         from .bootstrap import assert_service_safe
@@ -544,10 +557,9 @@ def main(argv=None):
             if warnings:
                 result["warnings"] = warnings
         elif args.action == "run":
-            if args.force_claude_code_mcp:
-                os.environ["AGENTS_FORCE_CLAUDE_CODE_MCP"] = "1"
             try:
-                result = registrations.run(controller.directory, force=True)
+                result = registrations.run(controller.directory, force=True,
+                                           force_claude_code=args.force_claude_code_mcp)
             except BlockingIOError:
                 result = {"state": "not_run",
                           "error": "another control command is running or the service is in maintenance; try again"}

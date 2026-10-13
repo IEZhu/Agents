@@ -72,6 +72,7 @@ def profile_installer(request, tmp_path):
 
     if kind == "bash":
         source = (ROOT / "scripts/init_repo.sh").read_text()
+        arguments = between(source, "# ============== Parse Arguments ==============", "# ============== Helper Functions")
         functions = between(source, "print_header() {", "# Fatal error handler")
         hooks = between(source, "# Resolve client paths", "# ============== Pre-flight Checks")
         setup = between(source, "    # --- Detect Cursor ---", "    # --- Configure Codex instructions ---")
@@ -79,7 +80,7 @@ def profile_installer(request, tmp_path):
         script.write_text("set -e\nCONFIGURED_ENVS=()\n"
                           'python() { "$PYTHON_ABS" "$@"; }\n'
                           f'date() {{ printf "%s\\n" "{BACKUP_TIMESTAMP}"; }}\n'
-                          "check_command() { return 1; }\n" + functions + hooks + setup
+                          "check_command() { return 1; }\n" + arguments + functions + hooks + setup
                           + 'printf \'CONFIGURED_ENVS=%s\\n\' "${CONFIGURED_ENVS[*]}"\n')
         command = [interpreter, str(script)]
     else:
@@ -97,8 +98,8 @@ def profile_installer(request, tmp_path):
                             + fatal_handler).replace("\n", "\r\n").encode())
         command = [interpreter, "/d", "/c", str(script)]
 
-    def run(overrides):
-        return subprocess.run(command, cwd=cwd, env={**env, **overrides}, input="y\ny\n",
+    def run(overrides, arguments=()):
+        return subprocess.run([*command, *arguments], cwd=cwd, env={**env, **overrides}, input="y\ny\n",
                               text=True, encoding="utf-8", errors="replace", capture_output=True, timeout=20)
 
     desktop = home / ("AppData/Roaming/Claude/claude_desktop_config.json" if kind == "cmd" else
@@ -229,15 +230,23 @@ def test_the_agents_core_plugin_skips_only_the_claude_code_entry(profile_install
     desktop.parent.mkdir(parents=True)
     install_agents_core_plugin(home, enabled=plugin != "disabled")
 
-    result = run({"AGENTS_FORCE_CLAUDE_CODE_MCP": "1"} if plugin == "forced" else {})
+    windows = sys.platform == "win32"
+    if plugin != "forced":
+        result = run({})
+    elif windows:
+        result = run({"AGENTS_FORCE_CLAUDE_CODE_MCP": "1"})
+    else:  # the installer's own flag, parsed as init_repo.sh parses it (F6)
+        result = run({}, ["--force-claude-code-mcp"])
 
     assert result.returncode == 0, result.stdout + result.stderr
+    # Windows never skips: the plugin's start-server.sh does not run there.
+    skipped = plugin == "enabled" and not windows
     registered = (home / ".claude.json").exists() and "Agents-Core" in json.loads(
         (home / ".claude.json").read_text()).get("mcpServers", {})
-    assert registered is (plugin != "enabled")
-    assert ("Skipping the Claude Code MCP entry: the agents-core@claude-plugins-official plugin is installed and enabled" in result.stdout) is (plugin == "enabled")
+    assert registered is not skipped
+    assert ("Skipping the Claude Code MCP entry: the agents-core@claude-plugins-official plugin is installed and enabled" in result.stdout) is skipped
     configured = result.stdout.rsplit("CONFIGURED_ENVS=", 1)[1]
-    assert any(name in configured for name in ("Claude Code", "Claude-Code")) is (plugin != "enabled")
+    assert any(name in configured for name in ("Claude Code", "Claude-Code")) is not skipped
     # Every other part of the setup runs as before.
     assert "Agents-Core Routing Protocol" in (home / ".claude/CLAUDE.md").read_text()
     assert json.loads((home / ".cursor/mcp.json").read_text())["mcpServers"]["Agents-Core"]["args"] == [
@@ -249,8 +258,8 @@ def test_the_agents_core_plugin_skips_only_the_claude_code_entry(profile_install
         "agents-core@claude-plugins-official": plugin != "disabled"}
 
 
-def test_the_force_flag_registers_claude_code_beside_the_plugin(tmp_path):
-    """--force-claude-code-mcp reaches the plugin check as its flag (#367)."""
+def test_the_plugin_helper_takes_the_force_flag_and_a_profile(tmp_path):
+    """--force-claude-code-mcp and --profile reach the plugin check (#367)."""
     home = tmp_path / "home"
     install_agents_core_plugin(home)
     env = {key: value for key, value in os.environ.items()
@@ -259,13 +268,13 @@ def test_the_force_flag_registers_claude_code_beside_the_plugin(tmp_path):
     helper = [sys.executable, str(ROOT / "scripts/_helpers/claude_code_plugin.py")]
     skipped = subprocess.run(helper, env=env, capture_output=True, text=True)
     forced = subprocess.run([*helper, "--force-claude-code-mcp"], env=env, capture_output=True, text=True)
-    assert skipped.returncode == 0 and "agents-core@claude-plugins-official" in skipped.stdout
+    other = subprocess.run([*helper, "--profile", str(tmp_path / "other")], env=env, capture_output=True, text=True)
+    if sys.platform == "win32":
+        assert skipped.returncode == 1 and skipped.stdout == ""
+    else:
+        assert skipped.returncode == 0 and "agents-core@claude-plugins-official" in skipped.stdout
     assert forced.returncode == 1 and forced.stdout == ""
-    source = (ROOT / "scripts/init_repo.sh").read_text()
-    assert "--force-claude-code-mcp)\n            FORCE_CLAUDE_CODE_MCP=true" in source
-    assert 'force=(--force-claude-code-mcp)' in source
-    batch = (ROOT / "scripts/init_repo.bat").read_text()
-    assert '"--force-claude-code-mcp" set "AGENTS_FORCE_CLAUDE_CODE_MCP=1"' in batch
+    assert other.returncode == 1 and other.stdout == ""
 
 
 def test_antigravity_existing_directory_creates_config_and_reinstalls(profile_installer):

@@ -264,13 +264,15 @@ print(resolver(sys.argv[3]))
 ' "$REPO_ROOT" "$@"
 }
 
-# Why Claude Code's Agents-Core entry is skipped: the agents-core plugin is installed and
-# enabled and starts its own server (#367). Prints the reason and succeeds, or fails to
-# register as before (no plugin, a disabled one, unreadable plugin state, or a forced run).
+# Why Claude Code's Agents-Core entry is skipped for the profile $1: the agents-core plugin is
+# installed and enabled there and starts its own server (#367). Prints the reason and succeeds,
+# or fails to register as before (no plugin, a disabled one, uncertain plugin state, or a
+# forced run).
 claude_code_plugin_skip() {
     local force=()
     if [ "${FORCE_CLAUDE_CODE_MCP:-false}" = true ]; then force=(--force-claude-code-mcp); fi
-    "$PYTHON_ABS" "$REPO_ROOT/scripts/_helpers/claude_code_plugin.py" ${force[@]+"${force[@]}"} 2>/dev/null
+    "$PYTHON_ABS" "$REPO_ROOT/scripts/_helpers/claude_code_plugin.py" --profile "$1" \
+        ${force[@]+"${force[@]}"} 2>/dev/null
 }
 
 # Reserve a unique backup before any client configuration update.
@@ -288,6 +290,7 @@ inject_mcp_config() {
 
     CLAUDE_CONFIG_PATH="$config_path" \
     MCP_CLIENT="$client" \
+    MCP_FORCE_CLAUDE_CODE="${FORCE_CLAUDE_CODE_MCP:-false}" \
     MCP_PYTHON="$PYTHON_ABS" \
     MCP_SERVER="$SERVER_ABS" \
     MCP_IS_NIXOS="$IS_NIXOS" \
@@ -323,6 +326,13 @@ if sys.platform == 'darwin' and marker.exists():
         if client == 'desktop':
             changes.append(migration.prepare('claude-deny-desktop'))
         migration.apply(changes)
+    if client == 'claude':
+        # A forced Claude Code entry beside the agents-core plugin stays forced in the
+        # service's upkeep for this profile (#367).
+        from src.claude_plugin import force_requested, profile_for_config
+        if os.environ.get('MCP_FORCE_CLAUDE_CODE') == 'true' or force_requested():
+            from src.daemon.registrations import remember_force
+            remember_force(directory, [profile_for_config(destination)])
     print('OK: shared daemon')
     sys.exit(0)
 
@@ -833,7 +843,7 @@ else
 
             # 1. MCP server in the selected profile's user-scope registry, unless the
             #    agents-core plugin serves Claude Code already (#367).
-            if CLAUDE_CODE_PLUGIN_REASON="$(claude_code_plugin_skip)"; then
+            if CLAUDE_CODE_PLUGIN_REASON="$(claude_code_plugin_skip "$CLAUDE_CODE_DIR")"; then
                 print_step "Skipping the Claude Code MCP entry: $CLAUDE_CODE_PLUGIN_REASON"
                 CLAUDE_CODE_PLUGIN=true
             else

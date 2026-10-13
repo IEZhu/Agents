@@ -354,7 +354,9 @@ const LANDING_OVERVIEW = {
   registrations: { auto: true, updated_at: "2026-10-11T08:30:00+00:00", clients: {
     claude: { status: "upgraded", files: ["/home/u/.claude.json"], backup: "/state/backups/1" },
     codex: { status: "skipped", files: [], reason: "/home/u/repo/.codex/config.toml: its Agents-Core entry was not written by this installation" },
-    cursor: { status: "current", files: [] } } },
+    cursor: { status: "current", files: [] } },
+    warnings: [{ warning: "duplicate_claude_code_server", profile: "/home/u/.claude",
+                 message: "Claude Code (/home/u/.claude) has the Agents-Core server of the agents-core@x plugin and also Agents-Core entries in: user (/home/u/.claude.json)." }] },
 };
 const landingDay = (offset, answers) => ({ date: new Date(Date.now() - offset * 86400000).toISOString().slice(0, 10), answers });
 const landingEvent = (number, app, agent, action, repository) => ({

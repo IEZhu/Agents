@@ -17,9 +17,14 @@ PLUGIN_ID = "agents-core@claude-plugins-official"
 
 
 @pytest.fixture(autouse=True)
-def no_overrides(monkeypatch):
+def no_overrides(monkeypatch, tmp_path):
     for name in ("CLAUDE_CONFIG_DIR", "CLAUDE_CODE_PLUGIN_CACHE_DIR", claude_plugin.FORCE_ENV):
         monkeypatch.delenv(name, raising=False)
+    # The machine's own managed settings stay out of the tests.
+    managed = tmp_path / "managed"
+    monkeypatch.setattr(claude_plugin, "MANAGED_DIRECTORIES", {"darwin": managed, "linux": managed})
+    monkeypatch.setattr(claude_plugin, "MANAGED_PREFERENCES", tmp_path / "managed-preferences")
+    return managed
 
 
 @pytest.fixture
@@ -40,6 +45,15 @@ def install_plugin(profile, *, enabled=True, scope="user", plugin_id=PLUGIN_ID, 
         {"scope": scope, "installPath": str(profile / "plugins/cache/x/agents-core/0.1.1"), "version": "0.1.1"}]}}))
     if settings:
         (profile / "settings.json").write_text(json.dumps({"enabledPlugins": {plugin_id: enabled}}))
+
+
+def load_helper():
+    import importlib.util
+    path = Path(__file__).resolve().parents[1] / "scripts/_helpers/claude_code_plugin.py"
+    spec = importlib.util.spec_from_file_location("claude_code_plugin_helper", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def http_codex():
@@ -108,6 +122,89 @@ def test_detection_never_writes_claude_codes_files(tmp_path):
     assert {path: path.read_bytes() for path in profile.rglob("*") if path.is_file()} == before
 
 
+@pytest.mark.parametrize("source", ["file", "drop-in", "server-cache", "plist", "user-plist"])
+def test_managed_settings_that_disable_the_plugin_write_the_entry(tmp_path, no_overrides, source):
+    """F2: managed false blocks the plugin, so Claude Code needs the entry."""
+    import getpass
+    import plistlib
+    install_plugin(tmp_path / ".claude")
+    disabled = {"enabledPlugins": {PLUGIN_ID: False}}
+    preferences = tmp_path / "managed-preferences"
+    if source == "file":
+        no_overrides.mkdir(); write_json(no_overrides / "managed-settings.json", disabled)
+    elif source == "drop-in":
+        (no_overrides / "managed-settings.d").mkdir(parents=True)
+        write_json(no_overrides / "managed-settings.d/50-plugins.json", disabled)
+    elif source == "server-cache":
+        write_json(tmp_path / ".claude/remote-settings.json", disabled)
+    else:
+        target = preferences / (getpass.getuser() if source == "user-plist" else "") / "com.anthropic.claudecode.plist"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(plistlib.dumps(disabled))
+    platform = "darwin" if "plist" in source else None
+    assert claude_plugin.enabled_ids(home=tmp_path, environ={}, platform=platform) == []
+    if "plist" not in source:
+        assert claude_plugin.skip_reason(home=tmp_path, environ={}) is None
+
+
+def test_managed_settings_that_leave_it_on_or_cannot_be_read(tmp_path, no_overrides):
+    install_plugin(tmp_path / ".claude")
+    no_overrides.mkdir()
+    write_json(no_overrides / "managed-settings.json", {"enabledPlugins": {PLUGIN_ID: True}})
+    assert claude_plugin.skip_reason(home=tmp_path, environ={})
+    (no_overrides / "managed-settings.json").write_text("{broken")
+    assert claude_plugin.skip_reason(home=tmp_path, environ={}) is None
+
+
+@pytest.mark.parametrize("layer", ["settings.json", "settings.local.json"])
+def test_a_known_project_that_disables_the_plugin_writes_the_entry(tmp_path, layer):
+    install_plugin(tmp_path / ".claude")
+    project = tmp_path / "repo"; (project / ".claude").mkdir(parents=True)
+    write_json(project / ".claude" / layer, {"enabledPlugins": {PLUGIN_ID: False}})
+    assert claude_plugin.skip_reason(home=tmp_path, environ={})
+    assert claude_plugin.skip_reason(home=tmp_path, environ={}, workspaces=[project]) is None
+
+
+def test_windows_never_skips(tmp_path, monkeypatch):
+    """F2: the plugin's start-server.sh does not run on Windows."""
+    helper = load_helper()
+    install_plugin(tmp_path / ".claude")
+    assert claude_plugin.skip_reason(home=tmp_path, environ={})
+    monkeypatch.setattr(claude_plugin.os, "name", "nt")
+    assert claude_plugin.skip_reason(home=tmp_path, environ={}) is None
+    assert helper.main(["--profile", str(tmp_path / ".claude")]) == 1
+
+
+def test_the_helper_checks_the_profile_it_is_given(tmp_path, capsys):
+    helper = load_helper()
+    profile = tmp_path / "work"
+    install_plugin(profile)
+    assert helper.main(["--profile", str(profile)]) == 0 and PLUGIN_ID in capsys.readouterr().out
+    assert helper.main(["--profile", str(profile), "--force-claude-code-mcp"]) == 1
+    assert helper.main(["--profile", str(tmp_path / "empty")]) == 1
+
+
+def test_the_settings_env_block_is_followed(tmp_path):
+    """F7: CLAUDE_CODE_PLUGIN_CACHE_DIR and CLAUDE_CONFIG_DIR in the user settings' env block."""
+    profile = tmp_path / ".claude"
+    install_plugin(profile)
+    cache = tmp_path / "plugin-cache"
+    (profile / "plugins").rename(cache)
+    assert claude_plugin.skip_reason(home=tmp_path, environ={}) is None
+    write_json(profile / "settings.json", {"env": {"CLAUDE_CODE_PLUGIN_CACHE_DIR": str(cache)}})
+    assert claude_plugin.skip_reason(home=tmp_path, environ={})
+    # Two different roots: uncertain, so the entry is written.
+    assert claude_plugin.skip_reason(home=tmp_path, environ={"CLAUDE_CODE_PLUGIN_CACHE_DIR": str(tmp_path)}) is None
+    write_json(profile / "settings.json", {"env": {"CLAUDE_CODE_PLUGIN_CACHE_DIR": str(cache),
+                                                   "CLAUDE_CONFIG_DIR": str(tmp_path / "elsewhere")}})
+    assert claude_plugin.skip_reason(home=tmp_path, environ={}) is None
+
+
+def test_the_profile_of_a_claude_json(tmp_path):
+    assert claude_plugin.profile_for_config(tmp_path / ".claude.json", home=tmp_path) == tmp_path / ".claude"
+    assert claude_plugin.profile_for_config(tmp_path / "w/.claude.json", home=tmp_path) == tmp_path / "w"
+
+
 # --- migrate -----------------------------------------------------------------------------------
 
 def test_migrate_writes_no_claude_code_entry_beside_the_plugin(setup, capsys):
@@ -126,7 +223,8 @@ def test_migrate_writes_no_claude_code_entry_beside_the_plugin(setup, capsys):
     assert "Agents-Core" in json.loads((home / ".cursor/mcp.json").read_text())["mcpServers"]
 
 
-def test_migrate_of_claude_code_alone_changes_nothing_beside_the_plugin(setup, tmp_path, capsys):
+def test_migrate_still_writes_the_shared_project_file_beside_the_plugin(setup, tmp_path, capsys):
+    """F4: a project's .mcp.json is shared with collaborators, who may not have the plugin."""
     from src.daemon.control import main
     state, home = setup
     install_plugin(home / ".claude")
@@ -136,9 +234,32 @@ def test_migrate_of_claude_code_alone_changes_nothing_beside_the_plugin(setup, t
     assert main(["--state", str(state), "migrate", "--clients", "claude", "--workspace", str(workspace)]) == 0
 
     result = json.loads(capsys.readouterr().out)
-    assert result["files"] == [] and "backup" not in result and result["claude_code"].startswith("skipped")
+    assert result["files"] == [str(workspace / ".mcp.json")] and result["claude_code"].startswith("skipped")
     assert not (home / ".claude.json").exists()
-    assert json.loads((workspace / ".mcp.json").read_text()) == {"mcpServers": {}}
+    assert "Agents-Core" in json.loads((workspace / ".mcp.json").read_text())["mcpServers"]
+
+
+def test_migrate_checks_the_profile_it_writes(setup, tmp_path, capsys):
+    """F1: the plugin in profile A does not stop migrate of profile B, and the reverse."""
+    from src.daemon.control import main
+    state, home = setup
+    install_plugin(home / ".claude")
+    other = tmp_path / "claude-work"; other.mkdir()
+
+    assert main(["--state", str(state), "migrate", "--clients", "claude",
+                 "--client-config", f"claude={other / '.claude.json'}"]) == 0
+
+    result = json.loads(capsys.readouterr().out)
+    assert "claude_code" not in result and result["files"] == [str(other / ".claude.json")]
+    assert "Agents-Core" in json.loads((other / ".claude.json").read_text())["mcpServers"]
+
+    install_plugin(other)
+    (home / ".claude/plugins/installed_plugins.json").unlink()
+    assert main(["--state", str(state), "migrate", "--clients", "claude",
+                 "--client-config", f"claude={other / '.claude.json'}"]) == 0
+    assert json.loads(capsys.readouterr().out)["claude_code"].startswith("skipped")
+    assert main(["--state", str(state), "migrate", "--clients", "claude"]) == 0
+    assert json.loads(capsys.readouterr().out)["files"] == [str(home / ".claude.json")]
 
 
 @pytest.mark.parametrize("plugin", ["absent", "disabled", "forced"])
@@ -186,6 +307,73 @@ def test_the_upkeep_is_unchanged_without_the_plugin_or_when_forced(setup, monkey
     assert registrations.upgrade(state, home)["claude"]["status"] == "upgraded"
 
 
+def bearer_entry():
+    return {"mcpServers": {"Agents-Core": {"type": "http", "url": URL, "headers": {"Authorization": "Bearer " + TOKEN}}}}
+
+
+def test_the_upkeep_decides_per_recorded_profile(setup, tmp_path):
+    """F1: the plugin in the default profile leaves a recorded second profile to the upkeep."""
+    state, home = setup
+    install_plugin(home / ".claude")
+    write_json(home / ".claude.json", bearer_entry())
+    other = tmp_path / "claude-work" / ".claude.json"; other.parent.mkdir()
+    write_json(other, bearer_entry())
+    write_json(state / "client-configs.json",
+               {"version": 1, "configs": [{"client": "claude", "path": str(other), "workspace": None}]})
+
+    report = registrations.upgrade(state, home)["claude"]
+
+    assert report["status"] == "upgraded" and report["files"] == [str(other)]
+    assert report["plugin"][0]["path"] == str(home / ".claude.json")
+    assert json.loads((home / ".claude.json").read_text()) == bearer_entry()
+    assert json.loads(other.read_text()) != bearer_entry()
+
+
+def test_a_project_that_disables_the_plugin_keeps_the_user_entry_current(setup, tmp_path):
+    """F2: a registered project's local settings turn the plugin off there, so the entry stays."""
+    state, home = setup
+    install_plugin(home / ".claude")
+    write_json(home / ".claude.json", bearer_entry())
+    root = tmp_path / "repo"; (root / ".claude").mkdir(parents=True)
+    WorkspaceRegistry(state).register(root)
+    write_json(root / ".claude/settings.local.json", {"enabledPlugins": {PLUGIN_ID: False}})
+
+    assert registrations.upgrade(state, home)["claude"]["status"] == "upgraded"
+
+
+def test_a_forced_profile_stays_forced_in_the_upkeep(setup, capsys):
+    """F3: --force-claude-code-mcp of migrate is kept per profile and honoured by the upkeep."""
+    from src.daemon.control import main
+    state, home = setup
+    install_plugin(home / ".claude")
+
+    assert main(["--state", str(state), "migrate", "--clients", "claude", "--force-claude-code-mcp"]) == 0
+    assert str(home / ".claude.json") in json.loads(capsys.readouterr().out)["files"]
+    assert registrations.forced_profiles(state) == {str(home / ".claude")}
+
+    write_json(home / ".claude.json", bearer_entry())  # an older transport, as after a change of port or token
+    assert registrations.upgrade(state, home)["claude"]["status"] == "upgraded"
+    assert main(["--state", str(state), "migrate", "--clients", "claude"]) == 0
+    assert "claude_code" not in json.loads(capsys.readouterr().out)
+
+
+def test_registrations_run_takes_the_force_flag(setup, capsys):
+    """F3, F6: `registrations run --force-claude-code-mcp` parses, upgrades and keeps the choice."""
+    from src.daemon.control import main
+    state, home = setup
+    install_plugin(home / ".claude")
+    write_json(home / ".claude.json", bearer_entry())
+
+    main(["--state", str(state), "registrations", "run"])
+    assert json.loads(capsys.readouterr().out)["clients"]["claude"]["status"] == "skipped"
+    main(["--state", str(state), "registrations", "run", "--force-claude-code-mcp"])
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["clients"]["claude"]["status"] == "upgraded"
+    assert result["claude_code_forced"] == [str(home / ".claude")]
+    assert claude_plugin.FORCE_ENV not in __import__("os").environ
+
+
 # --- the duplicate warning in `registrations status` -------------------------------------------
 
 def status(state, capsys):
@@ -225,3 +413,30 @@ def test_status_does_not_warn_with_a_single_registration(setup, capsys, single):
         write_json(home / ".claude.json", {"mcpServers": {"Agents-Core": {"command": "python", "args": ["s.py"]}}})
 
     assert "warnings" not in status(state, capsys)
+
+
+def test_each_recorded_profile_is_warned_about(setup, tmp_path, capsys):
+    """F5: the warning covers every recorded Claude Code profile."""
+    state, home = setup
+    other = tmp_path / "claude-work"; other.mkdir()
+    install_plugin(other)
+    write_json(other / ".claude.json", {"mcpServers": {"Agents-Core": {"command": "python", "args": ["s.py"]}}})
+    write_json(state / "client-configs.json", {"version": 1, "configs": [
+        {"client": "claude", "path": str(other / ".claude.json"), "workspace": None}]})
+
+    warnings = status(state, capsys)["warnings"]
+
+    assert [warning["profile"] for warning in warnings] == [str(other)]
+
+
+def test_the_web_ui_overview_carries_the_warning(setup):
+    """F5: the state the web UI reads (renderRegistrations) holds the warnings."""
+    from src.daemon import overview
+    state, home = setup
+    install_plugin(home / ".claude")
+    write_json(home / ".claude.json", {"mcpServers": {"Agents-Core": {"command": "python", "args": ["s.py"]}}})
+
+    report = overview.registration_report(state, home)
+
+    assert report["warnings"][0]["warning"] == "duplicate_claude_code_server"
+    assert "claude mcp remove Agents-Core --scope user" in report["warnings"][0]["message"]

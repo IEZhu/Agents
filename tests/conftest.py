@@ -52,6 +52,8 @@ CLIENT_CONFIG_OVERRIDES = (
     "AGENTS_CURSOR_MCP_CONFIG",
     "AGENTS_CLAUDE_DESKTOP_CONFIG",
     "AGENTS_ANTIGRAVITY_MCP_CONFIG",
+    # Read by src/claude_plugin.py: the Claude Code plugins root (#367).
+    "CLAUDE_CODE_PLUGIN_CACHE_DIR",
 )
 
 

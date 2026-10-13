@@ -97,13 +97,18 @@ def configured_apps(directory: Path, home: Path | None = None) -> dict:
     return {app: {"configured": bool(scopes), "scopes": sorted(scopes)} for app, scopes in found.items()}
 
 
-def registration_report(directory: Path) -> dict:
+def registration_report(directory: Path, home: Path | None = None) -> dict:
     """The last time the service brought the client registrations it wrote up to date (#292)."""
-    from .registrations import state
+    from .registrations import duplicate_warnings, state
     try:
-        return state(directory)
+        report = state(directory)
     except (OSError, ValueError):
-        return {"auto": True}
+        report = {"auto": True}
+    # A Claude Code profile with the agents-core plugin and another Agents-Core entry (#367).
+    warnings = duplicate_warnings(directory, home)
+    if warnings:
+        report["warnings"] = warnings
+    return report
 
 
 def counts() -> dict:
@@ -172,4 +177,4 @@ class Overview:
             sizes = self._sizes[1]
         return {"version": agents_core_version(), "repository": repository(), "counts": counts(),
                 "apps": configured_apps(self.service.directory, self.home),
-                "registrations": registration_report(self.service.directory), **sizes}
+                "registrations": registration_report(self.service.directory, self.home), **sizes}
