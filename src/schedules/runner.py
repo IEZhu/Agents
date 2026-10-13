@@ -37,9 +37,10 @@ from src import executables
 from src.daemon.state import private_dir, read_json, write_json
 
 from . import config as autodev_config
-from . import decoys, drift, heavy, launchagent, lease, probes, records, repos, sandbox, socket_service
+from . import decoys, drift, heavy, launchagent, lease, probes, records, repos, sandbox, scan, socket_service
 from .gate import gate
-from .github import GitHubClient, GitHubError, NetworkError, TokenUnavailable, fetch_snapshot, token_provider
+from .github import (GitHubClient, GitHubError, NetworkError, TokenUnavailable, fetch_snapshot, keychain_token,
+                     token_provider)
 from .heavy import HEAVY, heavy_processes  # noqa: F401 (HEAVY: moved to heavy, still importable here)
 from .supervise import SupervisorStopped, run_supervised
 from .tick import decide, iso, local_now, next_slot
@@ -69,7 +70,8 @@ class Context:
     tool_search: str | None = None
     # The sandbox probe (#343): the claude executable (default: tools.json, then PATH), the home
     # directory the decoys go into, the platform, the session directories (`ProbeSession`), the
-    # runner of `claude auth status`, `security` and `launchctl list`, and the managed-settings check.
+    # runner of `claude auth status`, `security` and `launchctl list`, the managed-settings check,
+    # where the run's short temporary root goes, and the runner's own name resolution.
     claude: str | None = None
     home: Path = field(default_factory=Path.home)
     platform: str = sys.platform
@@ -78,6 +80,8 @@ class Context:
     managed_sources: Callable[[], list] = sandbox.managed_sources
     socket_root: Path | None = None
     probe_timeout: float = probes.PROBE_TIMEOUT
+    temp_base: Path = sandbox.TMP_BASE
+    resolver: Callable[[str], bool] = probes.resolves
 
     @property
     def schedules(self) -> Path:
@@ -404,15 +408,19 @@ def claude_executable(ctx: Context) -> str | None:
     return os.path.realpath(found) if found else None
 
 
-def probe_targets(ctx: Context, config: dict, mode: str) -> probes.Targets:
+def probe_targets(ctx: Context, config: dict, mode: str, config_dir: Path | None = None) -> probes.Targets:
     """What the probes must find closed: the runner's records, the installation, ``autodev.json``,
-    the scheduler plist, the trusted repository, the daemon's port and the real keychain items."""
+    the scheduler plist, the trusted repository, the daemon's port and the real keychain items
+    (the broker's, gh's, Claude Code's default one, the one Claude Code names after the session's
+    configuration directory, and the OAuth item of the keychain login mode)."""
     try:
         service = read_json(ctx.directory / "service.json", {})
     except (OSError, ValueError):
         service = {}
     port = service.get("port") if isinstance(service, dict) else None
     items = [str(config["github"]["token"]).removeprefix("keychain:"), *probes.REAL_KEYCHAIN_ITEMS[1:]]
+    if config_dir is not None:
+        items.append(sandbox.claude_keychain_item(config_dir))
     if mode.startswith(sandbox.KEYCHAIN_PREFIX):
         items.append(mode.removeprefix(sandbox.KEYCHAIN_PREFIX))
     return probes.Targets(
@@ -423,6 +431,34 @@ def probe_targets(ctx: Context, config: dict, mode: str) -> probes.Targets:
         daemon_port=port if isinstance(port, int) and not isinstance(port, bool) and 0 < port < 65536 else None,
         keychain_items=tuple(dict.fromkeys(items)),
         extra_sockets=(probes.DOCKER_SOCKET,) if probes.DOCKER_SOCKET.exists() else ())
+
+
+def _home_path(value: str, home: Path) -> Path:
+    """A configured ``~/`` path against the context's home directory (never the process's)."""
+    text = str(value)
+    return home / text[2:] if text.startswith("~/") else Path(text)
+
+
+def broker_secrets(ctx: Context, config: dict) -> list[scan.KnownSecret]:
+    """The broker's token and deploy key as known secrets of the probe scan, when they exist (a
+    dry run may have neither); they are read in memory only and never written or printed."""
+    found = []
+    service = str(config["github"]["token"]).removeprefix("keychain:")
+    try:
+        token = keychain_token(service, runner=ctx.command_runner)
+    except TokenUnavailable:
+        token = None
+    if token and len(token) >= scan.KNOWN_MIN_LENGTH:
+        found.append(scan.KnownSecret("broker token", token))
+    key = _home_path(config["github"]["deploy_key"], ctx.home)
+    try:
+        if not os.path.islink(key) and key.is_file() and key.stat().st_size <= 64 * 1024:
+            text = key.read_bytes().decode("latin-1").strip()
+            if len(text) >= scan.KNOWN_MIN_LENGTH:
+                found.append(scan.KnownSecret("deploy key", text))
+    except OSError:
+        pass
+    return found
 
 
 def probe(ctx: Context, mode: str, kind: str, confirmed: bool) -> tuple[int, dict]:
@@ -455,12 +491,16 @@ def _probe(ctx: Context, config: dict, run_id: str, mode: str, kind: str, marker
     claude = claude_executable(ctx)
     if not claude:
         return infra("cli: the claude executable was not found (tools.json, PATH)")
+    known: list[scan.KnownSecret] = []
     try:
         login = sandbox.login_mode(config)
         oauth = None
         if login != sandbox.LOGIN_CONFIG_DIR:
             oauth = sandbox.keychain_secret(login.removeprefix(sandbox.KEYCHAIN_PREFIX), runner=ctx.command_runner)
             markers.append(oauth)
+            known.append(scan.KnownSecret("oauth token", oauth))
+        known += broker_secrets(ctx, config)
+        markers.extend(secret.value for secret in known if isinstance(secret.value, str))
         path = run_environment(ctx)["PATH"]
         config_dir = sandbox.config_dir(ctx.directory)
         sandbox.require_login(claude, config_dir, path=path, home=ctx.home, oauth_token=oauth,
@@ -477,11 +517,14 @@ def _probe(ctx: Context, config: dict, run_id: str, mode: str, kind: str, marker
         return infra(f"network: {error}")
     except (repos.RepositoryError, ValueError, OSError) as error:
         return infra(f"cli: probe session: {type(error).__name__}: {error}")
+    temp_root = None
     try:
         layout = session.layout
         has_bash = "Bash" in sandbox.tools_for(kind)
         run_dir = records.run_dir(run_id, ctx.directory)
-        with _maybe_serve(has_bash, run_dir, [layout["repository"], layout["exchange"]], ctx.socket_root) as endpoint:
+        temp_root = sandbox.make_temp_root(ctx.temp_base)
+        writable = [layout["repository"], layout["exchange"], temp_root]
+        with _maybe_serve(has_bash, run_dir, writable, ctx.socket_root) as endpoint:
             interpreters = [socket_service.client_interpreter()]
             if (base := sandbox.venv_base_interpreter(session.venv)) is not None:
                 interpreters.append(str(base))
@@ -492,21 +535,26 @@ def _probe(ctx: Context, config: dict, run_id: str, mode: str, kind: str, marker
                 home=ctx.home, repository=Path(layout["repository"]), exchange=Path(layout["exchange"]),
                 state_copy=Path(layout["state_copy"]), venv=session.venv, config_dir=config_dir,
                 gh_config=Path(layout["gh_config"]), settings_file=Path(layout["settings_file"]),
+                tmp_root=temp_root, state_dir=Path(ctx.directory),
                 socket=endpoint.socket if endpoint is not None else None, read_roots=roots)
             settings = stage.get("claude") or {}
             spec = sandbox.build(claude, kind, paths, path=path, mode=login, oauth_token=oauth,
                                  model=settings.get("model"), effort=settings.get("effort"),
                                  run_variables={"AUTODEV_RUN_ID": run_id})
-            report = probes.guard(spec, directory=ctx.directory, targets=probe_targets(ctx, config, login),
-                                  persistent=planted, mode=mode, run_id=run_id, force_session=True,
+            report = probes.guard(spec, directory=ctx.directory,
+                                  targets=probe_targets(ctx, config, login, config_dir),
+                                  persistent=planted, mode=mode, run_id=run_id, known=known, force_session=True,
                                   platform=ctx.platform, timeout=ctx.probe_timeout, socket_root=ctx.socket_root,
-                                  command_runner=ctx.command_runner, managed=ctx.managed_sources)
+                                  command_runner=ctx.command_runner, managed=ctx.managed_sources,
+                                  allowed_plugins=config["sandbox"]["allowed_plugins"], resolver=ctx.resolver)
     except (sandbox.SandboxError, socket_service.UnsafeSocketDirectory) as error:
         return {"status": "refused", "reason": f"sandbox: {error}"}
     except (ValueError, OSError) as error:
         return infra(f"cli: probe session: {type(error).__name__}: {error}")
     finally:
         session.cleanup()
+        if temp_root is not None:
+            sandbox.remove_temp_root(temp_root, ctx.temp_base)
     result = {"status": "completed" if report.ok else "refused", "probes": [report.to_record()]}
     if not report.ok:
         result["reason"] = "sandbox probes failed" + (" and the decoy tripwire turned the schedule off"

@@ -70,10 +70,12 @@ MEMORY_INDEX_ENTRIES = (
     "- [Agents-Core routing is mandatory](feedback_agents_core_routing.md) — always call route_and_load() before any response, no exceptions",
 )
 KEYCHAIN_SERVICE = "agents-autodev-github"  # src/schedules/github.py
-# src/schedules/decoys.py: the decoy directory, the line every decoy file holds, the keychain item.
-DECOY_DIR = ".agents-autodev-decoys"
-DECOY_LINE = b"agents-autodev decoy: not a credential, never used"
-DECOY_KEYCHAIN = ("agents-autodev-decoy", "autodev-decoy")
+# src/schedules/decoys.py: decoy names are random per installation and only in its registry; these
+# are their shapes, and a decoy file must still hold the marker the registry records for it.
+DECOY_DIR_NAME = re.compile(r"\.(?:config|cache|local|tokens)-[0-9a-f]{8}")
+DECOY_KEYCHAIN_SERVICE = re.compile(r"(?:api-token|cli-credentials|service-token)-[0-9a-f]{12}")
+DECOY_KEYCHAIN_ACCOUNT = re.compile(r"user-[0-9a-f]{8}")
+DECOY_MARKER = re.compile(r"[A-Za-z0-9]{48,}")
 # Labels and task names with the installation's 16-hex id (src/daemon/state.py, src/user_sync/schedule.py);
 # names derived from a state directory that is not named so are added from the inventory (state_dirs).
 LAUNCH_AGENT = re.compile(r"^local\.agents-core\.[0-9a-f]{16}(?:\.updater|\.sync|\.scheduler)?\.plist$")
@@ -991,54 +993,75 @@ def _mentions_us(path: Path) -> bool:
         begin in content for begin, _ in MARKERS)
 
 
-def _is_decoy(path: Path) -> bool:
-    """A small regular file holding the decoy line (src/schedules/decoys.py), never a link."""
+def _is_decoy(path: Path, marker: str) -> bool:
+    """A small regular file, never a link, that holds its registered decoy marker."""
     try:
         status = os.lstat(path)
-        return stat.S_ISREG(status.st_mode) and status.st_size < 4096 and DECOY_LINE in path.read_bytes()
+        return stat.S_ISREG(status.st_mode) and status.st_size < 4096 and marker.encode() in path.read_bytes()
     except OSError:
         return False
 
 
+def _decoy_registries(states: Sequence[Path]) -> list[dict]:
+    return [registry for registry in (_read_json(state / "schedules/decoys.json") for state in states)
+            if isinstance(registry, dict)]
+
+
 def decoy_items(ctx: Context, states: Sequence[Path]) -> list[Item]:
-    """The autodev sandbox decoys: the files each state's ``schedules/decoys.json`` registers (only
-    regular files in the home directory that hold the decoy line), the decoy directory, and the
-    decoy keychain item. They are fake secrets, so they go with the data, not the credentials."""
+    """The autodev sandbox decoys each state's ``schedules/decoys.json`` registers: the random
+    decoy directory directly in the home directory, the files outside it that still hold their
+    registered marker, and the opt-in decoy keychain item. They are fake secrets, so they go with
+    the data, not the credentials."""
     items: list[Item] = []
     source = "src/schedules/decoys.py ensure (autodev sandbox decoys)"
-    directory = ctx.home / DECOY_DIR
-    listed: set[str] = set()
-    keychain = False
-    for state in states:
-        registry = _read_json(state / "schedules/decoys.json")
-        if not isinstance(registry, dict):
+    registries = _decoy_registries(states)
+    directories: list[Path] = []
+    for registry in registries:
+        value = registry.get("directory")
+        if not isinstance(value, str) or not os.path.isabs(value):
             continue
-        keychain = keychain or isinstance(registry.get("keychain"), dict)
+        directory = Path(value)
+        if DECOY_DIR_NAME.fullmatch(directory.name) and _real(directory.parent) == _real(ctx.home) \
+                and not _is_link(directory) and directory.is_dir() and directory not in directories:
+            directories.append(directory)
+    listed: set[str] = set()
+    keychains: list[tuple[str, str]] = []
+    for registry in registries:
+        item = registry.get("keychain")
+        if isinstance(item, dict) and isinstance(item.get("service"), str) and isinstance(item.get("account"), str) \
+                and DECOY_KEYCHAIN_SERVICE.fullmatch(item["service"]) and DECOY_KEYCHAIN_ACCOUNT.fullmatch(item["account"]):
+            if (item["service"], item["account"]) not in keychains:
+                keychains.append((item["service"], item["account"]))
         for entry in registry.get("files") if isinstance(registry.get("files"), list) else []:
             value = entry.get("path") if isinstance(entry, dict) else None
-            if not isinstance(value, str) or not os.path.isabs(value):
+            marker = entry.get("marker") if isinstance(entry, dict) else None
+            if not isinstance(value, str) or not os.path.isabs(value) or not isinstance(marker, str) \
+                    or not DECOY_MARKER.fullmatch(marker):
                 continue
             path = Path(value)
-            if _real(path) in listed or _within(path, [directory]) or not _within(path, [ctx.home]) \
-                    or not _is_decoy(path):
+            if _real(path) in listed or _within(path, directories) or not _within(path, [ctx.home]) \
+                    or not _is_decoy(path, marker):
                 continue
             listed.add(_real(path))
             items.append(Item("data", str(path), "remove", source, "an autodev sandbox decoy (a fake secret)",
                               lambda path=path: remove_path(ctx, path)))
-    if directory.is_dir() or _is_link(directory):
+    for directory in directories:
         items.append(Item("data", str(directory), "remove", source, "the autodev sandbox decoys (fake secrets)",
-                          lambda: remove_path(ctx, directory)))
-    if ctx.platform == "darwin" and keychain:  # only a registry that recorded the opt-in item names it
-        service, account = DECOY_KEYCHAIN
+                          lambda directory=directory: remove_path(ctx, directory)))
+    if ctx.platform != "darwin":
+        return items
+    for service, account in keychains:  # only a registry that recorded the opt-in item names it
         found = ctx.runner(["/usr/bin/security", "find-generic-password", "-s", service, "-a", account])
-        if found.returncode == 0:
-            def unkey():
-                result = ctx.runner(["/usr/bin/security", "delete-generic-password", "-s", service, "-a", account])
-                if result.returncode:
-                    raise RuntimeError(f"security delete-generic-password exited {result.returncode}")
-                return "removed"
-            items.append(Item("data", f"keychain item {service}", "remove", source,
-                              "the opt-in decoy keychain item (a fake secret)", unkey))
+        if found.returncode != 0:
+            continue
+
+        def unkey(service=service, account=account):
+            result = ctx.runner(["/usr/bin/security", "delete-generic-password", "-s", service, "-a", account])
+            if result.returncode:
+                raise RuntimeError(f"security delete-generic-password exited {result.returncode}")
+            return "removed"
+        items.append(Item("data", f"keychain item {service}", "remove", source,
+                          "the opt-in decoy keychain item (a fake secret)", unkey))
     return items
 
 

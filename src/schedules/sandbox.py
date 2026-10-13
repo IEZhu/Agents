@@ -18,11 +18,14 @@ effect with a probe session that has exactly this argv, settings and environment
   copy and virtual environment (they also become the sandbox's ``allowWrite`` and ``denyWrite``);
   ``sandbox.enabled``, ``failIfUnavailable``, ``autoAllowBashIfSandboxed`` and
   ``allowUnsandboxedCommands: false``; ``filesystem.disabled: false``, ``denyRead`` of ``~/``,
-  ``~/Library/Keychains``, the owner's per-user temporary directory, ``/private/tmp/claude-<uid>``
-  and the session's ``CLAUDE_CONFIG_DIR``; ``allowRead`` of the one-off repository, the virtual
-  environment, the exchange directory, the state copy and the runtime read roots (the thin
-  clients, the runner socket and the interpreters they need); ``allowWrite`` of the one-off
-  repository and the exchange directory only; ``network.allowedDomains: []``,
+  ``~/Library/Keychains``, the owner's per-user temporary directory, ``/private/tmp/claude-<uid>``,
+  ``/private/tmp/claude``, the autodev state directory and the session's ``CLAUDE_CONFIG_DIR``;
+  ``denyWrite`` of the three shared temporary roots (it only tightens); ``allowRead`` of the
+  one-off repository, the virtual environment, the exchange directory, the state copy, the run's
+  temporary root and the runtime read roots (the thin clients, the runner socket and the
+  interpreters they need; none may equal or contain the home directory, ``~/.ssh``,
+  ``~/Library`` or a ``denyRead`` entry); ``allowWrite`` of the one-off repository, the exchange
+  directory and the temporary root only; ``network.allowedDomains: []``,
   ``strictAllowlist: true`` and ``allowUnixSockets`` of the runner socket only;
   ``credentials.envVars`` denying ``CLAUDE_CODE_OAUTH_TOKEN`` to Bash; and
   ``disableClaudeAiConnectors``. Every key was checked against code.claude.com (settings
@@ -31,10 +34,11 @@ effect with a probe session that has exactly this argv, settings and environment
   undocumented.
 * **Environment** (`environment`): an allowlist, never the runner's own environment
   (`src.schedules.runner.run_environment` copies the owner's ``TMPDIR``): ``PATH``, ``HOME``,
-  ``LANG``, ``CLAUDE_CONFIG_DIR``, ``CLAUDE_CODE_TMPDIR`` and ``TMPDIR`` (``<exchange>/tmp``; the
-  sandbox gives Bash ``$CLAUDE_CODE_TMPDIR/claude-<uid>``), ``GH_CONFIG_DIR`` (an empty
-  directory), ``ENABLE_CLAUDEAI_MCP_SERVERS=false``, ``DISABLE_AUTOUPDATER=1`` and the run's
-  ``AUTODEV_*`` variables. No name may contain ``TOKEN``, ``KEY``, ``SECRET`` or ``PASSWORD``
+  ``LANG``, ``CLAUDE_CONFIG_DIR``, ``CLAUDE_CODE_TMPDIR`` and ``TMPDIR`` (the run's short temporary
+  root, `make_temp_root`: ``/private/tmp/ad-<8 hex>``, so that the sandbox gives Bash
+  ``$CLAUDE_CODE_TMPDIR/claude-<uid>`` and not its fallback ``/tmp/claude-<uid>``, which a long
+  override gets), ``GH_CONFIG_DIR`` (an empty directory), ``ENABLE_CLAUDEAI_MCP_SERVERS=false``,
+  ``DISABLE_AUTOUPDATER=1`` and the run's ``AUTODEV_*`` variables. No name may contain ``TOKEN``, ``KEY``, ``SECRET`` or ``PASSWORD``
   except ``CLAUDE_CODE_OAUTH_TOKEN`` in the ``keychain:<service>`` login mode, and every value
   passes the outgoing-text scan.
 * **Login** (`config_dir`, `require_login`): ``CLAUDE_CONFIG_DIR`` is a persistent runner-owned
@@ -43,6 +47,9 @@ effect with a probe session that has exactly this argv, settings and environment
   command to run otherwise. The login mode ``keychain:<service>`` (``autodev.json``
   ``sandbox.login``) instead passes the token of that keychain item as
   ``CLAUDE_CODE_OAUTH_TOKEN``; the runner reads it and keeps it in memory only.
+
+* **The executable** (`executable_identity`): the spec binds the resolved path and SHA-256 of the
+  ``claude`` executable, so an upgrade between the probe and the session changes the digest.
 
 Nothing here starts a model; `src.schedules.probes.start_session` starts a stage session only
 after its probes passed.
@@ -56,6 +63,8 @@ import json
 import os
 from pathlib import Path
 import re
+import secrets
+import shutil
 import stat
 import subprocess
 import tempfile
@@ -89,6 +98,14 @@ UNSAFE_PATH = re.compile(r"[*?\[\]{}\x00-\x1f\x7f]")
 SETTINGS_MAX_BYTES = 2 * 1024 * 1024  # the --settings file limit (claude --help, docs)
 AUTH_TIMEOUT = 30
 AUTH_OUTPUT_LIMIT = 64 * 1024
+# The run's temporary root (CLAUDE_CODE_TMPDIR): short, because the CLI gives sandboxed Bash a
+# fallback /tmp/claude-<uid> when "<override>/claude-<uid>" is long (env-vars docs; the review of
+# 2.1.294 found the threshold at 44 bytes), and that fallback is the owner's shared temp root.
+TMP_BASE = Path("/private/tmp")
+TMP_PREFIX = "ad-"
+TMP_NAME = re.compile(r"ad-[0-9a-f]{8}")
+TMP_PATH_LIMIT = 40  # bytes of "<temporary root>/claude-<uid>"
+CLAUDE_SHARED_TEMP = Path("/private/tmp/claude")  # sandbox-runtime keeps it writable (review)
 # Keys that loosen the sandbox; none may appear (docs: sandboxing "Security limitations" and the
 # settings reference). The paths are under "sandbox".
 LOOSENING_KEYS = (
@@ -96,7 +113,7 @@ LOOSENING_KEYS = (
     ("enableWeakerNestedSandbox",), ("ignoreViolations",), ("ripgrep",),
     ("network", "allowAllUnixSockets"), ("network", "allowLocalBinding"), ("network", "allowMachLookup"),
     ("network", "httpProxyPort"), ("network", "socksProxyPort"), ("network", "tlsTerminate"),
-    ("network", "deniedDomains"), ("filesystem", "denyWrite"), ("filesystem", "allowManagedReadPathsOnly"),
+    ("network", "deniedDomains"), ("filesystem", "allowManagedReadPathsOnly"),
     ("credentials", "files"), ("credentials", "allowPlaintextInject"), ("credentials", "awsPairs"),
     ("credentials", "sigv4"),
 )
@@ -134,15 +151,22 @@ def claude_temp_root(uid: int | None = None) -> Path:
     return Path(f"/private/tmp/claude-{os.getuid() if uid is None else uid}")
 
 
+def bash_temp(root: Path, uid: int | None = None) -> Path:
+    """The ``$TMPDIR`` the sandbox gives Bash for ``CLAUDE_CODE_TMPDIR=root``: ``root/claude-<uid>``."""
+    return Path(root) / f"claude-{os.getuid() if uid is None else uid}"
+
+
 @dataclass(frozen=True)
 class SessionPaths:
     """Every path a session's argv, settings and environment name. All absolute.
 
-    ``repository`` (the one-off repository, the working directory) and ``exchange`` are the only
-    writable directories; ``state_copy`` and ``venv`` are read-only; ``config_dir``,
-    ``gh_config`` and ``settings_file`` are runner-owned and outside both writable directories.
-    ``read_roots`` are runtime read roots: the thin clients' directory, the runner socket and the
-    interpreters they need, which may lie in a denied region such as ``~/``.
+    ``repository`` (the one-off repository, the working directory), ``exchange`` and ``tmp_root``
+    (the run's short temporary root, `make_temp_root`) are the only writable directories;
+    ``state_copy`` and ``venv`` are read-only; ``config_dir``, ``gh_config`` and ``settings_file``
+    are runner-owned and outside the writable directories; ``state_dir`` is the autodev state
+    (records, decoy registry, daemon token), denied to reads. ``read_roots`` are runtime read
+    roots: the thin clients' directory, the runner socket and the interpreters they need, which
+    may lie in a denied region such as ``~/`` but never equal or contain a denied one.
     """
 
     home: Path
@@ -153,29 +177,38 @@ class SessionPaths:
     config_dir: Path
     gh_config: Path
     settings_file: Path
+    tmp_root: Path
+    state_dir: Path
     socket: Path | None = None
     read_roots: tuple[Path, ...] = ()
     owner_temp: Path = field(default_factory=owner_temp_dir)
     claude_temp: Path = field(default_factory=claude_temp_root)
+    claude_shared: Path = CLAUDE_SHARED_TEMP
 
     @property
     def tmp(self) -> Path:
-        """``CLAUDE_CODE_TMPDIR`` and ``TMPDIR``: Bash gets ``<tmp>/claude-<uid>``."""
-        return self.exchange / "tmp"
+        """``CLAUDE_CODE_TMPDIR`` and ``TMPDIR``: Bash gets ``<tmp>/claude-<uid>`` (`bash_temp`)."""
+        return self.tmp_root
 
     @property
-    def writable(self) -> tuple[Path, Path]:
-        return self.repository, self.exchange
+    def writable(self) -> tuple[Path, Path, Path]:
+        return self.repository, self.exchange, self.tmp_root
 
     def all_paths(self) -> dict[str, Path]:
         named = {name: getattr(self, name) for name in (
             "home", "repository", "exchange", "state_copy", "venv", "config_dir", "gh_config", "settings_file",
-            "owner_temp", "claude_temp")}
+            "tmp_root", "state_dir", "owner_temp", "claude_temp", "claude_shared")}
         if self.socket is not None:
             named["socket"] = self.socket
         for index, root in enumerate(self.read_roots):
             named[f"read_roots[{index}]"] = root
         return named
+
+    def denied(self) -> dict[str, Path]:
+        """The ``denyRead`` entries as absolute paths (``~/`` is the home directory)."""
+        return {"home": self.home, "keychains": self.home / "Library/Keychains", "owner_temp": self.owner_temp,
+                "claude_temp": self.claude_temp, "claude_shared": self.claude_shared, "state_dir": self.state_dir,
+                "config_dir": self.config_dir}
 
     def problems(self) -> list[str]:
         """Why these paths are unsafe for a session; empty when they are fine."""
@@ -188,25 +221,92 @@ class SessionPaths:
         if found:
             return found
         writable = [_real(path) for path in self.writable]
-        for name in ("state_copy", "venv", "config_dir", "gh_config", "settings_file", "home"):
+        for name in ("state_copy", "venv", "config_dir", "gh_config", "settings_file", "state_dir", "home"):
             path = _real(getattr(self, name))
             for root in writable:
                 if path == root or root in path.parents:
                     found.append(f"{name} lies inside the session-writable {root}")
-                if path in root.parents and name != "home":
+                if path in root.parents and name not in ("home", "state_dir"):
                     found.append(f"{name} contains the session-writable {root}")
         if self.socket is not None:
             socket_dir = _real(self.socket.parent)
             for root in writable:
                 if socket_dir == root or root in socket_dir.parents or socket_dir in root.parents:
                     found.append(f"the socket directory lies inside or around the session-writable {root}")
-        if _real(self.repository) == _real(self.exchange):
-            found.append("the one-off repository and the exchange directory must differ")
+        if len({_real(self.repository), _real(self.exchange), _real(self.tmp_root)}) != 3:
+            found.append("the one-off repository, the exchange directory and the temporary root must differ")
+        found += self._temp_problems() + self._read_root_problems()
+        return found
+
+    def _temp_problems(self) -> list[str]:
+        found = []
+        if len(str(bash_temp(self.tmp_root)).encode()) > TMP_PATH_LIMIT:
+            found.append(f"the temporary root is too long: {bash_temp(self.tmp_root)} exceeds {TMP_PATH_LIMIT} bytes, "
+                         "so Bash would get the shared fallback /tmp/claude-<uid>")
+        tmp = _real(self.tmp_root)
+        for name in ("owner_temp", "claude_temp", "claude_shared", "state_dir", "config_dir", "home"):
+            other = _real(getattr(self, name))
+            if tmp == other or other in tmp.parents or tmp in other.parents:
+                found.append(f"the temporary root lies inside or around {name} ({other})")
+        return found
+
+    def _read_root_problems(self) -> list[str]:
+        """A read root re-opens what it covers (the narrower rule wins), so none may equal or
+        contain the home directory, ``~/.ssh``, ``~/Library`` or a ``denyRead`` entry."""
+        protected = {**self.denied(), "ssh": self.home / ".ssh", "library": self.home / "Library"}
+        found = []
+        for index, root in enumerate(self.read_roots):
+            real = _real(root)
+            for name, path in protected.items():
+                path = _real(path)
+                if real == path or real in path.parents:
+                    found.append(f"read_roots[{index}] ({real}) equals or contains {name} ({path})")
         return found
 
 
 def _real(path: Path) -> Path:
     return Path(os.path.realpath(path))
+
+
+def make_temp_root(base: Path = TMP_BASE) -> Path:
+    """Create the run's temporary root ``<base>/ad-<8 hex>`` (0700, a real directory of this
+    user, never an existing one); `remove_temp_root` deletes it after the run."""
+    for _ in range(16):
+        path = Path(base) / f"{TMP_PREFIX}{secrets.token_hex(4)}"
+        try:
+            os.mkdir(path, 0o700)
+        except FileExistsError:
+            continue
+        if problems := temp_root_problems(path):
+            raise SandboxError("; ".join(problems))
+        return path
+    raise SandboxError(f"no free temporary root name under {base}")
+
+
+def temp_root_problems(path: Path) -> list[str]:
+    """Why ``path`` is not a usable temporary root: it must be a directory (not a link) of this
+    user with mode 0700 and a `make_temp_root` name."""
+    try:
+        found = os.lstat(path)
+    except OSError as error:
+        return [f"the temporary root {path} cannot be checked: {type(error).__name__}"]
+    if not stat.S_ISDIR(found.st_mode) or found.st_uid != os.getuid() or stat.S_IMODE(found.st_mode) != 0o700:
+        return [f"the temporary root {path} must be a 0700 directory of this user, not a link"]
+    if not TMP_NAME.fullmatch(Path(path).name):
+        return [f"the temporary root {path} is not one the runner created"]
+    return []
+
+
+def remove_temp_root(path: Path, base: Path = TMP_BASE) -> None:
+    """Delete a temporary root `make_temp_root` created under ``base``; anything else is left."""
+    path = Path(path)
+    if path.parent != Path(base) or not TMP_NAME.fullmatch(path.name):
+        raise SandboxError(f"not a temporary root of the runner: {path}")
+    try:
+        if stat.S_ISDIR(os.lstat(path).st_mode):
+            shutil.rmtree(path, ignore_errors=True)
+    except FileNotFoundError:
+        pass
 
 
 def sessions_root(clone: Path) -> Path:
@@ -229,14 +329,13 @@ def session_layout(root: Path, run_id: str, stage: str) -> dict[str, Path]:
 
 
 def prepare_layout(layout: Mapping[str, Path]) -> None:
-    """Create the private base, exchange (with ``tmp``), state and ``gh`` directories; the
-    one-off repository is cloned into ``repository`` by `src.schedules.repos`."""
+    """Create the private base, exchange, state and ``gh`` directories; the one-off repository is
+    cloned into ``repository`` by `src.schedules.repos`, the temporary root is `make_temp_root`."""
     private_dir(Path(layout["base"]).parent.parent)
     private_dir(Path(layout["base"]).parent)
     private_dir(layout["base"])
     for name in ("exchange", "state_copy", "gh_config"):
         private_dir(layout[name])
-    private_dir(Path(layout["exchange"]) / "tmp")
 
 
 def interpreter_roots(*interpreters: str | Path) -> tuple[Path, ...]:
@@ -297,7 +396,7 @@ def settings(kind: str, paths: SessionPaths) -> dict:
     tools_for(kind)
     if problems := paths.problems():
         raise SandboxError("unsafe session paths: " + "; ".join(problems))
-    read = [paths.repository, paths.venv, paths.exchange, paths.state_copy, *paths.read_roots]
+    read = [paths.repository, paths.venv, paths.exchange, paths.state_copy, paths.tmp_root, *paths.read_roots]
     if paths.socket is not None:
         read.append(paths.socket)
     return {
@@ -315,7 +414,8 @@ def settings(kind: str, paths: SessionPaths) -> dict:
                 "disabled": False,
                 "denyRead": deny_read(paths),
                 "allowRead": list(dict.fromkeys(str(path) for path in read)),
-                "allowWrite": [str(paths.repository), str(paths.exchange)],
+                "allowWrite": [str(paths.repository), str(paths.exchange), str(paths.tmp_root)],
+                "denyWrite": deny_write(paths),
             },
             "network": {
                 "allowedDomains": [],
@@ -330,9 +430,19 @@ def settings(kind: str, paths: SessionPaths) -> dict:
 
 def deny_read(paths: SessionPaths) -> list[str]:
     """``denyRead``: the home directory (``~/``, the documented prefix; a bare ``~`` is not),
-    the keychains, the owner's temporary directory, Claude Code's per-user temporary root and the
-    session's own configuration directory."""
-    return ["~/", "~/Library/Keychains", str(paths.owner_temp), str(paths.claude_temp), str(paths.config_dir)]
+    the keychains, the owner's temporary directory, Claude Code's per-user and shared temporary
+    roots (other sessions' scratch), the autodev state directory (records, the decoy registry,
+    the daemon's token, wherever ``AGENTS_SERVICE_DIR`` puts it) and the session's own
+    configuration directory."""
+    return ["~/", "~/Library/Keychains", str(paths.owner_temp), str(paths.claude_temp), str(paths.claude_shared),
+            str(paths.state_dir), str(paths.config_dir)]
+
+
+def deny_write(paths: SessionPaths) -> list[str]:
+    """``denyWrite``: the shared temporary roots, which the CLI and sandbox-runtime may keep
+    writable (``/private/tmp/claude``) and from where other sessions and agents read; one run
+    must not leave data there for the next. It only tightens ``allowWrite``."""
+    return [str(paths.owner_temp), str(paths.claude_temp), str(paths.claude_shared)]
 
 
 def write_settings(paths: SessionPaths, content: Mapping) -> Path:
@@ -393,10 +503,11 @@ def check_settings(content: Mapping, kind: str, paths: SessionPaths) -> list[str
         problems.append("permissions.blockReadsOutsideWorkingDirectories must be true")
     if _get(content, "disableClaudeAiConnectors") is not True:
         problems.append("disableClaudeAiConnectors must be true")
-    deny = _get(sandbox, "filesystem", "denyRead")
-    for entry in deny_read(paths):
-        if not isinstance(deny, list) or entry not in deny:
-            problems.append(f"sandbox.filesystem.denyRead lacks {entry}")
+    for key, entries in (("denyRead", deny_read(paths)), ("denyWrite", deny_write(paths))):
+        listed = _get(sandbox, "filesystem", key)
+        for entry in entries:
+            if not isinstance(listed, list) or entry not in listed:
+                problems.append(f"sandbox.filesystem.{key} lacks {entry}")
     try:
         expected = settings(kind, paths)
     except SandboxError as error:
@@ -510,6 +621,14 @@ def check_environment(env: Mapping[str, str], paths: SessionPaths, mode: str = L
     return problems
 
 
+def claude_keychain_item(config_dir: Path) -> str:
+    """The keychain service Claude Code is reported to use for a login under a non-default
+    ``CLAUDE_CONFIG_DIR``: ``Claude Code-credentials-<first 8 hex digits of the SHA-256 of the
+    directory>`` (read from the 2.1.294 binary by the review, not verified here; the probes use it
+    only when such an item exists, so a wrong name leaves it unprobed, never passed)."""
+    return "Claude Code-credentials-" + hashlib.sha256(str(config_dir).encode()).hexdigest()[:8]
+
+
 def keychain_secret(service: str, *, runner: Callable[..., subprocess.CompletedProcess] = subprocess.run) -> str:
     """The password of the keychain item ``service`` (the OAuth token of the keychain login mode),
     in memory only; `SandboxError` never echoes any output."""
@@ -579,6 +698,7 @@ class SessionSpec:
     paths: SessionPaths
     settings: Mapping[str, Any]
     mode: str = LOGIN_CONFIG_DIR
+    executable: tuple[str, str] | None = None  # (resolved path, SHA-256) of argv[0]: `executable_identity`
 
     @property
     def cwd(self) -> Path:
@@ -593,10 +713,27 @@ class SessionSpec:
         return "Bash" in self.tools
 
     def digest(self) -> str:
-        """SHA-256 over argv, environment, working directory and settings: what a probe cleared."""
+        """SHA-256 over argv, environment, working directory, settings and the executable's
+        resolved path and SHA-256: what a probe cleared."""
         payload = json.dumps({"argv": list(self.argv), "env": dict(sorted(self.env.items())), "cwd": str(self.cwd),
-                              "settings": self.settings}, sort_keys=True)
+                              "settings": self.settings,
+                              "executable": list(self.executable) if self.executable else None}, sort_keys=True)
         return hashlib.sha256(payload.encode()).hexdigest()
+
+
+def executable_identity(claude: str) -> tuple[str, str]:
+    """The resolved path and SHA-256 of the ``claude`` executable (a Homebrew ``claude`` is a link
+    into a versioned Caskroom directory, so an upgrade changes both)."""
+    real = os.path.realpath(claude)
+    try:
+        found = os.stat(real)
+        if not stat.S_ISREG(found.st_mode) or not found.st_mode & 0o111:
+            raise SandboxError(f"the claude executable is not an executable file: {real}")
+        with open(real, "rb") as stream:
+            digest = hashlib.file_digest(stream, "sha256").hexdigest()
+    except OSError as error:
+        raise SandboxError(f"the claude executable cannot be read: {real}: {type(error).__name__}") from None
+    return real, digest
 
 
 def build(claude: str, kind: str, paths: SessionPaths, *, path: str, mode: str = LOGIN_CONFIG_DIR,
@@ -604,11 +741,13 @@ def build(claude: str, kind: str, paths: SessionPaths, *, path: str, mode: str =
           lang: str | None = None, run_variables: Mapping[str, str] | None = None) -> SessionSpec:
     """Build a session: its settings file is written here; nothing starts."""
     content = settings(kind, paths)
+    command = tuple(argv(claude, kind, paths, model=model, effort=effort))
+    identity = executable_identity(claude)
     write_settings(paths, content)
-    return SessionSpec(kind, tuple(argv(claude, kind, paths, model=model, effort=effort)),
+    return SessionSpec(kind, command,
                        environment(paths, path=path, mode=mode, oauth_token=oauth_token, lang=lang,
                                    run_variables=run_variables),
-                       paths, content, mode)
+                       paths, content, mode, identity)
 
 
 def check_spec(spec: SessionSpec, claude: str | None = None) -> list[str]:
@@ -633,9 +772,25 @@ def check_spec(spec: SessionSpec, claude: str | None = None) -> list[str]:
         if on_disk != dict(spec.settings):
             problems.append("the settings file on disk differs from the session's settings")
     problems += check_environment(spec.env, spec.paths, spec.mode)
+    problems += temp_root_problems(spec.paths.tmp_root)
     if (spec.paths.repository / ".git").is_file():
         problems.append("the one-off repository's .git is a gitdir file, not a directory (a linked worktree)")
+    problems += _executable_problems(spec)
     return problems
+
+
+def _executable_problems(spec: SessionSpec) -> list[str]:
+    """The executable must be the one the spec was built with, outside the session-writable trees."""
+    try:
+        identity = executable_identity(spec.argv[0])
+    except SandboxError as error:
+        return [str(error)]
+    if spec.executable is None or tuple(spec.executable) != identity:
+        return ["the claude executable differs from the one the session was built with (resolved path or SHA-256)"]
+    real = Path(identity[0])
+    if any(real == root or root in real.parents for root in map(_real, spec.paths.writable)):
+        return [f"the claude executable {real} lies inside a session-writable directory"]
+    return []
 
 
 def tree_problems(roots: Iterable[Path], limit: int = 200_000) -> list[str]:
