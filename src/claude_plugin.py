@@ -180,6 +180,19 @@ def managed_documents(profile, *, platform=None):
     return documents
 
 
+# Managed keys that can keep a plugin or its server from loading without enabledPlugins=false
+# (code.claude.com/docs/en/managed-settings); whether an installed plugin then stops is not
+# documented, so any of them makes the check uncertain and the entry is written.
+RESTRICTING_KEYS = ("blockedMarketplaces", "strictKnownMarketplaces", "allowManagedMcpServersOnly",
+                    "allowedMcpServers", "deniedMcpServers")
+
+
+def _restricting(document):
+    present = [key for key in RESTRICTING_KEYS if key in document]
+    if present:
+        raise Uncertain("managed settings restrict marketplaces or MCP servers: " + ", ".join(present))
+
+
 def _disabled(document, ids):
     enabled = document.get("enabledPlugins", {})
     if not isinstance(enabled, dict):
@@ -206,7 +219,10 @@ def enabled_ids(profile=None, *, home=None, environ=None, workspaces=(), platfor
         ids = installed_ids(plugins_root(profile, environ=env, settings=user))
         if not ids:
             return []
-        layers = [user, *managed_documents(profile, platform=platform)]
+        managed = managed_documents(profile, platform=platform)
+        for document in managed:
+            _restricting(document)
+        layers = [user, *managed]
         for root in workspaces:
             layers += [_settings(Path(root) / ".claude/settings.json"),
                        _settings(Path(root) / ".claude/settings.local.json")]

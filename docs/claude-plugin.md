@@ -94,7 +94,10 @@ duplicate server is noisy, a missing one is broken.
   confirmed by the Claude Code docs); and `.claude/settings.json` and
   `.claude/settings.local.json` of the projects known to the writer (`migrate --workspace`, and
   the registered workspaces for the upkeep and the warning). A managed source that is present
-  but unreadable counts as no plugin.
+  but unreadable counts as no plugin, and so does one that sets `blockedMarketplaces`,
+  `strictKnownMarketplaces`, `allowManagedMcpServersOnly`, `allowedMcpServers` or
+  `deniedMcpServers`: such a policy may keep the plugin's server from loading, so the entry is
+  written. `AGENTS_FORCE_CLAUDE_CODE_MCP=1` is kept per profile like the flag.
 
 Gaps that can leave a duplicate server: `--settings` flags, server-managed settings Claude Code
 has not cached yet, Windows registry policies, project- or local-scope installs of the plugin,

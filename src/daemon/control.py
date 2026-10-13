@@ -535,9 +535,10 @@ def main(argv=None):
                 result = {"files": []}
             else:
                 result = {"backup": str(migration.apply(changes)), "files": [str(p) for p, _, _ in changes]}
+            from src.claude_plugin import force_requested
             if claude_code_skipped:
                 result["claude_code"] = "skipped: " + claude_code_skipped
-            elif args.force_claude_code_mcp and "claude" in clients and not blocked:
+            elif (args.force_claude_code_mcp or force_requested()) and "claude" in clients and not blocked:
                 # The service's upkeep keeps this profile's forced entry current too (#367).
                 from .registrations import remember_force
                 remember_force(controller.directory, [claude_profile])

@@ -440,3 +440,27 @@ def test_the_web_ui_overview_carries_the_warning(setup):
 
     assert report["warnings"][0]["warning"] == "duplicate_claude_code_server"
     assert "claude mcp remove Agents-Core --scope user" in report["warnings"][0]["message"]
+
+
+
+@pytest.mark.parametrize("key, value", [("blockedMarketplaces", [{"source": "github", "repo": "IEZhu/Agents"}]),
+                                        ("strictKnownMarketplaces", []), ("allowManagedMcpServersOnly", True),
+                                        ("allowedMcpServers", []), ("deniedMcpServers", [{"serverName": "Agents-Core"}])])
+def test_managed_restrictions_on_marketplaces_or_servers_write_the_entry(tmp_path, no_overrides, key, value):
+    """Round 2 N2: a policy that may keep the plugin's server from loading never leaves Claude Code
+    without the user entry."""
+    install_plugin(tmp_path / ".claude")
+    no_overrides.mkdir()
+    write_json(no_overrides / "managed-settings.json", {key: value})
+    assert claude_plugin.skip_reason(home=tmp_path, environ={}) is None
+
+
+def test_the_force_variable_of_migrate_is_kept_for_the_upkeep(setup, capsys, monkeypatch):
+    """Round 2 N1: AGENTS_FORCE_CLAUDE_CODE_MCP=1 is recorded like the flag."""
+    from src.daemon.control import main
+    state, home = setup
+    install_plugin(home / ".claude")
+    monkeypatch.setenv(claude_plugin.FORCE_ENV, "1")
+    assert main(["--state", str(state), "migrate", "--clients", "claude"]) == 0
+    assert str(home / ".claude.json") in json.loads(capsys.readouterr().out)["files"]
+    assert registrations.forced_profiles(state) == {str(home / ".claude")}
