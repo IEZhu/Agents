@@ -95,6 +95,8 @@ def test_configuration_is_saved_privately_and_merged_over_the_defaults(service_s
     ({"limits": {"max_reviews": -1}}, "limits"),
     ({"github": {"token": "ghp_x"}}, "github.token must name a keychain item"),
     ({"surprise": 1}, "unknown keys: surprise"),
+    ({"clone": "~/Documents/autodev-clone"}, "clone must lie outside ~/Documents"),
+    ({"clone": "relative/clone"}, "clone must be an absolute path"),
 ])
 def test_invalid_configuration_is_refused(service_state_dir, change, problem):
     path = autodev_config.config_path(service_state_dir)
@@ -213,6 +215,8 @@ def test_dry_run_reports_cleanup_actions_without_executing_them(ctx):
     ("network", "network: GET /repos/IEZhu/Agents/issues: HTTP 502"),
     ("token", "cli: the keychain item"),
     ("git", "cli: git rev-parse failed"),
+    ("fetch", "network: fetch of main"),
+    ("trusted", "cli: trusted repository: "),
 ])
 def test_infrastructure_failures_are_recorded(ctx, failure, reason):
     if failure == "drift":
@@ -224,10 +228,16 @@ def test_infrastructure_failures_are_recorded(ctx, failure, reason):
         def no_token():
             raise TokenUnavailable("the keychain item agents-autodev-github (account WonderMr) could not be read")
         ctx.client_factory = lambda config: GitHubClient(config["repository"], no_token, transport=ctx.test.github)
-    else:
+    elif failure == "git":
         def broken(installation):
             raise runner.drift.DriftCheckFailed("git rev-parse failed: not a repository")
         ctx.drift_check = broken
+    else:
+        def unusable(installation):
+            if failure == "fetch":
+                raise runner.repos.FetchError("fetch of main from https://github.com/IEZhu/Agents.git: failed")
+            raise runner.repos.RepositoryError("the trusted repository has info/grafts")
+        ctx.drift_check = unusable
     code, record = call(ctx, "autodev", "run-now")
     assert code == 1 and record["status"] == "failed: infra" and record["reason"].startswith(reason)
     assert "gate" not in record

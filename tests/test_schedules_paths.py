@@ -14,7 +14,7 @@ import subprocess
 
 import pytest
 
-from src.schedules import paths
+from src.schedules import gitsafe, paths
 from src.schedules.paths import (CONTROL_LIST, NEXT_LABEL, PROTECTED_LIST, ChangeCheck, GitError, PathClass,
                                  PathClasses, PathListError, PathsError, Reason, Refusal, check_changes, fold,
                                  load_path_classes, parse_patterns)
@@ -421,13 +421,13 @@ def test_unsupported_mode_is_refused(repo, base, monkeypatch, old_mode, new_mode
     new = "0" * 40 if new_mode == "000000" else blob
     status = "A" if old_mode == "000000" else "D" if new_mode == "000000" else "M"
     record = f":{old_mode} {new_mode} {old} {new} {status}\0docs/new.md\0".encode()
-    real_run = paths._run
+    real_run = gitsafe.run
 
-    def crafted_run(repository, args):
+    def crafted_run(repository, args, **kwargs):
         if args[0] == "diff-tree":
             return subprocess.CompletedProcess(args, 0, record, b"")
-        return real_run(repository, args)
-    monkeypatch.setattr(paths, "_run", crafted_run)
+        return real_run(repository, args, **kwargs)
+    monkeypatch.setattr(gitsafe, "run", crafted_run)
 
     assert (("docs/new.md", Reason.UNSUPPORTED_MODE) in reasons(check_changes(repo.path, base, head, [], classes)))
 
@@ -449,15 +449,15 @@ def test_root_commit_reached_through_a_merge_is_refused(repo, base):
 def test_git_failure_during_the_check_is_an_error_not_an_allowance(repo, base, monkeypatch, failing, output):
     head = repo.commit({**BASE_FILES, "docs/new.md": "new\n"}, base)
     classes = load_path_classes(repo.path, base)
-    real_run = paths._run
+    real_run = gitsafe.run
 
-    def failing_run(repository, args):
+    def failing_run(repository, args, **kwargs):
         if args[0] == failing:
             if output is None:
                 return subprocess.CompletedProcess(args, 128, b"", b"fatal: simulated failure")
             return subprocess.CompletedProcess(args, 0, output, b"")
-        return real_run(repository, args)
-    monkeypatch.setattr(paths, "_run", failing_run)
+        return real_run(repository, args, **kwargs)
+    monkeypatch.setattr(gitsafe, "run", failing_run)
 
     with pytest.raises(GitError, match=f"git {failing} failed" if output is None else "unexpected"):
         check_changes(repo.path, base, head, [], classes)
@@ -498,7 +498,7 @@ def test_head_that_is_not_a_descendant_of_base_is_refused(repo, base):
 def test_revisions_are_validated_before_any_git_call(repo, base, monkeypatch, bad):
     def no_git(*args, **kwargs):
         raise AssertionError("git must not run")
-    monkeypatch.setattr(paths, "_run", no_git)
+    monkeypatch.setattr(gitsafe, "run", no_git)
 
     with pytest.raises(ValueError, match="40-character lowercase hex SHA"):
         check_changes(repo.path, bad, base, [], CURRENT)
@@ -584,7 +584,7 @@ def test_graft_file_is_ignored_even_past_the_refusal(repo, base, monkeypatch):
     """GIT_GRAFT_FILE at the null device: a graft planted after the refusal check changes nothing."""
     hidden, head = graft_hiding_a_commit(repo, base)
     classes = PathClasses.from_text(PROTECTED_TEXT, CONTROL_TEXT)
-    monkeypatch.setattr(paths, "_UNTRUSTED_FILES", (), raising=False)
+    monkeypatch.setattr(gitsafe, "UNTRUSTED_FILES", ())
 
     result = check_changes(repo.path, base, head, [], classes)
 
@@ -611,7 +611,7 @@ def test_git_runs_with_a_clean_configuration_and_end_of_options(repo, base, monk
     def recording_run(command, **kwargs):
         calls.append((command, kwargs))
         return real_run(command, **kwargs)
-    monkeypatch.setattr(paths.subprocess, "run", recording_run)
+    monkeypatch.setattr(gitsafe.subprocess, "run", recording_run)
     monkeypatch.setenv("GIT_DIR", str(repo.path.parent / "elsewhere"))
     monkeypatch.setenv("GIT_CONFIG_PARAMETERS", "'core.pager'='evil'")
 
@@ -620,12 +620,12 @@ def test_git_runs_with_a_clean_configuration_and_end_of_options(repo, base, monk
     assert calls
     common_dir = ["rev-parse", "--path-format=absolute", "--git-common-dir"]
     for command, kwargs in calls:
-        assert command[1:14] == ["--no-pager", "--no-replace-objects", "--literal-pathspecs",
+        assert command[1:16] == ["--no-pager", "--no-replace-objects", "--literal-pathspecs",
                                  "-c", "core.quotePath=false", "-c", "core.fsmonitor=false",
                                  "-c", f"core.hooksPath={os.devnull}", "-c", "core.commitGraph=false",
-                                 "-C", str(repo.path.resolve())]
+                                 "-c", "advice.graftFileDeprecated=false", "-C", str(repo.path.resolve())]
         # Every command with revision arguments ends its options; the common-dir lookup has none.
-        assert "--end-of-options" in command or command[14:] == common_dir
+        assert "--end-of-options" in command or command[16:] == common_dir
         assert kwargs.get("shell") in (None, False)
         environment = kwargs["env"]
         assert environment["GIT_CONFIG_NOSYSTEM"] == "1"
@@ -634,10 +634,10 @@ def test_git_runs_with_a_clean_configuration_and_end_of_options(repo, base, monk
         assert environment["GIT_GRAFT_FILE"] == os.devnull
         assert environment["GIT_NO_REPLACE_OBJECTS"] == "1"
         assert "GIT_DIR" not in environment and "GIT_CONFIG_PARAMETERS" not in environment
-    commands = [command[14] for command, _ in calls]
+    commands = [command[16] for command, _ in calls]
     assert {"cat-file", "ls-tree", "rev-parse", "merge-base", "rev-list", "diff-tree"} <= set(commands)
-    assert commands[0:1] == ["rev-parse"] and calls[0][0][14:] == common_dir
-    diff_tree = next(command for command, _ in calls if command[14] == "diff-tree")
+    assert commands[0:1] == ["rev-parse"] and calls[0][0][16:] == common_dir
+    diff_tree = next(command for command, _ in calls if command[16] == "diff-tree")
     assert {"-r", "--no-renames", "--raw", "-z"} <= set(diff_tree)
-    cat_file = next(command for command, _ in calls if command[14] == "cat-file")
-    assert cat_file[15:] == ["blob", "--end-of-options", f"{base}:{PROTECTED_LIST}"]
+    cat_file = next(command for command, _ in calls if command[16] == "cat-file")
+    assert cat_file[17:] == ["blob", "--end-of-options", f"{base}:{PROTECTED_LIST}"]
