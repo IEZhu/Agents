@@ -456,6 +456,7 @@ def main(argv=None):
     sync_setup.add_argument("--confirm-private", action="store_true", default=None,
                             help="confirm the repository is private when the host cannot be checked")
     args = parser.parse_args(argv)
+    controller = Controller(args.state)
     overrides = []
     claude_code_skipped = None
     if args.command in ("audit", "migrate"):
@@ -484,10 +485,9 @@ def main(argv=None):
                 claude_code_skipped = claude_code_plugin_skip(
                     profile=claude_profile, workspaces=[args.workspace] if args.workspace else (),
                     force=args.force_claude_code_mcp
-                    or str(claude_profile) in forced_profiles(Path(args.state or state_dir())))
+                    or str(claude_profile) in forced_profiles(controller.directory))
                 if claude_code_skipped:
                     clients = [client for client in clients if client != "claude"]
-    controller = Controller(args.state)
     # Commands of an installed service start its tools as the service does (#244).
     if controller.config: executables.configure(controller.config)
     exit_code = 0

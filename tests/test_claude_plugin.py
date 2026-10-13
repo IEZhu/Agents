@@ -464,3 +464,15 @@ def test_the_force_variable_of_migrate_is_kept_for_the_upkeep(setup, capsys, mon
     assert main(["--state", str(state), "migrate", "--clients", "claude"]) == 0
     assert str(home / ".claude.json") in json.loads(capsys.readouterr().out)["files"]
     assert registrations.forced_profiles(state) == {str(home / ".claude")}
+
+
+
+def test_migrate_without_state_uses_the_default_state_directory(setup, monkeypatch, capsys):
+    """PR #370 review: `migrate` without --state resolved the state directory through a name the
+    function later rebinds (UnboundLocalError)."""
+    from src.daemon import control
+    state, home = setup
+    monkeypatch.setattr(control, "state_dir", lambda: state)
+    install_plugin(home / ".claude")
+    assert control.main(["migrate", "--clients", "claude"]) == 0
+    assert json.loads(capsys.readouterr().out)["claude_code"].startswith("skipped")
