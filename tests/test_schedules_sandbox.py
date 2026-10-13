@@ -1,4 +1,6 @@
 """The Claude session launcher (#343): argv, sandbox settings, environment and login, with a fake ``claude``."""
+import dataclasses
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -27,24 +29,38 @@ def fake_claude(directory: Path, scenario: dict) -> str:
     return str(wrapper)
 
 
-def make_paths(base: Path, state: Path, *, socket: Path | None = None) -> SessionPaths:
+@pytest.fixture
+def temp_root():
+    """A fresh short temporary root under /private/tmp (`sandbox.make_temp_root`), removed afterwards."""
+    root = sandbox.make_temp_root()
+    yield root
+    sandbox.remove_temp_root(root)
+
+
+def make_paths(base: Path, state: Path, tmp_root: Path, *, socket: Path | None = None) -> SessionPaths:
     """A session layout under ``base`` (no wildcard characters in it) with a fresh home."""
     home = base / "home"
     (home / ".ssh").mkdir(parents=True)
     root = base / "s"
-    for name in ("repo/.git", "exchange/tmp", "state", "gh", "venv/bin", "owner-tmp", "claude-tmp", "conf"):
+    for name in ("repo/.git", "exchange", "state", "gh", "venv/bin", "owner-tmp", "claude-tmp", "claude-shared", "conf"):
         (root / name).mkdir(parents=True)
     (root / "repo" / "README.md").write_text("one-off\n")
     return SessionPaths(home=home, repository=root / "repo", exchange=root / "exchange", state_copy=root / "state",
                         venv=root / "venv", config_dir=sandbox.config_dir(state), gh_config=root / "gh",
-                        settings_file=root / "conf" / "settings.json", socket=socket,
-                        owner_temp=root / "owner-tmp", claude_temp=root / "claude-tmp")
+                        settings_file=root / "conf" / "settings.json", tmp_root=tmp_root, state_dir=state,
+                        socket=socket, owner_temp=root / "owner-tmp", claude_temp=root / "claude-tmp",
+                        claude_shared=root / "claude-shared")
 
 
 @pytest.fixture
-def paths(tmp_path_factory, service_state_dir):
+def paths(tmp_path_factory, service_state_dir, temp_root):
     base = tmp_path_factory.mktemp("sbx")
-    return make_paths(base, service_state_dir, socket=base / "run" / "control.sock")
+    return make_paths(base, service_state_dir, temp_root, socket=base / "run" / "control.sock")
+
+
+@pytest.fixture
+def claude(tmp_path_factory):
+    return fake_claude(tmp_path_factory.mktemp("bin"), {})
 
 
 def test_stage_argv_is_exact(paths):
@@ -94,10 +110,12 @@ def test_settings_match_the_amended_plan(paths):
             box["allowUnsandboxedCommands"]) == (True, True, True, False)
     assert box["filesystem"] == {
         "disabled": False,
-        "denyRead": ["~/", "~/Library/Keychains", str(paths.owner_temp), str(paths.claude_temp), str(paths.config_dir)],
+        "denyRead": ["~/", "~/Library/Keychains", str(paths.owner_temp), str(paths.claude_temp),
+                     str(paths.claude_shared), str(paths.state_dir), str(paths.config_dir)],
         "allowRead": [str(paths.repository), str(paths.venv), str(paths.exchange), str(paths.state_copy),
-                      str(paths.socket)],
-        "allowWrite": [str(paths.repository), str(paths.exchange)]}
+                      str(paths.tmp_root), str(paths.socket)],
+        "allowWrite": [str(paths.repository), str(paths.exchange), str(paths.tmp_root)],
+        "denyWrite": [str(paths.owner_temp), str(paths.claude_temp), str(paths.claude_shared)]}
     assert box["network"] == {"allowedDomains": [], "strictAllowlist": True, "allowUnixSockets": [str(paths.socket)]}
     assert box["credentials"] == {"envVars": [{"name": "CLAUDE_CODE_OAUTH_TOKEN", "mode": "deny"}]}
     assert content["disableClaudeAiConnectors"] is True
@@ -128,6 +146,9 @@ def test_a_session_without_a_socket_allows_no_unix_socket(paths):
     (lambda c: c["permissions"].update(blockReadsOutsideWorkingDirectories=False), "blockReadsOutside"),
     (lambda c: c.update(disableClaudeAiConnectors=False), "disableClaudeAiConnectors must be true"),
     (lambda c: c["sandbox"]["filesystem"]["allowWrite"].append("/Users"), "filesystem.allowWrite"),
+    (lambda c: c["sandbox"]["filesystem"]["denyWrite"].pop(), "denyWrite lacks"),
+    (lambda c: c["sandbox"]["filesystem"]["denyRead"].pop(4), "denyRead lacks"),  # the shared /private/tmp/claude
+    (lambda c: c["sandbox"]["filesystem"]["denyRead"].pop(5), "denyRead lacks"),  # the state directory
     (lambda c: c["permissions"]["allow"].append("Bash(curl *)"), "permissions.allow"),
 ])
 def test_a_loosened_setting_is_named(paths, loosen, problem):
@@ -137,8 +158,8 @@ def test_a_loosened_setting_is_named(paths, loosen, problem):
     assert any(problem in item for item in problems), problems
 
 
-def test_settings_file_is_private_and_checked_on_disk(paths):
-    spec = sandbox.build("/opt/claude", "implement", paths, path=SESSION_PATH)
+def test_settings_file_is_private_and_checked_on_disk(paths, claude):
+    spec = sandbox.build(claude, "implement", paths, path=SESSION_PATH)
     mode = stat.S_IMODE(os.stat(paths.settings_file).st_mode)
     assert mode == 0o600
     assert json.loads(paths.settings_file.read_text()) == spec.settings
@@ -150,11 +171,11 @@ def test_settings_file_is_private_and_checked_on_disk(paths):
     assert "the settings file on disk differs from the session's settings" in sandbox.check_spec(spec)
 
 
-def test_check_spec_names_an_extra_tool_and_a_linked_worktree(paths):
-    spec = sandbox.build("/opt/claude", "select", paths, path=SESSION_PATH)
+def test_check_spec_names_an_extra_tool_and_a_linked_worktree(paths, claude):
+    spec = sandbox.build(claude, "select", paths, path=SESSION_PATH)
     argv = list(spec.argv)
     argv[argv.index("--tools") + 1] = "Read,Grep,Glob,Bash"
-    widened = sandbox.SessionSpec(spec.kind, tuple(argv), spec.env, spec.paths, spec.settings)
+    widened = dataclasses.replace(spec, argv=tuple(argv))
     assert "the argv differs from the launcher's" in sandbox.check_spec(widened)
     (paths.repository / ".git").rmdir()
     (paths.repository / ".git").write_text("gitdir: /elsewhere\n")
@@ -181,8 +202,8 @@ def test_environment_is_an_allowlist(paths, monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-" + "y" * 30)
     env = sandbox.environment(paths, path=SESSION_PATH, run_variables={"AUTODEV_RUN_ID": RUN_ID})
     assert env == {"PATH": SESSION_PATH, "HOME": str(paths.home), "LANG": "en_US.UTF-8",
-                   "CLAUDE_CONFIG_DIR": str(paths.config_dir), "CLAUDE_CODE_TMPDIR": str(paths.exchange / "tmp"),
-                   "TMPDIR": str(paths.exchange / "tmp"), "GH_CONFIG_DIR": str(paths.gh_config),
+                   "CLAUDE_CONFIG_DIR": str(paths.config_dir), "CLAUDE_CODE_TMPDIR": str(paths.tmp_root),
+                   "TMPDIR": str(paths.tmp_root), "GH_CONFIG_DIR": str(paths.gh_config),
                    "ENABLE_CLAUDEAI_MCP_SERVERS": "false", "DISABLE_AUTOUPDATER": "1", "AUTODEV_RUN_ID": RUN_ID}
     assert not any(word in name for name in env for word in ("TOKEN", "KEY", "SECRET", "PASSWORD"))
     assert env["TMPDIR"] != os.environ.get("TMPDIR")
@@ -221,10 +242,12 @@ def test_login_mode_from_the_config():
 
 
 def test_config_validates_the_sandbox_key(service_state_dir):
-    assert autodev_config.load(service_state_dir)["sandbox"] == {"login": "config-dir", "decoy_keychain": False}
-    for value, problem in (({"login": "env"}, "sandbox must have login and decoy_keychain"),
-                           ({"login": "env", "decoy_keychain": False}, "sandbox.login must be"),
-                           ({"login": "config-dir", "decoy_keychain": "yes"}, "sandbox.decoy_keychain")):
+    assert autodev_config.load(service_state_dir)["sandbox"] == {"login": "config-dir", "decoy_keychain": False,
+                                                                 "allowed_plugins": []}
+    for value, problem in (({"login": "env"}, "sandbox must have login, decoy_keychain and allowed_plugins"),
+                           ({"login": "env", "decoy_keychain": False, "allowed_plugins": []}, "sandbox.login must be"),
+                           ({"login": "config-dir", "decoy_keychain": "yes", "allowed_plugins": []},
+                            "sandbox.decoy_keychain")):
         with pytest.raises(autodev_config.ConfigError) as error:
             autodev_config.validate({**autodev_config.DEFAULTS, "sandbox": value})
         assert any(problem in item for item in error.value.problems)
@@ -302,7 +325,7 @@ def test_layout_and_interpreter_roots(tmp_path_factory):
     layout = sandbox.session_layout(root, RUN_ID, "implement")
     sandbox.prepare_layout(layout)
     assert layout["repository"] == root / RUN_ID / "implement" / "repo"
-    assert (layout["exchange"] / "tmp").is_dir() and not layout["repository"].exists()
+    assert layout["exchange"].is_dir() and not layout["repository"].exists()
     assert stat.S_IMODE(os.stat(layout["base"]).st_mode) == 0o700
     with pytest.raises(ValueError):
         sandbox.session_layout(root, "../x", "implement")
@@ -311,7 +334,102 @@ def test_layout_and_interpreter_roots(tmp_path_factory):
                                                           else python.parent,)
 
 
-def test_spec_digest_changes_with_the_environment(paths):
-    spec = sandbox.build("/opt/claude", "implement", paths, path=SESSION_PATH)
-    other = sandbox.SessionSpec(spec.kind, spec.argv, {**spec.env, "LANG": "C"}, spec.paths, spec.settings)
+def test_spec_digest_changes_with_the_environment(paths, claude):
+    spec = sandbox.build(claude, "implement", paths, path=SESSION_PATH)
+    other = dataclasses.replace(spec, env={**spec.env, "LANG": "C"})
     assert spec.digest() != other.digest() and spec.has_bash and spec.cwd == paths.repository
+
+
+def test_config_validates_allowed_plugins():
+    assert autodev_config.DEFAULTS["sandbox"]["allowed_plugins"] == []
+    for value in ("x", [1], ["has space"]):
+        with pytest.raises(autodev_config.ConfigError) as error:
+            autodev_config.validate({**autodev_config.DEFAULTS,
+                                     "sandbox": {"login": "config-dir", "decoy_keychain": False, "allowed_plugins": value}})
+        assert any("allowed_plugins" in item for item in error.value.problems)
+
+
+# --- the run's temporary root (decision 2) -----------------------------------------------------------
+
+def test_the_temporary_root_is_short_private_and_removable(temp_root):
+    assert temp_root.parent == sandbox.TMP_BASE and sandbox.TMP_NAME.fullmatch(temp_root.name)
+    assert stat.S_IMODE(os.lstat(temp_root).st_mode) == 0o700 and not temp_root.is_symlink()
+    assert len(str(sandbox.bash_temp(temp_root)).encode()) <= sandbox.TMP_PATH_LIMIT <= 44
+    assert sandbox.temp_root_problems(temp_root) == []
+    with pytest.raises(SandboxError):
+        sandbox.remove_temp_root(temp_root.parent / "elsewhere")
+
+
+def test_an_over_long_temporary_root_is_refused(paths, tmp_path):
+    long_root = tmp_path / ("x" * 40)
+    long_root.mkdir(mode=0o700)
+    changed = dataclasses.replace(paths, tmp_root=long_root)
+    assert any("temporary root is too long" in problem for problem in changed.problems())
+    with pytest.raises(SandboxError, match="too long"):
+        sandbox.settings("implement", changed)
+
+
+def test_a_temporary_root_the_runner_did_not_create_is_refused(paths, claude, tmp_path):
+    spec = sandbox.build(claude, "implement", paths, path=SESSION_PATH)
+    os.chmod(paths.tmp_root, 0o755)
+    assert any("0700 directory" in problem for problem in sandbox.check_spec(spec))
+    os.chmod(paths.tmp_root, 0o700)
+    assert sandbox.check_spec(spec) == []
+
+
+@pytest.mark.parametrize("field", ["claude_temp", "owner_temp", "claude_shared"])
+def test_the_temporary_root_must_lie_outside_the_shared_temp_roots(paths, field):
+    changed = dataclasses.replace(paths, **{field: paths.tmp_root.parent})
+    assert any(f"around {field}" in problem for problem in changed.problems())
+
+
+# --- read roots (decision 9) --------------------------------------------------------------------------
+
+@pytest.mark.parametrize("root, protected", [
+    (lambda p: p.home, "home"),
+    (lambda p: p.home.parent, "home"),
+    (lambda p: p.home / ".ssh", "ssh"),
+    (lambda p: p.home / "Library", "library"),
+    (lambda p: p.home / "Library/Keychains", "keychains"),
+    (lambda p: p.state_dir, "state_dir"),
+    (lambda p: p.config_dir.parent, "config_dir"),
+    (lambda p: p.owner_temp, "owner_temp"),
+])
+def test_a_read_root_that_reopens_a_denied_place_is_refused(paths, root, protected):
+    changed = dataclasses.replace(paths, read_roots=(root(paths),))
+    assert any(f"equals or contains {protected}" in problem for problem in changed.problems()), changed.problems()
+    with pytest.raises(SandboxError):
+        sandbox.settings("implement", changed)
+
+
+def test_an_interpreter_prefix_under_home_is_a_valid_read_root(paths):
+    prefix = paths.home / ".local/share/uv/python/cpython-3.12"
+    (prefix / "bin").mkdir(parents=True)
+    changed = dataclasses.replace(paths, read_roots=sandbox.interpreter_roots(prefix / "bin" / "python3"))
+    assert changed.problems() == []
+    assert sandbox.interpreter_roots(paths.home / "bin" / "python3") == (paths.home,)
+    assert any("equals or contains home" in problem for problem in dataclasses.replace(
+        paths, read_roots=sandbox.interpreter_roots(paths.home / "bin" / "python3")).problems())
+
+
+# --- the executable (decision 5) ----------------------------------------------------------------------
+
+def test_the_spec_binds_the_executables_path_and_hash(paths, tmp_path):
+    first = Path(fake_claude(tmp_path, {}))
+    link = tmp_path / "claude-link"
+    link.symlink_to(first)
+    spec = sandbox.build(str(link), "implement", paths, path=SESSION_PATH)
+    assert spec.executable == (os.path.realpath(first), hashlib.sha256(first.read_bytes()).hexdigest())
+    assert sandbox.check_spec(spec) == []
+    digest = spec.digest()
+    first.write_text(first.read_text() + "# upgraded\n")  # an upgrade behind the same link
+    assert any("claude executable differs" in problem for problem in sandbox.check_spec(spec))
+    rebuilt = sandbox.build(str(link), "implement", paths, path=SESSION_PATH)
+    assert rebuilt.digest() != digest
+    with pytest.raises(SandboxError):
+        sandbox.build(str(tmp_path / "absent"), "implement", paths, path=SESSION_PATH)
+
+
+def test_the_suffixed_claude_keychain_item():
+    name = sandbox.claude_keychain_item(Path("/state/schedules/claude-config"))
+    assert name.startswith("Claude Code-credentials-") and len(name) == len("Claude Code-credentials-") + 8

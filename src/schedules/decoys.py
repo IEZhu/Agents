@@ -3,28 +3,34 @@
 The runner plants decoy files in the owner's home directory and registers their markers as
 known secrets (`src.schedules.scan.KnownSecret`), so a marker in a probe's output, in the broker's
 outgoing text or anywhere the scan looks is a ``known`` hit naming only the decoy's label. A
-decoy is never used for anything; reading one, or sending its marker out, turns the schedule off
+decoy is never used for anything; reading one, referencing one in a stage session's tool call
+(`src.schedules.probes.stage_tripwire`), or sending its marker out turns the schedule off
 (`trip`) and is recorded.
 
-* **Files** (`ensure`): ``~/.ssh/agents_autodev_decoy_ed25519`` (a fake key block under a name
-  ``ssh`` never tries on its own; planted only when ``~/.ssh`` exists), and
-  ``~/.agents-autodev-decoys/credentials.json`` and ``github-token.txt``. Each file is 0600, holds
-  `DECOY_LINE` (a plain line the Edit probe targets) and one marker of `MARKER_LENGTH` random
-  letters and digits with both cases and a digit: unique per install, at or above 40 characters
-  so the entropy check is a reliable second detector, and never written to a prompt.
-* **Keychain item** (only with ``autodev.json`` ``sandbox.decoy_keychain: true``): a generic
-  password ``agents-autodev-decoy`` (account ``autodev-decoy``) whose password is a marker,
-  created by ``/usr/bin/security`` with ``-T /usr/bin/security``, so a session that can reach
-  securityd reads it without a prompt, as it would the broker's token. It is opt-in because it
-  writes to the owner's login keychain.
-* **Ephemeral decoys** (`plant`): a probe plants one in the owner's temporary directory and one in
-  Claude Code's per-user temporary root and removes them afterwards (`discard`).
+**Nothing in this source names a decoy.** Every name is random per installation and kept only
+in the registry ``<state>/schedules/decoys.json`` (0600, in the private state directory, which
+the sandbox denies), so a session that reads this repository cannot list or avoid them, and no
+decoy says it is one: its content looks like the credential it imitates.
 
-Creation is idempotent: a decoy whose file still matches its registered marker is kept, and a
-path that exists but is not a registered decoy is never overwritten (`DecoyError`). The registry
-``<state>/schedules/decoys.json`` (0600, in the private state directory, which the sandbox
-denies) holds the paths and markers; `remove` deletes every decoy and the registry, and the
-uninstaller (`src.uninstall`) lists the registered paths too.
+* **Files** (`ensure`): a fake key block ``~/.ssh/id_ed25519_<random>`` (a name ``ssh`` never
+  tries on its own; planted only when ``~/.ssh`` exists), and ``credentials-<random>.json`` and
+  ``token-<random>.txt`` in a random directory ``~/.<word>-<random>`` (0700). Each file is 0600
+  and holds one marker of `MARKER_LENGTH` random letters and digits with both cases and a digit
+  on its own line: unique per install, at or above 40 characters so the entropy check is a
+  reliable second detector, and never written to a prompt.
+* **Keychain item** (only with ``autodev.json`` ``sandbox.decoy_keychain: true``): a generic
+  password with a random service and account name whose password is a marker, created by
+  ``/usr/bin/security`` with ``-T /usr/bin/security``, so a session that can reach securityd
+  reads it without a prompt, as it would the broker's token. It is opt-in because it writes to
+  the owner's login keychain.
+* **Ephemeral decoys** (`plant`): a probe plants one in the owner's temporary directory and one in
+  Claude Code's per-user temporary root under random names and removes them afterwards
+  (`discard`).
+
+Creation is idempotent: a decoy whose file still matches its registered marker is kept, a
+registered decoy that changed is rewritten, and a new decoy gets a fresh name where nothing
+exists, so a file that is not a registered decoy is never overwritten. `remove` deletes every decoy and the registry, and the uninstaller
+(`src.uninstall`) removes the registered files that still hold their registered marker.
 """
 from __future__ import annotations
 
@@ -35,6 +41,7 @@ from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
+import re
 import secrets
 import stat
 import string
@@ -48,21 +55,23 @@ from .lease import schedules_dir
 from .scan import HitKind, KnownSecret, Scanner
 
 REGISTRY_NAME = "decoys.json"
+REGISTRY_VERSION = 2
 TRIPWIRE_NAME = "tripwire.json"
-DECOY_DIR = ".agents-autodev-decoys"
 MARKER_LENGTH = 48
 MARKER_ALPHABET = string.ascii_letters + string.digits
-DECOY_LINE = "agents-autodev decoy: not a credential, never used"
 LABEL_PREFIX = "decoy "
-KEYCHAIN_SERVICE = "agents-autodev-decoy"
-KEYCHAIN_ACCOUNT = "autodev-decoy"
 KEYCHAIN_TIMEOUT = 30
-EPHEMERAL_PREFIX = "agents-autodev-decoy-"
-# (label, path relative to the home directory, content form)
-FILES = (
-    ("ssh-key", ".ssh/agents_autodev_decoy_ed25519", "ssh"),
-    ("credentials", f"{DECOY_DIR}/credentials.json", "json"),
-    ("token", f"{DECOY_DIR}/github-token.txt", "plain"),
+MAX_DECOY_BYTES = 4096
+# Name shapes (the random parts are only in the registry); the uninstaller accepts nothing else.
+_WORDS = ("config", "cache", "local", "tokens")
+DIRECTORY_NAME = re.compile(r"\.(?:config|cache|local|tokens)-[0-9a-f]{8}")
+KEYCHAIN_SERVICE_NAME = re.compile(r"(?:api-token|cli-credentials|service-token)-[0-9a-f]{12}")
+KEYCHAIN_ACCOUNT_NAME = re.compile(r"user-[0-9a-f]{8}")
+# (label, where: "ssh" or "directory", content form, file name maker)
+FILES: tuple[tuple[str, str, str, Callable[[], str]], ...] = (
+    ("ssh-key", "ssh", "ssh", lambda: f"id_ed25519_{secrets.token_hex(4)}"),
+    ("credentials", "directory", "json", lambda: f"credentials-{secrets.token_hex(4)}.json"),
+    ("token", "directory", "plain", lambda: f"token-{secrets.token_hex(4)}.txt"),
 )
 
 Runner = Callable[..., subprocess.CompletedProcess]
@@ -74,12 +83,15 @@ class DecoyError(RuntimeError):
 
 @dataclass(frozen=True)
 class Decoy:
-    """One decoy: a file (``path``) or the keychain item (``path`` is None)."""
+    """One decoy: a file (``path``) or the keychain item (``path`` is None; ``service`` and
+    ``account`` name it)."""
 
     label: str
     path: Path | None
     marker: str = field(repr=False)
     kind: str = "file"  # file, keychain or ephemeral
+    service: str | None = None
+    account: str | None = None
 
     @property
     def known(self) -> KnownSecret:
@@ -103,11 +115,12 @@ _KEY_ARMOUR = ("-----BEGIN OPENSSH " + "PRIVATE KEY-----", "-----END OPENSSH " +
 
 
 def content(form: str, marker: str) -> str:
+    """What a decoy of ``form`` holds: the marker shaped like the credential it imitates."""
     if form == "ssh":
-        return f"{_KEY_ARMOUR[0]}\n{DECOY_LINE}\n{marker}\n{_KEY_ARMOUR[1]}\n"
+        return f"{_KEY_ARMOUR[0]}\n{marker}\n{_KEY_ARMOUR[1]}\n"
     if form == "json":
-        return json.dumps({"note": DECOY_LINE, "token": marker}, indent=2) + "\n"
-    return f"{DECOY_LINE}\n{marker}\n"
+        return json.dumps({"token": marker, "token_type": "bearer"}, indent=2) + "\n"
+    return f"{marker}\n"
 
 
 def registry_path(directory: str | Path | None = None) -> Path:
@@ -120,13 +133,19 @@ def _load(directory: str | Path | None) -> dict:
     except (OSError, ValueError):
         data = None
     if not isinstance(data, dict):
-        return {"version": 1, "files": [], "keychain": None}
+        return {"version": REGISTRY_VERSION, "directory": None, "files": [], "keychain": None}
     files = [entry for entry in data.get("files") or [] if isinstance(entry, dict)
              and isinstance(entry.get("label"), str) and isinstance(entry.get("path"), str)
-             and _valid_marker(entry.get("marker"))]
-    keychain = data.get("keychain") if isinstance(data.get("keychain"), dict) and \
-        _valid_marker(data["keychain"].get("marker")) else None
-    return {"version": 1, "files": files, "keychain": keychain}
+             and os.path.isabs(entry["path"]) and _valid_marker(entry.get("marker"))]
+    folder = data.get("directory")
+    folder = folder if isinstance(folder, str) and os.path.isabs(folder) and DIRECTORY_NAME.fullmatch(
+        Path(folder).name) else None
+    keychain = data.get("keychain")
+    if not (isinstance(keychain, dict) and _valid_marker(keychain.get("marker"))
+            and isinstance(keychain.get("service"), str) and KEYCHAIN_SERVICE_NAME.fullmatch(keychain["service"])
+            and isinstance(keychain.get("account"), str) and KEYCHAIN_ACCOUNT_NAME.fullmatch(keychain["account"])):
+        keychain = None
+    return {"version": REGISTRY_VERSION, "directory": folder, "files": files, "keychain": keychain}
 
 
 def _save(directory: str | Path | None, registry: dict) -> None:
@@ -148,13 +167,14 @@ def _matches(path: Path, expected: str) -> bool:
         return False
 
 
-def _is_decoy_file(path: Path) -> bool:
-    """A regular file of this user holding `DECOY_LINE`: a decoy whose registry entry was lost."""
+def holds_marker(path: Path, marker: str) -> bool:
+    """A small regular file (never a link) that holds ``marker``: a decoy the registry names."""
     try:
         found = os.lstat(path)
-        return stat.S_ISREG(found.st_mode) and found.st_uid == os.getuid() and found.st_size < 4096 \
-            and DECOY_LINE in path.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
+        if not stat.S_ISREG(found.st_mode) or found.st_size > MAX_DECOY_BYTES:
+            return False
+        return marker.encode() in Path(path).read_bytes()
+    except OSError:
         return False
 
 
@@ -179,35 +199,53 @@ def _unlink_entry(path: Path) -> bool:
     return True
 
 
+def _free_name(parent: Path, make: Callable[[], str]) -> Path:
+    for _ in range(16):
+        path = Path(parent) / make()
+        if not os.path.lexists(path):
+            return path
+    raise DecoyError(f"no free decoy name in {parent}")
+
+
+def _directory_name() -> str:
+    return f".{secrets.choice(_WORDS)}-{secrets.token_hex(4)}"
+
+
 def ensure(directory: str | Path | None, home: Path, *, keychain: bool = False,
            runner: Runner = subprocess.run) -> list[Decoy]:
     """Plant the decoys that are missing or changed and return them all (idempotent)."""
     home = Path(home)
     registry = _load(directory)
-    registered = {entry["path"]: entry for entry in registry["files"]}
+    folder = Path(registry["directory"]) if registry["directory"] else None
+    if folder is None or folder.parent != home:
+        folder = _free_name(home, _directory_name)
+    if os.path.lexists(folder) and (os.path.islink(folder) or not folder.is_dir()):
+        raise DecoyError(f"{folder} is not a directory of this runner")
+    private_dir(folder)
+    registry["directory"] = str(folder)
+    registered = {entry["label"]: entry for entry in registry["files"]}
     planted: list[Decoy] = []
     entries = []
-    for label, relative, form in FILES:
-        path = home / relative
-        parent = path.parent
-        if label == "ssh-key":
-            if not parent.is_dir() or parent.is_symlink():
-                continue  # no ~/.ssh: nothing would look for a key there
+    for label, where, form, make in FILES:
+        parent = home / ".ssh" if where == "ssh" else folder
+        if where == "ssh" and (not parent.is_dir() or parent.is_symlink()):
+            continue  # no ~/.ssh: nothing would look for a key there
+        entry = registered.get(label)
+        if entry is not None and Path(entry["path"]).parent == parent:
+            path, marker = Path(entry["path"]), entry["marker"]
         else:
-            private_dir(parent)
-        entry = registered.get(str(path))
-        if entry is None and os.path.lexists(path) and not _is_decoy_file(path):
-            raise DecoyError(f"{path} exists and is not a decoy of this runner; it is never overwritten")
-        marker = entry["marker"] if entry else new_marker()
+            path, marker = _free_name(parent, make), new_marker()
         text = content(form, marker)
         if not _matches(path, text):
-            _unlink_entry(path)  # a registered decoy that changed: ours to replace
+            _unlink_entry(path)  # a registered decoy that changed (a fresh name holds nothing): ours to replace
             _write_new(path, text)
         entries.append({"label": label, "path": str(path), "marker": marker})
         planted.append(Decoy(label, path, marker))
     registry["files"] = entries
     if keychain:
-        item = registry["keychain"] or {"service": KEYCHAIN_SERVICE, "account": KEYCHAIN_ACCOUNT, "marker": new_marker()}
+        item = registry["keychain"] or {"service": f"{secrets.choice(('api-token', 'cli-credentials', 'service-token'))}"
+                                                   f"-{secrets.token_hex(6)}",
+                                        "account": f"user-{secrets.token_hex(4)}", "marker": new_marker()}
         present = _run(runner, [SECURITY, "find-generic-password", "-s", item["service"], "-a", item["account"]])
         if present.returncode != 0 or registry["keychain"] is None:
             added = _run(runner, [SECURITY, "add-generic-password", "-U", "-s", item["service"], "-a", item["account"],
@@ -215,7 +253,8 @@ def ensure(directory: str | Path | None, home: Path, *, keychain: bool = False,
             if added.returncode != 0:
                 raise DecoyError(f"the decoy keychain item could not be created (security exit code {added.returncode})")
         registry["keychain"] = item
-        planted.append(Decoy("keychain-item", None, item["marker"], "keychain"))
+        planted.append(Decoy("keychain-item", None, item["marker"], "keychain", item["service"], item["account"]))
+    registry["version"] = REGISTRY_VERSION
     _save(directory, registry)
     return planted
 
@@ -234,26 +273,30 @@ def registered(directory: str | Path | None = None) -> list[Decoy]:
     registry = _load(directory)
     found = [Decoy(entry["label"], Path(entry["path"]), entry["marker"]) for entry in registry["files"]]
     if registry["keychain"]:
-        found.append(Decoy("keychain-item", None, registry["keychain"]["marker"], "keychain"))
+        item = registry["keychain"]
+        found.append(Decoy("keychain-item", None, item["marker"], "keychain", item["service"], item["account"]))
     return found
 
 
+def decoy_directory(directory: str | Path | None = None) -> Path | None:
+    """The registered random decoy directory in the home directory, if any."""
+    folder = _load(directory)["directory"]
+    return Path(folder) if folder else None
+
+
 def remove(directory: str | Path | None, *, runner: Runner = subprocess.run) -> list[str]:
-    """Delete every registered decoy, the decoy directory when empty, the keychain item and the
-    registry; return what was removed."""
+    """Delete every registered decoy that still holds its marker, the decoy directory when empty,
+    the keychain item and the registry; return what was removed."""
     registry = _load(directory)
     removed = []
-    parents = set()
     for entry in registry["files"]:
         path = Path(entry["path"])
-        if _unlink_entry(path):
+        if holds_marker(path, entry["marker"]) and _unlink_entry(path):
             removed.append(str(path))
-        if path.parent.name == DECOY_DIR:
-            parents.add(path.parent)
-    for parent in parents:
+    if registry["directory"]:
         try:
-            parent.rmdir()
-            removed.append(str(parent))
+            Path(registry["directory"]).rmdir()
+            removed.append(registry["directory"])
         except OSError:
             pass  # not empty or already gone: left for the owner
     if registry["keychain"]:
@@ -270,14 +313,15 @@ def remove(directory: str | Path | None, *, runner: Runner = subprocess.run) -> 
 
 
 def plant(directory: Path, label: str) -> Decoy:
-    """An ephemeral decoy file in ``directory`` (created 0700 when missing); `discard` removes it."""
+    """An ephemeral decoy file under a random name in ``directory`` (created 0700 when missing);
+    `discard` removes it."""
     directory = Path(directory)
     os.makedirs(directory, mode=0o700, exist_ok=True)
     found = os.lstat(directory)
     if not stat.S_ISDIR(found.st_mode) or found.st_uid != os.getuid():
         raise DecoyError(f"{directory} is not a directory of this user")
     marker = new_marker()
-    path = directory / f"{EPHEMERAL_PREFIX}{secrets.token_hex(6)}.txt"
+    path = _free_name(directory, lambda: f"{secrets.token_hex(6)}.txt")
     _write_new(path, content("plain", marker))
     return Decoy(label, path, marker, "ephemeral")
 
@@ -298,6 +342,23 @@ def is_decoy_label(name: str) -> bool:
 def decoy_hits(hits: Iterable) -> list:
     """The ``known`` hits that name a decoy."""
     return [hit for hit in hits if hit.kind == HitKind.KNOWN and is_decoy_label(hit.name)]
+
+
+def references(decoys: Iterable[Decoy]) -> dict[str, tuple[str, ...]]:
+    """For each decoy label, the strings whose presence in a tool call means the call names that
+    decoy: the random file name, the random directory name, the keychain item's service."""
+    found: dict[str, tuple[str, ...]] = {}
+    for decoy in decoys:
+        names = []
+        if decoy.path is not None:
+            names.append(decoy.path.name)
+            if DIRECTORY_NAME.fullmatch(decoy.path.parent.name):
+                names.append(decoy.path.parent.name)
+        if decoy.service:
+            names.append(decoy.service)
+        if names:
+            found[decoy.label] = tuple(names)
+    return found
 
 
 def self_test(decoys: Iterable[Decoy]) -> list[str]:

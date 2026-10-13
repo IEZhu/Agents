@@ -33,7 +33,9 @@ does today.
   reboot, before it cleans up.
 - **The session sandbox exists, no session uses it yet.** The launcher, the probes and the decoys
   ([autodev-sandbox.md](autodev-sandbox.md)) are in place; the run sequence (#347) must build
-  every Claude session with them and start it only after its probes passed.
+  every Claude session with them, create and remove the run's short temporary root
+  (`sandbox.make_temp_root`), start a session only through `probes.start_session` after its
+  probes passed, and run `probes.stage_tripwire` on every stage session's stream.
 - **macOS only.** The scheduler is a LaunchAgent, and supervision uses POSIX process groups.
 
 ## Commands

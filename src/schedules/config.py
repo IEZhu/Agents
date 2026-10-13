@@ -58,8 +58,10 @@ DEFAULTS: dict[str, Any] = {
     },
     # The session sandbox (#343, docs/autodev-sandbox.md): "config-dir" (a persistent
     # CLAUDE_CONFIG_DIR the owner logs in once) or "keychain:<service>" (an OAuth token read from
-    # that keychain item); decoy_keychain plants the opt-in decoy keychain item.
-    "sandbox": {"login": "config-dir", "decoy_keychain": False},
+    # that keychain item); decoy_keychain plants the opt-in decoy keychain item; allowed_plugins
+    # names the plugins a session's init event may list (built-in ones load even in safe mode;
+    # calibrated by the owner's live check, empty by default, so any plugin fails the probes).
+    "sandbox": {"login": "config-dir", "decoy_keychain": False, "allowed_plugins": []},
 }
 
 _HHMM = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
@@ -222,8 +224,8 @@ def validate(config: Any) -> dict:
         if not isinstance(token, str) or not token.startswith("keychain:") or not token[len("keychain:"):].strip():
             problems.append("github.token must name a keychain item: keychain:<service>")
     sandbox = config.get("sandbox")
-    if not isinstance(sandbox, dict) or set(sandbox) != {"login", "decoy_keychain"}:
-        problems.append("sandbox must have login and decoy_keychain")
+    if not isinstance(sandbox, dict) or set(sandbox) != {"login", "decoy_keychain", "allowed_plugins"}:
+        problems.append("sandbox must have login, decoy_keychain and allowed_plugins")
     else:
         login = sandbox["login"]
         if not (login == "config-dir" or (isinstance(login, str) and login.startswith("keychain:")
@@ -231,6 +233,10 @@ def validate(config: Any) -> dict:
             problems.append("sandbox.login must be config-dir or keychain:<service>")
         if not isinstance(sandbox["decoy_keychain"], bool):
             problems.append("sandbox.decoy_keychain must be true or false")
+        plugins = sandbox["allowed_plugins"]
+        if not isinstance(plugins, list) or not all(isinstance(name, str) and re.fullmatch(r"[A-Za-z0-9_.@:-]{1,64}", name)
+                                                    for name in plugins):
+            problems.append("sandbox.allowed_plugins must be a list of plugin names")
     if problems:
         raise ConfigError(problems)
     return config

@@ -680,21 +680,38 @@ def test_windows_states_inside_the_installation_are_found_and_kept_with_keep_dat
 
 def test_decoys_are_removed_with_the_data_but_only_real_decoy_files(home):
     state = darwin_home(home)
-    decoy_dir = home / ".agents-autodev-decoys"
-    ssh_decoy = write(home / ".ssh/agents_autodev_decoy_ed25519", b"-----BEGIN\n" + uninstall.DECOY_LINE + b"\nM\n")
-    write(decoy_dir / "credentials.json", b'{"note": "' + uninstall.DECOY_LINE + b'"}')
+    marker, other = "Ab1" + "x" * 45, "Cd2" + "y" * 45
+    decoy_dir = home / ".cache-0123abcd"
+    ssh_decoy = write(home / ".ssh/id_ed25519_5a6b7c8d", ("-----BEGIN\n" + marker + "\n-----END\n").encode())
+    write(decoy_dir / "credentials-1234.json", ('{"token": "' + other + '"}').encode())
     foreign = write(home / ".ssh/id_ed25519", b"the owner's key")
-    outside = write(home.parent / "elsewhere.txt", uninstall.DECOY_LINE)
-    write(state / "schedules/decoys.json", json.dumps({"version": 1, "keychain": {"service": "agents-autodev-decoy"},
-                                                       "files": [{"path": str(ssh_decoy)}, {"path": str(foreign)},
-                                                                 {"path": str(outside)},
-                                                                 {"path": str(decoy_dir / "credentials.json")}]}))
+    changed = write(home / ".ssh/id_ed25519_00000000", b"no marker any more")
+    outside = write(home.parent / "elsewhere.txt", marker.encode())
+    service, account = "api-token-0123456789ab", "user-01234567"
+    write(state / "schedules/decoys.json", json.dumps({
+        "version": 2, "directory": str(decoy_dir), "keychain": {"service": service, "account": account, "marker": other},
+        "files": [{"path": str(ssh_decoy), "marker": marker}, {"path": str(foreign), "marker": marker},
+                  {"path": str(changed), "marker": marker}, {"path": str(outside), "marker": marker},
+                  {"path": str(decoy_dir / "credentials-1234.json"), "marker": other}]}))
     runner = keychain_runner()
     items = uninstall.build_plan(context(home, "darwin", runner))
     decoy_targets = [item.target for item in items if "decoy" in item.detail]
-    assert decoy_targets == [str(ssh_decoy), str(decoy_dir), "keychain item agents-autodev-decoy"]
+    assert decoy_targets == [str(ssh_decoy), str(decoy_dir), f"keychain item {service}"]
     assert all(item.kind == "data" for item in items if "decoy" in item.detail)
     assert main(["--yes"], ctx=context(home, "darwin", runner), interactive=False) == 0
     assert not ssh_decoy.exists() and not decoy_dir.exists()
-    assert foreign.read_bytes() == b"the owner's key" and outside.exists()
-    assert runner.ran("/usr/bin/security", "delete-generic-password", "-s", "agents-autodev-decoy")
+    assert foreign.read_bytes() == b"the owner's key" and outside.exists() and changed.exists()
+    assert runner.ran("/usr/bin/security", "delete-generic-password", "-s", service, "-a", account)
+
+
+def test_registry_entries_with_foreign_names_are_never_removed(home):
+    state = darwin_home(home)
+    write(home / ".config/x", b"kept")  # the owner's own directory: not a decoy name
+    write(state / "schedules/decoys.json", json.dumps({
+        "directory": str(home / ".config"),
+        "keychain": {"service": "agents-autodev-github", "account": "WonderMr", "marker": "Ab1" + "x" * 45},
+        "files": []}))
+    runner = keychain_runner()
+    items = uninstall.decoy_items(context(home, "darwin", runner), [state])
+    assert items == [] and not runner.ran("/usr/bin/security", "find-generic-password", "-s", "agents-autodev-github",
+                                          "-a", "WonderMr")
