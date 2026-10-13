@@ -8,8 +8,10 @@ Portable history commits are read from incoming refs but never checked out.
 
 Reads of the version list are cached per library (#371): the combined events of
 every ref ``events()`` reads, with blob IDs in place of file bytes, keyed by those
-refs' commits. A moved ref updates the cache from the commits it has not seen; a
-rewritten or removed one recomputes it.
+refs' commits. A moved, rewritten or removed ref expands only the commits the cache
+has not seen and combines every commit's events again. History is read from the
+commits as stored: replace refs and grafts, which change a commit without moving a
+ref, are ignored.
 """
 from __future__ import annotations
 
@@ -41,6 +43,8 @@ RECEIVED_PREFIX = "refs/agents-core/received/"
 LEGACY_SUPPORT_REF = "refs/agents-core/legacy-support"
 LEGACY_SUPPORT_MANIFEST = "legacy-support.json"
 ACCEPTED_PREFIX = "refs/agents-core/accepted/"
+# The refs of remote copies events() reads, by name, before HISTORY_REF (see _listed_refs).
+_SOURCE_PREFIXES = (INCOMING_PREFIX, RECEIVED_PREFIX, ACCEPTED_PREFIX)
 MANAGED_KEY = "agents-sync.managed"
 MESSAGE_PREFIX = "Agents-Core-History: "
 PORTABLE_METADATA = ".agents-history-event.json"
@@ -50,15 +54,31 @@ _VERSION = re.compile(r"(?:git-[0-9a-f]{40}|\d{8}T\d{12}Z-[0-9a-f]{12}(?:-delete
 _OID = re.compile(r"[0-9a-f]{40}")
 _FLOW_PATH = re.compile(r"(?:common|repos/[a-z0-9_][a-z0-9._-]*)/[a-z0-9]+(?:-[a-z0-9]+)*\.md")
 _RESERVED = re.compile(r"(?:con|prn|aux|nul|com[0-9]|lpt[0-9])(?:\..*)?", re.I)
-_TIP = re.compile(r"([0-9a-f]{40}) ([a-z]+) (refs/\S+)")
+_TIP = re.compile(r"([0-9a-f]{40}) ([a-z]+)")
+# Entry counts, not bytes: an index holds every walked commit's events (blob IDs, no file bytes).
 INDEX_LIBRARIES = 8  # cached libraries; the least recently used is dropped first
 DIGEST_LIMIT = 4096  # cached SHA-256 digests of archived blobs, by blob ID
+# Commits as stored: no replace refs, and an empty graft file whose deprecation hint stays quiet.
+_STORED_OBJECTS = {"GIT_NO_REPLACE_OBJECTS": "1", "GIT_GRAFT_FILE": os.devnull, "GIT_CONFIG_COUNT": "1",
+                   "GIT_CONFIG_KEY_0": "advice.graftFileDeprecated", "GIT_CONFIG_VALUE_0": "false"}
 
 logger = logging.getLogger(__name__)
 
 
 class HistoryError(FlowError):
     """A refused input or recoverable Git/working-tree operation failure."""
+
+
+class _HistoryGit(Git):
+    """``Git`` that reads history commits as stored (#371).
+
+    Replace refs and grafts can give a commit other parents or another message
+    without moving any ref, so a cache keyed by the refs' commits would serve the
+    old reading while a fresh one sees the new; neither is ever written here.
+    """
+
+    def environment(self, extra: dict[str, str] | None = None) -> dict[str, str]:
+        return super().environment({**_STORED_OBJECTS, **(extra or {})})
 
 
 class _Index:
@@ -125,7 +145,7 @@ class LibraryHistory:
     def __init__(self, root: str | Path):
         self.root = Path(root).expanduser().resolve()
         self.directory = self.root / ".git" / "agents-core-history"
-        self.git = Git(self.root, config=self.directory / "gitconfig", ssh=None)
+        self.git = _HistoryGit(self.root, config=self.directory / "gitconfig", ssh=None)
         self._trees: dict[str, dict[str, str]] = {}
         self._blobs: dict[str, bytes] = {}
         self._commit_trees: dict[str, str] = {}
@@ -484,27 +504,32 @@ class LibraryHistory:
                 commits.append((expected, parent, metadata))
         return commits
 
+    def _listed_refs(self, fields: str = "") -> list[tuple[str, str]]:
+        """``(ref, fields)`` of every ref ``events()`` reads, in walk order: the remote copies'
+        refs by name, then HISTORY_REF. The one selection behind ``_refs`` and ``_tips``."""
+        sources, history = [], []
+        for line in self.git.text("for-each-ref", "--format=%(refname)" + (" " + fields if fields else ""),
+                                  *_SOURCE_PREFIXES, HISTORY_REF).splitlines():
+            ref, _, values = line.partition(" ")  # a ref name has no space
+            if ref == HISTORY_REF:
+                history.append((ref, values))
+            elif ref.startswith(_SOURCE_PREFIXES):  # not other refs under the HISTORY_REF pattern
+                sources.append((ref, values))
+        return sources + history
+
     def _refs(self) -> list[str]:
-        refs = self.git.text("for-each-ref", "--format=%(refname)", INCOMING_PREFIX,
-                             RECEIVED_PREFIX, ACCEPTED_PREFIX).splitlines()
-        if self._rev(HISTORY_REF):
-            refs.append(HISTORY_REF)
-        return refs
+        """The refs ``events()`` reads; HISTORY_REF only when it names a commit."""
+        return [ref for ref, _ in self._listed_refs() if ref != HISTORY_REF or self._rev(HISTORY_REF)]
 
     def _tips(self) -> tuple[tuple[str, str], ...] | None:
         """``(ref, commit)`` of each ref ``_refs()`` names, in its order; None for a ref that is not a commit."""
-        tips, history = [], []
-        for line in self.git.text("for-each-ref", "--format=%(objectname) %(objecttype) %(refname)",
-                                  INCOMING_PREFIX, RECEIVED_PREFIX, ACCEPTED_PREFIX, HISTORY_REF).splitlines():
-            match = _TIP.fullmatch(line)
+        tips = []
+        for ref, values in self._listed_refs("%(objectname) %(objecttype)"):
+            match = _TIP.fullmatch(values)
             if match is None or match[2] != "commit":
                 return None
-            oid, _, ref = match.groups()
-            if ref == HISTORY_REF:
-                history.append((ref, oid))
-            elif ref.startswith((INCOMING_PREFIX, RECEIVED_PREFIX, ACCEPTED_PREFIX)):
-                tips.append((ref, oid))
-        return tuple(tips + history)
+            tips.append((ref, match[1]))
+        return tuple(tips)
 
     def _event(self, commit: str, parent: str | None, metadata: dict) -> dict:
         """One event of a commit; ``content``, ``previous`` and ``changes`` hold blob IDs."""
@@ -651,39 +676,56 @@ class LibraryHistory:
     def _index(self) -> tuple[dict, ...]:
         """``events()`` with blob IDs, shared by every reader of this library until a ref moves.
 
-        A ref that is not a commit, or a state this cache does not understand, is
-        computed in full as before. An update that fails is retried in full once.
+        A ref that is not a commit, or refs that cannot be listed, are computed in
+        full without the cache. History the library refuses (a ``HistoryError``, such
+        as conflicting copies) is raised at once, as a full computation raises it. An
+        update that fails otherwise (Git, or an unexpected error) is retried once from
+        scratch with the refs listed again, since they may have moved meanwhile.
         """
         self._ensure_repository()
         index = _library_index(self.root)
         with index.lock:  # one computation per library; concurrent readers wait for it
-            try:
-                tips = self._tips()
-            except GitError:
-                tips = None  # e.g. a ref naming a missing object; the full computation reports it
+            tips = self._listed_tips()
             if tips is None:
-                return tuple(self._combined(self._commits(self._refs())))
+                return self._uncached()
             if index.tips != tips:
                 try:
                     self._update(index, tips)
+                except HistoryError as error:
+                    logger.warning("Library history: %s is refused: %s", self.root, error)
+                    raise
                 except Exception:
                     if not index.expanded:
                         raise
                     logger.warning("Library history: an incremental update of %s failed; recomputing it",
                                    self.root, exc_info=True)
                     index.tips, index.order, index.expanded, index.events = None, (), {}, ()
+                    tips = self._listed_tips()
+                    if tips is None:
+                        return self._uncached()
                     self._update(index, tips)
             return index.events
+
+    def _listed_tips(self) -> tuple[tuple[str, str], ...] | None:
+        try:
+            return self._tips()
+        except GitError:
+            return None  # e.g. a ref naming a missing object; the full computation reports it
+
+    def _uncached(self) -> tuple[dict, ...]:
+        return tuple(self._combined(self._commits(self._refs())))
 
     def _update(self, index: _Index, tips: tuple[tuple[str, str], ...]) -> None:
         """Walk the tips and expand only commits the index has not seen.
 
-        The walk order is that of a full computation, so the combined events are
-        identical. A commit that left the walk (a rewritten or removed ref) makes
-        this a full recomputation. Nothing changes in ``index`` until it succeeds.
+        A commit's expansion depends only on that commit, so the expansions of
+        commits still in the walk are kept and those of commits that left it (a
+        rewritten or removed ref) are dropped. Every commit's events are combined
+        again in the walk order of a full computation, so the result is identical.
+        Nothing changes in ``index`` until it succeeds.
         """
         order = tuple(self._rev_list([oid for _, oid in tips]))
-        known = index.expanded if set(index.order) <= set(order) else {}
+        known = index.expanded
         new = [commit for commit in order if commit not in known]
         records = {record[0]: record for record in self._records(new)}
         self._prime_records(records.values())
@@ -870,7 +912,9 @@ class LibraryHistory:
             refs.append("^" + boundary)
         return self._events(self._commits(refs))
 
-    def _archived(self, event: dict) -> bytes | None:
+    def _archived(self, event: dict) -> str | bytes | None:
+        """What the event's version restores: a blob ID in the index's events (``_index``),
+        the bytes in hydrated ones (``events()``); None when it keeps no version."""
         if event["archive"]:
             return event["content"]
         if event["action"] in ("baseline", "initialize"):

@@ -190,6 +190,30 @@ def test_text_without_versions_never_computes_them(library, monkeypatch):
     assert old["content"] == "# One\n" and "history" not in old
 
 
+def test_versions_answer_like_get_for_missing_and_deleted_flows(library):
+    """#371: a flow that never existed is not found, a deleted one keeps its versions, and a bare
+    ID that no current flow has finds them as ``get(name, version)`` does: repository, then personal."""
+    created = library.save("mine", "# Mine\n")
+    library.delete("mine", expected_revision=created["flow"]["revision"])
+    kept = library.versions("user:mine")
+    assert kept["id"] == "user:mine" and [entry["deleted"] for entry in kept["history"]] == [True]
+    assert library.versions("mine") == kept
+    for name in ("user:never", "never", "repo:never", "builtin:never"):
+        for read in (library.versions, library.get):
+            with pytest.raises(FlowError, match="flow_not_found"):
+                read(name)
+    assert library.versions("builtin:review") == {"status": "success", "id": "builtin:review", "history": []}
+    for scope in ("user", "repo"):
+        made = library.save("both", f"# {scope}\n", scope=scope)
+        library.delete(f"{scope}:both", expected_revision=made["flow"]["revision"])
+    assert library.versions("both")["id"] == "repo:both"
+    personal = FlowLibrary(library.catalog, user_dir=library.user_dir)  # no repository selected
+    assert personal.versions("both")["id"] == "user:both"
+    assert personal.versions("mine") == kept
+    with pytest.raises(FlowError, match="repo_scope_unavailable"):
+        personal.versions("repo:both")
+
+
 def test_flow_libraries_share_cached_versions(library, monkeypatch):
     library.save("mine", "# One\n")
     library.save("mine", "# Two\n", expected_revision=revision("# One\n"))
@@ -499,6 +523,7 @@ async def test_editor_access_control(editor):
     assert ".venv/bin/python -m src.daemon flows-ui" in page.text  # sign-in page names the command
     assert "automatic sign-in works only for a browser of the os user" in page.text.lower()
     assert (await http.get("/ui/api/flows")).status_code == 401
+    assert (await http.get("/ui/api/flow/history", params={"id": "user:mine"})).status_code == 401
     assert (await http.post("/admin/ui/code")).status_code == 401
     # The bearer token does not open the editor API, and the page is loopback-only.
     bearer = await http.get("/ui/api/flows", headers={"Authorization": "Bearer " + TOKEN})
@@ -512,6 +537,18 @@ async def test_editor_access_control(editor):
     for headers in ({"X-Agents-UI": "1", "Origin": "https://attacker.example"},
                     {"Origin": "http://127.0.0.1:8765"}):
         assert (await http.put("/ui/api/flow", json=body, headers=headers)).status_code == 403
+    # The versions route (#371): the same gate, read-only, and ids and keys stay in the library.
+    history = "/ui/api/flow/history"
+    foreign = await http.get(history, params={"id": "user:mine"}, headers={"Host": "attacker.example"})
+    assert foreign.status_code == 403
+    for method in ("POST", "PUT", "DELETE"):
+        assert (await http.request(method, history, json={"id": "user:mine"}, headers=UI)).status_code == 404
+        assert (await http.request(method, history, json={"id": "user:mine"})).status_code == 403
+    for params, status in (({"id": "user:../../etc/passwd"}, 400), ({"id": "../common"}, 400),
+                           ({"id": "repo:mine", "repo": "nope"}, 404), ({"id": "repo:mine", "repo": "../common"}, 400),
+                           ({"id": "user:never"}, 404)):
+        refused = await http.get(history, params=params)
+        assert refused.status_code == status and refused.json()["status"] == "error", (params, refused.json())
     # The editor cannot reach MCP or administration with its session.
     assert (await http.post("/admin/drain", headers=UI)).status_code == 401
 

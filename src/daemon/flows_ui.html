@@ -747,26 +747,30 @@ async function loadHistory(flow) {
   const gen = state.historyGen = (state.historyGen || 0) + 1;  // only the latest request renders
   if (flow.source === "builtin") return renderHistory([]);
   renderHistory(null);
-  let versions = null;
+  let versions = null, failure = null;
   try {
     versions = (await api("/ui/api/flow/history?" + flowParams(flow))).history || [];
   } catch (error) {
     if (error.signedOut) return;
+    failure = error.message || "unknown error";
   }
   // Another flow opened meanwhile keeps its own list; a reload of this one (a save) is a newer request.
   if (gen === state.historyGen && sameFlow(state.current, flow.id, flow.repo_key)) {
-    renderHistory(versions, versions === null);
+    renderHistory(versions, failure);
   }
 }
 
-// `versions` null: still loading, or, with `failed`, unavailable.
-function renderHistory(versions, failed = false) {
+// `versions` null: still loading, or, with the `failure` message, unavailable.
+function renderHistory(versions, failure = null) {
   const select = $("history");
   select.replaceChildren();
+  if (versions === null && failure === null) select.setAttribute("aria-busy", "true");
+  else select.removeAttribute("aria-busy");
   const head = document.createElement("option");
   head.value = "";
-  head.textContent = failed ? "History unavailable" : versions === null ? "History…"
+  head.textContent = failure !== null ? "History unavailable" : versions === null ? "History…"
     : versions.length ? "History (" + versions.length + ")" : "No history";
+  if (failure !== null) head.title = failure + ". Reopen the flow to try again.";
   select.appendChild(head);
   for (const item of versions || []) {
     const option = document.createElement("option");
