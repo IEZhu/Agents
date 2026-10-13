@@ -12,6 +12,11 @@ a timeout) end as ``failed: infra`` with a reason, set no label, and the next sl
 Only ``dry-run`` exists here. Every real mode (``run``, ``resume``) refuses and names the parts it
 needs; nothing in this module writes to GitHub, and the gate's cleanup actions are only reported.
 
+``codex_probe`` is the owner's live check of Codex (#344, docs/autodev-codex.md): it builds a
+Codex worker or stage launch under its outer profile, runs the model-free probes and the nested
+check, and decides between Codex and the Claude worker; for a stage it then runs the #343 probe
+plan through ``codex exec`` (a model turn) only when every model-free check passed.
+
 ``probe`` is the owner's live check of the session sandbox (#343, docs/autodev-sandbox.md): it
 builds one session exactly as a run would (`src.schedules.sandbox`), checks its login, plants the
 decoys and runs `src.schedules.probes.guard`, which starts a real probe session (a model turn), so
@@ -37,7 +42,8 @@ from src import executables
 from src.daemon.state import private_dir, read_json, write_json
 
 from . import config as autodev_config
-from . import decoys, drift, heavy, launchagent, lease, probes, records, repos, sandbox, scan, socket_service
+from . import codex_probes, codex_proxy, codex_sandbox, decoys, drift, heavy, launchagent, lease, probes, records, repos
+from . import sandbox, scan, socket_service
 from .gate import gate
 from .github import (GitHubClient, GitHubError, NetworkError, TokenUnavailable, fetch_snapshot, keychain_token,
                      token_provider)
@@ -82,6 +88,11 @@ class Context:
     probe_timeout: float = probes.PROBE_TIMEOUT
     temp_base: Path = sandbox.TMP_BASE
     resolver: Callable[[str], bool] = probes.resolves
+    # The Codex check (#344): the codex executable (default: tools.json, then PATH), how a probe
+    # command runs (`codex_probes.execute`) and how the runner resolves the external address.
+    codex: str | None = None
+    codex_execute: Callable[..., probes.Captured] = codex_probes.execute
+    codex_resolver: Callable[[str], str | None] = codex_probes.resolve_ipv4
 
     @property
     def schedules(self) -> Path:
@@ -567,3 +578,123 @@ def _maybe_serve(serve: bool, run_dir: Path, writable: list, temp_root: Path | N
     if not serve:
         return contextlib.nullcontext()
     return socket_service.serve(run_dir, socket_service.Registry(), session_writable=writable, temp_root=temp_root)
+
+
+# --- the Codex check (#344) ----------------------------------------------------------------------------
+
+CODEX_PROBE_KINDS = codex_sandbox.KINDS
+
+
+def codex_executable(ctx: Context) -> str | None:
+    if ctx.codex:
+        return ctx.codex
+    tools = read_json(ctx.schedules / "tools.json", None)
+    entry = tools.get("codex") if isinstance(tools, dict) else None
+    if isinstance(entry, dict) and isinstance(entry.get("path"), str):
+        return entry["path"]
+    return shutil.which("codex")
+
+
+def codex_probe(ctx: Context, kind: str, confirmed: bool) -> tuple[int, dict]:
+    """The owner's live Codex check: one worker or stage launch, its probes and the decision,
+    recorded as a run; the stored stage availability is updated for #347 and #348."""
+    if not confirmed:
+        return 1, {"ok": False, "error": "confirmation_required",
+                   "message": "the check runs codex under its outer profile, tries to read decoys and write outside "
+                              "it, and for a stage starts a real codex exec session (a model turn) when the model-free "
+                              "checks pass; run again with " + PROBE_CONFIRMATION}
+    if kind not in CODEX_PROBE_KINDS:
+        return 1, {"ok": False, "error": "invalid_kind", "message": f"--kind must be one of {', '.join(CODEX_PROBE_KINDS)}"}
+    config = autodev_config.load(ctx.directory)
+    now = ctx.clock()
+    run_id = records.new_run_id(now)
+    record = {"trigger": {"kind": "codex-probe"}, "codex_kind": kind, "started": iso(now), "status": "running"}
+    markers: list[str] = []
+    try:
+        with lease.hold(ctx.directory):
+            records.write_record(run_id, record, ctx.directory)
+            record.update(_codex_probe(ctx, config, run_id, kind, markers))
+    except lease.LeaseBusy as error:
+        record.update(infra(f"lease: {error}"))
+    record["finished"] = iso(ctx.clock())
+    written = records.write_record(run_id, record, ctx.directory, known=markers)
+    return (0 if written.get("status") == "completed" else 1), written
+
+
+def _codex_work(run_dir: Path) -> dict[str, Path]:
+    """A synthetic tree, materials and schema for the worker check (#345 assembles the real ones)."""
+    work = private_dir(run_dir / "codex-work")
+    tree, materials = private_dir(work / "tree"), private_dir(work / "materials")
+    (tree / "README.md").write_text("autodev Codex check\n")
+    (materials / "diff.txt").write_text("no change\n")
+    schema = work / "schema.json"
+    schema.write_text('{"type": "object", "properties": {"verdict": {"type": "string"}}}\n')
+    return {"tree": tree, "materials": materials, "schema": schema}
+
+
+def _codex_probe(ctx: Context, config: dict, run_id: str, kind: str, markers: list[str]) -> dict:
+    try:
+        mode = codex_sandbox.login_mode(config)
+        codex = codex_executable(ctx)
+        path = run_environment(ctx)["PATH"]
+        home_dir = codex_sandbox.codex_home(ctx.directory)
+        planted = decoys.ensure(ctx.directory, ctx.home, keychain=config["sandbox"]["decoy_keychain"],
+                                runner=ctx.command_runner)
+        markers.extend(decoy.marker for decoy in planted)
+        known = broker_secrets(ctx, config)
+        markers.extend(secret.value for secret in known if isinstance(secret.value, str))
+    except (codex_sandbox.CodexSandboxError, decoys.DecoyError) as error:
+        return {"status": "refused", "reason": f"codex: {error}"}
+    run_dir = records.run_dir(run_id, ctx.directory)
+    temp_root = session = None
+    try:
+        temp_root = sandbox.make_temp_root(ctx.temp_base)
+        common = dict(kind=kind, home=ctx.home, codex_home=home_dir, tmp_root=temp_root,
+                      run_home=codex_sandbox.prepare_run_home(temp_root), out_dir=private_dir(run_dir / "codex-out"),
+                      profile=run_dir / "codex-profile" / "codex.sb")
+        if kind == codex_sandbox.WORKER:
+            paths = codex_sandbox.CodexPaths(**common, **_codex_work(run_dir))
+        else:
+            session = (ctx.probe_session or default_probe_session)(ctx, config, run_id)
+            paths = codex_sandbox.CodexPaths(**common, repository=Path(session.layout["repository"]),
+                                             exchange=Path(session.layout["exchange"]),
+                                             read_roots=(Path(session.layout["state_copy"]), Path(session.venv)))
+        targets = codex_probes.CodexTargets(
+            state_dir=Path(ctx.directory), secrets_dir=ctx.home / ".config" / "agents-autodev",
+            runner=probe_targets(ctx, config, sandbox.LOGIN_CONFIG_DIR) if kind == codex_sandbox.STAGE else None)
+        settings = (config["delegates"].get("code-review-pass") or {}).get("codex") or {}
+        if kind == codex_sandbox.STAGE:
+            settings = (config["stages"]["implement"].get("codex") or settings)
+        with codex_proxy.ConnectProxy(codex_sandbox.allowed_hosts(mode)) as proxy:
+            options = dict(path=path, proxy=proxy, mode=mode, targets=targets, persistent=planted,
+                           directory=ctx.directory, run_id=run_id, model=settings.get("model"),
+                           effort=settings.get("effort"), known=known, platform=ctx.platform,
+                           execute_=ctx.codex_execute, command_runner=ctx.command_runner,
+                           resolver=ctx.codex_resolver, socket_root=ctx.socket_root)
+            if kind == codex_sandbox.STAGE:
+                decision = codex_probes.stage_availability(codex, paths, timeout=ctx.probe_timeout, **options)
+            else:
+                decision = codex_probes.decide(codex, paths, **options)
+            report = decision.report
+            if report is not None and "workspace_write_blocks_network" not in report.installed \
+                    and ctx.platform == "darwin" and codex and report.installed.get("version"):
+                report.installed.update(codex_probes.installed_checks(os.path.realpath(codex), path=path,
+                                                                      execute_=ctx.codex_execute))
+    except (codex_sandbox.CodexSandboxError, sandbox.SandboxError) as error:
+        return {"status": "refused", "reason": f"codex: {error}"}
+    except repos.FetchError as error:
+        return infra(f"network: {error}")
+    except (repos.RepositoryError, ValueError, OSError) as error:
+        return infra(f"cli: codex check: {type(error).__name__}: {error}")
+    finally:
+        if session is not None:
+            session.cleanup()
+        if temp_root is not None:
+            sandbox.remove_temp_root(temp_root, ctx.temp_base)
+        shutil.rmtree(run_dir / "codex-work", ignore_errors=True)
+    result = {"status": "completed" if decision.codex else "refused", **decision.to_record()}
+    if decision.report is not None and decision.report.tripped:
+        result["tripped"] = True
+    if not decision.codex:
+        result["reason"] = f"Codex is unavailable ({decision.reason}); the step uses the Claude worker"
+    return result

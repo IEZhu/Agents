@@ -26,6 +26,11 @@ CLIENTS = ("claude", "codex")
 STAGES = ("select", "implement", "submit")
 DELEGATES = ("code-review-pass", "change-premortem")
 LIMITS = ("max_reviews", "max_bot_rounds", "max_wait_minutes")
+# model_reasoning_effort values codex-cli 0.162.1 knows (research, source at tag rust-v0.162.1:
+# ReasoningEffort::from_str). Codex itself accepts any non-empty string and sends it to the API,
+# so the configuration refuses everything else for a Codex profile (#344).
+CODEX_EFFORTS = ("none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra", "persistent")
+CODEX_LOGINS = ("api-key", "chatgpt")
 MAX_CATCH_UP_MINUTES = 24 * 60
 # The installation this module runs from: src/schedules/config.py is two levels below it.
 INSTALLATION = Path(__file__).resolve().parents[2]
@@ -62,6 +67,11 @@ DEFAULTS: dict[str, Any] = {
     # names the plugins a session's init event may list (built-in ones load even in safe mode;
     # calibrated by the owner's live check, empty by default, so any plugin fails the probes).
     "sandbox": {"login": "config-dir", "decoy_keychain": False, "allowed_plugins": []},
+    # Codex workers and stage sessions (#344, docs/autodev-codex.md): "api-key" or "chatgpt" (the
+    # login the owner stored once in the runner's CODEX_HOME; it decides which hosts the runner's
+    # proxy tunnels to) or "keychain:<service>" (an API key read from that keychain item and passed
+    # as CODEX_API_KEY).
+    "codex": {"login": "api-key"},
 }
 
 _HHMM = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
@@ -157,6 +167,13 @@ def _profile(where: str, profile: Any, problems: list[str], extra: tuple[str, ..
         problems.append(f"{where}.budget.timeout_minutes must be a positive integer")
     if "effort_followup" in profile and not _text(profile["effort_followup"]):
         problems.append(f"{where}.effort_followup must be a non-empty string")
+    if client == "codex":
+        efforts = [("effort", settings.get("effort") if isinstance(settings, dict) else None)]
+        if "effort_followup" in profile:
+            efforts.append(("effort_followup", profile["effort_followup"]))
+        for name, value in efforts:
+            if _text(value) and value not in CODEX_EFFORTS:
+                problems.append(f"{where}: the Codex {name} must be one of {', '.join(CODEX_EFFORTS)}")
 
 
 def validate(config: Any) -> dict:
@@ -237,6 +254,14 @@ def validate(config: Any) -> dict:
         if not isinstance(plugins, list) or not all(isinstance(name, str) and re.fullmatch(r"[A-Za-z0-9_.@:-]{1,64}", name)
                                                     for name in plugins):
             problems.append("sandbox.allowed_plugins must be a list of plugin names")
+    codex = config.get("codex")
+    if not isinstance(codex, dict) or set(codex) != {"login"}:
+        problems.append("codex must have login")
+    else:
+        login = codex["login"]
+        if not (login in CODEX_LOGINS or (isinstance(login, str) and login.startswith("keychain:")
+                                          and login[len("keychain:"):].strip())):
+            problems.append("codex.login must be api-key, chatgpt or keychain:<service>")
     if problems:
         raise ConfigError(problems)
     return config

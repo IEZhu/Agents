@@ -723,18 +723,19 @@ class SessionSpec:
         return hashlib.sha256(payload.encode()).hexdigest()
 
 
-def executable_identity(claude: str) -> tuple[str, str]:
+def executable_identity(claude: str, *, name: str = "claude") -> tuple[str, str]:
     """The resolved path and SHA-256 of the ``claude`` executable (a Homebrew ``claude`` is a link
-    into a versioned Caskroom directory, so an upgrade changes both)."""
+    into a versioned Caskroom directory, so an upgrade changes both); ``name`` labels errors
+    (`src.schedules.codex_sandbox` binds ``codex`` the same way)."""
     real = os.path.realpath(claude)
     try:
         found = os.stat(real)
         if not stat.S_ISREG(found.st_mode) or not found.st_mode & 0o111:
-            raise SandboxError(f"the claude executable is not an executable file: {real}")
+            raise SandboxError(f"the {name} executable is not an executable file: {real}")
         with open(real, "rb") as stream:
             digest = hashlib.file_digest(stream, "sha256").hexdigest()
     except OSError as error:
-        raise SandboxError(f"the claude executable cannot be read: {real}: {type(error).__name__}") from None
+        raise SandboxError(f"the {name} executable cannot be read: {real}: {type(error).__name__}") from None
     return real, digest
 
 
