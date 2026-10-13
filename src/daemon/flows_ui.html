@@ -751,7 +751,10 @@ async function loadHistory(flow) {
   try {
     versions = (await api("/ui/api/flow/history?" + flowParams(flow))).history || [];
   } catch (error) {
-    if (error.signedOut) return;
+    if (error.signedOut) {  // the page is signed out; the list just stops loading
+      if (gen === state.historyGen) $("history").removeAttribute("aria-busy");
+      return;
+    }
     failure = error.message || "unknown error";
   }
   // Another flow opened meanwhile keeps its own list; a reload of this one (a save) is a newer request.

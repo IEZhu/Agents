@@ -1635,6 +1635,10 @@ def test_a_refused_history_is_raised_at_once_without_a_second_computation(histor
     [record] = [record for record in caplog.records if record.name == library_history.__name__]
     assert record.levelno == logging.WARNING and record.exc_info is None
     assert "conflicting copies" in record.getMessage()
+    records_read.clear()  # the same refs: the same refusal, without reading or logging again
+    with pytest.raises(HistoryError, match="conflicting copies"):
+        LibraryHistory(history.root).history(event["path"])
+    assert records_read == [] and len([r for r in caplog.records if r.name == library_history.__name__]) == 1
 
 
 def test_replace_refs_and_grafts_never_change_what_history_reads(history, cold):
