@@ -85,9 +85,11 @@ Agents-Core from your account, leaving no trace:
 powershell -ExecutionPolicy Bypass -File scripts\uninstall.ps1 --dry-run   # Windows
 ```
 
-- **Services**: the LaunchAgents `local.agents-core.*` (the shared service, its auto-updater,
-  user sync and the autodev scheduler), the `systemd --user` units and the crontab line of user
-  sync, and the Task Scheduler tasks `agents-core-*`. They are stopped first.
+- **Services**: the LaunchAgents `local.agents-core.<id>[.updater|.sync|.scheduler]` (the shared
+  service, its auto-updater, user sync and the autodev scheduler), the `systemd --user` units and
+  the crontab line of user sync, and the Task Scheduler tasks `agents-core-daemon-<id>[-updater]`
+  and `agents-core-sync-<id>`, where `<id>` is the installation id or the name of a state
+  directory it found. They are stopped first; a linked plist or unit is left loaded and reported.
 - **Client registrations**: only the `Agents-Core` and `Agents-Core-Desktop` entries in Claude
   Code (`~/.claude.json`, also its per-project entries, and the deny rules in
   `~/.claude/settings.json`), Claude Desktop, Codex, Cursor and Antigravity (with its
@@ -98,9 +100,12 @@ powershell -ExecutionPolicy Bypass -File scripts\uninstall.ps1 --dry-run   # Win
   memory. A file left empty is deleted.
 - **State and data**: the private state directories (`~/Library/Application Support/Agents-Core`,
   `~/.local/state/agents-core`, `%USERPROFILE%\.agents-core`, `%LOCALAPPDATA%\Agents-Core`) with
-  their logs, tokens, backups and histories, the embedding cache `~/.cache/fastembed`, the
-  autodev trusted clone `~/.local/share/agents-autodev`, the copies the installer saved next to
-  the files it edited, and the installation `~/.agents-core` (`AGENTS_HOME`).
+  their logs, tokens, backups and histories, the embedding cache `~/.cache/fastembed` (or the
+  one `FASTEMBED_CACHE_DIR` names in the environment, `.env` or `service.json`), the autodev
+  trusted clone `~/.local/share/agents-autodev` (a clone configured elsewhere only when it lies
+  outside `~/Documents` and the checkouts and is a clone of the configured repository), the
+  timestamped copies the installer saved next to the instruction files (other `*.backup.*`
+  files are only listed), and the installation `~/.agents-core` (`AGENTS_HOME`).
 - **Credentials**: the keychain item `agents-autodev-github` and `~/.config/agents-autodev`
   only after a second question, or with `--yes --include-credentials`; `--yes` alone keeps them.
 
@@ -108,8 +113,12 @@ Every edited file is copied first to `~/.agents-core-uninstall-backups/<time>/`,
 `manifest.json` maps each copy to its original. `--yes` skips the question, `--keep-data` keeps
 the user library (`flows/.user`), user sync's state and the fallback journal. The final report
 lists what was removed, what was kept and why. A path is removed only when it is in this
-inventory, is not a symbolic link and resolves inside the home directory (or a directory an
-Agents-Core variable names). A checkout you cloned yourself and run the script from is kept;
+inventory, is neither a symbolic link nor a junction, and resolves inside the home directory; a
+directory that `AGENTS_HOME`, `AGENTS_SERVICE_DIR`, `FASTEMBED_CACHE_DIR` or
+`AGENTS_USER_FLOWS_DIR` names is removed only when its content shows it is Agents-Core's, and
+nothing that is or contains a filesystem root, the home directory, `~/Documents` or a profile
+or XDG base directory is ever removed. Backups are private (0700 directories, 0600 files). A
+checkout you cloned yourself and run the script from is kept;
 so are the files Agents-Core wrote into your projects (`history.md`, `history/`, the Repository
 Memory section of `CLAUDE.md`), which the report lists. The logic is `src/uninstall.py`.
 

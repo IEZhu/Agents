@@ -18,9 +18,14 @@ create, prints it grouped by kind, asks once, and then:
   ``--yes --include-credentials``.
 
 ``--dry-run`` lists everything and changes nothing; ``--keep-data`` keeps the user library and
-the histories. A path is removed only when it is in the inventory, is not a symbolic link and
-resolves inside the home directory or a directory an environment variable of Agents-Core names.
-The checkout the uninstaller runs from is kept unless it is that installation directory.
+the histories. A path is removed only when it is in the inventory, is neither a symbolic link nor
+a junction, and resolves inside the home directory; a directory that a variable of Agents-Core
+names (``AGENTS_HOME``, ``AGENTS_SERVICE_DIR``, ``FASTEMBED_CACHE_DIR``,
+``AGENTS_USER_FLOWS_DIR``, also read from the installation's ``.env`` and the service's
+``service.json``) is removed only when its content shows it is Agents-Core's. Nothing removed
+may be, or contain, a filesystem root, the home directory, ``~/Documents``, a profile or XDG
+base directory, or the checkout the uninstaller runs from (unless that checkout is the
+installation directory). Removal never follows a link and never changes a link's target.
 
 Only the standard library is imported, so a broken virtual environment does not stop it; every
 OS command goes through an injectable runner, and the platform, home and environment are
@@ -64,14 +69,26 @@ MEMORY_INDEX_ENTRIES = (
     "- [Agents-Core routing is mandatory](feedback_agents_core_routing.md) — always call route_and_load() before any response, no exceptions",
 )
 KEYCHAIN_SERVICE = "agents-autodev-github"  # src/schedules/github.py
-LAUNCH_AGENT = re.compile(r"^local\.agents-core\.[A-Za-z0-9._-]+\.plist$")
+# Labels and task names with the installation's 16-hex id (src/daemon/state.py, src/user_sync/schedule.py);
+# names derived from a state directory that is not named so are added from the inventory (state_dirs).
+LAUNCH_AGENT = re.compile(r"^local\.agents-core\.[0-9a-f]{16}(?:\.updater|\.sync|\.scheduler)?\.plist$")
+LAUNCH_SUFFIXES = ("", ".updater", ".sync", ".scheduler")  # control.py label, autoupdate, user sync, schedules
 SYSTEMD_UNIT = re.compile(r"^agents-core-sync-[0-9a-f]{16}\.(service|timer)$")
 CRON_LINE = re.compile(rb" agents-core-sync-[0-9a-f]{16}\s*$")
-WINDOWS_TASK = re.compile(r"^\\?agents-core-(daemon|sync)-[0-9a-f]{16}(-updater)?$")
+WINDOWS_TASK = re.compile(r"^agents-core-(?:daemon-[0-9a-f]{16}(?:-updater)?|sync-[0-9a-f]{16})$")
 STATE_ID = re.compile(r"^[0-9a-f]{16}$")
-# Siblings that backup_file.py (mkstemp) and inject_claude_md.py (a timestamp) leave next to a file.
-INSTALLER_BACKUP = r"\.backup\.(?:[a-z0-9_]{8}|[0-9]{10}|[0-9]{19})$"
+# inject_claude_md.copy_backup (19 digits) and its older timestamps (10 digits), which its own
+# prune_backups also treats as managed: siblings of the instruction files only.
+INSTRUCTION_BACKUP = r"\.backup\.(?:[0-9]{10}|[0-9]{19})$"
+# backup_file.py (mkstemp): eight characters a user's own name can have too, so only reported.
+MKSTEMP_BACKUP = r"\.backup\.[a-z0-9_]{8}$"
 KEEP_IN_STATE = ("user-sync", "unresolved")  # the library's sync state and the fallback journal
+REPARSE_POINT = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)  # a Windows junction or link
+DEFAULT_REPOSITORY = "IEZhu/Agents"  # src/schedules/config.py DEFAULTS['repository']
+SETTINGS = ("FASTEMBED_CACHE_DIR", "AGENTS_USER_FLOWS_DIR")  # also read from the installation's .env
+# What fastembed (Hugging Face hub layout) keeps in its cache directory.
+FASTEMBED_ENTRY = re.compile(r"^(?:models--.+|blobs|local|\.locks|tmp.*|CACHEDIR\.TAG|\.DS_Store)$")
+LIBRARY_MARKER = ".agents-library.json"  # src/user_library.py MARKER
 
 KINDS = (
     ("service", "Services and scheduled jobs"),
@@ -113,10 +130,25 @@ class Context:
     source_root: Path = Path(__file__).resolve().parents[1]
     uid: int = field(default_factory=lambda: os.getuid() if hasattr(os, "getuid") else 0)
     stamp: str = field(default_factory=lambda: time.strftime("%Y%m%d-%H%M%S"))
+    # SETTINGS from the installation's .env (build_plan); the process environment wins over them.
+    settings: dict = field(default_factory=dict)
+    # Paths no removal may equal or contain besides protected(): the kept source checkout.
+    kept_roots: list = field(default_factory=list)
+
+    def expand(self, value: str) -> Path:
+        """``value`` as an absolute path; ``~`` is this context's home, not the process's."""
+        if value == "~" or value.startswith(("~/", "~\\")):
+            value = str(self.home) + value[1:]
+        return Path(os.path.abspath(value))
 
     def env_path(self, name: str) -> Path | None:
         value = self.environ.get(name, "").strip()
-        return Path(os.path.abspath(os.path.expanduser(value))) if value else None
+        return self.expand(value) if value else None
+
+    def setting_path(self, name: str) -> Path | None:
+        """A variable from the environment, else from the installation's ``.env``."""
+        value = self.environ.get(name, "").strip() or str(self.settings.get(name, "")).strip()
+        return self.expand(value) if value else None
 
     @property
     def windows(self) -> bool:
@@ -126,11 +158,11 @@ class Context:
     def backup_root(self) -> Path:
         return self.home / ".agents-core-uninstall-backups" / self.stamp
 
-    def roots(self) -> list[Path]:
-        """Where a removal may resolve: the home and the directories Agents-Core's variables name."""
-        found = [self.home]
-        for name in ("AGENTS_HOME", "AGENTS_SERVICE_DIR", "FASTEMBED_CACHE_DIR", "AGENTS_USER_FLOWS_DIR",
-                     "XDG_STATE_HOME", "XDG_CONFIG_HOME", "APPDATA", "LOCALAPPDATA", "USERPROFILE"):
+    def protected(self) -> list[Path]:
+        """Directories no removal may be or contain. They never widen where a removal may go."""
+        found = [self.home, self.home / "Documents", *self.kept_roots]
+        for name in ("HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "XDG_CONFIG_HOME", "XDG_STATE_HOME",
+                     "XDG_DATA_HOME", "XDG_CACHE_HOME"):
             path = self.env_path(name)
             if path is not None:
                 found.append(path)
@@ -168,42 +200,95 @@ def _within(path: Path, roots: Iterable[Path]) -> bool:
     return False
 
 
+def _contains(outer: str, inner: str) -> bool:
+    """Whether the real path ``outer`` is ``inner`` or one of its parents."""
+    return inner == outer or inner.startswith(outer.rstrip(os.sep) + os.sep)
+
+
 def _is_link(path: Path) -> bool:
-    return os.path.islink(path) or bool(getattr(path, "is_junction", lambda: False)())
+    """A symbolic link, or any Windows reparse point such as a junction (``Path.is_junction`` is 3.12+)."""
+    try:
+        status = os.lstat(path)
+    except OSError:
+        return False
+    return stat.S_ISLNK(status.st_mode) or bool(getattr(status, "st_file_attributes", 0) & REPARSE_POINT)
 
 
-def check_removable(ctx: Context, path: Path) -> None:
+def check_removable(ctx: Context, path: Path, *, owned: bool = False) -> None:
+    """Refuse a link, a root or protected directory (or a parent of one), and, unless the caller
+    showed by its content or exact name that ``path`` is Agents-Core's (``owned``), anything
+    outside the home directory."""
     if _is_link(path):
-        raise Refused(f"{path} is a symbolic link; remove it yourself after checking where it points")
-    if not _within(path, ctx.roots()):
-        raise Refused(f"{path} resolves outside the home directory and every configured root")
-    if _real(path) in {_real(root) for root in ctx.roots()} or len(Path(_real(path)).parts) < 3:
+        raise Refused(f"{path} is a symbolic link or junction; remove it yourself after checking where it points")
+    real = _real(path)
+    if len(Path(real).parts) < 3:
         raise Refused(f"{path} is a root directory, not an Agents-Core path")
+    for root in ctx.protected():
+        if _contains(real, _real(root)):
+            raise Refused(f"{path} is or contains {root}, which is never removed")
+    if not owned and not _within(path, [ctx.home]):
+        raise Refused(f"{path} resolves outside the home directory")
 
 
-def _writable_retry(function, path, _info):
-    """Git keeps objects read-only, which Windows refuses to delete: make it writable, try again."""
-    os.chmod(path, stat.S_IWRITE | stat.S_IREAD)
-    function(path)
+def _make_writable(directory: Path, bits: int = stat.S_IRWXU) -> None:
+    """Give the owner ``bits`` on a real directory (never a link: chmod would follow it).
+
+    Autodev environments are read-only directories (src/schedules/repos.py _read_only), and on
+    POSIX deleting a child needs write permission on its parent.
+    """
+    if os.name == "nt" or _is_link(directory):
+        return
+    mode = stat.S_IMODE(os.lstat(directory).st_mode)
+    if mode & bits != bits:
+        if os.chmod in os.supports_follow_symlinks:
+            os.chmod(directory, mode | bits, follow_symlinks=False)
+        else:
+            os.chmod(directory, mode | bits)
+
+
+def _unlink_file(path: Path) -> None:
+    """Remove a regular file; Windows refuses read-only files (Git's objects), so clear that flag."""
+    try:
+        os.unlink(path)
+    except PermissionError:
+        if os.name != "nt" or _is_link(path):
+            raise
+        os.chmod(path, stat.S_IWRITE)
+        os.unlink(path)
 
 
 def _unlink_link(path: Path) -> None:
-    """Remove a link itself, never what it points to (a directory link on Windows needs rmdir)."""
+    """Remove a link itself, never what it points to (a directory link or junction on Windows needs rmdir)."""
     try:
         os.unlink(path)
     except (IsADirectoryError, PermissionError):
         os.rmdir(path)
 
 
-def remove_path(ctx: Context, path: Path) -> str:
-    check_removable(ctx, path)
-    if path.is_dir():
-        if sys.version_info >= (3, 12):
-            shutil.rmtree(path, onexc=_writable_retry)  # links inside are removed, not followed
-        else:
-            shutil.rmtree(path, onerror=_writable_retry)
+def _remove_entry(path: Path) -> None:
+    """Remove ``path`` and everything below it without following any link or junction."""
+    if _is_link(path):
+        _unlink_link(path)
+    elif path.is_dir():
+        _make_writable(path)
+        with os.scandir(path) as entries:
+            children = [Path(entry.path) for entry in entries]
+        for child in children:
+            _remove_entry(child)
+        try:
+            os.rmdir(path)
+        except PermissionError:
+            if os.name != "nt":
+                raise
+            os.chmod(path, stat.S_IWRITE)
+            os.rmdir(path)
     elif os.path.lexists(path):
-        path.unlink()
+        _unlink_file(path)
+
+
+def remove_path(ctx: Context, path: Path, *, owned: bool = False) -> str:
+    check_removable(ctx, path, owned=owned)
+    _remove_entry(path)
     return "removed"
 
 
@@ -215,43 +300,72 @@ def remove_marker(marker: Path) -> str:
     return "removed"
 
 
-def remove_except(ctx: Context, root: Path, kept: Sequence[Path]) -> str:
+def remove_except(ctx: Context, root: Path, kept: Sequence[Path], *, owned: bool = False) -> str:
     """Remove ``root`` except the ``kept`` paths inside it (and the directories that lead to them)."""
-    check_removable(ctx, root)
+    check_removable(ctx, root, owned=owned)
     kept_real = [_real(path) for path in kept]
     if not kept_real:
-        return remove_path(ctx, root)
+        return remove_path(ctx, root, owned=owned)
 
     def prune(directory: Path) -> None:
-        for child in directory.iterdir():
+        _make_writable(directory)
+        for child in list(directory.iterdir()):
             real = _real(child)
             if real in kept_real:
                 continue
             if _is_link(child):  # inside a removed tree, e.g. .venv/bin/python: the link goes, its target stays
                 _unlink_link(child)
-            elif child.is_dir() and not _is_link(child) and any(k.startswith(real + os.sep) for k in kept_real):
+            elif child.is_dir() and any(k.startswith(real + os.sep) for k in kept_real):
                 prune(child)
             else:
-                remove_path(ctx, child)
+                _remove_entry(child)
 
     prune(root)
     return "removed; kept " + ", ".join(str(path) for path in kept)
 
 
+def _private_dir(path: Path) -> None:
+    """Create ``path`` as a directory only its owner can enter (0700), refusing a link."""
+    try:
+        path.mkdir(mode=0o700)
+    except FileExistsError:
+        pass
+    if _is_link(path) or not path.is_dir():
+        raise Refused(f"{path} is not a plain directory; backups are not written through it")
+    if os.name != "nt":
+        os.chmod(path, 0o700)
+
+
+def _write_private(path: Path, content: bytes, *, exclusive: bool) -> None:
+    """Write ``content`` to a 0600 file, never through a link."""
+    flags = os.O_WRONLY | os.O_CREAT | (os.O_EXCL if exclusive else os.O_TRUNC)
+    flags |= getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(path, flags, 0o600)
+    if hasattr(os, "fchmod"):
+        os.fchmod(descriptor, 0o600)
+    with os.fdopen(descriptor, "wb") as output:
+        output.write(content)
+
+
 class Backups:
-    """Copies of every edited file, under ``~/.agents-core-uninstall-backups/<time>``, with a manifest."""
+    """Copies of every edited file, under ``~/.agents-core-uninstall-backups/<time>``, with a manifest.
+
+    The copies can hold MCP tokens (client configurations, the crontab), so the directories are
+    0700 and the files 0600 whatever the umask.
+    """
 
     def __init__(self, ctx: Context):
         self.ctx, self.records = ctx, []
 
     def save(self, path: Path, content: bytes) -> Path:
         root = self.ctx.backup_root
-        root.mkdir(parents=True, exist_ok=True)
+        _private_dir(root.parent)
+        _private_dir(root)
         target = root / f"{len(self.records) + 1:03d}-{path.name}"
-        target.write_bytes(content)
+        _write_private(target, content, exclusive=True)
         self.records.append({"original": str(path), "backup": str(target)})
-        (root / "manifest.json").write_text(json.dumps(self.records, indent=2, ensure_ascii=False) + "\n",
-                                            encoding="utf-8")
+        manifest = json.dumps(self.records, indent=2, ensure_ascii=False) + "\n"
+        _write_private(root / "manifest.json", manifest.encode("utf-8"), exclusive=False)
         return target
 
 
@@ -365,38 +479,36 @@ def _ends(node: _Node) -> list[int]:
     return [child.end for _, _, child in node.members] if node.kind == "object" else [m.end for m in node.members]
 
 
-def _cut(text: str, node: _Node, index: int) -> str:
-    """Remove one member of an object or array with its comma, leaving every other byte as it was."""
+def _spans(node: _Node, removed: set[int]) -> list[tuple[int, int]]:
+    """The text ranges that remove the members ``removed`` of one object or array with their commas."""
     starts, ends = _starts(node), _ends(node)
-    if len(starts) == 1:
-        return text[:node.start + 1] + text[node.end - 1:]
-    if index < len(starts) - 1:
-        return text[:starts[index]] + text[starts[index + 1]:]
-    return text[:ends[index - 1]] + text[ends[index]:]
+    kept = [index for index in range(len(starts)) if index not in removed]
+    if not kept:
+        return [(node.start + 1, node.end - 1)]
+    spans = []
+    for index in sorted(removed):
+        after = next((other for other in kept if other > index), None)
+        if after is not None:  # up to the next kept member: this member and the comma after it
+            spans.append((starts[index], starts[after]))
+        else:  # the last ones: from the end of the last kept member, with the comma before
+            spans.append((ends[max(other for other in kept if other < index)], ends[index]))
+    return spans
 
 
-Match = Callable[[list], "tuple[_Node, int] | None"]
-
-
-def _find(node: _Node, path: Sequence, value_test=None):
-    """The (container, index) of the first member at ``path`` (``*`` matches any key)."""
+def _find_all(node: _Node, path: Sequence, value_test=None) -> list[tuple[_Node, int]]:
+    """Every (container, index) of a member at ``path`` (``*`` matches any key, ``[]`` array elements)."""
     if not path:
-        return None
+        return []
     head, rest = path[0], path[1:]
+    found: list[tuple[_Node, int]] = []
     if node.kind == "object":
         for index, (key, _, child) in enumerate(node.members):
             if head != "*" and key != head:
                 continue
-            if not rest:
-                return node, index
-            found = _find(child, rest, value_test)
-            if found:
-                return found
-    if node.kind == "array" and head == "[]" and value_test is not None:
-        for index, child in enumerate(node.members):
-            if value_test(child):
-                return node, index
-    return None
+            found += [(node, index)] if not rest else _find_all(child, rest, value_test)
+    elif node.kind == "array" and head == "[]" and value_test is not None:
+        found += [(node, index) for index, child in enumerate(node.members) if value_test(child)]
+    return found
 
 
 def _drop(document, path: Sequence, value_test=None) -> None:
@@ -427,16 +539,18 @@ def remove_json_members(content: bytes, removals: Sequence[tuple[Sequence, Calla
     expected = json.loads(text)
     if not isinstance(expected, dict):
         raise ValueError("the file's root is not a JSON object; edit it yourself")
-    changed = False
+    # One parse: every match is cut from the original offsets, from the end of the text backwards.
+    root = _Parser(text).value(0)
+    removed: dict[int, tuple[_Node, set[int]]] = {}
+
+    def mark(found: list[tuple[_Node, int]]) -> None:
+        for node, index in found:
+            removed.setdefault(id(node), (node, set()))[1].add(index)
+
     for path, test in removals:
         _drop(expected, path, (lambda value, test=test: test(json.dumps(value))) if test else None)
-        while True:
-            root = _Parser(text).value(0)
-            found = _find(root, path, (lambda node, test=test: test(text[node.start:node.end])) if test else None)
-            if not found:
-                break
-            text, changed = _cut(text, *found), True
-    if not changed:
+        mark(_find_all(root, path, (lambda node, test=test: test(text[node.start:node.end])) if test else None))
+    if not removed:
         return content
     for path in drop_if_empty:
         current = expected
@@ -444,9 +558,16 @@ def remove_json_members(content: bytes, removals: Sequence[tuple[Sequence, Calla
             current = current.get(key) if isinstance(current, dict) else None
         if isinstance(current, dict) and current.get(path[-1]) in ({}, []):
             del current[path[-1]]
-            found = _find(_Parser(text).value(0), path)
-            if found:
-                text = _cut(text, *found)
+            mark(_find_all(root, path))
+    spans = sorted(span for node, indexes in removed.values() for span in _spans(node, indexes))
+    merged: list[list[int]] = []
+    for start, stop in spans:  # spans nest or are disjoint: a removed member may hold removed members
+        if merged and start <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], stop)
+        else:
+            merged.append([start, stop])
+    for start, stop in reversed(merged):
+        text = text[:start] + text[stop:]
     if json.loads(text) != expected:
         raise ValueError("the edit did not leave the rest of the file as it was; edit it yourself")
     if delete_when is not None and expected in delete_when:
@@ -480,18 +601,36 @@ def remove_toml_server(content: bytes, name: str = SERVER) -> bytes:
     """Remove ``[mcp_servers.<name>]`` and its subtables, keeping every other line byte for byte."""
     text = content.decode("utf-8")
     lines, kept, skip = text.splitlines(keepends=True), [], False
+    # Comment and blank lines after the last key of a skipped section: they may introduce the next
+    # section (a user's note above it), so they are kept from the first comment on.
+    pending: list[str] = []
+
+    def flush() -> None:
+        comments = [index for index, line in enumerate(pending) if line.strip().startswith("#")]
+        kept.extend(pending[comments[0]:] if comments else [])
+        pending.clear()
+
     for line in lines:
         if re.match(r"\s*\[", line):
             header = line.strip().split("#", 1)[0].strip()
             try:  # tomllib reads the header, so quoted keys mean what they mean in TOML
                 probe = tomllib.loads(header + "\n__agents_probe = true\n")
                 servers = probe.get("mcp_servers", {})
-                skip = isinstance(servers, dict) and name in servers
+                section_is_ours = isinstance(servers, dict) and name in servers
             except tomllib.TOMLDecodeError:
-                skip = False
+                section_is_ours = False
+            if skip and not section_is_ours:
+                flush()
+            pending.clear()
+            skip = section_is_ours
         if not skip:
             kept.append(line)
+        elif not line.strip() or line.strip().startswith("#"):
+            pending.append(line)
+        elif not re.match(r"\s*\[", line):
+            pending.clear()  # a key of our section: the comments before it were part of the section
     if skip:  # the section ended the file: drop the blank line the migration put before it
+        flush()
         while kept and not kept[-1].strip():
             kept.pop()
     updated = "".join(kept)
@@ -506,17 +645,46 @@ def remove_toml_server(content: bytes, name: str = SERVER) -> bytes:
     return updated.encode("utf-8")
 
 
+_FENCE = re.compile(rb"(`{3,}|~{3,})")
+
+
+def marker_lines(content: bytes) -> list[tuple[bytes, int, int]]:
+    """(marker, start, end) of each routing marker that is a whole line outside a fenced code block."""
+    every = {marker for pair in MARKERS for marker in pair}
+    found, fence, offset = [], None, 0
+    for line in content.splitlines(keepends=True):
+        body = line.rstrip(b"\r\n")
+        stripped = body.lstrip(b" ")
+        opening = _FENCE.match(stripped) if len(body) - len(stripped) <= 3 else None
+        if fence is not None:
+            if opening and opening.group(1)[:1] == fence[:1] and len(opening.group(1)) >= len(fence) \
+                    and not stripped[len(opening.group(1)):].strip():
+                fence = None
+        elif opening:
+            fence = opening.group(1)
+        elif body.rstrip() in every:
+            found.append((body.rstrip(), offset, offset + len(body)))
+        offset += len(line)
+    return found
+
+
 def remove_routing_block(content: bytes) -> bytes | None:
-    """The file without the managed routing section and the newline the installer added after it."""
-    present = [(begin, end) for begin, end in MARKERS if begin in content or end in content]
-    if not present:
+    """The file without the managed routing section and the newline the installer added after it.
+
+    Only marker lines outside fenced code blocks count: a quoted example of the markers is text.
+    """
+    markers = marker_lines(content)
+    if not markers:
         return content
+    present = [(begin, end) for begin, end in MARKERS if any(marker in (begin, end) for marker, _, _ in markers)]
     if len(present) != 1:
         raise ValueError("mixed routing marker versions; remove the section yourself")
     begin, end = present[0]
-    if content.count(begin) != 1 or content.count(end) != 1 or content.index(end) < content.index(begin):
+    begins = [(start, stop) for marker, start, stop in markers if marker == begin]
+    ends = [(start, stop) for marker, start, stop in markers if marker == end]
+    if len(begins) != 1 or len(ends) != 1 or ends[0][0] < begins[0][0]:
         raise ValueError("incomplete routing markers; remove the section yourself")
-    start, stop = content.index(begin), content.index(end) + len(end)
+    start, stop = begins[0][0], ends[0][1]
     for ending in (b"\r\n", b"\n"):
         if content.startswith(ending, stop):
             stop += len(ending)
@@ -564,13 +732,57 @@ def looks_like_state(path: Path) -> bool:
     return path.is_dir() and any((path / name).exists() for name in ("service.json", "token", *KEEP_IN_STATE, "schedules"))
 
 
+def owns_state(path: Path) -> bool:
+    """A service state directory by its content: ``service.json`` as Controller.install writes it."""
+    config = _read_json(path / "service.json") if path.is_dir() and not _is_link(path) else None
+    return isinstance(config, dict) and isinstance(config.get("installation"), str)
+
+
+def owns_cache(path: Path) -> bool:
+    """A fastembed cache by its content: model directories and nothing else."""
+    try:
+        names = [child.name for child in path.iterdir()]
+    except OSError:
+        return False
+    return any(name.startswith("models--") for name in names) and all(FASTEMBED_ENTRY.match(name) for name in names)
+
+
+def owns_library(path: Path) -> bool:
+    """The user library by its marker file (src/user_library.py)."""
+    marker = path / LIBRARY_MARKER
+    return marker.is_file() and not _is_link(marker)
+
+
+def read_settings(path: Path, keys: Sequence[str] = SETTINGS) -> dict[str, str]:
+    """``keys`` from a ``.env`` file (python-dotenv's simple form). Other lines are never kept or shown."""
+    values: dict[str, str] = {}
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return values
+    for line in text.splitlines():
+        line = line.strip()
+        if line.startswith("export "):
+            line = line[len("export "):].lstrip()
+        key, separator, value = line.partition("=")
+        if not separator or key.strip() not in keys:
+            continue
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
+            value = value[1:-1]
+        else:
+            value = value.split(" #", 1)[0].rstrip()
+        values[key.strip()] = value
+    return values
+
+
 def state_dirs(ctx: Context, installations: Sequence[Path]) -> list[Path]:
     found: list[Path] = []
     for root in state_roots(ctx):
         if root.is_dir() and not is_checkout(root):
             found += [child for child in sorted(root.iterdir()) if STATE_ID.match(child.name) and child.is_dir()]
     override = ctx.env_path("AGENTS_SERVICE_DIR")
-    if override and looks_like_state(override):
+    if override and owns_state(override):
         found.append(override)
     for installation in installations:
         try:
@@ -619,6 +831,67 @@ def project_layers(states: Sequence[Path]) -> list[tuple[str, Path]]:
             layers += [("claude-project", root / ".mcp.json"), ("codex", root / ".codex/config.toml"),
                        ("cursor", root / ".cursor/mcp.json")]
     return layers
+
+
+def _git_layout(path: Path) -> tuple[bool, list[str]] | None:
+    """(bare, remote URLs) of a Git repository at ``path``, or None when it is not one."""
+    if (path / ".git/config").is_file():
+        config, bare = path / ".git/config", False
+    elif (path / "config").is_file() and (path / "HEAD").is_file() and (path / "objects").is_dir():
+        config, bare = path / "config", True
+    else:
+        return None
+    if _is_link(config):
+        return None
+    section, urls = "", []
+    for raw in config.read_text(encoding="utf-8", errors="replace").splitlines():
+        line = raw.strip()
+        header = re.match(r"\[\s*([A-Za-z0-9.-]+)", line)
+        if header:
+            section = header.group(1).lower()
+            continue
+        key, separator, value = line.partition("=")
+        if separator and section == "remote" and key.strip().lower() == "url":
+            urls.append(value.strip().strip('"'))
+        if separator and section == "core" and key.strip().lower() == "bare":
+            bare = bare and value.strip().lower() in ("true", "yes", "on", "1")
+    return bare, urls
+
+
+def _same_repository(url: str, repository: str) -> bool:
+    match = re.fullmatch(r"(?:https://github\.com/|git@github\.com:|ssh://git@github\.com/)([^/]+/[^/]+?)(?:\.git)?/?",
+                         url, re.IGNORECASE)
+    return bool(match) and match.group(1).lower() == repository.lower()
+
+
+def clone_problem(ctx: Context, path: Path, repository: str, installations: Sequence[Path]) -> str | None:
+    """Why ``path`` is not the autodev trusted clone to remove, or None when it is.
+
+    Like src/schedules/config.py runner_location, it must lie neither under nor above
+    ``~/Documents``, an installation or the checkout the uninstaller runs from, and it must not
+    contain the home directory. It must also be the runner's repository: remotes that all name
+    ``repository`` on GitHub, or the runner's bare layout, which has no remote and keeps main in
+    ``refs/remotes/origin/main`` (src/schedules/repos.py TrustedRepository).
+    """
+    real = _real(path)
+    if _contains(real, _real(ctx.home)):
+        return "it is or contains the home directory"
+    for name, root in (("~/Documents", ctx.home / "Documents"), ("the checkout the uninstaller runs from", ctx.source_root),
+                       *(("the installation", installation) for installation in installations)):
+        other = _real(root)
+        if _contains(real, other) or _contains(other, real):
+            return f"it lies under or contains {name} ({root})"
+    layout = _git_layout(path)
+    if layout is None:
+        return "it is not a Git repository"
+    bare, urls = layout
+    if urls:
+        return None if all(_same_repository(url, repository) for url in urls) else f"its remote is not {repository}"
+    pinned = path / "refs/remotes/origin/main"
+    packed = path / "packed-refs"
+    if bare and (pinned.is_file() or (packed.is_file() and b" refs/remotes/origin/main" in packed.read_bytes())):
+        return None
+    return f"it is neither a clone of {repository} nor the runner's bare repository"
 
 
 def client_files(ctx: Context) -> list[tuple[str, Path]]:
@@ -695,17 +968,25 @@ def build_plan(ctx: Context, *, keep_data: bool = False) -> list[Item]:
     backups = Backups(ctx)
     installation = installation_dir(ctx)
     installations = [path for path in dict.fromkeys([installation, ctx.source_root]) if is_checkout(path)]
+    if is_checkout(ctx.source_root) and _real(ctx.source_root) != _real(installation):
+        ctx.kept_roots = [ctx.source_root]  # never removed, nor anything that contains it
+    for checkout_root in installations:  # the settings the server reads from .env (src/server.py)
+        for key, value in read_settings(checkout_root / ".env").items():
+            ctx.settings.setdefault(key, value)
     states = state_dirs(ctx, installations)
 
     # --- services
     if ctx.platform == "darwin":
         agents = ctx.home / "Library/LaunchAgents"
-        for plist in sorted(agents.glob("local.agents-core.*.plist")) if agents.is_dir() else []:
-            if not LAUNCH_AGENT.match(plist.name):
+        # src/daemon/control.py label, autoupdate.label, src/schedules/launchagent.label: the state directory's name
+        derived = {f"local.agents-core.{state.name}{suffix}.plist" for state in states for suffix in LAUNCH_SUFFIXES}
+        for plist in sorted(agents.iterdir()) if agents.is_dir() else []:
+            if not (LAUNCH_AGENT.match(plist.name) or plist.name in derived):
                 continue
             label = plist.name[:-len(".plist")]
 
             def stop(plist=plist, label=label):
+                check_removable(ctx, plist)  # a linked plist (nix, home-manager) stays loaded and in place
                 ctx.runner(["/bin/launchctl", "bootout", f"gui/{ctx.uid}/{label}"])
                 return remove_path(ctx, plist)
             items.append(Item("service", str(plist), "remove",
@@ -715,11 +996,15 @@ def build_plan(ctx: Context, *, keep_data: bool = False) -> list[Item]:
     elif ctx.windows:
         query = ctx.runner(["schtasks", "/Query", "/FO", "CSV", "/NH"])
         names = []
+        # src/daemon/service.py TaskScheduler.name and updater_name: the state directory's name
+        derived = {f"agents-core-daemon-{state.name}{suffix}" for state in states for suffix in ("", "-updater")}
         if query.returncode == 0:
             text = (query.stdout or b"").decode("utf-8", "replace")
             for row in csv.reader(io.StringIO(text)):
-                if row and WINDOWS_TASK.match(row[0].strip()) and row[0].strip() not in names:
-                    names.append(row[0].strip())
+                name = row[0].strip() if row else ""
+                bare = name[1:] if name.startswith("\\") else name
+                if (WINDOWS_TASK.match(bare) or bare in derived) and name not in names:
+                    names.append(name)
         for name in names:
             def delete(name=name):
                 ctx.runner(["schtasks", "/End", "/TN", name])
@@ -734,13 +1019,14 @@ def build_plan(ctx: Context, *, keep_data: bool = False) -> list[Item]:
         units = (ctx.env_path("XDG_CONFIG_HOME") or ctx.home / ".config") / "systemd/user"
         files = sorted(path for path in units.glob("agents-core-sync-*") if SYSTEMD_UNIT.match(path.name)) if units.is_dir() else []
         wants = units / "timers.target.wants"
-        links = sorted(path for path in wants.glob("agents-core-sync-*.timer")) if wants.is_dir() else []
+        links = sorted(path for path in wants.glob("agents-core-sync-*.timer")
+                       if SYSTEMD_UNIT.match(path.name)) if wants.is_dir() else []
         if files or links:
             def disable(files=files, links=links):
-                for path in files:
-                    check_removable(ctx, path)
+                for path in files:  # all checked before systemctl touches any of them
+                    check_removable(ctx, path, owned=True)  # the exact unit name shows it is ours
                 for path in links:  # `systemctl enable` links to our unit: the link goes, nothing else
-                    check_removable(ctx, path.parent)
+                    check_removable(ctx, path.parent, owned=True)
                 for timer in [path.name for path in files if path.suffix == ".timer"]:
                     ctx.runner(["systemctl", "--user", "disable", "--now", timer])
                 for path in links + files:
@@ -788,7 +1074,7 @@ def build_plan(ctx: Context, *, keep_data: bool = False) -> list[Item]:
     for path, source in ((claude_home / "CLAUDE.md", "scripts/init_repo.sh (inject_claude_md.py), scripts/install_instructions.py"),
                          (codex_home / "AGENTS.md", "scripts/_helpers/install_codex_instructions.py"),
                          (codex_home / "AGENTS.override.md", "scripts/_helpers/install_codex_instructions.py")):
-        if path.is_file() and any(begin in path.read_bytes() for begin, _ in MARKERS):
+        if path.is_file() and marker_lines(path.read_bytes()):
             items.append(Item("instructions", str(path), "edit", source,
                               "only the section between the routing markers; a backup first",
                               lambda path=path: edit_file(ctx, backups, path, remove_routing_block)))
@@ -827,21 +1113,30 @@ def build_plan(ctx: Context, *, keep_data: bool = False) -> list[Item]:
                           + ("; keeps user sync and the fallback journal (--keep-data)" if kept else ""),
                           lambda root=root, kept=kept: remove_except(ctx, root, kept)))
     covered = [root for root in state_roots(ctx)]
+    override = ctx.env_path("AGENTS_SERVICE_DIR")
     for state in states:
         if any(_within(state, [root]) for root in covered):
             continue
         kept = [state / name for name in KEEP_IN_STATE if (state / name).exists()] if keep_data else []
+        owned = override is not None and _real(state) == _real(override)  # its service.json shows it is ours
         items.append(Item("data", str(state), "remove", "src/daemon/control.py install --state / AGENTS_SERVICE_DIR",
                           "a service state directory outside the default location",
-                          lambda state=state, kept=kept: remove_except(ctx, state, kept)))
-    flows = ctx.env_path("AGENTS_USER_FLOWS_DIR")
-    if flows and flows.is_dir():
+                          lambda state=state, kept=kept, owned=owned: remove_except(ctx, state, kept, owned=owned)))
+    if override and override.is_dir() and not any(_real(override) == _real(state) for state in states):
+        items.append(Item("data", str(override), "keep", "AGENTS_SERVICE_DIR",
+                          "named by AGENTS_SERVICE_DIR, but it has no service.json of Agents-Core; delete it yourself"))
+    flows = ctx.setting_path("AGENTS_USER_FLOWS_DIR")
+    if flows and (flows.is_dir() or _is_link(flows)):
         if keep_data:
             items.append(Item("data", str(flows), "keep", "src/user_flows.py (AGENTS_USER_FLOWS_DIR)",
                               "the user library (--keep-data)"))
-        else:
+        elif owns_library(flows) or _is_link(flows):
             items.append(Item("data", str(flows), "remove", "src/user_flows.py (AGENTS_USER_FLOWS_DIR)",
-                              "the user library and its version history", lambda: remove_path(ctx, flows)))
+                              "the user library and its version history",
+                              lambda: remove_path(ctx, flows, owned=True)))
+        else:
+            items.append(Item("data", str(flows), "keep", "src/user_flows.py (AGENTS_USER_FLOWS_DIR)",
+                              f"named by AGENTS_USER_FLOWS_DIR, but it has no {LIBRARY_MARKER}; delete it yourself"))
     for root in workspace_roots(states):
         written = [name for name in ("history.md", "history", "data/memory", "logs") if (root / name).exists()]
         if written:
@@ -849,33 +1144,63 @@ def build_plan(ctx: Context, *, keep_data: bool = False) -> list[Item]:
                               "project files, possibly tracked by Git: " + ", ".join(written)
                               + " and the Repository Memory section of CLAUDE.md; delete them yourself"))
     autodev = ctx.home / ".local/share/agents-autodev"
-    clones = [autodev] if autodev.is_dir() else []
+    clones = [autodev] if autodev.is_dir() or _is_link(autodev) else []
     for state in states:
         configured = _read_json(state / "schedules/autodev.json")
         clone = configured.get("clone") if isinstance(configured, dict) else None
-        if isinstance(clone, str):
-            path = Path(os.path.expanduser(clone)) if not clone.startswith("~") else ctx.home / clone[2:]
-            if (path / ".git").exists() and not any(_within(path, [other]) for other in clones):
-                clones.append(path)
+        if not isinstance(clone, str) or not clone.strip():
+            continue
+        repository = configured.get("repository")
+        repository = repository if isinstance(repository, str) and "/" in repository else DEFAULT_REPOSITORY
+        path = ctx.expand(clone.strip()) if clone.strip().startswith("~") or os.path.isabs(clone.strip()) else None
+        if path is None:
+            items.append(Item("data", clone, "keep", "src/schedules/config.py (autodev.json clone)",
+                              "not an absolute path, so not the autodev trusted repository"))
+            continue
+        if not (path.exists() or _is_link(path)) or any(_within(path, [other]) for other in clones):
+            continue
+        problem = clone_problem(ctx, path, repository, installations)
+        if problem:
+            items.append(Item("data", str(path), "keep", "src/schedules/config.py (autodev.json clone)",
+                              f"named as the autodev clone, but {problem}; delete it yourself if it is"))
+        else:
+            clones.append(path)
     for clone in clones:
         items.append(Item("data", str(clone), "remove", "src/schedules/config.py DEFAULTS['clone'] (autodev trusted clone)",
                           "the autodev trusted repository", lambda clone=clone: remove_path(ctx, clone)))
 
-    # --- caches
-    cache = ctx.env_path("FASTEMBED_CACHE_DIR") or ctx.home / ".cache/fastembed"
-    if cache.is_dir():
-        items.append(Item("cache", str(cache), "remove", "src/engine/config.py FASTEMBED_CACHE_DIR, scripts/init_repo.sh "
-                          "(pre-download)", "embedding models; another program that set the same directory "
-                          "downloads its models again", lambda: remove_path(ctx, cache)))
+    # --- caches: the default, the one FASTEMBED_CACHE_DIR names (environment or .env), each service's
+    default_cache = ctx.home / ".cache/fastembed"
+    caches = [ctx.setting_path("FASTEMBED_CACHE_DIR") or default_cache]
+    for state in states:
+        config = _read_json(state / "service.json")
+        if isinstance(config, dict) and isinstance(config.get("model_cache"), str) and config["model_cache"].strip():
+            caches.append(ctx.expand(config["model_cache"].strip()))  # src/daemon/control.py install
+    for cache in {_real(cache): cache for cache in caches}.values():
+        if not (cache.is_dir() or _is_link(cache)):
+            continue
+        source = "src/engine/config.py FASTEMBED_CACHE_DIR, scripts/init_repo.sh (pre-download)"
+        if _real(cache) == _real(default_cache) or _is_link(cache) or owns_cache(cache):
+            owned = _real(cache) != _real(default_cache)
+            items.append(Item("cache", str(cache), "remove", source, "embedding models; another program that set "
+                              "the same directory downloads its models again",
+                              lambda cache=cache, owned=owned: remove_path(ctx, cache, owned=owned)))
+        else:
+            items.append(Item("cache", str(cache), "keep", source, "configured as the embedding cache, but it holds "
+                              "more than fastembed models; delete the models yourself"))
 
     # --- installation
     if is_checkout(installation):
+        owned = ctx.env_path("AGENTS_HOME") is not None  # is_checkout shows the named directory is ours
         keep = [installation / "flows/.user"] if keep_data and (installation / "flows/.user").exists() else []
         items.append(Item("installation", str(installation), "remove", "install.sh (git clone into AGENTS_HOME, "
                           "default ~/.agents-core), scripts/init_repo.sh (.venv, .env, data/)",
                           "the one-command installation" + ("; keeps flows/.user (--keep-data)" if keep else ""),
-                          lambda: remove_except(ctx, installation, keep)))
-    if is_checkout(ctx.source_root) and _real(ctx.source_root) != _real(installation):
+                          lambda: remove_except(ctx, installation, keep, owned=owned)))
+    elif ctx.env_path("AGENTS_HOME") and installation.is_dir():
+        items.append(Item("installation", str(installation), "keep", "AGENTS_HOME",
+                          "named by AGENTS_HOME, but it is not an Agents-Core checkout; delete it yourself"))
+    if ctx.kept_roots:
         items.append(Item("installation", str(ctx.source_root), "keep", "a checkout you cloned yourself",
                           "the uninstaller never deletes the checkout it runs from; delete it yourself"))
         marker = ctx.source_root / "data/.shared-service.json"
@@ -885,18 +1210,27 @@ def build_plan(ctx: Context, *, keep_data: bool = False) -> list[Item]:
                               lambda: remove_marker(marker)))
 
     # --- installer backups next to the files it edited
-    candidates = [path for _, path in client_files(ctx)] + [claude_home / "CLAUDE.md", codex_home / "AGENTS.md",
-                                                            codex_home / "AGENTS.override.md", index]
-    pattern_paths: list[Path] = []
-    for path in candidates:
-        if path.parent.is_dir():
-            pattern = re.compile(re.escape(path.name) + INSTALLER_BACKUP)
-            pattern_paths += [child for child in sorted(path.parent.iterdir())
-                              if pattern.match(child.name) and child.is_file() and not _is_link(child)]
-    for path in pattern_paths:
-        items.append(Item("backups", str(path), "remove", "scripts/_helpers/backup_file.py, "
-                          "scripts/_helpers/inject_claude_md.py copy_backup",
-                          "a copy the installer made before its edit", lambda path=path: remove_path(ctx, path)))
+    instruction_files = [claude_home / "CLAUDE.md", codex_home / "AGENTS.md", codex_home / "AGENTS.override.md",
+                         reminder, index]  # inject_claude_md.write_with_backup
+    config_files = [path for _, path in client_files(ctx)]  # scripts/_helpers/backup_file.py
+    listed: set[str] = set()
+    for files, suffix, ours in ((instruction_files, INSTRUCTION_BACKUP, True), (config_files, MKSTEMP_BACKUP, False)):
+        for path in files:
+            if not path.parent.is_dir():
+                continue
+            pattern = re.compile(re.escape(path.name) + suffix)
+            for child in sorted(path.parent.iterdir()):
+                if not pattern.match(child.name) or not child.is_file() or _is_link(child) or _real(child) in listed:
+                    continue
+                listed.add(_real(child))
+                if ours:
+                    items.append(Item("backups", str(child), "remove", "scripts/_helpers/inject_claude_md.py copy_backup",
+                                      "a copy the installer made before its edit",
+                                      lambda child=child: remove_path(ctx, child)))
+                else:
+                    items.append(Item("backups", str(child), "keep", "scripts/_helpers/backup_file.py",
+                                      "named like the installer's backup, but such a name can be your own; "
+                                      "delete it yourself when you no longer need it"))
 
     # --- credentials
     if ctx.platform == "darwin":

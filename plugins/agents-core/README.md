@@ -41,9 +41,10 @@ Then add the plugin from Claude's plugin directory (in Claude Code, `/plugin`; t
 copy, `claude --plugin-dir ~/.agents-core/plugins/agents-core`) and start a new session. `/mcp` shows the `Agents-Core` server; ask
 Claude to call `list_agents` to check it.
 
-The plugin starts `scripts/start-server.sh`, which runs
-`~/.agents-core/.venv/bin/python ~/.agents-core/src/server.py`, the same command the installer
-registers. If you installed Agents-Core earlier without `--skip-mcp`, Claude Code already has a
+The plugin is only a launcher: it starts `scripts/start-server.sh`, which runs code outside the
+plugin folder, `~/.agents-core/.venv/bin/python ~/.agents-core/src/server.py` of the separately
+installed server, the same command the installer registers (on NixOS with the nix-ld
+`LD_LIBRARY_PATH` the installer also sets). `AGENTS_HOME`, when set, must be an absolute path. If you installed Agents-Core earlier without `--skip-mcp`, Claude Code already has a
 user-level `Agents-Core` server: remove one of the two (`claude mcp remove Agents-Core --scope
 user`, or disable the plugin) so the tools are not listed twice.
 

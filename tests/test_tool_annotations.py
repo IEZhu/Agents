@@ -3,6 +3,9 @@ import asyncio
 
 import src.server as server
 
+# Their changes reach the user library or the history, which user sync pushes to a remote.
+SYNCED = {"save_flow", "delete_flow", "set_flow_persona", "log_interaction"}
+
 
 def tools():
     return asyncio.run(server.mcp.list_tools())
@@ -17,7 +20,7 @@ def test_every_tool_has_a_title_and_a_read_only_or_destructive_hint():
         assert annotations.readOnlyHint is not None, tool.name
         if not annotations.readOnlyHint:
             assert annotations.destructiveHint is not None, tool.name
-        assert annotations.openWorldHint is False, tool.name
+        assert annotations.openWorldHint is (tool.name in SYNCED), tool.name
 
 
 def test_hints_cover_exactly_the_registered_tools():

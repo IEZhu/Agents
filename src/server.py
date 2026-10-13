@@ -428,14 +428,16 @@ FLOW_RESULT_META = {"anthropic/maxResultSizeChars": flow_result_size()}
 
 
 def tool_hints(title: str, *, read_only: bool, destructive: bool | None = None,
-               idempotent: bool | None = None) -> dict:
+               idempotent: bool | None = None, open_world: bool = False) -> dict:
     """``mcp.tool`` keywords: a human title and the annotations Claude's directory checks (#362).
 
-    Every tool works on this machine only (the installation, its state and the caller's
-    repository), so ``openWorldHint`` is false. ``destructiveHint`` and ``idempotentHint`` are
-    set only for tools that change something, where the MCP specification gives them meaning.
+    Tools work on this machine (the installation, its state and the caller's repository), so
+    ``openWorldHint`` is false, except for ``open_world`` tools: their changes reach the user
+    library and the history, which user sync pushes to the private Git remote the user set up.
+    ``destructiveHint`` and ``idempotentHint`` are set only for tools that change something,
+    where the MCP specification gives them meaning.
     """
-    hints = {"title": title, "readOnlyHint": read_only, "openWorldHint": False}
+    hints = {"title": title, "readOnlyHint": read_only, "openWorldHint": open_world}
     if not read_only:
         hints["destructiveHint"] = bool(destructive)
         if idempotent is not None:
@@ -448,10 +450,13 @@ def tool_hints(title: str, *, read_only: bool, destructive: bool | None = None,
 TOOL_HINTS = {
     "list_flows": tool_hints("List flows", read_only=True),
     "get_flow": tool_hints("Read a flow", read_only=True),
-    "save_flow": tool_hints("Save a personal flow", read_only=False, destructive=False, idempotent=False),
-    "delete_flow": tool_hints("Delete a personal flow", read_only=False, destructive=True, idempotent=True),
+    "save_flow": tool_hints("Save a personal flow", read_only=False, destructive=False, idempotent=False,
+                            open_world=True),
+    "delete_flow": tool_hints("Delete a personal flow", read_only=False, destructive=True, idempotent=True,
+                              open_world=True),
     "run_flow": tool_hints("Run a flow", read_only=False, destructive=False, idempotent=False),
-    "set_flow_persona": tool_hints("Choose a flow's persona", read_only=False, destructive=True, idempotent=True),
+    "set_flow_persona": tool_hints("Choose a flow's persona", read_only=False, destructive=True, idempotent=True,
+                                   open_world=True),
     "clear_session_cache": tool_hints("Clear session caches", read_only=False, destructive=True, idempotent=True),
     "get_subagent_context": tool_hints("Prepare a subagent package", read_only=True),
     "validate_subagent_result": tool_hints("Validate a subagent result", read_only=True),
@@ -461,7 +466,8 @@ TOOL_HINTS = {
                                           idempotent=False),
     "load_implants": tool_hints("Load cognitive implants", read_only=True),
     "list_agents": tool_hints("List agents", read_only=True),
-    "log_interaction": tool_hints("Log the turn to history", read_only=False, destructive=False, idempotent=False),
+    "log_interaction": tool_hints("Log the turn to history", read_only=False, destructive=False, idempotent=False,
+                                  open_world=True),
     "describe_repo": tool_hints("Describe the repository", read_only=False, destructive=True, idempotent=False),
     "write_repo_summary": tool_hints("Write the repository summary", read_only=False, destructive=True,
                                      idempotent=False),

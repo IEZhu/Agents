@@ -10,14 +10,20 @@ extensions, so a local server like Agents-Core can be listed only inside a plugi
 |---|---|
 | `.claude-plugin/plugin.json` | Manifest: `name` (`agents-core`, permanent), `displayName`, `version`, `description`, `author`, `homepage`, `repository`, `license` |
 | `.mcp.json` | The `Agents-Core` stdio server: `${CLAUDE_PLUGIN_ROOT}/scripts/start-server.sh` |
-| `scripts/start-server.sh` | Starts `~/.agents-core/.venv/bin/python ~/.agents-core/src/server.py` (or under `AGENTS_HOME`), the command `scripts/init_repo.sh` registers for Claude Code; exits with setup instructions when the installation is missing |
+| `scripts/start-server.sh` | Starts `~/.agents-core/.venv/bin/python ~/.agents-core/src/server.py` (or under an absolute `AGENTS_HOME`), the command `scripts/init_repo.sh` registers for Claude Code, with the same NixOS `LD_LIBRARY_PATH` (`/run/current-system/sw/share/nix-ld/lib`) for its own process; exits with setup instructions when the installation is missing |
 | `README.md` | Listing text: what it does, setup, uninstall, Privacy Policy |
 | `LICENSE` | MIT, a copy of the repository's |
 
-The server itself is not in the plugin: it needs the local installation (`install.sh`). Every
-tool in `src/server.py` declares a `title` and `readOnlyHint`, plus `destructiveHint` (and
-`idempotentHint` where it is clear) for tools that change something, and `openWorldHint: false`
-(`TOOL_HINTS`, checked by `tests/test_tool_annotations.py`).
+The server itself is not in the plugin: the plugin is a launcher for a separately installed
+local server (`install.sh`), so **the launcher runs code outside the plugin folder**. The
+pre-submission checklist says that people who install a plugin get only its folder and that
+everything it runs has to be inside it; expect a policy review of this plugin, and possibly a
+rejection on that ground, not only the hold below. Every tool in `src/server.py` declares a
+`title` and `readOnlyHint`, plus `destructiveHint` (and `idempotentHint` where it is clear) for
+tools that change something, and `openWorldHint`: true for the tools whose changes user sync can
+push to the private Git remote the user set up (`save_flow`, `delete_flow`, `set_flow_persona`,
+`log_interaction`), false for the rest (`TOOL_HINTS`, checked by `tests/test_tool_annotations.py`,
+which `.github/workflows/uninstall.yml` runs).
 
 ## Validate
 
@@ -39,6 +45,10 @@ plugin:
   subfolder of the repository, and `start-server.sh` reads `AGENTS_HOME` and `HOME` and runs a
   file outside the plugin (the installed server). That is inherent to a local server that is
   not bundled; a reviewer reads the script. It downloads nothing and has no package launcher.
+  Say so in the submission notes: the plugin is a launcher for a separately installed local
+  server, and the README's Setup section installs it. A reviewer may still decline it under the
+  "everything inside the plugin folder" rule; then the server stays available through
+  `install.sh` and `scripts/init_repo.sh`, which register it with Claude Code directly.
 - **Not met, by design**: claude.ai chat does not start local MCP servers, so the plugin adds
   nothing there; on Windows the shell start script does not run (the README sends Windows users
   to `scripts\init_repo.bat`).

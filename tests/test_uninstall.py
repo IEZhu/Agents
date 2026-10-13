@@ -7,6 +7,7 @@ injected, so the macOS, Linux and Windows branches run on any OS.
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 
@@ -285,6 +286,7 @@ def test_linux_removes_systemd_units_and_only_our_crontab_line(home):
     write(units / f"agents-core-sync-{IDENT}.service", "[Service]\n")
     write(units / "other.timer", "[Timer]\n")
     (units / "timers.target.wants").mkdir()
+    write(units / "timers.target.wants/agents-core-sync-mine.timer", "")  # not our exact unit name
     os.symlink(timer, units / f"timers.target.wants/agents-core-sync-{IDENT}.timer") if sys.platform != "win32" else \
         write(units / f"timers.target.wants/agents-core-sync-{IDENT}.timer", "")
     state = home / ".local/state/agents-core" / IDENT
@@ -293,7 +295,8 @@ def test_linux_removes_systemd_units_and_only_our_crontab_line(home):
     crontab = (b"MAILTO=me\n0 * * * * backup.sh\n*/5 * * * * /bin/sh -c 'exec x' agents-core-sync-" + IDENT.encode() + b"\n")
     runner = FakeRunner({("crontab", "-l"): (0, crontab)})
     assert main(["--yes"], ctx=context(home, "linux", runner), interactive=False) == 0
-    assert sorted(path.name for path in units.rglob("*")) == ["other.timer", "timers.target.wants"]
+    assert sorted(path.name for path in units.rglob("*")) == ["agents-core-sync-mine.timer", "other.timer",
+                                                              "timers.target.wants"]
     assert runner.ran("systemctl", "--user", "disable", "--now", f"agents-core-sync-{IDENT}.timer")
     assert runner.ran("systemctl", "--user", "daemon-reload")
     written = [input for argv, input in runner.calls if argv == ["crontab", "-"]]
@@ -301,6 +304,8 @@ def test_linux_removes_systemd_units_and_only_our_crontab_line(home):
     assert not (home / ".local/state/agents-core").exists()
     assert OTHER_SERVER in (home / ".config/Claude/claude_desktop_config.json").read_text()
     assert (home / ".agents-core-uninstall-backups/T/001-crontab").read_bytes() == crontab
+    if sys.platform != "win32":  # the crontab can hold tokens: private like every backup
+        assert (home / ".agents-core-uninstall-backups/T/001-crontab").stat().st_mode & 0o777 == 0o600
 
 
 def test_windows_deletes_tasks_and_appdata_state(home):
@@ -361,3 +366,276 @@ def test_toml_section_at_the_end_leaves_the_file_as_before_the_migration():
 def test_toml_inline_definition_is_refused():
     with pytest.raises(ValueError):
         remove_toml_server(b'mcp_servers = { "Agents-Core" = { url = "x" } }\n')
+
+
+
+# --- review round 1 (#362): F1-F17 ------------------------------------------------------------
+
+def git_repository(path: Path, *, remote: str | None = "https://github.com/IEZhu/Agents.git", bare: bool = False) -> Path:
+    config = "[core]\n\tbare = " + ("true" if bare else "false") + "\n"
+    if remote:
+        config += f'[remote "origin"]\n\turl = {remote}\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n'
+    git = path if bare else path / ".git"
+    write(git / "config", config)
+    write(git / "HEAD", "ref: refs/heads/main\n")
+    (git / "objects").mkdir(parents=True, exist_ok=True)
+    if bare and not remote:
+        write(git / "refs/remotes/origin/main", "a" * 40 + "\n")
+    write(path / ("description" if bare else "README.md"), "mine")
+    return path
+
+
+def autodev_config(state: Path, clone: str, repository: str = "IEZhu/Agents") -> None:
+    write(state / "schedules/autodev.json", json.dumps({"clone": clone, "repository": repository}))
+
+
+@pytest.mark.parametrize("where", ["documents", "source", "other-remote", "no-git"])
+def test_an_invalid_autodev_clone_is_kept_and_reported(home, tmp_path, capsys, where):
+    """F1: a hand-edited or stale autodev.json never deletes a project or the running checkout."""
+    state = darwin_home(home)
+    source = checkout(home / "code/Agents")
+    target = {"documents": home / "Documents/MyProject", "source": source,
+              "other-remote": home / "projects/mine", "no-git": home / "projects/plain"}[where]
+    if where == "documents":
+        git_repository(target)
+    elif where == "other-remote":
+        git_repository(target, remote="git@github.com:someone/else.git")
+    elif where == "no-git":
+        write(target / "notes.txt", "mine")
+    autodev_config(state, str(target))
+    ctx = context(home, "darwin", FakeRunner())
+    ctx.source_root = source
+    before = snapshot(target)
+    main(["--yes"], ctx=ctx, interactive=False)
+    assert target.is_dir() and snapshot(target) == {key: value for key, value in before.items()
+                                                    if not key.endswith("data/.shared-service.json")}
+    assert f"{target}: named as the autodev clone, but" in capsys.readouterr().out
+
+
+def test_a_valid_autodev_clone_is_removed(home):
+    state = darwin_home(home)
+    bare = git_repository(home / ".local/share/runner/IEZhu-Agents.git", remote=None, bare=True)
+    autodev_config(state, "~/.local/share/runner/IEZhu-Agents.git")
+    other = git_repository(home / "srv/IEZhu-Agents")
+    state2 = home / "Library/Application Support/Agents-Core/fedcba9876543210"
+    write(state2 / "service.json", "{}")
+    autodev_config(state2, str(other))
+    assert main(["--yes"], ctx=context(home, "darwin", FakeRunner()), interactive=False) == 0
+    assert not bare.exists() and not other.exists()
+
+
+def test_only_the_installers_own_backup_names_are_removed(home, capsys):
+    """F2: names a user may have chosen stay; mkstemp-like names are only reported."""
+    darwin_home(home)
+    user = [write(home / ".claude.json.backup.20261013", "mine"),
+            write(home / ".claude/CLAUDE.md.backup.original", "mine"),
+            write(home / ".claude/settings.json.backup.1760000000", "mine"),
+            write(home / ".claude.json.backup.k3j_x9ab", "mine")]
+    ours = [write(home / ".claude/CLAUDE.md.backup.1760000000", "old"),
+            write(home / ".codex/AGENTS.md.backup.1234567890123456789", "old")]
+    assert main(["--yes"], ctx=context(home, "darwin", FakeRunner()), interactive=False) == 0
+    assert all(path.read_text() == "mine" for path in user)
+    assert not any(path.exists() for path in ours)
+    output = capsys.readouterr().out
+    assert f"{home / '.claude.json.backup.k3j_x9ab'}: named like the installer's backup" in output
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX permissions and symlinks")
+def test_read_only_trees_are_removed_and_link_targets_keep_their_mode(home, tmp_path):
+    """F3/F14: no chmod reaches a link's target; a 0555 directory tree (autodev environments) goes."""
+    darwin_home(home)
+    target = write(tmp_path / "homebrew-python", "binary")
+    target.chmod(0o755)
+    bin_dir = home / ".agents-core/.venv/bin"
+    os.symlink(target, bin_dir / "python")
+    write(bin_dir / "pip", "x")
+    bin_dir.chmod(0o555)
+    lib = home / ".local/share/agents-autodev/venvs/abc/lib"
+    write(lib / "site.py", "x")
+    outside = write(tmp_path / "outside.txt", "keep")
+    outside.chmod(0o644)
+    os.symlink(outside, lib / "link")
+    for directory in (lib, lib.parent):
+        directory.chmod(0o555)
+    assert main(["--yes"], ctx=context(home, "darwin", FakeRunner()), interactive=False) == 0
+    assert not (home / ".agents-core").exists() and not (home / ".local/share/agents-autodev").exists()
+    assert target.stat().st_mode & 0o777 == 0o755 and outside.stat().st_mode & 0o777 == 0o644
+
+
+def test_a_reparse_point_counts_as_a_link(monkeypatch, tmp_path):
+    """F6: a junction is not a symlink on Python 3.11 Windows; its reparse attribute is what shows it."""
+    import stat as stat_module
+    import types
+    fake = types.SimpleNamespace(st_mode=stat_module.S_IFDIR | 0o755, st_file_attributes=uninstall.REPARSE_POINT)
+    monkeypatch.setattr(uninstall.os, "lstat", lambda path: fake)
+    assert uninstall._is_link(tmp_path)
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="junctions are a Windows feature")
+def test_windows_junctions_are_never_followed(home, tmp_path, capsys):
+    darwin_home(home)
+    target = write(tmp_path / "elsewhere/keep.txt", "keep").parent
+    junction = home / ".agents-core/data/junction"
+    junction.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["cmd", "/c", "mklink", "/J", str(junction), str(target)], check=True, capture_output=True)
+    assert main(["--yes", "--keep-data"], ctx=context(home, "darwin", FakeRunner()), interactive=False) == 0
+    assert (target / "keep.txt").read_text() == "keep" and not os.path.lexists(junction)
+    # A junction as the installation itself is refused, its target kept.
+    other = checkout(tmp_path / "checkout")
+    shutil.rmtree(home / ".agents-core", onerror=lambda function, path, _: (os.chmod(path, 0o666), function(path)))
+    subprocess.run(["cmd", "/c", "mklink", "/J", str(home / ".agents-core"), str(other)], check=True, capture_output=True)
+    assert main(["--yes"], ctx=context(home, "darwin", FakeRunner()), interactive=False) == 1
+    assert (other / "src/server.py").exists() and "symbolic link or junction" in capsys.readouterr().out
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX permission bits")
+def test_backups_are_private(home):
+    """F4: the copies hold client configurations with possible tokens."""
+    os.umask(0o022)
+    darwin_home(home)
+    assert main(["--yes"], ctx=context(home, "darwin", FakeRunner()), interactive=False) == 0
+    base = home / ".agents-core-uninstall-backups"
+    assert base.stat().st_mode & 0o777 == 0o700 and (base / "T").stat().st_mode & 0o777 == 0o700
+    files = list((base / "T").iterdir())
+    assert files and all(path.stat().st_mode & 0o777 == 0o600 for path in files)
+
+
+def library(path: Path) -> Path:
+    write(path / ".agents-library.json", "{}")
+    write(path / "common/mine.md", "# Mine\n")
+    return path
+
+
+def fastembed(path: Path) -> Path:
+    write(path / "models--qdrant--model/blobs/x", "weights")
+    return path
+
+
+def test_a_custom_installation_is_removed_when_its_content_is_ours(home, tmp_path):
+    """F5/F11: the directories the variables name are removed after a content check, even outside home."""
+    darwin_home(home)
+    installation = checkout(home / "agents")
+    service = tmp_path / "service-state"
+    write(service / "service.json", json.dumps({"installation": str(installation)}))
+    cache, flows = fastembed(tmp_path / "models"), library(tmp_path / "library")
+    ctx = context(home, "darwin", FakeRunner(), AGENTS_HOME=str(installation), AGENTS_SERVICE_DIR=str(service),
+                  FASTEMBED_CACHE_DIR=str(cache), AGENTS_USER_FLOWS_DIR=str(flows))
+    ctx.source_root = installation
+    assert main(["--yes"], ctx=ctx, interactive=False) == 0
+    for gone in (installation, service, cache, flows):
+        assert not gone.exists(), gone
+
+
+def test_directories_named_by_variables_are_kept_without_our_content(home, tmp_path, capsys):
+    darwin_home(home)
+    projects = write(home / "Projects/notes.md", "mine").parent
+    models = write(tmp_path / "models/other-model.bin", "x").parent
+    ctx = context(home, "darwin", FakeRunner(), AGENTS_USER_FLOWS_DIR=str(projects), FASTEMBED_CACHE_DIR=str(models),
+                  AGENTS_SERVICE_DIR=str(home), AGENTS_HOME=str(home / "Projects"))
+    main(["--yes"], ctx=ctx, interactive=False)
+    assert (projects / "notes.md").exists() and (models / "other-model.bin").exists()
+    output = capsys.readouterr().out
+    assert "AGENTS_USER_FLOWS_DIR, but it has no .agents-library.json" in output
+    assert "configured as the embedding cache, but it holds more than fastembed models" in output
+    assert "named by AGENTS_HOME, but it is not an Agents-Core checkout" in output
+
+
+def test_filesystem_root_home_and_its_parents_are_never_removed(home):
+    """F5: FASTEMBED_CACHE_DIR=/ is listed as kept, and no ownership claim lets a root through."""
+    ctx = context(home, "darwin", FakeRunner(), FASTEMBED_CACHE_DIR=os.path.abspath(os.sep),
+                  XDG_CONFIG_HOME=str(home / ".config"))
+    items = [item for item in uninstall.build_plan(ctx) if item.kind == "cache"]
+    assert [(item.target, item.action, item.apply) for item in items] == [(os.path.abspath(os.sep), "keep", None)]
+    (home / ".config").mkdir(exist_ok=True)
+    for path in (Path(os.path.abspath(os.sep)), home, home.parent, home / "Documents", home / ".config"):
+        with pytest.raises(uninstall.Refused):
+            uninstall.check_removable(ctx, path, owned=True)
+    with pytest.raises(uninstall.Refused):  # outside home without an ownership claim
+        uninstall.check_removable(ctx, home.parent / "elsewhere")
+
+
+def test_windows_tasks_are_derived_from_the_state_directory(home, tmp_path):
+    """F12: `--state <dir>` and AGENTS_SERVICE_DIR name tasks after any directory name."""
+    state = tmp_path / "my state"
+    write(state / "service.json", json.dumps({"installation": str(home / ".agents-core")}))
+    tasks = ('"\\agents-core-daemon-my state","N/A","Ready"\r\n"\\agents-core-daemon-my state-updater","x","Ready"\r\n'
+             '"\\agents-core-daemon-someone","x","Ready"\r\n').encode()
+    runner = FakeRunner({("schtasks", "/Query"): (0, tasks)})
+    ctx = context(home, "win32", runner, AGENTS_SERVICE_DIR=str(state), APPDATA=str(home / "AppData/Roaming"),
+                  LOCALAPPDATA=str(home / "AppData/Local"), USERPROFILE=str(home))
+    assert main(["--yes"], ctx=ctx, interactive=False) == 0
+    assert [argv[3] for argv in runner.ran("schtasks", "/Delete")] == [
+        "\\agents-core-daemon-my state", "\\agents-core-daemon-my state-updater"]
+    assert not state.exists()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="creating symlinks needs a privilege on Windows")
+def test_launch_agents_are_exact_and_a_linked_plist_is_not_booted_out(home, tmp_path):
+    """F9/F12: exact labels, labels derived from a custom state name, the link check before bootout."""
+    darwin_home(home)
+    state = tmp_path / "my state"
+    write(state / "service.json", json.dumps({"installation": str(home / ".agents-core")}))
+    agents = home / "Library/LaunchAgents"
+    derived = write(agents / "local.agents-core.my state.plist", "<plist/>")
+    foreign = write(agents / "local.agents-core.someone.plist", "<plist/>")
+    linked_target = write(tmp_path / "nix/plist", "<plist/>")
+    (agents / f"local.agents-core.{IDENT}.sync.plist").unlink()
+    os.symlink(linked_target, agents / f"local.agents-core.{IDENT}.sync.plist")
+    runner = FakeRunner()
+    assert main(["--yes"], ctx=context(home, "darwin", runner, AGENTS_SERVICE_DIR=str(state)), interactive=False) == 1
+    booted = [argv[2] for argv in runner.ran("/bin/launchctl", "bootout")]
+    assert "gui/501/local.agents-core.my state" in booted and not derived.exists()
+    assert f"gui/501/local.agents-core.{IDENT}.sync" not in booted
+    assert foreign.exists() and linked_target.exists()
+    assert "gui/501/local.agents-core.someone" not in booted
+
+
+def test_settings_are_read_from_dotenv_and_service_json_without_printing_them(home, tmp_path, capsys):
+    """F13: the cache and library the server really uses, from .env and service.json model_cache."""
+    state = darwin_home(home)
+    cache, second, flows = fastembed(tmp_path / "env-models"), fastembed(tmp_path / "service-models"), \
+        library(tmp_path / "env-library")
+    write(home / ".agents-core/.env", f"LANGFUSE_SECRET_KEY=sk-secret-value\n# FASTEMBED_CACHE_DIR=/nowhere\n"
+          f"FASTEMBED_CACHE_DIR=\"{cache}\"\nexport AGENTS_USER_FLOWS_DIR={flows}  # comment\n")
+    write(state / "service.json", json.dumps({"installation": str(home / ".agents-core"), "model_cache": str(second)}))
+    assert main(["--yes"], ctx=context(home, "darwin", FakeRunner()), interactive=False) == 0
+    assert not cache.exists() and not second.exists() and not flows.exists()
+    assert "sk-secret-value" not in capsys.readouterr().out
+
+
+def test_toml_keeps_a_comment_above_the_next_section():
+    """F7: comments after our last key belong to what follows."""
+    text = (b'model = "o"\n\n[mcp_servers."Agents-Core"]\n# ours\nurl = "x"\n\n# NOTE: keep this server, it talks to prod\n'
+            b'[mcp_servers.other]\ncommand = "o"\n')
+    assert remove_toml_server(text) == b'model = "o"\n\n# NOTE: keep this server, it talks to prod\n' \
+                                       b'[mcp_servers.other]\ncommand = "o"\n'
+    trailing = b'a = 1\n\n[mcp_servers."Agents-Core"]\nurl = "x"\n# the end\n'
+    assert remove_toml_server(trailing) == b'a = 1\n\n# the end\n'
+
+
+def test_markers_in_a_code_fence_are_text():
+    """F8: an example of the markers inside a fenced block is not the managed section."""
+    example = b"# Notes\n\n```markdown\n" + BEGIN + b"\nmy explanation\n" + END + b"\n```\n"
+    assert remove_routing_block(example) == example
+    assert remove_routing_block(example + routed(b"")) == example  # the real section after the example
+    assert not uninstall.marker_lines(b"text " + BEGIN + b"\n")  # not at the start of a line
+
+
+def test_json_members_are_removed_in_one_parse(monkeypatch):
+    """F15: a large ~/.claude.json is parsed once, whatever the number of entries."""
+    projects = ",\n".join(f'    "/p{n}": {{"mcpServers": {{"Agents-Core": {{"url": "u"}}, "k": {{}}}}}}' for n in range(200))
+    text = ('{\n  "mcpServers": {"Agents-Core": 1, "Agents-Core-Desktop": 2},\n  "projects": {\n' + projects
+            + '\n  }\n}\n').encode()
+    parses = []
+    original = uninstall._Parser.__init__
+    monkeypatch.setattr(uninstall._Parser, "__init__", lambda self, text: (parses.append(1), original(self, text))[1])
+    updated = remove_json_members(text, uninstall.mcp_removals(projects=True), drop_if_empty=[("mcpServers",)])
+    assert len(parses) == 1
+    document = json.loads(updated)
+    assert "mcpServers" not in document and all(value == {"mcpServers": {"k": {}}} for value in document["projects"].values())
+    first = remove_json_members(b'{"mcpServers": {"Agents-Core": 2, "Agents-Core-Desktop": 3, "b": 1}}',
+                                uninstall.mcp_removals())
+    assert first == b'{"mcpServers": {"b": 1}}'
+    last = remove_json_members(b'{"mcpServers": {"a": 1, "Agents-Core": 2, "Agents-Core-Desktop": 3}}',
+                               uninstall.mcp_removals())
+    assert last == b'{"mcpServers": {"a": 1}}'
