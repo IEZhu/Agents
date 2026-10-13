@@ -67,6 +67,52 @@ would overwrite one.
 
 For step-by-step prompts, or on Windows, use [After Cloning](#after-cloning).
 
+### Claude plugin
+
+[`plugins/agents-core`](plugins/agents-core/README.md) is a Claude plugin that registers this
+installation's MCP server for Claude Code and Cowork on your computer. It needs the local
+installation above (install it with `--skip-mcp`, so the server is not registered twice).
+[docs/claude-plugin.md](docs/claude-plugin.md) describes how it is validated and released.
+
+### Uninstall
+
+`scripts/uninstall.sh` (macOS, Linux) and `scripts/uninstall.ps1` (Windows) remove
+Agents-Core from your account, leaving no trace:
+
+```bash
+~/.agents-core/scripts/uninstall.sh --dry-run   # list everything, grouped by kind; change nothing
+~/.agents-core/scripts/uninstall.sh             # ask once, then remove
+powershell -ExecutionPolicy Bypass -File scripts\uninstall.ps1 --dry-run   # Windows
+```
+
+- **Services**: the LaunchAgents `local.agents-core.*` (the shared service, its auto-updater,
+  user sync and the autodev scheduler), the `systemd --user` units and the crontab line of user
+  sync, and the Task Scheduler tasks `agents-core-*`. They are stopped first.
+- **Client registrations**: only the `Agents-Core` and `Agents-Core-Desktop` entries in Claude
+  Code (`~/.claude.json`, also its per-project entries, and the deny rules in
+  `~/.claude/settings.json`), Claude Desktop, Codex, Cursor and Antigravity (with its
+  `agents-core` plugin), and in the `.mcp.json`, `.codex/config.toml` and `.cursor/mcp.json` of
+  every workspace the service registered. Other servers and settings stay byte for byte.
+- **Instructions**: only the section between the routing-protocol markers in
+  `~/.claude/CLAUDE.md` and Codex's `AGENTS.md`, and the generated routing reminder in Claude's
+  memory. A file left empty is deleted.
+- **State and data**: the private state directories (`~/Library/Application Support/Agents-Core`,
+  `~/.local/state/agents-core`, `%USERPROFILE%\.agents-core`, `%LOCALAPPDATA%\Agents-Core`) with
+  their logs, tokens, backups and histories, the embedding cache `~/.cache/fastembed`, the
+  autodev trusted clone `~/.local/share/agents-autodev`, the copies the installer saved next to
+  the files it edited, and the installation `~/.agents-core` (`AGENTS_HOME`).
+- **Credentials**: the keychain item `agents-autodev-github` and `~/.config/agents-autodev`
+  only after a second question, or with `--yes --include-credentials`; `--yes` alone keeps them.
+
+Every edited file is copied first to `~/.agents-core-uninstall-backups/<time>/`, whose
+`manifest.json` maps each copy to its original. `--yes` skips the question, `--keep-data` keeps
+the user library (`flows/.user`), user sync's state and the fallback journal. The final report
+lists what was removed, what was kept and why. A path is removed only when it is in this
+inventory, is not a symbolic link and resolves inside the home directory (or a directory an
+Agents-Core variable names). A checkout you cloned yourself and run the script from is kept;
+so are the files Agents-Core wrote into your projects (`history.md`, `history/`, the Repository
+Memory section of `CLAUDE.md`), which the report lists. The logic is `src/uninstall.py`.
+
 ### Claude Code cloud sessions
 
 To have Agents-Core in [Claude Code cloud sessions](https://code.claude.com/docs/en/claude-code-on-the-web),
@@ -835,7 +881,8 @@ CLAUDE_CONFIG_DIR="$HOME/.claude-work" .venv/bin/python -m src.daemon migrate --
 The configurations below are for explicit standalone stdio use (including platforms
 without the macOS service). To return from the shared service to stdio, run
 `restore-clients` and then `uninstall` (see
-[rollback](docs/shared-mcp-daemon.md#updates-and-recovery)); setup writes
+[rollback](docs/shared-mcp-daemon.md#updates-and-recovery); to remove Agents-Core
+altogether, see [Uninstall](#uninstall)); setup writes
 standalone stdio registrations again only after `uninstall`. Replace both absolute
 installation paths below (the one-command installer uses `~/.agents-core`; expand
 `~`). Set `AGENTS_CLIENT_REPO_ROOT` to the client project when its launch

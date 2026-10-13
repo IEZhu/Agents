@@ -32,7 +32,7 @@ from src.engine.fingerprint import configuration_revision
 from src import component_toggles
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.server import Context
-from mcp.types import SamplingMessage, TextContent, ClientCapabilities, SamplingCapability
+from mcp.types import SamplingMessage, TextContent, ClientCapabilities, SamplingCapability, ToolAnnotations
 from typing import Annotated, Optional, List
 from pydantic import Field
 
@@ -427,7 +427,49 @@ def flow_result_size(max_flow_bytes: int = MAX_FLOW_BYTES) -> int:
 FLOW_RESULT_META = {"anthropic/maxResultSizeChars": flow_result_size()}
 
 
-@mcp.tool()
+def tool_hints(title: str, *, read_only: bool, destructive: bool | None = None,
+               idempotent: bool | None = None) -> dict:
+    """``mcp.tool`` keywords: a human title and the annotations Claude's directory checks (#362).
+
+    Every tool works on this machine only (the installation, its state and the caller's
+    repository), so ``openWorldHint`` is false. ``destructiveHint`` and ``idempotentHint`` are
+    set only for tools that change something, where the MCP specification gives them meaning.
+    """
+    hints = {"title": title, "readOnlyHint": read_only, "openWorldHint": False}
+    if not read_only:
+        hints["destructiveHint"] = bool(destructive)
+        if idempotent is not None:
+            hints["idempotentHint"] = idempotent
+    return {"title": title, "annotations": ToolAnnotations(**hints)}
+
+
+# Each MCP tool's title and hints, applied by its decorator; tests/test_tool_annotations.py
+# checks that every registered tool has them.
+TOOL_HINTS = {
+    "list_flows": tool_hints("List flows", read_only=True),
+    "get_flow": tool_hints("Read a flow", read_only=True),
+    "save_flow": tool_hints("Save a personal flow", read_only=False, destructive=False, idempotent=False),
+    "delete_flow": tool_hints("Delete a personal flow", read_only=False, destructive=True, idempotent=True),
+    "run_flow": tool_hints("Run a flow", read_only=False, destructive=False, idempotent=False),
+    "set_flow_persona": tool_hints("Choose a flow's persona", read_only=False, destructive=True, idempotent=True),
+    "clear_session_cache": tool_hints("Clear session caches", read_only=False, destructive=True, idempotent=True),
+    "get_subagent_context": tool_hints("Prepare a subagent package", read_only=True),
+    "validate_subagent_result": tool_hints("Validate a subagent result", read_only=True),
+    "route_and_load": tool_hints("Route to a persona", read_only=False, destructive=False, idempotent=False),
+    "get_agent_context": tool_hints("Load a persona", read_only=False, destructive=False, idempotent=False),
+    "refresh_persona_context": tool_hints("Refresh the persona's components", read_only=False, destructive=False,
+                                          idempotent=False),
+    "load_implants": tool_hints("Load cognitive implants", read_only=True),
+    "list_agents": tool_hints("List agents", read_only=True),
+    "log_interaction": tool_hints("Log the turn to history", read_only=False, destructive=False, idempotent=False),
+    "describe_repo": tool_hints("Describe the repository", read_only=False, destructive=True, idempotent=False),
+    "write_repo_summary": tool_hints("Write the repository summary", read_only=False, destructive=True,
+                                     idempotent=False),
+    "read_history": tool_hints("Read history", read_only=True),
+}
+
+
+@mcp.tool(**TOOL_HINTS["list_flows"])
 async def list_flows(
     scope: str = "all", ctx: Context | None = None, workspace: ta.opt_str(ta.WORKSPACE_DESC) = None,
 ) -> str:
@@ -448,7 +490,7 @@ async def list_flows(
         return _flow_error(error, ctx)
 
 
-@mcp.tool(meta=FLOW_RESULT_META)
+@mcp.tool(**TOOL_HINTS["get_flow"], meta=FLOW_RESULT_META)
 async def get_flow(flow: str, version: ta.opt_str("Optional version id of the flow; defaults to the current one.") = None, ctx: Context | None = None,
                    workspace: ta.opt_str(ta.WORKSPACE_DESC) = None) -> str:
     """Read a flow's Markdown, revision and saved versions before editing it.
@@ -466,7 +508,7 @@ async def get_flow(flow: str, version: ta.opt_str("Optional version id of the fl
         return _flow_error(error, ctx)
 
 
-@mcp.tool()
+@mcp.tool(**TOOL_HINTS["save_flow"])
 async def save_flow(
     flow: str,
     content: str,
@@ -496,7 +538,7 @@ async def save_flow(
         return _flow_error(error, ctx)
 
 
-@mcp.tool()
+@mcp.tool(**TOOL_HINTS["delete_flow"])
 async def delete_flow(flow: str, expected_revision: str, ctx: Context | None = None,
                       workspace: ta.opt_str(ta.WORKSPACE_DESC) = None) -> str:
     """Delete a personal flow (user:/repo:) on explicit request; its text stays in history.
@@ -511,7 +553,7 @@ async def delete_flow(flow: str, expected_revision: str, ctx: Context | None = N
         return _flow_error(error, ctx)
 
 
-@mcp.tool(meta=FLOW_RESULT_META)
+@mcp.tool(**TOOL_HINTS["run_flow"], meta=FLOW_RESULT_META)
 async def run_flow(
     flow: Annotated[str, Field(description="Flow id, ID.md, flows/ID.md, or builtin:/user:/repo:<id>.")],
     request: Annotated[str, Field(description="The user's scope, PR/MR URL and constraints.")] = "",
@@ -570,7 +612,7 @@ async def run_flow(
         return _flow_error(error, ctx)
 
 
-@mcp.tool()
+@mcp.tool(**TOOL_HINTS["set_flow_persona"])
 async def set_flow_persona(
     flow: str,
     agent: ta.opt_str("Agent name for the flow persona.") = None,
@@ -610,7 +652,7 @@ async def set_flow_persona(
         return _flow_error(error, ctx)
 
 
-@mcp.tool()
+@mcp.tool(**TOOL_HINTS["clear_session_cache"])
 async def clear_session_cache() -> str:
     """Administrative cache reset. Not needed for persona switches; affects shared caches."""
     SESSION_CACHE.clear()
@@ -826,7 +868,7 @@ async def _persona_debug_response(tool: str, call_id: str, response: str) -> str
     return response
 
 
-@mcp.tool()
+@mcp.tool(**TOOL_HINTS["get_subagent_context"])
 async def get_subagent_context(
     agent_name: ta.unparsed_arg("string", "Required canonical existing persona name; at most 80 characters."),
     task: ta.unparsed_arg("string", "Required nonempty assignment; at most 4000 characters."),
@@ -862,7 +904,7 @@ async def get_subagent_context(
     return PreparationResponse(await asyncio.to_thread(prepare_subagent, arguments))
 
 
-@mcp.tool()
+@mcp.tool(**TOOL_HINTS["validate_subagent_result"])
 async def validate_subagent_result(
     contract: ta.unparsed_arg("object", "Original contract object retained by the parent from get_subagent_context, including expected bundle_revision and contract_revision. Never use a worker replacement."),
     result: ta.unparsed_arg("object", "Worker result object or raw JSON string (at most 128000 characters). Raw text must be exactly one JSON object: no fences, duplicate keys, non-finite numbers or trailing prose."),
@@ -881,7 +923,7 @@ async def validate_subagent_result(
     return validate_result(contract, result)
 
 
-@mcp.tool()
+@mcp.tool(**TOOL_HINTS["route_and_load"])
 @observe(name="route_and_load")
 async def route_and_load(
     query: Annotated[str, Field(description="The user request to route.")],
@@ -910,7 +952,7 @@ async def route_and_load(
         )
     return await _persona_debug_response("route_and_load", call_id, response)
 
-@mcp.tool()
+@mcp.tool(**TOOL_HINTS["get_agent_context"])
 @observe(name="get_agent_context")
 async def get_agent_context(
     agent_name: Annotated[str, Field(description="Canonical name of the agent to load.")],
@@ -945,7 +987,7 @@ async def get_agent_context(
         )
     return await _persona_debug_response("get_agent_context", call_id, response)
 
-@mcp.tool()
+@mcp.tool(**TOOL_HINTS["refresh_persona_context"])
 async def refresh_persona_context(
     query: Annotated[str, Field(description="The task that needs more skills or implants.")],
     current_persona: ta.persona_arg(ta.REFRESH_PERSONA_DESC),
@@ -977,7 +1019,7 @@ async def refresh_persona_context(
     return await _persona_debug_response("refresh_persona_context", call_id, response)
 
 
-@mcp.tool()
+@mcp.tool(**TOOL_HINTS["load_implants"])
 @observe(name="load_implants")
 async def load_implants(
     query: str = "",
@@ -1050,7 +1092,7 @@ async def load_implants(
         debug_log("load_implants", "error", {"error": str(e)})
         return f"Error loading implants: {str(e)}"
 
-@mcp.tool()
+@mcp.tool(**TOOL_HINTS["list_agents"])
 async def list_agents(include_metadata: bool = True) -> str:
     """
     Returns the list of all available agents with optional metadata
@@ -1172,7 +1214,7 @@ def _short_action(value: str) -> str:
     return text if len(text) <= 64 else text[:64] + "…"
 
 
-@mcp.tool()
+@mcp.tool(**TOOL_HINTS["log_interaction"])
 async def log_interaction(
     agent_name: Annotated[str, Field(description="Canonical name of the active agent.")],
     query: Annotated[str, Field(description="The current user request, verbatim.")],
@@ -1402,7 +1444,7 @@ async def log_interaction(
 
 # --- Memory tools (describe + history) ---
 
-@mcp.tool()
+@mcp.tool(**TOOL_HINTS["describe_repo"])
 @observe(name="describe_repo")
 async def describe_repo(
     ctx: Context | None = None,
@@ -1495,7 +1537,7 @@ async def describe_repo(
         return json.dumps(payload, ensure_ascii=False)
 
 
-@mcp.tool()
+@mcp.tool(**TOOL_HINTS["write_repo_summary"])
 @observe(name="write_repo_summary")
 async def write_repo_summary(
     summary: str,
@@ -1551,7 +1593,7 @@ async def write_repo_summary(
         return json.dumps(payload, ensure_ascii=False)
 
 
-@mcp.tool()
+@mcp.tool(**TOOL_HINTS["read_history"])
 @observe(name="read_history")
 async def read_history(
     limit: int = 20,
