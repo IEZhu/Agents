@@ -67,6 +67,65 @@ would overwrite one.
 
 For step-by-step prompts, or on Windows, use [After Cloning](#after-cloning).
 
+### Claude plugin
+
+[`plugins/agents-core`](plugins/agents-core/README.md) is a Claude plugin that registers this
+installation's MCP server for Claude Code and Cowork on your computer. It needs the local
+installation above (install it with `--skip-mcp`, so the server is not registered twice).
+[docs/claude-plugin.md](docs/claude-plugin.md) describes how it is validated and released.
+
+### Uninstall
+
+`scripts/uninstall.sh` (macOS, Linux) and `scripts/uninstall.ps1` (Windows) remove
+Agents-Core from your account: everything in the inventory below, with a report of what was
+kept and why:
+
+```bash
+~/.agents-core/scripts/uninstall.sh --dry-run   # list everything, grouped by kind; change nothing
+~/.agents-core/scripts/uninstall.sh             # ask once, then remove
+powershell -ExecutionPolicy Bypass -File scripts\uninstall.ps1 --dry-run   # Windows
+```
+
+- **Services**: the LaunchAgents `local.agents-core.<id>[.updater|.sync|.scheduler]` (the shared
+  service, its auto-updater, user sync and the autodev scheduler), the `systemd --user` units and
+  the crontab line of user sync, and the Task Scheduler tasks `agents-core-daemon-<id>[-updater]`
+  and `agents-core-sync-<id>`, where `<id>` is the installation id or the name of a state
+  directory it found. They are stopped first; a linked plist or unit is left loaded and reported.
+- **Client registrations**: only the `Agents-Core` and `Agents-Core-Desktop` entries in Claude
+  Code (`~/.claude.json`, also its per-project entries, and the deny rules in
+  `~/.claude/settings.json`), Claude Desktop, Codex, Cursor and Antigravity (with its
+  `agents-core` plugin), and in the `.mcp.json`, `.codex/config.toml` and `.cursor/mcp.json` of
+  every workspace the service registered. Other servers and settings stay byte for byte.
+- **Instructions**: only the section between the routing-protocol markers in
+  `~/.claude/CLAUDE.md` and Codex's `AGENTS.md`, and the generated routing reminder in Claude's
+  memory. A file left empty is deleted.
+- **State and data**: the private state directories (`~/Library/Application Support/Agents-Core`,
+  `~/.local/state/agents-core`, `%USERPROFILE%\.agents-core`, `%LOCALAPPDATA%\Agents-Core`) with
+  their logs, tokens, backups and histories, the embedding cache `~/.cache/fastembed` (or the
+  one `FASTEMBED_CACHE_DIR` names in the environment, `.env` or `service.json`), the autodev
+  trusted clone `~/.local/share/agents-autodev` (a clone configured elsewhere only when it lies
+  outside `~/Documents` and the checkouts and is the runner's bare repository; a working tree is
+  only listed), the
+  timestamped copies the installer saved next to the instruction files (other `*.backup.*`
+  files are only listed), and the installation `~/.agents-core` (`AGENTS_HOME`).
+- **Credentials**: the keychain item `agents-autodev-github` and `~/.config/agents-autodev`
+  only after a second question, or with `--yes --include-credentials`; `--yes` alone keeps them.
+
+Every edited file is copied first to `~/.agents-core-uninstall-backups/<time>/`, whose
+`manifest.json` maps each copy to its original. `--yes` skips the question, `--keep-data` keeps
+the user library (`flows/.user`), user sync's state and the fallback journal. The final report
+lists what was removed, what was kept and why. A path is removed only when it is in this
+inventory, is neither a symbolic link nor a junction, and resolves inside the home directory; a
+directory that `AGENTS_HOME`, `AGENTS_SERVICE_DIR`, `FASTEMBED_CACHE_DIR` or
+`AGENTS_USER_FLOWS_DIR` names is removed only when its content shows it is Agents-Core's (a
+checkout `AGENTS_HOME` names is kept when it has uncommitted changes, untracked files or a branch
+besides `main`), and
+nothing that is or contains a filesystem root, the home directory, `~/Documents` or a profile
+or XDG base directory is ever removed. Backups are private (0700 directories, 0600 files). A
+checkout you cloned yourself and run the script from is kept;
+so are the files Agents-Core wrote into your projects (`history.md`, `history/`, the Repository
+Memory section of `CLAUDE.md`), which the report lists. The logic is `src/uninstall.py`.
+
 ### Claude Code cloud sessions
 
 To have Agents-Core in [Claude Code cloud sessions](https://code.claude.com/docs/en/claude-code-on-the-web),
@@ -835,7 +894,8 @@ CLAUDE_CONFIG_DIR="$HOME/.claude-work" .venv/bin/python -m src.daemon migrate --
 The configurations below are for explicit standalone stdio use (including platforms
 without the macOS service). To return from the shared service to stdio, run
 `restore-clients` and then `uninstall` (see
-[rollback](docs/shared-mcp-daemon.md#updates-and-recovery)); setup writes
+[rollback](docs/shared-mcp-daemon.md#updates-and-recovery); to remove Agents-Core
+altogether, see [Uninstall](#uninstall)); setup writes
 standalone stdio registrations again only after `uninstall`. Replace both absolute
 installation paths below (the one-command installer uses `~/.agents-core`; expand
 `~`). Set `AGENTS_CLIENT_REPO_ROOT` to the client project when its launch

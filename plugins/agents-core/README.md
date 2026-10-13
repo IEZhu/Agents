@@ -1,0 +1,114 @@
+# Agents-Core
+
+Agents-Core gives Claude a library of specialist personas, reusable Markdown workflows and a
+per-repository memory, served by an MCP server that runs entirely on your own computer.
+
+## What it does
+
+The plugin connects Claude Code (and Cowork sessions that run on your computer) to the
+Agents-Core MCP server of a local installation. The server's tools let Claude:
+
+- route a task to a specialist persona (software engineer, reviewer, lawyer, analyst and many
+  more) and keep that role across turns, with its skills, reasoning implants and rules;
+- list, read, save and run Markdown workflows: built-in ones, your personal library and the
+  current repository's;
+- prepare task-scoped packages for subagents and validate what they return;
+- keep a repository memory: a summary section in the project's `CLAUDE.md` and a turn journal
+  in the project's `history.md`, which Claude can read back and search.
+
+Every tool declares a title and whether it only reads or may change or delete something
+(`readOnlyHint`, `destructiveHint`), so Claude can ask before the ones that write.
+
+Claude in the browser (claude.ai chat) does not start local MCP servers, so there the plugin
+adds nothing; use it in Claude Code or in Cowork on your computer.
+
+## Setup
+
+The MCP server is not bundled in the plugin: it needs a local installation with its own Python
+environment and embedding model. Install it once (macOS or Linux, Python 3.11 or newer, Git):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/IEZhu/Agents/main/install.sh | bash -s -- --skip-mcp
+```
+
+This clones the repository into `~/.agents-core`, creates `.venv`, downloads the default
+embedding model (about 1.1 GB, from Hugging Face) and builds the local indexes. `--skip-mcp`
+leaves your client configurations alone, because the plugin registers the server for Claude Code
+itself. Set `AGENTS_HOME` before installing to use another directory; the plugin's start script
+reads the same variable, so keep the absolute value set in the environment that starts Claude
+Code or Cowork (your shell profile, or the login environment for the desktop app), or the
+launcher looks in `~/.agents-core` and reports that Agents-Core is not installed.
+
+Then add the plugin from Claude's plugin directory (in Claude Code, `/plugin`; to try a local
+copy, `claude --plugin-dir ~/.agents-core/plugins/agents-core`) and start a new session. `/mcp` shows the `Agents-Core` server; ask
+Claude to call `list_agents` to check it.
+
+The plugin is only a launcher: it starts `scripts/start-server.sh`, which runs code outside the
+plugin folder, `~/.agents-core/.venv/bin/python ~/.agents-core/src/server.py` of the separately
+installed server, the same command the installer registers (on NixOS with the nix-ld
+`LD_LIBRARY_PATH` the installer also sets). `AGENTS_HOME`, when set, must be an absolute path. If you installed Agents-Core earlier without `--skip-mcp`, Claude Code already has a
+user-level `Agents-Core` server: remove one of the two (`claude mcp remove Agents-Core --scope
+user`, or disable the plugin) so the tools are not listed twice.
+
+On Windows the start script cannot run; set Agents-Core up with `scripts\init_repo.bat` from a
+clone instead, which registers the server for Claude Code directly. The project README has the
+details: <https://github.com/IEZhu/Agents#readme>.
+
+## Uninstall
+
+Remove the plugin from Claude Code, then remove the local installation and everything it
+created (services, client registrations, managed instruction sections, state, caches and logs):
+
+```bash
+~/.agents-core/scripts/uninstall.sh --dry-run   # list what would be removed
+~/.agents-core/scripts/uninstall.sh             # remove it, after one confirmation
+```
+
+`--keep-data` keeps your personal workflows and histories. On Windows run
+`scripts\uninstall.ps1` from your clone.
+
+## Privacy Policy
+
+Agents-Core is open-source software that runs on your computer. The plugin's author operates no
+server and receives no data from it.
+
+**Data collection.** The server processes what Claude sends to its tools: the task text used to
+choose a persona, workflow text you ask it to save, and the turn summaries Claude logs. It
+collects no analytics or telemetry, and it does not read your conversations beyond what Claude
+passes to a tool.
+
+**Usage and storage.** Everything stays on your computer:
+
+- repository memory in each project you use it in: a managed section of the project's
+  `CLAUDE.md`, the turn journal `history.md` and `history/`, and lock files next to them;
+- your personal workflows in the installation's `flows/.user`;
+- search indexes, settings and logs in the installation's `data/` and in a private state
+  directory (`~/Library/Application Support/Agents-Core` on macOS, `~/.local/state/agents-core`
+  on Linux, `%USERPROFILE%\.agents-core` on Windows);
+- the embedding model in `~/.cache/fastembed`.
+
+**Third-party sharing.** Agents-Core sends nothing to third parties by default. It connects to
+the network only for these, each of which you can see in its source:
+
+- downloading the embedding model from Hugging Face at installation, and Git fetches from
+  GitHub when automatic updates are on (`AGENTS_AUTO_UPDATE=1` by default in `.env`; set it to
+  `0` to turn them off);
+- Langfuse tracing, only if you put Langfuse keys into `.env`: tool calls and their inputs and
+  outputs then go to the Langfuse host you configured;
+- syncing your personal library between your machines, only if you set it up: flows and, after
+  your review, history entries go to the private Git repository you choose.
+
+Prompts and answers themselves are exchanged between you and Claude as usual; the plugin adds no
+other recipient.
+
+**Retention.** Data stays until you delete it. `history.md` rotates into `history/` by month and
+is never uploaded unless you set up sync. The uninstall script above removes the installation,
+its state, caches and logs; files it wrote into your projects (`history.md`, `history/`, the
+repository-memory section in `CLAUDE.md`) are listed in its report for you to delete.
+
+**Contact.** Questions and requests: open an issue at
+<https://github.com/IEZhu/Agents/issues>.
+
+## License
+
+MIT; see [LICENSE](LICENSE).
