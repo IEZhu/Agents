@@ -103,7 +103,8 @@ powershell -ExecutionPolicy Bypass -File scripts\uninstall.ps1 --dry-run   # Win
   their logs, tokens, backups and histories, the embedding cache `~/.cache/fastembed` (or the
   one `FASTEMBED_CACHE_DIR` names in the environment, `.env` or `service.json`), the autodev
   trusted clone `~/.local/share/agents-autodev` (a clone configured elsewhere only when it lies
-  outside `~/Documents` and the checkouts and is a clone of the configured repository), the
+  outside `~/Documents` and the checkouts and is the runner's bare repository; a working tree is
+  only listed), the
   timestamped copies the installer saved next to the instruction files (other `*.backup.*`
   files are only listed), and the installation `~/.agents-core` (`AGENTS_HOME`).
 - **Credentials**: the keychain item `agents-autodev-github` and `~/.config/agents-autodev`
@@ -115,7 +116,9 @@ the user library (`flows/.user`), user sync's state and the fallback journal. Th
 lists what was removed, what was kept and why. A path is removed only when it is in this
 inventory, is neither a symbolic link nor a junction, and resolves inside the home directory; a
 directory that `AGENTS_HOME`, `AGENTS_SERVICE_DIR`, `FASTEMBED_CACHE_DIR` or
-`AGENTS_USER_FLOWS_DIR` names is removed only when its content shows it is Agents-Core's, and
+`AGENTS_USER_FLOWS_DIR` names is removed only when its content shows it is Agents-Core's (a
+checkout `AGENTS_HOME` names is kept when it has uncommitted changes, untracked files or a branch
+besides `main`), and
 nothing that is or contains a filesystem root, the home directory, `~/Documents` or a profile
 or XDG base directory is ever removed. Backups are private (0700 directories, 0600 files). A
 checkout you cloned yourself and run the script from is kept;

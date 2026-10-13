@@ -707,6 +707,25 @@ def is_checkout(path: Path) -> bool:
     return (path / ".git").exists() and (path / "scripts/init_repo.sh").is_file() and (path / "src/server.py").is_file()
 
 
+def local_work(ctx: Context, checkout: Path) -> str | None:
+    """Why ``checkout`` may hold someone's work, or None for an install.sh clone.
+
+    install.sh clones main and never commits: uncommitted changes, untracked files Git does not
+    ignore, or a branch besides main mean the directory is a development checkout.
+    """
+    base = ["git", "-C", str(checkout)]
+    status = ctx.runner([*base, "status", "--porcelain"])
+    branches = ctx.runner([*base, "for-each-ref", "--format=%(refname:short)", "refs/heads"])
+    if status.returncode != 0 or branches.returncode != 0:
+        return "git could not check it for uncommitted work"
+    if status.stdout.strip():
+        return "it has uncommitted changes or untracked files"
+    others = sorted(set(branches.stdout.decode("utf-8", "replace").split()) - {"main"})
+    if others:
+        return "it has local branches besides main (" + ", ".join(others[:5]) + ")"
+    return None
+
+
 def installation_dir(ctx: Context) -> Path:
     return ctx.env_path("AGENTS_HOME") or ctx.home / ".agents-core"
 
@@ -869,9 +888,10 @@ def clone_problem(ctx: Context, path: Path, repository: str, installations: Sequ
 
     Like src/schedules/config.py runner_location, it must lie neither under nor above
     ``~/Documents``, an installation or the checkout the uninstaller runs from, and it must not
-    contain the home directory. It must also be the runner's repository: remotes that all name
-    ``repository`` on GitHub, or the runner's bare layout, which has no remote and keeps main in
-    ``refs/remotes/origin/main`` (src/schedules/repos.py TrustedRepository).
+    contain the home directory. It must also have the runner's layout: a bare repository that keeps
+    main in ``refs/remotes/origin/main`` and has no remote other than ``repository`` on GitHub
+    (src/schedules/repos.py TrustedRepository fetches by URL and refuses a working tree). A working
+    tree is someone's own clone, with work the runner never made, so it is never removed.
     """
     real = _real(path)
     if _contains(real, _real(ctx.home)):
@@ -885,13 +905,15 @@ def clone_problem(ctx: Context, path: Path, repository: str, installations: Sequ
     if layout is None:
         return "it is not a Git repository"
     bare, urls = layout
-    if urls:
-        return None if all(_same_repository(url, repository) for url in urls) else f"its remote is not {repository}"
+    if not bare:
+        return "it is a working tree, not the runner's bare repository"
+    if not all(_same_repository(url, repository) for url in urls):
+        return f"its remote is not {repository}"
     pinned = path / "refs/remotes/origin/main"
     packed = path / "packed-refs"
     if bare and (pinned.is_file() or (packed.is_file() and b" refs/remotes/origin/main" in packed.read_bytes())):
         return None
-    return f"it is neither a clone of {repository} nor the runner's bare repository"
+    return "it has no refs/remotes/origin/main, as the runner's bare repository has"
 
 
 def client_files(ctx: Context) -> list[tuple[str, Path]]:
@@ -1190,7 +1212,11 @@ def build_plan(ctx: Context, *, keep_data: bool = False) -> list[Item]:
                               "more than fastembed models; delete the models yourself"))
 
     # --- installation
-    if is_checkout(installation):
+    unsaved = local_work(ctx, installation) if is_checkout(installation) and ctx.env_path("AGENTS_HOME") else None
+    if unsaved:
+        items.append(Item("installation", str(installation), "keep", "AGENTS_HOME",
+                          f"named by AGENTS_HOME, but {unsaved}, so it may be your own checkout; delete it yourself"))
+    elif is_checkout(installation):
         owned = ctx.env_path("AGENTS_HOME") is not None  # is_checkout shows the named directory is ours
         keep = [installation / "flows/.user"] if keep_data and (installation / "flows/.user").exists() else []
         items.append(Item("installation", str(installation), "remove", "install.sh (git clone into AGENTS_HOME, "

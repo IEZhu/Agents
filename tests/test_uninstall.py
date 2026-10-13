@@ -389,14 +389,15 @@ def autodev_config(state: Path, clone: str, repository: str = "IEZhu/Agents") ->
     write(state / "schedules/autodev.json", json.dumps({"clone": clone, "repository": repository}))
 
 
-@pytest.mark.parametrize("where", ["documents", "source", "other-remote", "no-git"])
+@pytest.mark.parametrize("where", ["documents", "source", "other-remote", "no-git", "working-tree"])
 def test_an_invalid_autodev_clone_is_kept_and_reported(home, tmp_path, capsys, where):
     """F1: a hand-edited or stale autodev.json never deletes a project or the running checkout."""
     state = darwin_home(home)
     source = checkout(home / "code/Agents")
     target = {"documents": home / "Documents/MyProject", "source": source,
-              "other-remote": home / "projects/mine", "no-git": home / "projects/plain"}[where]
-    if where == "documents":
+              "other-remote": home / "projects/mine", "no-git": home / "projects/plain",
+              "working-tree": home / "src/Agents"}[where]
+    if where in ("documents", "working-tree"):
         git_repository(target)
     elif where == "other-remote":
         git_repository(target, remote="git@github.com:someone/else.git")
@@ -416,7 +417,8 @@ def test_a_valid_autodev_clone_is_removed(home):
     state = darwin_home(home)
     bare = git_repository(home / ".local/share/runner/IEZhu-Agents.git", remote=None, bare=True)
     autodev_config(state, "~/.local/share/runner/IEZhu-Agents.git")
-    other = git_repository(home / "srv/IEZhu-Agents")
+    other = git_repository(home / "srv/IEZhu-Agents.git", bare=True)
+    write(other / "refs/remotes/origin/main", "a" * 40 + "\n")
     state2 = home / "Library/Application Support/Agents-Core/fedcba9876543210"
     write(state2 / "service.json", "{}")
     autodev_config(state2, str(other))
@@ -639,3 +641,21 @@ def test_json_members_are_removed_in_one_parse(monkeypatch):
     last = remove_json_members(b'{"mcpServers": {"a": 1, "Agents-Core": 2, "Agents-Core-Desktop": 3}}',
                                uninstall.mcp_removals())
     assert last == b'{"mcpServers": {"a": 1}}'
+
+
+@pytest.mark.parametrize("status, branches, reason", [
+    ((0, b"?? notes.md\n"), (0, b"main\n"), "it has uncommitted changes or untracked files"),
+    ((0, b""), (0, b"main\nfeature\n"), "it has local branches besides main (feature)"),
+    ((128, b""), (0, b"main\n"), "git could not check it for uncommitted work"),
+])
+def test_a_development_checkout_named_by_agents_home_is_kept(home, capsys, status, branches, reason):
+    """Round 2 N2: AGENTS_HOME naming a checkout with work in it never deletes that work."""
+    darwin_home(home)
+    installation = checkout(home / "Documents/Agents")
+    runner = FakeRunner({("git", "-C", str(installation), "status"): status,
+                         ("git", "-C", str(installation), "for-each-ref"): branches})
+    ctx = context(home, "darwin", runner, AGENTS_HOME=str(installation))
+    ctx.source_root = installation
+    assert main(["--yes"], ctx=ctx, interactive=False) == 0
+    assert (installation / "src/server.py").exists()
+    assert f"named by AGENTS_HOME, but {reason}" in capsys.readouterr().out
