@@ -35,7 +35,7 @@ from .supervise import SupervisorStopped, run_supervised
 from .tick import decide, iso, local_now, next_slot
 
 REAL_MODES = ("run", "resume")
-MISSING_FOR_REAL_MODES = ["#342 broker", "#347 run sequence", "#350 automatic mode"]
+MISSING_FOR_REAL_MODES = ["#347 run sequence", "#350 automatic mode"]
 DRY_RUN_TIMEOUT_MINUTES = 30
 TICK_STATE = "tick.json"
 UPDATE_MARKERS = ("maintenance.json", "transaction.json")
