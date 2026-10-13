@@ -400,12 +400,18 @@ def main(argv=None):
     migrate.add_argument("--workspace", type=Path)
     migrate.add_argument("--clients", default="codex,claude,cursor")
     migrate.add_argument("--client-config", action="append", default=[], metavar="CLIENT=PATH")
+    migrate.add_argument("--force-claude-code-mcp", action="store_true",
+                         help="write Claude Code's Agents-Core entry even when the agents-core plugin is "
+                              "installed and enabled (also AGENTS_FORCE_CLAUDE_CODE_MCP=1)")
     restore = commands.add_parser("restore-clients"); restore.add_argument("backup", type=Path)
     registrations = commands.add_parser(
         "registrations", help="client registrations this installation wrote; the service brings them "
                               "up to date at every start (#292)")
     registrations.add_argument("action", choices=["status", "run", "enable", "disable"],
                                help="run: now, also while turned off; disable: leave them as they are")
+    registrations.add_argument("--force-claude-code-mcp", action="store_true",
+                               help="run: upgrade Claude Code's entries even when the agents-core plugin "
+                                    "serves it (also AGENTS_FORCE_CLAUDE_CODE_MCP=1)")
     history = commands.add_parser("history", help="the fallback journal: turns whose project did not resolve (#292)")
     history_commands = history.add_subparsers(dest="history_command", required=True)
     history_commands.add_parser("unresolved", help="list them by the directory each session named")
@@ -451,6 +457,7 @@ def main(argv=None):
                             help="confirm the repository is private when the host cannot be checked")
     args = parser.parse_args(argv)
     overrides = []
+    claude_code_skipped = None
     if args.command in ("audit", "migrate"):
         from src.client_paths import parse_client_configs, CLIENTS
         try:
@@ -465,6 +472,12 @@ def main(argv=None):
             if "claude" in clients and args.workspace and (args.workspace / ".mcp.json").exists(): clients.append("claude-project")
             if any(client not in clients for client, _ in overrides):
                 parser.error("Each --client-config target must be selected by --clients")
+            if any(client in clients for client in ("claude", "claude-project")):
+                # The agents-core plugin serves Claude Code: no second Agents-Core entry (#367).
+                from .clients import CLAUDE_CODE_CLIENTS, claude_code_plugin_skip
+                claude_code_skipped = claude_code_plugin_skip(force=args.force_claude_code_mcp)
+                if claude_code_skipped:
+                    clients = [client for client in clients if client not in CLAUDE_CODE_CLIENTS]
     controller = Controller(args.state)
     # Commands of an installed service start its tools as the service does (#244).
     if controller.config: executables.configure(controller.config)
@@ -509,8 +522,12 @@ def main(argv=None):
                             blocked = f"{client}: {error.reason}"
             if blocked:
                 result, exit_code = {"state": "not_migrated", "error": blocked + "; nothing was changed"}, 1
+            elif not changes:
+                result = {"files": []}
             else:
                 result = {"backup": str(migration.apply(changes)), "files": [str(p) for p, _, _ in changes]}
+            if claude_code_skipped:
+                result["claude_code"] = "skipped: " + claude_code_skipped
     elif args.command == "restore-clients":
         from .clients import ClientMigration
         from .bootstrap import assert_service_safe
@@ -523,7 +540,12 @@ def main(argv=None):
         from . import registrations
         if args.action == "status":
             result = registrations.state(controller.directory)
+            warnings = registrations.duplicate_warnings(controller.directory)
+            if warnings:
+                result["warnings"] = warnings
         elif args.action == "run":
+            if args.force_claude_code_mcp:
+                os.environ["AGENTS_FORCE_CLAUDE_CODE_MCP"] = "1"
             try:
                 result = registrations.run(controller.directory, force=True)
             except BlockingIOError:

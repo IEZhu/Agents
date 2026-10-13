@@ -28,13 +28,17 @@ The MCP server is not bundled in the plugin: it needs a local installation with 
 environment and embedding model. Install it once (macOS or Linux, Python 3.11 or newer, Git):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/IEZhu/Agents/main/install.sh | bash -s -- --skip-mcp
+curl -fsSL https://raw.githubusercontent.com/IEZhu/Agents/main/install.sh | bash
 ```
 
 This clones the repository into `~/.agents-core`, creates `.venv`, downloads the default
-embedding model (about 1.1 GB, from Hugging Face) and builds the local indexes. `--skip-mcp`
-leaves your client configurations alone, because the plugin registers the server for Claude Code
-itself. Set `AGENTS_HOME` before installing to use another directory; the plugin's start script
+embedding model (about 1.1 GB, from Hugging Face) and builds the local indexes. It also writes
+the routing instructions (a managed section of `~/.claude/CLAUDE.md`, and Codex's `AGENTS.md`
+when Codex is present) and registers the server for other clients it finds (Codex, Cursor,
+Claude Desktop, Antigravity). When the plugin is already installed and enabled, it writes no
+`Agents-Core` entry for Claude Code, because the plugin starts the server itself; it says so in
+its output. Do not pass `--skip-mcp` for the plugin: that flag also skips the routing
+instructions. Set `AGENTS_HOME` before installing to use another directory; the plugin's start script
 reads the same variable, so keep the absolute value set in the environment that starts Claude
 Code or Cowork (your shell profile, or the login environment for the desktop app), or the
 launcher looks in `~/.agents-core` and reports that Agents-Core is not installed.
@@ -46,9 +50,14 @@ Claude to call `list_agents` to check it.
 The plugin is only a launcher: it starts `scripts/start-server.sh`, which runs code outside the
 plugin folder, `~/.agents-core/.venv/bin/python ~/.agents-core/src/server.py` of the separately
 installed server, the same command the installer registers (on NixOS with the nix-ld
-`LD_LIBRARY_PATH` the installer also sets). `AGENTS_HOME`, when set, must be an absolute path. If you installed Agents-Core earlier without `--skip-mcp`, Claude Code already has a
-user-level `Agents-Core` server: remove one of the two (`claude mcp remove Agents-Core --scope
-user`, or disable the plugin) so the tools are not listed twice.
+`LD_LIBRARY_PATH` the installer also sets). `AGENTS_HOME`, when set, must be an absolute path.
+
+If you installed Agents-Core before adding the plugin, Claude Code already has a user-level
+`Agents-Core` server: remove one of the two (`claude mcp remove Agents-Core --scope user`, or
+disable the plugin) so the tools are not listed twice. `~/.agents-core/.venv/bin/python -m
+src.daemon registrations status` warns about such a pair when the shared macOS service is
+installed. Rerunning the installer after adding the plugin keeps the routing instructions current
+without adding the entry again.
 
 On Windows the start script cannot run; set Agents-Core up with `scripts\init_repo.bat` from a
 clone instead, which registers the server for Claude Code directly. The project README has the

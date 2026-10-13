@@ -26,6 +26,50 @@ push to the private Git remote the user set up (`save_flow`, `delete_flow`, `set
 `log_interaction`), false for the rest (`TOOL_HINTS`, checked by `tests/test_tool_annotations.py`,
 which `.github/workflows/uninstall.yml` runs).
 
+## Alongside the installer
+
+The plugin and the installer would both register `Agents-Core` for Claude Code, and Claude Code
+would then list every tool twice and start two servers (#367). So while the plugin is installed
+and enabled, `scripts/init_repo.sh`, `scripts/init_repo.bat`, `python -m src.daemon migrate` and
+the service's registration upkeep (`registrations run`, and the run at every start) write no
+`Agents-Core` entry for Claude Code, neither the user-scope one in `~/.claude.json` nor a
+project's, and say why. Everything else still runs: the managed routing section in Claude
+Code's `CLAUDE.md`, the routing memory, Codex's `AGENTS.md`, and the registrations of Codex,
+Cursor, Claude Desktop and Antigravity. `--skip-mcp` keeps its meaning and skips all of that
+too, so the plugin's README no longer asks for it.
+
+To register Claude Code's own entry anyway, pass `--force-claude-code-mcp` to either installer,
+`migrate` or `registrations run`, or set `AGENTS_FORCE_CLAUDE_CODE_MCP=1`.
+
+`python -m src.daemon registrations status` adds a `warnings` entry
+(`duplicate_claude_code_server`) when the plugin is enabled and Claude Code also has an
+`Agents-Core` entry at user scope, in a project's local scope in `~/.claude.json`, or in a
+registered workspace's `.mcp.json`. It names the fix: `claude mcp remove Agents-Core --scope
+user` (`--scope local` or `--scope project` for the others), or disabling the plugin.
+
+The detection (`src/claude_plugin.py`) only reads Claude Code's own files, as the Claude Code
+documentation describes them (checked 2026-10-13):
+
+- the plugins root is `~/.claude/plugins`, or `CLAUDE_CODE_PLUGIN_CACHE_DIR` when set
+  ([plugin loading reference](https://code.claude.com/docs/en/plugins/loading#find-plugins-on-disk),
+  [environment variables](https://code.claude.com/docs/en/env-vars)); with `CLAUDE_CONFIG_DIR`
+  set, Claude Code keeps settings and plugins there
+  ([settings](https://code.claude.com/docs/en/settings));
+- `installed_plugins.json` in that root records each install, under the plugin's id, with its
+  `scope`, `installPath` and `version`; the plugin counts when it has a `user`-scope record
+  under an id `agents-core@<marketplace>`. The docs name these keys but do not print the whole
+  file; the `{"version": 2, "plugins": {"<id>": [records]}}` layout read here is the one Claude
+  Code writes today (not confirmed by the docs);
+- `enabledPlugins` in the profile's `settings.json` turns an id on or off; an id the user has not
+  set starts enabled, because the manifest leaves `defaultEnabled` at its default, `true`
+  ([manifest reference](https://code.claude.com/docs/en/plugins/manifest-reference#defaultenabled)).
+
+Anything it cannot read, or a setup it does not cover, counts as "no plugin", and the entry is
+written as before: project- or local-scope installs of the plugin, plugins synced from claude.ai
+(`agents-core@synced`, which have no install record), session-only `--plugin-dir` copies, and
+`enabledPlugins` set in project, local or managed settings. On Windows the plugin's start script
+does not run, so the batch installer's check rarely finds an enabled plugin there.
+
 ## Validate
 
 ```bash

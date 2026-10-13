@@ -24,7 +24,7 @@ import tomllib
 from src.client_paths import absolute_path, client_config_path
 from src.file_lock import file_lock
 from .audit import registered_configs
-from .clients import SERVER, TRANSPORT_KEYS, ClientMigration, ConfigChanged, tracked
+from .clients import SERVER, TRANSPORT_KEYS, ClientMigration, ConfigChanged, claude_code_plugin_skip, tracked
 from .state import read_json, write_json
 from .workspaces import WorkspaceError
 
@@ -232,6 +232,11 @@ def plan_client(migration, client, layers, home=None, *, transport, automatic=Fa
 
 
 def _upgrade_client(directory, client, layers, home, lock):
+    if client == "claude" and layers:
+        # The agents-core plugin serves Claude Code: its entries stay as they are (#367).
+        reason = claude_code_plugin_skip(home)
+        if reason:
+            return {"status": "skipped", "files": [], "reason": reason}
     migration = ClientMigration(directory)
     transport = "bridge" if migration.has_node() else "http"
     try:
@@ -286,6 +291,19 @@ def state(directory):
     """The saved switch and the last run's report."""
     saved = _saved(directory)
     return {**{key: value for key, value in saved.items() if key != "auto"}, "auto": saved.get("auto", True) is not False}
+
+
+def duplicate_warnings(directory, home=None):
+    """Warnings about the setup that `registrations status` reports: Claude Code with both the
+    agents-core plugin's server and another Agents-Core entry (#367)."""
+    from src.claude_plugin import duplicate_warning
+    try:
+        saved = read_json(Path(directory) / "workspaces.json", {})
+        roots = sorted({root for root in saved.values() if isinstance(root, str)}) if isinstance(saved, dict) else []
+    except (OSError, ValueError):
+        roots = []
+    warning = duplicate_warning(home=home, workspaces=roots)
+    return [warning] if warning else []
 
 
 @contextmanager
