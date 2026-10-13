@@ -53,9 +53,17 @@ class FakeCommands:
 
 
 @pytest.fixture
-def world(tmp_path_factory, service_state_dir, temp_root):  # noqa: F811
+def world(tmp_path_factory, service_state_dir, temp_root, monkeypatch):  # noqa: F811
     base = tmp_path_factory.mktemp("probe")
     paths = make_paths(base, service_state_dir, temp_root)
+    # The runner builds its SessionPaths with the machine's shared temporary roots by default
+    # (the owner's $TMPDIR, /private/tmp/claude-<uid>, /private/tmp/claude); the CLI tests use the
+    # world's, so no probe test plants, reads or hashes anything there.
+    real_paths = sandbox.SessionPaths
+    temps = {"owner_temp": paths.owner_temp, "claude_temp": paths.claude_temp, "claude_shared": paths.claude_shared}
+    monkeypatch.setattr(sandbox, "SessionPaths", lambda **fields: real_paths(**{**temps, **fields}))
+    (paths.home / "Library/Keychains").mkdir(parents=True)
+    (paths.repository / ".git/config").write_text("[core]\n\trepositoryformatversion = 0\n")  # no hooks (--template=)
     for directory in ("installation", "trusted.git/hooks", "LaunchAgents", "bin"):
         (base / directory).mkdir(parents=True)
     (base / "trusted.git/config").write_text("[core]\n\tbare = true\n")
@@ -122,7 +130,7 @@ def test_a_working_sandbox_passes_every_probe(world):
     assert report.observed["tmpdir_inside_temp_root"] is True and report.observed["fds"] <= probes.MAX_FDS
     assert report.observed["keychain"]["probed"] == ["gh:github.com"]
     assert set(report.observed["exit_codes"]) == {"git.config-global.script", "prefs.read.script"}
-    assert "CLAUDECODE" in report.observed["env_names"]
+    assert {"CLAUDECODE", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_PID"} <= set(report.observed["env_names"])
     groups = {check["group"] for check in report.checks}
     assert {"C0", "C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "C9", "C10", "C11", "C13", "C15", "C18"} <= groups
     by_tool = lambda prefix: {check["tool"] for check in report.checks if check["id"].startswith(prefix)}
@@ -167,15 +175,30 @@ def test_the_record_holds_verdicts_but_no_marker(world):
 
 # --- the plan: every probe, pinned (decision 17) ------------------------------------------------------
 
-def _plan_ids(world, kind, fixed_nonce):
-    spec = build(world, {}, kind=kind)
+def _plan_calls(world, kind, fixed_nonce, paths=None):
+    spec = build(world, {}, kind=kind, paths=paths)
     run = probes.ProbeRun(fixed_nonce, list(world.planted))
     try:
         probes._prepare(spec, run, world.targets, None)
         run.keychain = probes.keychain_inventory(world.targets, run.keychain_decoy, world.commands)
-        return sorted((check.id, call.tool) for call in probes.plan(spec, run, world.targets) for check in call.checks)
+        return probes.plan(spec, run, world.targets), run
     finally:
         probes._cleanup(spec, run)
+
+
+def _plan_ids(world, kind, fixed_nonce, paths=None):
+    calls, _ = _plan_calls(world, kind, fixed_nonce, paths)
+    return sorted((check.id, call.tool) for call in calls for check in call.checks)
+
+
+def _body(calls, check_id):
+    """The shell body of a Bash sub-probe, from its inline command or its script."""
+    for call in calls:
+        if call.tool == "Bash" and any(check.id == check_id for check in call.checks):
+            text = call.script[1] if call.script else call.input["command"]
+            suffix = f"; echo {probes.MARK} {check_id} rc=$?"
+            return next(line[:-len(suffix)] for line in text.splitlines() if line.endswith(suffix))
+    raise KeyError(check_id)
 
 
 IMPLEMENT_PLAN = sorted([
@@ -205,8 +228,12 @@ IMPLEMENT_PLAN = sorted([
     ("bypass.sandbox-loaded.script", "Bash"), ("bypass.read.script", "Bash"),
     *[(f"write.{name}.{suffix}", tool) for name in (
         "home", "runs", "installation", "schedules", "state-dir", "venv", "state-copy", "config-dir", "gh-config",
-        "settings-dir", "owner-temp", "claude-temp", "claude-shared", "trusted", "trusted-hooks", "plist-dir")
+        "settings-dir", "owner-temp", "claude-temp", "claude-shared", "trusted", "trusted-hooks", "plist-dir",
+        "repo-git-hooks", "repo-claude-settings")
       for suffix, tool in (("bash", "Bash"), ("script", "Bash"), ("write", "Write"))],
+    # The one-off repository's .git/config is a file: appended to, and read, then written.
+    ("write.repo-git-config.bash", "Bash"), ("write.repo-git-config.script", "Bash"),
+    ("read.repo-git-config.read", "Read"), ("write.repo-git-config.write", "Write"),
     *[(f"append.{name}.{suffix}", "Bash") for name in ("config-file", "plist", "settings-file")
       for suffix in ("bash", "script")],
     *[(f"link.{name}.{suffix}", "Bash") for name in ("symlink-read", "hardlink", "dir-symlink")
@@ -450,7 +477,9 @@ def test_an_edit_needs_its_read_first(world):
     assert not report.ok
     edit = next(check for check in report.checks if check["id"] == "control.repo.edit")
     assert edit["outcome"].startswith("error") and edit["ok"] is False  # the CLI's read-first refusal
-    assert failed(report, "write.state-copy.edit: expected denied, got denied without a successful "
+    # The CLI checks the input (read first) before the permissions (G9), so the state copy's Edit is
+    # an error too, never a denial, and it did not follow its Read.
+    assert failed(report, "write.state-copy.edit: expected denied, got error without a successful "
                           "read.state-copy.read first")
 
 
@@ -947,6 +976,9 @@ def test_the_cli_probe_runs_a_guarded_session_in_every_mode(world, capsys, mode,
     assert code == 0, output
     assert output["status"] == "completed" and output["mode"] == mode and output["trigger"] == {"kind": "probe"}
     assert output["probes"][0]["ok"] and output["probes"][0]["ran_session"]
+    types = output["probes"][0]["observed"]["target_types"]  # the world's temporary roots are directories
+    assert not {"owner-temp", "claude-temp", "claude-shared"} & set(types)
+    assert list(world.paths.claude_temp.iterdir()) == [] and list(world.paths.owner_temp.iterdir()) == []
     stored = (records.run_dir(output["run_id"], world.state) / records.RECORD_NAME).read_text()
     assert all(decoy.marker not in stored for decoy in decoys.registered(world.state))
     assert not list((world.base / "sessions").glob("*/probe"))
@@ -994,3 +1026,298 @@ def test_the_cli_probe_records_a_failure(world, capsys):
     assert output["status"] == "refused" and "tripwire" in output["reason"]
     assert autodev_config.load(world.state)["enabled"] is False
     assert all(decoy.marker not in json.dumps(output) for decoy in decoys.registered(world.state))
+
+
+# --- review round 2 ---------------------------------------------------------------------------------------
+
+def test_claude_pid_is_a_documented_cli_variable(world, monkeypatch):
+    """G5: the CLI sets CLAUDE_PID in Bash (env-vars docs); the allowlist must accept it."""
+    assert "CLAUDE_PID" in probes.CLI_ENV_NAMES
+    monkeypatch.setattr(probes, "CLI_ENV_NAMES", probes.CLI_ENV_NAMES - {"CLAUDE_PID"})
+    report, _ = probe(world)
+    assert not report.ok and failed(report, "outside the session allowlist: CLAUDE_PID")
+
+
+def test_the_pinned_plan_with_a_socket_and_a_read_root(world, fixed_nonce):
+    """G8: the socket control and the socket directory and read-root write targets are pinned."""
+    socket_dir = Path(tempfile.mkdtemp(prefix="sbx-"))
+    try:
+        clients = world.base / "clients"
+        clients.mkdir()
+        paths = dataclasses.replace(world.paths, socket=socket_dir / "c.sock", read_roots=(clients,))
+        expected = sorted([*IMPLEMENT_PLAN, ("control.socket.bash", "Bash"),
+                           *[(f"write.{name}.{suffix}", tool) for name in ("socket-dir", "read-root-0")
+                             for suffix, tool in (("bash", "Bash"), ("script", "Bash"), ("write", "Write"))]])
+        assert _plan_ids(world, "implement", fixed_nonce, paths) == expected
+    finally:
+        shutil.rmtree(socket_dir, ignore_errors=True)
+
+
+def test_a_rewritten_probe_script_fails(world, fixed_nonce):
+    """G7: a script rewritten to print forged denials passes every exit-code check, so only the
+    runner's snapshot of its own script catches it."""
+    report, _ = probe(world, {"tamper_scripts": ["-ipc.sh"]})
+    assert not report.ok
+    script = f"probe-{fixed_nonce}-ipc.sh"
+    assert failed(report, f"apple-events.osascript.script: the probe script {script} changed"), report.failures
+    assert all(f"the probe script {script} changed" in failure for failure in report.failures)  # nothing else saw it
+    ipc = [check for check in report.checks if check["id"].startswith(("socket.", "launchd.", "apple-events.",
+                                                                       "launch-services."))]
+    assert ipc and all(check["outcome"] == "denied" for check in ipc)
+
+
+# Network probes against a local stand-in for the sandbox proxy, which answers a blocked host with
+# HTTP 403 (sandboxing docs). Only the loopback interface is used.
+
+class _Proxy:
+    def __init__(self, status):
+        import http.server
+        import threading
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def _answer(self):
+                body = b"blocked by the sandbox proxy\n" if status >= 400 else b"ok\n"
+                self.send_response(status)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                if self.command != "CONNECT":
+                    self.wfile.write(body)
+
+            do_GET = do_CONNECT = _answer
+
+            def log_message(self, *args):
+                pass
+
+        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+        self.url = f"http://127.0.0.1:{self.server.server_address[1]}"
+
+    def close(self):
+        self.server.shutdown()
+        self.server.server_close()
+
+
+def _run_through(proxy, body):
+    env = {"PATH": "/usr/bin:/bin", "http_proxy": proxy.url, "HTTP_PROXY": proxy.url, "https_proxy": proxy.url,
+           "HTTPS_PROXY": proxy.url}
+    return subprocess.run(["/bin/bash", "-c", body], env=env, capture_output=True, timeout=30).returncode
+
+
+@pytest.mark.skipif(not os.path.exists("/usr/bin/curl"), reason="needs curl")
+def test_a_proxy_error_page_never_reads_as_allowed(world, fixed_nonce):
+    """G6: the proxy's 403 page makes every curl probe exit non-zero (denied); only a real
+    response (an HTTP status below 400) exits 0. Without --fail the metadata probe read the
+    error page as allowed."""
+    calls, _ = _plan_calls(world, "implement", fixed_nonce)
+    metadata, external = _body(calls, "network.metadata.script"), _body(calls, "network.external.script")
+    assert "--fail" in metadata and "--max-time" in metadata
+    blocked = _Proxy(403)
+    try:
+        assert _run_through(blocked, metadata) == 22  # curl: HTTP error with --fail
+        assert _run_through(blocked, external) not in (0, *probes.INCONCLUSIVE_CODES)  # the CONNECT was refused
+        assert _run_through(blocked, metadata.replace(" --fail", "")) == 0  # the round-1 form: a false "allowed"
+    finally:
+        blocked.close()
+    answering = _Proxy(200)
+    try:
+        assert _run_through(answering, metadata) == 0  # a real response is allowed, a failure of the probe
+    finally:
+        answering.close()
+
+
+def test_a_proxy_403_exit_code_counts_as_denied(world):
+    report, _ = probe(world, {"rc": {"network.metadata.script": 22}})
+    assert report.ok, report.failures
+
+
+@pytest.mark.parametrize("probe_id, code", [("network.dns.script", probes.GUARD_FAILED), ("gh.token.script", 127),
+                                            ("network.udp.script", 126), ("list.home.script", 127),
+                                            ("write.home.bash", 126), ("keychain.gh-github-com.script", 127)])
+def test_a_probe_that_did_not_run_is_inconclusive(world, probe_id, code):
+    """G1: a missing tool (127), an unrunnable one (126) or a failed guard is no denial."""
+    report, _ = probe(world, {"rc": {probe_id: code}})
+    assert not report.ok and failed(report, f"{probe_id}: expected denied, got inconclusive")
+
+
+def test_probes_that_hide_their_tools_exit_code_are_guarded(world, fixed_nonce):
+    world.commands.existing.add("internet:github.com")
+    calls, _ = _plan_calls(world, "implement", fixed_nonce)
+    for check_id in ("network.dns.script", "keychain.git-credential-github-com.script"):
+        assert f"|| exit {probes.GUARD_FAILED};" in _body(calls, check_id)
+    missing_tool = _body(calls, "network.dns.script").replace("/usr/bin/dscacheutil", "/nonexistent/dscacheutil")
+    assert subprocess.run(["/bin/bash", "-c", missing_tool], capture_output=True).returncode == probes.GUARD_FAILED
+
+
+# Targets are typed before the session (G1, decision 3).
+
+def _shared_as(world, kind):
+    shared = world.paths.claude_shared
+    shutil.rmtree(shared)
+    if kind == "file":
+        shared.write_text("the owner's own file\n")
+    elif kind == "other":
+        shared.symlink_to(world.base / "nowhere")
+    return shared
+
+
+def test_a_regular_file_target_gets_an_append_and_a_read(world, fixed_nonce):
+    shared = _shared_as(world, "file")
+    calls, run = _plan_calls(world, "implement", fixed_nonce)
+    ids = {check.id for call in calls for check in call.checks}
+    assert {"write.claude-shared.bash", "write.claude-shared.script", "list.claude-shared.bash",
+            "list.claude-shared.script", "list.claude-shared.glob", "list.claude-shared.grep"} <= ids
+    assert "write.claude-shared.write" not in ids  # overwriting needs a Read the read block refuses
+    assert _body(calls, "write.claude-shared.script") == f": >> {shared}"
+    assert _body(calls, "list.claude-shared.bash") == f"cat {shared} >/dev/null 2>&1"
+    assert run.types["claude-shared"] == probes.FILE
+    report, _ = probe(world)
+    assert report.ok, report.failures
+    assert report.observed["target_types"]["claude-shared"] == "file"
+    assert shared.read_text() == "the owner's own file\n"
+
+
+@pytest.mark.parametrize("scenario, failure", [
+    ({"allow": ["write.claude-shared.script"]}, "write.claude-shared.script: expected denied, got allowed"),
+    ({"allow": ["list.claude-shared.bash"]}, "list.claude-shared.bash: expected denied, got allowed"),
+    (lambda w: {"allow_calls": [["Grep", str(w.paths.claude_shared)]]}, "list.claude-shared.grep"),
+])
+def test_a_regular_file_target_that_is_reachable_fails(world, scenario, failure):
+    _shared_as(world, "file")
+    report, _ = probe(world, scenario(world) if callable(scenario) else scenario)
+    assert not report.ok and failed(report, failure), report.failures
+
+
+def test_a_missing_target_is_created_by_the_probe(world, fixed_nonce):
+    shared = _shared_as(world, "missing")
+    calls, run = _plan_calls(world, "implement", fixed_nonce)
+    ids = {check.id for call in calls for check in call.checks}
+    assert {"write.claude-shared.bash", "write.claude-shared.script", "write.claude-shared.write"} <= ids
+    assert not any(check_id.startswith("list.claude-shared.") for check_id in ids)  # nothing to read
+    assert _body(calls, "write.claude-shared.bash") == f"mkdir {shared}"
+    write = next(call for call in calls if call.checks[0].id == "write.claude-shared.write")
+    assert write.input["file_path"] == str(shared) and write.checks[0].absent == (shared,)
+    report, _ = probe(world)
+    assert report.ok, report.failures
+    assert report.observed["target_types"]["claude-shared"] == "missing" and not shared.exists()
+
+
+@pytest.mark.parametrize("scenario, check_id", [
+    ({"allow": ["write.claude-shared.script"]}, "write.claude-shared.script"),
+    (lambda w: {"allow_calls": [["Write", str(w.paths.claude_shared)]]}, "write.claude-shared.write"),
+])
+def test_a_missing_target_the_session_could_create_fails_and_is_removed(world, scenario, check_id):
+    shared = _shared_as(world, "missing")
+    report, _ = probe(world, scenario(world) if callable(scenario) else scenario)
+    assert not report.ok and failed(report, f"{check_id}: {shared} was created"), report.failures
+    assert not os.path.lexists(shared)
+
+
+def test_a_target_that_cannot_be_probed_refuses_the_probe(world):
+    _shared_as(world, "other")  # a dangling link: mkdir would fail on it whatever the sandbox does
+    report, _ = probe(world)
+    assert not report.ok and not report.ran_session
+    assert failed(report, "the probe target claude-shared is neither a directory, a regular file nor missing")
+    assert report.observed["target_types"]["claude-shared"] == "other"
+
+
+# The one-off repository (G3, decision 5).
+
+def test_the_one_off_repositorys_git_and_claude_settings_are_probed(world, fixed_nonce):
+    repo = world.paths.repository
+    calls, run = _plan_calls(world, "implement", fixed_nonce)
+    assert run.types["repo-git-config"] == probes.FILE and run.types["repo-git-hooks"] == probes.MISSING
+    assert _body(calls, "write.repo-git-config.bash") == f": >> {repo}/.git/config"
+    assert _body(calls, "write.repo-git-hooks.script") == f"mkdir {repo}/.git/hooks"
+    assert _body(calls, "write.repo-claude-settings.script") == (
+        f"mkdir -p {repo}/.claude && printf '{{}}' > {repo}/.claude/settings.local.json")
+    (repo / ".git/hooks").mkdir()
+    calls, _ = _plan_calls(world, "implement", fixed_nonce)
+    assert _body(calls, "write.repo-git-hooks.bash") == f"printf x > {repo}/.git/hooks/probe-{fixed_nonce}-bash"
+    report, _ = probe(world)
+    assert report.ok, report.failures
+    assert not (repo / ".claude").exists()
+
+
+@pytest.mark.parametrize("scenario, failure", [
+    ({"allow": ["write.repo-git-config.script"]}, "write.repo-git-config.script: expected denied, got allowed"),
+    ({"allow": ["write.repo-git-hooks.bash"]}, "/.git/hooks was created"),
+    ({"allow": ["write.repo-claude-settings.script"]}, "/.claude/settings.local.json was created"),
+    ({"allow_calls": [["Write", "/.git/config"]]}, "write.repo-git-config.write: "),
+    ({"allow_calls": [["Write", "/.git/hooks"]]}, "write.repo-git-hooks.write: "),
+    ({"allow_calls": [["Write", "settings.local.json"]]}, "write.repo-claude-settings.write: "),
+    ({"deny_calls": [["Read", "/.git/config"]]}, "read.repo-git-config.read: expected allowed, got denied"),
+])
+def test_a_one_off_repository_write_that_succeeded_fails(world, scenario, failure):
+    repo = world.paths.repository
+    report, _ = probe(world, scenario)
+    assert not report.ok and failed(report, failure), report.failures
+    assert not (repo / ".git/hooks").exists() and not (repo / ".claude").exists()
+
+
+def test_the_git_config_write_counts_only_after_its_read(world):
+    report, _ = probe(world, {"skip": [_call_index(world, "Read", "/.git/config")]})
+    assert not report.ok
+    assert failed(report, "write.repo-git-config.write: expected denied, got error without a successful "
+                          "read.repo-git-config.read first")
+
+
+def _call_index(world, tool, part):
+    spec = build(world, {})
+    run = probes.ProbeRun("f" * 16, list(world.planted))
+    try:
+        probes._prepare(spec, run, world.targets, None)
+        run.keychain = probes.keychain_inventory(world.targets, run.keychain_decoy, world.commands)
+        calls = probes.plan(spec, run, world.targets)
+    finally:
+        probes._cleanup(spec, run)
+    return next(index for index, call in enumerate(calls) if call.tool == tool and part in json.dumps(call.input))
+
+
+@pytest.mark.parametrize("plant, problem", [
+    (lambda repo: (repo / ".claude").mkdir() or (repo / ".claude/settings.json").write_text("{}"),
+     "holds project settings"),
+    (lambda repo: (repo / ".claude").mkdir() or (repo / ".claude/settings.local.json").write_text("{}"),
+     "holds project settings"),
+    (lambda repo: (repo / ".mcp.json").write_text("{}"), "holds a project MCP configuration"),
+    (lambda repo: (repo / ".claude").write_text("x"), ".claude is not a directory"),
+])
+def test_a_one_off_repository_with_project_settings_is_refused(world, plant, problem):
+    passing, spec = probe(world)
+    plant(world.paths.repository)
+    report = guard(world, spec)
+    assert not report.ok and not report.ran_session and failed(report, problem), report.failures
+    with pytest.raises(sandbox.SandboxError, match=problem):
+        probes.start_session(spec, passing, "work", platform="darwin", managed=lambda: [])
+
+
+def test_a_plain_claude_directory_is_allowed(world):
+    (world.paths.repository / ".claude").mkdir()
+    (world.paths.repository / ".claude/commands").mkdir()
+    assert probes.repository_problems(world.paths.repository) == []
+
+
+# Names the stream chose (G2, decision 4).
+
+def test_secret_chunks_as_tool_names_never_reach_the_record(world):
+    token = "ghp_Ab3dEf6hIj9kLm2nOp5qRs8tUv1wXy4z" + "Q1w2E3"
+    chunks = [token[index:index + 12] for index in range(0, 36, 12)]
+    calls = [{"tool": chunk, "input": {}} for chunk in chunks] + [{"tool": "WebFetch", "input": {"url": "x"}}]
+    report = guard(world, build(world, {"extra_calls": calls}), known=[KnownSecret("broker token", token)])
+    assert not report.ok
+    assert failed(report, "3 unexpected <invalid> calls (not in the probe plan)")
+    assert failed(report, "an unexpected WebFetch call (not in the probe plan)")  # a documented built-in name
+    assert report.observed["unexpected_calls"] == 4
+    record = probes.record_report(RUN_ID, world.state, report, world.planted, known=[token])
+    text = json.dumps(record)
+    assert all(chunk not in text for chunk in chunks) and token not in text
+
+
+def test_many_unexpected_calls_stay_one_line_and_failures_are_capped(world):
+    report, _ = probe(world, {"extra_calls": [{"tool": f"x{index}", "input": {}} for index in range(300)]})
+    assert [failure for failure in report.failures if "unexpected" in failure] == [
+        "300 unexpected <invalid> calls (not in the probe plan)"]
+    many = probes.ProbeReport("implement", "dry-run", "d", failures=[f"f{index}" for index in range(500)])
+    probes._finish(many, time.monotonic())
+    assert not many.ok and len(many.failures) == probes.MAX_FAILURES + 1
+    assert many.failures[-1] == "300 more failure(s) not listed"

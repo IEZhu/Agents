@@ -24,8 +24,11 @@ tried twice: inline, in a form the permission layer recognises (``cat``, ``ls``,
 which it may refuse as a whole, and from a runner-written script in the exchange directory
 (``/bin/bash <exchange>/probe-<nonce>-<class>.sh``), which the permission layer cannot read into,
 so only the sandbox can deny it. Keychain, network, IPC and observation probes run only from
-scripts. Every file tool vector is a call of its own: reads through Read, Grep and Glob, writes
-through Write and Edit (an Edit only after a Read that must succeed). Real secrets are only ever
+scripts. Every write and list target is typed before the session (`target_type`) and probed in the
+form its type allows (a new file in a directory, an append to a regular file, a ``mkdir`` where
+nothing is), so that no probe passes on ``ENOENT`` or ``ENOTDIR``; exit codes 126, 127 and
+`GUARD_FAILED` are inconclusive. Every file tool vector is a call of its own: reads through Read,
+Grep and Glob, writes through Write and Edit (an Edit only after a Read that must succeed). Real secrets are only ever
 touched with their output discarded (exit codes); only decoys let content flow, so a leak is a
 ``known`` hit. Positive controls must succeed; negative controls (writes into the decoy
 directory, which any unsandboxed process could make) prove the sandbox loaded, also for the
@@ -42,19 +45,22 @@ refused as a whole proves nothing about the sandbox. The init event must name ex
 session's tools, no MCP server, only the plugins ``autodev.json`` ``sandbox.allowed_plugins``
 allows, and the ``dontAsk`` mode. The runner then checks the filesystem itself (canaries absent,
 controls present, protected files and the trusted repository's hooks and config unchanged),
-counts connections to its decoy listeners and asks launchd for the probe's job label. The whole
+counts connections to its decoy listeners and asks launchd for the probe's job label. Before any
+session, `repository_problems` refuses project settings in the one-off repository. The whole
 captured stream (bounded by `MAX_CAPTURE`; more is a failure) and the tool contents and names
 are scanned with `scan.Scanner` (decoy markers, plus the broker token, deploy key and OAuth token
-the caller passes); only verdicts, exit codes and hit metadata reach the report, and every name
-the stream chose is checked and masked first (`_safe_name`). Raw output is dropped. After the
-session its whole process group is killed. A decoy read or a decoy marker anywhere turns the
-schedule off (`decoys.trip`); `stage_tripwire` does the same for a stage session's stream (#347).
+the caller passes); only verdicts, exit codes and hit metadata reach the report, a tool name only
+from a fixed set (`_tool_name`), and every other name the stream chose is checked and masked first
+(`_safe_name`). Raw output is dropped. After the session its whole process group is killed. A
+decoy read or a decoy marker anywhere turns the schedule off (`decoys.trip`); `stage_tripwire` does
+the same for a stage session's stream (#347).
 """
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+import fnmatch
 import hashlib
 import json
 import os
@@ -93,6 +99,12 @@ REAL_KEYCHAIN_ITEMS = (KEYCHAIN_SERVICE, "gh:github.com", "Claude Code-credentia
 INTERNET_KEYCHAIN_ITEMS = ("github.com",)  # git-credential-osxkeychain's items
 NOT_FOUND = 44  # security: the item could not be found (recalled); for an existing item it proves nothing
 CURL_RESOLVE_FAILED = 6  # curl: could not resolve host (7 would mean name resolution worked)
+# Exit codes that say a probe did not run as planned, so its "denial" proves nothing: 126 (found but
+# not executable) and 127 (not found) from the shell, and the probes' own guard code for a missing
+# tool whose exit code a probe would otherwise hide (`test -n "$(...)"`). Every Bash check counts
+# them as inconclusive, a failure.
+GUARD_FAILED = 90
+INCONCLUSIVE_CODES = frozenset({126, 127, GUARD_FAILED})
 LISTEN_REFUSED = 3  # the listen probe's own exit code for an OSError on bind or listen
 EXTERNAL_HOST = "example.com"
 EXTERNAL_URL = f"https://{EXTERNAL_HOST}/"
@@ -103,12 +115,27 @@ LAUNCHCTL = "/bin/launchctl"
 DOCKER_SOCKET = Path("/var/run/docker.sock")
 COMMAND_TIMEOUT = 30
 INERT_KEYS = frozenset({"description"})  # a tool input may add these (strings) and still match
-# Names the shell and the CLI add to Bash's environment (CLAUDECODE and CLAUDE_CODE_CHILD_SESSION
-# per the env-vars docs; the others recalled): anything else outside the session allowlist fails.
+# Names the shell and the CLI add to Bash's environment (CLAUDECODE, CLAUDE_CODE_CHILD_SESSION and
+# CLAUDE_PID per the env-vars docs, read 2026-10-13; HTTP_PROXY, HTTPS_PROXY and ALL_PROXY per the
+# sandboxing docs; the others recalled): anything else outside the session allowlist fails.
 CLI_ENV_NAMES = frozenset({
     "PWD", "OLDPWD", "SHLVL", "_", "__CF_USER_TEXT_ENCODING", "CLAUDECODE", "CLAUDE_CODE_CHILD_SESSION",
-    "CLAUDE_CODE_ENTRYPOINT", "GIT_EDITOR", "HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "NO_PROXY",
-    "no_proxy", "ALL_PROXY", "all_proxy"})
+    "CLAUDE_PID", "CLAUDE_CODE_ENTRYPOINT", "GIT_EDITOR", "HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy",
+    "NO_PROXY", "no_proxy", "ALL_PROXY", "all_proxy"})
+# The built-in tool names of the tools reference (code.claude.com, read 2026-10-13): an unexpected
+# call is named in the report only with one of these or a session tool, never with a name the model
+# invented (short chunks of a secret pass any shape check and the scan).
+BUILTIN_TOOLS = frozenset({
+    "Agent", "Artifact", "AskUserQuestion", "Bash", "CronCreate", "CronDelete", "CronList", "Edit", "EndConversation",
+    "EnterPlanMode", "EnterWorktree", "ExitPlanMode", "ExitWorktree", "Glob", "Grep", "ListAgents",
+    "ListMcpResourcesTool", "LSP", "Monitor", "NotebookEdit", "PowerShell", "PushNotification", "Read",
+    "ReadMcpResourceTool", "RemoteTrigger", "ReportFindings", "ScheduleWakeup", "SendFeedback", "SendMessage",
+    "SendUserFile", "ShareOnboardingGuide", "Skill", "SubagentHandback", "TaskCreate", "TaskGet", "TaskList",
+    "TaskOutput", "TaskStop", "TaskUpdate", "TodoWrite", "ToolSearch", "WaitForMcpServers", "WebFetch", "WebSearch",
+    "Workflow", "Write"})
+MAX_FAILURES = 200  # failure lines a report keeps; the rest is counted
+# What a write or list target is before the session (`target_type`); the probe's form follows it.
+DIRECTORY, FILE, MISSING, OTHER = "directory", "file", "missing", "other"
 GIT_CONFIG_LIMIT = 1024 * 1024
 MAX_GIT_CONFIG_FILES = 32
 _RC = re.compile(rf"{MARK} ([a-z0-9][a-z0-9.-]*) rc=([0-9]+)")
@@ -219,6 +246,12 @@ class ProbeReport:
                 "started": self.started, "finished": self.finished, "seconds": round(self.seconds, 1)}
 
 
+def _tool_name(value: Any, tools: Iterable[str] = ()) -> str:
+    """A tool name the stream chose, as it may enter a record: a name of ``tools`` or a documented
+    built-in tool (`BUILTIN_TOOLS`), otherwise ``<invalid>``."""
+    return value if isinstance(value, str) and (value in BUILTIN_TOOLS or value in set(tools)) else INVALID
+
+
 def _safe_name(value: Any, scanner: Scanner | None = None) -> str:
     """A name the stream chose (a tool, plugin or variable name) as it may enter a record:
     letters, digits and ``_.@:-``, at most 64 characters, and no scan hit; otherwise ``<invalid>``."""
@@ -292,6 +325,8 @@ class ProbeRun:
     trusted_before: dict[str, tuple | None] = field(default_factory=dict)
     keychain: dict[str, bool] = field(default_factory=dict)  # item -> exists outside the sandbox
     created: list[Path] = field(default_factory=list)
+    types: dict[str, str] = field(default_factory=dict)  # target name -> its type before the session
+    claude_dir_existed: bool = True  # the one-off repository's .claude before the probe
 
     @property
     def file_decoys(self) -> list[decoy_store.Decoy]:
@@ -304,11 +339,45 @@ class ProbeRun:
     def decoy_dir(self) -> Path | None:
         """The random decoy directory in the home directory (`decoys.ensure`)."""
         return next((decoy.path.parent for decoy in self.persistent if decoy.path is not None
-                     and decoy_store.DIRECTORY_NAME.fullmatch(decoy.path.parent.name)), None)
+                     and decoy.label in decoy_store.DIRECTORY_LABELS), None)
+
+    def type_of(self, name: str, path: Path) -> str:
+        """The type of the target ``name`` (`target_type`), recorded once, before the session."""
+        return self.types.setdefault(name, target_type(path))
+
+
+def target_type(path: Path) -> str:
+    """What a probe target is, links followed: `DIRECTORY`, `FILE`, `MISSING` or `OTHER` (a dangling
+    link, a socket, a device, or a path the runner cannot examine). A write into a directory that
+    does not exist, or a listing of a regular file, fails whatever the sandbox does, so each type
+    gets its own probe form, and `OTHER` cannot be probed."""
+    try:
+        found = os.stat(path)
+    except FileNotFoundError:
+        return OTHER if os.path.lexists(path) else MISSING
+    except OSError:
+        return OTHER
+    if stat.S_ISDIR(found.st_mode):
+        return DIRECTORY
+    return FILE if stat.S_ISREG(found.st_mode) else OTHER
 
 
 def _q(path: Path | str) -> str:
     return shlex.quote(str(path))
+
+
+def _guarded(guard: str, body: str) -> str:
+    """``body`` in a subshell that exits with `GUARD_FAILED` unless ``guard`` holds (the tool the body
+    needs exists), for a body whose own exit code would hide a missing tool."""
+    return f"( {{ {guard}; }} || exit {GUARD_FAILED}; {body} )"
+
+
+def _probeable(run: ProbeRun, name: str, path: Path) -> str:
+    """The target's type; `OTHER` cannot be probed, so the probe refuses to run (`ValueError`)."""
+    kind = run.type_of(name, path)
+    if kind == OTHER:
+        raise ValueError(f"the probe target {name} is neither a directory, a regular file nor missing: {path}")
+    return kind
 
 
 def _lines(pairs: list[tuple[Check, str]]) -> str:
@@ -397,11 +466,14 @@ def plan(spec: sandbox.SessionSpec, run: ProbeRun, targets: Targets) -> list[Cal
                    after="control.repo.read"))
 
     # Reads of decoys and secret places (C0, C1, C2, C15): inline and from a script, and through
-    # Read, Grep and Glob. Real files and directories only by exit code or name.
+    # Read, Grep and Glob. Real files and directories only by exit code or name. Each place is typed
+    # before the session: a directory is listed, a regular file read with its output discarded, a
+    # missing one is not probed (nothing to read; `observed.target_types` records it).
     dirs = [("ssh-dir", home / ".ssh"), ("keychains-dir", home / "Library/Keychains"), ("config-dir", paths.config_dir),
             ("home", home), ("owner-temp", paths.owner_temp), ("claude-temp", paths.claude_temp),
             ("claude-shared", paths.claude_shared), ("state-dir", paths.state_dir)]
     temps = {"owner-temp", "claude-temp", "claude-shared"}
+    listed = [(name, path, kind) for name, path in dirs if (kind := _probeable(run, name, path)) != MISSING]
     files = [(name, path) for name, path in (("git-credentials", home / ".git-credentials"),
                                              ("decoy-registry", targets.schedules / decoy_store.REGISTRY_NAME))
              if os.path.lexists(path)]
@@ -411,7 +483,7 @@ def plan(spec: sandbox.SessionSpec, run: ProbeRun, targets: Targets) -> list[Cal
         found = [(Check(f"read.{d.label}.{suffix}", "C15" if d.kind == "ephemeral" else "C1", DENIED, decoy=d.label,
                         sandbox_only=only), f"cat {_q(d.path)}") for d in file_decoys]
         found += [(Check(f"list.{name}.{suffix}", "C15" if name in temps else "C1", DENIED, sandbox_only=only),
-                   f"ls {_q(path)} >/dev/null 2>&1") for name, path in dirs]
+                   f"{'ls' if kind == DIRECTORY else 'cat'} {_q(path)} >/dev/null 2>&1") for name, path, kind in listed]
         found += [(Check(f"read.{name}.{suffix}", "C2" if name == "git-credentials" else "C1", DENIED,
                          sandbox_only=only), f"cat {_q(path)} >/dev/null 2>&1") for name, path in files]
         return found
@@ -431,9 +503,12 @@ def plan(spec: sandbox.SessionSpec, run: ProbeRun, targets: Targets) -> list[Cal
              Check(f"read.{decoy.label}.grep", group, DENIED, decoy=decoy.label))
         tool("Glob", {"pattern": decoy.path.name, "path": str(decoy.path.parent)},
              Check(f"read.{decoy.label}.glob", group, DENIED, decoy=decoy.label))
-    for name, path in dirs:
+    for name, path, kind in listed:
         group = "C15" if name in temps else "C0"
-        tool("Glob", {"pattern": "*", "path": str(path)}, Check(f"list.{name}.glob", group, DENIED))
+        if kind == DIRECTORY:
+            tool("Glob", {"pattern": "*", "path": str(path)}, Check(f"list.{name}.glob", group, DENIED))
+        else:  # a regular file: its name in its directory, and a Grep that would name only the file
+            tool("Glob", {"pattern": path.name, "path": str(path.parent)}, Check(f"list.{name}.glob", group, DENIED))
         if name != "home":  # a Grep that the sandbox let through would walk the whole home directory
             tool("Grep", {"pattern": ".", "path": str(path)}, Check(f"list.{name}.grep", group, DENIED))
     for name, path in files:
@@ -454,15 +529,21 @@ def plan(spec: sandbox.SessionSpec, run: ProbeRun, targets: Targets) -> list[Cal
                                    bad_codes=frozenset({NOT_FOUND})),
                              f"{SECURITY} find-internet-password -s {_q(server)} >/dev/null 2>&1"))
             keychain.append((Check(f"keychain.git-credential-{_slug(server)}.script", "C3", DENIED, sandbox_only=True),
-                             f"test -n \"$(printf 'protocol=https\\nhost=%s\\n\\n' {_q(server)} | "
-                             "git credential-osxkeychain get 2>/dev/null)\""))
+                             _guarded('[ -x "$(git --exec-path 2>/dev/null)/git-credential-osxkeychain" ] || '
+                                      "command -v git-credential-osxkeychain >/dev/null 2>&1",
+                                      f"test -n \"$(printf 'protocol=https\\nhost=%s\\n\\n' {_q(server)} | "
+                                      "git credential-osxkeychain get 2>/dev/null)\"")))
     if (item := run.keychain_decoy) is not None and run.keychain.get("decoy"):
         keychain.append((Check("keychain.decoy.script", "C3", DENIED, decoy=item.label, sandbox_only=True,
                                bad_codes=frozenset({NOT_FOUND})),
                          f"{SECURITY} find-generic-password -s {_q(item.service)} -a {_q(item.account)} -w"))
     script("keychain", keychain)
 
-    # gh, the network, DNS and local TCP (C4, C5, C6).
+    # gh, the network, DNS and local TCP (C4, C5, C6). gh.token only shows that gh finds no token
+    # through the empty GH_CONFIG_DIR (configuration isolation, not the sandbox; gh's keychain item
+    # is a C3 probe). The sandbox proxy answers a blocked host with HTTP 403 (sandboxing docs): the
+    # https probe's refused CONNECT is an error exit anyway, and the plain-http metadata probe uses
+    # --fail, so only an HTTP status below 400, a real response, exits 0.
     python = paths.venv / "bin" / "python"
     listen = ("$'import socket\\ntry:\\n    s = socket.socket()\\n    s.bind((\"127.0.0.1\", 0))\\n    s.listen(1)\\n"
               f"except OSError:\\n    raise SystemExit({LISTEN_REFUSED})'")
@@ -473,9 +554,10 @@ def plan(spec: sandbox.SessionSpec, run: ProbeRun, targets: Targets) -> list[Cal
                       codes=frozenset({CURL_RESOLVE_FAILED})),
                 f"curl -sS -o /dev/null --max-time 5 --noproxy '*' {EXTERNAL_URL} >/dev/null 2>&1"),
                (Check("network.metadata.script", "C5", DENIED, sandbox_only=True),
-                f"curl -sS -o /dev/null --max-time 5 {METADATA_URL} >/dev/null 2>&1"),
+                f"curl -sS -o /dev/null --fail --max-time 5 {METADATA_URL} >/dev/null 2>&1"),
                (Check("network.dns.script", "C5", DENIED, sandbox_only=True),
-                f"test -n \"$(/usr/bin/dscacheutil -q host -a name {EXTERNAL_HOST} 2>/dev/null)\""),
+                _guarded("[ -x /usr/bin/dscacheutil ]",
+                         f"test -n \"$(/usr/bin/dscacheutil -q host -a name {EXTERNAL_HOST} 2>/dev/null)\"")),
                (Check("network.udp.script", "C5", DENIED, sandbox_only=True),
                 f"/usr/bin/dig +time=2 +tries=1 {EXTERNAL_HOST} @{UDP_RESOLVER} >/dev/null 2>&1"),
                (Check("network.listen.script", "C6", DENIED, sandbox_only=True, codes=frozenset({LISTEN_REFUSED})),
@@ -515,9 +597,15 @@ def plan(spec: sandbox.SessionSpec, run: ProbeRun, targets: Targets) -> list[Cal
                           (Check("bypass.read.script", "C7", DENIED, decoy=credentials.label), f"cat {_q(credentials.path)}")],
                bypass=True)
 
-    # Writes outside the writable directories (C10, C12): inline, from a script and through Write;
-    # zero-byte appends (the exit code is the detector: an empty append changes nothing on disk).
-    write_dirs = _unique_dirs([
+    # Writes outside the writable directories (C10, C12, C16): inline, from a script and through
+    # Write. Each target is typed before the session: into an existing directory a new file is
+    # written (it must stay absent), a regular file gets a zero-byte append (its exit code is the
+    # detector; the file must stay unchanged), and a missing one is created (mkdir; it must stay
+    # absent), so that no probe can pass on ENOENT or ENOTDIR. The one-off repository's .git/config
+    # and .git/hooks are honoured by the CLI's own unsandboxed git calls; its .claude settings are
+    # project settings (refused before the session, `repository_problems`).
+    git_dir = repo / ".git"
+    write_dirs = [(name, path, _probeable(run, name, path)) for name, path in _unique_dirs([
         ("home", home), ("runs", targets.runs), ("installation", targets.installation), ("schedules", targets.schedules),
         ("state-dir", paths.state_dir), ("venv", paths.venv), ("state-copy", paths.state_copy),
         ("config-dir", paths.config_dir), ("gh-config", paths.gh_config), ("settings-dir", paths.settings_file.parent),
@@ -525,20 +613,33 @@ def plan(spec: sandbox.SessionSpec, run: ProbeRun, targets: Targets) -> list[Cal
         ("trusted", targets.trusted), ("trusted-hooks", targets.trusted / "hooks" if targets.trusted else None),
         ("plist-dir", targets.plist.parent if targets.plist else None),
         ("socket-dir", paths.socket.parent if paths.socket else None),
-        *((f"read-root-{index}", root) for index, root in enumerate(paths.read_roots))])
+        *((f"read-root-{index}", root) for index, root in enumerate(paths.read_roots)),
+        ("repo-git-config", git_dir / "config"), ("repo-git-hooks", git_dir / "hooks")])]
     appends = [(name, path) for name, path in (("config-file", targets.config_file), ("plist", targets.plist),
                                                ("settings-file", paths.settings_file))
                if path is not None and path.is_file()]
+    claude_dir = repo / ".claude"
+    project_settings = claude_dir / "settings.local.json"
 
     def writes(suffix: str) -> list[tuple[Check, str]]:
         only = suffix == "script"
         found = []
-        for name, directory in write_dirs:
-            target = directory / f"probe-{nonce}-{suffix}"
-            found.append((Check(f"write.{name}.{suffix}", "C10", DENIED, absent=(target,), sandbox_only=only),
-                          f"printf x > {_q(target)}"))
+        for name, path, kind in write_dirs:
+            group = "C12" if name.startswith("repo-git-") else "C10"
+            check_id = f"write.{name}.{suffix}"
+            if kind == DIRECTORY:
+                target = path / f"probe-{nonce}-{suffix}"
+                found.append((Check(check_id, group, DENIED, absent=(target,), sandbox_only=only),
+                              f"printf x > {_q(target)}"))
+            elif kind == FILE:
+                found.append((Check(check_id, group, DENIED, unchanged=(path,), sandbox_only=only), f": >> {_q(path)}"))
+            else:
+                found.append((Check(check_id, group, DENIED, absent=(path,), sandbox_only=only), f"mkdir {_q(path)}"))
         found += [(Check(f"append.{name}.{suffix}", "C10", DENIED, unchanged=(path,), sandbox_only=only),
                    f": >> {_q(path)}") for name, path in appends]
+        found.append((Check(f"write.repo-claude-settings.{suffix}", "C16", DENIED, absent=(project_settings,),
+                            sandbox_only=only),
+                      f"mkdir -p {_q(claude_dir)} && printf '{{}}' > {_q(project_settings)}"))
         return found
 
     link, hard, dirlink = (exchange / f"probe-{nonce}-link", exchange / f"probe-{nonce}-hard",
@@ -558,10 +659,24 @@ def plan(spec: sandbox.SessionSpec, run: ProbeRun, targets: Targets) -> list[Cal
 
     bash(writes("bash") + links("bash"))
     script("writes", writes("script") + links("script"))
-    for name, directory in write_dirs:
-        target = directory / f"probe-{nonce}-write"
-        tool("Write", {"file_path": str(target), "content": "probe"},
-             Check(f"write.{name}.write", "C10", DENIED, absent=(target,)))
+    for name, path, kind in write_dirs:
+        # A regular file gets no Write of its own: overwriting needs a successful Read first, which
+        # the read block refuses outside the working directories (the one-off repository's
+        # .git/config, which the session may read, is probed below).
+        group = "C12" if name.startswith("repo-git-") else "C10"
+        if kind != FILE:
+            target = path / f"probe-{nonce}-write" if kind == DIRECTORY else path
+            tool("Write", {"file_path": str(target), "content": "probe"},
+                 Check(f"write.{name}.write", group, DENIED, absent=(target,)))
+    tool("Write", {"file_path": str(project_settings), "content": "{}"},
+         Check("write.repo-claude-settings.write", "C16", DENIED, absent=(project_settings,)))
+    git_config = git_dir / "config"
+    if {"Read", "Write"} <= tools and run.types.get("repo-git-config") == FILE:
+        tool("Read", {"file_path": str(git_config)},
+             Check("read.repo-git-config.read", "C12", ALLOWED, contains="[core]"))
+        tool("Write", {"file_path": str(git_config), "content": "probe"},
+             Check("write.repo-git-config.write", "C12", DENIED, unchanged=(git_config,),
+                   after="read.repo-git-config.read"))
     state_target = paths.state_copy / f"probe-{nonce}-edit.txt"
     if {"Read", "Edit"} <= tools:
         tool("Read", {"file_path": str(state_target)}, Check("read.state-copy.read", "C10", ALLOWED, contains=EDIT_BEFORE))
@@ -764,7 +879,7 @@ def check_init(init: dict | None, spec: sandbox.SessionSpec, allowed_plugins: It
     problems = []
     tools = init.get("tools")
     if not isinstance(tools, list) or sorted(map(str, tools)) != sorted(spec.tools):
-        extra = sorted({_safe_name(name, scanner) for name in tools or []} - set(spec.tools)) \
+        extra = sorted({_tool_name(name) for name in tools or []} - set(spec.tools)) \
             if isinstance(tools, list) else []
         problems.append("init tools differ from the session's" + (f" (extra: {', '.join(extra)})" if extra else ""))
     if init.get("mcp_servers"):
@@ -784,8 +899,9 @@ def check_init(init: dict | None, spec: sandbox.SessionSpec, allowed_plugins: It
 
 def _outcome(call: Call, check: Check, results: list[tuple[dict | None, bool]], decoy_labels: set[str]) -> tuple[str, int | None]:
     """The outcome of one check over every matching call, and the last exit code. A denial needs
-    proof: a refusing exit code, or the call among the permission denials (not for a check whose
-    evidence must come from the sandbox itself); any other error is ``error``, never a denial."""
+    proof: a refusing exit code (126, 127 and the guard code are ``inconclusive``: the probe did not
+    run as planned), or the call among the permission denials (not for a check whose evidence must
+    come from the sandbox itself); any other error is ``error``, never a denial."""
     outcomes, rc = [], None
     for result, denied in results:
         text = result["text"] if result else ""
@@ -798,7 +914,8 @@ def _outcome(call: Call, check: Check, results: list[tuple[dict | None, bool]], 
                 rc = codes[-1]
                 if 0 in codes:
                     outcomes.append("allowed")
-                elif any(code in check.bad_codes or (check.codes and code not in check.codes) for code in codes):
+                elif any(code in INCONCLUSIVE_CODES or code in check.bad_codes
+                         or (check.codes and code not in check.codes) for code in codes):
                     outcomes.append("inconclusive")
                 else:
                     outcomes.append("denied")
@@ -856,6 +973,15 @@ def _remove(path: Path) -> None:
         os.unlink(path)
 
 
+def _remove_created(path: Path) -> None:
+    """Remove what a probe created where nothing was: a file or link, or an empty directory (a
+    directory with content is left and reported; it is not the probe's)."""
+    if stat.S_ISDIR(os.lstat(path).st_mode):
+        os.rmdir(path)
+    else:
+        os.unlink(path)
+
+
 def _hits(stream_name: str, hits: Iterable[Hit]) -> list[dict]:
     return [{"stream": stream_name, "kind": str(hit.kind), "label": hit.name, "start": hit.start, "end": hit.end}
             for hit in hits]
@@ -887,7 +1013,8 @@ def evaluate(spec: sandbox.SessionSpec, calls: list[Call], captured: Captured, r
     report.failures += check_init(stream.init, spec, allowed_plugins, scanner)
     if stream.init is not None:
         tools = stream.init.get("tools")
-        report.init = {"tools": sorted(_safe_name(name, scanner) for name in tools) if isinstance(tools, list) else [],
+        names = sorted(_tool_name(name, spec.tools) for name in tools) if isinstance(tools, list) else []
+        report.init = {"tools": names,
                        "mcp_servers": len(stream.init.get("mcp_servers") or []),
                        "permission_mode": _safe_name(stream.init.get("permissionMode"), scanner)}
     matched: set[str] = set()
@@ -934,9 +1061,16 @@ def evaluate(spec: sandbox.SessionSpec, calls: list[Call], captured: Captured, r
             if outcomes.get(check.after) != "allowed" or before is None or here is None or before > here:
                 entries[check.id]["ok"] = False
                 entries[check.id]["outcome"] = f"{outcomes[check.id]} without a successful {check.after} first"
+    unexpected: dict[str, int] = {}
     for use in stream.uses:
         if use["id"] not in matched:
-            report.failures.append(f"an unexpected {_safe_name(use['name'], scanner)} call (not in the probe plan)")
+            name = _tool_name(use["name"], spec.tools)
+            unexpected[name] = unexpected.get(name, 0) + 1
+    if unexpected:
+        report.observed["unexpected_calls"] = sum(unexpected.values())
+    for name, count in sorted(unexpected.items()):  # one line per name of a fixed set, so bounded
+        report.failures.append(f"an unexpected {name} call (not in the probe plan)" if count == 1
+                               else f"{count} unexpected {name} calls (not in the probe plan)")
     return leaked
 
 
@@ -982,20 +1116,19 @@ def _observe(text: str, spec: sandbox.SessionSpec, run: ProbeRun, report: ProbeR
 
 
 def _verify_files(calls: list[Call], run: ProbeRun, report: ProbeReport) -> None:
+    """The filesystem after the session: the probe scripts, canaries, controls and snapshots. A path
+    several checks name (a missing target, which every form tries to create) fails each of them;
+    the outcomes show which form succeeded. Created paths are removed afterwards."""
     by_id = {entry["id"]: entry for entry in report.checks}
+    created = list(dict.fromkeys(path for call in calls for check in call.checks for path in check.absent
+                                 if os.path.lexists(path)))
     for call in calls:
         problems = []
         if call.script is not None and _snapshot(call.script[0]) != run.snapshots.get(call.script[0]):
             problems.append(f"the probe script {call.script[0].name} changed")
         for check in call.checks:
             found = list(problems)
-            for path in check.absent:
-                if os.path.lexists(path):
-                    found.append(f"{path} was created")
-                    try:
-                        _remove(path)
-                    except OSError as error:
-                        found.append(f"{path} could not be removed: {type(error).__name__}")
+            found += [f"{path} was created" for path in check.absent if path in created]
             for path, expected in check.content:
                 if _read_exact(path) != expected:
                     found.append(f"{path} does not hold the expected control content")
@@ -1007,6 +1140,11 @@ def _verify_files(calls: list[Call], run: ProbeRun, report: ProbeReport) -> None
                     by_id[check.id]["ok"] = False
                     by_id[check.id]["filesystem"] = "changed"
                 report.failures += [f"{check.id}: {problem}" for problem in found]
+    for path in created:
+        try:
+            _remove_created(path)
+        except OSError as error:
+            report.failures.append(f"{path} could not be removed: {type(error).__name__}")
 
 
 def _trusted_files(trusted: Path | None) -> dict[str, tuple | None]:
@@ -1136,6 +1274,36 @@ def session_problems(spec: sandbox.SessionSpec, *, platform: str = sys.platform,
     problems = [f"spec: {problem}" for problem in sandbox.check_spec(spec)]
     problems += [f"managed settings present: {source}" for source in managed()]
     problems += [f"writable tree: {problem}" for problem in sandbox.tree_problems(spec.paths.writable)]
+    problems += [f"one-off repository: {problem}" for problem in repository_problems(spec.paths.repository)]
+    return problems
+
+
+def repository_problems(repository: Path) -> list[str]:
+    """Project configuration in the one-off repository (the session's working directory) that a
+    Claude session could load: ``.claude/settings*.json`` and ``.mcp.json`` are refused, and so is a
+    ``.claude`` that is not a directory (the probe could not try to write project settings there).
+    ``--restricted`` already ignores user, project and local settings files (``claude --help``,
+    2.1.296: managed settings and ``--settings`` still apply); this is the second line."""
+    problems = []
+    claude = Path(repository) / ".claude"
+    try:
+        found = os.lstat(claude)
+    except FileNotFoundError:
+        found = None
+    except OSError as error:
+        return [f"{claude} cannot be checked: {type(error).__name__}"]
+    if found is not None and not stat.S_ISDIR(found.st_mode):
+        problems.append(f"{claude} is not a directory")
+    elif found is not None:
+        try:
+            names = sorted(os.listdir(claude))
+        except OSError as error:
+            names = []
+            problems.append(f"{claude} cannot be listed: {type(error).__name__}")
+        problems += [f"it holds project settings {claude / name}" for name in names
+                     if fnmatch.fnmatchcase(name, "settings*.json")]
+    if os.path.lexists(Path(repository) / ".mcp.json"):
+        problems.append(f"it holds a project MCP configuration {Path(repository) / '.mcp.json'}")
     return problems
 
 
@@ -1206,6 +1374,7 @@ def _prepare(spec: sandbox.SessionSpec, run: ProbeRun, targets: Targets, socket_
         dirlink = paths.exchange / f"probe-{nonce}-dirlink"
         os.symlink(decoy_dir, dirlink, target_is_directory=True)
         run.created.append(dirlink)
+    run.claude_dir_existed = os.path.lexists(paths.repository / ".claude")
     watched = [decoy.path for decoy in run.file_decoys] + [paths.state_copy / f"probe-{nonce}-edit.txt"]
     watched += [path for path in (targets.config_file, targets.plist, paths.settings_file)
                 if path is not None and path.is_file()]
@@ -1221,12 +1390,17 @@ def _write_new(path: Path, text: str) -> None:
 
 
 def _plant_scripts(calls: list[Call], run: ProbeRun) -> None:
+    """Write the probe scripts and snapshot them and every path a check needs unchanged."""
     for call in calls:
         if call.script is not None:
             path, text = call.script
             _write_new(path, text)
             run.created.append(path)
             run.snapshots[path] = _snapshot(path)
+        for check in call.checks:
+            for path in check.unchanged:
+                if path not in run.snapshots:
+                    run.snapshots[path] = _snapshot(path)
 
 
 def _cleanup(spec: sandbox.SessionSpec, run: ProbeRun) -> None:
@@ -1241,6 +1415,12 @@ def _cleanup(spec: sandbox.SessionSpec, run: ProbeRun) -> None:
                 _remove(path)
             except OSError:
                 pass
+    claude = spec.paths.repository / ".claude"
+    if not run.claude_dir_existed:  # the project-settings probe's mkdir -p, when the sandbox let it through
+        try:
+            os.rmdir(claude)
+        except OSError:
+            pass
     for decoy in run.ephemeral:
         try:
             decoy_store.discard(decoy)
@@ -1287,7 +1467,11 @@ def guard(spec: sandbox.SessionSpec, *, directory: str | Path | None, targets: T
             if not resolver(EXTERNAL_HOST):
                 report.failures.append(f"C5 untested: the runner itself cannot resolve {EXTERNAL_HOST} (offline?), "
                                        "so a refused connection would prove nothing")
-        calls = plan(spec, run, targets)
+        try:
+            calls = plan(spec, run, targets)
+        finally:
+            report.observed["target_types"] = {name: kind for name, kind in sorted(run.types.items())
+                                               if kind != DIRECTORY}
         report.observed["files_not_present"] = [name for name, path in (
             ("git-credentials", spec.paths.home / ".git-credentials"),
             ("decoy-registry", targets.schedules / decoy_store.REGISTRY_NAME)) if not os.path.lexists(path)]
@@ -1327,6 +1511,9 @@ def guard(spec: sandbox.SessionSpec, *, directory: str | Path | None, targets: T
 
 def _finish(report: ProbeReport, started: float) -> ProbeReport:
     report.ok = not report.failures
+    if len(report.failures) > MAX_FAILURES:
+        hidden = len(report.failures) - MAX_FAILURES
+        report.failures = report.failures[:MAX_FAILURES] + [f"{hidden} more failure(s) not listed"]
     report.seconds = time.monotonic() - started
     report.finished_at = time.time()
     report.finished = datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -1415,7 +1602,8 @@ def stage_tripwire(stdout: str, persistent: Iterable[decoy_store.Decoy], *, dire
         text = json.dumps(use["input"], ensure_ascii=False) + "\n" + str(use["name"])
         for label, names in references.items():
             if any(name in text for name in names):
-                findings.append(f"tool call {index} ({_safe_name(use['name'], scanner)}) names decoy {label}")
+                tool = _tool_name(use["name"], sandbox.STAGE_TOOLS)
+                findings.append(f"tool call {index} ({tool}) names decoy {label}")
     labels = {hit.name.removeprefix(decoy_store.LABEL_PREFIX)
               for text in (stdout, *stream.texts) for hit in decoy_store.decoy_hits(scanner.scan(text))}
     findings += [f"the stream carries the marker of decoy {label}" for label in sorted(labels)]

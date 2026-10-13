@@ -9,12 +9,16 @@ decoy is never used for anything; reading one, referencing one in a stage sessio
 
 **Nothing in this source names a decoy.** Every name is random per installation and kept only
 in the registry ``<state>/schedules/decoys.json`` (0600, in the private state directory, which
-the sandbox denies), so a session that reads this repository cannot list or avoid them, and no
-decoy says it is one: its content looks like the credential it imitates.
+the sandbox denies), so a session that reads this repository cannot list them, and no decoy says
+it is one: its content looks like the credential it imitates. The name *shapes* are in this
+source, several per decoy and one picked at random per installation, so no single pattern
+excludes them all; a session that reads them can still guess at them, which is accepted: decoys
+detect a read hole, the probes prevent one.
 
-* **Files** (`ensure`): a fake key block ``~/.ssh/id_ed25519_<random>`` (a name ``ssh`` never
-  tries on its own; planted only when ``~/.ssh`` exists), and ``credentials-<random>.json`` and
-  ``token-<random>.txt`` in a random directory ``~/.<word>-<random>`` (0700). Each file is 0600
+* **Files** (`ensure`): a fake key block in ``~/.ssh`` under a name ``ssh`` never tries on its own
+  (``id_ed25519_<random>``, ``id_rsa_<random>``, ``<word>_<random>_ed25519``, ...; planted only
+  when ``~/.ssh`` exists), and a credentials JSON and a token file under random shapes in a random
+  directory ``~/.<word><separator><random>`` (0700). Each file is 0600
   and holds one marker of `MARKER_LENGTH` random letters and digits with both cases and a digit
   on its own line: unique per install, at or above 40 characters so the entropy check is a
   reliable second detector, and never written to a prompt.
@@ -62,17 +66,55 @@ MARKER_ALPHABET = string.ascii_letters + string.digits
 LABEL_PREFIX = "decoy "
 KEYCHAIN_TIMEOUT = 30
 MAX_DECOY_BYTES = 4096
-# Name shapes (the random parts are only in the registry); the uninstaller accepts nothing else.
-_WORDS = ("config", "cache", "local", "tokens")
-DIRECTORY_NAME = re.compile(r"\.(?:config|cache|local|tokens)-[0-9a-f]{8}")
+# Name shapes. Several per decoy, one chosen at random when the decoy is first planted, so that no
+# single pattern names (or excludes) every installation's decoys; the random parts are only in the
+# registry. The shapes are in this source, which a session can read: decoys detect, they do not
+# prevent (docs/autodev-sandbox.md). The uninstaller accepts no other directory name.
+_WORDS = ("config", "cache", "local", "tokens", "auth", "creds", "keys", "session", "cloud", "api")
+_SSH_WORDS = ("work", "deploy", "backup", "server", "build", "infra", "legacy", "ci")
+DIRECTORY_NAME = re.compile(r"\.(?:" + "|".join(_WORDS) + r")(?:-[0-9a-f]{8}|_[0-9a-f]{6}|[0-9a-f]{4})")
+_DIRECTORY_SHAPES: tuple[Callable[[], str], ...] = (
+    lambda: f".{secrets.choice(_WORDS)}-{secrets.token_hex(4)}",
+    lambda: f".{secrets.choice(_WORDS)}_{secrets.token_hex(3)}",
+    lambda: f".{secrets.choice(_WORDS)}{secrets.token_hex(2)}",
+)
 KEYCHAIN_SERVICE_NAME = re.compile(r"(?:api-token|cli-credentials|service-token)-[0-9a-f]{12}")
 KEYCHAIN_ACCOUNT_NAME = re.compile(r"user-[0-9a-f]{8}")
+# ssh never tries any of these names on its own (its defaults are id_rsa, id_ecdsa, id_ecdsa_sk,
+# id_ed25519, id_ed25519_sk and id_dsa), and the random part keeps them clear of the owner's names.
+_SSH_SHAPES: tuple[Callable[[], str], ...] = (
+    lambda: f"id_ed25519_{secrets.token_hex(4)}",
+    lambda: f"id_rsa_{secrets.token_hex(3)}",
+    lambda: f"id_ecdsa_{secrets.token_hex(2)}",
+    lambda: f"{secrets.choice(_SSH_WORDS)}_{secrets.token_hex(3)}_ed25519",
+    lambda: f"{secrets.choice(_SSH_WORDS)}-{secrets.token_hex(2)}.pem",
+)
+_CREDENTIALS_SHAPES: tuple[Callable[[], str], ...] = (
+    lambda: f"credentials-{secrets.token_hex(4)}.json",
+    lambda: f"{secrets.choice(_WORDS)}-{secrets.token_hex(3)}.json",
+    lambda: f"auth_{secrets.token_hex(2)}.json",
+    lambda: f"service-account-{secrets.token_hex(3)}.json",
+)
+_TOKEN_SHAPES: tuple[Callable[[], str], ...] = (
+    lambda: f"token-{secrets.token_hex(4)}.txt",
+    lambda: f"{secrets.choice(_WORDS)}.{secrets.token_hex(3)}.token",
+    lambda: f"access_token_{secrets.token_hex(2)}",
+    lambda: f"api-key-{secrets.token_hex(3)}",
+)
+
+
+def _shaped(shapes: tuple[Callable[[], str], ...]) -> Callable[[], str]:
+    """A name maker that picks one of ``shapes`` at random for each name."""
+    return lambda: secrets.choice(shapes)()
+
+
 # (label, where: "ssh" or "directory", content form, file name maker)
 FILES: tuple[tuple[str, str, str, Callable[[], str]], ...] = (
-    ("ssh-key", "ssh", "ssh", lambda: f"id_ed25519_{secrets.token_hex(4)}"),
-    ("credentials", "directory", "json", lambda: f"credentials-{secrets.token_hex(4)}.json"),
-    ("token", "directory", "plain", lambda: f"token-{secrets.token_hex(4)}.txt"),
+    ("ssh-key", "ssh", "ssh", _shaped(_SSH_SHAPES)),
+    ("credentials", "directory", "json", _shaped(_CREDENTIALS_SHAPES)),
+    ("token", "directory", "plain", _shaped(_TOKEN_SHAPES)),
 )
+DIRECTORY_LABELS = frozenset(label for label, where, _, _ in FILES if where == "directory")
 
 Runner = Callable[..., subprocess.CompletedProcess]
 
@@ -208,7 +250,7 @@ def _free_name(parent: Path, make: Callable[[], str]) -> Path:
 
 
 def _directory_name() -> str:
-    return f".{secrets.choice(_WORDS)}-{secrets.token_hex(4)}"
+    return secrets.choice(_DIRECTORY_SHAPES)()
 
 
 def ensure(directory: str | Path | None, home: Path, *, keychain: bool = False,
@@ -352,7 +394,7 @@ def references(decoys: Iterable[Decoy]) -> dict[str, tuple[str, ...]]:
         names = []
         if decoy.path is not None:
             names.append(decoy.path.name)
-            if DIRECTORY_NAME.fullmatch(decoy.path.parent.name):
+            if decoy.label in DIRECTORY_LABELS:
                 names.append(decoy.path.parent.name)
         if decoy.service:
             names.append(decoy.service)

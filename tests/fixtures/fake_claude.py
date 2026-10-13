@@ -11,27 +11,32 @@ listed call and its result, and a ``result`` event. By default it behaves like a
 * Bash sub-probes (``<body>; echo __probe__ <id> rc=$?``), inline or in a runner-written script run
   as ``/bin/bash <script>``: a ``control.*`` probe (except the ``sandbox-loaded`` negative
   controls) or an ``observe.*`` probe runs its body for real (only ``printf``, ``cat``, ``ls``,
-  ``ln``, ``: >>`` and the observe line; ``nc`` is emulated with a Python socket); every other
-  probe is denied without running, with exit code 1 (6 for the ``--noproxy`` curl, 3 for the
-  listen probe, as a sandbox gives them). ``allow`` and ``deny`` (lists of probe IDs) change that,
-  ``rc`` (ID -> code) sets a denied probe's exit code; an allowed probe whose body is none of the
-  above (``security``, ``curl``, ``launchctl``…) only reports exit code 0.
+  ``ln``, ``mkdir``, ``: >>`` and the observe line; ``nc`` is emulated with a Python socket); every
+  other probe is denied without running, with exit code 1 (6 for the ``--noproxy`` curl, 3 for
+  the listen probe, as a sandbox gives them). ``allow`` and ``deny`` (lists of probe IDs) change
+  that, ``rc`` (ID -> code) sets a denied probe's exit code; an allowed probe whose body is none
+  of the above (``security``, ``curl``, ``launchctl``…) only reports exit code 0.
+  ``tamper_scripts`` (substrings of a script path) rewrites such a script before running it, so
+  that every probe in it prints exit code 1 (a forged denial).
 * Bash gets ``TMPDIR=$CLAUDE_CODE_TMPDIR/claude-<uid>`` unless that path is longer than 44 bytes;
   then, like the CLI, the short fallback ``/tmp/claude-<uid>``, which the scenario must redirect
   with ``fallback_tmpdir`` (the fake refuses to touch the real one). Its environment holds only
-  the session allowlist plus ``CLAUDECODE`` and ``CLAUDE_CODE_CHILD_SESSION``.
-* File tools are allowed inside the working directories (the one-off repository and the
-  ``--add-dir`` directories; writes only outside the state copy) on resolved paths, and refused
-  with a permission denial otherwise. ``allow_paths`` and ``deny_paths`` (substrings of the given
-  path) change that. Edit, and Write over an existing file, need a successful Read of that file
-  first, or fail with an error that is not a denial. ``error_paths`` (substrings) make a file
-  tool fail with such an error.
+  the session allowlist plus ``CLAUDECODE``, ``CLAUDE_CODE_CHILD_SESSION`` and ``CLAUDE_PID``
+  (the documented names the CLI sets for Bash).
+* File tools, in the CLI's order as recalled (not verified): the input is validated first, so
+  an Edit, or a Write over an existing file, without a successful Read of that file, an Edit
+  whose old string is missing, and a path among ``error_paths`` (substrings) fail with an error
+  that is not a denial, whatever the permissions say; then the permission check: allowed inside
+  the working directories (the one-off repository and the ``--add-dir`` directories; writes only
+  outside the state copy and outside any ``.git`` or ``.claude`` directory and ``.mcp.json``,
+  which the CLI protects) on resolved paths, and refused with a permission denial otherwise.
+  ``allow_paths`` and ``deny_paths`` (substrings of the given path) change that.
 * Every permission refusal is a ``permission_denied`` system event and an entry of the result's
   ``permission_denials`` (``no_denial_events`` drops both).
 
 Other scenario keys: ``auth`` (the JSON ``auth status`` prints) and ``auth_code``; ``init`` (fields
 merged into the init event); ``skip`` (indices of calls never made); ``extra_call`` (one more tool
-call); ``forge`` (``[tool, substring]`` rules: those calls are sent with an extra invalid ``pages``
+call); ``extra_calls`` (several); ``forge`` (``[tool, substring]`` rules: those calls are sent with an extra invalid ``pages``
 parameter, which the CLI rejects with an input error, no denial); ``allow_calls`` and
 ``deny_calls`` (``[tool, substring]`` rules for single file tool calls); ``drop_bypass`` (the
 bypass flag is left out);
@@ -94,6 +99,10 @@ def inside(path, roots):
     return any(path == real(root) or path.startswith(real(root).rstrip("/") + "/") for root in roots)
 
 
+PROTECTED_DIRS = (".git", ".claude")  # written only with approval, so refused in dontAsk (recalled)
+PROTECTED_FILES = (".mcp.json",)
+
+
 def file_allowed(path, write):
     for text in SCENARIO.get("deny_paths", []):
         if text in path:
@@ -104,9 +113,28 @@ def file_allowed(path, write):
     roots = [os.getcwd(), *add_dirs()]
     if write:
         state = add_dirs()[1:]  # the state copy: an Edit deny rule
-        if os.path.islink(path) or inside(path, state):
+        parts = Path(path).parts
+        if os.path.islink(path) or inside(path, state) or any(part in PROTECTED_DIRS for part in parts) \
+                or parts[-1] in PROTECTED_FILES:
             return False
     return inside(path, roots)
+
+
+def invalid_input(name, tool_input, path):
+    """The input check that runs before the permission check: an error message, or None."""
+    if any(text in path for text in SCENARIO.get("error_paths", [])):
+        return "Error: the tool failed"
+    if name == "Write" and os.path.exists(path) and real(path) not in READ:
+        return "Error: File has not been read yet. Read it first before writing to it."
+    if name == "Edit":
+        if real(path) not in READ:
+            return "Error: File has not been read yet. Read it first before writing to it."
+        try:
+            if tool_input["old_string"] not in Path(path).read_text():
+                return "String to replace not found"
+        except OSError as error:
+            return f"{type(error).__name__}"
+    return None
 
 
 def picked(rules, name, tool_input):
@@ -117,30 +145,27 @@ def picked(rules, name, tool_input):
 
 def run_file_tool(name, tool_input):
     """(result text, is_error, denied by the permission layer)."""
+    if name not in ("Read", "Write", "Edit", "Grep", "Glob"):
+        return f"Error: No such tool available: {name}", True, False
     path = tool_input.get("file_path") or tool_input.get("path")
     write = name in ("Write", "Edit")
+    if (problem := invalid_input(name, tool_input, path)) is not None:
+        return problem, True, False
     if picked(SCENARIO.get("deny_calls", []), name, tool_input):
         return "Permission to use this tool was denied for this path.", True, True
     if not picked(SCENARIO.get("allow_calls", []), name, tool_input) and not file_allowed(path, write):
         return "Permission to use this tool was denied for this path.", True, True
-    if any(text in path for text in SCENARIO.get("error_paths", [])):
-        return "Error: the tool failed", True, False
     try:
         if name == "Read":
             text = Path(path).read_text()
             READ.add(real(path))
             return "".join(f"{n}\t{line}" for n, line in enumerate(text.splitlines(True), 1)), False, False
-        if name == "Write":
-            if os.path.exists(path) and real(path) not in READ:
-                return "Error: File has not been read yet. Read it first before writing to it.", True, False
+        if name == "Write":  # creates missing parent directories, as the CLI's Write does (recalled)
+            Path(path).parent.mkdir(parents=True, exist_ok=True)
             Path(path).write_text(tool_input["content"])
             return "File created successfully", False, False
         if name == "Edit":
-            if real(path) not in READ:
-                return "Error: File has not been read yet. Read it first before writing to it.", True, False
             text = Path(path).read_text()
-            if tool_input["old_string"] not in text:
-                return "String to replace not found", True, False
             Path(path).write_text(text.replace(tool_input["old_string"], tool_input["new_string"], 1))
             return "The file has been updated", False, False
         if name == "Grep":
@@ -189,7 +214,7 @@ def run_body(body, env, probe_id):
             return 0, ""
         except OSError:
             return 1, ""
-    if not body.startswith(("printf", "cat ", "ls ", "ln ", ": >>")):
+    if not body.startswith(("printf", "cat ", "ls ", "ln ", "mkdir ", ": >>")):
         return 0, ""  # simulated: never run security, curl, launchctl, osascript, open, gh, git, dig
     fds = []
     if probe_id.startswith("observe.") and SCENARIO.get("extra_fds"):
@@ -208,7 +233,7 @@ def bash_env():
            if name in SESSION_NAMES or name.startswith("AUTODEV_")}
     if SCENARIO.get("leak_oauth_env") and "CLAUDE_CODE_OAUTH_TOKEN" in os.environ:  # credentials.envVars denies it
         env["CLAUDE_CODE_OAUTH_TOKEN"] = os.environ["CLAUDE_CODE_OAUTH_TOKEN"]
-    env.update({"CLAUDECODE": "1", "CLAUDE_CODE_CHILD_SESSION": "1"})
+    env.update({"CLAUDECODE": "1", "CLAUDE_CODE_CHILD_SESSION": "1", "CLAUDE_PID": str(os.getpid())})
     env.update(SCENARIO.get("extra_env", {}))
     temp = os.path.join(os.environ["CLAUDE_CODE_TMPDIR"], f"claude-{os.getuid()}")
     if len(temp.encode()) > TMP_FALLBACK_LIMIT:  # the CLI's short fallback, here redirected to a test directory
@@ -229,6 +254,10 @@ def run_bash(tool_input):
         return "Permission to use Bash has been denied.", True, True
     if not script and SCENARIO.get("refuse_inline") and first and not first["id"].startswith("control."):
         return "Permission to use Bash has been denied.", True, True
+    if script and any(text in script["path"] for text in SCENARIO.get("tamper_scripts", [])):
+        ids = [match["id"] for match in map(LINE.match, Path(script["path"]).read_text().splitlines()) if match]
+        Path(script["path"]).write_text("".join(f"echo __probe__ {probe_id} rc=1\n" for probe_id in ids))
+        return "\n".join(f"__probe__ {probe_id} rc=1" for probe_id in ids), False, False
     lines = Path(script["path"]).read_text().splitlines() if script else command.split("\n")
     unsandboxed = bool(tool_input.get("dangerouslyDisableSandbox")) and SCENARIO.get("honour_bypass")
     env = bash_env()
@@ -275,6 +304,7 @@ def session():
         emit({"type": "assistant", "message": {"content": [{"type": "text", "text": "x" * SCENARIO["oversize"]}]}})
     if SCENARIO.get("extra_call"):
         calls = calls + [SCENARIO["extra_call"]]
+    calls = calls + SCENARIO.get("extra_calls", [])
     if SCENARIO.get("edit_first"):
         for index in range(len(calls) - 1):
             one, two = calls[index], calls[index + 1]
