@@ -9,8 +9,12 @@ pathspecs, and ``-C`` the repository with discovery stopped above it. The reposi
 configuration, and the files it includes, is still read, with ``core.fsmonitor=false``,
 ``core.hooksPath`` at the null device, ``core.commitGraph=false`` and ``core.quotePath=false``
 set on the command line over it, so no fsmonitor command and no hook runs, and parents come from
-the commit objects, not a commit-graph file. Callers add more command-line configuration with
-``config`` (the trusted repository adds ``transfer.fsckObjects=true``).
+the commit objects, not a commit-graph file; ``advice.graftFileDeprecated=false`` keeps git's
+grafts hint (printed because of ``GIT_GRAFT_FILE``) out of standard error, and a failure keeps
+the tail of standard error, where git puts its reason. Callers add more command-line
+configuration with ``config`` (the trusted repository adds ``transfer.fsckObjects=true``).
+``git_bounded`` reads at most ``max_output`` bytes of standard output and feeds ``input`` from a
+file, for commands whose output untrusted objects size (#339).
 
 ``require_clean`` refuses a repository with an ``info/grafts`` or ``objects/info/alternates``
 file (``UntrustedRepository``): grafts rewrite parents, alternates add objects from elsewhere.
@@ -21,10 +25,13 @@ from collections.abc import Sequence
 import os
 from pathlib import Path
 import subprocess
+import tempfile
+import threading
 
 from src import executables
 
 GIT_TIMEOUT = 60
+STDERR_KEPT = 500
 # Files of a repository that change what git reports: other parents, objects from elsewhere.
 UNTRUSTED_FILES = ("info/grafts", "objects/info/alternates")
 
@@ -47,23 +54,77 @@ def environment(repository: Path) -> dict[str, str]:
     return values
 
 
+def command(repository: Path, args: Sequence[str], config: Sequence[str] = ()) -> list[str]:
+    """The argument vector of ``git <args>`` with the clean configuration; ``OSError`` without git."""
+    return [executables.path("git"), "--no-pager", "--no-replace-objects", "--literal-pathspecs",
+            "-c", "core.quotePath=false", "-c", "core.fsmonitor=false", "-c", f"core.hooksPath={os.devnull}",
+            "-c", "core.commitGraph=false", "-c", "advice.graftFileDeprecated=false",
+            *(part for item in config for part in ("-c", item)), "-C", str(repository), *args]
+
+
 def run(repository: Path, args: tuple[str, ...], *, config: Sequence[str] = (),
         timeout: float = GIT_TIMEOUT) -> subprocess.CompletedProcess[bytes]:
     """``git <args>`` in ``repository`` with the clean configuration plus ``-c`` for each of ``config``."""
     try:  # the lookup is inside: a missing git is a GitError like one that cannot start
-        command = [executables.path("git"), "--no-pager", "--no-replace-objects", "--literal-pathspecs",
-                   "-c", "core.quotePath=false", "-c", "core.fsmonitor=false", "-c", f"core.hooksPath={os.devnull}",
-                   "-c", "core.commitGraph=false", *(part for item in config for part in ("-c", item)),
-                   "-C", str(repository), *args]
-        return subprocess.run(command, capture_output=True, stdin=subprocess.DEVNULL, timeout=timeout,
-                              env=environment(repository), check=False)
+        return subprocess.run(command(repository, args, config), capture_output=True, stdin=subprocess.DEVNULL,
+                              timeout=timeout, env=environment(repository), check=False)
     except (OSError, subprocess.TimeoutExpired) as error:
         raise GitError(f"git {args[0]} could not run: {error}") from None
 
 
-def failure(args: tuple[str, ...], result: subprocess.CompletedProcess[bytes]) -> GitError:
-    stderr = result.stderr.decode("utf-8", "replace").strip()[:500]
+def failure(args: Sequence[str], result: subprocess.CompletedProcess[bytes]) -> GitError:
+    """The error of a failed command, with the tail of its standard error (git's reason comes last)."""
+    stderr = result.stderr.decode("utf-8", "replace").strip()[-STDERR_KEPT:]
     return GitError(f"git {args[0]} failed with exit code {result.returncode}: {stderr}")
+
+
+class OutputTooLarge(GitError):
+    """A bounded command printed more than its limit; git was killed."""
+
+
+def git_bounded(repository: Path, *args: str, max_output: int, input: bytes = b"", config: Sequence[str] = (),
+                timeout: float = GIT_TIMEOUT) -> bytes:
+    """Like ``git``, but kills git once standard output passes ``max_output`` bytes.
+
+    ``input`` reaches git through a private temporary file and standard error goes to another,
+    so no pipe but standard output is read and nothing can deadlock; a timer kills git at
+    ``timeout``.
+    """
+    with tempfile.TemporaryFile() as stdin, tempfile.TemporaryFile() as stderr:
+        stdin.write(input)
+        stdin.seek(0)
+        try:
+            process = subprocess.Popen(command(repository, args, config), stdin=stdin, stdout=subprocess.PIPE,
+                                       stderr=stderr, env=environment(repository))
+        except OSError as error:
+            raise GitError(f"git {args[0]} could not run: {error}") from None
+        timer = threading.Timer(timeout, process.kill)
+        timer.start()
+        chunks, size, too_large = [], 0, False
+        try:
+            assert process.stdout is not None
+            while chunk := process.stdout.read(65536):
+                size += len(chunk)
+                if size > max_output:
+                    too_large = True
+                    process.kill()
+                    break
+                chunks.append(chunk)
+        finally:
+            process.stdout.close()
+            returncode = process.wait()
+            timed_out = not timer.is_alive() and not too_large and returncode < 0
+            timer.cancel()
+        if too_large:
+            raise OutputTooLarge(f"git {args[0]} printed more than {max_output} bytes")
+        if timed_out:
+            raise GitError(f"git {args[0]} could not run: timed out after {timeout} seconds")
+        end = stderr.seek(0, os.SEEK_END)
+        stderr.seek(max(0, end - 4 * STDERR_KEPT))
+        result = subprocess.CompletedProcess(list(args), returncode, b"".join(chunks), stderr.read())
+    if result.returncode != 0:
+        raise failure(args, result)
+    return result.stdout
 
 
 def git(repository: Path, *args: str, config: Sequence[str] = (), timeout: float = GIT_TIMEOUT) -> bytes:
@@ -74,9 +135,10 @@ def git(repository: Path, *args: str, config: Sequence[str] = (), timeout: float
     return result.stdout
 
 
-def git_test(repository: Path, *args: str, config: Sequence[str] = ()) -> subprocess.CompletedProcess[bytes]:
+def git_test(repository: Path, *args: str, config: Sequence[str] = (),
+             timeout: float = GIT_TIMEOUT) -> subprocess.CompletedProcess[bytes]:
     """A yes-or-no git command, which exits with 0 or 1; ``GitError`` for anything else."""
-    result = run(repository, args, config=config)
+    result = run(repository, args, config=config, timeout=timeout)
     if result.returncode not in (0, 1):
         raise failure(args, result)
     return result

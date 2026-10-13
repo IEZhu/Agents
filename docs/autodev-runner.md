@@ -248,9 +248,14 @@ command or the keychain failed, or the run exited without a result), `network`, 
 The drift check fetches `main` into the trusted repository (below) and compares the runner's
 imported modules and `agents/`, `rules/`, `skills/` and `implants/` of the installation, including
 untracked files there, with that `pinned` commit, never with the installation's own `origin/main`
-or with a branch a session works on. A `pinned` commit the installation does not have is drift as
-well (`runner drift: pinned <sha> is not in the installation`): update the installation. A failed
-fetch is `network`, an unusable trusted repository is `cli: trusted repository: …`.
+or with a branch a session works on. It compares content: `git ls-tree -r <pinned>` is read from
+the trusted repository through `gitsafe`, and every working-tree file under those paths is hashed
+as a git blob (raw bytes, a symbolic link as its target, the executable bit as the mode). The
+installation's index flags (`--skip-worktree`, `--assume-unchanged`), configuration, fsmonitor and
+ignore rules play no part, so dot-files count too; only `.DS_Store` is skipped. The installation
+need not have `pinned`: a commit on main that touches none of these paths is no drift. A failed
+fetch is `network`; an unusable trusted repository, or a file the check cannot read there, is
+`cli: trusted repository: …`.
 
 ## Trusted repository, one-off repositories and bundles
 
@@ -277,28 +282,48 @@ automatic gc and maintenance off.
   path afterwards, so hooks or configuration a session plants there never run outside the
   sandbox.
 - **Bundles.** The session hands its commits over with
-  `git bundle create <exchange>/<name>.bundle claude/autodev-<issue>-<slug> ^<pinned>`. The
-  runner copies the file (a regular file, not a symbolic link, directly inside the exchange
-  directory, at most 128 MiB), then requires that `git bundle list-heads` names exactly
-  `refs/heads/<expected branch>` with a 40-hex head and that the bundle's prerequisites exist in
-  the trusted repository. It fetches the objects with fsck into
-  `refs/autodev/quarantine/<run-id>/<n>` and checks `pinned..head`: the head descends from
-  `pinned`, there is at least one commit, every commit has exactly one parent, and no commit adds
-  or changes a gitlink or a symbolic link that is absolute or climbs out of the tree (a `..`
-  after a named component counts as climbing out, since that component may be a link). Only then
-  is the head promoted to `refs/heads/<branch>` and the quarantine ref removed. A refusal names its
-  reason; objects already fetched stay under the quarantine ref, and nothing reaches
-  `refs/heads/`.
+  `git bundle create <exchange>/<name>.bundle claude/autodev-<issue>-<slug> ^<base>`, where
+  `<base>` is the `pinned` its one-off repository was created at.
+  `import_bundle(bundle, exchange, branch, run_id, base)` takes that base
+  (`SessionRepository.pinned`), which must still be an ancestor of the current `pinned`, so a
+  fetch of `main` while the session works does not refuse its bundle. The runner copies the file
+  (a regular file with exactly one hard link, not a symbolic link or a directory, directly inside
+  the exchange directory, at most 128 MiB), then requires that `git bundle list-heads` names
+  exactly `refs/heads/<expected branch>` with a 40-hex head and that the bundle's prerequisites
+  exist in the trusted repository. A bundle refused at this point is kept, read-only, as
+  `autodev-quarantine/<run-id>/<n>.bundle` inside the trusted repository; a file the copy itself
+  refuses (a link, not a regular file, too large) is not kept. Otherwise the runner fetches the
+  objects with fsck into `refs/autodev/quarantine/<run-id>/<n>` and checks `base..head`: the head
+  descends from `base`, there are between 1 and 200 commits (`MAX_IMPORT_COMMITS`, counted with
+  `rev-list --count` before anything else), every commit has exactly one parent, and no commit
+  adds or changes a gitlink or a symbolic link that is absolute or climbs out of the tree (a `..`
+  after a named component counts as climbing out, since that component may be a link). One
+  `diff-tree --stdin` walks all commits with bounded output; link targets are sized with one
+  `cat-file --batch-check`, a target over 4096 bytes is refused unread, and the rest are read with
+  one bounded `cat-file --batch`. The whole import has a deadline of 900 seconds. Only then is the
+  head promoted to `refs/heads/<branch>`, fast-forward only: a bundle that would rewrite an
+  already imported branch is refused. `ImportedBundle.commits` lists the commits this import
+  added, oldest first. A refusal names its reason; objects already fetched stay under the
+  quarantine ref, and nothing reaches `refs/heads/`. `prune_quarantine()` removes quarantine refs
+  and kept files of runs older than 30 days (`QUARANTINE_RETENTION`, judged by the time in the
+  runner's run ID) and then runs `git gc --prune=now`; the run sequence (#347) calls it under the
+  run lease.
 - **Push.** `push_arguments(url, sha, issue, slug)` builds the arguments the broker (#342) will
   run: `push --porcelain --no-follow-tags --no-signed <url> <sha>:refs/heads/claude/autodev-<issue>-<slug>`
   with a GitHub URL, never a remote name. This part pushes nothing.
-- **Environment.** `TrustedRepository.environment(pinned, runner_dir)` returns
+- **Environment.** `TrustedRepository.environment(commit, runner_dir)` returns
   `<runner_dir>/venvs/<hash>`, where the hash is SHA-256 over `requirements.txt`,
-  `pyproject.toml` and `uv.lock` read at `pinned` with `git cat-file blob` (an absent file
-  counts as absent). The runner directory lies outside the trusted repository, `~/Documents` and
-  the installation. The environment is built (`python -m venv`, then
-  `pip install -r requirements.txt`) only when it is missing or lacks its completion marker
-  `.autodev-complete`, then every write bit is removed. The run sequence (#347) calls it.
+  `pyproject.toml` and `uv.lock` read at `commit` with `git cat-file blob` (an absent file
+  counts as absent). `commit` must be `pinned` or an ancestor of it: an imported session head is
+  refused, so dependency files a session wrote are never installed before review. The runner
+  directory lies outside the trusted repository, `~/Documents` and the installation; `venvs/`
+  and `venvs/<hash>` must be directories of the runner's user, not symbolic links. The
+  environment is built (`python -m venv`, then `pip install -r requirements.txt`, with only
+  `PATH`, `HOME` and `TMPDIR` inherited and pip's configuration files off) only when it is
+  missing or lacks its completion marker `.autodev-complete`. The build runs in a private
+  sibling `venvs/.build-*`, whose scripts are pointed at the final path, is made read-only and is
+  renamed into place; when a concurrent caller's rename wins, its environment is used. The run
+  sequence (#347) calls it.
 
 ## GitHub access
 

@@ -107,7 +107,7 @@ def default_drift(installation: Path, config: dict) -> dict:
     trusted = repos.TrustedRepository.from_config(config, installation).ensure()
     commit = trusted.fetch()
     return {"pinned": commit, "runner_commit": drift.commit_of(installation),
-            "changed": drift.check(installation, commit)}
+            "changed": drift.check(installation, commit, repository=trusted.path)}
 
 
 def default_client(config: dict) -> GitHubClient:
@@ -147,7 +147,7 @@ def _dry_run(ctx: Context, config: dict, now: datetime, pr: int | None) -> dict:
         return infra(f"cli: {error}")
     except repos.FetchError as error:
         return infra(f"network: {error}")
-    except (repos.RepositoryError, ValueError) as error:
+    except (repos.RepositoryError, ValueError, OSError) as error:
         return infra(f"cli: trusted repository: {error}")
     result = {"pinned": checked.get("pinned"), "runner_commit": checked.get("runner_commit")}
     if checked.get("changed"):

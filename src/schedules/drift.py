@@ -4,21 +4,32 @@
 (`src.schedules.repos`), never the installation's own ``origin/main`` and never a branch a session
 works on. Drift is any difference between ``pinned`` and the installation's working tree in the
 modules the runner imported or in ``agents/``, ``rules/``, ``skills/`` and ``implants/``,
-including untracked files there; a ``pinned`` commit the installation does not have is drift too.
-A drifted runner ends its run as ``failed: infra`` with the reason ``runner drift`` and the next
-slot retries.
+including untracked files there. The check compares content: ``git ls-tree -r <pinned>`` is read
+from the trusted repository through `src.schedules.gitsafe`, and each working-tree file is hashed
+as a git blob here (raw bytes, no filters; a symbolic link as its target). Nothing reads the
+installation's index, configuration, fsmonitor or ignore rules, and the installation need not
+have ``pinned``: a commit on main that changes none of these paths is no drift. Every file under
+the checked directories counts, dot-files included; only ``.DS_Store`` (Finder's folder settings,
+which nothing loads) is skipped. A drifted runner ends its run as ``failed: infra`` with the reason
+``runner drift`` and the next slot retries.
 """
 from __future__ import annotations
 
+import hashlib
+import os
 from pathlib import Path
 import re
+import stat
 import subprocess
 import sys
 from typing import Iterable
 
 from src import executables
 
+from . import gitsafe
+
 TREES = ("agents", "rules", "skills", "implants")
+SKIPPED = frozenset({".DS_Store"})
 GIT_TIMEOUT = 60
 _SHA = re.compile(r"[0-9a-f]{40}")
 
@@ -44,14 +55,6 @@ def _git(installation: Path, *args: str) -> str:
     return result.stdout
 
 
-def known(installation: str | Path, commit: str) -> bool:
-    """Whether the installation's repository has the commit ``commit``."""
-    result = _run(Path(installation), "rev-parse", "--verify", "--quiet", "--end-of-options", f"{commit}^{{commit}}")
-    if result.returncode not in (0, 1):
-        raise DriftCheckFailed(f"git rev-parse failed: {(result.stderr or '').strip()[-300:]}")
-    return result.returncode == 0 and result.stdout.strip() == commit
-
-
 def imported_files(installation: str | Path, modules: Iterable = ()) -> list[str]:
     """Installation-relative paths of the loaded modules (default: ``sys.modules``) inside it."""
     root = Path(installation).resolve()
@@ -66,22 +69,77 @@ def imported_files(installation: str | Path, modules: Iterable = ()) -> list[str
     return sorted(found)
 
 
-def check(installation: str | Path, commit: str, paths: Iterable[str] | None = None) -> list[str]:
-    """Paths that differ from ``commit`` (tracked or untracked); empty when the runner matches it.
+def check(installation: str | Path, commit: str, paths: Iterable[str] | None = None, *,
+          repository: str | Path) -> list[str]:
+    """Paths whose working-tree content differs from ``commit`` of ``repository``; empty when none do.
 
-    A ``commit`` the installation does not have is drift: the only entry names it.
+    ``repository`` is the trusted repository that holds ``commit`` (``pinned``); the installation
+    is only read as files.
     """
     installation = Path(installation)
     if not isinstance(commit, str) or not _SHA.fullmatch(commit):
         raise DriftCheckFailed("pinned must be a 40-character lowercase hex SHA")
-    if not known(installation, commit):
-        return [f"pinned {commit} is not in the installation"]
     paths = sorted(set(paths if paths is not None else [*imported_files(installation), *TREES]))
     if not paths:
         return []
-    changed = _git(installation, "diff", "--name-only", "--no-renames", commit, "--", *paths).split("\n")
-    untracked = _git(installation, "ls-files", "--others", "--exclude-standard", "--", *paths).split("\n")
-    return sorted({path for path in changed + untracked if path})
+    expected = _tree(Path(repository), commit, paths)
+    try:
+        found = _working_tree(installation, paths)
+    except OSError as error:
+        raise DriftCheckFailed(f"the installation cannot be read: {error}") from None
+    return sorted(path for path in expected.keys() | found.keys() if expected.get(path) != found.get(path))
+
+
+def _tree(repository: Path, commit: str, paths: list[str]) -> dict[str, tuple[str, str]]:
+    """``{path: (mode, object)}`` of ``commit`` under ``paths``, read through gitsafe."""
+    try:
+        gitsafe.require_clean(repository)
+        output = gitsafe.git(repository, "ls-tree", "-r", "-z", "--full-tree", "--end-of-options", commit,
+                             "--", *paths)
+    except gitsafe.GitError as error:
+        raise DriftCheckFailed(f"the trusted repository: {error}") from None
+    entries = {}
+    for record in output.split(b"\0"):
+        if not record:
+            continue
+        info, tab, path = record.partition(b"\t")
+        parts = info.decode("ascii", "replace").split(" ")
+        if not tab or len(parts) != 3 or not _SHA.fullmatch(parts[2]):
+            raise DriftCheckFailed("unexpected ls-tree output")
+        entries[path.decode("utf-8", "surrogateescape")] = (parts[0], parts[2])
+    return entries
+
+
+def _working_tree(installation: Path, paths: list[str]) -> dict[str, tuple[str, str]]:
+    """``{path: (mode, blob id)}`` of every file at or under ``paths`` in the working tree."""
+    found: dict[str, tuple[str, str]] = {}
+
+    def visit(relative: str) -> None:
+        full = installation / relative
+        try:
+            status = os.lstat(full)
+        except FileNotFoundError:
+            return
+        if stat.S_ISDIR(status.st_mode):
+            for name in sorted(os.listdir(full)):
+                if name not in SKIPPED:
+                    visit(f"{relative}/{name}")
+        elif stat.S_ISLNK(status.st_mode):
+            found[relative] = ("120000", _blob_id(os.fsencode(os.readlink(full))))
+        elif stat.S_ISREG(status.st_mode):
+            mode = "100755" if status.st_mode & stat.S_IXUSR else "100644"
+            found[relative] = (mode, _blob_id(full.read_bytes()))
+        else:
+            found[relative] = ("unsupported", "")
+
+    for path in paths:
+        visit(path.rstrip("/"))
+    return found
+
+
+def _blob_id(content: bytes) -> str:
+    """The git blob ID of ``content`` (``git hash-object --no-filters``)."""
+    return hashlib.sha1(b"blob %d\0" % len(content) + content, usedforsecurity=False).hexdigest()
 
 
 def commit_of(installation: str | Path) -> str | None:

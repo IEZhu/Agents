@@ -620,12 +620,12 @@ def test_git_runs_with_a_clean_configuration_and_end_of_options(repo, base, monk
     assert calls
     common_dir = ["rev-parse", "--path-format=absolute", "--git-common-dir"]
     for command, kwargs in calls:
-        assert command[1:14] == ["--no-pager", "--no-replace-objects", "--literal-pathspecs",
+        assert command[1:16] == ["--no-pager", "--no-replace-objects", "--literal-pathspecs",
                                  "-c", "core.quotePath=false", "-c", "core.fsmonitor=false",
                                  "-c", f"core.hooksPath={os.devnull}", "-c", "core.commitGraph=false",
-                                 "-C", str(repo.path.resolve())]
+                                 "-c", "advice.graftFileDeprecated=false", "-C", str(repo.path.resolve())]
         # Every command with revision arguments ends its options; the common-dir lookup has none.
-        assert "--end-of-options" in command or command[14:] == common_dir
+        assert "--end-of-options" in command or command[16:] == common_dir
         assert kwargs.get("shell") in (None, False)
         environment = kwargs["env"]
         assert environment["GIT_CONFIG_NOSYSTEM"] == "1"
@@ -634,10 +634,10 @@ def test_git_runs_with_a_clean_configuration_and_end_of_options(repo, base, monk
         assert environment["GIT_GRAFT_FILE"] == os.devnull
         assert environment["GIT_NO_REPLACE_OBJECTS"] == "1"
         assert "GIT_DIR" not in environment and "GIT_CONFIG_PARAMETERS" not in environment
-    commands = [command[14] for command, _ in calls]
+    commands = [command[16] for command, _ in calls]
     assert {"cat-file", "ls-tree", "rev-parse", "merge-base", "rev-list", "diff-tree"} <= set(commands)
-    assert commands[0:1] == ["rev-parse"] and calls[0][0][14:] == common_dir
-    diff_tree = next(command for command, _ in calls if command[14] == "diff-tree")
+    assert commands[0:1] == ["rev-parse"] and calls[0][0][16:] == common_dir
+    diff_tree = next(command for command, _ in calls if command[16] == "diff-tree")
     assert {"-r", "--no-renames", "--raw", "-z"} <= set(diff_tree)
-    cat_file = next(command for command, _ in calls if command[14] == "cat-file")
-    assert cat_file[15:] == ["blob", "--end-of-options", f"{base}:{PROTECTED_LIST}"]
+    cat_file = next(command for command, _ in calls if command[16] == "cat-file")
+    assert cat_file[17:] == ["blob", "--end-of-options", f"{base}:{PROTECTED_LIST}"]
