@@ -20,6 +20,7 @@ from src.engine import config
 from src.flows import FlowCatalog, FlowError
 from src.library_history import HistoryError, LibraryHistory
 from src.user_flows import FlowLibrary, normalize_origin, parse_reference, repo_key
+from src.user_sync import gitcmd
 from src.utils.prompt_loader import split_frontmatter
 
 
@@ -170,6 +171,38 @@ def test_history_and_restore(library):
     assert history[0]["deleted"] and len(history) == 3
     with pytest.raises(FlowError, match="flow_not_found"):
         library.resolve("mine")
+
+
+def test_text_without_versions_never_computes_them(library, monkeypatch):
+    """#371: the editor opens a flow without waiting for its versions; ``versions`` lists them."""
+    library.save("mine", "# One\n")
+    library.save("mine", "# Two\n", expected_revision=revision("# One\n"))
+    version = library.versions("mine")["history"][0]["version"]
+    assert library.versions("user:mine") == {"status": "success", "id": "user:mine",
+                                             "history": library.history("user", "mine")}
+    assert library.versions("review") == {"status": "success", "id": "builtin:review", "history": []}
+    def refuse(self, path):
+        raise AssertionError("the versions were computed")
+    monkeypatch.setattr(LibraryHistory, "history", refuse)
+    current = library.get("user:mine", with_history=False)
+    assert current["content"] == "# Two\n" and "history" not in current
+    old = library.get("user:mine", version=version, with_history=False)
+    assert old["content"] == "# One\n" and "history" not in old
+
+
+def test_flow_libraries_share_cached_versions(library, monkeypatch):
+    library.save("mine", "# One\n")
+    library.save("mine", "# Two\n", expected_revision=revision("# One\n"))
+    first = library.get("user:mine")["history"]
+    original, calls = gitcmd.subprocess.run, []
+    def counted(*arguments, **options):
+        calls.append(arguments[0])
+        return original(*arguments, **options)
+    monkeypatch.setattr(gitcmd.subprocess, "run", counted)
+    fresh = FlowLibrary(library.catalog, user_dir=library.user_dir)
+    assert fresh.get("user:mine")["history"] == first
+    assert fresh.get("user:mine", version=first[0]["version"])["content"] == "# One\n"
+    assert not any("rev-list" in arguments for arguments in calls), calls
 
 
 def test_successful_save_is_in_git_without_snapshot_files(library):
@@ -511,6 +544,33 @@ async def test_editor_edits_flows_with_conflicts_and_repository_scope(editor, in
     assert (install / "review.md").read_text() == BUILTIN
     assert subprocess.run(["git", "-C", str(repo), "status", "--porcelain"],
                           capture_output=True, text=True).stdout == ""
+
+
+@pytest.mark.asyncio
+async def test_editor_loads_versions_after_the_text(editor, install, monkeypatch):
+    """#371: GET /ui/api/flow answers without the versions; /ui/api/flow/history lists them."""
+    http, workspace = editor
+    await login(http)
+    first = await http.put("/ui/api/flow", json={"id": "mine", "content": "# One\n"}, headers=UI)
+    await http.put("/ui/api/flow", headers=UI, json={"id": "user:mine", "content": "# Two\n",
+                                                      "expected_revision": first.json()["flow"]["revision"]})
+    versions = (await http.get("/ui/api/flow/history", params={"id": "user:mine"})).json()
+    assert versions["status"] == "success" and versions["id"] == "user:mine" and len(versions["history"]) == 1
+    old = (await http.get("/ui/api/flow", params={"id": "user:mine", "version": versions["history"][0]["version"]})).json()
+    assert old["content"] == "# One\n" and "history" not in old
+    builtin = (await http.get("/ui/api/flow/history", params={"id": "review"})).json()
+    assert builtin == {"status": "success", "id": "builtin:review", "history": []}
+    copy = {"id": "repo:review", "content": "# Here\n", "scope": "repo", "override": True, "workspace": workspace}
+    key = (await http.put("/ui/api/flow", json=copy, headers=UI)).json()["flow"]["repo_key"]
+    repo = (await http.get("/ui/api/flow/history", params={"id": "repo:review", "repo": key})).json()
+    assert repo == {"status": "success", "id": "repo:review", "history": []}
+    def broken(self, path):
+        raise HistoryError("flow_history: Git command failed")
+    monkeypatch.setattr(LibraryHistory, "history", broken)
+    flow = await http.get("/ui/api/flow", params={"id": "user:mine"})
+    assert flow.status_code == 200 and flow.json()["content"] == "# Two\n" and "history" not in flow.json()
+    failed = await http.get("/ui/api/flow/history", params={"id": "user:mine"})
+    assert failed.status_code == 400 and failed.json()["error"].startswith("flow_history:")
 
 
 def cookie_of(response):

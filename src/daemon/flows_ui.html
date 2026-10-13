@@ -736,19 +736,39 @@ async function openFlow(id, version, repo, view) {
   $("content").value = data.content;
   showEditor();
   setEditorView(view || "rendered");
-  renderHistory(data.history || []);
   setDirty(false);
   notice(data.flow.upstream_changed ? "The built-in flow changed since this copy was saved. Compare with “Show built-in”." : "");
   renderList();
+  loadHistory(data.flow);
 }
 
-function renderHistory(versions) {
+// The versions come after the text (#371): computing them must never delay opening a flow.
+async function loadHistory(flow) {
+  const gen = state.historyGen = (state.historyGen || 0) + 1;  // only the latest request renders
+  if (flow.source === "builtin") return renderHistory([]);
+  renderHistory(null);
+  let versions = null;
+  try {
+    versions = (await api("/ui/api/flow/history?" + flowParams(flow))).history || [];
+  } catch (error) {
+    if (error.signedOut) return;
+  }
+  // Another flow opened meanwhile keeps its own list; a reload of this one (a save) is a newer request.
+  if (gen === state.historyGen && sameFlow(state.current, flow.id, flow.repo_key)) {
+    renderHistory(versions, versions === null);
+  }
+}
+
+// `versions` null: still loading, or, with `failed`, unavailable.
+function renderHistory(versions, failed = false) {
   const select = $("history");
   select.replaceChildren();
   const head = document.createElement("option");
-  head.value = ""; head.textContent = versions.length ? "History (" + versions.length + ")" : "No history";
+  head.value = "";
+  head.textContent = failed ? "History unavailable" : versions === null ? "History…"
+    : versions.length ? "History (" + versions.length + ")" : "No history";
   select.appendChild(head);
-  for (const item of versions) {
+  for (const item of versions || []) {
     const option = document.createElement("option");
     option.value = item.version;
     const stamp = item.time ? item.time.replace("T", " ").replace(/(?:\.\d+)?(?:Z|\+00:00)$/, "") :
@@ -756,7 +776,7 @@ function renderHistory(versions) {
     option.textContent = stamp + " UTC" + (item.deleted ? " (deleted)" : "");
     select.appendChild(option);
   }
-  select.disabled = !versions.length;
+  select.disabled = !(versions && versions.length);
 }
 
 // Each detail pane: the header controls that act on its item and the title that names the item.

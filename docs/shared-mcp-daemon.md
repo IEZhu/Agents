@@ -692,7 +692,11 @@ seconds while the browser tab is visible (see
   workspace it belongs to. Personal and repository flows keep saved versions in
   the library's local Git repository, created during installation without
   requiring remote sync. The editor reads those Git versions and restoration
-  creates a new version. Earlier `.history` snapshots are imported automatically.
+  creates a new version. A flow's text opens at once (`GET /ui/api/flow` leaves
+  the versions out); the page then asks `GET /ui/api/flow/history` for the
+  History list. Each process keeps the library's computed versions in memory,
+  keyed by the commits of the history refs, and reads only the commits a save or
+  a sync added (a rewritten ref recomputes them). Earlier `.history` snapshots are imported automatically.
   The editor also compares a local copy with its built-in flow ("Show built-in") and detects
   conflicts with edits made from chat.
   The **Persona** panel of an open flow (built-in ones included) chooses the
