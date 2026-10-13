@@ -9,6 +9,7 @@ extensions, so a local server like Agents-Core can be listed only inside a plugi
 | File | Purpose |
 |---|---|
 | `.claude-plugin/plugin.json` | Manifest: `name` (`agents-core`, permanent), `displayName`, `version`, `description`, `author`, `homepage`, `repository`, `license` |
+| `.claude-plugin/icon.png` | Listing icon, 1024×1024 PNG (an agent ring around a core). The portal takes it once, when the plugin is first saved or submitted; replacing the file later does not change the listing |
 | `.mcp.json` | The `Agents-Core` stdio server: `${CLAUDE_PLUGIN_ROOT}/scripts/start-server.sh` |
 | `scripts/start-server.sh` | Starts `~/.agents-core/.venv/bin/python ~/.agents-core/src/server.py` (or under an absolute `AGENTS_HOME`), the command `scripts/init_repo.sh` registers for Claude Code, with the same NixOS `LD_LIBRARY_PATH` (`/run/current-system/sw/share/nix-ld/lib`) for its own process; exits with setup instructions when the installation is missing |
 | `README.md` | Listing text: what it does, setup, uninstall, Privacy Policy |
@@ -39,7 +40,7 @@ plugin:
 
 - **Blocking checks**: none expected. The folder has `.claude-plugin/plugin.json`, a README of
   more than 40 words, a `LICENSE`, a lowercase ASCII name, regular files only (no symlinks,
-  `.DS_Store` or binaries), and every path in its manifest and `.mcp.json` stays inside the
+  `.DS_Store` or binaries other than the icon), and every path in its manifest and `.mcp.json` stays inside the
   plugin folder, written from `${CLAUDE_PLUGIN_ROOT}`.
 - **Policy hold, expected**: *Scripts the validator couldn't follow*. The plugin folder is a
   subfolder of the repository, and `start-server.sh` reads `AGENTS_HOME` and `HOME` and runs a
