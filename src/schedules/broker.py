@@ -511,11 +511,21 @@ def closing_references(text: str) -> list[tuple[str | None, int]]:
     return [(match[1], int(match[2])) for match in _CLOSING.finditer(text)]
 
 
+def _unescape(text: str) -> str:
+    """HTML entities decoded until nothing changes (``&amp;#64;`` -> ``&#64;`` -> ``@``), at most 8 rounds."""
+    for _ in range(8):
+        decoded = html.unescape(text)
+        if decoded == text:
+            break
+        text = decoded
+    return text
+
+
 def check_session_text(text: str) -> None:
     """Refuse text a session sends out with an ``<!-- autodev:…`` sub-marker (state and selection
     comments are runner-internal) or an ``@`` mention (a bot or app command, or a ping); both are
     checked on the text as written, after `normalize`, and with HTML entities decoded."""
-    for form in (text, normalize(text), normalize(html.unescape(text))):  # &#64; renders as @
+    for form in (text, normalize(text), normalize(_unescape(text))):  # &#64; renders as @
         if _SUB_MARKER.search(form):
             raise BrokerRefused("the text may not hold an <!-- autodev:... --> sub-marker; those are runner-internal")
         if _MENTION.search(form) or _BOT_HANDLE.search(form):
@@ -670,9 +680,12 @@ class Broker:
             raise BrokerRefused(f"{op}: #{number} is neither this run's issue nor its PR")
 
     def _write(self, op: str, method: str, path: str, payload: Any = None, *, absent_ok: bool = False,
-               **details: Any) -> Any:
-        """One logged REST write: ``intent`` before, ``done`` with the object's ID or ``failed``.
-        With ``absent_ok`` (a label removal), a 404 counts as already done."""
+               request: RequestContext | None = None, **details: Any) -> Any:
+        """One logged REST write: ``intent`` before, ``done`` with the object's ID or ``failed`` (with
+        the HTTP status when GitHub answered). With ``absent_ok`` (a label removal), a 404 counts as
+        already done. A session's write checks ``request.closing()`` right before it is sent."""
+        if request is not None and request.closing():
+            raise self._refuse(op, "the run is closing", path=path)
         self.log.add(op, "intent", method=method, path=path, **details)
         try:
             answer = self.api.rest(method, path, payload)
@@ -680,7 +693,7 @@ class Broker:
             if absent_ok and error.status == 404:
                 self.log.add(op, "done", path=path, id=None, note="already absent", **details)
                 return None
-            self.log.add(op, "failed", path=path, error=str(error))
+            self.log.add(op, "failed", path=path, error=str(error), status=error.status, **details)
             raise BrokerRefused(f"{op}: {error}") from None
         except github.NetworkError as error:
             self.log.add(op, "failed", path=path, error=str(error))
@@ -759,7 +772,8 @@ class Broker:
             self._check_pr_text("pr_create", title, body)
             payload = {"title": title, "body": body, "head": self.branch, "base": "main",
                        "draft": bool(args.get("draft", False)), "maintainer_can_modify": False}
-            answer = self._write("pr_create", "POST", f"{self._base()}/pulls", payload, branch=self.branch)
+            answer = self._write("pr_create", "POST", f"{self._base()}/pulls", payload, branch=self.branch,
+                                 request=request)
             number = answer.get("number") if isinstance(answer, dict) else None
             if not isinstance(number, int):
                 raise BrokerRefused("pr_create: GitHub returned no PR number")
@@ -775,7 +789,8 @@ class Broker:
             if not payload:
                 raise BrokerRefused("pr_edit: nothing to change")
             self._check_pr_text("pr_edit", payload.get("title", ""), payload.get("body", ""))
-            answer = self._write("pr_edit", "PATCH", f"{self._base()}/pulls/{self.run.pr}", payload, pr=self.run.pr)
+            answer = self._write("pr_edit", "PATCH", f"{self._base()}/pulls/{self.run.pr}", payload, pr=self.run.pr,
+                                 request=request)
             return {"number": self.run.pr, "id": (answer or {}).get("id")}
 
     def _check_pr_text(self, op: str, title: str, body: str) -> None:
@@ -794,7 +809,7 @@ class Broker:
             self._closing_only_own("comment", body)
             self._scan("comment", body)
             answer = self._write("comment", "POST", f"{self._base()}/issues/{number}/comments", {"body": body},
-                                 target=number)
+                                 target=number, request=request)
             return {"id": answer.get("id"), "target": number}
 
     def comment_edit(self, args: dict, request: RequestContext) -> dict:
@@ -811,7 +826,7 @@ class Broker:
             self._closing_only_own("comment_edit", body)
             self._scan("comment_edit", body)
             answer = self._write("comment_edit", "PATCH", f"{self._base()}/issues/comments/{comment_id}",
-                                 {"body": body})
+                                 {"body": body}, request=request)
             return {"id": (answer or {}).get("id", comment_id)}
 
     def label(self, args: dict, request: RequestContext) -> dict:
@@ -825,28 +840,30 @@ class Broker:
             if label == PR_LABEL and (action != "add" or number != self.run.pr):
                 raise self._refuse("label", f"{PR_LABEL} may only be added, and only to this run's PR",
                                    target=number, label=label)
-            return self._set_label("label", number, label, action)
+            return self._set_label("label", number, label, action, request)
 
-    def _set_label(self, op: str, number: int, label: str, action: str) -> dict:
+    def _set_label(self, op: str, number: int, label: str, action: str,
+                   request: RequestContext | None = None) -> dict:
         if action == "add":
             self._write(op, "POST", f"{self._base()}/issues/{number}/labels", {"labels": [label]},
-                        target=number, label=label, action=action)
+                        target=number, label=label, action=action, request=request)
         else:
             self._write(op, "DELETE", f"{self._base()}/issues/{number}/labels/{quote(label, safe='')}",
-                        absent_ok=True, target=number, label=label, action=action)
+                        absent_ok=True, target=number, label=label, action=action, request=request)
         return {"target": number, "label": label, "action": action}
 
     def threads(self, args: dict, request: RequestContext) -> dict:
         return {"threads": [{"id": thread["id"], "resolved": bool(thread.get("isResolved")),
                              "resolvable": _resolvable(thread), "path": thread.get("path")}
-                            for thread in self._threads()]}
+                            for thread in self._threads(request)]}
 
-    def _threads(self) -> list[dict]:
+    def _threads(self, request: RequestContext) -> list[dict]:
         if self.run.pr is None:
             raise BrokerRefused("threads: this run has no PR")
         owner, name = self.run.repository.split("/", 1)
         found, after = [], None
         for _ in range(MAX_THREAD_PAGES):
+            self._time_left("threads", request)
             data = self._graphql(THREADS_QUERY, {"owner": owner, "name": name, "number": self.run.pr, "after": after})
             threads = (((data.get("repository") or {}).get("pullRequest") or {}).get("reviewThreads") or {})
             found.extend(node for node in threads.get("nodes") or [] if isinstance(node, dict) and node.get("id"))
@@ -860,7 +877,7 @@ class Broker:
         self._writable("resolve_thread", request)
         with self._lock:
             thread_id = args["thread_id"]
-            thread = next((item for item in self._threads() if item["id"] == thread_id), None)
+            thread = next((item for item in self._threads(request) if item["id"] == thread_id), None)
             if thread is None:
                 raise self._refuse("resolve_thread", f"{thread_id} is not a review thread of this run's PR",
                                    id=thread_id)
@@ -869,6 +886,7 @@ class Broker:
                                    id=thread_id)
             if request.closing():
                 raise BrokerRefused("resolve_thread: the run is closing")
+            self._time_left("resolve_thread", request)
             self.log.add("resolve_thread", "intent", pr=self.run.pr, id=thread_id)
             try:
                 self._graphql(RESOLVE_MUTATION, {"threadId": thread_id})
@@ -877,6 +895,13 @@ class Broker:
                 raise BrokerRefused(f"resolve_thread: {error}") from None
             self.log.add("resolve_thread", "done", pr=self.run.pr, id=thread_id)
             return {"id": thread_id, "resolved": True}
+
+    @staticmethod
+    def _time_left(op: str, request: RequestContext) -> None:
+        """Refuse to start an API call that could outlast the request's deadline (each call may take
+        up to ``TIMEOUT`` seconds)."""
+        if request.remaining() < TIMEOUT:
+            raise BrokerRefused(f"{op}: too little time left before the request's deadline; ask again")
 
     def _graphql(self, document: str, variables: Mapping[str, Any]) -> dict:
         try:
@@ -965,10 +990,11 @@ class Broker:
         with self._lock:
             for finding_id in finding_ids:
                 # The log holds every earlier broker of this run too (it is read back on open).
-                done = self.log.done("risk_issue")
-                if any(entry.get("finding") == finding_id for entry in done):
-                    raise self._refuse("risk_issue", f"{finding_id!r} already has a risk issue", finding=finding_id)
-                if len(done) >= MAX_RISK_ISSUES:
+                attempts = self._risk_attempts()
+                if finding_id in attempts:
+                    raise self._refuse("risk_issue", f"{finding_id!r} already has a risk issue, or one may have been "
+                                       "created", finding=finding_id)
+                if len(attempts) >= MAX_RISK_ISSUES:
                     raise self._refuse("risk_issue", f"at most {MAX_RISK_ISSUES} risk issues per run",
                                        finding=finding_id)
                 finding = findings.get(finding_id)
@@ -983,6 +1009,20 @@ class Broker:
                 body = f"{MARKER}\n{finding.body}\n\nFrom the pre-mortem of {pr_url} (finding {finding.id}, level {finding.level})."
                 created.append(self._risk_issue(finding.title, body, [RISK_LABEL], pr_url, finding.id))
         return created
+
+    def _risk_attempts(self) -> set[str]:
+        """Findings with a risk issue that may exist: every logged attempt except one GitHub refused
+        with an HTTP status. A network error may follow a created issue, so it still counts."""
+        attempts, refused = set(), set()
+        for entry in self.log.entries:
+            if entry.get("op") != "risk_issue" or not isinstance(entry.get("finding"), str):
+                continue
+            if entry.get("phase") in ("intent", "done"):
+                attempts.add(entry["finding"])
+            elif entry.get("phase") == "failed" and isinstance(entry.get("status"), int):
+                refused.add(entry["finding"])
+        done = {entry.get("finding") for entry in self.log.done("risk_issue")}
+        return {finding for finding in attempts if finding in done or finding not in refused}
 
     def _risk_issue(self, title: str, body: str, labels: list[str], pr_url: str, finding_id: str) -> dict:
         check_risk_issue(title, body, labels, pr_url)

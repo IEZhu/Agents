@@ -79,7 +79,12 @@ local part before `@` makes it none, and `@coderabbit…` or `@copilot…` is re
 broker's checks. Nor may it hold an `<!-- autodev:…` sub-marker: state and selection comments are
 runner-internal. Both are checked on the text as written, after NFKC normalisation with
 zero-width and other invisible format characters removed, and with HTML entities decoded
-(`&#64;` renders as `@`).
+until nothing changes (`&#64;` and `&amp;#64;` render as `@`).
+
+**Closing and deadlines.** A session's write checks the socket's `closing()` again right before it
+is sent, after the checks and scans. `gh.threads` and `gh.resolve_thread` start a GraphQL call only
+while a whole API timeout (`TIMEOUT`, 30 s) still fits before the request's deadline, so a slow
+GitHub answers "ask again" instead of outlasting it.
 
 ## Runner-internal operations
 
@@ -96,8 +101,9 @@ them.
 - `create_risk_issues(finding_ids)` opens risk issues (Q3) from findings of the run's validated
   pre-mortem record: level `medium` and above, at most 3 per run, title and body from the record
   and scanned, the label `autodev:risk`, the marker and a link to this run's PR. The cap and a
-  per-finding deduplication count the `done` entries of `broker.jsonl`, which a broker reads back
-  when it opens, so a second broker of the same run cannot exceed them. Security classification
+  per-finding deduplication count every attempt in `broker.jsonl` except one GitHub refused with
+  an HTTP status (a network error may follow a created issue, so it counts); a broker reads the
+  log back when it opens, so a second broker of the same run cannot exceed them. Security classification
   is runner-side (design 5.8): a finding with a security mark, one whose title or body matches the
   fixed keyword rule `SECURITY_KEYWORDS` after NFKC normalisation and removal of invisible
   characters, or one whose title holds a non-ASCII letter (a homoglyph could hide a keyword),
