@@ -94,6 +94,8 @@ class _Index:
         self.order: tuple[str, ...] = ()
         self.expanded: dict[str, tuple[bool, tuple[dict, ...]]] = {}
         self.events: tuple[dict, ...] = ()
+        # The tips whose history was refused, and why: raised again until a ref moves.
+        self.refused: tuple[tuple[tuple[str, str], ...], HistoryError] | None = None
 
 
 _indexes: OrderedDict[str, _Index] = OrderedDict()
@@ -678,7 +680,8 @@ class LibraryHistory:
 
         A ref that is not a commit, or refs that cannot be listed, are computed in
         full without the cache. History the library refuses (a ``HistoryError``, such
-        as conflicting copies) is raised at once, as a full computation raises it. An
+        as conflicting copies) is raised at once, as a full computation raises it, and
+        again without recomputing or logging until a ref moves. An
         update that fails otherwise (Git, or an unexpected error) is retried once from
         scratch with the refs listed again, since they may have moved meanwhile.
         """
@@ -689,9 +692,12 @@ class LibraryHistory:
             if tips is None:
                 return self._uncached()
             if index.tips != tips:
+                if index.refused is not None and index.refused[0] == tips:
+                    raise index.refused[1].with_traceback(None)
                 try:
                     self._update(index, tips)
                 except HistoryError as error:
+                    index.refused = (tips, error)
                     logger.warning("Library history: %s is refused: %s", self.root, error)
                     raise
                 except Exception:
@@ -741,7 +747,7 @@ class LibraryHistory:
                 yield expanded[commit]
 
         events = tuple(self._combine(expansions()))
-        index.tips, index.order, index.events = tips, order, events
+        index.tips, index.order, index.events, index.refused = tips, order, events, None
         index.expanded = {commit: expanded[commit] for commit in order}
 
     def _digests(self, oids: list[str]) -> dict[str, str]:
