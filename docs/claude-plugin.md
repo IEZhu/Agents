@@ -26,6 +26,90 @@ push to the private Git remote the user set up (`save_flow`, `delete_flow`, `set
 `log_interaction`), false for the rest (`TOOL_HINTS`, checked by `tests/test_tool_annotations.py`,
 which `.github/workflows/uninstall.yml` runs).
 
+## Alongside the installer
+
+The plugin and the installer would both register `Agents-Core` for Claude Code, and Claude Code
+would then list every tool twice and start two servers (#367). So while the plugin is installed
+and enabled in a Claude Code profile, `scripts/init_repo.sh`, `python -m src.daemon migrate` and
+the service's registration upkeep (`registrations run`, and the run at every start) write no
+user-level `Agents-Core` entry for that profile (`~/.claude.json`, or `.claude.json` in
+`CLAUDE_CONFIG_DIR`), and say why. Each profile is decided on its own: `migrate --client-config
+claude=<file>` checks the profile of that file, and the upkeep checks the profile of each
+`.claude.json` it keeps current (the default one and those `client-configs.json` records), so a
+second profile without the plugin is still written. A project's `.mcp.json` (`migrate
+--workspace`) is still written and kept current: the file is shared with collaborators, who may
+not have the plugin. Everything else still runs: the managed routing section in Claude Code's
+`CLAUDE.md`, the routing memory, Codex's `AGENTS.md`, and the registrations of Codex, Cursor,
+Claude Desktop and Antigravity. `--skip-mcp` keeps its meaning and skips all of that too, so the
+plugin's README no longer asks for it. `scripts/init_repo.bat` never skips: the plugin's
+`start-server.sh` does not run on Windows, so the check there always reports no plugin.
+
+To register Claude Code's own entry anyway, pass `--force-claude-code-mcp` to the installer,
+`migrate` or `registrations run`, or set `AGENTS_FORCE_CLAUDE_CODE_MCP=1`. The flag is kept per
+profile in the service's `registrations.json` (`claude_code_forced`): `migrate` and the
+installer (with the shared service installed) keep it for the profile they wrote, `registrations
+run --force-claude-code-mcp` for every profile it knows, and the upkeep then keeps those forced
+entries current after a change of transport, port or token. Nothing clears it yet; to drop it,
+remove the profile from `claude_code_forced` in that file.
+
+`python -m src.daemon registrations status`, and the Apps card of the web UI, add a `warnings`
+entry (`duplicate_claude_code_server`) for each profile where the plugin is enabled and Claude
+Code also has an `Agents-Core` entry at user scope, in a project's local scope in that profile's
+`.claude.json`, or in a registered workspace's `.mcp.json`. It names the fix: `claude mcp remove
+Agents-Core --scope user` (`--scope local` or `--scope project` for the others), or disabling
+the plugin.
+
+The detection (`src/claude_plugin.py`) only reads Claude Code's own files, as the Claude Code
+documentation describes them (checked 2026-10-13). Its rule: when unsure, write the entry; a
+duplicate server is noisy, a missing one is broken.
+
+- the profile is `~/.claude` for `~/.claude.json`, otherwise the directory that holds the
+  `.claude.json`; with `CLAUDE_CONFIG_DIR` set, Claude Code keeps settings and plugins there
+  ([settings](https://code.claude.com/docs/en/settings));
+- the plugins root is `<profile>/plugins`, or `CLAUDE_CODE_PLUGIN_CACHE_DIR` when set in the
+  environment or in the `env` block of the profile's `settings.json`
+  ([plugin loading reference](https://code.claude.com/docs/en/plugins/loading#find-plugins-on-disk),
+  [environment variables](https://code.claude.com/docs/en/env-vars)); when the two name
+  different directories, it counts as no plugin. A `CLAUDE_CONFIG_DIR` in that `env` block that
+  names another directory also counts as no plugin;
+- `installed_plugins.json` in that root records each install, under the plugin's id, with its
+  `scope`, `installPath` and `version`; the plugin counts when it has a `user`-scope record
+  under an id `agents-core@<marketplace>`. The docs name these keys but do not print the whole
+  file; the `{"version": 2, "plugins": {"<id>": [records]}}` layout read here is the one Claude
+  Code writes today (not confirmed by the docs);
+- `enabledPlugins` merges across user, project, local, `--settings` and managed settings, and a
+  managed `false` blocks the plugin; an id nobody sets starts enabled, because the manifest leaves
+  `defaultEnabled` at its default, `true`
+  ([plugin loading reference](https://code.claude.com/docs/en/plugins/loading),
+  [manifest reference](https://code.claude.com/docs/en/plugins/manifest-reference#defaultenabled)).
+  A `false` in any layer read here counts as disabled: the profile's `settings.json`; the
+  managed settings files `managed-settings.json` and `managed-settings.d/*.json` in
+  `/Library/Application Support/ClaudeCode` (macOS) or `/etc/claude-code` (Linux and WSL)
+  ([managed settings](https://code.claude.com/docs/en/managed-settings)); the server-managed
+  cache `<profile>/remote-settings.json`
+  ([server-managed settings](https://code.claude.com/docs/en/server-managed-settings)); the
+  macOS configuration profile for `com.anthropic.claudecode`, read from `/Library/Managed
+  Preferences/com.anthropic.claudecode.plist` and its per-user copy in `/Library/Managed
+  Preferences/<user>/` (these two paths are where macOS usually keeps managed preferences, not
+  confirmed by the Claude Code docs); and `.claude/settings.json` and
+  `.claude/settings.local.json` of the projects known to the writer (`migrate --workspace`, and
+  the registered workspaces for the upkeep and the warning). A managed source that is present
+  but unreadable counts as no plugin, and so does one that sets `blockedMarketplaces`,
+  `strictKnownMarketplaces`, `allowManagedMcpServersOnly`, `allowedMcpServers` or
+  `deniedMcpServers`: such a policy may keep the plugin's server from loading, so the entry is
+  written. `AGENTS_FORCE_CLAUDE_CODE_MCP=1` is kept per profile like the flag.
+
+Gaps that can leave a duplicate server: `--settings` flags, server-managed settings Claude Code
+has not cached yet, Windows registry policies, project- or local-scope installs of the plugin,
+plugins synced from claude.ai (`agents-core@synced`, which have no install record) and
+session-only `--plugin-dir` copies. One gap can leave a project without the server: a project
+the writer does not know (not registered, and not the `--workspace` of `migrate`) that disables
+the plugin in its own settings while the user settings leave it enabled. `python -m src.daemon
+migrate --clients claude --workspace <dir>` then writes the user-level entry, as does
+`--force-claude-code-mcp`.
+The installer (`scripts/init_repo.sh`) knows no project, so it reads only the user and managed
+layers.
+
 ## Validate
 
 ```bash

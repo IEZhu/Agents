@@ -400,12 +400,18 @@ def main(argv=None):
     migrate.add_argument("--workspace", type=Path)
     migrate.add_argument("--clients", default="codex,claude,cursor")
     migrate.add_argument("--client-config", action="append", default=[], metavar="CLIENT=PATH")
+    migrate.add_argument("--force-claude-code-mcp", action="store_true",
+                         help="write Claude Code's Agents-Core entry even when the agents-core plugin is "
+                              "installed and enabled (also AGENTS_FORCE_CLAUDE_CODE_MCP=1)")
     restore = commands.add_parser("restore-clients"); restore.add_argument("backup", type=Path)
     registrations = commands.add_parser(
         "registrations", help="client registrations this installation wrote; the service brings them "
                               "up to date at every start (#292)")
     registrations.add_argument("action", choices=["status", "run", "enable", "disable"],
                                help="run: now, also while turned off; disable: leave them as they are")
+    registrations.add_argument("--force-claude-code-mcp", action="store_true",
+                               help="run: upgrade Claude Code's entries even when the agents-core plugin "
+                                    "serves it (also AGENTS_FORCE_CLAUDE_CODE_MCP=1)")
     history = commands.add_parser("history", help="the fallback journal: turns whose project did not resolve (#292)")
     history_commands = history.add_subparsers(dest="history_command", required=True)
     history_commands.add_parser("unresolved", help="list them by the directory each session named")
@@ -450,7 +456,9 @@ def main(argv=None):
     sync_setup.add_argument("--confirm-private", action="store_true", default=None,
                             help="confirm the repository is private when the host cannot be checked")
     args = parser.parse_args(argv)
+    controller = Controller(args.state)
     overrides = []
+    claude_code_skipped = None
     if args.command in ("audit", "migrate"):
         from src.client_paths import parse_client_configs, CLIENTS
         try:
@@ -465,7 +473,21 @@ def main(argv=None):
             if "claude" in clients and args.workspace and (args.workspace / ".mcp.json").exists(): clients.append("claude-project")
             if any(client not in clients for client, _ in overrides):
                 parser.error("Each --client-config target must be selected by --clients")
-    controller = Controller(args.state)
+            if "claude" in clients:
+                # The agents-core plugin serves this Claude Code profile: no second user-level
+                # Agents-Core entry (#367). A project's shared .mcp.json (claude-project) is still
+                # written: collaborators may not have the plugin.
+                from src.claude_plugin import profile_for_config
+                from src.client_paths import client_config_path
+                from .clients import claude_code_plugin_skip
+                from .registrations import forced_profiles
+                claude_profile = profile_for_config(dict(overrides).get("claude") or client_config_path("claude"))
+                claude_code_skipped = claude_code_plugin_skip(
+                    profile=claude_profile, workspaces=[args.workspace] if args.workspace else (),
+                    force=args.force_claude_code_mcp
+                    or str(claude_profile) in forced_profiles(controller.directory))
+                if claude_code_skipped:
+                    clients = [client for client in clients if client != "claude"]
     # Commands of an installed service start its tools as the service does (#244).
     if controller.config: executables.configure(controller.config)
     exit_code = 0
@@ -509,8 +531,17 @@ def main(argv=None):
                             blocked = f"{client}: {error.reason}"
             if blocked:
                 result, exit_code = {"state": "not_migrated", "error": blocked + "; nothing was changed"}, 1
+            elif not changes:
+                result = {"files": []}
             else:
                 result = {"backup": str(migration.apply(changes)), "files": [str(p) for p, _, _ in changes]}
+            from src.claude_plugin import force_requested
+            if claude_code_skipped:
+                result["claude_code"] = "skipped: " + claude_code_skipped
+            elif (args.force_claude_code_mcp or force_requested()) and "claude" in clients and not blocked:
+                # The service's upkeep keeps this profile's forced entry current too (#367).
+                from .registrations import remember_force
+                remember_force(controller.directory, [claude_profile])
     elif args.command == "restore-clients":
         from .clients import ClientMigration
         from .bootstrap import assert_service_safe
@@ -523,9 +554,13 @@ def main(argv=None):
         from . import registrations
         if args.action == "status":
             result = registrations.state(controller.directory)
+            warnings = registrations.duplicate_warnings(controller.directory)
+            if warnings:
+                result["warnings"] = warnings
         elif args.action == "run":
             try:
-                result = registrations.run(controller.directory, force=True)
+                result = registrations.run(controller.directory, force=True,
+                                           force_claude_code=args.force_claude_code_mcp)
             except BlockingIOError:
                 result = {"state": "not_run",
                           "error": "another control command is running or the service is in maintenance; try again"}

@@ -24,13 +24,15 @@ import tomllib
 from src.client_paths import absolute_path, client_config_path
 from src.file_lock import file_lock
 from .audit import registered_configs
-from .clients import SERVER, TRANSPORT_KEYS, ClientMigration, ConfigChanged, tracked
+from .clients import SERVER, TRANSPORT_KEYS, ClientMigration, ConfigChanged, claude_code_plugin_skip, tracked
 from .state import read_json, write_json
 from .workspaces import WorkspaceError
 
 logger = logging.getLogger(__name__)
 
 STATE_FILE = "registrations.json"
+# Claude Code profiles whose Agents-Core entry is kept beside the agents-core plugin (#367).
+FORCED_KEY = "claude_code_forced"
 CLIENTS = ("claude", "codex", "cursor")
 # Clients whose project layers are kept current with their user layer.
 LAYERED = ("codex", "cursor")
@@ -72,12 +74,7 @@ def find_layers(directory, home=None):
     except (OSError, ValueError):
         logger.warning("Ignoring an unreadable client-configs.json", exc_info=True)
         records = []
-    try:
-        saved = read_json(directory / "workspaces.json", {})
-        roots = {Path(root) for root in saved.values() if isinstance(root, str)} if isinstance(saved, dict) else set()
-    except (OSError, ValueError):
-        logger.warning("Ignoring an unreadable workspaces.json", exc_info=True)
-        roots = set()
+    roots = set(workspace_roots(directory))
     found = {client: [] for client in CLIENTS}
     seen = set()
 
@@ -111,6 +108,49 @@ def find_layers(directory, home=None):
             add("codex", root / ".codex/config.toml", root)
             add("cursor", root / ".cursor/mcp.json", root)
     return found
+
+
+def workspace_roots(directory):
+    """The registered workspaces' directories, sorted; [] when workspaces.json is unreadable."""
+    try:
+        saved = read_json(Path(directory) / "workspaces.json", {})
+    except (OSError, ValueError):
+        logger.warning("Ignoring an unreadable workspaces.json", exc_info=True)
+        return []
+    if not isinstance(saved, dict):
+        return []
+    return sorted({Path(root) for root in saved.values() if isinstance(root, str)})
+
+
+def claude_profiles(directory, home=None):
+    """Each Claude Code profile with its ``.claude.json``: ``{profile: config path}``.
+
+    The default profile (``~/.claude``, or ``CLAUDE_CONFIG_DIR`` of this process) and every
+    profile whose file ``find_layers`` finds, such as one ``client-configs.json`` records.
+    """
+    from src.claude_plugin import profile_for_config
+    paths = [client_config_path("claude", home=home)]
+    paths += [layer.path for layer in find_layers(directory, home)["claude"]]
+    found = {}
+    for path in paths:
+        found.setdefault(str(profile_for_config(path, home=home)), Path(path))
+    return found
+
+
+def forced_profiles(directory):
+    """The Claude Code profiles whose entry is written beside the agents-core plugin (#367)."""
+    value = _saved(directory).get(FORCED_KEY, [])
+    return {str(item) for item in value if isinstance(item, str)} if isinstance(value, list) else set()
+
+
+def remember_force(directory, profiles):
+    """Keep writing Claude Code's entry for these profiles beside the plugin, also in the upkeep."""
+    profiles = {str(absolute_path(profile)) for profile in profiles}
+    with _state_lock(directory):
+        saved = _saved(directory)
+        current = saved.get(FORCED_KEY, [])
+        current = {str(item) for item in current if isinstance(item, str)} if isinstance(current, list) else set()
+        write_json(Path(directory) / STATE_FILE, {**saved, FORCED_KEY: sorted(current | profiles)})
 
 
 def read_entry(client, text):
@@ -231,7 +271,39 @@ def plan_client(migration, client, layers, home=None, *, transport, automatic=Fa
     return changes, files
 
 
+def _plugin_layers(directory, layers, home):
+    """Claude Code's layers split by the agents-core plugin (#367): ``(kept, [(layer, reason)])``.
+
+    A profile with the plugin installed and enabled keeps its entries as they are, unless the
+    user forced its entry (``remember_force``); each profile is checked on its own.
+    """
+    from src.claude_plugin import profile_for_config
+    forced, roots = forced_profiles(directory), workspace_roots(directory)
+    kept, skipped = [], []
+    for layer in layers:
+        profile = profile_for_config(layer.path, home=home)
+        reason = claude_code_plugin_skip(home, profile=profile, force=str(profile) in forced, workspaces=roots)
+        if reason:
+            skipped.append((layer, reason))
+        else:
+            kept.append(layer)
+    return kept, skipped
+
+
 def _upgrade_client(directory, client, layers, home, lock):
+    skipped = []
+    if client == "claude" and layers:
+        layers, skipped = _plugin_layers(directory, layers, home)
+        if not layers:
+            return {"status": "skipped", "files": [], "reason": skipped[0][1]}
+    report = _upgrade_layers(directory, client, layers, home, lock)
+    if skipped:
+        # Other profiles were brought up to date; these stay to the plugin.
+        report["plugin"] = [{"path": str(layer.path), "reason": reason} for layer, reason in skipped]
+    return report
+
+
+def _upgrade_layers(directory, client, layers, home, lock):
     migration = ClientMigration(directory)
     transport = "bridge" if migration.has_node() else "http"
     try:
@@ -288,6 +360,25 @@ def state(directory):
     return {**{key: value for key, value in saved.items() if key != "auto"}, "auto": saved.get("auto", True) is not False}
 
 
+def duplicate_warnings(directory, home=None):
+    """Warnings about the setup, for `registrations status` and the web UI: a Claude Code profile
+    with both the agents-core plugin's server and another Agents-Core entry (#367). Each profile
+    is checked; never raises."""
+    from src.claude_plugin import duplicate_warning
+    try:
+        roots = workspace_roots(directory)
+        profiles = claude_profiles(directory, home)
+    except Exception:  # noqa: BLE001 - a check never fails what it is part of
+        logger.warning("The Claude Code profiles were not checked", exc_info=True)
+        return []
+    warnings = []
+    for path in profiles.values():
+        warning = duplicate_warning(config_path=path, home=home, workspaces=roots)
+        if warning:
+            warnings.append(warning)
+    return warnings
+
+
 @contextmanager
 def _state_lock(directory):
     with file_lock(Path(directory) / "registrations.lock"):
@@ -312,13 +403,17 @@ def _control(directory):
         yield
 
 
-def run(directory, home=None, *, force=False):
+def run(directory, home=None, *, force=False, force_claude_code=False):
     """Upgrade and save the report, unless the user turned it off.
 
-    Files are written under the controller's lock; raises BlockingIOError while the controller
-    holds it (an update's probation) or the service is in maintenance.
+    ``force_claude_code`` (``--force-claude-code-mcp``) keeps every Claude Code profile's entry
+    current beside the agents-core plugin, in this run and in the later ones (#367). Files are
+    written under the controller's lock; raises BlockingIOError while the controller holds it (an
+    update's probation) or the service is in maintenance.
     """
     directory = Path(directory)
+    if force_claude_code:
+        remember_force(directory, claude_profiles(directory, home))
     if not force and not state(directory)["auto"]:
         return state(directory)
     report = upgrade(directory, home, lock=lambda: _control(directory))

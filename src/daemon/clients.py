@@ -30,6 +30,20 @@ TRANSPORT_KEYS = {"type", "command", "args", "env", "env_vars", "cwd", "url", "h
                   "env_http_headers", "bearer_token", "bearer_token_env_var", "http_headers_helper"}
 
 
+def claude_code_plugin_skip(home=None, *, profile=None, force=False, workspaces=()):
+    """Why no Agents-Core entry is written for the Claude Code profile ``profile``, or None to write it.
+
+    The agents-core Claude Code plugin, installed and enabled in that profile (by default the
+    environment's), starts its own Agents-Core; a second entry would list every tool twice
+    (#367). ``force`` (``--force-claude-code-mcp``, or the choice kept in the registrations
+    state) or ``AGENTS_FORCE_CLAUDE_CODE_MCP=1`` writes it anyway. ``workspaces`` are projects
+    whose own settings may disable the plugin. Reads Claude Code's plugin state only, and
+    uncertain state means "write it", as before.
+    """
+    from src.claude_plugin import skip_reason
+    return skip_reason(profile=profile, home=home, force=force, workspaces=workspaces)
+
+
 class ConfigChanged(ValueError):
     """A client changed its configuration between our read and our write; preparing again is safe."""
 

@@ -1,7 +1,7 @@
 {
   "name": "agents-core",
   "displayName": "Agents-Core",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Specialist personas, workflows and per-repository memory for Claude, served by a local Agents-Core MCP server that runs on your own machine.",
   "author": {
     "name": "WonderMr",

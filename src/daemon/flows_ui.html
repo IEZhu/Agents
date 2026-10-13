@@ -4162,6 +4162,10 @@ function renderRegistrations(body, registrations) {
       node("p", body, name(key) + ": its registrations were left as they are. " + (item.reason || ""), "meta");
     }
   }
+  // #367: a Claude Code profile with both the agents-core plugin's server and another entry.
+  for (const warning of registrations.warnings || []) {
+    if (warning && warning.message) node("p", body, "Warning: " + warning.message, "meta");
+  }
   if (registrations.auto === false) {
     node("p", body, "Keeping registrations up to date is off: python -m src.daemon registrations enable turns it on.",
       "meta");

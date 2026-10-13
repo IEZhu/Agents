@@ -149,6 +149,8 @@ def test_the_overview_reports_the_last_registration_upgrade(tmp_path, monkeypatc
     monkeypatch.setattr(overview, "directories", lambda directory: [])
     monkeypatch.setattr(overview, "counts", lambda: {})
     monkeypatch.setattr(overview, "configured_apps", lambda directory, home: {})
+    from src.daemon import registrations
+    monkeypatch.setattr(registrations, "duplicate_warnings", lambda directory, home=None: [])
     service = type("Service", (), {"directory": tmp_path})()
     assert overview.Overview(service).read()["registrations"] == {"auto": True}
     report = {"updated_at": "2026-10-11T08:30:00+00:00", "clients": {"codex": {"status": "upgraded", "files": []}}}

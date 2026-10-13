@@ -41,7 +41,8 @@ checkout), then runs `scripts/init_repo.sh --yes` after a single confirmation.
 Without a terminal the confirmation is skipped. To inspect the script first,
 download it, read it, then run `bash install.sh`. Pass `init_repo.sh` flags with
 `... | bash -s -- --skip-index`; `--skip-mcp` leaves client configurations and
-instructions unchanged.
+instructions unchanged, and `--force-claude-code-mcp` registers Claude Code's own
+entry even when the [Claude plugin](#claude-plugin) serves it.
 
 | Variable | Default | Purpose |
 |---|---|---|
@@ -71,7 +72,9 @@ For step-by-step prompts, or on Windows, use [After Cloning](#after-cloning).
 
 [`plugins/agents-core`](plugins/agents-core/README.md) is a Claude plugin that registers this
 installation's MCP server for Claude Code and Cowork on your computer. It needs the local
-installation above (install it with `--skip-mcp`, so the server is not registered twice).
+installation above. While the plugin is installed and enabled, setup and `migrate` write no
+`Agents-Core` entry for Claude Code, so the server is not registered twice, and still write the
+routing instructions and the other clients' entries (no `--skip-mcp` needed).
 [docs/claude-plugin.md](docs/claude-plugin.md) describes how it is validated and released.
 
 ### Uninstall
@@ -202,7 +205,10 @@ The interactive script:
   unless it is set up already; with `--yes` or without a terminal it does not ask,
   and the summary says how to turn it on.
 
-`--skip-mcp` skips all client changes. Use `./scripts/init_repo.sh --help` for the
+`--skip-mcp` skips all client changes, the instruction updates included. With the
+[Claude plugin](#claude-plugin) installed and enabled, setup skips only Claude Code's
+`Agents-Core` entry; `--force-claude-code-mcp` (or `AGENTS_FORCE_CLAUDE_CODE_MCP=1`)
+writes it anyway. Use `./scripts/init_repo.sh --help` for the
 available options (`--yes` accepts all defaults). For the shared macOS service and
 client connections, continue with [MCP client configuration](#-mcp-client-configuration).
 

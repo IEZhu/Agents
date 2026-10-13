@@ -6,6 +6,7 @@ REM This script sets up the development environment after cloning.
 REM
 REM Usage:
 REM   scripts\init_repo.bat [--yes] [--skip-env] [--skip-index] [--skip-mcp]
+REM                          [--force-claude-code-mcp]
 REM   py -3 scripts\install_instructions.py [--clients codex,claude]
 REM     Update only client instructions, without running MCP or dependency setup.
 REM
@@ -15,7 +16,15 @@ REM                  AGENTS_ASSUME_YES=1). The other prompts still ask; without 
 REM                  console on stdin they take their defaults.
 REM   --skip-env     Skip .env file creation (useful if already configured)
 REM   --skip-index   Skip embedding model download and index pre-build
-REM   --skip-mcp     Skip MCP configuration and client instruction updates
+REM   --skip-mcp     Skip MCP configuration and also the client instruction updates
+REM                  (the routing section in Claude Code's CLAUDE.md and the Codex
+REM                  AGENTS.md). With the agents-core Claude Code plugin installed
+REM                  and enabled, setup skips only Claude Code's Agents-Core entry.
+REM   --force-claude-code-mcp
+REM                  Register Agents-Core for Claude Code even when the agents-core
+REM                  plugin is installed and enabled (also
+REM                  AGENTS_FORCE_CLAUDE_CODE_MCP=1). The plugin's start script does
+REM                  not run on Windows, so the check never skips the entry here.
 REM   --help         Show this help message
 
 setlocal enabledelayedexpansion
@@ -67,6 +76,8 @@ if "%~1"=="" goto :args_done
 if /I "%~1"=="--skip-env"    set "SKIP_ENV=true"
 if /I "%~1"=="--skip-index"  set "SKIP_INDEX=true"
 if /I "%~1"=="--skip-mcp"    set "SKIP_MCP=true"
+REM The plugin check (scripts\_helpers\claude_code_plugin.py) reads the variable.
+if /I "%~1"=="--force-claude-code-mcp" set "AGENTS_FORCE_CLAUDE_CODE_MCP=1"
 if /I "%~1"=="--yes"         set "ASSUME_YES=true"
 if /I "%~1"=="-y"            set "ASSUME_YES=true"
 if /I "%~1"=="--help" goto :show_help
@@ -79,6 +90,7 @@ echo Agents Repository Initialization Script (Windows)
 echo(
 echo Usage:
 echo   scripts\init_repo.bat [--yes] [--skip-env] [--skip-index] [--skip-mcp]
+echo                          [--force-claude-code-mcp]
 echo   py -3 scripts\install_instructions.py [--clients codex,claude]
 echo     Update only client instructions, without running MCP or dependency setup.
 echo(
@@ -87,7 +99,10 @@ echo   --yes, -y      Do not ask whether to set up sync between machines
 echo                  (also AGENTS_ASSUME_YES=1); the other prompts still ask
 echo   --skip-env     Skip .env file creation
 echo   --skip-index   Skip embedding model download and index pre-build
-echo   --skip-mcp     Skip MCP configuration and client instruction updates
+echo   --skip-mcp     Skip MCP configuration and also the client instruction updates
+echo   --force-claude-code-mcp
+echo                  Register Agents-Core for Claude Code even when the agents-core
+echo                  plugin is installed and enabled (AGENTS_FORCE_CLAUDE_CODE_MCP=1)
 echo   --help         Show this help message
 exit /b 0
 
@@ -427,6 +442,7 @@ if "%SKIP_MCP%"=="true" (
 )
 
 set "CONFIGURED_ENVS="
+set "CLAUDE_CODE_PLUGIN=false"
 
 echo(
 echo   %GREEN%^>%NC% Detecting IDE environments...
@@ -590,7 +606,16 @@ REM --- Configure Claude Code ---
 if not "!CLAUDE_CODE_DETECTED!"=="true" goto :skip_claude_code
 if not exist "!CLAUDE_CODE_DIR!" mkdir "!CLAUDE_CODE_DIR!"
 
-REM 1. MCP server in the selected profile's user-scope registry
+REM 1. MCP server in the selected profile's user-scope registry, unless the agents-core
+REM    plugin is installed and enabled and starts its own server (#367).
+set "CLAUDE_CODE_PLUGIN=false"
+set "_PLUGIN_REASON="
+for /f "delims=" %%R in ('""%PYTHON_ABS%" "%HELPERS%\claude_code_plugin.py" 2^>nul"') do set "_PLUGIN_REASON=%%R"
+if defined _PLUGIN_REASON (
+    set "CLAUDE_CODE_PLUGIN=true"
+    echo   %GREEN%^>%NC% Skipping the Claude Code MCP entry: !_PLUGIN_REASON!
+    goto :claude_code_mcp_done
+)
 echo   %GREEN%^>%NC% Configuring Claude Code MCP (!CLAUDE_CODE_MCP!)...
 if not exist "!CLAUDE_CODE_MCP!" echo {} > "!CLAUDE_CODE_MCP!"
 
@@ -608,6 +633,7 @@ if !errorlevel! equ 0 (
 ) else (
     echo   %RED%x%NC% Failed to update Claude Code config
 )
+:claude_code_mcp_done
 REM The desktop app's entry stays out of Claude Code, its Code tab included (#231).
 set "_DESKTOP_DENIED=false"
 if "!CLAUDE_DESKTOP_DETECTED!"=="true" (
@@ -702,6 +728,7 @@ if defined CONFIGURED_ENVS (
     echo   %YELLOW%WARNING:%NC% No MCP client registrations were configured
     echo   %GREEN%^>%NC% You can configure MCP manually later
 )
+if "!CLAUDE_CODE_PLUGIN!"=="true" echo   %GREEN%+%NC% Claude Code: served by the agents-core plugin, no separate Agents-Core entry
 
 REM Claude Desktop (its Code tab included) also reads the Claude Code registry.
 set "_BOTH_CLIENTS=false"

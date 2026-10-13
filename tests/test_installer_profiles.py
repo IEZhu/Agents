@@ -35,10 +35,10 @@ def profile_installer(request, tmp_path):
     helpers.mkdir(parents=True)
     (templates / "legacy").mkdir(parents=True)
     (checkout / "src").mkdir()
-    for name in ("__init__.py", "client_paths.py"):
+    for name in ("__init__.py", "client_paths.py", "claude_plugin.py"):
         shutil.copyfile(ROOT / "src" / name, checkout / "src" / name)
     for name in ("inject_mcp.py", "inject_claude_md.py", "migrate_routing_memory.py", "client_config_paths.py",
-                 "deny_desktop_mcp.py"):
+                 "deny_desktop_mcp.py", "claude_code_plugin.py"):
         shutil.copyfile(ROOT / "scripts/_helpers" / name, helpers / name)
     # The pre-fix collision regression must run before this helper exists.
     backup_helper = ROOT / "scripts/_helpers/backup_file.py"
@@ -60,7 +60,8 @@ def profile_installer(request, tmp_path):
                HELPERS=str(helpers), ROUTING_TEMPLATE=str(templates / "routing-protocol-core.md"),
                IS_NIXOS="false", NIX_LD_LIB_PATH="", PYTHONUTF8="1",
                RED="", GREEN="", YELLOW="", BLUE="", CYAN="", NC="")
-    for name in ("CLAUDE_CONFIG_DIR", "AGENTS_CURSOR_MCP_CONFIG", "AGENTS_CLAUDE_DESKTOP_CONFIG",
+    for name in ("CLAUDE_CONFIG_DIR", "CLAUDE_CODE_PLUGIN_CACHE_DIR", "AGENTS_FORCE_CLAUDE_CODE_MCP",
+                 "AGENTS_CURSOR_MCP_CONFIG", "AGENTS_CLAUDE_DESKTOP_CONFIG",
                  "AGENTS_ANTIGRAVITY_MCP_CONFIG",
                  "XDG_CONFIG_HOME", "PYTHONHOME", "PYTHONPATH", "VIRTUAL_ENV", "__PYVENV_LAUNCHER__"):
         env.pop(name, None)
@@ -71,6 +72,7 @@ def profile_installer(request, tmp_path):
 
     if kind == "bash":
         source = (ROOT / "scripts/init_repo.sh").read_text()
+        arguments = between(source, "# ============== Parse Arguments ==============", "# ============== Helper Functions")
         functions = between(source, "print_header() {", "# Fatal error handler")
         hooks = between(source, "# Resolve client paths", "# ============== Pre-flight Checks")
         setup = between(source, "    # --- Detect Cursor ---", "    # --- Configure Codex instructions ---")
@@ -78,7 +80,7 @@ def profile_installer(request, tmp_path):
         script.write_text("set -e\nCONFIGURED_ENVS=()\n"
                           'python() { "$PYTHON_ABS" "$@"; }\n'
                           f'date() {{ printf "%s\\n" "{BACKUP_TIMESTAMP}"; }}\n'
-                          "check_command() { return 1; }\n" + functions + hooks + setup
+                          "check_command() { return 1; }\n" + arguments + functions + hooks + setup
                           + 'printf \'CONFIGURED_ENVS=%s\\n\' "${CONFIGURED_ENVS[*]}"\n')
         command = [interpreter, str(script)]
     else:
@@ -96,8 +98,8 @@ def profile_installer(request, tmp_path):
                             + fatal_handler).replace("\n", "\r\n").encode())
         command = [interpreter, "/d", "/c", str(script)]
 
-    def run(overrides):
-        return subprocess.run(command, cwd=cwd, env={**env, **overrides}, input="y\ny\n",
+    def run(overrides, arguments=()):
+        return subprocess.run([*command, *arguments], cwd=cwd, env={**env, **overrides}, input="y\ny\n",
                               text=True, encoding="utf-8", errors="replace", capture_output=True, timeout=20)
 
     desktop = home / ("AppData/Roaming/Claude/claude_desktop_config.json" if kind == "cmd" else
@@ -207,6 +209,72 @@ def test_a_desktop_only_installation_configures_claude_code_for_the_code_tab(pro
     assert registry["Agents-Core"]["args"] == [str(checkout / "src/server.py")]
     assert set(json.loads((home / ".claude/settings.json").read_text())["permissions"]["deny"]) == {
         "mcp__Agents-Core-Desktop__*", "mcp__Agents_Core_Desktop__*"}
+
+
+def install_agents_core_plugin(home, *, enabled=True, scope="user"):
+    """Claude Code's own record of an installed agents-core plugin, as /plugin writes it (#367)."""
+    plugins = home / ".claude/plugins"
+    plugins.mkdir(parents=True)
+    plugin_id = "agents-core@claude-plugins-official"
+    (plugins / "installed_plugins.json").write_text(json.dumps({"version": 2, "plugins": {plugin_id: [
+        {"scope": scope, "installPath": str(plugins / "cache/claude-plugins-official/agents-core/0.1.1"),
+         "version": "0.1.1"}]}}))
+    (home / ".claude/settings.json").write_text(json.dumps({"enabledPlugins": {plugin_id: enabled}}))
+
+
+@pytest.mark.parametrize("plugin", ["enabled", "disabled", "forced"])
+def test_the_agents_core_plugin_skips_only_the_claude_code_entry(profile_installer, plugin):
+    """#367: the plugin starts Agents-Core for Claude Code; the instructions and other clients stay."""
+    run, home, checkout, _, desktop = profile_installer
+    (home / ".cursor").mkdir()
+    desktop.parent.mkdir(parents=True)
+    install_agents_core_plugin(home, enabled=plugin != "disabled")
+
+    windows = sys.platform == "win32"
+    if plugin != "forced":
+        result = run({})
+    elif windows:
+        result = run({"AGENTS_FORCE_CLAUDE_CODE_MCP": "1"})
+    else:  # the installer's own flag, parsed as init_repo.sh parses it (F6)
+        result = run({}, ["--force-claude-code-mcp"])
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    # Windows never skips: the plugin's start-server.sh does not run there.
+    skipped = plugin == "enabled" and not windows
+    registered = (home / ".claude.json").exists() and "Agents-Core" in json.loads(
+        (home / ".claude.json").read_text()).get("mcpServers", {})
+    assert registered is not skipped
+    assert ("Skipping the Claude Code MCP entry: the agents-core@claude-plugins-official plugin is installed and enabled" in result.stdout) is skipped
+    configured = result.stdout.rsplit("CONFIGURED_ENVS=", 1)[1]
+    assert any(name in configured for name in ("Claude Code", "Claude-Code")) is not skipped
+    # Every other part of the setup runs as before.
+    assert "Agents-Core Routing Protocol" in (home / ".claude/CLAUDE.md").read_text()
+    assert json.loads((home / ".cursor/mcp.json").read_text())["mcpServers"]["Agents-Core"]["args"] == [
+        str(checkout / "src/server.py")]
+    assert set(json.loads(desktop.read_text())["mcpServers"]) == {"Agents-Core-Desktop"}
+    assert "mcp__Agents-Core-Desktop__*" in json.loads((home / ".claude/settings.json").read_text())["permissions"]["deny"]
+    # Claude Code's plugin state is read, never written.
+    assert json.loads((home / ".claude/settings.json").read_text())["enabledPlugins"] == {
+        "agents-core@claude-plugins-official": plugin != "disabled"}
+
+
+def test_the_plugin_helper_takes_the_force_flag_and_a_profile(tmp_path):
+    """--force-claude-code-mcp and --profile reach the plugin check (#367)."""
+    home = tmp_path / "home"
+    install_agents_core_plugin(home)
+    env = {key: value for key, value in os.environ.items()
+           if key not in ("CLAUDE_CONFIG_DIR", "CLAUDE_CODE_PLUGIN_CACHE_DIR", "AGENTS_FORCE_CLAUDE_CODE_MCP")}
+    env.update(HOME=str(home), USERPROFILE=str(home))
+    helper = [sys.executable, str(ROOT / "scripts/_helpers/claude_code_plugin.py")]
+    skipped = subprocess.run(helper, env=env, capture_output=True, text=True)
+    forced = subprocess.run([*helper, "--force-claude-code-mcp"], env=env, capture_output=True, text=True)
+    other = subprocess.run([*helper, "--profile", str(tmp_path / "other")], env=env, capture_output=True, text=True)
+    if sys.platform == "win32":
+        assert skipped.returncode == 1 and skipped.stdout == ""
+    else:
+        assert skipped.returncode == 0 and "agents-core@claude-plugins-official" in skipped.stdout
+    assert forced.returncode == 1 and forced.stdout == ""
+    assert other.returncode == 1 and other.stdout == ""
 
 
 def test_antigravity_existing_directory_creates_config_and_reinstalls(profile_installer):

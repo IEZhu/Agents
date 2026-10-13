@@ -1149,6 +1149,9 @@ def test_each_block_renders_from_the_api(landing):
     assert ("Codex: its registrations were left as they are. /home/u/repo/.codex/config.toml: its Agents-Core "
             "entry was not written by this installation") in cards["apps"]
     assert "Cursor" not in cards["apps"].split("Codex: its registrations")[1]
+    # #367: a Claude Code profile with both the plugin's server and another entry.
+    assert ("Warning: Claude Code (/home/u/.claude) has the Agents-Core server of the agents-core@x plugin "
+            "and also Agents-Core entries in: user (/home/u/.claude.json).") in cards["apps"]
     assert "45 agents; 6 rules, 70 skills, 57 implants" in cards["how"] and "2 repositories in 30 days" in cards["how"]
     assert "microsoft/harrier-oss-v1-270m · 1.1 GiB" in cards["system"]
     assert "28 built-in, 3 personal, 2 in repositories" in cards["system"]
