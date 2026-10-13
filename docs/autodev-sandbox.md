@@ -29,7 +29,9 @@ has exactly the session's argv, settings and environment.
   anyway, and their confinement (`--restricted`, the read block, the permission rules) is the
   same as in a stage session, whose probes cover it on every run.
 - **Worker sessions are not covered here.** The Claude worker (no `--settings`, no Bash) belongs
-  to the worker launcher, #345.
+  to the worker launcher, #345. Codex workers and Codex stage sessions are in
+  [autodev-codex.md](autodev-codex.md) (#344), which reuses this part's temporary root, decoys,
+  executable binding and scan.
 - **The live check is the owner's.** `python -m src.schedules probe --confirm-live-probe` starts a
   real probe session (a model turn); nothing in the tests does. The behaviours listed under
   [Open items for the live check](#open-items-for-the-live-check) are documented or inferred, not
