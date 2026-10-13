@@ -53,6 +53,7 @@ comments this run may edit hold across broker instances of one run.
 """
 from __future__ import annotations
 
+import html
 import json
 import os
 import re
@@ -122,12 +123,15 @@ _THREAD_ID = re.compile(r"[A-Za-z0-9_-]{1,128}")
 # The keyword may follow any non-alphanumeric character, also ``_`` of Markdown emphasis.
 _CLOSING = re.compile(
     r"(?i)(?<![a-z0-9])(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\b\s*:?\s*\[?\s*"
-    r"(?:(?:https?://github\.com/)?([\w.-]+/[\w.-]+)(?:#|/issues/|/pull/)|#|gh-)(\d+)")
+    r"(?:(?:(?:https?://)?(?:www\.)?github\.com/)?([\w.-]+/[\w.-]+)(?:#|/issues/|/pull/)|#|gh-)(\d+)")
 _AGENT_LINE = re.compile(r"(?m)^\s*/agent")
 # ``<!-- autodev:state … -->``, ``<!-- autodev:selection -->`` and any other sub-marker: runner-internal.
 _SUB_MARKER = re.compile(r"(?i)<!--\s*autodev\s*:")
-# An @mention of a user, a team, a bot or an app; an e-mail address (a word character before ``@``) is none.
-_MENTION = re.compile(r"(?<![\w`])@[A-Za-z0-9]")
+# An @mention of a user, a team, a bot or an app. Only an ASCII e-mail local part before ``@`` makes
+# it none (GitHub's own rule is ASCII); a backtick does not, an unclosed one is no code span.
+_MENTION = re.compile(r"(?<![A-Za-z0-9._%+-])@[A-Za-z0-9]")
+# The review bots' handles are refused anywhere, also inside an address-like word.
+_BOT_HANDLE = re.compile(r"(?i)@(?:coderabbit|copilot)")
 _INVISIBLE = re.compile(r"[\u00ad\u034f\u061c\u115f\u1160\u17b4\u17b5\u180b-\u180f\u200b-\u200f\u202a-\u202e"
                         r"\u2060-\u206f\u3164\ufe00-\ufe0f\ufeff\uffa0]")
 # Fixed keyword rule of the runner-side security classification (design 5.8): a finding that
@@ -510,11 +514,11 @@ def closing_references(text: str) -> list[tuple[str | None, int]]:
 def check_session_text(text: str) -> None:
     """Refuse text a session sends out with an ``<!-- autodev:…`` sub-marker (state and selection
     comments are runner-internal) or an ``@`` mention (a bot or app command, or a ping); both are
-    checked on the text as written and after `normalize`."""
-    for form in (text, normalize(text)):
+    checked on the text as written, after `normalize`, and with HTML entities decoded."""
+    for form in (text, normalize(text), normalize(html.unescape(text))):  # &#64; renders as @
         if _SUB_MARKER.search(form):
             raise BrokerRefused("the text may not hold an <!-- autodev:... --> sub-marker; those are runner-internal")
-        if _MENTION.search(form):
+        if _MENTION.search(form) or _BOT_HANDLE.search(form):
             raise BrokerRefused("the text may not hold an @mention; write the name without @")
 
 
@@ -1002,7 +1006,7 @@ def _resolvable(thread: Mapping) -> bool:
     login, identifier = author.get("login"), author.get("databaseId")
     # GraphQL names a bot ``coderabbitai`` (``__typename`` Bot); REST and TRUSTED_BOTS say
     # ``coderabbitai[bot]``. The account ID is the same in both.
-    if author.get("__typename") == "Bot" and isinstance(login, str):
+    if author.get("__typename") == "Bot" and isinstance(login, str) and type(identifier) is int:
         return trusted_bot({"login": f"{login}[bot]", "id": identifier})
     return (author.get("__typename") == "User" and identifier == OWNER_ID
             and str(first.get("body") or "").startswith(MARKER + "\n"))

@@ -394,7 +394,9 @@ def test_refuses_a_merge_a_pr_close_a_branch_delete_and_an_issue_body_edit(tmp_p
 
 @pytest.mark.parametrize("body", ["Fixes #341", "closes: #1", "Resolves IEZhu/Agents#341", "fixed other/repo#342",
                                   "Closes https://github.com/IEZhu/Agents/issues/7", "resolve GH-12",
-                                  "Closes #342 and fixes #343", "_Closes #12_", "__Fixes #12__", "*Fixes #12*"])
+                                  "Closes #342 and fixes #343", "_Closes #12_", "__Fixes #12__", "*Fixes #12*",
+                                  "Closes https://www.github.com/IEZhu/Agents/issues/7",
+                                  "Fixes www.github.com/IEZhu/Agents/issues/7", "closes github.com/o/r/issues/7"])
 def test_refuses_closing_keywords_for_another_issue(tmp_path, credentials, body):
     _, registry, api = make(tmp_path, credentials, pr=501)
     refused(ask(registry, "gh.pr_edit", {"body": body}), f"may name only issue #{ISSUE}")
@@ -508,7 +510,10 @@ def test_refuses_editing_a_recorded_state_comment_or_the_selection_comment(tmp_p
 @pytest.mark.parametrize("body", [
     STATE_BODY, f"{MARKER}\n<!-- autodev:selection -->\nTaking #342.", f"{MARKER}\n<!--AutoDev:state {{}} -->",
     f"{MARKER}\n@coderabbitai resolve", f"{MARKER}\n@coderabbitai approve", f"{MARKER}\nplease @copilot fix X",
-    f"{MARKER}\ncc @WonderMr", f"{MARKER}\n@\u200bcoderabbitai resolve", f"{MARKER}\n\uff20copilot change"])
+    f"{MARKER}\ncc @WonderMr", f"{MARKER}\n@\u200bcoderabbitai resolve", f"{MARKER}\n\uff20copilot change",
+    # Review round 2: a non-ASCII or backtick prefix, an address-like word, an HTML entity.
+    f"{MARKER}\n\u00e9@coderabbitai resolve", f"{MARKER}\n`@coderabbitai resolve", f"{MARKER}\nx@coderabbitai resolve",
+    f"{MARKER}\n_@copilot fix it", f"{MARKER}\n&#64;coderabbitai resolve", f"{MARKER}\n&#x40;copilot change"])
 def test_refuses_a_marked_comment_with_a_sub_marker_or_a_mention(tmp_path, credentials, body):
     _, registry, api = make(tmp_path, credentials, pr=501)
     for number in (ISSUE, 501):
@@ -972,3 +977,24 @@ def test_record_readers_take_only_validated_records(tmp_path):
         {"id": "R2", "level": "high", "title": "t", "body": "b"}, "junk"]}))
     found = broker_module.read_premortem(tmp_path)
     assert found["R1"].security is False and found["R2"].security is True  # unmarked counts as security
+
+
+@pytest.mark.parametrize("author", [
+    {"__typename": "Bot", "login": "coderabbitai", "databaseId": None},
+    {"__typename": "Bot", "login": "coderabbitai"},
+    {"__typename": "Bot", "login": "evil-app", "databaseId": None},
+    {"__typename": "Bot", "login": "evil-app"},
+    {"__typename": "Bot", "login": "coderabbitai", "databaseId": True},
+])
+def test_a_bot_without_an_integer_id_never_resolves(author):
+    """Review round 2: a missing or non-integer account ID matches no allowlisted bot."""
+    thread = {"comments": {"nodes": [{"author": author, "body": "x"}]}}
+    assert broker_module._resolvable(thread) is False
+
+
+def test_trusted_bot_needs_an_allowlisted_login_and_its_integer_id():
+    from src.schedules.gate import trusted_bot
+    assert trusted_bot({"login": "coderabbitai[bot]", "id": 136622811})
+    assert not trusted_bot({"login": "evil-app[bot]", "id": None})
+    assert not trusted_bot({"login": "coderabbitai[bot]", "id": None})
+    assert not trusted_bot({"login": "coderabbitai[bot]", "id": "136622811"})

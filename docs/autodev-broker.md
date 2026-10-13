@@ -53,7 +53,7 @@ branch deletion, no issue-body edit and no repository-label operation.
 | `gh.comment_edit` | `comment_id`, `body` | Only a comment this run's `gh.comment` wrote (a `done` entry of the broker log). Never the selection comment, a state comment or any comment an earlier run recorded. |
 | `gh.label` | `number`, `label`, `action` (`add` or `remove`) | `autodev` may only be added, and only to this run's PR; `autodev:blocked` may be added or removed on this run's issue or PR. Removing `autodev` and setting or removing the claim `autodev:in-progress` are runner-internal (`select`, `cleanup`), because the gate's WIP limit and claim depend on them. The owner's labels (`autodev:ready`, `autodev:next`, `autodev:skip`) are never set or removed. |
 | `gh.threads` | none | Lists this run's PR review threads (fixed GraphQL query) with whether each is resolvable. |
-| `gh.resolve_thread` | `thread_id` | Only a thread of this run's PR that the broker fetched itself, whose first comment is from an allowlisted bot (login and account ID, `gate.TRUSTED_BOTS`) or is the owner account's and starts with the marker. GraphQL names a bot author with `__typename` `Bot` and a login without `[bot]` (`coderabbitai`, account ID 136622811, checked on PR #365); the broker appends `[bot]` to a Bot's login before the allowlist check, and a User node never counts as a bot. |
+| `gh.resolve_thread` | `thread_id` | Only a thread of this run's PR that the broker fetched itself, whose first comment is from an allowlisted bot (login and account ID, `gate.TRUSTED_BOTS`) or is the owner account's and starts with the marker. GraphQL names a bot author with `__typename` `Bot` and a login without `[bot]` (`coderabbitai`, account ID 136622811, checked on PR #365); the broker appends `[bot]` to a Bot's login before the allowlist check, and a User node never counts as a bot. A Bot without an integer `databaseId` never matches, and `gate.trusted_bot` requires an allowlisted login with its integer ID. |
 | `gh.read` | `endpoint`, `number` or `sha`, `page` | One of the fixed endpoints under `/repos/<repository>/`: `issue`, `issue_comments`, `issue_events`, `pull`, `pull_reviews`, `pull_comments`, `pull_files`, `pull_commits`, `commit_status`, `check_runs`. The answer is `{"data": <GitHub's JSON>, "next_page": <whether the Link header names a next page>}`. |
 
 GraphQL is sent only by the broker, only with the two documents in `DOCUMENTS` (the thread query
@@ -74,11 +74,12 @@ refused. The only unmarked comments are the exact bot commands in `BOT_COMMANDS`
 (other spacing, case, a trailing word or newline) is an ordinary comment and needs the marker.
 
 **Mentions and sub-markers.** Outside that exact bot command, no comment, comment edit, PR title
-or body, or risk issue may hold an `@` mention (of a user, team, bot or app; an e-mail address is
-none), because a mention can command a bot (`@coderabbitai resolve`, `@copilot …`) outside the
+or body, or risk issue may hold an `@` mention (of a user, team, bot or app; only an ASCII e-mail
+local part before `@` makes it none, and `@coderabbit…` or `@copilot…` is refused even there), because a mention can command a bot (`@coderabbitai resolve`, `@copilot …`) outside the
 broker's checks. Nor may it hold an `<!-- autodev:…` sub-marker: state and selection comments are
-runner-internal. Both are checked on the text as written and after NFKC normalisation with
-zero-width and other invisible format characters removed.
+runner-internal. Both are checked on the text as written, after NFKC normalisation with
+zero-width and other invisible format characters removed, and with HTML entities decoded
+(`&#64;` renders as `@`).
 
 ## Runner-internal operations
 
