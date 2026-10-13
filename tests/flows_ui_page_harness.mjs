@@ -5,6 +5,7 @@
 // "persona_race", the Persona panel's state while a save and a navigation overlap, or, for
 // "agents", what the Agents tab lists, finds and shows, and which listings the page requested, or,
 // for "ui_panes" and "ui_signout", which pane and header controls show as items open and close, or,
+// for "ui_history", how a flow's versions load after its text (#371), or,
 // for "place", where itemPlace puts groups of given widths, or, for "ui_place", where the open
 // item's group goes as the window is resized, or, for the "sync_*" scenarios (library sync, #170),
 // what the header chip, the Sync page, its wizard and the editor's notice show and which
@@ -65,6 +66,8 @@ let releasePersonaPut = null;  // persona_race: the test decides when the PUT an
 const deletes = [];
 let holdDelete = false, releaseDelete = null;  // ui_panes: a delete that answers late
 let holdFlowGet = false, releaseFlowGet = null;  // ui_signout: a flow that loads past the sign-in screen
+let holdHistory = false, failHistory = false;  // ui_history: version lists answer when the scenario releases them, in its order
+const historyHolds = [];
 const respond = (status, body) => ({ status, ok: status < 400, statusText: "", json: async () => body });
 
 async function fetchStub(path, init = {}) {
@@ -98,6 +101,8 @@ async function fetchStub(path, init = {}) {
     return respond(200, { status: "deleted" });
   }
   if (isUi && holdFlowGet && path.startsWith("/ui/api/flow?")) await new Promise((resolve) => { releaseFlowGet = resolve; });
+  if (isUi && holdHistory && path.startsWith("/ui/api/flow/history?")) await new Promise((resolve) => historyHolds.push(resolve));
+  if (isUi && failHistory && path.startsWith("/ui/api/flow/history?")) return respond(500, { status: "error", error: "flow_history: Git failed" });
   if (isUi) return respond(...uiData(path, init));
   if (scenario === "agents") return respond(...agentsData(path, init));
   if (scenario === "search") {
@@ -114,15 +119,28 @@ const DOCS = {
   "user:doc": "---\npersona: tester\n---\n# Doc\n\n## One\n\ntext **bold**\n\n## Two\n\n- item\n",
   "user:plain": "just text, no headings\n",
 };
+// ui_history: the versions of user:doc, newest first, as /ui/api/flow/history lists them.
+const VERSIONS = {
+  "user:doc": [{ version: "git-" + "b".repeat(40), revision_prefix: "bbbbbbbbbbbb", deleted: true, time: "2026-10-02T09:30:00.123456+00:00" },
+               { version: "git-" + "a".repeat(40), revision_prefix: "aaaaaaaaaaaa", deleted: false, time: "2026-10-01T10:00:00+00:00" }],
+};
 function uiData(path, init) {
   if (path.startsWith("/ui/api/flows")) {
     return [200, { flows: Object.keys(DOCS).map((id) => ({ id, source: "user", title: id.slice(5), content: DOCS[id] })), repositories: [] }];
   }
-  if (path.startsWith("/ui/api/flow?")) {
+  if (path.startsWith("/ui/api/flow/history?")) {
     const id = new URLSearchParams(path.split("?")[1]).get("id");
+    return [200, { status: "success", id, history: VERSIONS[id] || [] }];
+  }
+  if (path.startsWith("/ui/api/flow?")) {
+    const params = new URLSearchParams(path.split("?")[1]), id = params.get("id");
     if (deletedFlows.has(id)) return [404, { status: "error", error: "flow_not_found: use list_flows to discover available flows" }];
+    if (params.get("version")) {  // an old version: its text and identity, no versions of its own
+      return [200, { flow: { id, source: "user", title: id.slice(5), version: params.get("version"), revision: "old" },
+                     content: "# Old " + params.get("version").slice(4, 9) + "\n" }];
+    }
     return [200, { flow: { id, source: "user", title: id.slice(5), revision: revisions[id] || "rev1", source_path: "p" },
-                   content: savedText[id] ?? DOCS[id], history: [] }];
+                   content: savedText[id] ?? DOCS[id] }];
   }
   if (path === "/ui/api/flow" && init.method === "PUT") {
     const body = JSON.parse(init.body);
@@ -663,6 +681,43 @@ if (isUi) {
     await sleep(40);
     steps.late_delete_rule = { ...panes(), title: byId("c-title").textContent, deletes: deletes.map((d) => d.id) };
     console.log(JSON.stringify(steps));
+    process.exit(0);
+  }
+  if (scenario === "ui_history") {
+    // The text shows before the versions answer; the list then fills in and opens an old version.
+    const history = () => ({ head: byId("history").children[0]?.textContent ?? null, disabled: byId("history").disabled,
+                             options: byId("history").children.slice(1).map((o) => [o.value.slice(0, 9), o.textContent]) });
+    holdHistory = true;
+    await open(0);
+    const flowGet = requests.findIndex((path) => path.startsWith("/ui/api/flow?"));
+    const historyGet = requests.findIndex((path) => path.startsWith("/ui/api/flow/history?"));
+    out.while_loading = { title: byId("title").textContent, content: byId("content").value, panes: panes(), ...history(),
+                          flow_get_first: flowGet >= 0 && historyGet > flowGet, history_request: requests[historyGet] };
+    historyHolds.shift()();
+    await sleep(20);
+    out.loaded = history();
+    const select = byId("history");
+    select.value = VERSIONS["user:doc"][1].version;
+    fire(select, "change");
+    await sleep(40);
+    out.version = { content: byId("content").value, notice: byId("notice").textContent, select_value: select.value,
+                    request: requests.filter((path) => path.startsWith("/ui/api/flow?")).at(-1) };
+    // A late list of a flow the user left does not replace the list of the flow now open.
+    await open(0);
+    await open(1);
+    historyHolds.pop()();  // user:plain's list answers first…
+    await sleep(20);
+    out.other_flow = { title: byId("title").textContent, ...history() };
+    historyHolds.shift()();  // …then user:doc's
+    await sleep(20);
+    out.late_answer = { title: byId("title").textContent, ...history() };
+    // A list that cannot be read says so; the text stays usable.
+    holdHistory = false;
+    failHistory = true;
+    await open(0);
+    out.failed = { title: byId("title").textContent, ...history(), content: byId("content").value,
+                   read_only: !!byId("content").readOnly };
+    console.log(JSON.stringify(out));
     process.exit(0);
   }
   if (scenario === "ui_signout") {

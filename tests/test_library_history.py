@@ -7,12 +7,13 @@ import os
 from pathlib import Path
 import stat
 import subprocess
+import threading
 import time
 from types import SimpleNamespace
 
 import pytest
 
-from src import user_library
+from src import library_history, user_library
 from src.file_lock import file_lock
 from src.library_history import (ABANDONED_PREFIX, ACCEPTED_PREFIX, HISTORY_REF, INCOMING_PREFIX, LEGACY_SUPPORT_MANIFEST,
                                  LEGACY_SUPPORT_REF, PENDING_REF, PORTABLE_METADATA,
@@ -1280,3 +1281,250 @@ def test_replace_captures_exact_unchanged_disk_bytes_before_boundary_without_rev
     assert history.reconcile() == 0
     assert history.export_events() == []
     assert (history.root / kept).read_bytes() == selected
+
+
+# --- Cached version index (#371) -------------------------------------------------------------
+
+@pytest.fixture
+def cold():
+    library_history.clear_cache()
+    yield
+    library_history.clear_cache()
+
+
+def full_events(root):
+    """events() as a fresh computation of every ref, bypassing the cache."""
+    reader = LibraryHistory(root)
+    reader._ensure_repository()
+    return reader._events(reader._commits(reader._refs()))
+
+
+def expected_versions(events, path):
+    """history(path) as it was computed before the cache: from the full events' archived bytes."""
+    versions = []
+    for event in reversed(events):
+        raw = event["content"] if event["archive"] else (
+            None if event["action"] in ("baseline", "initialize") else event["previous"])
+        if event["path"] == path and raw is not None:
+            versions.append({"version": event["id"], "revision_prefix": hashlib.sha256(raw).hexdigest()[:12],
+                             "deleted": event["deleted"], "time": event["time"]})
+    return versions
+
+
+def archived(event):
+    return LibraryHistory._archived(None, event)
+
+
+def assert_same_as_full(root):
+    """Cached events, versions and reads of every path, ID and legacy ID equal a full computation."""
+    full = full_events(root)
+    assert LibraryHistory(root).events() == full
+    for path in sorted({event["path"] for event in full if event["path"]}):
+        assert LibraryHistory(root).history(path) == expected_versions(full, path)
+        stored = [event for event in full if event["path"] == path and archived(event) is not None]
+        for version in sorted({name for event in stored for name in (event["id"], event["legacy_id"]) if name}):
+            first = next(event for event in stored if version in (event["id"], event["legacy_id"]))
+            assert LibraryHistory(root).read(path, version) == archived(first)
+    return full
+
+
+@pytest.fixture
+def records_read(monkeypatch):
+    """The commit IDs each ``_records`` call reads its objects for."""
+    calls, original = [], LibraryHistory._records
+    def spy(self, ids):
+        calls.append(list(ids))
+        return original(self, ids)
+    monkeypatch.setattr(LibraryHistory, "_records", spy)
+    return calls
+
+
+def test_cached_and_incremental_events_equal_a_full_computation(history, cold, records_read):
+    """Every step of a history with versions, deletions, legacy IDs, portable copies and a Replace."""
+    mine, other, legacy_path = "common/mine.md", "common/other.md", "common/legacy.md"
+    history.apply({mine: b"# One\r\n"}, flow_path=mine)
+    assert_same_as_full(history.root)
+    for raw in (b"# Two\n", b"# Three\n"):
+        history.apply({mine: raw}, flow_path=mine)
+        assert_same_as_full(history.root)
+    history.apply({mine: None}, action="delete", flow_path=mine)
+    assert assert_same_as_full(history.root)[-1]["deleted"]
+    stamp = "20261001T000000000001Z"
+    alias = stamp + "-" + hashlib.sha256(b"# Legacy\n").hexdigest()[:12]
+    history.record(legacy_path, b"# Legacy\n", version=alias)
+    assert any(event["legacy_id"] == alias for event in assert_same_as_full(history.root))
+    # Portable copies: two policy-filtered copies of one remote event, then a copy of our own.
+    secret = b"ghp_A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8\n"
+    remote = source_event(previous=secret)
+    portable(history, remote, "restricted")
+    portable(history, remote, "allowed", allow=(hashlib.sha256(secret).hexdigest(),))
+    assert any(event["id"] == remote["id"] and event["previous"] == secret
+               for event in assert_same_as_full(history.root))
+    own = history.apply({other: b"# Other\n"}, flow_path=other)
+    history.apply({other: b"# Other 2\n"}, flow_path=other)
+    native = next(item for item in history.export_events() if item["id"] == own)
+    portable(history, native, "own")
+    assert_same_as_full(history.root)
+    # Sync moves an incoming tip to a received ref: no commit leaves the walk.
+    tip = history._rev(INCOMING_PREFIX + "own")
+    history.git.run("update-ref", RECEIVED_PREFIX + tip, tip)
+    history.git.run("update-ref", "-d", INCOMING_PREFIX + "own")
+    records_read.clear()
+    LibraryHistory(history.root).events()
+    assert records_read == [[]]  # the walk met only commits the cache had expanded
+    assert_same_as_full(history.root)
+    # A Replace archives the current flows of the library.
+    changes = {other: b"# Selected remote\n", "common/created.md": b"# Created\n"}
+    remote_tip = history._rev(INCOMING_PREFIX + "allowed")
+    boundary = history.adopt(changes, expected_before=expectations(changes, history),
+                             accepted_tips={"allowed": remote_tip}, remote_head=remote_tip)
+    adopted = assert_same_as_full(history.root)
+    assert any(event["id"] == boundary and event["path"] == other for event in adopted)
+    history.apply({other: b"# After replace\n"}, flow_path=other)
+    assert_same_as_full(history.root)
+
+
+def test_a_warm_read_starts_no_object_or_walk_process_in_any_instance(history, cold, monkeypatch):
+    path = "common/mine.md"
+    for number in range(5):
+        history.apply({path: f"# Revision {number}\n".encode()}, flow_path=path)
+    first = LibraryHistory(history.root).history(path)
+    original, calls = gitcmd.subprocess.run, []
+    def counted(*arguments, **options):
+        calls.append(arguments[0])
+        return original(*arguments, **options)
+    monkeypatch.setattr(gitcmd.subprocess, "run", counted)
+    reader = LibraryHistory(history.root)
+    assert reader.history(path) == first
+    assert reader.read(path, first[-1]["version"]) == b"# Revision 0\n"
+    assert not any("rev-list" in arguments or "--batch" in arguments for arguments in calls), calls
+    assert any("for-each-ref" in arguments for arguments in calls)  # the refs are still checked
+
+
+def test_a_save_reads_only_its_new_commits(history, cold, records_read):
+    path = "common/mine.md"
+    for number in range(6):
+        history.apply({path: f"# Revision {number}\n".encode()}, flow_path=path)
+    before = LibraryHistory(history.root).history(path)
+    assert len(records_read[-1]) >= 7
+    old = history._rev(HISTORY_REF)
+    (history.root / path).write_bytes(b"# Edited outside\n")  # the save also records this edit
+    saved = history.apply({path: b"# Saved\n"}, flow_path=path)
+    records_read.clear()
+    after = LibraryHistory(history.root).history(path)
+    new = history.git.text("rev-list", "--reverse", HISTORY_REF, "^" + old).splitlines()
+    assert len(new) == 2 and records_read == [new]
+    assert after[0]["version"] == saved and after[2:] == before
+    assert after == expected_versions(full_events(history.root), path)
+
+
+def test_a_rewritten_ref_recomputes_in_full(history, cold, records_read):
+    path = "common/shared.md"
+    first = portable(history, source_event(), "remote")
+    history.apply({"common/mine.md": b"# Mine\n"}, flow_path="common/mine.md")
+    assert LibraryHistory(history.root).history(path)[0]["version"] == source_event()["id"]
+    # Sync replaces the incoming tip with an unrelated one: the old commit leaves the walk.
+    replacement = {**source_event(previous=b"# Rewritten\n"), "id": "git-" + "c" * 40}
+    tip = history._rev(portable(history, replacement, "remote"))
+    assert history._rev(first) == tip
+    records_read.clear()
+    versions = LibraryHistory(history.root).history(path)
+    assert [entry["version"] for entry in versions] == [replacement["id"]]
+    walked = history.git.text("rev-list", "--reverse", "--stdin",
+                              input=("\n".join(history._refs()) + "\n").encode()).splitlines()
+    assert records_read == [walked]  # every commit read again, not only the new one
+    assert_same_as_full(history.root)
+
+
+def test_concurrent_readers_share_one_computation(history, cold, monkeypatch):
+    path = "common/mine.md"
+    for number in range(8):
+        history.apply({path: f"# Revision {number}\n".encode()}, flow_path=path)
+    original, walks = LibraryHistory._update, []
+    def slow_update(self, index, tips):
+        walks.append(tips)
+        time.sleep(0.2)  # the other readers arrive while this one computes
+        return original(self, index, tips)
+    monkeypatch.setattr(LibraryHistory, "_update", slow_update)
+    results, errors = [], []
+    def read():
+        try:
+            results.append(LibraryHistory(history.root).history(path))
+        except Exception as error:  # pragma: no cover - reported below
+            errors.append(error)
+    threads = [threading.Thread(target=read) for _ in range(8)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert errors == [] and len(walks) == 1
+    assert len(results) == 8 and all(result == results[0] for result in results)
+    assert results[0] == expected_versions(full_events(history.root), path)
+
+
+def test_a_ref_that_is_not_a_commit_is_computed_in_full_without_the_cache(history, cold, records_read):
+    path = "common/shared.md"
+    tip = history._rev(portable(history, source_event(), "remote"))
+    tag = history.git.text("mktag", input=(f"object {tip}\ntype commit\ntag remote\n"
+                                           "tagger T <t@example.com> 0 +0000\n\nremote\n").encode())
+    history.git.run("update-ref", RECEIVED_PREFIX + "tagged", tag)
+    assert LibraryHistory(history.root)._tips() is None
+    assert LibraryHistory(history.root).history(path)[0]["version"] == source_event()["id"]
+    assert library_history._library_index(history.root).tips is None  # nothing was cached
+    assert_same_as_full(history.root)
+
+
+def test_a_failed_update_of_a_damaged_index_recomputes_in_full(history, cold, records_read, caplog):
+    path = "common/mine.md"
+    history.apply({path: b"# One\n"}, flow_path=path)
+    history.apply({path: b"# Two\n"}, flow_path=path)
+    LibraryHistory(history.root).history(path)
+    index = library_history._library_index(history.root)
+    damaged = next(iter(index.expanded))
+    index.expanded[damaged] = (False, ({"broken": True},))
+    history.apply({path: b"# Three\n"}, flow_path=path)
+    records_read.clear()
+    versions = LibraryHistory(history.root).history(path)
+    assert len(records_read) == 2 and len(records_read[1]) > len(records_read[0])  # retried from scratch
+    assert versions == expected_versions(full_events(history.root), path) and len(versions) == 2
+    assert "recomputing" in caplog.text
+    assert index.expanded[damaged] != (False, ({"broken": True},))
+
+
+def test_a_failed_ref_listing_falls_back_to_a_full_computation(history, cold, monkeypatch):
+    path = "common/mine.md"
+    history.apply({path: b"# One\n"}, flow_path=path)
+    history.apply({path: b"# Two\n"}, flow_path=path)
+    def fail(self):
+        raise gitcmd.GitError("for-each-ref", "local", "broken ref store")
+    monkeypatch.setattr(LibraryHistory, "_tips", fail)
+    assert LibraryHistory(history.root).history(path) == expected_versions(full_events(history.root), path)
+    assert library_history._library_index(history.root).tips is None
+
+
+def test_a_conflicting_copy_still_fails_every_read(history, cold):
+    event = source_event()
+    portable(history, event, "first")
+    LibraryHistory(history.root).history(event["path"])
+    portable(history, {**event, "previous": b"# Different\n"}, "second")
+    for _ in range(2):
+        with pytest.raises(HistoryError, match="conflicting copies"):
+            LibraryHistory(history.root).history(event["path"])
+
+
+def test_the_cache_is_bounded(tmp_path, cold, monkeypatch):
+    monkeypatch.setattr(library_history, "INDEX_LIBRARIES", 2)
+    monkeypatch.setattr(library_history, "DIGEST_LIMIT", 3)
+    path = "common/mine.md"
+    roots = []
+    for name in ("a", "b", "c"):
+        root = tmp_path / name
+        with file_lock(root / ".lock"):
+            history = LibraryHistory(root)
+            history.ensure()
+            for number in range(3):
+                history.apply({path: f"# {name} {number}\n".encode()}, flow_path=path)
+            assert len(history.history(path)) == 2
+        roots.append(str(history.root))
+    assert list(library_history._indexes) == roots[1:]
+    assert len(library_history._digest_cache) == 3

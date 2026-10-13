@@ -423,7 +423,15 @@ class FlowLibrary:
         with self._library_lock():
             return self._versions().history(path)
 
-    def get(self, name: str, version: str | None = None) -> dict:
+    def versions(self, name: str) -> dict:
+        """The saved versions of the flow ``name`` reaches, for the editor to load after its text."""
+        scope, flow_id = parse_reference(name)
+        if scope is None:
+            scope = self.resolve(flow_id).source
+        return {"status": "success", "id": f"{scope}:{flow_id}", "history": self.history(scope, flow_id)}
+
+    def get(self, name: str, version: str | None = None, *, with_history: bool = True) -> dict:
+        """A flow's text and metadata; ``with_history=False`` leaves out its versions (see ``versions``)."""
         scope, flow_id = parse_reference(name)
         if version:
             if not _VERSION.fullmatch(version):
@@ -437,16 +445,17 @@ class FlowLibrary:
                     history = self._versions()
                     path = self._version_path(scope, flow_id)
                     content = history.read(path, version).decode("utf-8")
-                    versions = history.history(path)
+                    versions = {"history": history.history(path)} if with_history else {}
             except (OSError, UnicodeError):
                 raise FlowError("flow_not_found: version not found") from None
             return {"status": "success", "flow": {"id": f"{scope}:{flow_id}", "source": scope,
                     "title": flow_title(content, flow_id), "version": version,
                     "revision": hashlib.sha256(content.encode()).hexdigest()},
-                    "content": content, "history": versions}
+                    "content": content, **versions}
         flow = self._load(scope, flow_id) if scope else self.resolve(flow_id)
-        result = {"status": "success", "flow": flow.metadata(), "content": flow.content,
-                  "history": self.history(flow.source, flow_id)}
+        result = {"status": "success", "flow": flow.metadata(), "content": flow.content}
+        if with_history:
+            result["history"] = self.history(flow.source, flow_id)
         if flow.source != "builtin" and self._exists("builtin", flow_id):
             upstream = self.catalog.load(flow_id)
             result["upstream"] = {"id": f"builtin:{flow_id}", "revision": upstream.revision,

@@ -327,11 +327,16 @@ class FlowsUI:
                 listing["repositories"] = await asyncio.to_thread(
                     lambda: library.repositories(with_content=with_content))
                 return self._json(listing)
+            if path == "/ui/api/flow/history" and request.method == "GET":
+                # The page asks for the versions after showing the text: computing them must
+                # never delay opening a flow (#371).
+                library = self._library(query.get("workspace"), query.get("repo"))
+                return self._json(await asyncio.to_thread(library.versions, query.get("id", "")))
             if path == "/ui/api/flow":
                 if request.method == "GET":
                     library = self._library(query.get("workspace"), query.get("repo"))
                     result = await asyncio.to_thread(
-                        library.get, query.get("id", ""), query.get("version") or None)
+                        library.get, query.get("id", ""), query.get("version") or None, with_history=False)
                     return self._json(self._with_key(library, result))
                 body = await self._body(request)
                 library = self._library(body.get("workspace"), body.get("repo"))
