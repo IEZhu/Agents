@@ -19,11 +19,13 @@ foreach ($candidate in @(@('py', '-3'), @('python'), @('python3'))) {
     $command = Get-Command $candidate[0] -ErrorAction SilentlyContinue
     if (-not $command) { continue }
     $prefix = @($candidate | Select-Object -Skip 1)
-    & $command.Source @prefix -c 'import sys; sys.exit(sys.version_info < (3, 11))' 2>$null
+    # Not a virtual environment: the installation's .venv is removed, and Windows cannot delete
+    # the running interpreter.
+    & $command.Source @prefix -c 'import sys; sys.exit(sys.version_info < (3, 11) or sys.prefix != sys.base_prefix)' 2>$null
     if ($LASTEXITCODE -eq 0) { $python = @($command.Source) + $prefix; break }
 }
 if (-not $python) {
-    Write-Error 'uninstall.ps1: Python 3.11 or newer is required.'
+    Write-Error 'uninstall.ps1: Python 3.11 or newer is required, outside a virtual environment (deactivate it first).'
     exit 1
 }
 

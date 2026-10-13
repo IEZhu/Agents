@@ -171,21 +171,21 @@ def test_darwin_uninstall_removes_every_trace_and_keeps_the_rest(home, capsys):
     # Unrelated entries and user text stay byte for byte.
     for path in (home / ".claude.json", home / ".gemini/config/mcp_config.json", home / "project/.mcp.json",
                  home / "Library/Application Support/Claude/claude_desktop_config.json"):
-        text = path.read_text()
+        text = path.read_text(encoding="utf-8")
         assert OTHER_SERVER in text and "Agents-Core" not in text, path
-    claude = json.loads((home / ".claude.json").read_text())
+    claude = json.loads((home / ".claude.json").read_text(encoding="utf-8"))
     assert claude["theme"] == "dark" and claude["projects"]["/p"]["mcpServers"] == {"keep": {"url": "https://k"}}
     assert (home / ".claude/CLAUDE.md").read_bytes() == USER_TEXT
-    assert json.loads((home / ".claude/settings.json").read_text()) == {
+    assert json.loads((home / ".claude/settings.json").read_text(encoding="utf-8")) == {
         "permissions": {"allow": ["Bash(ls)"], "deny": ["Bash(rm)"]}}
-    assert (home / ".claude/memory/MEMORY.md").read_text() == "- [Mine](mine.md) — personal\n"
-    assert (home / ".codex/config.toml").read_text() == 'model = "o"\n\n[mcp_servers.other]\ncommand = "o"\n\n[profiles.x]\nmodel = "y"\n'
-    assert json.loads((home / ".gemini/config/config.json").read_text()) == {"plugins": {"theirs": {"enabled": True}}}
-    assert (home / "unrelated.txt").read_text() == "mine"
+    assert (home / ".claude/memory/MEMORY.md").read_text(encoding="utf-8") == "- [Mine](mine.md) — personal\n"
+    assert (home / ".codex/config.toml").read_text(encoding="utf-8") == 'model = "o"\n\n[mcp_servers.other]\ncommand = "o"\n\n[profiles.x]\nmodel = "y"\n'
+    assert json.loads((home / ".gemini/config/config.json").read_text(encoding="utf-8")) == {"plugins": {"theirs": {"enabled": True}}}
+    assert (home / "unrelated.txt").read_text(encoding="utf-8") == "mine"
     assert (home / "project/history.md").exists()  # a project file: reported, never deleted
 
     # Every edited file has its backup.
-    manifest = json.loads((home / ".agents-core-uninstall-backups/T/manifest.json").read_text())
+    manifest = json.loads((home / ".agents-core-uninstall-backups/T/manifest.json").read_text(encoding="utf-8"))
     originals = {record["original"] for record in manifest}
     assert str(home / ".claude/settings.json") in originals and str(home / ".claude/CLAUDE.md") in originals
     backup = next(record["backup"] for record in manifest if record["original"] == str(home / ".claude/settings.json"))
@@ -236,7 +236,7 @@ def test_without_a_terminal_it_needs_yes(home):
 def test_keep_data_keeps_library_and_histories(home):
     state = darwin_home(home)
     assert main(["--yes", "--keep-data"], ctx=context(home, "darwin", FakeRunner()), interactive=False) == 0
-    assert (home / ".agents-core/flows/.user/mine.md").read_text() == "# Mine\n"
+    assert (home / ".agents-core/flows/.user/mine.md").read_text(encoding="utf-8") == "# Mine\n"
     assert (state / "unresolved/history.md").exists() and (state / "user-sync/user-sync.json").exists()
     assert not (state / "service.json").exists()
     assert not (home / ".agents-core/.git").exists() and not (home / ".agents-core/.venv").exists()
@@ -266,7 +266,7 @@ def test_a_venv_link_inside_the_installation_is_unlinked_not_followed(home, tmp_
     except OSError:
         pytest.skip("symlinks unavailable")
     assert main(["--yes"], ctx=context(home, "darwin", FakeRunner()), interactive=False) == 0
-    assert target.read_text() == "binary" and not os.path.lexists(link)
+    assert target.read_text(encoding="utf-8") == "binary" and not os.path.lexists(link)
 
 
 def test_source_checkout_is_kept(home, tmp_path):
@@ -302,7 +302,7 @@ def test_linux_removes_systemd_units_and_only_our_crontab_line(home):
     written = [input for argv, input in runner.calls if argv == ["crontab", "-"]]
     assert written == [b"MAILTO=me\n0 * * * * backup.sh\n"]
     assert not (home / ".local/state/agents-core").exists()
-    assert OTHER_SERVER in (home / ".config/Claude/claude_desktop_config.json").read_text()
+    assert OTHER_SERVER in (home / ".config/Claude/claude_desktop_config.json").read_text(encoding="utf-8")
     assert (home / ".agents-core-uninstall-backups/T/001-crontab").read_bytes() == crontab
     if sys.platform != "win32":  # the crontab can hold tokens: private like every backup
         assert (home / ".agents-core-uninstall-backups/T/001-crontab").stat().st_mode & 0o777 == 0o600
@@ -326,7 +326,7 @@ def test_windows_deletes_tasks_and_appdata_state(home):
     assert deleted == [f"\\agents-core-daemon-{IDENT}", f"\\agents-core-daemon-{IDENT}-updater", f"\\agents-core-sync-{IDENT}"]
     assert not (profile_state / ".agents-core").exists() and not (local / "Agents-Core").exists()
     for path in (appdata / "Claude/claude_desktop_config.json", msix):
-        assert OTHER_SERVER in path.read_text() and "Agents-Core" not in path.read_text()
+        assert OTHER_SERVER in path.read_text(encoding="utf-8") and "Agents-Core" not in path.read_text(encoding="utf-8")
     assert not runner.ran("/bin/launchctl") and not runner.ran("/usr/bin/security")
 
 
@@ -436,7 +436,7 @@ def test_only_the_installers_own_backup_names_are_removed(home, capsys):
     ours = [write(home / ".claude/CLAUDE.md.backup.1760000000", "old"),
             write(home / ".codex/AGENTS.md.backup.1234567890123456789", "old")]
     assert main(["--yes"], ctx=context(home, "darwin", FakeRunner()), interactive=False) == 0
-    assert all(path.read_text() == "mine" for path in user)
+    assert all(path.read_text(encoding="utf-8") == "mine" for path in user)
     assert not any(path.exists() for path in ours)
     output = capsys.readouterr().out
     assert f"{home / '.claude.json.backup.k3j_x9ab'}: named like the installer's backup" in output
@@ -481,7 +481,7 @@ def test_windows_junctions_are_never_followed(home, tmp_path, capsys):
     junction.parent.mkdir(parents=True, exist_ok=True)
     subprocess.run(["cmd", "/c", "mklink", "/J", str(junction), str(target)], check=True, capture_output=True)
     assert main(["--yes", "--keep-data"], ctx=context(home, "darwin", FakeRunner()), interactive=False) == 0
-    assert (target / "keep.txt").read_text() == "keep" and not os.path.lexists(junction)
+    assert (target / "keep.txt").read_text(encoding="utf-8") == "keep" and not os.path.lexists(junction)
     # A junction as the installation itself is refused, its target kept.
     other = checkout(tmp_path / "checkout")
     shutil.rmtree(home / ".agents-core", onerror=lambda function, path, _: (os.chmod(path, 0o666), function(path)))
@@ -659,3 +659,20 @@ def test_a_development_checkout_named_by_agents_home_is_kept(home, capsys, statu
     assert main(["--yes"], ctx=ctx, interactive=False) == 0
     assert (installation / "src/server.py").exists()
     assert f"named by AGENTS_HOME, but {reason}" in capsys.readouterr().out
+
+
+def test_windows_states_inside_the_installation_are_found_and_kept_with_keep_data(home):
+    """%USERPROFILE%\\.agents-core holds the state directories and can be the installation too."""
+    state = home / ".agents-core" / IDENT
+    write(state / "service.json", "{}")
+    write(state / "user-sync/user-sync.json", "{}")
+    write(state / "unresolved/history.md", "# turns\n")
+    write(state / "workspaces.json", json.dumps({"w": str(home / "project")}))
+    project = write(home / "project/.mcp.json", mcp_config("Agents-Core"))
+    ctx = context(home, "win32", FakeRunner(), USERPROFILE=str(home), APPDATA=str(home / "AppData/Roaming"),
+                  LOCALAPPDATA=str(home / "AppData/Local"))
+    assert main(["--yes", "--keep-data"], ctx=ctx, interactive=False) == 0
+    assert (state / "user-sync/user-sync.json").exists() and (state / "unresolved/history.md").exists()
+    assert (home / ".agents-core/flows/.user/mine.md").exists()
+    assert not (state / "service.json").exists() and not (home / ".agents-core/src/server.py").exists()
+    assert "Agents-Core" not in project.read_text(encoding="utf-8")

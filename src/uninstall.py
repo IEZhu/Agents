@@ -798,14 +798,15 @@ def read_settings(path: Path, keys: Sequence[str] = SETTINGS) -> dict[str, str]:
 def state_dirs(ctx: Context, installations: Sequence[Path]) -> list[Path]:
     found: list[Path] = []
     for root in state_roots(ctx):
-        if root.is_dir() and not is_checkout(root):
+        # On Windows %USERPROFILE%\.agents-core holds the states and can also be the installation.
+        if root.is_dir():
             found += [child for child in sorted(root.iterdir()) if STATE_ID.match(child.name) and child.is_dir()]
     override = ctx.env_path("AGENTS_SERVICE_DIR")
     if override and owns_state(override):
         found.append(override)
     for installation in installations:
         try:
-            marker = json.loads((installation / "data/.shared-service.json").read_text())
+            marker = json.loads((installation / "data/.shared-service.json").read_text(encoding="utf-8"))
         except (OSError, ValueError):
             continue
         if isinstance(marker, dict) and isinstance(marker.get("directory"), str):
@@ -1219,9 +1220,13 @@ def build_plan(ctx: Context, *, keep_data: bool = False) -> list[Item]:
     elif is_checkout(installation):
         owned = ctx.env_path("AGENTS_HOME") is not None  # is_checkout shows the named directory is ours
         keep = [installation / "flows/.user"] if keep_data and (installation / "flows/.user").exists() else []
+        if keep_data:  # states inside the checkout (Windows) keep user sync and the fallback journal too
+            keep += [state / name for state in states if _within(state, [installation])
+                     for name in KEEP_IN_STATE if (state / name).exists()]
         items.append(Item("installation", str(installation), "remove", "install.sh (git clone into AGENTS_HOME, "
                           "default ~/.agents-core), scripts/init_repo.sh (.venv, .env, data/)",
-                          "the one-command installation" + ("; keeps flows/.user (--keep-data)" if keep else ""),
+                          "the one-command installation" + ("; keeps " + ", ".join(
+                              str(path.relative_to(installation)) for path in keep) + " (--keep-data)" if keep else ""),
                           lambda: remove_except(ctx, installation, keep, owned=owned)))
     elif ctx.env_path("AGENTS_HOME") and installation.is_dir():
         items.append(Item("installation", str(installation), "keep", "AGENTS_HOME",

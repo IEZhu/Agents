@@ -35,7 +35,9 @@ This clones the repository into `~/.agents-core`, creates `.venv`, downloads the
 embedding model (about 1.1 GB, from Hugging Face) and builds the local indexes. `--skip-mcp`
 leaves your client configurations alone, because the plugin registers the server for Claude Code
 itself. Set `AGENTS_HOME` before installing to use another directory; the plugin's start script
-reads the same variable.
+reads the same variable, so keep the absolute value set in the environment that starts Claude
+Code or Cowork (your shell profile, or the login environment for the desktop app), or the
+launcher looks in `~/.agents-core` and reports that Agents-Core is not installed.
 
 Then add the plugin from Claude's plugin directory (in Claude Code, `/plugin`; to try a local
 copy, `claude --plugin-dir ~/.agents-core/plugins/agents-core`) and start a new session. `/mcp` shows the `Agents-Core` server; ask

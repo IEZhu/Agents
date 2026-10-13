@@ -77,7 +77,8 @@ installation above (install it with `--skip-mcp`, so the server is not registere
 ### Uninstall
 
 `scripts/uninstall.sh` (macOS, Linux) and `scripts/uninstall.ps1` (Windows) remove
-Agents-Core from your account, leaving no trace:
+Agents-Core from your account: everything in the inventory below, with a report of what was
+kept and why:
 
 ```bash
 ~/.agents-core/scripts/uninstall.sh --dry-run   # list everything, grouped by kind; change nothing
