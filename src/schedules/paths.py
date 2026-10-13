@@ -27,18 +27,11 @@ The autodev broker (#342) calls this module before it pushes a session's commits
   renames are a deletion plus an addition, deletions included. ``ChangeCheck.refusals`` lists
   each refused commit and path with its ``Reason``; the push is allowed only when it is empty.
 
-Git runs without a shell and with a minimal environment: ``GIT_CONFIG_NOSYSTEM=1`` and
-``GIT_CONFIG_GLOBAL`` at the null device, so no system or global configuration is read;
-``GIT_TERMINAL_PROMPT=0``, no pager, no replace objects (``--no-replace-objects``) and no grafts
-(``GIT_GRAFT_FILE`` at the null device), literal pathspecs, ``-C`` the trusted repository with
-discovery stopped above it, and ``--end-of-options`` before revision arguments. The trusted
-repository's own configuration, and the files it includes, is still read, with
-``core.fsmonitor=false``, ``core.hooksPath`` at the null device, ``core.commitGraph=false`` and
-``core.quotePath=false`` set on the command line over it, so no fsmonitor command and no hook
-runs, and parents come from the commit objects, not a commit-graph file. A repository with an
-``info/grafts`` or ``objects/info/alternates`` file is refused (``PathsError``) before any other
-git call: grafts rewrite parents, alternates add objects from elsewhere. Every revision is a
-40-character lowercase hex SHA validated before any git call.
+git runs through `src.schedules.gitsafe`: no shell, no system or global configuration, no
+hooks, fsmonitor, replace objects, grafts or commit-graph, ``-C`` the trusted repository with
+discovery stopped above it, and ``--end-of-options`` before revision arguments. A repository with
+an ``info/grafts`` or ``objects/info/alternates`` file is refused (``PathsError``) before any
+other git call. Every revision is a 40-character lowercase hex SHA validated before any git call.
 """
 from __future__ import annotations
 
@@ -48,22 +41,19 @@ from enum import StrEnum
 import os
 from pathlib import Path
 import re
-import subprocess
 import unicodedata
 
-from src import executables
+from . import gitsafe
 
 PROTECTED_LIST = ".github/autodev-protected-paths"
 CONTROL_LIST = ".github/autodev-control-paths"
 NEXT_LABEL = "autodev:next"
-GIT_TIMEOUT = 60
+GIT_TIMEOUT = gitsafe.GIT_TIMEOUT
 
 _SHA = re.compile(r"[0-9a-f]{40}")
 _RAW_HEADER = re.compile(r":([0-7]{6}) ([0-7]{6}) ([0-9a-f]{40}) ([0-9a-f]{40}) ([ADMT])")
 _ABSENT, _REGULAR, _EXECUTABLE, _SYMLINK, _GITLINK = "000000", "100644", "100755", "120000", "160000"
 _KNOWN_MODES = frozenset((_ABSENT, _REGULAR, _EXECUTABLE, _SYMLINK, _GITLINK))
-# Files of a repository that change what git reports: other parents, objects from elsewhere.
-_UNTRUSTED_FILES = ("info/grafts", "objects/info/alternates")
 
 
 class PathsError(Exception):
@@ -74,7 +64,7 @@ class PathListError(PathsError):
     """A list file that is missing, not a regular file, empty or not understood."""
 
 
-class GitError(PathsError):
+class GitError(PathsError, gitsafe.GitError):
     """A git command that failed or printed output this module does not understand."""
 
 
@@ -384,14 +374,7 @@ def _repository(repository: str | os.PathLike[str]) -> Path:
     path = Path(repository).resolve()
     if not path.is_dir():
         raise PathsError(f"the trusted repository {path} is not a directory")
-    # Not `--git-path`: it reports GIT_GRAFT_FILE, the null device here, for info/grafts.
-    output = _git(path, "rev-parse", "--path-format=absolute", "--git-common-dir")
-    common = output.decode("utf-8", "surrogateescape").removesuffix("\n")
-    if not common or "\n" in common or not os.path.isabs(common):
-        raise GitError(f"unexpected rev-parse output for {path}")
-    for name in _UNTRUSTED_FILES:
-        if os.path.lexists(os.path.join(common, name)):
-            raise PathsError(f"the trusted repository {path} has {name}, which this check does not accept")
+    _translated(gitsafe.require_clean, path)
     return path
 
 
@@ -402,43 +385,21 @@ def _require_commit(repository: Path, sha: str) -> None:
         raise GitError(f"{sha} is not a commit in {repository}")
 
 
-def _environment(repository: Path) -> dict[str, str]:
-    """Only what git needs; nothing inherited steers it (``GIT_DIR``, config, pager, prompts, grafts)."""
-    environment = {key: os.environ[key] for key in ("PATH", "SYSTEMROOT") if key in os.environ}
-    environment.update(LC_ALL="C", GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull,
-                       GIT_TERMINAL_PROMPT="0", GIT_PAGER="cat", PAGER="cat", GIT_OPTIONAL_LOCKS="0",
-                       GIT_NO_REPLACE_OBJECTS="1", GIT_GRAFT_FILE=os.devnull,
-                       GIT_CEILING_DIRECTORIES=str(repository.parent))
-    return environment
-
-
-def _run(repository: Path, args: tuple[str, ...]) -> subprocess.CompletedProcess[bytes]:
-    try:  # the lookup is inside: a missing git is a GitError like one that cannot start
-        command = [executables.path("git"), "--no-pager", "--no-replace-objects", "--literal-pathspecs",
-                   "-c", "core.quotePath=false", "-c", "core.fsmonitor=false", "-c", f"core.hooksPath={os.devnull}",
-                   "-c", "core.commitGraph=false", "-C", str(repository), *args]
-        return subprocess.run(command, capture_output=True, stdin=subprocess.DEVNULL, timeout=GIT_TIMEOUT,
-                              env=_environment(repository), check=False)
-    except (OSError, subprocess.TimeoutExpired) as error:
-        raise GitError(f"git {args[0]} could not run: {error}") from None
-
-
-def _failure(args: tuple[str, ...], result: subprocess.CompletedProcess[bytes]) -> GitError:
-    stderr = result.stderr.decode("utf-8", "replace").strip()[:500]
-    return GitError(f"git {args[0]} failed with exit code {result.returncode}: {stderr}")
+def _translated(call, *args):
+    """``call(*args)`` with gitsafe's errors as this module's: the broker catches ``PathsError``."""
+    try:
+        return call(*args)
+    except gitsafe.UntrustedRepository as error:
+        raise PathsError(str(error)) from None
+    except gitsafe.GitError as error:
+        raise GitError(str(error)) from None
 
 
 def _git(repository: Path, *args: str) -> bytes:
     """The standard output of ``git <args>`` in ``repository``; ``GitError`` unless it succeeds."""
-    result = _run(repository, args)
-    if result.returncode != 0:
-        raise _failure(args, result)
-    return result.stdout
+    return _translated(gitsafe.git, repository, *args)
 
 
-def _git_test(repository: Path, *args: str) -> subprocess.CompletedProcess[bytes]:
+def _git_test(repository: Path, *args: str):
     """A yes-or-no git command, which exits with 0 or 1; ``GitError`` for anything else."""
-    result = _run(repository, args)
-    if result.returncode not in (0, 1):
-        raise _failure(args, result)
-    return result
+    return _translated(gitsafe.git_test, repository, *args)

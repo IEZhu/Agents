@@ -3,10 +3,15 @@
 The file stays on this machine and is never synced. A missing file means the defaults; a file
 without some keys gets them from the defaults, so a newer runner can add keys. Every load and
 save is validated, and a save is atomic (`src.daemon.state.write_json`).
+
+``clone`` is the runner's trusted repository (`src.schedules.repos`, design 5.4): an absolute
+path, or one that starts with ``~``, that lies neither under ``~/Documents`` nor under the
+installation, nor above either of them.
 """
 from __future__ import annotations
 
 import copy
+import os
 import re
 from pathlib import Path
 from typing import Any
@@ -22,6 +27,8 @@ STAGES = ("select", "implement", "submit")
 DELEGATES = ("code-review-pass", "change-premortem")
 LIMITS = ("max_reviews", "max_bot_rounds", "max_wait_minutes")
 MAX_CATCH_UP_MINUTES = 24 * 60
+# The installation this module runs from: src/schedules/config.py is two levels below it.
+INSTALLATION = Path(__file__).resolve().parents[2]
 
 DEFAULTS: dict[str, Any] = {
     "id": "autodev",
@@ -89,6 +96,24 @@ def hour_ranges(text: str) -> list[tuple[int, int]]:
     return ranges
 
 
+def runner_location(value: Any, installation: str | Path | None = None, *, what: str = "clone") -> Path:
+    """``value`` as a resolved absolute path for the runner's own files (the trusted repository,
+    its environments); ``ValueError`` when it is relative, or under or above ``~/Documents`` or
+    the installation, where a session or the daemon's checkout could reach it."""
+    if not _text(value):
+        raise ValueError(f"{what} must be a path")
+    path = Path(os.path.expanduser(str(value)))
+    if not path.is_absolute():
+        raise ValueError(f"{what} must be an absolute path or start with ~")
+    resolved = Path(os.path.realpath(path))
+    for name, root in (("~/Documents", Path.home() / "Documents"),
+                       ("the installation", Path(installation) if installation is not None else INSTALLATION)):
+        root = Path(os.path.realpath(root))
+        if resolved.is_relative_to(root) or root.is_relative_to(resolved):
+            raise ValueError(f"{what} must lie outside {name} ({root}): {resolved}")
+    return resolved
+
+
 def _merge(defaults: dict, values: dict) -> dict:
     merged = copy.deepcopy(defaults)
     for key, value in values.items():
@@ -145,8 +170,10 @@ def validate(config: Any) -> dict:
         problems.append(f"mode must be one of {', '.join(MODES)}")
     if not isinstance(config.get("repository"), str) or not _REPOSITORY.match(config["repository"]):
         problems.append("repository must be OWNER/NAME")
-    if not _text(config.get("clone")):
-        problems.append("clone must be a path")
+    try:
+        runner_location(config.get("clone"))
+    except ValueError as error:
+        problems.append(str(error))
     times = config.get("times")
     if not isinstance(times, list) or not times:
         problems.append("times must be a non-empty list of HH:MM")
