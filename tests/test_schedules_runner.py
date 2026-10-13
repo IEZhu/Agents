@@ -164,7 +164,7 @@ def test_run_ids_cannot_name_other_paths(service_state_dir):
 def test_real_modes_refuse_and_name_the_missing_parts(ctx, argv):
     code, result = call(ctx, *argv)
     assert code == 1 and result["ok"] is False and result["error"] == "mode_unavailable"
-    assert result["missing"] == ["#342 broker", "#347 run sequence", "#350 automatic mode"]
+    assert result["missing"] == ["#347 run sequence", "#350 automatic mode"]
     assert ctx.test.supervised == [] and ctx.test.github.calls == []
     assert autodev_config.load(ctx.directory)["enabled"] is False
     assert not records.runs_dir(ctx.directory).exists()

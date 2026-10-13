@@ -21,7 +21,7 @@ text, which a handler treats as data only; no string may carry a control charact
 surrogate. A handler gets a `RequestContext` with its deadline, the peer's PID and a closing
 check. A type registered ``session_bound`` answers only a process of the current stage session
 (the runner names its root PID), checked on every request. The heavy-process lease
-(`src.schedules.heavy`) registers here; the GitHub broker (#342) and the worker launcher (#345) will.
+(`src.schedules.heavy`) and the GitHub broker (`src.schedules.broker`) register here; the worker launcher (#345) will.
 
 `serve` also writes the thin clients ``gh``, ``worker`` and ``heavy`` (`src.schedules.client_stub`)
 into a ``clients`` directory beside the socket. When the run ends, normally, by an exception, or

@@ -87,7 +87,10 @@ def is_self_development(pull: Mapping, repository: str) -> bool:
 
 
 def trusted_bot(user: Any) -> bool:
-    return isinstance(user, dict) and TRUSTED_BOTS.get(user.get("login")) == user.get("id")
+    """An allowlisted bot by login and integer account ID; a missing ID never matches."""
+    if not isinstance(user, dict) or user.get("login") not in TRUSTED_BOTS:
+        return False
+    return type(user.get("id")) is int and TRUSTED_BOTS[user["login"]] == user["id"]
 
 
 def trusted_state(comments: Iterable[Mapping], trusted_ids: set[int]) -> tuple[dict | None, int]:

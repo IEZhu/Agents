@@ -9,7 +9,7 @@
 
 The exit code is 0 on success, 1 when a command refused or a run failed, and 2 for wrong
 arguments. The installation runs it by absolute path as ``<python> -P -m src.schedules …`` with
-``PYTHONPATH`` naming the installation. Real modes refuse until #342, #347 and #350 land.
+``PYTHONPATH`` naming the installation. Real modes refuse until #347 and #350 land.
 """
 from __future__ import annotations
 
