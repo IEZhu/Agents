@@ -1,0 +1,14 @@
+{
+  "name": "agents-core",
+  "displayName": "Agents-Core",
+  "version": "0.1.0",
+  "description": "Specialist personas, workflows and per-repository memory for Claude, served by a local Agents-Core MCP server that runs on your own machine.",
+  "author": {
+    "name": "WonderMr",
+    "url": "https://github.com/IEZhu"
+  },
+  "homepage": "https://github.com/IEZhu/Agents/tree/main/plugins/agents-core",
+  "repository": "https://github.com/IEZhu/Agents",
+  "license": "MIT",
+  "keywords": ["personas", "agents", "workflows", "repository-memory", "mcp"]
+}

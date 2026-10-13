@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "Agents-Core": {
+      "command": "${CLAUDE_PLUGIN_ROOT}/scripts/start-server.sh",
+      "args": []
+    }
+  }
+}
