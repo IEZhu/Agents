@@ -643,6 +643,21 @@ def test_remove_leftovers_in_the_run_directory_keeps_the_directory(run_dir):
     assert outcome["kept"] == [] and sorted(path.name for path in run_dir.iterdir()) == ["record.json"]
 
 
+def test_remove_leftovers_in_the_run_directory_needs_the_runners_own_run_directory(run_dir, short):
+    """Review round 2: a record whose socket path runs through a symlinked ancestor is not followed."""
+    other = short / "other"
+    other.mkdir(mode=0o700)
+    record = leave_endpoint(other, private=False)
+    alias = run_dir / "alias"
+    alias.symlink_to(other, target_is_directory=True)
+    through_alias = {**record, "socket": str(alias / "control.sock"),
+                     "clients": {name: str(alias / "clients" / name) for name in record["clients"]}}
+    outcome = socket_service.remove_leftovers(through_alias, run_directory=run_dir)
+    assert outcome["removed"] == [] and "not this run's directory" in outcome["kept"][0]
+    assert (other / "control.sock").exists() and (other / "clients" / "gh").exists()
+    assert socket_service.remove_leftovers(record, run_directory=other)["kept"] == []
+
+
 def test_remove_leftovers_keeps_what_serve_did_not_create(short):
     foreign = Path(tempfile.mkdtemp(prefix=socket_service.PRIVATE_PREFIX, dir=short))
     (foreign / "control.sock").write_text("a regular file")

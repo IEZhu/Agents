@@ -820,14 +820,16 @@ def _remove_clients(clients_dir: Path, removed: list[str]) -> None:
     removed.append(str(clients_dir))
 
 
-def remove_leftovers(record: Mapping) -> dict:
+def remove_leftovers(record: Mapping, *, run_directory: str | Path | None = None) -> dict:
     """Remove what `serve` left behind when its process was killed (SIGKILL), as the run record's
     ``endpoint`` (`Endpoint.to_record`) names it. For the runner, once the run's processes are gone.
 
     Removed are only this user's own entries of the kinds `serve` creates: a socket at the socket
     path, a ``clients`` directory beside it holding nothing but the clients, and, for a private
     directory, that directory when it is named ``autodev-socket-*``, is no symlink, has mode 0700
-    and holds nothing but those two. Anything else is kept. Returns ``{"removed": [paths],
+    and holds nothing but those two. For a socket in the run directory, ``run_directory`` (the
+    runner's own idea of it, not the record's) must resolve to the same directory, so a record
+    cannot point the cleanup elsewhere through a symlinked ancestor. Anything else is kept. Returns ``{"removed": [paths],
     "kept": ["<path>: <reason>"]}``; both are empty when nothing was left.
     """
     removed: list[str] = []
@@ -840,6 +842,8 @@ def remove_leftovers(record: Mapping) -> dict:
     if not socket_path.is_absolute() or socket_path.name != SOCKET_NAME or ".." in socket_path.parts:
         return {"removed": removed, "kept": [f"{socket_text}: not a socket path serve uses"]}
     directory = socket_path.parent
+    if not private and run_directory is not None and os.path.realpath(directory) != os.path.realpath(run_directory):
+        return {"removed": removed, "kept": [f"{directory}: not this run's directory"]}
     clients_dir = directory / CLIENTS_DIR
     clients = record.get("clients") or {}
     if not isinstance(clients, Mapping) or any(

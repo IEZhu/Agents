@@ -22,7 +22,11 @@ does today.
   `endpoint`. The sandbox profile of #343 must let a session read the clients directory and the
   clients' interpreter, which lies outside the virtual environment. Neither is verified in a real
   sandbox yet: #347 checks that the clients start there and that the session cannot write the
-  socket's directory.
+  socket's directory. The runner removes a killed run's socket, clients and private directory
+  only as the record's `endpoint` names them, so two cases leave an `autodev-socket-*` directory
+  in the runner's temporary directory: a run killed before #347 has recorded `endpoint` (#347
+  records it before the first session starts), and a supervisor that is itself killed, or a
+  reboot, before it cleans up.
 - **macOS only.** The scheduler is a LaunchAgent, and supervision uses POSIX process groups.
 
 ## Commands

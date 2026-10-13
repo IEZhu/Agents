@@ -172,13 +172,13 @@ def run_environment(ctx: Context) -> dict[str, str]:
     return environment
 
 
-def remove_endpoint(record: dict) -> None:
+def remove_endpoint(record: dict, run_dir: Path) -> None:
     """Remove the socket, clients and private directory a killed run left behind, when its
     record names them under ``endpoint``; note the outcome as ``endpoint_cleanup``."""
     endpoint = record.get("endpoint")
     if not isinstance(endpoint, dict):
         return
-    outcome = socket_service.remove_leftovers(endpoint)
+    outcome = socket_service.remove_leftovers(endpoint, run_directory=run_dir)
     if outcome["removed"] or outcome["kept"]:
         record["endpoint_cleanup"] = outcome
 
@@ -201,7 +201,7 @@ def launch(ctx: Context, mode: str, trigger: dict, *, pr: int | None = None) -> 
                                 stdout_path=run_dir / "stdout.log", stderr_path=run_dir / "stderr.log")
     except SupervisorStopped as stopped:  # the run's tree is already swept; record it, then stop
         record = records.read_record(run_id, ctx.directory) or {}
-        remove_endpoint(record)
+        remove_endpoint(record, run_dir)
         record.update(infra(f"stopped: the supervisor received {signal.Signals(stopped.signal).name}; "
                             "the run's process tree was ended"))
         record.setdefault("finished", iso(ctx.clock()))
@@ -212,7 +212,7 @@ def launch(ctx: Context, mode: str, trigger: dict, *, pr: int | None = None) -> 
     else:
         failure = None
     record = records.read_record(run_id, ctx.directory) or {}
-    remove_endpoint(record)  # the run and everything it started are gone by now
+    remove_endpoint(record, run_dir)  # the run and everything it started are gone by now
     if failure:
         record.update(failure)
     elif outcome.timed_out:
