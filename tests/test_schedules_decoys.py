@@ -48,7 +48,8 @@ def test_plants_private_decoys_with_long_unique_markers(service_state_dir, home)
         assert stat.S_IMODE(os.lstat(decoy.path).st_mode) == 0o600
         assert decoy.marker in decoy.path.read_text()
         assert decoy.known.label == f"decoy {decoy.label}" and decoy.marker not in repr(decoy)
-    assert planted[0].path.parent == home / ".ssh" and re.fullmatch(r"id_ed25519_[0-9a-f]{8}", planted[0].path.name)
+    assert planted[0].path.parent == home / ".ssh" and planted[0].path.name not in SSH_DEFAULT_NAMES
+    assert re.search(r"[0-9a-f]{4}", planted[0].path.name)  # a random part keeps it clear of the owner's names
     folder = planted[1].path.parent
     assert folder.parent == home and decoys.DIRECTORY_NAME.fullmatch(folder.name) and planted[2].path.parent == folder
     assert stat.S_IMODE(os.stat(folder).st_mode) == 0o700
@@ -87,12 +88,40 @@ def test_planting_is_idempotent_and_repairs_a_changed_decoy(service_state_dir, h
 def test_never_overwrites_a_file_that_is_not_a_decoy(service_state_dir, home, monkeypatch):
     owned = home / ".ssh" / "id_ed25519_00000000"
     owned.write_text("the owner's own key")
-    names = iter(["aaaaaaaa", "00000000", "11111111"])  # the directory, then the key: taken, then free
-    real = decoys.secrets.token_hex
-    monkeypatch.setattr(decoys.secrets, "token_hex", lambda size: next(names, None) or real(size))
+    names = iter(["id_ed25519_00000000", "id_ed25519_11111111"])  # taken, then free
+    files = tuple((label, where, form, (lambda: next(names)) if label == "ssh-key" else make)
+                  for label, where, form, make in decoys.FILES)
+    monkeypatch.setattr(decoys, "FILES", files)
     planted = decoys.ensure(service_state_dir, home)
     assert owned.read_text() == "the owner's own key"
     assert planted[0].path.name == "id_ed25519_11111111"
+
+
+SSH_DEFAULT_NAMES = {"id_rsa", "id_ecdsa", "id_ecdsa_sk", "id_ed25519", "id_ed25519_sk", "id_dsa", "id_xmss"}
+
+
+def test_decoy_names_take_several_shapes_so_no_single_glob_excludes_them(tmp_path):
+    """G4: the shapes are in the source, so each installation picks one of several at random."""
+    import fnmatch
+
+    from src import uninstall
+
+    planted = []
+    for index in range(40):
+        home = tmp_path / f"home{index}"
+        (home / ".ssh").mkdir(parents=True)
+        planted.append({decoy.label: decoy.path for decoy in decoys.ensure(tmp_path / f"state{index}", home)})
+    ssh = [names["ssh-key"].name for names in planted]
+    folders = [names["credentials"].parent.name for names in planted]
+    assert not set(ssh) & SSH_DEFAULT_NAMES  # ssh never tries a decoy on its own
+    for pattern, names in (("id_ed25519_????????", ssh), (".*-????????", folders),
+                           ("credentials-*.json", [names["credentials"].name for names in planted]),
+                           ("token-*.txt", [names["token"].name for names in planted])):
+        assert not all(fnmatch.fnmatchcase(name, pattern) for name in names), pattern
+    assert all(decoys.DIRECTORY_NAME.fullmatch(name) and uninstall.DECOY_DIR_NAME.fullmatch(name) for name in folders)
+    for _ in range(200):
+        name = decoys._directory_name()
+        assert decoys.DIRECTORY_NAME.fullmatch(name) and uninstall.DECOY_DIR_NAME.fullmatch(name), name
 
 
 def test_a_lost_registry_plants_fresh_decoys_and_leaves_the_old_files(service_state_dir, home):

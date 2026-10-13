@@ -72,7 +72,8 @@ MEMORY_INDEX_ENTRIES = (
 KEYCHAIN_SERVICE = "agents-autodev-github"  # src/schedules/github.py
 # src/schedules/decoys.py: decoy names are random per installation and only in its registry; these
 # are their shapes, and a decoy file must still hold the marker the registry records for it.
-DECOY_DIR_NAME = re.compile(r"\.(?:config|cache|local|tokens)-[0-9a-f]{8}")
+DECOY_DIR_NAME = re.compile(r"\.(?:config|cache|local|tokens|auth|creds|keys|session|cloud|api)"
+                            r"(?:-[0-9a-f]{8}|_[0-9a-f]{6}|[0-9a-f]{4})")
 DECOY_KEYCHAIN_SERVICE = re.compile(r"(?:api-token|cli-credentials|service-token)-[0-9a-f]{12}")
 DECOY_KEYCHAIN_ACCOUNT = re.compile(r"user-[0-9a-f]{8}")
 DECOY_MARKER = re.compile(r"[A-Za-z0-9]{48,}")
