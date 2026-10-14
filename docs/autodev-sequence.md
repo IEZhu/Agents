@@ -251,7 +251,9 @@ notified by the run itself or, when it could not, by the launching process.
 
 ## Before the first real run
 
-These are the owner's steps; no test can make them:
+These are the owner's steps; no test can make them. The whole setup in order is in
+[autodev.md](autodev.md#your-steps-in-order), and the phase 1a acceptance runs in
+[autodev-acceptance.md](autodev-acceptance.md).
 
 1. The broker's credentials (Q15) and the token's read permissions for the preconditions
    (recalled, not verified: `Administration: read` for `actions/permissions/workflow` and
