@@ -57,6 +57,12 @@ header h1 { font-size: 16px; line-height: 18px; margin: 0; white-space: nowrap; 
 #sync-chip[data-tone="ok"] { color: var(--ok); }
 #sync-chip[data-tone="busy"] { color: var(--accent); }
 #sync-chip[data-tone="warn"] { color: var(--warn); background: var(--warn-bg); }
+/* The chips share the line under the version; Autodev opens the autodev schedule's settings (#348). */
+#chips { display: flex; align-items: center; gap: 4px; min-width: 0; }
+#autodev-chip { font-size: 11px; line-height: 12px; padding: 1px 6px; white-space: nowrap; color: var(--muted);
+  background: var(--chip); border: 0; border-radius: var(--r-pill); }
+#autodev-chip:hover, #autodev-chip[aria-pressed="true"] { box-shadow: inset 0 0 0 1px var(--line); }
+#autodev-chip[aria-pressed="true"] { font-weight: 600; color: var(--text); }
 /* The open item's controls fill the header between the version and the tabs and end at the
    divider. The group is the tab of the item's pane: one tint, and it reaches down to the pane. */
 #item-actions { flex: 1 1 0; min-width: 0; display: flex; justify-content: flex-end; margin: 0; }
@@ -273,6 +279,19 @@ details.persona summary { cursor: pointer; }
 .sync-preview ul { margin: 0; padding-left: 1.4em; }
 .sync-preview li { overflow-wrap: anywhere; }
 .sync-comparison-text { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 24rem; overflow: auto; }
+/* The Autodev page (#348) takes the place of the list and the item, like the Sync page; only it scrolls. */
+#autodev-page { flex: 1; min-height: 0; overflow-y: auto; padding: 0 var(--edge) var(--edge); }
+#autodev-page > * { width: 100%; max-width: 62rem; margin: 0 auto var(--edge); }
+#autodev-alert { overflow-wrap: anywhere; }
+#autodev-alert ul { margin: 4px 0 0; padding-left: 1.4em; }
+#autodev-body { display: flex; flex-direction: column; gap: var(--edge); }
+#autodev-page .meta { word-break: normal; overflow-wrap: anywhere; }
+#autodev-page [tabindex="-1"]:focus:not(:focus-visible) { outline: none; }
+.ad-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr)); gap: 10px; align-items: end; }
+.ad-profile { min-width: 0; margin: 0; padding: 10px 0 0; border: 0; border-top: 1px solid var(--line); }
+.ad-profile legend { padding: 0 0 6px; font-weight: 600; }
+.ad-profile .meta { margin: 8px 0 0; }
+.ad-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 /* The landing page (#188) takes the place of the list and the item, like the Sync page; only it scrolls. */
 #landing { flex: 1; min-height: 0; overflow-y: auto; padding: 0 var(--edge) var(--edge); }
 #landing > * { width: 100%; max-width: 72rem; margin: 0 auto var(--edge); }
@@ -342,7 +361,10 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
 <header>
   <div id="brand">
     <h1 id="version"><a id="version-link" href="#overview" title="Overview of this installation">Agents-Core {{VERSION}}</a></h1>
-    <button id="sync-chip" class="hidden" type="button" aria-pressed="false" aria-controls="sync-page"></button>
+    <div id="chips">
+      <button id="sync-chip" class="hidden" type="button" aria-pressed="false" aria-controls="sync-page"></button>
+      <button id="autodev-chip" type="button" aria-pressed="false" aria-controls="autodev-page" title="Settings of the autodev schedule">Autodev</button>
+    </div>
   </div>
   <div id="item-actions" class="hidden" role="group" aria-label="Item actions">
     <div id="e-actions" class="hidden">
@@ -428,6 +450,11 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
   <div class="sync-head"><h2 id="sync-title" tabindex="-1">Library sync</h2></div>
   <div id="sync-alert" class="notice hidden" role="status"></div>
   <div id="sync-body"></div>
+</section>
+<section id="autodev-page" class="hidden" aria-labelledby="autodev-title">
+  <div class="sync-head"><h2 id="autodev-title" tabindex="-1">Autodev</h2></div>
+  <div id="autodev-alert" class="notice hidden" role="status"></div>
+  <div id="autodev-body"></div>
 </section>
 <section id="landing" class="hidden" aria-labelledby="landing-title">
   <h2 id="landing-title" tabindex="-1">Overview</h2>
@@ -520,6 +547,9 @@ function showSignIn() {
   landing.shown = false;
   stopLanding();
   $("landing").classList.add("hidden");
+  autodev.shown = false;
+  $("autodev-page").classList.add("hidden");
+  $("autodev-chip").classList.add("hidden");
   $("signin").classList.remove("hidden");
 }
 
@@ -736,19 +766,46 @@ async function openFlow(id, version, repo, view) {
   $("content").value = data.content;
   showEditor();
   setEditorView(view || "rendered");
-  renderHistory(data.history || []);
   setDirty(false);
   notice(data.flow.upstream_changed ? "The built-in flow changed since this copy was saved. Compare with “Show built-in”." : "");
   renderList();
+  loadHistory(data.flow);
 }
 
-function renderHistory(versions) {
+// The versions come after the text (#371): computing them must never delay opening a flow.
+async function loadHistory(flow) {
+  const gen = state.historyGen = (state.historyGen || 0) + 1;  // only the latest request renders
+  if (flow.source === "builtin") return renderHistory([]);
+  renderHistory(null);
+  let versions = null, failure = null;
+  try {
+    versions = (await api("/ui/api/flow/history?" + flowParams(flow))).history || [];
+  } catch (error) {
+    if (error.signedOut) {  // the page is signed out; the list just stops loading
+      if (gen === state.historyGen) $("history").removeAttribute("aria-busy");
+      return;
+    }
+    failure = error.message || "unknown error";
+  }
+  // Another flow opened meanwhile keeps its own list; a reload of this one (a save) is a newer request.
+  if (gen === state.historyGen && sameFlow(state.current, flow.id, flow.repo_key)) {
+    renderHistory(versions, failure);
+  }
+}
+
+// `versions` null: still loading, or, with the `failure` message, unavailable.
+function renderHistory(versions, failure = null) {
   const select = $("history");
   select.replaceChildren();
+  if (versions === null && failure === null) select.setAttribute("aria-busy", "true");
+  else select.removeAttribute("aria-busy");
   const head = document.createElement("option");
-  head.value = ""; head.textContent = versions.length ? "History (" + versions.length + ")" : "No history";
+  head.value = "";
+  head.textContent = failure !== null ? "History unavailable" : versions === null ? "History…"
+    : versions.length ? "History (" + versions.length + ")" : "No history";
+  if (failure !== null) head.title = failure + ". Reopen the flow to try again.";
   select.appendChild(head);
-  for (const item of versions) {
+  for (const item of versions || []) {
     const option = document.createElement("option");
     option.value = item.version;
     const stamp = item.time ? item.time.replace("T", " ").replace(/(?:\.\d+)?(?:Z|\+00:00)$/, "") :
@@ -756,7 +813,7 @@ function renderHistory(versions) {
     option.textContent = stamp + " UTC" + (item.deleted ? " (deleted)" : "");
     select.appendChild(option);
   }
-  select.disabled = !versions.length;
+  select.disabled = !(versions && versions.length);
 }
 
 // Each detail pane: the header controls that act on its item and the title that names the item.
@@ -2415,6 +2472,7 @@ function showSections(focusTab) {
 function showSyncPage() {
   if (state.signedOut || sync.shown) return;
   hideLanding();
+  hideAutodevPage();
   sync.shown = true;
   leaveSections();
   $("sync-page").classList.remove("hidden");
@@ -3840,6 +3898,7 @@ function landingAlert(text, kind = "") {
 function showLanding(opened = true) {
   if (state.signedOut || landing.shown) return;
   hideSyncPage();
+  hideAutodevPage();
   landing.shown = true;
   leaveSections();
   $("landing").classList.remove("hidden");
@@ -4212,6 +4271,402 @@ function renderSystem() {
   }
 }
 
+// --- the Autodev page (#348) ---------------------------------------------------------------------
+
+// The autodev schedule's settings (autodev.json) take the place of the list and the item, like the
+// Sync page. The daemon checks and writes every value (src/daemon/autodev_ui.py): the page collects
+// what is typed and shows the daemon's answer, its refusals included.
+const AUTODEV_PROFILES = [
+  ["stages", "select", "Select", "stage"], ["stages", "implement", "Implement", "stage"],
+  ["stages", "submit", "Submit", "stage"], ["delegates", "code-review-pass", "Review", "delegated step"],
+  ["delegates", "change-premortem", "Pre-mortem", "delegated step"]];
+const AUTODEV_LIMITS = [["max_reviews", "Reviews per change, at most"], ["max_bot_rounds", "Bot rounds per PR, at most"],
+  ["max_wait_minutes", "Minutes per bot wait, at most"]];
+const CLIENT_NAMES = { claude: "Claude", codex: "Codex" };
+// `fields` holds the form's controls by name; `dirty`: typed and not saved, so a read keeps the form.
+const autodev = { shown: false, data: null, gen: 0, busy: false, dirty: false, fields: {}, status: null };
+
+function autodevAlert(text, kind = "", items = []) {
+  const box = $("autodev-alert");
+  box.replaceChildren();
+  box.textContent = text || "";
+  if (items.length) {
+    const list = node("ul", box);
+    for (const item of items) node("li", list, item);
+  }
+  box.className = "notice" + (kind ? " " + kind : "") + (text ? "" : " hidden");
+}
+
+function showAutodevPage() {
+  if (state.signedOut || autodev.shown) return;
+  hideSyncPage();
+  hideLanding();
+  autodev.shown = true;
+  leaveSections();
+  $("autodev-page").classList.remove("hidden");
+  $("autodev-chip").setAttribute("aria-pressed", "true");
+  autodevAlert("");
+  if (!autodev.data) {
+    $("autodev-body").replaceChildren();
+    node("p", $("autodev-body"), "Loading…", "meta");
+  }
+  $("autodev-title").focus();
+  loadAutodev();
+}
+
+function hideAutodevPage() {
+  if (!autodev.shown) return;
+  const focused = $("autodev-page").contains(document.activeElement);
+  autodev.shown = false;
+  $("autodev-page").classList.add("hidden");
+  $("autodev-chip").setAttribute("aria-pressed", "false");
+  showSections(focused);
+}
+
+$("autodev-chip").addEventListener("click", () => (autodev.shown ? hideAutodevPage() : showAutodevPage()));
+
+// A read that a newer read, a save or the switch overtook is dropped. Unsaved edits stay on screen:
+// only the status is new, and the revision stays the one the form was read at, so a save after a
+// change elsewhere is refused.
+async function loadAutodev() {
+  const gen = ++autodev.gen;
+  let data;
+  try {
+    data = await api("/ui/api/autodev");
+  } catch (error) {
+    if (!error.signedOut && gen === autodev.gen && autodev.shown) autodevAlert(error.message, "error");
+    return;
+  }
+  if (gen !== autodev.gen || !autodev.shown) return;
+  if (autodev.dirty && autodev.data) {
+    autodev.data = { ...autodev.data, status: data.status };
+    renderAutodevStatus();
+  } else {
+    autodev.data = data;
+    renderAutodev();
+  }
+}
+
+function markAutodevDirty() { autodev.dirty = true; }
+
+function autodevButton(parent, label, handler, className, id) {
+  const button = node("button", parent, label, className);
+  button.setAttribute("type", "button");
+  if (id) button.setAttribute("id", id);
+  button.addEventListener("click", () => {
+    if (autodev.busy) return;  // one request at a time
+    Promise.resolve(handler()).catch((error) => { if (!error.signedOut) autodevAlert(error.message, "error"); });
+  });
+  return button;
+}
+
+function autodevInput(parent, id, label, value, options = {}) {
+  const box = node("div", parent, null, "sync-field");
+  node("label", box, label).setAttribute("for", id);
+  const input = node("input", box);
+  input.setAttribute("id", id);
+  input.type = options.type || "text";
+  if (options.type === "number") input.setAttribute("min", "1");
+  input.value = value === null || value === undefined ? "" : String(value);
+  input.setAttribute("spellcheck", "false");
+  input.setAttribute("autocomplete", "off");
+  if (options.hint) node("small", box, options.hint, "meta");
+  input.addEventListener("input", markAutodevDirty);
+  return input;
+}
+
+// `options`: [value, text, disabled]; a stored value the lists do not hold is kept, marked.
+function fillOptions(select, options, value) {
+  select.replaceChildren();
+  for (const [optionValue, text, disabled] of options) {
+    const option = node("option", select, text);
+    option.value = optionValue;
+    option.disabled = !!disabled;
+  }
+  select.value = value;
+}
+
+function autodevSelect(parent, id, label, options, value) {
+  const box = node("div", parent, null, "sync-field");
+  node("label", box, label).setAttribute("for", id);
+  const select = node("select", box);
+  select.setAttribute("id", id);
+  fillOptions(select, options, value);
+  select.addEventListener("change", markAutodevDirty);
+  return select;
+}
+
+function effortOptions(client, current, emptyText = "—") {
+  const efforts = autodev.data.choices.efforts[client] || [];
+  const options = [["", emptyText], ...efforts.map((effort) => [effort, effort])];
+  if (current && !efforts.includes(current)) options.push([current, current + " (" + (CLIENT_NAMES[client] || client) + " does not take it)"]);
+  return options;
+}
+
+// Codex as a stage's client (Q14) is unavailable, with the reason, until the stage probes passed.
+function clientOptions(group, name) {
+  const found = group === "stages" && autodev.data.codex ? autodev.data.codex.stages[name] : null;
+  return autodev.data.choices.clients.map((client) => [client, CLIENT_NAMES[client]
+    + (client === "codex" && found && !found.available ? " (unavailable)" : "")]);
+}
+
+function codexNote(group, name, client) {
+  if (group === "delegates") {
+    return client === "codex" ? "Before every step the runner checks Codex with model-free probes; when they fail, the "
+      + "step runs the Claude worker (the Claude model here, else opus with effort high), and the run record says so." : "";
+  }
+  const found = autodev.data.codex && autodev.data.codex.stages[name];
+  if (!found) return "";
+  if (found.available) return "Codex can run this stage: the stage probes passed" + (found.checked ? " (" + dateTime(found.checked) + ")." : ".");
+  return "Codex is unavailable as this stage's client: " + found.message + "."
+    + (client === "codex" ? " Until it is available, the stage runs with Claude (the Claude model and effort here, else the defaults)." : "");
+}
+
+function renderProfile(card, group, name, title, kind, profile) {
+  const box = node("fieldset", card, null, "ad-profile");
+  node("legend", box, title + " (" + kind + ")");
+  const grid = node("div", box, null, "ad-grid");
+  const fields = autodev.fields[name] = {};
+  fields.client = autodevSelect(grid, "ad-" + name + "-client", "Client", clientOptions(group, name), profile.client || "");
+  for (const client of autodev.data.choices.clients) {
+    const settings = profile[client] || {};
+    fields[client + "Model"] = autodevInput(grid, "ad-" + name + "-" + client + "-model", CLIENT_NAMES[client] + " model", settings.model);
+    fields[client + "Effort"] = autodevSelect(grid, "ad-" + name + "-" + client + "-effort", CLIENT_NAMES[client] + " effort",
+      effortOptions(client, settings.effort), settings.effort || "");
+  }
+  // Q10: the later reviews' lower effort is a visible setting of its own, not a hidden default.
+  if (name === "code-review-pass") {
+    fields.followup = autodevSelect(grid, "ad-" + name + "-followup", "Effort of the later reviews",
+      effortOptions(profile.client, profile.effort_followup, "Same as the first"), profile.effort_followup || "");
+  }
+  if (name === "change-premortem") {
+    const agents = autodev.data.choices.agents;
+    const options = agents.map((agent) => [agent, agent]);
+    if (profile.role && !agents.includes(profile.role)) options.push([profile.role, profile.role + " (no such agent)"]);
+    fields.role = autodevSelect(grid, "ad-" + name + "-role", "Role (agent)", options, profile.role || "");
+  }
+  const note = node("p", box, codexNote(group, name, profile.client), "meta");
+  note.setAttribute("id", "ad-" + name + "-codex");
+  fields.client.addEventListener("change", () => {
+    note.textContent = codexNote(group, name, fields.client.value);
+    if (fields.followup) fillOptions(fields.followup, effortOptions(fields.client.value, fields.followup.value, "Same as the first"), fields.followup.value);
+  });
+}
+
+// The whole page from `autodev.data`; the form shows `settings` (the stored ones, or the defaults).
+function renderAutodev(settings) {
+  const data = autodev.data, body = $("autodev-body");
+  body.replaceChildren();
+  autodev.fields = {};
+  autodev.status = node("section", body, null, "sync-card");
+  autodev.status.setAttribute("id", "ad-status");
+  renderAutodevStatus();
+  if (data.problems) {
+    const card = node("section", body, null, "sync-card");
+    node("h3", card, "autodev.json is invalid");
+    node("p", card, "Fix the file, or remove it to get the defaults: the page edits a valid file only.", "meta");
+    const list = node("ul", card);
+    for (const problem of data.problems) node("li", list, problem);
+    return;
+  }
+  settings = settings || data.settings;
+  const fields = autodev.fields;
+
+  const schedule = node("section", body, null, "sync-card");
+  node("h3", schedule, "Schedule");
+  const times = node("div", schedule, null, "ad-grid");
+  fields.times = autodevInput(times, "ad-times", "Slots (local time)", settings.times.join(", "),
+    { hint: "HH:MM, separated by commas; the defaults are " + data.defaults.times.join(" and ") });
+  fields.catchUp = autodevInput(times, "ad-catch-up", "Catch-up window, minutes", settings.catch_up_minutes,
+    { type: "number", hint: "a slot missed for longer is recorded as missed" });
+  fields.hours = autodevInput(times, "ad-hours", "Allowed hours for continuations", settings.allowed_hours,
+    { hint: "ranges HH:MM-HH:MM, separated by commas; a range may cross midnight" });
+  const power = node("label", schedule, null, "sync-option");
+  fields.ac = node("input", power);
+  fields.ac.type = "checkbox";
+  fields.ac.setAttribute("id", "ad-ac");
+  fields.ac.checked = !!settings.require_ac_power;
+  fields.ac.addEventListener("change", markAutodevDirty);
+  power.appendChild(document.createTextNode("Start slots only on AC power"));
+
+  const limits = node("section", body, null, "sync-card");
+  node("h3", limits, "Limits");
+  const grid = node("div", limits, null, "ad-grid");
+  for (const [key, label] of AUTODEV_LIMITS) fields[key] = autodevInput(grid, "ad-" + key, label, settings.limits[key], { type: "number" });
+
+  const profiles = node("section", body, null, "sync-card");
+  node("h3", profiles, "Profiles");
+  const versions = data.choices.clients.map((client) => CLIENT_NAMES[client] + " "
+    + (data.capabilities[client].version || "not found") + (data.capabilities[client].source === "static" ? " (built-in list)" : ""));
+  node("p", profiles, "Each stage session and delegated step runs with its client, model and effort; the efforts "
+    + "offered are the ones the CLIs on this machine take: " + versions.join(", ") + ".", "meta");
+  for (const [group, name, title, kind] of AUTODEV_PROFILES) renderProfile(profiles, group, name, title, kind, settings[group][name]);
+
+  const actions = node("div", body, null, "ad-actions");
+  autodevButton(actions, "Save", saveAutodev, "primary", "ad-save");
+  autodevButton(actions, "Defaults", () => {
+    renderAutodev(autodev.data.defaults);
+    autodev.dirty = true;
+    autodevAlert("The defaults are in the form; Save writes them.");
+  }, "", "ad-defaults");
+  autodevButton(actions, "Reload", () => {
+    if (autodev.dirty && !confirm("Discard the Autodev settings you have not saved?")) return;
+    autodev.dirty = false;
+    autodevAlert("");
+    return loadAutodev();
+  }, "", "ad-reload");
+}
+
+// The switch, the automatic mode (#350: run is offered only while a recent `autodev ready` the CLI
+// recorded passed and the owner's acceptance is current), the next slot, the scheduler job and the
+// newest runs.
+function renderAutodevStatus() {
+  const card = autodev.status, data = autodev.data, status = data.status;
+  const automatic = status.automatic, ready = !!(automatic && automatic.can_enable);
+  card.replaceChildren();
+  node("h3", card, "Switch and status");
+  const on = status.enabled === true;
+  node("p", card, status.enabled === null ? "Unknown: autodev.json is invalid." : on ? "On, mode " + status.mode + "." : "Off.")
+    .setAttribute("id", "ad-state");
+  if (on && status.mode === "run") {
+    node("p", card, "Every tick checks `autodev ready` before a scheduled run and refuses it while a condition is "
+      + "missing; the latest runs say why.", "notice");
+  }
+  const bar = node("div", card, null, "ad-actions");
+  const label = node("label", bar, "Mode");
+  label.setAttribute("for", "ad-mode");
+  const mode = node("select", bar);
+  mode.setAttribute("id", "ad-mode");
+  fillOptions(mode, data.choices.modes.map((value) => value === "run"
+    ? [value, ready ? "run (real runs on the schedule)" : "run (not ready)", !ready] : [value, value, false]), "dry-run");
+  autodev.fields.mode = mode;
+  if (status.enabled !== null) {
+    autodevButton(bar, on ? "Turn off" : "Turn on", () => switchAutodev(on ? null : mode.value), on ? "" : "primary", "ad-switch");
+  }
+  if (automatic) renderAutomatic(card, automatic);
+  if (status.next_slot) {
+    node("p", card, (on ? "Next slot: " : "Next slot when on: ") + dateTime(status.next_slot) + ".").setAttribute("id", "ad-next");
+  }
+  if (!status.scheduler.supported) node("p", card, "The scheduler runs on macOS only.", "meta");
+  else if (!status.scheduler.installed) {
+    node("p", card, "The scheduler job is not installed: run `python -m src.schedules autodev install` in the "
+      + "installation directory so that ticks start.", "meta");
+  }
+  node("h4", card, "Latest runs");
+  if (!status.runs.length) {
+    node("p", card, "No runs yet.", "meta").setAttribute("id", "ad-runs");
+    return;
+  }
+  const list = node("ul", card, null, "sync-list");
+  list.setAttribute("id", "ad-runs");
+  for (const run of status.runs) {
+    const item = node("li", list);
+    const what = [run.mode, run.trigger && run.trigger.kind, run.status, run.decision].filter(Boolean).join(" · ");
+    node("span", item, dateTime(run.started) + " · " + what, "sync-grow");
+    const reason = run.reason || run.decision_reason;
+    if (reason) node("small", item, reason, "meta");
+  }
+}
+
+// The automatic mode as the CLI last checked it (the daemon reads no credential): the recorded
+// `autodev ready`, then either that run mode can be turned on here or every missing item.
+function renderAutomatic(card, automatic) {
+  const box = node("div", card);
+  box.setAttribute("id", "ad-automatic");
+  node("p", box, automatic.checked ? "Last `autodev ready`: " + (automatic.passed ? "passed" : "did not pass") + " ("
+    + dateTime(automatic.checked) + ")." : "`autodev ready` has no recorded result yet.");
+  if (automatic.can_enable) {
+    node("p", box, "Run mode (real runs on the schedule) can be turned on here: `autodev ready` passed within the last "
+      + automatic.fresh_minutes + " minutes, and your acceptance of the residual risks (" + dateTime(automatic.accepted)
+      + ") is current.");
+  } else {
+    node("p", box, "Run mode (real runs on the schedule) cannot be turned on here; missing:");
+    const list = node("ul", box);
+    list.setAttribute("id", "ad-missing");
+    for (const item of automatic.missing) node("li", list, item);
+  }
+  node("p", box, "This page reads no credential: run `python -m src.schedules autodev ready` in a terminal, and the page "
+    + "shows its result. Turn run mode on with `python -m src.schedules autodev enable --mode run "
+    + "--accept-shared-account`; turning the schedule off or to dry-run withdraws the acceptance. A supervised real "
+    + "run is `python -m src.schedules autodev run-now --mode run`.", "meta");
+}
+
+// Turning run mode on accepts the residual risks of plan section 11 again, as the CLI's flag does.
+function acceptanceQuestion(automatic) {
+  return "Turn on real runs on the schedule under your GitHub account? You accept these residual risks "
+    + "(plan section 11):\n\n" + automatic.risks.map((risk) => risk.row + ". " + risk.risk + ". Residual risk: "
+    + risk.residual_risk + ".").join("\n");
+}
+
+function collectAutodev() {
+  const fields = autodev.fields;
+  const number = (input) => { const text = input.value.trim(); return /^[0-9]+$/.test(text) ? Number(text) : text; };
+  const settings = { times: fields.times.value.split(/[\s,]+/).filter(Boolean), catch_up_minutes: number(fields.catchUp),
+    allowed_hours: fields.hours.value.trim(), require_ac_power: !!fields.ac.checked, limits: {}, stages: {}, delegates: {} };
+  for (const [key] of AUTODEV_LIMITS) settings.limits[key] = number(fields[key]);
+  for (const [group, name] of AUTODEV_PROFILES) {
+    const own = fields[name], profile = { client: own.client.value };
+    for (const client of autodev.data.choices.clients) {
+      const model = own[client + "Model"].value.trim(), effort = own[client + "Effort"].value;
+      profile[client] = model || effort ? { model: model || null, effort: effort || null } : null;
+    }
+    if (own.followup) profile.effort_followup = own.followup.value || null;
+    if (own.role) profile.role = own.role.value || null;
+    settings[group][name] = profile;
+  }
+  return settings;
+}
+
+// The daemon checks everything; a refusal lists every problem and leaves autodev.json as it was.
+async function saveAutodev() {
+  autodev.busy = true;
+  autodev.gen += 1;  // a read sent before the save would show the settings it replaced
+  autodevAlert("Saving…");
+  try {
+    const data = await api("/ui/api/autodev", { method: "PUT",
+      body: { expected_revision: autodev.data.revision, settings: collectAutodev() } });
+    autodev.dirty = false;
+    autodev.data = data;
+    renderAutodev();
+    const warnings = data.warnings || [];
+    autodevAlert(warnings.length ? "Saved, with warnings:" : "Saved.", warnings.length ? "" : "ok", warnings);
+  } catch (error) {
+    if (error.signedOut) return;
+    const problems = (error.data && error.data.problems) || [];
+    autodevAlert(problems.length ? "Not saved; autodev.json is unchanged:" : error.message, "error", problems);
+  } finally {
+    autodev.busy = false;
+  }
+}
+
+// The switch writes autodev.json too, but only enabled and mode, which the revision leaves out: a
+// form with unsaved edits stays as typed and keeps the revision it was read at, so a save after a
+// change made elsewhere is still refused (the switch's answer carries that change).
+async function switchAutodev(mode) {
+  const automatic = autodev.data.status.automatic;
+  if (mode === "run" && !(automatic && automatic.can_enable && confirm(acceptanceQuestion(automatic)))) return;
+  autodev.busy = true;
+  autodev.gen += 1;
+  try {
+    const body = mode === "run" ? { mode, accept_shared_account: true } : { mode };
+    const data = mode ? await api("/ui/api/autodev/enable", { method: "POST", body })
+      : await api("/ui/api/autodev/disable", { method: "POST", body: {} });
+    if (autodev.dirty) {
+      autodev.data = { ...autodev.data, status: data.status };
+      renderAutodevStatus();
+    } else {
+      autodev.data = data;
+      renderAutodev();
+    }
+    const note = data.result && data.result.note;
+    autodevAlert((mode ? "Turned on in " + mode + "." : "Turned off.") + (note ? " Then " + note + "." : ""), "ok");
+  } catch (error) {
+    if (!error.signedOut) autodevAlert(error.message, "error", (error.data && error.data.missing) || []);
+  } finally {
+    autodev.busy = false;
+  }
+}
+
 // --- tabs --------------------------------------------------------------------------------
 
 async function showTab(tab) {
@@ -4244,9 +4699,10 @@ async function showTab(tab) {
 }
 for (const button of $("tabs").children) {
   button.addEventListener("click", () => {
-    // A tab leaves the Sync page or the landing page, back to what was open there.
+    // A tab leaves the Sync, Autodev or landing page, back to what was open there.
     hideSyncPage();
     hideLanding();
+    hideAutodevPage();
     showTab(button.dataset.tab).catch((e) => { if (!e.signedOut) alert(e.message); });
   });
 }
@@ -4265,18 +4721,20 @@ document.addEventListener("keydown", (event) => {
   event.preventDefault();
   $("search").focus();
 });
-window.addEventListener("beforeunload", (event) => { if (state.dirty) { event.preventDefault(); } });
+window.addEventListener("beforeunload", (event) => { if (state.dirty || autodev.dirty) { event.preventDefault(); } });
 
 (async () => {
   // /ui opens the landing page unless "Don't show on open" is checked; #overview, the version's link
-  // opened in a new browser tab, opens it either way.
-  const overviewLink = location.hash === "#overview", entryLink = historyLink(location.hash);
-  if (overviewLink) history.replaceState(null, "", location.pathname);
-  if (overviewLink || (!entryLink && !landingOff())) showLanding(false);
+  // opened in a new browser tab, opens it either way, and #autodev opens the Autodev page.
+  const overviewLink = location.hash === "#overview", autodevLink = location.hash === "#autodev";
+  const entryLink = historyLink(location.hash);
+  if (overviewLink || autodevLink) history.replaceState(null, "", location.pathname);
+  if (overviewLink || (!entryLink && !autodevLink && !landingOff())) showLanding(false);
   try {
     await login();
     if (entryLink) await openHistoryLink(entryLink);
     else await loadList();
+    if (autodevLink) showAutodevPage();
   } catch (error) {
     if (error.signedOut) return;
     const nav = $("items");

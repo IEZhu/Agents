@@ -77,6 +77,20 @@ installation above. While the plugin is installed and enabled, setup and `migrat
 routing instructions and the other clients' entries (no `--skip-mcp` needed).
 [docs/claude-plugin.md](docs/claude-plugin.md) describes how it is validated and released.
 
+Install the plugin from this repository's own marketplace in Claude Code (macOS or Linux):
+
+```text
+/plugin marketplace add IEZhu/Agents
+/plugin install agents-core@agents-core
+```
+
+For a fresh setup, add the plugin before running the server installer above, so setup sees the
+plugin and avoids a duplicate Claude Code registration. If the server was installed first,
+follow the [plugin setup guide](plugins/agents-core/README.md#setup) to remove the duplicate entry.
+The plugin is a launcher; marketplace installation does not install its Python environment or
+embedding model. See [distribution and submissions](docs/distribution.md) for other catalogs,
+and [llms-install.md](llms-install.md) for manual stdio setup in Cline and compatible clients.
+
 ### Uninstall
 
 `scripts/uninstall.sh` (macOS, Linux) and `scripts/uninstall.ps1` (Windows) remove
@@ -462,6 +476,11 @@ store; the interaction journal `history.md` retains its separate role.
 
 ### Updates
 
+Feature PRs target `dev`; release PRs promote `dev` into `main`. Merged release
+PRs record the existing UTC calendar version with an immutable Git tag at the
+resulting commit. See [Calendar releases](docs/releases.md) for event guards,
+same-minute releases and retry behavior.
+
 The shared daemon has its own update controller. Run
 `.venv/bin/python -m src.daemon update` for a manual update; automatic daemon
 updates are opt-in through `.venv/bin/python -m src.daemon auto-update enable`.
@@ -638,6 +657,13 @@ flows, shows every agent with its metadata and prompt (read-only), and lists rul
 skills and implants and switches each one on or off for the installation.
 
 ### Persona continuity
+
+For optional session readiness in every supported client (Claude Code, Codex,
+Cursor, Antigravity and Claude Desktop), see [Session readiness](docs/session-readiness.md).
+Install it separately using the [commands for your platform](docs/session-readiness.md#install);
+Codex requires reviewing and trusting the new hook in `/hooks`. Cursor and
+Antigravity request display in the first response; ordinary Claude Desktop Chat
+uses an MCP first-response fallback because it has no native lifecycle hook.
 
 Before each request, the model silently checks whether its active role fits the
 task. If it does, it keeps that role without routing, candidate selection or

@@ -7,6 +7,7 @@ import pytest
 
 from src.schedules import broker as broker_module
 from src.schedules import github
+from src.schedules import scan as scan_module
 from src.schedules.broker import (MARKER, PREMORTEM_RECORD, REVIEW_RECORD, Broker, BrokerRefused, Credentials,
                                   CredentialsMissing, RiskFinding, Run, check_risk_issue, push_command, register)
 from src.schedules.gate import CLAIM_LABEL, OWNER_ID, STALE_CLAIM_COMMENT
@@ -118,12 +119,12 @@ def credentials(tmp_path):
 
 
 def make(tmp_path, credentials, *, mode="run", pr=None, git=None, api=None, reviewed=HEAD, premortem=None,
-         earlier_records=(), run_dir=None):
+         earlier_records=(), run_dir=None, stage="submit"):
     run = Run(RUN_ID, REPOSITORY, ISSUE, BASE, mode, frozenset({"autodev:ready"}), pr)
     api = api or FakeGitHub()
     found = Broker(run, credentials=credentials, git=git or FakeGit(), run_dir=run_dir or tmp_path, transport=api,
                    reviewed_head=lambda: reviewed, premortem=lambda: premortem or {},
-                   earlier_records=lambda: list(earlier_records))
+                   earlier_records=lambda: list(earlier_records), stage=stage)
     registry = Registry()
     register(registry, found)
     return found, registry, api
@@ -267,7 +268,7 @@ def test_the_push_command_uses_only_the_deploy_key_and_pinned_host_keys(credenti
     assert env["GIT_SSH_COMMAND"] == (
         f"ssh -F /dev/null -i {credentials.deploy_key} -o IdentitiesOnly=yes -o IdentityAgent=none "
         f"-o UserKnownHostsFile={credentials.known_hosts} -o GlobalKnownHostsFile=/dev/null "
-        "-o StrictHostKeyChecking=yes -o BatchMode=yes")
+        "-o StrictHostKeyChecking=yes -o BatchMode=yes -o ControlMaster=no -o ControlPath=none")
     assert "SSH_AUTH_SOCK" not in env
     assert env["GIT_CONFIG_GLOBAL"] and env["GIT_CONFIG_NOSYSTEM"] == "1"
     assert TOKEN not in json.dumps([argv, env])
@@ -356,6 +357,13 @@ def test_trusted_git_check_reads_the_lists_at_the_pinned_commit(tmp_path):
         verdict = trusted.check(base, head, {"autodev:next"})
         assert [refusal.reason for refusal in verdict.refusals] == [Reason.CONTROL_PATH]
     assert [refusal.reason for refusal in trusted.check(allowed, base, ()).refusals] == [Reason.NOT_DESCENDANT]
+    # A resume run bound to a merge base still reads the lists at pinned (#347): here a later
+    # commit whose control list no longer names CLAUDE.md, while the lists at `base` refuse it.
+    git("checkout", "-q", "-b", "relisted", base)
+    relisted = commit(".github/autodev-control-paths", "OTHER.md\n", "Another control list")
+    later = broker_module.TrustedGit(repository, lists_at=relisted)
+    assert later.check(base, control, {"autodev:next"}).allowed
+    assert not broker_module.TrustedGit(repository).check(base, control, {"autodev:next"}).allowed
 
 
 # --- PRs -----------------------------------------------------------------------------------------------
@@ -473,6 +481,23 @@ def test_refuses_a_comment_that_looks_like_a_secret(tmp_path, credentials):
     secret = "ghp_" + "abcd" * 9
     refused(ask(registry, "gh.comment", {"number": ISSUE, "body": f"{MARKER}\n{secret}"}), "secret-like text found")
     assert api.writes() == []
+
+
+@pytest.mark.parametrize("mode", ["run", "dry-run"])
+def test_a_decoy_marker_in_outgoing_text_calls_the_tripwire(tmp_path, credentials, mode):
+    marker = "Dc" + "x7Kq" * 11
+    tripped = []
+    run = Run(RUN_ID, REPOSITORY, ISSUE, BASE, mode, frozenset({"autodev:ready"}), 501)
+    broker = Broker(run, credentials=credentials, git=FakeGit(), run_dir=tmp_path, transport=FakeGitHub(),
+                    reviewed_head=lambda: HEAD, premortem=lambda: {}, earlier_records=lambda: [],
+                    decoys=[scan_module.KnownSecret("decoy credentials", marker)], on_decoy=tripped.append)
+    with pytest.raises(BrokerRefused, match="secret-like text found"):
+        broker._scan("comment", f"{MARKER}\nfound {marker}")
+    assert [[hit.name for hit in hits] for hits in tripped] == [["decoy credentials"]]
+    with pytest.raises(BrokerRefused):
+        broker._scan("comment", "ghp_" + "abcd" * 9)  # a secret, but no decoy: no tripwire
+    assert len(tripped) == 1
+    assert marker not in (tmp_path / broker_module.LOG_NAME).read_text()
 
 
 def test_refuses_editing_a_comment_not_in_the_log(tmp_path, credentials):
@@ -968,6 +993,13 @@ def test_record_readers_take_only_validated_records(tmp_path):
     (tmp_path / REVIEW_RECORD).write_text(json.dumps({"validated": True, "status": "partial", "head": HEAD}))
     assert broker_module.validated_review_head(tmp_path) is None
     (tmp_path / REVIEW_RECORD).write_text(json.dumps({"validated": True, "status": "completed", "head": HEAD}))
+    assert broker_module.validated_review_head(tmp_path) is None  # no clean, blocked or findings fields (#345)
+    (tmp_path / REVIEW_RECORD).write_text(json.dumps({"validated": True, "status": "completed", "head": HEAD,
+                                                      "handle": "review-1", "clean": True, "blocked": False,
+                                                      "findings": []}))
+    assert broker_module.validated_review_head(tmp_path) is None  # no findings ledger (#345)
+    (tmp_path / broker_module.LEDGER_RECORD).write_text(json.dumps({"head": HEAD, "handle": "review-1",
+                                                                    "findings": []}))
     assert broker_module.validated_review_head(tmp_path) == HEAD
     (tmp_path / PREMORTEM_RECORD).write_text(json.dumps({"validated": False, "findings": [
         {"id": "R1", "level": "medium", "title": "t", "body": "b", "security": False}]}))
@@ -977,6 +1009,93 @@ def test_record_readers_take_only_validated_records(tmp_path):
         {"id": "R2", "level": "high", "title": "t", "body": "b"}, "junk"]}))
     found = broker_module.read_premortem(tmp_path)
     assert found["R1"].security is False and found["R2"].security is True  # unmarked counts as security
+
+
+def _gate(tmp_path, findings, decisions=None, ledger=None, **fields):
+    """The gate over a review record listing ``findings`` and a ledger holding them (open, under the
+    record's handle) unless ``ledger`` gives its entries."""
+    record = {"validated": True, "status": "completed", "head": HEAD, "handle": "review-2", "kind": "review",
+              "number": 2, "restricted": None, "clean": not findings, "blocked": False, "findings": findings, **fields}
+    (tmp_path / REVIEW_RECORD).write_text(json.dumps(record))
+    entries = [{"handle": "review-2", "status": "open", **item} for item in findings] if ledger is None else ledger
+    (tmp_path / broker_module.LEDGER_RECORD).write_text(json.dumps({"head": HEAD, "handle": "review-2",
+                                                                    "findings": entries}))
+    if decisions is not None:
+        (tmp_path / broker_module.DECISIONS_RECORD).write_text(json.dumps({"decisions": decisions}))
+    return broker_module.review_gate(tmp_path)
+
+
+MEDIUM = {"key": "a" * 16, "level": "medium", "security": False}
+DECLINED = {"key": "a" * 16, "decision": "declined", "reason": "Not needed here.", "handle": "review-2"}
+
+
+@pytest.mark.parametrize("findings, decisions, fields, opens", [
+    ([], None, {}, True),  # clean
+    ([], None, {"clean": False}, False),
+    ([], None, {"blocked": True, "clean": False}, False),  # a restricted review with findings in its scope
+    ([], None, {"blocked": None}, False),
+    ([MEDIUM], None, {}, False),  # an undecided medium
+    ([MEDIUM], [DECLINED], {}, True),  # a declined medium
+    ([MEDIUM], [{**DECLINED, "reason": " "}], {}, False),  # declined without a reason
+    ([MEDIUM], [{**DECLINED, "decision": "fixed"}], {}, False),  # fixed: the fix needs a new review
+    ([MEDIUM], [{**DECLINED, "handle": "review-1"}], {}, False),  # declined before this review
+    ([MEDIUM], [{**DECLINED, "decision": "known_risk", "handle": "premortem-1",
+                 "history": [{"decision": "declined", "reason": "Not needed.", "handle": "review-2"}]}], {}, True),
+    ([{**MEDIUM, "level": "high"}], [DECLINED], {}, False),  # a declined high stays open
+    ([{**MEDIUM, "level": "critical"}], [DECLINED], {}, False),
+    ([{**MEDIUM, "security": True}], [DECLINED], {}, False),  # a declined security finding stays open
+    ([{"key": "a" * 16, "level": "medium"}], [DECLINED], {}, False),  # unmarked counts as security
+])
+def test_the_push_gate_opens_for_a_clean_or_declined_review(tmp_path, findings, decisions, fields, opens):
+    head, why = _gate(tmp_path, findings, decisions, **fields)
+    assert (head == HEAD) is opens and (head is None) is not opens, why
+    assert broker_module.validated_review_head(tmp_path) == head
+
+
+EARLIER = {"key": "c" * 16, "level": "critical", "security": False, "handle": "review-1", "status": "open"}
+
+
+@pytest.mark.parametrize("ledger, decisions, opens, why", [
+    # An undecided critical of an earlier review keeps the gate closed after a clean later review.
+    ([EARLIER], None, False, "of review-1 stays open"),
+    ([{**EARLIER, "status": "resolved", "resolved_by": "review-2"}], None, True, "clean"),
+    ([{**EARLIER, "status": "dismissed"}], None, False, "unknown status"),
+    ([{**EARLIER, "level": "medium"}], None, False, "neither declined nor resolved"),
+    ([{**EARLIER, "level": "medium"}], [{**DECLINED, "key": "c" * 16, "handle": "review-1"}], True,
+     "every remaining medium finding was declined"),
+    ([{**EARLIER, "level": "medium"}], [{**DECLINED, "key": "c" * 16}], False, "neither declined"),  # wrong handle
+    (["junk"], None, False, "lists no findings"),
+])
+def test_the_push_gate_reads_every_open_finding_of_the_ledger(tmp_path, ledger, decisions, opens, why):
+    head, reason = _gate(tmp_path, [], decisions, ledger=ledger)
+    assert (head == HEAD) is opens and why in reason, reason
+
+
+def test_the_push_gate_needs_a_ledger_of_the_same_review(tmp_path):
+    assert _gate(tmp_path, [])[0] == HEAD
+    ledger = tmp_path / broker_module.LEDGER_RECORD
+    for changed in ({"head": "c" * 40}, {"handle": "review-1"}):
+        ledger.write_text(json.dumps({"head": HEAD, "handle": "review-2", "findings": [], **changed}))
+        assert broker_module.review_gate(tmp_path) == (None, "the findings ledger does not cover this review")
+    ledger.unlink()
+    assert broker_module.review_gate(tmp_path) == (None, "the findings ledger does not cover this review")
+    # A finding of the review that the ledger lacks closes the gate.
+    assert _gate(tmp_path, [MEDIUM], [DECLINED], ledger=[]) == (None, "the findings ledger lacks a finding of this "
+                                                                       "review")
+
+
+def test_a_secret_known_after_construction_is_refused_and_masked(tmp_path, credentials):
+    broker, _, _ = make(tmp_path, credentials, pr=501)
+    late = "correct-horse-battery-staple-violet-lamp"  # no pattern or entropy rule finds it
+    assert broker.scanner.scan(f"the key is {late}") == ()
+    broker.add_known([scan_module.KnownSecret("codex api key", late)])
+    with pytest.raises(BrokerRefused, match="codex api key"):
+        broker._scan("comment", f"{MARKER}\nthe key is {late}")
+    broker.add_known([scan_module.KnownSecret("codex api key", late)])  # again: no change
+    broker.log.add("comment", "note", text=f"held {late}")
+    assert late not in (tmp_path / broker_module.LOG_NAME).read_text()
+    with pytest.raises(TypeError):
+        broker.add_known([late])
 
 
 @pytest.mark.parametrize("author", [

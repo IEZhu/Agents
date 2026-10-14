@@ -4,14 +4,22 @@ A record is the runner's memory of one run: its mode and trigger, the gate decis
 (``completed``, ``refused`` or ``failed: infra`` with a reason) and the IDs of the comments the
 broker wrote (``comments``: ``[{"id": N, "kind": "state" | "selection", ...}]``). Only those IDs
 make a state or selection comment trusted (design 5.2). Every string written passes `mask`.
+
+Writers on several threads of one runner process (the run sequence, a worker thread that adds its
+``workers`` entry, a Codex decision that adds to ``clients``) change one record: `update_record`
+reads, changes and writes it under a per-run lock, and `write_record` takes the same lock, so no
+writer drops another's fields as long as each one that adds to the record goes through
+`update_record` instead of writing a copy it kept in memory (#345).
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 import re
 import secrets
-from typing import Any, Iterable
+import threading
+from typing import Any, Iterable, Iterator
 
 from src.daemon.state import private_dir, read_json, write_json
 
@@ -68,12 +76,35 @@ def run_dir(run_id: str, directory: str | Path | None = None) -> Path:
     return private_dir(path)
 
 
+_LOCKS: dict[str, threading.RLock] = {}
+_LOCKS_GUARD = threading.Lock()
+
+
+def _record_lock(path: Path) -> threading.RLock:
+    with _LOCKS_GUARD:
+        return _LOCKS.setdefault(str(path.resolve()), threading.RLock())
+
+
 def write_record(run_id: str, record: dict, directory: str | Path | None = None,
                  known: Iterable[str] = ()) -> dict:
     """Write the masked record and return what was written."""
     masked = mask({**record, "run_id": run_id}, known)
-    write_json(run_dir(run_id, directory) / RECORD_NAME, masked)
+    path = run_dir(run_id, directory) / RECORD_NAME
+    with _record_lock(path):
+        write_json(path, masked)
     return masked
+
+
+def update_record(run_id: str, change: Callable[[dict], dict | None], directory: str | Path | None = None,
+                  known: Iterable[str] = ()) -> dict:
+    """Read the record (empty when there is none), apply ``change`` and write the result, all under
+    the run's lock; ``change`` returns the new record or changes the one it gets in place (and
+    returns None). Returns what was written."""
+    path = run_dir(run_id, directory) / RECORD_NAME
+    with _record_lock(path):
+        record = read_record(run_id, directory) or {}
+        changed = change(record)
+        return write_record(run_id, record if changed is None else changed, directory, known)
 
 
 def read_record(run_id: str, directory: str | Path | None = None) -> dict | None:
@@ -86,13 +117,27 @@ def read_record(run_id: str, directory: str | Path | None = None) -> dict | None
     return record if isinstance(record, dict) else None
 
 
-def all_records(directory: str | Path | None = None) -> list[dict]:
-    """Every readable record, newest first."""
+def iter_records(directory: str | Path | None = None) -> Iterator[dict]:
+    """Every readable record, newest first, each read only when the caller asks for it."""
     base = runs_dir(directory)
     if not base.is_dir():
-        return []
-    names = sorted((path.name for path in base.iterdir() if valid_run_id(path.name)), reverse=True)
-    return [record for record in (read_record(name, directory) for name in names) if record]
+        return
+    for name in sorted((path.name for path in base.iterdir() if valid_run_id(path.name)), reverse=True):
+        record = read_record(name, directory)
+        if record:
+            yield record
+
+
+def all_records(directory: str | Path | None = None, *, limit: int | None = None) -> list[dict]:
+    """Every readable record, newest first; with ``limit``, the ``limit`` newest, reading no older one."""
+    found: list[dict] = []
+    if limit is not None and limit <= 0:
+        return found
+    for record in iter_records(directory):
+        found.append(record)
+        if limit is not None and len(found) >= limit:
+            break  # before the generator reads an older one
+    return found
 
 
 def trusted_comment_ids(directory: str | Path | None = None) -> set[int]:

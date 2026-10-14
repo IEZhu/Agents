@@ -5,10 +5,12 @@
 // "persona_race", the Persona panel's state while a save and a navigation overlap, or, for
 // "agents", what the Agents tab lists, finds and shows, and which listings the page requested, or,
 // for "ui_panes" and "ui_signout", which pane and header controls show as items open and close, or,
+// for "ui_history", how a flow's versions load after its text (#371), or,
 // for "place", where itemPlace puts groups of given widths, or, for "ui_place", where the open
 // item's group goes as the window is resized, or, for the "sync_*" scenarios (library sync, #170),
 // what the header chip, the Sync page, its wizard and the editor's notice show and which
-// /ui/api/sync requests the page sent, against a scripted API and timers the scenario fires.
+// /ui/api/sync requests the page sent, against a scripted API and timers the scenario fires, or, for
+// the "autodev*" scenarios (#348), what the Autodev page shows and which /ui/api/autodev requests it sent.
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 
@@ -53,10 +55,14 @@ const posts = [];
 const requests = [];  // every path the page fetched, in order
 const isUi = scenario.startsWith("ui");
 const isSync = scenario.startsWith("sync");
-let signedIn = ["search", "render", "persona_race", "agents", "history", "history_adopt"].includes(scenario) || isUi || isSync;
+const isAutodev = scenario.startsWith("autodev");
+let signedIn = ["search", "render", "persona_race", "agents", "history", "history_adopt"].includes(scenario) || isUi || isSync
+  || isAutodev;
 const revisions = {};  // sync_notice: a flow's revision after another machine changed it
 const deletedFlows = new Set();  // sync_notice: flows a cycle deleted (GET answers 404)
 const confirms = [];  // every question the page asked with confirm()
+let confirmAnswer = true;  // what confirm() answers; autodev_races answers no once
+const replacedUrls = [];  // every history.replaceState call, as [state, title, url]
 const prompts = [];  // every question the page asked with prompt(), and the answer it suggested
 const puts = [];
 let putStatus = 200;
@@ -65,6 +71,8 @@ let releasePersonaPut = null;  // persona_race: the test decides when the PUT an
 const deletes = [];
 let holdDelete = false, releaseDelete = null;  // ui_panes: a delete that answers late
 let holdFlowGet = false, releaseFlowGet = null;  // ui_signout: a flow that loads past the sign-in screen
+let holdHistory = false, failHistory = false;  // ui_history: version lists answer when the scenario releases them, in its order
+const historyHolds = [];
 const respond = (status, body) => ({ status, ok: status < 400, statusText: "", json: async () => body });
 
 async function fetchStub(path, init = {}) {
@@ -92,12 +100,29 @@ async function fetchStub(path, init = {}) {
     return respond(...answer);
   }
   if (isSync) return respond(...uiData(path, init));
+  if (isAutodev && path.startsWith("/ui/api/autodev")) {
+    const method = init.method || "GET";
+    const answer = autodevAnswer(method, path, init.body ? JSON.parse(init.body) : null);  // the state when sent
+    const hold = autodevHolds[method + " " + path];
+    if (hold) {  // the scenario decides when this one request answers
+      delete autodevHolds[method + " " + path];
+      await hold.promise;
+    }
+    return respond(...answer);
+  }
+  if (isAutodev) return respond(...uiData(path, init));
   if (isUi && init.method === "DELETE") {
     deletes.push(JSON.parse(init.body));
     if (holdDelete) await new Promise((resolve) => { releaseDelete = resolve; });
     return respond(200, { status: "deleted" });
   }
   if (isUi && holdFlowGet && path.startsWith("/ui/api/flow?")) await new Promise((resolve) => { releaseFlowGet = resolve; });
+  if (isUi && path.startsWith("/ui/api/flow/history?") && (holdHistory || failHistory)) {
+    // The list as it was when asked, like a server's: a held answer may be older than a later one.
+    const answer = failHistory ? [500, { status: "error", error: "flow_history: Git failed" }] : uiData(path, init);
+    if (holdHistory) await new Promise((resolve) => historyHolds.push(resolve));
+    return respond(...answer);
+  }
   if (isUi) return respond(...uiData(path, init));
   if (scenario === "agents") return respond(...agentsData(path, init));
   if (scenario === "search") {
@@ -114,21 +139,42 @@ const DOCS = {
   "user:doc": "---\npersona: tester\n---\n# Doc\n\n## One\n\ntext **bold**\n\n## Two\n\n- item\n",
   "user:plain": "just text, no headings\n",
 };
+// ui_history: the versions of user:doc, newest first, as /ui/api/flow/history lists them.
+const VERSIONS = {
+  "user:doc": [{ version: "git-" + "b".repeat(40), revision_prefix: "bbbbbbbbbbbb", deleted: true, time: "2026-10-02T09:30:00.123456+00:00" },
+               { version: "git-" + "a".repeat(40), revision_prefix: "aaaaaaaaaaaa", deleted: false, time: "2026-10-01T10:00:00+00:00" }],
+};
 function uiData(path, init) {
   if (path.startsWith("/ui/api/flows")) {
     return [200, { flows: Object.keys(DOCS).map((id) => ({ id, source: "user", title: id.slice(5), content: DOCS[id] })), repositories: [] }];
   }
-  if (path.startsWith("/ui/api/flow?")) {
+  if (path.startsWith("/ui/api/flow/history?")) {
     const id = new URLSearchParams(path.split("?")[1]).get("id");
+    return [200, { status: "success", id, history: VERSIONS[id] || [] }];
+  }
+  if (path.startsWith("/ui/api/flow?")) {
+    const params = new URLSearchParams(path.split("?")[1]), id = params.get("id");
     if (deletedFlows.has(id)) return [404, { status: "error", error: "flow_not_found: use list_flows to discover available flows" }];
+    if (id.startsWith("builtin:")) {  // ui_history: a built-in flow, which keeps no versions
+      return [200, { flow: { id, source: "builtin", title: id.slice(8), revision: "b1", source_path: "flows/" + id.slice(8) + ".md" },
+                     content: "# Built-in\n" }];
+    }
+    if (params.get("version")) {  // an old version: its text and identity, no versions of its own
+      return [200, { flow: { id, source: "user", title: id.slice(5), version: params.get("version"), revision: "old" },
+                     content: "# Old " + params.get("version").slice(4, 9) + "\n" }];
+    }
     return [200, { flow: { id, source: "user", title: id.slice(5), revision: revisions[id] || "rev1", source_path: "p" },
-                   content: savedText[id] ?? DOCS[id], history: [] }];
+                   content: savedText[id] ?? DOCS[id] }];
   }
   if (path === "/ui/api/flow" && init.method === "PUT") {
     const body = JSON.parse(init.body);
     puts.push(body);
     if (putStatus !== 200) return [putStatus, { error: "conflict" }];
     savedText[body.id] = body.content;
+    if (scenario === "ui_history") {  // the save is the newest version of the flow
+      VERSIONS[body.id] = [{ version: "git-" + "c".repeat(40), revision_prefix: "cccccccccccc", deleted: false,
+                             time: "2026-10-03T08:00:00+00:00" }, ...(VERSIONS[body.id] || [])];
+    }
     return [200, { status: "saved", flow: { id: body.id } }];
   }
   if (path === "/ui/api/history/repos") return [200, { repos: [] }];
@@ -340,6 +386,112 @@ if (scenario === "sync_hostkey_github") {
                 public_key: PUBLIC_KEY, github: { connected: true, login: "octocat", host: "github.com" } };
 }
 
+// --- the Autodev page (#348): a scripted /ui/api/autodev ----------------------------------------
+// The settings are the daemon's defaults, as the test passes them (`editable(DEFAULTS)`); `autodevCalls`
+// records [method, path, body] of every request. A save whose slots are not HH:MM is refused as the
+// daemon refuses it. As the daemon's revision leaves out enabled and mode, the switch keeps it; a
+// scenario changes it, with the settings, for a change made elsewhere. autodev_stored starts with
+// stored values the lists lack and a stored run mode; autodev_invalid with an invalid autodev.json;
+// autodev_ready with a recent passing `autodev ready` recorded and a current acceptance (#350), so
+// run is offered.
+const AUTODEV_DEFAULTS = isAutodev ? JSON.parse(process.env.AUTODEV_DEFAULTS) : null;
+const CLAUDE_EFFORT_LIST = ["low", "medium", "high", "xhigh", "max"];
+const CODEX_EFFORT_LIST = ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra", "persistent"];
+const autodevCalls = [];
+const autodevState = { revision: "", enabled: false, mode: "dry-run",
+                       settings: AUTODEV_DEFAULTS && JSON.parse(JSON.stringify(AUTODEV_DEFAULTS)) };
+if (scenario === "autodev_stored") {
+  autodevState.enabled = true;
+  autodevState.mode = "run";
+  autodevState.settings.stages.select.claude.effort = "ultra";
+  autodevState.settings.delegates["code-review-pass"].effort_followup = "minimal";
+}
+let autodevReady = scenario === "autodev_ready";  // what the daemon's check of the recorded result says now
+const autodevHolds = {};  // "METHOD path" -> { promise, release }: the next such request answers on release
+const holdAutodev = (key) => {
+  let release;
+  const promise = new Promise((resolve) => { release = resolve; });
+  autodevHolds[key] = { promise };
+  return release;
+};
+const COMMITS = { available: false, reason: "codex_stage_commit_unsupported", checked: null,
+                  message: "this stage commits, and a Codex stage cannot (workspace-write keeps .git read-only)" };
+function autodevPayload() {
+  if (scenario === "autodev_invalid") {
+    return { ...autodevValidPayload(), revision: "", problems: ["times must be a non-empty list of HH:MM"], settings: null,
+             codex: null, status: { ...autodevValidPayload().status, enabled: null, mode: null, next_slot: null } };
+  }
+  return autodevValidPayload();
+}
+function autodevValidPayload() {
+  const select = scenario === "autodev_codex"
+    ? { available: true, reason: null, message: null, checked: "2026-10-11T11:00:00+00:00" }
+    : { available: false, reason: "not_checked", checked: null,
+        message: "the stage probes have not passed yet: run `python -m src.schedules codex-probe --kind stage --confirm-live-probe`" };
+  return {
+    revision: autodevState.revision, problems: null, settings: autodevState.settings, defaults: AUTODEV_DEFAULTS,
+    choices: { clients: ["claude", "codex"], modes: ["dry-run", "run"], limits: ["max_reviews", "max_bot_rounds", "max_wait_minutes"],
+               efforts: { claude: CLAUDE_EFFORT_LIST, codex: CODEX_EFFORT_LIST }, agents: ["code_reviewer", "software_engineer", "sysadmin"] },
+    capabilities: { claude: { client: "claude", efforts: CLAUDE_EFFORT_LIST, version: "2.1.296", source: "installed" },
+                    codex: { client: "codex", efforts: CODEX_EFFORT_LIST, version: "0.162.1", source: "installed" } },
+    codex: { installed: true, version: "0.162.1", stages: { select, implement: COMMITS, submit: COMMITS } },
+    status: { enabled: autodevState.enabled, mode: autodevState.mode, next_slot: "2026-10-12T13:47:00+00:00",
+              scheduler: { installed: false, supported: true },
+              runs: [{ run_id: "20261011T134700Z-bbbbbb", mode: "dry-run", trigger: { kind: "slot", at: "x" }, status: "failed: infra",
+                       reason: "network: github.com unreachable", started: "2026-10-11T13:47:05+00:00" },
+                     { run_id: "20261011T021700Z-aaaaaa", mode: "dry-run", trigger: { kind: "slot", at: "y" }, status: "completed",
+                       decision: "select", started: "2026-10-11T02:17:05+00:00" }],
+              automatic: autodevReady ? AUTODEV_READY : AUTODEV_NOT_READY },
+  };
+}
+const AUTODEV_RISKS = [{ row: 1, risk: "A model read the keys", residual_risk: "a sandbox bug" },
+                       { row: 2, risk: "An agent decided", residual_risk: "agents act under the owner's account" },
+                       { row: 4, risk: "The agent pushed to main", residual_risk: "a broker bug" }];
+const AUTODEV_READY = { can_enable: true, missing: [], checked: "2026-10-11T09:05:00+00:00", passed: true,
+                        fresh_minutes: 15, accepted: "2026-10-11T09:00:00+00:00", risks: AUTODEV_RISKS,
+                        risk_list_sha256: "v1" };
+const AUTODEV_NOT_READY = { can_enable: false, checked: "2026-10-11T09:05:00+00:00", passed: false, fresh_minutes: 15,
+  accepted: null, risks: AUTODEV_RISKS, risk_list_sha256: "v1",
+  missing: ["the last `python -m src.schedules autodev ready` (2026-10-11T09:05:00+00:00) did not pass", "the API token",
+            "sandbox probe implement in scheduled mode: no record; run `python -m src.schedules probe "
+            + "--mode scheduled --kind implement --confirm-live-probe`"] };
+function autodevAnswer(method, path, body) {
+  autodevCalls.push([method, path, body]);
+  if (method === "GET" && path === "/ui/api/autodev") return [200, autodevPayload()];
+  if (method === "PUT" && path === "/ui/api/autodev") {
+    if (body.expected_revision !== autodevState.revision) return [409, { status: "error", error: "config_changed",
+      message: "autodev.json changed since the page read it; reload to see it" }];
+    const wrong = body.settings.times.filter((time) => !/^([01][0-9]|2[0-3]):[0-5][0-9]$/.test(time));
+    if (wrong.length) {
+      const problems = wrong.map((time) => `times: '${time}' is not a time of day HH:MM`);
+      return [400, { status: "error", error: "invalid_settings", message: "not saved: " + problems[0], problems }];
+    }
+    autodevState.settings = body.settings;
+    autodevState.revision = "r" + autodevCalls.length;
+    return [200, { ...autodevPayload(), saved: true, warnings: [] }];
+  }
+  if (method === "POST" && path === "/ui/api/autodev/enable") {
+    if (body.mode === "run" && body.accept_shared_account !== true) {
+      return [409, { status: "error", error: "acceptance_required", missing: [], risks: AUTODEV_RISKS,
+                     message: "run mode starts real runs on the schedule under your GitHub account; turning it on needs "
+                              + "accept_shared_account: true" }];
+    }
+    if (body.mode === "run" && !autodevReady) {
+      return [409, { status: "error", error: "not_ready", missing: AUTODEV_NOT_READY.missing,
+                     message: "the automatic mode is not ready: 3 condition(s) missing" }];
+    }
+    autodevState.enabled = true;
+    autodevState.mode = body.mode;
+    return [200, { ...autodevPayload(), result: { ok: true, enabled: true, mode: body.mode, scheduler_installed: false,
+      note: "run `python -m src.schedules autodev install` so that ticks start" } }];
+  }
+  if (method === "POST" && path === "/ui/api/autodev/disable") {
+    autodevState.enabled = false;
+    return [200, { ...autodevPayload(), result: { ok: true, enabled: false } }];
+  }
+  return [404, { error: "not_found" }];
+}
+
 // --- the landing page (#188): a scripted /ui/api/overview and /ui/api/stats ---------------
 const LANDING_OVERVIEW = {
   version: "26.10.06.1200",
@@ -437,9 +589,10 @@ const context = vm.createContext({
     getItem: (key) => { if (scenario.endsWith("nostorage")) throw new Error("denied"); return storage.has(key) ? storage.get(key) : null; },
     setItem: (key, value) => { if (scenario.endsWith("nostorage")) throw new Error("denied"); storage.set(key, value); },
   },
-  location: { hash: scenario === "used_code" ? "#code=used-code" : "", pathname: "/ui" },
-  history: { replaceState() {} },
-  fetch: fetchStub, alert() {}, confirm: (question) => { confirms.push(question); return true; },
+  location: { hash: scenario === "used_code" ? "#code=used-code" : scenario === "autodev_link" ? "#autodev" : "",
+              pathname: "/ui" },
+  history: { replaceState(...args) { replacedUrls.push(args); } },
+  fetch: fetchStub, alert() {}, confirm: (question) => { confirms.push(question); return confirmAnswer; },
   prompt: (question, suggested) => { prompts.push([question, suggested]); return suggested; },
   setTimeout: pageSetTimeout, clearTimeout: pageClearTimeout,
   console, URLSearchParams,
@@ -663,6 +816,70 @@ if (isUi) {
     await sleep(40);
     steps.late_delete_rule = { ...panes(), title: byId("c-title").textContent, deletes: deletes.map((d) => d.id) };
     console.log(JSON.stringify(steps));
+    process.exit(0);
+  }
+  if (scenario === "ui_history") {
+    // The text shows before the versions answer; the list then fills in and opens an old version.
+    const history = () => ({ head: byId("history").children[0]?.textContent ?? null, disabled: byId("history").disabled,
+                             options: byId("history").children.slice(1).map((o) => [o.value.slice(0, 9), o.textContent]),
+                             busy: byId("history").getAttribute("aria-busy"), head_title: byId("history").children[0]?.title ?? null });
+    holdHistory = true;
+    await open(0);
+    const flowGet = requests.findIndex((path) => path.startsWith("/ui/api/flow?"));
+    const historyGet = requests.findIndex((path) => path.startsWith("/ui/api/flow/history?"));
+    out.while_loading = { title: byId("title").textContent, content: byId("content").value, panes: panes(), ...history(),
+                          flow_get_first: flowGet >= 0 && historyGet > flowGet, history_request: requests[historyGet] };
+    historyHolds.shift()();
+    await sleep(20);
+    out.loaded = history();
+    const select = byId("history");
+    select.value = VERSIONS["user:doc"][1].version;
+    fire(select, "change");
+    await sleep(40);
+    out.version = { content: byId("content").value, notice: byId("notice").textContent, select_value: select.value,
+                    request: requests.filter((path) => path.startsWith("/ui/api/flow?")).at(-1) };
+    // A late list of a flow the user left does not replace the list of the flow now open.
+    await open(0);
+    await open(1);
+    historyHolds.pop()();  // user:plain's list answers first…
+    await sleep(20);
+    out.other_flow = { title: byId("title").textContent, ...history() };
+    historyHolds.shift()();  // …then user:doc's
+    await sleep(20);
+    out.late_answer = { title: byId("title").textContent, ...history() };
+    // A list that cannot be read says so; the text stays usable.
+    holdHistory = false;
+    failHistory = true;
+    await open(0);
+    out.failed = { title: byId("title").textContent, ...history(), content: byId("content").value,
+                   read_only: !!byId("content").readOnly };
+    // A save reopens the flow: two lists of the same flow are in flight, and the newer one stays
+    // even when the older answers last.
+    failHistory = false;
+    holdHistory = true;
+    await open(0);  // asks for the list before the save
+    byId("content").value = "# Doc saved\n";
+    fire(byId("content"), "input");
+    fire(byId("save"), "click");
+    await sleep(80);  // the save reopened the flow, which asks again: the saved version is listed too
+    out.saved_requests = { pending: historyHolds.length, put: puts.at(-1)?.id ?? null };
+    historyHolds.pop()();  // the newer list answers first…
+    await sleep(20);
+    out.saved = { title: byId("title").textContent, ...history() };
+    historyHolds.shift()();  // …then the one asked before the save
+    await sleep(20);
+    out.saved_late = { title: byId("title").textContent, ...history() };
+    // A built-in flow keeps no versions: nothing is asked, and the list of the flow left meanwhile stays out.
+    await open(0);
+    const asked = requests.length;
+    await context.openFlow("builtin:review");
+    await sleep(20);
+    out.builtin = { title: byId("title").textContent, ...history(),
+                    asked: requests.slice(asked).filter((path) => path.startsWith("/ui/api/flow/history?")) };
+    historyHolds.shift()();  // user:doc's list answers after the built-in flow opened
+    await sleep(20);
+    out.builtin_late = { title: byId("title").textContent, ...history() };
+    console.log(JSON.stringify(out));
     process.exit(0);
   }
   if (scenario === "ui_signout") {
@@ -1462,6 +1679,198 @@ if (isSync) {
     console.log(JSON.stringify(out));
     process.exit(0);
   }
+}
+
+if (isAutodev) {
+  // The Autodev page as the user sees it, found by the controls' ids.
+  const out = {};
+  const textOf = (node) => (node.nodeType === 3 ? node.textContent : (node.textContent || "") + node.children.map(textOf).join(""));
+  const root = () => byId("autodev-body");
+  const field = (id) => findAll(root(), (n) => n.attrs.id === id)[0];
+  const value = (id) => (field(id) ? field(id).value : null);
+  const setValue = async (id, text) => {
+    const control = field(id);
+    control.value = text;
+    fire(control, control.tag === "select" ? "change" : "input");
+    await sleep(0);
+  };
+  const click = async (id) => { fire(field(id), "click"); await sleep(40); };
+  const alert = () => ({ text: byId("autodev-alert").textContent, className: byId("autodev-alert").className,
+                         items: findAll(byId("autodev-alert"), (n) => n.tag === "li").map((n) => n.textContent) });
+  const options = (id) => field(id).children.map((option) => [option.value, option.textContent, option.disabled]);
+  const profile = (name) => {
+    const found = { client: value(`ad-${name}-client`) };
+    for (const client of ["claude", "codex"]) {
+      found[client] = [value(`ad-${name}-${client}-model`), value(`ad-${name}-${client}-effort`)];
+    }
+    if (field(`ad-${name}-followup`)) found.followup = value(`ad-${name}-followup`);
+    if (field(`ad-${name}-role`)) found.role = value(`ad-${name}-role`);
+    return found;
+  };
+  const form = () => ({
+    times: value("ad-times"), catch_up: value("ad-catch-up"), hours: value("ad-hours"), ac: field("ad-ac").checked,
+    limits: ["max_reviews", "max_bot_rounds", "max_wait_minutes"].map((key) => value("ad-" + key)),
+    profiles: Object.fromEntries(["select", "implement", "submit", "code-review-pass", "change-premortem"].map((name) => [name, profile(name)])),
+  });
+  const page = () => ({ shown: !byId("autodev-page").classes.has("hidden"), main_hidden: byId("main").classes.has("hidden"),
+                        chip: byId("autodev-chip").attrs["aria-pressed"] });
+  const status = () => ({ state: textOf(field("ad-state")), next: field("ad-next") && textOf(field("ad-next")),
+                          runs: textOf(field("ad-runs")), switch: field("ad-switch") && field("ad-switch").textContent });
+  const openChip = async () => { fire(byId("autodev-chip"), "click"); await sleep(40); };
+  const gets = () => autodevCalls.filter(([method]) => method === "GET").length;
+  const puts = () => autodevCalls.filter(([method]) => method === "PUT");
+  const done = () => { console.log(JSON.stringify(out)); process.exit(0); };
+
+  if (scenario === "autodev_link") {  // /ui#autodev opens the page and clears the hash
+    await sleep(40);
+    out.opened = { ...page(), gets: gets(), replaced: replacedUrls, title_focused: byId("autodev-title").focused };
+    done();
+  }
+  await openChip();
+  if (scenario === "autodev_invalid") {  // the problems, and no form or switch
+    const card = root().children.find((child) => child.children.some((k) => k.tag === "h3" && k.textContent === "autodev.json is invalid"));
+    out.invalid = { ...page(), problems: card ? findAll(card, (n) => n.tag === "li").map((n) => n.textContent) : null,
+                    state: textOf(field("ad-state")),
+                    controls: ["ad-save", "ad-defaults", "ad-reload", "ad-switch", "ad-times", "ad-select-client"].filter((id) => field(id)) };
+    done();
+  }
+  out.opened = { ...page(), title_focused: byId("autodev-title").focused, tabs: byId("tabs").children.map((b) => b.attrs["aria-pressed"]),
+                 gets: gets() };
+  out.form = form();
+  out.codex = { select: textOf(field("ad-select-codex")), implement: textOf(field("ad-implement-codex")),
+                review: textOf(field("ad-code-review-pass-codex")), clients: options("ad-select-client").map((o) => o[1]),
+                implement_clients: options("ad-implement-client").map((o) => o[1]) };
+  out.mode = options("ad-mode");
+  out.automatic = { text: textOf(field("ad-automatic")),
+                    missing: field("ad-missing") ? field("ad-missing").children.map((n) => n.textContent) : null };
+  out.status = status();
+  out.efforts = { claude: options("ad-select-claude-effort").map((o) => o[0]),
+                  followup: options("ad-code-review-pass-followup").map((o) => o[0]) };
+  if (scenario === "autodev_codex") done();
+
+  if (scenario === "autodev_ready") {
+    // Run is offered; turning it on asks for the acceptance first, and "no" sends nothing.
+    await setValue("ad-mode", "run");
+    confirmAnswer = false;
+    await click("ad-switch");
+    out.declined = { confirms: confirms.slice(), posts: autodevCalls.filter(([method]) => method === "POST").length };
+    confirmAnswer = true;
+    await click("ad-switch");
+    out.enabled = { post: autodevCalls.at(-1), status: status(), alert: alert() };
+    // The conditions lost since the page read them (the recorded `autodev ready` aged, a tripwire, the
+    // turn-off's withdrawal of the acceptance): the daemon refuses and the alert lists what is missing.
+    await click("ad-switch");
+    autodevReady = false;
+    await setValue("ad-mode", "run");
+    await click("ad-switch");
+    out.refused = { post: autodevCalls.at(-1)[2], alert: alert(), state: status().state };
+    done();
+  }
+
+  if (scenario === "autodev_stored") {
+    // Stored values the lists lack stay, marked; the review's follow-up list follows its client.
+    out.stored = { select_effort: value("ad-select-claude-effort"), select_options: options("ad-select-claude-effort"),
+                   followup: value("ad-code-review-pass-followup"), status: textOf(field("ad-status")) };
+    await setValue("ad-code-review-pass-client", "claude");
+    out.client_changed = { followup: value("ad-code-review-pass-followup"), options: options("ad-code-review-pass-followup") };
+    await click("ad-save");
+    const put = puts().at(-1)[2].settings;
+    out.saved = { select: put.stages.select.claude, review: put.delegates["code-review-pass"], alert: alert().text };
+    done();
+  }
+
+  if (scenario === "autodev_races") {
+    // Reload asks before it drops unsaved edits; "no" keeps them and sends nothing.
+    await setValue("ad-catch-up", "55");
+    confirmAnswer = false;
+    await click("ad-reload");
+    out.reload_no = { confirms: confirms.slice(), gets: gets(), catch_up: value("ad-catch-up") };
+    confirmAnswer = true;
+    await click("ad-reload");
+    out.reload_yes = { confirms: confirms.length, gets: gets(), catch_up: value("ad-catch-up") };
+    // One request at a time: Save pressed again while the first save is under way sends nothing.
+    const releasePut = holdAutodev("PUT /ui/api/autodev");
+    await setValue("ad-max_reviews", "5");
+    await click("ad-save");
+    await click("ad-save");
+    releasePut();
+    await sleep(40);
+    out.busy = { puts: puts().length, alert: alert().text };
+    // A saved form is clean: the next read shows a change made elsewhere.
+    autodevState.settings = { ...autodevState.settings, catch_up_minutes: 45 };
+    autodevState.revision = "x1";
+    await openChip();
+    await openChip();
+    out.clean = { catch_up: value("ad-catch-up"), max_reviews: value("ad-max_reviews") };
+    // Defaults put in a clean form are unsaved edits too: a read on coming back keeps them.
+    await click("ad-defaults");
+    await openChip();
+    await openChip();
+    out.defaults_kept = { catch_up: value("ad-catch-up"), max_reviews: value("ad-max_reviews"), gets: gets() };
+    // A read sent before a save and answered after it is dropped: the form and the revision stay the saved ones.
+    const releaseGet = holdAutodev("GET /ui/api/autodev");
+    await click("ad-reload");
+    await setValue("ad-catch-up", "30");
+    await click("ad-save");
+    const savedAt = autodevState.revision;
+    releaseGet();
+    await sleep(40);
+    out.stale = { catch_up: value("ad-catch-up"), saved_at: savedAt };
+    await click("ad-save");
+    out.stale = { ...out.stale, put: puts().at(-1)[2].expected_revision, alert: alert().text };
+    // The switch with unsaved edits keeps the revision the form was read at: a change made elsewhere
+    // before it (which its write carries) still refuses the save.
+    const readAt = autodevState.revision;
+    await setValue("ad-times", "04:00");
+    autodevState.settings = { ...autodevState.settings, catch_up_minutes: 50 };
+    autodevState.revision = "x2";
+    await click("ad-switch");
+    out.switched = { state: status().state, times: value("ad-times") };
+    await click("ad-save");
+    out.switched = { ...out.switched, put: puts().at(-1)[2].expected_revision, read_at: readAt, alert: alert(),
+                     times_after: value("ad-times") };
+    done();
+  }
+
+  // Edits survive leaving the page; a tab leaves it too.
+  await setValue("ad-catch-up", "77");
+  await openChip();
+  out.left = page();
+  await openChip();
+  out.back = { ...page(), catch_up: value("ad-catch-up"), gets: gets() };
+  fire(byId("tabs").children[1], "click");
+  await sleep(40);
+  out.tab = { ...page(), tabs: byId("tabs").children.map((b) => b.attrs["aria-pressed"]) };
+  await openChip();
+
+  // A valid save sends every setting with the revision read; a refused one keeps what was typed.
+  await setValue("ad-max_reviews", "4");
+  await setValue("ad-code-review-pass-followup", "low");
+  await setValue("ad-change-premortem-role", "software_engineer");
+  await setValue("ad-implement-codex-model", "gpt-6.1-sol");
+  await setValue("ad-implement-codex-effort", "ultra");
+  await click("ad-save");
+  out.saved = { put: autodevCalls.filter(([method]) => method === "PUT").at(-1)[2], alert: alert(), form: form() };
+  await setValue("ad-times", "25:00, 13:47");
+  await click("ad-save");
+  out.refused = { alert: alert(), times: value("ad-times"), puts: autodevCalls.filter(([method]) => method === "PUT").length };
+  // The switch: on in dry-run (the form keeps what was typed and the revision it was read at), then off.
+  await click("ad-switch");
+  out.enabled = { post: autodevCalls.at(-1), status: status(), alert: alert(), times: value("ad-times") };
+  await setValue("ad-times", "03:00");
+  await click("ad-save");
+  out.after_switch = { put: autodevCalls.at(-1)[2].expected_revision, alert: alert().text };
+  await click("ad-switch");
+  out.disabled = { post: autodevCalls.at(-1).slice(0, 2), status: status() };
+  // Defaults fill the form; Save writes them.
+  await setValue("ad-max_reviews", "9");
+  await click("ad-defaults");
+  out.defaults = { form: form(), alert: alert().text };
+  // The defaults are unsaved edits: leaving the page and coming back keeps them in the form.
+  await openChip();
+  await openChip();
+  out.defaults_kept = form();
+  done();
 }
 
 if (scenario === "history_adopt") {

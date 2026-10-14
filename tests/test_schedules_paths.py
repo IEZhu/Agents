@@ -8,9 +8,13 @@ current contents.
 """
 from __future__ import annotations
 
+import ast
+import json
 import os
 from pathlib import Path
+import re
 import subprocess
+import sys
 
 import pytest
 
@@ -201,7 +205,7 @@ def test_protected_paths_with_the_current_lists(path):
 
 
 @pytest.mark.parametrize("path", ["pyproject.toml", "docs/cloud-runs.md", "CLAUDE.md", ".claude/x.json",
-                                  "src/executables.py", "scripts/run_tests.sh"])
+                                  "src/schemas/protocol.py", "scripts/run_tests.sh"])
 def test_protected_but_not_control_paths(path):
     assert CURRENT.classify(path) is PathClass.PROTECTED
 
@@ -209,7 +213,8 @@ def test_protected_but_not_control_paths(path):
 @pytest.mark.parametrize("path", [
     "flows/autodev-implement.md", ".github/workflows/x.yml", "src/engine/x.py", "src/schedules/x.py",
     PROTECTED_LIST, CONTROL_LIST, ".GitHub/Autodev-Control-Paths", "agents/x/system_prompt.mdc",
-    "rules/x.mdc", "skills/x.mdc", "implants/x.mdc",
+    "rules/x.mdc", "skills/x.mdc", "implants/x.mdc", "src/executables.py", "src/daemon/state.py",
+    "src/schemas/subagent.py",
 ])
 def test_control_paths_with_the_current_lists(path):
     assert CURRENT.classify(path) is PathClass.CONTROL
@@ -218,6 +223,94 @@ def test_control_paths_with_the_current_lists(path):
 @pytest.mark.parametrize("path", ["src/server.py", "docs/README.md", "src/enginex.py", "README.md", "tests/x.py"])
 def test_unprotected_paths_with_the_current_lists(path):
     assert CURRENT.classify(path) is None
+
+
+# --- the runner's own code is a control path (#347 review) -------------------------------------------
+
+LOADED = """
+import importlib, json, pkgutil, sys
+import src.schedules.__main__, src.schedules
+for info in pkgutil.iter_modules(src.schedules.__path__):  # the lazily imported ones too (the sequence)
+    importlib.import_module("src.schedules." + info.name)
+print(json.dumps(sorted(module.__file__ for name, module in sys.modules.items()
+                        if (name == "src" or name.startswith("src.")) and getattr(module, "__file__", None))))
+"""
+
+
+def _module_file(name: str) -> Path | None:
+    path = ROOT.joinpath(*name.split("."))
+    for candidate in (path / "__init__.py", path.with_suffix(".py")):
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _name_of(path: Path) -> str:
+    parts = path.relative_to(ROOT).with_suffix("").parts
+    return ".".join(parts[:-1] if parts[-1] == "__init__" else parts)
+
+
+def _imported(path: Path) -> set[Path]:
+    """The files of the ``src`` modules ``path`` imports anywhere, inside functions too."""
+    package = _name_of(path) if path.name == "__init__.py" else _name_of(path).rpartition(".")[0]
+    names = set()
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        if isinstance(node, ast.Import):
+            names.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            base = package.split(".")[:len(package.split(".")) - node.level + 1] if node.level else []
+            module = ".".join(base + ([node.module] if node.module else []))
+            names.add(module)
+            names.update(f"{module}.{alias.name}" for alias in node.names)
+    found = set()
+    for name in names:
+        parts = name.split(".")
+        if parts[0] != "src":
+            continue
+        for end in range(1, len(parts) + 1):  # a package's __init__ runs before its module
+            if (file := _module_file(".".join(parts[:end]))) is not None:
+                found.add(file)
+    return found
+
+
+def runner_import_closure() -> list[str]:
+    """Every ``src`` module file the runner process can run: what ``python -m src.schedules`` loads
+    with every module of src/schedules (a fresh interpreter), and from there every ``src`` module
+    any of them imports, also inside a function (an import at run time, such as the embedder's)."""
+    done = subprocess.run([sys.executable, "-P", "-c", LOADED], cwd=ROOT, capture_output=True, text=True,
+                          env={**os.environ, "PYTHONPATH": str(ROOT)}, timeout=300, check=True)
+    files = {Path(name).resolve() for name in json.loads(done.stdout)}
+    assert all(file.is_relative_to(ROOT) for file in files), "the modules came from another checkout"
+    todo, seen = list(files), set()
+    while todo:
+        if (file := todo.pop()) not in seen:
+            seen.add(file)
+            todo.extend(_imported(file))
+    return sorted(file.relative_to(ROOT).as_posix() for file in seen)
+
+
+def test_every_module_the_runner_imports_is_a_control_path():
+    """No label opens a change to code the runner runs: its whole import closure is a control path
+    (a self-development change to src/daemon/state.py could weaken the run records' file modes)."""
+    closure = runner_import_closure()
+    assert {"src/schedules/sequence.py", "src/daemon/state.py", "src/file_lock.py", "src/flow_execution.py"} <= \
+        set(closure)
+    assert [path for path in closure if CURRENT.classify(path) is not PathClass.CONTROL] == []
+
+
+def _plan_section() -> str:
+    text = (ROOT / "docs" / "autodev-plan.md").read_text(encoding="utf-8")
+    return text.split("### 5.3 Protected paths", 1)[1].split("\n### ", 1)[0]
+
+
+def test_the_plan_lists_the_same_protected_and_control_paths():
+    """docs/autodev-plan.md 5.3 lists both files' patterns, in order."""
+    section = _plan_section()
+    listed = section.split("```text\n", 1)[1].split("```", 1)[0]
+    assert [pattern.text for pattern in parse_patterns(listed)] == [pattern.text for pattern in CURRENT.protected]
+    control = re.search(r"^- \*\*Control paths\*\* \(([^)]*)\)", section, re.MULTILINE)
+    assert control is not None
+    assert re.findall(r"`([^`]+)`", control[1]) == [pattern.text for pattern in CURRENT.control]
 
 
 def test_list_files_are_control_paths_whatever_the_lists_say():

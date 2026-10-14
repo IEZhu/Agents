@@ -16,7 +16,7 @@ import threading
 import pytest
 
 from src.schedules import config as autodev_config
-from src.schedules import drift, gitsafe, repos, runner
+from src.schedules import drift, gitsafe, repos, runner, sequence
 from src.schedules.repos import BundleRefused, RepositoryError, TrustedRepository
 from tests.test_schedules_paths import fixture_environment, fixture_git
 
@@ -431,7 +431,7 @@ def test_working_branch_changing_src_schedules_does_not_change_what_drift_compar
     monkeypatch.setattr(repos, "default_url", lambda repository: str(github))
     config = {**autodev_config.DEFAULTS, "clone": str(trusted.path)}
     checked = runner.default_drift(installation, config)
-    assert checked == {"pinned": pinned, "runner_commit": pinned, "changed": []}
+    assert checked == {"pinned": pinned, "runner_commit": pinned, "changed": [], "pruned": []}  # pruned: #347
 
 
 def test_docs_only_main_change_unknown_to_the_installation_is_no_drift(trusted, installation, github, monkeypatch):
@@ -444,8 +444,7 @@ def test_docs_only_main_change_unknown_to_the_installation_is_no_drift(trusted, 
     moved = commit_all(github)
     monkeypatch.setattr(repos, "default_url", lambda repository: str(github))
     config = {**autodev_config.DEFAULTS, "clone": str(trusted.path)}
-    result = runner._dry_run(runner.Context(installation=installation, directory=installation.parent),
-                             config, None, None)
+    result = sequence.check_drift(runner.Context(installation=installation, directory=installation.parent), config)
     assert trusted.pinned() == moved
     assert result["status"] == "failed: infra" and result["reason"] == "runner drift: agents/a/system_prompt.mdc"
 
@@ -453,8 +452,8 @@ def test_docs_only_main_change_unknown_to_the_installation_is_no_drift(trusted, 
 def test_os_error_from_the_trusted_repository_is_a_trusted_repository_failure(tmp_path, installation):
     def unreadable(path):
         raise PermissionError(13, "Permission denied", str(tmp_path / "runner"))
-    result = runner._dry_run(runner.Context(installation=installation, directory=tmp_path, drift_check=unreadable),
-                             dict(autodev_config.DEFAULTS), None, None)
+    result = sequence.check_drift(runner.Context(installation=installation, directory=tmp_path, drift_check=unreadable),
+                                  dict(autodev_config.DEFAULTS))
     assert result["status"] == "failed: infra"
     assert result["reason"].startswith("cli: trusted repository: ") and "Permission denied" in result["reason"]
 
@@ -462,7 +461,7 @@ def test_os_error_from_the_trusted_repository_is_a_trusted_repository_failure(tm
 def test_fetch_failure_is_a_network_failure(tmp_path, installation, monkeypatch):
     monkeypatch.setattr(repos, "default_url", lambda repository: str(tmp_path / "missing"))
     config = {**autodev_config.DEFAULTS, "clone": str(tmp_path / "runner" / "trusted")}
-    result = runner._dry_run(runner.Context(installation=installation, directory=tmp_path), config, None, None)
+    result = sequence.check_drift(runner.Context(installation=installation, directory=tmp_path), config)
     assert result["status"] == "failed: infra" and result["reason"].startswith("network: fetch of main")
 
 
