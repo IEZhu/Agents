@@ -162,7 +162,8 @@ home deny; a read-only directory inside a writable one, nested writable director
 file the process could reach, an interpreter root that is too broad (`/usr`, `/nix/store`, ...),
 and a stage without a `venv` or whose one-off repository's `.git` is not a directory. So a
 worker's tree, materials and schema lie outside the state directory (the `codex-probe` check
-writes its synthetic ones to `/private/tmp/autodev-codex-work-*`).
+writes its synthetic ones to `/private/tmp/autodev-codex-work-*`, and the worker launcher of #345
+copies the real ones into a fresh temporary root for every attempt).
 
 **The stage's `.git` protections.** Seatbelt checks a rename only against its source and
 destination, so a stage that may rename `.git` could edit its config and hooks under another name

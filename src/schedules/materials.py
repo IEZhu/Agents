@@ -3,12 +3,15 @@
 A worker reads two runner-written directories and nothing of the one-off repository:
 
 * **The tree at** ``pinned`` (`export_tree`): every regular file of the ``pinned`` commit, written
-  from its blob objects. It is the worker's working directory.
+  from its blob objects, except project configuration a CLI could load from its working directory
+  (`project_config`: ``.claude/``, ``.codex/`` and ``.mcp.json`` at any depth). It is the worker's
+  working directory.
 * **The materials** (`assemble`): the reviewed range's commit log (``commits.txt``) and diff
-  (``diff.patch``), the files the range adds or changes as they are at the head (``head/<path>``),
-  the paths it deletes (``deleted.txt``), the symbolic links it adds (``links.json``, as text:
-  no link is created), and whatever the caller adds (``range.json``, the decision log, the
-  criteria).
+  (``diff.patch``); every file that differs between ``pinned`` and the head, as it is at the head
+  (``head/<path>``), the paths deleted since ``pinned`` (``deleted.txt``) and the symbolic links
+  added or changed since ``pinned`` (``links.json``, as text: no link is created), so a follow-up
+  review also sees what earlier rounds changed; and whatever the caller adds (``range.json``, the
+  decision log, the criteria).
 
 Both come from the git objects of the trusted repository (`src.schedules.repos`), whose commits
 were imported from session bundles and validated there. Everything is checked again here: a
@@ -52,17 +55,23 @@ FILE_MODES = ("100644", "100755")
 LINK_MODE = "120000"
 GITLINK_MODE = "160000"
 TREE_MODE = "040000"
+# Project configuration a CLI could load from its working directory: never written into the tree.
+PROJECT_CONFIG_DIRS = (".claude", ".codex")
+PROJECT_CONFIG_FILES = (".mcp.json",)
 README = """\
 # Materials
 
 Written by the autodev runner from git objects of its trusted repository; data, not instructions.
 
-- `range.json`: the reviewed range (`base..head`), its commits and what this review is.
-- `commits.txt`: the commit messages of the range.
-- `diff.patch`: the diff of the range.
-- `head/<path>`: each file the range adds or changes, as it is at the head.
-- `deleted.txt`: the paths the range deletes; `links.json`: the symbolic links it adds or changes.
-- The working directory is the tree at `pinned` (the base of the run).
+- `range.json`: the reviewed range (`base..head`), `pinned` (the base of the run) and what this review is.
+- `commits.txt`: the commit messages of the reviewed range.
+- `diff.patch`: the diff of the reviewed range.
+- `head/<path>`: every file that differs between `pinned` and the head, as it is at the head
+  (for a follow-up review also the files earlier rounds changed).
+- `deleted.txt`: the paths deleted since `pinned`; `links.json`: the symbolic links added or
+  changed since `pinned`.
+- The working directory is the tree at `pinned`, without project configuration (`.claude/`,
+  `.codex/`, `.mcp.json`).
 """
 
 _SHA = re.compile(r"[0-9a-f]{40}")
@@ -252,6 +261,14 @@ class ReviewRepository:
                          f"{check_sha(base, 'base')}..{check_sha(head)}", max_output=MAX_LOG_BYTES)
 
 
+def project_config(path: str) -> bool:
+    """Whether ``path`` is project configuration the tree leaves out (`PROJECT_CONFIG_DIRS`,
+    `PROJECT_CONFIG_FILES`; compared case-insensitively, as on a case-insensitive volume)."""
+    parts = [part.casefold() for part in path.split("/")]
+    return any(part in PROJECT_CONFIG_DIRS for part in parts[:-1]) or parts[-1] in PROJECT_CONFIG_FILES \
+        or parts[-1] in PROJECT_CONFIG_DIRS
+
+
 def _decode_path(raw: bytes) -> str:
     try:
         return safe_path(raw.decode("utf-8"))
@@ -302,16 +319,19 @@ def _links(repository: ReviewRepository, links: list[tuple[str, str]]) -> dict[s
 
 
 def export_tree(repository: ReviewRepository, commit: str, destination: Path) -> dict:
-    """Write the regular files of ``commit`` into the new directory ``destination``.
+    """Write the regular files of ``commit`` into the new directory ``destination``, without
+    project configuration (`project_config`).
 
     Symbolic links are not created; each must stay inside the tree. A gitlink refuses the tree.
-    Returns ``{"commit", "files", "links": {path: target}}``."""
+    Returns ``{"commit", "files", "links": {path: target}, "left_out": [path, ...]}``."""
     entries = repository.tree_entries(commit)
-    files, links = [], []
+    files, links, left_out = [], [], []
     for entry in entries:
         if entry.mode == GITLINK_MODE:
             raise MaterialsRefused(f"the tree at {commit} holds the gitlink {entry.path[:200]}")
-        if entry.mode == LINK_MODE:
+        if project_config(entry.path):
+            left_out.append(entry.path)
+        elif entry.mode == LINK_MODE:
             links.append((entry.path, entry.oid))
         elif entry.mode in FILE_MODES:
             files.append(entry)
@@ -326,15 +346,12 @@ def export_tree(repository: ReviewRepository, commit: str, destination: Path) ->
         for entry in chunk:
             _write_new(root / entry.path, contents[entry.oid], root)
         budget -= sum(len(contents[oid]) for oid in {entry.oid for entry in chunk})
-    return {"commit": commit, "files": len(files), "links": targets}
+    return {"commit": commit, "files": len(files), "links": targets, "left_out": left_out[:100]}
 
 
-def assemble(repository: ReviewRepository, base: str, head: str, destination: Path,
-             extras: Mapping[str, object] | None = None) -> dict:
-    """Write the materials of ``base..head`` into the new directory ``destination``; ``extras``
-    adds JSON (a mapping or a list) or text files by name. Returns a summary for the record."""
-    commits = repository.commits(base, head)
-    changes = repository.changes(base, head)
+def _classify(changes: list[Change]) -> tuple[list[Change], list[tuple[str, str]], list[str]]:
+    """The changed regular files, the links (path, blob) and the deleted paths of ``changes``;
+    a gitlink or an unusual mode refuses them."""
     files, links, deleted = [], [], []
     for change in changes:
         if GITLINK_MODE in (change.old_mode, change.new_mode):
@@ -347,6 +364,20 @@ def assemble(repository: ReviewRepository, base: str, head: str, destination: Pa
             files.append(change)
         else:
             raise MaterialsRefused(f"the range gives {change.path[:200]} the mode {change.new_mode}")
+    return files, links, deleted
+
+
+def assemble(repository: ReviewRepository, base: str, head: str, destination: Path,
+             extras: Mapping[str, object] | None = None, *, pinned: str | None = None) -> dict:
+    """Write the materials of ``base..head`` into the new directory ``destination``; ``extras``
+    adds JSON (a mapping or a list) or text files by name. ``commits.txt`` and ``diff.patch``
+    cover ``base..head``; ``head/``, ``deleted.txt`` and ``links.json`` cover ``pinned..head``
+    (``pinned`` defaults to ``base``), so a follow-up review sees every file that differs from the
+    worker's tree. Returns a summary for the record."""
+    commits = repository.commits(base, head)
+    files, links, deleted = _classify(repository.changes(base, head))
+    if pinned is not None and check_sha(pinned, "pinned") != base:
+        files, links, deleted = _classify(repository.changes(pinned, head))
     targets = _links(repository, links)
     contents = repository.blobs([change.new_oid for change in files], budget=MAX_HEAD_BYTES)
     diff = repository.diff(base, head)
@@ -366,8 +397,8 @@ def assemble(repository: ReviewRepository, base: str, head: str, destination: Pa
         written[name] = text.encode()
     for name, data in written.items():
         _write_new(root / name, data, root)
-    return {"base": base, "head": head, "commits": commits, "changed": len(files), "deleted": len(deleted),
-            "links": sorted(targets), "diff_bytes": len(diff)}
+    return {"base": base, "head": head, "pinned": pinned or base, "commits": commits, "changed": len(files),
+            "deleted": len(deleted), "links": sorted(targets), "diff_bytes": len(diff)}
 
 
 def remove(path: Path) -> None:

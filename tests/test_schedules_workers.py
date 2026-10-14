@@ -20,10 +20,11 @@ import time
 import pytest
 
 from src.engine.subagent import prepare_subagent
-from src.schedules import (broker, codex_probes, decoys, gitsafe, materials, records, sandbox, socket_service,
-                           worker_launch, workers)
+from src.schedules import (broker, cli, codex_probes, decoys, gitsafe, materials, records, repos, runner, sandbox,
+                           socket_service, worker_launch, workers)
 from src.schedules import codex_sandbox as cs
 from src.schedules import config as autodev_config
+from src.schedules.scan import KnownSecret
 from src.schedules.socket_service import Connection, Registry, RequestRefused, serve
 from src.schedules.workers import Binding, WorkerService
 from src.schemas.subagent import RESULT_MODELS
@@ -126,13 +127,14 @@ class World:
         return package
 
     def service(self, settings=None, *, criteria=("Workers are validated against the retained contract.",),
-                prepare=None, **options) -> WorkerService:
+                prepare=None, importer=None, **options) -> WorkerService:
         binding = Binding(RUN_ID, ISSUE, self.repo.base, self.repo.trusted, self.state, log_copy=self.copy_dir,
                           criteria=criteria)
         options.setdefault("command_runner", keychain)
         launcher = worker_launch.Launcher(claude=self.claude, path=PATH, home=self.home, state_dir=self.state,
                                           run_id=RUN_ID, decoys=self.planted, **options)
-        return WorkerService(binding, settings or config(), launcher, prepare=prepare or self.prepare)
+        return WorkerService(binding, settings or config(), launcher, prepare=prepare or self.prepare,
+                             importer=importer)
 
     @property
     def run_dir(self) -> Path:
@@ -446,19 +448,27 @@ def test_follow_up_effort_and_the_restricted_last_review(world):
     logged = json.loads((second_materials / "decisions.json").read_text())
     assert {entry["key"]: entry["decision"] for entry in logged} == {keys[1]: "declined", keys[0]: "fixed"}
 
-    third = finish(service, service.review({"head": head_of(world)}))
+    third_head = head_of(world)
+    third = finish(service, service.review({"head": third_head}))
     assert third["status"] == "accepted" and third["restricted"] == "last"
     shown = {item["location"] for item in third["findings"]}
     assert shown == {"src/app.py:2", "src/app.py:3", "README.md:1"}  # high, security, regression
     assert third["dropped_out_of_scope"] == 1 and third["blocking"] == 3
+    # Findings in the last review's scope end the stage blocked, and the push gate stays closed.
+    assert third["stage_blocked"] is True and "the stage ends blocked" in third["reason"]
+    review = json.loads((world.run_dir / broker.REVIEW_RECORD).read_text())
+    assert review["head"] == third_head and review["blocked"] is True and review["restricted"] == "last"
+    assert broker.validated_review_head(world.run_dir) is None
     assert efforts(world) == ["high", "medium", "medium"]
     tasks = [package.contract.task for package in world.packages]
     criteria = [" ".join(item.description for item in package.contract.acceptance_criteria)
                 for package in world.packages]
     assert "This is the last review" in criteria[2] and "This is the last" not in criteria[0] + criteria[1]
     assert "decisions.json" in criteria[1] and tasks[0].startswith("Review the change")
-    with pytest.raises(RequestRefused, match=r"max_reviews \(3\) is reached"):
+    with pytest.raises(RequestRefused, match="the stage is blocked: the last review"):
         service.review({"head": head_of(world)})
+    with pytest.raises(RequestRefused, match="the stage is blocked"):
+        service.premortem({"head": third_head})
 
 
 def test_a_follow_up_of_the_same_head_reviews_the_same_range_again(world):
@@ -470,19 +480,25 @@ def test_a_follow_up_of_the_same_head_reviews_the_same_range_again(world):
 
 
 def test_the_premortem_and_the_verification_review(world):
-    world.scenario({"outcome": {"findings": FINDINGS[:3]}})
+    # review-1: one medium finding; the pre-mortem and the verification: high, medium, security medium
+    world.scenario({"outcomes": [{"findings": [FINDINGS[1]]}, {"findings": FINDINGS[:3]}, {"findings": FINDINGS[:3]}]})
     settings = config()
-    settings["delegates"]["change-premortem"]["role"] = "sysadmin"
+    settings["delegates"]["change-premortem"]["role"] = "security_expert"  # not the default sysadmin (Q2)
     service = world.service(settings)
     head = head_of(world)
     with pytest.raises(RequestRefused, match="follows an accepted review"):
         service.premortem({"head": head})
-    assert finish(service, service.review({"head": head}))["status"] == "accepted"
+    review = finish(service, service.review({"head": head}))
+    assert review["status"] == "accepted" and review["medium_or_higher"] == 1
+    with pytest.raises(RequestRefused, match="needs a clean validated review .* is neither fixed .* nor declined"):
+        service.premortem({"head": head})
+    service.decide({"key": review["findings"][0]["key"], "decision": "declined", "reason": "Docstrings are optional."})
+    assert broker.validated_review_head(world.run_dir) == head  # a declined medium opens the gate
     with pytest.raises(RequestRefused, match="follows an accepted pre-mortem"):
         service.review({"head": head, "verification": True})
     premortem = finish(service, service.premortem({"head": head}))
     assert premortem["status"] == "accepted" and premortem["kind"] == "premortem"
-    assert world.packages[-1].contract.agent == "sysadmin"
+    assert world.packages[-1].contract.agent == "security_expert"
     assert world.packages[-1].contract.task.startswith("Pre-mortem of the change")
     reviews = json.loads((world.run_dir / "workers" / "premortem-1" / "materials" / "reviews.json").read_text())
     assert [item["handle"] for item in reviews] == ["review-1"]
@@ -504,9 +520,17 @@ def test_the_premortem_and_the_verification_review(world):
     verify = finish(service, service.review({"head": fixed, "verification": True}))
     assert verify["status"] == "accepted" and verify["kind"] == "verify" and verify["restricted"] == "verification"
     assert verify["range"] == f"{head}..{fixed}"
-    assert {item["severity"] for item in verify["findings"]} == {"high", "medium"}  # medium: the security one
+    assert {item["location"] for item in verify["findings"]} == {"src/app.py:2", "src/app.py:3"}  # high, security
+    assert verify["dropped_out_of_scope"] == 1 and verify["blocking"] == 2  # the docstring medium left out
     assert efforts(world) == ["high", "high", "medium"]  # review, pre-mortem (claude/high), verification
-    assert broker.validated_review_head(world.run_dir) == fixed
+    # Its findings end the stage blocked: the record says so and the push gate stays closed.
+    assert verify["stage_blocked"] is True and "the verification review" in verify["reason"]
+    record = json.loads((world.run_dir / broker.REVIEW_RECORD).read_text())
+    assert (record["head"], record["kind"], record["restricted"], record["blocked"]) == (fixed, "verify",
+                                                                                         "verification", True)
+    assert broker.validated_review_head(world.run_dir) is None
+    with pytest.raises(RequestRefused, match="the stage is blocked"):
+        service.review({"head": head_of(world), "verification": True})
 
 
 def test_records_in_the_brokers_format_and_the_run_record(world):
@@ -514,9 +538,14 @@ def test_records_in_the_brokers_format_and_the_run_record(world):
     world.scenario({"outcome": {"findings": FINDINGS[:1]}})
     service = world.service()
     finish(service, service.review({"head": head}))
-    assert broker.validated_review_head(world.run_dir) == head
+    assert broker.validated_review_head(world.run_dir) is None  # its high finding stays open
     review = json.loads((world.run_dir / broker.REVIEW_RECORD).read_text())
     assert review["range"] == f"{world.repo.base}..{head}" and review["record"] == "workers/review-1/attempt-1.json"
+    assert (review["head"], review["handle"], review["kind"], review["number"], review["restricted"]) == \
+        (head, "review-1", "review", 1, None)
+    assert review["clean"] is False and review["blocked"] is False
+    assert review["findings"] == [{"key": workers.finding_key("src/app.py:2", "run() returns a constant."),
+                                   "level": "high", "security": False}]
     [record] = attempt_records(world, "review-1")
     package = world.packages[-1]
     assert record["package"]["bundle_revision"] == package.contract.bundle_revision
@@ -710,10 +739,14 @@ def test_codex_worker_argv_environment_and_raw_text(world, monkeypatch):
     [run] = [call for call in calls if call["argv"][:1] == ["exec"] and "--output-schema" in call["argv"]]
     argv = run["argv"]
     attempt = os.path.realpath(world.run_dir / "workers" / "review-1" / "attempt-1")
-    schema_file = argv[argv.index("--output-schema") + 1]
-    assert schema_file == f"{attempt}/codex-schema.json" and argv[argv.index("-o") + 1] == \
-        f"{attempt}/codex-out/{cs.OUTPUT_NAME}"
-    assert argv[argv.index("-C") + 1] == os.path.realpath(world.run_dir / "workers" / f"tree-{world.repo.base}")
+    schema_file = Path(argv[argv.index("--output-schema") + 1])
+    assert argv[argv.index("-o") + 1] == f"{attempt}/codex-out/{cs.OUTPUT_NAME}"
+    # The tree, the materials and the schema are copies in a temporary root of their own, outside
+    # the state directory (CodexPaths refuses a read root inside it), removed after the attempt.
+    read_root = schema_file.parent
+    assert sandbox.TMP_NAME.fullmatch(read_root.name) and schema_file.name == "codex-schema.json"
+    assert argv[argv.index("-C") + 1] == str(read_root / "tree")
+    assert not str(read_root).startswith(os.path.realpath(world.state) + "/") and not read_root.exists()
     assert ["-s", "read-only"] == argv[argv.index("-s"):argv.index("-s") + 2] and argv[-1] == "-"
     assert "-c" in argv and "model_reasoning_effort=high" in argv and argv[argv.index("-m") + 1] == "gpt-6.1-sol"
     assert run["env"]["CODEX_API_KEY"] == KEY and set(run["env"]) >= set(cs.BASE_VARIABLES)
@@ -722,7 +755,8 @@ def test_codex_worker_argv_environment_and_raw_text(world, monkeypatch):
     assert record["client"]["client_applied"] == "codex" and record["output"]["form"] == "text"
     assert record["output"]["sha256"] == workers.output_digest(record["output"]["raw"])
     assert KEY not in json.dumps(record) and world.seen() == []  # no Claude worker ran
-    assert broker.validated_review_head(world.run_dir) == head
+    review = json.loads((world.run_dir / broker.REVIEW_RECORD).read_text())
+    assert review["head"] == head and review["findings"][0]["level"] == "high"  # validated, not clean
 
 
 def test_a_strict_server_rejects_the_unrelaxed_schema(world, monkeypatch):
@@ -773,3 +807,343 @@ def test_the_personal_library_is_empty_during_preparation(world, monkeypatch):
     assert finish(service, service.review({"head": head_of(world)}))["status"] == "accepted"
     assert seen == [str(service.library)] and os.environ["AGENTS_USER_FLOWS_DIR"] == "/nonexistent/personal"
     assert list(service.library.iterdir()) == []
+
+
+# --- review round 1 of #345 ------------------------------------------------------------------------
+
+HANDOVER_BRANCH = BRANCH.removeprefix("refs/heads/")
+
+
+def handover(world: World, exchange: Path, sha: str, branch: str = HANDOVER_BRANCH) -> Path:
+    """The session's side: ``git bundle create <exchange>/handover.bundle <branch> ^<base>``."""
+    git(world.repo.work, "branch", "-f", branch, sha)
+    path = exchange / workers.HANDOVER_NAME
+    if path.exists():
+        path.unlink()
+    git(world.repo.work, "bundle", "create", "--quiet", str(path), branch, f"^{world.repo.base}")
+    return path
+
+
+def handover_service(world: World, tmp_path: Path, **options):
+    exchange = tmp_path / "exchange"
+    exchange.mkdir()
+    trusted = repos.TrustedRepository(world.repo.trusted, str(world.repo.trusted))
+    importer = workers.Handover(trusted, exchange, HANDOVER_BRANCH)
+    return exchange, world.service(importer=importer, **options)
+
+
+def test_p1_a_review_imports_the_handed_over_bundle_first(world, tmp_path):
+    exchange, service = handover_service(world, tmp_path)
+    sha = world.repo.commit({"src/app.py": "def run():\n    return 7\n"}, "handed over")  # never promoted by hand
+    with pytest.raises(RequestRefused, match="not the head of an imported"):
+        service.review({"head": sha})  # no bundle yet: nothing is imported
+    handover(world, exchange, sha)
+    state = finish(service, service.review({"head": sha}))
+    assert state["status"] == "accepted", state
+    assert materials.ReviewRepository(world.repo.trusted).branch_tips(ISSUE) == {HANDOVER_BRANCH: sha}
+    imports = json.loads((world.run_dir / workers.STATE_NAME).read_text())["imports"]
+    assert [(item["head"], item["added"]) for item in imports] == [(sha, 1)]
+    # The next round: a new bundle moves the branch before the follow-up review and the pre-mortem.
+    second = world.repo.commit({"src/app.py": "def run():\n    return 8\n"}, "second round")
+    handover(world, exchange, second)
+    assert finish(service, service.review({"head": second}))["status"] == "accepted"
+    assert finish(service, service.premortem({"head": second}))["status"] == "accepted"  # same bundle, no change
+
+
+def test_p1_a_refused_bundle_starts_no_review(world, tmp_path):
+    exchange, service = handover_service(world, tmp_path)
+    sha = world.repo.commit({"src/app.py": "x = 1\n"}, "other branch")
+    handover(world, exchange, sha, branch="claude/autodev-345-other")
+    with pytest.raises(RequestRefused, match="the handed-over bundle was refused: the bundle names .*autodev-345-other"):
+        service.review({"head": sha})
+    (exchange / workers.HANDOVER_NAME).write_bytes(b"not a bundle\n")
+    with pytest.raises(RequestRefused, match="the handed-over bundle was refused: not a readable git bundle"):
+        service.premortem({"head": sha})
+    assert service.tasks == {} and world.seen() == []
+    assert materials.ReviewRepository(world.repo.trusted).branch_tips(ISSUE) == {}
+
+
+def test_p1_a_head_that_is_not_the_bundles_is_refused(world, tmp_path):
+    exchange, service = handover_service(world, tmp_path)
+    first = world.repo.commit({"src/app.py": "x = 1\n"}, "first")
+    later = world.repo.commit({"src/app.py": "x = 2\n"}, "later, not handed over")
+    handover(world, exchange, first)
+    with pytest.raises(RequestRefused, match=f"the handed-over bundle's head is {first}, not {later}"):
+        service.review({"head": later})
+    assert service.tasks == {}
+    handover(world, exchange, later)
+    with pytest.raises(RequestRefused, match=f"head is {later}, not {first}"):  # an older head of the branch
+        service.review({"head": first})
+    with pytest.raises(ValueError, match="not a branch of issue #345"):
+        world.service(importer=workers.Handover(repos.TrustedRepository(world.repo.trusted, str(world.repo.trusted)),
+                                                exchange, "claude/autodev-346-x"))
+
+
+def _abort(*args, **kwargs):
+    return codex_probes.Decision(codex_probes.CODEX, None, codex_probes.DENY_PROBE_SUCCEEDED, "a deny probe read x",
+                                 known=(KnownSecret(codex_probes.API_KEY_LABEL, KEY),), abort=True)
+
+
+def _fall_back(*args, **kwargs):
+    return codex_probes.Decision(codex_probes.CODEX, codex_probes.CLAUDE, "probe_failed", "a probe failed",
+                                 known=(KnownSecret(codex_probes.API_KEY_LABEL, KEY),))
+
+
+def test_p2_a_codex_abort_fails_the_step_and_runs_no_client(world):
+    started = []
+    codex, service = codex_world(world, {})
+    service.launcher.codex_decide = _abort
+    service.launcher.codex_start = lambda *args, **kwargs: started.append(args)
+    state = finish(service, service.review({"head": head_of(world)}), seconds=120)
+    assert state["status"] == "failed" and "codex aborted the step (deny_probe_succeeded)" in state["reason"]
+    assert state["attempts"] == 1 and world.seen() == [] and started == []  # neither client ran
+    assert any(secret.value == KEY for secret in service.known)  # decision.known reached the service
+    clients = records.read_record(RUN_ID, world.state)["clients"]
+    assert clients[0]["aborted"] is True and clients[0]["abort_reason"] == "deny_probe_succeeded"
+    assert KEY not in (world.run_dir / workers.STATE_NAME).read_text()
+    with pytest.raises(RequestRefused, match="the stage is blocked"):
+        service.review({"head": head_of(world)})
+
+
+def test_p2_a_codex_fallback_runs_the_claude_worker(world):
+    codex, service = codex_world(world, {})
+    service.launcher.codex_decide = _fall_back
+    state = finish(service, service.review({"head": head_of(world)}), seconds=120)
+    assert state["status"] == "accepted" and state["client_applied"] == "claude"
+    [record] = attempt_records(world, "review-1")
+    assert record["client"]["fallback_reason"] == "probe_failed" and len(world.seen()) == 1
+    assert any(secret.value == KEY for secret in service.known)
+
+
+def test_p3_a_failed_run_with_a_decoy_denial_trips(world):
+    head = head_of(world)
+    decoy = next(item for item in world.planted if item.path is not None)
+    world.scenario({"calls": [{"tool": "Read", "input": {"file_path": str(decoy.path)}}],
+                    "outcome": {"subtype": "error_during_execution", "is_error": True, "exit": 1, "no_output": True}})
+    service = world.service()
+    state = finish(service, service.review({"head": head}))
+    assert state["status"] == "blocked" and state["attempts"] == 1, state
+    assert "tripwire" in state["reason"] and "names decoy" in state["reason"]
+    assert (world.state / "schedules" / decoys.TRIPWIRE_NAME).exists()
+
+
+def test_p3_a_failed_run_whose_text_carries_a_decoy_marker_trips(world):
+    head = head_of(world)
+    decoy = next(item for item in world.planted if item.path is not None)
+    world.scenario({"calls": [{"tool": "Read", "input": {"file_path": str(decoy.path)}}],
+                    "allow_paths": [decoy.path.name],
+                    "outcome": {"echo_reads": True, "exit": 1, "no_output": True}})
+    service = world.service()
+    state = finish(service, service.review({"head": head}))
+    assert state["status"] == "blocked" and state["attempts"] == 1 and "carries decoy" in state["reason"], state
+    assert (world.state / "schedules" / decoys.TRIPWIRE_NAME).exists()
+    assert decoy.marker not in json.dumps(attempt_records(world, "review-1"))
+
+
+@pytest.mark.parametrize("finding, decision, opens", [
+    (None, None, True),
+    ({"severity": "critical", "location": "src/app.py:2", "explanation": "run() crashes."}, "declined", False),
+    ({"severity": "medium", "location": "src/app.py:1", "explanation": "No docstring on run()."}, "declined", True),
+    ({"severity": "medium", "location": "src/app.py:1", "explanation": "No docstring on run()."}, None, False),
+    ({"severity": "high", "location": "src/app.py:2", "explanation": "run() returns a constant."}, "declined", False),
+    ({"severity": "medium", "location": "src/app.py:3", "explanation": "The token is logged."}, "declined", False),
+])
+def test_p4_the_push_gate_follows_the_review_and_the_decisions(world, finding, decision, opens):
+    world.scenario({"outcome": {"findings": [finding] if finding else []}})
+    service = world.service()
+    head = head_of(world)
+    state = finish(service, service.review({"head": head}))
+    assert state["status"] == "accepted"
+    if decision:
+        service.decide({"key": state["findings"][0]["key"], "decision": decision, "reason": "Intended behaviour."})
+    assert (broker.validated_review_head(world.run_dir) == head) is opens
+    record = json.loads((world.run_dir / broker.REVIEW_RECORD).read_text())
+    assert record["clean"] is (finding is None) and record["blocked"] is False
+
+
+def test_p4_a_blocked_last_review_keeps_the_gate_closed(world):
+    high = {"severity": "high", "location": "src/app.py:2", "explanation": "run() returns a constant."}
+    world.scenario({"outcomes": [{}, {"findings": [high]}]})
+    settings = config(limits={**autodev_config.DEFAULTS["limits"], "max_reviews": 2})
+    service = world.service(settings)
+    first = head_of(world)
+    assert finish(service, service.review({"head": first}))["status"] == "accepted"
+    assert broker.validated_review_head(world.run_dir) == first  # clean
+    second = head_of(world)
+    last = finish(service, service.review({"head": second}))
+    assert last["restricted"] == "last" and last["stage_blocked"] is True
+    service.decide({"key": last["findings"][0]["key"], "decision": "declined", "reason": "No."})
+    assert broker.validated_review_head(world.run_dir) is None
+    assert json.loads((world.run_dir / broker.REVIEW_RECORD).read_text())["blocked"] is True
+    with pytest.raises(RequestRefused, match="the stage is blocked"):
+        service.premortem({"head": second})
+
+
+def test_p5_a_follow_up_review_sees_files_earlier_rounds_changed(world):
+    service = world.service()
+    first = head_of(world, {"src/new_module.py": "VALUE = 1\n"}, "round 1 adds a module")
+    assert finish(service, service.review({"head": first}))["status"] == "accepted"
+    second = head_of(world, {"src/app.py": "from src.new_module import VALUE\n"}, "round 2 uses it")
+    state = finish(service, service.review({"head": second}))
+    assert state["status"] == "accepted" and state["range"] == f"{first}..{second}"
+    second_materials = world.run_dir / "workers" / "review-2" / "materials"
+    assert (second_materials / "head" / "src" / "new_module.py").read_text() == "VALUE = 1\n"  # from round 1
+    assert (second_materials / "head" / "src" / "app.py").read_text() == "from src.new_module import VALUE\n"
+    diff, commits = (second_materials / "diff.patch").read_text(), (second_materials / "commits.txt").read_text()
+    assert "+from src.new_module import VALUE" in diff and "VALUE = 1" not in diff  # the follow-up range only
+    assert "round 2 uses it" in commits and "round 1 adds a module" not in commits
+    assert json.loads((second_materials / "range.json").read_text())["pinned"] == world.repo.base
+
+
+def _probe_context(world: World) -> runner.Context:
+    return runner.Context(installation=world.base / "installation", directory=world.state, claude=world.claude,
+                          home=world.home, command_runner=keychain, agents_dir=world.base / "LaunchAgents")
+
+
+def test_p6_the_worker_probe_refuses_without_confirmation(world, capsys):
+    world.scenario({"stdin_calls": True, "outcome": {"structured": runner.WORKER_PROBE_RESULT}})
+    assert cli.main(["worker-probe"], ctx=_probe_context(world)) == 1
+    output = json.loads(capsys.readouterr().out)
+    assert output["error"] == "confirmation_required" and runner.PROBE_CONFIRMATION in output["message"]
+    assert world.seen() == []
+
+
+def test_p6_the_worker_probe_passes_with_a_denied_read(world, capsys):
+    world.scenario({"stdin_calls": True, "outcome": {"structured": runner.WORKER_PROBE_RESULT}})
+    code = cli.main(["worker-probe", runner.PROBE_CONFIRMATION], ctx=_probe_context(world))
+    output = json.loads(capsys.readouterr().out)
+    assert code == 0 and output["status"] == "completed", output
+    check = output["worker_check"]
+    assert check["ok"] and check["structured_output"] and (check["denials"], check["denied_outside"]) == (1, 1)
+    [call] = world.seen()
+    argv = call["argv"]
+    assert argv[:3] == ["-p", "--restricted", "--safe-mode"] and "--json-schema" in argv
+    assert json.loads(argv[argv.index("--json-schema") + 1]) == runner.WORKER_PROBE_SCHEMA
+    assert '{"tool": "Read"' in call["stdin"] and output["trigger"] == {"kind": "worker-probe"}
+
+
+@pytest.mark.parametrize("scenario, problem", [
+    ({"allow_paths": ["probe.txt"]}, "no Read outside the tree was denied"),
+    ({"calls": [{"tool": "Read", "input": {"file_path": "/etc/hosts"}}]}, "1 other tool call(s) were denied"),
+    ({"outcome": {"no_output": True, "subtype": "error_max_structured_output_retries", "is_error": True}},
+     "ended without a result"),
+])
+def test_p6_the_worker_probe_fails_when_the_worker_misbehaves(world, capsys, scenario, problem):
+    world.scenario({"stdin_calls": True, "outcome": {"structured": runner.WORKER_PROBE_RESULT}, **scenario})
+    assert cli.main(["worker-probe", runner.PROBE_CONFIRMATION], ctx=_probe_context(world)) == 1
+    output = json.loads(capsys.readouterr().out)
+    assert output["status"] == "refused" and problem in output["reason"], output
+
+
+def test_p7_an_unknown_premortem_role_fails_the_task(world):
+    settings = config()
+    settings["delegates"]["change-premortem"]["role"] = "no_such_agent"
+    service = world.service(settings)
+    head = head_of(world)
+    assert finish(service, service.review({"head": head}))["status"] == "accepted"
+    state = finish(service, service.premortem({"head": head}))
+    assert state["status"] == "failed" and "could not be prepared" in state["reason"], state
+
+
+def test_p7_the_premortem_needs_a_validated_review_of_its_head(world):
+    service = world.service()
+    first = head_of(world)
+    assert finish(service, service.review({"head": first}))["status"] == "accepted"
+    second = head_of(world)
+    with pytest.raises(RequestRefused, match=f"needs a clean validated review of {second}"):
+        service.premortem({"head": second})
+
+
+def test_p7_a_single_review_is_unrestricted_and_the_cap_holds(world):
+    settings = config(limits={**autodev_config.DEFAULTS["limits"], "max_reviews": 1})
+    world.scenario({"outcome": {"findings": FINDINGS[1:2]}})
+    service = world.service(settings)
+    only = finish(service, service.review({"head": head_of(world)}))
+    assert only["restricted"] is None and "stage_blocked" not in only
+    with pytest.raises(RequestRefused, match=r"max_reviews \(1\) is reached"):
+        service.review({"head": head_of(world)})
+
+
+def test_p8_the_decision_history_is_bounded_and_the_log_clipped(world):
+    long = "y" * 3000
+    world.scenario({"outcome": {"findings": [{"severity": "medium", "location": "a.py:1", "explanation": long}]}})
+    service = world.service()
+    state = finish(service, service.review({"head": head_of(world)}))
+    key = state["findings"][0]["key"]
+    for number in range(12):
+        service.decide({"key": key, "decision": ("fixed", "declined")[number % 2], "reason": f"reason {number}"})
+    [entry] = json.loads((world.run_dir / workers.DECISIONS_NAME).read_text())["decisions"]
+    assert len(entry["history"]) == workers.MAX_HISTORY and entry["reason"] == "reason 11"
+    assert len(entry["explanation"]) == workers.LIMITS["explanation"]
+    copied = json.loads((world.copy_dir / workers.COPY_NAME).read_text())
+    assert all(len(item["explanation"]) <= workers.LIMITS["explanation"] for item in copied["decisions"])
+    assert long not in (world.copy_dir / workers.COPY_NAME).read_text()
+
+
+def test_p8_evidence_naming_another_head_is_refused_beside_the_range(world):
+    service = world.service()
+    inner = world.repo.commit({"src/app.py": "x = 1\n"}, "inner commit")
+    head = head_of(world)
+    base = world.repo.base
+    other = "f" * 40
+    world.scenario({"outcome": {"override": {"evidence": [
+        {"id": "ev-other", "reference": f"{base}..{other}", "description": "another range"},
+        {"id": "ev-range", "reference": f"{base}..{head}", "description": "the reviewed range"}]}}})
+    state = finish(service, service.review({"head": head}))
+    assert state["status"] == "blocked" and f"the evidence names {other}" in state["reason"], state
+    # A commit of the reviewed change may be named.
+    world.scenario({"outcome": {"override": {"evidence": [
+        {"id": "ev-range", "reference": f"{base}..{head}", "description": f"commit {inner} reviewed too"}]}}})
+    again = world.service()
+    assert finish(again, again.review({"head": head}))["status"] == "accepted"
+
+
+def test_p8_the_tree_leaves_out_project_configuration(world, tmp_path):
+    sha = world.repo.promote(world.repo.commit({".claude/settings.json": '{"hooks": {}}\n', ".mcp.json": "{}\n",
+                                                "sub/.Claude/agents/x.md": "x\n", ".codex/config.toml": "x\n",
+                                                "src/kept.py": "kept = 1\n"}, "project config"))
+    exported = materials.export_tree(materials.ReviewRepository(world.repo.trusted), sha, tmp_path / "t")
+    assert sorted(exported["left_out"]) == [".claude/settings.json", ".codex/config.toml", ".mcp.json",
+                                            "sub/.Claude/agents/x.md"]
+    assert (tmp_path / "t" / "src" / "kept.py").exists() and not (tmp_path / "t" / ".claude").exists()
+    assert not (tmp_path / "t" / ".mcp.json").exists() and not (tmp_path / "t" / "sub" / ".Claude").exists()
+
+
+def test_p8_a_tree_with_project_settings_never_starts_the_worker(world):
+    service = world.service()
+    tree = service._tree()
+    (tree / ".claude").mkdir()
+    (tree / ".claude" / "settings.json").write_text("{}\n")
+    state = finish(service, service.review({"head": head_of(world)}))
+    assert state["status"] == "failed" and "project settings" in state["reason"] and world.seen() == []
+
+
+def test_p8_a_new_service_clears_records_it_did_not_write(world):
+    first = world.service()
+    head = head_of(world)
+    world.scenario({"outcome": {"findings": FINDINGS[1:2]}})
+    state = finish(first, first.review({"head": head}))
+    first.decide({"key": state["findings"][0]["key"], "decision": "declined", "reason": "Optional."})
+    assert broker.validated_review_head(world.run_dir) == head
+    (world.run_dir / broker.PREMORTEM_RECORD).write_text(json.dumps({"validated": True, "findings": []}))
+    world.service()  # a second service of the same run: a restart
+    assert broker.validated_review_head(world.run_dir) is None
+    assert not (world.run_dir / broker.REVIEW_RECORD).exists() and not (world.run_dir / broker.PREMORTEM_RECORD).exists()
+    assert not (world.run_dir / workers.DECISIONS_NAME).exists()
+    assert len(list(world.run_dir.glob("worker-decisions-before-*.json"))) == 1  # set aside, not lost
+
+
+def test_p8_read_bounded_refuses_a_fifo_and_a_hard_link(tmp_path):
+    fifo = tmp_path / "fifo"
+    os.mkfifo(fifo)
+    began = time.monotonic()
+    assert worker_launch.read_bounded(fifo, 10) is None and time.monotonic() - began < 5  # no block
+    plain = tmp_path / "plain"
+    plain.write_bytes(b"data")
+    assert worker_launch.read_bounded(plain, 10) == b"data"
+    os.link(plain, tmp_path / "second")
+    assert worker_launch.read_bounded(plain, 10) is None  # two links: maybe a file the worker may not read
+    large = tmp_path / "large"
+    large.write_bytes(b"too large")
+    with pytest.raises(worker_launch.OutputTooLarge):
+        worker_launch.read_bounded(large, 2)
