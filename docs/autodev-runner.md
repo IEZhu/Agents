@@ -19,7 +19,7 @@ does today.
 - **No run opens the runner socket yet.** The socket, its thin clients and the heavy-process
   lease exist; the run sequence of #347 will open them around its stage sessions, and only the
   heavy-process lease answers until #347 registers the broker (`src.schedules.broker.register`)
-  and the worker launcher (#345) registers its types.
+  and the worker launcher (`src.schedules.workers.register`, [autodev-workers.md](autodev-workers.md)).
   #347 must pass the sandbox's real writable set as `session_writable`, name the current stage
   session's root PID (`session_root`), and write `Endpoint.to_record()` into the run record as
   `endpoint`. The sandbox settings of #343 re-open the clients directory, the socket and the
@@ -154,8 +154,10 @@ around it, and the runner never executes a command sent through it.
   string may hold a control character other than newline and tab, or a lone surrogate. An
   integer lies between 1 and 1,000,000 unless its field sets other bounds. This part registers
   `heavy.acquire` and `heavy.release`; the broker registers its `gh.*` types
-  ([autodev-broker.md](autodev-broker.md)) and the worker launcher (#345) will register theirs.
-- **Handlers.** Each type has a deadline (5 seconds unless it registers another, at most 120). A
+  ([autodev-broker.md](autodev-broker.md)) and the worker launcher its `worker.*` types
+  ([autodev-workers.md](autodev-workers.md)).
+- **Handlers.** Each type has a deadline (5 seconds unless it registers another, at most 600, so
+  that `worker.wait` can wait 9 minutes within the 10 minutes a session's Bash call may take). A
   handler gets a `RequestContext` with that deadline, the peer's PID from the kernel and a
   `closing()` check; it bounds its own subprocess and network timeouts by the deadline and checks
   `closing()` right before any external write, aborting without the write once the server
@@ -164,7 +166,7 @@ around it, and the runner never executes a command sent through it.
   (`Connection.take` and `Connection.keep` refuse once it is closed). A type registered
   `session_bound=True` answers only a process whose ancestors include the current stage session's
   root PID, which the runner names through `session_root`; the check reads the process table on
-  every request and refuses when it cannot. The broker's types are session-bound, as those of #345 are meant to be, and the broker logs each remote write before and after it, so a write that a
+  every request and refuses when it cannot. The broker's and the worker launcher's types are session-bound, and the broker logs each remote write before and after it, so a write that a
   close interrupts stays visible.
 
 ### Thin clients
@@ -185,8 +187,8 @@ paths for the session prompt.
 | `heavy -- <command> [args]` | Takes the heavy-process lease, runs the command itself without a shell, with the inherited standard streams, keeps the connection open while it runs, then releases the lease. It passes SIGTERM, SIGHUP and SIGINT on to the command | The command's status, or 75 when the lease is refused, with the reason on standard error |
 
 Every client exits with 2 for wrong arguments and 69 when the socket cannot be reached; `heavy`
-exits with 127 or 126 when the command cannot be started. Until #347 registers the broker and #345 lands, `gh`
-and `worker` report every operation as an unknown request type.
+exits with 127 or 126 when the command cannot be started. Until #347 registers the broker and the worker
+launcher, `gh` and `worker` report every operation as an unknown request type.
 
 ### Heavy-process lease
 
