@@ -588,8 +588,27 @@ def test_the_session_view_is_parsed_and_length_limited(world):
     state = finish(service, service.review({"head": head}))
     assert len(state["summary"]) == workers.LIMITS["summary"] and "\x07" not in state["summary"]
     assert len(state["findings"][0]["explanation"]) == workers.LIMITS["explanation"]
-    assert set(state["findings"][0]) == {"key", "severity", "location", "explanation", "recommendation", "decision"}
+    assert set(state["findings"][0]) == {"key", "severity", "location", "explanation", "recommendation", "security",
+                                         "decision"}
+    assert state["findings"][0]["security"] is False
     assert "evidence" not in state and "checks" not in state
+
+
+def test_the_session_sees_the_runners_security_mark(world):
+    """The rules on declining, known risks and PR text depend on the runner's mark, so the view carries it."""
+    head = head_of(world)
+    findings = [{"severity": "medium", "location": "src/app.py:2", "explanation": "The token is logged in clear text, "
+                 "so a credential leaks into the run log.", "recommendation": "Mask it."},
+                {"severity": "medium", "location": "src/schedules/sandbox.py:3", "explanation": "The author line is "
+                 "outdated.", "recommendation": "Update it."}]
+    world.scenario({"outcome": {"findings": findings}})
+    service = world.service()
+    state = finish(service, service.review({"head": head}))
+    marks = {item["location"]: item["security"] for item in state["findings"]}
+    assert marks == {"src/app.py:2": True, "src/schedules/sandbox.py:3": False}
+    assert {item["security"] for item in state["open_findings"]} == {True, False}
+    copied = json.loads((world.copy_dir / workers.COPY_NAME).read_text())
+    assert {item["location"]: item["security"] for item in copied["tasks"][0]["findings"]} == marks
 
 
 # --- the socket ------------------------------------------------------------------------------------
@@ -1214,7 +1233,8 @@ def test_an_undecided_finding_keeps_the_gate_closed_after_a_clean_follow_up(worl
     head, why = broker.review_gate(world.run_dir)
     assert head is None and f"finding {key} (critical) of review-1 stays open" in why
     assert ledger_entry(world, key)["status"] == "open"
-    assert two["open_findings"] == [{"key": key, "severity": "critical", "reported_by": "review-1", "decision": None}]
+    assert two["open_findings"] == [{"key": key, "severity": "critical", "security": False, "reported_by": "review-1",
+                                     "decision": None}]
     with pytest.raises(RequestRefused, match="needs a clean validated review"):
         service.premortem({"head": second})
     copied = json.loads((world.copy_dir / workers.COPY_NAME).read_text())
@@ -1235,7 +1255,7 @@ def test_a_fixed_finding_leaves_the_ledger_only_when_the_next_review_does_not_re
     assert (ledger_entry(world, high)["status"], ledger_entry(world, high)["resolved_by"]) == ("resolved", "review-2")
     entry = ledger_entry(world, critical)
     assert (entry["status"], entry["handle"], entry["reported_by"]) == ("open", "review-2", ["review-1", "review-2"])
-    assert two["open_findings"] == [{"key": critical, "severity": "critical", "reported_by": "review-2",
+    assert two["open_findings"] == [{"key": critical, "severity": "critical", "security": False, "reported_by": "review-2",
                                      "decision": None}]
     assert broker.validated_review_head(world.run_dir) is None
     service.decide({"key": critical, "decision": "fixed"})
