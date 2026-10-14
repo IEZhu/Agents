@@ -93,8 +93,10 @@ Drop a candidate when any filter fails:
    "after #N", or an earlier item in its parent epic's work order.
 6. It likely touches protected paths
    ([design 5.3](../docs/autodev-plan.md#53-protected-paths)) or carries
-   `area:security`, without `autodev:next`. No label opens the control paths
-   (`flows/autodev*`, `.github/**`, `src/schedules/**`, `src/engine/**`,
+   `area:security`, without `autodev:next`. No label opens the control paths,
+   the list in `.github/autodev-control-paths` of your clean clone at
+   `{pinned}` (read it with Read; among them `flows/autodev*`, `.github/**`,
+   `src/schedules/**`, `src/engine/**`, the modules the runner imports,
    `agents/**`, `rules/**`, `skills/**`, `implants/**`): when the task likely
    needs one, say so in its rationale, because the run will stop with
    `autodev:blocked` and leave a local patch for the owner. An `area:security`
