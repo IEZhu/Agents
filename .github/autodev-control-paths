@@ -2,11 +2,28 @@
 # them stops with `autodev:blocked` and leaves a local patch for the owner
 # (docs/autodev-plan.md, section 5.3). Every path here is also a protected path.
 # Syntax as in .github/autodev-protected-paths; both list files fall under .github/**.
+# The runner's whole import closure is here (#347 review; tests/test_schedules_paths.py computes it).
 flows/autodev*
 .github/**
 src/schedules/**
 src/engine/**
 src/flow_execution.py
+src/__init__.py
+src/component_toggles.py
+src/daemon/__init__.py
+src/daemon/acl.py
+src/daemon/execution.py
+src/daemon/state.py
+src/executables.py
+src/file_lock.py
+src/model_migration.py
+src/schemas/__init__.py
+src/schemas/subagent.py
+src/user_library.py
+src/utils/__init__.py
+src/utils/langfuse_compat.py
+src/utils/prompt_loader.py
+src/version.py
 agents/**
 rules/**
 skills/**

@@ -145,6 +145,19 @@ src/schemas/**
 src/flow_execution.py
 src/executables.py
 src/daemon/autoupdate.py
+src/__init__.py
+src/component_toggles.py
+src/daemon/__init__.py
+src/daemon/acl.py
+src/daemon/execution.py
+src/daemon/state.py
+src/file_lock.py
+src/model_migration.py
+src/user_library.py
+src/utils/__init__.py
+src/utils/langfuse_compat.py
+src/utils/prompt_loader.py
+src/version.py
 install.sh
 requirements*.txt
 pyproject.toml
@@ -152,8 +165,8 @@ uv.lock
 docs/cloud-runs.md
 ```
 
-- **Control paths** (`flows/autodev*`, `.github/**`, `src/schedules/**`, `src/engine/**`, `src/flow_execution.py`, `agents/**`, `rules/**`, `skills/**`, `implants/**`, and with them both list files) are not opened by any label. If a task needs them, the runner stops the run with `autodev:blocked` and leaves a local patch that the owner reviews and pushes.
-  Amended by #347: `src/flow_execution.py` (the capability table the runner imports) joined both lists. After the implementation stage the runner runs the change check itself on the imported head; a control-path refusal there, a blocked stage output whose commits touch one, or a push the broker refused for one writes `<run_dir>/export/<run-id>.patch` (`git format-patch`) and a verified `<run-id>.bundle` (`repos.TrustedRepository.export_commits`), moves the branch to `refs/autodev/quarantine/<run-id>/final`, and names both files in the run report and the owner's notification ([autodev-sequence.md](autodev-sequence.md)).
+- **Control paths** (`flows/autodev*`, `.github/**`, `src/schedules/**`, `src/engine/**`, `src/flow_execution.py`, `src/__init__.py`, `src/component_toggles.py`, `src/daemon/__init__.py`, `src/daemon/acl.py`, `src/daemon/execution.py`, `src/daemon/state.py`, `src/executables.py`, `src/file_lock.py`, `src/model_migration.py`, `src/schemas/__init__.py`, `src/schemas/subagent.py`, `src/user_library.py`, `src/utils/__init__.py`, `src/utils/langfuse_compat.py`, `src/utils/prompt_loader.py`, `src/version.py`, `agents/**`, `rules/**`, `skills/**`, `implants/**`; with them both list files) are not opened by any label. If a task needs them, the runner stops the run with `autodev:blocked` and leaves a local patch that the owner reviews and pushes.
+  Amended by #347: `src/flow_execution.py` (the capability table the runner imports) joined both lists. After the #347 review the rest of the runner's import closure joined them too, from `src/__init__.py` to `src/version.py` (`src/daemon/state.py` sets the modes of the run records, for example); `tests/test_schedules_paths.py` computes the closure, including imports inside functions, and fails on a module outside the control paths. After the implementation stage the runner runs the change check itself on the imported head; a control-path refusal there, a blocked stage output whose commits touch one, or a push the broker refused for one writes `<run_dir>/export/<run-id>.patch` (`git format-patch`) and a verified `<run-id>.bundle` (`repos.TrustedRepository.export_commits`), moves the branch to `refs/autodev/quarantine/<run-id>/final`, and names both files in the run report and the owner's notification ([autodev-sequence.md](autodev-sequence.md)).
 - **The other protected paths** are opened by the `autodev:next` label (9.3, rule 6).
 - **The broker performs the check, not the model:** before each push it compares the changed paths with the list. It rejects:
   - a match without permission;
@@ -742,7 +755,7 @@ The premise: "The PR was merged, and a week later something broke. Why?" The ses
 
 **The stage's output** is the session's structured output per the stage schema: `branch`, `head_sha`, `changes`, `checks`, `reviews`, `blocked`, `blockers`, `pr_sections` (the sections "Self-review", "Pre-mortem: known risks", "Declined findings"). The runner imports the final bundle, re-checks `head_sha` in the trusted repository and compares it with the last head covered by a validated review. With `blocked`, the runner sets `autodev:blocked` with a neutral list of blockers, and the bundle stays in a local quarantine ref.
 
-Amended by #347: one worker service spans the implement and submit stages (`workers.WorkerService`, `max_verifications = 1 + max_bot_rounds`; `rebind_importer` points it at the submit stage's exchange directory), because a second service of the same run would clear the push gate. After the implement session the runner imports the final bundle, runs the change check on the imported head, requires `head_sha` to be that head and the last head a validated review covered, an accepted pre-mortem and no open security risk, and otherwise blocks: `refs/heads/<branch>` moves to `refs/autodev/quarantine/<run-id>/final`, the issue gets `autodev:blocked` with the neutral blockers and loses `autodev:in-progress` (Q-claim), and a control-path change is exported as a patch and a bundle ([autodev-sequence.md](autodev-sequence.md#after-the-implement-stage)).
+Amended by #347: one worker service spans the implement and submit stages (`workers.WorkerService`, `max_verifications = 1 + max_bot_rounds`; `rebind_importer` points it at the submit stage's exchange directory), because a second service of the same run would clear the push gate. After the implement session the runner imports the final bundle, runs the change check on the imported head, requires `head_sha` to be that head and the last head a validated review covered, an accepted pre-mortem and no open security risk, and otherwise blocks: `refs/heads/<branch>` moves to `refs/autodev/quarantine/<run-id>/final`, the issue gets `autodev:blocked` with the neutral blockers and loses `autodev:in-progress` (Q-claim), and a control-path change is exported as a patch and a bundle ([autodev-sequence.md](autodev-sequence.md#after-the-implement-stage)). After the #347 review: the broker answers only the submit session's writes (`Broker.enter_stage`), so the implement session cannot push or open a pull request before these checks; `gh.pr_create` of a new run also needs the accepted pre-mortem; a security-marked risk closes only as `fixed` with an accepted verification, never by the session's own `mitigated` or `known_risk`; and a branch an earlier run left in the trusted repository moves to `refs/autodev/quarantine/<run-id>/stale` before the implement stage.
 
 ### 9.5 Stage 3: PR and `pr-review`
 
