@@ -5,12 +5,15 @@
 run's process tree is gone, it also removes a runner socket the run left behind (a SIGKILL ends
 `serve` without its cleanup) when the record names one under ``endpoint``
 (`socket_service.Endpoint.to_record`), and records what it did as ``endpoint_cleanup``.
-``run_autodev`` is that child: it holds the run lease, checks the runner for drift, reads a
-GitHub snapshot and asks the gate. Infrastructure failures (a CLI, the network, the lease, drift,
-a timeout) end as ``failed: infra`` with a reason, set no label, and the next slot retries.
+``run_autodev`` is that child: it holds the run lease and runs the run sequence
+(`src.schedules.sequence`, #347) in the mode it was given: ``dry-run`` (the gate and the select
+stage, nothing written), ``run`` and ``resume``. Infrastructure failures (a CLI, the network, the
+lease, drift, a timeout) end as ``failed: infra`` with a reason, set no label, and the next slot
+retries. The supervisor's limit is `sequence.run_timeout`: the stages' timeouts plus 30 minutes.
 
-Only ``dry-run`` exists here. Every real mode (``run``, ``resume``) refuses and names the parts it
-needs; nothing in this module writes to GitHub, and the gate's cleanup actions are only reported.
+``run-now --mode run`` and ``run-now --mode resume --pr N`` are the supervised real runs (phase
+1a). A scheduled real run is the automatic mode of #350: ``enable --mode run`` refuses, ``ready``
+names it missing, and a tick whose configuration says ``run`` (edited by hand) refuses too.
 
 ``codex_probe`` is the owner's live check of Codex (#344, docs/autodev-codex.md): it builds a
 Codex worker or stage launch under its outer profile, runs the model-free probes and the nested
@@ -25,12 +28,12 @@ lines, the outside Read was denied and nothing else was, and the tripwire found 
 (`worker_probe_verdict`). It is a model turn too, so it refuses without the confirmation flag.
 
 ``probe`` is the owner's live check of the session sandbox (#343, docs/autodev-sandbox.md): it
-builds one session exactly as a run would (`src.schedules.sandbox`), checks its login, plants the
-decoys and runs `src.schedules.probes.guard`, which starts a real probe session (a model turn), so
-it refuses without the explicit confirmation flag. No stage session starts in this part: the run
-sequence (#347) builds every Claude session with `sandbox.build`, calls `probes.guard` and
-`probes.require` before it, records the report with `probes.record_report`, and starts it only
-through `probes.start_session`, in every mode (dry-run, run-now, scheduled and resume).
+builds one session exactly as a run would (`src.schedules.sandbox`, with the stage's
+``--json-schema``), checks its login, plants the decoys and runs `src.schedules.probes.guard`,
+which starts a real probe session (a model turn), so it refuses without the explicit confirmation
+flag. The run sequence builds every Claude stage session the same way, guards it, records the
+report with `probes.record_report` and starts it only through `probes.start_session`, in every
+mode (dry-run, run-now, scheduled and resume).
 """
 from __future__ import annotations
 
@@ -51,19 +54,19 @@ from typing import Callable
 from src import executables
 from src.daemon.state import private_dir, read_json, write_json
 
+from . import broker as broker_module
 from . import config as autodev_config
 from . import codex_probes, codex_proxy, codex_sandbox, decoys, drift, heavy, launchagent, lease, probes, records, repos
-from . import sandbox, scan, socket_service, worker_launch, workers
-from .gate import gate
-from .github import (GitHubClient, GitHubError, NetworkError, TokenUnavailable, fetch_snapshot, keychain_token,
-                     token_provider)
+from . import sandbox, scan, socket_service, stages, worker_launch, workers
+from .github import GitHubClient, TokenUnavailable, keychain_token, token_provider
 from .heavy import HEAVY, heavy_processes  # noqa: F401 (HEAVY: moved to heavy, still importable here)
 from .supervise import SupervisorStopped, run_supervised
 from .tick import decide, iso, local_now, next_slot
 
 REAL_MODES = ("run", "resume")
-MISSING_FOR_REAL_MODES = ["#347 run sequence", "#350 automatic mode"]
-DRY_RUN_TIMEOUT_MINUTES = 30
+# What a scheduled real run still needs; run-now runs every mode under supervision (#347).
+MISSING_FOR_REAL_MODES = ["#350 automatic mode"]
+RUN_STATUSES = ("completed", "blocked", "refused", "failed: infra")
 TICK_STATE = "tick.json"
 UPDATE_MARKERS = ("maintenance.json", "transaction.json")
 _ENVIRONMENT = ("HOME", "USER", "LOGNAME", "TMPDIR", "LANG", "LC_ALL", "LC_CTYPE")
@@ -103,6 +106,24 @@ class Context:
     codex: str | None = None
     codex_execute: Callable[..., probes.Captured] = codex_probes.execute
     codex_resolver: Callable[[str], str | None] = codex_probes.resolve_ipv4
+    # The run sequence (#347): how the owner's notification runs (osascript), the broker's
+    # credentials (default: autodev.json), how the deploy key is read, the broker's API transport
+    # and git push runner, how a stage's environment is built, the machine's shared temporary
+    # roots for sessions and workers (owner_temp, claude_temp, claude_shared; empty: the real
+    # ones), what starts a stage session, per-kind stage timeouts in seconds (empty: the
+    # configured minutes), and the Codex stage's stored availability, decision and start.
+    notify_runner: Callable[..., subprocess.CompletedProcess] = subprocess.run
+    credentials: Callable[[dict], broker_module.Credentials] | None = None
+    key_reader: Callable[[Path], bytes] = Path.read_bytes
+    broker_transport: broker_module.ApiTransport = broker_module.urllib_transport
+    push_runner: Callable[..., subprocess.CompletedProcess] = subprocess.run
+    venv_builder: Callable[..., None] | None = None
+    session_temps: dict = field(default_factory=dict)
+    stage_starter: Callable[..., subprocess.Popen] = probes.start_session
+    stage_seconds: dict = field(default_factory=dict)
+    codex_availability: Callable[[str], dict] | None = None
+    codex_decide: Callable[..., codex_probes.Decision] = codex_probes.decide
+    codex_start: Callable[..., subprocess.Popen] = codex_probes.start
 
     @property
     def schedules(self) -> Path:
@@ -114,8 +135,10 @@ class Context:
 
 
 def refusal(mode: str) -> dict:
+    """A scheduled real run before the automatic mode (#350)."""
     return {"ok": False, "error": "mode_unavailable", "mode": mode,
-            "message": f"mode {mode} is not available yet; this part runs dry-run only",
+            "message": f"a scheduled {mode} arrives with the automatic mode (#350); run "
+                       f"`autodev run-now --mode {mode}` for a supervised run",
             "missing": list(MISSING_FOR_REAL_MODES)}
 
 
@@ -149,10 +172,12 @@ def on_ac_power(pmset: str = "/usr/bin/pmset") -> bool | None:
 # --- the run ----------------------------------------------------------------------------------------
 
 def default_drift(installation: Path, config: dict) -> dict:
-    """Fetch ``main`` into the trusted repository and compare the installation with its ``pinned``."""
+    """Fetch ``main`` into the trusted repository, prune its old quarantine (under the run lease,
+    `repos.TrustedRepository.prune_quarantine`) and compare the installation with ``pinned``."""
     trusted = repos.TrustedRepository.from_config(config, installation).ensure()
     commit = trusted.fetch()
-    return {"pinned": commit, "runner_commit": drift.commit_of(installation),
+    pruned = trusted.prune_quarantine()
+    return {"pinned": commit, "runner_commit": drift.commit_of(installation), "pruned": pruned,
             "changed": drift.check(installation, commit, repository=trusted.path)}
 
 
@@ -161,9 +186,11 @@ def default_client(config: dict) -> GitHubClient:
 
 
 def run_autodev(ctx: Context, mode: str, *, pr: int | None = None, run_id: str | None = None) -> tuple[int, dict]:
-    """The supervised child: one dry-run up to the gate decision, recorded."""
-    if mode in REAL_MODES:
-        return 1, refusal(mode)
+    """The supervised child: one run of the sequence in ``mode``, recorded."""
+    # Imported here (it imports this module) and before the drift check, which covers the modules
+    # this process loaded: the sequence and everything it uses.
+    from . import sequence
+
     config = autodev_config.load(ctx.directory)
     now = ctx.clock()
     run_id = run_id or records.new_run_id(now)
@@ -178,40 +205,16 @@ def run_autodev(ctx: Context, mode: str, *, pr: int | None = None, run_id: str |
             if markers := update_markers(ctx.directory):
                 record.update(infra(f"update: a daemon update or maintenance is in progress ({', '.join(markers)})"))
             else:
-                record.update(_dry_run(ctx, config, now, pr))
+                record.update(sequence.run_sequence(ctx, config, run_id, mode, pr=pr, now=now,
+                                                    trigger=record.get("trigger")))
     except lease.LeaseBusy as error:
         record.update(infra(f"lease: {error}"))
     record["finished"] = iso(ctx.clock())
-    written = records.write_record(run_id, record, ctx.directory)
+    if mode == "dry-run" and not record.get("cleanup_executed"):
+        record["note"] = "dry-run: the gate's cleanup actions were not executed"
+    # Merged into what is on disk: the sequence, the probes and the worker threads added fields.
+    written = records.update_record(run_id, lambda current: {**current, **record}, ctx.directory)
     return (0 if written["status"] == "completed" else 1), written
-
-
-def _dry_run(ctx: Context, config: dict, now: datetime, pr: int | None) -> dict:
-    try:
-        checked = ctx.drift_check(ctx.installation) if ctx.drift_check else default_drift(ctx.installation, config)
-    except drift.DriftCheckFailed as error:
-        return infra(f"cli: {error}")
-    except repos.FetchError as error:
-        return infra(f"network: {error}")
-    except (repos.RepositoryError, ValueError, OSError) as error:
-        return infra(f"cli: trusted repository: {error}")
-    result = {"pinned": checked.get("pinned"), "runner_commit": checked.get("runner_commit")}
-    if checked.get("changed"):
-        return {**result, **infra("runner drift: " + ", ".join(checked["changed"][:20]))}
-    client = (ctx.client_factory or default_client)(config)
-    try:
-        snapshot = fetch_snapshot(client, now)
-    except TokenUnavailable as error:
-        return {**result, **infra(f"cli: {error}")}
-    except NetworkError as error:
-        return {**result, **infra(f"network: {error}")}
-    except GitHubError as error:
-        return {**result, **infra(f"network: {error}"), "github_requests": client.requests}
-    decision = gate(snapshot, records.trusted_comment_ids(ctx.directory),
-                    max_bot_rounds=config["limits"]["max_bot_rounds"], now=now, pr=pr)
-    return {**result, "status": "completed", "gate": decision.to_dict(), "github_requests": client.requests,
-            "selection": "not started: the selection session arrives with the run sequence (#347)",
-            "note": "dry-run: the gate's cleanup actions were not executed"}
 
 
 def run_environment(ctx: Context) -> dict[str, str]:
@@ -237,8 +240,9 @@ def remove_endpoint(record: dict, run_dir: Path) -> None:
 
 def launch(ctx: Context, mode: str, trigger: dict, *, pr: int | None = None) -> tuple[int, dict]:
     """Start one supervised run and return its completed record."""
-    if mode in REAL_MODES:
-        return 1, refusal(mode)
+    from . import sequence  # it imports this module
+
+    config = autodev_config.load(ctx.directory)
     now = ctx.clock()
     run_id = records.new_run_id(now)
     run_dir = records.run_dir(run_id, ctx.directory)
@@ -247,7 +251,7 @@ def launch(ctx: Context, mode: str, trigger: dict, *, pr: int | None = None) -> 
     argv = [ctx.python, "-P", "-m", "src.schedules", "run", "autodev", "--mode", mode, "--run-id", run_id]
     if pr is not None:
         argv += ["--pr", str(pr)]
-    timeout = DRY_RUN_TIMEOUT_MINUTES * 60
+    timeout = sequence.run_timeout(config, mode)
     try:
         outcome = ctx.supervise(argv, timeout=timeout, cwd=ctx.installation, env=run_environment(ctx),
                                 stdout_path=run_dir / "stdout.log", stderr_path=run_dir / "stderr.log")
@@ -273,7 +277,7 @@ def launch(ctx: Context, mode: str, trigger: dict, *, pr: int | None = None) -> 
     else:
         if outcome.signalled:  # processes the run left behind when it exited
             record["swept"] = outcome.signalled
-        if record.get("status") not in ("completed", "failed: infra"):
+        if record.get("status") not in RUN_STATUSES:
             record.update(infra(f"cli: the run exited with code {outcome.returncode} without a result"))
     if outcome is not None:
         record["caffeinated"] = outcome.caffeinated
@@ -318,8 +322,11 @@ def tick(ctx: Context) -> tuple[int, dict]:
         mode, pr = config["mode"], None
         if decision.trigger["kind"] == "continuation" and mode == "run":
             mode, pr = "resume", decision.trigger.get("pr")
-        _, run = launch(ctx, mode, decision.trigger, pr=pr)
-        result["run"] = run
+        if mode in REAL_MODES:  # a scheduled real run is the automatic mode (#350)
+            result["run"] = refusal(mode)
+        else:
+            _, run = launch(ctx, mode, decision.trigger, pr=pr)
+            result["run"] = run
     return 0, result
 
 
@@ -371,7 +378,7 @@ def status(ctx: Context) -> tuple[int, dict]:
         "next_slot": iso(next_slot(config["times"], now)),
         "tick": _tick_state(ctx),
         "recent_runs": [_summary(record) for record in records.all_records(ctx.directory)[:5]],
-        "real_modes": {"available": False, "missing": list(MISSING_FOR_REAL_MODES)},
+        "real_modes": {"run_now": True, "scheduled": False, "missing": list(MISSING_FOR_REAL_MODES)},
     }
 
 
@@ -561,7 +568,7 @@ def _probe(ctx: Context, config: dict, run_id: str, mode: str, kind: str, marker
             settings = stage.get("claude") or {}
             spec = sandbox.build(claude, kind, paths, path=path, mode=login, oauth_token=oauth,
                                  model=settings.get("model"), effort=settings.get("effort"),
-                                 run_variables={"AUTODEV_RUN_ID": run_id})
+                                 schema=stages.schema_text(kind), run_variables={"AUTODEV_RUN_ID": run_id})
             report = probes.guard(spec, directory=ctx.directory,
                                   targets=probe_targets(ctx, config, login, config_dir),
                                   persistent=planted, mode=mode, run_id=run_id, known=known, force_session=True,
@@ -607,7 +614,9 @@ def codex_executable(ctx: Context) -> str | None:
 
 def codex_probe(ctx: Context, kind: str, confirmed: bool) -> tuple[int, dict]:
     """The owner's live Codex check: one worker or stage launch, its probes and the decision,
-    recorded as a run; the stored stage availability is updated for #347 and #348."""
+    recorded as a run; the stored stage availability is updated for the run sequence and #348
+    (a stage is checked with the settings of the stage the configuration runs with Codex, else
+    ``implement``'s, and with that stage's ``--output-schema``)."""
     if not confirmed:
         return 1, {"ok": False, "error": "confirmation_required",
                    "message": "the check runs codex under its outer profile, tries to read decoys and write outside "
@@ -629,6 +638,14 @@ def codex_probe(ctx: Context, kind: str, confirmed: bool) -> tuple[int, dict]:
     record["finished"] = iso(ctx.clock())
     written = records.write_record(run_id, record, ctx.directory, known=markers)
     return (0 if written.get("status") == "completed" else 1), written
+
+
+def codex_stage_kind(config: dict) -> str:
+    """The stage a Codex stage check stands for: the first one ``autodev.json`` runs with Codex
+    (only ``select`` runs as Codex, #347), else ``implement``."""
+    configured = config.get("stages") or {}
+    return next((kind for kind in stages.KINDS if (configured.get(kind) or {}).get("client") == "codex"),
+                codex_probes.STAGE_KIND_DEFAULT)
 
 
 def _codex_work(work: Path) -> dict[str, Path]:
@@ -671,13 +688,15 @@ def _codex_probe(ctx: Context, config: dict, run_id: str, kind: str, markers: li
             paths = codex_sandbox.CodexPaths(**common, **_codex_work(work))
         else:
             session = (ctx.probe_session or default_probe_session)(ctx, config, run_id)
+            state_copy = Path(session.layout["state_copy"])
             paths = codex_sandbox.CodexPaths(**common, repository=Path(session.layout["repository"]),
                                              exchange=Path(session.layout["exchange"]),
-                                             read_roots=(Path(session.layout["state_copy"]),), venv=Path(session.venv))
+                                             read_roots=(state_copy,), venv=Path(session.venv),
+                                             schema=stages.write_schema(state_copy, codex_stage_kind(config)))
         targets = codex_probes.CodexTargets(
             state_dir=Path(ctx.directory), secrets_dir=ctx.home / ".config" / "agents-autodev",
             runner=probe_targets(ctx, config, mode or sandbox.LOGIN_CONFIG_DIR) if kind == codex_sandbox.STAGE else None)
-        settings = codex_probes.codex_settings(config, kind)
+        settings = codex_probes.codex_settings(config, kind, codex_stage_kind(config))
         with codex_proxy.ConnectProxy(codex_sandbox.allowed_hosts()) as proxy:
             options = dict(path=path, proxy=proxy, mode=mode, targets=targets, persistent=planted,
                            directory=ctx.directory, run_id=run_id, model=settings.get("model"),
