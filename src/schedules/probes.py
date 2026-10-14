@@ -53,7 +53,8 @@ the caller passes); only verdicts, exit codes and hit metadata reach the report,
 from a fixed set (`_tool_name`), and every other name the stream chose is checked and masked first
 (`_safe_name`). Raw output is dropped. After the session its whole process group is killed. A
 decoy read or a decoy marker anywhere turns the schedule off (`decoys.trip`); `stage_tripwire` does
-the same for a stage session's stream (#347).
+the same for a stage session's stream; the run sequence (`src.schedules.sequence`) calls it after
+every stage session.
 """
 from __future__ import annotations
 

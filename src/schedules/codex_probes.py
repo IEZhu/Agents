@@ -55,11 +55,12 @@ rc=<code>`` lines read from the ``--json`` event stream; `exec_plan` lists the r
 among them ``observe.env``, which fails when a model command sees the API key or the proxy
 variables). Codex stays unavailable with the reason
 unless every probe is denied and every control passes; the result is stored in
-``<state>/schedules/codex-availability.json`` for #347 and #348 with the installed checks, the
+``<state>/schedules/codex-availability.json`` for the run sequence and #348 with the installed checks, the
 codex version and the launch's run-independent shape (`codex_sandbox.launch_shape`);
 `read_availability` treats an entry as unavailable once the version or the shape differs or it is
-older than `AVAILABILITY_MAX_AGE`. Reading it needs no key and no run: #347 and #348 pass
-``version=installed_version(codex, path=...)`` and ``shape=stage_shape(codex, config)``.
+older than `AVAILABILITY_MAX_AGE`. Reading it needs no key and no run: the run sequence (#347,
+for a Codex select stage) and #348 pass ``version=installed_version(codex, path=...)`` and
+``shape=stage_shape(codex, config, stage_kind)``.
 """
 from __future__ import annotations
 
@@ -110,7 +111,7 @@ CAPTURE_LIMIT = 64 * 1024
 EXEC_TIMEOUT = probes.PROBE_TIMEOUT
 MAX_REPORT_AGE = probes.MAX_REPORT_AGE
 AVAILABILITY_NAME = "codex-availability.json"
-AVAILABILITY_MAX_AGE = 7 * 24 * 3600  # seconds a stored stage availability counts (#347 and #348 re-check)
+AVAILABILITY_MAX_AGE = 7 * 24 * 3600  # seconds a stored stage availability counts (the run sequence and #348 re-check)
 API_KEY_LABEL = "codex api key"
 MAX_WARNINGS = 8  # codex's own warning items a report keeps (each bounded to WARNING_LIMIT characters)
 WARNING_LIMIT = 200
@@ -743,7 +744,7 @@ def installed_version(codex: str, *, path: str,
                       base: Path | None = None) -> str | None:
     """The ``X.Y.Z`` of ``codex --version`` run with a fresh scratch ``CODEX_HOME`` and ``HOME``
     (`_scratch`, removed afterwards; codex reads ``$CODEX_HOME/.env`` first), or None. No model
-    turn and no key: #347 and #348 pass it to `read_availability`."""
+    turn and no key: the run sequence and #348 pass it to `read_availability`."""
     with _scratch(base) as root:
         return cs.installed_version(codex, env=_scratch_environment(root, path), runner=command_runner)
 

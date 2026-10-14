@@ -7,35 +7,24 @@ does today.
 
 ## Current limits
 
-- **Dry-run only.** A dry-run fetches `main` into the trusted repository, checks the runner for
-  drift, reads GitHub and prints the gate decision with the cleanup actions the gate wants. It
-  executes none of them and starts no model.
-- **Every real mode refuses**: `run`, `resume`, `enable --mode run` and `run-now --mode run`
-  print a JSON error naming the missing parts (#347 run sequence, #350 automatic mode) and exit
-  with code 1. The GitHub broker exists ([autodev-broker.md](autodev-broker.md)), but no run
-  opens it yet.
-- **The selection stage does not run yet.** A `select` decision ends the dry-run; the selection
-  session comes with #347.
-- **No run opens the runner socket yet.** The socket, its thin clients and the heavy-process
-  lease exist; the run sequence of #347 will open them around its stage sessions, and only the
-  heavy-process lease answers until #347 registers the broker (`src.schedules.broker.register`)
-  and the worker launcher (`src.schedules.workers.register`, [autodev-workers.md](autodev-workers.md)).
-  #347 must pass the sandbox's real writable set as `session_writable`, name the current stage
-  session's root PID (`session_root`), and write `Endpoint.to_record()` into the run record as
-  `endpoint`. The sandbox settings of #343 re-open the clients directory, the socket and the
-  interpreters' installation prefixes to reads (`SessionPaths.read_roots`, `sandbox.interpreter_roots`;
-  the `probe` command passes them), since they may lie under the denied `~/` or the owner's
-  temporary directory. The probe's socket control checks the connection; that the clients start
-  in the sandbox and cannot write the socket's directory is verified only in a live session (#347). The runner removes a killed run's socket, clients and private directory
-  only as the record's `endpoint` names them, so two cases leave an `autodev-socket-*` directory
-  in the runner's temporary directory: a run killed before #347 has recorded `endpoint` (#347
-  records it before the first session starts), and a supervisor that is itself killed, or a
-  reboot, before it cleans up.
-- **The session sandbox exists, no session uses it yet.** The launcher, the probes and the decoys
-  ([autodev-sandbox.md](autodev-sandbox.md)) are in place; the run sequence (#347) must build
-  every Claude session with them, create and remove the run's short temporary root
-  (`sandbox.make_temp_root`), start a session only through `probes.start_session` after its
-  probes passed, and run `probes.stage_tripwire` on every stage session's stream.
+- **Real runs only on demand.** `run-now --mode run` and `run-now --mode resume --pr N` run the
+  whole sequence under supervision ([autodev-sequence.md](autodev-sequence.md)): the
+  preconditions, the gate, the select, implement and submit stages, and the runner's steps
+  between them. A scheduled real run is the automatic mode of #350: `enable --mode run` refuses
+  and names it, `ready` names it missing, and a tick whose `autodev.json` says `run` (edited by
+  hand) refuses too. The schedule runs dry-runs only.
+- **A dry-run runs the select stage.** It reads GitHub, asks the gate and, on `select`, runs the
+  select session (static probe checks, no socket, no broker) and prints the decision with the
+  top-five table. It executes no cleanup action and writes nothing to GitHub.
+- **Not verified live yet.** The stage sessions, the clients inside the sandbox (that they start
+  and cannot write the socket's directory), a stage session's `--json-schema` argv, the
+  stream-json fields the report reads (`model` of the init event, `total_cost_usd` of the
+  result) and the owner's notification run only with fakes in the tests; the owner's first
+  supervised run checks them ([autodev-sequence.md](autodev-sequence.md#before-the-first-real-run)).
+- **Leftover socket directories.** The runner removes a killed run's socket, clients and private
+  directory as the record's `endpoint` names them; the run sequence records it before the first
+  session with Bash starts. A supervisor that is itself killed, or a reboot, before it cleans up
+  still leaves an `autodev-socket-*` directory in the runner's temporary directory.
 - **macOS only.** The scheduler is a LaunchAgent, and supervision uses POSIX process groups.
 
 ## Commands
@@ -48,12 +37,12 @@ failed, and 2 for wrong arguments.
 | Command | What it does |
 |---|---|
 | `tick` | The scheduler's cheap check. It starts a supervised run when a slot or a continuation is due and nothing blocks it. |
-| `run autodev [--mode M] [--pr N] [--run-id ID]` | One run. `tick` and `run-now` start it under supervision. |
+| `run autodev [--mode M] [--pr N] [--run-id ID]` | One run of the sequence ([autodev-sequence.md](autodev-sequence.md)) in mode `dry-run`, `run` or `resume`. `tick` and `run-now` start it under supervision. |
 | `autodev install [--python PATH]` / `uninstall` | Installs or removes the scheduler LaunchAgent. Both are idempotent. |
-| `autodev enable --mode dry-run` / `disable` | Turns the schedule on or off in `autodev.json`. |
-| `autodev status` | The configuration, the scheduler job, the run lease, the next slot, the tick state and the five latest runs. |
-| `autodev run-now [--mode dry-run]` | One supervised run now. |
-| `autodev ready` | A stub until #350: it lists the missing parts and exits with code 1. |
+| `autodev enable --mode dry-run` / `disable` | Turns the schedule on or off in `autodev.json`. `--mode run` refuses until the automatic mode (#350). |
+| `autodev status` | The configuration, the scheduler job, the run lease, the next slot, the tick state, the five latest runs and `real_modes` (`run_now`, `scheduled`, what is missing). |
+| `autodev run-now [--mode dry-run\|run\|resume] [--pr N]` | One supervised run now; `resume` needs `--pr`. A real run checks its preconditions first and ends `refused` with the missing items. |
+| `autodev ready` | A stub until #350: it lists the missing parts (`#350 automatic mode`) and exits with code 1. |
 | `probe [--mode M] [--kind K] --confirm-live-probe` | The owner's live check of the session sandbox: one probe session of kind `implement`, `submit` or `select` with exactly a run's argv, settings and environment (a real model turn, so it refuses without the flag). See [autodev-sandbox.md](autodev-sandbox.md#command). |
 | `codex-probe [--kind worker\|stage] --confirm-live-probe` | The owner's live check of Codex: the outer profile, the model-free probes, the nested-sandbox check and the decision between Codex and the Claude worker; a stage check also runs the probe plan through `codex exec` (a model turn) when those pass. See [autodev-codex.md](autodev-codex.md#command). |
 | `worker-probe --confirm-live-probe` | The owner's live check of the Claude worker (#345): one worker turn built as a review's, in a review's layout under the run directory, with a `Read` in its tree and one in its materials that must succeed and one outside both that must be denied (a model turn, so it refuses without the flag). See [autodev-workers.md](autodev-workers.md#current-limits). |
@@ -188,8 +177,9 @@ paths for the session prompt.
 | `heavy -- <command> [args]` | Takes the heavy-process lease, runs the command itself without a shell, with the inherited standard streams, keeps the connection open while it runs, then releases the lease. It passes SIGTERM, SIGHUP and SIGINT on to the command | The command's status, or 75 when the lease is refused, with the reason on standard error |
 
 Every client exits with 2 for wrong arguments and 69 when the socket cannot be reached; `heavy`
-exits with 127 or 126 when the command cannot be started. Until #347 registers the broker and the worker
-launcher, `gh` and `worker` report every operation as an unknown request type.
+exits with 127 or 126 when the command cannot be started. The run sequence serves one registry
+for the implement and submit stages, with the heavy-process lease, the broker's `gh.*` types and
+the worker launcher's `worker.*` types; the select stage has no Bash and gets no socket.
 
 ### Heavy-process lease
 
@@ -211,8 +201,9 @@ none.
 The lease is cooperative coordination between well-behaved sessions, not a guarantee. Nothing
 stops a session from running `pytest` without `heavy --`, and a session that runs as the same
 user can exhaust the user's process limit so that `ps` fails. Enforcing one heavy process against
-a misbehaving session belongs to the sandbox (#343) and the run sequence (#347), for example with
-process and resource limits on the session's tree.
+a misbehaving session needs process and resource limits on the session's tree, which
+`probes.start_session` does not set; it stays a known residual of the run sequence (#347), bounded
+by the stage's timeout, after which the runner ends the session's process group.
 
 ## Files
 
@@ -226,8 +217,13 @@ All files live in the service state directory `<state_dir>` from `src.daemon.sta
 | `schedules/run.lease` | The run lease. A run holds it from start to finish; the daemon's auto-update, `python -m src.daemon update` and `recover` hold it for their whole transaction, and the manual commands refuse with `an autodev run or a daemon update holds the run lease` while a run holds it. While a run holds it, the auto-update defers with `service is busy: an autodev run holds its run lease`; while the update holds it, a run ends as `failed: infra` (`lease`). A run that takes the lease checks `maintenance.json` and `transaction.json` again and ends as `failed: infra` (`update`) when one exists. A brief probe of the lease never fails a holder: taking it retries for one second. |
 | `schedules/heavy.lease` | The heavy-process lease. The runner holds it while a session's `heavy` client runs a check, and the tick waits while it is held. |
 | `schedules/runs/<run-id>/control.sock`, `schedules/runs/<run-id>/clients/` | The runner socket and its thin clients while a run serves them, when the socket path fits the `AF_UNIX` limit; otherwise both live in a private `autodev-socket-*` directory in the runner's temporary directory. Removed when the run ends, and by the runner after a killed run. |
-| `schedules/runs/<run-id>/record.json` | The run record: mode, trigger, status, gate decision, `pinned`, the GitHub paths read, and `comments` (the IDs of comments the runner wrote); `endpoint` (the socket and its clients, once a run opens them) and `endpoint_cleanup` (what the runner removed or kept after a killed run). Token-like strings are masked. |
+| `schedules/runs/<run-id>/record.json` | The run record: mode, trigger, status, gate decision, `pinned`, the GitHub paths read, and `comments` (the IDs of comments the runner wrote, each `{"id", "kind", "number"}`); `issue`, `pr`, `branch`, `selection`, `stages` (each stage's status, execution and probe digest), `probes`, `workers`, `blockers`, `exports`, `risk_issues`, `report` and `notification` ([autodev-sequence.md](autodev-sequence.md#records)); `endpoint` (the socket and its clients, once a run opens them) and `endpoint_cleanup` (what the runner removed or kept after a killed run). Token-like strings and the run's known secrets are masked. |
+| `schedules/runs/<run-id>/state.json` | The run state (`src.schedules.run_state`): the stage, the issue, the branch, the PR, `base`, `head` and the flow revisions; a read-only copy sits in the run's state copy for the sessions. |
+| `schedules/runs/<run-id>/stages/<kind>/stream.jsonl`, `stderr.log` | A stage session's raw output (private; the run record keeps only verdicts). |
+| `schedules/runs/<run-id>/broker.jsonl`, `workers/`, `workers.json`, `validated-review.json`, `premortem.json` | The broker's log ([autodev-broker.md](autodev-broker.md#broker-log)) and the worker service's records ([autodev-workers.md](autodev-workers.md#records)). |
+| `schedules/runs/<run-id>/export/<run-id>.patch`, `.bundle` | A control-path change for the owner ([autodev-sequence.md](autodev-sequence.md#after-the-implement-stage)). |
 | `schedules/runs/<run-id>/stdout.log`, `stderr.log` | The supervised run's output. |
+| `<clone>/../sessions/<run-id>/` | The run's session directories: `<kind>/repo`, `exchange`, `gh`, `settings.json`, and the shared read-only `state/` (inputs files, `state.json`, `worker-log.json`); removed when the run ends. |
 | `clone` (default `~/.local/share/agents-autodev/IEZhu-Agents`) | The trusted bare repository: `refs/remotes/origin/main` (`pinned`), imported `refs/heads/claude/autodev-*` branches, bundles refused after the fetch under `refs/autodev/quarantine/<run-id>/<n>`, and bundles refused before the fetch as read-only files `autodev-quarantine/<run-id>/<n>.bundle` inside it; `prune_quarantine()` drops both after 30 days. Outside the state directory. |
 | `schedules/tools.json` | The absolute paths of `claude`, `codex`, `gh` and `git` resolved at `install`. |
 | `schedules/claude-config/`, `schedules/decoys.json`, `schedules/tripwire.json` | The sessions' `CLAUDE_CONFIG_DIR`, the decoy registry and the last decoy tripwire ([autodev-sandbox.md](autodev-sandbox.md#files)). |
@@ -238,7 +234,9 @@ All files live in the service state directory `<state_dir>` from `src.daemon.sta
 ## Supervision and failures
 
 A run goes into a new process group under `caffeinate -i -w <pid>`, with a random per-run marker
-`AGENTS_SUPERVISED_RUN` in its environment. A dry-run may take 30 minutes. However the run ends,
+`AGENTS_SUPERVISED_RUN` in its environment. Its limit is the sum of its stages' timeouts plus
+30 minutes (`sequence.run_timeout`): a dry-run 60 minutes (select 30), a real run 330 (select 30,
+implement `stages.implement.budget.timeout_minutes`, 180 by default, submit 90) and a resume 120. However the run ends,
 by a normal exit, a timeout, or SIGTERM, SIGHUP or SIGINT to the supervisor, the supervisor sweeps
 it: SIGTERM to the group and to every process of the run, then, after a grace period, SIGKILL. A
 process of the run descends from it by parent PID, is in its group, carries the marker (read with
@@ -248,8 +246,8 @@ ends, so its PID and group cannot be reused, and only PIDs from a fresh scan are
 hides the environment of its platform binaries (`/bin`, `/usr/bin` and the rest of the system), so
 such a process that leaves the group and loses its parent before a scan sees it is not found:
 `/usr/bin/ssh` with `ControlPersist`, for one, detaches its master at once, which then lives until
-its persist time ends; when #347 adds git over ssh, its run environment should turn
-`ControlMaster` off. When `ps` fails or times out (5 seconds), the scan is blind and the sweep
+its persist time ends; the broker's push therefore runs ssh with `ControlMaster=no` and
+`ControlPath=none` (`broker.ssh_command`). When `ps` fails or times out (5 seconds), the scan is blind and the sweep
 reaches only the run's group; the record counts such scans as `failed_process_scans`. Processes
 swept after a normal exit are recorded as `swept`; a stop signal that arrives while the run starts
 ends the run as soon as it has a PID. A stopped supervisor records `failed: infra` (`stopped`) and
@@ -258,6 +256,9 @@ exits with 128 plus the signal number.
 Infrastructure failures end with the status `failed: infra` and a reason prefix: `cli` (a
 command or the keychain failed, or the run exited without a result), `network`, `lease`,
 `update`, `runner drift`, `timeout` and `stopped`. They set no label, and the next slot retries.
+A run also ends `completed`, `blocked` (the issue got `autodev:blocked`, or the select stage gave
+no valid result) or `refused` (a missing precondition, a failed probe, the decoy tripwire, a
+changed `.git`): see [autodev-sequence.md](autodev-sequence.md#statuses).
 
 The drift check fetches `main` into the trusted repository (below) and compares the runner's
 imported modules and `agents/`, `rules/`, `skills/` and `implants/` of the installation, including
@@ -294,9 +295,11 @@ grow with their inflated size. A git timeout inside an import refuses the bundle
   --revision=refs/remotes/origin/main` of the trusted repository: its own objects, no
   alternates, no hook samples, detached at `pinned`, without an `origin` remote, with the local
   identity `Alexey Zhuchkov <alexey.zhuchkov@gmail.com>`. `clone --revision` needs git 2.49 or
-  later. The function returns only the path; nothing in the runner takes a one-off repository's
-  path afterwards, so hooks or configuration a session plants there never run outside the
-  sandbox.
+  later. The submit stage's repository also holds the run's imported branch, fetched from the
+  trusted repository by its path and checked out, without a remote or an upstream. The function
+  returns only the path and the head; nothing in the runner runs git in a one-off repository
+  afterwards (the post-session check reads its `.git` without git, `src.schedules.integrity`),
+  so hooks or configuration a session plants there never run outside the sandbox.
 - **Bundles.** The session hands its commits over with
   `git bundle create <exchange>/<name>.bundle claude/autodev-<issue>-<slug> ^<base>`, where
   `<base>` is the `pinned` its one-off repository was created at.
@@ -322,11 +325,11 @@ grow with their inflated size. A git timeout inside an import refuses the bundle
   added, oldest first. A refusal names its reason; objects already fetched stay under the
   quarantine ref, and nothing reaches `refs/heads/`. `prune_quarantine()` removes quarantine refs
   and kept files of runs older than 30 days (`QUARANTINE_RETENTION`, judged by the time in the
-  runner's run ID) and then runs `git gc --prune=now`; the run sequence (#347) calls it under the
-  run lease.
+  runner's run ID) and then runs `git gc --prune=now`; the drift step of every run
+  (`runner.default_drift`) calls it under the run lease, right after the fetch.
 - **Push.** `push_arguments(url, sha, issue, slug)` builds the arguments the broker
   (`src.schedules.broker.push_command`) runs: `push --porcelain --no-follow-tags --no-signed <url> <sha>:refs/heads/claude/autodev-<issue>-<slug>`
-  with a GitHub URL, never a remote name. This part pushes nothing.
+  with a GitHub URL, never a remote name. Only the broker pushes.
 - **Environment.** `TrustedRepository.environment(commit, runner_dir)` returns
   `<runner_dir>/venvs/<hash>`, where the hash is SHA-256 over `requirements.txt`,
   `pyproject.toml` and `uv.lock` read at `commit` with `git cat-file blob` (an absent file
@@ -339,7 +342,7 @@ grow with their inflated size. A git timeout inside an import refuses the bundle
   missing or lacks its completion marker `.autodev-complete`. The build runs in a private
   sibling `venvs/.build-*`, whose scripts are pointed at the final path, is made read-only and is
   renamed into place, all under a lock per key (`venvs/<hash>.lock`): a second caller waits and
-  gets the first one's environment. The run sequence (#347) calls it.
+  gets the first one's environment. The run sequence calls it once per run, for `pinned`.
 
 ## GitHub access
 

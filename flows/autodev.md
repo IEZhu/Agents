@@ -9,9 +9,13 @@ them. The runner (`python -m src.schedules`, [autodev-runner.md](../docs/autodev
 reads it as the description of its run sequence; an interactive session follows
 it as written below.
 
-**Current state.** The runner executes only `dry-run` up to the gate decision;
-the stage sessions, the selection and every real mode arrive with the run
-sequence (#347). The stage flows below are what those sessions will follow.
+**Current state.** The runner executes the whole sequence
+([autodev-sequence.md](../docs/autodev-sequence.md)): the schedule runs
+`dry-run` (the gate and the selection, nothing written), and the owner starts a
+supervised real run with `run-now --mode run`, or continues a pull request with
+`run-now --mode resume --pr N`. A scheduled real run, and with it the tick's
+continuation, is the automatic mode of #350. The stage sessions follow the
+stage flows below.
 
 ## Inputs
 
@@ -113,9 +117,11 @@ With the owner present, in a checkout of Agents-Core:
    owner's `gh`, read-only, and report the decision with the top-five table.
    This is the default interactive run: nothing is written.
 3. **A real run** goes through the runner,
-   `.venv/bin/python -m src.schedules autodev run-now --mode run`, which refuses
-   until the run sequence (#347) exists. Execute the implementation and submit
-   stages in the conversation only when the owner asks for that explicitly.
+   `.venv/bin/python -m src.schedules autodev run-now --mode run`, which first
+   checks its preconditions (main protection, the workflow approval setting, the
+   repository secrets and the broker's credentials) and refuses with the missing
+   items. Execute the implementation and submit stages in the conversation only
+   when the owner asks for that explicitly.
    Then the session's own tools replace the runner's clients:
 
    | Runner session | Interactive session |

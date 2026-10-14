@@ -17,36 +17,35 @@ design is [autodev-plan.md](autodev-plan.md), sections 5.6, 7.6, 9.4, Q2 and Q10
 
 ## Current limits
 
-- **No run opens the service yet.** The run sequence (#347) creates one `workers.WorkerService`
-  per run for the implementation stage, registers it with `workers.register(registry, service)`
-  on the runner socket next to the broker, passes the session's state copy as `Binding.log_copy`,
-  the issue's acceptance criteria as `Binding.criteria` and
-  `importer=workers.Handover(trusted, exchange, branch)` (the stage's exchange directory and the
-  run's branch `claude/autodev-<issue>-<slug>`, which the session then also pushes), and calls
-  `service.close()` when the stage ends. It also passes the decoys and the run's known secrets
-  (broker token, deploy key) to the `worker_launch.Launcher`. A second service of the same run
-  starts with the push gate closed: it removes `validated-review.json`, `findings-ledger.json`
-  and `premortem.json` and sets `worker-decisions.json` aside, since it did not write them.
-- **#347 wires the Codex key into the broker.** A worker's Codex decision reads the API key only
-  when the attempt starts, after the broker exists. #347 builds the `broker.Broker` first and
-  creates the service with `on_known=broker.add_known`: every launch's known secrets then reach
-  the broker's outgoing-text scan and its log masking at once. The alternative is to read the
-  `codex.login` keychain item before building the broker and pass the same `KnownSecret` to
-  `Broker(known=...)` and to the `Launcher`.
-- **#347 writes the run record through `records.update_record`.** The worker thread adds its
-  `workers` entry and a Codex decision its `clients` entry while the run sequence holds the same
-  record; `update_record` reads, changes and writes under a per-run lock (and `write_record`
-  takes it too), so a writer that re-reads loses nothing. A writer that keeps the record in
-  memory and writes it at the end would drop those entries: the run sequence merges its fields
-  in with `update_record`, as the worker check does.
-- **#347 renders the stage prompt.** The prompt of plan 10.4 names `{branch}` (the run's branch
-  `claude/autodev-<issue>-<slug>`, the same one `Handover` imports) and `{exchange_dir}` (the
-  stage's exchange directory) for the handover step, and `{worker_cmd}`; no renderer exists yet.
-  `worker wait` blocks up to 540 seconds: the session's Bash call needs a timeout above that
-  (the Bash tool's maximum, 600000 ms) or a shorter `"seconds"`.
-- **#347 relies on the push gate.** `broker.validated_review_head` opens only while no accepted
-  review left an open blocker in the findings ledger (see [the gate](#the-push-gate)); #347 still
-  requires an accepted pre-mortem before the PR and keeps open security risks local.
+- **One service per run (#347).** The run sequence ([autodev-sequence.md](autodev-sequence.md))
+  creates one `workers.WorkerService` when the implement stage starts and keeps it until the
+  submit stage ends, because a second service of the same run starts with the push gate closed:
+  it removes `validated-review.json`, `findings-ledger.json` and `premortem.json` and sets
+  `worker-decisions.json` aside, since it did not write them. The binding gets the run's shared
+  state copy as `Binding.log_copy` (so `worker-log.json` stays visible to the submit session)
+  and the issue body and the owner's comments the selection named as `Binding.criteria`; the
+  importer is `workers.Handover(trusted, exchange, branch)` with the implement stage's exchange
+  directory, and `WorkerService.rebind_importer` points it at the submit stage's before that
+  stage starts. `max_verifications` is `1 + max_bot_rounds`. The service is registered on the
+  runner socket next to the broker and the heavy-process lease, the `worker_launch.Launcher`
+  gets the decoys and the run's known secrets (the OAuth token of the keychain login mode, the
+  broker's token and deploy key), and `service.close()` runs when the run ends. A resume run
+  opens a fresh service on the resumed branch, so its first push needs a new review.
+- **The Codex key reaches the broker.** The broker is built before the service, and the service
+  gets `on_known=broker.add_known`: a worker's Codex decision, which reads the API key only when
+  the attempt starts, adds it to the broker's outgoing-text scan and its log masking at once.
+- **The run record is written through `records.update_record`.** The worker thread adds its
+  `workers` entry and a Codex decision its `clients` entry while the run sequence writes the same
+  record; the run sequence merges every field it adds with `update_record` too, so nothing is
+  dropped.
+- **The stage prompt is rendered by `stages.render_prompt`.** It fills `{branch}` (the run's
+  branch, the one `Handover` imports), `{exchange_dir}` (the stage's exchange directory),
+  `{worker_cmd}` and the others of plan 10.4, and asks for a Bash timeout of 600000 ms for every
+  `worker wait`, which blocks up to 540 seconds.
+- **The run sequence relies on the push gate and adds its own checks.** After the implement
+  stage it requires the output's head to be the imported head and `validated_review_head`, an
+  accepted pre-mortem (`premortem.json`) and no open security risk (`open_security_risks`);
+  after the submit stage it opens risk issues for `risk_candidates` through the broker.
 - **On this Mac the reviewer is Claude.** `codex_probes.decide` falls back with
   `nested_sandbox_unavailable` (#344), so a `code-review-pass` profile with `client: codex` runs
   the Claude worker and the record says so.
@@ -256,13 +255,13 @@ property) refuses the launch. `validate_result` on the raw output stays the only
 
 | File (under `<state>/schedules/runs/<run-id>/`) | Written | Read by |
 |---|---|---|
-| `workers/<handle>/attempt-<n>.json` | Every attempt: the package revision and bundle ID, the retained contract, the client (`client_requested`, `client_applied`, `fallback_reason`), model and effort, the CLI's exit and subtype, the launch description (flags without paths or the schema, variable names, digest), the raw structured output with its SHA-256 and form (`object` for Claude, `text` for Codex), the validation response, the range, base and head, the verdict and its reason | The owner, #347 |
-| `workers.json` | The service's state: each task's range, status, reason, attempts and accepted attempt | The owner, #347 |
+| `workers/<handle>/attempt-<n>.json` | Every attempt: the package revision and bundle ID, the retained contract, the client (`client_requested`, `client_applied`, `fallback_reason`), model and effort, the CLI's exit and subtype, the launch description (flags without paths or the schema, variable names, digest), the raw structured output with its SHA-256 and form (`object` for Claude, `text` for Codex), the validation response, the range, base and head, the verdict and its reason | The owner, the run report |
+| `workers.json` | The service's state: each task's range, status, reason, attempts and accepted attempt | The owner, the run report |
 | `record.json` | `workers`: a summary of each finished task; `clients`: each Codex decision; both through `records.update_record` | The runner, the status command |
 | `findings-ledger.json` | After an accepted review or verification, before its record: `{"head", "handle", "findings": [{"key", "level", "security", "handle", "kind", "status", "resolved_by", "reported_by", "location", "explanation", "recommendation"}], "reviews": [{"handle", "head", "given", "repeated", "resolved", "added", "unmoved"}]}`, every `medium`-or-higher finding of every accepted review | `broker.review_gate` |
 | `validated-review.json` | After an accepted review or verification: `{"validated": true, "status": "completed", "head", "base", "range", "handle", "kind", "number", "restricted", "clean", "blocked", "findings": [{"key", "level", "security"}], ...}`, `findings` being this review's of level `medium` or higher, `security` from `workers.gate_security_signal`; `clean` speaks of this review alone. A task that ends `blocked` or `failed` replaces it with `{"validated": false, "status": "blocked" \| "failed", "blocked": true, "handle", ...}` | `broker.review_gate` and `broker.validated_review_head` (the push check, the pre-mortem's precondition) |
-| `premortem.json` | After an accepted pre-mortem: `{"validated": true, "findings": [{"id", "level", "title", "body", "security"}], ...}`, `id` the finding key, `security` from `broker.SECURITY_KEYWORDS` | `broker.read_premortem` (risk issues) |
-| `worker-decisions.json` | The latest decision per key with at most five earlier ones (`MAX_HISTORY`), location and explanation cut to the session's limits; at most 1,000 decisions per run | The push gate; #347 (the PR sections) |
+| `premortem.json` | After an accepted pre-mortem: `{"validated": true, "findings": [{"id", "level", "title", "body", "security"}], ...}`, `id` the finding key, `security` from `broker.SECURITY_KEYWORDS` | `broker.read_premortem` (risk issues); the run sequence (an accepted pre-mortem before the submit stage) |
+| `worker-decisions.json` | The latest decision per key with at most five earlier ones (`MAX_HISTORY`), location and explanation cut to the session's limits; at most 1,000 decisions per run | The push gate; `open_security_risks` and `risk_candidates` (the run sequence); the run report's decision counts |
 
 Records are masked with the decoy markers and every known secret of the run (the Codex API key
 included); an output that tripped the tripwire keeps only its SHA-256. The raw output's SHA-256
