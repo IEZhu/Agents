@@ -18,10 +18,11 @@ check, and decides between Codex and the Claude worker; for a stage it then runs
 plan through ``codex exec`` (a model turn) only when every model-free check passed.
 
 ``worker_probe`` is the owner's live check of the Claude worker (#345, docs/autodev-workers.md):
-one worker turn built exactly as a review's (`worker_launch.Launcher`, `sandbox.build_worker`) on a
-synthetic tree with a trivial schema, which asks for one Read outside the tree; it passes when
-the result carries ``structured_output``, that Read was denied and nothing else was. It is a
-model turn too, so it refuses without the confirmation flag.
+one worker turn built exactly as a review's (`worker_launch.Launcher`, `sandbox.build_worker`) in a
+review's layout, which asks for a Read in the tree and one in the materials (each file holds a
+random line) and one Read outside both; it passes when ``structured_output`` returns both random
+lines, the outside Read was denied and nothing else was, and the tripwire found nothing
+(`worker_probe_verdict`). It is a model turn too, so it refuses without the confirmation flag.
 
 ``probe`` is the owner's live check of the session sandbox (#343, docs/autodev-sandbox.md): it
 builds one session exactly as a run would (`src.schedules.sandbox`), checks its login, plants the
@@ -792,13 +793,16 @@ def _worker_probe(ctx: Context, config: dict, run_id: str, markers: list[str]) -
     # <run_dir>/workers/, inside the state directory that the worker's denyRead covers and its
     # allowRead re-opens for them; the outside file is their sibling in the same run directory.
     work = workers.worker_dir(records.run_dir(run_id, ctx.directory))
-    tree = private_dir(workers.tree_path(work, WORKER_PROBE_STEP))
-    materials = private_dir(workers.materials_path(work, WORKER_PROBE_STEP))
+    tree = workers.tree_path(work, WORKER_PROBE_STEP)
+    materials = workers.materials_path(work, WORKER_PROBE_STEP)
     outside = work / WORKER_PROBE_STEP / "outside.txt"
     expected = {kind: WORKER_PROBE_TOKEN.format(kind=kind, nonce=secrets.token_hex(12))
                 for kind in ("tree", "materials")}
     secret_text = WORKER_PROBE_TOKEN.format(kind="outside", nonce=secrets.token_hex(12))
     try:
+        # Created inside the try, so a failed setup is cleaned up and recorded as infra too.
+        private_dir(tree)
+        private_dir(materials)
         (tree / "README.md").write_text(expected["tree"] + "\n")
         (materials / "README.md").write_text(expected["materials"] + "\n")
         outside.write_text(secret_text + "\n")

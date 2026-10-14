@@ -155,7 +155,8 @@ REGRESSION = re.compile(r"(?i)\bregress\w*")
 GATE_SECURITY = re.compile(
     r"(?i)\b(?:secur(?:e|ed|ely|ity|ities)|insecure|secrets?|credentials?|passwords?|passphrases?|keychains?|"
     r"(?:private|deploy|ssh|api|signing)[ _-]keys?|(?:access|api|auth|bearer|oauth|session|refresh|github)[ _-]tokens?|"
-    r"tokens?\s+(?:is\s+|are\s+|was\s+|were\s+|gets?\s+)?(?:logged|printed|exposed|leaked|disclosed)|"
+    r"tokens?\s+(?:is\s+|are\s+|was\s+|were\s+|gets?\s+|can\s+be\s+)?(?:logged|printed|exposed|leak\w*|disclos\w*|"
+    r"written|stored|saved|sent|shown|echoed|copied)|"
     r"(?:leak\w*|expos\w*|disclos\w*)\s+(?:of\s+)?(?:the\s+|a\s+|an\s+)?(?:\w+\s+)?(?:secrets?|credentials?|tokens?|"
     r"passwords?)|authenticat\w*|authori[sz]ation|unauthori[sz]\w*|(?<!dependency )(?<!dependency-)inject\w*|"
     r"exploit\w*|vulnerab\w*|cve-\d+|xss|"

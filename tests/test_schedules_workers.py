@@ -1067,6 +1067,25 @@ def test_the_worker_probe_reads_inside_and_is_denied_outside(world, capsys):
     assert not (work / runner.WORKER_PROBE_STEP / "outside.txt").exists()
 
 
+def test_a_worker_probe_whose_setup_fails_is_infra_and_leaves_nothing(world, capsys, monkeypatch):
+    world.scenario(PROBE_ANSWER)
+    made = []
+
+    def refuse_materials(path):
+        if Path(path).name == "materials":
+            raise ValueError("not a private directory")
+        made.append(Path(path))
+        return original(path)
+
+    original = runner.private_dir
+    monkeypatch.setattr(runner, "private_dir", refuse_materials)
+    assert cli.main(["worker-probe", runner.PROBE_CONFIRMATION], ctx=_probe_context(world)) == 1
+    output = json.loads(capsys.readouterr().out)
+    assert output["status"] == "failed: infra" and "worker check: ValueError" in output["reason"], output
+    assert [path.name for path in made][-1] == f"tree-{runner.WORKER_PROBE_STEP}"
+    assert not made[-1].exists()  # the tree made before the failure is removed
+    assert world.seen() == []
+
 @pytest.mark.parametrize("scenario, problem", [
     ({"allow_paths": ["outside.txt"]}, "no Read outside the tree was denied"),
     ({"allow_paths": ["outside.txt"], "outcome": {"echo_reads": True, "probe_answer": True}},
@@ -1376,6 +1395,10 @@ def test_a_last_review_that_repeats_an_open_medium_keeps_it_open_without_blockin
     ("src/app.py:1", "Privilege escalation through the helper.", True),
     ("src/app.py:1", "SQL injection in the query builder.", True),
     ("src/app.py:1", "The token is logged in plain text.", True),
+    ("src/app.py:1", "The token leaks into the run log.", True),
+    ("src/app.py:1", "The token is written to the log.", True),
+    ("src/app.py:1", "The token is stored in plain text.", True),
+    ("src/app.py:1", "The token count is off by one.", False),
 ])
 def test_the_gates_security_signal(location, explanation, expected):
     item = {"location": location, "explanation": explanation, "recommendation": "Fix it."}
