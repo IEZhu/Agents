@@ -28,11 +28,20 @@ rather than individual files inside those directories.
 
 ## Install
 
-From the installation checkout, using Python 3.11 or newer:
+From the installation checkout, using Python 3.11 or newer.
+
+macOS and Linux:
 
 ```bash
 .venv/bin/python scripts/install_session_readiness.py --dry-run
 .venv/bin/python scripts/install_session_readiness.py --clients all
+```
+
+Windows (PowerShell):
+
+```powershell
+.\.venv\Scripts\python.exe scripts\install_session_readiness.py --dry-run
+.\.venv\Scripts\python.exe scripts\install_session_readiness.py --clients all
 ```
 
 All clients are selected by default. Use `--clients claude,codex,cursor,antigravity,desktop`

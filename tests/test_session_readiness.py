@@ -383,3 +383,47 @@ def test_backup_failure_prevents_runtime_and_config_changes(tmp_path, monkeypatc
         installer.install("claude")
     assert target.read_bytes() == b"{}"
     assert script.read_bytes() == b"previous runtime"
+
+
+def test_git_probe_ignores_inherited_repository_locations(repository, tmp_path, monkeypatch):
+    other = tmp_path.with_name(tmp_path.name + "-foreign")
+    other.mkdir()
+    git(other, "init", "--initial-branch=foreign")
+    git(other, "config", "user.name", "Test")
+    git(other, "config", "user.email", "test@example.invalid")
+    git(other, "-c", "commit.gpgsign=false", "commit", "--allow-empty", "-m", "foreign")
+    monkeypatch.setenv("GIT_DIR", str(other / ".git"))
+    monkeypatch.setenv("GIT_WORK_TREE", str(other))
+    monkeypatch.setenv("GIT_INDEX_FILE", str(other / ".git" / "index"))
+    assert readiness.git_summary(str(repository), time.monotonic() + 3) == "Git: main [clean]"
+
+
+def test_git_probe_environment_preserves_unrelated_variables(monkeypatch):
+    variables = ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE",
+                 "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_PREFIX")
+    for variable in variables:
+        monkeypatch.setenv(variable, "foreign")
+    monkeypatch.setenv("READINESS_REVIEW_MARKER", "preserved")
+    monkeypatch.setattr(readiness.shutil, "which", lambda _: "/git")
+    seen = {}
+    def run(arguments, **kwargs):
+        seen.update(kwargs["env"])
+        return subprocess.CompletedProcess(arguments, 0, "# branch.head main", "")
+    monkeypatch.setattr(readiness.subprocess, "run", run)
+    assert readiness.git_summary("/workspace", time.monotonic() + 3) == "Git: main [clean]"
+    assert all(variable not in seen for variable in variables)
+    assert seen["READINESS_REVIEW_MARKER"] == "preserved"
+
+
+def test_unbound_banner_skips_git_and_preserves_relative_workspaces(monkeypatch):
+    calls = []
+    monkeypatch.setattr(readiness, "local_ip", lambda _: "192.168.1.4")
+    def summary(cwd, deadline):
+        calls.append(cwd)
+        return "Git: chosen [clean]"
+    monkeypatch.setattr(readiness, "git_summary", summary)
+    unbound = readiness.banner({"cwd": "(workspace not bound)"})
+    assert not calls and "Git:" not in unbound
+    assert "CWD: (workspace not bound)" in unbound
+    relative = readiness.banner({"cwd": "."})
+    assert calls == ["."] and "Git: chosen [clean]" in relative

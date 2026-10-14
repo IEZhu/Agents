@@ -641,7 +641,7 @@ skills and implants and switches each one on or off for the installation.
 
 For optional session readiness in every supported client (Claude Code, Codex,
 Cursor, Antigravity and Claude Desktop), see [Session readiness](docs/session-readiness.md).
-Install it separately with `.venv/bin/python scripts/install_session_readiness.py`;
+Install it separately using the [commands for your platform](docs/session-readiness.md#install);
 Codex requires reviewing and trusting the new hook in `/hooks`. Cursor and
 Antigravity request display in the first response; ordinary Claude Desktop Chat
 uses an MCP first-response fallback because it has no native lifecycle hook.
