@@ -97,9 +97,12 @@ decision, recorded with `{worker_cmd} decide` in an autodev run:
 
 Unresolved risks are handled by the runner's `security` mark first, then by
 level (Q3). A risk marked `security: true` goes neither into the pull request
-nor into an issue: it stays in the local run record, and one that is neither
-fixed and verified nor `mitigated` ends the implementation stage blocked, so
-no pull request is opened. Of the other risks, `low` and `info` go into the
+nor into an issue: it stays in the local run record. Unless it is fixed and
+verified, the implementation stage ends blocked, so no pull request is opened.
+Only a `fixed` decision followed by an accepted verification review that starts
+at or after the decision and does not block the stage closes it; `mitigated`
+and `known_risk` leave it open because neither claim is checked. Of the other
+risks, `low` and `info` go into the
 pull request section "Pre-mortem: known risks"; each `medium`, `high` or
 `critical` one becomes an issue labelled `autodev:risk` that the runner creates
 through its broker and links from the pull request (at most three per run;
