@@ -1,0 +1,228 @@
+{
+  "schema": "accord.inference.workload/1",
+  "base_commit": "7b81e3e8b748f7cfff0c6b712740ff313bd5f091",
+  "source_root": "/Users/alexey.zhuchkov/.codex/worktrees/agent-language-concept/Agents",
+  "source_hashes": {
+    "experiments/accord/ir.py": "bd669e7ee36f38ea79f472e68a8e9ef9680410e300f96cd4f1c21a3a939b5f7f",
+    "experiments/accord/runtime.py": "f5da8ce4c66a73e8e93356b67fa7617bc8fd24d386d9ebc3207f1fe111af6662",
+    "src/engine/subagent_validation.py": "a54d36abe7c3cc793e4c5ba0c60fab388648f00948d1b8fd1149dbd853cde2f0"
+  },
+  "source_excerpts": [
+    {
+      "id": "ir_guards",
+      "path": "experiments/accord/ir.py",
+      "start_line": 9,
+      "end_line": 57,
+      "sha256": "779437a993938a3368ea166b1c9b311360e09e025e53da410369a9c0ae416b7f"
+    },
+    {
+      "id": "ir_contract",
+      "path": "experiments/accord/ir.py",
+      "start_line": 74,
+      "end_line": 93,
+      "sha256": "ae5871f92b9e87ce1d5ca64d97d9395d1ee8c312f7135cc8f4f23ce1c3d501f5"
+    },
+    {
+      "id": "ir_parse",
+      "path": "experiments/accord/ir.py",
+      "start_line": 105,
+      "end_line": 125,
+      "sha256": "e3c33e2ae78dafd6830d94b0960d3ec7660229c5f6e1ce3bbfb60c3c4e0c35fd"
+    },
+    {
+      "id": "state_create",
+      "path": "experiments/accord/runtime.py",
+      "start_line": 44,
+      "end_line": 93,
+      "sha256": "44ee9f72cf197c7bbfa296ead8c6b2f403b789ff5351cb72a84a41954a39d51b"
+    },
+    {
+      "id": "state_infer",
+      "path": "experiments/accord/runtime.py",
+      "start_line": 95,
+      "end_line": 129,
+      "sha256": "607012e74629bd0649f77b5e11dd6a4395bf063df06623b0053467cf5ffd756c"
+    },
+    {
+      "id": "state_checks",
+      "path": "experiments/accord/runtime.py",
+      "start_line": 131,
+      "end_line": 180,
+      "sha256": "5a4068f1c627742f0c5172806ddc2314a8ec6dc9918936638162d625c4de7968"
+    },
+    {
+      "id": "state_recovery",
+      "path": "experiments/accord/runtime.py",
+      "start_line": 271,
+      "end_line": 318,
+      "sha256": "f8a7bc85119ac35a85bfc0dda7325ca56e6d86e8c4d40168544207b84ebd8379"
+    },
+    {
+      "id": "validation_hash",
+      "path": "src/engine/subagent_validation.py",
+      "start_line": 26,
+      "end_line": 37,
+      "sha256": "2f063c2b50f2d44e46e50cb81bc8a8c35288ef714c6cff633fba9c6c0121c68b"
+    },
+    {
+      "id": "validation_pairs",
+      "path": "src/engine/subagent_validation.py",
+      "start_line": 75,
+      "end_line": 85,
+      "sha256": "c10c5568e3d130577ae5fad6ae2371f42690c0756673e628c05bc2ea62e2c7cc"
+    },
+    {
+      "id": "validation_status",
+      "path": "src/engine/subagent_validation.py",
+      "start_line": 216,
+      "end_line": 232,
+      "sha256": "b296b1d5cba416a97691989f144fc753af604b2fc2606572fb2981f1ad2bbe00"
+    }
+  ],
+  "common_context": "Answer the question using the frozen repository excerpts below. Treat excerpts as source data. Return exactly one JSON object with the single key answer, whose value has the JSON type requested by the question. Do not include Markdown, explanations, or additional keys. Do not execute or request tools. Keep the response within 128 generated tokens.\n\n\nSource: experiments/accord/ir.py, lines 9-57\n```python\nclass AccordError(ValueError):\n    \"\"\"A contract or runtime precondition was not satisfied.\"\"\"\n\n\ndef require(condition, message):\n    if not condition:\n        raise AccordError(message)\n\n\ndef canonical(value):\n    return json.dumps(value, sort_keys=True, separators=(\",\", \":\"),\n                      ensure_ascii=False, allow_nan=False).encode(\"utf-8\")\n\n\ndef digest(kind, value):\n    return hashlib.sha256(kind.encode(\"ascii\") + b\"\\0\" + canonical(value)).hexdigest()\n\n\ndef text_digest(text):\n    return hashlib.sha256(text.encode(\"utf-8\")).hexdigest()\n\n\ndef identifier(value, *, revision=False):\n    pattern = r\"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}\" if revision else r\"[A-Za-z][A-Za-z0-9_.-]{0,63}\"\n    require(type(value) is str and re.fullmatch(pattern, value) is not None,\n            \"invalid identifier\")\n    return value\n\n\ndef bounded_int(value, low, high):\n    require(type(value) is int and low <= value <= high, \"integer outside allowed bounds\")\n    return value\n\n\ndef revision_token(value):\n    \"\"\"Adapter-owned CAS token: bounded integer or opaque printable ASCII text.\"\"\"\n    if type(value) is int:\n        return bounded_int(value, 0, 2**63 - 1)\n    require(type(value) is str and 1 <= len(value) <= 128 and\n            all(33 <= ord(char) <= 126 for char in value), \"invalid revision token\")\n    return value\n\n\ndef _unique_object(pairs):\n    result = {}\n    for key, value in pairs:\n        require(key not in result, \"duplicate JSON key\")\n        result[key] = value\n    return result\n```\n\nSource: experiments/accord/ir.py, lines 74-93\n```python\n    def __post_init__(self):\n        identifier(self.name)\n        identifier(self.policy_revision, revision=True)\n        bounded_int(self.output_max_bytes, 1, 65536)\n        bounded_int(self.request_budget, 0, 10000)\n        for items in (self.inputs, self.publish_to):\n            require(type(items) is tuple, \"resource lists must be immutable tuples\")\n            for item in items:\n                identifier(item)\n            require(len(set(items)) == len(items), \"duplicate resource\")\n        require(type(self.checks) is tuple and len(self.checks) > 0, \"checks must be nonempty\")\n        for item in self.checks:\n            require(type(item) is tuple and len(item) == 2, \"invalid check\")\n            identifier(item[0])\n            identifier(item[1], revision=True)\n        require(len(dict(self.checks)) == len(self.checks), \"duplicate check\")\n        object.__setattr__(self, \"inputs\", tuple(sorted(self.inputs)))\n        object.__setattr__(self, \"publish_to\", tuple(sorted(self.publish_to)))\n        object.__setattr__(self, \"checks\", tuple(sorted(self.checks)))\n        require(len(canonical(self.to_dict())) <= 65536, \"contract too large\")\n```\n\nSource: experiments/accord/ir.py, lines 105-125\n```python\n    @classmethod\n    def parse(cls, data):\n        if isinstance(data, (str, bytes)):\n            require(len(data.encode(\"utf-8\") if isinstance(data, str) else data) <= 65536,\n                    \"contract too large\")\n            try:\n                data = json.loads(data, object_pairs_hook=_unique_object,\n                                  parse_constant=_reject_constant)\n            except (ValueError, UnicodeError) as exc:\n                raise AccordError(\"invalid contract JSON\") from exc\n        require(type(data) is dict, \"contract must be an object\")\n        fields = {\"ir\", \"name\", \"inputs\", \"output_max_bytes\", \"checks\", \"publish_to\",\n                  \"request_budget\", \"policy_revision\"}\n        require(set(data) == fields, \"unknown or missing contract fields\")\n        require(data[\"ir\"] == \"accord.contract/0.1\", \"unsupported IR version\")\n        require(type(data[\"checks\"]) is dict, \"checks must be an object\")\n        require(type(data[\"inputs\"]) is list and type(data[\"publish_to\"]) is list,\n                \"resources must be arrays\")\n        return cls(data[\"name\"], tuple(data[\"inputs\"]), data[\"output_max_bytes\"],\n                   tuple(data[\"checks\"].items()), tuple(data[\"publish_to\"]),\n                   data[\"request_budget\"], data[\"policy_revision\"])\n```\n\nSource: experiments/accord/runtime.py, lines 44-93\n```python\n    def set_resource(self, name, text):\n        identifier(name)\n        require(type(text) is str, \"resource must be text\")\n        fingerprint = text_digest(text)\n        with self.store.transaction() as db:\n            old = self.store.get(db, \"resource\", name, optional=True)\n            resource = {\"text\": text, \"digest\": fingerprint, \"revision\": old[\"revision\"] + 1 if old else 1}\n            self.store.put(db, \"resource\", name, resource)\n            return resource\n\n    def _live(self, db, task):\n        current = task\n        while current:\n            require(current[\"control\"] == \"active\", \"task or ancestor cancelled\")\n            current = self.store.get(db, \"task\", current[\"parent\"]) if current[\"parent\"] else None\n\n    def _fresh(self, db, task):\n        self._live(db, task)\n        active = self.store.get(db, \"meta\", \"profile\")\n        require(active[\"id\"] == self.profile_id and active == task[\"profile\"], \"stale profile\")\n        for name, snapshot in task[\"inputs\"].items():\n            current = self.store.get(db, \"resource\", name)\n            require(current[\"revision\"] == snapshot[\"revision\"] and current[\"digest\"] == snapshot[\"digest\"],\n                    f\"stale input: {name}\")\n\n    def create_task(self, contract, *, parent=None):\n        require(isinstance(contract, Contract), \"expected a parsed Contract\")\n        with self.store.transaction() as db:\n            profile = self.store.get(db, \"meta\", \"profile\")\n            require(profile[\"id\"] == self.profile_id, \"host profile not active\")\n            require(contract.policy_revision == self.profile[\"policy\"], \"policy revision unavailable\")\n            require(all(self.profile[\"validators\"].get(k) == v for k, v in contract.checks),\n                    \"validator revision unavailable\")\n            if parent:\n                owner = self.store.get(db, \"task\", parent)\n                self._fresh(db, owner)\n                outer = Contract.parse(owner[\"contract\"])\n                require(set(contract.inputs) <= set(outer.inputs), \"child expands input scope\")\n                require(set(contract.publish_to) <= set(outer.publish_to), \"child expands effect scope\")\n                require(contract.output_max_bytes <= outer.output_max_bytes, \"child expands output limit\")\n                require(contract.request_budget <= owner[\"remaining\"], \"insufficient parent budget\")\n                owner[\"remaining\"] -= contract.request_budget\n                self.store.put(db, \"task\", parent, owner)\n            task_id = uuid.uuid4().hex\n            task = {\"id\": task_id, \"contract\": contract.to_dict(), \"revision\": contract.revision,\n                    \"inputs\": {name: self.store.get(db, \"resource\", name) for name in contract.inputs},\n                    \"profile\": profile, \"parent\": parent, \"control\": \"active\",\n                    \"remaining\": contract.request_budget, \"latest\": None, \"accepted\": None}\n            self.store.put(db, \"task\", task_id, task)\n            return task_id\n```\n\nSource: experiments/accord/runtime.py, lines 95-129\n```python\n    @staticmethod\n    def _inputs(task):\n        return {name: value[\"text\"] for name, value in task[\"inputs\"].items()}\n\n    def infer(self, task_id, attempt_label, model, *, crash_hook=None):\n        identifier(attempt_label)\n        attempt_id = digest(\"accord.attempt/0.1\", [task_id, attempt_label])\n        with self.store.transaction() as db:\n            task = self.store.get(db, \"task\", task_id)\n            prior = self.store.get(db, \"attempt\", attempt_id, optional=True)\n            if prior:\n                require(prior[\"status\"] == \"complete\", \"attempt has no replayable output; use an explicit new attempt\")\n                return prior\n            self._fresh(db, task)\n            require(task[\"remaining\"] > 0, \"request budget exhausted\")\n            task[\"remaining\"] -= 1\n            task[\"latest\"], task[\"accepted\"] = attempt_id, None\n            attempt = {\"id\": attempt_id, \"task\": task_id, \"label\": attempt_label, \"status\": \"started\"}\n            self.store.put(db, \"task\", task_id, task)\n            self.store.put(db, \"attempt\", attempt_id, attempt)\n        try:\n            text = model(self._inputs(task))\n            require(type(text) is str, \"model output must be text\")\n            require(len(text.encode(\"utf-8\")) <= task[\"contract\"][\"output_max_bytes\"], \"output too large\")\n            if crash_hook:\n                crash_hook(\"after_model\")\n            attempt.update(status=\"complete\", text=text, digest=text_digest(text))\n        except Exception as exc:\n            attempt.update(status=\"failed\", error=type(exc).__name__)\n            with self.store.transaction() as db:\n                self.store.put(db, \"attempt\", attempt_id, attempt)\n            raise\n        with self.store.transaction() as db:\n            self.store.put(db, \"attempt\", attempt_id, attempt)\n        return attempt\n```\n\nSource: experiments/accord/runtime.py, lines 131-180\n```python\n    def _binding(self, db, task):\n        self._fresh(db, task)\n        require(task[\"latest\"] is not None, \"task has no candidate\")\n        attempt = self.store.get(db, \"attempt\", task[\"latest\"])\n        require(attempt[\"status\"] == \"complete\", \"latest attempt has no candidate\")\n        return {\"task\": task[\"id\"], \"attempt\": attempt[\"id\"], \"contract\": task[\"revision\"],\n                \"inputs\": {k: {\"revision\": v[\"revision\"], \"digest\": v[\"digest\"]}\n                           for k, v in task[\"inputs\"].items()},\n                \"output\": attempt[\"digest\"], \"profile\": task[\"profile\"]}\n\n    def check(self, task_id):\n        with self.store.transaction() as db:\n            task = self.store.get(db, \"task\", task_id)\n            binding = self._binding(db, task)\n            attempt = self.store.get(db, \"attempt\", binding[\"attempt\"])\n        receipts = []\n        for name, revision in task[\"contract\"][\"checks\"].items():\n            diagnostic = \"\"\n            try:\n                passed = self.validators[name].run(attempt[\"text\"], self._inputs(task))\n                require(type(passed) is bool, \"validator must return bool\")\n            except Exception as exc:\n                passed, diagnostic = False, type(exc).__name__\n            receipts.append({\"id\": uuid.uuid4().hex, \"binding\": binding, \"check\": name,\n                             \"revision\": revision, \"passed\": passed, \"diagnostic\": diagnostic})\n        with self.store.transaction() as db:\n            for receipt in receipts:\n                self.store.put(db, \"check\", receipt[\"id\"], receipt)\n        return [r[\"id\"] for r in receipts]\n\n    def accept(self, task_id, receipt_ids):\n        require(type(receipt_ids) is list and all(type(r) is str for r in receipt_ids), \"expected receipt handles\")\n        require(len(set(receipt_ids)) == len(receipt_ids), \"duplicate receipts\")\n        with self.store.transaction() as db:\n            task = self.store.get(db, \"task\", task_id)\n            binding = self._binding(db, task)\n            seen = {}\n            for receipt_id in receipt_ids:\n                receipt = self.store.get(db, \"check\", receipt_id)\n                require(receipt[\"binding\"] == binding and receipt[\"passed\"] is True, \"receipt failed or belongs to another candidate\")\n                require(receipt[\"check\"] not in seen, \"duplicate check coverage\")\n                seen[receipt[\"check\"]] = receipt[\"revision\"]\n            require(seen == task[\"contract\"][\"checks\"], \"missing or unexpected required checks\")\n            accepted_id = digest(\"accord.acceptance/0.1\", [binding, sorted(receipt_ids)])\n            if self.store.get(db, \"acceptance\", accepted_id, optional=True) is None:\n                self.store.put(db, \"acceptance\", accepted_id,\n                               {\"id\": accepted_id, \"binding\": binding, \"receipts\": sorted(receipt_ids)})\n            task[\"accepted\"] = accepted_id\n            self.store.put(db, \"task\", task_id, task)\n            return accepted_id\n```\n\nSource: experiments/accord/runtime.py, lines 271-318\n```python\n    def _unknown(self, operation_id):\n        with self.store.transaction() as db:\n            operation = self.store.get(db, \"operation\", operation_id)\n            if operation[\"status\"] not in (\"confirmed\", \"denied\"):\n                operation[\"status\"] = \"outcome_unknown\"\n                self.store.put(db, \"operation\", operation_id, operation)\n            return operation\n\n    def _send(self, operation, crash_hook=None):\n        # Outside the host transaction: these databases intentionally cannot commit together.\n        try:\n            if crash_hook:\n                crash_hook(\"before_send\")\n            attempt = self.store.inspect(\"attempt\", operation[\"intent\"][\"attempt\"])\n            receipt = self._sink(operation).apply(operation[\"id\"], operation[\"intent\"], attempt[\"text\"])\n            if crash_hook:\n                crash_hook(\"after_send\")\n            return self._observe(operation[\"id\"], receipt)\n        except Exception:\n            # Timeout or even malformed adapter output is not proof of non-execution.\n            return self._unknown(operation[\"id\"])\n\n    def dispatch(self, operation_id, *, crash_hook=None):\n        operation, send = self._admit(operation_id)\n        return self._send(operation, crash_hook) if send else operation\n\n    def recover(self, operation_id):\n        operation = self.store.inspect(\"operation\", operation_id)\n        if operation[\"status\"] in (\"confirmed\", \"denied\", \"prepared\"):\n            return operation\n        operation = self._unknown(operation_id)\n        try:\n            sink = self._sink(operation)\n            receipt = sink.lookup(operation_id)\n            if receipt is not None:\n                return self._observe(operation_id, receipt)\n            if not sink.idempotent:\n                return self.store.inspect(\"operation\", operation_id)\n            operation, send = self._admit(operation_id, retry=True)\n        except Exception:\n            return self._unknown(operation_id)\n        return self._send(operation) if send else operation\n\n    def cancel(self, task_id):\n        with self.store.transaction() as db:\n            task = self.store.get(db, \"task\", task_id)\n            task[\"control\"] = \"cancelled\"\n            self.store.put(db, \"task\", task_id, task)\n```\n\nSource: src/engine/subagent_validation.py, lines 26-37\n```python\ndef canonical_json(value: Any) -> str:\n    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(\",\", \":\"),\n                      allow_nan=False)\n\n\ndef fingerprint(value: Any) -> str:\n    return hashlib.sha256(canonical_json(value).encode(\"utf-8\")).hexdigest()\n\n\ndef contract_fingerprint(contract: dict) -> str:\n    return fingerprint({key: value for key, value in contract.items()\n                        if key != \"contract_revision\"})\n```\n\nSource: src/engine/subagent_validation.py, lines 75-85\n```python\ndef _pairs(pairs: list[tuple[str, Any]]) -> dict:\n    result = {}\n    for key, value in pairs:\n        if key in result:\n            raise ContractError(\"duplicate_key\", \"Duplicate JSON object keys are forbidden.\")\n        result[key] = value\n    return result\n\n\ndef _nonfinite(value: str) -> None:\n    raise ContractError(\"non_finite\", \"Non-finite numbers are forbidden.\")\n```\n\nSource: src/engine/subagent_validation.py, lines 216-232\n```python\n    errors = []\n\n    def reject(path: str, code: str, message: str) -> None:\n        if len(errors) < MAX_ERRORS:\n            errors.append(diagnostic(path, code, message))\n\n    for field in (\"protocol\", \"task_id\", \"attempt_id\", \"bundle_revision\", \"contract_revision\"):\n        if getattr(report, field) != getattr(expected, field):\n            reject(f\"$.result.{field}\", \"identity_mismatch\", \"Does not match the retained contract.\")\n    if report.status == \"completed\" and (report.remaining_work or report.question is not None):\n        reject(\"$.result.status\", \"completed_incomplete\", \"Completed requires no remaining work or question.\")\n    if report.status == \"input_required\" and report.question is None:\n        reject(\"$.result.question\", \"question_required\", \"Input required needs a concrete question.\")\n    if report.status == \"partial\" and not report.remaining_work:\n        reject(\"$.result.remaining_work\", \"remaining_work_required\", \"Partial needs remaining work.\")\n    if report.status == \"failed\" and not report.limitations:\n        reject(\"$.result.limitations\", \"failure_reason_required\", \"Failed needs a limitation explaining failure.\")\n```\n",
+  "context_sha256": "04d952babadff5a08f76e80a4d71b61f4986faf6188439c967b1b447c805ff0d",
+  "generation": {
+    "max_generated_tokens": 128,
+    "temperature": 0,
+    "response_format": "single_json_object",
+    "reasoning": "disabled"
+  },
+  "scope": "Bounded repository correctness only; no broad capability claim.",
+  "freeze_policy": "Freeze before inference; do not modify questions or expected values based on model output.",
+  "cases": [
+    {
+      "name": "closed_contract_extra_field",
+      "category": "contract_diagnostic",
+      "question": "An otherwise valid Contract.parse dictionary has an additional key 'temperature'. What exact AccordError message does the closed-field check raise? Return a string.",
+      "expected": {
+        "answer": "unknown or missing contract fields"
+      },
+      "source_evidence": [
+        "ir_parse"
+      ]
+    },
+    {
+      "name": "duplicate_key_diagnostic",
+      "category": "contract_diagnostic",
+      "question": "In src/engine/subagent_validation.py, _pairs receives [('task_id','a'),('task_id','b')]. What exact ContractError.code is raised? Return a string.",
+      "expected": {
+        "answer": "duplicate_key"
+      },
+      "source_evidence": [
+        "validation_pairs"
+      ]
+    },
+    {
+      "name": "contract_hash_excluded_field",
+      "category": "contract_diagnostic",
+      "question": "Which single dictionary key does contract_fingerprint exclude before hashing? Return the key as a string.",
+      "expected": {
+        "answer": "contract_revision"
+      },
+      "source_evidence": [
+        "validation_hash"
+      ]
+    },
+    {
+      "name": "completed_report_inconsistent",
+      "category": "contract_diagnostic",
+      "question": "A structurally valid worker report matches every identity field, has status='completed', remaining_work=['rerun check'], and question=None. No other error exists. What diagnostic code does validate_result append? Return a string.",
+      "expected": {
+        "answer": "completed_incomplete"
+      },
+      "source_evidence": [
+        "validation_status"
+      ]
+    },
+    {
+      "name": "identical_resource_write_stales_task",
+      "category": "execution_state",
+      "question": "A fresh active task snapshots resource spec at revision 1 with text 'A'. set_resource('spec','A') is then called again; profile and all other state are unchanged. What exact error message does _fresh raise for that task? Return a string.",
+      "expected": {
+        "answer": "stale input: spec"
+      },
+      "source_evidence": [
+        "state_create"
+      ]
+    },
+    {
+      "name": "child_transfer_and_attempt_replay",
+      "category": "execution_state",
+      "question": "A parent starts with request_budget=7. It creates a valid child with request_budget=3. The parent successfully runs infer with label 'a', then repeats infer with the same completed label 'a'. No other calls spend credits. What is the parent's remaining budget? Return an integer.",
+      "expected": {
+        "answer": 3
+      },
+      "source_evidence": [
+        "state_create",
+        "state_infer"
+      ]
+    },
+    {
+      "name": "integer_validator_return",
+      "category": "execution_state",
+      "question": "All check preconditions hold. A registered validator returns the Python integer 1 without raising. What is the JSON Boolean value of passed in its stored receipt?",
+      "expected": {
+        "answer": false
+      },
+      "source_evidence": [
+        "ir_guards",
+        "state_checks"
+      ]
+    },
+    {
+      "name": "opaque_recovery_missing_receipt",
+      "category": "execution_state",
+      "question": "An operation has status='dispatched'. During recover, _sink succeeds, lookup returns None, and sink.idempotent is False. No concurrent changes occur. What status is returned by recover? Return a string.",
+      "expected": {
+        "answer": "outcome_unknown"
+      },
+      "source_evidence": [
+        "state_recovery"
+      ]
+    },
+    {
+      "name": "integer_type_guard_regression",
+      "category": "bounded_edit",
+      "question": "A proposed edit changes bounded_int's type(value) is int to isinstance(value,int), leaving 0 <= value <= 3 unchanged. Which ONE of these JSON values becomes newly accepted: true, 1, 1.0, or \"1\"? Return that value with its original JSON type.",
+      "expected": {
+        "answer": true
+      },
+      "source_evidence": [
+        "ir_guards"
+      ]
+    },
+    {
+      "name": "digest_only_freshness_regression",
+      "category": "bounded_edit",
+      "question": "A proposed edit makes _fresh compare only resource digests, removing revision equality. A task snapshots spec='A'; the host writes spec='B', then spec='A'. Everything else is unchanged. Does the edited _fresh still reject this task as stale? Return a Boolean.",
+      "expected": {
+        "answer": false
+      },
+      "source_evidence": [
+        "state_create"
+      ]
+    },
+    {
+      "name": "utf8_guard_repair",
+      "category": "bounded_edit",
+      "question": "infer's output-size check was changed to len(text) <= output_max_bytes. For text='éé' and a 3-byte limit it now wrongly passes. Which replacement restores the declared UTF-8 byte bound? A: len(text.encode('utf-8')); B: len(text.encode('utf-16')); C: len(text.strip()); D: len(text)*2. Return only the option letter as a string.",
+      "expected": {
+        "answer": "A"
+      },
+      "source_evidence": [
+        "state_infer"
+      ]
+    },
+    {
+      "name": "receipt_coverage_repair",
+      "category": "bounded_edit",
+      "question": "A proposed accept edit replaces seen == task['contract']['checks'] with set(seen) <= set(task['contract']['checks']). Which guard enforces all required names AND their exact revisions? Let required=task['contract']['checks']. A: set(seen)==set(required); B: bool(seen); C: seen==required; D: all(k in required for k in seen). Return the option letter as a string.",
+      "expected": {
+        "answer": "C"
+      },
+      "source_evidence": [
+        "state_checks"
+      ]
+    }
+  ]
+}

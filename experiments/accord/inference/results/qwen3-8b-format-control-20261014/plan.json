@@ -1,0 +1,50 @@
+{
+  "started_at": "2026-10-14T16:39:11.601207+00:00",
+  "seed": 20261015,
+  "case_indices": [
+    4,
+    10,
+    2,
+    1,
+    5,
+    8,
+    6,
+    0,
+    9,
+    7,
+    11,
+    3
+  ],
+  "protocol_sha256": "73330aa5ce3c7ac2bb52de01a4de3133ec6b4cb590c2b0a3003eafd7c0004fb2",
+  "primary_setup_sha256": "0a9b379da9dad371d332ebad554b15ddcd6d77b173037dbfc4c2bf07e03115b0",
+  "harness_sha256": "181f6fc0ebf9c0d2af3ab50834204269ad2879e0f243c59cc79ebb0be4c3cedd",
+  "profile": {
+    "engine_commit": "d81235049384534c167caea52b85a694f6103d14",
+    "model_sha256": "d98cdcbd03e17ce47681435b5150e34c1417f50b5c0019dd560e4882c5745785",
+    "chat_template_sha256": "57f1fd00f0013a2be96aa79b857391f27e23df5b5f847072b524c897e24d0361",
+    "context_sha256": "04d952babadff5a08f76e80a4d71b61f4986faf6188439c967b1b447c805ff0d",
+    "context_size": 8192,
+    "tokenization": {
+      "add_special": true,
+      "parse_special": true
+    },
+    "backend": "Metal",
+    "kv_type": "f16",
+    "flash_attention": true,
+    "batch_size": 512,
+    "ubatch_size": 512,
+    "settings": {
+      "temperature": 0,
+      "seed": 42,
+      "n_predict": 128,
+      "id_slot": 0,
+      "top_k": 0,
+      "top_p": 1,
+      "min_p": 0,
+      "repeat_penalty": 1,
+      "presence_penalty": 0,
+      "frequency_penalty": 0,
+      "ignore_eos": false
+    }
+  }
+}

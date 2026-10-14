@@ -1,0 +1,275 @@
+{
+  "inspection_scope": "Partial running experiment; not final results",
+  "completed_rows_observed": 17,
+  "cells_observed": [
+    "ids_cold",
+    "ids_warm",
+    "text_cold",
+    "text_warm"
+  ],
+  "prefix_tokens": 3752,
+  "saved_prefix_tokens": 3752,
+  "all_input_and_cache_invariants_pass": true,
+  "all_output_token_counts_match": true,
+  "effective_generation_profiles": 1,
+  "harness_matches_recorded_hashes": true,
+  "source_git_objects_match_workload": true,
+  "native_integer_roundtrip_equal_cases": 12,
+  "rows": [
+    {
+      "index": 0,
+      "case": "receipt_coverage_repair",
+      "repeat": 1,
+      "cell": "text_cold",
+      "cache_n": 0,
+      "prompt_n": 3848,
+      "input_tokens": 3848,
+      "score": {
+        "correct": false,
+        "reason": "wrong_value",
+        "valid_json": true
+      },
+      "content": "{\"answer\": \"A\"}"
+    },
+    {
+      "index": 1,
+      "case": "receipt_coverage_repair",
+      "repeat": 1,
+      "cell": "ids_cold",
+      "cache_n": 0,
+      "prompt_n": 3848,
+      "input_tokens": 3848,
+      "score": {
+        "correct": false,
+        "reason": "wrong_value",
+        "valid_json": true
+      },
+      "content": "{\"answer\": \"A\"}"
+    },
+    {
+      "index": 2,
+      "case": "receipt_coverage_repair",
+      "repeat": 1,
+      "cell": "text_warm",
+      "cache_n": 3752,
+      "prompt_n": 96,
+      "input_tokens": 3848,
+      "score": {
+        "correct": false,
+        "reason": "wrong_value",
+        "valid_json": true
+      },
+      "content": "{\"answer\": \"A\"}"
+    },
+    {
+      "index": 3,
+      "case": "receipt_coverage_repair",
+      "repeat": 1,
+      "cell": "ids_warm",
+      "cache_n": 3752,
+      "prompt_n": 96,
+      "input_tokens": 3848,
+      "score": {
+        "correct": false,
+        "reason": "wrong_value",
+        "valid_json": true
+      },
+      "content": "{\"answer\": \"A\"}"
+    },
+    {
+      "index": 4,
+      "case": "closed_contract_extra_field",
+      "repeat": 2,
+      "cell": "text_warm",
+      "cache_n": 3752,
+      "prompt_n": 38,
+      "input_tokens": 3790,
+      "score": {
+        "correct": true,
+        "reason": "exact_match",
+        "valid_json": true
+      },
+      "content": "{\"answer\":\"unknown or missing contract fields\"}"
+    },
+    {
+      "index": 5,
+      "case": "closed_contract_extra_field",
+      "repeat": 2,
+      "cell": "ids_warm",
+      "cache_n": 3752,
+      "prompt_n": 38,
+      "input_tokens": 3790,
+      "score": {
+        "correct": true,
+        "reason": "exact_match",
+        "valid_json": true
+      },
+      "content": "{\"answer\":\"unknown or missing contract fields\"}"
+    },
+    {
+      "index": 6,
+      "case": "closed_contract_extra_field",
+      "repeat": 2,
+      "cell": "text_cold",
+      "cache_n": 0,
+      "prompt_n": 3790,
+      "input_tokens": 3790,
+      "score": {
+        "correct": true,
+        "reason": "exact_match",
+        "valid_json": true
+      },
+      "content": "{\"answer\":\"unknown or missing contract fields\"}"
+    },
+    {
+      "index": 7,
+      "case": "closed_contract_extra_field",
+      "repeat": 2,
+      "cell": "ids_cold",
+      "cache_n": 0,
+      "prompt_n": 3790,
+      "input_tokens": 3790,
+      "score": {
+        "correct": true,
+        "reason": "exact_match",
+        "valid_json": true
+      },
+      "content": "{\"answer\":\"unknown or missing contract fields\"}"
+    },
+    {
+      "index": 8,
+      "case": "closed_contract_extra_field",
+      "repeat": 0,
+      "cell": "text_cold",
+      "cache_n": 0,
+      "prompt_n": 3790,
+      "input_tokens": 3790,
+      "score": {
+        "correct": true,
+        "reason": "exact_match",
+        "valid_json": true
+      },
+      "content": "{\"answer\":\"unknown or missing contract fields\"}"
+    },
+    {
+      "index": 9,
+      "case": "closed_contract_extra_field",
+      "repeat": 0,
+      "cell": "ids_cold",
+      "cache_n": 0,
+      "prompt_n": 3790,
+      "input_tokens": 3790,
+      "score": {
+        "correct": true,
+        "reason": "exact_match",
+        "valid_json": true
+      },
+      "content": "{\"answer\":\"unknown or missing contract fields\"}"
+    },
+    {
+      "index": 10,
+      "case": "closed_contract_extra_field",
+      "repeat": 0,
+      "cell": "text_warm",
+      "cache_n": 3752,
+      "prompt_n": 38,
+      "input_tokens": 3790,
+      "score": {
+        "correct": true,
+        "reason": "exact_match",
+        "valid_json": true
+      },
+      "content": "{\"answer\":\"unknown or missing contract fields\"}"
+    },
+    {
+      "index": 11,
+      "case": "closed_contract_extra_field",
+      "repeat": 0,
+      "cell": "ids_warm",
+      "cache_n": 3752,
+      "prompt_n": 38,
+      "input_tokens": 3790,
+      "score": {
+        "correct": true,
+        "reason": "exact_match",
+        "valid_json": true
+      },
+      "content": "{\"answer\":\"unknown or missing contract fields\"}"
+    },
+    {
+      "index": 12,
+      "case": "completed_report_inconsistent",
+      "repeat": 2,
+      "cell": "ids_cold",
+      "cache_n": 0,
+      "prompt_n": 3805,
+      "input_tokens": 3805,
+      "score": {
+        "correct": true,
+        "reason": "exact_match",
+        "valid_json": true
+      },
+      "content": "{\"answer\":\"completed_incomplete\"}"
+    },
+    {
+      "index": 13,
+      "case": "completed_report_inconsistent",
+      "repeat": 2,
+      "cell": "text_warm",
+      "cache_n": 3752,
+      "prompt_n": 53,
+      "input_tokens": 3805,
+      "score": {
+        "correct": true,
+        "reason": "exact_match",
+        "valid_json": true
+      },
+      "content": "{\"answer\":\"completed_incomplete\"}"
+    },
+    {
+      "index": 14,
+      "case": "completed_report_inconsistent",
+      "repeat": 2,
+      "cell": "ids_warm",
+      "cache_n": 3752,
+      "prompt_n": 53,
+      "input_tokens": 3805,
+      "score": {
+        "correct": true,
+        "reason": "exact_match",
+        "valid_json": true
+      },
+      "content": "{\"answer\":\"completed_incomplete\"}"
+    },
+    {
+      "index": 15,
+      "case": "completed_report_inconsistent",
+      "repeat": 2,
+      "cell": "text_cold",
+      "cache_n": 0,
+      "prompt_n": 3805,
+      "input_tokens": 3805,
+      "score": {
+        "correct": true,
+        "reason": "exact_match",
+        "valid_json": true
+      },
+      "content": "{\"answer\":\"completed_incomplete\"}"
+    },
+    {
+      "index": 16,
+      "case": "completed_report_inconsistent",
+      "repeat": 0,
+      "cell": "ids_warm",
+      "cache_n": 3752,
+      "prompt_n": 53,
+      "input_tokens": 3805,
+      "score": {
+        "correct": true,
+        "reason": "exact_match",
+        "valid_json": true
+      },
+      "content": "{\"answer\":\"completed_incomplete\"}"
+    }
+  ]
+}

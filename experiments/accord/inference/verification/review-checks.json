@@ -1,0 +1,38 @@
+{
+  "offline_only": true,
+  "source_hashes_verified": 3,
+  "source_excerpt_hashes_verified": 10,
+  "frozen_json_unchanged": true,
+  "scorer": {
+    "status": "passed",
+    "scorer_cases": 23,
+    "workload_positive_cases": 12,
+    "categories": {
+      "contract_diagnostic": 4,
+      "execution_state": 4,
+      "bounded_edit": 4
+    },
+    "context_utf8_bytes": 16984,
+    "max_serialized_case_characters": 498,
+    "workload_sha256": "99097884d8b85f6f7d35ac506b9e412ccdc80d85dc1fc68dd54eb08cc9cc7225",
+    "context_sha256": "04d952babadff5a08f76e80a4d71b61f4986faf6188439c967b1b447c805ff0d"
+  },
+  "plan_rows": 144,
+  "each_cell_each_position": 9,
+  "mock_trials_passed": 144,
+  "mock_invariant_error_path_passed": true,
+  "summary_cells": 4,
+  "summary_contrasts": 4,
+  "setup_accounting_checks": true,
+  "partial_stream_retention_checks": [
+    "error",
+    "missing_final"
+  ],
+  "harness_hashes": {
+    "run.py": "e9b1fa72e909d7c495c50cc7ea80e015e893cba7c405d145f4aaed7505aedebe",
+    "client.py": "e168d6a59cdad00c5dfa458a109dfd412ba5b4eb27ee2cb7b4e97aa3a4898f21",
+    "__init__.py": "6d42968d701fc02263f18aaccb2f97eb7ba708efc17b861d901110f50f0aa034",
+    "workload.py": "f769fd943d03c0d1e2791ba7bc66abd0727b1e11ea615eb23144e49f98859f4a",
+    "analyze.py": "26d35d3749c276daa097c4ac4f5d466383caec919e095190ed66e12abc579226"
+  }
+}
