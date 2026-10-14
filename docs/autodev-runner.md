@@ -68,7 +68,9 @@ and `disable`, the functions behind the CLI commands above.
   Q11). The efforts offered are the capability table's (`src/flow_execution.py`), which the page
   builds from `claude --version`, `claude --help` and `codex --version` (no model turn, a fresh
   empty `HOME`) and keeps for ten minutes. Saving a Claude fallback for a Codex profile is
-  allowed: a Codex stage or step that cannot run uses it.
+  allowed: a Codex stage or step that cannot run uses it. A client object left empty falls back
+  to its defaults after the save, as `load` merges the defaults in: the run reads a stage's Codex
+  settings from it, so the page shows the values the run would use.
 - **Codex as a stage client (Q14):** shown as unavailable, with the reason in words (every reason
   the probes store has a text), until the stored stage availability says available
   (`codex_probes.configured_stage_availability`, which the run sequence asks too: the codex
@@ -94,7 +96,9 @@ form read before them still saves, and a save never writes them back. Every writ
 `autodev.json` (the page's save, `enable`, `disable` and the tripwire) holds one lock,
 `schedules/autodev.lock` (`config.writing`), from its load to its write, so a save takes `enabled`
 and `mode` from the file as it is then: it cannot undo a tripwire's `enabled: false` or a
-switch made meanwhile. With unsaved edits, the switch keeps the form and its revision, so a
+switch made meanwhile. The lock has no timeout: a writer stuck while holding it (a suspended
+`autodev enable`, a hung disk) would make a run's tripwire wait for it; a writer that ends,
+crashed or not, releases it. With unsaved edits, the switch keeps the form and its revision, so a
 change made elsewhere before it still refuses the save. Keys the page does not edit, among them
 `github`, `sandbox`, `codex.login` and the stage `budget`, keep their stored values; the first save
 writes every other key too, with the current defaults, as `enable` does, so a later change of a
