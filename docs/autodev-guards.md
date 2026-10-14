@@ -1,6 +1,7 @@
 # Autodev guards: protected paths and the outgoing-text scan
 
-Status: library with tests; the broker that calls it is not implemented yet.
+Status: implemented with tests, and in use: the broker (#342) runs both checks before it writes to
+GitHub, and the run sequence (#347) runs the change check after the implement stage.
 Tracking: [issue #341](https://github.com/IEZhu/Agents/issues/341), part of the autodev epic #336.
 Design: [autodev plan](autodev-plan.md), sections 5.3 (protected paths) and 5.6 (session and
 worker rights).

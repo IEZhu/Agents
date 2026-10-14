@@ -762,7 +762,7 @@ Amended by #347: one worker service spans the implement and submit stages (`work
 The stage session runs `pr-review` in `autodev` mode; all writes go through the broker:
 
 1. If the base moved ahead, update the branch per the `pr-review` rules, re-run the checks and, if the code changed, run a verification review.
-2. Push and a PR in English through the broker: the problem, the behavior, the checks (those run, and those not run with a reason), the sections from `pr_sections`, "Closes #N" or "Part of #N" for a slice with a checklist of the remainder in an issue comment, the `autodev` label.
+2. Push and a PR in English through the broker: the problem, the behavior, the checks (those run, and those not run with a reason) in a section headed "Checks" (amended by #349, as the acceptance of 1a requires), the sections from `pr_sections`, "Closes #N" or "Part of #N" for a slice with a checklist of the remainder in an issue comment, the `autodev` label.
 3. **The `autodev` mode in `pr-review`** (added in phase 1a):
    - findings are accepted per the rules of 5.2. Unresolved bot findings on earlier heads are also in scope; the current-head rule concerns the evidence of completion;
    - `--resolve-mine` is not used; only the threads of bots and of the agent itself are resolved;
@@ -1010,7 +1010,7 @@ The owner answered all questions on 2026-10-12. Each item states the decision; t
 
 ### Phase 1a. Supervised MVP
 
-State on 2026-10-14: the code of every item below is implemented by #338 to #348, with the issue in brackets; #338 to #342 are on `main`, and #343 to #348 are stacked branches that wait for the owner's merge. What only a live run can show is listed under "Acceptance of 1a" and in the open items of [autodev-sandbox.md](autodev-sandbox.md#open-items-for-the-live-check) and [autodev-codex.md](autodev-codex.md#open-items-for-the-live-check); the owner's procedure for each is [autodev-acceptance.md](autodev-acceptance.md).
+State on 2026-10-14: the code of every item below is implemented by #338 to #348, with the issue in brackets; the two checks of the CLIs stay open until a live run observes them; #338 to #342 are on `main`, and #343 to #348 are stacked branches that wait for the owner's merge. What only a live run can show is listed under "Acceptance of 1a" and in the open items of [autodev-sandbox.md](autodev-sandbox.md#open-items-for-the-live-check) and [autodev-codex.md](autodev-codex.md#open-items-for-the-live-check); the owner's procedure for each is [autodev-acceptance.md](autodev-acceptance.md).
 
 **Flows:**
 
@@ -1031,7 +1031,7 @@ State on 2026-10-14: the code of every item below is implemented by #338 to #348
 - [x] The runner's trusted repository; a one-off repository per session; importing bundles (`git bundle`) with validation; a clean git configuration; push by explicit URL and refspec; a drift check of all imported modules; a read-only `.venv`; quarantine refs (#338 drift, #339).
 - [x] Stage sessions: isolated CLI profiles, the flags of 5.6, the prompts of 10.4, stage output schemas, `state.json` (#343 sessions, #347 schemas, prompts and `state.json`).
 - [x] `worker`: preparation with `prepare_subagent`, materials, starting the CLI with `worker_context` on stdin, the length check, `validate_result`, attempts, the record; asynchronous `start` and `wait` (#345).
-- [x] Check which keywords of the `subagent/1` review schema `--json-schema` and `--output-schema` accept (#345, from the CLIs' help, documentation and sources; not yet observed in a model turn, which `worker-probe` and the first real run do).
+- [ ] Check which keywords of the `subagent/1` review schema `--json-schema` and `--output-schema` accept. From the CLIs' help, documentation and sources: done (#345). Observed in a model turn: open (`worker-probe` and the first real run).
 - [x] The runner socket `{run_dir}/control.sock` with three services, and the thin clients `{gh_cmd}`, `{worker_cmd}`, `{heavy_cmd}` (#340; when that path is too long for `AF_UNIX`, a private `autodev-socket-*` directory).
 - [x] The broker (5.6), bound to the run's issue and PR, with a list of allowed read endpoints, an ID log and the scan; a read-only mode for `dry-run`; refusing to start in real mode without the Q15 credentials (#342; since #347 a dry-run builds no broker at all, and session writes are answered only in the submit stage).
 - [x] The socket in a directory the sandbox cannot write; `{heavy_cmd}` only grants a lease; `{worker_cmd} decide` for the decision log; the runner does not execute commands sent to it (#340, #345).
@@ -1044,7 +1044,7 @@ State on 2026-10-14: the code of every item below is implemented by #338 to #348
 - [x] `caffeinate`, a new process group, terminating the tree, a lease for the auto-update in `src/daemon/autoupdate.py`, the `failed: infra` classification (#338).
 - [x] The LaunchAgent `local.agents-core.<id>.scheduler`, absolute CLI paths, an explicit `PATH`, a clone outside `~/Documents` (#338, #339).
 - [x] Record the allowed `model_reasoning_effort` values of Codex; check `-s read-only` (reads outside the directory) and `workspace-write` (network) (#344: the values from the source at `rust-v0.162.1`; `installed_checks` measures both; the research found that `read-only` reads the whole disk and `workspace-write` blocks the network).
-- [x] Check on this version of Claude Code (#343, from the documentation of 2.1.296; the live observations are open items in [autodev-sandbox.md](autodev-sandbox.md#open-items-for-the-live-check)):
+- [ ] Check on this version of Claude Code. From the documentation of 2.1.296: done (#343). Observed live: open, see the open items in [autodev-sandbox.md](autodev-sandbox.md#open-items-for-the-live-check):
   - `--safe-mode` does not break the subscription login (documented to keep authentication with a separate `CLAUDE_CONFIG_DIR`);
   - how `--permission-mode auto` and `--permission-prompts none` combine with `-p` (sessions use `--permission-mode dontAsk` with `--permission-prompts none`);
   - what a session with `--strict-mcp-config` and no servers sees (connectors are closed by three more switches as well, and the init check counts MCP servers).
