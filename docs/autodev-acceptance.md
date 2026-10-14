@@ -497,6 +497,27 @@ own auto-update found a new commit during a run, `$STATE/auto-update.json` shows
 `state: deferred` with `service is busy: an autodev run holds its run lease`
 ([updates](shared-mcp-daemon.md#updates-and-recovery)).
 
+## Phase 1b: the automatic mode
+
+The acceptance of #350 ([plan 14, Phase 1b](autodev-plan.md#phase-1b-automatic-mode-under-the-owners-account)),
+after the items above pass. These are owner live steps too; the code they use was written on
+2026-10-14 and has run only against synthetic answers and stored records
+([automatic mode](autodev-runner.md#automatic-mode)).
+
+**B1. `ready` passes on this Mac.** Run the twelve probes of [A7](#a7-probes-hold-in-every-mode-and-the-broker-refuses)
+(a record counts for 7 days), then `.venv/bin/python -m src.schedules autodev ready`. It exits with
+1 and lists what is missing; fix each item until only the acceptance remains, then run
+`.venv/bin/python -m src.schedules autodev enable --mode run --accept-shared-account`, read the
+risks it lists, and run `ready` again. **Pass:** exit code 0, `missing: []`, every
+`probes.<kind>.<mode>.status` is `passed`, and `acceptance.current` is true. Keep the output.
+
+**B2. Three automatic real runs in a row.** With run mode on and the scheduler installed, let
+three slots run (or continuations of a pull request that waits for bots). **Pass:** three
+consecutive scheduled runs (`trigger.kind` `slot` or `continuation`, `mode` `run` or `resume`)
+end `completed` with a pull request or the gate's `wait`, or `blocked`, with no step of yours in
+between; no record is `refused` with `automatic mode not ready`, and `tripwire.json` did not
+change. A refused tick or a tripwire restarts the count.
+
 ## Results
 
 Fill this in as the runs happen; keep each run ID with its evidence. The evidence column holds
@@ -513,5 +534,8 @@ neutral facts only (*Public records* at the top).
 | A7 Probes in every mode; broker refusals | | | not run |
 | A8 `wait` and `resume` | | | not run |
 | A9 Timeout; daemon update waits | | | not run |
+| B1 `ready` passes; acceptance recorded | | | not run |
+| B2 Three automatic real runs in a row | | | not run |
 
-When an item passes, tick it in [plan 14](autodev-plan.md#phase-1a-supervised-mvp).
+When an item passes, tick it in [plan 14](autodev-plan.md#phase-1a-supervised-mvp) (B1 and B2 under
+[phase 1b](autodev-plan.md#phase-1b-automatic-mode-under-the-owners-account)).

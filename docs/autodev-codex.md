@@ -291,9 +291,10 @@ exits (`close_when`). The tests use only local listeners (an injected `connect`)
 | Fallback (`decision.fallback`) | `client_applied: "claude"`, `reason` in `REASONS` | runs the Claude worker |
 | **Abort** (`decision.abort`) | `abort: true`, `client_applied: null`, `reason` in `ABORT_REASONS` (`deny_probe_succeeded`) | **fails the step**; runs neither Codex nor the Claude worker (`start` refuses) |
 
-A deny probe that got through, or a decoy read or leaked (which also turns the schedule off), is
-an abort, never a fallback: the outer profile was shown to leak, so the step must not continue
-with another client. The checks, in order:
+A deny probe that got through, or a decoy read or leaked, is an abort, never a fallback, and turns
+the schedule off (a decoy as a tripwire; since #350 any other deny-probe success as a failed
+probe): the outer profile was shown to leak, so the step must not continue with another client.
+The checks, in order:
 
 | Check | Reason when it fails |
 |---|---|
@@ -338,11 +339,11 @@ count make a probe `inconclusive` or `failed`, never denied. Detection is the ru
 codes, files, the proxy's log, the listener's count, launchd); captures are bounded and scanned
 (the decoy markers and the run's API key, `Decision.known`), and only verdicts, exit codes and hit
 metadata reach the record. Any deny-probe success aborts the step (`deny_probe_succeeded`,
-`decision.abort`); a decoy read or leaked also turns the schedule off (`decoys.trip`) and is an
-abort too, whatever else failed. The decoy keychain item is probed only
-when `sandbox.decoy_keychain` planted it (an absent item would "deny" by not being found); the
-record then says `keychain: untested`, which does not fail the worker. Real keychain items are
-never probed by a worker.
+`decision.abort`) and turns the schedule off (`decoys.trip`, `cause: probe`, #350); a decoy read or
+leaked turns it off as a tripwire and is an abort too, whatever else failed. The decoy keychain
+item is probed only when `sandbox.decoy_keychain` planted it (an absent item would "deny" by not
+being found); the record then says `keychain: untested`, which does not fail the worker. Real
+keychain items are never probed by a worker.
 
 The **nested check** runs `codex sandbox -- /usr/bin/true` under the outer profile, only after
 `control.codex-start` passed: exit 0 means the inner sandbox applied; anything else (here exit 71)
