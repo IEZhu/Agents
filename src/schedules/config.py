@@ -56,7 +56,8 @@ DEFAULTS: dict[str, Any] = {
     "delegates": {
         "code-review-pass": {"client": "codex", "codex": {"model": "gpt-6.1-sol", "effort": "high"},
                              "effort_followup": "medium"},
-        "change-premortem": {"client": "claude", "claude": {"model": "opus", "effort": "high"}},
+        # role: the pre-mortem worker's agent (Q2), a setting of the autodev settings page (#348).
+        "change-premortem": {"client": "claude", "claude": {"model": "opus", "effort": "high"}, "role": "sysadmin"},
     },
     "limits": {"max_reviews": 3, "max_bot_rounds": 3, "max_wait_minutes": 120},
     "github": {
@@ -79,6 +80,7 @@ DEFAULTS: dict[str, Any] = {
 _HHMM = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
 _REPOSITORY = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 _ID = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+_ROLE = re.compile(r"[a-z0-9][a-z0-9_]{0,79}")
 
 
 class ConfigError(ValueError):
@@ -228,7 +230,11 @@ def validate(config: Any) -> dict:
         problems.append(f"delegates may have only {', '.join(DELEGATES)}")
     else:
         for name, profile in delegates.items():
-            _profile(f"delegates.{name}", profile, problems, ("effort_followup", "budget"))
+            extra = ("effort_followup", "budget", *(("role",) if name == "change-premortem" else ()))
+            _profile(f"delegates.{name}", profile, problems, extra)
+            role = profile.get("role") if isinstance(profile, dict) else None
+            if role is not None and not (isinstance(role, str) and _ROLE.fullmatch(role)):
+                problems.append(f"delegates.{name}.role must be an agent name (lowercase letters, digits, underscores)")
     limits = config.get("limits")
     if not isinstance(limits, dict) or set(limits) != set(LIMITS) or \
             not all(_positive_int(limits[name]) for name in LIMITS):

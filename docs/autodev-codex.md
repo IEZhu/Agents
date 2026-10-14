@@ -20,15 +20,16 @@ Claude side is [autodev-sandbox.md](autodev-sandbox.md) (#343), whose helpers th
   The code still builds, probes and records everything, so that a macOS where the nested check
   passes, or an owner decision on the [open question](#open-decision-for-the-owner), changes the
   outcome without new code paths. Codex never runs without the outer profile.
-- **Nothing starts a worker yet.** The worker launcher (#345) calls `codex_probes.decide` before
-  every Codex worker, records the result with `record_decision`, starts Codex only through
-  `codex_probes.start`, runs the Claude worker on a fallback (`decision.fallback`) and **fails the
-  step on an abort** (`decision.abort`, see [Probes and the decision](#probes-and-the-decision)),
-  running neither client. It returns `decision.known` (the API key as a known secret) to its
-  caller; the run sequence (#347) collects the run's known secrets and passes them to the
-  broker's outgoing-text scan (`broker.Broker(known=...)`). #347 starts a Codex stage session only
-  while `read_availability(version=..., shape=...)` says it is available, and the settings page
-  (#348) shows the stored reason; both read it without a key or a run
+- **Nothing starts a worker yet.** The worker launcher (#345, [autodev-workers.md](autodev-workers.md))
+  calls `codex_probes.decide` before every Codex worker, records the result with `record_decision`,
+  starts Codex only through `codex_probes.start` with the derived output schema, runs the Claude
+  worker on a fallback (`decision.fallback`) and **fails the step on an abort** (`decision.abort`,
+  see [Probes and the decision](#probes-and-the-decision)), running neither client. It returns
+  `decision.known` (the API key as a known secret) to its caller; the run sequence (#347) collects
+  the run's known secrets and passes them to the broker's outgoing-text scan
+  (`broker.Broker(known=...)`). #347 starts a Codex stage session only while
+  `read_availability(version=..., shape=...)` says it is available, and the settings page (#348)
+  shows the stored reason; both read it without a key or a run
   ([the stored availability](#codex-as-a-stage-client-q14)).
 - **The live check is the owner's.** `python -m src.schedules codex-probe --confirm-live-probe`
   runs the real checks. Nothing in the tests starts the real `codex` or a model turn; the profile

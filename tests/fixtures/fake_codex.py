@@ -37,6 +37,10 @@ without ``CODEX_API_KEY`` exits 1 (not logged in), and every call needs ``CODEX_
   ``tamper`` appends a line to every probe script it ran; ``listener_leak`` runs the local-listener
   probe for real but reports a denial (exit 1); ``git_broken`` reports the ``git --version`` control
   as bash's 126 (a git the profile cannot run) without running it.
+* ``exec`` with ``--output-schema`` is a worker (#345): it refuses a schema holding ``minLength`` or
+  ``maxLength`` as OpenAI's strict structured outputs do (``turn.failed``, exit 1), reads the
+  worker_context from standard input and writes `fake_worker.build` of the ``worker`` outcome to
+  the ``-o`` file, without a newline; ``worker.turn_failed`` fails the turn and writes nothing.
 """
 import json
 import os
@@ -45,6 +49,8 @@ import re
 import shlex
 import subprocess
 import sys
+
+import fake_worker
 
 SCENARIO = json.loads(Path(sys.argv[1]).read_text())
 ARGS = sys.argv[2:]
@@ -152,6 +158,8 @@ def do_exec():
         sys.stderr.write("Not logged in\n")
         return 1
     prompt = sys.stdin.read()
+    if "--output-schema" in ARGS:
+        return worker(prompt)
     commands = prompt.split("Commands:\n", 1)[1].strip().splitlines() if "Commands:\n" in prompt else []
     mode = SCENARIO.get("exec", "eperm")
     emit({"type": "thread.started", "thread_id": "fake-thread"})
@@ -184,6 +192,24 @@ def do_exec():
     output_file = ARGS[ARGS.index("-o") + 1] if "-o" in ARGS else None
     if output_file:
         Path(output_file).write_text("DONE\n")
+    return 0
+
+
+def worker(prompt):
+    """A worker turn: the result goes to the -o file only when the turn completes."""
+    schema = Path(ARGS[ARGS.index("--output-schema") + 1]).read_text()
+    outcome = SCENARIO.get("worker", {})
+    emit({"type": "thread.started", "thread_id": "fake-thread"})
+    emit({"type": "turn.started"})
+    if '"minLength"' in schema or '"maxLength"' in schema or outcome.get("turn_failed"):
+        message = outcome.get("turn_failed") or "Invalid schema for response_format 'codex_output_schema'"
+        emit({"type": "turn.failed", "error": {"message": message}})
+        return 1
+    text = json.dumps(fake_worker.build(prompt, outcome))
+    emit({"type": "item.completed", "item": {"id": "item_done", "type": "agent_message", "text": text}})
+    emit({"type": "turn.completed", "usage": {"input_tokens": 1, "cached_input_tokens": 0, "output_tokens": 1,
+                                              "reasoning_output_tokens": 0}})
+    Path(ARGS[ARGS.index("-o") + 1]).write_text(text)
     return 0
 
 
