@@ -85,9 +85,10 @@ keeps every record. The session never names a command, a ref or a path.
   points it at the submit stage's exchange directory between them. Each attempt record keeps the
   ``requested`` client, model and effort beside the applied ones, for the run report.
   `open_security_risks` and `risk_candidates` read the pre-mortem record and the decision log for
-  the run sequence: a security-marked risk that is neither ``mitigated`` nor ``fixed`` and verified
-  blocks the pull request (design 5.8), and a ``known_risk`` of level ``medium`` or higher without
-  a security signal becomes a risk issue (Q3).
+  the run sequence: a security-marked risk that is not ``fixed`` and verified blocks the pull
+  request (design 5.8; the session's own ``mitigated`` or ``known_risk`` does not close it, #347
+  review), and a ``known_risk`` of level ``medium`` or higher without a security signal becomes a
+  risk issue (Q3).
 """
 from __future__ import annotations
 
@@ -1186,19 +1187,19 @@ def _verified_since(run_dir: Path) -> list[datetime]:
 
 def open_security_risks(run_dir: str | Path) -> list[str]:
     """The keys of the run's validated pre-mortem risks with a security signal
-    (`broker.security_signal`) that are still open: their latest pre-mortem decision is neither
-    ``mitigated`` nor ``fixed`` followed by an accepted verification review that started after the
-    decision and did not end the stage blocked. Design 5.8: such a risk blocks the pull request;
-    the details stay in the run record. A run without a pre-mortem record has none (the runner
-    requires an accepted pre-mortem before the submit stage separately)."""
+    (`broker.security_signal`) that are still open: their latest pre-mortem decision is not
+    ``fixed`` followed by an accepted verification review that started after the decision and did
+    not end the stage blocked. ``mitigated`` and ``known_risk`` are the session's own word, with
+    nothing that checks it, so they leave the risk open (#347 review): the run blocks and the owner
+    decides. Design 5.8: such a risk blocks the pull request; the details stay in the run record.
+    A run without a pre-mortem record has none (the runner requires an accepted pre-mortem before
+    the submit stage separately)."""
     decisions, verified = _logged_decisions(Path(run_dir)), _verified_since(Path(run_dir))
     found = []
     for key, finding in broker_records.read_premortem(run_dir).items():
         if not broker_records.security_signal(finding):
             continue
         decision = _premortem_decision(decisions.get(key)) or {}
-        if decision.get("decision") == "mitigated":
-            continue
         decided = _time(decision.get("time"))
         if decision.get("decision") == "fixed" and decided is not None and \
                 any(started >= decided for started in verified):

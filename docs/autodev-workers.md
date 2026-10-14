@@ -44,8 +44,10 @@ design is [autodev-plan.md](autodev-plan.md), sections 5.6, 7.6, 9.4, Q2 and Q10
   `worker wait`, which blocks up to 540 seconds.
 - **The run sequence relies on the push gate and adds its own checks.** After the implement
   stage it requires the output's head to be the imported head and `validated_review_head`, an
-  accepted pre-mortem (`premortem.json`) and no open security risk (`open_security_risks`);
-  after the submit stage it opens risk issues for `risk_candidates` through the broker.
+  accepted pre-mortem (`premortem.json`) and no open security risk (`open_security_risks`: only
+  `fixed` followed by an accepted verification closes a security-marked risk, never the session's
+  own `mitigated` or `known_risk`); after the submit stage it opens risk issues for
+  `risk_candidates` through the broker.
 - **On this Mac the reviewer is Claude.** `codex_probes.decide` falls back with
   `nested_sandbox_unavailable` (#344), so a `code-review-pass` profile with `client: codex` runs
   the Claude worker and the record says so.

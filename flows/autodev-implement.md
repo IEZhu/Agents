@@ -270,9 +270,10 @@ refuses it otherwise ("the pre-mortem needs a clean validated review").
 4. **Known risks by level and mark** (Q3). A risk with `security: true` goes
    neither into the pull request sections nor into an issue (the broker
    refuses such an issue too): it stays in the run record. Unless it is
-   `fixed` and verified or `mitigated`, it is open and blocks the pull request:
-   end with `blocked: true` and a neutral blocker ("an open pre-mortem risk
-   needs the owner"). Of the other known risks, `low` and `info` go into the
+   `fixed` and verified, it is open and blocks the pull request (`mitigated`
+   or `known_risk` does not close it; nothing checks either): end with
+   `blocked: true` and a neutral blocker ("an open pre-mortem risk needs the
+   owner"). Of the other known risks, `low` and `info` go into the
    pull request section "Pre-mortem: known risks", and each `medium`, `high` or
    `critical` one becomes an `autodev:risk` issue that the runner creates
    through its broker and links from the pull request; do not write those into

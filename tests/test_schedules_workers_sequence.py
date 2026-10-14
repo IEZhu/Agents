@@ -149,14 +149,18 @@ def run_dir(tmp_path):
 @pytest.mark.parametrize("decisions, verifications, still_open", [
     ([], [], True),
     ([decision("s1", "known_risk")], [], True),
-    ([decision("s1", "mitigated")], [], False),
+    # The session's own `mitigated` closes no security risk (#347 review), verified or not.
+    ([decision("s1", "mitigated")], [], True),
+    ([decision("s1", "mitigated")], [("accepted", False, LATER)], True),
+    ([decision("s1", "known_risk")], [("accepted", False, LATER)], True),
     ([decision("s1", "fixed")], [], True),
     ([decision("s1", "fixed")], [("accepted", False, LATER)], False),
     ([decision("s1", "fixed")], [("accepted", False, EARLIER)], True),
     ([decision("s1", "fixed")], [("accepted", True, LATER)], True),  # the verification ended the stage blocked
     ([decision("s1", "fixed")], [("failed", False, LATER)], True),
     # A later decision on the same key by a review does not count; the pre-mortem's in the history does.
-    ([decision("s1", "declined", LATER, "review-2", [decision("s1", "mitigated")])], [], False),
+    ([decision("s1", "declined", LATER, "review-2", [decision("s1", "fixed")])], [("accepted", False, LATER)], False),
+    ([decision("s1", "declined", LATER, "review-2", [decision("s1", "mitigated")])], [], True),
     ([decision("s1", "fixed", LATER, "review-2")], [("accepted", False, LATER)], True),
 ])
 def test_open_security_risks(run_dir, decisions, verifications, still_open):
@@ -191,6 +195,6 @@ def test_open_security_risks_from_a_real_premortem(world):
     assert workers.open_security_risks(world.run_dir) == [secure]
     service.decide({"key": plain, "decision": "known_risk", "reason": "Docstrings come later."})
     service.decide({"key": secure, "decision": "mitigated", "reason": "The logger masks tokens (test_mask)."})
-    assert workers.open_security_risks(world.run_dir) == []
+    assert workers.open_security_risks(world.run_dir) == [secure]  # self-attested: still open (#347 review)
     assert workers.risk_candidates(world.run_dir) == [plain]
     assert json.loads((world.run_dir / workers.DECISIONS_NAME).read_text())["decisions"][0]["handle"] == "premortem-1"
