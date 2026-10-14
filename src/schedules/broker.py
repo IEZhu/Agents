@@ -35,17 +35,28 @@ Socket operations (all session-bound):
 * ``gh.read`` reads one endpoint of `READS` under ``/repos/<repository>/``.
 
 Runner-internal operations are methods, never registered: `Broker.cleanup` executes the gate's
-actions (#338) on issues and PRs that earlier run records name, `Broker.select` writes the
-selection comment and the claim label, `Broker.bind_resume` binds a resume run to its
-self-development PR, and `Broker.create_risk_issues` opens at most `MAX_RISK_ISSUES` issues from
-findings of the run's validated pre-mortem record (`read_premortem`) of level ``medium`` and
-above that carry no security signal (`security_signal`; those stay local, design 5.8).
+actions (#338) on issues and PRs that earlier run records name, `Broker.bind_issue` binds a run
+whose broker exists before the selection (``Run.issue`` None) to the selected issue, once,
+`Broker.select` writes the selection comment and the claim label, `Broker.bind_resume` binds a
+resume run to its self-development PR, and `Broker.create_risk_issues` opens at most
+`MAX_RISK_ISSUES` issues from findings of the run's validated pre-mortem record
+(`read_premortem`) of level ``medium`` and above that carry no security signal
+(`security_signal`; those stay local, design 5.8). For #347: `Broker.block` posts a marked,
+neutral list of blockers on the run's issue and adds ``autodev:blocked``; `Broker.unclaim` removes
+the claim ``autodev:in-progress`` from it; `Broker.state` writes the state comment
+(``<!-- autodev -->``, then ``<!-- autodev:state {JSON} -->``) on the run's PR from validated
+fields, with ``next_attempt`` clamped to at most `MAX_NEXT_ATTEMPT` ahead, and edits only a state
+comment of that PR that an earlier run record (``comments``: ``{"id", "kind": "state",
+"number"}``) or this run's log names. ``pr_allowed`` (the run's open security risks, design 5.8)
+can refuse ``gh.pr_create`` with its reason. Every session operation and every one of these but
+`Broker.cleanup` and `Broker.bind_issue` refuses while the run is bound to no issue.
 
 Credentials (Q15): pushes use the deploy key through `push_command` (``GIT_SSH_COMMAND`` with
 ``-F /dev/null``, ``IdentitiesOnly``, no agent and pinned host keys, ``SSH_AUTH_SOCK`` unset);
 API calls use the fine-grained token from the keychain (`src.schedules.github`), never the ``gh``
-token. A real run refuses to start without both (`CredentialsMissing`); in ``dry-run`` every
-write is refused and only reads run. The token and the key are known secrets of the scan and
+token. A real run refuses to start without both (`CredentialsMissing`, built from
+`credential_problems`, which the run's preconditions share); in ``dry-run`` every write is refused
+and only reads run. The token and the key are known secrets of the scan and
 are masked in the broker log; they never appear in an answer or an exception.
 
 Every write is logged in ``<run_dir>/broker.jsonl`` before it is sent (``intent``) and after
@@ -65,7 +76,7 @@ import subprocess
 import threading
 import unicodedata
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping
 from urllib.error import HTTPError, URLError
@@ -101,6 +112,14 @@ RUN_LABELS = frozenset({PR_LABEL, BLOCKED_LABEL})
 BOT_COMMANDS = frozenset({"@coderabbitai review", "@coderabbitai full review"})
 RISK_LEVELS = ("medium", "high", "critical")
 MAX_RISK_ISSUES = 3
+MAX_BLOCKERS = 10
+BLOCKER_MAX = 300
+BLOCK_HEADER = "This autodev run stopped and needs the owner:"
+STATE_MARKER = "<!-- autodev:state"
+STATE_KEYS = ("findings", "head", "next_attempt", "review_status", "rounds")  # what the gate reads
+REVIEW_STATUSES = ("complete", "complete_with_followups", "waiting_bots", "blocked")
+MAX_STATE_FINDINGS = 200
+MAX_NEXT_ATTEMPT = timedelta(hours=24)
 MODES = ("dry-run", "run", "resume")
 LOG_NAME = "broker.jsonl"
 REVIEW_RECORD = "validated-review.json"  # written by the worker launcher (#345)
@@ -126,6 +145,8 @@ _SLUG = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+){0,15}")
 _LABEL = re.compile(r"[a-z][a-z0-9:-]{0,49}")
 _ACTION = re.compile(r"add|remove")
 _THREAD_ID = re.compile(r"[A-Za-z0-9_-]{1,128}")
+_FINDING_ID = re.compile(r"(?:review|comment):[0-9]{1,20}")
+_CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f]")
 # GitHub's closing keywords followed by a reference: #N, GH-N, OWNER/REPO#N or an issue/PR URL.
 # The keyword may follow any non-alphanumeric character, also ``_`` of Markdown emphasis.
 _CLOSING = re.compile(
@@ -323,8 +344,8 @@ def read_premortem(run_dir: str | Path) -> dict[str, RiskFinding]:
     """The findings of the run's validated pre-mortem record, by ID; empty when there is none.
 
     ``<run_dir>/premortem.json`` holds ``{"validated": true, "findings": [{"id", "level",
-    "title", "body", "security"?}]}``, written by the runner after the pre-mortem worker's result
-    passed validation (#345, #347). Until then tests write the fixture.
+    "title", "body", "security"?}]}``, written by the worker service after the pre-mortem
+    worker's result passed validation (`src.schedules.workers`, #345).
     """
     data = _read_json(Path(run_dir) / PREMORTEM_RECORD)
     if not isinstance(data, dict) or data.get("validated") is not True:
@@ -356,7 +377,7 @@ def security_signal(finding: RiskFinding) -> bool:
 
 
 def bound_numbers(earlier: Iterable[Mapping]) -> set[int]:
-    """Issue and PR numbers earlier run records name (``issue``, ``pr``), which #347 writes."""
+    """Issue and PR numbers earlier run records name (``issue``, ``pr``), which the run sequence writes."""
     numbers = set()
     for record in earlier:
         for key in ("issue", "pr"):
@@ -397,6 +418,41 @@ def _regular_file(path: Path) -> bool:
 
 def _whitespace(path: Path) -> bool:
     return any(character.isspace() for character in str(path))
+
+
+def _read_credentials(credentials: Credentials | None,
+                      key_reader: Callable[[Path], bytes]) -> tuple[list[str], str | None, str | None]:
+    """What a real run lacks (named, never a value), the token and the deploy key's text."""
+    if credentials is None:
+        return ["the deploy key", "the pinned github.com host keys", "the API token"], None, None
+    missing = []
+    if not _regular_file(credentials.deploy_key):
+        missing.append("the deploy key")
+    if not _regular_file(credentials.known_hosts):
+        missing.append("the pinned github.com host keys")
+    if _whitespace(credentials.deploy_key) or _whitespace(credentials.known_hosts):
+        missing.append("a deploy key and host keys path without whitespace")
+    try:
+        token = credentials.token() or None
+    except github.TokenUnavailable:
+        token = None
+    if token is None:
+        missing.append("the API token")
+    key = None
+    if "the deploy key" not in missing:
+        try:
+            key = key_reader(credentials.deploy_key).decode("latin-1").strip()
+        except OSError:
+            missing.append("a readable deploy key")
+    return missing, token, key
+
+
+def credential_problems(credentials: Credentials | None,
+                        key_reader: Callable[[Path], bytes] = Path.read_bytes) -> list[str]:
+    """The credentials a real run lacks, by name (the deploy key, the pinned host keys, the API
+    token); empty when all are in place. Reads the token and the key but returns neither: the run's
+    preconditions (`src.schedules.preconditions`) and `Broker` share it."""
+    return _read_credentials(credentials, key_reader)[0]
 
 
 def ssh_command(deploy_key: Path, known_hosts: Path) -> str:
@@ -528,11 +584,12 @@ class _Api:
 @dataclass
 class Run:
     """What one run's broker is bound to. ``base`` is the pinned ``main`` commit of the run;
-    ``labels`` are the issue's labels for the change check; ``pr`` is set by ``gh.pr_create`` or
-    `Broker.bind_resume`."""
+    ``labels`` are the issue's labels for the change check; ``issue`` is None only until
+    `Broker.bind_issue` (a run whose broker exists before the selection); ``pr`` is set by
+    ``gh.pr_create`` or `Broker.bind_resume`."""
     run_id: str
     repository: str
-    issue: int
+    issue: int | None
     base: str
     mode: str
     labels: frozenset[str] = frozenset()
@@ -541,8 +598,8 @@ class Run:
     def __post_init__(self) -> None:
         if self.mode not in MODES:
             raise ValueError(f"mode must be one of {', '.join(MODES)}")
-        if not isinstance(self.issue, int) or isinstance(self.issue, bool) or self.issue <= 0:
-            raise ValueError("issue must be a positive integer")
+        if self.issue is not None and not _positive(self.issue):
+            raise ValueError("issue must be a positive integer or None until the run binds one")
         if not _SHA.fullmatch(str(self.base)):
             raise ValueError("base must be a 40-character lowercase hex SHA")
         self.labels = frozenset(self.labels)
@@ -550,6 +607,10 @@ class Run:
     @property
     def read_only(self) -> bool:
         return self.mode == "dry-run"
+
+
+def _positive(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value > 0
 
 
 class BrokerLog:
@@ -668,7 +729,9 @@ class Broker:
     ``known`` are further secrets of the run, such as the Codex API key (#344,
     `codex_probes.Decision.known`): the scan refuses them in every mode and the log masks them.
     A secret that becomes known only after the broker exists, such as the key a worker's Codex
-    decision reads (#345), reaches the scan through `add_known`.
+    decision reads (#345), reaches the scan through `add_known`. ``pr_allowed`` returns why no pull
+    request may be opened now (an open security risk of the run's pre-mortem, design 5.8), or None;
+    ``gh.pr_create`` refuses with that reason, and fails closed when the check itself fails.
     """
 
     def __init__(self, run: Run, *, credentials: Credentials | None, git: TrustedGit,
@@ -680,7 +743,8 @@ class Broker:
                  key_reader: Callable[[Path], bytes] = Path.read_bytes,
                  decoys: Iterable[scan.KnownSecret] = (),
                  on_decoy: Callable[[tuple[scan.Hit, ...]], None] | None = None,
-                 known: Iterable[scan.KnownSecret] = ()):
+                 known: Iterable[scan.KnownSecret] = (),
+                 pr_allowed: Callable[[], str | None] | None = None):
         self.run = run
         self.credentials = credentials
         self.git = git
@@ -693,6 +757,7 @@ class Broker:
         self._reviewed_head = reviewed_head or (lambda: validated_review_head(self.run_dir) if self.run_dir else None)
         self._premortem = premortem or (lambda: read_premortem(self.run_dir) if self.run_dir else {})
         self._earlier_records = earlier_records
+        self._pr_allowed = pr_allowed
         self._lock = threading.RLock()
         self._token: str | None = None
         self.branch: str | None = None  # set by the first push
@@ -713,27 +778,14 @@ class Broker:
         self.api = _Api(run.repository, self._api_token, transport)
 
     def _open(self, key_reader: Callable[[Path], bytes]) -> list[scan.KnownSecret]:
-        """Check both credentials of a real run and return them as known secrets of the scan."""
-        missing = []
-        if self.credentials is None:
-            raise CredentialsMissing(["the deploy key", "the pinned github.com host keys", "the API token"])
-        if not _regular_file(self.credentials.deploy_key):
-            missing.append("the deploy key")
-        if not _regular_file(self.credentials.known_hosts):
-            missing.append("the pinned github.com host keys")
-        if _whitespace(self.credentials.deploy_key) or _whitespace(self.credentials.known_hosts):
-            missing.append("a deploy key and host keys path without whitespace")
-        try:
-            self._token = self.credentials.token() or None
-        except github.TokenUnavailable:
-            self._token = None
-        if self._token is None:
-            missing.append("the API token")
+        """Check both credentials of a real run (`credential_problems`) and return them as known
+        secrets of the scan."""
+        missing, token, key = _read_credentials(self.credentials, key_reader)
         if missing:
             raise CredentialsMissing(missing)
-        known = [scan.KnownSecret("broker token", self._token)]
-        key = key_reader(self.credentials.deploy_key).decode("latin-1").strip()
-        if len(key) >= scan.KNOWN_MIN_LENGTH:
+        self._token = token
+        known = [scan.KnownSecret("broker token", token)]
+        if key is not None and len(key) >= scan.KNOWN_MIN_LENGTH:
             known.append(scan.KnownSecret("deploy key", key))
         return known
 
@@ -771,6 +823,12 @@ class Broker:
             raise ReadOnly(f"{op}: the broker is read-only in dry-run")
         if request is not None and request.closing():
             raise BrokerRefused(f"{op}: the run is closing")
+
+    def _bound(self, op: str) -> int:
+        """The run's issue; refused while the run is bound to none (`bind_issue`)."""
+        if self.run.issue is None:
+            raise BrokerRefused(f"{op}: this run is bound to no issue yet")
+        return self.run.issue
 
     def _scan(self, op: str, text: str) -> None:
         hits = self.scanner.scan(text)
@@ -839,6 +897,7 @@ class Broker:
 
     def push(self, args: dict, request: RequestContext) -> dict:
         self._writable("push", request)
+        self._bound("push")
         with self._lock:
             head, slug = args["head"], args["slug"]
             try:
@@ -892,11 +951,14 @@ class Broker:
 
     def pr_create(self, args: dict, request: RequestContext) -> dict:
         self._writable("pr_create", request)
+        self._bound("pr_create")
         with self._lock:
             if self.run.pr is not None:
                 raise BrokerRefused(f"pr_create: this run already has PR #{self.run.pr}")
             if self.branch is None:
                 raise BrokerRefused("pr_create: this run has pushed no branch")
+            if reason := self._pr_refusal():
+                raise self._refuse("pr_create", reason)
             title, body = args["title"], args["body"]
             self._check_pr_text("pr_create", title, body)
             payload = {"title": title, "body": body, "head": self.branch, "base": "main",
@@ -911,6 +973,7 @@ class Broker:
 
     def pr_edit(self, args: dict, request: RequestContext) -> dict:
         self._writable("pr_edit", request)
+        self._bound("pr_edit")
         with self._lock:
             if self.run.pr is None:
                 raise BrokerRefused("pr_edit: this run has no PR")
@@ -922,6 +985,16 @@ class Broker:
                                  request=request)
             return {"number": self.run.pr, "id": (answer or {}).get("id")}
 
+    def _pr_refusal(self) -> str | None:
+        """Why ``pr_allowed`` refuses a pull request now, or None; a failing check refuses."""
+        if self._pr_allowed is None:
+            return None
+        try:
+            reason = self._pr_allowed()
+        except Exception as error:  # noqa: BLE001 (fail closed: no PR on a check that could not run)
+            return f"the pull request check failed ({type(error).__name__})"
+        return None if reason is None else (str(reason)[:300] or "the pull request check refused")
+
     def _check_pr_text(self, op: str, title: str, body: str) -> None:
         if _AGENT_LINE.search(body) or _AGENT_LINE.search(title):
             raise self._refuse(op, "the PR text may not hold a line starting with /agent")
@@ -931,6 +1004,7 @@ class Broker:
 
     def comment(self, args: dict, request: RequestContext) -> dict:
         self._writable("comment", request)
+        self._bound("comment")
         with self._lock:
             number, body = args["number"], args["body"]
             self._own_number("comment", number)
@@ -943,6 +1017,7 @@ class Broker:
 
     def comment_edit(self, args: dict, request: RequestContext) -> dict:
         self._writable("comment_edit", request)
+        self._bound("comment_edit")
         with self._lock:
             comment_id, body = args["comment_id"], args["body"]
             # Only what this run's gh.comment wrote: never a selection comment, an earlier run's
@@ -960,6 +1035,7 @@ class Broker:
 
     def label(self, args: dict, request: RequestContext) -> dict:
         self._writable("label", request)
+        self._bound("label")
         with self._lock:
             number, label, action = args["number"], args["label"], args["action"]
             if label not in RUN_LABELS:
@@ -982,6 +1058,7 @@ class Broker:
         return {"target": number, "label": label, "action": action}
 
     def threads(self, args: dict, request: RequestContext) -> dict:
+        self._bound("threads")
         return {"threads": [{"id": thread["id"], "resolved": bool(thread.get("isResolved")),
                              "resolvable": _resolvable(thread), "path": thread.get("path")}
                             for thread in self._threads(request)]}
@@ -1004,6 +1081,7 @@ class Broker:
 
     def resolve_thread(self, args: dict, request: RequestContext) -> dict:
         self._writable("resolve_thread", request)
+        self._bound("resolve_thread")
         with self._lock:
             thread_id = args["thread_id"]
             thread = next((item for item in self._threads(request) if item["id"] == thread_id), None)
@@ -1039,6 +1117,7 @@ class Broker:
             raise BrokerRefused(str(error)) from None
 
     def read(self, args: dict, request: RequestContext) -> Any:
+        self._bound("read")
         template, needs = READS[args["endpoint"]]
         if needs not in args:
             raise BrokerRefused(f"read {args['endpoint']}: argument {needs} is required")
@@ -1081,10 +1160,26 @@ class Broker:
                 done.append({"issue": number, "label": CLAIM_LABEL})
         return done
 
+    def bind_issue(self, issue: int, labels: Iterable[str] = ()) -> int:
+        """Bind a run whose broker exists before the selection to the selected ``issue`` and its
+        ``labels`` (for the change check); once. Writes nothing to GitHub, so a dry-run binds too."""
+        if not _positive(issue):
+            raise ValueError("issue must be a positive integer")
+        labels = frozenset(labels)
+        if not all(isinstance(label, str) for label in labels):
+            raise ValueError("labels must be names")
+        with self._lock:
+            if self.run.issue is not None:
+                raise BrokerRefused(f"bind_issue: this run is already bound to issue #{self.run.issue}")
+            self.run.issue, self.run.labels = issue, labels
+            self.log.add("bind_issue", "done", issue=issue, labels=sorted(labels))
+        return issue
+
     def select(self, body: str) -> dict:
         """The selection comment and the claim label on this run's issue; returns the comment ID
         for the run record's ``comments``."""
         self._writable("select")
+        self._bound("select")
         if not body.startswith(f"{MARKER}\n{SELECTION_MARKER}"):
             raise BrokerRefused(f"select: the selection comment starts with {MARKER} and {SELECTION_MARKER}")
         with self._lock:
@@ -1099,6 +1194,7 @@ class Broker:
         """Bind a ``resume`` run to self-development PR ``pr`` of this run's issue."""
         if self.run.mode not in ("resume", "dry-run"):
             raise BrokerRefused("bind_resume: only a resume run binds an existing PR")
+        self._bound("bind_resume")
         pull = self._read(f"{self._base()}/pulls/{pr}")
         if not isinstance(pull, dict) or pull.get("number") != pr or pull.get("state") != "open" or \
                 not is_self_development(pull, self.run.repository) or issue_of(pull) != self.run.issue:
@@ -1112,6 +1208,7 @@ class Broker:
     def create_risk_issues(self, finding_ids: Iterable[str]) -> list[dict]:
         """Risk issues (Q3) from findings of the validated pre-mortem record; see the module docstring."""
         self._writable("risk_issue")
+        self._bound("risk_issue")
         if self.run.pr is None:
             raise BrokerRefused("risk_issue: this run has no PR to link")
         findings = self._premortem()
@@ -1139,6 +1236,82 @@ class Broker:
                 created.append(self._risk_issue(finding.title, body, [RISK_LABEL], pr_url, finding.id))
         return created
 
+    def block(self, blockers: Iterable[str]) -> dict:
+        """Post the marked, neutral list of ``blockers`` on this run's issue and add
+        ``autodev:blocked`` (design 9.4); returns the comment's ID for the run record's
+        ``comments`` (kind ``blocked``). Each blocker becomes one line of at most `BLOCKER_MAX`
+        characters, at most `MAX_BLOCKERS` of them; the text passes the session-text rules (no
+        mention, no sub-marker, no ``/agent`` line, only this issue in closing keywords) and the scan."""
+        self._writable("block")
+        issue = self._bound("block")
+        items = [line for line in (" ".join(_CONTROL.sub(" ", str(item)).split()) for item in blockers) if line]
+        if not items:
+            raise BrokerRefused("block: name at least one blocker")
+        shown = [item if len(item) <= BLOCKER_MAX else item[:BLOCKER_MAX - 1] + "…" for item in items[:MAX_BLOCKERS]]
+        if len(items) > MAX_BLOCKERS:
+            shown.append(f"{len(items) - MAX_BLOCKERS} more in the local run record")
+        body = "\n".join([MARKER, BLOCK_HEADER, "", *(f"- {item}" for item in shown)])
+        with self._lock:
+            self._marker("block", body, on_pr=False)
+            self._closing_only_own("block", body)
+            self._scan("block", body)
+            answer = self._write("block", "POST", f"{self._base()}/issues/{issue}/comments", {"body": body},
+                                 target=issue)
+            self._set_label("block", issue, BLOCKED_LABEL, "add")
+            return {"id": answer.get("id") if isinstance(answer, dict) else None, "kind": "blocked", "number": issue}
+
+    def unclaim(self) -> dict:
+        """Remove the claim ``autodev:in-progress`` from this run's issue (a blocked run, Q-claim of
+        #347): ``autodev:blocked`` keeps the issue out of the pool, and a stale claim would make the
+        gate wait."""
+        self._writable("unclaim")
+        issue = self._bound("unclaim")
+        with self._lock:
+            return self._set_label("unclaim", issue, CLAIM_LABEL, "remove")
+
+    def state(self, state: Mapping[str, Any], comment_id: int | None = None, *,
+              now: datetime | None = None) -> dict:
+        """Write the state comment of this run's PR (`state_body`): a new one, or, with
+        ``comment_id``, an edit of the state comment an earlier run record or this run's log names
+        for this PR; returns its ID for the run record's ``comments`` (kind ``state``)."""
+        self._writable("state")
+        self._bound("state")
+        if self.run.pr is None:
+            raise BrokerRefused("state: this run has no PR")
+        try:
+            body, _ = state_body(state, now or datetime.now(timezone.utc))
+        except ValueError as error:
+            raise self._refuse("state", str(error)) from None
+        with self._lock:
+            check_marker(body, on_pr=True, internal=True)
+            self._scan("state", body)
+            if comment_id is None:
+                answer = self._write("state", "POST", f"{self._base()}/issues/{self.run.pr}/comments", {"body": body},
+                                     pr=self.run.pr)
+            else:
+                if not _positive(comment_id) or comment_id not in self._state_comments():
+                    raise self._refuse("state", f"comment {comment_id} is not a recorded state comment of PR "
+                                       f"#{self.run.pr}", id=comment_id)
+                answer = self._write("state", "PATCH", f"{self._base()}/issues/comments/{comment_id}",
+                                     {"body": body}, pr=self.run.pr)
+            # An edit keeps the comment's ID; a new comment's comes from GitHub's answer.
+            identifier = comment_id if comment_id is not None else \
+                (answer.get("id") if isinstance(answer, dict) else None)
+            return {"id": identifier, "kind": "state", "number": self.run.pr}
+
+    def _state_comments(self) -> set[int]:
+        """IDs of state comments on this run's PR: those earlier run records list (``comments``
+        entries ``{"id", "kind": "state", "number": <pr>}``) and those this run's log wrote."""
+        found = set()
+        for record in self._earlier_records():
+            for comment in record.get("comments") or []:
+                if isinstance(comment, dict) and comment.get("kind") == "state" and \
+                        comment.get("number") == self.run.pr and _positive(comment.get("id")):
+                    found.add(comment["id"])
+        found |= {entry["id"] for entry in self.log.done("state")
+                  if entry.get("pr") == self.run.pr and _positive(entry.get("id"))}
+        return found
+
     def _risk_attempts(self) -> set[str]:
         """Findings with a risk issue that may exist: every logged attempt except one GitHub refused
         with an HTTP status. A network error may follow a created issue, so it still counts."""
@@ -1161,6 +1334,49 @@ class Broker:
         answer = self._write("risk_issue", "POST", f"{self._base()}/issues", {"title": title, "body": body,
                                                                               "labels": labels}, finding=finding_id)
         return {"number": answer.get("number"), "id": answer.get("id"), "finding": finding_id}
+
+
+def state_body(state: Mapping[str, Any], now: datetime) -> tuple[str, dict]:
+    """The state comment's body and the JSON it holds (`src.schedules.gate` reads it): exactly
+    `STATE_KEYS`, each checked (``head`` a 40-hex SHA or None, ``rounds`` a non-negative integer,
+    ``review_status`` one of `REVIEW_STATUSES`, ``findings`` at most `MAX_STATE_FINDINGS`
+    ``review:<id>`` or ``comment:<id>``), and ``next_attempt`` an ISO 8601 UTC time, clamped to at
+    most `MAX_NEXT_ATTEMPT` after ``now`` and written as ``YYYY-MM-DDTHH:MM:SSZ``, or None.
+    `ValueError` names the first problem."""
+    if not isinstance(state, Mapping) or set(state) != set(STATE_KEYS):
+        raise ValueError(f"the state needs exactly {', '.join(STATE_KEYS)}")
+    head, rounds, status, findings = state["head"], state["rounds"], state["review_status"], state["findings"]
+    if head is not None and not (isinstance(head, str) and _SHA.fullmatch(head)):
+        raise ValueError("head must be a 40-character lowercase hex SHA or null")
+    if not isinstance(rounds, int) or isinstance(rounds, bool) or rounds < 0:
+        raise ValueError("rounds must be a non-negative integer")
+    if status not in REVIEW_STATUSES:
+        raise ValueError(f"review_status must be one of {', '.join(REVIEW_STATUSES)}")
+    if not isinstance(findings, (list, tuple)) or len(findings) > MAX_STATE_FINDINGS or \
+            not all(isinstance(item, str) and _FINDING_ID.fullmatch(item) for item in findings):
+        raise ValueError(f"findings must list at most {MAX_STATE_FINDINGS} review:<id> or comment:<id>")
+    attempt = state["next_attempt"]
+    if attempt is not None:
+        moment = _utc(attempt)
+        if moment is None:
+            raise ValueError("next_attempt must be an ISO 8601 UTC time or null")
+        moment = min(moment, now.astimezone(timezone.utc) + MAX_NEXT_ATTEMPT)
+        attempt = moment.strftime("%Y-%m-%dT%H:%M:%SZ")
+    clean = {"findings": list(findings), "head": head, "next_attempt": attempt, "review_status": status,
+             "rounds": rounds}
+    return f"{MARKER}\n{STATE_MARKER} {json.dumps(clean, sort_keys=True)} -->", clean
+
+
+def _utc(text: Any) -> datetime | None:
+    if not isinstance(text, str):
+        return None
+    try:
+        moment = datetime.fromisoformat(text.strip())
+    except ValueError:
+        return None
+    if moment.tzinfo is None or moment.utcoffset() != timedelta(0):
+        return None
+    return moment
 
 
 def _resolvable(thread: Mapping) -> bool:
