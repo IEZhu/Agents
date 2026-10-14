@@ -23,12 +23,19 @@ without ``CODEX_API_KEY`` exits 1 (not logged in), and every call needs ``CODEX_
   completed ``command_execution`` item per command, ``turn.completed``). ``exec`` decides what a
   command does: ``eperm`` (default: exit 71 with the sandbox_apply message, as under a nested
   sandbox), ``sandboxed`` (the probe script's ``control.*`` lines, except the sandbox-loaded
-  negative control, run for real; every other line reports a denial without running: exit 1, 6
-  for the ``--noproxy`` curl), ``hole`` (every line runs for real, unsandboxed) or ``forge`` (a
-  denial is echoed instead of running the script). ``wrap`` reports each command as ``bash -lc
+  negative control, and its ``observe.*`` line run for real; every other line reports a denial
+  without running: exit 1, 6 for the ``--noproxy`` curl, 3 for the listen probe), ``hole`` (every
+  line that stays inside the test's directories and listeners runs for real, unsandboxed; the ones
+  that would reach the keychain, gh, launchd, Apple Events, LaunchServices or the internet report
+  exit 0 without running) or ``forge`` (a denial is echoed instead of running the script).
+  Model commands get only codex's core variables when the argv holds
+  ``shell_environment_policy.inherit=core`` (`CORE_VARIABLES`, from the source at the tag), unless
+  ``env_leak`` passes them everything. ``wrap`` reports each command as ``bash -lc
   '<command>'``; ``patch`` adds a ``file_change`` item; ``skip`` (indices) leaves commands out;
   ``error_item`` adds codex's own warning item (``{"type": "error", "message": ...}``) and
-  ``turn_failed`` ends the turn with ``turn.failed`` and that message instead of ``turn.completed``.
+  ``turn_failed`` ends the turn with ``turn.failed`` and that message instead of ``turn.completed``;
+  ``tamper`` appends a line to every probe script it ran; ``listener_leak`` runs the local-listener
+  probe for real but reports a denial (exit 1).
 """
 import json
 import os
@@ -41,7 +48,13 @@ import sys
 SCENARIO = json.loads(Path(sys.argv[1]).read_text())
 ARGS = sys.argv[2:]
 LINE = re.compile(r"^(?P<body>.*); echo __probe__ (?P<id>\S+) rc=\$\?$")
-DENIED_RC = {"network.external-noproxy.script": 6}
+DENIED_RC = {"network.external-noproxy.script": 6, "network.listen.script": 3}
+# Lines the hole scenario reports as allowed without running them: they would touch the real
+# keychain, gh's login, launchd, Apple Events, LaunchServices or the internet.
+SIMULATED = ("gh.", "git.", "keychain.", "launchd.", "apple-events.", "launch-services.", "network.external",
+             "network.metadata", "network.dns", "network.udp", "network.daemon", "socket.extra-")
+# What shell_environment_policy.inherit=core passes to a model command (the research, from the source).
+CORE_VARIABLES = ("PATH", "SHELL", "TMPDIR", "TEMP", "TMP", "HOME", "LANG", "LC_ALL", "LC_CTYPE", "LOGNAME", "USER")
 EPERM = "sandbox-exec: sandbox_apply: Operation not permitted\n"
 # What `codex exec` is verified to accept (codex exec --help, codex features list and the config
 # keys in the source at rust-v0.162.1, as used by src/schedules/codex_sandbox.py).
@@ -91,8 +104,16 @@ def seen():
             stream.write(json.dumps({"argv": ARGS, "env": dict(os.environ), "cwd": os.getcwd()}) + "\n")
 
 
+def model_environment():
+    """The environment a model command gets: the core variables under inherit=core."""
+    if "shell_environment_policy.inherit=core" in ARGS and not SCENARIO.get("env_leak"):
+        return {name: value for name, value in os.environ.items() if name in CORE_VARIABLES}
+    return dict(os.environ)
+
+
 def run_line(body):
-    result = subprocess.run(["/bin/sh", "-c", body], capture_output=True, text=True, timeout=30)
+    result = subprocess.run(["/bin/sh", "-c", body], capture_output=True, text=True, timeout=30,
+                            env=model_environment())
     return result.stdout, result.returncode
 
 
@@ -103,12 +124,21 @@ def run_script(path, mode):
         if not match:
             continue
         check, body = match["id"], match["body"]
-        if mode == "hole" or (check.startswith("control.") and "sandbox-loaded" not in check):
+        if mode == "hole" and check.startswith(SIMULATED):
+            code = 0
+        elif mode == "hole" or check.startswith("observe.") or (
+                check.startswith("control.") and "sandbox-loaded" not in check):
             text, code = run_line(body)
             output.append(text)
+        elif SCENARIO.get("listener_leak") and check == "network.local-listener.script":
+            run_line(body)
+            code = 1
         else:
             code = DENIED_RC.get(check, 1)
         output.append(f"__probe__ {check} rc={code}\n")
+    if SCENARIO.get("tamper"):
+        with open(path, "a", encoding="utf-8") as stream:
+            stream.write("# changed during the session\n")
     return "".join(output), 0
 
 

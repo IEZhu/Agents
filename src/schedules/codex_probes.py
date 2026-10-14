@@ -18,10 +18,12 @@ the launch's profile prefix, environment and working directory (only the command
 * **deny probes**: read the decoys (their output is scanned, a marker trips the schedule), list
   ``~/.ssh``, ``~/Library/Keychains``, ``~/.config/agents-autodev``, the home and the autodev
   state directory (output discarded), write into the decoy directory, the tree and materials (a
-  worker) or ``.git/config``, ``.git/hooks`` and the rename-and-edit sequence on ``.git`` (a
-  stage), and into a runner-private directory outside the run, a direct connection to an external
-  address and a CONNECT through the proxy to a host outside its allowlist (the proxy's log must
-  show it refused);
+  worker) or ``.git/config``, ``.git/hooks``, the rename-and-edit sequence on ``.git`` and the
+  environment (a stage), into every read root and into a runner-private directory outside the
+  run, read the decoy keychain item through securityd (when it exists), a direct connection to an
+  external address, a connection to a second runner-owned local port (its listener must count
+  none), a ``launchctl submit`` (no canary, no job) and a CONNECT through the proxy to a host
+  outside its allowlist (the proxy's log must show it refused);
 * **control probes**: read the materials (a runner-written seed), list the tree, write the output
   directory and ``$TMPDIR``, reach the proxy port (the proxy counts the connection); a stage also
   writes the one-off repository and the exchange directory and runs ``<venv>/bin/python -c 0``
@@ -43,7 +45,9 @@ the run's outgoing-text scan (the broker's ``known``) refuses any text that hold
 launch (``-s workspace-write``), the installed-version check that ``workspace-write`` blocks the
 network, and then, only when all of them pass, the #343 probe plan through ``codex exec`` with
 exactly the stage argv and environment (a model turn: runner-written scripts, ``__probe__ <id>
-rc=<code>`` lines read from the ``--json`` event stream). Codex stays unavailable with the reason
+rc=<code>`` lines read from the ``--json`` event stream; `exec_plan` lists the research groups,
+among them ``observe.env``, which fails when a model command sees the API key or the proxy
+variables). Codex stays unavailable with the reason
 unless every probe is denied and every control passes; the result is stored in
 ``<state>/schedules/codex-availability.json`` for #347 and #348 with the installed checks, the
 codex version and the launch's run-independent shape (`codex_sandbox.CodexLaunch.shape`);
@@ -100,7 +104,22 @@ WARNING_LIMIT = 200
 EXTERNAL_HOST = probes.EXTERNAL_HOST
 CURL = "/usr/bin/curl"
 NC = "/usr/bin/nc"
+OPEN = "/usr/bin/open"
+OSASCRIPT = "/usr/bin/osascript"
 INCONCLUSIVE_CODES = probes.INCONCLUSIVE_CODES
+# A probe's own exit code: the shell found a program the runner saw executable outside the sandbox
+# but could not execute it (bash's 126), because the profile refuses its exec (osascript, or a gh
+# outside the executable directories; verified under the generated profiles, 2026-10-14). Without
+# the mapping 126 would be inconclusive, as it is for every other probe.
+EXEC_REFUSED = 77
+# The decoy keychain item lives in the owner's login keychain (`decoys.ensure`); the probe names
+# that keychain explicitly, because the Codex process's HOME is the empty per-run home and its
+# default search list may not hold it (under the profile a lookup by name answered "not found", 44,
+# which alone shows nothing).
+LOGIN_KEYCHAIN = Path("Library") / "Keychains" / "login.keychain-db"
+# What a model command must not see in its environment: the API key and the proxy variables
+# (``shell_environment_policy.inherit=core`` drops them; `observe.env.script` proves it).
+HIDDEN_VARIABLES = (cs.API_KEY_VARIABLE, *cs.PROXY_VARIABLES)
 _RAW_FAILING = (HitKind.KNOWN, HitKind.PATTERN, HitKind.LIMIT)
 _SHELLS = {"bash", "zsh", "sh"}
 _KEY = re.compile(r"[\x21-\x7e]+")  # an API key as the keychain item must hold it: printable, no spaces
@@ -155,6 +174,7 @@ class Probe:
     proxy_denied: str | None = None  # a denial counts only when the proxy log shows this target refused
     proxy_reached: bool = False  # an allowed probe must raise the proxy's connection count
     codes: frozenset[int] = frozenset()  # when set, the only exit codes that count as denied
+    bad_codes: frozenset[int] = frozenset()  # exit codes that make a denial inconclusive
     reason: str = "probe_failed"  # the fallback reason when an allowed probe fails
 
 
@@ -241,13 +261,23 @@ class ProbeRun:
     external_address: str | None = None
     created: list[Path] = field(default_factory=list)
     snapshots: dict[Path, tuple | None] = field(default_factory=dict)
-    listener: probes.Listener | None = None
+    listener: probes.Listener | None = None  # a runner-owned TCP listener the process must not reach
+    unix_socket: Path | None = None  # a runner-owned Unix socket in the private directory (C8)
+    unix_listener: probes.Listener | None = None
+    launch_label: str = ""  # the launchd job label a probe tries to submit (C9)
+    gh: str | None = None  # the gh executable the runner finds on the launch's PATH (C4)
     keychain: dict[str, bool] = field(default_factory=dict)
     types: dict[str, str] = field(default_factory=dict)
 
     @property
     def file_decoys(self) -> list[decoy_store.Decoy]:
         return [decoy for decoy in self.persistent + self.ephemeral if decoy.path is not None]
+
+    @property
+    def keychain_decoy(self) -> decoy_store.Decoy | None:
+        """The decoy keychain item, when it exists outside the sandbox (``keychain["decoy"]``)."""
+        item = next((decoy for decoy in self.persistent if decoy.kind == "keychain"), None)
+        return item if item is not None and item.service and item.account and self.keychain.get("decoy") else None
 
     def decoy_dir(self) -> Path | None:
         return next((decoy.path.parent for decoy in self.persistent if decoy.path is not None
@@ -320,6 +350,17 @@ def model_free_plan(launch: cs.CodexLaunch, run: ProbeRun, targets: CodexTargets
             target = Path(directory) / f"probe-{nonce}-{name}"
             plan.append(Probe(f"write.{name}", DENIED, ("/bin/sh", "-c", f"printf x > {probes._q(target)}"),
                               absent=(target,)))
+    # The read-only roots (a stage's state copy) and a stage's environment, which it may read and
+    # execute: a new file must stay absent (a regular file gets a zero-byte append).
+    for name, place in _read_only_roots(paths):
+        kind = run.types.setdefault(f"write-{name}", probes.target_type(place))
+        if kind == probes.DIRECTORY:
+            target = place / f"probe-{nonce}-{name}"
+            plan.append(Probe(f"write.{name}", DENIED, ("/bin/sh", "-c", f"printf x > {probes._q(target)}"),
+                              absent=(target,)))
+        elif kind == probes.FILE:
+            plan.append(Probe(f"write.{name}", DENIED, ("/bin/sh", "-c", f": >> {probes._q(place)}"),
+                              unchanged=(place,)))
     if paths.kind == cs.STAGE:
         git = cs._real(paths.repository) / ".git"  # type: ignore[arg-type]
         if probes.target_type(git / "config") == probes.FILE:
@@ -331,12 +372,27 @@ def model_free_plan(launch: cs.CodexLaunch, run: ProbeRun, targets: CodexTargets
                               absent=(hook,)))
         if probes.target_type(git / "config") == probes.FILE and probes.target_type(git / "hooks") == probes.DIRECTORY:
             plan.append(_rename_probe(git, nonce))
-    # The network: only the proxy port is reachable, and the proxy refuses other hosts.
+    # The keychain through securityd (C3): the decoy item only (never a real one), its value captured
+    # and scanned; "not found" (44) proves nothing and is inconclusive, as in #343.
+    if (item := run.keychain_decoy) is not None:
+        plan.append(Probe("keychain.decoy", DENIED, (SECURITY, "find-generic-password", "-s", item.service, "-a",
+                                                     item.account, "-w", str(home / LOGIN_KEYCHAIN)),
+                          capture=True, decoy=item.label, bad_codes=frozenset({probes.NOT_FOUND})))
+    # The network: only the proxy port is reachable (not another local port), and the proxy refuses
+    # other hosts.
     if run.external_address:
         plan.append(Probe("network.direct", DENIED, (NC, "-z", "-G", "3", "-w", "3", run.external_address, "443")))
     plan.append(Probe("network.proxy-refused", DENIED,
                       (CURL, "-sS", "-o", "/dev/null", "--max-time", "5", "-x", cs.proxy_url(launch.proxy_port),
                        f"https://{targets.external_host}/"), proxy_denied=f"{targets.external_host}:443"))
+    if run.listener is not None:
+        plan.append(Probe("network.local-listener", DENIED, (NC, "-z", "-w", "2", "127.0.0.1", str(run.listener.port))))
+    # launchd (C9): a job would run outside the sandbox; its canary must stay absent, and the runner
+    # asks launchd for the label afterwards (`_check_launchd`).
+    if run.launch_label and run.private_dir is not None:
+        canary = Path(run.private_dir) / f"probe-{nonce}-launchd"
+        plan.append(Probe("launchd.submit", DENIED, (probes.LAUNCHCTL, "submit", "-l", run.launch_label, "--",
+                                                     "/usr/bin/touch", str(canary)), absent=(canary,)))
     ids = [probe.id for probe in plan]
     if len(set(ids)) != len(ids):
         raise ValueError("two Codex probes with the same ID")
@@ -360,6 +416,47 @@ def _rename_probe(git: Path, nonce: str) -> Probe:
                  unchanged=(git / "config", git / "hooks"))
 
 
+def _read_only_roots(paths: cs.CodexPaths) -> list[tuple[str, Path]]:
+    """The read-only roots a write probe targets: ``read-root-<n>`` (`CodexPaths.read_roots`) and,
+    for a stage, ``venv`` (its environment, readable and executable, never writable)."""
+    found = [(f"read-root-{index}", cs._real(root)) for index, root in enumerate(paths.read_roots)]
+    if paths.kind == cs.STAGE and paths.venv is not None:
+        found.append(("venv", cs._real(paths.venv)))
+    return found
+
+
+def _exec_refused(command: str) -> str:
+    """``command`` (a shell command line) with bash's 126 ("cannot execute") turned into
+    `EXEC_REFUSED`: for a program the runner found executable, 126 means the profile refused it."""
+    return f"( {command}; rc=$?; [ $rc -eq 126 ] && exit {EXEC_REFUSED}; exit $rc )"
+
+
+def _check_launchd(label: str, check_id: str, reason: str, report: CodexReport,
+                   runner: Callable[..., subprocess.CompletedProcess]) -> None:
+    """The probe's launchd job must not exist (asked outside the sandbox, output discarded); a job
+    that does is removed and fails the report (`deny_probe_succeeded`)."""
+    quiet = dict(stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL,
+                 timeout=COMMAND_TIMEOUT, check=False)
+    try:
+        listed = runner([probes.LAUNCHCTL, "list", label], **quiet)
+    except (OSError, subprocess.SubprocessError) as error:
+        report.fail(reason, f"{check_id}: launchctl list failed: {type(error).__name__}")
+        return
+    if listed.returncode == 0:
+        report.fail("deny_probe_succeeded", f"{check_id}: the probe's launchd job exists")
+        with contextlib.suppress(OSError, subprocess.SubprocessError):
+            runner([probes.LAUNCHCTL, "remove", label], **quiet)
+
+
+def _inventory_keychain_decoy(run: ProbeRun, runner: Callable[..., subprocess.CompletedProcess]) -> None:
+    """Whether the decoy keychain item exists, asked outside the sandbox with its output discarded
+    (never its value): only an existing item proves anything."""
+    item = next((decoy for decoy in run.persistent if decoy.kind == "keychain"), None)
+    if item is not None and item.service and item.account:
+        run.keychain["decoy"] = probes._exists(runner, [SECURITY, "find-generic-password", "-s", item.service,
+                                                        "-a", item.account])
+
+
 def _prepare(launch: cs.CodexLaunch, run: ProbeRun, targets: CodexTargets, socket_root: Path | None) -> None:
     """Plant the seed, the ephemeral decoy and the private directory; snapshot watched files."""
     paths = launch.paths
@@ -375,7 +472,8 @@ def _prepare(launch: cs.CodexLaunch, run: ProbeRun, targets: CodexTargets, socke
 
 def _cleanup(launch: cs.CodexLaunch, run: ProbeRun) -> None:
     paths = launch.paths
-    directories = [paths.out_dir, paths.tmp_root, paths.tmpdir, paths.materials, paths.exchange, paths.repository]
+    directories = [paths.out_dir, paths.tmp_root, paths.tmpdir, paths.materials, paths.exchange, paths.repository,
+                   paths.tree, *(root for _, root in _read_only_roots(paths))]  # the last ones: a probe that got through
     for directory in directories:
         if directory is None:
             continue
@@ -393,6 +491,10 @@ def _cleanup(launch: cs.CodexLaunch, run: ProbeRun) -> None:
             with contextlib.suppress(OSError):
                 if os.path.lexists(hook):
                     probes._remove(hook)
+    if (decoy_dir := run.decoy_dir()) is not None:  # what a probe that got through left in the decoy directory
+        for path in decoy_dir.glob(f"probe-{run.nonce}*"):
+            with contextlib.suppress(OSError):
+                probes._remove(path)
     for path in run.created:
         with contextlib.suppress(OSError):
             if os.path.lexists(path):
@@ -400,8 +502,9 @@ def _cleanup(launch: cs.CodexLaunch, run: ProbeRun) -> None:
     for decoy in run.ephemeral:
         with contextlib.suppress(OSError, decoy_store.DecoyError):
             decoy_store.discard(decoy)
-    if run.listener is not None:
-        run.listener.close()
+    for listener in (run.listener, run.unix_listener):
+        if listener is not None:
+            listener.close()
     if run.private_dir is not None:
         shutil.rmtree(run.private_dir, ignore_errors=True)
 
@@ -427,7 +530,7 @@ def _judge(probe: Probe, captured: probes.Captured, run: ProbeRun, proxy: Connec
         return "inconclusive"
     if code == 0:
         return "allowed"
-    if code in INCONCLUSIVE_CODES or (probe.codes and code not in probe.codes):
+    if code in INCONCLUSIVE_CODES or code in probe.bad_codes or (probe.codes and code not in probe.codes):
         return "inconclusive"
     if probe.proxy_denied and probe.proxy_denied not in proxy.targets(allowed=False):
         return "inconclusive"
@@ -453,13 +556,20 @@ def nested_check(launch: cs.CodexLaunch, execute_: Execute, scanner: Scanner) ->
 def run_model_free(launch: cs.CodexLaunch, report: CodexReport, *, proxy: ConnectProxy, targets: CodexTargets,
                    persistent: Sequence[decoy_store.Decoy], known: Iterable[KnownSecret] = (),
                    execute_: Execute = execute, resolver: Callable[[str], str | None] = resolve_ipv4,
-                   socket_root: Path | None = None) -> set[str]:
+                   socket_root: Path | None = None,
+                   command_runner: Callable[..., subprocess.CompletedProcess] = subprocess.run) -> set[str]:
     """Run the nested check and the model-free probes of ``launch`` into ``report``; return the
     labels of decoys that were read or leaked (the caller trips the schedule)."""
     run = ProbeRun(secrets.token_hex(8), list(persistent))
     leaked: set[str] = set()
     try:
         _prepare(launch, run, targets, socket_root)
+        run.listener = probes.Listener.tcp()
+        if os.path.exists(probes.LAUNCHCTL):
+            run.launch_label = probes.LAUNCH_LABEL_PREFIX + run.nonce
+        _inventory_keychain_decoy(run, command_runner)
+        report.observed["keychain"] = ("the decoy item" if run.keychain_decoy is not None else
+                                       "untested: no decoy keychain item (sandbox.decoy_keychain)")
         run.external_address = resolver(targets.external_host)
         if not run.external_address:
             report.fail("probe_failed", f"network.direct untested: the runner itself cannot resolve "
@@ -491,6 +601,11 @@ def run_model_free(launch: cs.CodexLaunch, report: CodexReport, *, proxy: Connec
                     report.fail("deny_probe_succeeded", f"{probe.id}: expected denied, got allowed")
                 else:
                     report.fail(probe.reason, f"{probe.id}: expected {probe.expect}, got {outcome}")
+        if run.listener.accepted:
+            report.fail("deny_probe_succeeded", f"network.local-listener: the runner's listener accepted "
+                                                f"{run.listener.accepted} connection(s)")
+        if run.launch_label:
+            _check_launchd(run.launch_label, "launchd.submit", "probe_failed", report, command_runner)
         if any(entry["id"] == "control.codex-start" and entry["ok"] for entry in report.checks):
             report.nested = nested_check(launch, execute_, scanner)
             if not report.nested["available"]:
@@ -714,7 +829,8 @@ def decide(codex: str | None, paths: cs.CodexPaths, *, path: str, proxy: Connect
         return _fallback("profile_broken", detail, _finish(report, started), (secret,))
     report.digest = launch.digest()
     leaked = run_model_free(launch, report, proxy=proxy, targets=targets, persistent=persistent, known=known,
-                            execute_=execute_, resolver=resolver, socket_root=socket_root)
+                            execute_=execute_, resolver=resolver, socket_root=socket_root,
+                            command_runner=command_runner)
     if leaked:
         report.tripped = True
         decoy_store.trip(directory, "decoy read or leaked during a Codex probe: " + ", ".join(sorted(leaked)),
@@ -788,7 +904,15 @@ class ScriptCall:
 def exec_plan(launch: cs.CodexLaunch, run: ProbeRun, targets: CodexTargets) -> list[ScriptCall]:
     """The #343 probe plan for a Codex stage session: Codex has no file tools and no permission
     layer of its own here, so every vector runs from a runner-written script (the sandbox alone must
-    deny it). Checks keep #343's IDs and research groups."""
+    deny it). Checks keep #343's IDs and research groups: controls (C11, C15), reads of the decoys
+    and secret places (C1, C2, C15) and ``git config --global`` (C2, its exit code recorded), the
+    keychain (C3), ``gh auth token`` (C4, when the runner finds gh on the launch's PATH), the
+    network (C5: an external address, also without the proxy, the metadata address, the system
+    resolver and UDP DNS; C6: the runner's listener, the daemon's port and a listen on 127.0.0.1),
+    foreign Unix sockets (C8), launchd, Apple Events and LaunchServices (C9), writes outside the
+    run (C10, C12, the read-only roots and the environment included), links (C18) and the
+    variable names a model command sees (C13, `HIDDEN_VARIABLES`). A program the profile refuses
+    to execute (gh, osascript) counts as denied (`EXEC_REFUSED`)."""
     paths, nonce = launch.paths, run.nonce
     home, repo, exchange = cs._real(paths.home), cs._real(paths.repository), cs._real(paths.exchange)  # type: ignore[arg-type]
     runner = targets.runner
@@ -802,6 +926,7 @@ def exec_plan(launch: cs.CodexLaunch, run: ProbeRun, targets: CodexTargets) -> l
 
     seed = exchange / f"probe-{nonce}-seed.txt"
     decoy_dir = run.decoy_dir()
+    credentials = next((decoy for decoy in run.file_decoys if decoy.label == "credentials"), None)
     controls = [(Check("control.exchange.script", "C11", ALLOWED,
                        content=((exchange / f"probe-{nonce}-bash.txt", nonce),)),
                  f"printf %s {nonce} > {q(exchange / f'probe-{nonce}-bash.txt')}"),
@@ -830,6 +955,7 @@ def exec_plan(launch: cs.CodexLaunch, run: ProbeRun, targets: CodexTargets) -> l
             if os.path.lexists(place):
                 reads.append((Check(f"read.{name}.script", "C2" if name == "git-credentials" else "C1", DENIED),
                               f"cat {q(place)} >/dev/null 2>&1"))
+    reads.append((Check("git.config-global.script", "C2", probes.RECORD), "git config --global --list >/dev/null 2>&1"))
     script("reads", reads)
     keychain = []
     if runner is not None:
@@ -838,18 +964,29 @@ def exec_plan(launch: cs.CodexLaunch, run: ProbeRun, targets: CodexTargets) -> l
                 keychain.append((Check(f"keychain.{probes._slug(service)}.script", "C3", DENIED,
                                        bad_codes=frozenset({probes.NOT_FOUND})),
                                  f"{SECURITY} find-generic-password -s {q(service)} >/dev/null 2>&1"))
-    item = next((decoy for decoy in run.persistent if decoy.kind == "keychain"), None)
-    if item is not None and run.keychain.get("decoy"):
+    if (item := run.keychain_decoy) is not None:
         keychain.append((Check("keychain.decoy.script", "C3", DENIED, decoy=item.label,
                                bad_codes=frozenset({probes.NOT_FOUND})),
                          f"{SECURITY} find-generic-password -s {q(item.service)} -a {q(item.account)} -w"))
     script("keychain", keychain)
-    network = [(Check("network.external.script", "C5", DENIED),
-                f"{CURL} -sS -o /dev/null --max-time 5 https://{targets.external_host}/ >/dev/null 2>&1"),
-               (Check("network.external-noproxy.script", "C5", DENIED, codes=frozenset({probes.CURL_RESOLVE_FAILED})),
-                f"{CURL} -sS -o /dev/null --max-time 5 --noproxy '*' https://{targets.external_host}/ >/dev/null 2>&1"),
-               (Check("network.metadata.script", "C5", DENIED),
-                f"{CURL} -sS -o /dev/null --fail --max-time 5 --noproxy '*' {probes.METADATA_URL} >/dev/null 2>&1")]
+    network = []
+    if run.gh is not None:  # gh outside the executable directories cannot even start (EXEC_REFUSED)
+        network.append((Check("gh.token.script", "C4", DENIED), _exec_refused(f"{q(run.gh)} auth token >/dev/null 2>&1")))
+    host = targets.external_host
+    python = Path(paths.venv) / "bin" / "python"  # type: ignore[arg-type]
+    network += [(Check("network.external.script", "C5", DENIED),
+                 f"{CURL} -sS -o /dev/null --max-time 5 https://{host}/ >/dev/null 2>&1"),
+                (Check("network.external-noproxy.script", "C5", DENIED, codes=frozenset({probes.CURL_RESOLVE_FAILED})),
+                 f"{CURL} -sS -o /dev/null --max-time 5 --noproxy '*' https://{host}/ >/dev/null 2>&1"),
+                (Check("network.metadata.script", "C5", DENIED),
+                 f"{CURL} -sS -o /dev/null --fail --max-time 5 --noproxy '*' {probes.METADATA_URL} >/dev/null 2>&1"),
+                (Check("network.dns.script", "C5", DENIED),
+                 probes._guarded("[ -x /usr/bin/dscacheutil ]",
+                                 f"test -n \"$(/usr/bin/dscacheutil -q host -a name {host} 2>/dev/null)\"")),
+                (Check("network.udp.script", "C5", DENIED),
+                 f"/usr/bin/dig +time=2 +tries=1 {host} @{probes.UDP_RESOLVER} >/dev/null 2>&1"),
+                (Check("network.listen.script", "C6", DENIED, codes=frozenset({probes.LISTEN_REFUSED})),
+                 f"{q(python)} -c {probes.LISTEN_SCRIPT} >/dev/null 2>&1")]
     if run.listener is not None:
         network.append((Check("network.local-listener.script", "C6", DENIED),
                         f"{NC} -z -w 2 127.0.0.1 {run.listener.port} >/dev/null 2>&1"))
@@ -857,6 +994,21 @@ def exec_plan(launch: cs.CodexLaunch, run: ProbeRun, targets: CodexTargets) -> l
         network.append((Check("network.daemon.script", "C6", DENIED),
                         f"{NC} -z -w 2 127.0.0.1 {int(runner.daemon_port)} >/dev/null 2>&1"))
     script("network", network)
+    ipc = []
+    if run.unix_socket is not None:
+        ipc.append((Check("socket.foreign.script", "C8", DENIED),
+                    f"{NC} -U -w 2 {q(run.unix_socket)} </dev/null >/dev/null 2>&1"))
+    for index, socket_path in enumerate(runner.extra_sockets if runner is not None else ()):
+        ipc.append((Check(f"socket.extra-{index}.script", "C8", DENIED),
+                    f"{NC} -U -w 2 {q(socket_path)} </dev/null >/dev/null 2>&1"))
+    if run.launch_label and run.private_dir is not None:
+        canary = Path(run.private_dir) / f"probe-{nonce}-launchd"
+        ipc.append((Check("launchd.submit.script", "C9", DENIED, absent=(canary,)),
+                    f"{probes.LAUNCHCTL} submit -l {run.launch_label} -- /usr/bin/touch {q(canary)} >/dev/null 2>&1"))
+    ipc += [(Check("apple-events.osascript.script", "C9", DENIED),
+             _exec_refused(f"{OSASCRIPT} -e 'tell application \"Finder\" to get name' >/dev/null 2>&1")),
+            (Check("launch-services.open.script", "C9", DENIED), f"{OPEN} -g -j {q(seed)} >/dev/null 2>&1")]
+    script("ipc", ipc)
     writes = []
     named = [("home", home), ("state-dir", Path(targets.state_dir)),
              ("owner-temp", Path(targets.owner_temp)), ("private-dir", run.private_dir)]
@@ -864,6 +1016,7 @@ def exec_plan(launch: cs.CodexLaunch, run: ProbeRun, targets: CodexTargets) -> l
         named += [("runs", runner.runs), ("installation", runner.installation), ("schedules", runner.schedules),
                   ("trusted", runner.trusted), ("trusted-hooks", runner.trusted / "hooks" if runner.trusted else None),
                   ("plist-dir", runner.plist.parent if runner.plist else None)]
+    named += _read_only_roots(paths)
     named += [("repo-git-config", repo / ".git" / "config"), ("repo-git-hooks", repo / ".git" / "hooks")]
     for name, place in probes._unique_dirs(named):
         kind = run.types.setdefault(f"exec-write-{name}", probes.target_type(place))
@@ -880,11 +1033,46 @@ def exec_plan(launch: cs.CodexLaunch, run: ProbeRun, targets: CodexTargets) -> l
         writes += [(Check(f"append.{name}.script", "C10", DENIED, unchanged=(place,)), f": >> {q(place)}")
                    for name, place in (("config-file", runner.config_file), ("plist", runner.plist))
                    if place is not None and Path(place).is_file()]
+    if credentials is not None and decoy_dir is not None:  # the links `_plant_links` made in the exchange directory
+        link, hard, dirlink = _link_paths(exchange, nonce)
+        via = decoy_dir / f"probe-{nonce}-via-link-script"
+        writes += [(Check("link.symlink-read.script", "C18", DENIED, decoy=credentials.label), f"cat {q(link)}"),
+                   (Check("link.hardlink.script", "C18", DENIED, absent=(hard,)), f"ln {q(credentials.path)} {q(hard)}"),
+                   (Check("link.dir-symlink.script", "C18", DENIED, absent=(via,)), f"printf x > {q(dirlink / via.name)}")]
     script("writes", writes)
+    script("observe", [(Check("observe.env.script", "C13", probes.OBSERVE), probes.OBSERVE_COMMAND)])
     ids = [check.id for call in calls for check in call.checks]
     if len(ids) != len(set(ids)):
         raise ValueError("two Codex stage probe checks with the same ID")
     return calls
+
+
+def _link_paths(exchange: Path, nonce: str) -> tuple[Path, Path, Path]:
+    """The symbolic link to the credentials decoy, the hard link a probe tries to make and the
+    link to the decoy directory, all in the exchange directory."""
+    return (exchange / f"probe-{nonce}-link", exchange / f"probe-{nonce}-hard", exchange / f"probe-{nonce}-dirlink")
+
+
+def _plant_links(launch: cs.CodexLaunch, run: ProbeRun) -> None:
+    """Make the links of the C18 probes: to the credentials decoy and to the decoy directory."""
+    link, _, dirlink = _link_paths(cs._real(launch.paths.exchange), run.nonce)  # type: ignore[arg-type]
+    credentials = next((decoy for decoy in run.file_decoys if decoy.label == "credentials"), None)
+    decoy_dir = run.decoy_dir()
+    if credentials is None or decoy_dir is None:
+        return
+    os.symlink(credentials.path, link)  # type: ignore[arg-type]
+    run.created.append(link)
+    os.symlink(decoy_dir, dirlink, target_is_directory=True)
+    run.created.append(dirlink)
+
+
+def find_gh(path: str) -> str | None:
+    """The ``gh`` executable on ``path`` (the launch's ``PATH``) as the runner sees it, or None."""
+    found = shutil.which("gh", path=path)
+    if found is None or not os.path.isabs(found):
+        return None
+    real = os.path.realpath(found)
+    return found if os.path.isfile(real) and os.access(real, os.X_OK) else None
 
 
 def exec_prompt(calls: Iterable[ScriptCall]) -> str:
@@ -1023,6 +1211,7 @@ def evaluate_exec(calls: list[ScriptCall], captured: probes.Captured, run: Probe
         report.fail("stage_probe_failed", "the probe session used other tools: " + ", ".join(sorted(set(stream.unexpected))))
     planned = {str(call.path): call for call in calls}
     codes: dict[str, list[int]] = {}
+    outputs: dict[str, list[str]] = {}
     ran: set[str] = set()
     for index, command in enumerate(stream.commands, 1):
         words = normalized_command(command["command"])
@@ -1031,6 +1220,7 @@ def evaluate_exec(calls: list[ScriptCall], captured: probes.Captured, run: Probe
             report.fail("stage_probe_failed", f"command {index} was not a planned probe script")
             continue
         ran.add(str(call.path))
+        outputs.setdefault(str(call.path), []).append(command["output"])
         ids = {check.id for check in call.checks}
         for check_id, code in probes._RC.findall(command["output"]):
             if check_id in ids:
@@ -1041,16 +1231,47 @@ def evaluate_exec(calls: list[ScriptCall], captured: probes.Captured, run: Probe
         if probes._snapshot(call.path) != run.snapshots.get(call.path):
             report.fail("stage_probe_failed", f"the probe script {call.path.name} changed")
         for check in call.checks:
-            outcome = _exec_outcome(check, codes.get(check.id, []), run)
+            found = codes.get(check.id, [])
+            if check.expect == probes.RECORD:  # the exit code is kept; only a probe that did not run fails
+                outcome = "no-result" if not found else (
+                    "inconclusive" if any(code in INCONCLUSIVE_CODES for code in found) else "recorded")
+                ok = outcome == "recorded"
+                if ok:
+                    report.observed.setdefault("exit_codes", {})[check.id] = found[-1]
+            elif check.expect == probes.OBSERVE:
+                outcome = _observe_env("\n".join(outputs.get(str(call.path), [])), scanner, report)
+                ok = outcome == "observed"
+            else:
+                outcome = _exec_outcome(check, found, run)
+                ok = outcome == ("allowed" if check.expect == ALLOWED else "denied")
             if check.decoy is not None and outcome == "allowed":
                 leaked.add(check.decoy)
-            ok = outcome == ("allowed" if check.expect == ALLOWED else "denied")
             report.checks.append({"id": check.id, "group": check.group, "expect": check.expect, "outcome": outcome,
-                                  "ok": ok, "exit_codes": sorted(set(codes.get(check.id, [])))[:4]})
+                                  "ok": ok, "exit_codes": sorted(set(found))[:4]})
             if not ok:
-                reason = "deny_probe_succeeded" if check.expect == DENIED and outcome == "allowed" else "stage_probe_failed"
-                report.fail(reason, f"{check.id}: expected {check.expect}, got {outcome}")
+                breach = (check.expect == DENIED and outcome == "allowed") or outcome == "exposed"
+                report.fail("deny_probe_succeeded" if breach else "stage_probe_failed",
+                            f"{check.id}: expected {check.expect}, got {outcome}")
     return leaked
+
+
+def _observe_env(output: str, scanner: Scanner, report: CodexReport) -> str:
+    """C13: the variable names a model command sees (its ``__env__`` line; never a value):
+    ``exposed`` when one of `HIDDEN_VARIABLES` (any case) or a secret-like name (``TOKEN``,
+    ``KEY``, ``SECRET``, ``PASSWORD``) is among them, ``observed`` otherwise, ``no-result`` without
+    the line. The names go into ``observed.model_command_env`` (checked and masked first)."""
+    line = probes._ENV_LINE.search(output)
+    if line is None:
+        return "no-result"
+    names = sorted({name if probes._ENV_NAME.fullmatch(name) and not scanner.scan(name) else probes.INVALID
+                    for name in line[1].split()})
+    report.observed["model_command_env"] = names[:64]
+    exposed = [name for name in names if name != probes.INVALID
+               and (name.upper() in HIDDEN_VARIABLES or cs.FORBIDDEN_NAME.search(name))]
+    if exposed:
+        report.observed["model_command_env_exposed"] = exposed
+        return "exposed"
+    return "observed" if names else "no-result"
 
 
 def _exec_outcome(check: probes.Check, codes: list[int], run: ProbeRun) -> str:
@@ -1084,6 +1305,13 @@ def run_exec_probe(launch: cs.CodexLaunch, report: CodexReport, *, targets: Code
     try:
         _prepare(launch, run, targets, socket_root)
         run.listener = probes.Listener.tcp()
+        run.unix_socket = Path(run.private_dir) / "decoy.sock"  # type: ignore[arg-type]
+        run.unix_listener = probes.Listener.unix(run.unix_socket)
+        if os.path.exists(probes.LAUNCHCTL):
+            run.launch_label = probes.LAUNCH_LABEL_PREFIX + run.nonce
+        run.gh = find_gh(launch.env.get("PATH", ""))
+        report.observed["gh"] = "probed" if run.gh else "untested: no gh on the launch's PATH"
+        _plant_links(launch, run)
         if targets.runner is not None:
             item = next((decoy for decoy in run.persistent if decoy.kind == "keychain"), None)
             run.keychain = probes.keychain_inventory(targets.runner, item, command_runner)
@@ -1102,9 +1330,13 @@ def run_exec_probe(launch: cs.CodexLaunch, report: CodexReport, *, targets: Code
         captured = execute_(list(launch.argv), env=launch.env, cwd=launch.cwd, timeout=timeout, capture=True,
                             text=exec_prompt(calls), max_capture=probes.MAX_CAPTURE)
         leaked = evaluate_exec(calls, captured, run, scanner, report)
-        if run.listener.accepted:
-            report.fail("deny_probe_succeeded", f"network.local-listener.script: the decoy listener accepted "
-                                                f"{run.listener.accepted} connection(s)")
+        for listener, check_id in ((run.listener, "network.local-listener.script"),
+                                   (run.unix_listener, "socket.foreign.script")):
+            if listener.accepted:
+                report.fail("deny_probe_succeeded", f"{check_id}: the decoy listener accepted "
+                                                    f"{listener.accepted} connection(s)")
+        if run.launch_label:
+            _check_launchd(run.launch_label, "launchd.submit.script", "stage_probe_failed", report, command_runner)
     except (OSError, ValueError, decoy_store.DecoyError) as error:
         report.fail("stage_probe_failed", f"the probe session could not run: {type(error).__name__}: {error}")
     finally:

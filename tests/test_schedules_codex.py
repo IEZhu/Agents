@@ -128,7 +128,8 @@ def world(tmp_path_factory, service_state_dir, temp_root):
 def build(world, paths=None, **options):
     options.setdefault("proxy_port", 40000)
     options.setdefault("api_key", KEY)
-    return cs.build(world.codex, paths or world.paths(), path=PATH, **options)
+    options.setdefault("path", PATH)
+    return cs.build(world.codex, paths or world.paths(), **options)
 
 
 # --- executors ------------------------------------------------------------------------------------------
@@ -254,14 +255,65 @@ no_keychain = with_security(lambda argv: subprocess.CompletedProcess(argv, 44, "
 
 
 def decide(world, *, kind=cs.WORKER, execute=None, mode=MODE, platform="darwin", paths=None,
-           command_runner=keychain, proxy=None, **options):
+           command_runner=keychain, proxy=None, persistent=None, resolver=lambda host: TEST_NET, **options):
     paths = paths or world.paths(kind)
     with codex_proxy.ConnectProxy(cs.allowed_hosts()) as own:
         return codex_probes.decide(world.codex, paths, path=PATH, proxy=proxy or own, mode=mode,
-                                   targets=world.targets(), persistent=world.planted, directory=world.state,
-                                   run_id=RUN_ID, effort="high", platform=platform,
+                                   targets=world.targets(), persistent=world.planted if persistent is None else persistent,
+                                   directory=world.state, run_id=RUN_ID, effort="high", platform=platform,
                                    execute_=execute or Emulator(world.codex), command_runner=command_runner,
-                                   resolver=lambda host: TEST_NET, **options)
+                                   resolver=resolver, **options)
+
+
+def worker_ids(world, *extra) -> set[str]:
+    """Every model-free probe ID of a worker in `World` (no read roots, no decoy keychain item)."""
+    reads = {f"read.{decoy.label}" for decoy in world.planted if decoy.path} | {"read.owner-temp-decoy"}
+    return reads | {"control.codex-start", "control.proxy-port", "control.write-output", "control.write-tmpdir",
+                    "control.read-materials", "control.list-tree", "list.ssh-dir", "list.keychains-dir",
+                    "list.secrets-dir", "list.home", "list.state-dir", "write.decoy-dir", "write.private-dir",
+                    "write.tree", "write.materials", "network.direct", "network.proxy-refused",
+                    "network.local-listener", "launchd.submit", *extra}
+
+
+def stage_ids(world, *extra) -> set[str]:
+    """Every model-free probe ID of a stage in `World`."""
+    reads = {f"read.{decoy.label}" for decoy in world.planted if decoy.path} | {"read.owner-temp-decoy"}
+    return reads | {"control.codex-start", "control.proxy-port", "control.write-output", "control.write-tmpdir",
+                    "control.read-exchange", "control.write-repository", "control.write-exchange",
+                    "control.venv-python", "list.ssh-dir", "list.keychains-dir", "list.secrets-dir", "list.home",
+                    "list.state-dir", "write.decoy-dir", "write.private-dir", "write.venv", "write.repo-git-config",
+                    "write.repo-git-hooks", "write.repo-git-rename", "network.direct", "network.proxy-refused",
+                    "network.local-listener", "launchd.submit", *extra}
+
+
+def exec_ids(world, *extra) -> set[str]:
+    """Every check ID of the stage probe session through ``codex exec`` (`stage`'s runner targets)."""
+    reads = {f"read.{decoy.label}.script" for decoy in world.planted if decoy.path} | {"read.owner-temp-decoy.script"}
+    if (world.state / "schedules" / decoys.REGISTRY_NAME).exists():
+        reads.add("read.decoy-registry.script")
+    return reads | {
+        "control.exchange.script", "control.repo.script", "control.tmpdir.script", "control.seed.script",
+        "control.sandbox-loaded.script", "list.ssh-dir.script", "list.keychains-dir.script", "list.home.script",
+        "list.secrets-dir.script", "list.state-dir.script", "list.owner-temp.script", "git.config-global.script",
+        "keychain.autodev-test-item.script", "network.external.script", "network.external-noproxy.script",
+        "network.metadata.script", "network.dns.script", "network.udp.script", "network.listen.script",
+        "network.local-listener.script", "socket.foreign.script", "launchd.submit.script",
+        "apple-events.osascript.script", "launch-services.open.script", "write.home.script", "write.state-dir.script",
+        "write.owner-temp.script", "write.private-dir.script", "write.runs.script", "write.installation.script",
+        "write.schedules.script", "write.venv.script", "write.repo-git-config.script", "write.repo-git-hooks.script",
+        "link.symlink-read.script", "link.hardlink.script", "link.dir-symlink.script", "observe.env.script", *extra}
+
+
+def keychain_decoy() -> decoys.Decoy:
+    """A registered decoy keychain item (never created: the tests answer ``security`` themselves)."""
+    return decoys.Decoy("keychain-item", None, decoys.new_marker(), "keychain", "autodev-decoy-svc", "autodev-decoy-acct")
+
+
+def keychain_with_decoy(argv):
+    """`_keychain_answer`, plus: the decoy item exists outside the sandbox."""
+    if "autodev-decoy-svc" in argv and "-w" not in argv:
+        return subprocess.CompletedProcess(argv, 0, "", "")
+    return _keychain_answer(argv)
 
 
 # --- argv -----------------------------------------------------------------------------------------------
@@ -383,6 +435,19 @@ def test_the_profile_limits_sysctl_and_drops_preferences(world):
     assert '(sysctl-name-prefix "kern.proc.pid.")' in profile and "/Library/Preferences" not in profile
     assert '(deny process-exec (regex #"^/usr/bin/(perl|' in profile
     assert '(literal "/Library/Developer/CommandLineTools/usr/bin/git")' in profile
+
+
+@pytest.mark.parametrize("kind", cs.KINDS)
+def test_read_roots_are_readable_but_never_writable(world, kind):
+    root = world.base / "state-copy"
+    root.mkdir()
+    launch = build(world, world.paths(kind, read_roots=(root,)))
+    assert dict(launch.parameters)["READ_ROOT_0"] == str(root)
+    lines = launch.profile.splitlines()
+    reads = [line for line in lines if line.startswith("(allow file-read* (subpath (param \"TMP_DIR\"))")]
+    writes = [line for line in lines if line.startswith("(allow file-write*")]
+    assert len(reads) == 1 and '(subpath (param "READ_ROOT_0"))' in reads[0]
+    assert len(writes) == 1 and "READ_ROOT" not in writes[0] and "INTERPRETER" not in writes[0]
 
 
 def test_parameters_are_resolved_and_ancestors_get_metadata(world):
@@ -702,13 +767,9 @@ def test_nested_eperm_gives_the_claude_worker_with_the_reason(world):
                              "detail": "sandbox-exec: sandbox_apply: Operation not permitted (an inner Seatbelt profile "
                                        "cannot apply)"}
     assert all(entry["ok"] for entry in report.checks), report.checks
-    ids = {entry["id"] for entry in report.checks}
-    reads = {name for name in ids if name.startswith("read.")}
-    assert ids - reads == {"control.codex-start", "control.proxy-port", "control.write-output", "control.write-tmpdir",
-                           "control.read-materials", "control.list-tree", "list.ssh-dir", "list.keychains-dir",
-                           "list.secrets-dir", "list.home", "list.state-dir", "write.decoy-dir", "write.private-dir",
-                           "write.tree", "write.materials", "network.direct", "network.proxy-refused"}
-    assert {f"read.{decoy.label}" for decoy in world.planted if decoy.path} < reads
+    assert [entry["id"] for entry in report.checks].count("write.materials") == 1
+    assert {entry["id"] for entry in report.checks} == worker_ids(world)  # the whole plan, no more, no less
+    assert report.observed["keychain"] == "untested: no decoy keychain item (sandbox.decoy_keychain)"
     assert "example.com:443" in report.observed["proxy"]["refused"]
     written = codex_probes.record_decision(RUN_ID, world.state, "code-review-pass", decision, world.planted)
     entry = written["clients"][0]
@@ -807,6 +868,145 @@ def test_broken_profiles_and_failed_controls_fall_back(world, force, reason):
     assert (decision.client_applied, decision.reason) == ("claude", reason)
 
 
+@pytest.mark.parametrize("kind, hole, check_id", [
+    (cs.WORKER, "-materials", "write.materials"), (cs.WORKER, "-tree", "write.tree"),
+    (cs.WORKER, "-decoy-dir", "write.decoy-dir"), (cs.STAGE, "/.git/hooks/probe-", "write.repo-git-hooks"),
+    (cs.STAGE, ": >> ", "write.repo-git-config"), (cs.STAGE, "-venv", "write.venv"),
+])
+def test_each_write_probe_detects_its_own_hole(world, kind, hole, check_id):
+    set_scenario(world.codex, nested="ok")
+    decision = decide(world, kind=kind, execute=Emulator(world.codex, holes=(hole,)))
+    assert (decision.client_applied, decision.reason) == ("claude", "deny_probe_succeeded")
+    failed = {entry["id"] for entry in decision.report.checks if not entry["ok"]}
+    # A hook planted through the hole also changes .git/hooks, which the rename probe watches.
+    assert failed == {check_id} | ({"write.repo-git-rename"} if check_id == "write.repo-git-hooks" else set())
+    assert not list(world.base.rglob("probe-*")) and not list((world.base / "repo" / ".git" / "hooks").iterdir())
+
+
+@pytest.mark.parametrize("kind", [cs.WORKER, cs.STAGE])
+def test_read_roots_are_write_probed(world, kind):
+    root = world.base / "state-copy"
+    root.mkdir()
+    (root / "autodev.json").write_text("{}\n")
+    set_scenario(world.codex, nested="ok")
+    paths = world.paths(kind, read_roots=(root,))
+    decision = decide(world, paths=paths)
+    assert decision.codex, decision.report.failures
+    expected = (worker_ids if kind == cs.WORKER else stage_ids)(world, "write.read-root-0")
+    assert {entry["id"] for entry in decision.report.checks} == expected
+    hole = decide(world, paths=paths, execute=Emulator(world.codex, holes=("state-copy/probe-",)))
+    assert hole.reason == "deny_probe_succeeded"
+    assert {"id": "write.read-root-0", "expect": "denied", "outcome": "allowed", "ok": False,
+            "exit_code": 0} in hole.report.checks
+    assert sorted(os.listdir(root)) == ["autodev.json"]
+
+
+def test_the_keychain_decoy_item_is_probed_through_securityd(world):
+    set_scenario(world.codex, nested="ok")
+    item = keychain_decoy()
+    persistent = [*world.planted, item]
+    runner_ = with_security(keychain_with_decoy)
+    decision = decide(world, persistent=persistent, command_runner=runner_)
+    assert decision.codex, decision.report.failures
+    assert {entry["id"] for entry in decision.report.checks} == worker_ids(world, "keychain.decoy")
+    assert decision.report.observed["keychain"] == "the decoy item"
+    # The probe names the owner's login keychain explicitly (the run's HOME has no search list).
+    seen = Emulator(world.codex)
+    decide(world, persistent=persistent, command_runner=runner_, execute=seen)
+    lookup = next(call for call in seen.calls if call[0] == codex_probes.SECURITY)
+    assert lookup == [codex_probes.SECURITY, "find-generic-password", "-s", "autodev-decoy-svc", "-a", "autodev-decoy-acct",
+                      "-w", str(real(world.home) / "Library" / "Keychains" / "login.keychain-db")]
+    # Not found proves nothing; the value in the capture is a read decoy (the schedule trips).
+    absent = decide(world, persistent=persistent, command_runner=runner_, execute=Emulator(world.codex, force={
+        "autodev-decoy-svc": probes.Captured("", "item not found", probes.NOT_FOUND, False, False)}))
+    assert absent.reason == "probe_failed" and "keychain.decoy: expected denied, got inconclusive" in absent.report.failures
+    leaked = decide(world, persistent=persistent, command_runner=runner_, execute=Emulator(world.codex, force={
+        "autodev-decoy-svc": probes.Captured(item.marker + "\n", "", 0, False, False)}))
+    assert leaked.reason == "deny_probe_succeeded" and leaked.report.tripped
+    assert item.marker not in json.dumps(leaked.to_record())
+    # No probe when the item is absent outside the sandbox (an absent item would "deny" by not being found).
+    missing = decide(world, persistent=persistent)
+    assert "keychain.decoy" not in {entry["id"] for entry in missing.report.checks}
+
+
+def test_another_local_port_and_launchd_are_probed(world):
+    set_scenario(world.codex, nested="ok")
+    hole = decide(world, execute=Emulator(world.codex, holes=("-z -w 2 127.0.0.1",)))
+    assert hole.reason == "deny_probe_succeeded"
+    assert {"id": "network.local-listener", "expect": "denied", "outcome": "allowed", "ok": False,
+            "exit_code": 0} in hole.report.checks
+    assert any("the runner's listener accepted 1 connection(s)" in failure for failure in hole.report.failures)
+    submitted = decide(world, execute=Emulator(world.codex, force={
+        "launchctl submit": probes.Captured("", "", 0, False, False)}))
+    assert submitted.reason == "deny_probe_succeeded"
+    assert {"id": "launchd.submit", "expect": "denied", "outcome": "allowed", "ok": False,
+            "exit_code": 0} in submitted.report.checks
+    asked = []
+
+    def launchd(argv, **kwargs):
+        if argv[0] == probes.LAUNCHCTL:
+            asked.append(argv[1])
+            return subprocess.CompletedProcess(argv, 0, "", "")  # the job exists: a submit got through
+        return keychain(argv, **kwargs)
+
+    job = decide(world, command_runner=launchd)
+    assert job.reason == "deny_probe_succeeded" and "launchd.submit: the probe's launchd job exists" in job.report.failures
+    assert asked == ["list", "remove"]
+
+
+@pytest.mark.parametrize("case", ["proxy-log", "proxy-port", "unresolvable"])
+def test_network_probes_without_proof_fall_back(world, case):
+    set_scenario(world.codex, nested="ok")
+    with codex_proxy.ConnectProxy(cs.allowed_hosts()) as proxy:
+        if case == "proxy-log":  # curl failed, but the proxy never saw (and refused) the CONNECT
+            options = dict(execute=Emulator(world.codex, force={
+                "https://example.com/": probes.Captured("", "", 7, False, False)}))
+            check_id, outcome = "network.proxy-refused", "inconclusive"
+        elif case == "proxy-port":  # nc says connected, but the proxy counted no connection
+            options = dict(execute=Emulator(world.codex, force={
+                f"-z -w 3 127.0.0.1 {proxy.port}": probes.Captured("", "", 0, False, False)}))
+            check_id, outcome = "control.proxy-port", "failed"
+        else:
+            options = dict(resolver=lambda host: None)
+            check_id, outcome = None, None
+        decision = decide(world, proxy=proxy, **options)
+    assert (decision.client_applied, decision.reason) == ("claude", "probe_failed")
+    if check_id is None:
+        assert "network.direct" not in {entry["id"] for entry in decision.report.checks}
+        assert any("network.direct untested" in failure for failure in decision.report.failures)
+    else:
+        assert {entry["id"]: entry["outcome"] for entry in decision.report.checks}[check_id] == outcome
+
+
+def test_a_proxy_with_other_hosts_is_refused(world):
+    with codex_proxy.ConnectProxy(("api.openai.com", "example.org")) as proxy:
+        decision = decide(world, proxy=proxy)
+    assert (decision.client_applied, decision.reason) == ("claude", "profile_broken")
+    assert "allowlist" in decision.detail and decision.report.checks == []
+
+
+def test_start_refuses_a_launch_its_report_does_not_cover(world, monkeypatch):
+    set_scenario(world.codex, nested="ok")
+    with codex_proxy.ConnectProxy(cs.allowed_hosts()) as proxy:
+        decision = decide(world, proxy=proxy)
+        assert decision.codex
+        other = dataclasses.replace(decision.launch, env={**decision.launch.env, "CODEX_API_KEY": KEY + "other"})
+        assert cs.check_launch(other) == []  # the launch itself is well-formed, only not the probed one
+        decision.launch = other
+        monkeypatch.setattr(codex_probes.subprocess, "Popen", lambda *args, **kwargs: pytest.fail("codex started"))
+        with pytest.raises(CodexSandboxError, match="does not cover this launch"):
+            codex_probes.start(decision, "review", proxy=proxy, platform="darwin")
+
+
+def test_exec_refused_turns_126_into_a_denial(tmp_path):
+    plain = tmp_path / "not-executable"
+    plain.write_text("#!/bin/sh\nexit 0\n")
+    result = subprocess.run(["/bin/bash", "-c", codex_probes._exec_refused(f"{plain} >/dev/null 2>&1")], timeout=30)
+    assert result.returncode == codex_probes.EXEC_REFUSED
+    assert subprocess.run(["/bin/bash", "-c", codex_probes._exec_refused("exit 3")], timeout=30).returncode == 3
+    assert codex_probes.EXEC_REFUSED not in codex_probes.INCONCLUSIVE_CODES
+
+
 def test_an_unbuildable_launch_is_a_broken_profile(world):
     decision = decide(world, paths=world.paths(tree=world.base / "out" / "t"))
     assert (decision.client_applied, decision.reason) == ("claude", "profile_broken")
@@ -901,7 +1101,7 @@ def test_the_fake_refuses_flags_outside_the_verified_set(world):
 
 # --- Codex as a stage client (Q14) -----------------------------------------------------------------
 
-def stage(world, *, keychain_item=True, paths=None, **scenario):
+def stage(world, *, keychain_item=True, paths=None, path=PATH, **scenario):
     set_scenario(world.codex, **scenario)
     items = (("autodev-test-item",) if keychain_item else ())
     runner_targets = probes.Targets(installation=world.base / "inst", runs=world.state / "schedules" / "runs",
@@ -915,7 +1115,7 @@ def stage(world, *, keychain_item=True, paths=None, **scenario):
 
     with codex_proxy.ConnectProxy(cs.allowed_hosts()) as proxy:
         return codex_probes.stage_availability(
-            world.codex, paths or world.paths(cs.STAGE), path=PATH, proxy=proxy, mode=MODE,
+            world.codex, paths or world.paths(cs.STAGE), path=path, proxy=proxy, mode=MODE,
             targets=world.targets(runner_targets=runner_targets), persistent=world.planted, directory=world.state,
             run_id=RUN_ID, platform="darwin", execute_=Emulator(world.codex), command_runner=with_security(security),
             resolver=lambda host: TEST_NET, timeout=60)
@@ -961,6 +1161,7 @@ def test_the_rename_and_edit_sequence_on_git_is_probed(world):
     check = next(entry for entry in decision.report.checks if entry["id"] == "write.repo-git-rename")
     assert check["ok"] and check["outcome"] == "denied"
     assert (git / "config").read_bytes() == config and sorted(os.listdir(git / "hooks")) == []
+    assert {entry["id"] for entry in decision.report.checks} == stage_ids(world)
     hole = decide(world, kind=cs.STAGE, execute=Emulator(world.codex, holes=("mv ",)))
     assert hole.reason == "deny_probe_succeeded"
     assert {"id": "write.repo-git-rename", "expect": "denied", "outcome": "allowed", "ok": False,
@@ -999,16 +1200,56 @@ def test_stage_available_when_every_probe_is_denied(world, wrap):
     stored = codex_probes.read_availability(world.state, **current)
     assert stored["available"] is True and stored["version"] == "0.162.1"
     assert stored["installed"]["workspace_write_blocks_network"] is True
-    ids = {entry["id"] for entry in decision.report.checks}
-    assert {"control.exchange.script", "control.repo.script", "control.sandbox-loaded.script", "network.external.script",
-            "keychain.autodev-test-item.script", "write.repo-git-config.script", "control.venv-python",
-            "write.repo-git-rename"} <= ids
+    ids = [entry["id"] for entry in decision.report.checks]
+    assert set(ids) == stage_ids(world) | exec_ids(world) and len(ids) == len(set(ids))
+    assert decision.report.observed["exit_codes"] == {"git.config-global.script": 1}
+    seen_names = decision.report.observed["model_command_env"]
+    assert "PATH" in seen_names and not set(seen_names) & {"CODEX_API_KEY", "HTTPS_PROXY", "HTTP_PROXY", "CODEX_HOME"}
     executed = [entry for entry in world.seen() if entry["argv"][:1] == ["exec"]]
     assert executed and executed[-1]["argv"] == decision.launch.command[1:]
     given = executed[-1]["env"]  # plus what the wrapper's shell and the platform add (PWD, SHLVL, ...)
     assert {name: given.get(name) for name in decision.launch.env} == dict(decision.launch.env)
     assert not any(cs.FORBIDDEN_NAME.search(name) for name in given if name != cs.API_KEY_VARIABLE)
     assert KEY not in json.dumps(decision.to_record())
+
+
+@pytest.mark.parametrize("scenario, reason, failure", [
+    ({"env_leak": True}, "deny_probe_succeeded", "observe.env.script: expected observe, got exposed"),
+    ({"tamper": True}, "stage_probe_failed", "the probe script probe-"),
+    ({"listener_leak": True}, "deny_probe_succeeded",
+     "network.local-listener.script: the decoy listener accepted 1 connection(s)"),
+])
+def test_the_stage_session_detects_what_its_exit_codes_hide(world, scenario, reason, failure):
+    decision = stage(world, nested="ok", exec="sandboxed", **scenario)
+    assert (decision.client_applied, decision.reason) == ("claude", reason)
+    assert any(item.startswith(failure) for item in decision.report.failures), decision.report.failures
+    if "env_leak" in scenario:  # names only: the key's value never reaches the report
+        assert {"CODEX_API_KEY", "HTTPS_PROXY", "HTTP_PROXY"} <= set(decision.report.observed["model_command_env_exposed"])
+        assert KEY not in json.dumps(decision.to_record())
+    if "listener_leak" in scenario:  # the probe itself reported a denial
+        assert {"id": "network.local-listener.script", "group": "C6", "expect": "denied", "outcome": "denied",
+                "ok": True, "exit_codes": [1]} in decision.report.checks
+    assert stored_entry(world)["available"] is False
+
+
+def test_gh_and_programs_the_profile_cannot_execute(world):
+    bin_dir = world.base / "ghbin"
+    bin_dir.mkdir()
+    (bin_dir / "gh").write_text("#!/bin/sh\nexit 0\n")
+    (bin_dir / "gh").chmod(0o755)
+    decision = stage(world, nested="ok", exec="sandboxed", path=f"{bin_dir}:{PATH}")
+    assert decision.codex, decision.report.failures
+    assert decision.report.observed["gh"] == "probed"
+    checks = {entry["id"]: entry for entry in decision.report.checks}
+    assert set(checks) == stage_ids(world) | exec_ids(world, "gh.token.script")
+    assert checks["gh.token.script"]["group"] == "C4" and checks["gh.token.script"]["ok"]
+    # The plan runs the gh the runner found, and osascript, so that a refused exec counts as denied.
+    launch = build(world, world.paths(cs.STAGE, profile=world.base / "priv" / "plan.sb"), path=f"{bin_dir}:{PATH}")
+    run = codex_probes.ProbeRun("0" * 16, list(world.planted), gh=codex_probes.find_gh(launch.env["PATH"]))
+    text = "\n".join(call.text for call in codex_probes.exec_plan(launch, run, world.targets()))
+    assert codex_probes._exec_refused(f"{bin_dir / 'gh'} auth token >/dev/null 2>&1") in text
+    assert f"exit {codex_probes.EXEC_REFUSED}; exit $rc ); echo __probe__ apple-events.osascript.script" in text
+    assert codex_probes.find_gh(PATH) is None or os.path.dirname(codex_probes.find_gh(PATH)) in PATH.split(":")
 
 
 def test_the_stored_availability_is_bound_to_version_shape_and_age(world):
@@ -1141,6 +1382,8 @@ def test_the_generated_profile_under_the_real_sandbox(world):
         assert rc("/usr/bin/nc", "-z", "-w", "2", "127.0.0.1", str(other.getsockname()[1])) != 0
         assert rc("/usr/bin/nc", "-z", "-G", "2", "-w", "2", TEST_NET, "443") != 0
         assert rc("/usr/bin/perl", "-e", "1") != 0 and rc("/bin/echo", "ok") == 0
+        # A program the profile does not let start: bash's 126, which the probes count as denied.
+        assert rc("/bin/bash", "-c", codex_probes._exec_refused("/usr/bin/osascript -e 1 >/dev/null 2>&1")) == 77
         stage_launch = build(world, world.paths(cs.STAGE), proxy_port=allowed.getsockname()[1])
         repo, git = world.base / "repo", world.base / "repo" / ".git"
         config = (git / "config").read_bytes()
@@ -1172,20 +1415,68 @@ def test_the_generated_profile_under_the_real_sandbox(world):
 
 @needs_seatbelt
 def test_the_worker_probes_under_the_real_sandbox(world):
-    decision = decide(world, execute=real_executor(world.codex))
+    root = world.base / "state-copy"
+    root.mkdir()
+    paths = world.paths(read_roots=(root,))
+    decision = decide(world, paths=paths, execute=real_executor(world.codex))
     assert decision.reason == "nested_sandbox_unavailable"
     failed = [entry for entry in decision.report.checks if not entry["ok"]]
     assert failed == [] and len(decision.report.failures) == 1
+    assert {entry["id"] for entry in decision.report.checks} == worker_ids(world, "write.read-root-0")
     set_scenario(world.codex, nested="ok")
-    decision = decide(world, execute=real_executor(world.codex))
+    decision = decide(world, paths=paths, execute=real_executor(world.codex))
     assert decision.codex, decision.report.failures
+    assert os.listdir(root) == []
 
 
 @needs_seatbelt
 def test_the_stage_probes_under_the_real_sandbox(world):
+    root = world.base / "state-copy"
+    root.mkdir()
     set_scenario(world.codex, nested="ok")
-    decision = decide(world, kind=cs.STAGE, execute=real_executor(world.codex))
+    decision = decide(world, paths=world.paths(cs.STAGE, read_roots=(root,)), execute=real_executor(world.codex))
     assert decision.codex, decision.report.failures
-    ids = {entry["id"] for entry in decision.report.checks if entry["ok"]}
-    assert {"control.venv-python", "write.repo-git-rename", "write.repo-git-config", "write.repo-git-hooks",
-            "control.write-repository"} <= ids
+    assert {entry["id"] for entry in decision.report.checks if entry["ok"]} == stage_ids(world, "write.read-root-0")
+    assert os.listdir(root) == [] and not list(world.venv.glob("probe-*"))
+
+
+def sh_codex(directory: Path) -> str:
+    """A ``codex`` package whose executable is a shell script, so that it runs under the real
+    profile (the Python fake cannot): ``--version``, and ``sandbox`` failing as on this macOS."""
+    package = directory / "shpkg"
+    (package / "bin").mkdir(parents=True)
+    (package / cs.PACKAGE_MANIFEST).write_text('{"entrypoint": "bin/codex"}\n')
+    executable = package / "bin" / "codex"
+    executable.write_text('#!/bin/sh\ncase "$1" in\n  --version) echo "codex-cli 0.162.1" ;;\n'
+                          '  sandbox) echo "sandbox-exec: sandbox_apply: Operation not permitted" >&2; exit 71 ;;\n'
+                          '  *) exit 2 ;;\nesac\n')
+    executable.chmod(0o755)
+    return str(executable)
+
+
+@needs_seatbelt
+def test_a_broken_profile_under_the_real_sandbox_falls_back_and_is_recorded(world):
+    world.codex = sh_codex(world.base)
+    decision = decide(world, execute=codex_probes.execute)  # every probe, codex included, under the profile
+    assert decision.reason == "nested_sandbox_unavailable", decision.report.failures
+    assert all(entry["ok"] for entry in decision.report.checks)  # control.codex-start ran under the profile
+    assert decision.report.nested["exit_code"] == 71
+    broken = []
+
+    def breaking(argv, **kwargs):
+        if not broken:  # after the launch was built and checked: the profile on disk no longer parses
+            profile = Path(argv[2])
+            profile.write_text("(version 1)\n(deny default\n")
+            broken.append(profile)
+        return codex_probes.execute(argv, **kwargs)
+
+    decision = decide(world, execute=breaking)
+    assert (decision.client_applied, decision.reason) == ("claude", "profile_broken")
+    assert {"id": "control.codex-start", "expect": "allowed", "outcome": "failed", "ok": False} == {
+        key: value for key, value in decision.report.checks[0].items() if key != "exit_code"}
+    assert not decision.report.nested  # the nested check needs a codex that starts
+    written = codex_probes.record_decision(RUN_ID, world.state, "code-review-pass", decision, world.planted)
+    entry = written["clients"][-1]
+    assert (entry["client_requested"], entry["client_applied"], entry["fallback_reason"]) == (
+        "codex", "claude", "profile_broken")
+    assert records.read_record(RUN_ID, world.state)["clients"][-1]["codex_probes"]["reason"] == "profile_broken"
