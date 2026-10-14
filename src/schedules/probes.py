@@ -113,6 +113,14 @@ UDP_RESOLVER = "1.1.1.1"
 LAUNCH_LABEL_PREFIX = "local.agents-core.autodev-probe."
 LAUNCHCTL = "/bin/launchctl"
 DOCKER_SOCKET = Path("/var/run/docker.sock")
+# The listen probe (C6): bind and listen on 127.0.0.1 with the session's Python (an argument of
+# ``python -c``, in bash's $'...' quoting); `LISTEN_REFUSED` when the bind or listen fails.
+LISTEN_SCRIPT = ("$'import socket\\ntry:\\n    s = socket.socket()\\n    s.bind((\"127.0.0.1\", 0))\\n    s.listen(1)\\n"
+                 f"except OSError:\\n    raise SystemExit({LISTEN_REFUSED})'")
+# The observation probe (C13-C15): the variable names Bash sees (never a value), its $TMPDIR and
+# its open descriptors, as ``__env__``, ``__tmpdir__`` and ``__fds__`` lines.
+OBSERVE_COMMAND = ("printf '__env__ '; /bin/bash -c 'compgen -e' | tr '\\n' ' '; "
+                   "printf '\\n__tmpdir__ %s\\n__fds__ ' \"$TMPDIR\"; ls /dev/fd | tr '\\n' ' '; printf '\\n'")
 COMMAND_TIMEOUT = 30
 INERT_KEYS = frozenset({"description"})  # a tool input may add these (strings) and still match
 # Names the shell and the CLI add to Bash's environment (CLAUDECODE, CLAUDE_CODE_CHILD_SESSION and
@@ -545,8 +553,6 @@ def plan(spec: sandbox.SessionSpec, run: ProbeRun, targets: Targets) -> list[Cal
     # https probe's refused CONNECT is an error exit anyway, and the plain-http metadata probe uses
     # --fail, so only an HTTP status below 400, a real response, exits 0.
     python = paths.venv / "bin" / "python"
-    listen = ("$'import socket\\ntry:\\n    s = socket.socket()\\n    s.bind((\"127.0.0.1\", 0))\\n    s.listen(1)\\n"
-              f"except OSError:\\n    raise SystemExit({LISTEN_REFUSED})'")
     network = [(Check("gh.token.script", "C4", DENIED, sandbox_only=True), "gh auth token >/dev/null 2>&1"),
                (Check("network.external.script", "C5", DENIED, sandbox_only=True),
                 f"curl -sS -o /dev/null --max-time 5 {EXTERNAL_URL} >/dev/null 2>&1"),
@@ -561,7 +567,7 @@ def plan(spec: sandbox.SessionSpec, run: ProbeRun, targets: Targets) -> list[Cal
                (Check("network.udp.script", "C5", DENIED, sandbox_only=True),
                 f"/usr/bin/dig +time=2 +tries=1 {EXTERNAL_HOST} @{UDP_RESOLVER} >/dev/null 2>&1"),
                (Check("network.listen.script", "C6", DENIED, sandbox_only=True, codes=frozenset({LISTEN_REFUSED})),
-                f"{_q(python)} -c {listen} >/dev/null 2>&1")]
+                f"{_q(python)} -c {LISTEN_SCRIPT} >/dev/null 2>&1")]
     if run.tcp_listener is not None:
         network.append((Check("network.local-listener.script", "C6", DENIED, sandbox_only=True),
                         f"/usr/bin/nc -z -w 2 127.0.0.1 {run.tcp_listener.port} >/dev/null 2>&1"))
@@ -691,9 +697,7 @@ def plan(spec: sandbox.SessionSpec, run: ProbeRun, targets: Targets) -> list[Cal
         tool("Read", {"file_path": str(link)}, Check("link.symlink-read.read", "C18", DENIED, decoy=credentials.label))
 
     # What the session's processes see (C13, C14, C15).
-    script("observe", [(Check("observe.env.script", "C13", OBSERVE, sandbox_only=True),
-                        "printf '__env__ '; /bin/bash -c 'compgen -e' | tr '\\n' ' '; "
-                        "printf '\\n__tmpdir__ %s\\n__fds__ ' \"$TMPDIR\"; ls /dev/fd | tr '\\n' ' '; printf '\\n'")])
+    script("observe", [(Check("observe.env.script", "C13", OBSERVE, sandbox_only=True), OBSERVE_COMMAND)])
     _require_unique(calls)
     return calls
 
