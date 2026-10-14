@@ -252,7 +252,8 @@ reaches only the run's group; the record counts such scans as `failed_process_sc
 swept after a normal exit are recorded as `swept`; a stop signal that arrives while the run starts
 ends the run as soon as it has a PID. A stopped supervisor records `failed: infra` (`stopped`) and
 exits with 128 plus the signal number. The run itself handles the sweep's SIGTERM: it records,
-notifies, releases its claim and cleans up within the grace period
+notifies and cleans up within the grace period, then releases its claim as far as the grace
+allows
 ([autodev-sequence.md](autodev-sequence.md#the-end)); a run that timed out or was stopped without
 notifying is notified by the launching process (`runner.notify_ended`).
 

@@ -927,6 +927,26 @@ def test_resume_binds_the_pr_and_needs_a_new_review_before_push(world):
     assert {"id": 7001, "kind": "state", "number": PR} in record["comments"]
 
 
+def test_a_resume_that_did_not_push_keeps_the_pr_head_in_the_state_comment(world):
+    """#347 review round 2: an in-session review imports a commit and moves the trusted branch head
+    without a push; the state comment names the PR's head, which the resume checked, not that one."""
+    head = _branch_in_trusted(world)
+    earlier = records.new_run_id(NOW - timedelta(days=1))
+    records.write_record(earlier, {"status": "completed", "issue": ISSUE, "pr": PR,
+                                   "comments": [{"id": 7001, "kind": "state", "number": PR}]}, world.state)
+    state = {"findings": [], "head": head, "next_attempt": None, "review_status": "waiting_bots", "rounds": 1}
+    _open_pr(world, head, [{"id": 7001, "body": "<!-- autodev -->\n<!-- autodev:state " + json.dumps(state) + " -->",
+                            "updated_at": "2026-10-13T00:00:00Z"}])
+    script = [*COMMIT, "git bundle create -q {exchange_dir}/handover.bundle {branch} ^{pinned}", *REVIEW]
+    world.scenario({"submit": {"script": script, "output": {**submit_output("blocked"), "rounds": 1}}})
+    code, record = world.run("resume", pr=PR)
+    assert code == 1 and record["status"] == "blocked", (record.get("reason"), record.get("stages"))
+    moved = git(world.trusted, "rev-parse", f"refs/heads/{BRANCH}")
+    assert moved != head and world.pushes == []  # imported for the review, never pushed
+    [patch] = [call for call in world.api.calls if call[:2] == ("PATCH", f"{BASE}/issues/comments/7001")]
+    written = json.loads(patch[2]["body"].split("<!-- autodev:state ", 1)[1].removesuffix(" -->"))
+    assert written["head"] == head and written["review_status"] == "blocked"
+
 def test_an_invalid_resume_output_keeps_the_rounds_and_findings_of_the_state_comment(world):
     """Correctness review #347: the trusted state's rounds and findings survive an invalid output."""
     head = _branch_in_trusted(world)

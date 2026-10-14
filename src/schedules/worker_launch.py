@@ -499,6 +499,12 @@ def codex_inputs(root: Path, tree: Path, materials: Path, schema: Mapping) -> di
     return {**copies, "schema": schema_file}
 
 
+# The output scan's windows (`decoy_findings`): below the scanner's text limit, overlapping by more
+# than any fingerprint form is long.
+SCAN_WINDOW = 1_000_000
+SCAN_OVERLAP = 65_536
+
+
 def decoy_findings(text: str, denials: Iterable[Mapping], decoys: Sequence[decoy_store.Decoy],
                    known: Sequence[KnownSecret] = ()) -> list[str]:
     """What in a worker's output names a decoy or carries a decoy marker or another known secret:
@@ -510,6 +516,12 @@ def decoy_findings(text: str, denials: Iterable[Mapping], decoys: Sequence[decoy
         for label, names in references.items():
             if any(name in named for name in names):
                 findings.append(f"denied tool call {index} names decoy {label}")
-    hits = Scanner([*decoy_store.known(decoys), *known]).scan(text) if text else ()
-    findings += sorted({f"the output carries {hit.name}" for hit in hits if hit.kind == HitKind.KNOWN})
+    # Fingerprints only, so secret-shaped noise cannot end the scan before a marker, and in
+    # overlapping windows, so no length leaves a part unscanned (#347 review).
+    scanner = Scanner([*decoy_store.known(decoys), *known], known_only=True)
+    names = set()
+    for start in range(0, max(1, len(text) - SCAN_OVERLAP), SCAN_WINDOW) if text else ():
+        window = text[start:start + SCAN_WINDOW + SCAN_OVERLAP]
+        names |= {hit.name for hit in scanner.scan(window) if hit.kind == HitKind.KNOWN}
+    findings += sorted(f"the output carries {name}" for name in names)
     return findings

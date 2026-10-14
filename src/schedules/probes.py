@@ -1627,11 +1627,13 @@ def stage_tripwire(stdout: str | Iterable[str], persistent: Iterable[decoy_store
     a marker anywhere in the stream; an attempt counts even when it was denied. Any finding turns
     the schedule off (`decoys.trip`); the findings name labels and call numbers, never a value.
     ``stdout`` is the stream's text or its lines (the stream file opened as text): it is read in
-    chunks of whole lines (`_line_chunks`), each scanned whole (`decoy_labels`), so no length
-    leaves a part unscanned (#347 review). Best effort: a call that reaches a decoy through a
+    chunks of whole lines (`_line_chunks`), each scanned whole (`decoy_labels`) for the decoy
+    fingerprints only, so neither length nor secret-shaped noise leaves a marker unscanned (#347
+    review). Best effort: a call that reaches a decoy through a
     pattern it does not spell out is caught only if the marker comes back."""
     decoys = list(persistent)
-    scanner = Scanner(decoy_store.known(decoys))
+    # Fingerprints only: secret-shaped noise must not end the scan before a marker (#347 review).
+    scanner = Scanner(decoy_store.known(decoys), known_only=True)
     references = decoy_store.references(decoys)
     findings, labels, calls = [], set(), 0
     for chunk in _line_chunks(stdout.splitlines(keepends=True) if isinstance(stdout, str) else stdout):

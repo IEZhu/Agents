@@ -191,7 +191,8 @@ reason (labels, checks and call numbers, never a marker) and the run in
 marker anywhere in a probe's output, by a decoy marker in the broker's outgoing text
 (`Broker(on_decoy=...)`), and by `probes.stage_tripwire`, which the run sequence runs on every
 stage session's whole stream-json output (read line by line and scanned in windows that overlap,
-so no length leaves a part unscanned; a stream over `sequence.MAX_STREAM_BYTES` is refused unread
+for the decoy fingerprints only, so neither length nor secret-shaped noise leaves a marker
+unscanned; a stream over `sequence.MAX_STREAM_BYTES` is refused unread
 and trips too): any tool call that names a decoy (its random file or directory name or
 keychain service), even one that was refused, or a marker anywhere in the stream. It is a
 tripwire, not a wall: a call that reaches a decoy through a pattern it does not spell out is

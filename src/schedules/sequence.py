@@ -226,6 +226,7 @@ class Sequence:
         self.oauth: str | None = None
         self.path = ""
         self.pinned: str | None = None
+        self.resume_head: str | None = None  # the PR head a resume checked at its start
         self.trusted: repos.TrustedRepository | None = None
         self.client = None
         self.credentials: broker_module.Credentials | None = None
@@ -299,13 +300,16 @@ class Sequence:
         """``state.json`` done, the claim released (`release_claim`), the session directories and
         workers ended (`_close`), the report and the notification (`_finish`). After a stop the
         record and the notification come first and the workers get `STOP_CLOSE_WAIT`: the
-        supervisor kills the run `supervise.GRACE_SECONDS` after its SIGTERM."""
+        supervisor kills the run `supervise.GRACE_SECONDS` after its SIGTERM, so the claim's release,
+        which talks to GitHub, comes last and is best effort."""
         self._final_state()
         if stopped:
+            # Local work first; the claim's release talks to GitHub and is best effort within
+            # the grace (#347 review round 2).
             self._write(lambda record: record.update(self.fields))
             self._finish()
-            self.release_claim()
             self._close(wait=STOP_CLOSE_WAIT)
+            self.release_claim()
             return
         self.release_claim()
         self._close()
@@ -1035,13 +1039,13 @@ class Sequence:
         return None
 
     def _pushed_head(self) -> str | None:
-        """The head the broker last pushed in this run, else (a resume that has not pushed) the
-        trusted repository's head of the PR's branch, which the resume checked against the PR."""
+        """The head the broker last pushed in this run, else (a resume that has not pushed) the PR
+        head the resume checked at its start: an in-session review import moves the trusted branch
+        head without a push, so the PR does not carry that head (#347 review round 2)."""
         pushed = [entry.get("head") for entry in self.broker.log.done("push")]  # type: ignore[union-attr]
         if pushed and isinstance(pushed[-1], str):
             return pushed[-1]
-        branch = self.broker.branch  # type: ignore[union-attr]
-        return self._trusted().branch_head(branch) if branch else None
+        return self.resume_head
 
     def _submit_problems(self, output: Mapping, pr: int | None, head: str | None) -> list[str]:
         """What makes a schema-valid submit output unusable (#347 review): a PR link that is not the
@@ -1159,6 +1163,7 @@ class Sequence:
         if head is None or head != pr_head:
             self.block([FOREIGN_HEAD], unclaim=False)
             raise Stopped({"status": "blocked", "reason": FOREIGN_HEAD})
+        self.resume_head = head
         self._session_setup()
         state, _ = trusted_state((self.snapshot.get("issue_comments") or {}).get(str(pr)) or [],
                                  records.trusted_comment_ids(self.ctx.directory))
