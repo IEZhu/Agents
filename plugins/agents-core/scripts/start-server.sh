@@ -21,7 +21,7 @@ if [ -f /etc/NIXOS ] && [ -d /run/current-system/sw/share/nix-ld/lib ]; then
 fi
 if [ ! -x "$installation/.venv/bin/python" ] || [ ! -f "$installation/src/server.py" ]; then
     echo "Agents-Core is not installed in $installation. Install it first:" >&2
-    echo "  curl -fsSL https://raw.githubusercontent.com/IEZhu/Agents/main/install.sh | bash -s -- --skip-mcp" >&2
+    echo "  curl -fsSL https://raw.githubusercontent.com/IEZhu/Agents/main/install.sh | bash" >&2
     exit 1
 fi
 exec "$installation/.venv/bin/python" "$installation/src/server.py"
