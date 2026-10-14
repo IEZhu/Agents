@@ -33,6 +33,8 @@ network access (#343), and the state directory is closed to them.
   ``invalid_settings`` lists every problem and leaves the file as it was; 409 ``config_changed``
   when the configuration changed since the page read it. ``enabled`` and ``mode`` change only
   with the switch: a save takes them from the file as it is when it writes.
+  A successful response returns the settings and revision of the exact written snapshot,
+  even if another writer changes the file before the response is built.
 - ``POST /ui/api/autodev/enable`` with ``{mode, accept_shared_account}``: ``runner.enable`` with
   ``source="page"``. ``run`` (the automatic mode, #350) is refused with 409
   ``acceptance_required`` without ``accept_shared_account: true``, 409 ``not_ready`` unless a
