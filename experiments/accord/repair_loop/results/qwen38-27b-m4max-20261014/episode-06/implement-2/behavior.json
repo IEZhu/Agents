@@ -1,0 +1,379 @@
+{
+  "passed": true,
+  "count": 46,
+  "source_sha256": "5567d24e31be21b2d393628c60ba384faca3019486f64614507574fdd037d5fa",
+  "checks": [
+    {
+      "name": "valid_dictionary",
+      "passed": true,
+      "expected_type": "ok",
+      "expected_message": null,
+      "actual_type": "ok",
+      "actual_message": null
+    },
+    {
+      "name": "valid_json_text",
+      "passed": true,
+      "expected_type": "ok",
+      "expected_message": null,
+      "actual_type": "ok",
+      "actual_message": null
+    },
+    {
+      "name": "valid_utf8_bytes",
+      "passed": true,
+      "expected_type": "ok",
+      "expected_message": null,
+      "actual_type": "ok",
+      "actual_message": null
+    },
+    {
+      "name": "valid_utf16_bytes",
+      "passed": true,
+      "expected_type": "ok",
+      "expected_message": null,
+      "actual_type": "ok",
+      "actual_message": null
+    },
+    {
+      "name": "valid_utf32_bytes",
+      "passed": true,
+      "expected_type": "ok",
+      "expected_message": null,
+      "actual_type": "ok",
+      "actual_message": null
+    },
+    {
+      "name": "valid_json_ascii_escape",
+      "passed": true,
+      "expected_type": "ok",
+      "expected_message": null,
+      "actual_type": "ok",
+      "actual_message": null
+    },
+    {
+      "name": "exact_65536_text_bytes",
+      "passed": true,
+      "expected_type": "ok",
+      "expected_message": null,
+      "actual_type": "ok",
+      "actual_message": null
+    },
+    {
+      "name": "exact_65536_raw_bytes",
+      "passed": true,
+      "expected_type": "ok",
+      "expected_message": null,
+      "actual_type": "ok",
+      "actual_message": null
+    },
+    {
+      "name": "raw_high_surrogate",
+      "passed": true,
+      "expected_type": "AccordError",
+      "expected_message": "invalid contract JSON",
+      "actual_type": "AccordError",
+      "actual_message": "invalid contract JSON"
+    },
+    {
+      "name": "raw_low_surrogate",
+      "passed": true,
+      "expected_type": "AccordError",
+      "expected_message": "invalid contract JSON",
+      "actual_type": "AccordError",
+      "actual_message": "invalid contract JSON"
+    },
+    {
+      "name": "raw_surrogate_in_json",
+      "passed": true,
+      "expected_type": "AccordError",
+      "expected_message": "invalid contract JSON",
+      "actual_type": "AccordError",
+      "actual_message": "invalid contract JSON"
+    },
+    {
+      "name": "raw_surrogate_pair",
+      "passed": true,
+      "expected_type": "AccordError",
+      "expected_message": "invalid contract JSON",
+      "actual_type": "AccordError",
+      "actual_message": "invalid contract JSON"
+    },
+    {
+      "name": "oversize_ascii_text",
+      "passed": true,
+      "expected_type": "AccordError",
+      "expected_message": "contract too large",
+      "actual_type": "AccordError",
+      "actual_message": "contract too large"
+    },
+    {
+      "name": "oversize_raw_bytes",
+      "passed": true,
+      "expected_type": "AccordError",
+      "expected_message": "contract too large",
+      "actual_type": "AccordError",
+      "actual_message": "contract too large"
+    },
+    {
+      "name": "oversize_multibyte_text",
+      "passed": true,
+      "expected_type": "AccordError",
+      "expected_message": "contract too large",
+      "actual_type": "AccordError",
+      "actual_message": "contract too large"
+    },
+    {
+      "name": "malformed_json",
+      "passed": true,
+      "expected_type": "AccordError",
+      "expected_message": "invalid contract JSON",
+      "actual_type": "AccordError",
+      "actual_message": "invalid contract JSON"
+    },
+    {
+      "name": "invalid_utf8",
+      "passed": true,
+      "expected_type": "AccordError",
+      "expected_message": "invalid contract JSON",
+      "actual_type": "AccordError",
+      "actual_message": "invalid contract JSON"
+    },
+    {
+      "name": "truncated_utf8",
+      "passed": true,
+      "expected_type": "AccordError",
+      "expected_message": "invalid contract JSON",
+      "actual_type": "AccordError",
+      "actual_message": "invalid contract JSON"
+    },
+    {
+      "name": "duplicate_key",
+      "passed": true,
+      "expected_type": "AccordError",
+      "expected_message": "invalid contract JSON",
+      "actual_type": "AccordError",
+      "actual_message": "invalid contract JSON"
+    },
+    {
+      "name": "nonfinite_nan",
+      "passed": true,
+      "expected_type": "AccordError",
+      "expected_message": "invalid contract JSON",
+      "actual_type": "AccordError",
+      "actual_message": "invalid contract JSON"
+    },
+    {
+      "name": "nonfinite_infinity",
+      "passed": true,
+      "expected_type": "AccordError",
+      "expected_message": "invalid contract JSON",
+      "actual_type": "AccordError",
+      "actual_message": "invalid contract JSON"
+    },
+    {
+      "name": "nonfinite_negative_infinity",
+      "passed": true,
+      "expected_type": "AccordError",
+      "expected_message": "invalid contract JSON",
+      "actual_type": "AccordError",
+      "actual_message": "invalid contract JSON"
+    },
+    {
+      "name": "array_root",
+      "passed": true,
+      "expected_type": "AccordError",
+      "expected_message": "contract must be an object",
+      "actual_type": "AccordError",
+      "actual_message": "contract must be an object"
+    },
+    {
+      "name": "null_root",
+      "passed": true,
+      "expected_type": "AccordError",
+      "expected_message": "contract must be an object",
+      "actual_type": "AccordError",
+      "actual_message": "contract must be an object"
+    },
+    {
+      "name": "integer_root",
+      "passed": true,
+      "expected_type": "AccordError",
+      "expected_message": "contract must be an object",
+      "actual_type": "AccordError",
+      "actual_message": "contract must be an object"
+    },
+    {
+      "name": "boolean_root",
+      "passed": true,
+      "expected_type": "AccordError",
+      "expected_message": "contract must be an object",
+      "actual_type": "AccordError",
+      "actual_message": "contract must be an object"
+    },
+    {
+      "name": "bytearray_root",
+      "passed": true,
+      "expected_type": "AccordError",
+      "expected_message": "contract must be an object",
+      "actual_type": "AccordError",
+      "actual_message": "contract must be an object"
+    },
+    {
+      "name": "unknown_field",
+      "passed": true,
+      "expected_type": "AccordError",
+      "expected_message": "unknown or missing contract fields",
+      "actual_type": "AccordError",
+      "actual_message": "unknown or missing contract fields"
+    },
+    {
+      "name": "wrong_version",
+      "passed": true,
+      "expected_type": "AccordError",
+      "expected_message": "unsupported IR version",
+      "actual_type": "AccordError",
+      "actual_message": "unsupported IR version"
+    },
+    {
+      "name": "checks_array",
+      "passed": true,
+      "expected_type": "AccordError",
+      "expected_message": "checks must be an object",
+      "actual_type": "AccordError",
+      "actual_message": "checks must be an object"
+    },
+    {
+      "name": "inputs_string",
+      "passed": true,
+      "expected_type": "AccordError",
+      "expected_message": "resources must be arrays",
+      "actual_type": "AccordError",
+      "actual_message": "resources must be arrays"
+    },
+    {
+      "name": "publish_string",
+      "passed": true,
+      "expected_type": "AccordError",
+      "expected_message": "resources must be arrays",
+      "actual_type": "AccordError",
+      "actual_message": "resources must be arrays"
+    },
+    {
+      "name": "bool_budget",
+      "passed": true,
+      "expected_type": "AccordError",
+      "expected_message": "integer outside allowed bounds",
+      "actual_type": "AccordError",
+      "actual_message": "integer outside allowed bounds"
+    },
+    {
+      "name": "float_budget",
+      "passed": true,
+      "expected_type": "AccordError",
+      "expected_message": "integer outside allowed bounds",
+      "actual_type": "AccordError",
+      "actual_message": "integer outside allowed bounds"
+    },
+    {
+      "name": "negative_budget",
+      "passed": true,
+      "expected_type": "AccordError",
+      "expected_message": "integer outside allowed bounds",
+      "actual_type": "AccordError",
+      "actual_message": "integer outside allowed bounds"
+    },
+    {
+      "name": "large_budget",
+      "passed": true,
+      "expected_type": "AccordError",
+      "expected_message": "integer outside allowed bounds",
+      "actual_type": "AccordError",
+      "actual_message": "integer outside allowed bounds"
+    },
+    {
+      "name": "zero_output_limit",
+      "passed": true,
+      "expected_type": "AccordError",
+      "expected_message": "integer outside allowed bounds",
+      "actual_type": "AccordError",
+      "actual_message": "integer outside allowed bounds"
+    },
+    {
+      "name": "large_output_limit",
+      "passed": true,
+      "expected_type": "AccordError",
+      "expected_message": "integer outside allowed bounds",
+      "actual_type": "AccordError",
+      "actual_message": "integer outside allowed bounds"
+    },
+    {
+      "name": "duplicate_resource",
+      "passed": true,
+      "expected_type": "AccordError",
+      "expected_message": "duplicate resource",
+      "actual_type": "AccordError",
+      "actual_message": "duplicate resource"
+    },
+    {
+      "name": "empty_checks",
+      "passed": true,
+      "expected_type": "AccordError",
+      "expected_message": "checks must be nonempty",
+      "actual_type": "AccordError",
+      "actual_message": "checks must be nonempty"
+    },
+    {
+      "name": "bad_identifier",
+      "passed": true,
+      "expected_type": "AccordError",
+      "expected_message": "invalid identifier",
+      "actual_type": "AccordError",
+      "actual_message": "invalid identifier"
+    },
+    {
+      "name": "dictionary_surrogate",
+      "passed": true,
+      "expected_type": "AccordError",
+      "expected_message": "invalid identifier",
+      "actual_type": "AccordError",
+      "actual_message": "invalid identifier"
+    },
+    {
+      "name": "integer_check_revision",
+      "passed": true,
+      "expected_type": "AccordError",
+      "expected_message": "invalid identifier",
+      "actual_type": "AccordError",
+      "actual_message": "invalid identifier"
+    },
+    {
+      "name": "escaped_surrogate_json",
+      "passed": true,
+      "expected_type": "AccordError",
+      "expected_message": "invalid identifier",
+      "actual_type": "AccordError",
+      "actual_message": "invalid identifier"
+    },
+    {
+      "name": "nonascii_identifier_json",
+      "passed": true,
+      "expected_type": "AccordError",
+      "expected_message": "invalid identifier",
+      "actual_type": "AccordError",
+      "actual_message": "invalid identifier"
+    },
+    {
+      "name": "missing_field",
+      "passed": true,
+      "expected_type": "AccordError",
+      "expected_message": "unknown or missing contract fields",
+      "actual_type": "AccordError",
+      "actual_message": "unknown or missing contract fields"
+    }
+  ],
+  "returncode": 0,
+  "changed": true,
+  "checker_sha256": "7d02b3d282a416cf6f01eb13f6b6467a6be59032df4c0dd3e4f11386dc3e2f3e",
+  "probe_sha256": "5270e78d4cda9f5acf1f5f4afad582c6f692137d9bca7009625f2f7f2b0b91dc"
+}

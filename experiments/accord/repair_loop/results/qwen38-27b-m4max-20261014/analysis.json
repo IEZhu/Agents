@@ -1,0 +1,82 @@
+{
+  "verified": true,
+  "groups": {
+    "accord": {
+      "episodes": 4,
+      "successes": 3,
+      "success_rate": 0.75,
+      "first_attempt_fixes": 1,
+      "median_full_ms": 583283.6885414436,
+      "total_full_ms": 2165667.422165978,
+      "median_model_ms": 574224.5880825212,
+      "model_calls": 14,
+      "wilson_95_interval": [
+        0.30064184258240184,
+        0.9544127391902995
+      ],
+      "full_ms_range": [
+        378284.0537499869,
+        620815.9913331037
+      ]
+    },
+    "python": {
+      "episodes": 4,
+      "successes": 4,
+      "success_rate": 1.0,
+      "first_attempt_fixes": 1,
+      "median_full_ms": 689345.7056665211,
+      "total_full_ms": 2626828.7882909644,
+      "median_model_ms": 679190.0526870159,
+      "model_calls": 15,
+      "wilson_95_interval": [
+        0.5101091635454027,
+        1
+      ],
+      "full_ms_range": [
+        457955.3427499486,
+        790182.0342079736
+      ]
+    }
+  },
+  "paired": [
+    {
+      "seed": 101,
+      "accord_minus_python_ms": -249114.71241607796,
+      "accord_success": false,
+      "python_success": true
+    },
+    {
+      "seed": 202,
+      "accord_minus_python_ms": 152511.319458019,
+      "accord_success": true,
+      "python_success": true
+    },
+    {
+      "seed": 303,
+      "accord_minus_python_ms": -169366.0428748699,
+      "accord_success": true,
+      "python_success": true
+    },
+    {
+      "seed": 404,
+      "accord_minus_python_ms": -195191.9302920578,
+      "accord_success": true,
+      "python_success": true
+    }
+  ],
+  "totals": {
+    "model_calls": 29,
+    "valid_envelopes": 29,
+    "behavior_replays": 7,
+    "input_tokens": 189813,
+    "output_tokens": 13196,
+    "reused_tokens": 0,
+    "prepare_ms": 37095.025248709135,
+    "validation_ms": 19349.424166604877,
+    "model_ms": 4709943.017373094
+  },
+  "median_paired_delta_ms": -182278.98658346385,
+  "batch_elapsed_ms": 4800095.332041965,
+  "setup_ms": 7537.034249980934,
+  "reuse_fraction": 0.0
+}

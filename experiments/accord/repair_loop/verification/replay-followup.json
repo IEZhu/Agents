@@ -1,0 +1,7 @@
+{
+  "source_freeze_guard_added": true,
+  "negative_control": "Altered expected checker SHA256 in temporary freeze metadata; rejected before summary or episode execution.",
+  "passed": true,
+  "new_model_calls": 0,
+  "remaining_limitation": "analyze.py expects a complete eight-episode primary with all inference captures; it does not summarize missing capture files from infrastructure failures. These remain visible in runner episode/summary artifacts."
+}

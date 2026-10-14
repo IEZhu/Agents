@@ -1,0 +1,366 @@
+{
+  "only_integer_array_whitespace_changed": true,
+  "all_json_values_equal": true,
+  "files": [
+    {
+      "file": "results/preflight-context-rejected-20261014/freeze.json",
+      "bytes_before": 44770,
+      "bytes_after": 36112,
+      "canonical_sha256": "d9f57430765f531236fcb0d3bc6ac24cbcc4844beafea627893865a3d9a95c52"
+    },
+    {
+      "file": "results/qwen38-27b-m4max-20261014/episode-01/implement-1/input.json",
+      "bytes_before": 76097,
+      "bytes_after": 51909,
+      "canonical_sha256": "d9886ac25b6a83b545c2a17762b0e6c5c5433062541caed5ffdb195e4be967d1"
+    },
+    {
+      "file": "results/qwen38-27b-m4max-20261014/episode-01/implement-1/response.json",
+      "bytes_before": 39091,
+      "bytes_after": 36393,
+      "canonical_sha256": "1505a099360f8e64aea8fe51e866cb68e58e7679d17db27884bd4b92a55a6dfa"
+    },
+    {
+      "file": "results/qwen38-27b-m4max-20261014/episode-01/implement-2/input.json",
+      "bytes_before": 82776,
+      "bytes_after": 56053,
+      "canonical_sha256": "685c642a9bcf8dc374f0d68945cf6a238cdf3ff9cebf51e3d00750e537032a27"
+    },
+    {
+      "file": "results/qwen38-27b-m4max-20261014/episode-01/implement-2/response.json",
+      "bytes_before": 40647,
+      "bytes_after": 38109,
+      "canonical_sha256": "5bb9baa42da40853e621ea8c671be3652b1ac695a8eeab910fac43e34dd47f92"
+    },
+    {
+      "file": "results/qwen38-27b-m4max-20261014/episode-01/implement-3/input.json",
+      "bytes_before": 82414,
+      "bytes_after": 55816,
+      "canonical_sha256": "b79112fa11311683d721e8213904f7ab9e0c2e70f6709b8b0a60e2a5109e8d44"
+    },
+    {
+      "file": "results/qwen38-27b-m4max-20261014/episode-01/implement-3/response.json",
+      "bytes_before": 40567,
+      "bytes_after": 37994,
+      "canonical_sha256": "70d7c7c596b50ea9e647290fa63b2874c74b2f07b5c477cb72b5d836f948cf42"
+    },
+    {
+      "file": "results/qwen38-27b-m4max-20261014/episode-02/adopt-1/input.json",
+      "bytes_before": 122756,
+      "bytes_after": 80803,
+      "canonical_sha256": "9c130a169d0d92e3c0153a86bc2aa701d3dd74678a616b7a5c1314269994c7a1"
+    },
+    {
+      "file": "results/qwen38-27b-m4max-20261014/episode-02/adopt-1/response.json",
+      "bytes_before": 50328,
+      "bytes_after": 48385,
+      "canonical_sha256": "1d862ab072c19da2aad2940f311d3179459d75be7e4d725bc0fc2926e7c8d451"
+    },
+    {
+      "file": "results/qwen38-27b-m4max-20261014/episode-02/implement-1/input.json",
+      "bytes_before": 76087,
+      "bytes_after": 51904,
+      "canonical_sha256": "5981648b2bbf3ed2c356e67c4aa8889922220c354cb644347e44b453edeae641"
+    },
+    {
+      "file": "results/qwen38-27b-m4max-20261014/episode-02/implement-1/response.json",
+      "bytes_before": 39397,
+      "bytes_after": 36434,
+      "canonical_sha256": "64a11521b583fe136165f1e3b45ae81320ccd37c10db221f9cadf02225c79066"
+    },
+    {
+      "file": "results/qwen38-27b-m4max-20261014/episode-02/implement-2/input.json",
+      "bytes_before": 83106,
+      "bytes_after": 56098,
+      "canonical_sha256": "9dd1713e74d7f712f068e43a51d76264f23bf536f52da6205014adbe826b2dc3"
+    },
+    {
+      "file": "results/qwen38-27b-m4max-20261014/episode-02/implement-2/response.json",
+      "bytes_before": 41294,
+      "bytes_after": 38316,
+      "canonical_sha256": "79ab3ca02be56bb8cb87bca356bd569346a832d6ec4b0cebebdeda3403ea9eae"
+    },
+    {
+      "file": "results/qwen38-27b-m4max-20261014/episode-02/review-1/input.json",
+      "bytes_before": 119876,
+      "bytes_after": 79373,
+      "canonical_sha256": "ba254011417f524a3e56aba32f141178a04d10ec582f515727c6e08851935534"
+    },
+    {
+      "file": "results/qwen38-27b-m4max-20261014/episode-02/review-1/response.json",
+      "bytes_before": 50423,
+      "bytes_after": 48155,
+      "canonical_sha256": "c40565c3debb68ef7bd133453ebcc1d925eb6c3cf992a55dcbc628eb263abd95"
+    },
+    {
+      "file": "results/qwen38-27b-m4max-20261014/episode-03/adopt-1/input.json",
+      "bytes_before": 121793,
+      "bytes_after": 80545,
+      "canonical_sha256": "72faca6ee6b8dc59d15c7cc89f3d8c121cc95bd2542ae85563fa83c4777ce441"
+    },
+    {
+      "file": "results/qwen38-27b-m4max-20261014/episode-03/adopt-1/response.json",
+      "bytes_before": 50471,
+      "bytes_after": 48528,
+      "canonical_sha256": "212850440c563973ca510605684cbec20fc8cea421409b668b4246297dff53b0"
+    },
+    {
+      "file": "results/qwen38-27b-m4max-20261014/episode-03/implement-1/input.json",
+      "bytes_before": 76095,
+      "bytes_after": 51907,
+      "canonical_sha256": "c2d7bc0ae8ada5f3352dc30836aa0f3570e666ae537f89868f58f690fba7061a"
+    },
+    {
+      "file": "results/qwen38-27b-m4max-20261014/episode-03/implement-1/response.json",
+      "bytes_before": 38982,
+      "bytes_after": 36329,
+      "canonical_sha256": "2f905307ba34d1869367dbdd9561d0774d9087588622bb8326aad416d5b2d14e"
+    },
+    {
+      "file": "results/qwen38-27b-m4max-20261014/episode-03/review-1/input.json",
+      "bytes_before": 119379,
+      "bytes_after": 79236,
+      "canonical_sha256": "3d9272ca0432ee647565a09c02778f455a524446b8464a4baa324de29f3122a5"
+    },
+    {
+      "file": "results/qwen38-27b-m4max-20261014/episode-03/review-1/response.json",
+      "bytes_before": 50078,
+      "bytes_after": 48130,
+      "canonical_sha256": "98cf23ae33f187235d88e04d86f22ad7c064d919d2ab082ffc687757a265e8af"
+    },
+    {
+      "file": "results/qwen38-27b-m4max-20261014/episode-04/adopt-1/input.json",
+      "bytes_before": 121591,
+      "bytes_after": 80223,
+      "canonical_sha256": "0a5fd39ce372399d6e0e36709a33b855d5bf7e1fb735fcd0e71970dac3289e7c"
+    },
+    {
+      "file": "results/qwen38-27b-m4max-20261014/episode-04/adopt-1/response.json",
+      "bytes_before": 50006,
+      "bytes_after": 48108,
+      "canonical_sha256": "bfeb3189ac90c525f20714ec30e99bc1f2b57f982692fa6cbffde981ebfa679d"
+    },
+    {
+      "file": "results/qwen38-27b-m4max-20261014/episode-04/implement-1/input.json",
+      "bytes_before": 76041,
+      "bytes_after": 51893,
+      "canonical_sha256": "af2f414c7743f1b1a154826289e86c31b9d9af59417898fb3e4fa9e8dca55a73"
+    },
+    {
+      "file": "results/qwen38-27b-m4max-20261014/episode-04/implement-1/response.json",
+      "bytes_before": 38383,
+      "bytes_after": 35965,
+      "canonical_sha256": "15ace6a88ec3e00b674e2a1d2a9803721c2e1f7f426ad65c2451522fdd07a3bc"
+    },
+    {
+      "file": "results/qwen38-27b-m4max-20261014/episode-04/implement-2/input.json",
+      "bytes_before": 82057,
+      "bytes_after": 55619,
+      "canonical_sha256": "6b77ba1d153b2d18bf5e561c68b34ac79c2c43bc4b3115bf471381f709d98613"
+    },
+    {
+      "file": "results/qwen38-27b-m4max-20261014/episode-04/implement-2/response.json",
+      "bytes_before": 40167,
+      "bytes_after": 37729,
+      "canonical_sha256": "45cd18c0b9f865b2d1d46e8b3325570452b7939cbbf56227edd67d4324a2bbb2"
+    },
+    {
+      "file": "results/qwen38-27b-m4max-20261014/episode-04/review-1/input.json",
+      "bytes_before": 118850,
+      "bytes_after": 78882,
+      "canonical_sha256": "e64be26977fa98e84ea79228f7aaa6b56d56a743be62e76b06a7ab6e16d4c28e"
+    },
+    {
+      "file": "results/qwen38-27b-m4max-20261014/episode-04/review-1/response.json",
+      "bytes_before": 50283,
+      "bytes_after": 47990,
+      "canonical_sha256": "ae365a6cb60fa253913d10ecee837d0056d371f2976a8bd42faa21fc2de2c9a9"
+    },
+    {
+      "file": "results/qwen38-27b-m4max-20261014/episode-05/adopt-1/input.json",
+      "bytes_before": 120900,
+      "bytes_after": 79917,
+      "canonical_sha256": "9e466b2909653157926533a3d4745cad2cd1ad660e6420c46528fd4f86c54a0d"
+    },
+    {
+      "file": "results/qwen38-27b-m4max-20261014/episode-05/adopt-1/response.json",
+      "bytes_before": 49969,
+      "bytes_after": 48056,
+      "canonical_sha256": "93cef6a5589cb05582f2f3402ffe271c42e610e81f001bf9bbb67447abc3b0b3"
+    },
+    {
+      "file": "results/qwen38-27b-m4max-20261014/episode-05/implement-1/input.json",
+      "bytes_before": 76088,
+      "bytes_after": 51905,
+      "canonical_sha256": "2acb1d6751724c5ee96bc18723a80b480bb693a4811c602aeb96b9b82b190a8b"
+    },
+    {
+      "file": "results/qwen38-27b-m4max-20261014/episode-05/implement-1/response.json",
+      "bytes_before": 38457,
+      "bytes_after": 35989,
+      "canonical_sha256": "16518ab15ccdb67a9e649d748378ed216e1e75162da95f9688a0324ea891a128"
+    },
+    {
+      "file": "results/qwen38-27b-m4max-20261014/episode-05/implement-2/input.json",
+      "bytes_before": 82179,
+      "bytes_after": 55656,
+      "canonical_sha256": "8dbdbd463e56fc0e205bac2184283e15807d9f0954d22d9a1bd4f3bb4849e2e0"
+    },
+    {
+      "file": "results/qwen38-27b-m4max-20261014/episode-05/implement-2/response.json",
+      "bytes_before": 40243,
+      "bytes_after": 37755,
+      "canonical_sha256": "5e445eb5b89911e29e6477dfefd8e3328cdcb7834488d7900915466ef67709f3"
+    },
+    {
+      "file": "results/qwen38-27b-m4max-20261014/episode-05/review-1/input.json",
+      "bytes_before": 118926,
+      "bytes_after": 78928,
+      "canonical_sha256": "e051ce9412c1c0679bdd5661a956089d896edfd5ee485ed2e2feb3b95f28fd3b"
+    },
+    {
+      "file": "results/qwen38-27b-m4max-20261014/episode-05/review-1/response.json",
+      "bytes_before": 49448,
+      "bytes_after": 47635,
+      "canonical_sha256": "ef0999783d14ae742e57a99e7327e1c34731c9c1085f38e9eb7f8e5387d8fb50"
+    },
+    {
+      "file": "results/qwen38-27b-m4max-20261014/episode-06/adopt-1/input.json",
+      "bytes_before": 120833,
+      "bytes_after": 79935,
+      "canonical_sha256": "f00b3ab7e8af57a6823be37b940b2d62dedbb04a6f51a340ed07c14ef8ce2acc"
+    },
+    {
+      "file": "results/qwen38-27b-m4max-20261014/episode-06/adopt-1/response.json",
+      "bytes_before": 50107,
+      "bytes_after": 48199,
+      "canonical_sha256": "211d55f16a6ed23682b1baf3a192db9cdf1d81a8a2462af307f5bb0b91048268"
+    },
+    {
+      "file": "results/qwen38-27b-m4max-20261014/episode-06/implement-1/input.json",
+      "bytes_before": 76100,
+      "bytes_after": 51907,
+      "canonical_sha256": "a954d12f0df0a9e1e8bc1e7b87f7dfa69a4c4193433f73b6b56906500b200aa5"
+    },
+    {
+      "file": "results/qwen38-27b-m4max-20261014/episode-06/implement-1/response.json",
+      "bytes_before": 38443,
+      "bytes_after": 35995,
+      "canonical_sha256": "70dfea7cb4cdd67b7d2c60ccb8c0ae08b3e8d13b9dd5ab424728da625c7d2c09"
+    },
+    {
+      "file": "results/qwen38-27b-m4max-20261014/episode-06/implement-2/input.json",
+      "bytes_before": 82134,
+      "bytes_after": 55651,
+      "canonical_sha256": "7419b42682c9cd6d282f846ccff4aba3ee7a99de68662c989f542db3c94db2d2"
+    },
+    {
+      "file": "results/qwen38-27b-m4max-20261014/episode-06/implement-2/response.json",
+      "bytes_before": 40201,
+      "bytes_after": 37763,
+      "canonical_sha256": "a4de03067a37298942e1833965dc0fb0227b386f502f83aba2acd2d03c0cbb31"
+    },
+    {
+      "file": "results/qwen38-27b-m4max-20261014/episode-06/review-1/input.json",
+      "bytes_before": 118872,
+      "bytes_after": 78899,
+      "canonical_sha256": "7282787c28b67d7db868c4d508ef512ee051cf8bef26ee37d17ebe51a0dde7f7"
+    },
+    {
+      "file": "results/qwen38-27b-m4max-20261014/episode-06/review-1/response.json",
+      "bytes_before": 49400,
+      "bytes_after": 47642,
+      "canonical_sha256": "8e996b4cccc51d3aa2d506d915401925711b25fc1ee835ec998ef771c6a97ff0"
+    },
+    {
+      "file": "results/qwen38-27b-m4max-20261014/episode-07/adopt-1/input.json",
+      "bytes_before": 121582,
+      "bytes_after": 80409,
+      "canonical_sha256": "9c7590a815c0beccb37a7737b864eb3554bbcc1df255f0c6f2e544421bca30b2"
+    },
+    {
+      "file": "results/qwen38-27b-m4max-20261014/episode-07/adopt-1/response.json",
+      "bytes_before": 50459,
+      "bytes_after": 48486,
+      "canonical_sha256": "e5a25609e689d921f81f8191eaf2fff88f8b625a8636e8aab104dfe5d4982248"
+    },
+    {
+      "file": "results/qwen38-27b-m4max-20261014/episode-07/implement-1/input.json",
+      "bytes_before": 76113,
+      "bytes_after": 51910,
+      "canonical_sha256": "d179e99e7a0ba6053e682685c80c2150b877c6f450f943fddaf0da8d5a9ba3de"
+    },
+    {
+      "file": "results/qwen38-27b-m4max-20261014/episode-07/implement-1/response.json",
+      "bytes_before": 38880,
+      "bytes_after": 36272,
+      "canonical_sha256": "d28e96c498e6cdd8ea2128332382cbd9ecc590e3ffbb2cfa3ee1b3618355834b"
+    },
+    {
+      "file": "results/qwen38-27b-m4max-20261014/episode-07/implement-2/input.json",
+      "bytes_before": 82624,
+      "bytes_after": 55951,
+      "canonical_sha256": "067b7ccc02d4e2fbb263e73658a709dba95161edef8ea148ef4335111f6482fd"
+    },
+    {
+      "file": "results/qwen38-27b-m4max-20261014/episode-07/implement-2/response.json",
+      "bytes_before": 40826,
+      "bytes_after": 38203,
+      "canonical_sha256": "9e04a2369ec0c3389ca4280ac23a85fd065415c95cfedd8c57a7f8fffd82cf70"
+    },
+    {
+      "file": "results/qwen38-27b-m4max-20261014/episode-07/review-1/input.json",
+      "bytes_before": 119328,
+      "bytes_after": 79190,
+      "canonical_sha256": "5d140177b49adb36798c1ee1e265590236350570dce9d49ad1e6d196ecd1ed38"
+    },
+    {
+      "file": "results/qwen38-27b-m4max-20261014/episode-07/review-1/response.json",
+      "bytes_before": 49939,
+      "bytes_after": 48021,
+      "canonical_sha256": "2b2e135b87472f5d498405ccd5d5111c7b488869e3feff9dcc3a60bf1ebe7115"
+    },
+    {
+      "file": "results/qwen38-27b-m4max-20261014/episode-08/adopt-1/input.json",
+      "bytes_before": 120778,
+      "bytes_after": 79855,
+      "canonical_sha256": "0990e919b2b1f98a13500f7598e510564e09d48a644f871f4894c716fc1e0dab"
+    },
+    {
+      "file": "results/qwen38-27b-m4max-20261014/episode-08/adopt-1/response.json",
+      "bytes_before": 49918,
+      "bytes_after": 48025,
+      "canonical_sha256": "7d9adee5f431e843cbbfc27032febf2a4722f46556ce309118d9dd3f8ed2f4f6"
+    },
+    {
+      "file": "results/qwen38-27b-m4max-20261014/episode-08/implement-1/input.json",
+      "bytes_before": 76057,
+      "bytes_after": 51899,
+      "canonical_sha256": "1139b94fe9ae93653ea57a7480a10883e03bef7d7845fd789e20980a0eba7163"
+    },
+    {
+      "file": "results/qwen38-27b-m4max-20261014/episode-08/implement-1/response.json",
+      "bytes_before": 38416,
+      "bytes_after": 35973,
+      "canonical_sha256": "0c801891b79931a8f2bd17ac0a275dc4d18ffe4a831aacfa6b3c9c36be8c4113"
+    },
+    {
+      "file": "results/qwen38-27b-m4max-20261014/episode-08/review-1/input.json",
+      "bytes_before": 118858,
+      "bytes_after": 78865,
+      "canonical_sha256": "b58aafaf16845f303451804cc1ddc73b1e9686673fc8e1305265ec3bfce824c0"
+    },
+    {
+      "file": "results/qwen38-27b-m4max-20261014/episode-08/review-1/response.json",
+      "bytes_before": 49423,
+      "bytes_after": 47600,
+      "canonical_sha256": "b9354690b8ceebcd19a4aabedfd536f07bf3125af2d38bfc8afb857ed4069dfa"
+    },
+    {
+      "file": "results/qwen38-27b-m4max-20261014/freeze.json",
+      "bytes_before": 44767,
+      "bytes_after": 36109,
+      "canonical_sha256": "e622ebc4807caa5d9065e05c7f41acee53b84d5e16b708f5e2bb7225763f9793"
+    }
+  ]
+}

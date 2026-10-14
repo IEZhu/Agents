@@ -1,0 +1,28 @@
+{
+  "artifacts": [],
+  "attempt_id": "1",
+  "bundle_revision": "fa63359bf881cf4f5b7facdd91802ca14db7b10f538a00b5408d823df399aad7",
+  "checks": [],
+  "contract_revision": "9eebb78426bc1bf1a58031c55701bc5995564becc0069ddded71fb9ab3e2ab39",
+  "evidence": [
+    {
+      "description": "Frozen source shows the current if block at lines 107-114 that must be replaced.",
+      "id": "source",
+      "reference": "supplied source"
+    }
+  ],
+  "limitations": [
+    "No tools or execution available; checks are not_run."
+  ],
+  "protocol": "agents-core/subagent/1",
+  "question": null,
+  "remaining_work": [],
+  "result": {
+    "items": [
+      "        if isinstance(data, (str, bytes)):\n            try:\n                encoded = data.encode(\"utf-8\") if isinstance(data, str) else data\n            except UnicodeEncodeError as exc:\n                raise AccordError(\"invalid contract JSON\") from exc\n            require(len(encoded) <= 65536, \"contract too large\")\n            try:\n                data = json.loads(data, object_pairs_hook=_unique_object, parse_constant=_reject_constant)\n            except (ValueError, UnicodeError) as exc:\n                raise AccordError(\"invalid contract JSON\") from exc\n"
+    ],
+    "summary": "Replaced the input-boundary block to catch UnicodeEncodeError from data.encode(\"utf-8\") and raise AccordError(\"invalid contract JSON\") instead of leaking it, while preserving the 65536-byte bound and existing JSON parsing behavior."
+  },
+  "status": "completed",
+  "task_id": "repair-r2-e08-implement"
+}

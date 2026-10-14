@@ -1,0 +1,31 @@
+test_call_returns_tuple_and_text_json_fallback (experiments.accord.repair_loop.test_mcp_client.MCPClientTests.test_call_returns_tuple_and_text_json_fallback) ... ok
+test_direct_codex_configuration_and_default_codex_home (experiments.accord.repair_loop.test_mcp_client.MCPClientTests.test_direct_codex_configuration_and_default_codex_home) ... ok
+test_explicit_initialize_is_separately_timed_and_idempotent (experiments.accord.repair_loop.test_mcp_client.MCPClientTests.test_explicit_initialize_is_separately_timed_and_idempotent) ... ok
+test_handshake_and_decoded_structured_result_are_timed (experiments.accord.repair_loop.test_mcp_client.MCPClientTests.test_handshake_and_decoded_structured_result_are_timed) ... ok
+test_loopback_only_with_no_url_credentials_queries_or_redirect_targets (experiments.accord.repair_loop.test_mcp_client.MCPClientTests.test_loopback_only_with_no_url_credentials_queries_or_redirect_targets) ... ok
+test_malformed_and_mismatched_responses_fail (experiments.accord.repair_loop.test_mcp_client.MCPClientTests.test_malformed_and_mismatched_responses_fail) ... ok
+test_missing_and_injected_credentials_are_rejected (experiments.accord.repair_loop.test_mcp_client.MCPClientTests.test_missing_and_injected_credentials_are_rejected) ... ok
+test_network_failure_does_not_expose_exception_text_or_retry (experiments.accord.repair_loop.test_mcp_client.MCPClientTests.test_network_failure_does_not_expose_exception_text_or_retry) ... ok
+test_only_the_two_read_only_tools_are_exposed (experiments.accord.repair_loop.test_mcp_client.MCPClientTests.test_only_the_two_read_only_tools_are_exposed) ... ok
+test_original_contract_is_retained_despite_caller_mutation (experiments.accord.repair_loop.test_mcp_client.MCPClientTests.test_original_contract_is_retained_despite_caller_mutation) ... ok
+test_preparation_failure_is_not_treated_as_prepared (experiments.accord.repair_loop.test_mcp_client.MCPClientTests.test_preparation_failure_is_not_treated_as_prepared) ... ok
+test_private_bridge_and_known_header_helper_are_read_without_execution (experiments.accord.repair_loop.test_mcp_client.MCPClientTests.test_private_bridge_and_known_header_helper_are_read_without_execution) ... ok
+test_redirect_and_http_errors_are_sanitized_and_not_retried (experiments.accord.repair_loop.test_mcp_client.MCPClientTests.test_redirect_and_http_errors_are_sanitized_and_not_retried) ... ok
+test_response_size_is_bounded (experiments.accord.repair_loop.test_mcp_client.MCPClientTests.test_response_size_is_bounded) ... ok
+test_timeout_is_finite_and_bounded (experiments.accord.repair_loop.test_mcp_client.MCPClientTests.test_timeout_is_finite_and_bounded) ... ok
+test_tool_errors_and_non_json_text_do_not_escape_into_errors (experiments.accord.repair_loop.test_mcp_client.MCPClientTests.test_tool_errors_and_non_json_text_do_not_escape_into_errors) ... ok
+test_unsupported_helper_and_config_errors_hide_paths (experiments.accord.repair_loop.test_mcp_client.MCPClientTests.test_unsupported_helper_and_config_errors_hide_paths) ... ok
+test_failed_proposal_then_success_has_fresh_contract_and_gated_adoption (experiments.accord.repair_loop.test_run.RepairLoopTests.test_failed_proposal_then_success_has_fresh_contract_and_gated_adoption) ... ok
+test_invalid_raw_and_wrong_identity_never_reach_checker_or_review (experiments.accord.repair_loop.test_run.RepairLoopTests.test_invalid_raw_and_wrong_identity_never_reach_checker_or_review) ... ok
+test_partial_envelope_is_not_accepted_as_success (experiments.accord.repair_loop.test_run.RepairLoopTests.test_partial_envelope_is_not_accepted_as_success) ... ok
+test_real_checker_exhausts_three_unchanged_proposals (experiments.accord.repair_loop.test_run.RepairLoopTests.test_real_checker_exhausts_three_unchanged_proposals) ... ok
+test_review_rejection_prevents_parent_call_and_acceptance (experiments.accord.repair_loop.test_run.RepairLoopTests.test_review_rejection_prevents_parent_call_and_acceptance) ... ok
+test_source_guard_failure_records_consumed_units_without_model_calls (experiments.accord.repair_loop.test_run.RepairLoopTests.test_source_guard_failure_records_consumed_units_without_model_calls) ... ok
+test_changed_source_fails_before_any_replay (experiments.accord.repair_loop.test_replay.ReplayEvidenceTests.test_changed_source_fails_before_any_replay) ... ok
+test_empty_snapshot_is_not_evidence_of_equivalence (experiments.accord.repair_loop.test_replay.ReplayEvidenceTests.test_empty_snapshot_is_not_evidence_of_equivalence) ... ok
+test_missing_captures_are_unreplayable_in_both_frontends (experiments.accord.repair_loop.test_replay.ReplayEvidenceTests.test_missing_captures_are_unreplayable_in_both_frontends) ... ok
+
+----------------------------------------------------------------------
+Ran 26 tests in 0.844s
+
+OK

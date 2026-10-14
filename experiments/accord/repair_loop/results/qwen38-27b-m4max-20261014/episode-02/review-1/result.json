@@ -1,0 +1,28 @@
+{
+  "artifacts": [],
+  "attempt_id": "1",
+  "bundle_revision": "fa63359bf881cf4f5b7facdd91802ca14db7b10f538a00b5408d823df399aad7",
+  "checks": [],
+  "contract_revision": "6383b1d0ad1887e7208b9c7f9cbc57f2bab311635fe876d10b925bbe0d9564b5",
+  "evidence": [
+    {
+      "description": "Frozen source at experiments/accord/ir.py, HEAD 7a22a1c9561950f85b40bf0c2e6a92b36959af82, SHA256 bd669e7ee36f38ea79f472e68a8e9ef9680410e300f96cd4f1c21a3a939b5f7",
+      "id": "source",
+      "reference": "supplied source"
+    }
+  ],
+  "limitations": [
+    "No tools executed; checks are not_run because execution is out of scope."
+  ],
+  "protocol": "agents-core/subagent/1",
+  "question": null,
+  "remaining_work": [],
+  "result": {
+    "items": [
+      "approve"
+    ],
+    "summary": "The candidate correctly wraps the UTF-8 encoding step in a try/except UnicodeEncodeError block, ensuring raw unpaired surrogate strings raise AccordError(\"invalid contract JSON\") instead of leaking UnicodeEncodeError. The 65536-byte bound, "
+  },
+  "status": "completed",
+  "task_id": "repair-r2-e02-review"
+}

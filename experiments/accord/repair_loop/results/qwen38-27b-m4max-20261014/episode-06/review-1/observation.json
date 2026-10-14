@@ -1,0 +1,66 @@
+{
+  "role": "review",
+  "attempt": 1,
+  "accepted": true,
+  "model_called": true,
+  "prepare_ms": 82.84704096149653,
+  "render_tokenize_ms": 201.2530838837847,
+  "input_tokens": 7994,
+  "prompt_sha256": "6ec8529815d9853e9c3ddf9cc9325a439ee838889ed32d6c84301c5448eff98b",
+  "validation_ms": 648.9932499825954,
+  "validation": {
+    "valid": true,
+    "errors": [],
+    "verification": "structural_only"
+  },
+  "result": {
+    "artifacts": [],
+    "attempt_id": "1",
+    "bundle_revision": "fa63359bf881cf4f5b7facdd91802ca14db7b10f538a00b5408d823df399aad7",
+    "checks": [],
+    "contract_revision": "0c1db938bdc7d92665a60252f050a8619b512e92d6b7f937dab7bc630b698566",
+    "evidence": [
+      {
+        "description": "Candidate patch replacing the Contract.parse input boundary block.",
+        "id": "source",
+        "reference": "supplied source"
+      }
+    ],
+    "limitations": [
+      "No tools or execution environment available; verification is by static inspection only."
+    ],
+    "protocol": "agents-core/subagent/1",
+    "question": null,
+    "remaining_work": [],
+    "result": {
+      "items": [
+        "approve"
+      ],
+      "summary": "The candidate correctly catches UnicodeEncodeError from data.encode(\"utf-8\") and raises AccordError(\"invalid contract JSON\") instead of leaking the encoding error. It preserves the 65536-byte bound and exact \"contract too large\" diagnostic,"
+    },
+    "status": "completed",
+    "task_id": "repair-r2-e06-review"
+  },
+  "decision": "approve",
+  "check_accept_ms": 89.32204206939787,
+  "model_ms": 202546.79462499917,
+  "cache": {
+    "requested_reuse": true,
+    "actual_reused_tokens": 0,
+    "actual_evaluated_tokens": 7994,
+    "registered_prefix_tokens": 1731,
+    "input_tokens": 7994,
+    "cache_state": "miss",
+    "prior_cache_state": "resident",
+    "lock_wait_ms": 0.014749937690794468,
+    "validation_ms": 0.6719999946653843,
+    "dispatch_ms": 202572.28541607037,
+    "lock_hold_ms": 202596.4930410264,
+    "service_total_ms": 202596.5077909641,
+    "service_ttft_ms": 136404.73912493326
+  },
+  "output_tokens": 351,
+  "stop_type": "eos",
+  "request_units_consumed": 1,
+  "elapsed_ms": 203896.3361249771
+}

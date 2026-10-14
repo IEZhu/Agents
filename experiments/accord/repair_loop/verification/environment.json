@@ -1,0 +1,28 @@
+{
+  "python": "3.13.13",
+  "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+  "hardware": "Apple M4 Max",
+  "memory_bytes": 38654705664,
+  "prior_commit": "dad90181346b08c26a2567e6c6883f7f34e462ab",
+  "test_runs": [
+    {
+      "command": "python3 -B -m unittest discover -s experiments/accord/tests -q",
+      "methods": 69,
+      "passed": true,
+      "elapsed_seconds": 6.545
+    },
+    {
+      "command": "python3 -B -m unittest experiments.accord.shared_kv.test_cache experiments.accord.shared_kv.test_workflow -q",
+      "methods": 25,
+      "passed": true,
+      "elapsed_seconds": 0.196
+    },
+    {
+      "command": "python3 -B -m unittest experiments.accord.repair_loop.test_mcp_client experiments.accord.repair_loop.test_run -q",
+      "methods": 23,
+      "passed": true,
+      "elapsed_seconds": 0.541
+    }
+  ],
+  "parent_review_note": "Before primary inference: moved MCP initialize into setup, accounted consumed request units separately, expanded source hashes, and counted client completion invocations after SharedKV admission. Review envelope records pre-final-counter state; it is preserved unchanged."
+}

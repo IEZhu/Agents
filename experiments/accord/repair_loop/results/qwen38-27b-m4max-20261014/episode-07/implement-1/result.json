@@ -1,0 +1,28 @@
+{
+  "artifacts": [],
+  "attempt_id": "1",
+  "bundle_revision": "fa63359bf881cf4f5b7facdd91802ca14db7b10f538a00b5408d823df399aad7",
+  "checks": [],
+  "contract_revision": "3460015db63f96621e5cc079c8ff4201a99562976d169109901e3f055bd9319a",
+  "evidence": [
+    {
+      "description": "Frozen source span at lines 107-114 in Contract.parse shows the existing size check and json.loads call with (ValueError, UnicodeError) exception handling.",
+      "id": "source",
+      "reference": "supplied source"
+    }
+  ],
+  "limitations": [
+    "No tools or execution available; verification is by static inspection of the supplied source and constraints only."
+  ],
+  "protocol": "agents-core/subagent/1",
+  "question": null,
+  "remaining_work": [],
+  "result": {
+    "items": [
+      "        if isinstance(data, (str, bytes)):\n            try:\n                encoded = data.encode(\"utf-8\") if isinstance(data, str) else data\n            except UnicodeEncodeError:\n                raise AccordError(\"invalid contract JSON\")\n            require(len(encoded) <= 65536, \"contract too large\")\n            try:\n                data = json.loads(data, object_pairs_hook=_unique_object,\n                                  parse_constant=_reject_constant)\n            except (ValueError, UnicodeError) as exc:\n                raise AccordError(\"invalid contract JSON\") from exc"
+    ],
+    "summary": "Wrap the UTF-8 encoding step in a try/except UnicodeEncodeError so raw unpaired surrogate strings raise AccordError(\"invalid contract JSON\") instead of leaking UnicodeEncodeError, while preserving the 65536-byte bound, the exact \"contract\u592a\u5927"
+  },
+  "status": "completed",
+  "task_id": "repair-r2-e07-implement"
+}

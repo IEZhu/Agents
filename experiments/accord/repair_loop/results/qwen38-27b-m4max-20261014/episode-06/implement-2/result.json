@@ -1,0 +1,28 @@
+{
+  "artifacts": [],
+  "attempt_id": "2",
+  "bundle_revision": "fa63359bf881cf4f5b7facdd91802ca14db7b10f538a00b5408d823df399aad7",
+  "checks": [],
+  "contract_revision": "81939c3ec3767f00dfcb27989718f776ed923643ca4e4fa3edeaa06f77b4a075",
+  "evidence": [
+    {
+      "description": "Frozen source at experiments/accord/ir.py, lines 107-114, containing the buggy if block that leaks UnicodeEncodeError.",
+      "id": "source",
+      "reference": "supplied source"
+    }
+  ],
+  "limitations": [
+    "No tools or execution environment available; verification is by static inspection only."
+  ],
+  "protocol": "agents-core/subagent/1",
+  "question": null,
+  "remaining_work": [],
+  "result": {
+    "items": [
+      "        if isinstance(data, (str, bytes)):\n            try:\n                encoded = data.encode(\"utf-8\") if isinstance(data, str) else data\n            except UnicodeEncodeError:\n                raise AccordError(\"invalid contract JSON\")\n            require(len(encoded) <= 65536, \"contract too large\")\n            try:\n                data = json.loads(data, object_pairs_hook=_unique_object,\n                                  parse_constant=_reject_constant)\n            except (ValueError, UnicodeError) as exc:\n                raise AccordError(\"invalid contract JSON\") from exc\n"
+    ],
+    "summary": "Replaced the size-check block to catch UnicodeEncodeError from data.encode(\"utf-8\") and raise AccordError(\"invalid contract JSON\") instead of leaking the encoding error."
+  },
+  "status": "completed",
+  "task_id": "repair-r2-e06-implement"
+}

@@ -1,0 +1,28 @@
+{
+  "artifacts": [],
+  "attempt_id": "1",
+  "bundle_revision": "fa63359bf881cf4f5b7facdd91802ca14db7b10f538a00b5408d823df399aad7",
+  "checks": [],
+  "contract_revision": "9777335405562cb3c9335550a4ebacda3b0d742f08dd84106402dc86af683a7b",
+  "evidence": [
+    {
+      "description": "Host report shows 46/46 checks passed, changed=true, returncode=0, including raw surrogate rejection and 65536-byte bound preservation.",
+      "id": "source",
+      "reference": "supplied host report"
+    }
+  ],
+  "limitations": [
+    "No tools executed; review is based solely on supplied host report and child results."
+  ],
+  "protocol": "agents-core/subagent/1",
+  "question": null,
+  "remaining_work": [],
+  "result": {
+    "items": [
+      "approve"
+    ],
+    "summary": "The candidate correctly wraps the UTF-8 encoding step in a try/except UnicodeEncodeError block, ensuring raw unpaired surrogate strings raise AccordError(\"invalid contract JSON\") instead of leaking UnicodeEncodeError. The 65536-byte bound, "
+  },
+  "status": "completed",
+  "task_id": "repair-r2-e02-adopt"
+}

@@ -1,0 +1,15 @@
+{
+  "new_unit_test_methods": 26,
+  "new_unit_tests_passed": true,
+  "unit_test_log": "unit-tests.txt",
+  "earlier_existing_test_methods_passed": 94,
+  "total_unique_test_methods_passed": 120,
+  "frozen_source_files_verified": 17,
+  "primary_analysis_verified": true,
+  "cross_replay_rows": 16,
+  "cross_replay_all_outcomes_equal": true,
+  "live_model_calls": 29,
+  "new_inference_after_primary": 0,
+  "json_value_preservation_verified": true,
+  "model_server_stopped": true
+}

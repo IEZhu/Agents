@@ -1,0 +1,772 @@
+{
+  "index": 7,
+  "backend": "python",
+  "seed": 404,
+  "completed": true,
+  "implementation_passed": true,
+  "first_attempt_passed": false,
+  "model_calls": 4,
+  "request_units_consumed": 4,
+  "implementation_attempts": 2,
+  "model_ms": 742439.6136669675,
+  "prepare_ms": 4316.987874917686,
+  "validation_ms": 1125.7934578461573,
+  "stages": [
+    {
+      "role": "implement",
+      "attempt": 1,
+      "accepted": false,
+      "model_called": true,
+      "prepare_ms": 2191.2675000494346,
+      "render_tokenize_ms": 1479.7300839563832,
+      "input_tokens": 4840,
+      "prompt_sha256": "0e271f1c5a3fc7453775576201bca34f0ee0cf79d4be36db9988d07c975d9dc3",
+      "validation_ms": 67.11583293508738,
+      "validation": {
+        "valid": true,
+        "errors": [],
+        "verification": "structural_only"
+      },
+      "result": {
+        "artifacts": [],
+        "attempt_id": "1",
+        "bundle_revision": "fa63359bf881cf4f5b7facdd91802ca14db7b10f538a00b5408d823df399aad7",
+        "checks": [],
+        "contract_revision": "3460015db63f96621e5cc079c8ff4201a99562976d169109901e3f055bd9319a",
+        "evidence": [
+          {
+            "description": "Frozen source span at lines 107-114 in Contract.parse shows the existing size check and json.loads call with (ValueError, UnicodeError) exception handling.",
+            "id": "source",
+            "reference": "supplied source"
+          }
+        ],
+        "limitations": [
+          "No tools or execution available; verification is by static inspection of the supplied source and constraints only."
+        ],
+        "protocol": "agents-core/subagent/1",
+        "question": null,
+        "remaining_work": [],
+        "result": {
+          "items": [
+            "        if isinstance(data, (str, bytes)):\n            try:\n                encoded = data.encode(\"utf-8\") if isinstance(data, str) else data\n            except UnicodeEncodeError:\n                raise AccordError(\"invalid contract JSON\")\n            require(len(encoded) <= 65536, \"contract too large\")\n            try:\n                data = json.loads(data, object_pairs_hook=_unique_object,\n                                  parse_constant=_reject_constant)\n            except (ValueError, UnicodeError) as exc:\n                raise AccordError(\"invalid contract JSON\") from exc"
+          ],
+          "summary": "Wrap the UTF-8 encoding step in a try/except UnicodeEncodeError so raw unpaired surrogate strings raise AccordError(\"invalid contract JSON\") instead of leaking UnicodeEncodeError, while preserving the 65536-byte bound, the exact \"contract\u592a\u5927"
+        },
+        "status": "completed",
+        "task_id": "repair-r2-e07-implement"
+      },
+      "error_type": "InvalidPatch",
+      "error": "replacement must use spaces and a final LF",
+      "feedback": {
+        "error": "replacement must use spaces and a final LF"
+      },
+      "model_ms": 169980.70850002114,
+      "cache": {
+        "requested_reuse": false,
+        "actual_reused_tokens": 0,
+        "actual_evaluated_tokens": 4840,
+        "registered_prefix_tokens": 1731,
+        "input_tokens": 4840,
+        "cache_state": "cold",
+        "prior_cache_state": "empty",
+        "lock_wait_ms": 0.020249979570508003,
+        "validation_ms": 0.5953341023996472,
+        "dispatch_ms": 169981.28616600297,
+        "lock_hold_ms": 169982.09116701037,
+        "service_total_ms": 169982.11141698994,
+        "service_ttft_ms": 80301.40883405693
+      },
+      "output_tokens": 521,
+      "stop_type": "eos",
+      "request_units_consumed": 1,
+      "elapsed_ms": 173799.66374998912
+    },
+    {
+      "role": "implement",
+      "attempt": 2,
+      "accepted": true,
+      "model_called": true,
+      "prepare_ms": 70.79062494449317,
+      "render_tokenize_ms": 495.18487486056983,
+      "input_tokens": 5334,
+      "prompt_sha256": "d141b0a77fad9b0e1ef34a3eeb8accb4d1ad32d49f9d9e29cfbe212420cfe804",
+      "validation_ms": 140.0506249628961,
+      "validation": {
+        "valid": true,
+        "errors": [],
+        "verification": "structural_only"
+      },
+      "result": {
+        "artifacts": [],
+        "attempt_id": "2",
+        "bundle_revision": "fa63359bf881cf4f5b7facdd91802ca14db7b10f538a00b5408d823df399aad7",
+        "checks": [],
+        "contract_revision": "66ca9a22a7ca17d7d6c914cc6aabffd8a63594afc570e94a44619313b43b5dc5",
+        "evidence": [
+          {
+            "description": "Frozen source span at lines 107-114 in Contract.parse shows the existing size check and json.loads call with (ValueError, UnicodeError) exception handling.",
+            "id": "source",
+            "reference": "supplied source"
+          }
+        ],
+        "limitations": [
+          "No tools or execution available; verification is by static inspection of the supplied source and constraints only."
+        ],
+        "protocol": "agents-core/subagent/1",
+        "question": null,
+        "remaining_work": [],
+        "result": {
+          "items": [
+            "        if isinstance(data, (str, bytes)):\n            try:\n                encoded = data.encode(\"utf-8\") if isinstance(data, str) else data\n            except UnicodeEncodeError:\n                raise AccordError(\"invalid contract JSON\")\n            require(len(encoded) <= 65536, \"contract too large\")\n            try:\n                data = json.loads(data, object_pairs_hook=_unique_object,\n                                  parse_constant=_reject_constant)\n            except (ValueError, UnicodeError) as exc:\n                raise AccordError(\"invalid contract JSON\") from exc\n"
+          ],
+          "summary": "Wrap the UTF-8 encoding step in a try/except UnicodeEncodeError so raw unpaired surrogate strings raise AccordError(\"invalid contract JSON\") instead of leaking UnicodeEncodeError, while preserving the 65536-byte bound, the exact \"contract\u592a\u5927"
+        },
+        "status": "completed",
+        "task_id": "repair-r2-e07-implement"
+      },
+      "behavior": {
+        "passed": true,
+        "count": 46,
+        "source_sha256": "5567d24e31be21b2d393628c60ba384faca3019486f64614507574fdd037d5fa",
+        "checks": [
+          {
+            "name": "valid_dictionary",
+            "passed": true,
+            "expected_type": "ok",
+            "expected_message": null,
+            "actual_type": "ok",
+            "actual_message": null
+          },
+          {
+            "name": "valid_json_text",
+            "passed": true,
+            "expected_type": "ok",
+            "expected_message": null,
+            "actual_type": "ok",
+            "actual_message": null
+          },
+          {
+            "name": "valid_utf8_bytes",
+            "passed": true,
+            "expected_type": "ok",
+            "expected_message": null,
+            "actual_type": "ok",
+            "actual_message": null
+          },
+          {
+            "name": "valid_utf16_bytes",
+            "passed": true,
+            "expected_type": "ok",
+            "expected_message": null,
+            "actual_type": "ok",
+            "actual_message": null
+          },
+          {
+            "name": "valid_utf32_bytes",
+            "passed": true,
+            "expected_type": "ok",
+            "expected_message": null,
+            "actual_type": "ok",
+            "actual_message": null
+          },
+          {
+            "name": "valid_json_ascii_escape",
+            "passed": true,
+            "expected_type": "ok",
+            "expected_message": null,
+            "actual_type": "ok",
+            "actual_message": null
+          },
+          {
+            "name": "exact_65536_text_bytes",
+            "passed": true,
+            "expected_type": "ok",
+            "expected_message": null,
+            "actual_type": "ok",
+            "actual_message": null
+          },
+          {
+            "name": "exact_65536_raw_bytes",
+            "passed": true,
+            "expected_type": "ok",
+            "expected_message": null,
+            "actual_type": "ok",
+            "actual_message": null
+          },
+          {
+            "name": "raw_high_surrogate",
+            "passed": true,
+            "expected_type": "AccordError",
+            "expected_message": "invalid contract JSON",
+            "actual_type": "AccordError",
+            "actual_message": "invalid contract JSON"
+          },
+          {
+            "name": "raw_low_surrogate",
+            "passed": true,
+            "expected_type": "AccordError",
+            "expected_message": "invalid contract JSON",
+            "actual_type": "AccordError",
+            "actual_message": "invalid contract JSON"
+          },
+          {
+            "name": "raw_surrogate_in_json",
+            "passed": true,
+            "expected_type": "AccordError",
+            "expected_message": "invalid contract JSON",
+            "actual_type": "AccordError",
+            "actual_message": "invalid contract JSON"
+          },
+          {
+            "name": "raw_surrogate_pair",
+            "passed": true,
+            "expected_type": "AccordError",
+            "expected_message": "invalid contract JSON",
+            "actual_type": "AccordError",
+            "actual_message": "invalid contract JSON"
+          },
+          {
+            "name": "oversize_ascii_text",
+            "passed": true,
+            "expected_type": "AccordError",
+            "expected_message": "contract too large",
+            "actual_type": "AccordError",
+            "actual_message": "contract too large"
+          },
+          {
+            "name": "oversize_raw_bytes",
+            "passed": true,
+            "expected_type": "AccordError",
+            "expected_message": "contract too large",
+            "actual_type": "AccordError",
+            "actual_message": "contract too large"
+          },
+          {
+            "name": "oversize_multibyte_text",
+            "passed": true,
+            "expected_type": "AccordError",
+            "expected_message": "contract too large",
+            "actual_type": "AccordError",
+            "actual_message": "contract too large"
+          },
+          {
+            "name": "malformed_json",
+            "passed": true,
+            "expected_type": "AccordError",
+            "expected_message": "invalid contract JSON",
+            "actual_type": "AccordError",
+            "actual_message": "invalid contract JSON"
+          },
+          {
+            "name": "invalid_utf8",
+            "passed": true,
+            "expected_type": "AccordError",
+            "expected_message": "invalid contract JSON",
+            "actual_type": "AccordError",
+            "actual_message": "invalid contract JSON"
+          },
+          {
+            "name": "truncated_utf8",
+            "passed": true,
+            "expected_type": "AccordError",
+            "expected_message": "invalid contract JSON",
+            "actual_type": "AccordError",
+            "actual_message": "invalid contract JSON"
+          },
+          {
+            "name": "duplicate_key",
+            "passed": true,
+            "expected_type": "AccordError",
+            "expected_message": "invalid contract JSON",
+            "actual_type": "AccordError",
+            "actual_message": "invalid contract JSON"
+          },
+          {
+            "name": "nonfinite_nan",
+            "passed": true,
+            "expected_type": "AccordError",
+            "expected_message": "invalid contract JSON",
+            "actual_type": "AccordError",
+            "actual_message": "invalid contract JSON"
+          },
+          {
+            "name": "nonfinite_infinity",
+            "passed": true,
+            "expected_type": "AccordError",
+            "expected_message": "invalid contract JSON",
+            "actual_type": "AccordError",
+            "actual_message": "invalid contract JSON"
+          },
+          {
+            "name": "nonfinite_negative_infinity",
+            "passed": true,
+            "expected_type": "AccordError",
+            "expected_message": "invalid contract JSON",
+            "actual_type": "AccordError",
+            "actual_message": "invalid contract JSON"
+          },
+          {
+            "name": "array_root",
+            "passed": true,
+            "expected_type": "AccordError",
+            "expected_message": "contract must be an object",
+            "actual_type": "AccordError",
+            "actual_message": "contract must be an object"
+          },
+          {
+            "name": "null_root",
+            "passed": true,
+            "expected_type": "AccordError",
+            "expected_message": "contract must be an object",
+            "actual_type": "AccordError",
+            "actual_message": "contract must be an object"
+          },
+          {
+            "name": "integer_root",
+            "passed": true,
+            "expected_type": "AccordError",
+            "expected_message": "contract must be an object",
+            "actual_type": "AccordError",
+            "actual_message": "contract must be an object"
+          },
+          {
+            "name": "boolean_root",
+            "passed": true,
+            "expected_type": "AccordError",
+            "expected_message": "contract must be an object",
+            "actual_type": "AccordError",
+            "actual_message": "contract must be an object"
+          },
+          {
+            "name": "bytearray_root",
+            "passed": true,
+            "expected_type": "AccordError",
+            "expected_message": "contract must be an object",
+            "actual_type": "AccordError",
+            "actual_message": "contract must be an object"
+          },
+          {
+            "name": "unknown_field",
+            "passed": true,
+            "expected_type": "AccordError",
+            "expected_message": "unknown or missing contract fields",
+            "actual_type": "AccordError",
+            "actual_message": "unknown or missing contract fields"
+          },
+          {
+            "name": "wrong_version",
+            "passed": true,
+            "expected_type": "AccordError",
+            "expected_message": "unsupported IR version",
+            "actual_type": "AccordError",
+            "actual_message": "unsupported IR version"
+          },
+          {
+            "name": "checks_array",
+            "passed": true,
+            "expected_type": "AccordError",
+            "expected_message": "checks must be an object",
+            "actual_type": "AccordError",
+            "actual_message": "checks must be an object"
+          },
+          {
+            "name": "inputs_string",
+            "passed": true,
+            "expected_type": "AccordError",
+            "expected_message": "resources must be arrays",
+            "actual_type": "AccordError",
+            "actual_message": "resources must be arrays"
+          },
+          {
+            "name": "publish_string",
+            "passed": true,
+            "expected_type": "AccordError",
+            "expected_message": "resources must be arrays",
+            "actual_type": "AccordError",
+            "actual_message": "resources must be arrays"
+          },
+          {
+            "name": "bool_budget",
+            "passed": true,
+            "expected_type": "AccordError",
+            "expected_message": "integer outside allowed bounds",
+            "actual_type": "AccordError",
+            "actual_message": "integer outside allowed bounds"
+          },
+          {
+            "name": "float_budget",
+            "passed": true,
+            "expected_type": "AccordError",
+            "expected_message": "integer outside allowed bounds",
+            "actual_type": "AccordError",
+            "actual_message": "integer outside allowed bounds"
+          },
+          {
+            "name": "negative_budget",
+            "passed": true,
+            "expected_type": "AccordError",
+            "expected_message": "integer outside allowed bounds",
+            "actual_type": "AccordError",
+            "actual_message": "integer outside allowed bounds"
+          },
+          {
+            "name": "large_budget",
+            "passed": true,
+            "expected_type": "AccordError",
+            "expected_message": "integer outside allowed bounds",
+            "actual_type": "AccordError",
+            "actual_message": "integer outside allowed bounds"
+          },
+          {
+            "name": "zero_output_limit",
+            "passed": true,
+            "expected_type": "AccordError",
+            "expected_message": "integer outside allowed bounds",
+            "actual_type": "AccordError",
+            "actual_message": "integer outside allowed bounds"
+          },
+          {
+            "name": "large_output_limit",
+            "passed": true,
+            "expected_type": "AccordError",
+            "expected_message": "integer outside allowed bounds",
+            "actual_type": "AccordError",
+            "actual_message": "integer outside allowed bounds"
+          },
+          {
+            "name": "duplicate_resource",
+            "passed": true,
+            "expected_type": "AccordError",
+            "expected_message": "duplicate resource",
+            "actual_type": "AccordError",
+            "actual_message": "duplicate resource"
+          },
+          {
+            "name": "empty_checks",
+            "passed": true,
+            "expected_type": "AccordError",
+            "expected_message": "checks must be nonempty",
+            "actual_type": "AccordError",
+            "actual_message": "checks must be nonempty"
+          },
+          {
+            "name": "bad_identifier",
+            "passed": true,
+            "expected_type": "AccordError",
+            "expected_message": "invalid identifier",
+            "actual_type": "AccordError",
+            "actual_message": "invalid identifier"
+          },
+          {
+            "name": "dictionary_surrogate",
+            "passed": true,
+            "expected_type": "AccordError",
+            "expected_message": "invalid identifier",
+            "actual_type": "AccordError",
+            "actual_message": "invalid identifier"
+          },
+          {
+            "name": "integer_check_revision",
+            "passed": true,
+            "expected_type": "AccordError",
+            "expected_message": "invalid identifier",
+            "actual_type": "AccordError",
+            "actual_message": "invalid identifier"
+          },
+          {
+            "name": "escaped_surrogate_json",
+            "passed": true,
+            "expected_type": "AccordError",
+            "expected_message": "invalid identifier",
+            "actual_type": "AccordError",
+            "actual_message": "invalid identifier"
+          },
+          {
+            "name": "nonascii_identifier_json",
+            "passed": true,
+            "expected_type": "AccordError",
+            "expected_message": "invalid identifier",
+            "actual_type": "AccordError",
+            "actual_message": "invalid identifier"
+          },
+          {
+            "name": "missing_field",
+            "passed": true,
+            "expected_type": "AccordError",
+            "expected_message": "unknown or missing contract fields",
+            "actual_type": "AccordError",
+            "actual_message": "unknown or missing contract fields"
+          }
+        ],
+        "returncode": 0,
+        "changed": true,
+        "checker_sha256": "7d02b3d282a416cf6f01eb13f6b6467a6be59032df4c0dd3e4f11386dc3e2f3e",
+        "probe_sha256": "5270e78d4cda9f5acf1f5f4afad582c6f692137d9bca7009625f2f7f2b0b91dc"
+      },
+      "check_accept_ms": 378.1280410476029,
+      "model_ms": 169575.25512494612,
+      "cache": {
+        "requested_reuse": true,
+        "actual_reused_tokens": 0,
+        "actual_evaluated_tokens": 5334,
+        "registered_prefix_tokens": 1731,
+        "input_tokens": 5334,
+        "cache_state": "miss",
+        "prior_cache_state": "resident",
+        "lock_wait_ms": 0.022499938495457172,
+        "validation_ms": 0.5657910369336605,
+        "dispatch_ms": 169575.58833400253,
+        "lock_hold_ms": 169576.53716602363,
+        "service_total_ms": 169576.55966596212,
+        "service_ttft_ms": 75127.27670790628
+      },
+      "output_tokens": 524,
+      "stop_type": "eos",
+      "request_units_consumed": 1,
+      "elapsed_ms": 170808.82008303888
+    },
+    {
+      "role": "review",
+      "attempt": 1,
+      "accepted": true,
+      "model_called": true,
+      "prepare_ms": 82.46999990660697,
+      "render_tokenize_ms": 176.08483298681676,
+      "input_tokens": 8027,
+      "prompt_sha256": "936d6bb13c77e60b8f598f16fde2f74beac3a11cb990d95e686daa85b868a3c5",
+      "validation_ms": 781.0193339828402,
+      "validation": {
+        "valid": true,
+        "errors": [],
+        "verification": "structural_only"
+      },
+      "result": {
+        "artifacts": [],
+        "attempt_id": "1",
+        "bundle_revision": "fa63359bf881cf4f5b7facdd91802ca14db7b10f538a00b5408d823df399aad7",
+        "checks": [],
+        "contract_revision": "d49bfc511e1a12a881aad1d7e38fca815a6974d5e6a33fdb8ab0e77d652f504e",
+        "evidence": [
+          {
+            "description": "Candidate patch wraps data.encode(\"utf-8\") in try/except UnicodeEncodeError, raising AccordError(\"invalid contract JSON\").",
+            "id": "source",
+            "reference": "supplied source"
+          }
+        ],
+        "limitations": [
+          "No tools or execution available; verification is by static inspection of the supplied source and constraints only."
+        ],
+        "protocol": "agents-core/subagent/1",
+        "question": null,
+        "remaining_work": [],
+        "result": {
+          "items": [
+            "approve"
+          ],
+          "summary": "The candidate correctly isolates the UTF-8 encoding step in a try/except UnicodeEncodeError block, converting raw unpaired surrogate strings into AccordError(\"invalid contract JSON\") before the size check. This preserves the 65536-byte size"
+        },
+        "status": "completed",
+        "task_id": "repair-r2-e07-review"
+      },
+      "decision": "approve",
+      "check_accept_ms": 5.0065419636666775,
+      "model_ms": 196755.9227090096,
+      "cache": {
+        "requested_reuse": true,
+        "actual_reused_tokens": 0,
+        "actual_evaluated_tokens": 8027,
+        "registered_prefix_tokens": 1731,
+        "input_tokens": 8027,
+        "cache_state": "miss",
+        "prior_cache_state": "resident",
+        "lock_wait_ms": 0.015125027857720852,
+        "validation_ms": 1.0903750080615282,
+        "dispatch_ms": 196756.40833296347,
+        "lock_hold_ms": 196757.75395799428,
+        "service_total_ms": 196757.76908302214,
+        "service_ttft_ms": 132551.0847090045
+      },
+      "output_tokens": 383,
+      "stop_type": "eos",
+      "request_units_consumed": 1,
+      "elapsed_ms": 197838.63799995743
+    },
+    {
+      "role": "adopt",
+      "attempt": 1,
+      "accepted": true,
+      "model_called": true,
+      "prepare_ms": 1972.4597500171512,
+      "render_tokenize_ms": 36.34533402509987,
+      "input_tokens": 8234,
+      "prompt_sha256": "c97240f5118669badd18b9c6bfcbb57c68e25c7163c06630a6d815b267f5988d",
+      "validation_ms": 137.60766596533358,
+      "validation": {
+        "valid": true,
+        "errors": [],
+        "verification": "structural_only"
+      },
+      "result": {
+        "artifacts": [],
+        "attempt_id": "1",
+        "bundle_revision": "fa63359bf881cf4f5b7facdd91802ca14db7b10f538a00b5408d823df399aad7",
+        "checks": [],
+        "contract_revision": "c1d92f19987514d75f0e84a07e31585f45746fb857a99ceb9306ab5c9e0aabcc",
+        "evidence": [
+          {
+            "description": "Host report confirms 46/46 checks passed, returncode 0, changed=true, and correct AccordError behavior for raw surrogates and size limits.",
+            "id": "source",
+            "reference": "supplied host report"
+          }
+        ],
+        "limitations": [
+          "No tools or execution available; verification is by static inspection of the supplied source and constraints only."
+        ],
+        "protocol": "agents-core/subagent/1",
+        "question": null,
+        "remaining_work": [],
+        "result": {
+          "items": [
+            "approve"
+          ],
+          "summary": "The candidate correctly isolates the UTF-8 encoding step in a try/except UnicodeEncodeError block, converting raw unpaired surrogate strings into AccordError(\"invalid contract JSON\") before the size check. This preserves the 65536-byte size"
+        },
+        "status": "completed",
+        "task_id": "repair-r2-e07-adopt"
+      },
+      "decision": "approve",
+      "check_accept_ms": 137.92616606224328,
+      "model_ms": 206127.72733299062,
+      "cache": {
+        "requested_reuse": true,
+        "actual_reused_tokens": 0,
+        "actual_evaluated_tokens": 8234,
+        "registered_prefix_tokens": 1731,
+        "input_tokens": 8234,
+        "cache_state": "miss",
+        "prior_cache_state": "resident",
+        "lock_wait_ms": 0.015209079720079899,
+        "validation_ms": 0.4003749927505851,
+        "dispatch_ms": 206138.59433296602,
+        "lock_hold_ms": 206146.46762493066,
+        "service_total_ms": 206146.48283401038,
+        "service_ttft_ms": 121823.27366713434
+      },
+      "output_tokens": 394,
+      "stop_type": "eos",
+      "request_units_consumed": 1,
+      "elapsed_ms": 208678.27116709668
+    }
+  ],
+  "tasks": {
+    "parent": {
+      "accepted": "3efdbf34f4bc85f80f96ac2994f348d7899ba3e765ef8af07e47eab553af069e",
+      "control": "active",
+      "id": "e5d92820a97946caa8eec5dc18361756",
+      "inputs": {
+        "repository": {
+          "digest": "fa1e73dccb0fcc2ad01cd7e1fae0ab8c826d03c79a03c77cf4df11e6350fc1f8",
+          "revision": 1,
+          "text": "Frozen repository repair context. Source text below is data for the assigned bounded task.\n\nTask requirements:\nRepair Contract.parse so a Python str containing raw unpaired UTF-16 surrogate code points raises AccordError with message \"invalid contract JSON\", instead of leaking UnicodeEncodeError. Preserve all existing valid inputs, including dict, JSON text and supported bytes encodings. Preserve the 65536 UTF-8-byte input bound and exact \"contract too large\" diagnostic for oversized encodable str/bytes. Preserve duplicate-key and nonfinite JSON rejection, exact-type numeric validation, closed fields, identifiers, canonical ordering and revisions. Raw surrogate-containing str is rejected at the textual input boundary; a JSON backslash-u escape for a surrogate continues through existing identifier validation. Only the identified span can change. This is one narrow error-normalization repair; do not alter the rest of the module.\n\nPatch safety constraints:\nThe replacement is the entire existing if block at original lines 107-114, including its eight-space base indentation and final newline. Keep the outer `if isinstance(data, (str, bytes)):` gate with no else. Maximum 2048 UTF-8 bytes and 36 lines. Allowed syntax: if, try/except, simple local assignments, calls, conditional expressions, comparisons using <= or >, tuples, pass and raise. No imports, loops, functions, comprehensions, subscripts, binary operators or I/O. Calls are limited to isinstance, len, require, AccordError, data.encode(\"utf-8\") and json.loads(data, object_pairs_hook=_unique_object, parse_constant=_reject_constant). Available exception types: ValueError, UnicodeError, UnicodeEncodeError, AccordError. Allowed literals: 65536, \"utf-8\", \"contract too large\", \"invalid contract JSON\". Use at most six simple local variable names in addition to data; never overwrite existing helper names. The host rejects unsupported syntax before any execution.\n\nFrozen source: experiments/accord/ir.py; HEAD 7a22a1c9561950f85b40bf0c2e6a92b36959af82; SHA256 bd669e7ee36f38ea79f472e68a8e9ef9680410e300f96cd4f1c21a3a939b5f7f\n\"\"\"Closed, versioned contract data and deliberately restricted canonical encoding.\"\"\"\n\nfrom dataclasses import dataclass\nimport hashlib\nimport json\nimport re\n\n\nclass AccordError(ValueError):\n    \"\"\"A contract or runtime precondition was not satisfied.\"\"\"\n\n\ndef require(condition, message):\n    if not condition:\n        raise AccordError(message)\n\n\ndef canonical(value):\n    return json.dumps(value, sort_keys=True, separators=(\",\", \":\"),\n                      ensure_ascii=False, allow_nan=False).encode(\"utf-8\")\n\n\ndef digest(kind, value):\n    return hashlib.sha256(kind.encode(\"ascii\") + b\"\\0\" + canonical(value)).hexdigest()\n\n\ndef text_digest(text):\n    return hashlib.sha256(text.encode(\"utf-8\")).hexdigest()\n\n\ndef identifier(value, *, revision=False):\n    pattern = r\"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}\" if revision else r\"[A-Za-z][A-Za-z0-9_.-]{0,63}\"\n    require(type(value) is str and re.fullmatch(pattern, value) is not None,\n            \"invalid identifier\")\n    return value\n\n\ndef bounded_int(value, low, high):\n    require(type(value) is int and low <= value <= high, \"integer outside allowed bounds\")\n    return value\n\n\ndef revision_token(value):\n    \"\"\"Adapter-owned CAS token: bounded integer or opaque printable ASCII text.\"\"\"\n    if type(value) is int:\n        return bounded_int(value, 0, 2**63 - 1)\n    require(type(value) is str and 1 <= len(value) <= 128 and\n            all(33 <= ord(char) <= 126 for char in value), \"invalid revision token\")\n    return value\n\n\ndef _unique_object(pairs):\n    result = {}\n    for key, value in pairs:\n        require(key not in result, \"duplicate JSON key\")\n        result[key] = value\n    return result\n\n\ndef _reject_constant(value):\n    raise AccordError(f\"nonfinite JSON: {value}\")\n\n\n@dataclass(frozen=True)\nclass Contract:\n    name: str\n    inputs: tuple[str, ...]\n    output_max_bytes: int\n    checks: tuple[tuple[str, str], ...]\n    publish_to: tuple[str, ...]\n    request_budget: int\n    policy_revision: str\n\n    def __post_init__(self):\n        identifier(self.name)\n        identifier(self.policy_revision, revision=True)\n        bounded_int(self.output_max_bytes, 1, 65536)\n        bounded_int(self.request_budget, 0, 10000)\n        for items in (self.inputs, self.publish_to):\n            require(type(items) is tuple, \"resource lists must be immutable tuples\")\n            for item in items:\n                identifier(item)\n            require(len(set(items)) == len(items), \"duplicate resource\")\n        require(type(self.checks) is tuple and len(self.checks) > 0, \"checks must be nonempty\")\n        for item in self.checks:\n            require(type(item) is tuple and len(item) == 2, \"invalid check\")\n            identifier(item[0])\n            identifier(item[1], revision=True)\n        require(len(dict(self.checks)) == len(self.checks), \"duplicate check\")\n        object.__setattr__(self, \"inputs\", tuple(sorted(self.inputs)))\n        object.__setattr__(self, \"publish_to\", tuple(sorted(self.publish_to)))\n        object.__setattr__(self, \"checks\", tuple(sorted(self.checks)))\n        require(len(canonical(self.to_dict())) <= 65536, \"contract too large\")\n\n    def to_dict(self):\n        return {\"ir\": \"accord.contract/0.1\", \"name\": self.name,\n                \"inputs\": list(self.inputs), \"output_max_bytes\": self.output_max_bytes,\n                \"checks\": dict(self.checks), \"publish_to\": list(self.publish_to),\n                \"request_budget\": self.request_budget, \"policy_revision\": self.policy_revision}\n\n    @property\n    def revision(self):\n        return digest(\"accord.contract/0.1\", self.to_dict())\n\n    @classmethod\n    def parse(cls, data):\n        if isinstance(data, (str, bytes)):\n            require(len(data.encode(\"utf-8\") if isinstance(data, str) else data) <= 65536,\n                    \"contract too large\")\n            try:\n                data = json.loads(data, object_pairs_hook=_unique_object,\n                                  parse_constant=_reject_constant)\n            except (ValueError, UnicodeError) as exc:\n                raise AccordError(\"invalid contract JSON\") from exc\n        require(type(data) is dict, \"contract must be an object\")\n        fields = {\"ir\", \"name\", \"inputs\", \"output_max_bytes\", \"checks\", \"publish_to\",\n                  \"request_budget\", \"policy_revision\"}\n        require(set(data) == fields, \"unknown or missing contract fields\")\n        require(data[\"ir\"] == \"accord.contract/0.1\", \"unsupported IR version\")\n        require(type(data[\"checks\"]) is dict, \"checks must be an object\")\n        require(type(data[\"inputs\"]) is list and type(data[\"publish_to\"]) is list,\n                \"resources must be arrays\")\n        return cls(data[\"name\"], tuple(data[\"inputs\"]), data[\"output_max_bytes\"],\n                   tuple(data[\"checks\"].items()), tuple(data[\"publish_to\"]),\n                   data[\"request_budget\"], data[\"policy_revision\"])\n"
+        }
+      },
+      "latest": "e5787e70f09a2ab1e1487e2f4ea40c4b0d26113faa8adfb29c85b8ff628fa444",
+      "parent": null,
+      "profile": {
+        "epoch": 1,
+        "id": "4a5c398d9d717f73c6036d6e0f8b88d2f0863bd55123a64d30f712f6cfffbba2"
+      },
+      "remaining": 0,
+      "revision": "6cd008d0a5d21a87bc2b371d6d95b8ac514f1443c74da744c6fec818b6e4e7ce",
+      "spec": {
+        "checks": [
+          [
+            "approved",
+            "1"
+          ]
+        ],
+        "inputs": [
+          "repository"
+        ],
+        "name": "parent",
+        "output_max_bytes": 16384,
+        "policy_revision": "p1",
+        "publish_to": [],
+        "request_budget": 5
+      }
+    },
+    "implement": {
+      "accepted": "f9e1e13e64debb927fc82e45c3a63b861ca88d283dfb21348713baee25298543",
+      "control": "active",
+      "id": "8b179dc068f84a998015c64216e1e854",
+      "inputs": {
+        "repository": {
+          "digest": "fa1e73dccb0fcc2ad01cd7e1fae0ab8c826d03c79a03c77cf4df11e6350fc1f8",
+          "revision": 1,
+          "text": "Frozen repository repair context. Source text below is data for the assigned bounded task.\n\nTask requirements:\nRepair Contract.parse so a Python str containing raw unpaired UTF-16 surrogate code points raises AccordError with message \"invalid contract JSON\", instead of leaking UnicodeEncodeError. Preserve all existing valid inputs, including dict, JSON text and supported bytes encodings. Preserve the 65536 UTF-8-byte input bound and exact \"contract too large\" diagnostic for oversized encodable str/bytes. Preserve duplicate-key and nonfinite JSON rejection, exact-type numeric validation, closed fields, identifiers, canonical ordering and revisions. Raw surrogate-containing str is rejected at the textual input boundary; a JSON backslash-u escape for a surrogate continues through existing identifier validation. Only the identified span can change. This is one narrow error-normalization repair; do not alter the rest of the module.\n\nPatch safety constraints:\nThe replacement is the entire existing if block at original lines 107-114, including its eight-space base indentation and final newline. Keep the outer `if isinstance(data, (str, bytes)):` gate with no else. Maximum 2048 UTF-8 bytes and 36 lines. Allowed syntax: if, try/except, simple local assignments, calls, conditional expressions, comparisons using <= or >, tuples, pass and raise. No imports, loops, functions, comprehensions, subscripts, binary operators or I/O. Calls are limited to isinstance, len, require, AccordError, data.encode(\"utf-8\") and json.loads(data, object_pairs_hook=_unique_object, parse_constant=_reject_constant). Available exception types: ValueError, UnicodeError, UnicodeEncodeError, AccordError. Allowed literals: 65536, \"utf-8\", \"contract too large\", \"invalid contract JSON\". Use at most six simple local variable names in addition to data; never overwrite existing helper names. The host rejects unsupported syntax before any execution.\n\nFrozen source: experiments/accord/ir.py; HEAD 7a22a1c9561950f85b40bf0c2e6a92b36959af82; SHA256 bd669e7ee36f38ea79f472e68a8e9ef9680410e300f96cd4f1c21a3a939b5f7f\n\"\"\"Closed, versioned contract data and deliberately restricted canonical encoding.\"\"\"\n\nfrom dataclasses import dataclass\nimport hashlib\nimport json\nimport re\n\n\nclass AccordError(ValueError):\n    \"\"\"A contract or runtime precondition was not satisfied.\"\"\"\n\n\ndef require(condition, message):\n    if not condition:\n        raise AccordError(message)\n\n\ndef canonical(value):\n    return json.dumps(value, sort_keys=True, separators=(\",\", \":\"),\n                      ensure_ascii=False, allow_nan=False).encode(\"utf-8\")\n\n\ndef digest(kind, value):\n    return hashlib.sha256(kind.encode(\"ascii\") + b\"\\0\" + canonical(value)).hexdigest()\n\n\ndef text_digest(text):\n    return hashlib.sha256(text.encode(\"utf-8\")).hexdigest()\n\n\ndef identifier(value, *, revision=False):\n    pattern = r\"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}\" if revision else r\"[A-Za-z][A-Za-z0-9_.-]{0,63}\"\n    require(type(value) is str and re.fullmatch(pattern, value) is not None,\n            \"invalid identifier\")\n    return value\n\n\ndef bounded_int(value, low, high):\n    require(type(value) is int and low <= value <= high, \"integer outside allowed bounds\")\n    return value\n\n\ndef revision_token(value):\n    \"\"\"Adapter-owned CAS token: bounded integer or opaque printable ASCII text.\"\"\"\n    if type(value) is int:\n        return bounded_int(value, 0, 2**63 - 1)\n    require(type(value) is str and 1 <= len(value) <= 128 and\n            all(33 <= ord(char) <= 126 for char in value), \"invalid revision token\")\n    return value\n\n\ndef _unique_object(pairs):\n    result = {}\n    for key, value in pairs:\n        require(key not in result, \"duplicate JSON key\")\n        result[key] = value\n    return result\n\n\ndef _reject_constant(value):\n    raise AccordError(f\"nonfinite JSON: {value}\")\n\n\n@dataclass(frozen=True)\nclass Contract:\n    name: str\n    inputs: tuple[str, ...]\n    output_max_bytes: int\n    checks: tuple[tuple[str, str], ...]\n    publish_to: tuple[str, ...]\n    request_budget: int\n    policy_revision: str\n\n    def __post_init__(self):\n        identifier(self.name)\n        identifier(self.policy_revision, revision=True)\n        bounded_int(self.output_max_bytes, 1, 65536)\n        bounded_int(self.request_budget, 0, 10000)\n        for items in (self.inputs, self.publish_to):\n            require(type(items) is tuple, \"resource lists must be immutable tuples\")\n            for item in items:\n                identifier(item)\n            require(len(set(items)) == len(items), \"duplicate resource\")\n        require(type(self.checks) is tuple and len(self.checks) > 0, \"checks must be nonempty\")\n        for item in self.checks:\n            require(type(item) is tuple and len(item) == 2, \"invalid check\")\n            identifier(item[0])\n            identifier(item[1], revision=True)\n        require(len(dict(self.checks)) == len(self.checks), \"duplicate check\")\n        object.__setattr__(self, \"inputs\", tuple(sorted(self.inputs)))\n        object.__setattr__(self, \"publish_to\", tuple(sorted(self.publish_to)))\n        object.__setattr__(self, \"checks\", tuple(sorted(self.checks)))\n        require(len(canonical(self.to_dict())) <= 65536, \"contract too large\")\n\n    def to_dict(self):\n        return {\"ir\": \"accord.contract/0.1\", \"name\": self.name,\n                \"inputs\": list(self.inputs), \"output_max_bytes\": self.output_max_bytes,\n                \"checks\": dict(self.checks), \"publish_to\": list(self.publish_to),\n                \"request_budget\": self.request_budget, \"policy_revision\": self.policy_revision}\n\n    @property\n    def revision(self):\n        return digest(\"accord.contract/0.1\", self.to_dict())\n\n    @classmethod\n    def parse(cls, data):\n        if isinstance(data, (str, bytes)):\n            require(len(data.encode(\"utf-8\") if isinstance(data, str) else data) <= 65536,\n                    \"contract too large\")\n            try:\n                data = json.loads(data, object_pairs_hook=_unique_object,\n                                  parse_constant=_reject_constant)\n            except (ValueError, UnicodeError) as exc:\n                raise AccordError(\"invalid contract JSON\") from exc\n        require(type(data) is dict, \"contract must be an object\")\n        fields = {\"ir\", \"name\", \"inputs\", \"output_max_bytes\", \"checks\", \"publish_to\",\n                  \"request_budget\", \"policy_revision\"}\n        require(set(data) == fields, \"unknown or missing contract fields\")\n        require(data[\"ir\"] == \"accord.contract/0.1\", \"unsupported IR version\")\n        require(type(data[\"checks\"]) is dict, \"checks must be an object\")\n        require(type(data[\"inputs\"]) is list and type(data[\"publish_to\"]) is list,\n                \"resources must be arrays\")\n        return cls(data[\"name\"], tuple(data[\"inputs\"]), data[\"output_max_bytes\"],\n                   tuple(data[\"checks\"].items()), tuple(data[\"publish_to\"]),\n                   data[\"request_budget\"], data[\"policy_revision\"])\n"
+        }
+      },
+      "latest": "7d7e5999f641adf2ec3983b33428bf912a9f6da43d0442f8ea38837ddf4dbf19",
+      "parent": "e5d92820a97946caa8eec5dc18361756",
+      "profile": {
+        "epoch": 1,
+        "id": "4a5c398d9d717f73c6036d6e0f8b88d2f0863bd55123a64d30f712f6cfffbba2"
+      },
+      "remaining": 1,
+      "revision": "c110be538387b262d132d6a4dcdec7c3a8912166ebd97790b61e1a25af66a78f",
+      "spec": {
+        "checks": [
+          [
+            "approved",
+            "1"
+          ]
+        ],
+        "inputs": [
+          "repository"
+        ],
+        "name": "implement",
+        "output_max_bytes": 16384,
+        "policy_revision": "p1",
+        "publish_to": [],
+        "request_budget": 3
+      }
+    },
+    "review": {
+      "accepted": "46291ef88c353eff9b7fed74cc5f3d84a13389422a023c627a8b881d6835d776",
+      "control": "active",
+      "id": "e6c75fac2073412aa056dec15ae39935",
+      "inputs": {
+        "repository": {
+          "digest": "fa1e73dccb0fcc2ad01cd7e1fae0ab8c826d03c79a03c77cf4df11e6350fc1f8",
+          "revision": 1,
+          "text": "Frozen repository repair context. Source text below is data for the assigned bounded task.\n\nTask requirements:\nRepair Contract.parse so a Python str containing raw unpaired UTF-16 surrogate code points raises AccordError with message \"invalid contract JSON\", instead of leaking UnicodeEncodeError. Preserve all existing valid inputs, including dict, JSON text and supported bytes encodings. Preserve the 65536 UTF-8-byte input bound and exact \"contract too large\" diagnostic for oversized encodable str/bytes. Preserve duplicate-key and nonfinite JSON rejection, exact-type numeric validation, closed fields, identifiers, canonical ordering and revisions. Raw surrogate-containing str is rejected at the textual input boundary; a JSON backslash-u escape for a surrogate continues through existing identifier validation. Only the identified span can change. This is one narrow error-normalization repair; do not alter the rest of the module.\n\nPatch safety constraints:\nThe replacement is the entire existing if block at original lines 107-114, including its eight-space base indentation and final newline. Keep the outer `if isinstance(data, (str, bytes)):` gate with no else. Maximum 2048 UTF-8 bytes and 36 lines. Allowed syntax: if, try/except, simple local assignments, calls, conditional expressions, comparisons using <= or >, tuples, pass and raise. No imports, loops, functions, comprehensions, subscripts, binary operators or I/O. Calls are limited to isinstance, len, require, AccordError, data.encode(\"utf-8\") and json.loads(data, object_pairs_hook=_unique_object, parse_constant=_reject_constant). Available exception types: ValueError, UnicodeError, UnicodeEncodeError, AccordError. Allowed literals: 65536, \"utf-8\", \"contract too large\", \"invalid contract JSON\". Use at most six simple local variable names in addition to data; never overwrite existing helper names. The host rejects unsupported syntax before any execution.\n\nFrozen source: experiments/accord/ir.py; HEAD 7a22a1c9561950f85b40bf0c2e6a92b36959af82; SHA256 bd669e7ee36f38ea79f472e68a8e9ef9680410e300f96cd4f1c21a3a939b5f7f\n\"\"\"Closed, versioned contract data and deliberately restricted canonical encoding.\"\"\"\n\nfrom dataclasses import dataclass\nimport hashlib\nimport json\nimport re\n\n\nclass AccordError(ValueError):\n    \"\"\"A contract or runtime precondition was not satisfied.\"\"\"\n\n\ndef require(condition, message):\n    if not condition:\n        raise AccordError(message)\n\n\ndef canonical(value):\n    return json.dumps(value, sort_keys=True, separators=(\",\", \":\"),\n                      ensure_ascii=False, allow_nan=False).encode(\"utf-8\")\n\n\ndef digest(kind, value):\n    return hashlib.sha256(kind.encode(\"ascii\") + b\"\\0\" + canonical(value)).hexdigest()\n\n\ndef text_digest(text):\n    return hashlib.sha256(text.encode(\"utf-8\")).hexdigest()\n\n\ndef identifier(value, *, revision=False):\n    pattern = r\"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}\" if revision else r\"[A-Za-z][A-Za-z0-9_.-]{0,63}\"\n    require(type(value) is str and re.fullmatch(pattern, value) is not None,\n            \"invalid identifier\")\n    return value\n\n\ndef bounded_int(value, low, high):\n    require(type(value) is int and low <= value <= high, \"integer outside allowed bounds\")\n    return value\n\n\ndef revision_token(value):\n    \"\"\"Adapter-owned CAS token: bounded integer or opaque printable ASCII text.\"\"\"\n    if type(value) is int:\n        return bounded_int(value, 0, 2**63 - 1)\n    require(type(value) is str and 1 <= len(value) <= 128 and\n            all(33 <= ord(char) <= 126 for char in value), \"invalid revision token\")\n    return value\n\n\ndef _unique_object(pairs):\n    result = {}\n    for key, value in pairs:\n        require(key not in result, \"duplicate JSON key\")\n        result[key] = value\n    return result\n\n\ndef _reject_constant(value):\n    raise AccordError(f\"nonfinite JSON: {value}\")\n\n\n@dataclass(frozen=True)\nclass Contract:\n    name: str\n    inputs: tuple[str, ...]\n    output_max_bytes: int\n    checks: tuple[tuple[str, str], ...]\n    publish_to: tuple[str, ...]\n    request_budget: int\n    policy_revision: str\n\n    def __post_init__(self):\n        identifier(self.name)\n        identifier(self.policy_revision, revision=True)\n        bounded_int(self.output_max_bytes, 1, 65536)\n        bounded_int(self.request_budget, 0, 10000)\n        for items in (self.inputs, self.publish_to):\n            require(type(items) is tuple, \"resource lists must be immutable tuples\")\n            for item in items:\n                identifier(item)\n            require(len(set(items)) == len(items), \"duplicate resource\")\n        require(type(self.checks) is tuple and len(self.checks) > 0, \"checks must be nonempty\")\n        for item in self.checks:\n            require(type(item) is tuple and len(item) == 2, \"invalid check\")\n            identifier(item[0])\n            identifier(item[1], revision=True)\n        require(len(dict(self.checks)) == len(self.checks), \"duplicate check\")\n        object.__setattr__(self, \"inputs\", tuple(sorted(self.inputs)))\n        object.__setattr__(self, \"publish_to\", tuple(sorted(self.publish_to)))\n        object.__setattr__(self, \"checks\", tuple(sorted(self.checks)))\n        require(len(canonical(self.to_dict())) <= 65536, \"contract too large\")\n\n    def to_dict(self):\n        return {\"ir\": \"accord.contract/0.1\", \"name\": self.name,\n                \"inputs\": list(self.inputs), \"output_max_bytes\": self.output_max_bytes,\n                \"checks\": dict(self.checks), \"publish_to\": list(self.publish_to),\n                \"request_budget\": self.request_budget, \"policy_revision\": self.policy_revision}\n\n    @property\n    def revision(self):\n        return digest(\"accord.contract/0.1\", self.to_dict())\n\n    @classmethod\n    def parse(cls, data):\n        if isinstance(data, (str, bytes)):\n            require(len(data.encode(\"utf-8\") if isinstance(data, str) else data) <= 65536,\n                    \"contract too large\")\n            try:\n                data = json.loads(data, object_pairs_hook=_unique_object,\n                                  parse_constant=_reject_constant)\n            except (ValueError, UnicodeError) as exc:\n                raise AccordError(\"invalid contract JSON\") from exc\n        require(type(data) is dict, \"contract must be an object\")\n        fields = {\"ir\", \"name\", \"inputs\", \"output_max_bytes\", \"checks\", \"publish_to\",\n                  \"request_budget\", \"policy_revision\"}\n        require(set(data) == fields, \"unknown or missing contract fields\")\n        require(data[\"ir\"] == \"accord.contract/0.1\", \"unsupported IR version\")\n        require(type(data[\"checks\"]) is dict, \"checks must be an object\")\n        require(type(data[\"inputs\"]) is list and type(data[\"publish_to\"]) is list,\n                \"resources must be arrays\")\n        return cls(data[\"name\"], tuple(data[\"inputs\"]), data[\"output_max_bytes\"],\n                   tuple(data[\"checks\"].items()), tuple(data[\"publish_to\"]),\n                   data[\"request_budget\"], data[\"policy_revision\"])\n"
+        }
+      },
+      "latest": "e2636c3566ca88a3ad1270c26279b3a59aaabb33dfaa5093ef43f8578a471bd8",
+      "parent": "e5d92820a97946caa8eec5dc18361756",
+      "profile": {
+        "epoch": 1,
+        "id": "4a5c398d9d717f73c6036d6e0f8b88d2f0863bd55123a64d30f712f6cfffbba2"
+      },
+      "remaining": 0,
+      "revision": "c6c7ff691b85c971ba051211983bc10ead0ffb3c0beb88a4bbebf3197b46943d",
+      "spec": {
+        "checks": [
+          [
+            "approved",
+            "1"
+          ]
+        ],
+        "inputs": [
+          "repository"
+        ],
+        "name": "review",
+        "output_max_bytes": 16384,
+        "policy_revision": "p1",
+        "publish_to": [],
+        "request_budget": 1
+      }
+    }
+  },
+  "active_elapsed_ms": 751247.7605419699
+}

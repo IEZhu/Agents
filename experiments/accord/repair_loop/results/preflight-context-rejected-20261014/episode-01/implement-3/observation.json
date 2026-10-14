@@ -1,0 +1,13 @@
+{
+  "role": "implement",
+  "attempt": 3,
+  "accepted": false,
+  "model_called": false,
+  "error_type": "MCPClientError",
+  "error": "Agents-Core did not prepare a worker package",
+  "feedback": {
+    "error": "Agents-Core did not prepare a worker package"
+  },
+  "request_units_consumed": 0,
+  "elapsed_ms": 17.109124921262264
+}

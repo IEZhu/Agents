@@ -1,0 +1,1 @@
+{"timing":"during episode1 second/third implementation; no pre-inference baseline measured","swap_total_mib":40960.0,"swap_used_mib":39971.38,"swap_free_mib":988.62,"wired_pages":1424695,"page_size":16384,"attribution":"System-wide snapshot, not model-only memory or an energy measurement. Other applications remained active."}
