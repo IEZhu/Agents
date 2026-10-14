@@ -1,0 +1,256 @@
+{
+  "base_revision": "3d95c42b79693d6a73d017d602f1b4262f3a300e",
+  "branch": "codex/agent-language-concept",
+  "target": "tests/README.md",
+  "publication_ref": "refs/accord-eval/subagent-testing-v2-reviewed/target",
+  "accepted_commit": "a5faebdbd9573a2be173ae84279ecf3f94a486aa",
+  "candidate_sha256": "ab6cabc25f7a97da55246566e8b21337188e486aec5bb63e178fd5d64aaa13b9",
+  "acceptance": {
+    "binding": {
+      "attempt": "229cb226a84fdb1eb727a19add98052cd150c3c7f3a70ab4ee1d82ca13ad55f2",
+      "contract": "cb473e0bf5128a37d1cbc65f988d3cfb1663c4384e5f13ebacd7a0e8846d9944",
+      "inputs": {
+        "api_guide": {
+          "digest": "72f443750674fd605432b34c0afc3548ec5ca2c1d50636180aec9c72ecc66ac0",
+          "revision": 1
+        },
+        "core_tests": {
+          "digest": "086f744bee16daa9936742a69c6b7f34f075efcaaf7f16f0ed85105840882119",
+          "revision": 1
+        },
+        "mcp_tests": {
+          "digest": "05ad00f86985300a4d0fbd0682c76c576d827c4b98b5d2039612156ba27ba718",
+          "revision": 1
+        },
+        "project_config": {
+          "digest": "c20ee2b8fd232427821b4449fcc25bbe32c219978524fb34e448c1ccf259279c",
+          "revision": 1
+        },
+        "test_evidence": {
+          "digest": "5bbead91f405974bf8537e1ebb022a2fe7f1ae7f59e1aebbc66c970509291d37",
+          "revision": 1
+        },
+        "test_guide": {
+          "digest": "b9535da1c875d26ffd9725636f6a274a83489799e9afbc850896ef27f1a29f79",
+          "revision": 1
+        }
+      },
+      "output": "ab6cabc25f7a97da55246566e8b21337188e486aec5bb63e178fd5d64aaa13b9",
+      "profile": {
+        "epoch": 1,
+        "id": "af57307efb49a5fc071391bc8ea88d24bd1710ccb1ad2109429b14c499a73954"
+      },
+      "task": "dbae99aace394bd69d8db509b3d9ca95"
+    },
+    "id": "9c37ed335f2617345bc61ad72d30d0c19f73a498a552b5d2fea003b66954bc8b",
+    "receipts": [
+      "0aa01d0c67344727987cf7390ff93cba",
+      "261ed8c910e14b509bf30b80738972f2",
+      "344dacd490814a5fb02ec16d555dc101",
+      "c6b7c1e05d2b42af89be24d660a2c281"
+    ]
+  },
+  "checks": [
+    {
+      "binding": {
+        "attempt": "229cb226a84fdb1eb727a19add98052cd150c3c7f3a70ab4ee1d82ca13ad55f2",
+        "contract": "cb473e0bf5128a37d1cbc65f988d3cfb1663c4384e5f13ebacd7a0e8846d9944",
+        "inputs": {
+          "api_guide": {
+            "digest": "72f443750674fd605432b34c0afc3548ec5ca2c1d50636180aec9c72ecc66ac0",
+            "revision": 1
+          },
+          "core_tests": {
+            "digest": "086f744bee16daa9936742a69c6b7f34f075efcaaf7f16f0ed85105840882119",
+            "revision": 1
+          },
+          "mcp_tests": {
+            "digest": "05ad00f86985300a4d0fbd0682c76c576d827c4b98b5d2039612156ba27ba718",
+            "revision": 1
+          },
+          "project_config": {
+            "digest": "c20ee2b8fd232427821b4449fcc25bbe32c219978524fb34e448c1ccf259279c",
+            "revision": 1
+          },
+          "test_evidence": {
+            "digest": "5bbead91f405974bf8537e1ebb022a2fe7f1ae7f59e1aebbc66c970509291d37",
+            "revision": 1
+          },
+          "test_guide": {
+            "digest": "b9535da1c875d26ffd9725636f6a274a83489799e9afbc850896ef27f1a29f79",
+            "revision": 1
+          }
+        },
+        "output": "ab6cabc25f7a97da55246566e8b21337188e486aec5bb63e178fd5d64aaa13b9",
+        "profile": {
+          "epoch": 1,
+          "id": "af57307efb49a5fc071391bc8ea88d24bd1710ccb1ad2109429b14c499a73954"
+        },
+        "task": "dbae99aace394bd69d8db509b3d9ca95"
+      },
+      "check": "bounded_edit",
+      "diagnostic": "",
+      "id": "0aa01d0c67344727987cf7390ff93cba",
+      "passed": true,
+      "revision": "1"
+    },
+    {
+      "binding": {
+        "attempt": "229cb226a84fdb1eb727a19add98052cd150c3c7f3a70ab4ee1d82ca13ad55f2",
+        "contract": "cb473e0bf5128a37d1cbc65f988d3cfb1663c4384e5f13ebacd7a0e8846d9944",
+        "inputs": {
+          "api_guide": {
+            "digest": "72f443750674fd605432b34c0afc3548ec5ca2c1d50636180aec9c72ecc66ac0",
+            "revision": 1
+          },
+          "core_tests": {
+            "digest": "086f744bee16daa9936742a69c6b7f34f075efcaaf7f16f0ed85105840882119",
+            "revision": 1
+          },
+          "mcp_tests": {
+            "digest": "05ad00f86985300a4d0fbd0682c76c576d827c4b98b5d2039612156ba27ba718",
+            "revision": 1
+          },
+          "project_config": {
+            "digest": "c20ee2b8fd232427821b4449fcc25bbe32c219978524fb34e448c1ccf259279c",
+            "revision": 1
+          },
+          "test_evidence": {
+            "digest": "5bbead91f405974bf8537e1ebb022a2fe7f1ae7f59e1aebbc66c970509291d37",
+            "revision": 1
+          },
+          "test_guide": {
+            "digest": "b9535da1c875d26ffd9725636f6a274a83489799e9afbc850896ef27f1a29f79",
+            "revision": 1
+          }
+        },
+        "output": "ab6cabc25f7a97da55246566e8b21337188e486aec5bb63e178fd5d64aaa13b9",
+        "profile": {
+          "epoch": 1,
+          "id": "af57307efb49a5fc071391bc8ea88d24bd1710ccb1ad2109429b14c499a73954"
+        },
+        "task": "dbae99aace394bd69d8db509b3d9ca95"
+      },
+      "check": "focused_tests",
+      "diagnostic": "",
+      "id": "261ed8c910e14b509bf30b80738972f2",
+      "passed": true,
+      "revision": "1"
+    },
+    {
+      "binding": {
+        "attempt": "229cb226a84fdb1eb727a19add98052cd150c3c7f3a70ab4ee1d82ca13ad55f2",
+        "contract": "cb473e0bf5128a37d1cbc65f988d3cfb1663c4384e5f13ebacd7a0e8846d9944",
+        "inputs": {
+          "api_guide": {
+            "digest": "72f443750674fd605432b34c0afc3548ec5ca2c1d50636180aec9c72ecc66ac0",
+            "revision": 1
+          },
+          "core_tests": {
+            "digest": "086f744bee16daa9936742a69c6b7f34f075efcaaf7f16f0ed85105840882119",
+            "revision": 1
+          },
+          "mcp_tests": {
+            "digest": "05ad00f86985300a4d0fbd0682c76c576d827c4b98b5d2039612156ba27ba718",
+            "revision": 1
+          },
+          "project_config": {
+            "digest": "c20ee2b8fd232427821b4449fcc25bbe32c219978524fb34e448c1ccf259279c",
+            "revision": 1
+          },
+          "test_evidence": {
+            "digest": "5bbead91f405974bf8537e1ebb022a2fe7f1ae7f59e1aebbc66c970509291d37",
+            "revision": 1
+          },
+          "test_guide": {
+            "digest": "b9535da1c875d26ffd9725636f6a274a83489799e9afbc850896ef27f1a29f79",
+            "revision": 1
+          }
+        },
+        "output": "ab6cabc25f7a97da55246566e8b21337188e486aec5bb63e178fd5d64aaa13b9",
+        "profile": {
+          "epoch": 1,
+          "id": "af57307efb49a5fc071391bc8ea88d24bd1710ccb1ad2109429b14c499a73954"
+        },
+        "task": "dbae99aace394bd69d8db509b3d9ca95"
+      },
+      "check": "runnable_command",
+      "diagnostic": "",
+      "id": "c6b7c1e05d2b42af89be24d660a2c281",
+      "passed": true,
+      "revision": "2"
+    },
+    {
+      "binding": {
+        "attempt": "229cb226a84fdb1eb727a19add98052cd150c3c7f3a70ab4ee1d82ca13ad55f2",
+        "contract": "cb473e0bf5128a37d1cbc65f988d3cfb1663c4384e5f13ebacd7a0e8846d9944",
+        "inputs": {
+          "api_guide": {
+            "digest": "72f443750674fd605432b34c0afc3548ec5ca2c1d50636180aec9c72ecc66ac0",
+            "revision": 1
+          },
+          "core_tests": {
+            "digest": "086f744bee16daa9936742a69c6b7f34f075efcaaf7f16f0ed85105840882119",
+            "revision": 1
+          },
+          "mcp_tests": {
+            "digest": "05ad00f86985300a4d0fbd0682c76c576d827c4b98b5d2039612156ba27ba718",
+            "revision": 1
+          },
+          "project_config": {
+            "digest": "c20ee2b8fd232427821b4449fcc25bbe32c219978524fb34e448c1ccf259279c",
+            "revision": 1
+          },
+          "test_evidence": {
+            "digest": "5bbead91f405974bf8537e1ebb022a2fe7f1ae7f59e1aebbc66c970509291d37",
+            "revision": 1
+          },
+          "test_guide": {
+            "digest": "b9535da1c875d26ffd9725636f6a274a83489799e9afbc850896ef27f1a29f79",
+            "revision": 1
+          }
+        },
+        "output": "ab6cabc25f7a97da55246566e8b21337188e486aec5bb63e178fd5d64aaa13b9",
+        "profile": {
+          "epoch": 1,
+          "id": "af57307efb49a5fc071391bc8ea88d24bd1710ccb1ad2109429b14c499a73954"
+        },
+        "task": "dbae99aace394bd69d8db509b3d9ca95"
+      },
+      "check": "source_alignment",
+      "diagnostic": "",
+      "id": "344dacd490814a5fb02ec16d555dc101",
+      "passed": true,
+      "revision": "1"
+    }
+  ],
+  "operation": {
+    "acceptance": "9c37ed335f2617345bc61ad72d30d0c19f73a498a552b5d2fea003b66954bc8b",
+    "grant": "publish_test_guide",
+    "id": "c1248dc49e339d77a486165754f7191b450b3d4ebf8df3924f44d6f32e6340ef",
+    "intent": {
+      "attempt": "229cb226a84fdb1eb727a19add98052cd150c3c7f3a70ab4ee1d82ca13ad55f2",
+      "expected_version": "3d95c42b79693d6a73d017d602f1b4262f3a300e",
+      "ir": "accord.intent/0.1",
+      "kind": "publish_text",
+      "output": "ab6cabc25f7a97da55246566e8b21337188e486aec5bb63e178fd5d64aaa13b9",
+      "request": "publish_test_guide",
+      "sink": "docs",
+      "sink_identity": "ce4a3d48683c9f5e84c20301ffa97b93c10b0545f6a55b8e2fde249430f3466e",
+      "target": "test_guide",
+      "task": "dbae99aace394bd69d8db509b3d9ca95"
+    },
+    "receipt": {
+      "intent": "984935dbcb217d57266cee0013a0a4da5cc95fc9b3dc41399fc8ed8b22791a38",
+      "observed_tip": "3d95c42b79693d6a73d017d602f1b4262f3a300e",
+      "operation": "c1248dc49e339d77a486165754f7191b450b3d4ebf8df3924f44d6f32e6340ef",
+      "protocol": "accord.git-outcome/2",
+      "status": "confirmed",
+      "target_version": "a5faebdbd9573a2be173ae84279ecf3f94a486aa"
+    },
+    "status": "confirmed"
+  },
+  "adapter": "single-ref outcome chain v2",
+  "adapter_sha256": "6ac57b24ba9d8baab6e26563394cf2c469c5fbc290a2e74db2d4f3d343283033",
+  "materialization": "Verified preimage then atomic rename; concurrent filesystem CAS is not claimed."
+}

@@ -1,0 +1,10 @@
+{
+  "fault": "Remove receipt-ref lock after Git prepare, then commit. Isolated disposable repository only.",
+  "git_returncode": 128,
+  "target_advanced": true,
+  "receipt_missing_after_commit": true,
+  "old_adapter_retried_status": "denied",
+  "old_adapter_published_text": true,
+  "conclusion": "Multi-ref update did not support the claimed all-or-nothing receipt boundary under this injected failure.",
+  "old_sink_sha256": "436b57a90c1f05517dd9bc06e2b9709cc54338b34cac774ff1218cd00032161b"
+}

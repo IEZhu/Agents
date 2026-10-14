@@ -40,6 +40,15 @@ def bounded_int(value, low, high):
     return value
 
 
+def revision_token(value):
+    """Adapter-owned CAS token: bounded integer or opaque printable ASCII text."""
+    if type(value) is int:
+        return bounded_int(value, 0, 2**63 - 1)
+    require(type(value) is str and 1 <= len(value) <= 128 and
+            all(33 <= ord(char) <= 126 for char in value), "invalid revision token")
+    return value
+
+
 def _unique_object(pairs):
     result = {}
     for key, value in pairs:

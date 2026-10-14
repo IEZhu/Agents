@@ -1,0 +1,18 @@
+{
+  "base_revision": "3d95c42b79693d6a73d017d602f1b4262f3a300e",
+  "command": "LANGFUSE_TRACING_ENABLED=false /Users/alexey.zhuchkov/Documents/Agents/.venv/bin/python -m pytest tests/test_subagent.py tests/test_subagent_mcp.py -q",
+  "cwd": "/Users/alexey.zhuchkov/.codex/worktrees/agent-language-concept/Agents",
+  "returncode": 0,
+  "passed": 144,
+  "warnings": 1,
+  "elapsed_seconds": 15.46,
+  "warning": "Pytest cache could not be created under the tool sandbox; all 144 checks passed. No source or assertion failure.",
+  "input_sha256": {
+    "test_guide": "b9535da1c875d26ffd9725636f6a274a83489799e9afbc850896ef27f1a29f79",
+    "core_tests": "086f744bee16daa9936742a69c6b7f34f075efcaaf7f16f0ed85105840882119",
+    "mcp_tests": "05ad00f86985300a4d0fbd0682c76c576d827c4b98b5d2039612156ba27ba718",
+    "api_guide": "72f443750674fd605432b34c0afc3548ec5ca2c1d50636180aec9c72ecc66ac0",
+    "project_config": "c20ee2b8fd232427821b4449fcc25bbe32c219978524fb34e448c1ccf259279c"
+  },
+  "provenance": "Parent executed the command in this session; result recorded once and shared by all evaluation arms, not re-executed per scenario."
+}
