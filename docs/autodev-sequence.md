@@ -138,7 +138,10 @@ writes itself are fixed phrases: "the final head is not the head the session han
 validated review covers the final head", "the pre-mortem did not run on this change", "an open
 pre-mortem risk needs the owner", "the change needs a control path; a local patch for the owner is
 in the run records", "the change touches protected paths without autodev:next" and "the
-implement stage ended without a valid result".
+implement stage ended without a valid result". A blocked output's own blockers are posted as
+they are (the output check already refused a mention or a sub-marker); a list the broker still
+refuses (a closing keyword for another issue, a secret-like value) is replaced by "the run stopped
+and needs the owner; the details are in the local run record", so the issue is labelled anyway.
 
 ## After the submit stage
 
@@ -152,8 +155,10 @@ implement stage ended without a valid result".
   security signal) through `Broker.create_risk_issues`, at most three per run;
 - with `waiting_bots`, `next_attempt` in `schedules/tick.json` as `{"at", "pr"}`.
 
-A submit stage that ends `blocked` (or without a valid output) blocks the issue with its reason;
-the claim stays while a PR exists. A pull request is refused by the broker while a security risk
+A submit stage that ends `blocked` (or without a valid output) blocks the issue with the fixed
+phrase "the submit stage ended blocked"; the session's reason stays in the record's `reason`, and
+the claim stays while a PR exists. The tick's `next_attempt` is written only after the state
+comment was, since the gate trusts nothing else. A pull request is refused by the broker while a security risk
 is open (`Broker(pr_allowed=...)`).
 
 ## Records

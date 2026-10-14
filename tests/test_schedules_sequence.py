@@ -850,3 +850,30 @@ def test_codex_decision_fallback_runs_the_claude_session(world):
     assert code == 0 and record["stages"]["select"]["client"] == "claude"
     assert record["stages"]["select"]["fallback_reason"] == "nested_sandbox_unavailable"
     assert [item["kind"] for item in world.stage_seen()] == ["select"]
+
+
+def test_a_blocker_the_broker_refuses_is_replaced_by_a_generic_one(world):
+    world.scenario(stages_plan(implement_script=["cat /dev/null"], implement_output=blocked_output("fixes #12 first")))
+    code, record = world.run("run")
+    assert code == 1 and record["status"] == "blocked" and "closing keywords" in record["block_refused"]
+    [block] = [call for call in world.api.calls if call[1] == f"{BASE}/issues/{ISSUE}/comments"
+               and "needs the owner" in call[2]["body"]]
+    assert sequence.GENERIC_BLOCKED in block[2]["body"] and "fixes #12" not in block[2]["body"]
+    labels = [payload for method, path, payload in world.api.calls if path.endswith("/labels") and method == "POST"]
+    assert labels[-1] == {"labels": ["autodev:blocked"]}
+    assert world.ops(record)[-2:] == ["block", "unclaim"]
+
+
+def test_a_blocked_submit_posts_only_a_fixed_phrase(world):
+    script = [SUBMIT[0], SUBMIT[1]]
+    world.scenario(stages_plan(submit_script=script, submit_out={**submit_output("blocked"),
+                                                                 "reason": "The base moved; see the conflict."}))
+    code, record = world.run("run")
+    assert code == 1 and record["status"] == "blocked" and record["pr"] == PR
+    assert record["reason"] == f"{sequence.SUBMIT_BLOCKED}: The base moved; see the conflict."
+    [block] = [call for call in world.api.calls if call[1] == f"{BASE}/issues/{ISSUE}/comments"
+               and "needs the owner" in call[2]["body"]]
+    assert block[2]["body"].endswith(f"- {sequence.SUBMIT_BLOCKED}") and "base moved" not in block[2]["body"]
+    assert "unclaim" not in world.ops(record)  # the claim stays while the PR is open
+    state = [call for call in world.api.calls if call[1] == f"{BASE}/issues/{PR}/comments"]
+    assert state and '"review_status": "blocked"' in state[0][2]["body"]
