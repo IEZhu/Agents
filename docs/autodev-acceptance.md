@@ -505,11 +505,17 @@ after the items above pass. These are owner live steps too; the code they use wa
 ([automatic mode](autodev-runner.md#automatic-mode)).
 
 **B1. `ready` passes on this Mac.** Run the twelve probes of [A7](#a7-probes-hold-in-every-mode-and-the-broker-refuses)
-(a record counts for 7 days), then `.venv/bin/python -m src.schedules autodev ready`. It exits with
-1 and lists what is missing; fix each item until only the acceptance remains, then run
+(each pair counts once; the newest `implement` and `submit` pass must be at most 7 days old, which
+every run that reaches those sessions renews), then `.venv/bin/python -m src.schedules autodev
+ready`. With `select` configured for Codex, its Claude probes are needed only while the stored
+Codex check says unavailable (as `nested_sandbox_unavailable` on this Mac); `probe --kind select`
+then probes the Claude select session a run falls back to. It exits with 1 and lists what is
+missing; fix each item until only the acceptance remains, then run
 `.venv/bin/python -m src.schedules autodev enable --mode run --accept-shared-account`, read the
 risks it lists, and run `ready` again. **Pass:** exit code 0, `missing: []`, every
-`probes.<kind>.<mode>.status` is `passed`, and `acceptance.current` is true. Keep the output.
+`probes.<kind>.<mode>.status` and `probe_freshness.<kind>.status` is `passed`, and
+`acceptance.current` is true. Keep the output. Do not run `autodev disable` or `enable --mode
+dry-run` afterwards: either withdraws the acceptance.
 
 **B2. Three automatic real runs in a row.** With run mode on and the scheduler installed, let
 three slots run (or continuations of a pull request that waits for bots). **Pass:** three

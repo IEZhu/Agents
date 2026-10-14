@@ -29,15 +29,23 @@ references: the [runner](autodev-runner.md), the [broker](autodev-broker.md), th
 
 A scheduled real run is the [automatic mode](autodev-runner.md#automatic-mode) of #350: the tick
 starts a `run` (a slot) or a `resume` (a continuation) only while `autodev ready` passes, else it
-records the run `refused` with the missing items. The sequence itself is the same for a scheduled
-and a supervised run; it writes the tick's `next_attempt` for a `waiting_bots` pull request, so in
-run mode the tick continues it, and the notification still names the command that continues it by
-hand.
+records the run `refused` with the missing items (a refused continuation names its PR and the
+command that resumes it, and is not retried). The sequence itself is the same for a scheduled and
+a supervised run; it writes the tick's `next_attempt` for a `waiting_bots` pull request, so in run
+mode the tick continues it, and the notification still names the command that continues it by
+hand. The guarded sessions of a scheduled run record their probe reports under `scheduled` (a
+continuation's under `resume`), which keeps the `implement` and `submit` records that `ready`
+asks to be at most 7 days old fresh.
 
 ## Order
 
 1. **The lease and the markers** (`runner.run_autodev`): the run lease, the daemon's update
-   markers.
+   markers. A scheduled `run` or `resume` (trigger `slot` or `continuation`) then checks again
+   that the schedule is on in run mode and the owner's acceptance is current
+   (`runner.scheduled_problems`): a tripwire or a turn-off after the tick's check ends it
+   `refused` with `automatic mode no longer ready at the start: …`, notified, before the drift
+   check. Every command that can trip the schedule holds the run lease, so nothing else trips
+   between this check and the first stage.
 2. **The drift check** (`runner.default_drift`): `main` is fetched into the trusted repository,
    its quarantine older than 30 days is pruned, and the installation is compared with `pinned`.
 3. **The preconditions** (real modes only, `preconditions.check`): the broker's credentials,
@@ -102,7 +110,8 @@ add the PR, its rounds, the findings already seen and the head of the trusted st
 6. `sandbox.build` with the stage's output schema as `--json-schema`, `probes.guard` (a probe
    session for a stage with Bash, the static checks for `select`), `probes.record_report`. A
    failed report refuses the run before the session and turns the schedule off (#350;
-   `tripwire.json` records `cause: probe`).
+   `tripwire.json` records `cause: probe`); a report whose probe session read a decoy has
+   tripped it already, once, as a tripwire.
 7. A `.git` snapshot of the one-off repository (`integrity.git_snapshot`), the prompt
    (`stages.render_prompt`), and the session through `probes.start_session`, its standard output
    into `<run_dir>/stages/<kind>/stream.jsonl`. After the stage's timeout the runner ends the
@@ -246,7 +255,7 @@ issues, the exports, the blockers, the cost the CLI reported, the security count
 |---|---|
 | `completed` | The gate waited, no candidate, the selection said `none`, a dry-run's selection, or a PR with `complete`, `complete_with_followups` or `waiting_bots` |
 | `blocked` | A blocker after the implement stage, a blocked submit stage, an invalid stage output (also a submit output naming another PR or head, or an unblocked one without a PR), a resume whose head is foreign |
-| `refused` | A missing precondition, a failed probe, the decoy tripwire, a stream too long to scan, a changed `.git`, a sandbox or login refusal, an effort the client does not take |
+| `refused` | A missing precondition, a failed probe, the decoy tripwire, a stream too long to scan, a changed `.git`, a sandbox or login refusal, an effort the client does not take, a scheduled run whose schedule was turned off or whose acceptance went stale after the tick's check |
 | `failed: infra` | The network, a CLI, the lease, drift, a timeout, a supervisor stop, or a defect in the sequence itself |
 
 The owner is notified of every real run and of a dry-run that did not complete (Q-notify-dry): a
