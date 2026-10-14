@@ -27,7 +27,7 @@ their recorded revision; they do not override the current implementation.
 - Never change a live installation checkout in place. The daemon runs from it,
   and the updaters fast-forward it only while it is on
   `AGENTS_AUTO_UPDATE_BRANCH` (its update channel in `.env`) with a clean tree,
-  switching to it only from `main`, `dev` or the previous setting, so a feature
+  switching to it only from the previous setting, so a feature
   branch or an uncommitted edit there silently stops updates. Do not edit, commit, stash,
   reset or switch branches in it; reading, running its tools, `git fetch` and
   `git worktree add` are fine. If it is already off its update branch or dirty,

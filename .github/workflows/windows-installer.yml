@@ -17,6 +17,9 @@ on:
       - scripts/_helpers/install_codex_instructions.py
       - scripts/_helpers/inject_claude_md.py
       - scripts/_helpers/migrate_routing_memory.py
+      - scripts/_helpers/env_branch.py
+      - scripts/_helpers/merge_env.py
+      - src/env_file.py
       - scripts/templates/**/*.md
       - tests/test_installer_windows.py
       - tests/test_installer_instructions.py
@@ -28,6 +31,7 @@ on:
       - tests/test_protocol_migration.py
       - tests/test_daemon_peer.py
       - tests/test_file_lock.py
+      - tests/test_env_file.py
       - tests/conftest.py
       - .github/workflows/windows-installer.yml
   push:
@@ -47,6 +51,9 @@ on:
       - scripts/_helpers/install_codex_instructions.py
       - scripts/_helpers/inject_claude_md.py
       - scripts/_helpers/migrate_routing_memory.py
+      - scripts/_helpers/env_branch.py
+      - scripts/_helpers/merge_env.py
+      - src/env_file.py
       - scripts/templates/**/*.md
       - tests/test_installer_windows.py
       - tests/test_installer_instructions.py
@@ -58,6 +65,7 @@ on:
       - tests/test_protocol_migration.py
       - tests/test_daemon_peer.py
       - tests/test_file_lock.py
+      - tests/test_env_file.py
       - tests/conftest.py
       - .github/workflows/windows-installer.yml
   workflow_dispatch:
@@ -84,7 +92,7 @@ jobs:
           python-version: '3.11'
       - name: Install test dependencies
         run: python -m pip install pytest python-dotenv
-      - name: Exercise native installer prompts, the sync step, instruction migrations, the loopback peer check and file locks
+      - name: Exercise native installer prompts, the sync step, instruction migrations, the loopback peer check, file locks and the .env branch helper
         env:
           AGENTS_TEST_PYTHON310: ${{ steps.python310.outputs.python-path }}
         run: >-
@@ -93,7 +101,7 @@ jobs:
           tests/test_install_instructions.py tests/test_installer_profiles.py
           tests/test_backup_file.py
           tests/test_installer_sync.py tests/test_protocol_migration.py
-          tests/test_daemon_peer.py tests/test_file_lock.py -v
+          tests/test_daemon_peer.py tests/test_file_lock.py tests/test_env_file.py -v
       - name: Recognize a same-user connection as a standard (non-administrator) user
         shell: pwsh
         run: |

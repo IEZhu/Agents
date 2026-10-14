@@ -1394,16 +1394,21 @@ results; `channel set <branch> [--allow-downgrade]` saves another branch under
 `main` or `dev` through the same function (`PUT /ui/api/updates`, with the
 session, `X-Agents-UI`, same-origin and revision checks of the other UI writes).
 Saving changes no code: the next `update` or scheduled run switches a checkout
-that is on a channel branch (`main`, `dev` or the previous setting) to the
-configured branch, inside the same transaction (gates, build while serving,
-probation, rollback to the previous branch and stores). A target that does not
-contain HEAD is a downgrade and is skipped until the confirmation that `set
---allow-downgrade` or the UI records for that HEAD.
+that is on the previous setting (`AGENTS_AUTO_UPDATE_PREVIOUS_BRANCH`, recorded by
+`set`) to the configured branch, inside the same transaction (gates, build while
+serving, probation, rollback to the previous branch, the target branch's old tip
+and upstream settings, and the stores). The transaction re-reads the channel
+after the build and defers when it changed meanwhile. A branch exported over
+`.env` never switches; `update` reports the override in `note`. A target that
+lacks non-merge commits of HEAD is a downgrade and is skipped until the
+confirmation that `set --allow-downgrade` or the UI records for that HEAD; a
+release's merge commit is not one ([calendar releases](releases.md#procedure)).
 
 A run skips a target without touching the service when the checked-out branch is
-neither the configured branch nor a channel branch, tracked files have local
-changes, the target is not a fast-forward (or, for a switch, an unconfirmed
-downgrade), or dependency manifests changed; each skip is logged once per target. Otherwise it waits until the service is ready, has no
+neither the configured branch nor the previous setting (or the branch is exported
+over `.env`), the target branch is checked out in another worktree, tracked files
+have local changes, the target is not a fast-forward (or, for a switch, an
+unconfirmed downgrade), or dependency manifests changed; each skip is logged once per target. Otherwise it waits until the service is ready, has no
 work in flight, and has been idle for `--idle-seconds` (default 120), and then
 runs the same transaction as `update`. It also waits while any stdio server of
 this installation is running, since `update` would stop the service only to find

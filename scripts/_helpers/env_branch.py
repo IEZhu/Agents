@@ -9,68 +9,60 @@ just copied ``.env`` from ``env.example``) or when ``.env`` has no
 gives an installation whose updaters follow dev. An existing ``.env`` that names another
 branch is left as it is, with a warning: the owner chose it (``channel set``, the web UI).
 
+``.env`` is changed binding by binding, as python-dotenv reads it and as
+``src.update_channel.set_branch`` changes it (``src/env_file.py``, the same code): another
+key's multi-line quoted value, the quoted-key form and the line endings stay as they are.
+
 Standard library only: it runs before the virtual environment exists.
 """
+import importlib.util
 import os
 import re
 import sys
-import tempfile
+
+
+def _load_env_file():
+    """This installation's ``src/env_file.py``, by its path: another ``src`` on ``sys.path`` must not answer."""
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    spec = importlib.util.spec_from_file_location("agents_core_env_file", os.path.join(root, "src", "env_file.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+env_file = _load_env_file()
 
 KEY = "AGENTS_AUTO_UPDATE_BRANCH"
 # The names `src.update_channel.plausible_branch` accepts: written into .env unquoted.
 NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]*")
-# Every assignment form python-dotenv reads: `export KEY=`, `'KEY'=`, spaces around the key.
-ASSIGNMENT = re.compile(r"^(?P<lead>\s*(?:export\s+)?(?:'" + KEY + r"'|" + KEY + r")\s*=[ \t]*)"
-                        r"(?P<value>'[^']*'|\"[^\"]*\"|[^\s#]*)(?P<rest>.*)$", re.S)
 
 
-def unquoted(value):
-    if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
-        return value[1:-1]
-    return value
+def usable(branch):
+    return bool(NAME.fullmatch(branch)) and ".." not in branch and not branch.endswith((".lock", "/", "."))
 
 
 def main(argv):
     if len(argv) < 2 or argv[2:] not in ([], ["--created"]):
         print("Usage: env_branch.py <env_file> <branch> [--created]", file=sys.stderr)
         return 2
-    env_file, branch, created = argv[0], argv[1], argv[2:] == ["--created"]
-    if not NAME.fullmatch(branch) or ".." in branch or branch.endswith((".lock", "/", ".")):
+    path, branch, created = argv[0], argv[1], argv[2:] == ["--created"]
+    if not usable(branch):
         print(f"  WARNING: AGENTS_BRANCH={branch!r} is not a usable branch name; {KEY} in .env is unchanged")
         return 0
-    with open(env_file, encoding="utf-8") as stream:
-        lines = stream.readlines()
-    found = [index for index, line in enumerate(lines) if ASSIGNMENT.match(line)]
-    if found and not created:
-        current = unquoted(ASSIGNMENT.match(lines[found[-1]])["value"])  # the last assignment wins
+    text = env_file.read_text(path)
+    found = [binding for binding in env_file.parse(text) if binding.key == KEY]
+    current = found[-1].value if found else None  # the last binding wins, as python-dotenv reads it
+    if current and not created:
         if current != branch:
             print(f"  WARNING: .env keeps {KEY}={current}, but AGENTS_BRANCH is {branch}: the updaters follow "
                   f"{current}. To follow {branch} instead, run in the installation directory: "
                   f"python -m src.daemon channel set {branch} (python -m src.update_channel set {branch} "
                   "without the service)")
         return 0
-    if found:
-        for index in found[1:]:
-            lines[index] = None
-        match = ASSIGNMENT.match(lines[found[0]])
-        if unquoted(match["value"]) == branch and len(found) == 1:
-            return 0
-        lines[found[0]] = match["lead"] + branch + match["rest"]
-    else:
-        if lines and not lines[-1].endswith("\n"):
-            lines[-1] += "\n"
-        lines.append(f"{KEY}={branch}\n")
-    mode = os.stat(env_file).st_mode & 0o7777
-    descriptor, staging = tempfile.mkstemp(prefix=".env.", dir=os.path.dirname(os.path.abspath(env_file)))
-    try:
-        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
-            stream.write("".join(line for line in lines if line is not None))
-        os.chmod(staging, mode)
-        os.replace(staging, env_file)
-    except BaseException:
-        os.unlink(staging)
-        raise
-    print(f"  {KEY}={branch}: the updaters follow the branch this installation came from")
+    changed = env_file.rewrite_text(text, {KEY: branch})
+    if changed != text:
+        env_file.write_atomic(path, changed)
+        print(f"  {KEY}={branch}: the updaters follow the branch this installation came from")
     return 0
 
 

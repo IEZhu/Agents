@@ -56,7 +56,8 @@ def restore_files(controller, journal):
         # The file updater starts from a verified clean tree and retains the leases.
         from src import self_update
         # A branch switch (#381) returns to the branch the installation was on.
-        switched = {key: journal[key] for key in ("old_branch", "branch", "branch_tip") if journal.get(key)}
+        switched = {key: journal[key] for key in ("old_branch", "branch", "branch_tip", "branch_config")
+                    if journal.get(key)}
         if not self_update._rollback_activation(str(root), journal["old_sha"], 30, clear_journal=False, **switched):
             raise RuntimeError("Code rollback failed; maintenance retained")
     if journal.get("service_backup"):
@@ -308,7 +309,8 @@ def switch_journal(controller, channel):
     """The rollback facts of a prepared branch switch (#381) for the journal; empty for a fast-forward.
 
     Taken on the stopped service right before activation: the branch to return to, and
-    where the switched-to local branch pointed (empty when the switch creates it).
+    where the switched-to local branch pointed (empty when the switch creates it) with its
+    upstream settings, which the switch overwrites.
     """
     from src import self_update
     marker = self_update._read_prepared_marker() or {}
@@ -322,11 +324,27 @@ def switch_journal(controller, channel):
     if not marker.get("switch_from") or current == channel.branch:
         return {}
     tip = git("rev-parse", "--verify", "--quiet", "refs/heads/" + channel.branch)
+    config = {key: git("config", "--get", f"branch.{channel.branch}.{key}").stdout.strip()
+              for key in ("remote", "merge")}
     return {"old_branch": current, "branch": channel.branch,
-            "branch_tip": tip.stdout.strip() if tip.returncode == 0 else ""}
+            "branch_tip": tip.stdout.strip() if tip.returncode == 0 else "", "branch_config": config}
+
+
+def _channel_used(channel):
+    """The channel values a build depends on; a change during the build defers the activation."""
+    return (channel.branch, channel.remote, channel.previous, channel.allow_downgrade, channel.setting)
 
 
 def offline_update(controller, expected_target=None, precheck=None):
+    """:func:`_offline_update`, with a note when an exported branch overrides ``.env`` (#381)."""
+    notes = []
+    result = _offline_update(controller, expected_target, precheck, notes)
+    if notes and isinstance(result, dict):
+        result.setdefault("note", notes[0])
+    return result
+
+
+def _offline_update(controller, expected_target, precheck, notes):
     """Update the installation; once per model generation also switch its embedding model.
 
     The update is built while the service still serves (`prepare`); the service
@@ -351,6 +369,8 @@ def offline_update(controller, expected_target=None, precheck=None):
         # Before the controller takes the service's environment: an exported value
         # overrides .env for this one command (#381).
         channel = channel_settings(controller)
+        if channel.overridden:
+            notes.append(channel.override_note())
         from src.model_migration import service_switch_pending
         switched = None
         if service_switch_pending(controller.config):
@@ -379,6 +399,11 @@ def offline_update(controller, expected_target=None, precheck=None):
         if any(controller.config.get(key) != built.get(key) for key in BUILD_CONFIG):
             # The next run rebuilds for the new configuration.
             return {"state": "deferred", "reason": "service configuration changed during the build"}
+        if prepared == self_update.PreparedStatus.PREPARED and \
+                _channel_used(channel_settings(controller)) != _channel_used(channel):
+            # `channel set` or the page saved while the build ran: activating the build
+            # would apply the setting it replaced. The next run builds for the new one.
+            return {"state": "deferred", "reason": "update channel changed during the build"}
         # Building takes minutes: work may have arrived, or `stop` or `disable` ran;
         # a deferred run keeps the build, and the next one activates it.
         if precheck is not None and (refusal := precheck()):
