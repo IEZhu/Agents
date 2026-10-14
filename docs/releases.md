@@ -1,7 +1,5 @@
 # Calendar releases
 
-Feature PRs target `dev`. Release PRs promote `dev` into `main`.
-
 ## Procedure
 
 This is the one description of the release procedure; the README links it.

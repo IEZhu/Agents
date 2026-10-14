@@ -1956,9 +1956,12 @@ def test_main_after_a_release_switches_to_dev_without_a_confirmation(repos, phas
     assert _branch(repos.local) == "dev" and _head(repos.local) == tip
 
 
-def test_the_updater_reads_fetch_head_once(repos, recorder, channel_env, monkeypatch):
-    """sec-1: FETCH_HEAD rewritten after the updater's first read does not change its target."""
+@pytest.mark.parametrize("rewrite", ["another fetch", "the local HEAD"])
+def test_the_updater_reads_fetch_head_once(repos, recorder, channel_env, monkeypatch, rewrite):
+    """sec-1: FETCH_HEAD rewritten after the updater's first read changes neither its target nor
+    the ahead/behind count: pointed at the local HEAD, a second read would count 0/0, up to date."""
     tip = _publish_dev(repos)
+    old = _head(repos.local)
     _commit(repos.upstream, "file.txt", "v2\n", "main moves")
     main_tip = _head(repos.upstream)
     real = self_update._run_git
@@ -1967,9 +1970,13 @@ def test_the_updater_reads_fetch_head_once(repos, recorder, channel_env, monkeyp
     def racing(args, cwd, timeout):
         result = real(args, cwd, timeout)
         if any("FETCH_HEAD" in arg for arg in args) and not racing.done:
-            racing.done = True  # another fetch (dev) lands right after the first read
-            _git(repos.local, "fetch", "-q", "origin", "dev")
-            assert fetch_head.read_text().startswith(tip)
+            racing.done = True  # another writer lands right after the first read
+            if rewrite == "another fetch":
+                _git(repos.local, "fetch", "-q", "origin", "dev")
+                assert fetch_head.read_text().startswith(tip)
+            else:
+                fetch_head.write_text(f"{old}\t\tbranch 'main' of {repos.upstream}\n")
+                assert _git(repos.local, "rev-parse", "FETCH_HEAD").stdout.strip() == old
         return result
     racing.done = False
     monkeypatch.setattr(self_update, "_run_git", racing)
@@ -2054,3 +2061,19 @@ def test_a_switch_built_from_main_does_not_activate_from_another_branch(repos, p
     _setting(repos, "dev", "experiment")
     assert _activate(repos) == ActivationStatus.INVALID_WRONG_BRANCH
     assert _branch(repos.local) == "experiment"
+
+
+# --- Review round 2 (#381) ---------------------------------------------------
+
+@pytest.mark.parametrize("previous", [None, "feature"])
+def test_a_prepared_switch_rechecks_the_policy_at_activation(repos, phase_a_env, channel_env, previous):
+    """fixes-2: gate 3 asks the policy again: .env edited between prepare and activation (no previous
+    setting, or another one) leaves the checkout on main, although the build came from main."""
+    _publish_dev(repos)
+    _setting(repos, "dev", "main")
+    old = _head(repos.local)
+    assert _prepare_switch(repos, phase_a_env) == PreparedStatus.PREPARED
+    _setting(repos, "dev", previous)
+    assert _activate(repos) == ActivationStatus.INVALID_WRONG_BRANCH
+    assert _branch(repos.local) == "main" and _head(repos.local) == old
+    assert self_update._read_prepared_marker() is None

@@ -59,11 +59,11 @@ Rerunning it updates an existing checkout: it fast-forwards the checked-out
 branch from the checkout's `origin` (or checks out `AGENTS_BRANCH` when that is
 set), then reruns setup, which refreshes dependencies in `.venv` and the indexes
 in place, and warns when `.env` follows another branch than an explicit
-`AGENTS_BRANCH`. Without `AGENTS_BRANCH` a rerun never moves the checkout to
-another branch: switching channels is `channel set`'s job, with its downgrade
-check ([update channel](#update-channel)). First close the client sessions
-that run this installation's stdio server, as for any manual Git operation or
-rebuild. If this checkout serves the shared macOS service, update it with
+`AGENTS_BRANCH`. Without `AGENTS_BRANCH` a rerun keeps the checked-out branch
+(a detached HEAD gets `main`) and never switches channels: that is
+`channel set`'s job, with its downgrade check ([update channel](#update-channel)).
+First close the client sessions that run this installation's stdio server, as
+for any manual Git operation or rebuild. If this checkout serves the shared macOS service, update it with
 `.venv/bin/python -m src.daemon update` instead (see [Updates](#updates)).
 An update is refused when the checkout has uncommitted changes to tracked files
 (commit or stash them first). Untracked files do not block an update and are left
@@ -480,10 +480,12 @@ store; the interaction journal `history.md` retains its separate role.
 
 ### Updates
 
-Feature PRs target `dev`; release PRs promote `dev` into `main`. Merged release
-PRs record the existing UTC calendar version with an immutable Git tag at the
-resulting commit. See [Calendar releases](docs/releases.md) for event guards,
-same-minute releases and retry behavior.
+Feature PRs target `dev`; release PRs promote `dev` into `main`
+([branches and releases](#branches-and-releases), with the release
+[procedure](docs/releases.md#procedure)). Merged release PRs record the existing
+UTC calendar version with an immutable Git tag at the resulting commit. See
+[Calendar releases](docs/releases.md) for event guards, same-minute releases and
+retry behavior.
 
 The shared daemon has its own update controller. Run
 `.venv/bin/python -m src.daemon update` for a manual update; automatic daemon
@@ -526,15 +528,16 @@ development and stays untouched, and so is a checkout whose `.env` setting was
 edited by hand without a previous record (`channel set` names the way out). The
 switch runs through the usual update transaction, with its gates (idle service,
 clean tracked tree, unchanged dependency manifests), the build while the service
-serves, probation and rollback to the previous branch, its old tip and its
-upstream settings. It waits while another worktree has the target branch checked
-out. A switch to a branch that lacks non-merge commits of the installed HEAD,
+serves, probation and rollback to the previous branch, with the target branch's
+old tip and upstream settings restored. It waits while another worktree has the
+target branch checked out. A switch to a branch that lacks non-merge commits of the installed HEAD,
 for example `dev` → `main` before a release, would go back to older code that may
 not read state or `.env` changes the newer code made: `set` refuses it until
 `--allow-downgrade` or the UI's confirmation, which is recorded for that HEAD only
 (`AGENTS_AUTO_UPDATE_ALLOW_DOWNGRADE`). A release's merge commit does not count, so
 `main` → `dev` after a release needs no confirmation. `AGENTS_BRANCH=dev` with
-`install.sh` installs `dev` and writes it as the setting.
+`install.sh` installs `dev` and, for a new `.env`, writes it as the setting (an
+existing one keeps its setting, with a warning).
 
 #### Standalone stdio auto-update
 

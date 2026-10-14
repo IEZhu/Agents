@@ -1398,16 +1398,16 @@ that is on the previous setting (`AGENTS_AUTO_UPDATE_PREVIOUS_BRANCH`, recorded 
 `set`) to the configured branch, inside the same transaction (gates, build while
 serving, probation, rollback to the previous branch, the target branch's old tip
 and upstream settings, and the stores). The transaction re-reads the channel
-after the build and defers when it changed meanwhile. A branch exported over
-`.env` never switches; `update` reports the override in `note`. A target that
+after the build and defers, discarding the build, when it changed meanwhile. A
+branch exported over `.env` never switches; `update` reports the override in `note`. A target that
 lacks non-merge commits of HEAD is a downgrade and is skipped until the
 confirmation that `set --allow-downgrade` or the UI records for that HEAD; a
 release's merge commit is not one ([calendar releases](releases.md#procedure)).
 
 A run skips a target without touching the service when the checked-out branch is
-neither the configured branch nor the previous setting (or the branch is exported
-over `.env`), the target branch is checked out in another worktree, tracked files
-have local changes, the target is not a fast-forward (or, for a switch, an
+neither the configured branch nor the previous setting, or a switch would be needed
+to a branch exported over `.env`, the target branch is checked out in another
+worktree, tracked files have local changes, the target is not a fast-forward (or, for a switch, an
 unconfirmed downgrade), or dependency manifests changed; each skip is logged once per target. Otherwise it waits until the service is ready, has no
 work in flight, and has been idle for `--idle-seconds` (default 120), and then
 runs the same transaction as `update`. It also waits while any stdio server of

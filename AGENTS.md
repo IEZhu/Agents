@@ -37,7 +37,8 @@ their recorded revision; they do not override the current implementation.
   `git worktree add --no-track -b codex/<slug> .worktrees/<slug> origin/dev`.
   Keep worktrees out of temporary directories and session scratchpads, which get
   cleaned with any unpushed work. Open the PR against `dev`, the integration
-  branch; `main` takes release PRs from `dev`. Remove your worktree once its work
+  branch; `main` takes release PRs from `dev`
+  ([release procedure](docs/releases.md#procedure)). Remove your worktree once its work
   is pushed or merged and it is clean.
 - Use a `codex/` branch for new work unless the user or the invoked flow specifies
   another name; for example, [issue implementation](flows/issue-implementation.md)

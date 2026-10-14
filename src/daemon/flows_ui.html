@@ -4254,7 +4254,7 @@ async function copyPath(path, button) {
 // --- Updates: the branch this installation follows (#381) -----------------------------------
 
 // The daemon saves main or dev into the installation's .env (src/daemon/updates_ui.py), the
-// setting `python -m src.daemon channel set` writes; the next scheduled run or `update` applies it.
+// setting `python -m src.daemon channel set` writes; `updates.when` says whether and when it applies.
 const UPDATE_SOURCES = { ".env": "set in .env", default: "the default", environment: "exported" };
 const updatePick = { branch: null, busy: false };  // the choice not saved yet, and a save in flight
 
@@ -4309,9 +4309,10 @@ function renderUpdates() {
   save.type = "button";
   save.disabled = updatePick.busy || picked === updates.configured_branch;
   save.addEventListener("click", () => saveUpdateBranch(picked));
-  node("p", body, "Saving changes no code: " + (updates.update_command ? "`" + updates.update_command + "`" : "an update")
-    + " or the next scheduled run applies it. An AGENTS_AUTO_UPDATE_BRANCH exported in a shell overrides it for "
-    + "commands started there.", "meta");
+  // Whether and when a save applies is `updates.when` above: it also covers scheduled updates being
+  // off and a checkout the updaters leave alone.
+  node("p", body, "Saving changes no code. An AGENTS_AUTO_UPDATE_BRANCH exported in a shell overrides the "
+    + "setting for commands started there, but only steers fast-forwards: it never switches branches.", "meta");
 }
 
 function applyUpdates(data) {

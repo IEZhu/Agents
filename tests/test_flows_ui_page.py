@@ -1247,6 +1247,9 @@ def test_the_updates_section_shows_the_channel_and_saves_a_pick():
                   "Scheduled updateson, every 15 min when the service is idle", "up_to_date",
                   "Updates fast-forward main at the next scheduled run"):
         assert shown in start, shown
+    # The fixed note leaves when a save applies to `when` (also 'local' and scheduled updates off) and
+    # says that an exported branch never switches (#381 review round 2).
+    assert "only steers fast-forwards: it never switches branches" in start and "applies it" not in start
     assert result["start"]["radios"] == [["main", True, False], ["dev", False, False]]
     assert result["start"]["save"] == ["Save", True]  # nothing to save yet
     assert result["kept_after_poll"]  # the statistics' poll does not rebuild the choice

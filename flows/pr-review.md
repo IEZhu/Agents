@@ -405,7 +405,9 @@ Re-read the remote state immediately before merging. Confirm all of the followin
   does not replace this one. Without preparation, native spawning or successful validation, do not merge: report the missing independent review, those changes and the earliest next bot attempt. A `no-merge` run skips this check
   and reports the changes no bot reviewed.
 
-Merge using the project's permitted merge method, then verify the platform reports
+Merge using the project's permitted merge method; for Agents-Core, a release PR
+(`dev` → `main`) is merged with a merge commit, never a squash or a rebase
+([release procedure](../docs/releases.md#procedure)). Then verify the platform reports
 the PR/MR as merged and record its merge commit or resulting revision. Never
 bypass branch protection, required approvals, or failing checks. If a blocker
 remains, report it precisely and leave the request open. A pending review or

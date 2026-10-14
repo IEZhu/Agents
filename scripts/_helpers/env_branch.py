@@ -54,10 +54,10 @@ def main(argv):
     current = found[-1].value if found else None  # the last binding wins, as python-dotenv reads it
     if current and not created:
         if current != branch:
-            print(f"  WARNING: .env keeps {KEY}={current}, but AGENTS_BRANCH is {branch}: the updaters follow "
-                  f"{current}. To follow {branch} instead, run in the installation directory: "
-                  f"python -m src.daemon channel set {branch} (python -m src.update_channel set {branch} "
-                  "without the service)")
+            print(f"  WARNING: the checkout is now on {branch}, but .env keeps {KEY}={current}: the updaters "
+                  f"leave the checkout alone (or switch it back, if {branch} is the recorded previous setting) "
+                  f"until you run in the installation directory: python -m src.daemon channel set {branch} "
+                  f"(python -m src.update_channel set {branch} without the service)")
         return 0
     changed = env_file.rewrite_text(text, {KEY: branch})
     if changed != text:
