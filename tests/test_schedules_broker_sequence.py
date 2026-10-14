@@ -1,6 +1,6 @@
 """The broker's runner-internal operations for the run sequence (#347): binding, blockers, the claim,
 the state comment, the PR check and the shared credential check. Fakes as in test_schedules_broker."""
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 import json
 
 import pytest
