@@ -39,13 +39,62 @@ failed, and 2 for wrong arguments.
 | `tick` | The scheduler's cheap check. It starts a supervised run when a slot or a continuation is due and nothing blocks it. |
 | `run autodev [--mode M] [--pr N] [--run-id ID]` | One run of the sequence ([autodev-sequence.md](autodev-sequence.md)) in mode `dry-run`, `run` or `resume`. `tick` and `run-now` start it under supervision. |
 | `autodev install [--python PATH]` / `uninstall` | Installs or removes the scheduler LaunchAgent. Both are idempotent. |
-| `autodev enable --mode dry-run` / `disable` | Turns the schedule on or off in `autodev.json`. `--mode run` refuses until the automatic mode (#350). |
+| `autodev enable --mode dry-run` / `disable` | Turns the schedule on or off in `autodev.json`. `--mode run` refuses until the automatic mode (#350). The [settings page](#settings-page) has the same switch. |
 | `autodev status` | The configuration, the scheduler job, the run lease, the next slot, the tick state, the five latest runs and `real_modes` (`run_now`, `scheduled`, what is missing). |
 | `autodev run-now [--mode dry-run\|run\|resume] [--pr N]` | One supervised run now; `resume` needs `--pr`. A real run checks its preconditions first and ends `refused` with the missing items. |
 | `autodev ready` | A stub until #350: it lists the missing parts (`#350 automatic mode`) and exits with code 1. |
 | `probe [--mode M] [--kind K] --confirm-live-probe` | The owner's live check of the session sandbox: one probe session of kind `implement`, `submit` or `select` with exactly a run's argv, settings and environment (a real model turn, so it refuses without the flag). See [autodev-sandbox.md](autodev-sandbox.md#command). |
 | `codex-probe [--kind worker\|stage] --confirm-live-probe` | The owner's live check of Codex: the outer profile, the model-free probes, the nested-sandbox check and the decision between Codex and the Claude worker; a stage check also runs the probe plan through `codex exec` (a model turn) when those pass. See [autodev-codex.md](autodev-codex.md#command). |
 | `worker-probe --confirm-live-probe` | The owner's live check of the Claude worker (#345): one worker turn built as a review's, in a review's layout under the run directory, with a `Read` in its tree and one in its materials that must succeed and one outside both that must be denied (a model turn, so it refuses without the flag). See [autodev-workers.md](autodev-workers.md#current-limits). |
+
+## Settings page
+
+The daemon's web UI has an Autodev page (#348): the **Autodev** chip under the version opens it in
+the place of the list and the item, and `/ui#autodev` opens it directly. It is an early,
+autodev-only slice of the Schedules tab of #211. The routes are in `src/daemon/autodev_ui.py`,
+the page in `src/daemon/flows_ui.html`. It edits `autodev.json` only through
+`src/schedules/config.py` and turns the schedule on and off only through the runner's `enable`
+and `disable`, the functions behind the CLI commands above.
+
+- **Schedule:** the slots (local `HH:MM`, defaults 02:17 and 13:47), the catch-up window, the
+  allowed hours of continuations and the AC-power requirement (Q4).
+- **Limits:** `max_reviews`, `max_bot_rounds` and `max_wait_minutes` (Q5, Q10).
+- **Profiles:** for each stage (`select`, `implement`, `submit`) and delegated step
+  (`code-review-pass`, `change-premortem`) the client and, per client, the model and the effort;
+  the effort of the later reviews (`effort_followup`) as a setting of its own; the pre-mortem
+  role, chosen from the installation's agents (default `sysadmin`) (Q2, Q8, Q10, Q11). The
+  efforts offered are the capability table's (`src/flow_execution.py`), which the page builds from
+  `claude --version`, `claude --help` and `codex --version` (no model turn, a fresh empty `HOME`)
+  and keeps for ten minutes. Saving a Claude fallback for a Codex profile is allowed: a Codex
+  stage or step that cannot run uses it.
+- **Codex as a stage client (Q14):** shown as unavailable, with the reason in words, until the
+  stored stage availability says available (`codex_probes.configured_stage_availability`, which
+  the run sequence asks too: the codex version and the launch shape the configuration makes must
+  match, and the check must be at most 7 days old). `implement` and `submit` commit, which a Codex
+  stage cannot, so Codex stays unavailable for them. A Codex delegated step is decided before
+  every step ([autodev-codex.md](autodev-codex.md)).
+- **Switch and status:** **Turn on** enables `dry-run`; `run` is listed as unavailable, and the
+  daemon refuses it (409 `mode_unavailable`, as `enable --mode run` refuses) until #350. The
+  status shows on or off and the mode, the next slot (`tick.next_slot`), whether the scheduler job
+  is installed, and the ten newest runs from the run records. Reading it starts nothing.
+
+Every save goes through `config.validate` (the same checks as `load`, `enable` and the runner)
+and then the capability table (`check_effort` for every client's effort and `effort_followup`,
+`check_model`, whose warnings do not block) and the agent list, before `config.save` writes the
+file atomically into the private `schedules/` directory. A refusal lists every problem and leaves
+the file as it was. A file that changed since the page read it (the CLI, an editor) is not
+overwritten (409 `config_changed`), and a file that does not validate is shown with its problems
+and not written; fix it or remove it to get the defaults. Keys the page does not edit, among them
+`github`, `sandbox`, `codex.login` and the stage `budget`, keep their stored values. The page
+never shows the GitHub token, the deploy key, the logins or executable paths, and run reasons are
+masked. Stage sessions reach neither the page (they have no network, #343) nor the file (the
+state directory is closed to them).
+
+The API is `GET /ui/api/autodev`, `PUT /ui/api/autodev` with `{expected_revision, settings}`,
+`POST /ui/api/autodev/enable` with `{mode}` and `POST /ui/api/autodev/disable`. Like the Sync and
+History routes, every one needs the UI session and the page's `X-Agents-UI` header; a read may
+carry no `Origin` but the page's own, and a change must carry the page's own
+([shared-mcp-daemon.md](shared-mcp-daemon.md#flow-editor)).
 
 ## Tick
 
@@ -212,7 +261,7 @@ All files live in the service state directory `<state_dir>` from `src.daemon.sta
 
 | Path | Content |
 |---|---|
-| `schedules/autodev.json` | The configuration. Defaults are design 10.3; a missing key takes its default. Validated on every load and save, written atomically. |
+| `schedules/autodev.json` | The configuration. Defaults are design 10.3; a missing key takes its default. Validated on every load and save, written atomically; the [settings page](#settings-page) edits it. |
 | `schedules/tick.json` | The tick state: `enabled_at`, `last_slot`, `last_continuation`, `next_attempt`, `missed`, `clock_reset` and the last decision. |
 | `schedules/run.lease` | The run lease. A run holds it from start to finish; the daemon's auto-update, `python -m src.daemon update` and `recover` hold it for their whole transaction, and the manual commands refuse with `an autodev run or a daemon update holds the run lease` while a run holds it. While a run holds it, the auto-update defers with `service is busy: an autodev run holds its run lease`; while the update holds it, a run ends as `failed: infra` (`lease`). A run that takes the lease checks `maintenance.json` and `transaction.json` again and ends as `failed: infra` (`update`) when one exists. A brief probe of the lease never fails a holder: taking it retries for one second. |
 | `schedules/heavy.lease` | The heavy-process lease. The runner holds it while a session's `heavy` client runs a check, and the tick waits while it is held. |

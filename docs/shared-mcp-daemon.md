@@ -743,11 +743,22 @@ seconds while the browser tab is visible (see
   With [user library sync](user-sync.md#repository-history) the entry also leaves
   what this machine shared, though the library's git history keeps it.
 
+The **Autodev** chip under the version, and `/ui#autodev`, open the autodev
+schedule's settings ([#348](https://github.com/IEZhu/Agents/issues/348)) in the place
+of the list and the item, as the Sync page opens: the slots, the catch-up window,
+the allowed hours and the AC-power requirement; the limits; the client, model and
+effort of every stage and delegated step, the effort of the later reviews and the
+pre-mortem role; whether Codex can be a stage client, with the reason when it
+cannot; the switch (dry-run only until #350) and the status with the next slot and
+the newest runs. It reads and writes `<state_dir>/schedules/autodev.json` through
+the autodev configuration's own checks; see
+[the runner's settings page](autodev-runner.md#settings-page).
+
 The page fills the window: the header and the detail pane stay in place and only
 the list on the left scrolls (in the narrow layout, the list above the detail
 pane scrolls on its own, and the detail pane scrolls separately when its content is
-taller). The header holds the version, the [sync status](#sync-page), the
-controls of the open item, the tabs and, on Flows, "New flow". A flow's controls are *Rendered / Source*, "Contents",
+taller). The header holds the version, the [sync status](#sync-page) and the
+Autodev chip, the controls of the open item, the tabs and, on Flows, "New flow". A flow's controls are *Rendered / Source*, "Contents",
 the history, "Show built-in" (on a local copy of a built-in flow), "Delete" and
 "Save" (a built-in flow shows its "Edit copy" buttons instead of the history,
 "Delete" and "Save"); a rule, skill or implant has *Rendered / Source*, "Contents" and its

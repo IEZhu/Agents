@@ -1745,3 +1745,29 @@ def test_a_broken_profile_under_the_real_sandbox_falls_back_and_is_recorded(worl
     assert (entry["client_requested"], entry["client_applied"], entry["fallback_reason"]) == (
         "codex", "claude", "profile_broken")
     assert records.read_record(RUN_ID, world.state)["clients"][-1]["codex_probes"]["reason"] == "profile_broken"
+
+
+def test_the_configured_stage_availability_needs_a_readable_codex(tmp_path):
+    """The run sequence (#347) and the settings page (#348) ask the same way; no codex runs."""
+    config = autodev_config.DEFAULTS
+    missing = {"available": False, "reason": "codex_missing", "checked": None}
+    assert codex_probes.configured_stage_availability(tmp_path, config, "select", None, version="0.162.1") == missing
+    assert codex_probes.configured_stage_availability(tmp_path, config, "select", str(tmp_path / "codex"),
+                                                      version="0.162.1") == missing
+    codex = tmp_path / "pkg" / "bin" / "codex"
+    codex.parent.mkdir(parents=True)
+    codex.write_text("#!/bin/sh\nexit 0\n")
+    codex.chmod(0o755)
+    assert codex_probes.configured_stage_availability(tmp_path, config, "select", str(codex), version="0.162.1") == \
+        {"available": False, "reason": "not_checked", "checked": None}
+    shape = codex_probes.stage_shape(str(codex), config, "select")
+    path = codex_probes.availability_path(tmp_path)
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps({"stage": {"available": True, "reason": None, "checked": "c", "checked_at": time.time(),
+                                          "version": "0.162.1", "shape": shape}}))
+    assert codex_probes.configured_stage_availability(tmp_path, config, "select", str(codex), version="0.162.1")["available"]
+    assert codex_probes.configured_stage_availability(tmp_path, config, "select", str(codex),
+                                                      version="0.163.0")["reason"] == "version_changed"
+    other = {**config, "stages": {**config["stages"], "select": {"client": "codex", "codex": {"model": "m", "effort": "low"}}}}
+    assert codex_probes.configured_stage_availability(tmp_path, other, "select", str(codex),
+                                                      version="0.162.1")["reason"] == "shape_changed"

@@ -1568,3 +1568,19 @@ def read_availability(directory: str | Path | None = None, kind: str = cs.STAGE,
     if reason is not None:
         return {"available": False, "reason": reason, "checked": entry.get("checked")}
     return entry
+
+
+def configured_stage_availability(directory: str | Path | None, config: Mapping, stage_kind: str,
+                                  codex: str | None, *, version: str | None,
+                                  now: Callable[[], float] = time.time) -> dict:
+    """`read_availability` for the ``stage_kind`` stage as ``config`` makes its launch with ``codex``
+    (`stage_shape`; ``version`` from `installed_version`): ``codex_missing`` when there is no
+    executable or it cannot be read. The run sequence (#347) and the settings page (#348) ask
+    the same way; neither needs a key or a run."""
+    if not codex:
+        return {"available": False, "reason": "codex_missing", "checked": None}
+    try:
+        shape = stage_shape(codex, config, stage_kind)
+    except cs.CodexSandboxError:
+        return {"available": False, "reason": "codex_missing", "checked": None}
+    return read_availability(directory, cs.STAGE, version=version, shape=shape, now=now)
