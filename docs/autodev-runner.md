@@ -7,12 +7,13 @@ does today.
 
 ## Current limits
 
-- **Real runs only on demand.** `run-now --mode run` and `run-now --mode resume --pr N` run the
-  whole sequence under supervision ([autodev-sequence.md](autodev-sequence.md)): the
-  preconditions, the gate, the select, implement and submit stages, and the runner's steps
-  between them. A scheduled real run is the automatic mode of #350: `enable --mode run` refuses
-  and names it, `ready` names it missing, and a tick whose `autodev.json` says `run` (edited by
-  hand) refuses too. The schedule runs dry-runs only.
+- **Real runs on demand, or on the schedule once `ready` passes.** `run-now --mode run` and
+  `run-now --mode resume --pr N` run the whole sequence under supervision
+  ([autodev-sequence.md](autodev-sequence.md)): the preconditions, the gate, the select,
+  implement and submit stages, and the runner's steps between them. A scheduled real run is the
+  [automatic mode](#automatic-mode) (#350): it starts only while `autodev ready` passes, your
+  acceptance of the residual risks included. The code is in place; whether `ready` passes on
+  this Mac, and the three automatic real runs of the phase 1b acceptance, are your live steps.
 - **A dry-run runs the select stage.** It reads GitHub, asks the gate and, on `select`, runs the
   select session (static probe checks, no socket, no broker) and prints the decision with the
   top-five table. It executes no cleanup action and writes nothing to GitHub.
@@ -39,10 +40,10 @@ failed, and 2 for wrong arguments.
 | `tick` | The scheduler's cheap check. It starts a supervised run when a slot or a continuation is due and nothing blocks it. |
 | `run autodev [--mode M] [--pr N] [--run-id ID]` | One run of the sequence ([autodev-sequence.md](autodev-sequence.md)) in mode `dry-run`, `run` or `resume`. `tick` and `run-now` start it under supervision. |
 | `autodev install [--python PATH]` / `uninstall` | Installs or removes the scheduler LaunchAgent. Both are idempotent. |
-| `autodev enable --mode dry-run` / `disable` | Turns the schedule on or off in `autodev.json`. `--mode run` refuses until the automatic mode (#350). The [settings page](#settings-page) has the same switch. |
-| `autodev status` | The configuration, the scheduler job, the run lease, the next slot, the tick state, the five latest runs and `real_modes` (`run_now`, `scheduled`, what is missing). |
+| `autodev enable --mode dry-run\|run [--accept-shared-account]` / `disable` | Turns the schedule on or off in `autodev.json`. `--mode run` refuses without `--accept-shared-account` (`acceptance_required`, with the risks), while a condition of `ready` other than the acceptance is missing (`not_ready`, with the list) and when a tripwire fired while it checked (`tripped_during_enable`); then it records your acceptance and turns run mode on ([automatic mode](#automatic-mode)). `disable` and `--mode dry-run` withdraw the acceptance. The [settings page](#settings-page) has the same switch. |
+| `autodev status` | The configuration, the scheduler job, the run lease, the next slot, the tick state, the five latest runs and `automatic` (`on`, the acceptance and whether it is current, the `ready` command and its last recorded result; `status` reads nothing from GitHub). |
 | `autodev run-now [--mode dry-run\|run\|resume] [--pr N]` | One supervised run now; `resume` needs `--pr`. A real run checks its preconditions first and ends `refused` with the missing items. |
-| `autodev ready` | A stub until #350: it lists the missing parts (`#350 automatic mode`) and exits with code 1. |
+| `autodev ready` | Checks every condition of the [automatic mode](#automatic-mode) and names each missing one; exit code 0 only when all pass. It reads GitHub and the stored records; it never starts a probe. It records its outcome in `schedules/ready.json` for the settings page. |
 | `probe [--mode M] [--kind K] --confirm-live-probe` | The owner's live check of the session sandbox: one probe session of kind `implement`, `submit` or `select` with exactly a run's argv, settings and environment (a real model turn, so it refuses without the flag). See [autodev-sandbox.md](autodev-sandbox.md#command). |
 | `codex-probe [--kind worker\|stage] --confirm-live-probe` | The owner's live check of Codex: the outer profile, the model-free probes, the nested-sandbox check and the decision between Codex and the Claude worker; a stage check also runs the probe plan through `codex exec` (a model turn) when those pass. See [autodev-codex.md](autodev-codex.md#command). |
 | `worker-probe --confirm-live-probe` | The owner's live check of the Claude worker (#345): one worker turn built as a review's, in a review's layout under the run directory, with a `Read` in its tree and one in its materials that must succeed and one outside both that must be denied (a model turn, so it refuses without the flag). See [autodev-workers.md](autodev-workers.md#current-limits). |
@@ -78,10 +79,21 @@ and `disable`, the functions behind the CLI commands above.
   7 days old). `implement` and `submit` commit, which a Codex stage cannot, so Codex stays
   unavailable for them. A Codex delegated step is decided before every step
   ([autodev-codex.md](autodev-codex.md)).
-- **Switch and status:** **Turn on** enables `dry-run`; `run` is listed as unavailable, and the
-  daemon refuses it (409 `mode_unavailable`, as `enable --mode run` refuses) until #350. The
-  status shows on or off and the mode, the next slot (`tick.next_slot`), whether the scheduler job
-  is installed, and the ten newest runs from the run records. Reading it starts nothing.
+- **Switch and status:** **Turn on** enables the chosen mode. The daemon reads no credential:
+  neither the broker's token (no keychain call) nor the deploy key, and nothing from GitHub for
+  the automatic mode. It shows the last `autodev ready` the CLI recorded (`schedules/ready.json`,
+  with its time) and offers `run` only while that result passed at most 15 minutes ago and your
+  acceptance is current (`automatic.page_problems`); otherwise it lists **run (not ready)** and
+  what is missing. `disable` and `enable --mode dry-run` withdraw the acceptance, so the first
+  acceptance, and the one after every turn-off, is the CLI's (`enable --mode run
+  --accept-shared-account`): in practice the page turns run mode on only when `autodev.json` was
+  set back to run mode by hand. Turning run mode on asks you to accept the residual risks of plan
+  section 11, rows 1, 2 and 4 (a confirmation that lists them); the daemon then runs `enable`
+  with `accept_shared_account: true` and `source: page`, which checks the recorded result and the
+  acceptance again (the tripwire count included) and records a new acceptance (`source: page`).
+  The tick checks every condition before each scheduled run. The status shows on or off and the
+  mode, the next slot (`tick.next_slot`), whether the scheduler job is installed, the automatic
+  mode and the ten newest runs from the run records. Reading it starts no run and no probe.
 
 Every save goes through `config.validate` (the same checks as `load`, `enable` and the runner)
 and then the capability table (`check_effort` for every client's effort and the review's `effort_followup`,
@@ -107,13 +119,101 @@ or executable paths, and run reasons are masked. Stage sessions reach neither th
 no network, #343) nor the file (the state directory is closed to them). Like the flows editor,
 the page trusts the OS account: any process of yours can sign in automatically and use these
 routes, unless `flows-ui --auto off` is set
-([shared-mcp-daemon.md](shared-mcp-daemon.md#flow-editor)); `run` stays refused until #350.
+([shared-mcp-daemon.md](shared-mcp-daemon.md#flow-editor)), run mode included: such a process
+can turn it on with the acceptance flag within 15 minutes of a passing `autodev ready` while the
+acceptance is current, as it could run the CLI. It cannot make the daemon read a credential.
 
 The API is `GET /ui/api/autodev`, `PUT /ui/api/autodev` with `{expected_revision, settings}`,
-`POST /ui/api/autodev/enable` with `{mode}` and `POST /ui/api/autodev/disable`. Like the Sync and
+`POST /ui/api/autodev/enable` with `{mode, accept_shared_account}` (409 `acceptance_required`,
+`not_ready` with `missing`, or `tripped_during_enable` for `run`) and `POST
+/ui/api/autodev/disable`. Like the Sync and
 History routes, every one needs the UI session and the page's `X-Agents-UI` header; a read may
 carry no `Origin` but the page's own, and a change must carry the page's own
 ([shared-mcp-daemon.md](shared-mcp-daemon.md#flow-editor)).
+
+## Automatic mode
+
+Phase 1b of the plan (#350, [plan 5.7](autodev-plan.md#57-modes-probes-and-enabling-conditions)):
+`run` on the schedule, under your account. The code is `src/schedules/automatic.py` and
+`runner.readiness`. `autodev ready` checks, and names each missing item:
+
+- **The real-run preconditions** of #347 (`preconditions.check`, read from GitHub with the
+  broker's token): the deploy key, the pinned host keys and the token (Q15); the ruleset of
+  `main` with the `deletion` and `non_fast_forward` rules and a `pull_request` rule with at least
+  one required approving review; `can_approve_pull_request_reviews` false; and
+  `CLAUDE_ROUTINE_TOKEN` not a repository secret. Whether the `issue-agent` environment holds it
+  is not read: the broker token's access to environment secrets is unverified, and the
+  environment is the issue agent's concern, not the runner's. A read GitHub refuses is `cannot
+  verify …`.
+- **The sandbox probe records** (#343) of every stage kind a Claude session runs (`select`,
+  `implement`, `submit`). A report counts when its probe session ran or when it failed (a select
+  session's static checks alone neither replace a probe nor hide a failure); the `probe --mode M
+  --kind K --confirm-live-probe` command records one, and so does every guarded stage session of
+  a run, under the mode it ran in. The rule is *every mode once*
+  ([acceptance A7](autodev-acceptance.md#a7-probes-hold-in-every-mode-and-the-broker-refuses)):
+  for each kind in each mode (`dry-run`, `run-now`, `scheduled`, `resume`), the newest counting
+  report passed, at any age; one dated in the future (or without a time) is stale. No record has
+  to be recent: every run probes before every session with Bash, in every mode, and the session
+  starts only after its own probe passed (plan 5.7).
+- **Codex for `select`** (#344): a `select` configured for Codex runs with Codex while its stored
+  stage availability (`codex-probe --kind stage --confirm-live-probe`, current for the installed
+  codex and the configured launch) says available, and then needs no Claude probe records. While
+  it says unavailable (as `nested_sandbox_unavailable` on a Mac without the nested sandbox), a run
+  falls back to a Claude select session (`stages.stage_profile`), so `ready` asks for that
+  session's probe records instead, and `probe --kind select` probes that fallback session.
+  `implement` and `submit` configured for Codex run with Claude and need their Claude probes
+  (the `probe` command takes the Claude settings a run would use). The `codex` part of `ready`
+  shows each such stage's availability and the client a run gives it.
+- **Your acceptance** of the residual risks of plan section 11, rows 1 (a sandbox bug or bypass),
+  2 (an agent's action under your account counts as yours) and 4 (a broker bug, a leaked deploy
+  key), in `schedules/acceptance.json`: the date, the rows, the version of the risk list (SHA-256
+  of the rows' text, `automatic.RESIDUAL_RISKS`, which a test pins to the plan), where it was
+  given and the tripwire count (`tripwire.json` `count`) when it was given. It is current while
+  the rows and the version are today's, it was not withdrawn, it is not dated in the future,
+  `tripwire.json` can be read and its count is still the stored one, and no tripwire entry is
+  dated at or after it. A runner update that changes the risk list, a tripwire or a failed
+  sandbox probe asks for a new acceptance; so does an unreadable `tripwire.json` (it fails
+  closed). `disable` and `enable --mode dry-run` withdraw it (`revoked`, `revoked_by`), so an
+  edit of `autodev.json` back to run mode does not revive it.
+
+`ready` reads GitHub and the stored state only; it starts no probe session and no model turn. It
+records its outcome (when, whether it passed, what was missing) in `schedules/ready.json` for
+the [settings page](#settings-page), which reads no credential itself.
+
+`autodev enable --mode run --accept-shared-account` reads the tripwire count, then checks every
+condition other than the acceptance and refuses while one is missing; under the writers' lock it
+reads the count again and refuses with `tripped_during_enable` if a tripwire fired meanwhile (a
+concurrent run or probe can trip while the GitHub reads take seconds). Otherwise, under the same
+lock, it records the acceptance, dated when the checks began, with the count it read, and turns
+run mode on. Without the flag it refuses and names it. Every such `enable` records a fresh
+acceptance.
+
+A tick that finds `"mode": "run"` checks `ready` before it starts the run (a slot's `run`, or a
+continuation's `resume`). While `ready` fails, nothing starts: the tick writes a run record with
+`status: refused`, the reason `automatic mode not ready: …` and the full `missing` list, and the
+notification `Autodev run refused` names the run; the slot counts as handled. A refused
+continuation counts as handled too (no refusal every five minutes): its record has `pr_url`, and
+its notification names the PR and `continue with: run-now --mode resume --pr N`. The run's child
+checks again, under the run lease and before the sequence, that the schedule is still on in run
+mode and the acceptance still current (every command that can trip the schedule holds the run
+lease, so nothing else trips between this check and the first stage); otherwise it ends
+`refused` with `automatic mode no longer ready at the start: …` and notifies. A dry-run tick is
+unchanged and checks nothing of this.
+
+**Tripwires.** Any of these turns the schedule off (`enabled: false`, `decoys.trip`, recorded in
+`schedules/tripwire.json` with `cause`, under the writers' lock with the schedule change): a
+decoy read or leaked, a changed `.git`, a stream too long to scan (`cause: tripwire`), and since
+#350 a failed sandbox probe (`cause: probe`): a failed report before a stage session in any
+mode, a failed `probe` command, and a Codex deny probe that got through. A probe whose session
+read a decoy trips once, as a tripwire. The run or probe command that tripped it records
+`schedule_off` and sends a notification titled `Autodev schedule off` whose message starts with
+a fixed phrase (`a tripwire fired and turned the schedule off` or `a sandbox probe failed and
+turned the schedule off`) and names the run, passed to `osascript` as arguments only
+(`report.notify`); a run the supervisor ends after it tripped gets the same title. Every trip
+also makes your acceptance stale, a failed probe of your own (`probe` run by hand) and one
+caused by the environment (`C5 untested` offline, `C3 untested`) included: the schedule is off
+then anyway, and the `enable --mode run --accept-shared-account` that turns it on again records
+a new acceptance, so this costs no extra step. Read the run's record and `tripwire.json` first.
 
 ## Tick
 
@@ -294,7 +394,9 @@ All files live in the service state directory `<state_dir>` from `src.daemon.sta
 | `<clone>/../sessions/<run-id>/` | The run's session directories: `<kind>/repo`, `exchange`, `gh`, `settings.json`, and the shared read-only `state/` (inputs files, `state.json`, `worker-log.json`); removed when the run ends. |
 | `clone` (default `~/.local/share/agents-autodev/IEZhu-Agents`) | The trusted bare repository: `refs/remotes/origin/main` (`pinned`), imported `refs/heads/claude/autodev-*` branches, bundles refused after the fetch under `refs/autodev/quarantine/<run-id>/<n>`, and bundles refused before the fetch as read-only files `autodev-quarantine/<run-id>/<n>.bundle` inside it; `prune_quarantine()` drops both after 30 days. Outside the state directory. |
 | `schedules/tools.json` | The absolute paths of `claude`, `codex`, `gh` and `git` resolved at `install`. |
-| `schedules/claude-config/`, `schedules/decoys.json`, `schedules/tripwire.json` | The sessions' `CLAUDE_CONFIG_DIR`, the decoy registry and the last decoy tripwire ([autodev-sandbox.md](autodev-sandbox.md#files)). |
+| `schedules/claude-config/`, `schedules/decoys.json`, `schedules/tripwire.json` | The sessions' `CLAUDE_CONFIG_DIR`, the decoy registry and the last tripwire with its `cause` (`tripwire` or `probe`, #350) ([autodev-sandbox.md](autodev-sandbox.md#files)). |
+| `schedules/acceptance.json` | Your acceptance of the residual risks for the [automatic mode](#automatic-mode): `version` (2), `accepted` (UTC), `rows`, `risk_list_sha256`, the risks' text, `source` (`cli` or `page`), `tripwire_count`, and `revoked` with `revoked_by` once `disable` or `enable --mode dry-run` withdrew it. |
+| `schedules/ready.json` | The last `autodev ready`: `checked` (UTC), `ready` and `missing`; the [settings page](#settings-page) shows it and offers run mode on a passing one at most 15 minutes old. |
 | `schedules/codex-availability.json` | Whether Codex is available as a stage client. A Codex process's `HOME`, `CODEX_HOME` and `TMPDIR` are per run, inside the run's temporary root ([autodev-codex.md](autodev-codex.md#files)). |
 | `schedules/scheduler.log` | The scheduler's standard error. |
 | `~/Library/LaunchAgents/local.agents-core.<id>.scheduler.plist` | The scheduler job, with an explicit `PATH`, `PYTHONPATH` and `AGENTS_SERVICE_DIR`. The daemon's own agents are never touched. |

@@ -974,10 +974,22 @@ def test_a_tripped_schedule_aborts_whatever_failed_first(world):
     report = codex_probes.CodexReport(cs.WORKER)
     report.fail("probe_failed", "control.read-materials: expected allowed, got failed")
     report.tripped = True
-    decision = codex_probes._conclude(report, "probe_failed", ())
+    decision = codex_probes._conclude(report, "probe_failed", (), directory=world.state, run_id=RUN_ID)
     assert decision.abort and decision.reason == "deny_probe_succeeded"
+    assert not (world.state / "schedules" / "tripwire.json").exists()  # the decoy's own trip is the record
     report.tripped = False
-    assert codex_probes._conclude(report, "probe_failed", ()).fallback
+    assert codex_probes._conclude(report, "probe_failed", (), directory=world.state, run_id=RUN_ID).fallback
+    assert not (world.state / "schedules" / "tripwire.json").exists()  # a failed control is no failed deny probe
+
+
+def test_a_deny_probe_success_turns_the_schedule_off(world):
+    """#350: an abort without a decoy read is a failed sandbox probe: the schedule goes off."""
+    autodev_config.save({**autodev_config.DEFAULTS, "enabled": True}, world.state)
+    report = codex_probes.CodexReport(cs.WORKER)
+    report.fail("deny_probe_succeeded", "read.ssh: expected denied, got allowed")
+    decision = codex_probes._conclude(report, "probe_failed", (), directory=world.state, run_id=RUN_ID)
+    assert decision.abort and autodev_config.load(world.state)["enabled"] is False
+    assert decoys.tripped_by(world.state, RUN_ID)["cause"] == decoys.PROBE
 
 
 def test_a_decoy_read_trips_the_schedule(world):
@@ -1520,11 +1532,19 @@ def test_a_warning_holding_a_secret_is_withheld(world):
 # --- the CLI --------------------------------------------------------------------------------------------
 
 def _ctx(world, **changes):
+    notifications = []
+
+    def notify(argv, **kwargs):  # the owner's notification (#350): recorded, never osascript
+        notifications.append(list(argv))
+        return subprocess.CompletedProcess(argv, 0, "", "")
+
     values = dict(installation=world.base / "inst", directory=world.state, home=world.home, platform="darwin",
                   codex=world.codex, codex_execute=Emulator(world.codex), codex_resolver=lambda host: TEST_NET,
-                  command_runner=keychain)
+                  command_runner=keychain, notify_runner=notify)
     values.update(changes)
-    return runner.Context(**values)
+    ctx = runner.Context(**values)
+    ctx.notifications = notifications
+    return ctx
 
 
 def test_cli_refuses_without_the_confirmation(world, capsys):
@@ -1563,7 +1583,7 @@ def test_cli_worker_check_records_the_fallback(world, capsys, monkeypatch):
 
 
 def test_cli_records_an_aborted_step(world, capsys):
-    autodev_config.save({**autodev_config.DEFAULTS, "codex": {"login": MODE}}, world.state)
+    autodev_config.save({**autodev_config.DEFAULTS, "codex": {"login": MODE}, "enabled": True}, world.state)
     set_scenario(world.codex, nested="ok")
     temp_base = real(world.base / "tmpbase")
     temp_base.mkdir()
@@ -1575,6 +1595,14 @@ def test_cli_records_an_aborted_step(world, capsys):
         None, None, "deny_probe_succeeded")
     assert "neither Codex nor the Claude worker" in result["reason"]
     assert list(temp_base.iterdir()) == []
+    # A deny probe that got through is a failed probe: the schedule is off and the owner is told (#350).
+    assert autodev_config.load(world.state)["enabled"] is False
+    tripwire = json.loads((world.state / "schedules" / "tripwire.json").read_text())["last"]
+    assert (tripwire["cause"], tripwire["run_id"]) == ("probe", result["run_id"])
+    [argv] = ctx.notifications
+    assert argv[0] == "/usr/bin/osascript" and argv[7:] == [
+        "Autodev schedule off", f"a sandbox probe failed and turned the schedule off; details in run {result['run_id']}."]
+    assert result["schedule_off"] == "probe"
 
 
 def test_the_temporary_root_is_removed_whatever_a_session_did_to_it(tmp_path):

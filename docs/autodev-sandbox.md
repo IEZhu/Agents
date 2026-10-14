@@ -198,6 +198,13 @@ keychain service), even one that was refused, or a marker anywhere in the stream
 tripwire, not a wall: a call that reaches a decoy through a pattern it does not spell out is
 caught only when the marker comes back.
 
+Since #350 a failed probe report turns the schedule off too, recorded with `cause: probe` (a
+decoy and the other tripwires record `cause: tripwire`): the report before a stage session in any
+mode, the owner's `probe` command, and a Codex deny probe that got through. The run or probe
+command that tripped it notifies the owner (`Autodev schedule off`, a fixed phrase and the run ID)
+and records `schedule_off`; the automatic mode then needs a new acceptance
+([autodev-runner.md](autodev-runner.md#automatic-mode)).
+
 ## Probes
 
 `probes.guard(spec, ...)` first runs the static checks, without a model. Then, for a session with
@@ -373,7 +380,7 @@ login is missing (with `login_command`).
 |---|---|
 | `<state_dir>/schedules/claude-config/` | The sessions' `CLAUDE_CONFIG_DIR` (0700), logged in once by the owner. |
 | `<state_dir>/schedules/decoys.json` | The decoy registry with the random names and the markers (0600). |
-| `<state_dir>/schedules/tripwire.json` | The last tripwire and how many there were. |
+| `<state_dir>/schedules/tripwire.json` | The last tripwire (with its `cause`: `tripwire` or `probe`) and how many there were. |
 | `<runner directory>/sessions/<run-id>/<kind>/` | `repo` (the one-off repository), `exchange`, `state`, `gh` and `settings.json` of one session; the runner directory is the trusted clone's parent. |
 | `/private/tmp/ad-<8 hex>/` | The run's temporary root (0700), removed after the run. |
 | `~/.<word><separator><random>/`, a key-like file in `~/.ssh` | The decoy files (names only in the registry; shapes in `decoys.py`). |

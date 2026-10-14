@@ -36,9 +36,10 @@ Detection is the runner's: exit codes, files it checks itself and the proxy's lo
 content never enters a report, and every capture (bounded) is scanned. Any deny-probe success,
 and any decoy read or leaked, **aborts the step** (`Decision.abort`, reason
 ``deny_probe_succeeded``, no client applied): the caller fails the step and runs neither Codex
-nor the Claude worker for it, and `start` refuses. A failed control or nested check is a fallback
-to the Claude worker (`REASONS`: ``probe_failed``, ``profile_broken`` and the others). The run
-record keeps ``client_requested``, ``client_applied``, ``fallback_reason``, ``aborted`` and
+nor the Claude worker for it, `start` refuses, and the schedule is turned off (`decoys.trip`, a
+decoy as a tripwire, any other deny-probe success as a failed probe, #350). A failed control or
+nested check is a fallback to the Claude worker (`REASONS`: ``probe_failed``, ``profile_broken``
+and the others). The run record keeps ``client_requested``, ``client_applied``, ``fallback_reason``, ``aborted`` and
 ``abort_reason`` (`record_decision`).
 
 The API key is in the codex process's environment, and a model command can observe that
@@ -842,11 +843,16 @@ def _fallback(reason: str, detail: str, report: CodexReport | None = None,
     return Decision(CODEX, CLAUDE, reason, detail, None, report, tuple(known))
 
 
-def _conclude(report: CodexReport, default: str, known: Sequence[KnownSecret]) -> Decision:
+def _conclude(report: CodexReport, default: str, known: Sequence[KnownSecret], *, directory: str | Path | None,
+              run_id: str | None) -> Decision:
     """The decision for a finished report that failed: an abort when a deny probe succeeded or a
-    decoy tripped the schedule, else the Claude worker with the report's reason."""
+    decoy tripped the schedule, else the Claude worker with the report's reason. A deny probe that
+    succeeded is a failed sandbox probe and turns the schedule off (#350; a decoy read did already)."""
     detail = "; ".join(report.failures[:5])
     if report.reason in ABORT_REASONS or report.tripped:
+        if not report.tripped:
+            decoy_store.trip(directory, f"a Codex deny probe got through ({report.kind})", run_id=run_id,
+                             cause=decoy_store.PROBE)
         return Decision(CODEX, None, DENY_PROBE_SUCCEEDED, detail, None, report, tuple(known), abort=True)
     return _fallback(report.reason or default, detail, report, known)
 
@@ -876,7 +882,8 @@ def decide(codex: str | None, paths: cs.CodexPaths, *, path: str, proxy: Connect
     """Codex for ``paths`` (a worker or a stage launch) when every check passes, else the Claude
     worker with the reason. ``mode`` is ``codex.login`` (`codex_sandbox.login_mode`; None when it is
     unset). A deny-probe success (``deny_probe_succeeded``) aborts the step (`Decision.abort`: no
-    client, no fallback) and, when a decoy was read, turns the schedule off (`decoys.trip`).
+    client, no fallback) and turns the schedule off (`decoys.trip`: a tripwire when a decoy was read,
+    else a failed probe, #350).
     ``proxy`` must be started with the Codex hosts (`codex_sandbox.allowed_hosts`)."""
     started = time.monotonic()
     report = CodexReport(paths.kind, started=_now())
@@ -903,7 +910,7 @@ def decide(codex: str | None, paths: cs.CodexPaths, *, path: str, proxy: Connect
     _note_leaked(report, leaked, directory, run_id, "a Codex probe")
     _finish(report, started)
     if not report.ok:
-        return _conclude(report, "probe_failed", (secret,))
+        return _conclude(report, "probe_failed", (secret,), directory=directory, run_id=run_id)
     return Decision(CODEX, CODEX, None, "", launch, report, (secret,))
 
 
@@ -1460,7 +1467,7 @@ def stage_availability(codex: str | None, paths: cs.CodexPaths, *, path: str, pr
         _finish(report, begin)
         shape = launch.shape()  # type: ignore[union-attr]  # what was probed (`launch_shape` gives the same)
         if not report.ok:
-            decision = _conclude(report, "stage_probe_failed", decision.known)
+            decision = _conclude(report, "stage_probe_failed", decision.known, directory=directory, run_id=run_id)
         write_availability(directory, cs.STAGE, decision, shape=shape)
         return decision
     if decision.report is not None:

@@ -27,15 +27,24 @@ references: the [runner](autodev-runner.md), the [broker](autodev-broker.md), th
 | `run` | `autodev run-now --mode run` | The supervised real run: preconditions, gate, select, implement, submit. |
 | `resume` | `autodev run-now --mode resume --pr N` | The submit stage again for an open self-development PR, when the gate agrees. A `run` whose gate decides `resume` takes the same path. |
 
-A scheduled real run is the automatic mode of #350: `enable --mode run` refuses, `ready` names it
-missing, and a tick refuses a `run` mode it finds in `autodev.json`. The sequence still writes the
-tick's `next_attempt`, so #350 needs no change there; until then the notification of a
-`waiting_bots` run names the command that continues it.
+A scheduled real run is the [automatic mode](autodev-runner.md#automatic-mode) of #350: the tick
+starts a `run` (a slot) or a `resume` (a continuation) only while `autodev ready` passes, else it
+records the run `refused` with the missing items (a refused continuation names its PR and the
+command that resumes it, and is not retried). The sequence itself is the same for a scheduled and
+a supervised run; it writes the tick's `next_attempt` for a `waiting_bots` pull request, so in run
+mode the tick continues it, and the notification still names the command that continues it by
+hand. The guarded sessions of a scheduled run record their probe reports under `scheduled` (a
+continuation's under `resume`); `ready` needs one passing report per kind and mode, at any age.
 
 ## Order
 
 1. **The lease and the markers** (`runner.run_autodev`): the run lease, the daemon's update
-   markers.
+   markers. A scheduled `run` or `resume` (trigger `slot` or `continuation`) then checks again
+   that the schedule is on in run mode and the owner's acceptance is current
+   (`runner.scheduled_problems`): a tripwire or a turn-off after the tick's check ends it
+   `refused` with `automatic mode no longer ready at the start: …`, notified, before the drift
+   check. Every command that can trip the schedule holds the run lease, so nothing else trips
+   between this check and the first stage.
 2. **The drift check** (`runner.default_drift`): `main` is fetched into the trusted repository,
    its quarantine older than 30 days is pruned, and the installation is compared with `pinned`.
 3. **The preconditions** (real modes only, `preconditions.check`): the broker's credentials,
@@ -99,7 +108,9 @@ add the PR, its rounds, the findings already seen and the head of the trusted st
    9.4); each broker log entry of a session names its stage.
 6. `sandbox.build` with the stage's output schema as `--json-schema`, `probes.guard` (a probe
    session for a stage with Bash, the static checks for `select`), `probes.record_report`. A
-   failed report refuses the run before the session.
+   failed report refuses the run before the session and turns the schedule off (#350;
+   `tripwire.json` records `cause: probe`); a report whose probe session read a decoy has
+   tripped it already, once, as a tripwire.
 7. A `.git` snapshot of the one-off repository (`integrity.git_snapshot`), the prompt
    (`stages.render_prompt`), and the session through `probes.start_session`, its standard output
    into `<run_dir>/stages/<kind>/stream.jsonl`. After the stage's timeout the runner ends the
@@ -221,7 +232,8 @@ with `top_five` and the Markdown `table`), `issue`, `branch`, `pr`, `pr_url`, `r
 service), `checks` (the implement output's), `implement` (the imported head and the change
 check), `stale_branch` (`head`, `quarantined`), `submit_problems`, `pr_url_reported`,
 `head_reported`, `blockers`, `block_refused`, `block_failed`, `exports`, `quarantined`,
-`risk_issues`, `state_comment_failed`, `report` and `notification`. Every
+`risk_issues`, `state_comment_failed`, `report`, `notification` and `schedule_off` (the cause, when
+the run turned the schedule off: `tripwire` or `probe`). Every
 write goes through `records.update_record` and is masked with the run's known secrets (the decoy
 markers, the broker's token and deploy key, the OAuth token, a Codex API key).
 
@@ -233,7 +245,8 @@ next to the worker service's `worker-log.json`.
 The report (`report.build_report`) holds `pinned`, the runner's commit, the flow revisions, the
 `bundle_revision` of each worker package, the gate and selection decisions, each stage's and each
 step's `requested` and `applied` execution, the checks, the PR link, the review status, the risk
-issues, the exports, the blockers, the cost the CLI reported and the security counts only.
+issues, the exports, the blockers, the cost the CLI reported, the security counts only, and
+`schedule_off`.
 
 ## Statuses
 
@@ -241,13 +254,15 @@ issues, the exports, the blockers, the cost the CLI reported and the security co
 |---|---|
 | `completed` | The gate waited, no candidate, the selection said `none`, a dry-run's selection, or a PR with `complete`, `complete_with_followups` or `waiting_bots` |
 | `blocked` | A blocker after the implement stage, a blocked submit stage, an invalid stage output (also a submit output naming another PR or head, or an unblocked one without a PR), a resume whose head is foreign |
-| `refused` | A missing precondition, a failed probe, the decoy tripwire, a stream too long to scan, a changed `.git`, a sandbox or login refusal, an effort the client does not take |
+| `refused` | A missing precondition, a failed probe, the decoy tripwire, a stream too long to scan, a changed `.git`, a sandbox or login refusal, an effort the client does not take, a scheduled run whose schedule was turned off or whose acceptance went stale after the tick's check |
 | `failed: infra` | The network, a CLI, the lease, drift, a timeout, a supervisor stop, or a defect in the sequence itself |
 
 The owner is notified of every real run and of a dry-run that did not complete (Q-notify-dry): a
 title and a message of fixed phrases, counts, the PR link and the export paths, passed to
-`osascript` as arguments of a constant script, never inside it. A run the supervisor ended is
-notified by the run itself or, when it could not, by the launching process.
+`osascript` as arguments of a constant script, never inside it. A run that turned the schedule off
+(a tripwire or a failed probe, #350) is notified in every mode, titled `Autodev schedule off`,
+with the cause's fixed phrase first. A run the supervisor ended is notified by the run itself or,
+when it could not, by the launching process.
 
 ## Before the first real run
 

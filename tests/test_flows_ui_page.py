@@ -1419,9 +1419,18 @@ def test_the_autodev_page_shows_codex_unavailable_with_the_reason(autodev):
     assert available["clients"] == ["Claude", "Codex"] and available["implement_clients"][1] == "Codex (unavailable)"
 
 
-def test_the_autodev_page_offers_run_mode_only_as_unavailable(autodev):
-    assert autodev["mode"] == [["dry-run", "dry-run", False],
-                               ["run", "run (unavailable until the automatic mode, #350)", True]]
+def test_the_autodev_page_offers_run_mode_only_on_a_recent_passing_ready(autodev):
+    assert autodev["mode"] == [["dry-run", "dry-run", False], ["run", "run (not ready)", True]]
+    assert autodev["automatic"]["missing"] == [
+        "the last `python -m src.schedules autodev ready` (2026-10-11T09:05:00+00:00) did not pass", "the API token",
+        "sandbox probe implement in scheduled mode: no record; run `python -m src.schedules probe --mode scheduled "
+        "--kind implement --confirm-live-probe`"]
+    assert autodev["automatic"]["text"].startswith("Last `autodev ready`: did not pass (2026-10-11 09:05).Run mode (real "
+                                                   "runs on the schedule) cannot be turned on here; missing:")
+    assert "This page reads no credential: run `python -m src.schedules autodev ready` in a terminal" \
+        in autodev["automatic"]["text"]
+    assert "autodev enable --mode run --accept-shared-account`; turning the schedule off or to dry-run withdraws the " \
+        "acceptance." in autodev["automatic"]["text"]
     assert autodev["enabled"]["post"] == ["POST", "/ui/api/autodev/enable", {"mode": "dry-run"}]
     assert autodev["enabled"]["status"]["state"] == "On, mode dry-run." and autodev["enabled"]["status"]["switch"] == "Turn off"
     assert autodev["enabled"]["alert"] == {
@@ -1498,13 +1507,42 @@ def test_autodev_switch_with_unsaved_edits_keeps_the_revision_read(autodev_races
                                  "className": "notice error", "items": []}
 
 
+def test_the_autodev_page_turns_run_mode_on_with_the_acceptance_once_ready():
+    ready = run_autodev("autodev_ready")
+    assert ready["mode"] == [["dry-run", "dry-run", False], ["run", "run (real runs on the schedule)", False]]
+    assert ready["automatic"]["missing"] is None
+    assert ready["automatic"]["text"].startswith("Last `autodev ready`: passed (2026-10-11 09:05).Run mode (real runs "
+                                                 "on the schedule) can be turned on here: `autodev ready` passed within "
+                                                 "the last 15 minutes, and your acceptance of the residual risks "
+                                                 "(2026-10-11 09:00) is current.")
+    # "No" to the acceptance sends nothing; "yes" sends the flag, as the CLI's --accept-shared-account.
+    [question] = ready["declined"]["confirms"]
+    assert question.startswith("Turn on real runs on the schedule under your GitHub account? You accept these "
+                               "residual risks (plan section 11):\n\n1. A model read the keys. Residual risk: a "
+                               "sandbox bug.\n2. ")
+    assert "\n4. The agent pushed to main. Residual risk: a broker bug." in question
+    assert ready["declined"]["posts"] == 0
+    assert ready["enabled"]["post"] == ["POST", "/ui/api/autodev/enable", {"mode": "run", "accept_shared_account": True}]
+    assert ready["enabled"]["status"]["state"] == "On, mode run." and ready["enabled"]["alert"]["text"].startswith(
+        "Turned on in run.")
+    # A refusal lists what is missing.
+    assert ready["refused"]["post"] == {"mode": "run", "accept_shared_account": True}
+    assert ready["refused"]["alert"] == {
+        "text": "the automatic mode is not ready: 3 condition(s) missing", "className": "notice error",
+        "items": [
+                  "the last `python -m src.schedules autodev ready` (2026-10-11T09:05:00+00:00) did not pass", "the API token",
+                  "sandbox probe implement in scheduled mode: no record; run `python -m src.schedules probe --mode scheduled "
+                  "--kind implement --confirm-live-probe`"]}
+    assert ready["refused"]["state"] == "Off."
+
+
 def test_autodev_keeps_stored_values_the_lists_lack_and_shows_a_stored_run_mode():
     stored = run_autodev("autodev_stored")
     assert stored["stored"]["select_effort"] == "ultra"
     assert stored["stored"]["select_options"][-1] == ["ultra", "ultra (Claude does not take it)", False]
     assert stored["stored"]["followup"] == "minimal"
-    assert "On, mode run.A scheduled run is refused until the automatic mode (#350); turn off, then on in dry-run." \
-        in stored["stored"]["status"]
+    assert "On, mode run.Every tick checks `autodev ready` before a scheduled run and refuses it while a condition " \
+        "is missing; the latest runs say why." in stored["stored"]["status"]
     assert stored["status"]["switch"] == "Turn off"
     # The later reviews' list follows the review's client and keeps the stored value, marked.
     assert stored["client_changed"] == {"followup": "minimal", "options": [

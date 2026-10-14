@@ -10,9 +10,11 @@ This page is the owner's guide: what to set up, how to run autodev, what a run c
 its limits are. Details live in the references below; this page links to them instead of
 repeating them. The phase 1a acceptance runs are in [autodev-acceptance.md](autodev-acceptance.md).
 
-**State (phase 1a, #338 to #348).** The schedule runs dry-runs only. The owner starts real runs
-by hand with `run-now` and watches them. Scheduled real runs are the automatic mode of #350.
-None of the live checks on this page had run when it was written (2026-10-14).
+**State (phase 1a, #338 to #348; phase 1b, #350).** The owner starts real runs by hand with
+`run-now` and watches them. Scheduled real runs are the [automatic mode](#automatic-mode-run-on-the-schedule)
+(#350): the schedule runs them only while `autodev ready` passes and the owner's acceptance of the
+residual risks is current; until then it runs dry-runs. None of the live checks on this page had
+run when it was written (2026-10-14).
 
 **Public records.** The repository is public. When you note the results of live checks in the
 acceptance table, the plan or the open items of these pages, write only pass or fail, run IDs
@@ -160,26 +162,55 @@ arguments ([commands](autodev-runner.md#commands)).
 | Mode | Started by | What it does | Writes to GitHub | Time limit |
 |---|---|---|---|---|
 | `dry-run` | `autodev run-now` (the default mode), or the schedule | The gate and, on `select`, the select stage; prints the decision and the top-five table | Nothing: a dry-run builds no broker | 60 minutes |
-| `run` | `autodev run-now --mode run` | The preconditions, the gate, then select, implement and submit | Through the broker: the selection comment and the claim, the push, the pull request, comments, labels, risk issues | 330 minutes (implement 180 by default) |
-| `resume` | `autodev run-now --mode resume --pr N` | The submit stage again for an open self-development pull request, when the gate agrees | Through the broker | 120 minutes |
+| `run` | `autodev run-now --mode run`, or the schedule in the automatic mode | The preconditions, the gate, then select, implement and submit | Through the broker: the selection comment and the claim, the push, the pull request, comments, labels, risk issues | 330 minutes (implement 180 by default) |
+| `resume` | `autodev run-now --mode resume --pr N`, or a continuation in the automatic mode | The submit stage again for an open self-development pull request, when the gate agrees | Through the broker | 120 minutes |
 
 `run-now` blocks until the run ends, then prints the run record: `run_id`, `status`, `reason`,
 `gate`, `selection` and the rest ([records](autodev-sequence.md#records)). You get a macOS
-notification for every real run and for a dry-run that did not complete. A run ends
-`completed`, `blocked`, `refused` or `failed: infra` ([statuses](autodev-sequence.md#statuses)).
+notification for every real run, for a dry-run that did not complete, and for any run or probe
+that turned the schedule off (`Autodev schedule off`). A run ends `completed`, `blocked`,
+`refused` or `failed: infra` ([statuses](autodev-sequence.md#statuses)).
 
 **The schedule** runs a dry-run at each slot (02:17 and 13:47 by default) once you turn it on
 with `autodev enable --mode dry-run` or the settings page; `autodev disable` turns it off. The
 tick waits while a run or a daemon update holds the run lease, while a heavy process runs, or on
 battery power ([tick](autodev-runner.md#tick)).
 
-**Why `run` mode is refused on the schedule.** A scheduled real run is the automatic mode of
-#350. It needs the runner's own checks of [plan 5.7](autodev-plan.md#57-modes-probes-and-enabling-conditions)
-and your recorded acceptance of the residual risk of the shared account
-(`--accept-shared-account`), and #350 adds both. Until then `autodev enable --mode run` refuses
-with `mode_unavailable`, `autodev ready` lists `#350 automatic mode` and exits with 1, and a tick
-that finds `"mode": "run"` in `autodev.json` refuses too. `run-now --mode run` stays available
-because you watch it (Q13).
+### Automatic mode: `run` on the schedule
+
+A scheduled real run runs under your GitHub account, unwatched (phase 1b, #350). It needs the
+runner's own checks of [plan 5.7](autodev-plan.md#57-modes-probes-and-enabling-conditions) and your
+recorded acceptance of the residual risks of the shared account; the reference is
+[autodev-runner.md, Automatic mode](autodev-runner.md#automatic-mode).
+
+1. `.venv/bin/python -m src.schedules autodev ready` lists every missing condition and exits with
+   1 until all pass: the broker credentials, the protection of `main` (at least one required
+   approving review), workflows that cannot approve, `CLAUDE_ROUTINE_TOKEN` not a repository
+   secret (whether the `issue-agent` environment holds it is not checked), a passing probe record
+   for each of the three stage kinds in each of the four modes, once (the twelve `probe` runs of
+   [acceptance A7](autodev-acceptance.md#a7-probes-hold-in-every-mode-and-the-broker-refuses);
+   at any age, since every run probes before each session with Bash), and your acceptance. A
+   `select` configured for Codex needs its Claude probe records only while its stored Codex
+   check says unavailable, because a run then falls back to a Claude select session. It reads
+   GitHub and the stored records, starts no probe, and records its result for the settings page.
+2. Once only the acceptance is missing:
+   `.venv/bin/python -m src.schedules autodev enable --mode run --accept-shared-account`. It lists
+   the residual risks you accept (plan section 11, rows 1, 2 and 4), records the acceptance with
+   the date, the version of the risk list and the tripwire count, and turns run mode on. Without
+   the flag it refuses and names it; while another condition is missing it refuses with the list;
+   if a tripwire fires while it checks, it refuses with `tripped_during_enable`.
+3. Each tick checks `ready` again before a scheduled run, and the run checks the schedule and
+   your acceptance once more before its first stage. While a check fails, the run is recorded as
+   `refused` with the missing items and you get `Autodev run refused`. A continuation of a pull
+   request that waits for bots runs as `resume` the same way; a refused one is not retried, and
+   its notification names the PR and `run-now --mode resume --pr N`.
+
+The acceptance belongs to the act of turning run mode on: `autodev disable`, **Turn off** on the
+page and `enable --mode dry-run` withdraw it, so editing `autodev.json` back to run mode does not
+start real runs. A runner update that changes the risk list, any tripwire or failed probe (your
+own `probe` runs included), or an unreadable `tripwire.json` makes it stale: give it again with
+the same `enable` command, which a tripped schedule needs anyway. `run-now --mode run` stays
+available without any of this, because you watch it (Q13).
 
 ## Settings page
 
@@ -189,8 +220,13 @@ chip under the version, or go to `/ui#autodev`
 window, the allowed hours of continuations and the AC-power rule; the limits `max_reviews`,
 `max_bot_rounds` and `max_wait_minutes`; the client, model and effort of every stage and
 delegated step, with the follow-up reviews' `effort_followup`; and the pre-mortem role. Its
-switch turns the schedule on in `dry-run`, and its status lists the newest runs. Every save is
-validated as the runner validates the file. The reference is
+switch turns the schedule on in `dry-run`, or in `run` while the last `autodev ready` you ran in
+a terminal passed less than 15 minutes ago and your acceptance is current (it asks you to accept
+the residual risks again). The daemon reads no credential, so the page shows that recorded result
+with its time instead of checking GitHub itself; since turning off withdraws the acceptance, run
+mode is in practice turned on with the CLI command above. Its status lists what is missing and
+the newest runs. Every
+save is validated as the runner validates the file. The reference is
 [autodev-runner.md, Settings page](autodev-runner.md#settings-page).
 
 The page does not edit `github`, `sandbox`, `codex.login` or a stage's `budget`. Change them in
@@ -257,7 +293,12 @@ no measured numbers yet: the plan sets target values after the first ten runs
   an open item.
 - **One account for the owner and autodev** (Q6 = no). Labels and comments that any of your
   agents make under your account count as yours (plan 11, row 2). The last line of defence
-  against a harmful but plausible change is your review before you merge (row 18).
+  against a harmful but plausible change is your review before you merge (row 18). The
+  automatic mode runs only after you accept rows 1, 2 and 4 with `--accept-shared-account`.
+- **Tripwires turn the schedule off.** A decoy read or leaked, a changed `.git`, a stream too long
+  to scan and a failed sandbox probe (in any mode, the `probe` command included) set `enabled:
+  false` and send `Autodev schedule off`; read `<state_dir>/schedules/tripwire.json` and the run's
+  record before you turn the schedule on again, and accept again for run mode.
 - **Codex.** A model command can reach the run's `CODEX_API_KEY`; the separate project's budget
   bounds the damage ([residual risks](autodev-codex.md#residual-risks)). Running Codex with its
   own sandbox off inside the outer profile is an
@@ -314,7 +355,13 @@ no measured numbers yet: the plan sets target values after the first ten runs
     `run-now --mode resume --pr N`.
 12. **The rest of the acceptance runs** in [autodev-acceptance.md](autodev-acceptance.md), in the
     order it gives.
-13. **Day to day:** label issues `autodev:ready` (during calibration) or `autodev:next`, skip
+13. **The automatic mode**, once the phase 1a acceptance holds: the twelve probes of A7, then
+    `autodev ready` until it passes but for the acceptance, then
+    `autodev enable --mode run --accept-shared-account`
+    ([automatic mode](#automatic-mode-run-on-the-schedule)). The phase 1b acceptance is three
+    automatic real runs in a row that end with a pull request, `blocked` or `wait` without your
+    intervention ([plan 14](autodev-plan.md#phase-1b-automatic-mode-under-the-owners-account)).
+14. **Day to day:** label issues `autodev:ready` (during calibration) or `autodev:next`, skip
     some with `autodev:skip`, handle `autodev:blocked` issues, and review and merge the pull
     requests yourself ([plan 4](autodev-plan.md#4-human-and-autonomy)). Every run's record is
     `<state_dir>/schedules/runs/<run-id>/record.json`; the other files are listed in

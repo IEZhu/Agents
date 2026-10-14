@@ -21,11 +21,15 @@ appear as counts only. Its inputs:
   record for the security counts.
 
 `notification` turns a report into a title and a message from a fixed vocabulary: the outcome,
-the issue and PR numbers, the review status, the next command, the export paths and the run ID;
-never a reason, a blocker, a finding or a secret. `notify` shows it with ``osascript``, passing
+the issue and PR numbers, the review status, the next command (``run-now --mode resume --pr N`` for
+a PR that waits for the bots, or whose resume was refused, #350), the export paths and the run ID;
+never a reason, a blocker, a finding or a secret. A run that turned the schedule off (the report's
+``schedule_off``: a tripwire or a failed sandbox probe, #350) gets the title `SCHEDULE_OFF_TITLE`
+and the cause's fixed phrase first. `notify` shows it with ``osascript``, passing
 the title and the message as arguments of a constant AppleScript ``on run argv`` handler, never
-inside the script text (design 10.1). `should_notify` says when: every real run, and a dry-run
-only when it did not complete (#347 open question Q-notify-dry, default adopted).
+inside the script text (design 10.1). `should_notify` says when: every real run, a dry-run only
+when it did not complete (#347 open question Q-notify-dry, default adopted), and every run that
+turned the schedule off.
 `selection_view` is the selection part of the dry-run printout and the report.
 """
 from __future__ import annotations
@@ -50,6 +54,11 @@ NOTIFY_TIMEOUT = 30
 TITLE_MAX = 100
 MESSAGE_MAX = 600
 DECISION_NAMES = ("fixed", "declined", "mitigated", "known_risk")
+# A run that turned the schedule off (`decoys.tripped_by`, #350): the title and the first phrase of
+# its notification, by the cause `decoys.trip` recorded.
+SCHEDULE_OFF_TITLE = "Autodev schedule off"
+SCHEDULE_OFF = {"tripwire": "a tripwire fired and turned the schedule off",
+                "probe": "a sandbox probe failed and turned the schedule off"}
 _CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f]")
 _ATTEMPT = re.compile(r"attempt-([1-9][0-9]{0,2})\.json")
 
@@ -197,6 +206,7 @@ def build_report(record: Mapping, state: Mapping | None = None, run_dir: str | o
         "exports": record.get("exports"), "blockers": list(record.get("blockers") or []),
         "cost_usd_total": round(sum(costs), 6) if costs else None,
         "security": _security(directory),
+        "schedule_off": record.get("schedule_off") if record.get("schedule_off") in SCHEDULE_OFF else None,
     }
     return records.mask(report, list(known))
 
@@ -204,8 +214,10 @@ def build_report(record: Mapping, state: Mapping | None = None, run_dir: str | o
 # --- the notification -----------------------------------------------------------------------------
 
 def should_notify(record: Mapping) -> bool:
-    """Every real run, and a dry-run that did not complete (a failure or a tripwire)."""
-    return record.get("mode") != "dry-run" or record.get("status") != "completed" or bool(record.get("tripwire"))
+    """Every real run, a dry-run that did not complete (a failure or a tripwire), and any run that
+    turned the schedule off (``schedule_off``, #350)."""
+    return record.get("mode") != "dry-run" or record.get("status") != "completed" or bool(record.get("tripwire")) \
+        or bool(record.get("schedule_off"))
 
 
 def _clean(text: str, limit: int) -> str:
@@ -219,13 +231,17 @@ def notification(report: Mapping, *, known: Iterable[str] = ()) -> tuple[str, st
     mode = "dry-run" if report.get("mode") == "dry-run" else "run"
     title = f"Autodev {mode} {status}"
     parts = []
+    if report.get("schedule_off") in SCHEDULE_OFF:  # the run turned the schedule off (#350)
+        title = SCHEDULE_OFF_TITLE
+        parts.append(SCHEDULE_OFF[report["schedule_off"]])
     if isinstance(report.get("issue"), int):
         parts.append(f"issue #{report['issue']}")
     if isinstance(report.get("pr_url"), str) and report["pr_url"].startswith("https://github.com/"):
         parts.append(f"PR {report['pr_url']}")
     if report.get("review_status") in broker.REVIEW_STATUSES:
         parts.append(f"review {report['review_status']}")
-    if report.get("review_status") == "waiting_bots" and isinstance(report.get("pr"), int):
+    if isinstance(report.get("pr"), int) and (report.get("review_status") == "waiting_bots" or (
+            report.get("mode") == "resume" and status == "refused")):  # a refused resume still waits (#350)
         parts.append(f"continue with: run-now --mode resume --pr {report['pr']}")
     if report.get("review_status") == "complete_with_followups":
         parts.append("the bot-round limit was reached; follow-ups are listed in the PR")

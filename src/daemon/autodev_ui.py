@@ -18,8 +18,13 @@ network access (#343), and the state directory is closed to them.
   may name, whether Codex can be a stage client (`codex_probes.configured_stage_availability`,
   as the run sequence asks; implement and submit commit, which a Codex stage cannot) and the
   status: on or off, the mode, the next slot (`tick.next_slot`), whether the scheduler job is
-  installed, and the newest runs (`runner.run_summary` of the run records). A file that does not
-  validate gives ``problems`` and no settings.
+  installed, the newest runs (`runner.run_summary` of the run records) and the automatic mode
+  (#350, ``automatic``), from stored state only: the last ``autodev ready`` the CLI recorded
+  (``checked``, ``passed``; `automatic.read_ready`), whether run mode can be turned on here
+  (``can_enable``: that result passed at most `automatic.READY_FRESH` seconds ago and the
+  acceptance is current, `automatic.page_problems`), what is missing, when the owner's acceptance
+  was given and the risks it covers. A file that does not validate gives ``problems`` and no
+  settings.
 - ``PUT /ui/api/autodev`` with ``{expected_revision, settings}``: the settings applied over the
   stored configuration (keys left out keep their values; the stage ``budget`` and the GitHub,
   sandbox and Codex login settings are never touched), then checked by ``config.validate`` and
@@ -28,14 +33,22 @@ network access (#343), and the state directory is closed to them.
   ``invalid_settings`` lists every problem and leaves the file as it was; 409 ``config_changed``
   when the configuration changed since the page read it. ``enabled`` and ``mode`` change only
   with the switch: a save takes them from the file as it is when it writes.
-- ``POST /ui/api/autodev/enable`` with ``{mode}``: ``runner.enable``. ``dry-run`` only: ``run``
-  is refused with 409 ``mode_unavailable`` until the automatic mode of #350, as the CLI refuses.
-- ``POST /ui/api/autodev/disable``: ``runner.disable``.
+- ``POST /ui/api/autodev/enable`` with ``{mode, accept_shared_account}``: ``runner.enable`` with
+  ``source="page"``. ``run`` (the automatic mode, #350) is refused with 409
+  ``acceptance_required`` without ``accept_shared_account: true``, 409 ``not_ready`` unless a
+  recorded ``autodev ready`` passed within `automatic.READY_FRESH` seconds and the acceptance is
+  current, and 409 ``tripped_during_enable``; otherwise a new acceptance is recorded (``source:
+  page``) and the tick checks everything again before a scheduled run. ``dry-run`` withdraws the
+  acceptance, so the first acceptance, and every one after a turn-off, is the CLI's.
+- ``POST /ui/api/autodev/disable``: ``runner.disable``, which withdraws the acceptance too.
 
 No answer carries a secret: the GitHub token and deploy key, the sandbox and Codex logins and
-the executables' paths stay out, and the run summaries are masked (`records.mask`, with the
-paths of the deploy key and of ``~/.config/agents-autodev`` as known secrets). Every request runs
-in a worker thread. A save holds ``config.writing`` (the lock the runner's ``enable`` and
+the executables' paths stay out, and the run summaries and the missing items are masked
+(`records.mask`, with the paths of the deploy key and of ``~/.config/agents-autodev`` as known
+secrets). The daemon reads no credential: neither the broker's token (no keychain call) nor the
+deploy key, and no GitHub read for the automatic mode (#350 review); ``autodev ready`` in a
+terminal does those and records its outcome, which the page shows. Every request
+runs in a worker thread. A save holds ``config.writing`` (the lock the runner's ``enable`` and
 ``disable`` and the decoy tripwire take too) from its load, the revision check included, to its
 write, so it never writes back ``enabled`` or ``mode`` loaded before another writer's save.
 The runner and the Codex modules load with the page's first request, not with the daemon.
@@ -374,6 +387,21 @@ class AutodevUI:
                                   "checked": checked if isinstance(checked, str) else None}
         return {"installed": bool(facts["codex"]), "version": version, "stages": found_stages}
 
+    def _automatic(self, ctx, config: Mapping) -> dict:
+        """The automatic mode (#350), from stored state only (no credential, no GitHub read): the
+        last ``autodev ready`` the CLI recorded, whether run mode can be turned on here and why not
+        (masked), the acceptance and the risks it covers."""
+        from src.schedules import automatic
+        now = ctx.clock()
+        recorded = automatic.read_ready(ctx.directory) or {}
+        problems = automatic.page_problems(ctx.directory, now)
+        accepted = (automatic.read_acceptance(ctx.directory) or {}).get("accepted")
+        return {"can_enable": not problems, "missing": records.mask(problems, secret_paths(config)),
+                "checked": recorded.get("checked"), "passed": recorded.get("ready"),
+                "fresh_minutes": automatic.READY_FRESH // 60,
+                "accepted": accepted if not automatic.acceptance_problems(ctx.directory, now) else None,
+                "risks": automatic.risks(), "risk_list_sha256": automatic.risk_list_version()}
+
     def _status(self, ctx, config: Mapping | None) -> dict:
         runner = _runner()
         known = secret_paths(config)
@@ -382,8 +410,7 @@ class AutodevUI:
         return {"enabled": config["enabled"] if config else None, "mode": config["mode"] if config else None,
                 "next_slot": iso(next_slot(config["times"], ctx.clock())) if config else None,
                 "scheduler": {"installed": ctx.scheduler().plist.is_file(), "supported": ctx.platform == "darwin"},
-                "runs": runs,
-                "real_modes": {"scheduled": False, "missing": list(runner.MISSING_FOR_REAL_MODES)}}
+                "runs": runs, "automatic": self._automatic(ctx, config) if config else None}
 
     def read(self, body: dict | None = None) -> dict:
         ctx = self.context()
@@ -438,13 +465,22 @@ class AutodevUI:
         mode = body.get("mode", "dry-run")
         if mode not in MODES:
             raise AutodevError("invalid_request", f"mode must be one of {', '.join(MODES)}")
+        accept = body.get("accept_shared_account", False)
+        if not isinstance(accept, bool):
+            raise AutodevError("invalid_request", "accept_shared_account must be true or false")
+        unknown = sorted(set(body) - {"mode", "accept_shared_account"})
+        if unknown:
+            raise AutodevError("invalid_request", f"unknown fields: {', '.join(unknown)}")
         runner = _runner()
         ctx = self.context()
-        self._load(ctx)  # an invalid file is refused before anything is written
-        code, result = runner.enable(ctx, mode)  # it takes the writers' lock itself
-        if code != 0:  # run: the automatic mode of #350
+        config = self._load(ctx)  # an invalid file is refused before anything is written
+        # As `autodev enable` runs it (it takes the writers' lock itself), from stored state only:
+        # run needs a recent passing `autodev ready` and a current acceptance (#350).
+        code, result = runner.enable(ctx, mode, accept_shared_account=accept, source="page")
+        if code != 0:
+            extra = {"risks": result["risks"]} if "risks" in result else {}
             raise AutodevError(result.get("error") or "refused", result.get("message") or "refused", 409,
-                               missing=result.get("missing") or [])
+                               missing=records.mask(result.get("missing") or [], secret_paths(config)), **extra)
         return {**self.read(), "result": result}
 
     def disable(self, body: dict) -> dict:
