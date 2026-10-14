@@ -19,8 +19,9 @@ the sandbox probes of one session kind (#343) with a real probe session, so it r
 outer profile, the model-free probes, the nested-sandbox check and the decision between Codex and
 the Claude worker, and for ``--kind stage`` the probe plan through ``codex exec`` (a model turn)
 when the model-free checks pass; it refuses without ``--confirm-live-probe`` too. ``worker-probe``
-runs one Claude worker turn (#345, docs/autodev-workers.md) built as a review's, with a trivial
-schema and one Read outside its tree that must be denied; it refuses without the flag as well.
+runs one Claude worker turn (#345, docs/autodev-workers.md) built as a review's, in a review's
+layout under the run directory: a Read in its tree and one in its materials that must succeed and
+one outside both that must be denied; it refuses without the flag as well.
 """
 from __future__ import annotations
 
@@ -61,7 +62,8 @@ def _parser() -> argparse.ArgumentParser:
     codex.add_argument(runner.PROBE_CONFIRMATION, dest="confirmed", action="store_true",
                        help="confirm that codex may run under its profile (and, for a stage, a model turn)")
 
-    worker = commands.add_parser("worker-probe", help="one Claude worker turn: structured output and a denied Read")
+    worker = commands.add_parser("worker-probe",
+                                 help="one Claude worker turn: two reads inside, one denied Read outside")
     worker.add_argument(runner.PROBE_CONFIRMATION, dest="confirmed", action="store_true",
                         help="confirm that a real claude -p worker (a model turn) may run")
 

@@ -27,6 +27,9 @@ keeps every record. The session never names a command, a ref or a path.
   again when the head did not move) plus the decision log, with ``effort_followup``; review
   ``max_reviews`` (when it is not the first) is restricted to ``critical`` and ``high``
   findings, security and regressions caused by fixes; no review starts beyond ``max_reviews``.
+  Every later review and the verification also get ``open-findings.json``: each finding of the
+  findings ledger that keeps the push gate closed, with its decision state (undecided, ``fixed``
+  or ``declined`` with the reason), and the instruction to report again each one still present.
   The verification review (after an accepted pre-mortem) covers the commits since the last full
   review, considers ``critical``, ``high`` and security, and is not counted. A restricted review
   (the last one or the verification) that reports any finding in its scope ends the stage
@@ -37,7 +40,9 @@ keeps every record. The session never names a command, a ref or a path.
   new ``attempt_id`` (a new package), at most `MAX_ATTEMPTS` in all, then ``blocked``;
   ``input_required`` gives ``blocked`` at once. The tripwire scans every attempt, a failed one
   included (standard output, the raw result, the permission denials): a decoy or a known secret
-  gives ``blocked`` at once, and a decoy also turns the schedule off. Infrastructure problems (no
+  gives ``blocked`` at once, and a decoy also turns the schedule off. A Claude worker killed at
+  its timeout or by a stop prints no result object, so a decoy it read in that attempt is not
+  seen (``--output-format json`` writes the denials only at the end). Infrastructure problems (no
   CLI, no login, a refused launch, a package whose length is wrong, a Codex decision that aborted
   the step) give ``failed``. After ``blocked``, ``failed`` or a blocking restricted review the
   service refuses new workers: the stage ends blocked.
@@ -45,24 +50,34 @@ keeps every record. The session never names a command, a ref or a path.
   revision, the retained contract, the client, the raw structured output with its SHA-256, the
   validation response, the covered range and head, the verdict), masked with the run's known
   secrets; the run record's ``workers`` list gets a summary of each finished task and its
-  ``clients`` list each Codex decision. An accepted review or verification writes
-  ``<run_dir>/validated-review.json`` (with its kind, number, restriction, ``clean``, ``blocked``
-  and the keys, levels and security signal of its ``medium``-or-higher findings) and an accepted
-  pre-mortem ``<run_dir>/premortem.json``, in the format `src.schedules.broker` reads
-  (`review_gate`, `validated_review_head`, `read_premortem`): the push gate opens only for a clean
-  record or one whose remaining findings are all declined ``medium`` ones without a security
-  signal. A new service removes both records and sets an earlier decision log aside: it did not
-  write them (one service per run).
+  ``clients`` list each Codex decision (both through `records.update_record`). An accepted review
+  or verification updates the **findings ledger** ``<run_dir>/findings-ledger.json`` and then
+  writes ``<run_dir>/validated-review.json`` (with its kind, number, restriction, ``clean``,
+  ``blocked`` and the keys, levels and security signal of its ``medium``-or-higher findings); an
+  accepted pre-mortem writes ``<run_dir>/premortem.json``; all in the format
+  `src.schedules.broker` reads (`review_gate`, `validated_review_head`, `read_premortem`).
+* **The ledger** holds every ``medium``-or-higher finding of every accepted review (not the
+  pre-mortem's) with the handle of the latest review that reported it. The runner carries it, not
+  the model: an entry is ``resolved`` only when a later accepted review was given it in
+  ``open-findings.json`` with a decision (``fixed`` or ``declined``) and did not report it again;
+  an undecided entry stays open whatever later reviews say, and a later report re-opens an entry
+  under the new handle. The push gate (`broker.review_gate`), and with it the pre-mortem's
+  precondition, opens only when every open entry is a ``medium`` without a security signal
+  (`gate_security_signal`) declined with a reason against its latest review. A new service
+  removes the ledger and both records and sets an earlier decision log aside: it did not write
+  them (one service per run).
 * **The session sees** only the parsed ``ReviewPayload``: the summary and each finding's severity,
   location, explanation and recommendation, each cut to a length limit, plus the finding's key
   (a hash of location and explanation). Decisions live in ``<run_dir>/worker-decisions.json``
   (the latest per key with at most `MAX_HISTORY` earlier ones, explanations cut to the session's
-  limits); a copy of the log with every accepted result's findings goes to the session's
-  read-only state copy (``worker-log.json``) for recovery after a compaction.
+  limits); a copy of the log with every accepted result's findings and the open ledger entries
+  goes to the session's read-only state copy (``worker-log.json``) for recovery after a
+  compaction. A secret a launch learns (the Codex API key of a decision) goes to ``on_known``,
+  which the run points at `broker.Broker.add_known`.
 """
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 import contextlib
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -116,6 +131,10 @@ CLAUDE_FALLBACK = {"model": "opus", "effort": "high"}
 WORK_DIR = "workers"
 STATE_NAME = "workers.json"
 DECISIONS_NAME = broker_records.DECISIONS_RECORD  # "worker-decisions.json", read by the push gate
+LEDGER_NAME = broker_records.LEDGER_RECORD  # "findings-ledger.json", read by the push gate
+OPEN_NAME = "open-findings.json"  # the materials file of a later review: the open ledger entries
+OPEN, RESOLVED = "open", "resolved"
+LEVELS = ("info", "low", "medium", "high", "critical")
 COPY_NAME = "worker-log.json"
 LIBRARY_DIR = "empty-library"
 HANDOVER_NAME = "handover.bundle"  # the session's bundle in its exchange directory
@@ -125,6 +144,24 @@ MAX_FINDINGS_SHOWN = 50
 MAX_CRITERIA = 20
 MAX_CRITERION_CHARS = 8000
 REGRESSION = re.compile(r"(?i)\bregress\w*")
+# The gate's security signal (`gate_security_signal`): a finding of level medium that matches can
+# never be declined. Tighter than `broker.SECURITY_KEYWORDS`, which keeps pre-mortem risks local
+# and the restricted reviews' scope wide: no bare auth*, token*, leak*, sandbox*, permission*, so
+# an author line, a tokenizer, a memory leak or a sandbox module do not count.
+GATE_SECURITY = re.compile(
+    r"(?i)\b(?:secur(?:e|ed|ely|ity|ities)|insecure|secrets?|credentials?|passwords?|passphrases?|keychains?|"
+    r"(?:private|deploy|ssh|api|signing)[ _-]keys?|(?:access|api|auth|bearer|oauth|session|refresh|github)[ _-]tokens?|"
+    r"tokens?\s+(?:is\s+|are\s+|was\s+|were\s+|gets?\s+)?(?:logged|printed|exposed|leaked|disclosed)|"
+    r"(?:leak\w*|expos\w*|disclos\w*)\s+(?:of\s+)?(?:the\s+|a\s+|an\s+)?(?:\w+\s+)?(?:secrets?|credentials?|tokens?|"
+    r"passwords?)|authenticat\w*|authori[sz]ation|unauthori[sz]\w*|(?<!dependency )(?<!dependency-)inject\w*|"
+    r"exploit\w*|vulnerab\w*|cve-\d+|xss|"
+    r"csrf|ssrf|rce|(?:remote|arbitrary)[ _-](?:code|command)|(?:code|command)[ _-]execution|"
+    r"privilege[ _-]escalation|escalat\w*[ _-]privileges?|elevat\w*[ _-]privileges?|exfiltrat\w*|"
+    r"(?:path|directory)[ _-]traversal|sandbox[ _-](?:escape|bypass)\w*|(?:escap\w*|bypass\w*)\s+(?:of\s+)?(?:the\s+)?"
+    r"(?:sandbox|authentication|authori[sz]ation|permission\s+checks?)|toctou|symlink[ _-]attacks?|"
+    r"denial[ _-]of[ _-]service|ddos|redos|spoof\w*|forger(?:y|ies)|impersonat\w*|malicious\w*|attack(?:s|er|ers)?|"
+    r"tamper\w*|hijack\w*|phish\w*|untrusted|deserializ\w*|pickle|shell[ _-]injection|session[ _-]fixation|"
+    r"access[ _-]control|cryptograph\w*|encrypt\w*|decrypt\w*|decoys?|tripwire)\b")
 _SHA = re.compile(r"[0-9a-f]{40}")
 _SHA_IN_TEXT = re.compile(r"(?<![0-9a-fA-F])[0-9a-f]{40}(?![0-9a-fA-F])")
 _BUNDLE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}\.bundle")
@@ -177,9 +214,38 @@ def foreign_commits(result: ReviewResult, allowed: Iterable[str]) -> list[str]:
 
 def security_signal(item: Mapping) -> bool:
     """Whether a finding (a dict with location, explanation, recommendation) carries a security
-    keyword (`broker.SECURITY_KEYWORDS` after `broker.normalize`)."""
+    keyword (`broker.SECURITY_KEYWORDS` after `broker.normalize`): the wide rule of a pre-mortem
+    risk's ``security`` mark, which keeps the risk local (design 5.8)."""
     text = broker_records.normalize(f"{item['location']}\n{item['explanation']}\n{item['recommendation']}")
     return bool(broker_records.SECURITY_KEYWORDS.search(text))
+
+
+def gate_security_signal(item: Mapping) -> bool:
+    """The push gate's security signal of a review finding: `GATE_SECURITY` in its explanation or
+    recommendation after `broker.normalize`; the location is not read (a path names a module, not
+    a problem). A ``medium`` finding with the signal cannot be declined."""
+    text = broker_records.normalize(f"{item['explanation']}\n{item['recommendation']}")
+    return bool(GATE_SECURITY.search(text))
+
+
+def worker_dir(run_dir: Path) -> Path:
+    """``<run_dir>/workers``: the runner-owned directory of a run's workers (and of the worker
+    check, which builds its tree and materials the same way)."""
+    return private_dir(Path(run_dir) / WORK_DIR)
+
+
+def tree_path(work: Path, name: str) -> Path:
+    """The tree directory under `worker_dir`: ``tree-<pinned>`` for a run."""
+    return Path(work) / f"tree-{name}"
+
+
+def materials_path(work: Path, handle: str) -> Path:
+    """The materials directory of one task under `worker_dir`: ``<handle>/materials``."""
+    return private_dir(Path(work) / handle) / "materials"
+
+
+def _higher(one: str, two: str) -> str:
+    return max(one, two, key=lambda level: LEVELS.index(level) if level in LEVELS else len(LEVELS))
 
 
 @contextmanager
@@ -275,6 +341,7 @@ class Task:
     status: str = RUNNING
     blocked: bool = False  # an accepted restricted review with findings in its scope
     allowed: frozenset = frozenset()  # commits evidence may name (`foreign_commits`)
+    given: dict = field(default_factory=dict)  # open ledger keys in its materials -> their decision
     reason: str | None = None
     attempts: list[dict] = field(default_factory=list)
     summary: str = ""
@@ -310,7 +377,8 @@ class WorkerService:
     def __init__(self, binding: Binding, config: Mapping, launcher: Launcher, *,
                  prepare: Callable[[dict], Any] = prepare_subagent,
                  validate: Callable[[Any, Any], ValidationResponse] = validate_result,
-                 repository: mat.ReviewRepository | None = None, importer: Importer | None = None):
+                 repository: mat.ReviewRepository | None = None, importer: Importer | None = None,
+                 on_known: Callable[[Sequence[KnownSecret]], None] | None = None):
         if isinstance(importer, Handover) and importer.issue() != binding.issue:
             raise ValueError(f"the handover branch {importer.branch} is not a branch of issue #{binding.issue}")
         self.binding = binding
@@ -319,12 +387,15 @@ class WorkerService:
         self.prepare = prepare
         self.validate = validate
         self.importer = importer
+        self.on_known = on_known  # the run's `broker.Broker.add_known`: secrets a launch learned
         self.repository = repository or mat.ReviewRepository(binding.trusted)
         self.run_dir = binding.run_dir
-        self.work = private_dir(self.run_dir / WORK_DIR)
+        self.work = worker_dir(self.run_dir)
         self.library = private_dir(self.work / LIBRARY_DIR)
         self.tasks: dict[str, Task] = {}
         self.decisions: dict[str, dict] = {}
+        self.ledger: dict[str, dict] = {}  # key -> entry (`_update_ledger`)
+        self.ledger_reviews: list[dict] = []
         self.imports: list[dict] = []
         self.known: list[KnownSecret] = list(launcher.known)
         self._decide_calls = 0
@@ -334,10 +405,10 @@ class WorkerService:
         self._clear_stale()
 
     def _clear_stale(self) -> None:
-        """Remove the review and pre-mortem records and set aside a decision log that an earlier
-        service of this run wrote: their findings and decisions are not this service's, and the
-        push gate must not open on them."""
-        for name in (broker_records.REVIEW_RECORD, broker_records.PREMORTEM_RECORD):
+        """Remove the review and pre-mortem records and the findings ledger, and set aside a
+        decision log, that an earlier service of this run wrote: their findings and decisions are
+        not this service's, and the push gate must not open on them."""
+        for name in (broker_records.REVIEW_RECORD, broker_records.PREMORTEM_RECORD, LEDGER_NAME):
             with contextlib.suppress(FileNotFoundError):
                 os.unlink(self.run_dir / name)
         decisions = self.run_dir / DECISIONS_NAME
@@ -403,8 +474,8 @@ class WorkerService:
                 raise RequestRefused("the pre-mortem follows an accepted review")
             if broker_records.validated_review_head(self.run_dir) != head:
                 _, why = broker_records.review_gate(self.run_dir)
-                raise RequestRefused(f"the pre-mortem needs a clean validated review of {head} ({why}); review it "
-                                     "first, or decline its remaining medium findings")
+                raise RequestRefused(f"the pre-mortem needs a clean validated review of {head} ({why}): review it "
+                                     "first, decline open medium findings, or have a later review confirm fixes")
             number = 1 + sum(task.kind == PREMORTEM for task in self.tasks.values())
             if number > MAX_PREMORTEMS:
                 raise RequestRefused("the pre-mortem already ran for this run")
@@ -415,7 +486,8 @@ class WorkerService:
         task = self.tasks.get(str(args.get("handle")))
         if task is None:
             raise RequestRefused(f"unknown handle: {str(args.get('handle'))[:40]!r}")
-        seconds = min(int(args.get("seconds") or WAIT_MAX), WAIT_MAX)
+        asked = args.get("seconds")
+        seconds = WAIT_MAX if asked is None else max(0, min(int(asked), WAIT_MAX))
         if request is not None:
             seconds = min(seconds, max(0.0, request.remaining() - 5.0))
         end = time.monotonic() + seconds
@@ -453,7 +525,8 @@ class WorkerService:
             self._decide_calls += 1
             self._write_decisions()
             open_keys = [item["key"] for item in self._all_findings() if item["key"] not in self.decisions]
-            return {"key": key, "decision": decision, "recorded": True, "undecided": len(open_keys)}
+            return {"key": key, "decision": decision, "recorded": True, "undecided": len(open_keys),
+                    "open_findings": len(self._open_findings())}
 
     def close(self, wait: float = CLOSE_WAIT) -> None:
         """Stop running workers (their process groups are killed) and wait for their threads."""
@@ -477,8 +550,11 @@ class WorkerService:
             except repos.BundleRefused as error:
                 raise RequestRefused(f"the handed-over bundle was refused: {error.reason}") from None
             except (repos.RepositoryError, ValueError, OSError) as error:
-                raise RequestRefused(f"the handed-over bundle could not be imported: {type(error).__name__}: "
-                                     f"{str(error)[:300]}") from None
+                # The details may name runner paths: they go to the service's state, not the session.
+                self.imports.append({"error": f"{type(error).__name__}: {str(error)[:300]}", "time": _now()})
+                self._save_state()
+                raise RequestRefused(f"the handed-over bundle could not be imported ({type(error).__name__}); the "
+                                     "runner's records have the details") from None
             if imported is not None:
                 self.imports.append({"branch": imported.branch, "head": imported.head, "added": len(imported.commits),
                                      "time": _now()})
@@ -573,7 +649,7 @@ class WorkerService:
 
     def _tree(self) -> Path:
         """The tree at the run's base, written once per run."""
-        path = self.work / f"tree-{self.binding.base}"
+        path = tree_path(self.work, self.binding.base)
         with self._tree_lock:
             if not path.is_dir():
                 try:
@@ -584,7 +660,7 @@ class WorkerService:
         return path
 
     def _materials(self, task: Task) -> Path:
-        directory = private_dir(self.work / task.handle) / "materials"
+        directory = materials_path(self.work, task.handle)
         mat.remove(directory)
         pinned = self.binding.base
         task.allowed = frozenset({pinned, task.base, task.head, *self.repository.commits(pinned, task.head)})
@@ -594,11 +670,17 @@ class WorkerService:
         criteria = [clip(text, MAX_CRITERION_CHARS) for text in self.binding.criteria[:MAX_CRITERIA]]
         if criteria:
             extras["criteria.md"] = "\n\n".join(criteria) + "\n"
-        if task.followup or task.kind == PREMORTEM:
-            extras["decisions.json"] = self._decision_log()
-        if task.kind == PREMORTEM:
-            extras["reviews.json"] = [self._summary(other) for other in self.tasks.values()
-                                      if other.kind in (REVIEW, VERIFY) and other.status == ACCEPTED]
+        with self._lock:  # a consistent snapshot: decide() may run meanwhile
+            if task.followup or task.kind == PREMORTEM:
+                extras["decisions.json"] = self._decision_log()
+            if task.followup and task.kind in (REVIEW, VERIFY):
+                # What this review is given decides what its silence resolves (`_update_ledger`).
+                given = self._open_findings()
+                task.given = {item["key"]: item["decision"] for item in given}
+                extras[OPEN_NAME] = given
+            if task.kind == PREMORTEM:
+                extras["reviews.json"] = [self._summary(other) for other in self.tasks.values()
+                                          if other.kind in (REVIEW, VERIFY) and other.status == ACCEPTED]
         try:
             mat.assemble(self.repository, task.base, task.head, directory, extras, pinned=pinned)
         except BaseException:
@@ -625,21 +707,27 @@ class WorkerService:
                 "Check the acceptance criteria (criteria.md), edge cases, error handling, concurrency and platforms, "
                 "security, tests, documentation accuracy, scope creep and dead code."]
             if task.followup:
-                criteria.append("Review what changed since the last reviewed commit and check decisions.json: a "
-                                "declined critical, high or security finding stays open unless its reason holds.")
+                criteria.append(f"Review what changed since the last reviewed commit. {OPEN_NAME} lists every earlier "
+                                "finding that is still open, with its decision (null: undecided; fixed: the session "
+                                "says it is fixed; declined: with the session's reason): check each one at the head "
+                                "and report again, with its location and explanation unchanged, every one that is "
+                                "still present or whose decline reason does not hold. decisions.json holds every "
+                                "decision of the run.")
             if task.restricted == "last":
-                criteria.append("This is the last review: report only critical and high findings, security problems "
-                                "and regressions caused by the fixes; leave everything else out.")
+                criteria.append("This is the last review: report only critical and high findings, security problems, "
+                                f"regressions caused by the fixes and the findings of {OPEN_NAME} that are still "
+                                "present; leave everything else out.")
             if task.restricted == "verification":
                 criteria.append("This verification review after the pre-mortem reports only critical and high findings "
-                                "and security problems in the commits since the last full review.")
+                                "and security problems in the commits since the last full review, and the findings "
+                                f"of {OPEN_NAME} that are still present.")
         criteria.append(f"The evidence includes an item whose reference is exactly {rng}, the reviewed range, and the "
                         "findings cite evidence IDs.")
         context = [f"Reviewed range: {rng}; head {task.head}; the run's base (pinned) is {pinned}.",
                    f"The working directory is the tree at {pinned}. The materials directory {materials} holds "
                    "README.md, range.json, commits.txt and diff.patch (the reviewed range), head/ (every file that "
                    f"differs between {pinned} and the head, as it is at the head), deleted.txt and links.json, and "
-                   "where present criteria.md, decisions.json and reviews.json."]
+                   "where present criteria.md, decisions.json, open-findings.json and reviews.json."]
         return {"agent_name": self.role(task.kind), "task": text, "acceptance_criteria": criteria,
                 "task_id": task.task_id, "attempt_id": attempt_id, "context": context,
                 "scope": ["Read the working directory and the materials directory only.",
@@ -682,6 +770,8 @@ class WorkerService:
             self._close_attempt(task, number, record, FAILED, f"infra: {error}")
             raise
         self.known.extend(launch.known)
+        if launch.known and self.on_known is not None:
+            self.on_known(list(launch.known))  # e.g. the broker's outgoing-text scan learns the Codex key
         task.client_applied = launch.client_applied
         record.update(client=launch.client(), model=launch.model, effort=launch.effort, cli=launch.cli,
                       launch=launch.launch)
@@ -754,17 +844,18 @@ class WorkerService:
 
     def _accept(self, task: Task, parsed: ReviewResult, record: dict) -> None:
         findings, dropped = [], 0
-        seen = set()
+        reported: dict[str, dict] = {}  # every distinct finding, in scope or not
         for finding in parsed.result.findings:
             key = finding_key(finding.location, finding.explanation)
-            if key in seen:
+            if key in reported:
                 continue
-            seen.add(key)
+            item = {"key": key, "severity": finding.severity, "location": finding.location,
+                    "explanation": finding.explanation, "recommendation": finding.recommendation}
+            reported[key] = item
             if not self._in_scope(task, finding):
                 dropped += 1
                 continue
-            findings.append({"key": key, "severity": finding.severity, "location": finding.location,
-                             "explanation": finding.explanation, "recommendation": finding.recommendation})
+            findings.append(item)
         output = record.get("output") or {}
         accepted = {"attempt_id": record["attempt_id"], "output_sha256": output.get("sha256"),
                     "bundle_revision": record["package"]["bundle_revision"],
@@ -784,14 +875,85 @@ class WorkerService:
             if task.kind == PREMORTEM:
                 self._write_premortem(task)
             else:
+                # The ledger first: a review record without its ledger keeps the gate closed.
+                self._update_ledger(task, reported, findings)
                 write_json(self.run_dir / broker_records.REVIEW_RECORD, {
                     "validated": True, "status": "completed", "head": task.head, "base": task.base, "range": task.range,
                     "handle": task.handle, "kind": task.kind, "number": task.number, "task_id": task.task_id,
                     "restricted": task.restricted or None, "clean": not not_clean and not blocked, "blocked": blocked,
-                    "findings": [{"key": item["key"], "level": item["severity"], "security": security_signal(item)}
+                    "findings": [{"key": item["key"], "level": item["severity"], "security": gate_security_signal(item)}
                                  for item in not_clean],
                     **accepted, "written": _now()})
             self._finish(task, ACCEPTED, reason)
+
+    def _update_ledger(self, task: Task, reported: Mapping[str, dict], findings: list[dict]) -> None:
+        """Carry the accepted review ``task`` into the findings ledger and write it (under the lock).
+
+        An entry ``task`` reports again (in its scope, or out of it when it was given the entry)
+        is open under ``task``'s handle at the higher of both levels, so a decision must name the
+        new review. An open entry it was given with a decision (``fixed`` or ``declined``) and does
+        not report again is resolved. Every other entry stays as it is, an undecided one included.
+        Each new ``medium``-or-higher finding in its scope opens a new entry."""
+        in_scope = {item["key"] for item in findings}
+        repeated, resolved, added = [], [], []
+        for key, entry in self.ledger.items():
+            item = reported.get(key)
+            if item is not None and (key in in_scope or key in task.given):
+                entry.update(handle=task.handle, kind=task.kind, status=OPEN, resolved_by=None,
+                             level=_higher(entry["level"], item["severity"]),
+                             security=entry["security"] or gate_security_signal(item),
+                             recommendation=clip(item["recommendation"], LIMITS["recommendation"]))
+                entry["reported_by"] = [*entry["reported_by"], task.handle]
+                repeated.append(key)
+            elif entry["status"] == OPEN and task.given.get(key) is not None:
+                entry.update(status=RESOLVED, resolved_by=task.handle)
+                resolved.append(key)
+        for item in findings:
+            if item["severity"] in NOT_CLEAN and item["key"] not in self.ledger:
+                self.ledger[item["key"]] = {
+                    "key": item["key"], "level": item["severity"], "security": gate_security_signal(item),
+                    "handle": task.handle, "kind": task.kind, "status": OPEN, "resolved_by": None,
+                    "reported_by": [task.handle], **{name: clip(item[name], LIMITS[name]) for name in
+                                                     ("location", "explanation", "recommendation")}}
+                added.append(item["key"])
+        self.ledger_reviews.append({"handle": task.handle, "head": task.head, "given": dict(task.given),
+                                    "repeated": repeated, "resolved": resolved, "added": added, "time": _now()})
+        write_json(self.run_dir / LEDGER_NAME, records.mask({
+            "run_id": self.binding.run_id, "head": task.head, "handle": task.handle,
+            "findings": list(self.ledger.values()), "reviews": self.ledger_reviews, "written": _now()},
+            self._known_values()))
+
+    def _decision_for(self, entry: Mapping) -> dict | None:
+        """The latest decision on a ledger entry's key that names the entry's handle (the current
+        one, then its history from the newest), as `broker._declined_for` reads it; or None."""
+        logged = self.decisions.get(entry["key"])
+        if logged is None:
+            return None
+        for decision in [logged, *reversed(logged.get("history") or [])]:
+            if decision.get("handle") == entry["handle"]:
+                return decision
+        return None
+
+    def _blocks(self, entry: Mapping) -> bool:
+        """Whether a ledger entry keeps the push gate closed (`broker.review_gate`)."""
+        if entry["status"] != OPEN:
+            return False
+        decision = self._decision_for(entry)
+        declined = decision is not None and decision["decision"] == "declined" and bool(decision.get("reason"))
+        return not (declined and entry["level"] == "medium" and entry["security"] is False)
+
+    def _open_findings(self) -> list[dict]:
+        """The ledger entries that keep the push gate closed, each with its decision state: what a
+        later review gets in ``open-findings.json``."""
+        found = []
+        for entry in list(self.ledger.values()):  # a snapshot: view() reads without the lock
+            if self._blocks(entry):
+                decision = self._decision_for(entry) or {}
+                found.append({"key": entry["key"], "severity": entry["level"], "security": entry["security"],
+                              "location": entry["location"], "explanation": entry["explanation"],
+                              "recommendation": entry["recommendation"], "reported_by": entry["handle"],
+                              "decision": decision.get("decision"), "reason": decision.get("reason")})
+        return found
 
     def _in_scope(self, task: Task, finding: Any) -> bool:
         if not task.restricted or finding.severity in BLOCKING:
@@ -834,11 +996,13 @@ class WorkerService:
             self._known_values()))
 
     def _record_run(self, task: Task) -> None:
-        record = records.read_record(self.binding.run_id, self.binding.state_dir) or {}
         entry = {key: value for key, value in task.state().items() if key != "findings"}
-        earlier = [item for item in record.get("workers") or [] if item.get("handle") != task.handle]
-        record["workers"] = earlier + [entry]
-        records.write_record(self.binding.run_id, record, self.binding.state_dir, known=self._known_values())
+
+        def change(record: dict) -> None:
+            earlier = [item for item in record.get("workers") or [] if item.get("handle") != task.handle]
+            record["workers"] = earlier + [entry]
+
+        records.update_record(self.binding.run_id, change, self.binding.state_dir, known=self._known_values())
 
     def _summary(self, task: Task) -> dict:
         return {"handle": task.handle, "kind": task.kind, "number": task.number, "range": task.range,
@@ -849,12 +1013,18 @@ class WorkerService:
 
     def _finding(self, key: str) -> tuple[Task, dict] | None:
         """The latest accepted result's finding with ``key`` (a later result repeats a key when it
-        finds the same thing again; the decision applies to the latest)."""
+        finds the same thing again; the decision applies to the latest), counting a ledger entry
+        as a finding of the review its ``handle`` names (a restricted review that reported an
+        entry it was given outside its scope)."""
+        entry = self.ledger.get(key)
         for task in reversed(list(self.tasks.values())):
             if task.status == ACCEPTED:
                 for item in task.findings:
                     if item["key"] == key:
                         return task, item
+                if entry is not None and entry["handle"] == task.handle:
+                    return task, {"key": key, "severity": entry["level"], "location": entry["location"],
+                                  "explanation": entry["explanation"]}
         return None
 
     def _decision_log(self) -> list[dict]:
@@ -872,7 +1042,7 @@ class WorkerService:
         directory = private_dir(self.binding.log_copy)
         payload = {"run_id": self.binding.run_id, "written": _now(),
                    "tasks": [self.view(task) for task in self.tasks.values()],
-                   "decisions": self._decision_log()}
+                   "decisions": self._decision_log(), "open_findings": self._open_findings()}
         path = directory / COPY_NAME
         text = json.dumps(records.mask(payload, self._known_values()), ensure_ascii=False, indent=2) + "\n"
         atomic_private(path, text)
@@ -903,6 +1073,10 @@ class WorkerService:
             found["medium_or_higher"] = sum(item["severity"] in NOT_CLEAN for item in task.findings)
             if task.restricted:
                 found["blocking"] = len(task.findings)
+            if task.kind != PREMORTEM:
+                # Every finding of any review that keeps the push gate closed now (the ledger).
+                found["open_findings"] = [{name: item[name] for name in ("key", "severity", "reported_by", "decision")}
+                                          for item in self._open_findings()[:MAX_FINDINGS_SHOWN]]
         return found
 
 
@@ -915,7 +1089,8 @@ def register(registry: Registry, service: WorkerService) -> WorkerService:
                       deadline=START_DEADLINE, **session)
     registry.register("worker.premortem", service.premortem, {"head": head}, deadline=START_DEADLINE, **session)
     registry.register("worker.wait", service.wait,
-                      {"handle": Field(str, pattern=_HANDLE), "seconds": Field(int, required=False, maximum=WAIT_MAX)},
+                      {"handle": Field(str, pattern=_HANDLE),
+                       "seconds": Field(int, required=False, minimum=0, maximum=WAIT_MAX)},
                       deadline=WAIT_DEADLINE, **session)
     registry.register("worker.decide", service.decide,
                       {"key": Field(str, pattern=_KEY), "decision": Field(str, pattern=_DECISION),
