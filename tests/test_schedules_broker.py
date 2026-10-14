@@ -357,6 +357,13 @@ def test_trusted_git_check_reads_the_lists_at_the_pinned_commit(tmp_path):
         verdict = trusted.check(base, head, {"autodev:next"})
         assert [refusal.reason for refusal in verdict.refusals] == [Reason.CONTROL_PATH]
     assert [refusal.reason for refusal in trusted.check(allowed, base, ()).refusals] == [Reason.NOT_DESCENDANT]
+    # A resume run bound to a merge base still reads the lists at pinned (#347): here a later
+    # commit whose control list no longer names CLAUDE.md, while the lists at `base` refuse it.
+    git("checkout", "-q", "-b", "relisted", base)
+    relisted = commit(".github/autodev-control-paths", "OTHER.md\n", "Another control list")
+    later = broker_module.TrustedGit(repository, lists_at=relisted)
+    assert later.check(base, control, {"autodev:next"}).allowed
+    assert not broker_module.TrustedGit(repository).check(base, control, {"autodev:next"}).allowed
 
 
 # --- PRs -----------------------------------------------------------------------------------------------

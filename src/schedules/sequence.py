@@ -323,7 +323,7 @@ class Sequence:
             return self.broker
         self._plant()
         trusted = self._trusted()
-        git = broker_module.TrustedGit(trusted.path, runner=self.ctx.push_runner)
+        git = broker_module.TrustedGit(trusted.path, runner=self.ctx.push_runner, lists_at=self.pinned)
         run = broker_module.Run(self.run_id, self.repository, None, base, mode)
 
         def pr_allowed() -> str | None:
