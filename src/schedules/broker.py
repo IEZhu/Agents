@@ -447,6 +447,14 @@ def _read_credentials(credentials: Credentials | None,
     return missing, token, key
 
 
+def credential_values(credentials: Credentials | None,
+                      key_reader: Callable[[Path], bytes] = Path.read_bytes) -> dict[str, str]:
+    """The token (``broker token``) and the deploy key's text (``deploy key``) that can be read, for
+    the run sequence's scans and record masking; never written anywhere."""
+    _, token, key = _read_credentials(credentials, key_reader)
+    return {label: value for label, value in (("broker token", token), ("deploy key", key)) if value}
+
+
 def credential_problems(credentials: Credentials | None,
                         key_reader: Callable[[Path], bytes] = Path.read_bytes) -> list[str]:
     """The credentials a real run lacks, by name (the deploy key, the pinned host keys, the API
@@ -457,14 +465,16 @@ def credential_problems(credentials: Credentials | None,
 
 def ssh_command(deploy_key: Path, known_hosts: Path) -> str:
     """``GIT_SSH_COMMAND`` of the push: no ssh configuration, only the deploy key, pinned host keys
-    (no global known-hosts file), and no prompt. ssh splits ``UserKnownHostsFile`` at whitespace, so
-    a path with whitespace is refused (`ValueError`)."""
+    (no global known-hosts file), no prompt, and no connection sharing (``ControlMaster=no``,
+    ``ControlPath=none``): a shared master would detach from the run and outlive the supervisor's
+    sweep (docs/autodev-runner.md). ssh splits ``UserKnownHostsFile`` at whitespace, so a path with
+    whitespace is refused (`ValueError`)."""
     if _whitespace(deploy_key) or _whitespace(known_hosts):
         raise ValueError("the deploy key and the host keys need a path without whitespace")
     return " ".join(["ssh", "-F", "/dev/null", "-i", shlex.quote(str(deploy_key)), "-o", "IdentitiesOnly=yes",
                      "-o", "IdentityAgent=none", "-o", f"UserKnownHostsFile={shlex.quote(str(known_hosts))}",
                      "-o", "GlobalKnownHostsFile=/dev/null", "-o", "StrictHostKeyChecking=yes",
-                     "-o", "BatchMode=yes"])
+                     "-o", "BatchMode=yes", "-o", "ControlMaster=no", "-o", "ControlPath=none"])
 
 
 def push_url(repository: str) -> str:

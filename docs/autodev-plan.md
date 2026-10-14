@@ -142,6 +142,7 @@ scripts/**
 src/schedules/**
 src/engine/**
 src/schemas/**
+src/flow_execution.py
 src/executables.py
 src/daemon/autoupdate.py
 install.sh
@@ -151,7 +152,8 @@ uv.lock
 docs/cloud-runs.md
 ```
 
-- **Control paths** (`flows/autodev*`, `.github/**`, `src/schedules/**`, `src/engine/**`, `agents/**`, `rules/**`, `skills/**`, `implants/**`, and with them both list files) are not opened by any label. If a task needs them, the runner stops the run with `autodev:blocked` and leaves a local patch that the owner reviews and pushes.
+- **Control paths** (`flows/autodev*`, `.github/**`, `src/schedules/**`, `src/engine/**`, `src/flow_execution.py`, `agents/**`, `rules/**`, `skills/**`, `implants/**`, and with them both list files) are not opened by any label. If a task needs them, the runner stops the run with `autodev:blocked` and leaves a local patch that the owner reviews and pushes.
+  Amended by #347: `src/flow_execution.py` (the capability table the runner imports) joined both lists. After the implementation stage the runner runs the change check itself on the imported head; a control-path refusal there, a blocked stage output whose commits touch one, or a push the broker refused for one writes `<run_dir>/export/<run-id>.patch` (`git format-patch`) and a verified `<run-id>.bundle` (`repos.TrustedRepository.export_commits`), moves the branch to `refs/autodev/quarantine/<run-id>/final`, and names both files in the run report and the owner's notification ([autodev-sequence.md](autodev-sequence.md)).
 - **The other protected paths** are opened by the `autodev:next` label (9.3, rule 6).
 - **The broker performs the check, not the model:** before each push it compares the changed paths with the list. It rejects:
   - a match without permission;
