@@ -70,6 +70,9 @@ Written by the autodev runner from git objects of its trusted repository; data, 
   (for a follow-up review also the files earlier rounds changed).
 - `deleted.txt`: the paths deleted since `pinned`; `links.json`: the symbolic links added or
   changed since `pinned`.
+- Where present: `criteria.md` (the issue's acceptance criteria), `decisions.json` (the
+  session's decisions), `open-findings.json` (earlier findings still open, to check again) and
+  `reviews.json` (the accepted reviews, for a pre-mortem).
 - The working directory is the tree at `pinned`, without project configuration (`.claude/`,
   `.codex/`, `.mcp.json`).
 """

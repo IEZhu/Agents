@@ -58,8 +58,11 @@ into ``permission_denials`` with its input) and prints one ``result`` object who
 ``structured_output`` is `fake_worker.build` of the outcome for this attempt: ``outcomes`` (a
 list, one per start, counted in the ``counter`` file; the last repeats) or ``outcome``. An outcome
 may also set ``subtype``, ``is_error``, ``exit``, ``no_output`` (no ``structured_output``),
-``structured`` (that object as the ``structured_output``) and ``echo_reads`` (what the calls read
-becomes the summary and the result text); ``sleep`` delays the answer.
+``structured`` (that object as the ``structured_output``), ``echo_reads`` (what the calls read
+becomes the summary and the result text), ``probe_answer`` (the worker check's answer: the
+``structured_output`` is ``{"verdict": "ok"}`` with each ``autodev-worker-probe-<tree|materials>-…``
+line the calls read under its kind) and ``pad`` (characters of filler in the result object, for
+the output cap); ``sleep`` delays the answer.
 """
 import fnmatch
 import json
@@ -330,7 +333,15 @@ def worker():
         outcome["summary"] = result_text = "\n".join(reads)
     event = {"type": "result", "subtype": outcome.get("subtype", "success"), "is_error": outcome.get("is_error", False),
              "result": result_text, "permission_denials": denials}
-    if "structured" in outcome:
+    if outcome.get("pad"):
+        event["padding"] = "x" * outcome["pad"]
+    if outcome.get("probe_answer"):
+        answer = {"verdict": "ok"}
+        for text in reads:
+            for match in re.finditer(r"autodev-worker-probe-(tree|materials)-[0-9a-f]+", text):
+                answer[match[1]] = match[0]
+        event["structured_output"] = answer
+    elif "structured" in outcome:
         event["structured_output"] = outcome["structured"]
     elif not outcome.get("no_output"):
         event["structured_output"] = fake_worker.build(text, outcome)

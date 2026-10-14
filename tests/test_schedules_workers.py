@@ -127,14 +127,14 @@ class World:
         return package
 
     def service(self, settings=None, *, criteria=("Workers are validated against the retained contract.",),
-                prepare=None, importer=None, **options) -> WorkerService:
+                prepare=None, importer=None, on_known=None, **options) -> WorkerService:
         binding = Binding(RUN_ID, ISSUE, self.repo.base, self.repo.trusted, self.state, log_copy=self.copy_dir,
                           criteria=criteria)
         options.setdefault("command_runner", keychain)
         launcher = worker_launch.Launcher(claude=self.claude, path=PATH, home=self.home, state_dir=self.state,
                                           run_id=RUN_ID, decoys=self.planted, **options)
         return WorkerService(binding, settings or config(), launcher, prepare=prepare or self.prepare,
-                             importer=importer)
+                             importer=importer, on_known=on_known)
 
     @property
     def run_dir(self) -> Path:
@@ -413,6 +413,9 @@ def test_a_decoy_marker_in_the_output_blocks_and_trips(world):
     state = finish(service, service.review({"head": head}))
     assert state["status"] == "blocked" and "carries decoy" in state["reason"]
     assert decoy.marker not in (world.run_dir / workers.STATE_NAME).read_text()
+    [record] = attempt_records(world, "review-1")  # the output is withheld: only its digest stays
+    assert "raw" not in record["output"] and "names a decoy" in record["output"]["withheld"]
+    assert len(record["output"]["sha256"]) == 64
 
 
 # --- the review policy -----------------------------------------------------------------------------
@@ -447,6 +450,11 @@ def test_follow_up_effort_and_the_restricted_last_review(world):
     second_materials = world.run_dir / "workers" / "review-2" / "materials"
     logged = json.loads((second_materials / "decisions.json").read_text())
     assert {entry["key"]: entry["decision"] for entry in logged} == {keys[1]: "declined", keys[0]: "fixed"}
+    # The open ledger entries with their decision state; the declined docstring medium left it.
+    given = json.loads((second_materials / workers.OPEN_NAME).read_text())
+    assert {item["key"]: item["decision"] for item in given} == {keys[0]: "fixed", keys[2]: None}
+    assert "open-findings.json lists every earlier finding" in " ".join(
+        item.description for item in world.packages[1].contract.acceptance_criteria)
 
     third_head = head_of(world)
     third = finish(service, service.review({"head": third_head}))
@@ -490,7 +498,7 @@ def test_the_premortem_and_the_verification_review(world):
         service.premortem({"head": head})
     review = finish(service, service.review({"head": head}))
     assert review["status"] == "accepted" and review["medium_or_higher"] == 1
-    with pytest.raises(RequestRefused, match="needs a clean validated review .* is neither fixed .* nor declined"):
+    with pytest.raises(RequestRefused, match="needs a clean validated review .* is neither declined nor resolved"):
         service.premortem({"head": head})
     service.decide({"key": review["findings"][0]["key"], "decision": "declined", "reason": "Docstrings are optional."})
     assert broker.validated_review_head(world.run_dir) == head  # a declined medium opens the gate
@@ -502,6 +510,8 @@ def test_the_premortem_and_the_verification_review(world):
     assert world.packages[-1].contract.task.startswith("Pre-mortem of the change")
     reviews = json.loads((world.run_dir / "workers" / "premortem-1" / "materials" / "reviews.json").read_text())
     assert [item["handle"] for item in reviews] == ["review-1"]
+    with pytest.raises(RequestRefused, match="the pre-mortem already ran"):  # MAX_PREMORTEMS
+        service.premortem({"head": head})
     risks = broker.read_premortem(world.run_dir)
     key = workers.finding_key("src/app.py:3", "The token is logged in plain text.")
     assert risks[key].level == "medium" and risks[key].security is True
@@ -546,6 +556,11 @@ def test_records_in_the_brokers_format_and_the_run_record(world):
     assert review["clean"] is False and review["blocked"] is False
     assert review["findings"] == [{"key": workers.finding_key("src/app.py:2", "run() returns a constant."),
                                    "level": "high", "security": False}]
+    ledger = json.loads((world.run_dir / workers.LEDGER_NAME).read_text())
+    assert (ledger["head"], ledger["handle"]) == (head, "review-1")
+    [entry] = ledger["findings"]
+    assert (entry["key"], entry["level"], entry["status"], entry["handle"]) == (review["findings"][0]["key"], "high",
+                                                                                "open", "review-1")
     [record] = attempt_records(world, "review-1")
     package = world.packages[-1]
     assert record["package"]["bundle_revision"] == package.contract.bundle_revision
@@ -599,7 +614,7 @@ def test_registered_types_are_session_bound_and_wait_in_portions(world):
     too_long = registry.handle(json.dumps({"type": "worker.wait", "args": {"handle": "review-1",
                                                                           "seconds": workers.WAIT_MAX + 1}}).encode(),
                                Connection(4242), **SESSION)
-    assert too_long["ok"] is False and "between 1 and 540" in too_long["error"]
+    assert too_long["ok"] is False and "between 0 and 540" in too_long["error"]  # 0 polls
     done = registry.handle(json.dumps({"type": "worker.wait", "args": {"handle": "review-1"}}).encode(),
                            Connection(4242), **SESSION)
     assert done["ok"] and done["result"]["status"] == "accepted"
@@ -694,13 +709,13 @@ def test_the_codex_schema_only_relaxes():
     assert any("Artifact.properties: names other entries" in item for item in problems)
 
 
-def codex_world(world: World, scenario: dict):
+def codex_world(world: World, scenario: dict, **service_options):
     codex = fake_codex(world.base / "codex", {"seen": str(world.base / "codex-seen.jsonl"), **scenario})
     settings = config()
     settings["delegates"]["code-review-pass"] = {"client": "codex", "codex": {"model": "gpt-6.1-sol", "effort": "high"},
                                                  "effort_followup": "medium"}
     service = world.service(settings, codex=codex, codex_login=MODE, platform="darwin",
-                            codex_execute=Emulator(codex), codex_resolver=lambda host: TEST_NET)
+                            codex_execute=Emulator(codex), codex_resolver=lambda host: TEST_NET, **service_options)
     return codex, service
 
 
@@ -832,7 +847,7 @@ def handover_service(world: World, tmp_path: Path, **options):
     return exchange, world.service(importer=importer, **options)
 
 
-def test_p1_a_review_imports_the_handed_over_bundle_first(world, tmp_path):
+def test_a_review_imports_the_handed_over_bundle_first(world, tmp_path):
     exchange, service = handover_service(world, tmp_path)
     sha = world.repo.commit({"src/app.py": "def run():\n    return 7\n"}, "handed over")  # never promoted by hand
     with pytest.raises(RequestRefused, match="not the head of an imported"):
@@ -850,7 +865,7 @@ def test_p1_a_review_imports_the_handed_over_bundle_first(world, tmp_path):
     assert finish(service, service.premortem({"head": second}))["status"] == "accepted"  # same bundle, no change
 
 
-def test_p1_a_refused_bundle_starts_no_review(world, tmp_path):
+def test_a_refused_bundle_starts_no_review(world, tmp_path):
     exchange, service = handover_service(world, tmp_path)
     sha = world.repo.commit({"src/app.py": "x = 1\n"}, "other branch")
     handover(world, exchange, sha, branch="claude/autodev-345-other")
@@ -863,7 +878,7 @@ def test_p1_a_refused_bundle_starts_no_review(world, tmp_path):
     assert materials.ReviewRepository(world.repo.trusted).branch_tips(ISSUE) == {}
 
 
-def test_p1_a_head_that_is_not_the_bundles_is_refused(world, tmp_path):
+def test_a_head_that_is_not_the_bundles_is_refused(world, tmp_path):
     exchange, service = handover_service(world, tmp_path)
     first = world.repo.commit({"src/app.py": "x = 1\n"}, "first")
     later = world.repo.commit({"src/app.py": "x = 2\n"}, "later, not handed over")
@@ -889,7 +904,7 @@ def _fall_back(*args, **kwargs):
                                  known=(KnownSecret(codex_probes.API_KEY_LABEL, KEY),))
 
 
-def test_p2_a_codex_abort_fails_the_step_and_runs_no_client(world):
+def test_a_codex_abort_fails_the_step_and_runs_no_client(world):
     started = []
     codex, service = codex_world(world, {})
     service.launcher.codex_decide = _abort
@@ -905,7 +920,7 @@ def test_p2_a_codex_abort_fails_the_step_and_runs_no_client(world):
         service.review({"head": head_of(world)})
 
 
-def test_p2_a_codex_fallback_runs_the_claude_worker(world):
+def test_a_codex_fallback_runs_the_claude_worker(world):
     codex, service = codex_world(world, {})
     service.launcher.codex_decide = _fall_back
     state = finish(service, service.review({"head": head_of(world)}), seconds=120)
@@ -915,7 +930,7 @@ def test_p2_a_codex_fallback_runs_the_claude_worker(world):
     assert any(secret.value == KEY for secret in service.known)
 
 
-def test_p3_a_failed_run_with_a_decoy_denial_trips(world):
+def test_a_failed_run_with_a_decoy_denial_trips(world):
     head = head_of(world)
     decoy = next(item for item in world.planted if item.path is not None)
     world.scenario({"calls": [{"tool": "Read", "input": {"file_path": str(decoy.path)}}],
@@ -927,7 +942,7 @@ def test_p3_a_failed_run_with_a_decoy_denial_trips(world):
     assert (world.state / "schedules" / decoys.TRIPWIRE_NAME).exists()
 
 
-def test_p3_a_failed_run_whose_text_carries_a_decoy_marker_trips(world):
+def test_a_failed_run_whose_text_carries_a_decoy_marker_trips(world):
     head = head_of(world)
     decoy = next(item for item in world.planted if item.path is not None)
     world.scenario({"calls": [{"tool": "Read", "input": {"file_path": str(decoy.path)}}],
@@ -948,7 +963,7 @@ def test_p3_a_failed_run_whose_text_carries_a_decoy_marker_trips(world):
     ({"severity": "high", "location": "src/app.py:2", "explanation": "run() returns a constant."}, "declined", False),
     ({"severity": "medium", "location": "src/app.py:3", "explanation": "The token is logged."}, "declined", False),
 ])
-def test_p4_the_push_gate_follows_the_review_and_the_decisions(world, finding, decision, opens):
+def test_the_push_gate_follows_the_review_and_the_decisions(world, finding, decision, opens):
     world.scenario({"outcome": {"findings": [finding] if finding else []}})
     service = world.service()
     head = head_of(world)
@@ -961,7 +976,7 @@ def test_p4_the_push_gate_follows_the_review_and_the_decisions(world, finding, d
     assert record["clean"] is (finding is None) and record["blocked"] is False
 
 
-def test_p4_a_blocked_last_review_keeps_the_gate_closed(world):
+def test_a_blocked_last_review_keeps_the_gate_closed(world):
     high = {"severity": "high", "location": "src/app.py:2", "explanation": "run() returns a constant."}
     world.scenario({"outcomes": [{}, {"findings": [high]}]})
     settings = config(limits={**autodev_config.DEFAULTS["limits"], "max_reviews": 2})
@@ -979,7 +994,7 @@ def test_p4_a_blocked_last_review_keeps_the_gate_closed(world):
         service.premortem({"head": second})
 
 
-def test_p5_a_follow_up_review_sees_files_earlier_rounds_changed(world):
+def test_a_follow_up_review_sees_files_earlier_rounds_changed(world):
     service = world.service()
     first = head_of(world, {"src/new_module.py": "VALUE = 1\n"}, "round 1 adds a module")
     assert finish(service, service.review({"head": first}))["status"] == "accepted"
@@ -1000,42 +1015,61 @@ def _probe_context(world: World) -> runner.Context:
                           home=world.home, command_runner=keychain, agents_dir=world.base / "LaunchAgents")
 
 
-def test_p6_the_worker_probe_refuses_without_confirmation(world, capsys):
-    world.scenario({"stdin_calls": True, "outcome": {"structured": runner.WORKER_PROBE_RESULT}})
+PROBE_ANSWER = {"stdin_calls": True, "outcome": {"probe_answer": True}}
+
+
+def test_the_worker_probe_refuses_without_confirmation(world, capsys):
+    world.scenario(PROBE_ANSWER)
     assert cli.main(["worker-probe"], ctx=_probe_context(world)) == 1
     output = json.loads(capsys.readouterr().out)
     assert output["error"] == "confirmation_required" and runner.PROBE_CONFIRMATION in output["message"]
     assert world.seen() == []
 
 
-def test_p6_the_worker_probe_passes_with_a_denied_read(world, capsys):
-    world.scenario({"stdin_calls": True, "outcome": {"structured": runner.WORKER_PROBE_RESULT}})
+def test_the_worker_probe_reads_inside_and_is_denied_outside(world, capsys):
+    world.scenario(PROBE_ANSWER)
     code = cli.main(["worker-probe", runner.PROBE_CONFIRMATION], ctx=_probe_context(world))
     output = json.loads(capsys.readouterr().out)
     assert code == 0 and output["status"] == "completed", output
     check = output["worker_check"]
     assert check["ok"] and check["structured_output"] and (check["denials"], check["denied_outside"]) == (1, 1)
+    assert check["read_tree"] is True and check["read_materials"] is True
     [call] = world.seen()
     argv = call["argv"]
     assert argv[:3] == ["-p", "--restricted", "--safe-mode"] and "--json-schema" in argv
     assert json.loads(argv[argv.index("--json-schema") + 1]) == runner.WORKER_PROBE_SCHEMA
-    assert '{"tool": "Read"' in call["stdin"] and output["trigger"] == {"kind": "worker-probe"}
+    assert call["stdin"].count('{"tool": "Read"') == 3 and output["trigger"] == {"kind": "worker-probe"}
+    # The layout of a real review: the tree and the materials under <run_dir>/workers/ of the state.
+    work = records.run_dir(output["run_id"], world.state) / workers.WORK_DIR
+    assert call["cwd"] == str(work / f"tree-{runner.WORKER_PROBE_STEP}")
+    assert argv[argv.index("--add-dir") + 1] == str(work / runner.WORKER_PROBE_STEP / "materials")
+    assert not (work / f"tree-{runner.WORKER_PROBE_STEP}").exists()  # removed after the check
+    assert not (work / runner.WORKER_PROBE_STEP / "materials").exists()
+    assert not (work / runner.WORKER_PROBE_STEP / "outside.txt").exists()
 
 
 @pytest.mark.parametrize("scenario, problem", [
-    ({"allow_paths": ["probe.txt"]}, "no Read outside the tree was denied"),
+    ({"allow_paths": ["outside.txt"]}, "no Read outside the tree was denied"),
+    ({"allow_paths": ["outside.txt"], "outcome": {"echo_reads": True, "probe_answer": True}},
+     "the file outside the tree reached the output"),
     ({"calls": [{"tool": "Read", "input": {"file_path": "/etc/hosts"}}]}, "1 other tool call(s) were denied"),
     ({"outcome": {"no_output": True, "subtype": "error_max_structured_output_retries", "is_error": True}},
      "ended without a result"),
+    ({"deny_paths": ["tree-worker-probe"]}, "the Read inside the tree did not return its file"),
+    ({"deny_paths": ["worker-probe/materials"]}, "the Read inside the materials did not return its file"),
+    ({"error_paths": ["tree-worker-probe"]}, "the Read inside the tree did not return its file"),
+    ({"outcome": {"structured": {"verdict": "ok", "tree": "a guess", "materials": "a guess"}}},
+     "the Read inside the tree did not return its file"),
+    ({"outcome": {"structured": {"verdict": "ok"}}}, "the structured_output is not the probe's result"),
 ])
-def test_p6_the_worker_probe_fails_when_the_worker_misbehaves(world, capsys, scenario, problem):
-    world.scenario({"stdin_calls": True, "outcome": {"structured": runner.WORKER_PROBE_RESULT}, **scenario})
+def test_the_worker_probe_fails_when_the_worker_misbehaves(world, capsys, scenario, problem):
+    world.scenario({**PROBE_ANSWER, **scenario})
     assert cli.main(["worker-probe", runner.PROBE_CONFIRMATION], ctx=_probe_context(world)) == 1
     output = json.loads(capsys.readouterr().out)
     assert output["status"] == "refused" and problem in output["reason"], output
 
 
-def test_p7_an_unknown_premortem_role_fails_the_task(world):
+def test_an_unknown_premortem_role_fails_the_task(world):
     settings = config()
     settings["delegates"]["change-premortem"]["role"] = "no_such_agent"
     service = world.service(settings)
@@ -1045,7 +1079,7 @@ def test_p7_an_unknown_premortem_role_fails_the_task(world):
     assert state["status"] == "failed" and "could not be prepared" in state["reason"], state
 
 
-def test_p7_the_premortem_needs_a_validated_review_of_its_head(world):
+def test_the_premortem_needs_a_validated_review_of_its_head(world):
     service = world.service()
     first = head_of(world)
     assert finish(service, service.review({"head": first}))["status"] == "accepted"
@@ -1054,7 +1088,7 @@ def test_p7_the_premortem_needs_a_validated_review_of_its_head(world):
         service.premortem({"head": second})
 
 
-def test_p7_a_single_review_is_unrestricted_and_the_cap_holds(world):
+def test_a_single_review_is_unrestricted_and_the_cap_holds(world):
     settings = config(limits={**autodev_config.DEFAULTS["limits"], "max_reviews": 1})
     world.scenario({"outcome": {"findings": FINDINGS[1:2]}})
     service = world.service(settings)
@@ -1064,7 +1098,7 @@ def test_p7_a_single_review_is_unrestricted_and_the_cap_holds(world):
         service.review({"head": head_of(world)})
 
 
-def test_p8_the_decision_history_is_bounded_and_the_log_clipped(world):
+def test_the_decision_history_is_bounded_and_the_log_clipped(world):
     long = "y" * 3000
     world.scenario({"outcome": {"findings": [{"severity": "medium", "location": "a.py:1", "explanation": long}]}})
     service = world.service()
@@ -1080,7 +1114,7 @@ def test_p8_the_decision_history_is_bounded_and_the_log_clipped(world):
     assert long not in (world.copy_dir / workers.COPY_NAME).read_text()
 
 
-def test_p8_evidence_naming_another_head_is_refused_beside_the_range(world):
+def test_evidence_naming_another_head_is_refused_beside_the_range(world):
     service = world.service()
     inner = world.repo.commit({"src/app.py": "x = 1\n"}, "inner commit")
     head = head_of(world)
@@ -1098,7 +1132,7 @@ def test_p8_evidence_naming_another_head_is_refused_beside_the_range(world):
     assert finish(again, again.review({"head": head}))["status"] == "accepted"
 
 
-def test_p8_the_tree_leaves_out_project_configuration(world, tmp_path):
+def test_the_tree_leaves_out_project_configuration(world, tmp_path):
     sha = world.repo.promote(world.repo.commit({".claude/settings.json": '{"hooks": {}}\n', ".mcp.json": "{}\n",
                                                 "sub/.Claude/agents/x.md": "x\n", ".codex/config.toml": "x\n",
                                                 "src/kept.py": "kept = 1\n"}, "project config"))
@@ -1109,7 +1143,7 @@ def test_p8_the_tree_leaves_out_project_configuration(world, tmp_path):
     assert not (tmp_path / "t" / ".mcp.json").exists() and not (tmp_path / "t" / "sub" / ".Claude").exists()
 
 
-def test_p8_a_tree_with_project_settings_never_starts_the_worker(world):
+def test_a_tree_with_project_settings_never_starts_the_worker(world):
     service = world.service()
     tree = service._tree()
     (tree / ".claude").mkdir()
@@ -1118,7 +1152,7 @@ def test_p8_a_tree_with_project_settings_never_starts_the_worker(world):
     assert state["status"] == "failed" and "project settings" in state["reason"] and world.seen() == []
 
 
-def test_p8_a_new_service_clears_records_it_did_not_write(world):
+def test_a_new_service_clears_records_it_did_not_write(world):
     first = world.service()
     head = head_of(world)
     world.scenario({"outcome": {"findings": FINDINGS[1:2]}})
@@ -1129,11 +1163,12 @@ def test_p8_a_new_service_clears_records_it_did_not_write(world):
     world.service()  # a second service of the same run: a restart
     assert broker.validated_review_head(world.run_dir) is None
     assert not (world.run_dir / broker.REVIEW_RECORD).exists() and not (world.run_dir / broker.PREMORTEM_RECORD).exists()
+    assert not (world.run_dir / workers.LEDGER_NAME).exists()
     assert not (world.run_dir / workers.DECISIONS_NAME).exists()
     assert len(list(world.run_dir.glob("worker-decisions-before-*.json"))) == 1  # set aside, not lost
 
 
-def test_p8_read_bounded_refuses_a_fifo_and_a_hard_link(tmp_path):
+def test_read_bounded_refuses_a_fifo_and_a_hard_link(tmp_path):
     fifo = tmp_path / "fifo"
     os.mkfifo(fifo)
     began = time.monotonic()
@@ -1147,3 +1182,205 @@ def test_p8_read_bounded_refuses_a_fifo_and_a_hard_link(tmp_path):
     large.write_bytes(b"too large")
     with pytest.raises(worker_launch.OutputTooLarge):
         worker_launch.read_bounded(large, 2)
+
+
+# --- the findings ledger and the gate's security signal (review round 2) ----------------------------
+
+CRITICAL = {"severity": "critical", "location": "src/app.py:2", "explanation": "run() deletes data."}
+
+
+def ledger_entry(world: World, key: str) -> dict:
+    entries = json.loads((world.run_dir / workers.LEDGER_NAME).read_text())["findings"]
+    return next(item for item in entries if item["key"] == key)
+
+
+def given_to(world: World, handle: str) -> list[dict]:
+    return json.loads((world.run_dir / "workers" / handle / "materials" / workers.OPEN_NAME).read_text())
+
+
+def test_an_undecided_finding_keeps_the_gate_closed_after_a_clean_follow_up(world):
+    # Round 2's reproduction: a critical in review 1, no decision, an unrelated commit, a clean review 2.
+    world.scenario({"outcomes": [{"findings": [CRITICAL]}, {}]})
+    service = world.service()
+    one = finish(service, service.review({"head": head_of(world)}))
+    key = one["findings"][0]["key"]
+    assert broker.validated_review_head(world.run_dir) is None
+    second = head_of(world, {"docs/x.md": "x\n"}, "unrelated")
+    two = finish(service, service.review({"head": second}))
+    assert two["status"] == "accepted" and two["findings"] == []
+    # Review 2 was given the finding, undecided; its silence does not resolve an undecided finding.
+    assert [(item["key"], item["severity"], item["decision"]) for item in given_to(world, "review-2")] == \
+        [(key, "critical", None)]
+    head, why = broker.review_gate(world.run_dir)
+    assert head is None and f"finding {key} (critical) of review-1 stays open" in why
+    assert ledger_entry(world, key)["status"] == "open"
+    assert two["open_findings"] == [{"key": key, "severity": "critical", "reported_by": "review-1", "decision": None}]
+    with pytest.raises(RequestRefused, match="needs a clean validated review"):
+        service.premortem({"head": second})
+    copied = json.loads((world.copy_dir / workers.COPY_NAME).read_text())
+    assert [item["key"] for item in copied["open_findings"]] == [key]
+
+
+def test_a_fixed_finding_leaves_the_ledger_only_when_the_next_review_does_not_repeat_it(world):
+    world.scenario({"outcomes": [{"findings": [FINDINGS[0], CRITICAL]}, {"findings": [CRITICAL]}, {}]})
+    service = world.service()
+    one = finish(service, service.review({"head": head_of(world)}))
+    high, critical = (item["key"] for item in one["findings"])
+    for key in (high, critical):
+        service.decide({"key": key, "decision": "fixed"})
+    assert broker.validated_review_head(world.run_dir) is None  # a fix needs a later review
+    two = finish(service, service.review({"head": head_of(world)}))
+    assert {item["key"]: item["decision"] for item in given_to(world, "review-2")} == {high: "fixed", critical: "fixed"}
+    # The high one is not reported again: resolved. The critical one is: open under review 2, undecided there.
+    assert (ledger_entry(world, high)["status"], ledger_entry(world, high)["resolved_by"]) == ("resolved", "review-2")
+    entry = ledger_entry(world, critical)
+    assert (entry["status"], entry["handle"], entry["reported_by"]) == ("open", "review-2", ["review-1", "review-2"])
+    assert two["open_findings"] == [{"key": critical, "severity": "critical", "reported_by": "review-2",
+                                     "decision": None}]
+    assert broker.validated_review_head(world.run_dir) is None
+    service.decide({"key": critical, "decision": "fixed"})
+    assert service.decisions[critical]["handle"] == "review-2"
+    third = head_of(world)
+    three = finish(service, service.review({"head": third}))
+    assert three["restricted"] == "last" and "stage_blocked" not in three
+    assert ledger_entry(world, critical)["status"] == "resolved"
+    assert broker.review_gate(world.run_dir) == (third, "clean")
+
+
+def test_a_declined_medium_leaves_the_ledger_and_a_declined_high_waits_for_the_next_review(world):
+    world.scenario({"outcomes": [{"findings": FINDINGS[:2]}, {}]})
+    service = world.service()
+    one = finish(service, service.review({"head": head_of(world)}))
+    high, medium = (item["key"] for item in one["findings"])
+    service.decide({"key": medium, "decision": "declined", "reason": "Docstrings are optional here."})
+    service.decide({"key": high, "decision": "declined", "reason": "The constant is intended."})
+    head, why = broker.review_gate(world.run_dir)
+    assert head is None and f"finding {high} (high) of review-1 stays open" in why  # a declined high stays
+    second = head_of(world)
+    finish(service, service.review({"head": second}))
+    # The declined medium left the ledger: review 2 gets only the declined high, with its reason.
+    assert [(item["key"], item["decision"], item["reason"]) for item in given_to(world, "review-2")] == \
+        [(high, "declined", "The constant is intended.")]
+    assert ledger_entry(world, high)["status"] == "resolved"  # review 2 accepted the reason
+    assert ledger_entry(world, medium)["status"] == "open"  # declined against review 1
+    assert broker.review_gate(world.run_dir) == (second, "every remaining medium finding was declined")
+
+
+def test_a_last_review_that_repeats_an_open_medium_keeps_it_open_without_blocking(world):
+    settings = config(limits={**autodev_config.DEFAULTS["limits"], "max_reviews": 2})
+    world.scenario({"outcome": {"findings": FINDINGS[1:2]}})
+    service = world.service(settings)
+    one = finish(service, service.review({"head": head_of(world)}))
+    key = one["findings"][0]["key"]
+    service.decide({"key": key, "decision": "fixed"})
+    second = head_of(world)
+    last = finish(service, service.review({"head": second}))
+    # Out of the last review's scope, so it neither shows nor blocks; but it was given and is still there.
+    assert last["restricted"] == "last" and last["dropped_out_of_scope"] == 1 and "stage_blocked" not in last
+    assert ledger_entry(world, key)["handle"] == "review-2" and broker.validated_review_head(world.run_dir) is None
+    service.decide({"key": key, "decision": "declined", "reason": "Docstrings are optional here."})
+    assert service.decisions[key]["handle"] == "review-2"
+    assert broker.validated_review_head(world.run_dir) == second
+
+
+@pytest.mark.parametrize("location, explanation, expected", [
+    ("src/app.py:1", "The author line is outdated.", False),
+    ("src/app.py:1", "The tokenizer drops the last word.", False),
+    ("src/app.py:1", "Memory leak in the cache loop.", False),
+    ("src/schedules/sandbox.py:10", "The default timeout is wrong.", False),
+    ("src/app.py:1", "Dependency injection makes the test brittle.", False),
+    ("src/app.py:1", "The deploy credential is written to the log.", True),
+    ("src/app.py:1", "Secret exfiltration through the proxy port.", True),
+    ("src/app.py:1", "Privilege escalation through the helper.", True),
+    ("src/app.py:1", "SQL injection in the query builder.", True),
+    ("src/app.py:1", "The token is logged in plain text.", True),
+])
+def test_the_gates_security_signal(location, explanation, expected):
+    item = {"location": location, "explanation": explanation, "recommendation": "Fix it."}
+    assert workers.gate_security_signal(item) is expected
+
+
+def test_the_pre_mortems_wide_security_rule_is_separate():
+    item = {"location": "src/schedules/sandbox.py:10", "explanation": "The tokenizer drops a word.",
+            "recommendation": "Fix it."}
+    assert workers.security_signal(item) is True and workers.gate_security_signal(item) is False
+
+
+def test_a_medium_in_a_sandbox_module_can_be_declined(world):
+    leak = {"severity": "medium", "location": "src/schedules/sandbox.py:10", "explanation": "Memory leak in the loop."}
+    world.scenario({"outcome": {"findings": [leak]}})
+    service = world.service()
+    head = head_of(world)
+    state = finish(service, service.review({"head": head}))
+    service.decide({"key": state["findings"][0]["key"], "decision": "declined", "reason": "Bounded by the run."})
+    assert json.loads((world.run_dir / broker.REVIEW_RECORD).read_text())["findings"][0]["security"] is False
+    assert broker.validated_review_head(world.run_dir) == head
+
+
+def test_a_codex_key_known_after_a_decision_reaches_the_brokers_scan(world):
+    late = "correct-horse-battery-staple-violet-lamp"  # no pattern or entropy rule finds it
+    run = broker.Run(RUN_ID, "IEZhu/Agents", ISSUE, world.repo.base, "dry-run", frozenset({"autodev:ready"}))
+    gh = broker.Broker(run, credentials=None, git=broker.TrustedGit(world.repo.trusted), run_dir=world.run_dir,
+                       earlier_records=lambda: [])
+    assert gh.scanner.scan(f"the key is {late}") == ()
+
+    def decide(*args, **kwargs):
+        return codex_probes.Decision(codex_probes.CODEX, codex_probes.CLAUDE, "probe_failed", "a probe failed",
+                                     known=(KnownSecret(codex_probes.API_KEY_LABEL, late),))
+
+    codex, service = codex_world(world, {}, on_known=gh.add_known)
+    service.launcher.codex_decide = decide
+    state = finish(service, service.review({"head": head_of(world)}), seconds=120)
+    assert state["status"] == "accepted" and state["client_applied"] == "claude"
+    with pytest.raises(broker.BrokerRefused, match=codex_probes.API_KEY_LABEL):
+        gh._scan("comment", f"{broker.MARKER}\nthe key is {late}")
+
+
+# --- caps, withheld output and waiting (review round 2) ------------------------------------------
+
+def test_a_second_verification_review_is_refused(world):
+    service = world.service()
+    head = head_of(world)
+    assert finish(service, service.review({"head": head}))["status"] == "accepted"
+    assert finish(service, service.premortem({"head": head}))["status"] == "accepted"
+    verify = finish(service, service.review({"head": head_of(world), "verification": True}))
+    assert verify["status"] == "accepted" and "stage_blocked" not in verify
+    with pytest.raises(RequestRefused, match="the verification review already ran"):  # MAX_VERIFICATIONS
+        service.review({"head": head_of(world), "verification": True})
+
+
+def test_an_oversized_worker_output_is_a_new_attempt(world):
+    cap = 4 * 1024 * 1024  # worker_launch.MAX_STDOUT_BYTES, written out so a changed cap fails here
+    world.scenario({"outcome": {"pad": cap + 1024}})
+    service = world.service()
+    state = finish(service, service.review({"head": head_of(world)}), seconds=120)
+    assert state["status"] == "blocked" and state["attempts"] == workers.MAX_ATTEMPTS, state
+    assert f"the claude worker's output exceeds {cap} bytes" in state["reason"]
+
+
+def test_wait_with_zero_seconds_polls(world):
+    world.scenario({"sleep": 3})
+    service = world.service()
+    started = service.review({"head": head_of(world)})
+    began = time.monotonic()
+    state = service.wait({"handle": started["handle"], "seconds": 0})
+    assert state["status"] == "running" and time.monotonic() - began < 1
+    assert finish(service, started)["status"] == "accepted"
+
+
+def test_record_updates_from_several_threads_keep_every_entry(service_state_dir):
+    import threading
+    records.write_record(RUN_ID, {"status": "running"}, service_state_dir)
+
+    def add(number):
+        for index in range(20):
+            records.update_record(RUN_ID, lambda record: record.setdefault("entries", []).append(f"{number}-{index}"),
+                                  service_state_dir)
+
+    threads = [threading.Thread(target=add, args=(number,)) for number in range(4)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    record = records.read_record(RUN_ID, service_state_dir)
+    assert record["status"] == "running" and len(record["entries"]) == 80 and len(set(record["entries"])) == 80

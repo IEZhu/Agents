@@ -20,17 +20,18 @@ Claude side is [autodev-sandbox.md](autodev-sandbox.md) (#343), whose helpers th
   The code still builds, probes and records everything, so that a macOS where the nested check
   passes, or an owner decision on the [open question](#open-decision-for-the-owner), changes the
   outcome without new code paths. Codex never runs without the outer profile.
-- **Nothing starts a worker yet.** The worker launcher (#345, [autodev-workers.md](autodev-workers.md))
-  calls `codex_probes.decide` before every Codex worker, records the result with `record_decision`,
-  starts Codex only through `codex_probes.start` with the derived output schema, runs the Claude
-  worker on a fallback (`decision.fallback`) and **fails the step on an abort** (`decision.abort`,
-  see [Probes and the decision](#probes-and-the-decision)), running neither client. It returns
-  `decision.known` (the API key as a known secret) to its caller; the run sequence (#347) collects
-  the run's known secrets and passes them to the broker's outgoing-text scan
-  (`broker.Broker(known=...)`). #347 starts a Codex stage session only while
-  `read_availability(version=..., shape=...)` says it is available, and the settings page (#348)
-  shows the stored reason; both read it without a key or a run
-  ([the stored availability](#codex-as-a-stage-client-q14)).
+- **Nothing starts a worker yet.** The worker launcher (#345,
+  [autodev-workers.md](autodev-workers.md)) calls `codex_probes.decide` before every Codex worker,
+  records the result with `record_decision`, starts Codex only through `codex_probes.start` with the
+  derived output schema, runs the Claude worker on a fallback (`decision.fallback`) and **fails the
+  step on an abort** (`decision.abort`, see [Probes and the decision](#probes-and-the-decision)),
+  running neither client. It returns `decision.known` (the API key as a known secret) to its caller,
+  and the worker service forwards each launch's known secrets to its `on_known`; the run sequence
+  (#347) points that at `broker.Broker.add_known`, since the broker exists before any worker
+  decides, or reads the key before it builds the broker and passes it as `Broker(known=...)`. #347
+  starts a Codex stage session only while `read_availability(version=..., shape=...)` says it is
+  available, and the settings page (#348) shows the stored reason; both read it without a key or a
+  run ([the stored availability](#codex-as-a-stage-client-q14)).
 - **The live check is the owner's.** `python -m src.schedules codex-probe --confirm-live-probe`
   runs the real checks. Nothing in the tests starts the real `codex` or a model turn; the profile
   tests apply the generated profile with the real `/usr/bin/sandbox-exec` to files, a shell-script
@@ -480,8 +481,8 @@ What the design does not close, and what bounds each:
   `api.openai.com` only, so the key is usable from the sandbox only against the API it is for;
   the key is a known secret of the run (`Decision.known`): every probe capture is scanned for it,
   the run record is masked with it (`record_decision`, the runner's markers), and the broker's
-  outgoing-text scan refuses any text that holds it: #345 returns `decision.known`, and #347 passes
-  the run's collected known secrets to `Broker(known=...)`.
+  outgoing-text scan refuses any text that holds it: #345 returns `decision.known` and forwards it
+  through the worker service's `on_known` to `Broker.add_known`, which #347 wires up.
   A leaked key costs at most the project's budget until the owner revokes it.
 - **The allowed host is a data channel.** Tunnels to `api.openai.com` are TLS the proxy cannot
   read, and model commands share the profile, so they can reach the proxy port too. Anything a

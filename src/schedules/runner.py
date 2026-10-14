@@ -52,7 +52,7 @@ from src.daemon.state import private_dir, read_json, write_json
 
 from . import config as autodev_config
 from . import codex_probes, codex_proxy, codex_sandbox, decoys, drift, heavy, launchagent, lease, probes, records, repos
-from . import sandbox, scan, socket_service, worker_launch
+from . import sandbox, scan, socket_service, worker_launch, workers
 from .gate import gate
 from .github import (GitHubClient, GitHubError, NetworkError, TokenUnavailable, fetch_snapshot, keychain_token,
                      token_provider)
@@ -718,25 +718,33 @@ def _codex_probe(ctx: Context, config: dict, run_id: str, kind: str, markers: li
 # --- the Claude worker check (#345) ---------------------------------------------------------------------
 
 WORKER_PROBE_STEP = "worker-probe"
-WORKER_PROBE_SCHEMA = {"type": "object", "properties": {"verdict": {"type": "string", "enum": ["ok"]}},
-                       "required": ["verdict"], "additionalProperties": False}
-WORKER_PROBE_RESULT = {"verdict": "ok"}
+WORKER_PROBE_SCHEMA = {"type": "object",
+                       "properties": {"verdict": {"type": "string", "enum": ["ok"]}, "tree": {"type": "string"},
+                                      "materials": {"type": "string"}},
+                       "required": ["verdict", "tree", "materials"], "additionalProperties": False}
+WORKER_PROBE_TOKEN = "autodev-worker-probe-{kind}-{nonce}"  # the content of the tree and materials files
 
 
-def worker_probe_prompt(outside: Path) -> str:
-    """The probe worker's whole input: one Read outside its tree, then the trivial result."""
-    call = json.dumps({"tool": "Read", "input": {"file_path": str(outside)}})
-    return ("This is a check of the autodev worker sandbox, not a task. Make exactly one tool call, the Read tool "
-            f"with this input (it is expected to be denied):\n{call}\n"
-            'Then, whatever it returned, give the structured output {"verdict": "ok"}. Make no other tool call.\n')
+def worker_probe_prompt(tree_file: Path, materials_file: Path, outside: Path) -> str:
+    """The probe worker's whole input: a Read inside the tree, one inside the materials and one
+    outside both, then the result with what the first two returned."""
+    calls = [json.dumps({"tool": "Read", "input": {"file_path": str(path)}})
+             for path in (tree_file, materials_file, outside)]
+    return ("This is a check of the autodev worker sandbox, not a task. Make exactly these three tool calls, in "
+            "this order, each one Read tool call with the given input (the first two are expected to succeed, the "
+            "third to be denied):\n" + "\n".join(calls) + "\n"
+            'Then, whatever they returned, give the structured output {"verdict": "ok", "tree": <the line the first '
+            'Read returned, without its line number>, "materials": <the line the second Read returned, without its '
+            'line number>}. Make no other tool call.\n')
 
 
 def worker_probe(ctx: Context, confirmed: bool) -> tuple[int, dict]:
     """The owner's live check of the Claude worker (#345): one worker turn, recorded as a run."""
     if not confirmed:
         return 1, {"ok": False, "error": "confirmation_required",
-                   "message": "the check starts a real claude -p worker (a model turn) that tries to read a file "
-                              "outside its tree; run again with " + PROBE_CONFIRMATION}
+                   "message": "the check starts a real claude -p worker (a model turn) that reads a file in its tree "
+                              "and one in its materials and tries to read one outside both; run again with "
+                              + PROBE_CONFIRMATION}
     config = autodev_config.load(ctx.directory)
     now = ctx.clock()
     run_id = records.new_run_id(now)
@@ -749,7 +757,8 @@ def worker_probe(ctx: Context, confirmed: bool) -> tuple[int, dict]:
     except lease.LeaseBusy as error:
         record.update(infra(f"lease: {error}"))
     record["finished"] = iso(ctx.clock())
-    written = records.write_record(run_id, record, ctx.directory, known=markers)
+    # Merged into what is on disk, so a field another writer added meanwhile stays (#345).
+    written = records.update_record(run_id, lambda current: {**current, **record}, ctx.directory, known=markers)
     return (0 if written.get("status") == "completed" else 1), written
 
 
@@ -779,39 +788,48 @@ def _worker_probe(ctx: Context, config: dict, run_id: str, markers: list[str]) -
         return {"status": "refused", "reason": f"sandbox: {error}"}
     profile = (config.get("delegates") or {}).get("code-review-pass") or {}
     settings = profile.get("claude") or {}
-    run_dir = records.run_dir(run_id, ctx.directory)
-    work = None
+    # The layout of a real review (`workers.WorkerService`): the tree and the materials under
+    # <run_dir>/workers/, inside the state directory that the worker's denyRead covers and its
+    # allowRead re-opens for them; the outside file is their sibling in the same run directory.
+    work = workers.worker_dir(records.run_dir(run_id, ctx.directory))
+    tree = private_dir(workers.tree_path(work, WORKER_PROBE_STEP))
+    materials = private_dir(workers.materials_path(work, WORKER_PROBE_STEP))
+    outside = work / WORKER_PROBE_STEP / "outside.txt"
+    expected = {kind: WORKER_PROBE_TOKEN.format(kind=kind, nonce=secrets.token_hex(12))
+                for kind in ("tree", "materials")}
+    secret_text = WORKER_PROBE_TOKEN.format(kind="outside", nonce=secrets.token_hex(12))
     try:
-        work = sandbox.make_temp_root(ctx.temp_base)
-        tree, materials = private_dir(work / "tree"), private_dir(work / "materials")
-        (tree / "README.md").write_text("autodev worker check: the tree\n")
-        (materials / "README.md").write_text("autodev worker check: the materials\n")
-        outside = private_dir(work / "outside") / "probe.txt"
-        secret_text = f"autodev-worker-probe-{secrets.token_hex(12)}"
+        (tree / "README.md").write_text(expected["tree"] + "\n")
+        (materials / "README.md").write_text(expected["materials"] + "\n")
         outside.write_text(secret_text + "\n")
         launcher = worker_launch.Launcher(
             claude=claude, path=path, home=ctx.home, state_dir=Path(ctx.directory), run_id=run_id,
             login_mode=login, oauth_token=(lambda: oauth), decoys=planted, known=known, temp_base=ctx.temp_base,
             command_runner=ctx.command_runner)
-        launch = launcher.run(client=worker_launch.CLAUDE, step=WORKER_PROBE_STEP, context=worker_probe_prompt(outside),
+        prompt = worker_probe_prompt(tree / "README.md", materials / "README.md", outside)
+        launch = launcher.run(client=worker_launch.CLAUDE, step=WORKER_PROBE_STEP, context=prompt,
                               schema=WORKER_PROBE_SCHEMA, tree=tree, materials=materials,
-                              attempt_dir=run_dir / WORKER_PROBE_STEP, model=settings.get("model"),
+                              attempt_dir=work / WORKER_PROBE_STEP / "attempt-1", model=settings.get("model"),
                               effort=settings.get("effort"), fallback={}, timeout=ctx.probe_timeout)
     except worker_launch.LaunchRefused as error:
         return {"status": "refused", "reason": f"worker: {error}"}
     except (sandbox.SandboxError, ValueError, OSError) as error:
         return infra(f"cli: worker check: {type(error).__name__}: {error}")
     finally:
-        if work is not None:
-            sandbox.remove_temp_root(work, ctx.temp_base)
-    return worker_probe_verdict(launch, outside, secret_text, planted, known, ctx.directory, run_id)
+        shutil.rmtree(tree, ignore_errors=True)
+        shutil.rmtree(materials, ignore_errors=True)
+        with contextlib.suppress(FileNotFoundError):
+            outside.unlink()
+    return worker_probe_verdict(launch, expected, outside, secret_text, planted, known, ctx.directory, run_id)
 
 
-def worker_probe_verdict(launch: worker_launch.LaunchResult, outside: Path, secret_text: str,
-                         planted: list, known: list[scan.KnownSecret], directory: Path, run_id: str) -> dict:
-    """The worker check's outcome: ``completed`` only when the result carries the trivial
-    ``structured_output``, exactly one tool call was denied and it was the Read of ``outside``,
-    whose content never reached the output, and the tripwire found nothing."""
+def worker_probe_verdict(launch: worker_launch.LaunchResult, expected: dict[str, str], outside: Path,
+                         secret_text: str, planted: list, known: list[scan.KnownSecret], directory: Path,
+                         run_id: str) -> dict:
+    """The worker check's outcome: ``completed`` only when the result's ``structured_output`` is
+    ``{"verdict": "ok"}`` with the random lines of the tree's and the materials' files (``expected``:
+    each Read inside succeeded), exactly one tool call was denied and it was the Read of
+    ``outside``, whose content never reached the output, and the tripwire found nothing."""
     denials = list(launch.denials)
     denied_outside = [item for item in denials if item.get("tool_name") == "Read"
                       and str(outside) in json.dumps(item.get("tool_input"), ensure_ascii=False)]
@@ -820,10 +838,16 @@ def worker_probe_verdict(launch: worker_launch.LaunchResult, outside: Path, secr
         if any("decoy" in item for item in tripped):
             decoys.trip(directory, "worker check: " + "; ".join(tripped[:10]), run_id=run_id)
         problems += [f"tripwire: {item}" for item in tripped[:5]]
+    raw = launch.raw if isinstance(launch.raw, dict) else {}
     if launch.failure:
         problems.append(launch.failure)
-    elif launch.raw != WORKER_PROBE_RESULT:
-        problems.append("the structured_output is not the probe's trivial result")
+    elif raw.get("verdict") != "ok" or set(raw) != {"verdict", "tree", "materials"}:
+        problems.append("the structured_output is not the probe's result")
+    reads = {kind: not launch.failure and raw.get(kind) == text for kind, text in expected.items()}
+    for kind, done in reads.items():
+        if not done and not launch.failure:
+            where = "tree" if kind == "tree" else "materials"
+            problems.append(f"the Read inside the {where} did not return its file (denied, failed or not made)")
     if not denied_outside:
         problems.append("no Read outside the tree was denied (the worker made none, or it was allowed)")
     if len(denials) != len(denied_outside):
@@ -831,6 +855,7 @@ def worker_probe_verdict(launch: worker_launch.LaunchResult, outside: Path, secr
     if secret_text in launch.stdout:
         problems.append("the file outside the tree reached the output: the Read was not confined")
     check = {"ok": not problems, "problems": problems, "structured_output": launch.raw is not None,
+             "read_tree": reads["tree"], "read_materials": reads["materials"],
              "denials": len(denials), "denied_outside": len(denied_outside), "cli": launch.cli, "launch": launch.launch,
              "model": launch.model, "effort": launch.effort}
     result = {"status": "completed" if not problems else "refused", "worker_check": check}

@@ -25,11 +25,28 @@ design is [autodev-plan.md](autodev-plan.md), sections 5.6, 7.6, 9.4, Q2 and Q10
   run's branch `claude/autodev-<issue>-<slug>`, which the session then also pushes), and calls
   `service.close()` when the stage ends. It also passes the decoys and the run's known secrets
   (broker token, deploy key) to the `worker_launch.Launcher`. A second service of the same run
-  starts with the push gate closed: it removes `validated-review.json` and `premortem.json` and
-  sets `worker-decisions.json` aside, since it did not write them.
-- **#347 relies on the push gate.** `broker.validated_review_head` opens only for a clean review
-  record or one whose remaining findings are declined `medium` ones (see [the gate](#the-push-gate));
-  #347 still requires an accepted pre-mortem before the PR and keeps open security risks local.
+  starts with the push gate closed: it removes `validated-review.json`, `findings-ledger.json`
+  and `premortem.json` and sets `worker-decisions.json` aside, since it did not write them.
+- **#347 wires the Codex key into the broker.** A worker's Codex decision reads the API key only
+  when the attempt starts, after the broker exists. #347 builds the `broker.Broker` first and
+  creates the service with `on_known=broker.add_known`: every launch's known secrets then reach
+  the broker's outgoing-text scan and its log masking at once. The alternative is to read the
+  `codex.login` keychain item before building the broker and pass the same `KnownSecret` to
+  `Broker(known=...)` and to the `Launcher`.
+- **#347 writes the run record through `records.update_record`.** The worker thread adds its
+  `workers` entry and a Codex decision its `clients` entry while the run sequence holds the same
+  record; `update_record` reads, changes and writes under a per-run lock (and `write_record`
+  takes it too), so a writer that re-reads loses nothing. A writer that keeps the record in
+  memory and writes it at the end would drop those entries: the run sequence merges its fields
+  in with `update_record`, as the worker check does.
+- **#347 renders the stage prompt.** The prompt of plan 10.4 names `{branch}` (the run's branch
+  `claude/autodev-<issue>-<slug>`, the same one `Handover` imports) and `{exchange_dir}` (the
+  stage's exchange directory) for the handover step, and `{worker_cmd}`; no renderer exists yet.
+  `worker wait` blocks up to 540 seconds: the session's Bash call needs a timeout above that
+  (the Bash tool's maximum, 600000 ms) or a shorter `"seconds"`.
+- **#347 relies on the push gate.** `broker.validated_review_head` opens only while no accepted
+  review left an open blocker in the findings ledger (see [the gate](#the-push-gate)); #347 still
+  requires an accepted pre-mortem before the PR and keeps open security risks local.
 - **On this Mac the reviewer is Claude.** `codex_probes.decide` falls back with
   `nested_sandbox_unavailable` (#344), so a `code-review-pass` profile with `client: codex` runs
   the Claude worker and the record says so.
@@ -41,13 +58,18 @@ design is [autodev-plan.md](autodev-plan.md), sections 5.6, 7.6, 9.4, Q2 and Q10
   python -m src.schedules worker-probe --confirm-live-probe
   ```
 
-  It builds one Claude worker exactly as a review does (`worker_launch.Launcher`,
-  `sandbox.build_worker`, the `code-review-pass` profile's Claude model and effort) on a synthetic
-  tree with a trivial schema (`{"verdict": "ok"}`) and asks for one `Read` of a file outside the
-  tree. It passes (exit code 0, `status: completed`) only when the result carries
-  `structured_output`, that `Read` was denied, no other tool call was denied, the file's content
-  never reached the output and the tripwire found nothing; the run record keeps the outcome under
-  `worker_check`. It is a model turn, so it refuses without `--confirm-live-probe`.
+  It builds one Claude worker as a review does (`worker_launch.Launcher`, `sandbox.build_worker`,
+  the `code-review-pass` profile's Claude model and effort) in a review's layout: a synthetic tree
+  and materials under `<run_dir>/workers/` (`tree-worker-probe`, `worker-probe/materials`),
+  inside the state directory that the worker's `denyRead` covers and its `allowRead` re-opens for
+  them. It asks for three `Read` calls: a file in the tree and one in the materials, each holding a
+  random line, and a sibling file outside both, and for `{"verdict": "ok", "tree", "materials"}`
+  with the two lines. It passes (exit code 0, `status: completed`) only when the structured output
+  carries both random lines (both Reads inside succeeded), the outside `Read` was denied, no other
+  tool call was denied, the outside file's content never reached the output and the tripwire
+  found nothing; the run record keeps the outcome under `worker_check` (with `read_tree` and
+  `read_materials`), and the tree, the materials and the outside file are removed. It is a model
+  turn, so it refuses without `--confirm-live-probe`.
 
 ## The session's commands
 
@@ -59,7 +81,7 @@ Every type is session-bound.
 | `worker review '{"head": "<40-hex>"}'` | Starts the next review of `head` and prints its handle (`review-1`, `review-2`, ...) at once |
 | `worker review '{"head": "<40-hex>", "verification": true}'` | The verification review after the pre-mortem (`verify-1`) |
 | `worker premortem '{"head": "<40-hex>"}'` | The pre-mortem of `head` (`premortem-1`) |
-| `worker wait '{"handle": "review-1"}'` | Waits up to 540 seconds (`"seconds"` may shorten it) and prints the state; call it again while it says `running` |
+| `worker wait '{"handle": "review-1"}'` | Waits up to 540 seconds (`"seconds"` may shorten it; `0` only polls) and prints the state; call it again while it says `running` |
 | `worker decide '{"key": "<16-hex>", "decision": "fixed"}'` | Records a decision on a finding; `declined`, `mitigated` and `known_risk` need a `"reason"` |
 
 The session names no range and no ref: only a head. Before every `review` and `premortem` the
@@ -79,7 +101,9 @@ characters) and per finding its key, severity, location (300), explanation (1500
 recommendation (800) and the decision taken so far, at most 50 findings. It also says how many
 findings a restricted review left out (`dropped_out_of_scope`), how many are `medium` or higher,
 and for a restricted review how many count as blocking (`stage_blocked: true` and a reason when
-any do). The worker's evidence, checks,
+any do). A review or verification also lists `open_findings`: the key, severity, reviewing handle
+and decision of every finding of any review that keeps the push gate closed now. The worker's
+evidence, checks,
 limitations and question never reach the session; `input_required` says only that the worker
 asked.
 
@@ -88,27 +112,35 @@ asked.
 | Request | Range | Effort | Considers | Counted |
 |---|---|---|---|---|
 | review 1 | the run's base (`pinned`) to the head | the delegate's effort | everything | yes |
-| review 2 to `max_reviews - 1` | the last reviewed head to the head (the same range again when the head did not move), plus `decisions.json` | `effort_followup` | everything | yes |
-| review `max_reviews` (when it is not the first) | as review 2 | `effort_followup` | `critical`, `high`, security and regressions caused by fixes | yes |
+| review 2 to `max_reviews - 1` | the last reviewed head to the head (the same range again when the head did not move), plus `decisions.json` and `open-findings.json` | `effort_followup` | everything, and every open earlier finding again | yes |
+| review `max_reviews` (when it is not the first) | as review 2 | `effort_followup` | `critical`, `high`, security, regressions caused by fixes and the open earlier findings | yes |
 | pre-mortem | the run's base to the head, plus the review log and the decisions | the `change-premortem` profile | the three to five likeliest failure causes | no |
-| verification | the last full review's head to the head | `effort_followup` | `critical`, `high` and security | no |
+| verification | the last full review's head to the head, plus `decisions.json` and `open-findings.json` | `effort_followup` | `critical`, `high`, security and the open earlier findings | no |
 
 No review starts beyond `max_reviews` (default 3). The pre-mortem needs an accepted review whose
-head is the requested head and that opens [the push gate](#the-push-gate) (clean, or its
-remaining findings declined `medium` ones); the verification review needs an accepted pre-mortem
-and new commits since the last full review. For the restricted reviews the runner also drops
-findings outside their scope before the session sees them: anything below `high` that carries no
-security keyword (`broker.SECURITY_KEYWORDS`) and, in the last review, no regression. A restricted
-review (the last one or the verification) that still reports a finding ends the stage blocked
-(plan 9.4): its record says `blocked: true`, the push gate stays closed and the service refuses
-every further worker.
+head is the requested head while [the push gate](#the-push-gate) is open (no open blocker in the
+findings ledger); the verification review needs an accepted pre-mortem and new commits since the
+last full review. `open-findings.json` lists each ledger entry that keeps the gate closed, with
+its severity, location, explanation, recommendation, the review that reported it last and its
+decision state (`null` for undecided, `fixed`, or `declined` with the reason); the worker is told
+to report again, with location and explanation unchanged, every one still present or whose
+decline reason does not hold. For the restricted reviews the runner also drops findings outside
+their scope before the session sees them: anything below `high` that carries no security keyword
+(the wide `broker.SECURITY_KEYWORDS`, location included, so the scope errs towards keeping a
+finding) and, in the last review, no regression. A restricted review (the last one or the
+verification) that still reports a finding in its scope ends the stage blocked (plan 9.4): its
+record says `blocked: true`, the push gate stays closed and the service refuses every further
+worker. An open earlier finding that it reports again outside its scope does not block the stage
+but stays open in the ledger.
 
 **Attempts.** An attempt is accepted only when the output passes `validate_result` against the
 retained contract, its status is `completed`, an evidence item names the reviewed range
 `<base>..<head>` in its reference or description, and no evidence item names a 40-hex commit
 other than the run's base, the range's ends and the commits since the run's base. The tripwire
 scans every attempt first, a failed one included: standard output (the first 4 MiB), the raw
-result and the permission denials. Otherwise:
+result and the permission denials. A Claude worker killed at its timeout or by a stop prints no
+result object (`--output-format json` writes it, with the denials, only at the end), so a decoy
+it read during that attempt is not seen; the attempt counts as a CLI failure. Otherwise:
 
 | Outcome | Next |
 |---|---|
@@ -148,7 +180,8 @@ byte for byte.
   `head/<path>` (every file that differs between `pinned` and the head, as it is at the head, so
   a follow-up or verification review also sees the files earlier rounds changed), `deleted.txt`
   and `links.json` (since `pinned`), and where they apply `criteria.md` (the issue's acceptance
-  criteria as the runner read them), `decisions.json` and `reviews.json`.
+  criteria as the runner read them), `decisions.json`, `open-findings.json` (a later review and
+  the verification) and `reviews.json` (the pre-mortem).
 
 A gitlink anywhere in the tree or the range, a symbolic link whose target may leave the tree
 (`repos._link_escapes`), an unusual mode, and a path that is absolute or holds `..`, `.git` or a
@@ -174,7 +207,10 @@ materials, and carry the session's closed sandbox block with nothing writable bu
 temporary root (`sandbox.make_temp_root`, removed after the attempt); `check_worker_settings`
 refuses anything else. The environment is the session allowlist (`sandbox.environment`) with the
 persistent runner-owned `CLAUDE_CONFIG_DIR`, whose login `sandbox.require_login` checks before every
-start. `sandbox.check_worker_spec` compares argv, settings on disk, environment, temporary root and
+start. That is the stage session's directory, a deliberate amendment of the issue's "its own
+`CLAUDE_CONFIG_DIR`": a separate directory has no subscription login (plan 5.6, Login), so a
+worker runs with the one login while the session waits in `worker wait`, and both CLI processes
+use the directory's files for that time. `sandbox.check_worker_spec` compares argv, settings on disk, environment, temporary root and
 the executable's resolved path and SHA-256 with what the launcher built.
 
 `--json-schema` takes the package's `result_schema` unchanged, as inline compact JSON: Claude
@@ -221,8 +257,9 @@ property) refuses the launch. `validate_result` on the raw output stays the only
 |---|---|---|
 | `workers/<handle>/attempt-<n>.json` | Every attempt: the package revision and bundle ID, the retained contract, the client (`client_requested`, `client_applied`, `fallback_reason`), model and effort, the CLI's exit and subtype, the launch description (flags without paths or the schema, variable names, digest), the raw structured output with its SHA-256 and form (`object` for Claude, `text` for Codex), the validation response, the range, base and head, the verdict and its reason | The owner, #347 |
 | `workers.json` | The service's state: each task's range, status, reason, attempts and accepted attempt | The owner, #347 |
-| `record.json` | `workers`: a summary of each finished task; `clients`: each Codex decision | The runner, the status command |
-| `validated-review.json` | After an accepted review or verification: `{"validated": true, "status": "completed", "head", "base", "range", "handle", "kind", "number", "restricted", "clean", "blocked", "findings": [{"key", "level", "security"}], ...}`, `findings` being those of level `medium` or higher | `broker.review_gate` and `broker.validated_review_head` (the push check, the pre-mortem's precondition) |
+| `record.json` | `workers`: a summary of each finished task; `clients`: each Codex decision; both through `records.update_record` | The runner, the status command |
+| `findings-ledger.json` | After an accepted review or verification, before its record: `{"head", "handle", "findings": [{"key", "level", "security", "handle", "kind", "status", "resolved_by", "reported_by", "location", "explanation", "recommendation"}], "reviews": [{"handle", "head", "given", "repeated", "resolved", "added"}]}`, every `medium`-or-higher finding of every accepted review | `broker.review_gate` |
+| `validated-review.json` | After an accepted review or verification: `{"validated": true, "status": "completed", "head", "base", "range", "handle", "kind", "number", "restricted", "clean", "blocked", "findings": [{"key", "level", "security"}], ...}`, `findings` being this review's of level `medium` or higher, `security` from `workers.gate_security_signal` | `broker.review_gate` and `broker.validated_review_head` (the push check, the pre-mortem's precondition) |
 | `premortem.json` | After an accepted pre-mortem: `{"validated": true, "findings": [{"id", "level", "title", "body", "security"}], ...}`, `id` the finding key, `security` from `broker.SECURITY_KEYWORDS` | `broker.read_premortem` (risk issues) |
 | `worker-decisions.json` | The latest decision per key with at most five earlier ones (`MAX_HISTORY`), location and explanation cut to the session's limits; at most 1,000 decisions per run | The push gate; #347 (the PR sections) |
 
@@ -233,19 +270,41 @@ is computed before masking; a record whose output masking changed says `masked: 
 **Decisions.** A finding's key is the first 16 hex digits of the SHA-256 of
 `[location, explanation]` as canonical JSON. `worker decide` takes `fixed` or `declined` for a
 review or verification finding and `fixed`, `mitigated` or `known_risk` for a pre-mortem finding,
-applied to the latest accepted result that holds the key. After every decision and every
-finished worker the runner writes `worker-log.json` (mode 0400) into the session's state copy, a
-directory the session can read but not write: every task's parsed state with its findings, and
-the decisions, for recovery after a compaction.
+applied to the latest accepted result that holds the key (for a ledger entry, the review that
+reported it last, also when that was a restricted review outside its scope). After every
+decision and every finished worker the runner writes `worker-log.json` (mode 0400) into the
+session's state copy, a directory the session can read but not write: every task's parsed state
+with its findings, the decisions and the open ledger entries, for recovery after a compaction.
 
 ## The push gate
 
-`broker.review_gate` reads `validated-review.json` and `worker-decisions.json`; the broker's push
-check and the pre-mortem's precondition take its head (`validated_review_head`). It opens only
-when the record says `blocked: false` and either it is `clean` with no finding of level `medium` or
-higher, or every such finding is `medium`, has `security: false` and was `declined` with a reason
-by a decision that names this review's handle (the latest such decision on its key, current or
-in its history). A `critical`, `high` or security finding keeps the gate closed even when
-declined: it stays open until a later review accepts the reason by not reporting it again. A
-`fixed` decision does not open it either, since the fix is a new head that needs its own review.
-A missing or malformed field closes the gate, and so does a record of an earlier service.
+The runner, not the session or a worker, carries the open findings: the **findings ledger**
+(`findings-ledger.json`) holds every finding of level `medium` or higher of every accepted review
+and verification, under the handle of the review that reported it last. An accepted review
+changes it so:
+
+| The review ... | The entry |
+|---|---|
+| reports it again (in its scope, or outside it when the entry was in its `open-findings.json`) | stays or becomes `open` under the new handle, at the higher of both levels; a decision must name the new review |
+| was given it with a decision (`fixed` or `declined`) and does not report it again | `resolved` |
+| was given it undecided, or was not given it, and does not report it again | unchanged: an undecided finding stays open whatever later reviews say |
+| reports a new `medium`-or-higher finding in its scope | a new `open` entry |
+
+`broker.review_gate` reads `validated-review.json`, the ledger and `worker-decisions.json`; the
+broker's push check and the pre-mortem's precondition take its head (`validated_review_head`).
+It opens only when the record says `blocked: false` (and `clean: true` when it lists no finding),
+the ledger covers the record's head and handle and holds every finding the record lists, and
+every `open` entry is `medium`, has `security: false` and was `declined` with a reason by a
+decision that names the entry's handle (the latest such decision on its key, current or in its
+history). Such a declined `medium` has left the gate; a later review that reports it again
+re-opens it. A `critical`, `high` or security entry keeps the gate closed even when declined, until
+a later review that was given the decline does not report it again. A `fixed` decision does not
+open it either: the fix is resolved by the next review that was given the claim. A missing or
+malformed field closes the gate, and so does a record of an earlier service.
+
+The security signal of a review finding is `workers.gate_security_signal`: a fixed keyword rule
+(`GATE_SECURITY`) over its explanation and recommendation, not its location, without the bare
+`auth*`, `token*`, `leak*`, `sandbox*` and `permission*` of `broker.SECURITY_KEYWORDS`, so an
+author line, a tokenizer, a memory leak or a finding in `sandbox.py` can be declined, while
+credentials, secrets, injection, privilege escalation, exfiltration, sandbox escapes and the like
+cannot. The pre-mortem's risks keep the wide rule, which keeps a risk local (design 5.8).

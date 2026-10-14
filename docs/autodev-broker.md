@@ -15,12 +15,16 @@ bound to one run: its issue, its PR, its branch and the pinned `main` commit the
 - **No run opens the broker yet.** The run sequence (#347) creates a `Broker` for each real run,
   registers it with `register(registry, broker)` and calls the runner-internal operations.
 - **Two inputs come from the worker launcher.** The worker launcher (#345,
-  [autodev-workers.md](autodev-workers.md)) writes the validated-review record after an accepted
-  review and the pre-mortem record after an accepted pre-mortem; the broker reads them through
-  `validated_review_head(run_dir)` and `read_premortem(run_dir)`. The broker's tests still write
-  fixture files; `tests/test_schedules_workers.py` reads the launcher's records back through both
-  functions. A finding's `security` mark comes from `SECURITY_KEYWORDS` until the run sequence
+  [autodev-workers.md](autodev-workers.md)) writes the findings ledger and the validated-review
+  record after an accepted review and the pre-mortem record after an accepted pre-mortem; the broker
+  reads them through `validated_review_head(run_dir)` (`review_gate`: open only while no accepted
+  review left an open blocker in the ledger) and `read_premortem(run_dir)`. The broker's tests still
+  write fixture files; `tests/test_schedules_workers.py` reads the launcher's records back through
+  both functions. A finding's `security` mark comes from `SECURITY_KEYWORDS` until the run sequence
   (#347) adds the stage output's marks.
+- **A secret known later reaches the scan through `add_known`.** The Codex API key of a worker's
+  decision exists only after the broker; `Broker.add_known` adds it to the outgoing-text scan
+  and the log masking, and #347 passes it as the worker service's `on_known`.
 - **Earlier run records carry no `issue` or `pr` yet.** The gate's cleanup uses them
   (`bound_numbers`); #347 writes both fields into each run record.
 - **State comments have no writer yet.** The gate trusts a state comment
