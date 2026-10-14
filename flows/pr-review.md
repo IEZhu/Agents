@@ -516,8 +516,9 @@ it hands the reviewed head to the owner, who pushes it
    [the open decision](../docs/autodev-broker.md#open-decision-pushing-a-resume-run-after-main-moved-347)),
    do not push: end with `review_status: blocked` and the refusal's reason.
 2. **One pull request per issue.** Never split the branch: step 1's split rule
-   does not apply. Open it once, in English: the problem, the behavior, the
-   checks run and those not run with the reason, the sections from
+   does not apply. Open it once, in English: the problem, the behavior, a
+   section headed "Checks" with the checks run and those not run with the
+   reason, the sections from
    `description_extra` ("Self-review", "Pre-mortem: known risks", "Declined
    findings"), and `Closes #<issue>`, or `Part of #<issue>` for a slice with a
    checklist of the remainder in a marked comment on the issue. Then add the
