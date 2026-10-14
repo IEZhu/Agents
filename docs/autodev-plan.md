@@ -1,6 +1,6 @@
 # Self-development: flow pipelines with contracts, execution profiles and local scheduled runs
 
-Date: 2026-10-12. Status: proposal, version 5, with the owner's answers to all questions ([section 13](#13-questions-for-the-owner)). Phase 0 is done and the phase 1a code is implemented (#338 to #348); the phase 1a acceptance runs wait for the owner, and the later phases are not implemented. The checklist plan is in [section 14](#14-implementation-plan); the owner's guide to what exists is [autodev.md](autodev.md).
+Date: 2026-10-12. Status: proposal, version 5, with the owner's answers to all questions ([section 13](#13-questions-for-the-owner)). Phase 0 is done and the phase 1a code is implemented (#338 to #348), the phase 1b code too (#350, the automatic mode); the acceptance runs of both wait for the owner, and the later phases are not implemented. The checklist plan is in [section 14](#14-implementation-plan); the owner's guide to what exists is [autodev.md](autodev.md).
 
 Document history:
 
@@ -320,7 +320,7 @@ Probe results go into the runner's records, which the session cannot change: ver
 | Supervised (phase 1a) | Only `dry-run`; a real run is `run-now` by hand | `main` protection is on (`GET /repos/IEZhu/Agents/rules/branches/main`); the broker credentials from Q15 are in place |
 | Automatic (phase 1b) | `run` on a schedule | Everything in the row above, plus the owner's recorded acceptance of the residual risk (section 11, rows 1, 2, 4) |
 
-The command `python -m src.schedules autodev enable --mode run --accept-shared-account` refuses until the conditions hold and names what is missing. The acceptance is stored with its date and the version of the risk list. If the list changes, the acceptance must be given again.
+The command `python -m src.schedules autodev enable --mode run --accept-shared-account` refuses until the conditions hold and names what is missing. The acceptance is stored with its date and the version of the risk list. If the list changes, the acceptance must be given again. Implemented by #350 ([autodev-runner.md](autodev-runner.md#automatic-mode)): `autodev ready` checks every condition from GitHub and the stored records, a tick starts a scheduled real run only while it passes, and a tripwire after the acceptance (as well as a changed risk list) asks for a new one.
 
 **Protection of `main`** (phase 0) is a ruleset on the default branch (include `~DEFAULT_BRANCH`):
 
@@ -780,7 +780,7 @@ The stage session runs `pr-review` in `autodev` mode; all writes go through the 
 
 **The run report:** `pinned`, the commit of the runner's code, the revisions of the flows read and the `bundle_revision` of the worker packages, the gate and selection decisions, the `requested` and `applied` profiles per stage and step, worker attempts and the decisions on their voice, checks, the PR link, the review status, the cost from the CLI's JSON output. The report goes into the run record and arrives as a macOS notification; security details stay local only.
 
-Amended by #347: the run sequence writes the state comment through the runner-internal `Broker.state` after every submit stage (a new one for a new PR, an edit of the recorded one on a resume), with `next_attempt` clamped to 24 hours ahead, records `{"id", "kind": "state", "number"}` in the run record and, with `waiting_bots`, writes the tick's `next_attempt`; it opens risk issues for the pre-mortem's known risks of level `medium` and above without a security signal and opens no PR while a security-marked risk is open (5.8). The report is `report` in the run record (`src.schedules.report`); the notification carries only fixed phrases, counts, the PR link and the export paths. Until the automatic mode (#350), a `waiting_bots` run is continued by the owner with `run-now --mode resume --pr N`, which the notification names.
+Amended by #347: the run sequence writes the state comment through the runner-internal `Broker.state` after every submit stage (a new one for a new PR, an edit of the recorded one on a resume), with `next_attempt` clamped to 24 hours ahead, records `{"id", "kind": "state", "number"}` in the run record and, with `waiting_bots`, writes the tick's `next_attempt`; it opens risk issues for the pre-mortem's known risks of level `medium` and above without a security signal and opens no PR while a security-marked risk is open (5.8). The report is `report` in the run record (`src.schedules.report`); the notification carries only fixed phrases, counts, the PR link and the export paths. Without the automatic mode (#350), a `waiting_bots` run is continued by the owner with `run-now --mode resume --pr N`, which the notification names; in the automatic mode the tick continues it at `next_attempt`.
 
 ### 9.6 Labels
 
@@ -840,7 +840,7 @@ flowchart LR
 |---|---|
 | `python -m src.schedules autodev install` / `uninstall` | Install or remove the scheduler job |
 | `python -m src.schedules autodev enable --mode dry-run\|run [--accept-shared-account]` / `disable` | Turn the schedule on or off; `run` checks the conditions of 5.7 and records the owner's acceptance |
-| `python -m src.schedules autodev status` | State, recent runs, the next slot |
+| `python -m src.schedules autodev status` | State, recent runs, the next slot, the acceptance |
 | `python -m src.schedules autodev run-now [--mode dry-run\|run\|resume --pr N]` | A one-off run, including a supervised real run |
 | `python -m src.schedules autodev ready` | Checks the automatic-mode conditions, including the sandbox probes, and lists what is missing |
 | `{worker_cmd}`, `{gh_cmd}`, `{heavy_cmd}` | Thin clients of the runner socket for sessions: workers, the broker, heavy processes. The runner puts their absolute paths into the prompt |
@@ -988,6 +988,15 @@ The owner answered all questions on 2026-10-12. Each item states the decision; t
 - **Q14. Codex as the client of stage sessions.** Decided: Codex is installed and selectable as a stage client on the settings page. The runner enables it only after the phase 1a network and sandbox probes pass for Codex; until then the page shows it as unavailable. Amended by #344: the check is `codex_probes.stage_availability` (`python -m src.schedules codex-probe --kind stage`), stored in `schedules/codex-availability.json` and valid only for the same codex version and launch shape for at most 7 days (`read_availability`); on macOS 26.5.1 it stays unavailable (`nested_sandbox_unavailable`), a nix-built stage environment would be `venv_unusable`, and `workspace-write` would keep `.git` read-only anyway.
 - **Q15. Broker credentials.** Accepted and done on 2026-10-12: both are required for any real run. The deploy key exists; the owner created the fine-grained token and stored it in the keychain, and a test confirmed that it cannot create branches or merge (5.6). The broker does not use the `gh` token with the `repo` and `workflow` scopes.
 
+**Decisions of 2026-10-14** (the points #350 left to the owner, PR #387, and the defaults of #347, PR #377):
+
+- **The settings page's run switch** stays CLI-only after a turn-off. Turning off and `enable --mode dry-run` withdraw the acceptance, and the page offers run mode only with a current acceptance, so run mode comes back with `autodev enable --mode run --accept-shared-account`.
+- **The 7-day probe freshness rule is dropped.** `ready` and the tick no longer ask for an `implement` or `submit` probe from the last 7 days; each run probes before every session with Bash (5.7). The rule of one passing record for each stage kind and mode, at any age (A7), stays.
+- **security-6 is accepted:** the probe records `ready` reads are not bound to the `claude` version. Each session with Bash is still probed first with its exact `claude` executable (5.7).
+- **`CLAUDE_ROUTINE_TOKEN` in the `issue-agent` environment** stays unchecked by code: `ready` checks only that it is not a repository secret, and the owner checks the environment once by hand.
+- **The ten defaults of #347 are confirmed as implemented:** a resume pushes against the merge base without a force push, and a conflict after `main` moved blocks; a Codex implement or submit stage falls back to Claude; a failed `.git` integrity check stops the run, notifies and turns the schedule off; a 403 on a precondition read is a missing item (`cannot verify …`); a blocked or failed run after the claim blocks the issue with a neutral phrase and removes `autodev:in-progress`; a resume whose PR head differs from the imported head blocks; tests use synthetic fixtures in the recorded shape; the timeouts are select 30, implement `budget.timeout_minutes` (180) and submit 90 minutes plus 30 of overhead; every real run, and a dry-run that tripped or failed, sends a notification; the stage schemas are Python constants pinned to the flows by a test.
+- **A rename of `.git` in Claude stages:** the post-session `.git` integrity check (`src.schedules.integrity`) stays; the owner's live check on the installed binary decides whether the `.git` directory itself goes into `denyWrite` ([autodev-sandbox.md](autodev-sandbox.md)).
+
 ## 14. Implementation plan
 
 ### Phase 0. Decisions and protection
@@ -1077,10 +1086,12 @@ State on 2026-10-14: the code of every item below is implemented by #338 to #348
 
 ### Phase 1b. Automatic mode under the owner's account
 
-- [ ] The `ready` command and `enable --mode run --accept-shared-account`: the checks of 5.7 and recording the acceptance with the date and the version of the risk list.
-- [ ] A triggered decoy or a failed probe turns the schedule off and sends a notification.
-- [ ] Acceptance:
-  - `ready` passes;
+State on 2026-10-14: the code of the first two items is implemented by #350 on a branch stacked on #349, with tests on synthetic GitHub answers and stored probe records ([autodev-runner.md](autodev-runner.md#automatic-mode)), and revised after two review rounds and the owner's decisions of 2026-10-14 (section 13); it waits for the owner's review and merge. The acceptance is the owner's live steps; none has run.
+
+- [x] The `ready` command and `enable --mode run --accept-shared-account`: the checks of 5.7 and recording the acceptance with the date and the version of the risk list (#350: `src/schedules/automatic.py`, `runner.readiness`). `ready` checks the real-run preconditions of #347 read from GitHub (the Q15 credentials, `main` protection with at least one required approving review, `can_approve_pull_request_reviews` false, `CLAUDE_ROUTINE_TOKEN` not a repository secret; its presence in the `issue-agent` environment is not read), the probe records and the acceptance; it never starts a probe. The probe rule: each stage kind a Claude session runs (a Codex `select` while its stored availability says unavailable, since a run then falls back to a Claude select session) has a passing record in each of the four modes once, at any age (A7); no record has to be recent, since every run probes before every session with Bash (5.7; the owner dropped the 7-day rule for `implement` and `submit` on 2026-10-14, section 13). The acceptance (`schedules/acceptance.json`) holds the date, the rows 1, 2 and 4, the SHA-256 of their text and the tripwire count; a changed text, a trip since it (another count or a later entry), an unreadable `tripwire.json` or a date in the future asks for a new one, and `disable` or `enable --mode dry-run` withdraws it. `enable` re-reads the tripwire count under the writers' lock and records the acceptance under it. A tick runs a scheduled `run` or `resume` only while `ready` passes, else it records the run `refused` and notifies (a refused continuation names its PR); the run's child checks the schedule and the acceptance again under the run lease. The settings page reads no credential: it shows the last `ready` result the CLI recorded and offers `run` only on a passing one at most 15 minutes old with a current acceptance.
+- [x] A triggered decoy or a failed probe turns the schedule off and sends a notification (#350: `decoys.trip` with `cause` `tripwire` or `probe`; a failed probe report before a stage session, a failed `probe` command and a Codex deny-probe success trip it too; the run or command that tripped it sends `Autodev schedule off` with a fixed phrase through `report.notify`).
+- [ ] Acceptance (owner live steps):
+  - `ready` passes on this machine (after the twelve probes of [A7](autodev-acceptance.md#a7-probes-hold-in-every-mode-and-the-broker-refuses) and `enable --mode run --accept-shared-account`);
   - all probes of 5.7 are denied, the control probe passes;
   - three automatic real runs in a row end with a PR, `blocked` or `wait` without the owner's intervention.
 

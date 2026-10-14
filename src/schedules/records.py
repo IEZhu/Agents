@@ -19,7 +19,7 @@ from pathlib import Path
 import re
 import secrets
 import threading
-from typing import Any, Iterable
+from typing import Any, Iterable, Iterator
 
 from src.daemon.state import private_dir, read_json, write_json
 
@@ -117,18 +117,26 @@ def read_record(run_id: str, directory: str | Path | None = None) -> dict | None
     return record if isinstance(record, dict) else None
 
 
-def all_records(directory: str | Path | None = None, *, limit: int | None = None) -> list[dict]:
-    """Every readable record, newest first; with ``limit``, the ``limit`` newest, reading no older one."""
+def iter_records(directory: str | Path | None = None) -> Iterator[dict]:
+    """Every readable record, newest first, each read only when the caller asks for it."""
     base = runs_dir(directory)
     if not base.is_dir():
-        return []
-    found = []
+        return
     for name in sorted((path.name for path in base.iterdir() if valid_run_id(path.name)), reverse=True):
-        if limit is not None and len(found) >= limit:
-            break
         record = read_record(name, directory)
         if record:
-            found.append(record)
+            yield record
+
+
+def all_records(directory: str | Path | None = None, *, limit: int | None = None) -> list[dict]:
+    """Every readable record, newest first; with ``limit``, the ``limit`` newest, reading no older one."""
+    found: list[dict] = []
+    if limit is not None and limit <= 0:
+        return found
+    for record in iter_records(directory):
+        found.append(record)
+        if limit is not None and len(found) >= limit:
+            break  # before the generator reads an older one
     return found
 
 

@@ -184,15 +184,16 @@ def test_run_ids_cannot_name_other_paths(service_state_dir):
         assert records.read_record(bad, service_state_dir) is None
 
 
-# --- real modes: run-now only until #350 -------------------------------------------------------------
+# --- real modes: run-now, and the automatic mode of #350 (tests/test_schedules_automatic.py) ------------
 
-def test_enabling_a_scheduled_real_mode_refuses_and_names_the_automatic_mode(ctx):
+def test_enabling_run_mode_refuses_while_the_automatic_mode_is_not_ready(ctx):
     code, result = call(ctx, "autodev", "enable", "--mode", "run", "--accept-shared-account")
-    assert code == 1 and result["ok"] is False and result["error"] == "mode_unavailable"
-    assert result["missing"] == ["#350 automatic mode"] and "run-now --mode run" in result["message"]
-    assert ctx.test.supervised == [] and ctx.test.github.calls == []
+    assert code == 1 and result["ok"] is False and result["error"] == "not_ready"
+    assert "the API token" in result["missing"] and "autodev ready" in result["message"]
+    assert ctx.test.supervised == [] and ctx.test.github.calls == []  # without the token nothing is read
     assert autodev_config.load(ctx.directory)["enabled"] is False
     assert not records.runs_dir(ctx.directory).exists()
+    assert not (ctx.directory / "schedules" / "acceptance.json").exists()
 
 
 @pytest.mark.parametrize("argv, mode", [
@@ -463,13 +464,19 @@ def test_enable_disable_and_a_tick_that_runs_the_due_slot(ctx):
     assert code == 0 and autodev_config.load(ctx.directory)["enabled"] is False
 
 
-def test_tick_in_run_mode_refuses_without_starting_anything(ctx):
+def test_tick_in_run_mode_refuses_without_starting_anything_while_not_ready(ctx):
     config = {**autodev_config.DEFAULTS, "enabled": True, "mode": "run"}
     autodev_config.save(config, ctx.directory)
     (ctx.directory / "schedules" / "tick.json").write_text(json.dumps({"enabled_at": "2026-10-12T00:00:00+03:00"}))
     code, result = call(ctx, "tick")
-    assert result["tick"]["action"] == "run" and result["run"]["error"] == "mode_unavailable"
+    assert result["tick"]["action"] == "run" and result["run"]["status"] == "refused"
+    assert result["run"]["reason"].startswith("automatic mode not ready: the deploy key; ")
+    assert "the API token" in result["run"]["reason"] and result["run"]["reason"].endswith(" more)")
     assert ctx.test.supervised == []
+    [record] = records.all_records(ctx.directory)  # recorded, and the owner is told
+    assert record["run_id"] == result["run"]["run_id"] and record["mode"] == "run" and "the API token" in record["missing"]
+    [argv] = ctx.test.notifications
+    assert argv[-2] == "Autodev run refused" and argv[-1] == f"details in run {record['run_id']}."
     state = json.loads((ctx.directory / "schedules" / "tick.json").read_text())
     assert state["last_slot"] == "2026-10-12T02:17:00+03:00"  # handled, not retried every five minutes
 
@@ -500,15 +507,20 @@ def test_status_reports_state_runs_and_the_next_slot(ctx):
     assert code == 0 and result["next_slot"] == "2026-10-12T13:47:00+03:00"
     assert result["scheduler"]["label"].endswith(".scheduler") and result["scheduler"]["installed"] is False
     assert result["recent_runs"][0]["status"] == "completed" and result["recent_runs"][0]["decision"] == "select"
-    assert result["lease_held"] is False and result["real_modes"] == {
-        "run_now": True, "scheduled": False, "missing": ["#350 automatic mode"]}
+    assert result["lease_held"] is False and result["automatic"]["on"] is False
+    assert result["automatic"]["check"] == "python -m src.schedules autodev ready"
+    acceptance = result["automatic"]["acceptance"]
+    assert (acceptance["current"], acceptance["accepted"]) == (False, None) and "not recorded" in acceptance["problems"][0]
     assert result["heavy_lease_held"] is False
     assert result["config_file"] == str(ctx.directory / "schedules" / "autodev.json")
 
 
-def test_ready_is_a_stub_that_lists_what_is_missing(ctx):
+def test_ready_lists_what_is_missing_and_exits_with_one(ctx):
     code, result = call(ctx, "autodev", "ready")
-    assert code == 1 and result["ready"] is False and "#350 automatic mode" in result["missing"]
+    assert code == 1 and result["ok"] is True and result["ready"] is False
+    assert "the API token" in result["missing"] and result["acceptance"]["current"] is False
+    assert sum(item.startswith("sandbox probe ") for item in result["missing"]) == 12  # 3 kinds in 4 modes
+    assert ctx.test.supervised == [] and ctx.test.github.calls == []
 
 
 def test_install_and_uninstall_through_the_cli(ctx, tmp_path):

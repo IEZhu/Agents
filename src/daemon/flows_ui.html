@@ -4517,31 +4517,33 @@ function renderAutodev(settings) {
   }, "", "ad-reload");
 }
 
-// The switch (dry-run only: a scheduled real run arrives with the automatic mode of #350), the next
-// slot, the scheduler job and the newest runs.
+// The switch, the automatic mode (#350: run is offered only while a recent `autodev ready` the CLI
+// recorded passed and the owner's acceptance is current), the next slot, the scheduler job and the
+// newest runs.
 function renderAutodevStatus() {
   const card = autodev.status, data = autodev.data, status = data.status;
+  const automatic = status.automatic, ready = !!(automatic && automatic.can_enable);
   card.replaceChildren();
   node("h3", card, "Switch and status");
   const on = status.enabled === true;
   node("p", card, status.enabled === null ? "Unknown: autodev.json is invalid." : on ? "On, mode " + status.mode + "." : "Off.")
     .setAttribute("id", "ad-state");
   if (on && status.mode === "run") {
-    node("p", card, "A scheduled run is refused until the automatic mode (#350); turn off, then on in dry-run.", "notice");
+    node("p", card, "Every tick checks `autodev ready` before a scheduled run and refuses it while a condition is "
+      + "missing; the latest runs say why.", "notice");
   }
   const bar = node("div", card, null, "ad-actions");
   const label = node("label", bar, "Mode");
   label.setAttribute("for", "ad-mode");
   const mode = node("select", bar);
   mode.setAttribute("id", "ad-mode");
-  fillOptions(mode, data.choices.modes.map((value) => [value, value === "run"
-    ? "run (unavailable until the automatic mode, #350)" : value, value === "run"]), "dry-run");
+  fillOptions(mode, data.choices.modes.map((value) => value === "run"
+    ? [value, ready ? "run (real runs on the schedule)" : "run (not ready)", !ready] : [value, value, false]), "dry-run");
   autodev.fields.mode = mode;
   if (status.enabled !== null) {
     autodevButton(bar, on ? "Turn off" : "Turn on", () => switchAutodev(on ? null : mode.value), on ? "" : "primary", "ad-switch");
   }
-  node("p", card, "A supervised real run is `python -m src.schedules autodev run-now --mode run`; a scheduled one "
-    + "still needs: " + status.real_modes.missing.join(", ") + ".", "meta");
+  if (automatic) renderAutomatic(card, automatic);
   if (status.next_slot) {
     node("p", card, (on ? "Next slot: " : "Next slot when on: ") + dateTime(status.next_slot) + ".").setAttribute("id", "ad-next");
   }
@@ -4564,6 +4566,36 @@ function renderAutodevStatus() {
     const reason = run.reason || run.decision_reason;
     if (reason) node("small", item, reason, "meta");
   }
+}
+
+// The automatic mode as the CLI last checked it (the daemon reads no credential): the recorded
+// `autodev ready`, then either that run mode can be turned on here or every missing item.
+function renderAutomatic(card, automatic) {
+  const box = node("div", card);
+  box.setAttribute("id", "ad-automatic");
+  node("p", box, automatic.checked ? "Last `autodev ready`: " + (automatic.passed ? "passed" : "did not pass") + " ("
+    + dateTime(automatic.checked) + ")." : "`autodev ready` has no recorded result yet.");
+  if (automatic.can_enable) {
+    node("p", box, "Run mode (real runs on the schedule) can be turned on here: `autodev ready` passed within the last "
+      + automatic.fresh_minutes + " minutes, and your acceptance of the residual risks (" + dateTime(automatic.accepted)
+      + ") is current.");
+  } else {
+    node("p", box, "Run mode (real runs on the schedule) cannot be turned on here; missing:");
+    const list = node("ul", box);
+    list.setAttribute("id", "ad-missing");
+    for (const item of automatic.missing) node("li", list, item);
+  }
+  node("p", box, "This page reads no credential: run `python -m src.schedules autodev ready` in a terminal, and the page "
+    + "shows its result. Turn run mode on with `python -m src.schedules autodev enable --mode run "
+    + "--accept-shared-account`; turning the schedule off or to dry-run withdraws the acceptance. A supervised real "
+    + "run is `python -m src.schedules autodev run-now --mode run`.", "meta");
+}
+
+// Turning run mode on accepts the residual risks of plan section 11 again, as the CLI's flag does.
+function acceptanceQuestion(automatic) {
+  return "Turn on real runs on the schedule under your GitHub account? You accept these residual risks "
+    + "(plan section 11):\n\n" + automatic.risks.map((risk) => risk.row + ". " + risk.risk + ". Residual risk: "
+    + risk.residual_risk + ".").join("\n");
 }
 
 function collectAutodev() {
@@ -4611,10 +4643,13 @@ async function saveAutodev() {
 // form with unsaved edits stays as typed and keeps the revision it was read at, so a save after a
 // change made elsewhere is still refused (the switch's answer carries that change).
 async function switchAutodev(mode) {
+  const automatic = autodev.data.status.automatic;
+  if (mode === "run" && !(automatic && automatic.can_enable && confirm(acceptanceQuestion(automatic)))) return;
   autodev.busy = true;
   autodev.gen += 1;
   try {
-    const data = mode ? await api("/ui/api/autodev/enable", { method: "POST", body: { mode } })
+    const body = mode === "run" ? { mode, accept_shared_account: true } : { mode };
+    const data = mode ? await api("/ui/api/autodev/enable", { method: "POST", body })
       : await api("/ui/api/autodev/disable", { method: "POST", body: {} });
     if (autodev.dirty) {
       autodev.data = { ...autodev.data, status: data.status };
@@ -4626,7 +4661,7 @@ async function switchAutodev(mode) {
     const note = data.result && data.result.note;
     autodevAlert((mode ? "Turned on in " + mode + "." : "Turned off.") + (note ? " Then " + note + "." : ""), "ok");
   } catch (error) {
-    if (!error.signedOut) autodevAlert(error.message, "error");
+    if (!error.signedOut) autodevAlert(error.message, "error", (error.data && error.data.missing) || []);
   } finally {
     autodev.busy = false;
   }

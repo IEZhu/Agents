@@ -12,8 +12,19 @@ lease, drift, a timeout) end as ``failed: infra`` with a reason, set no label, a
 retries. The supervisor's limit is `sequence.run_timeout`: the stages' timeouts plus 30 minutes.
 
 ``run-now --mode run`` and ``run-now --mode resume --pr N`` are the supervised real runs (phase
-1a). A scheduled real run is the automatic mode of #350: ``enable --mode run`` refuses, ``ready``
-names it missing, and a tick whose configuration says ``run`` (edited by hand) refuses too.
+1a). A scheduled real run is the automatic mode (#350, phase 1b, `src.schedules.automatic`):
+``ready`` checks every condition (`readiness`: the real-run preconditions read from GitHub, the
+stored probe records of the stages a run starts as Claude sessions, the owner's acceptance),
+names what is missing and records the outcome for the settings page; ``enable --mode run``
+refuses without ``--accept-shared-account``, while a condition is missing and when a tripwire
+fired while it checked, then records the acceptance under the writers' lock; ``disable`` and
+``enable --mode dry-run`` withdraw it. A tick starts a scheduled ``run`` or ``resume`` only while
+``ready`` passes, else it records the run ``refused`` with the list and notifies; the run's child
+checks the schedule and the acceptance again under the run lease (`scheduled_problems`).
+
+A run or probe command that turned the schedule off (`decoys.trip`: a tripwire, or a failed
+sandbox probe, which `probe`, the run sequence and the Codex checks now trip too) notifies the
+owner with the fixed phrases of `report.notification` (`note_schedule_off`).
 
 ``codex_probe`` is the owner's live check of Codex (#344, docs/autodev-codex.md): it builds a
 Codex worker or stage launch under its outer profile, runs the model-free probes and the nested
@@ -54,10 +65,11 @@ from typing import Callable
 from src import executables
 from src.daemon.state import private_dir, read_json, write_json
 
+from . import automatic
 from . import broker as broker_module
 from . import config as autodev_config
-from . import codex_probes, codex_proxy, codex_sandbox, decoys, drift, heavy, launchagent, lease, probes, records, repos
-from . import run_state, sandbox, scan, socket_service, stages, worker_launch, workers
+from . import codex_probes, codex_proxy, codex_sandbox, decoys, drift, heavy, launchagent, lease, preconditions, probes
+from . import records, repos, run_state, sandbox, scan, socket_service, stages, worker_launch, workers
 from . import report as run_report
 from .github import GitHubClient, TokenUnavailable, keychain_token, token_provider
 from .heavy import HEAVY, heavy_processes  # noqa: F401 (HEAVY: moved to heavy, still importable here)
@@ -65,8 +77,7 @@ from .supervise import SupervisorStopped, run_supervised
 from .tick import decide, iso, local_now, next_slot
 
 REAL_MODES = ("run", "resume")
-# What a scheduled real run still needs; run-now runs every mode under supervision (#347).
-MISSING_FOR_REAL_MODES = ["#350 automatic mode"]
+READY_COMMAND = automatic.READY_COMMAND
 RUN_STATUSES = ("completed", "blocked", "refused", "failed: infra")
 TICK_STATE = "tick.json"
 UPDATE_MARKERS = ("maintenance.json", "transaction.json")
@@ -135,14 +146,6 @@ class Context:
                                      agents_dir=self.agents_dir)
 
 
-def refusal(mode: str) -> dict:
-    """A scheduled real run before the automatic mode (#350)."""
-    return {"ok": False, "error": "mode_unavailable", "mode": mode,
-            "message": f"a scheduled {mode} arrives with the automatic mode (#350); run "
-                       f"`autodev run-now --mode {mode}` for a supervised run",
-            "missing": list(MISSING_FOR_REAL_MODES)}
-
-
 def infra(reason: str) -> dict:
     return {"status": "failed: infra", "reason": reason}
 
@@ -198,6 +201,8 @@ def run_autodev(ctx: Context, mode: str, *, pr: int | None = None, run_id: str |
     record = records.read_record(run_id, ctx.directory) or {"trigger": {"kind": "manual"}, "started": iso(now)}
     record.update(mode=mode, repository=config["repository"], installation=str(ctx.installation), pr=pr,
                   status="running", cleanup_executed=False)
+    trigger = record.get("trigger") if isinstance(record.get("trigger"), dict) else {}
+    scheduled = mode in REAL_MODES and trigger.get("kind") in SCHEDULED_TRIGGERS
     try:
         with lease.hold(ctx.directory):
             records.write_record(run_id, record, ctx.directory)
@@ -205,6 +210,10 @@ def run_autodev(ctx: Context, mode: str, *, pr: int | None = None, run_id: str |
             # the lease itself, and a marker left by any other update or `recover` shows here.
             if markers := update_markers(ctx.directory):
                 record.update(infra(f"update: a daemon update or maintenance is in progress ({', '.join(markers)})"))
+            elif scheduled and (problems := scheduled_problems(ctx)):  # a trip since the tick's check (#350)
+                if isinstance(pr, int) and not isinstance(pr, bool):
+                    record["pr_url"] = f"https://github.com/{config['repository']}/pull/{pr}"
+                _refusal(ctx, run_id, record, problems, "automatic mode no longer ready at the start")
             else:
                 record.update(sequence.run_sequence(ctx, config, run_id, mode, pr=pr, now=now,
                                                     trigger=record.get("trigger")))
@@ -244,6 +253,8 @@ def notify_ended(ctx: Context, record: dict, run_dir: Path) -> None:
     """The owner's notification for a run the supervisor ended (a timeout, a stop), unless the run
     notified before it ended (#347 review): the report from what the run left, the fixed phrases of
     `report.notification`; ``record`` gets both."""
+    if (entry := decoys.tripped_by(ctx.directory, record.get("run_id"))) is not None:
+        record["schedule_off"] = entry["cause"]
     if record.get("notification") or not run_report.should_notify(record):
         return
     report = run_report.build_report(record, run_state.read_state(run_dir), run_dir)
@@ -338,18 +349,104 @@ def tick(ctx: Context) -> tuple[int, dict]:
         mode, pr = config["mode"], None
         if decision.trigger["kind"] == "continuation" and mode == "run":
             mode, pr = "resume", decision.trigger.get("pr")
-        if mode in REAL_MODES:  # a scheduled real run is the automatic mode (#350)
-            result["run"] = refusal(mode)
+        state = readiness(ctx, config) if mode in REAL_MODES else None  # the automatic mode (#350)
+        if state is not None and not state.ready:
+            result["run"] = refuse_scheduled(ctx, mode, decision.trigger, state.missing, pr=pr,
+                                             repository=config["repository"])
         else:
             _, run = launch(ctx, mode, decision.trigger, pr=pr)
             result["run"] = run
     return 0, result
 
 
-def enable(ctx: Context, mode: str) -> tuple[int, dict]:
-    if mode in REAL_MODES:
-        return 1, refusal(mode)
+def _refusal(ctx: Context, run_id: str, record: dict, missing: list[str], why: str) -> dict:
+    """``record`` refused with the missing items and the owner's notification, as every real run
+    gets one (the fixed phrases of `report.notification`; a continuation's names its PR)."""
+    more = f" (and {len(missing) - 5} more)" if len(missing) > 5 else ""
+    record.update(status="refused", reason=f"{why}: " + "; ".join(missing[:5]) + more, missing=list(missing))
+    title, message = run_report.notification(run_report.build_report({**record, "run_id": run_id}))
+    sent = run_report.notify(title, message, runner=ctx.notify_runner, platform=ctx.platform)
+    record["notification"] = {"sent": sent, "title": title}
+    return record
+
+
+def refuse_scheduled(ctx: Context, mode: str, trigger: dict, missing: list[str], *, pr: int | None = None,
+                     repository: str | None = None) -> dict:
+    """A scheduled real run while the automatic mode is not ready: a run record ``refused`` with
+    the missing items (no lease, no session, nothing read from GitHub beyond `readiness`) and the
+    owner's notification. A refused continuation stays handled (the tick does not retry it every
+    five minutes); its record and notification name the PR and the command that resumes it."""
+    now = ctx.clock()
+    run_id = records.new_run_id(now)
+    record = {"trigger": trigger, "mode": mode, "pr": pr, "started": iso(now), "finished": iso(now)}
+    if isinstance(pr, int) and not isinstance(pr, bool) and repository:
+        record["pr_url"] = f"https://github.com/{repository}/pull/{pr}"
+    return records.write_record(run_id, _refusal(ctx, run_id, record, missing, "automatic mode not ready"),
+                                ctx.directory)
+
+
+SCHEDULED_TRIGGERS = ("slot", "continuation")
+
+
+def scheduled_problems(ctx: Context) -> list[str]:
+    """For the child of a scheduled real run, under the run lease and before the sequence (#350
+    review): the schedule is still on in run mode and the acceptance still current. Every command
+    that can trip the schedule holds the run lease, so nothing trips between this check and the
+    first stage but the run itself."""
+    try:
+        config = autodev_config.load(ctx.directory)
+    except autodev_config.ConfigError:
+        return ["autodev.json does not validate"]
+    problems = []
+    if not config["enabled"]:
+        problems.append("the schedule was turned off")
+    elif config["mode"] != "run":
+        problems.append(f"the schedule is in {config['mode']} mode")
+    return problems + automatic.acceptance_problems(ctx.directory, ctx.clock())
+
+
+def acceptance_required(source: str = "cli") -> dict:
+    """``enable --mode run`` without the owner's acceptance: the refusal names the flag and the risks."""
+    flag = automatic.ACCEPT_FLAG if source == "cli" else "accept_shared_account: true"
+    return {"ok": False, "error": "acceptance_required", "flag": flag,
+            "message": f"run mode starts real runs on the schedule under your GitHub account; turning it on needs "
+                       f"{flag}: your acceptance of the residual risks of plan section 11, rows 1, 2 and 4 "
+                       "(listed under risks)",
+            "risks": automatic.risks(), "risk_list_sha256": automatic.risk_list_version()}
+
+
+def enable(ctx: Context, mode: str, *, accept_shared_account: bool = False, source: str = "cli") -> tuple[int, dict]:
+    """Turn the schedule on in ``mode``. ``run`` (the automatic mode, #350) needs the owner's
+    acceptance (``accept_shared_account``) and every other condition: `readiness` from the CLI;
+    from the settings page (``source="page"``, which reads no credential) a recent passing
+    ``autodev ready`` and a current acceptance (`automatic.page_problems`). The tripwire count is
+    read before those checks and again under the writers' lock: a trip in between refuses
+    (``tripped_during_enable``); otherwise the acceptance is recorded under the same lock, dated
+    when the checks began, and the configuration changes. ``dry-run`` withdraws the acceptance."""
+    acceptance, count, began = None, None, ctx.clock()
+    if mode == "run":
+        if not accept_shared_account:
+            return 1, acceptance_required(source)
+        count = decoys.trip_count(ctx.directory)  # before the checks, which take seconds (#350 review)
+        if source == "page":
+            missing = automatic.page_problems(ctx.directory, began)
+        else:
+            missing = readiness(ctx, autodev_config.load(ctx.directory)).conditions
+        if count is None:
+            missing = [*missing, "tripwire.json cannot be read; check it and the run records"]
+        if missing:
+            return 1, {"ok": False, "error": "not_ready", "missing": missing,
+                       "message": f"the automatic mode is not ready: {len(missing)} condition(s) missing "
+                                  f"(listed under missing; `{READY_COMMAND}` shows them all)"}
     with autodev_config.writing(ctx.directory):  # the page and the tripwire write it too
+        if mode == "run":
+            if decoys.trip_count(ctx.directory) != count:
+                return 1, {"ok": False, "error": "tripped_during_enable",
+                           "message": "a tripwire turned the schedule off while the conditions were checked; "
+                                      "check the run records and tripwire.json, then enable again"}
+            acceptance = automatic.record_acceptance(ctx.directory, began, source=source, tripwire_count=count)
+        else:
+            automatic.revoke_acceptance(ctx.directory, began, by="dry-run")
         config = autodev_config.load(ctx.directory)
         was_enabled = config["enabled"]
         config.update(enabled=True, mode=mode)
@@ -360,13 +457,20 @@ def enable(ctx: Context, mode: str) -> tuple[int, dict]:
     installed = ctx.scheduler().plist.is_file()
     result = {"ok": True, "enabled": True, "mode": mode, "scheduler_installed": installed,
               "next_slot": iso(next_slot(config["times"], now))}
+    if acceptance is not None:
+        result["acceptance"] = {key: acceptance[key] for key in ("accepted", "rows", "risk_list_sha256", "source")}
     if not installed:
         result["note"] = "run `python -m src.schedules autodev install` so that ticks start"
     return 0, result
 
 
 def disable(ctx: Context) -> tuple[int, dict]:
+    """Turn the schedule off and withdraw the acceptance of the automatic mode (#350 review): run
+    mode needs ``enable --mode run --accept-shared-account`` again, whatever ``autodev.json`` says."""
     with autodev_config.writing(ctx.directory):
+        # The acceptance goes first: a failed withdrawal leaves the schedule as it was instead of
+        # off with a current acceptance that a hand edit could reuse (#350 review round 2).
+        automatic.revoke_acceptance(ctx.directory, ctx.clock(), by="disable")
         config = autodev_config.load(ctx.directory)
         config["enabled"] = False
         autodev_config.save(config, ctx.directory)
@@ -397,14 +501,88 @@ def status(ctx: Context) -> tuple[int, dict]:
         "next_slot": iso(next_slot(config["times"], now)),
         "tick": _tick_state(ctx),
         "recent_runs": [run_summary(record) for record in records.all_records(ctx.directory)[:5]],
-        "real_modes": {"run_now": True, "scheduled": False, "missing": list(MISSING_FOR_REAL_MODES)},
+        "automatic": {"on": config["enabled"] and config["mode"] == "run",
+                      "acceptance": automatic.acceptance_summary(ctx.directory, now), "check": READY_COMMAND,
+                      "last_ready": automatic.read_ready(ctx.directory)},
     }
 
 
+# --- the automatic mode (#350) ----------------------------------------------------------------------
+
+def github_conditions(ctx: Context, config: dict) -> list[str]:
+    """The real-run preconditions of #347 (`preconditions.check`), read from GitHub with the
+    broker's credentials; each missing item named."""
+    client = (ctx.client_factory or default_client)(config)
+    credentials = (ctx.credentials or broker_module.Credentials.from_config)(config)
+    return preconditions.check(client, credentials, repository=config["repository"], key_reader=ctx.key_reader)
+
+
+def codex_availability(ctx: Context, config: dict, kind: str) -> dict:
+    """The stored Codex stage availability of ``kind`` as the run sequence asks for it
+    (``ctx.codex_availability``, else `codex_probes.configured_stage_availability` for the
+    installed codex)."""
+    if ctx.codex_availability is not None:
+        return ctx.codex_availability(kind)
+    codex = codex_executable(ctx)
+    version = codex_probes.installed_version(codex, path=run_environment(ctx)["PATH"],
+                                             command_runner=ctx.command_runner) if codex else None
+    return codex_probes.configured_stage_availability(ctx.directory, config, kind, codex, version=version)
+
+
+def codex_stage_conditions(ctx: Context, config: dict) -> tuple[dict, list[str]]:
+    """For each stage configured to run with Codex (`automatic.codex_stage_kinds`): its stored
+    availability and reason, and which client a run gives it now (``client``); and the kinds a run
+    falls back to a Claude session for, because Codex cannot run (`stages.stage_profile`), whose
+    Claude probe records `readiness` asks for instead."""
+    details, fallback = {}, []
+    for kind in automatic.codex_stage_kinds(config):
+        found = codex_availability(ctx, config, kind)
+        available = found.get("available") is True
+        reason = None if available else str(found.get("reason") or "not_checked")
+        details[kind] = {"available": available, "reason": reason, "checked": found.get("checked"),
+                         "client": "codex" if available else "claude"}
+        if not available:
+            fallback.append(kind)
+    return details, fallback
+
+
+def readiness(ctx: Context, config: dict, *, github: list[str] | None = None) -> automatic.Readiness:
+    """Every condition of the automatic mode (`src.schedules.automatic`): the real-run
+    preconditions (``github`` when the caller read them already), the stored probe records of the
+    stages a run starts as Claude sessions (a Codex stage whose availability says unavailable
+    included) and the owner's acceptance. Reads only; starts no probe."""
+    conditions = list(github_conditions(ctx, config) if github is None else github)
+    codex_details, fallback = codex_stage_conditions(ctx, config)
+    now = ctx.clock()
+    probe_missing, probe_details = automatic.probe_records(
+        ctx.directory, automatic.claude_stage_kinds(config, fallback), now)
+    return automatic.Readiness(conditions + probe_missing, automatic.acceptance_problems(ctx.directory, now),
+                               probe_details, codex_details, automatic.read_acceptance(ctx.directory))
+
+
 def ready(ctx: Context) -> tuple[int, dict]:
-    """A stub until #350: the automatic mode is never ready yet."""
-    return 1, {"ok": True, "ready": False, "missing": list(MISSING_FOR_REAL_MODES),
-               "note": "the automatic-mode checks, including the sandbox probes, arrive with #350"}
+    """``autodev ready``: every condition of the automatic mode, each missing one named; exit 0
+    only when all pass. The outcome is recorded for the settings page (`automatic.record_ready`)."""
+    state = readiness(ctx, autodev_config.load(ctx.directory))
+    result = {"ok": True, **state.to_dict()}
+    try:
+        result["recorded"] = automatic.record_ready(ctx.directory, state, ctx.clock())["checked"]
+    except OSError as error:
+        result["recorded"] = None
+        result["note"] = f"the result could not be recorded for the settings page: {type(error).__name__}"
+    return (0 if state.ready else 1), result
+
+
+def note_schedule_off(ctx: Context, run_id: str, record: dict) -> None:
+    """When the command ``run_id`` turned the schedule off (`decoys.tripped_by`): ``schedule_off``
+    with the cause, and the owner's notification with its fixed phrases (`report.notification`)."""
+    entry = decoys.tripped_by(ctx.directory, run_id)
+    if entry is None or record.get("notification"):
+        return
+    record["schedule_off"] = entry["cause"]
+    title, message = run_report.notification(run_report.build_report({**record, "run_id": run_id}))
+    sent = run_report.notify(title, message, runner=ctx.notify_runner, platform=ctx.platform)
+    record["notification"] = {"sent": sent, "title": title}
 
 
 def run_now(ctx: Context, mode: str, pr: int | None) -> tuple[int, dict]:
@@ -527,14 +705,23 @@ def probe(ctx: Context, mode: str, kind: str, confirmed: bool) -> tuple[int, dic
     except lease.LeaseBusy as error:
         record.update(infra(f"lease: {error}"))
     record["finished"] = iso(ctx.clock())
+    note_schedule_off(ctx, run_id, record)
     written = records.write_record(run_id, record, ctx.directory, known=markers)
     return (0 if written.get("status") == "completed" else 1), written
 
 
 def _probe(ctx: Context, config: dict, run_id: str, mode: str, kind: str, markers: list[str]) -> dict:
-    stage = config["stages"][kind]
+    # The client and settings a run gives the stage (`stages.stage_profile`): implement and submit
+    # configured for Codex run with Claude, so they are probed as the Claude sessions they are, and
+    # so is a Codex select stage whose stored availability says Codex cannot run (#350).
+    stage = stages.stage_profile(kind, config)
+    if stage["client"] == "codex":
+        found = codex_availability(ctx, config, kind)
+        if found.get("available") is not True:
+            stage = stages.stage_profile(kind, config, codex_unavailable=str(found.get("reason") or "not_checked"))
     if stage["client"] != "claude":
-        return {"status": "refused", "reason": f"the {kind} stage uses {stage['client']}; only Claude sessions are sandboxed"}
+        return {"status": "refused", "reason": f"the {kind} stage uses {stage['client']}, which is available; only "
+                                               f"Claude sessions are sandboxed (`codex-probe --kind stage` checks it)"}
     claude = claude_executable(ctx)
     if not claude:
         return infra("cli: the claude executable was not found (tools.json, PATH)")
@@ -584,9 +771,8 @@ def _probe(ctx: Context, config: dict, run_id: str, mode: str, kind: str, marker
                 gh_config=Path(layout["gh_config"]), settings_file=Path(layout["settings_file"]),
                 tmp_root=temp_root, state_dir=Path(ctx.directory),
                 socket=endpoint.socket if endpoint is not None else None, read_roots=roots)
-            settings = stage.get("claude") or {}
             spec = sandbox.build(claude, kind, paths, path=path, mode=login, oauth_token=oauth,
-                                 model=settings.get("model"), effort=settings.get("effort"),
+                                 model=stage["model"], effort=stage["effort"],
                                  schema=stages.schema_text(kind), run_variables={"AUTODEV_RUN_ID": run_id})
             report = probes.guard(spec, directory=ctx.directory,
                                   targets=probe_targets(ctx, config, login, config_dir),
@@ -602,10 +788,13 @@ def _probe(ctx: Context, config: dict, run_id: str, mode: str, kind: str, marker
         session.cleanup()
         if temp_root is not None:
             sandbox.remove_temp_root(temp_root, ctx.temp_base)
+    if not report.ok and not report.tripped:  # a failed probe turns the schedule off too (#350)
+        decoys.trip(ctx.directory, f"sandbox probes failed: the {kind} probe session in {mode} mode", run_id=run_id,
+                    cause=decoys.PROBE)
     result = {"status": "completed" if report.ok else "refused", "probes": [report.to_record()]}
     if not report.ok:
-        result["reason"] = "sandbox probes failed" + (" and the decoy tripwire turned the schedule off"
-                                                      if report.tripped else "")
+        result["reason"] = "sandbox probes failed and " + ("the decoy tripwire turned the schedule off"
+                                                           if report.tripped else "turned the schedule off")
     return result
 
 
@@ -655,6 +844,7 @@ def codex_probe(ctx: Context, kind: str, confirmed: bool) -> tuple[int, dict]:
     except lease.LeaseBusy as error:
         record.update(infra(f"lease: {error}"))
     record["finished"] = iso(ctx.clock())
+    note_schedule_off(ctx, run_id, record)
     written = records.write_record(run_id, record, ctx.directory, known=markers)
     return (0 if written.get("status") == "completed" else 1), written
 
@@ -748,7 +938,7 @@ def _codex_probe(ctx: Context, config: dict, run_id: str, kind: str, markers: li
         result["tripped"] = True
     if decision.abort:
         result["reason"] = (f"a deny probe got through ({decision.reason}): a step would be aborted, with neither "
-                            f"Codex nor the Claude worker")
+                            f"Codex nor the Claude worker, and the schedule is off")
     elif not decision.codex:
         result["reason"] = f"Codex is unavailable ({decision.reason}); the step uses the Claude worker"
     return result
@@ -796,6 +986,7 @@ def worker_probe(ctx: Context, confirmed: bool) -> tuple[int, dict]:
     except lease.LeaseBusy as error:
         record.update(infra(f"lease: {error}"))
     record["finished"] = iso(ctx.clock())
+    note_schedule_off(ctx, run_id, record)  # a decoy the worker reached turned the schedule off
     # Merged into what is on disk, so a field another writer added meanwhile stays (#345).
     written = records.update_record(run_id, lambda current: {**current, **record}, ctx.directory, known=markers)
     return (0 if written.get("status") == "completed" else 1), written
