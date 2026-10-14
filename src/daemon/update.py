@@ -1,5 +1,5 @@
 """Offline controller transaction surrounding the existing ff-only updater."""
-from contextlib import ExitStack
+from contextlib import ExitStack, suppress
 from pathlib import Path
 import hashlib
 import json
@@ -402,7 +402,13 @@ def _offline_update(controller, expected_target, precheck, notes):
         if prepared == self_update.PreparedStatus.PREPARED and \
                 _channel_used(channel_settings(controller)) != _channel_used(channel):
             # `channel set` or the page saved while the build ran: activating the build
-            # would apply the setting it replaced. The next run builds for the new one.
+            # would apply the setting it replaced. The next run builds for the new one;
+            # until then the refused build is discarded, as `prepare` discards one, since
+            # a channel that is up to date never runs this transaction again.
+            # A held lock means a stdio server is updating; its own gates re-validate the build.
+            from src.engine.config import AUTO_UPDATE_GIT_TIMEOUT
+            with suppress(BlockingIOError), file_lock(root / "data/.update.lock", blocking=False):
+                self_update._discard_staging(str(root), AUTO_UPDATE_GIT_TIMEOUT)
             return {"state": "deferred", "reason": "update channel changed during the build"}
         # Building takes minutes: work may have arrived, or `stop` or `disable` ran;
         # a deferred run keeps the build, and the next one activates it.

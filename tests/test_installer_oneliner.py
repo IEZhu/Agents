@@ -383,11 +383,14 @@ def test_an_existing_env_naming_another_branch_is_kept_with_a_warning(tmp_path):
     (tmp_path / ".env").write_text("AGENTS_AUTO_UPDATE_BRANCH=main\n")
     result = run_env_step(tmp_path, "dev")
     assert env_values(tmp_path / ".env")["AGENTS_AUTO_UPDATE_BRANCH"] == "main"
-    assert "WARNING: .env keeps AGENTS_AUTO_UPDATE_BRANCH=main, but AGENTS_BRANCH is dev" in result.stdout
+    assert "WARNING: the checkout is now on dev, but .env keeps AGENTS_AUTO_UPDATE_BRANCH=main" in result.stdout
+    # docs-1 (#381 round 2): plan() is 'local' then, so the updaters do not follow main either.
+    assert "the updaters leave the checkout alone (or switch it back, if dev is the recorded previous setting)" \
+        in result.stdout
     assert "python -m src.daemon channel set dev" in result.stdout
     (tmp_path / ".env").write_text("AGENTS_AUTO_UPDATE_BRANCH=dev\n")
     result = run_env_step(tmp_path, "main")
-    assert "WARNING: .env keeps AGENTS_AUTO_UPDATE_BRANCH=dev, but AGENTS_BRANCH is main" in result.stdout
+    assert "WARNING: the checkout is now on main, but .env keeps AGENTS_AUTO_UPDATE_BRANCH=dev" in result.stdout
     assert env_values(tmp_path / ".env")["AGENTS_AUTO_UPDATE_BRANCH"] == "dev"
 
 

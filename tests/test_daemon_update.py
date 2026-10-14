@@ -819,6 +819,8 @@ def test_a_channel_saved_during_the_build_defers_the_activation(installation, mo
     assert result == {"state": "deferred", "reason": "update channel changed during the build"}
     assert git(root, "symbolic-ref", "--short", "HEAD") == "main" and git(root, "rev-parse", "HEAD") == old
     assert controller.stops == 0
+    # fixes-1: the refused switch build goes; an up-to-date channel would never run this again.
+    assert self_update._read_prepared_marker() is None and not any((root / "data/.prepared").glob("*"))
     monkeypatch.setattr(update, "prepare", real)
     result = offline_update(controller)
     assert result["state"] == "UPDATED" and "branch" not in result
