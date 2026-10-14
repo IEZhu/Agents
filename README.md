@@ -117,6 +117,11 @@ powershell -ExecutionPolicy Bypass -File scripts\uninstall.ps1 --dry-run   # Win
   `~/.claude/settings.json`), Claude Desktop, Codex, Cursor and Antigravity (with its
   `agents-core` plugin), and in the `.mcp.json`, `.codex/config.toml` and `.cursor/mcp.json` of
   every workspace the service registered. Other servers and settings stay byte for byte.
+  Optional session readiness hooks and Desktop's `Agents-Readiness` entry are removed only
+  when their generated settings still match and their interpreter belongs to this installation's
+  `.venv`. Their copied runtimes are removed only when unchanged and no remaining handler
+  references them. Modified entries, files and adapters from another installation are listed
+  as kept so you can remove them manually.
 - **Instructions**: only the section between the routing-protocol markers in
   `~/.claude/CLAUDE.md` and Codex's `AGENTS.md`, and the generated routing reminder in Claude's
   memory. A file left empty is deleted.
