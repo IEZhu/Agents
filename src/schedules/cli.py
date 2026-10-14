@@ -9,6 +9,7 @@
     python -m src.schedules probe [--mode dry-run|run-now|scheduled|resume] [--kind implement|submit|select]
                                   --confirm-live-probe
     python -m src.schedules codex-probe [--kind worker|stage] --confirm-live-probe
+    python -m src.schedules worker-probe --confirm-live-probe
 
 The exit code is 0 on success, 1 when a command refused or a run failed, and 2 for wrong
 arguments. The installation runs it by absolute path as ``<python> -P -m src.schedules …`` with
@@ -17,7 +18,9 @@ the sandbox probes of one session kind (#343) with a real probe session, so it r
 ``--confirm-live-probe``. ``codex-probe`` runs the Codex check (#344, docs/autodev-codex.md): the
 outer profile, the model-free probes, the nested-sandbox check and the decision between Codex and
 the Claude worker, and for ``--kind stage`` the probe plan through ``codex exec`` (a model turn)
-when the model-free checks pass; it refuses without ``--confirm-live-probe`` too.
+when the model-free checks pass; it refuses without ``--confirm-live-probe`` too. ``worker-probe``
+runs one Claude worker turn (#345, docs/autodev-workers.md) built as a review's, with a trivial
+schema and one Read outside its tree that must be denied; it refuses without the flag as well.
 """
 from __future__ import annotations
 
@@ -58,6 +61,10 @@ def _parser() -> argparse.ArgumentParser:
     codex.add_argument(runner.PROBE_CONFIRMATION, dest="confirmed", action="store_true",
                        help="confirm that codex may run under its profile (and, for a stage, a model turn)")
 
+    worker = commands.add_parser("worker-probe", help="one Claude worker turn: structured output and a denied Read")
+    worker.add_argument(runner.PROBE_CONFIRMATION, dest="confirmed", action="store_true",
+                        help="confirm that a real claude -p worker (a model turn) may run")
+
     autodev = commands.add_parser("autodev", help="the autodev schedule")
     actions = autodev.add_subparsers(dest="action", required=True)
     install = actions.add_parser("install", help="install the scheduler LaunchAgent")
@@ -84,6 +91,8 @@ def dispatch(arguments: argparse.Namespace, ctx: runner.Context) -> tuple[int, d
         return runner.probe(ctx, arguments.mode, arguments.kind, arguments.confirmed)
     if arguments.command == "codex-probe":
         return runner.codex_probe(ctx, arguments.kind, arguments.confirmed)
+    if arguments.command == "worker-probe":
+        return runner.worker_probe(ctx, arguments.confirmed)
     action = arguments.action
     if action == "install":
         if arguments.python:
@@ -105,7 +114,8 @@ def dispatch(arguments: argparse.Namespace, ctx: runner.Context) -> tuple[int, d
 def main(argv: Sequence[str] | None = None, ctx: runner.Context | None = None) -> int:
     parser = _parser()
     arguments = parser.parse_args(argv)
-    if arguments.command not in ("probe", "codex-probe") and getattr(arguments, "mode", None) == "resume" \
+    probes_only = ("probe", "codex-probe", "worker-probe")
+    if arguments.command not in probes_only and getattr(arguments, "mode", None) == "resume" \
             and arguments.pr is None:
         parser.error("--mode resume needs --pr N")
     if getattr(arguments, "run_id", None) and not runner.records.valid_run_id(arguments.run_id):

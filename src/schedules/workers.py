@@ -6,13 +6,15 @@ runner prepares the package, assembles the materials, starts the CLI, validates 
 keeps every record. The session never names a command, a ref or a path.
 
 * ``worker.review {"head": <sha>}`` (``"verification": true`` for the review after the
-  pre-mortem) and ``worker.premortem {"head": <sha>}`` check the head
-  (`materials.ReviewRepository.require_head`: the tip of an imported branch of the run's issue
-  that descends from the run's base), plan the review (`WorkerService._plan_review`), start it in
-  a thread and return a handle at once. ``worker.wait {"handle": ...}`` waits at most
-  `WAIT_MAX` seconds (9 minutes; the Bash tool limits one call) and returns the state, with the
-  parsed result once it is done. ``worker.decide {"key", "decision", "reason"?}`` records the
-  session's decision on a finding.
+  pre-mortem) and ``worker.premortem {"head": <sha>}`` first import the session's handed-over
+  bundle into the trusted repository (`Handover`: ``<exchange>/handover.bundle`` for the run's
+  branch, checked against the run's base; plan 9.4 item 5) under the service lock, then check the
+  head (`materials.ReviewRepository.require_head`: the tip of an imported branch of the run's
+  issue that descends from the run's base; with a bundle, its head), plan the review
+  (`WorkerService._plan_review`), start it in a thread and return a handle at once.
+  ``worker.wait {"handle": ...}`` waits at most `WAIT_MAX` seconds (9 minutes; the Bash tool
+  limits one call) and returns the state, with the parsed result once it is done.
+  ``worker.decide {"key", "decision", "reason"?}`` records the session's decision on a finding.
 * **Packages** come from `src.engine.subagent.prepare_subagent` (``code_reviewer``, or the
   pre-mortem role from ``delegates.change-premortem.role``, default ``sysadmin``; Q2) with
   ``result_type="review"`` and an empty personal library (``AGENTS_USER_FLOWS_DIR`` at an empty
@@ -26,30 +28,42 @@ keeps every record. The session never names a command, a ref or a path.
   ``max_reviews`` (when it is not the first) is restricted to ``critical`` and ``high``
   findings, security and regressions caused by fixes; no review starts beyond ``max_reviews``.
   The verification review (after an accepted pre-mortem) covers the commits since the last full
-  review, considers ``critical``, ``high`` and security, and is not counted. An outcome is
-  accepted only when the output is valid, ``completed`` and its evidence names the reviewed range
-  ``<base>..<head>``; ``partial``, ``failed``, an evidence mismatch, ``valid: false`` and a CLI
-  failure give a new attempt with a new ``attempt_id`` (a new package), at most `MAX_ATTEMPTS` in
-  all, then ``blocked``; ``input_required`` and a decoy or secret in the output give ``blocked``
-  at once (a decoy also turns the schedule off). Infrastructure problems (no CLI, no login, a
-  refused launch, a package whose length is wrong) give ``failed``. After ``blocked`` or
-  ``failed`` the service refuses new workers: the stage ends blocked.
+  review, considers ``critical``, ``high`` and security, and is not counted. A restricted review
+  (the last one or the verification) that reports any finding in its scope ends the stage
+  blocked. An outcome is accepted only when the output is valid, ``completed``, an evidence item
+  names the reviewed range ``<base>..<head>`` and no evidence item names another 40-hex commit
+  than the run's base, the range's ends and the commits since the run's base; ``partial``,
+  ``failed``, an evidence mismatch, ``valid: false`` and a CLI failure give a new attempt with a
+  new ``attempt_id`` (a new package), at most `MAX_ATTEMPTS` in all, then ``blocked``;
+  ``input_required`` gives ``blocked`` at once. The tripwire scans every attempt, a failed one
+  included (standard output, the raw result, the permission denials): a decoy or a known secret
+  gives ``blocked`` at once, and a decoy also turns the schedule off. Infrastructure problems (no
+  CLI, no login, a refused launch, a package whose length is wrong, a Codex decision that aborted
+  the step) give ``failed``. After ``blocked``, ``failed`` or a blocking restricted review the
+  service refuses new workers: the stage ends blocked.
 * **Records**: each attempt is ``<run_dir>/workers/<handle>/attempt-<n>.json`` (the package
   revision, the retained contract, the client, the raw structured output with its SHA-256, the
   validation response, the covered range and head, the verdict), masked with the run's known
   secrets; the run record's ``workers`` list gets a summary of each finished task and its
   ``clients`` list each Codex decision. An accepted review or verification writes
-  ``<run_dir>/validated-review.json`` and an accepted pre-mortem ``<run_dir>/premortem.json``, in
-  the format `src.schedules.broker` reads (`validated_review_head`, `read_premortem`).
+  ``<run_dir>/validated-review.json`` (with its kind, number, restriction, ``clean``, ``blocked``
+  and the keys, levels and security signal of its ``medium``-or-higher findings) and an accepted
+  pre-mortem ``<run_dir>/premortem.json``, in the format `src.schedules.broker` reads
+  (`review_gate`, `validated_review_head`, `read_premortem`): the push gate opens only for a clean
+  record or one whose remaining findings are all declined ``medium`` ones without a security
+  signal. A new service removes both records and sets an earlier decision log aside: it did not
+  write them (one service per run).
 * **The session sees** only the parsed ``ReviewPayload``: the summary and each finding's severity,
   location, explanation and recommendation, each cut to a length limit, plus the finding's key
-  (a hash of location and explanation). Decisions live in ``<run_dir>/worker-decisions.json``;
-  a copy of the log with every accepted result's findings goes to the session's read-only state
-  copy (``worker-log.json``) for recovery after a compaction.
+  (a hash of location and explanation). Decisions live in ``<run_dir>/worker-decisions.json``
+  (the latest per key with at most `MAX_HISTORY` earlier ones, explanations cut to the session's
+  limits); a copy of the log with every accepted result's findings goes to the session's
+  read-only state copy (``worker-log.json``) for recovery after a compaction.
 """
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
+import contextlib
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -70,7 +84,7 @@ from src.schemas.subagent import PreparedPackage, ReviewResult, ValidationRespon
 from . import broker as broker_records
 from . import decoys as decoy_store
 from . import materials as mat
-from . import records
+from . import records, repos
 from .scan import KnownSecret
 from .socket_service import Field, Registry, RequestContext, RequestRefused
 from .worker_launch import CLAUDE_EFFORTS, DEFAULT_TIMEOUT, LaunchRefused, Launcher, LaunchResult, decoy_findings
@@ -85,9 +99,11 @@ MAX_ATTEMPTS = 3  # the first and at most two new attempts (9.4)
 MAX_PREMORTEMS = 1
 MAX_VERIFICATIONS = 1
 MAX_CONTEXT_CHARS = 32000
+MAX_HISTORY = 5  # earlier decisions kept per finding key
+MAX_DECISIONS = 1000  # worker.decide calls per run: each rewrites the (bounded) log
 WAIT_MAX = 540  # seconds of one worker.wait: the Bash tool limits a call to 10 minutes
 WAIT_DEADLINE = WAIT_MAX + 15.0
-START_DEADLINE = 60.0
+START_DEADLINE = 300.0  # a start may import the session's bundle first
 DECIDE_DEADLINE = 15.0
 CLOSE_WAIT = 15.0
 RUNNING, ACCEPTED, BLOCKED, FAILED = "running", "accepted", "blocked", "failed"
@@ -99,9 +115,10 @@ NOT_CLEAN = ("critical", "high", "medium")
 CLAUDE_FALLBACK = {"model": "opus", "effort": "high"}
 WORK_DIR = "workers"
 STATE_NAME = "workers.json"
-DECISIONS_NAME = "worker-decisions.json"
+DECISIONS_NAME = broker_records.DECISIONS_RECORD  # "worker-decisions.json", read by the push gate
 COPY_NAME = "worker-log.json"
 LIBRARY_DIR = "empty-library"
+HANDOVER_NAME = "handover.bundle"  # the session's bundle in its exchange directory
 # What the session gets of a worker's text: the ReviewPayload fields, each cut to a limit.
 LIMITS = {"summary": 2000, "location": 300, "explanation": 1500, "recommendation": 800, "reason": 2000}
 MAX_FINDINGS_SHOWN = 50
@@ -109,6 +126,8 @@ MAX_CRITERIA = 20
 MAX_CRITERION_CHARS = 8000
 REGRESSION = re.compile(r"(?i)\bregress\w*")
 _SHA = re.compile(r"[0-9a-f]{40}")
+_SHA_IN_TEXT = re.compile(r"(?<![0-9a-fA-F])[0-9a-f]{40}(?![0-9a-fA-F])")
+_BUNDLE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}\.bundle")
 _HANDLE = re.compile(r"(?:review|verify|premortem)-[1-9][0-9]{0,2}")
 _KEY = re.compile(r"[0-9a-f]{16}")
 _DECISION = re.compile(r"fixed|declined|mitigated|known_risk")
@@ -142,6 +161,25 @@ def names_range(result: ReviewResult, base: str, head: str) -> bool:
     """Whether an evidence item names the reviewed range ``<base>..<head>`` (or ``...``)."""
     wanted = (f"{base}..{head}", f"{base}...{head}")
     return any(any(text in f"{item.reference}\n{item.description}" for text in wanted) for item in result.evidence)
+
+
+def foreign_commits(result: ReviewResult, allowed: Iterable[str]) -> list[str]:
+    """The 40-hex SHAs that evidence items name outside ``allowed`` (the run's base, the reviewed
+    range's ends and the commits since the run's base), in order of appearance."""
+    allowed = set(allowed)
+    found: list[str] = []
+    for item in result.evidence:
+        for sha in _SHA_IN_TEXT.findall(f"{item.reference}\n{item.description}"):
+            if sha not in allowed and sha not in found:
+                found.append(sha)
+    return found
+
+
+def security_signal(item: Mapping) -> bool:
+    """Whether a finding (a dict with location, explanation, recommendation) carries a security
+    keyword (`broker.SECURITY_KEYWORDS` after `broker.normalize`)."""
+    text = broker_records.normalize(f"{item['location']}\n{item['explanation']}\n{item['recommendation']}")
+    return bool(broker_records.SECURITY_KEYWORDS.search(text))
 
 
 @contextmanager
@@ -190,6 +228,39 @@ class Binding:
         return records.run_dir(self.run_id, self.state_dir)
 
 
+@dataclass(frozen=True)
+class Handover:
+    """The session's commits on their way into the trusted repository (plan 9.4 item 5). Before
+    every ``worker.review`` and ``worker.premortem`` the service calls it: it imports
+    ``<exchange>/<name>`` with `repos.TrustedRepository.import_bundle` for the run's ``branch``,
+    checked against the run's base (`Binding.base`, the ``pinned`` the session's repository
+    started at). Without that file nothing is imported, and the head must already be the tip of
+    an imported branch. #347 builds it with the stage's exchange directory and the run's branch."""
+
+    repository: repos.TrustedRepository
+    exchange: Path
+    branch: str
+    name: str = HANDOVER_NAME
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.branch, str) or not repos._BRANCH.fullmatch(self.branch):
+            raise ValueError(f"not an autodev branch claude/autodev-<issue>-<slug>: {self.branch!r}")
+        if not isinstance(self.name, str) or not _BUNDLE_NAME.fullmatch(self.name):
+            raise ValueError(f"not a bundle file name: {self.name!r}")
+
+    def issue(self) -> int:
+        return int(repos._BRANCH.fullmatch(self.branch)[1])  # type: ignore[index]
+
+    def __call__(self, binding: Binding) -> repos.ImportedBundle | None:
+        bundle = Path(self.exchange) / self.name
+        if not os.path.lexists(bundle):
+            return None
+        return self.repository.import_bundle(bundle, self.exchange, self.branch, binding.run_id, binding.base)
+
+
+Importer = Callable[[Binding], "repos.ImportedBundle | None"]
+
+
 @dataclass
 class Task:
     """One review, verification or pre-mortem and its attempts."""
@@ -202,6 +273,8 @@ class Task:
     followup: bool = False
     restricted: str = ""  # "", "last" (review max_reviews) or "verification"
     status: str = RUNNING
+    blocked: bool = False  # an accepted restricted review with findings in its scope
+    allowed: frozenset = frozenset()  # commits evidence may name (`foreign_commits`)
     reason: str | None = None
     attempts: list[dict] = field(default_factory=list)
     summary: str = ""
@@ -224,7 +297,8 @@ class Task:
     def state(self) -> dict:
         return {"handle": self.handle, "kind": self.kind, "number": self.number, "task_id": self.task_id,
                 "status": self.status, "reason": self.reason, "base": self.base, "head": self.head, "range": self.range,
-                "followup": self.followup, "restricted": self.restricted or None, "attempts": self.attempts,
+                "followup": self.followup, "restricted": self.restricted or None, "blocked": self.blocked,
+                "attempts": self.attempts,
                 "accepted": self.accepted, "client_applied": self.client_applied, "dropped_out_of_scope": self.dropped,
                 "findings": [{key: item[key] for key in ("key", "severity", "location")} for item in self.findings],
                 "started": self.started, "finished": self.finished}
@@ -236,22 +310,40 @@ class WorkerService:
     def __init__(self, binding: Binding, config: Mapping, launcher: Launcher, *,
                  prepare: Callable[[dict], Any] = prepare_subagent,
                  validate: Callable[[Any, Any], ValidationResponse] = validate_result,
-                 repository: mat.ReviewRepository | None = None):
+                 repository: mat.ReviewRepository | None = None, importer: Importer | None = None):
+        if isinstance(importer, Handover) and importer.issue() != binding.issue:
+            raise ValueError(f"the handover branch {importer.branch} is not a branch of issue #{binding.issue}")
         self.binding = binding
         self.config = config
         self.launcher = launcher
         self.prepare = prepare
         self.validate = validate
+        self.importer = importer
         self.repository = repository or mat.ReviewRepository(binding.trusted)
         self.run_dir = binding.run_dir
         self.work = private_dir(self.run_dir / WORK_DIR)
         self.library = private_dir(self.work / LIBRARY_DIR)
         self.tasks: dict[str, Task] = {}
         self.decisions: dict[str, dict] = {}
+        self.imports: list[dict] = []
         self.known: list[KnownSecret] = list(launcher.known)
+        self._decide_calls = 0
         self._lock = threading.RLock()
         self._tree_lock = threading.Lock()
         self._threads: list[threading.Thread] = []
+        self._clear_stale()
+
+    def _clear_stale(self) -> None:
+        """Remove the review and pre-mortem records and set aside a decision log that an earlier
+        service of this run wrote: their findings and decisions are not this service's, and the
+        push gate must not open on them."""
+        for name in (broker_records.REVIEW_RECORD, broker_records.PREMORTEM_RECORD):
+            with contextlib.suppress(FileNotFoundError):
+                os.unlink(self.run_dir / name)
+        decisions = self.run_dir / DECISIONS_NAME
+        if os.path.lexists(decisions):
+            stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+            os.replace(decisions, self.run_dir / f"{decisions.stem}-before-{stamp}.json")
 
     # --- settings ---------------------------------------------------------------------------------
 
@@ -295,20 +387,24 @@ class WorkerService:
 
     def review(self, args: dict, request: RequestContext | None = None) -> dict:
         """``worker.review``: start a review of ``head`` (or the verification review); a handle."""
-        head = self._checked_head(args.get("head"))
         with self._lock:
+            self._require_open()
+            head = self._receive(args.get("head"))
             task = self._plan_review(head, bool(args.get("verification")))
             return self._start(task)
 
     def premortem(self, args: dict, request: RequestContext | None = None) -> dict:
-        """``worker.premortem``: start the pre-mortem of ``head``, which a validated review covered."""
-        head = self._checked_head(args.get("head"))
+        """``worker.premortem``: start the pre-mortem of ``head``, which a validated review covered
+        and left without an open blocker (`broker.review_gate`)."""
         with self._lock:
             self._require_open()
+            head = self._receive(args.get("head"))
             if not any(task.kind == REVIEW and task.status == ACCEPTED for task in self.tasks.values()):
                 raise RequestRefused("the pre-mortem follows an accepted review")
             if broker_records.validated_review_head(self.run_dir) != head:
-                raise RequestRefused(f"the pre-mortem needs a validated review of {head}; review it first")
+                _, why = broker_records.review_gate(self.run_dir)
+                raise RequestRefused(f"the pre-mortem needs a clean validated review of {head} ({why}); review it "
+                                     "first, or decline its remaining medium findings")
             number = 1 + sum(task.kind == PREMORTEM for task in self.tasks.values())
             if number > MAX_PREMORTEMS:
                 raise RequestRefused("the pre-mortem already ran for this run")
@@ -335,6 +431,8 @@ class WorkerService:
         key, decision = str(args.get("key")), str(args.get("decision"))
         reason = clip(str(args.get("reason") or ""), LIMITS["reason"]).strip()
         with self._lock:
+            if self._decide_calls >= MAX_DECISIONS:
+                raise RequestRefused(f"this run already recorded {MAX_DECISIONS} decisions")
             found = self._finding(key)
             if found is None:
                 raise RequestRefused(f"no accepted result of this run has a finding with key {key[:20]!r}")
@@ -344,11 +442,15 @@ class WorkerService:
             if decision in REASONED and not reason:
                 raise RequestRefused(f"{decision} needs a reason")
             previous = self.decisions.get(key)
-            history = (previous or {}).get("history", []) + ([{name: previous[name] for name in
-                                                                ("decision", "reason", "time")}] if previous else [])
+            history = ((previous or {}).get("history", []) + ([{name: previous[name] for name in
+                                                                 ("decision", "reason", "handle", "time")}]
+                                                               if previous else []))[-MAX_HISTORY:]
             self.decisions[key] = {"key": key, "decision": decision, "reason": reason or None, "handle": task.handle,
-                                   "kind": task.kind, "severity": finding["severity"], "location": finding["location"],
-                                   "explanation": finding["explanation"], "time": _now(), "history": history}
+                                   "kind": task.kind, "severity": finding["severity"],
+                                   "location": clip(finding["location"], LIMITS["location"]),
+                                   "explanation": clip(finding["explanation"], LIMITS["explanation"]),
+                                   "time": _now(), "history": history}
+            self._decide_calls += 1
             self._write_decisions()
             open_keys = [item["key"] for item in self._all_findings() if item["key"] not in self.decisions]
             return {"key": key, "decision": decision, "recorded": True, "undecided": len(open_keys)}
@@ -361,6 +463,30 @@ class WorkerService:
             thread.join(max(0.0, deadline - time.monotonic()))
 
     # --- planning ---------------------------------------------------------------------------------
+
+    def _receive(self, head: object) -> str:
+        """Import the session's handed-over bundle (`importer`; plan 9.4 item 5), then check the
+        head (`_checked_head`); with a bundle the head must be the bundle's. Runs under the lock."""
+        try:
+            head = mat.check_sha(head)
+        except mat.MaterialsRefused as error:
+            raise RequestRefused(str(error)) from None
+        if self.importer is not None:
+            try:
+                imported = self.importer(self.binding)
+            except repos.BundleRefused as error:
+                raise RequestRefused(f"the handed-over bundle was refused: {error.reason}") from None
+            except (repos.RepositoryError, ValueError, OSError) as error:
+                raise RequestRefused(f"the handed-over bundle could not be imported: {type(error).__name__}: "
+                                     f"{str(error)[:300]}") from None
+            if imported is not None:
+                self.imports.append({"branch": imported.branch, "head": imported.head, "added": len(imported.commits),
+                                     "time": _now()})
+                self._save_state()
+                if imported.head != head:
+                    raise RequestRefused(f"the handed-over bundle's head is {imported.head}, not {head}: hand over "
+                                         f"the commits up to {head} first")
+        return self._checked_head(head)
 
     def _checked_head(self, head: object) -> str:
         try:
@@ -378,6 +504,8 @@ class WorkerService:
                 raise RequestRefused(f"{task.handle} is still running; wait for it")
             if task.status in (BLOCKED, FAILED):
                 raise RequestRefused(f"the stage is blocked: {task.handle} ended {task.status} ({task.reason})")
+            if task.blocked:
+                raise RequestRefused(f"the stage is blocked: {task.reason}")
 
     def _plan_review(self, head: str, verification: bool) -> Task:
         self._require_open()
@@ -458,6 +586,8 @@ class WorkerService:
     def _materials(self, task: Task) -> Path:
         directory = private_dir(self.work / task.handle) / "materials"
         mat.remove(directory)
+        pinned = self.binding.base
+        task.allowed = frozenset({pinned, task.base, task.head, *self.repository.commits(pinned, task.head)})
         extras: dict[str, object] = {"range.json": {
             "pinned": self.binding.base, "base": task.base, "head": task.head, "range": task.range, "kind": task.kind,
             "number": task.number, "max_reviews": self.max_reviews, "restricted": task.restricted or None}}
@@ -470,7 +600,7 @@ class WorkerService:
             extras["reviews.json"] = [self._summary(other) for other in self.tasks.values()
                                       if other.kind in (REVIEW, VERIFY) and other.status == ACCEPTED]
         try:
-            mat.assemble(self.repository, task.base, task.head, directory, extras)
+            mat.assemble(self.repository, task.base, task.head, directory, extras, pinned=pinned)
         except BaseException:
             mat.remove(directory)
             raise
@@ -507,8 +637,9 @@ class WorkerService:
                         "findings cite evidence IDs.")
         context = [f"Reviewed range: {rng}; head {task.head}; the run's base (pinned) is {pinned}.",
                    f"The working directory is the tree at {pinned}. The materials directory {materials} holds "
-                   "README.md, range.json, commits.txt, diff.patch, head/ (changed files at the head), deleted.txt and "
-                   "links.json, and where present criteria.md, decisions.json and reviews.json."]
+                   "README.md, range.json, commits.txt and diff.patch (the reviewed range), head/ (every file that "
+                   f"differs between {pinned} and the head, as it is at the head), deleted.txt and links.json, and "
+                   "where present criteria.md, decisions.json and reviews.json."]
         return {"agent_name": self.role(task.kind), "task": text, "acceptance_criteria": criteria,
                 "task_id": task.task_id, "attempt_id": attempt_id, "context": context,
                 "scope": ["Read the working directory and the materials directory only.",
@@ -569,14 +700,22 @@ class WorkerService:
 
     def _judge(self, task: Task, contract: dict, launch: LaunchResult
                ) -> tuple[str, str | None, ValidationResponse | None, ReviewResult | None]:
-        if launch.failure:
-            return "retry", launch.failure, None, None
-        text = launch.stdout or (launch.raw if isinstance(launch.raw, str) else canonical_json(launch.raw))
+        # The tripwire first, for every attempt: a worker that probes a decoy and then fails
+        # (non-zero exit, an error subtype, no structured output, a timeout) is caught too.
+        parts = [launch.stdout]
+        if launch.raw is not None:
+            parts.append(launch.raw if isinstance(launch.raw, str) else canonical_json(launch.raw))
+        text = "\n".join(part for part in parts if part)
         if findings := decoy_findings(text, launch.denials, self.launcher.decoys, self.known):
             if any("decoy" in finding for finding in findings):
                 decoy_store.trip(self.binding.state_dir, "worker: " + "; ".join(findings[:10]),
                                  run_id=self.binding.run_id)
             return BLOCKED, "tripwire: " + "; ".join(findings[:5]), None, None
+        if launch.aborted:
+            return FAILED, f"infra: codex aborted the step ({launch.aborted}); neither Codex nor the Claude worker " \
+                           "ran it", None, None
+        if launch.failure:
+            return "retry", launch.failure, None, None
         validation = self.validate(contract, launch.raw)
         if not validation.valid:
             codes = ", ".join(sorted({error.code for error in validation.errors}))[:300]
@@ -589,6 +728,8 @@ class WorkerService:
             return "retry", f"status {parsed.status}", validation, parsed
         if not names_range(parsed, task.base, task.head):
             return "retry", f"the evidence does not name the reviewed range {task.range}", validation, parsed
+        if foreign := foreign_commits(parsed, task.allowed or {self.binding.base, task.base, task.head}):
+            return "retry", f"the evidence names {foreign[0]}, a commit outside the reviewed change", validation, parsed
         return ACCEPTED, None, validation, parsed
 
     def _close_attempt(self, task: Task, number: int, record: dict, verdict: str,
@@ -629,16 +770,28 @@ class WorkerService:
                     "bundle_revision": record["package"]["bundle_revision"],
                     "contract_revision": record["package"]["contract_revision"],
                     "record": f"{WORK_DIR}/{task.handle}/attempt-{record['attempt_id']}.json"}
+        # A restricted review (the last one, the verification) that reports anything in its scope
+        # ends the stage blocked (plan 9.4); its record then keeps the push gate closed.
+        blocked = bool(task.restricted) and bool(findings)
+        reason = None
+        if blocked:
+            which = "the last review" if task.restricted == "last" else "the verification review"
+            reason = f"{which} ({task.handle}) reported {len(findings)} finding(s) in its scope: the stage ends blocked"
+        not_clean = [item for item in findings if item["severity"] in NOT_CLEAN]
         with self._lock:
             task.summary, task.findings = parsed.result.summary, findings
-            task.dropped, task.accepted = dropped, accepted
+            task.dropped, task.accepted, task.blocked = dropped, accepted, blocked
             if task.kind == PREMORTEM:
                 self._write_premortem(task)
             else:
                 write_json(self.run_dir / broker_records.REVIEW_RECORD, {
                     "validated": True, "status": "completed", "head": task.head, "base": task.base, "range": task.range,
-                    "kind": task.kind, "number": task.number, "task_id": task.task_id, **accepted, "written": _now()})
-            self._finish(task, ACCEPTED, None)
+                    "handle": task.handle, "kind": task.kind, "number": task.number, "task_id": task.task_id,
+                    "restricted": task.restricted or None, "clean": not not_clean and not blocked, "blocked": blocked,
+                    "findings": [{"key": item["key"], "level": item["severity"], "security": security_signal(item)}
+                                 for item in not_clean],
+                    **accepted, "written": _now()})
+            self._finish(task, ACCEPTED, reason)
 
     def _in_scope(self, task: Task, finding: Any) -> bool:
         if not task.restricted or finding.severity in BLOCKING:
@@ -651,12 +804,11 @@ class WorkerService:
     def _write_premortem(self, task: Task) -> None:
         risks = []
         for item in task.findings:
-            text = broker_records.normalize(f"{item['location']}\n{item['explanation']}\n{item['recommendation']}")
             first = item["explanation"].strip().splitlines()[0] if item["explanation"].strip() else item["location"]
             risks.append({"id": item["key"], "level": item["severity"], "title": clip(first, 120),
                           "body": f"{item['explanation']}\n\nLocation: {item['location']}\n\n"
                                   f"Recommendation: {item['recommendation']}",
-                          "security": bool(broker_records.SECURITY_KEYWORDS.search(text))})
+                          "security": security_signal(item)})
         write_json(self.run_dir / broker_records.PREMORTEM_RECORD, {
             "validated": True, "head": task.head, "base": task.base, "range": task.range, "task_id": task.task_id,
             **(task.accepted or {}), "findings": risks, "written": _now()})
@@ -677,7 +829,8 @@ class WorkerService:
     def _save_state(self) -> None:
         write_json(self.run_dir / STATE_NAME, records.mask({
             "run_id": self.binding.run_id, "issue": self.binding.issue, "base": self.binding.base,
-            "max_reviews": self.max_reviews, "tasks": [task.state() for task in self.tasks.values()]},
+            "max_reviews": self.max_reviews, "imports": self.imports,
+            "tasks": [task.state() for task in self.tasks.values()]},
             self._known_values()))
 
     def _record_run(self, task: Task) -> None:
@@ -735,6 +888,8 @@ class WorkerService:
                                  "max_reviews": self.max_reviews, "client_applied": task.client_applied}
         if task.reason:
             found["reason"] = clip(task.reason, LIMITS["reason"])
+        if task.blocked:
+            found["stage_blocked"] = True
         if task.status == ACCEPTED:
             shown = task.findings[:MAX_FINDINGS_SHOWN]
             found["summary"] = clip(task.summary, LIMITS["summary"])

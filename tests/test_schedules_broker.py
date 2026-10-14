@@ -986,6 +986,10 @@ def test_record_readers_take_only_validated_records(tmp_path):
     (tmp_path / REVIEW_RECORD).write_text(json.dumps({"validated": True, "status": "partial", "head": HEAD}))
     assert broker_module.validated_review_head(tmp_path) is None
     (tmp_path / REVIEW_RECORD).write_text(json.dumps({"validated": True, "status": "completed", "head": HEAD}))
+    assert broker_module.validated_review_head(tmp_path) is None  # no clean, blocked or findings fields (#345)
+    (tmp_path / REVIEW_RECORD).write_text(json.dumps({"validated": True, "status": "completed", "head": HEAD,
+                                                      "handle": "review-1", "clean": True, "blocked": False,
+                                                      "findings": []}))
     assert broker_module.validated_review_head(tmp_path) == HEAD
     (tmp_path / PREMORTEM_RECORD).write_text(json.dumps({"validated": False, "findings": [
         {"id": "R1", "level": "medium", "title": "t", "body": "b", "security": False}]}))
@@ -995,6 +999,42 @@ def test_record_readers_take_only_validated_records(tmp_path):
         {"id": "R2", "level": "high", "title": "t", "body": "b"}, "junk"]}))
     found = broker_module.read_premortem(tmp_path)
     assert found["R1"].security is False and found["R2"].security is True  # unmarked counts as security
+
+
+def _gate(tmp_path, findings, decisions=None, **fields):
+    record = {"validated": True, "status": "completed", "head": HEAD, "handle": "review-2", "kind": "review",
+              "number": 2, "restricted": None, "clean": not findings, "blocked": False, "findings": findings, **fields}
+    (tmp_path / REVIEW_RECORD).write_text(json.dumps(record))
+    if decisions is not None:
+        (tmp_path / broker_module.DECISIONS_RECORD).write_text(json.dumps({"decisions": decisions}))
+    return broker_module.review_gate(tmp_path)
+
+
+MEDIUM = {"key": "a" * 16, "level": "medium", "security": False}
+DECLINED = {"key": "a" * 16, "decision": "declined", "reason": "Not needed here.", "handle": "review-2"}
+
+
+@pytest.mark.parametrize("findings, decisions, fields, opens", [
+    ([], None, {}, True),  # clean
+    ([], None, {"clean": False}, False),
+    ([], None, {"blocked": True, "clean": False}, False),  # a restricted review with findings in its scope
+    ([], None, {"blocked": None}, False),
+    ([MEDIUM], None, {}, False),  # an undecided medium
+    ([MEDIUM], [DECLINED], {}, True),  # a declined medium
+    ([MEDIUM], [{**DECLINED, "reason": " "}], {}, False),  # declined without a reason
+    ([MEDIUM], [{**DECLINED, "decision": "fixed"}], {}, False),  # fixed: the fix needs a new review
+    ([MEDIUM], [{**DECLINED, "handle": "review-1"}], {}, False),  # declined before this review
+    ([MEDIUM], [{**DECLINED, "decision": "known_risk", "handle": "premortem-1",
+                 "history": [{"decision": "declined", "reason": "Not needed.", "handle": "review-2"}]}], {}, True),
+    ([{**MEDIUM, "level": "high"}], [DECLINED], {}, False),  # a declined high stays open
+    ([{**MEDIUM, "level": "critical"}], [DECLINED], {}, False),
+    ([{**MEDIUM, "security": True}], [DECLINED], {}, False),  # a declined security finding stays open
+    ([{"key": "a" * 16, "level": "medium"}], [DECLINED], {}, False),  # unmarked counts as security
+])
+def test_the_push_gate_opens_for_a_clean_or_declined_review(tmp_path, findings, decisions, fields, opens):
+    head, why = _gate(tmp_path, findings, decisions, **fields)
+    assert (head == HEAD) is opens and (head is None) is not opens, why
+    assert broker_module.validated_review_head(tmp_path) == head
 
 
 @pytest.mark.parametrize("author", [

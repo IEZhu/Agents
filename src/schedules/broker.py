@@ -12,7 +12,8 @@ Socket operations (all session-bound):
 * ``gh.push`` pushes the run's branch with the deploy key, only when the head is the promoted
   ``refs/heads/claude/autodev-<issue>-<slug>`` of the trusted repository (a commit the runner
   imported from a bundle, `src.schedules.repos`), equals the last head a validated review covered
-  (`validated_review_head`, written by the worker launcher of #345), passes the change check of
+  and that review leaves no open blocker (`validated_review_head`, `review_gate`: the record the
+  worker launcher of #345 writes, and its decision log), passes the change check of
   `src.schedules.paths` against the pinned commit, its diff and commit messages pass the scan
   of `src.schedules.scan`, and its commit messages name no other issue with a closing keyword.
 * ``gh.pr_create`` once per run, from the pushed branch to ``main``; ``gh.pr_edit`` changes only
@@ -103,6 +104,10 @@ MODES = ("dry-run", "run", "resume")
 LOG_NAME = "broker.jsonl"
 REVIEW_RECORD = "validated-review.json"  # written by the worker launcher (#345)
 PREMORTEM_RECORD = "premortem.json"  # written by the pre-mortem step (#345, #347)
+DECISIONS_RECORD = "worker-decisions.json"  # the session's decisions on findings (#345)
+# A finding of these levels, or one with a security signal, stays open when declined (design 9.4).
+GATE_BLOCKING = ("critical", "high")
+NOT_CLEAN_LEVELS = ("critical", "high", "medium")
 KNOWN_HOSTS_NAME = "github_known_hosts"  # beside the deploy key
 GRAPHQL_URL = github.API + "/graphql"
 TIMEOUT = 30  # seconds of one API call
@@ -210,16 +215,66 @@ class CredentialsMissing(RuntimeError):
 # --- records the broker reads ---------------------------------------------------------------------
 
 def validated_review_head(run_dir: str | Path) -> str | None:
-    """The last head a validated review covered: ``<run_dir>/validated-review.json``.
+    """The last head a validated review covered when it leaves no open blocker (`review_gate`);
+    None otherwise. The push check and the pre-mortem's precondition (#345) read it."""
+    return review_gate(run_dir)[0]
 
-    The worker launcher (#345) writes ``{"validated": true, "status": "completed", "head": <sha>}``
-    after a review passed validation (design 9.4); until it lands, tests write the fixture.
+
+def review_gate(run_dir: str | Path) -> tuple[str | None, str]:
+    """The head of ``<run_dir>/validated-review.json`` when it opens the push gate, and why (or
+    why not); design 9.4 as amended by #345.
+
+    The worker launcher writes ``{"validated": true, "status": "completed", "head", "handle",
+    "kind", "number", "restricted", "clean", "blocked", "findings": [{"key", "level",
+    "security"}]}`` after every accepted review or verification; ``findings`` lists the findings of
+    level ``medium`` or higher. The gate opens only when ``blocked`` is false and the record is
+    ``clean`` with no such finding, or when every listed finding is ``medium``, carries no security
+    signal (``security`` false; an unmarked one counts as security) and was ``declined`` with a
+    reason in ``<run_dir>/worker-decisions.json`` after this review: the latest decision on its key
+    that names this review's handle (the current one or one of its history). A ``critical``,
+    ``high`` or security finding keeps the gate closed even when declined:
+    it stays open until a later review accepts the reason by not reporting it again. A missing or
+    malformed field closes the gate.
     """
     data = _read_json(Path(run_dir) / REVIEW_RECORD)
     if not isinstance(data, dict) or data.get("validated") is not True or data.get("status") != "completed":
-        return None
+        return None, "no validated review"
     head = data.get("head")
-    return head if isinstance(head, str) and _SHA.fullmatch(head) else None
+    if not isinstance(head, str) or not _SHA.fullmatch(head):
+        return None, "the review record names no head"
+    if data.get("blocked") is not False:
+        return None, "the review ended the stage blocked"
+    findings = data.get("findings")
+    if not isinstance(findings, list) or not all(isinstance(item, dict) for item in findings):
+        return None, "the review record lists no findings"
+    if not findings:
+        return (head, "clean") if data.get("clean") is True else (None, "the review is not clean")
+    decisions = _read_json(Path(run_dir) / DECISIONS_RECORD)
+    entries = decisions.get("decisions") if isinstance(decisions, dict) else None
+    by_key = {entry.get("key"): entry for entry in entries or [] if isinstance(entry, dict)}
+    for item in findings:
+        key, level = item.get("key"), item.get("level")
+        if level in GATE_BLOCKING or item.get("security") is not False:
+            signal = ", security" if item.get("security") is not False else ""
+            return None, f"finding {str(key)[:16]} ({level}{signal}) stays open until a later review"
+        if level not in NOT_CLEAN_LEVELS:
+            return None, f"finding {str(key)[:16]} has an unknown level"
+        if not _declined_for(by_key.get(key), data.get("handle")):
+            return None, f"finding {str(key)[:16]} ({level}) is neither fixed by a later review nor declined"
+    return head, "every remaining medium finding was declined"
+
+
+def _declined_for(entry: Any, handle: Any) -> bool:
+    """Whether the latest decision of a decision-log ``entry`` (the current one, then its history
+    from the newest) that names ``handle`` is ``declined`` with a reason."""
+    if not isinstance(entry, dict) or not isinstance(handle, str):
+        return False
+    history = entry.get("history") if isinstance(entry.get("history"), list) else []
+    for decision in [entry, *reversed(history)]:
+        if isinstance(decision, dict) and decision.get("handle") == handle:
+            return decision.get("decision") == "declined" and isinstance(decision.get("reason"), str) \
+                and bool(decision["reason"].strip())
+    return False
 
 
 @dataclass(frozen=True)
