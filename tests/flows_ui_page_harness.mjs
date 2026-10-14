@@ -392,7 +392,8 @@ if (scenario === "sync_hostkey_github") {
 // daemon refuses it. As the daemon's revision leaves out enabled and mode, the switch keeps it; a
 // scenario changes it, with the settings, for a change made elsewhere. autodev_stored starts with
 // stored values the lists lack and a stored run mode; autodev_invalid with an invalid autodev.json;
-// autodev_ready with the automatic mode ready (#350), so run is offered.
+// autodev_ready with a recent passing `autodev ready` recorded and a current acceptance (#350), so
+// run is offered.
 const AUTODEV_DEFAULTS = isAutodev ? JSON.parse(process.env.AUTODEV_DEFAULTS) : null;
 const CLAUDE_EFFORT_LIST = ["low", "medium", "high", "xhigh", "max"];
 const CODEX_EFFORT_LIST = ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra", "persistent"];
@@ -405,7 +406,7 @@ if (scenario === "autodev_stored") {
   autodevState.settings.stages.select.claude.effort = "ultra";
   autodevState.settings.delegates["code-review-pass"].effort_followup = "minimal";
 }
-let autodevReady = scenario === "autodev_ready";  // what the daemon's readiness check says now
+let autodevReady = scenario === "autodev_ready";  // what the daemon's check of the recorded result says now
 const autodevHolds = {};  // "METHOD path" -> { promise, release }: the next such request answers on release
 const holdAutodev = (key) => {
   let release;
@@ -446,10 +447,13 @@ function autodevValidPayload() {
 const AUTODEV_RISKS = [{ row: 1, risk: "A model read the keys", residual_risk: "a sandbox bug" },
                        { row: 2, risk: "An agent decided", residual_risk: "agents act under the owner's account" },
                        { row: 4, risk: "The agent pushed to main", residual_risk: "a broker bug" }];
-const AUTODEV_READY = { ready: true, missing: [], accepted: "2026-10-11T09:00:00+00:00", risks: AUTODEV_RISKS,
+const AUTODEV_READY = { can_enable: true, missing: [], checked: "2026-10-11T09:05:00+00:00", passed: true,
+                        fresh_minutes: 15, accepted: "2026-10-11T09:00:00+00:00", risks: AUTODEV_RISKS,
                         risk_list_sha256: "v1" };
-const AUTODEV_NOT_READY = { ready: false, accepted: null, risks: AUTODEV_RISKS, risk_list_sha256: "v1",
-  missing: ["the API token", "sandbox probe implement in scheduled mode: no record; run `python -m src.schedules probe "
+const AUTODEV_NOT_READY = { can_enable: false, checked: "2026-10-11T09:05:00+00:00", passed: false, fresh_minutes: 15,
+  accepted: null, risks: AUTODEV_RISKS, risk_list_sha256: "v1",
+  missing: ["the last `python -m src.schedules autodev ready` (2026-10-11T09:05:00+00:00) did not pass", "the API token",
+            "sandbox probe implement in scheduled mode: no record; run `python -m src.schedules probe "
             + "--mode scheduled --kind implement --confirm-live-probe`"] };
 function autodevAnswer(method, path, body) {
   autodevCalls.push([method, path, body]);
@@ -474,7 +478,7 @@ function autodevAnswer(method, path, body) {
     }
     if (body.mode === "run" && !autodevReady) {
       return [409, { status: "error", error: "not_ready", missing: AUTODEV_NOT_READY.missing,
-                     message: "the automatic mode is not ready: 2 condition(s) missing" }];
+                     message: "the automatic mode is not ready: 3 condition(s) missing" }];
     }
     autodevState.enabled = true;
     autodevState.mode = body.mode;
@@ -1753,8 +1757,8 @@ if (isAutodev) {
     confirmAnswer = true;
     await click("ad-switch");
     out.enabled = { post: autodevCalls.at(-1), status: status(), alert: alert() };
-    // Readiness lost since the page read it (a probe record aged, a tripwire): the daemon refuses
-    // and the alert lists what is missing.
+    // The conditions lost since the page read them (the recorded `autodev ready` aged, a tripwire, the
+    // turn-off's withdrawal of the acceptance): the daemon refuses and the alert lists what is missing.
     await click("ad-switch");
     autodevReady = false;
     await setValue("ad-mode", "run");

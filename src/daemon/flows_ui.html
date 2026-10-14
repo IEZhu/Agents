@@ -4517,18 +4517,20 @@ function renderAutodev(settings) {
   }, "", "ad-reload");
 }
 
-// The switch, the automatic mode (#350: run is offered only while `autodev ready` passes, the
-// owner's acceptance included), the next slot, the scheduler job and the newest runs.
+// The switch, the automatic mode (#350: run is offered only while a recent `autodev ready` the CLI
+// recorded passed and the owner's acceptance is current), the next slot, the scheduler job and the
+// newest runs.
 function renderAutodevStatus() {
   const card = autodev.status, data = autodev.data, status = data.status;
-  const automatic = status.automatic, ready = !!(automatic && automatic.ready);
+  const automatic = status.automatic, ready = !!(automatic && automatic.can_enable);
   card.replaceChildren();
   node("h3", card, "Switch and status");
   const on = status.enabled === true;
   node("p", card, status.enabled === null ? "Unknown: autodev.json is invalid." : on ? "On, mode " + status.mode + "." : "Off.")
     .setAttribute("id", "ad-state");
-  if (on && status.mode === "run" && !ready) {
-    node("p", card, "Scheduled runs are refused while the automatic mode is not ready (below); the latest runs say why.", "notice");
+  if (on && status.mode === "run") {
+    node("p", card, "Every tick checks `autodev ready` before a scheduled run and refuses it while a condition is "
+      + "missing; the latest runs say why.", "notice");
   }
   const bar = node("div", card, null, "ad-actions");
   const label = node("label", bar, "Mode");
@@ -4566,22 +4568,27 @@ function renderAutodevStatus() {
   }
 }
 
-// The automatic mode's conditions: ready with the acceptance's date, or every missing item.
+// The automatic mode as the CLI last checked it (the daemon reads no credential): the recorded
+// `autodev ready`, then either that run mode can be turned on here or every missing item.
 function renderAutomatic(card, automatic) {
   const box = node("div", card);
   box.setAttribute("id", "ad-automatic");
-  if (automatic.ready) {
-    node("p", box, "The automatic mode is ready: every condition of `autodev ready` passes, and your acceptance of the "
-      + "residual risks (" + dateTime(automatic.accepted) + ") is current. Choose run to start real runs on the schedule.");
+  node("p", box, automatic.checked ? "Last `autodev ready`: " + (automatic.passed ? "passed" : "did not pass") + " ("
+    + dateTime(automatic.checked) + ")." : "`autodev ready` has no recorded result yet.");
+  if (automatic.can_enable) {
+    node("p", box, "Run mode (real runs on the schedule) can be turned on here: `autodev ready` passed within the last "
+      + automatic.fresh_minutes + " minutes, and your acceptance of the residual risks (" + dateTime(automatic.accepted)
+      + ") is current.");
   } else {
-    node("p", box, "The automatic mode (real runs on the schedule) is not ready; missing:");
+    node("p", box, "Run mode (real runs on the schedule) cannot be turned on here; missing:");
     const list = node("ul", box);
     list.setAttribute("id", "ad-missing");
     for (const item of automatic.missing) node("li", list, item);
   }
-  node("p", box, "`python -m src.schedules autodev ready` checks it; the first time, turn run mode on with "
-    + "`python -m src.schedules autodev enable --mode run --accept-shared-account`. A supervised real run is "
-    + "`python -m src.schedules autodev run-now --mode run`.", "meta");
+  node("p", box, "This page reads no credential: run `python -m src.schedules autodev ready` in a terminal, and the page "
+    + "shows its result. Turn run mode on with `python -m src.schedules autodev enable --mode run "
+    + "--accept-shared-account`; turning the schedule off or to dry-run withdraws the acceptance. A supervised real "
+    + "run is `python -m src.schedules autodev run-now --mode run`.", "meta");
 }
 
 // Turning run mode on accepts the residual risks of plan section 11 again, as the CLI's flag does.
@@ -4637,7 +4644,7 @@ async function saveAutodev() {
 // change made elsewhere is still refused (the switch's answer carries that change).
 async function switchAutodev(mode) {
   const automatic = autodev.data.status.automatic;
-  if (mode === "run" && !(automatic && automatic.ready && confirm(acceptanceQuestion(automatic)))) return;
+  if (mode === "run" && !(automatic && automatic.can_enable && confirm(acceptanceQuestion(automatic)))) return;
   autodev.busy = true;
   autodev.gen += 1;
   try {

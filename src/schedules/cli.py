@@ -15,8 +15,9 @@ The exit code is 0 on success, 1 when a command refused or a run failed, and 2 f
 arguments. The installation runs it by absolute path as ``<python> -P -m src.schedules …`` with
 ``PYTHONPATH`` naming the installation. ``run-now`` runs every mode under supervision. ``ready``
 checks every condition of the automatic mode (#350) and names what is missing, exiting with 1
-until all pass; ``enable --mode run`` refuses without ``--accept-shared-account`` and while a
-condition is missing, then records the owner's acceptance of the residual risks. ``probe`` runs
+until all pass, and records its outcome for the settings page; ``enable --mode run`` refuses
+without ``--accept-shared-account`` and while a condition is missing, then records the owner's
+acceptance of the residual risks, which ``disable`` and ``enable --mode dry-run`` withdraw. ``probe`` runs
 the sandbox probes of one session kind (#343) with a real probe session, so it refuses without
 ``--confirm-live-probe``. ``codex-probe`` runs the Codex check (#344, docs/autodev-codex.md): the
 outer profile, the model-free probes, the nested-sandbox check and the decision between Codex and

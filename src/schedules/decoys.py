@@ -441,16 +441,29 @@ def trip(directory: str | Path | None, reason: str, *, run_id: str | None = None
     now = now or datetime.now(timezone.utc)
     entry = {"time": now.astimezone(timezone.utc).isoformat(timespec="seconds"), "reason": reason, "run_id": run_id,
              "cause": cause}
+    recorded = False
     try:
-        # Under the writers' lock: a settings-page save or an `enable` that loaded the file before
-        # this save cannot write `enabled: true` back over it.
+        # Under the writers' lock, the schedule off and the entry together: a settings-page save or
+        # an `enable` that loaded the file before this save cannot write `enabled: true` back over
+        # it, and an `enable --mode run` that compares the count under the lock sees this trip (#350).
         with autodev_config.writing(directory):
-            config = autodev_config.load(directory)
-            config["enabled"] = False
-            autodev_config.save(config, directory)
-        entry["schedule"] = "disabled"
-    except (autodev_config.ConfigError, OSError) as error:
-        entry["schedule"] = f"not changed: {type(error).__name__}"
+            try:
+                config = autodev_config.load(directory)
+                config["enabled"] = False
+                autodev_config.save(config, directory)
+                entry["schedule"] = "disabled"
+            except (autodev_config.ConfigError, OSError) as error:
+                entry["schedule"] = f"not changed: {type(error).__name__}"
+            _record_trip(directory, entry)
+            recorded = True
+    except OSError as error:  # the lock could not be taken (or the entry not written under it)
+        entry.setdefault("schedule", f"not changed: {type(error).__name__}")
+    if not recorded:
+        _record_trip(directory, entry)
+    return entry
+
+
+def _record_trip(directory: str | Path | None, entry: dict) -> None:
     path = schedules_dir(directory) / TRIPWIRE_NAME
     try:
         previous = read_json(path, None)
@@ -459,7 +472,21 @@ def trip(directory: str | Path | None, reason: str, *, run_id: str | None = None
     count = previous.get("count", 0) if isinstance(previous, dict) and isinstance(previous.get("count"), int) else 0
     private_dir(schedules_dir(directory))
     write_json(path, {"count": count + 1, "last": entry})
-    return entry
+
+
+def trip_count(directory: str | Path | None = None) -> int | None:
+    """How many times `trip` ran (``tripwire.json`` ``count``; 0 when there is no file), or None
+    when the file exists but cannot be read or has no count: the automatic mode treats that as a
+    trip it cannot rule out (#350, `automatic.acceptance_problems`)."""
+    path = schedules_dir(directory) / TRIPWIRE_NAME
+    try:
+        if not os.path.lexists(path):
+            return 0
+        data = read_json(path, None)
+    except (OSError, ValueError):
+        return None
+    count = data.get("count") if isinstance(data, dict) else None
+    return count if isinstance(count, int) and not isinstance(count, bool) and count >= 0 else None
 
 
 def last_trip(directory: str | Path | None = None) -> dict | None:
