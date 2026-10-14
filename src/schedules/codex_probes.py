@@ -1,14 +1,15 @@
 """Codex probes and the fallback to the Claude worker (#344; design 5.6, 5.7, Q8, Q14 as amended).
 
 Reference: docs/autodev-codex.md. `decide` is the one function a step that wants a Codex worker
-calls (#345): it returns either the Codex launch (argv, environment, profile; `start` is the only
-way to start it) or the Claude worker with a machine-readable reason (`REASONS`). Its checks, in
-order: the platform, the ``codex`` executable, its version (`codex_sandbox.VERIFIED_VERSIONS`,
-read with a fresh scratch ``CODEX_HOME`` and ``HOME``), the hygiene of the run's own
-``CODEX_HOME`` (an allowlist, `codex_sandbox.hygiene_problems`), the login (the API key from the
-keychain item ``codex.login: keychain:<service>``; ``login_missing`` when it is unset or absent),
-the launch itself (`codex_sandbox.check_launch`), and **model-free probes** that run under exactly
-the launch's profile prefix, environment and working directory (only the command differs):
+calls (#345): it returns the Codex launch (argv, environment, profile; `start` is the only way to
+start it), the Claude worker with a machine-readable reason (`REASONS`), or an abort of the step
+(`ABORT_REASONS`). Its checks, in order: the platform, the ``codex`` executable, its version
+(`codex_sandbox.VERIFIED_VERSIONS`, read with a fresh scratch ``CODEX_HOME`` and ``HOME``), the
+hygiene of the run's own ``CODEX_HOME`` (an allowlist, `codex_sandbox.hygiene_problems`), the
+login (the API key from the keychain item ``codex.login: keychain:<service>``; ``login_missing``
+when it is unset or absent), the launch itself (`codex_sandbox.check_launch`), and **model-free
+probes** that run under exactly the launch's profile prefix, environment and working directory
+(only the command differs):
 
 * a start control (``codex --version`` must run under the profile; else the profile is broken);
 * the **nested-sandbox check**: ``codex sandbox -- /usr/bin/true`` under the outer profile. On
@@ -26,14 +27,19 @@ the launch's profile prefix, environment and working directory (only the command
   outside its allowlist (the proxy's log must show it refused);
 * **control probes**: read the materials (a runner-written seed), list the tree, write the output
   directory and ``$TMPDIR``, reach the proxy port (the proxy counts the connection); a stage also
-  writes the one-off repository and the exchange directory and runs ``<venv>/bin/python -c 0``
-  (``venv_unusable`` when its interpreter cannot run under the profile, as a nix-built one cannot).
+  writes the one-off repository and the exchange directory, runs ``<venv>/bin/python -c 0``
+  (``venv_unusable`` when its interpreter cannot run under the profile, as a nix-built one cannot)
+  and ``git --version`` by name (``git_unusable``; the launch's ``PATH`` holds only directories the
+  profile lets the process execute from, `codex_sandbox.launch_path`).
 
 Detection is the runner's: exit codes, files it checks itself and the proxy's log; a file's
-content never enters a report, and every capture (bounded) is scanned. Any deny-probe success
-aborts the Codex step (``deny_probe_succeeded``); a failed control gives ``probe_failed`` or
-``profile_broken``. The run record keeps ``client_requested``, ``client_applied`` and
-``fallback_reason`` (`record_decision`).
+content never enters a report, and every capture (bounded) is scanned. Any deny-probe success,
+and any decoy read or leaked, **aborts the step** (`Decision.abort`, reason
+``deny_probe_succeeded``, no client applied): the caller fails the step and runs neither Codex
+nor the Claude worker for it, and `start` refuses. A failed control or nested check is a fallback
+to the Claude worker (`REASONS`: ``probe_failed``, ``profile_broken`` and the others). The run
+record keeps ``client_requested``, ``client_applied``, ``fallback_reason``, ``aborted`` and
+``abort_reason`` (`record_decision`).
 
 The API key is in the codex process's environment, and a model command can observe that
 environment despite ``shell_environment_policy.inherit=core`` (the sysctl allowlist of the profile
@@ -50,9 +56,10 @@ among them ``observe.env``, which fails when a model command sees the API key or
 variables). Codex stays unavailable with the reason
 unless every probe is denied and every control passes; the result is stored in
 ``<state>/schedules/codex-availability.json`` for #347 and #348 with the installed checks, the
-codex version and the launch's run-independent shape (`codex_sandbox.CodexLaunch.shape`);
+codex version and the launch's run-independent shape (`codex_sandbox.launch_shape`);
 `read_availability` treats an entry as unavailable once the version or the shape differs or it is
-older than `AVAILABILITY_MAX_AGE`.
+older than `AVAILABILITY_MAX_AGE`. Reading it needs no key and no run: #347 and #348 pass
+``version=installed_version(codex, path=...)`` and ``shape=stage_shape(codex, config)``.
 """
 from __future__ import annotations
 
@@ -88,9 +95,15 @@ from .scan import KNOWN_MIN_LENGTH, Hit, HitKind, KnownSecret, Scanner
 
 ALLOWED, DENIED = probes.ALLOWED, probes.DENIED
 CLAUDE, CODEX = "claude", "codex"
+# Why a step that requested Codex uses the Claude worker instead (`Decision.reason`).
 REASONS = ("platform_unsupported", "codex_missing", "codex_version_unverified", "codex_home_unclean",
-           "login_missing", "profile_broken", "nested_sandbox_unavailable", "deny_probe_succeeded", "probe_failed",
-           "venv_unusable", "workspace_write_network_open", "stage_probe_failed")
+           "login_missing", "profile_broken", "nested_sandbox_unavailable", "probe_failed", "venv_unusable",
+           "git_unusable", "workspace_write_network_open", "stage_probe_failed")
+# Why a step is aborted, with no client at all (`Decision.abort`): a deny probe got through, or a
+# decoy was read or leaked (which also turns the schedule off). Never a fallback.
+DENY_PROBE_SUCCEEDED = "deny_probe_succeeded"
+ABORT_REASONS = (DENY_PROBE_SUCCEEDED,)
+GIT = "/usr/bin/git"  # the C2 probe's git: the system's (xcrun), which the profile lets run
 NESTED_EXIT = 71  # sandbox-exec: sandbox_apply: Operation not permitted (research, 2026-10-14)
 COMMAND_TIMEOUT = 30
 CAPTURE_LIMIT = 64 * 1024
@@ -215,7 +228,9 @@ class CodexReport:
 # other failure; the rest follow the order the checks run in.
 _RANK = ("deny_probe_succeeded", "platform_unsupported", "codex_missing", "codex_version_unverified",
          "codex_home_unclean", "login_missing", "profile_broken", "nested_sandbox_unavailable", "venv_unusable",
-         "workspace_write_network_open", "probe_failed", "stage_probe_failed")
+         "git_unusable", "workspace_write_network_open", "probe_failed", "stage_probe_failed")
+# Controls of the stage probe session whose failure has its own reason (else stage_probe_failed).
+_EXEC_REASONS = {"control.git.script": "git_unusable"}
 
 
 def _now() -> str:
@@ -329,7 +344,11 @@ def model_free_plan(launch: cs.CodexLaunch, run: ProbeRun, targets: CodexTargets
                  # The stage's environment must run under the profile (a nix-built one execs another
                  # store path and cannot); without it a stage could not run the repository's tests.
                  Probe("control.venv-python", ALLOWED, (str(Path(paths.venv) / "bin" / "python"), "-c", "0"),  # type: ignore[arg-type]
-                       reason="venv_unusable")]
+                       reason="venv_unusable"),
+                 # git by name, as a stage's commands and codex itself call it: the launch's PATH must
+                 # lead to a git the profile lets run (`codex_sandbox.launch_path`).
+                 Probe("control.git", ALLOWED, ("/bin/sh", "-c", "git --version"), capture=True,
+                       contains="git version", reason="git_unusable")]
     # Reads: decoys with their content (scanned), real places by exit code only.
     plan += [Probe(f"read.{decoy.label}", DENIED, ("/bin/cat", str(decoy.path)), capture=True, decoy=decoy.label)
              for decoy in run.file_decoys]
@@ -507,6 +526,18 @@ def _cleanup(launch: cs.CodexLaunch, run: ProbeRun) -> None:
             listener.close()
     if run.private_dir is not None:
         shutil.rmtree(run.private_dir, ignore_errors=True)
+
+
+def _note_leaked(report: CodexReport, leaked: set[str], directory: str | Path | None, run_id: str | None,
+                 what: str) -> None:
+    """A decoy read or leaked during ``what``: trip the schedule and count it as a deny-probe
+    success (the step aborts, `Decision.abort`)."""
+    if not leaked:
+        return
+    labels = ", ".join(sorted(leaked))
+    report.tripped = True
+    report.fail(DENY_PROBE_SUCCEEDED, f"a decoy was read or leaked during {what}: {labels}")
+    decoy_store.trip(directory, f"decoy read or leaked during {what}: {labels}", run_id=run_id)
 
 
 def _scan(scanner: Scanner, text: str) -> tuple[list[Hit], set[str]]:
@@ -707,6 +738,16 @@ class Preflight:
     version: str | None = None
 
 
+def installed_version(codex: str, *, path: str,
+                      command_runner: Callable[..., subprocess.CompletedProcess] = subprocess.run,
+                      base: Path | None = None) -> str | None:
+    """The ``X.Y.Z`` of ``codex --version`` run with a fresh scratch ``CODEX_HOME`` and ``HOME``
+    (`_scratch`, removed afterwards; codex reads ``$CODEX_HOME/.env`` first), or None. No model
+    turn and no key: #347 and #348 pass it to `read_availability`."""
+    with _scratch(base) as root:
+        return cs.installed_version(codex, env=_scratch_environment(root, path), runner=command_runner)
+
+
 def preflight(codex: str | None, codex_home: Path, *, mode: str | None, path: str, platform: str,
               command_runner: Callable[..., subprocess.CompletedProcess] = subprocess.run,
               base: Path | None = None) -> Preflight:
@@ -719,8 +760,7 @@ def preflight(codex: str | None, codex_home: Path, *, mode: str | None, path: st
         return Preflight("platform_unsupported", f"the Codex sandbox is macOS-only (platform {platform})")
     if not codex or not os.path.isabs(codex) or not os.access(codex, os.X_OK):
         return Preflight("codex_missing", "the codex executable was not found (tools.json, PATH)")
-    with _scratch(base) as root:
-        version = cs.installed_version(codex, env=_scratch_environment(root, path), runner=command_runner)
+    version = installed_version(codex, path=path, command_runner=command_runner, base=base)
     if version not in cs.VERIFIED_VERSIONS:
         return Preflight("codex_version_unverified",
                          f"codex {version or 'of unknown version'} is not one of {', '.join(cs.VERIFIED_VERSIONS)}",
@@ -746,28 +786,47 @@ def preflight(codex: str | None, codex_home: Path, *, mode: str | None, path: st
 
 @dataclass
 class Decision:
-    """Codex or the Claude worker for one step, with the reason the run record keeps. ``known``
-    holds the API key as a known secret once it was read (also on a fallback): the caller adds it
-    to the run's outgoing-text scan and masks the run record with it (`known_values`)."""
+    """One of three outcomes for a step that requested Codex, with the reason the run record keeps:
+
+    * Codex (``codex``): ``client_applied`` is ``codex`` and ``launch`` is set (`start`);
+    * the Claude worker (``fallback``): ``client_applied`` is ``claude`` and ``reason`` is one of
+      `REASONS`;
+    * **abort** (``abort``): ``client_applied`` is None and ``reason`` one of `ABORT_REASONS`: a
+      deny probe got through or a decoy was read. The caller fails the step; it never starts Codex
+      (`start` refuses) or the Claude worker for it.
+
+    ``known`` holds the API key as a known secret once it was read (in every outcome): the caller
+    adds it to the run's outgoing-text scan and masks the run record with it (`known_values`)."""
 
     client_requested: str
-    client_applied: str
+    client_applied: str | None
     reason: str | None = None
     detail: str = ""
     launch: cs.CodexLaunch | None = None
     report: CodexReport | None = None
     known: tuple[KnownSecret, ...] = field(default=(), repr=False)
+    abort: bool = False
+
+    def __post_init__(self) -> None:
+        if self.abort != (self.client_applied is None) or (self.abort and self.reason not in ABORT_REASONS):
+            raise ValueError("an aborted decision has no client and an abort reason; every other one has a client")
 
     @property
     def codex(self) -> bool:
-        return self.client_applied == CODEX
+        return not self.abort and self.client_applied == CODEX
+
+    @property
+    def fallback(self) -> bool:
+        """The step runs the Claude worker instead (``reason`` says why)."""
+        return not self.abort and self.client_applied == CLAUDE
 
     def known_values(self) -> list[str]:
         return [secret.value for secret in self.known if isinstance(secret.value, str)]
 
     def to_record(self) -> dict:
         found = {"client_requested": self.client_requested, "client_applied": self.client_applied,
-                 "fallback_reason": self.reason, "detail": self.detail}
+                 "fallback_reason": None if self.abort else self.reason, "aborted": self.abort,
+                 "abort_reason": self.reason if self.abort else None, "detail": self.detail}
         if self.launch is not None:
             found["codex_launch"] = cs.describe(self.launch)
         if self.report is not None:
@@ -780,6 +839,15 @@ def _fallback(reason: str, detail: str, report: CodexReport | None = None,
     if reason not in REASONS:
         raise ValueError(f"not a fallback reason: {reason}")
     return Decision(CODEX, CLAUDE, reason, detail, None, report, tuple(known))
+
+
+def _conclude(report: CodexReport, default: str, known: Sequence[KnownSecret]) -> Decision:
+    """The decision for a finished report that failed: an abort when a deny probe succeeded or a
+    decoy tripped the schedule, else the Claude worker with the report's reason."""
+    detail = "; ".join(report.failures[:5])
+    if report.reason in ABORT_REASONS or report.tripped:
+        return Decision(CODEX, None, DENY_PROBE_SUCCEEDED, detail, None, report, tuple(known), abort=True)
+    return _fallback(report.reason or default, detail, report, known)
 
 
 def key_secret(api_key: str) -> KnownSecret:
@@ -806,9 +874,9 @@ def decide(codex: str | None, paths: cs.CodexPaths, *, path: str, proxy: Connect
            resolver: Callable[[str], str | None] = resolve_ipv4, socket_root: Path | None = None) -> Decision:
     """Codex for ``paths`` (a worker or a stage launch) when every check passes, else the Claude
     worker with the reason. ``mode`` is ``codex.login`` (`codex_sandbox.login_mode`; None when it is
-    unset). A deny-probe success (``deny_probe_succeeded``) aborts the Codex step and, when a decoy
-    was read, turns the schedule off (`decoys.trip`). ``proxy`` must be started with the Codex hosts
-    (`codex_sandbox.allowed_hosts`)."""
+    unset). A deny-probe success (``deny_probe_succeeded``) aborts the step (`Decision.abort`: no
+    client, no fallback) and, when a decoy was read, turns the schedule off (`decoys.trip`).
+    ``proxy`` must be started with the Codex hosts (`codex_sandbox.allowed_hosts`)."""
     started = time.monotonic()
     report = CodexReport(paths.kind, started=_now())
     known = list(known)
@@ -831,13 +899,10 @@ def decide(codex: str | None, paths: cs.CodexPaths, *, path: str, proxy: Connect
     leaked = run_model_free(launch, report, proxy=proxy, targets=targets, persistent=persistent, known=known,
                             execute_=execute_, resolver=resolver, socket_root=socket_root,
                             command_runner=command_runner)
-    if leaked:
-        report.tripped = True
-        decoy_store.trip(directory, "decoy read or leaked during a Codex probe: " + ", ".join(sorted(leaked)),
-                         run_id=run_id)
+    _note_leaked(report, leaked, directory, run_id, "a Codex probe")
     _finish(report, started)
     if not report.ok:
-        return _fallback(report.reason or "probe_failed", "; ".join(report.failures[:5]), report, (secret,))
+        return _conclude(report, "probe_failed", (secret,))
     return Decision(CODEX, CODEX, None, "", launch, report, (secret,))
 
 
@@ -845,7 +910,7 @@ def record_decision(run_id: str, directory: str | Path | None, step: str, decisi
                     persistent: Iterable[decoy_store.Decoy] = (), known: Iterable[str] = ()) -> dict:
     """Add the decision to the run record's ``clients`` list (masked with the decoy markers, the
     decision's API key and any other known secret): ``step``, ``client_requested``,
-    ``client_applied``, ``fallback_reason``."""
+    ``client_applied`` (None for an abort), ``fallback_reason``, ``aborted`` and ``abort_reason``."""
     record = records.read_record(run_id, directory) or {}
     record.setdefault("clients", []).append({"step": step, **decision.to_record()})
     markers = [decoy.marker for decoy in persistent] + decision.known_values() + [value for value in known if value]
@@ -861,6 +926,9 @@ def start(decision: Decision, text: str, *, proxy: ConnectProxy, stdout: Any = N
     outer profile; `run_exec_probe` (the stage availability check) is the only other place that
     starts codex for a model turn (#345 and #347 call this)."""
     launch, report = decision.launch, decision.report
+    if decision.abort:
+        raise cs.CodexSandboxError(f"the step was aborted ({decision.reason}): fail it; neither Codex nor the "
+                                   f"Claude worker may run it")
     if not decision.codex or launch is None or report is None or not report.ok:
         raise cs.CodexSandboxError("only a Codex decision whose probes passed can start Codex")
     if platform != "darwin":
@@ -904,9 +972,10 @@ class ScriptCall:
 def exec_plan(launch: cs.CodexLaunch, run: ProbeRun, targets: CodexTargets) -> list[ScriptCall]:
     """The #343 probe plan for a Codex stage session: Codex has no file tools and no permission
     layer of its own here, so every vector runs from a runner-written script (the sandbox alone must
-    deny it). Checks keep #343's IDs and research groups: controls (C11, C15), reads of the decoys
-    and secret places (C1, C2, C15) and ``git config --global`` (C2, its exit code recorded), the
-    keychain (C3), ``gh auth token`` (C4, when the runner finds gh on the launch's PATH), the
+    deny it). Checks keep #343's IDs and research groups: controls (C11, C15; ``git --version`` by
+    name among them), reads of the decoys and secret places (C1, C2, C15) and ``/usr/bin/git config
+    --global`` (C2, its exit code recorded), the keychain (C3), ``gh auth token`` (C4, when the
+    runner finds gh on its own PATH; the probe runs it by absolute path), the
     network (C5: an external address, also without the proxy, the metadata address, the system
     resolver and UDP DNS; C6: the runner's listener, the daemon's port and a listen on 127.0.0.1),
     foreign Unix sockets (C8), launchd, Apple Events and LaunchServices (C9), writes outside the
@@ -933,7 +1002,10 @@ def exec_plan(launch: cs.CodexLaunch, run: ProbeRun, targets: CodexTargets) -> l
                 (Check("control.repo.script", "C11", ALLOWED, content=((repo / f".autodev-probe-{nonce}-bash.txt", nonce),)),
                  f"printf %s {nonce} > {q(repo / f'.autodev-probe-{nonce}-bash.txt')}"),
                 (Check("control.tmpdir.script", "C15", ALLOWED), f'printf %s {nonce} > "$TMPDIR/probe-{nonce}-tmp.txt"'),
-                (Check("control.seed.script", "C11", ALLOWED), f"cat {q(seed)} >/dev/null")]
+                (Check("control.seed.script", "C11", ALLOWED), f"cat {q(seed)} >/dev/null"),
+                # git by name from a model command (``git_unusable`` when the launch's PATH leads to
+                # a git the profile cannot run).
+                (Check("control.git.script", "C11", ALLOWED), "git --version >/dev/null 2>&1")]
     script("controls", controls)
     reads = []
     if decoy_dir is not None:
@@ -955,7 +1027,8 @@ def exec_plan(launch: cs.CodexLaunch, run: ProbeRun, targets: CodexTargets) -> l
             if os.path.lexists(place):
                 reads.append((Check(f"read.{name}.script", "C2" if name == "git-credentials" else "C1", DENIED),
                               f"cat {q(place)} >/dev/null 2>&1"))
-    reads.append((Check("git.config-global.script", "C2", probes.RECORD), "git config --global --list >/dev/null 2>&1"))
+    reads.append((Check("git.config-global.script", "C2", probes.RECORD),
+                  f"{GIT} config --global --list >/dev/null 2>&1"))
     script("reads", reads)
     keychain = []
     if runner is not None:
@@ -1067,7 +1140,8 @@ def _plant_links(launch: cs.CodexLaunch, run: ProbeRun) -> None:
 
 
 def find_gh(path: str) -> str | None:
-    """The ``gh`` executable on ``path`` (the launch's ``PATH``) as the runner sees it, or None."""
+    """The ``gh`` executable on ``path`` (the runner's ``PATH``, before `codex_sandbox.launch_path`
+    drops the directories the profile cannot execute from) as the runner sees it, or None."""
     found = shutil.which("gh", path=path)
     if found is None or not os.path.isabs(found):
         return None
@@ -1250,7 +1324,8 @@ def evaluate_exec(calls: list[ScriptCall], captured: probes.Captured, run: Probe
                                   "ok": ok, "exit_codes": sorted(set(found))[:4]})
             if not ok:
                 breach = (check.expect == DENIED and outcome == "allowed") or outcome == "exposed"
-                report.fail("deny_probe_succeeded" if breach else "stage_probe_failed",
+                own = _EXEC_REASONS.get(check.id) if outcome == "failed" else None  # it ran, and failed
+                report.fail(DENY_PROBE_SUCCEEDED if breach else own or "stage_probe_failed",
                             f"{check.id}: expected {check.expect}, got {outcome}")
     return leaked
 
@@ -1297,9 +1372,10 @@ def run_exec_probe(launch: cs.CodexLaunch, report: CodexReport, *, targets: Code
                    persistent: Sequence[decoy_store.Decoy], known: Iterable[KnownSecret] = (),
                    execute_: Execute = execute, timeout: float = EXEC_TIMEOUT,
                    command_runner: Callable[..., subprocess.CompletedProcess] = subprocess.run,
-                   socket_root: Path | None = None) -> set[str]:
+                   socket_root: Path | None = None, path: str | None = None) -> set[str]:
     """The #343 probe plan through ``codex exec`` with exactly the stage launch's argv and
-    environment (a model turn); only the prompt is the probe's."""
+    environment (a model turn); only the prompt is the probe's. ``path`` is the runner's ``PATH``,
+    where the C4 probe looks for gh (default: the launch's)."""
     run = ProbeRun(secrets.token_hex(8), list(persistent))
     leaked: set[str] = set()
     try:
@@ -1309,8 +1385,8 @@ def run_exec_probe(launch: cs.CodexLaunch, report: CodexReport, *, targets: Code
         run.unix_listener = probes.Listener.unix(run.unix_socket)
         if os.path.exists(probes.LAUNCHCTL):
             run.launch_label = probes.LAUNCH_LABEL_PREFIX + run.nonce
-        run.gh = find_gh(launch.env.get("PATH", ""))
-        report.observed["gh"] = "probed" if run.gh else "untested: no gh on the launch's PATH"
+        run.gh = find_gh(path or launch.env.get("PATH", ""))
+        report.observed["gh"] = "probed" if run.gh else "untested: no gh on the runner's PATH"
         _plant_links(launch, run)
         if targets.runner is not None:
             item = next((decoy for decoy in run.persistent if decoy.kind == "keychain"), None)
@@ -1355,7 +1431,9 @@ def stage_availability(codex: str | None, paths: cs.CodexPaths, *, path: str, pr
     the nested check), the installed codex's ``workspace-write`` must block the network, and then
     the #343 probe plan run through ``codex exec`` with exactly the stage argv and environment must
     show every probe denied and every control passed. The result is stored (`write_availability`)
-    with the installed checks, which also run when `decide` fell back (`complete_installed`)."""
+    with the installed checks, which also run when `decide` fell back (`complete_installed`), and
+    the launch shape (`codex_sandbox.launch_shape`, what `stage_shape` computes from the
+    configuration). A deny-probe success or a decoy read is an abort (`Decision.abort`)."""
     if paths.kind != cs.STAGE:
         raise ValueError("stage_availability needs stage paths")
     known = list(known)
@@ -1374,22 +1452,48 @@ def stage_availability(codex: str | None, paths: cs.CodexPaths, *, path: str, pr
         else:
             leaked = run_exec_probe(launch, report, targets=targets, persistent=persistent,  # type: ignore[arg-type]
                                     known=[*known, *decision.known], execute_=execute_, timeout=timeout,
-                                    command_runner=command_runner, socket_root=socket_root)
-            if leaked:
-                report.tripped = True
-                decoy_store.trip(directory, "decoy read or leaked during a Codex stage probe: "
-                                 + ", ".join(sorted(leaked)), run_id=run_id)
+                                    command_runner=command_runner, socket_root=socket_root, path=path)
+            _note_leaked(report, leaked, directory, run_id, "a Codex stage probe")
         _finish(report, begin)
-        shape = launch.shape()  # type: ignore[union-attr]
+        shape = launch.shape()  # type: ignore[union-attr]  # what was probed (`launch_shape` gives the same)
         if not report.ok:
-            decision = _fallback(report.reason or "stage_probe_failed", "; ".join(report.failures[:5]), report,
-                                 decision.known)
+            decision = _conclude(report, "stage_probe_failed", decision.known)
         write_availability(directory, cs.STAGE, decision, shape=shape)
         return decision
     if decision.report is not None:
         complete_installed(decision.report, codex, path=path, platform=platform, execute_=execute_, base=check_base)
-    write_availability(directory, cs.STAGE, decision)
+    write_availability(directory, cs.STAGE, decision, shape=_launch_shape(cs.STAGE, codex, model, effort))
     return decision
+
+
+def codex_settings(config: Mapping, kind: str) -> dict:
+    """The ``model`` and ``effort`` of a Codex ``kind`` launch from ``autodev.json``: a worker uses
+    ``delegates.code-review-pass.codex``, a stage ``stages.implement.codex`` and else the
+    worker's. The owner's check (`runner.codex_probe`) and `stage_shape` read them the same way, so
+    a stage launch of #347 must use them too, or its shape differs (``shape_changed``)."""
+    delegates, stages = config.get("delegates") or {}, config.get("stages") or {}
+    settings = ((delegates.get("code-review-pass") or {}).get("codex")) or {}
+    if kind == cs.STAGE:
+        settings = ((stages.get("implement") or {}).get("codex")) or settings
+    return {"model": settings.get("model"), "effort": settings.get("effort")} if isinstance(settings, dict) else {}
+
+
+def _launch_shape(kind: str, codex: str | None, model: str | None, effort: str | None) -> str:
+    """`codex_sandbox.launch_shape`, or "" when the executable cannot be read (unavailable anyway)."""
+    if not codex:
+        return ""
+    try:
+        return cs.launch_shape(kind, codex, model=model, effort=effort)
+    except cs.CodexSandboxError:
+        return ""
+
+
+def stage_shape(codex: str, config: Mapping) -> str:
+    """The shape of the stage launch the configuration makes with ``codex`` (`codex_settings`,
+    `codex_sandbox.launch_shape`): no key, no run, no file written. #347 and #348 pass it to
+    `read_availability`; `codex_sandbox.CodexSandboxError` when the executable cannot be read."""
+    settings = codex_settings(config, cs.STAGE)
+    return cs.launch_shape(cs.STAGE, codex, model=settings.get("model"), effort=settings.get("effort"))
 
 
 # --- the stored availability (#347, #348) -----------------------------------------------------------
@@ -1428,8 +1532,9 @@ def read_availability(directory: str | Path | None = None, kind: str = cs.STAGE,
                       shape: str | None, now: Callable[[], float] = time.time,
                       max_age: float = AVAILABILITY_MAX_AGE) -> dict:
     """The stored availability of Codex as a ``kind`` client, for the installed codex ``version``
-    and the current launch's ``shape`` (`codex_sandbox.CodexLaunch.shape`): unavailable when never
-    checked (``not_checked``), when the stored check failed (its reason), or when it no longer
+    (`installed_version`) and the launch's ``shape`` (`stage_shape` from the configuration, or
+    `codex_sandbox.CodexLaunch.shape`; no key or run needed): unavailable when never checked or
+    unreadable (``not_checked``), when the stored check failed (its reason), or when it no longer
     applies: another version (``version_changed``), another launch shape (``shape_changed``), or
     older than ``max_age`` seconds or from the future (``stale``)."""
     try:
@@ -1437,9 +1542,12 @@ def read_availability(directory: str | Path | None = None, kind: str = cs.STAGE,
     except (OSError, ValueError):
         stored = {}
     entry = stored.get(kind) if isinstance(stored, dict) else None
-    if not isinstance(entry, dict) or entry.get("available") is not True:
-        return {"available": False, "reason": (entry or {}).get("reason") or "not_checked",
-                "checked": (entry or {}).get("checked")}
+    if not isinstance(entry, dict):
+        entry = {}  # missing, or not an object (a damaged file): never checked
+    if entry.get("available") is not True:
+        reason, checked = entry.get("reason"), entry.get("checked")
+        return {"available": False, "reason": reason if isinstance(reason, str) and reason else "not_checked",
+                "checked": checked if isinstance(checked, str) else None}
     reason = None
     checked_at = entry.get("checked_at")
     if not version or entry.get("version") != version:

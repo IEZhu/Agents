@@ -21,11 +21,15 @@ Claude side is [autodev-sandbox.md](autodev-sandbox.md) (#343), whose helpers th
   passes, or an owner decision on the [open question](#open-decision-for-the-owner), changes the
   outcome without new code paths. Codex never runs without the outer profile.
 - **Nothing starts a worker yet.** The worker launcher (#345) calls `codex_probes.decide` before
-  every Codex worker, records the result with `record_decision`, passes `decision.known` to the
-  run's outgoing-text scan (`broker.Broker(known=...)`) and starts Codex only through
-  `codex_probes.start`. The run sequence (#347) starts a Codex stage session only while
-  `read_availability(version=..., shape=...)` says it is available, and the settings page (#348)
-  shows the stored reason.
+  every Codex worker, records the result with `record_decision`, starts Codex only through
+  `codex_probes.start`, runs the Claude worker on a fallback (`decision.fallback`) and **fails the
+  step on an abort** (`decision.abort`, see [Probes and the decision](#probes-and-the-decision)),
+  running neither client. It returns `decision.known` (the API key as a known secret) to its
+  caller; the run sequence (#347) collects the run's known secrets and passes them to the
+  broker's outgoing-text scan (`broker.Broker(known=...)`). #347 starts a Codex stage session only
+  while `read_availability(version=..., shape=...)` says it is available, and the settings page
+  (#348) shows the stored reason; both read it without a key or a run
+  ([the stored availability](#codex-as-a-stage-client-q14)).
 - **The live check is the owner's.** `python -m src.schedules codex-probe --confirm-live-probe`
   runs the real checks. Nothing in the tests starts the real `codex` or a model turn; the profile
   tests apply the generated profile with the real `/usr/bin/sandbox-exec` to files, a shell-script
@@ -77,8 +81,10 @@ and `sandbox-exec` experiments with a fresh `CODEX_HOME` and a fake home) found:
 Every Codex process gets three new, empty 0700 directories inside the run's temporary root
 (`/private/tmp/ad-<8 hex>`, `sandbox.make_temp_root`), made by
 `codex_sandbox.prepare_run_directories` and removed with the root after the run
-(`sandbox.remove_temp_root`): `home` (its `HOME`), `codex-home` (its `CODEX_HOME`) and `tmp` (its
-`TMPDIR`; not the root itself, because codex refuses to create its `tmp/arg0` helpers when
+(`sandbox.remove_temp_root`, which first gives every directory mode 0700 and clears the user
+immutable and append-only flags, never through a link, because a model command may write the
+root and `chmod 000` a directory in it): `home` (its `HOME`), `codex-home` (its `CODEX_HOME`) and
+`tmp` (its `TMPDIR`; not the root itself, because codex refuses to create its `tmp/arg0` helpers when
 `CODEX_HOME` lies under `TMPDIR`). Nothing of a Codex process survives the run, and the worker
 and the stage never share one. `CodexPaths.problems` refuses a `HOME` or `CODEX_HOME` that is not
 directly inside the temporary root and three directories that are not distinct.
@@ -147,10 +153,15 @@ package in the home directory or one overlapping a run directory is refused. The
 resolved executable, and the launch binds its path and SHA-256 (`sandbox.executable_identity`),
 so an upgrade between the probes and the start is refused. `CodexPaths.problems` refuses a run
 directory that equals or contains the home directory, `~/.ssh`, `~/Library`, the keychains,
-`~/.config/agents-autodev`, the autodev state directory or the installation checkout, a read-only
-directory inside a writable one, nested writable directories, a profile file the process could
-reach, an interpreter root that is too broad (`/usr`, `/nix/store`, ...), and a stage without a
-`venv` or whose one-off repository's `.git` is not a directory.
+`~/.config/agents-autodev`, the autodev state directory or the installation checkout; a run
+directory that lies inside `~/.ssh`, `~/Library`, `~/.config/agents-autodev` or the state
+directory, except the run's own output directory inside the state directory (which lives in
+`~/Library/Application Support` on macOS), since the profile re-allows a run directory after the
+home deny; a read-only directory inside a writable one, nested writable directories, a profile
+file the process could reach, an interpreter root that is too broad (`/usr`, `/nix/store`, ...),
+and a stage without a `venv` or whose one-off repository's `.git` is not a directory. So a
+worker's tree, materials and schema lie outside the state directory (the `codex-probe` check
+writes its synthetic ones to `/private/tmp/autodev-codex-work-*`).
 
 **The stage's `.git` protections.** Seatbelt checks a rename only against its source and
 destination, so a stage that may rename `.git` could edit its config and hooks under another name
@@ -227,6 +238,14 @@ directories), `LANG`, `HTTPS_PROXY` and `HTTP_PROXY` (`http://127.0.0.1:<proxy p
 missing one, a `HOME`, `CODEX_HOME`, `TMPDIR` or proxy value other than the launch's, an empty
 `CODEX_HOME`, a NUL, and any value other than the key that the outgoing-text scan flags.
 
+**`PATH`** (`codex_sandbox.launch_path`) keeps only the runner's directories the profile lets the
+process execute from (`/bin`, `/usr/bin`, `/usr/libexec`, the codex package and a stage's
+interpreter roots), in their order, and adds `/usr/bin` and `/bin` when they are missing. A program
+anywhere else cannot start under the profile (bash's 126), and an earlier one would hide the
+system's: the round-2 review found a nix git first on the runner's `PATH`, so `git` by name
+returned 126 under the stage profile while `/usr/bin/git` (the Command Line Tools' git through
+`xcrun`) works. `check_environment` refuses a `PATH` that `launch_path` would change.
+
 ## The proxy
 
 `codex_proxy.ConnectProxy` listens on 127.0.0.1 on an ephemeral port, started before the profile
@@ -240,6 +259,7 @@ the listener and a tunnel is a channel it cannot read:
 | Limit | Value | Beyond it |
 |---|---|---|
 | Connections at a time (`MAX_CLIENTS`) | 16 | `503` |
+| The whole request head (`HEADER_TIMEOUT`, one deadline, not per read) | 10 s | closed |
 | Tunnels at a time (`MAX_TUNNELS`) | 8 | `503` |
 | Idle tunnel (`IDLE_TIMEOUT`, no byte either way) | 300 s | closed (`ended["idle"]`) |
 | Tunnel lifetime (`TUNNEL_SECONDS`) | 3600 s | closed (`ended["time"]`) |
@@ -252,8 +272,17 @@ exits (`close_when`). The tests use only local listeners (an injected `connect`)
 
 ## Probes and the decision
 
-`codex_probes.decide(codex, paths, ...)` returns a `Decision`: Codex with its launch, or the
-Claude worker with a machine-readable reason. In order:
+`codex_probes.decide(codex, paths, ...)` returns a `Decision` with one of three outcomes:
+
+| Outcome | Fields | The caller (#345) |
+|---|---|---|
+| Codex (`decision.codex`) | `client_applied: "codex"`, `launch` | starts it with `start` |
+| Fallback (`decision.fallback`) | `client_applied: "claude"`, `reason` in `REASONS` | runs the Claude worker |
+| **Abort** (`decision.abort`) | `abort: true`, `client_applied: null`, `reason` in `ABORT_REASONS` (`deny_probe_succeeded`) | **fails the step**; runs neither Codex nor the Claude worker (`start` refuses) |
+
+A deny probe that got through, or a decoy read or leaked (which also turns the schedule off), is
+an abort, never a fallback: the outer profile was shown to leak, so the step must not continue
+with another client. The checks, in order:
 
 | Check | Reason when it fails |
 |---|---|
@@ -263,7 +292,7 @@ Claude worker with a machine-readable reason. In order:
 | The run's `CODEX_HOME` allowlist | `codex_home_unclean` |
 | `codex.login` set and its keychain item readable | `login_missing` |
 | The launch builds, the proxy's allowlist is exactly the Codex hosts, `check_launch` passes | `profile_broken` |
-| Model-free probes (below) | `deny_probe_succeeded`; `profile_broken` (codex does not start under the profile); `venv_unusable` (a stage's environment does not run); `probe_failed` |
+| Model-free probes (below) | abort: `deny_probe_succeeded`; fallback: `profile_broken` (codex does not start under the profile), `venv_unusable` (a stage's environment does not run), `git_unusable` (a stage's `git` by name does not run), `probe_failed` |
 | The nested-sandbox check | `nested_sandbox_unavailable` |
 
 When several fail, the most damning reason wins: a deny-probe success first, then the order of the
@@ -279,6 +308,7 @@ most of them:
 | `control.read-materials` (a runner-written seed), `control.list-tree` | worker | allowed |
 | `control.read-exchange`, `control.write-repository`, `control.write-exchange` | stage | allowed |
 | `control.venv-python`: `<venv>/bin/python -c 0` | stage | runs (else `venv_unusable`) |
+| `control.git`: `git --version` by name | stage | runs (else `git_unusable`) |
 | `read.<decoy>` for every file decoy (#343) and the ephemeral decoy in the owner's temporary directory | both | denied; the output is scanned and a marker trips the schedule |
 | `list.ssh-dir`, `list.keychains-dir`, `list.secrets-dir` (`~/.config/agents-autodev`), `list.home`, `list.state-dir` (each when present) | both | denied; output discarded |
 | `write.decoy-dir`, `write.private-dir` (a runner directory outside the run) | both | denied; the file stays absent |
@@ -296,8 +326,9 @@ Exit codes 126 and 127, a timeout, a missing proxy record or a proxy connection 
 count make a probe `inconclusive` or `failed`, never denied. Detection is the runner's (exit
 codes, files, the proxy's log, the listener's count, launchd); captures are bounded and scanned
 (the decoy markers and the run's API key, `Decision.known`), and only verdicts, exit codes and hit
-metadata reach the record. Any deny-probe success aborts the Codex step (`deny_probe_succeeded`);
-a decoy read also turns the schedule off (`decoys.trip`). The decoy keychain item is probed only
+metadata reach the record. Any deny-probe success aborts the step (`deny_probe_succeeded`,
+`decision.abort`); a decoy read or leaked also turns the schedule off (`decoys.trip`) and is an
+abort too, whatever else failed. The decoy keychain item is probed only
 when `sandbox.decoy_keychain` planted it (an absent item would "deny" by not being found); the
 record then says `keychain: untested`, which does not fail the worker. Real keychain items are
 never probed by a worker.
@@ -307,13 +338,15 @@ The **nested check** runs `codex sandbox -- /usr/bin/true` under the outer profi
 is `nested_sandbox_unavailable`.
 
 `record_decision(run_id, directory, step, decision)` appends to the run record's `clients` list:
-`step`, `client_requested`, `client_applied`, `fallback_reason`, `detail`, the launch's
+`step`, `client_requested`, `client_applied` (`null` for an abort), `fallback_reason` (`null`
+for an abort), `aborted`, `abort_reason`, `detail`, the launch's
 description (`codex_launch`: digests, shape, flags without paths; only for a Codex decision) and
 the probe report (`codex_probes`, with its digest), masked with the decoy markers and the API key.
 
-`start(decision, prompt, proxy=...)` starts Codex only for a Codex decision whose probes passed at
-most 15 minutes ago for the same digest (argv, environment, working directory, profile,
-executable), with its proxy running with the Codex hosts, `check_launch` passing again and the
+`start(decision, prompt, proxy=...)` refuses an aborted decision and starts Codex only for a
+Codex decision whose probes passed at most 15 minutes ago for the same digest (argv,
+environment, working directory, profile, executable), with its proxy running with the Codex
+hosts, `check_launch` passing again and the
 `CODEX_HOME` allowlist checked once more right before the process starts. #345 and #347 call it;
 `run_exec_probe` (below) is the only other place that starts codex for a model turn.
 
@@ -321,9 +354,11 @@ executable), with its proxy running with the Codex hosts, `check_launch` passing
 
 `REASONS`: `platform_unsupported`, `codex_missing`, `codex_version_unverified`,
 `codex_home_unclean`, `login_missing`, `profile_broken`, `nested_sandbox_unavailable`,
-`deny_probe_succeeded`, `probe_failed`, `venv_unusable`, `workspace_write_network_open`,
-`stage_probe_failed`. `read_availability` adds `not_checked`, `version_changed`, `shape_changed`
-and `stale` for a stored stage check that no longer applies.
+`probe_failed`, `venv_unusable`, `git_unusable`, `workspace_write_network_open`,
+`stage_probe_failed`. The abort reason (`ABORT_REASONS`) is `deny_probe_succeeded`, never a
+fallback. `read_availability` adds `not_checked`, `version_changed`, `shape_changed` and `stale`
+for a stored stage check that no longer applies (a stored abort reads as unavailable with
+`deny_probe_succeeded`).
 
 ## Codex as a stage client (Q14)
 
@@ -342,11 +377,11 @@ The stage plan (`exec_plan`) keeps #343's check IDs and research groups:
 
 | Group | Checks | Expected |
 |---|---|---|
-| C11, C15 controls | `control.exchange.script`, `control.repo.script`, `control.tmpdir.script`, `control.seed.script`; the negative control `control.sandbox-loaded.script` | allowed; the negative control denied |
+| C11, C15 controls | `control.exchange.script`, `control.repo.script`, `control.tmpdir.script`, `control.seed.script`, `control.git.script` (`git --version` by name; `git_unusable` when it runs and fails); the negative control `control.sandbox-loaded.script` | allowed; the negative control denied |
 | C1, C15 reads | `read.<decoy>.script`, `list.ssh-dir`, `keychains-dir`, `home`, `secrets-dir`, `state-dir`, `owner-temp`, the decoy registry | denied |
-| C2 | `read.git-credentials.script` (when present); `git.config-global.script` | denied; the exit code of `git config --global --list` recorded |
+| C2 | `read.git-credentials.script` (when present); `git.config-global.script` | denied; the exit code of `/usr/bin/git config --global --list` recorded |
 | C3 | `keychain.<item>.script` for the runner's keychain items that exist (exit code only), `keychain.decoy.script` (its value) | denied with a code other than 44; none at all is "C3 untested", a failure |
-| C4 | `gh.token.script`: the `gh` the runner finds on the launch's `PATH`, `auth token` | denied (a gh the profile cannot start counts as denied, `EXEC_REFUSED`); no gh on `PATH` is recorded as untested |
+| C4 | `gh.token.script`: the `gh` the runner finds on its own `PATH` (the launch's holds only executable directories), run by absolute path, `auth token` | denied (a gh the profile cannot start counts as denied, `EXEC_REFUSED`); no gh on the runner's `PATH` is recorded as untested |
 | C5 | `network.external`, `network.external-noproxy` (must fail on name resolution), `network.metadata`, `network.dns` (the system resolver), `network.udp` (`dig` to 1.1.1.1) | denied |
 | C6 | `network.local-listener` (the runner's listener counts no connection), `network.daemon` (when known), `network.listen` (a listen on 127.0.0.1 with the venv's Python) | denied |
 | C8 | `socket.foreign.script` (a runner-owned Unix socket in a private directory; it counts no connection), `socket.extra-<n>.script` (`/var/run/docker.sock` when present) | denied |
@@ -372,19 +407,38 @@ configuration, settings file, Claude's temporary roots, the runner socket). `obs
 prints #343's whole observation (also `$TMPDIR` and the descriptors), but only the variable names
 are judged. No probe was left out for any other reason.
 
-Codex stays unavailable with the reason (`stage_probe_failed`, `deny_probe_succeeded`,
-`workspace_write_network_open` or a `decide` reason) unless every probe is denied and every
-control passed. On this Mac step 1 already fails, so no model turn is spent.
+Codex stays unavailable with the reason (`stage_probe_failed`, `git_unusable`,
+`workspace_write_network_open` or a `decide` reason; a deny-probe success or a decoy read is an
+abort with `deny_probe_succeeded`) unless every probe is denied and every control passed. On this
+Mac step 1 already fails, so no model turn is spent.
 
 **The stored availability** holds `available`, `reason`, `checked` and `checked_at`, the codex
-version, the launch digest, the launch's run-independent `shape` (`CodexLaunch.shape`: the kind,
-the profile text, the flags without paths, the environment's names and the executable's resolved
-path and SHA-256) and the installed checks, also on a fallback (`complete_installed`).
+version, the launch digest, the launch's run-independent `shape` and the installed checks, also on
+a fallback (`complete_installed`). The shape (`codex_sandbox.shape_of`) covers the kind, the
+profile template (rendered with one read root, interpreter root and ancestor, not the run's
+layout), the codex flags without paths, the environment's variable names and the executable's
+resolved path and SHA-256. `codex_sandbox.launch_shape(kind, codex, model=..., effort=...)`
+computes it from the executable alone (placeholder paths, no key, no run directory, no profile
+file), and `CodexLaunch.shape()` of a built launch is equal; `codex_probes.stage_shape(codex,
+config)` takes the model and effort from `autodev.json` (`codex_settings`: `stages.implement.codex`,
+else `delegates.code-review-pass.codex`, as the `codex-probe` check does).
+
 `read_availability(directory, kind, version=..., shape=...)` treats it as unavailable when it was
-never checked (`not_checked`), when the check failed (its reason), when the installed version
-differs (`version_changed`), when the current launch's shape differs (`shape_changed`, for example
-another effort or an upgraded executable), or when it is older than `AVAILABILITY_MAX_AGE` (7 days)
-or dated in the future (`stale`). #347 and #348 pass the installed version and `launch.shape()`.
+never checked or the stored entry is not an object (`not_checked`), when the check failed (its
+reason), when the installed version differs (`version_changed`), when the shape differs
+(`shape_changed`, for example another effort in `autodev.json` or an upgraded executable), or
+when it is older than `AVAILABILITY_MAX_AGE` (7 days) or dated in the future (`stale`). #347 and
+#348 call it without a key or a run:
+
+```text
+codex_probes.read_availability(directory, version=codex_probes.installed_version(codex, path=...),
+                               shape=codex_probes.stage_shape(codex, config))
+```
+
+`installed_version` runs `codex --version` with a scratch `CODEX_HOME` and `HOME`;
+`stage_shape` raises `CodexSandboxError` when the executable cannot be read (Codex is then
+unavailable). A #347 stage launch must use `codex_settings(config, "stage")`, or its shape
+differs from the stored one.
 
 ## Installed-version checks
 
@@ -404,11 +458,12 @@ python -m src.schedules codex-probe [--kind worker|stage] --confirm-live-probe
 ```
 
 It refuses without the flag. `worker` builds a launch with a synthetic tree, materials and schema
-in the run directory and runs `decide` plus `installed_checks`; `stage` uses a one-off repository
-at `pinned` (like `probe`) with the state copy as a read root and the trusted venv, and runs
-`stage_availability`. The result is a run record with `client_requested`, `client_applied`,
-`fallback_reason` and the report, masked with the decoy markers and the API key; the exit code is
-0 only when Codex is available.
+in a private directory outside the state (`/private/tmp/autodev-codex-work-*`, removed afterwards)
+and runs `decide` plus `installed_checks`; `stage` uses a one-off repository at `pinned` (like
+`probe`) with the state copy as a read root and the trusted venv, and runs `stage_availability`.
+The result is a run record with `client_requested`, `client_applied`, `fallback_reason`,
+`aborted`, `abort_reason` and the report, masked with the decoy markers and the API key; the exit
+code is 0 only when Codex is available.
 
 ## Residual risks
 
@@ -423,7 +478,8 @@ What the design does not close, and what bounds each:
   `api.openai.com` only, so the key is usable from the sandbox only against the API it is for;
   the key is a known secret of the run (`Decision.known`): every probe capture is scanned for it,
   the run record is masked with it (`record_decision`, the runner's markers), and the broker's
-  outgoing-text scan refuses any text that holds it (`Broker(known=...)`, wired in by #347).
+  outgoing-text scan refuses any text that holds it: #345 returns `decision.known`, and #347 passes
+  the run's collected known secrets to `Broker(known=...)`.
   A leaked key costs at most the project's budget until the owner revokes it.
 - **The allowed host is a data channel.** Tunnels to `api.openai.com` are TLS the proxy cannot
   read, and model commands share the profile, so they can reach the proxy port too. Anything a
@@ -437,7 +493,8 @@ What the design does not close, and what bounds each:
   visible.
 - The reads the outer profile still allows (the system directories, the Command Line Tools, the
   codex package, the run's directories) hold no secret of the owner; a read root is a
-  runner-made copy (`CodexPaths.problems` refuses one that contains a protected place).
+  runner-made copy (`CodexPaths.problems` refuses one that contains a protected place or lies
+  inside `~/.ssh`, `~/Library`, the secrets directory or the state directory).
 
 ## Open decision for the owner
 
@@ -494,3 +551,4 @@ The code refuses the flag (`check_argv`); adopting it needs a reviewed change an
 | `schedules/codex-availability.json` | Whether Codex is available as a stage client: `available`, `reason`, `checked`, `checked_at`, `version`, `digest`, `shape`, the installed checks |
 | `schedules/runs/<run-id>/codex-profile/codex.sb` | A check's outer profile (0600) |
 | `schedules/runs/<run-id>/codex-out/` | A check's output directory |
+| `/private/tmp/autodev-codex-work-*/` | The worker check's synthetic tree, materials and schema (outside the state directory), removed after the check |

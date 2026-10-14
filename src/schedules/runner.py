@@ -36,6 +36,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 from typing import Callable
 
 from src import executables
@@ -621,9 +622,10 @@ def codex_probe(ctx: Context, kind: str, confirmed: bool) -> tuple[int, dict]:
     return (0 if written.get("status") == "completed" else 1), written
 
 
-def _codex_work(run_dir: Path) -> dict[str, Path]:
-    """A synthetic tree, materials and schema for the worker check (#345 assembles the real ones)."""
-    work = private_dir(run_dir / "codex-work")
+def _codex_work(work: Path) -> dict[str, Path]:
+    """A synthetic tree, materials and schema for the worker check (#345 assembles the real ones)
+    in ``work``, a private directory outside the state directory: `codex_sandbox.CodexPaths`
+    refuses a read root inside it."""
     tree, materials = private_dir(work / "tree"), private_dir(work / "materials")
     (tree / "README.md").write_text("autodev Codex check\n")
     (materials / "diff.txt").write_text("no change\n")
@@ -645,17 +647,19 @@ def _codex_probe(ctx: Context, config: dict, run_id: str, kind: str, markers: li
     except (codex_sandbox.CodexSandboxError, decoys.DecoyError) as error:
         return {"status": "refused", "reason": f"codex: {error}"}
     run_dir = records.run_dir(run_id, ctx.directory)
-    temp_root = session = None
+    temp_root = session = work = None
     try:
         # HOME, CODEX_HOME and TMPDIR are new empty directories inside the run's temporary root,
-        # removed with it below: nothing of a Codex process survives the run.
+        # removed with it below (`sandbox.remove_temp_root` restores the permissions a model
+        # command may have taken away first): nothing of a Codex process survives the run.
         temp_root = sandbox.make_temp_root(ctx.temp_base)
         directories = codex_sandbox.prepare_run_directories(temp_root)
         common = dict(kind=kind, home=ctx.home, tmp_root=temp_root, out_dir=private_dir(run_dir / "codex-out"),
                       profile=run_dir / "codex-profile" / "codex.sb", state_dir=Path(ctx.directory),
                       installation=Path(ctx.installation), **directories)
         if kind == codex_sandbox.WORKER:
-            paths = codex_sandbox.CodexPaths(**common, **_codex_work(run_dir))
+            work = Path(tempfile.mkdtemp(prefix="autodev-codex-work-", dir=ctx.temp_base))
+            paths = codex_sandbox.CodexPaths(**common, **_codex_work(work))
         else:
             session = (ctx.probe_session or default_probe_session)(ctx, config, run_id)
             paths = codex_sandbox.CodexPaths(**common, repository=Path(session.layout["repository"]),
@@ -664,9 +668,7 @@ def _codex_probe(ctx: Context, config: dict, run_id: str, kind: str, markers: li
         targets = codex_probes.CodexTargets(
             state_dir=Path(ctx.directory), secrets_dir=ctx.home / ".config" / "agents-autodev",
             runner=probe_targets(ctx, config, mode or sandbox.LOGIN_CONFIG_DIR) if kind == codex_sandbox.STAGE else None)
-        settings = (config["delegates"].get("code-review-pass") or {}).get("codex") or {}
-        if kind == codex_sandbox.STAGE:
-            settings = (config["stages"]["implement"].get("codex") or settings)
+        settings = codex_probes.codex_settings(config, kind)
         with codex_proxy.ConnectProxy(codex_sandbox.allowed_hosts()) as proxy:
             options = dict(path=path, proxy=proxy, mode=mode, targets=targets, persistent=planted,
                            directory=ctx.directory, run_id=run_id, model=settings.get("model"),
@@ -692,10 +694,14 @@ def _codex_probe(ctx: Context, config: dict, run_id: str, kind: str, markers: li
             session.cleanup()
         if temp_root is not None:
             sandbox.remove_temp_root(temp_root, ctx.temp_base)
-        shutil.rmtree(run_dir / "codex-work", ignore_errors=True)
+        if work is not None:
+            shutil.rmtree(work, ignore_errors=True)
     result = {"status": "completed" if decision.codex else "refused", **decision.to_record()}
     if decision.report is not None and decision.report.tripped:
         result["tripped"] = True
-    if not decision.codex:
+    if decision.abort:
+        result["reason"] = (f"a deny probe got through ({decision.reason}): a step would be aborted, with neither "
+                            f"Codex nor the Claude worker")
+    elif not decision.codex:
         result["reason"] = f"Codex is unavailable ({decision.reason}); the step uses the Claude worker"
     return result
