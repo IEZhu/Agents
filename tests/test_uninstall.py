@@ -18,6 +18,7 @@ sys.path.insert(0, str(ROOT / "scripts/_helpers"))
 
 from src import uninstall  # noqa: E402
 from src.uninstall import Context, main, remove_json_members, remove_routing_block, remove_toml_server  # noqa: E402
+from scripts import install_session_readiness as readiness_installer  # noqa: E402
 import inject_claude_md  # noqa: E402
 
 IDENT = "0123456789abcdef"
@@ -715,3 +716,173 @@ def test_registry_entries_with_foreign_names_are_never_removed(home):
     items = uninstall.decoy_items(context(home, "darwin", runner), [state])
     assert items == [] and not runner.ran("/usr/bin/security", "find-generic-password", "-s", "agents-autodev-github",
                                           "-a", "WonderMr")
+
+
+def readiness_profiles(tmp_path, monkeypatch, platform):
+    """Install the real adapters into fake profiles using a fake installation's interpreter."""
+    home = tmp_path / "home with spaces"
+    home.mkdir()
+    installation = checkout(home / ".agents-core")
+    for name in ("session_readiness.py", "session_readiness_mcp.py"):
+        write(installation / "scripts" / name, (ROOT / "scripts" / name).read_bytes())
+    python = installation / (".venv/Scripts/python.exe" if platform == "win32" else ".venv/bin/python")
+    write(python, "fake interpreter; never executed")
+    claude, codex = home / "profiles/Claude Code", home / "profiles/Codex"
+    env = {"CLAUDE_CONFIG_DIR": str(claude), "CODEX_HOME": str(codex)}
+    ctx = context(home, platform, FakeRunner(), **env)
+    desktop = next(path for client, path in uninstall.client_files(ctx) if client == "desktop")
+    paths = {
+        "claude": (claude / "settings.json", claude / "hooks" / readiness_installer.SCRIPT_NAME),
+        "codex": (codex / "hooks.json", codex / "hooks" / readiness_installer.SCRIPT_NAME),
+        "cursor": (home / ".cursor/hooks.json", home / ".cursor/hooks" / readiness_installer.SCRIPT_NAME),
+        "antigravity": (home / ".gemini/config/hooks.json",
+                        home / ".gemini/config/hooks" / readiness_installer.SCRIPT_NAME),
+        "desktop": (desktop, desktop.parent / "agents-core-readiness/hooks" / readiness_installer.SCRIPT_NAME),
+    }
+    originals = {
+        "claude": {"theme": "keep", "hooks": {"PreToolUse": [{"command": "other"}]}},
+        "codex": {"theme": "keep", "hooks": {"PreToolUse": [{"command": "other"}]}},
+        "cursor": {"version": 1, "hooks": {"preToolUse": [{"command": "other"}]}},
+        "antigravity": {"other-hook": {"enabled": False}},
+        "desktop": {"mcpServers": {"other": {"command": "other"}}, "theme": "keep"},
+    }
+    monkeypatch.setattr(readiness_installer, "ROOT", installation)
+    monkeypatch.setattr(readiness_installer.sys, "executable", str(python))
+    monkeypatch.setattr(readiness_installer, "WINDOWS_HOOKS", platform == "win32")
+    monkeypatch.setattr(readiness_installer, "client_paths", lambda client: paths[client])
+    runtimes = {}
+    for client, (target, _) in paths.items():
+        write(target, json.dumps(originals[client]))
+        runtimes[client] = [Path(path) for path in readiness_installer.install(client)["scripts"]]
+    return ctx, paths, runtimes, originals
+
+
+@pytest.mark.parametrize("platform", ["darwin", "linux", "win32"])
+def test_uninstall_removes_installed_readiness_adapters(tmp_path, monkeypatch, platform):
+    ctx, paths, runtimes, originals = readiness_profiles(tmp_path, monkeypatch, platform)
+    before = snapshot(ctx.home)
+    assert main(["--dry-run"], ctx=ctx, interactive=False) == 0
+    assert snapshot(ctx.home) == before
+    assert main(["--yes"], ctx=ctx, interactive=False) == 0
+    for client, (target, _) in paths.items():
+        assert json.loads(target.read_bytes()) == originals[client], client
+        assert all(not path.exists() for path in runtimes[client]), client
+    assert not (ctx.home / ".agents-core").exists()
+    after = snapshot(ctx.home)
+    assert main(["--yes"], ctx=ctx, interactive=False) == 0
+    assert snapshot(ctx.home) == after
+
+
+def readiness_entry(document, client):
+    if client == "desktop":
+        return document["mcpServers"]["Agents-Readiness"]
+    if client == "antigravity":
+        return document["agents-core-readiness"]["SessionStart"][0]
+    event = "sessionStart" if client == "cursor" else "SessionStart"
+    entry = document["hooks"][event][0]
+    return entry if client == "cursor" else entry["hooks"][0]
+
+
+@pytest.mark.parametrize("client", readiness_installer.CLIENTS)
+@pytest.mark.parametrize("change", ["modified", "other-installation"])
+def test_uninstall_preserves_modified_or_foreign_readiness(tmp_path, monkeypatch, client, change):
+    ctx, paths, runtimes, _ = readiness_profiles(tmp_path, monkeypatch, "linux")
+    target, _ = paths[client]
+    document = json.loads(target.read_bytes())
+    entry = readiness_entry(document, client)
+    if change == "modified":
+        if client == "desktop":
+            entry["env"] = {"MY_SETTING": "keep"}
+        else:
+            entry["timeout"] = 7
+    else:
+        entry["command"] = entry["command"].replace(str(ctx.home / ".agents-core"), str(ctx.home / "other-installation"))
+    raw = (json.dumps(document, indent=2) + "\n").encode()
+    target.write_bytes(raw)
+    contents = {path: path.read_bytes() for path in runtimes[client]}
+    assert main(["--yes"], ctx=ctx, interactive=False) == 0
+    assert target.read_bytes() == raw
+    assert all(path.read_bytes() == content for path, content in contents.items())
+
+
+@pytest.mark.parametrize("platform", ["linux", "win32"])
+def test_uninstall_preserves_other_handlers_and_shared_readiness_runtime(tmp_path, monkeypatch, platform):
+    ctx, paths, runtimes, _ = readiness_profiles(tmp_path, monkeypatch, platform)
+    target, script = paths["claude"]
+    document = json.loads(target.read_bytes())
+    group = document["hooks"]["SessionStart"][0]
+    other = {"type": "command", "command": readiness_installer.command_for(script, "--custom"), "timeout": 12}
+    group["hooks"].append(other)
+    untouched = {"matcher": "user-custom", "hooks": [dict(group["hooks"][0])]}
+    document["hooks"]["SessionStart"].append(untouched)
+    target.write_text(json.dumps(document), encoding="utf-8")
+    shared = {path: path.read_bytes() for path in runtimes["claude"]}
+    assert main(["--yes"], ctx=ctx, interactive=False) == 0
+    updated = json.loads(target.read_bytes())
+    assert updated["hooks"]["SessionStart"] == [{"matcher": readiness_installer.MATCHER, "hooks": [other]}, untouched]
+    assert all(path.read_bytes() == content for path, content in shared.items())
+
+
+def test_uninstall_keeps_modified_runtime_and_unrelated_files(tmp_path, monkeypatch):
+    ctx, paths, runtimes, _ = readiness_profiles(tmp_path, monkeypatch, "linux")
+    runtime = runtimes["desktop"][0]
+    runtime.write_bytes(runtime.read_bytes() + b"\n# user's local change\n")
+    kept = write(runtime.parent / "my-hook.py", "keep")
+    assert main(["--yes"], ctx=ctx, interactive=False) == 0
+    assert runtime.read_bytes().endswith(b"# user's local change\n")
+    assert kept.read_text() == "keep" and not runtimes["desktop"][1].exists()
+    assert "Agents-Readiness" not in json.loads(paths["desktop"][0].read_bytes())["mcpServers"]
+
+
+def test_uninstall_finds_readiness_desktop_override_and_msix(tmp_path, monkeypatch):
+    ctx, _, _, _ = readiness_profiles(tmp_path, monkeypatch, "win32")
+    override = ctx.home / "profiles/Desktop/desktop.json"
+    msix = ctx.home / "AppData/Local/Packages/Claude_example/LocalCache/Roaming/Claude/claude_desktop_config.json"
+    extra = []
+    for target in (override, msix):
+        script = target.parent / "agents-core-readiness/hooks" / readiness_installer.SCRIPT_NAME
+        monkeypatch.setattr(readiness_installer, "client_paths", lambda client, target=target, script=script: (target, script))
+        result = readiness_installer.install("desktop")
+        extra += [Path(path) for path in result["scripts"]]
+    ctx.environ = {**ctx.environ, "AGENTS_CLAUDE_DESKTOP_CONFIG": str(override)}
+    assert main(["--yes"], ctx=ctx, interactive=False) == 0
+    assert not override.exists() and not msix.exists()
+    assert all(not path.exists() for path in extra)
+
+
+def test_uninstall_rechecks_readiness_runtime_ownership_before_removing(tmp_path, monkeypatch):
+    ctx, paths, runtimes, _ = readiness_profiles(tmp_path, monkeypatch, "linux")
+    plan = uninstall.build_plan(ctx)
+    target, _ = paths["desktop"]
+    document = json.loads(target.read_bytes())
+    document["mcpServers"]["Agents-Readiness"]["env"] = {"USER_CHANGED": "keep"}
+    target.write_text(json.dumps(document), encoding="utf-8")
+    report = uninstall.execute(plan, credentials=False)
+    assert len(report["refused"]) == 2 and not report["failed"]
+    assert all(path.exists() for path in runtimes["desktop"])
+    assert json.loads(target.read_bytes()) == document
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="creating symlinks needs a privilege on Windows")
+def test_uninstall_readiness_uses_the_venv_interpreter_path_without_resolving_it(tmp_path, monkeypatch):
+    ctx, _, runtimes, _ = readiness_profiles(tmp_path, monkeypatch, "linux")
+    python = ctx.home / ".agents-core/.venv/bin/python"
+    python.unlink()
+    system_python = write(tmp_path / "system/python", "fake system interpreter; never executed")
+    os.symlink(system_python, python)
+    assert main(["--yes"], ctx=ctx, interactive=False) == 0
+    assert all(not path.exists() for files in runtimes.values() for path in files)
+    assert system_python.read_text() == "fake system interpreter; never executed"
+
+
+def test_uninstall_keeps_readiness_runtime_referenced_by_another_desktop_server(tmp_path, monkeypatch):
+    ctx, paths, runtimes, _ = readiness_profiles(tmp_path, monkeypatch, "linux")
+    target, _ = paths["desktop"]
+    document = json.loads(target.read_bytes())
+    document["mcpServers"]["user-runtime"] = {"command": "user-python", "args": [str(runtimes["desktop"][0])]}
+    target.write_text(json.dumps(document), encoding="utf-8")
+    assert main(["--yes"], ctx=ctx, interactive=False) == 0
+    assert runtimes["desktop"][0].exists() and not runtimes["desktop"][1].exists()
+    updated = json.loads(target.read_bytes())
+    assert "Agents-Readiness" not in updated["mcpServers"]
+    assert updated["mcpServers"]["user-runtime"] == document["mcpServers"]["user-runtime"]
