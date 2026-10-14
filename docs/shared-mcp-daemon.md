@@ -760,9 +760,10 @@ of the list and the item, as the Sync page opens: the slots, the catch-up window
 the allowed hours and the AC-power requirement; the limits; the client, model and
 effort of every stage and delegated step, the effort of the later reviews and the
 pre-mortem role; whether Codex can be a stage client, with the reason when it
-cannot; the switch (run mode only while `autodev ready` passes and the owner's
-acceptance of the residual risks is current, #350) and the status with what the
-automatic mode misses, the next slot and the newest runs. It reads and writes `<state_dir>/schedules/autodev.json` through
+cannot; the switch (run mode only while the last `autodev ready` the CLI recorded
+passed less than 15 minutes ago and the owner's acceptance of the residual risks is
+current, #350; the daemon reads no credential and nothing from GitHub for it) and the
+status with the recorded result, what is missing, the next slot and the newest runs. It reads and writes `<state_dir>/schedules/autodev.json` through
 the autodev configuration's own checks; see
 [the runner's settings page](autodev-runner.md#settings-page).
 

@@ -185,25 +185,35 @@ recorded acceptance of the residual risks of the shared account; the reference i
 
 1. `.venv/bin/python -m src.schedules autodev ready` lists every missing condition and exits with
    1 until all pass: the broker credentials, the protection of `main` (at least one required
-   approving review), workflows that cannot approve, `CLAUDE_ROUTINE_TOKEN` in the `issue-agent`
-   environment only, a passing probe record at most 7 days old for each of the three stage kinds
-   in each of the four modes (the twelve `probe` runs of
-   [acceptance A7](autodev-acceptance.md#a7-probes-hold-in-every-mode-and-the-broker-refuses)), the
-   Codex stage check when `select` runs with Codex, and your acceptance. It reads GitHub and the
-   stored records and starts no probe.
+   approving review), workflows that cannot approve, `CLAUDE_ROUTINE_TOKEN` not a repository
+   secret (whether the `issue-agent` environment holds it is not checked), a passing probe record
+   for each of the three stage kinds in each of the four modes, once (the twelve `probe` runs of
+   [acceptance A7](autodev-acceptance.md#a7-probes-hold-in-every-mode-and-the-broker-refuses)),
+   a passing `implement` and `submit` probe from the last 7 days, and your acceptance. A
+   `select` configured for Codex needs its Claude probe records only while its stored Codex
+   check says unavailable, because a run then falls back to a Claude select session. It reads
+   GitHub and the stored records, starts no probe, and records its result for the settings page.
 2. Once only the acceptance is missing:
    `.venv/bin/python -m src.schedules autodev enable --mode run --accept-shared-account`. It lists
    the residual risks you accept (plan section 11, rows 1, 2 and 4), records the acceptance with
-   the date and the version of the risk list, and turns run mode on. Without the flag it refuses
-   and names it; while another condition is missing it refuses with the list.
-3. Each tick checks `ready` again before a scheduled run. While it fails, the run is recorded as
+   the date, the version of the risk list and the tripwire count, and turns run mode on. Without
+   the flag it refuses and names it; while another condition is missing it refuses with the list;
+   if a tripwire fires while it checks, it refuses with `tripped_during_enable`.
+3. Each tick checks `ready` again before a scheduled run, and the run checks the schedule and
+   your acceptance once more before its first stage. While a check fails, the run is recorded as
    `refused` with the missing items and you get `Autodev run refused`. A continuation of a pull
-   request that waits for bots runs as `resume` the same way.
+   request that waits for bots runs as `resume` the same way; a refused one is not retried, and
+   its notification names the PR and `run-now --mode resume --pr N`.
 
-A runner update that changes the risk list, or any tripwire, makes the acceptance stale: give it
-again with the same `enable` command. The probe records also age: rerun the probes when `ready`
-says a record is older than 7 days. `run-now --mode run` stays available without any of this,
-because you watch it (Q13).
+The acceptance belongs to the act of turning run mode on: `autodev disable`, **Turn off** on the
+page and `enable --mode dry-run` withdraw it, so editing `autodev.json` back to run mode does not
+start real runs. A runner update that changes the risk list, any tripwire or failed probe (your
+own `probe` runs included), or an unreadable `tripwire.json` makes it stale: give it again with
+the same `enable` command, which a tripped schedule needs anyway. Every run that reaches the
+implement or submit session probes it again and so keeps those records fresh; after a week
+without one (an empty queue), `ready` and the refused runs name the kind, and `probe --mode
+scheduled --kind K --confirm-live-probe` refreshes it. `run-now --mode run` stays available
+without any of this, because you watch it (Q13).
 
 ## Settings page
 
@@ -213,9 +223,12 @@ chip under the version, or go to `/ui#autodev`
 window, the allowed hours of continuations and the AC-power rule; the limits `max_reviews`,
 `max_bot_rounds` and `max_wait_minutes`; the client, model and effort of every stage and
 delegated step, with the follow-up reviews' `effort_followup`; and the pre-mortem role. Its
-switch turns the schedule on in `dry-run`, or in `run` once `autodev ready` passes and your
-acceptance is current (it asks you to accept the residual risks again and checks every condition
-afresh), and its status lists what the automatic mode still misses and the newest runs. Every
+switch turns the schedule on in `dry-run`, or in `run` while the last `autodev ready` you ran in
+a terminal passed less than 15 minutes ago and your acceptance is current (it asks you to accept
+the residual risks again). The daemon reads no credential, so the page shows that recorded result
+with its time instead of checking GitHub itself; since turning off withdraws the acceptance, run
+mode is in practice turned on with the CLI command above. Its status lists what is missing and
+the newest runs. Every
 save is validated as the runner validates the file. The reference is
 [autodev-runner.md, Settings page](autodev-runner.md#settings-page).
 
