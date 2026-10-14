@@ -114,3 +114,7 @@ Use the [experiment README](../experiments/accord/inference/README.md) for pinne
 `python3 -m unittest discover -s experiments/accord/tests -v` passed **69 tests**, including nine new inference boundary tests. The frozen scorer additionally passes 23 response controls and 12 expected-answer cases. No production code or task-contract semantics changed in this experiment.
 
 This pilot covers one quantized model, one engine build, one device, one long common prefix and a bounded workload. The active desktop is not an isolated benchmark appliance. It provides a concrete feasibility test and a measured local performance result, not a claim of model-independent speed, language superiority or financial return.
+
+## Resident-cache follow-up
+
+The [resident shared-KV delegation pilot](accord-shared-kv-evaluation.md) removes snapshot save/restore from the path, shares one live engine slot across logical actors, and gives both Accord and ordinary Python the same adapter. Its failed code-repair outcomes and model/whole-workflow timing boundaries are reported separately.

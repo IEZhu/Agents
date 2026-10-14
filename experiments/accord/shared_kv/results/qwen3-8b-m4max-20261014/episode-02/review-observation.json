@@ -1,0 +1,97 @@
+{
+  "role": "review",
+  "call_id": "kv-e02-review",
+  "input_tokens": 4706,
+  "render_tokenize_ms": 59.52895910013467,
+  "prompt_sha256": "dd8556b1532dfd73d2dd6be171ce551029846a4fee7374b5e6e3c9208b3c8a26",
+  "schema_sha256": "42a6b1503df2a95a3c0517c512b54b31cfcfbf7bf8b78717a13a8d44c68f64b6",
+  "response": {
+    "client_ttft_ms": 4653.973125037737,
+    "client_total_ms": 16404.312291997485,
+    "request_body_bytes": 25076,
+    "shared_kv": {
+      "requested_reuse": true,
+      "actual_reused_tokens": 3308,
+      "actual_evaluated_tokens": 1398,
+      "registered_prefix_tokens": 3308,
+      "input_tokens": 4706,
+      "cache_state": "hit",
+      "prior_cache_state": "resident",
+      "lock_wait_ms": 0.0036249402910470963,
+      "validation_ms": 0.6093330448493361,
+      "dispatch_ms": 16404.664083966054,
+      "lock_hold_ms": 16406.047083088197,
+      "service_total_ms": 16406.050708028488,
+      "service_ttft_ms": 4654.586083022878
+    },
+    "final": {
+      "timings": {
+        "cache_n": 3308,
+        "prompt_n": 1398,
+        "prompt_ms": 4645.096,
+        "prompt_per_token_ms": 3.3226723891273244,
+        "prompt_per_second": 300.9625635293652,
+        "predicted_n": 331,
+        "predicted_ms": 11745.569,
+        "predicted_per_token_ms": 35.59263333333333,
+        "predicted_per_second": 28.095701451330285
+      },
+      "stop_type": "eos",
+      "tokens_evaluated": 4706,
+      "tokens_predicted": 331,
+      "truncated": false
+    },
+    "output_sha256": "0ca112d749cb415f66ab9705b714d23d66934fe82c817b47823b95bb85f796f6",
+    "output_token_ids_sha256": "5bb8b63aca242dbb5ef1c3e2b2cce0ad968c9648c0e4ac77257bf578f08fb103"
+  },
+  "validation": {
+    "call_id": "kv-e02-review",
+    "raw_sha256": "0ca112d749cb415f66ab9705b714d23d66934fe82c817b47823b95bb85f796f6",
+    "contract_revision": "31a3dc270fab8216af089844d9103705b89e0cbc28515585c611cee2ff45c5b7",
+    "validation": {
+      "valid": false,
+      "errors": [
+        {
+          "path": "$.result.status",
+          "code": "completed_incomplete",
+          "message": "Completed requires no remaining work or question."
+        }
+      ],
+      "verification": "structural_only"
+    },
+    "mcp_validation_ms": 549
+  },
+  "validation_wait_ms": 20452.354250010103,
+  "result": {
+    "artifacts": [],
+    "attempt_id": "1",
+    "bundle_revision": "f9f3efeec7a1e6fc90d3169d28a9a3e7d1b7eaa0272acb4ae1c3fb6349b81b21",
+    "checks": [],
+    "contract_revision": "31a3dc270fab8216af089844d9103705b89e0cbc28515585c611cee2ff45c5b7",
+    "evidence": [
+      {
+        "description": "The candidate repair was not validated by the host due to an error in the patch implementation.",
+        "id": "source",
+        "reference": "supplied source"
+      }
+    ],
+    "limitations": [
+      "No tool calls or external validation was performed."
+    ],
+    "protocol": "agents-core/subagent/1",
+    "question": null,
+    "remaining_work": [
+      "Review the candidate repair against the requirements and host report."
+    ],
+    "result": {
+      "items": [
+        "reject"
+      ],
+      "summary": "The candidate repair was not validated by the host due to an error in the patch implementation. The host reported that a single input-type gate was required, indicating the repair may not fully address the issue or may introduce new errors."
+    },
+    "status": "completed",
+    "task_id": "kv-e02-review"
+  },
+  "accepted": false,
+  "error": "worker envelope or completion status invalid"
+}

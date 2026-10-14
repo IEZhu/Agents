@@ -1,0 +1,552 @@
+{
+  "order": [
+    [
+      "accord",
+      true
+    ],
+    [
+      "python",
+      true
+    ],
+    [
+      "accord",
+      false
+    ],
+    [
+      "python",
+      false
+    ],
+    [
+      "python",
+      false
+    ],
+    [
+      "accord",
+      false
+    ],
+    [
+      "python",
+      true
+    ],
+    [
+      "accord",
+      true
+    ]
+  ],
+  "profile": {
+    "engine_build": "b11429-d81235049",
+    "model_path": "/Users/alexey.zhuchkov/.ollama/models/blobs/sha256-d98cdcbd03e17ce47681435b5150e34c1417f50b5c0019dd560e4882c5745785",
+    "model_sha256": "d98cdcbd03e17ce47681435b5150e34c1417f50b5c0019dd560e4882c5745785",
+    "template_sha256": "57f1fd00f0013a2be96aa79b857391f27e23df5b5f847072b524c897e24d0361",
+    "context_size": 16384,
+    "source_sha256": "bd669e7ee36f38ea79f472e68a8e9ef9680410e300f96cd4f1c21a3a939b5f7f",
+    "common_sha256": "fa1e73dccb0fcc2ad01cd7e1fae0ab8c826d03c79a03c77cf4df11e6350fc1f8",
+    "settings": {
+      "temperature": 0,
+      "seed": 42,
+      "n_predict": 1024,
+      "id_slot": 0,
+      "top_k": 0,
+      "top_p": 1.0,
+      "min_p": 0.0,
+      "repeat_penalty": 1.0
+    },
+    "server_generation": "dedicated-18188-20261014",
+    "kv_type": "f16/f16",
+    "parallel": 1,
+    "batch_size": 512,
+    "ubatch_size": 512
+  },
+  "props": {
+    "default_generation_settings": {
+      "params": {
+        "seed": 4294967295,
+        "temperature": 0.800000011920929,
+        "dynatemp_range": 0.0,
+        "dynatemp_exponent": 1.0,
+        "top_k": 40,
+        "top_p": 0.949999988079071,
+        "min_p": 0.05000000074505806,
+        "top_n_sigma": -1.0,
+        "xtc_probability": 0.0,
+        "xtc_threshold": 0.10000000149011612,
+        "typical_p": 1.0,
+        "repeat_last_n": 64,
+        "repeat_penalty": 1.0,
+        "presence_penalty": 0.0,
+        "frequency_penalty": 0.0,
+        "dry_multiplier": 0.0,
+        "dry_base": 1.75,
+        "dry_allowed_length": 2,
+        "dry_penalty_last_n": 64,
+        "mirostat": 0,
+        "mirostat_tau": 5.0,
+        "mirostat_eta": 0.10000000149011612,
+        "adaptive_target": -1.0,
+        "adaptive_decay": 0.8999999761581421,
+        "max_tokens": -1,
+        "n_predict": -1,
+        "n_keep": 0,
+        "n_discard": 0,
+        "ignore_eos": false,
+        "stream": false,
+        "n_probs": 0,
+        "min_keep": 0,
+        "chat_format": "Content-only",
+        "reasoning_format": "none",
+        "reasoning_in_content": false,
+        "generation_prompt": "",
+        "samplers": [
+          "penalties",
+          "dry",
+          "top_n_sigma",
+          "top_k",
+          "typ_p",
+          "top_p",
+          "min_p",
+          "xtc",
+          "temperature"
+        ],
+        "speculative.types": "none",
+        "timings_per_token": false,
+        "post_sampling_probs": false,
+        "backend_sampling": false,
+        "lora": []
+      },
+      "n_ctx": 16384
+    },
+    "total_slots": 1,
+    "model_alias": "accord-qwen3-8b",
+    "model_ftype": "Q4_K - Medium",
+    "model_path": "/Users/alexey.zhuchkov/.ollama/models/blobs/sha256-d98cdcbd03e17ce47681435b5150e34c1417f50b5c0019dd560e4882c5745785",
+    "modalities": {
+      "vision": false,
+      "video": false,
+      "audio": false
+    },
+    "media_marker": "<__media_ONoatBvWnzi2HMPzunvqpXI6ztSeYJ42__>",
+    "endpoint_slots": true,
+    "endpoint_props": false,
+    "endpoint_metrics": true,
+    "ui": false,
+    "ui_settings": {},
+    "chat_template": "{%- if tools %}\n    {{- '<|im_start|>system\\n' }}\n    {%- if messages[0].role == 'system' %}\n        {{- messages[0].content + '\\n\\n' }}\n    {%- endif %}\n    {{- \"# Tools\\n\\nYou may call one or more functions to assist with the user query.\\n\\nYou are provided with function signatures within <tools></tools> XML tags:\\n<tools>\" }}\n    {%- for tool in tools %}\n        {{- \"\\n\" }}\n        {{- tool | tojson }}\n    {%- endfor %}\n    {{- \"\\n</tools>\\n\\nFor each function call, return a json object with function name and arguments within <tool_call></tool_call> XML tags:\\n<tool_call>\\n{\\\"name\\\": <function-name>, \\\"arguments\\\": <args-json-object>}\\n</tool_call><|im_end|>\\n\" }}\n{%- else %}\n    {%- if messages[0].role == 'system' %}\n        {{- '<|im_start|>system\\n' + messages[0].content + '<|im_end|>\\n' }}\n    {%- endif %}\n{%- endif %}\n{%- set ns = namespace(multi_step_tool=true, last_query_index=messages|length - 1) %}\n{%- for index in range(ns.last_query_index, -1, -1) %}\n    {%- set message = messages[index] %}\n    {%- if ns.multi_step_tool and message.role == \"user\" and not('<tool_response>' in message.content and '</tool_response>' in message.content) %}\n        {%- set ns.multi_step_tool = false %}\n        {%- set ns.last_query_index = index %}\n    {%- endif %}\n{%- endfor %}\n{%- for message in messages %}\n    {%- if (message.role == \"user\") or (message.role == \"system\" and not loop.first) %}\n        {{- '<|im_start|>' + message.role + '\\n' + message.content + '<|im_end|>' + '\\n' }}\n    {%- elif message.role == \"assistant\" %}\n        {%- set content = message.content %}\n        {%- set reasoning_content = '' %}\n        {%- if message.reasoning_content is defined and message.reasoning_content is not none %}\n            {%- set reasoning_content = message.reasoning_content %}\n        {%- else %}\n            {%- if '</think>' in message.content %}\n                {%- set content = message.content.split('</think>')[-1].lstrip('\\n') %}\n                {%- set reasoning_content = message.content.split('</think>')[0].rstrip('\\n').split('<think>')[-1].lstrip('\\n') %}\n            {%- endif %}\n        {%- endif %}\n        {%- if loop.index0 > ns.last_query_index %}\n            {%- if loop.last or (not loop.last and reasoning_content) %}\n                {{- '<|im_start|>' + message.role + '\\n<think>\\n' + reasoning_content.strip('\\n') + '\\n</think>\\n\\n' + content.lstrip('\\n') }}\n            {%- else %}\n                {{- '<|im_start|>' + message.role + '\\n' + content }}\n            {%- endif %}\n        {%- else %}\n            {{- '<|im_start|>' + message.role + '\\n' + content }}\n        {%- endif %}\n        {%- if message.tool_calls %}\n            {%- for tool_call in message.tool_calls %}\n                {%- if (loop.first and content) or (not loop.first) %}\n                    {{- '\\n' }}\n                {%- endif %}\n                {%- if tool_call.function %}\n                    {%- set tool_call = tool_call.function %}\n                {%- endif %}\n                {{- '<tool_call>\\n{\"name\": \"' }}\n                {{- tool_call.name }}\n                {{- '\", \"arguments\": ' }}\n                {%- if tool_call.arguments is string %}\n                    {{- tool_call.arguments }}\n                {%- else %}\n                    {{- tool_call.arguments | tojson }}\n                {%- endif %}\n                {{- '}\\n</tool_call>' }}\n            {%- endfor %}\n        {%- endif %}\n        {{- '<|im_end|>\\n' }}\n    {%- elif message.role == \"tool\" %}\n        {%- if loop.first or (messages[loop.index0 - 1].role != \"tool\") %}\n            {{- '<|im_start|>user' }}\n        {%- endif %}\n        {{- '\\n<tool_response>\\n' }}\n        {{- message.content }}\n        {{- '\\n</tool_response>' }}\n        {%- if loop.last or (messages[loop.index0 + 1].role != \"tool\") %}\n            {{- '<|im_end|>\\n' }}\n        {%- endif %}\n    {%- endif %}\n{%- endfor %}\n{%- if add_generation_prompt %}\n    {{- '<|im_start|>assistant\\n' }}\n    {%- if enable_thinking is defined and enable_thinking is false %}\n        {{- '<think>\\n\\n</think>\\n\\n' }}\n    {%- endif %}\n{%- endif %}",
+    "chat_template_caps": {
+      "supports_object_arguments": true,
+      "supports_parallel_tool_calls": true,
+      "supports_preserve_reasoning": false,
+      "supports_reasoning_effort": false,
+      "supports_string_content": true,
+      "supports_system_role": true,
+      "supports_tool_calls": true,
+      "supports_tools": true,
+      "supports_typed_content": false
+    },
+    "bos_token": "<|endoftext|>",
+    "eos_token": "<|im_end|>",
+    "build_info": "b11429-d81235049",
+    "is_sleeping": false,
+    "cors_proxy_enabled": false
+  },
+  "prefix_ids": [151644,8948,198,91318,12542,12733,2266,13,8748,1467,3685,374,821,369,279,12607,61115,3383,382,6262,8502,510,98386,19185,4632,773,264,13027,607,8482,7112,650,76167,20076,12,16,21,72850,2038,3501,24886,79557,1454,448,1943,330,11808,5116,4718,497,4518,315,51829,35897,32535,1454,13,81306,678,6350,2697,11127,11,2670,6451,11,4718,1467,323,7248,5820,3209,58335,13,81306,279,220,21,20,20,18,21,20076,12,23,53952,1946,6822,323,4734,330,20257,2238,3460,1,15089,369,61205,3209,69129,607,14,9651,13,81306,22513,16173,323,2477,25722,4718,36901,11,4734,10604,24064,10519,11,7877,5043,11,47216,11,42453,21391,323,53762,13,23022,72850,92771,607,374,17551,518,279,62533,1946,18732,26,264,4718,1182,50256,45381,12449,369,264,72850,9539,1526,6350,12816,10519,13,8278,279,10820,9390,646,2297,13,1096,374,825,15026,1465,52083,2022,12733,26,653,537,11596,279,2732,315,279,4688,382,43622,7149,16982,510,785,13723,374,279,4453,6350,421,2504,518,4024,5128,220,16,15,22,12,16,16,19,11,2670,1181,8063,27947,2331,69592,323,1590,39027,13,13655,279,15955,1565,333,11402,2592,11,320,495,11,5820,593,18736,18126,448,902,770,13,26599,220,17,15,19,23,20076,12,23,5820,323,220,18,21,5128,13,57622,19482,25,421,11,1430,14,11683,11,4285,2205,31172,11,6738,11,34687,23393,11,35495,1667,2651,476,861,11,45225,11,1494,323,4828,13,2308,15202,11,29753,11,5746,11,12674,4664,11,1186,19831,11,7868,19624,476,358,17532,13,40127,525,7199,311,11402,11,2422,11,1373,11,79557,1454,11,821,17313,445,4762,12,23,899,323,2951,22961,2592,11,1633,36430,32005,20904,9587,5314,11,4715,34967,20904,46996,34967,568,16136,4683,4494,25,15402,11,35897,1454,11,35897,32535,1454,11,79557,1454,13,57622,75275,25,220,21,20,20,18,21,11,330,4762,12,23,497,330,20257,2238,3460,497,330,11808,5116,4718,3263,5443,518,1429,4743,4285,2205,3890,5036,304,5256,311,821,26,2581,32216,6350,13137,5036,13,576,3468,59415,40409,19482,1573,894,11320,382,91318,2530,25,21204,14,4475,539,14,404,7197,26,33080,220,22,64,17,17,64,16,66,24,20,21,16,24,20,15,69,23,20,65,19,15,13233,15,66,17,68,21,64,24,17,65,18,21,24,20,24,2577,23,17,26,21721,17,20,21,21486,21,21,24,68,22,2127,18,21,69,18,23,12508,22,24,69,19,22,17,68,21,23,64,23,68,24,823,24,21,23,15,19,16,15,68,18,15,15,69,24,21,4385,19,69,16,66,17,16,64,18,64,24,18,24,65,20,69,22,69,198,12599,26884,11,2319,291,5116,821,323,35092,21739,42453,11170,29184,1499,821,8855,1159,821,1040,198,474,54495,198,474,2951,198,474,312,1406,1040,79557,1454,63407,982,262,4210,32,5116,476,15592,79438,572,537,19527,74000,1406,750,1373,47489,11,1943,982,262,421,537,2971,510,286,4828,79557,1454,7333,3623,750,42453,3679,982,262,470,2951,21528,3679,11,3378,12631,3618,11,82502,28,42732,13022,4461,2549,5978,50238,5608,11,2138,73936,5608,568,6180,445,4762,12,23,25639,750,20882,62697,11,897,982,262,470,54495,64370,17,20,21,62697,17313,445,23324,899,488,293,11934,15,1,488,42453,3679,4579,97224,13106,750,1467,52994,7235,982,262,470,54495,64370,17,20,21,7235,17313,445,4762,12,23,15197,97224,13106,750,12816,3679,11,11777,23578,5608,982,262,5383,284,435,36864,32,39279,9141,15,12,24,1457,32,39279,9141,15,12,24,4950,12,15370,15,11,21,18,9863,421,23578,770,435,36864,32,39279,9141,1457,32,39279,9141,15,12,24,4950,12,15370,15,11,21,18,11195,262,1373,5808,3679,8,374,607,323,312,21534,6347,30948,11,897,8,374,537,2240,345,310,330,11808,12816,1138,262,470,897,1406,750,61115,4042,3679,11,3347,11,1550,982,262,1373,5808,3679,8,374,526,323,3347,2651,897,2651,1550,11,330,11662,4889,5420,14262,1138,262,470,897,1406,750,23578,6458,3679,982,262,4210,5940,28699,41790,3950,25,61115,7546,476,46484,41995,39316,1467,14442,262,421,943,3679,8,374,526,510,286,470,61115,4042,3679,11,220,15,11,220,17,334,21,18,481,220,16,340,262,1373,5808,3679,8,374,607,323,220,16,2651,2422,3679,8,2651,220,16,17,23,323,198,310,678,7,18,18,2651,6013,6933,8,2651,220,16,17,21,369,1161,304,897,701,330,11808,23578,3950,1138,262,470,897,1406,750,716,9587,5314,1295,4720,982,262,1102,284,5613,262,369,1376,11,897,304,13530,510,286,1373,4857,537,304,1102,11,330,63826,4718,1376,1138,286,1102,8157,60,284,897,198,262,470,1102,1406,750,716,46996,34967,3679,982,262,4828,79557,1454,955,1,6280,25722,4718,25,314,957,9863,3623,31,691,1040,955,42240,3618,340,1040,19185,510,262,829,25,607,198,262,11127,25,14405,17303,11,2503,921,262,2550,6345,12524,25,526,198,262,12341,25,14405,14193,6061,17303,11,607,1125,2503,921,262,3415,2346,25,14405,17303,11,2503,921,262,1681,68867,25,526,198,262,4842,59856,25,607,271,262,707,1304,2203,6137,3804,721,982,286,12816,1193,2644,340,286,12816,1193,60292,59856,11,23578,3618,340,286,61115,4042,1193,13413,6345,12524,11,220,16,11,220,21,20,20,18,21,340,286,61115,4042,1193,8223,68867,11,220,15,11,220,16,15,15,15,15,340,286,369,3589,304,320,721,42388,11,656,33062,2346,982,310,1373,5808,24337,8,374,14405,11,330,9233,11469,1969,387,51572,45225,1138,310,369,1509,304,3589,510,394,12816,5393,340,310,1373,6901,14171,24337,593,621,2422,24337,701,330,63826,5101,1138,286,1373,5808,1193,9093,82,8,374,14405,323,2422,1193,9093,82,8,861,220,15,11,330,49383,1969,387,2477,3194,1138,286,369,1509,304,656,9093,82,510,310,1373,5808,5393,8,374,14405,323,2422,5393,8,621,220,17,11,330,11808,1779,1138,310,12816,5393,58,15,2546,310,12816,5393,58,16,1125,23578,3618,340,286,1373,6901,31278,1193,9093,82,593,621,2422,1193,9093,82,701,330,63826,1779,1138,286,1633,4847,87170,3804,721,11,330,24941,497,14405,44386,1193,42388,5929,286,1633,4847,87170,3804,721,11,330,27502,2346,497,14405,44386,1193,33062,2346,5929,286,1633,4847,87170,3804,721,11,330,49383,497,14405,44386,1193,9093,82,5929,286,1373,6901,90651,22391,1193,2389,5243,10131,2651,220,21,20,20,18,21,11,330,20257,2238,3460,5130,262,707,311,5243,1193,982,286,470,5212,404,788,330,4475,539,51635,14,15,13,16,497,330,606,788,656,2644,345,394,330,24941,788,1140,1193,42388,701,330,3006,6345,12524,788,656,13413,6345,12524,345,394,330,49383,788,6451,1193,9093,82,701,330,27502,2346,788,1140,1193,33062,2346,1326,394,330,2035,68867,788,656,8223,68867,11,330,34790,59856,788,656,60292,59856,630,262,569,3699,198,262,707,23578,1193,982,286,470,20882,445,4475,539,51635,14,15,13,16,497,656,2389,5243,12367,262,569,26755,198,262,707,4715,20398,11,821,982,286,421,11402,2592,11,320,495,11,5820,9957,310,1373,6901,2592,17313,445,4762,12,23,899,421,11402,2592,11,607,8,770,821,8,2651,220,21,20,20,18,21,345,503,330,20257,2238,3460,1138,310,1430,510,394,821,284,2951,22961,2592,11,1633,36430,32005,20904,9587,5314,345,6656,4715,34967,20904,46996,34967,340,310,3650,320,1130,1454,11,35897,1454,8,438,3438,510,394,4828,79557,1454,445,11808,5116,4718,899,504,3438,198,286,1373,5808,2592,8,374,6451,11,330,20257,1969,387,458,1633,1138,286,5043,284,5212,404,497,330,606,497,330,24941,497,330,3006,6345,12524,497,330,49383,497,330,27502,2346,756,1698,330,2035,68867,497,330,34790,59856,16707,286,1373,14171,2592,8,621,5043,11,330,16088,476,7402,5116,5043,1138,286,1373,2592,1183,404,1341,621,330,4475,539,51635,14,15,13,16,497,330,81145,16248,2319,1138,286,1373,5808,2592,1183,49383,14013,374,6451,11,330,49383,1969,387,458,1633,1138,286,1373,5808,2592,1183,24941,14013,374,1140,323,943,2592,1183,27502,2346,14013,374,1140,345,394,330,12745,1969,387,18386,1138,286,470,12790,2592,1183,606,7914,14405,2592,1183,24941,63624,821,1183,3006,6345,12524,8097,4293,14405,2592,1183,49383,5521,3615,11858,14405,2592,1183,27502,2346,46442,4293,821,1183,2035,68867,7914,821,1183,34790,59856,14108,151645,198,151644,872,198,2,5430,30319,16367,11864,198,785,16319,5116,323,8356,1102,10802,3685,6979,419,11864,9289,624,39,54037,5080,2268,8773,11221,323,3468,8541,13,576,2681,51844,1181,4024,198,20257,26,36639,12716,323,5785,9069,525,821,11,537,11198,13,362,2036,41924,198,1891,1102,1558,537,5695,8046,11,23715,11,476,9755,4192,565,15404,25,3162,24823,261,198,62980,11,7390,11,323,92295,3162,1667,279,12542,594,6350,17646,11,15592,11,323,44493,13,4457,9760,2038,323,81903,1573,15664,13,64547,279,2567,7709,11,24748,16982,11,323,1465,12716,26,5157,279,44548,2884,429,67901,1105,382,2461,22551,11,22800,476,5695,279,21394,1815,11,42123,279,5240,11,323,5046,279,5240,448,264,10735,2297,13,1752,2053,75407,11,21129,39535,7709,323,990,8311,59893,476,30549,10191,13,13655,4344,2613,323,3395,480,11,21129,45205,975,11,323,9357,501,19543,476,668,64690,382,17926,11127,518,6950,22711,11,990,11464,1465,11589,11,6016,23594,11,323,3796,3245,25551,13,25429,49283,33356,2348,2530,476,9705,13,34104,23804,5068,5322,1573,73042,323,9429,9760,3059,47943,382,6727,12341,8311,311,279,2297,11,2670,22414,18732,323,7901,5048,13,422,88647,12299,7032,504,12341,429,4641,476,1410,537,1598,13,10294,57323,11,24748,11,4763,11,323,10306,2897,1573,24284,13,3155,537,83613,264,5046,1119,45205,21290,476,2736,39552,7525,7797,279,12607,23715,382,565,18100,25,902,2220,28897,367,198,2,2308,58151,271,12,36307,367,374,11785,518,37617,12136,25,4969,5333,5036,353,56576,9,1290,13,30291,389,3717,12454,11,537,43643,624,12,34920,1959,2795,91153,48349,429,1410,625,11855,6487,387,4969,25,5333,91837,5036,10,7752,2789,11,10795,11,39277,8042,11,2193,6894,11,12716,11,5109,3470,19762,15544,11,17194,11,51846,11,35006,13,2573,83,832,6540,28654,2892,54258,284,3084,11,220,19,15,19,284,537,1730,1648,14396,11,650,4578,3556,624,12,1752,458,304,1331,2417,3151,11,15484,315,12136,25,2060,432,438,2097,1172,421,10774,10039,2484,1959,1349,14,6576,37644,291,279,2530,13,13850,374,537,19539,624,12,35934,64593,1779,304,5545,320,878,279,1034,14730,72192,2150,26,2711,608,7807,279,3482,369,458,9250,11,1482,2097,25,5975,11,10795,11,7576,11,3669,11843,6452,432,1156,13,362,1779,429,2765,944,24729,432,320,64,1320,28100,20675,315,264,6765,4916,11843,25784,432,26,1868,624,12,18804,1868,7381,11,2058,4226,25,330,55,320,2758,4736,11,537,23933,1959,7683,304,279,2530,94010,28262,572,279,2548,30,7107,31130,897,488,11134,26,2581,51044,476,25066,624,12,96454,94304,42425,25,27124,3446,2944,37094,504,4586,6540,374,6915,26,1513,944,8511,35492,48349,438,10774,382,565,18100,25,8683,10603,44808,198,2,52932,279,1681,271,4703,1998,763,11,537,1707,25,279,1681,33327,27955,9258,15042,14,17014,2687,10851,1638,624,12,29890,3084,323,5944,311,279,2548,25,825,2852,10453,11397,2805,26,330,4934,220,19,15,15,15,4244,1,11397,220,19,15,15,15,10,624,12,2308,650,1073,291,7299,21599,3811,11,73664,2732,5605,11,14490,10758,1836,84452,11,5300,11,476,2732,1095,304,1008,49054,624,12,43517,480,11397,1850,52365,371,11,2581,1101,5931,1946,13,1230,46550,2530,320,359,2508,480,2656,11,902,1034,8,11397,4586,6540,11,825,10745,86051,624,12,9322,43996,14579,11,3561,11,1969,3419,7396,11,330,47856,1599,788,2588,8502,1496,6165,1707,3446,7968,9947,382,1986,374,537,330,1371,9814,788,2968,7990,979,73180,26,54172,11,4583,11,389,18489,382,565,18100,25,10745,12,1347,80146,198,2,53184,26826,271,10803,25,57589,11,18564,11,19898,11,17530,1959,92369,11,537,6966,705,382,39,7186,304,14396,4128,3489,14282,497,330,54440,497,330,300,358,19091,497,330,40,2776,537,3654,11,714,1940,3975,18054,311,697,5042,5904,13,79021,1380,432,4344,1128,279,6604,1558,476,13605,320,64,2795,91153,19407,11,40173,27682,11,56210,1618,701,537,1449,11652,25,84985,60701,33327,45436,12136,9201,13,4320,944,1414,30,24917,773,11,537,264,49334,1331,13586,7942,26,1128,498,646,2498,4815,374,2058,458,4226,382,6262,38717,23962,320,77019,11,2530,25996,11,10619,5456,8,525,44972,17289,11,537,20228,25,738,1817,504,279,5904,11,537,1246,264,2383,11074,382,565,18100,25,7147,1331,3337,5127,6572,198,2,22992,1331,3337,5127,6572,271,12,2657,4969,11397,1977,773,11,38296,3170,624,12,25784,650,57600,855,2969,642,25,330,21396,3405,18789,330,2610,2299,10875,1290,1940,497,330,49655,1459,24734,12,22950,1182,389,25,59901,5975,11,10865,19827,11,8177,3873,31846,11,33922,42461,287,4867,10577,624,12,4093,68100,1156,11,1221,29614,458,10555,624,12,7818,1095,19772,374,6915,26,38327,448,264,95018,374,537,382,565,18100,25,11864,11476,14386,198,3973,279,1102,2348,279,17221,25505,12890,13,14215,979,807,525,2270,26,653,537,912,45205,44029,11,8814,11,476,6359,4788,13,28737,2878,279,20204,5041,323,3468,11320,13388,13,59501,11221,525,537,264,15592,22962,25,2581,17023,25333,882,11,9664,11211,11,476,8039,13324,382,2679,5041,10335,1573,9755,11,470,7130,448,39930,975,11,5904,11,9481,11,323,3151,9664,11498,13,5443,4641,979,11320,4157,8193,279,10602,1102,323,10339,279,7901,304,9481,13,5443,8145,1172,979,279,12890,525,19527,11,448,902,9664,11498,323,3405,845,13,35264,9023,1946,5711,1946,18743,13,81306,279,4091,1102,7729,6083,369,1449,2639,382,565,18100,25,11864,13933,198,10253,17221,13064,323,2500,5904,1156,13,3234,264,52897,24335,304,9481,979,432,28690,14720,5098,2878,6891,13,3155,537,7942,264,9023,16287,11,23715,11,40207,11,2530,2097,11,476,7149,21568,382,4498,264,7402,24036,27934,14720,9755,11,470,2639,1946,18743,304,279,2567,1102,34398,13,10224,279,4734,7402,1995,476,5480,304,3405,11,10339,3170,432,374,4362,11,323,14060,8145,975,323,5904,13,9177,279,2681,1526,279,34398,4751,1091,5916,264,8651,1196,10435,13,362,5392,7901,374,537,9463,264,50910,25,990,458,18630,10555,979,432,646,8830,279,24036,382,565,18100,25,11864,53838,198,5598,6896,825,4718,1633,25879,287,311,279,17221,1102,25371,11,448,902,73192,69155,11,94085,11,85080,11,48781,11,23173,11,16230,1487,11,476,2711,35715,13,29734,1172,279,14275,34398,6894,25,11507,11,3383,842,11,4774,842,11,12894,59856,11,5116,59856,11,2639,11,1102,11,5904,11,35036,11,12341,11,9481,11,9664,11498,11,323,3405,13,14540,9569,323,23578,2750,504,279,10030,6328,26,2581,8290,279,2681,594,64593,5116,382,10253,279,4091,13954,11,3395,11,8129,11,476,3412,7729,323,1181,14275,5043,13,13655,5904,63594,323,70426,11,448,15175,4911,28360,323,14175,15057,13,5948,14613,11,30242,11,323,12341,1172,311,5904,28360,3520,17221,13,5166,26401,10542,862,1815,476,16020,323,7428,382,10361,12341,438,5823,11,4641,11,476,537,14007,4092,311,5042,11320,13,87615,525,537,15695,12341,26,21129,27850,11,26826,11,323,63616,975,1496,979,3550,374,7199,13,362,2036,41924,2697,34398,1558,537,12118,1181,8186,382,565,18100,25,11864,1331,2417,198,6776,1172,389,279,17221,16319,11,2878,1181,6891,323,2477,19926,1127,13,576,11223,5666,26569,7882,25,3395,476,6358,1558,537,36826,50844,11,16599,11,23172,11,476,9250,10535,13,85148,9760,23942,4714,26753,2041,48226,1105,382,10253,419,11864,6328,438,279,12607,65879,13,3155,537,20276,264,2480,10435,27955,11,3398,12783,11,2795,4960,7361,476,62184,11,476,18042,5107,7337,7241,279,16319,20975,28690,429,1917,13,758,48394,2681,47517,525,15057,11,537,697,15099,13,18877,2530,3542,11,30403,6816,11,323,3383,15057,438,5904,4751,1091,11198,311,83613,279,16319,13,81306,5080,2268,8773,11221,323,3468,7882,22711,382,2679,4623,45261,374,20975,18630,11,1618,1565,455,5228,8092,8467,63,369,1817,1682,594,3476,11,3383,11,25505,12890,323,5420,6891,1573,78429,13,24046,1565,2829,25,10030,7808,14060,1181,4024,5116,11,323,4637,1181,1565,21462,8467,63,34857,311,264,7722,9867,11864,13,7143,1565,7067,5228,8092,5287,63,369,1449,5927,476,31728,1682,2550,448,429,34263,5116,26,1373,1565,1891,25,830,7808,1221,1779,5904,323,25505,12890,1573,1667,432,13,14695,18130,279,5116,311,1281,264,1102,1494,13,1416,17975,476,10519,374,34987,11,1895,279,20278,4518,315,27718,458,650,60112,1682,476,24667,650,59590,2550,382,565,34427,5116,198,4913,10330,681,80990,66582,4684,3252],
+  "source_hashes": {
+    "experiments/accord/shared_kv/run.py": "0cd209600c4f81cb3cd2fbf4645e6e79f643f0f8622cdac77d79d0c6c2475bd7",
+    "experiments/accord/shared_kv/cache.py": "97c2bdf38ec85eb7dc8f4c413c9c8afc4fee2f2d79ab2dce8e302c91a70f7a6e",
+    "experiments/accord/shared_kv/protocol.md": "da7045299d2edcf0ce580704d1a19805f697b953ab767bd575d73e1e2f6540e6",
+    "experiments/accord/shared_kv/workload/checker.py": "7d02b3d282a416cf6f01eb13f6b6467a6be59032df4c0dd3e4f11386dc3e2f3e",
+    "experiments/accord/shared_kv/workload/probe.py": "5270e78d4cda9f5acf1f5f4afad582c6f692137d9bca7009625f2f7f2b0b91dc",
+    "experiments/accord/shared_kv/workload/workload.json": "58552c69a93abeff4177be79f85d518d95de036fd13aff6967c97e6c0f09640e"
+  },
+  "created_unix": 1791999864.172191,
+  "baseline_checks": {
+    "passed": true,
+    "patch_rejection_cases": 33,
+    "baseline_roundtrip": true,
+    "baseline_behavior_count": 46,
+    "baseline_expected_failures": [
+      "raw_high_surrogate",
+      "raw_low_surrogate",
+      "raw_surrogate_in_json",
+      "raw_surrogate_pair"
+    ],
+    "baseline_report": {
+      "passed": false,
+      "count": 46,
+      "source_sha256": "bd669e7ee36f38ea79f472e68a8e9ef9680410e300f96cd4f1c21a3a939b5f7f",
+      "checks": [
+        {
+          "name": "valid_dictionary",
+          "passed": true,
+          "expected_type": "ok",
+          "expected_message": null,
+          "actual_type": "ok",
+          "actual_message": null
+        },
+        {
+          "name": "valid_json_text",
+          "passed": true,
+          "expected_type": "ok",
+          "expected_message": null,
+          "actual_type": "ok",
+          "actual_message": null
+        },
+        {
+          "name": "valid_utf8_bytes",
+          "passed": true,
+          "expected_type": "ok",
+          "expected_message": null,
+          "actual_type": "ok",
+          "actual_message": null
+        },
+        {
+          "name": "valid_utf16_bytes",
+          "passed": true,
+          "expected_type": "ok",
+          "expected_message": null,
+          "actual_type": "ok",
+          "actual_message": null
+        },
+        {
+          "name": "valid_utf32_bytes",
+          "passed": true,
+          "expected_type": "ok",
+          "expected_message": null,
+          "actual_type": "ok",
+          "actual_message": null
+        },
+        {
+          "name": "valid_json_ascii_escape",
+          "passed": true,
+          "expected_type": "ok",
+          "expected_message": null,
+          "actual_type": "ok",
+          "actual_message": null
+        },
+        {
+          "name": "exact_65536_text_bytes",
+          "passed": true,
+          "expected_type": "ok",
+          "expected_message": null,
+          "actual_type": "ok",
+          "actual_message": null
+        },
+        {
+          "name": "exact_65536_raw_bytes",
+          "passed": true,
+          "expected_type": "ok",
+          "expected_message": null,
+          "actual_type": "ok",
+          "actual_message": null
+        },
+        {
+          "name": "raw_high_surrogate",
+          "passed": false,
+          "expected_type": "AccordError",
+          "expected_message": "invalid contract JSON",
+          "actual_type": "UnicodeEncodeError",
+          "actual_message": "'utf-8' codec can't encode character '\\ud800' in position 0: surrogates not allowed"
+        },
+        {
+          "name": "raw_low_surrogate",
+          "passed": false,
+          "expected_type": "AccordError",
+          "expected_message": "invalid contract JSON",
+          "actual_type": "UnicodeEncodeError",
+          "actual_message": "'utf-8' codec can't encode character '\\udfff' in position 0: surrogates not allowed"
+        },
+        {
+          "name": "raw_surrogate_in_json",
+          "passed": false,
+          "expected_type": "AccordError",
+          "expected_message": "invalid contract JSON",
+          "actual_type": "UnicodeEncodeError",
+          "actual_message": "'utf-8' codec can't encode character '\\ud800' in position 39: surrogates not allowed"
+        },
+        {
+          "name": "raw_surrogate_pair",
+          "passed": false,
+          "expected_type": "AccordError",
+          "expected_message": "invalid contract JSON",
+          "actual_type": "UnicodeEncodeError",
+          "actual_message": "'utf-8' codec can't encode characters in position 39-40: surrogates not allowed"
+        },
+        {
+          "name": "oversize_ascii_text",
+          "passed": true,
+          "expected_type": "AccordError",
+          "expected_message": "contract too large",
+          "actual_type": "AccordError",
+          "actual_message": "contract too large"
+        },
+        {
+          "name": "oversize_raw_bytes",
+          "passed": true,
+          "expected_type": "AccordError",
+          "expected_message": "contract too large",
+          "actual_type": "AccordError",
+          "actual_message": "contract too large"
+        },
+        {
+          "name": "oversize_multibyte_text",
+          "passed": true,
+          "expected_type": "AccordError",
+          "expected_message": "contract too large",
+          "actual_type": "AccordError",
+          "actual_message": "contract too large"
+        },
+        {
+          "name": "malformed_json",
+          "passed": true,
+          "expected_type": "AccordError",
+          "expected_message": "invalid contract JSON",
+          "actual_type": "AccordError",
+          "actual_message": "invalid contract JSON"
+        },
+        {
+          "name": "invalid_utf8",
+          "passed": true,
+          "expected_type": "AccordError",
+          "expected_message": "invalid contract JSON",
+          "actual_type": "AccordError",
+          "actual_message": "invalid contract JSON"
+        },
+        {
+          "name": "truncated_utf8",
+          "passed": true,
+          "expected_type": "AccordError",
+          "expected_message": "invalid contract JSON",
+          "actual_type": "AccordError",
+          "actual_message": "invalid contract JSON"
+        },
+        {
+          "name": "duplicate_key",
+          "passed": true,
+          "expected_type": "AccordError",
+          "expected_message": "invalid contract JSON",
+          "actual_type": "AccordError",
+          "actual_message": "invalid contract JSON"
+        },
+        {
+          "name": "nonfinite_nan",
+          "passed": true,
+          "expected_type": "AccordError",
+          "expected_message": "invalid contract JSON",
+          "actual_type": "AccordError",
+          "actual_message": "invalid contract JSON"
+        },
+        {
+          "name": "nonfinite_infinity",
+          "passed": true,
+          "expected_type": "AccordError",
+          "expected_message": "invalid contract JSON",
+          "actual_type": "AccordError",
+          "actual_message": "invalid contract JSON"
+        },
+        {
+          "name": "nonfinite_negative_infinity",
+          "passed": true,
+          "expected_type": "AccordError",
+          "expected_message": "invalid contract JSON",
+          "actual_type": "AccordError",
+          "actual_message": "invalid contract JSON"
+        },
+        {
+          "name": "array_root",
+          "passed": true,
+          "expected_type": "AccordError",
+          "expected_message": "contract must be an object",
+          "actual_type": "AccordError",
+          "actual_message": "contract must be an object"
+        },
+        {
+          "name": "null_root",
+          "passed": true,
+          "expected_type": "AccordError",
+          "expected_message": "contract must be an object",
+          "actual_type": "AccordError",
+          "actual_message": "contract must be an object"
+        },
+        {
+          "name": "integer_root",
+          "passed": true,
+          "expected_type": "AccordError",
+          "expected_message": "contract must be an object",
+          "actual_type": "AccordError",
+          "actual_message": "contract must be an object"
+        },
+        {
+          "name": "boolean_root",
+          "passed": true,
+          "expected_type": "AccordError",
+          "expected_message": "contract must be an object",
+          "actual_type": "AccordError",
+          "actual_message": "contract must be an object"
+        },
+        {
+          "name": "bytearray_root",
+          "passed": true,
+          "expected_type": "AccordError",
+          "expected_message": "contract must be an object",
+          "actual_type": "AccordError",
+          "actual_message": "contract must be an object"
+        },
+        {
+          "name": "unknown_field",
+          "passed": true,
+          "expected_type": "AccordError",
+          "expected_message": "unknown or missing contract fields",
+          "actual_type": "AccordError",
+          "actual_message": "unknown or missing contract fields"
+        },
+        {
+          "name": "wrong_version",
+          "passed": true,
+          "expected_type": "AccordError",
+          "expected_message": "unsupported IR version",
+          "actual_type": "AccordError",
+          "actual_message": "unsupported IR version"
+        },
+        {
+          "name": "checks_array",
+          "passed": true,
+          "expected_type": "AccordError",
+          "expected_message": "checks must be an object",
+          "actual_type": "AccordError",
+          "actual_message": "checks must be an object"
+        },
+        {
+          "name": "inputs_string",
+          "passed": true,
+          "expected_type": "AccordError",
+          "expected_message": "resources must be arrays",
+          "actual_type": "AccordError",
+          "actual_message": "resources must be arrays"
+        },
+        {
+          "name": "publish_string",
+          "passed": true,
+          "expected_type": "AccordError",
+          "expected_message": "resources must be arrays",
+          "actual_type": "AccordError",
+          "actual_message": "resources must be arrays"
+        },
+        {
+          "name": "bool_budget",
+          "passed": true,
+          "expected_type": "AccordError",
+          "expected_message": "integer outside allowed bounds",
+          "actual_type": "AccordError",
+          "actual_message": "integer outside allowed bounds"
+        },
+        {
+          "name": "float_budget",
+          "passed": true,
+          "expected_type": "AccordError",
+          "expected_message": "integer outside allowed bounds",
+          "actual_type": "AccordError",
+          "actual_message": "integer outside allowed bounds"
+        },
+        {
+          "name": "negative_budget",
+          "passed": true,
+          "expected_type": "AccordError",
+          "expected_message": "integer outside allowed bounds",
+          "actual_type": "AccordError",
+          "actual_message": "integer outside allowed bounds"
+        },
+        {
+          "name": "large_budget",
+          "passed": true,
+          "expected_type": "AccordError",
+          "expected_message": "integer outside allowed bounds",
+          "actual_type": "AccordError",
+          "actual_message": "integer outside allowed bounds"
+        },
+        {
+          "name": "zero_output_limit",
+          "passed": true,
+          "expected_type": "AccordError",
+          "expected_message": "integer outside allowed bounds",
+          "actual_type": "AccordError",
+          "actual_message": "integer outside allowed bounds"
+        },
+        {
+          "name": "large_output_limit",
+          "passed": true,
+          "expected_type": "AccordError",
+          "expected_message": "integer outside allowed bounds",
+          "actual_type": "AccordError",
+          "actual_message": "integer outside allowed bounds"
+        },
+        {
+          "name": "duplicate_resource",
+          "passed": true,
+          "expected_type": "AccordError",
+          "expected_message": "duplicate resource",
+          "actual_type": "AccordError",
+          "actual_message": "duplicate resource"
+        },
+        {
+          "name": "empty_checks",
+          "passed": true,
+          "expected_type": "AccordError",
+          "expected_message": "checks must be nonempty",
+          "actual_type": "AccordError",
+          "actual_message": "checks must be nonempty"
+        },
+        {
+          "name": "bad_identifier",
+          "passed": true,
+          "expected_type": "AccordError",
+          "expected_message": "invalid identifier",
+          "actual_type": "AccordError",
+          "actual_message": "invalid identifier"
+        },
+        {
+          "name": "dictionary_surrogate",
+          "passed": true,
+          "expected_type": "AccordError",
+          "expected_message": "invalid identifier",
+          "actual_type": "AccordError",
+          "actual_message": "invalid identifier"
+        },
+        {
+          "name": "integer_check_revision",
+          "passed": true,
+          "expected_type": "AccordError",
+          "expected_message": "invalid identifier",
+          "actual_type": "AccordError",
+          "actual_message": "invalid identifier"
+        },
+        {
+          "name": "escaped_surrogate_json",
+          "passed": true,
+          "expected_type": "AccordError",
+          "expected_message": "invalid identifier",
+          "actual_type": "AccordError",
+          "actual_message": "invalid identifier"
+        },
+        {
+          "name": "nonascii_identifier_json",
+          "passed": true,
+          "expected_type": "AccordError",
+          "expected_message": "invalid identifier",
+          "actual_type": "AccordError",
+          "actual_message": "invalid identifier"
+        },
+        {
+          "name": "missing_field",
+          "passed": true,
+          "expected_type": "AccordError",
+          "expected_message": "unknown or missing contract fields",
+          "actual_type": "AccordError",
+          "actual_message": "unknown or missing contract fields"
+        }
+      ],
+      "returncode": 0,
+      "changed": false,
+      "checker_sha256": "7d02b3d282a416cf6f01eb13f6b6467a6be59032df4c0dd3e4f11386dc3e2f3e",
+      "probe_sha256": "5270e78d4cda9f5acf1f5f4afad582c6f692137d9bca7009625f2f7f2b0b91dc"
+    }
+  }
+}

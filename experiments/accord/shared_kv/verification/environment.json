@@ -1,0 +1,16 @@
+{
+  "cpu": "Apple M4 Max",
+  "memory_bytes": 38654705664,
+  "hardware_model": "Mac16,6",
+  "os": "macOS 26.5.1 25F80",
+  "python": "3.13.13",
+  "unchanged_dependency_hashes": {
+    "experiments/accord/runtime.py": "f5da8ce4c66a73e8e93356b67fa7617bc8fd24d386d9ebc3207f1fe111af6662",
+    "experiments/accord/evaluation/python_sdk.py": "ac98c838bd545e868e096fede286509be1c0edafb5f0033e37377613ba6c1f58",
+    "experiments/accord/delegation/run.py": "e4906dcc035924e117969b91c023b7ee7a3ae1b96a7bea0dc4be413290821911",
+    "experiments/accord/inference/client.py": "e168d6a59cdad00c5dfa458a109dfd412ba5b4eb27ee2cb7b4e97aa3a4898f21",
+    "experiments/accord/store.py": "c926b69be397afa77071ee5e98616a72680ecb9bf9204ff4d3f888d0a7f8e995",
+    "experiments/accord/ir.py": "bd669e7ee36f38ea79f472e68a8e9ef9680410e300f96cd4f1c21a3a939b5f7f"
+  },
+  "observed_after_primary": true
+}

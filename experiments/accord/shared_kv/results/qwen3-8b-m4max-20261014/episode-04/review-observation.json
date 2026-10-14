@@ -1,0 +1,89 @@
+{
+  "role": "review",
+  "call_id": "kv-e04-review",
+  "input_tokens": 4712,
+  "render_tokenize_ms": 59.17829088866711,
+  "prompt_sha256": "59c25df46c585a962c4039fdc00428cc65f3943bfdd922828c091528b1308551",
+  "schema_sha256": "610d1900c78739e96aa272dc5368377f4752bbebbf41e34892028146ffb860c8",
+  "response": {
+    "client_ttft_ms": 14597.193832974881,
+    "client_total_ms": 25735.434916918166,
+    "request_body_bytes": 25088,
+    "shared_kv": {
+      "requested_reuse": false,
+      "actual_reused_tokens": 0,
+      "actual_evaluated_tokens": 4712,
+      "registered_prefix_tokens": 3308,
+      "input_tokens": 4712,
+      "cache_state": "cold",
+      "prior_cache_state": "disabled",
+      "lock_wait_ms": 0.05158304702490568,
+      "validation_ms": 0.76149997767061,
+      "dispatch_ms": 25735.68008397706,
+      "lock_hold_ms": 25736.57954193186,
+      "service_total_ms": 25736.631124978885,
+      "service_ttft_ms": 14598.006915999576
+    },
+    "final": {
+      "timings": {
+        "cache_n": 0,
+        "prompt_n": 4712,
+        "prompt_ms": 14583.312,
+        "prompt_per_token_ms": 3.09493039049236,
+        "prompt_per_second": 323.1090440909445,
+        "predicted_n": 299,
+        "predicted_ms": 11131.75,
+        "predicted_per_token_ms": 37.35486577181208,
+        "predicted_per_second": 26.77027421564444
+      },
+      "stop_type": "eos",
+      "tokens_evaluated": 4712,
+      "tokens_predicted": 299,
+      "truncated": false
+    },
+    "output_sha256": "a86a606dfbd75a19f4cd4c6686203c806fb074f09816c18d3f1e85f81c0a1d00",
+    "output_token_ids_sha256": "f25f03f342032974d83b5fc78fd3690580043df7b8b9e68e199a3574eb4d8916"
+  },
+  "validation": {
+    "call_id": "kv-e04-review",
+    "raw_sha256": "a86a606dfbd75a19f4cd4c6686203c806fb074f09816c18d3f1e85f81c0a1d00",
+    "contract_revision": "eb7790d8b1c4dc2539212af774eb6f206e5f8b15f4d9a3f9f66aad68c467d101",
+    "validation": {
+      "valid": true,
+      "errors": [],
+      "verification": "structural_only"
+    },
+    "mcp_validation_ms": 258
+  },
+  "validation_wait_ms": 2570.1303330715746,
+  "result": {
+    "artifacts": [],
+    "attempt_id": "1",
+    "bundle_revision": "f9f3efeec7a1e6fc90d3169d28a9a3e7d1b7eaa0272acb4ae1c3fb6349b81b21",
+    "checks": [],
+    "contract_revision": "eb7790d8b1c4dc2539212af774eb6f206e5f8b15f4d9a3f9f66aad68c467d101",
+    "evidence": [
+      {
+        "description": "The candidate repair was not validated by the host due to formatting issues.",
+        "id": "source",
+        "reference": "supplied source"
+      }
+    ],
+    "limitations": [
+      "No tool calls or external validation performed"
+    ],
+    "protocol": "agents-core/subagent/1",
+    "question": null,
+    "remaining_work": [],
+    "result": {
+      "items": [
+        "reject"
+      ],
+      "summary": "The candidate repair was rejected by the host due to formatting issues. The replacement must use spaces and a final LF, which was not met."
+    },
+    "status": "completed",
+    "task_id": "kv-e04-review"
+  },
+  "decision": "reject",
+  "accepted": false
+}
