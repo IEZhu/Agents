@@ -27,14 +27,15 @@ adds nothing; use it in Claude Code or in Cowork on your computer.
 The MCP server is not bundled in the plugin: it needs a local installation with its own Python
 environment and embedding model. Install it once (macOS or Linux, Python 3.11 or newer, Git):
 
-First add this repository's marketplace and install the plugin in Claude Code:
+If you have not already installed the plugin from a marketplace or Claude's directory, add this
+repository's marketplace and install it in Claude Code:
 
 ```text
 /plugin marketplace add IEZhu/Agents
 /plugin install agents-core@agents-core
 ```
 
-Then install the local server:
+If the plugin is already installed, skip those commands. Install the local server next:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/IEZhu/Agents/main/install.sh | bash
