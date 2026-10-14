@@ -14,10 +14,13 @@ retries. The supervisor's limit is `sequence.run_timeout`: the stages' timeouts 
 ``run-now --mode run`` and ``run-now --mode resume --pr N`` are the supervised real runs (phase
 1a). A scheduled real run is the automatic mode (#350, phase 1b, `src.schedules.automatic`):
 ``ready`` checks every condition (`readiness`: the real-run preconditions read from GitHub, the
-stored probe records, the Codex stage availability, the owner's acceptance) and names what is
-missing; ``enable --mode run`` refuses without ``--accept-shared-account`` and while a condition
-is missing, then records the acceptance; a tick starts a scheduled ``run`` or ``resume`` only
-while ``ready`` passes, else it records the run ``refused`` with the list and notifies.
+stored probe records of the stages a run starts as Claude sessions, the owner's acceptance),
+names what is missing and records the outcome for the settings page; ``enable --mode run``
+refuses without ``--accept-shared-account``, while a condition is missing and when a tripwire
+fired while it checked, then records the acceptance under the writers' lock; ``disable`` and
+``enable --mode dry-run`` withdraw it. A tick starts a scheduled ``run`` or ``resume`` only while
+``ready`` passes, else it records the run ``refused`` with the list and notifies; the run's child
+checks the schedule and the acceptance again under the run lease (`scheduled_problems`).
 
 A run or probe command that turned the schedule off (`decoys.trip`: a tripwire, or a failed
 sandbox probe, which `probe`, the run sequence and the Codex checks now trip too) notifies the
@@ -74,7 +77,7 @@ from .supervise import SupervisorStopped, run_supervised
 from .tick import decide, iso, local_now, next_slot
 
 REAL_MODES = ("run", "resume")
-READY_COMMAND = "python -m src.schedules autodev ready"
+READY_COMMAND = automatic.READY_COMMAND
 RUN_STATUSES = ("completed", "blocked", "refused", "failed: infra")
 TICK_STATE = "tick.json"
 UPDATE_MARKERS = ("maintenance.json", "transaction.json")
@@ -198,6 +201,8 @@ def run_autodev(ctx: Context, mode: str, *, pr: int | None = None, run_id: str |
     record = records.read_record(run_id, ctx.directory) or {"trigger": {"kind": "manual"}, "started": iso(now)}
     record.update(mode=mode, repository=config["repository"], installation=str(ctx.installation), pr=pr,
                   status="running", cleanup_executed=False)
+    trigger = record.get("trigger") if isinstance(record.get("trigger"), dict) else {}
+    scheduled = mode in REAL_MODES and trigger.get("kind") in SCHEDULED_TRIGGERS
     try:
         with lease.hold(ctx.directory):
             records.write_record(run_id, record, ctx.directory)
@@ -205,6 +210,10 @@ def run_autodev(ctx: Context, mode: str, *, pr: int | None = None, run_id: str |
             # the lease itself, and a marker left by any other update or `recover` shows here.
             if markers := update_markers(ctx.directory):
                 record.update(infra(f"update: a daemon update or maintenance is in progress ({', '.join(markers)})"))
+            elif scheduled and (problems := scheduled_problems(ctx)):  # a trip since the tick's check (#350)
+                if isinstance(pr, int) and not isinstance(pr, bool):
+                    record["pr_url"] = f"https://github.com/{config['repository']}/pull/{pr}"
+                _refusal(ctx, run_id, record, problems, "automatic mode no longer ready at the start")
             else:
                 record.update(sequence.run_sequence(ctx, config, run_id, mode, pr=pr, now=now,
                                                     trigger=record.get("trigger")))
@@ -342,29 +351,58 @@ def tick(ctx: Context) -> tuple[int, dict]:
             mode, pr = "resume", decision.trigger.get("pr")
         state = readiness(ctx, config) if mode in REAL_MODES else None  # the automatic mode (#350)
         if state is not None and not state.ready:
-            result["run"] = refuse_scheduled(ctx, mode, decision.trigger, state, pr=pr)
+            result["run"] = refuse_scheduled(ctx, mode, decision.trigger, state.missing, pr=pr,
+                                             repository=config["repository"])
         else:
             _, run = launch(ctx, mode, decision.trigger, pr=pr)
             result["run"] = run
     return 0, result
 
 
-def refuse_scheduled(ctx: Context, mode: str, trigger: dict, state: automatic.Readiness, *,
-                     pr: int | None = None) -> dict:
-    """A scheduled real run while the automatic mode is not ready: a run record ``refused`` with
-    the missing items (no lease, no session, nothing read from GitHub beyond `readiness`) and the
-    owner's notification, as every real run gets one."""
-    now = ctx.clock()
-    run_id = records.new_run_id(now)
-    missing = state.missing
+def _refusal(ctx: Context, run_id: str, record: dict, missing: list[str], why: str) -> dict:
+    """``record`` refused with the missing items and the owner's notification, as every real run
+    gets one (the fixed phrases of `report.notification`; a continuation's names its PR)."""
     more = f" (and {len(missing) - 5} more)" if len(missing) > 5 else ""
-    record = {"trigger": trigger, "mode": mode, "pr": pr, "status": "refused",
-              "reason": "automatic mode not ready: " + "; ".join(missing[:5]) + more, "missing": missing,
-              "started": iso(now), "finished": iso(now)}
+    record.update(status="refused", reason=f"{why}: " + "; ".join(missing[:5]) + more, missing=list(missing))
     title, message = run_report.notification(run_report.build_report({**record, "run_id": run_id}))
     sent = run_report.notify(title, message, runner=ctx.notify_runner, platform=ctx.platform)
     record["notification"] = {"sent": sent, "title": title}
-    return records.write_record(run_id, record, ctx.directory)
+    return record
+
+
+def refuse_scheduled(ctx: Context, mode: str, trigger: dict, missing: list[str], *, pr: int | None = None,
+                     repository: str | None = None) -> dict:
+    """A scheduled real run while the automatic mode is not ready: a run record ``refused`` with
+    the missing items (no lease, no session, nothing read from GitHub beyond `readiness`) and the
+    owner's notification. A refused continuation stays handled (the tick does not retry it every
+    five minutes); its record and notification name the PR and the command that resumes it."""
+    now = ctx.clock()
+    run_id = records.new_run_id(now)
+    record = {"trigger": trigger, "mode": mode, "pr": pr, "started": iso(now), "finished": iso(now)}
+    if isinstance(pr, int) and not isinstance(pr, bool) and repository:
+        record["pr_url"] = f"https://github.com/{repository}/pull/{pr}"
+    return records.write_record(run_id, _refusal(ctx, run_id, record, missing, "automatic mode not ready"),
+                                ctx.directory)
+
+
+SCHEDULED_TRIGGERS = ("slot", "continuation")
+
+
+def scheduled_problems(ctx: Context) -> list[str]:
+    """For the child of a scheduled real run, under the run lease and before the sequence (#350
+    review): the schedule is still on in run mode and the acceptance still current. Every command
+    that can trip the schedule holds the run lease, so nothing trips between this check and the
+    first stage but the run itself."""
+    try:
+        config = autodev_config.load(ctx.directory)
+    except autodev_config.ConfigError:
+        return ["autodev.json does not validate"]
+    problems = []
+    if not config["enabled"]:
+        problems.append("the schedule was turned off")
+    elif config["mode"] != "run":
+        problems.append(f"the schedule is in {config['mode']} mode")
+    return problems + automatic.acceptance_problems(ctx.directory, ctx.clock())
 
 
 def acceptance_required(source: str = "cli") -> dict:
@@ -379,19 +417,36 @@ def acceptance_required(source: str = "cli") -> dict:
 
 def enable(ctx: Context, mode: str, *, accept_shared_account: bool = False, source: str = "cli") -> tuple[int, dict]:
     """Turn the schedule on in ``mode``. ``run`` (the automatic mode, #350) needs the owner's
-    acceptance (``accept_shared_account``) and every other condition of `readiness`, then records
-    the acceptance (`automatic.record_acceptance`) before the configuration changes."""
-    acceptance = None
+    acceptance (``accept_shared_account``) and every other condition: `readiness` from the CLI;
+    from the settings page (``source="page"``, which reads no credential) a recent passing
+    ``autodev ready`` and a current acceptance (`automatic.page_problems`). The tripwire count is
+    read before those checks and again under the writers' lock: a trip in between refuses
+    (``tripped_during_enable``); otherwise the acceptance is recorded under the same lock, dated
+    when the checks began, and the configuration changes. ``dry-run`` withdraws the acceptance."""
+    acceptance, count, began = None, None, ctx.clock()
     if mode == "run":
         if not accept_shared_account:
             return 1, acceptance_required(source)
-        state = readiness(ctx, autodev_config.load(ctx.directory))
-        if state.conditions:
-            return 1, {"ok": False, "error": "not_ready", "missing": state.conditions,
-                       "message": f"the automatic mode is not ready: {len(state.conditions)} condition(s) missing "
+        count = decoys.trip_count(ctx.directory)  # before the checks, which take seconds (#350 review)
+        if source == "page":
+            missing = automatic.page_problems(ctx.directory, began)
+        else:
+            missing = readiness(ctx, autodev_config.load(ctx.directory)).conditions
+        if count is None:
+            missing = [*missing, "tripwire.json cannot be read; check it and the run records"]
+        if missing:
+            return 1, {"ok": False, "error": "not_ready", "missing": missing,
+                       "message": f"the automatic mode is not ready: {len(missing)} condition(s) missing "
                                   f"(listed under missing; `{READY_COMMAND}` shows them all)"}
-        acceptance = automatic.record_acceptance(ctx.directory, ctx.clock(), source=source)
     with autodev_config.writing(ctx.directory):  # the page and the tripwire write it too
+        if mode == "run":
+            if decoys.trip_count(ctx.directory) != count:
+                return 1, {"ok": False, "error": "tripped_during_enable",
+                           "message": "a tripwire turned the schedule off while the conditions were checked; "
+                                      "check the run records and tripwire.json, then enable again"}
+            acceptance = automatic.record_acceptance(ctx.directory, began, source=source, tripwire_count=count)
+        else:
+            automatic.revoke_acceptance(ctx.directory, began, by="dry-run")
         config = autodev_config.load(ctx.directory)
         was_enabled = config["enabled"]
         config.update(enabled=True, mode=mode)
@@ -410,10 +465,13 @@ def enable(ctx: Context, mode: str, *, accept_shared_account: bool = False, sour
 
 
 def disable(ctx: Context) -> tuple[int, dict]:
+    """Turn the schedule off and withdraw the acceptance of the automatic mode (#350 review): run
+    mode needs ``enable --mode run --accept-shared-account`` again, whatever ``autodev.json`` says."""
     with autodev_config.writing(ctx.directory):
         config = autodev_config.load(ctx.directory)
         config["enabled"] = False
         autodev_config.save(config, ctx.directory)
+        automatic.revoke_acceptance(ctx.directory, ctx.clock(), by="disable")
     return 0, {"ok": True, "enabled": False}
 
 
@@ -442,7 +500,8 @@ def status(ctx: Context) -> tuple[int, dict]:
         "tick": _tick_state(ctx),
         "recent_runs": [run_summary(record) for record in records.all_records(ctx.directory)[:5]],
         "automatic": {"on": config["enabled"] and config["mode"] == "run",
-                      "acceptance": automatic.acceptance_summary(ctx.directory), "check": READY_COMMAND},
+                      "acceptance": automatic.acceptance_summary(ctx.directory, now), "check": READY_COMMAND,
+                      "last_ready": automatic.read_ready(ctx.directory)},
     }
 
 
@@ -456,49 +515,60 @@ def github_conditions(ctx: Context, config: dict) -> list[str]:
     return preconditions.check(client, credentials, repository=config["repository"], key_reader=ctx.key_reader)
 
 
-def codex_stage_conditions(ctx: Context, config: dict) -> tuple[list[str], dict]:
-    """For each stage that runs with Codex (`automatic.codex_stage_kinds`), its stored stage
-    availability as the run sequence asks for it (``ctx.codex_availability``, else
-    `codex_probes.configured_stage_availability` for the installed codex): the missing ones, named,
-    and every one's availability and reason."""
-    kinds = automatic.codex_stage_kinds(config)
-    if not kinds:
-        return [], {}
+def codex_availability(ctx: Context, config: dict, kind: str) -> dict:
+    """The stored Codex stage availability of ``kind`` as the run sequence asks for it
+    (``ctx.codex_availability``, else `codex_probes.configured_stage_availability` for the
+    installed codex)."""
     if ctx.codex_availability is not None:
-        stored = {kind: ctx.codex_availability(kind) for kind in kinds}
-    else:
-        codex = codex_executable(ctx)
-        version = codex_probes.installed_version(codex, path=run_environment(ctx)["PATH"],
-                                                 command_runner=ctx.command_runner) if codex else None
-        stored = {kind: codex_probes.configured_stage_availability(ctx.directory, config, kind, codex, version=version)
-                  for kind in kinds}
-    problems, details = [], {}
-    for kind, found in stored.items():
+        return ctx.codex_availability(kind)
+    codex = codex_executable(ctx)
+    version = codex_probes.installed_version(codex, path=run_environment(ctx)["PATH"],
+                                             command_runner=ctx.command_runner) if codex else None
+    return codex_probes.configured_stage_availability(ctx.directory, config, kind, codex, version=version)
+
+
+def codex_stage_conditions(ctx: Context, config: dict) -> tuple[dict, list[str]]:
+    """For each stage configured to run with Codex (`automatic.codex_stage_kinds`): its stored
+    availability and reason, and which client a run gives it now (``client``); and the kinds a run
+    falls back to a Claude session for, because Codex cannot run (`stages.stage_profile`), whose
+    Claude probe records `readiness` asks for instead."""
+    details, fallback = {}, []
+    for kind in automatic.codex_stage_kinds(config):
+        found = codex_availability(ctx, config, kind)
         available = found.get("available") is True
         reason = None if available else str(found.get("reason") or "not_checked")
-        details[kind] = {"available": available, "reason": reason, "checked": found.get("checked")}
+        details[kind] = {"available": available, "reason": reason, "checked": found.get("checked"),
+                         "client": "codex" if available else "claude"}
         if not available:
-            problems.append(automatic.codex_item(kind, reason))  # type: ignore[arg-type]
-    return problems, details
+            fallback.append(kind)
+    return details, fallback
 
 
 def readiness(ctx: Context, config: dict, *, github: list[str] | None = None) -> automatic.Readiness:
     """Every condition of the automatic mode (`src.schedules.automatic`): the real-run
-    preconditions (``github`` when the caller read them already), the stored probe records, the
-    Codex stage availability and the owner's acceptance. Reads only; starts no probe."""
+    preconditions (``github`` when the caller read them already), the stored probe records of the
+    stages a run starts as Claude sessions (a Codex stage whose availability says unavailable
+    included) and the owner's acceptance. Reads only; starts no probe."""
     conditions = list(github_conditions(ctx, config) if github is None else github)
-    probe_missing, probe_details = automatic.probe_records(ctx.directory, automatic.claude_stage_kinds(config),
-                                                           ctx.clock())
-    codex_missing, codex_details = codex_stage_conditions(ctx, config)
-    return automatic.Readiness(conditions + probe_missing + codex_missing, automatic.acceptance_problems(ctx.directory),
-                               probe_details, codex_details, automatic.read_acceptance(ctx.directory))
+    codex_details, fallback = codex_stage_conditions(ctx, config)
+    now = ctx.clock()
+    probe_missing, probe_details, freshness = automatic.probe_records(
+        ctx.directory, automatic.claude_stage_kinds(config, fallback), now)
+    return automatic.Readiness(conditions + probe_missing, automatic.acceptance_problems(ctx.directory, now),
+                               probe_details, codex_details, automatic.read_acceptance(ctx.directory), freshness)
 
 
 def ready(ctx: Context) -> tuple[int, dict]:
     """``autodev ready``: every condition of the automatic mode, each missing one named; exit 0
-    only when all pass."""
+    only when all pass. The outcome is recorded for the settings page (`automatic.record_ready`)."""
     state = readiness(ctx, autodev_config.load(ctx.directory))
-    return (0 if state.ready else 1), {"ok": True, **state.to_dict()}
+    result = {"ok": True, **state.to_dict()}
+    try:
+        result["recorded"] = automatic.record_ready(ctx.directory, state, ctx.clock())["checked"]
+    except OSError as error:
+        result["recorded"] = None
+        result["note"] = f"the result could not be recorded for the settings page: {type(error).__name__}"
+    return (0 if state.ready else 1), result
 
 
 def note_schedule_off(ctx: Context, run_id: str, record: dict) -> None:
@@ -640,10 +710,16 @@ def probe(ctx: Context, mode: str, kind: str, confirmed: bool) -> tuple[int, dic
 
 def _probe(ctx: Context, config: dict, run_id: str, mode: str, kind: str, markers: list[str]) -> dict:
     # The client and settings a run gives the stage (`stages.stage_profile`): implement and submit
-    # configured for Codex run with Claude, so they are probed as the Claude sessions they are (#350).
+    # configured for Codex run with Claude, so they are probed as the Claude sessions they are, and
+    # so is a Codex select stage whose stored availability says Codex cannot run (#350).
     stage = stages.stage_profile(kind, config)
+    if stage["client"] == "codex":
+        found = codex_availability(ctx, config, kind)
+        if found.get("available") is not True:
+            stage = stages.stage_profile(kind, config, codex_unavailable=str(found.get("reason") or "not_checked"))
     if stage["client"] != "claude":
-        return {"status": "refused", "reason": f"the {kind} stage uses {stage['client']}; only Claude sessions are sandboxed"}
+        return {"status": "refused", "reason": f"the {kind} stage uses {stage['client']}, which is available; only "
+                                               f"Claude sessions are sandboxed (`codex-probe --kind stage` checks it)"}
     claude = claude_executable(ctx)
     if not claude:
         return infra("cli: the claude executable was not found (tools.json, PATH)")

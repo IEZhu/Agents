@@ -21,7 +21,8 @@ appear as counts only. Its inputs:
   record for the security counts.
 
 `notification` turns a report into a title and a message from a fixed vocabulary: the outcome,
-the issue and PR numbers, the review status, the next command, the export paths and the run ID;
+the issue and PR numbers, the review status, the next command (``run-now --mode resume --pr N`` for
+a PR that waits for the bots, or whose resume was refused, #350), the export paths and the run ID;
 never a reason, a blocker, a finding or a secret. A run that turned the schedule off (the report's
 ``schedule_off``: a tripwire or a failed sandbox probe, #350) gets the title `SCHEDULE_OFF_TITLE`
 and the cause's fixed phrase first. `notify` shows it with ``osascript``, passing
@@ -239,7 +240,8 @@ def notification(report: Mapping, *, known: Iterable[str] = ()) -> tuple[str, st
         parts.append(f"PR {report['pr_url']}")
     if report.get("review_status") in broker.REVIEW_STATUSES:
         parts.append(f"review {report['review_status']}")
-    if report.get("review_status") == "waiting_bots" and isinstance(report.get("pr"), int):
+    if isinstance(report.get("pr"), int) and (report.get("review_status") == "waiting_bots" or (
+            report.get("mode") == "resume" and status == "refused")):  # a refused resume still waits (#350)
         parts.append(f"continue with: run-now --mode resume --pr {report['pr']}")
     if report.get("review_status") == "complete_with_followups":
         parts.append("the bot-round limit was reached; follow-ups are listed in the PR")

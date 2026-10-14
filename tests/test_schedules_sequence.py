@@ -760,6 +760,31 @@ def test_failed_static_probe_never_starts_the_stage_session(world):
     assert record["schedule_off"] == "probe"
 
 
+def test_a_guarded_probe_that_leaked_a_decoy_trips_the_schedule_once(world, monkeypatch):
+    """Kills mutant M17: the guard's own trip (a decoy, cause tripwire) is the record; the failed
+    report must not trip again as a failed probe, which would count twice and say 'probe'."""
+    from src.schedules import probes
+    real = probes.guard
+
+    def leaking(spec, **options):  # the probe session read a decoy: the guard trips, as `guard` does
+        report = real(spec, **options)
+        decoys.trip(options["directory"], "decoy read or leaked during a sandbox probe: decoy token",
+                    run_id=options["run_id"])
+        report.failures.append("read.decoy.bash: expected denied, got allowed")
+        report.ok, report.tripped = False, True
+        return report
+    monkeypatch.setattr(probes, "guard", leaking)
+    code, record = world.run("dry-run")
+    assert code == 1 and record["status"] == "refused" and world.stage_seen() == []
+    assert record["reason"].endswith("the decoy tripwire turned the schedule off")
+    stored = json.loads((world.state / "schedules" / decoys.TRIPWIRE_NAME).read_text())
+    assert stored["count"] == 1 and (stored["last"]["cause"], stored["last"]["run_id"]) == ("tripwire", record["run_id"])
+    [argv] = world.notifications
+    assert argv[-2:] == ["Autodev schedule off",
+                         f"a tripwire fired and turned the schedule off; details in run {record['run_id']}."]
+    assert record["schedule_off"] == "tripwire"
+
+
 def test_stage_timeout_kills_the_session_group(world):
     pid_file = world.base / "child.pid"
     world.scenario({"select": {"output": SELECT_OUTPUT, "sleep": 60,
