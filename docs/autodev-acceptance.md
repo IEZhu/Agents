@@ -183,7 +183,10 @@ the broker log's `done` and `refused` entries.
   the PR's `headRefOid`. The submit flow asks for the "Checks" heading since #349
   ([pr-review, Autodev mode](../flows/pr-review.md#autodev-mode), item 2); a run pinned to a
   `main` without that change does not ask for it, and its PR cannot pass A3.
-- **Blocked:** `status: blocked`; the issue has `autodev:blocked` and no `autodev:in-progress`;
+- **Blocked:** `status: blocked`; the issue has `autodev:blocked`, and no `autodev:in-progress`
+  when the record's `pr` is null (blocked before a pull request). A run that opened a pull request
+  and then ended blocked in the submit stage keeps `autodev:in-progress` while that PR is open, so
+  the gate can resume it;
   its last comment starts with `<!-- autodev -->` and lists neutral blockers only (the fixed
   phrases of [autodev-sequence.md](autodev-sequence.md#after-the-implement-stage), or the
   session's own).
