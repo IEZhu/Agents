@@ -13,7 +13,8 @@
 
 The exit code is 0 on success, 1 when a command refused or a run failed, and 2 for wrong
 arguments. The installation runs it by absolute path as ``<python> -P -m src.schedules …`` with
-``PYTHONPATH`` naming the installation. Real modes refuse until #347 and #350 land. ``probe`` runs
+``PYTHONPATH`` naming the installation. ``run-now`` runs every mode under supervision; ``enable
+--mode run`` refuses until the automatic mode (#350). ``probe`` runs
 the sandbox probes of one session kind (#343) with a real probe session, so it refuses without
 ``--confirm-live-probe``. ``codex-probe`` runs the Codex check (#344, docs/autodev-codex.md): the
 outer profile, the model-free probes, the nested-sandbox check and the decision between Codex and
