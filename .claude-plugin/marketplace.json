@@ -1,0 +1,17 @@
+{
+  "name": "agents-core",
+  "owner": {
+    "name": "WonderMr",
+    "url": "https://github.com/IEZhu"
+  },
+  "description": "Agents-Core plugins for specialist personas, reusable workflows and repository memory.",
+  "plugins": [
+    {
+      "name": "agents-core",
+      "source": "./plugins/agents-core",
+      "description": "Specialist personas, workflows and repository memory through a separately installed local MCP server. Requires macOS or Linux and Python 3.11+.",
+      "category": "productivity",
+      "tags": ["personas", "agents", "workflows", "repository-memory", "mcp"]
+    }
+  ]
+}
