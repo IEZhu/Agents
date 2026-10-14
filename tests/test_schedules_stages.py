@@ -133,7 +133,8 @@ def test_each_model_accepts_a_valid_example(kind, example):
 @pytest.mark.parametrize("kind, path, value", [
     ("select", ("extra",), 1), ("select", ("slice", "extra"), 1), ("select", ("scores", 0, "extra"), 1),
     ("select", ("rationale",), "x" * 1001), ("select", ("slice", "this_pr"), "x" * 2001),
-    ("select", ("scores", 0, "rationale"), "x" * 201), ("select", ("criteria_refs", 0), "http://github.com/a/b/issues/1"),
+    ("select", ("scores", 0, "rationale"), "x" * 201),
+    ("select", ("criteria_refs", 0), "http://github.com/a/b/issues/1"),
     ("select", ("criteria_refs", 0), f"https://github.com/{REPOSITORY}/pull/347"),
     ("select", ("scores", 0, "value"), 4), ("select", ("scores", 0, "value"), True),
     ("select", ("scores", 0, "readiness"), 0.25), ("select", ("scores", 0, "size"), "13"),

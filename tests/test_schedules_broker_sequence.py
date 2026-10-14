@@ -115,6 +115,12 @@ def test_block_posts_a_neutral_list_and_the_blocked_label(tmp_path, credentials)
     assert [(entry["op"], entry["phase"]) for entry in logged(tmp_path)] == [("block", "intent"), ("block", "done")] * 2
 
 
+def test_block_takes_a_single_text_as_one_blocker(tmp_path, credentials):
+    found, _, api = make(tmp_path, credentials)
+    found.block("the regular suite could not run")
+    assert api.writes()[0][2]["body"].splitlines()[3:] == ["- the regular suite could not run"]
+
+
 def test_block_caps_the_list_and_each_line(tmp_path, credentials):
     found, _, api = make(tmp_path, credentials)
     found.block([f"blocker {number} " + "x" * 400 for number in range(12)])
@@ -148,8 +154,8 @@ def test_unclaim_removes_the_claim_and_accepts_an_absent_label(tmp_path, credent
     assert found.unclaim() == {"target": ISSUE, "label": CLAIM_LABEL, "action": "remove"}
     assert paths(api) == [("DELETE", f"/repos/{REPOSITORY}/issues/{ISSUE}/labels/autodev%3Ain-progress")]
     (tmp_path / "gone").mkdir()
-    gone, _, _ = make(tmp_path / "gone", credentials, api=FakeGitHub(statuses={("DELETE", "/labels/autodev%3Ain-progress"):
-                                                                                404}))
+    absent = FakeGitHub(statuses={("DELETE", "/labels/autodev%3Ain-progress"): 404})
+    gone, _, _ = make(tmp_path / "gone", credentials, api=absent)
     gone.unclaim()
     assert logged(tmp_path / "gone")[-1]["note"] == "already absent"
 

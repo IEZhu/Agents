@@ -40,6 +40,7 @@ STAGES = (*STAGE_KINDS, "done")
 FLOW_PATHS = ("flows/autodev.md", "flows/autodev-select.md", "flows/autodev-implement.md", "flows/pr-review.md",
               "flows/code-review-pass.md", "flows/change-premortem.md")
 _SHA = re.compile(r"[0-9a-f]{40}")
+_REPOSITORY = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
 
 
 def _positive(value: Any) -> bool:
@@ -78,7 +79,7 @@ class RunState:
             found.append("run_id")
         if self.mode not in MODES:
             found.append("mode")
-        if not isinstance(self.repository, str) or not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", self.repository):
+        if not isinstance(self.repository, str) or not _REPOSITORY.fullmatch(self.repository):
             found.append("repository")
         if not isinstance(self.pinned, str) or not _SHA.fullmatch(self.pinned):
             found.append("pinned")

@@ -45,7 +45,8 @@ def attempt(handle, number, verdict, *, requested, applied, model, effort, fallb
 def run_dir(tmp_path):
     directory = records.run_dir(RUN_ID, tmp_path)
     work = directory / workers.WORK_DIR
-    codex = {"client": "codex", "model": "gpt-6.1-sol", "effort": "high", "fallback": {"model": "opus", "effort": "high"}}
+    codex = {"client": "codex", "model": "gpt-6.1-sol", "effort": "high",
+             "fallback": {"model": "opus", "effort": "high"}}
     claude = {"client": "claude", "model": "opus", "effort": "high", "fallback": {"model": "opus", "effort": "high"}}
     write_json(work / "review-1" / "attempt-1.json", attempt("review-1", 1, "retry", requested=codex, applied="claude",
                                                                model="opus", effort="high",

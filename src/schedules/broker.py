@@ -1244,6 +1244,8 @@ class Broker:
         mention, no sub-marker, no ``/agent`` line, only this issue in closing keywords) and the scan."""
         self._writable("block")
         issue = self._bound("block")
+        if isinstance(blockers, str):
+            blockers = [blockers]  # one blocker, not one per character
         items = [line for line in (" ".join(_CONTROL.sub(" ", str(item)).split()) for item in blockers) if line]
         if not items:
             raise BrokerRefused("block: name at least one blocker")

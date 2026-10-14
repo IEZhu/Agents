@@ -25,30 +25,29 @@ keeps every record. The session never names a command, a ref or a path.
 * **Review policy** (9.4, Q10): the first review covers the run's base up to the head with the
   delegate's effort; review *n* > 1 covers the range since the last reviewed head (the same range
   again when the head did not move) plus the decision log, with ``effort_followup``; review
-  ``max_reviews`` (when it is not the first) is restricted to ``critical`` and ``high``
-  findings, security and regressions caused by fixes; no review starts beyond ``max_reviews``.
-  Every later review and the verification also get ``open-findings.json``: each finding of the
-  findings ledger that keeps the push gate closed, with its decision state (undecided, ``fixed``
-  or ``declined`` with the reason), and the instruction to report again each one still present.
-  The verification review (after an accepted pre-mortem) covers the commits since the last full
-  review, considers ``critical``, ``high`` and security, and is not counted; a run gets at most
-  ``max_verifications`` of them (1 by default; #347 passes ``1 + max_bot_rounds``, so each bot round
-  of the submit stage gets one), each later one covering the commits since the previous one. A
-  restricted review
-  (the last one or the verification) that reports any finding in its scope ends the stage
-  blocked. An outcome is accepted only when the output is valid, ``completed``, an evidence item
-  names the reviewed range ``<base>..<head>`` and no evidence item names another 40-hex commit
-  than the run's base, the range's ends and the commits since the run's base; ``partial``,
-  ``failed``, an evidence mismatch, ``valid: false`` and a CLI failure give a new attempt with a
-  new ``attempt_id`` (a new package), at most `MAX_ATTEMPTS` in all, then ``blocked``;
-  ``input_required`` gives ``blocked`` at once. The tripwire scans every attempt, a failed one
-  included (standard output, the raw result, the permission denials): a decoy or a known secret
-  gives ``blocked`` at once, and a decoy also turns the schedule off. A Claude worker killed at
-  its timeout or by a stop prints no result object, so a decoy it read in that attempt is not
-  seen (``--output-format json`` writes the denials only at the end). Infrastructure problems (no
-  CLI, no login, a refused launch, a package whose length is wrong, a Codex decision that aborted
-  the step) give ``failed``. After ``blocked``, ``failed`` or a blocking restricted review the
-  service refuses new workers: the stage ends blocked.
+  ``max_reviews`` (when it is not the first) is restricted to ``critical`` and ``high`` findings,
+  security and regressions caused by fixes; no review starts beyond ``max_reviews``. Every later
+  review and the verification also get ``open-findings.json``: each finding of the findings ledger
+  that keeps the push gate closed, with its decision state (undecided, ``fixed`` or ``declined``
+  with the reason), and the instruction to report again each one still present. The verification
+  review (after an accepted pre-mortem) covers the commits since the last full review, considers
+  ``critical``, ``high`` and security, and is not counted; a run gets at most ``max_verifications``
+  of them (1 by default; #347 passes ``1 + max_bot_rounds``, so each bot round of the submit stage
+  gets one), each later one covering the commits since the previous one. A restricted review (the
+  last one or a verification) that reports any finding in its scope ends the stage blocked. An
+  outcome is accepted only when the output is valid, ``completed``, an evidence item names the
+  reviewed range ``<base>..<head>`` and no evidence item names another 40-hex commit than the run's
+  base, the range's ends and the commits since the run's base; ``partial``, ``failed``, an evidence
+  mismatch, ``valid: false`` and a CLI failure give a new attempt with a new ``attempt_id`` (a new
+  package), at most `MAX_ATTEMPTS` in all, then ``blocked``; ``input_required`` gives ``blocked``
+  at once. The tripwire scans every attempt, a failed one included (standard output, the raw
+  result, the permission denials): a decoy or a known secret gives ``blocked`` at once, and a decoy
+  also turns the schedule off. A Claude worker killed at its timeout or by a stop prints no result
+  object, so a decoy it read in that attempt is not seen (``--output-format json`` writes the
+  denials only at the end). Infrastructure problems (no CLI, no login, a refused launch, a package
+  whose length is wrong, a Codex decision that aborted the step) give ``failed``. After
+  ``blocked``, ``failed`` or a blocking restricted review the service refuses new workers: the
+  stage ends blocked.
 * **Records**: each attempt is ``<run_dir>/workers/<handle>/attempt-<n>.json`` (the package
   revision, the retained contract, the client, the raw structured output with its SHA-256, the
   validation response, the covered range and head, the verdict), masked with the run's known
@@ -1169,7 +1168,8 @@ def _time(value: Any) -> datetime | None:
 def _logged_decisions(run_dir: Path) -> dict[str, dict]:
     data = broker_records._read_json(Path(run_dir) / DECISIONS_NAME)
     logged = data.get("decisions") if isinstance(data, dict) else None
-    return {entry["key"]: entry for entry in logged or [] if isinstance(entry, dict) and isinstance(entry.get("key"), str)}
+    return {entry["key"]: entry for entry in logged or []
+            if isinstance(entry, dict) and isinstance(entry.get("key"), str)}
 
 
 def _verified_since(run_dir: Path) -> list[datetime]:
@@ -1200,7 +1200,8 @@ def open_security_risks(run_dir: str | Path) -> list[str]:
         if decision.get("decision") == "mitigated":
             continue
         decided = _time(decision.get("time"))
-        if decision.get("decision") == "fixed" and decided is not None and any(started >= decided for started in verified):
+        if decision.get("decision") == "fixed" and decided is not None and \
+                any(started >= decided for started in verified):
             continue
         found.append(key)
     return found

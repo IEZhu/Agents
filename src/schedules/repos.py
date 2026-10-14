@@ -88,6 +88,7 @@ MAX_BUNDLE_BYTES = 128 * 1024 * 1024
 MAX_IMPORT_COMMITS = 200
 MAX_EXPORT_BYTES = 64 * 1024 * 1024  # the format-patch text of one export
 EXPORT_REFS = "refs/autodev/export"  # a bundle's ref while it is written, removed afterwards
+EXPORT_DIR = "export"  # <run_dir>/export/<run-id>.patch and .bundle: where the run sequence exports to
 MAX_LINK_TARGET = 4096  # PATH_MAX
 MAX_LINKS = 1000  # distinct symbolic link targets in one import
 MAX_DIFF_OUTPUT = 16 * 1024 * 1024
