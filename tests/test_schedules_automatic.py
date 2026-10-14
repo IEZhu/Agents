@@ -124,8 +124,7 @@ def test_ready_passes_when_every_condition_holds(ctx):
     assert result["missing"] == [] and result["conditions"] == [] and result["codex"] == {}
     assert ctx.world["transport"].requests == [RULES, WORKFLOW, SECRETS] and FIXTURE["synthetic"] is True
     assert all(result["probes"][kind][mode]["status"] == "passed" for kind, mode in PAIRS)
-    assert {kind: found["status"] for kind, found in result["probe_freshness"].items()} == {
-        "implement": "passed", "submit": "passed"}  # select has no Bash: no fresh record asked for
+    assert "probe_freshness" not in result  # the 7-day rule was dropped (owner, 2026-10-14)
     acceptance = result["acceptance"]
     assert acceptance["current"] is True and acceptance["accepted"] == utc(NOW - timedelta(hours=1))
     assert acceptance["rows"] == [1, 2, 4] and acceptance["risk_list_sha256"] == automatic.risk_list_version()
@@ -194,39 +193,39 @@ def test_ready_names_a_missing_failed_or_future_probe_record(ctx, state):
                           "is fixed",
                 "future": f"sandbox probe implement in scheduled mode: the passing record (run {run_id}) is dated in "
                           f"the future or has no time; run {command}"}[state]
-    assert code == 1 and result["missing"] == [expected]  # a missing or failed pair hides the freshness item
+    assert code == 1 and result["missing"] == [expected]
     assert result["probes"]["implement"]["scheduled"]["status"] == ("stale" if state == "future" else state)
     assert result["probes"]["implement"]["resume"]["status"] == "passed"
 
 
-def test_every_mode_once_but_only_the_kinds_with_bash_must_be_fresh(ctx):
-    """The freshness rule (#350 review): each (kind, mode) needs a pass once (A7), at any age;
-    implement and submit, which every run probes again, need a pass in the last 7 days in any mode;
-    select (no Bash) does not."""
+@pytest.mark.parametrize("age", [timedelta(days=8), timedelta(days=400)])
+def test_a_passing_record_counts_at_any_age(ctx, age):
+    """The owner dropped the 7-day rule (2026-10-14): each (kind, mode) needs a pass once (A7), at
+    any age, since every run probes before every session with Bash (plan 5.7)."""
     accept(ctx)
-    for kind in stages.KINDS:
-        for mode in MODES:
+    for kind, mode in PAIRS:
+        record_probe(ctx, kind, mode, age=age)
+    code, result = call(ctx, "autodev", "ready")
+    assert code == 0 and result["missing"] == [], result["missing"]
+    assert all(result["probes"][kind][mode] == {"status": "passed", "run_id": result["probes"][kind][mode]["run_id"],
+                                                "finished": utc(NOW - age)} for kind, mode in PAIRS)
+
+
+@pytest.mark.parametrize("state", ["missing", "failed"])
+def test_an_old_pass_elsewhere_does_not_cover_a_missing_or_failed_pair(ctx, state):
+    """Old passes of every other pair change nothing for one missing or failed pair: it is named as
+    before, and no other item is."""
+    accept(ctx)
+    for kind, mode in PAIRS:
+        if (kind, mode) != ("submit", "resume") or state == "failed":
             record_probe(ctx, kind, mode, age=timedelta(days=30))
+    failed = record_probe(ctx, "submit", "resume", ok=False) if state == "failed" else None
     code, result = call(ctx, "autodev", "ready")
+    command = "`python -m src.schedules probe --mode resume --kind submit --confirm-live-probe`"
     assert code == 1 and result["missing"] == [
-        f"sandbox probe {kind}: the newest passing record (run {result['probe_freshness'][kind]['run_id']}, resume "
-        f"mode) is not from the last 7 days; a run's guarded {kind} session refreshes it, or run `python -m "
-        f"src.schedules probe --mode scheduled --kind {kind} --confirm-live-probe`" for kind in ("implement", "submit")]
-    assert all(result["probes"][kind][mode]["status"] == "passed" for kind, mode in PAIRS)  # no age for A7
-    # A scheduled run's guarded implement and submit sessions refresh them; a resume's refreshes submit too.
-    record_probe(ctx, "implement", "scheduled", guarded=True)
-    passed = record_probe(ctx, "submit", "resume", guarded=True)
-    code, result = call(ctx, "autodev", "ready")
-    assert code == 0, result["missing"]
-    assert result["probe_freshness"]["submit"] == {"status": "passed", "run_id": passed, "mode": "resume",
-                                                   "finished": utc(NOW - timedelta(hours=2))}
-    # A week without such a session names exactly what to probe again.
-    record_probe(ctx, "submit", "run-now", age=timedelta(days=8))
-    code, result = call(ctx, "autodev", "ready")
-    assert code == 1 and len(result["missing"]) == 1
-    assert result["missing"][0].startswith("sandbox probe submit: the newest passing record (run ")
-    assert "run-now mode) is not from the last 7 days" in result["missing"][0]
-    assert result["probes"]["submit"]["run-now"]["status"] == "passed"
+        f"sandbox probe submit in resume mode: no record; run {command}" if state == "missing" else
+        f"sandbox probe submit in resume mode: failed in run {failed}; run {command} once it is fixed"]
+    assert result["probes"]["submit"]["resume"]["status"] == state
 
 
 @pytest.mark.parametrize("kind, mode", PAIRS)
@@ -257,18 +256,14 @@ def test_guarded_session_reports_count_but_static_checks_alone_do_not_replace_a_
     assert call(ctx, "autodev", "ready")[1]["probes"]["implement"]["resume"]["run_id"] == passed
 
 
-def test_a_static_only_pass_neither_replaces_a_failure_nor_refreshes_an_old_probe(ctx):
-    """Kills mutant M03 (every report counts): the newer static-only passes must change nothing."""
+def test_a_static_only_pass_does_not_replace_a_failure(ctx):
+    """Kills mutant M03 (every report counts): the newer static-only pass must change nothing."""
     ready_now(ctx)
     failed = record_probe(ctx, "select", "scheduled", ok=False)
     record_probe(ctx, "select", "scheduled", ran_session=False, guarded=True)
-    record_probe(ctx, "implement", "dry-run", age=timedelta(days=8))  # implement's newest probe session: old
-    record_probe(ctx, "implement", "scheduled", ran_session=False, guarded=True)
     code, result = call(ctx, "autodev", "ready")
     assert code == 1 and result["probes"]["select"]["scheduled"]["status"] == "failed"
     assert result["probes"]["select"]["scheduled"]["run_id"] == failed
-    assert result["probe_freshness"]["implement"]["status"] == "stale"
-    assert result["probe_freshness"]["implement"]["mode"] == "dry-run"
 
 
 def test_a_codex_select_stage_needs_claude_probes_only_while_a_run_falls_back_to_claude(ctx):
@@ -609,6 +604,33 @@ def test_a_scheduled_run_starts_while_ready_passes(ctx):
     [argv] = ctx.world["supervised"]
     assert argv[argv.index("--mode") + 1] == "run" and "--pr" not in argv
     assert ctx.world["transport"].requests == [RULES, WORKFLOW, SECRETS]  # checked at tick time
+
+
+def test_a_scheduled_run_starts_with_probe_records_older_than_a_week(ctx):
+    """The owner dropped the 7-day rule (2026-10-14): neither the tick nor the child's check under
+    the run lease refuses a slot for old passing probe records."""
+    accept(ctx)
+    for kind, mode in PAIRS:
+        record_probe(ctx, kind, mode, age=timedelta(days=30))
+    run_mode(ctx)
+    code, result = call(ctx, "tick")
+    assert code == 0 and result["tick"]["action"] == "run" and result["run"]["status"] != "refused"
+    [argv] = ctx.world["supervised"]
+    assert argv[argv.index("--mode") + 1] == "run" and ctx.world["notifications"] == []
+    assert runner.scheduled_problems(ctx) == []
+
+
+def test_a_scheduled_run_is_still_refused_for_a_failed_probe_pair(ctx):
+    ready_now(ctx)
+    run_mode(ctx)
+    failed = record_probe(ctx, "implement", "scheduled", ok=False)
+    code, result = call(ctx, "tick")
+    assert code == 0 and result["tick"]["action"] == "run" and ctx.world["supervised"] == []
+    run = result["run"]
+    assert run["status"] == "refused" and run["missing"] == [
+        f"sandbox probe implement in scheduled mode: failed in run {failed}; run `python -m src.schedules probe "
+        "--mode scheduled --kind implement --confirm-live-probe` once it is fixed"]
+    assert run["reason"].startswith("automatic mode not ready: sandbox probe implement in scheduled mode: failed")
 
 
 def test_a_continuation_resumes_while_ready_passes(ctx):

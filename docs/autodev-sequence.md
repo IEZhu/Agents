@@ -34,8 +34,7 @@ command that resumes it, and is not retried). The sequence itself is the same fo
 a supervised run; it writes the tick's `next_attempt` for a `waiting_bots` pull request, so in run
 mode the tick continues it, and the notification still names the command that continues it by
 hand. The guarded sessions of a scheduled run record their probe reports under `scheduled` (a
-continuation's under `resume`), which keeps the `implement` and `submit` records that `ready`
-asks to be at most 7 days old fresh.
+continuation's under `resume`); `ready` needs one passing report per kind and mode, at any age.
 
 ## Order
 
