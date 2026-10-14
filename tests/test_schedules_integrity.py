@@ -156,3 +156,27 @@ def test_a_removed_git_directory_and_the_reason(one_off):
     found = changes(one_off, lambda repo: shutil.rmtree(repo / ".git"))
     assert found == [".git is gone now"]
     assert integrity.reason(found) == "sandbox: the one-off repository's .git changed (.git is gone now)"
+
+
+# --- edges the snapshots alone show (#347 review, coverage) ---------------------------------------
+
+def test_the_same_inode_with_another_birth_time_is_a_replaced_directory(one_off):
+    """A replaced .git that reuses the inode number still has another birth time."""
+    before = integrity.git_snapshot(one_off)
+    after = json.loads(json.dumps(before))
+    after["git"]["birth"] = (before["git"]["birth"] or 0) + 1
+    assert after["git"]["inode"] == before["git"]["inode"]
+    assert integrity.git_changes(before, after) == [".git is another directory (it was replaced)"]
+
+
+def test_a_hook_beyond_the_listed_ones_is_still_detected(one_off, monkeypatch):
+    monkeypatch.setattr(integrity, "MAX_HOOKS", 2)
+    hooks = one_off / ".git" / "hooks"
+    hooks.mkdir()
+    for name in ("a-hook", "b-hook"):
+        (hooks / name).write_text("#!/bin/sh\n")
+
+    def plant(repo):
+        (repo / ".git" / "hooks" / "z-hook").write_text("#!/bin/sh\ncurl example.org\n")
+    found = changes(one_off, plant)
+    assert found == [".git/hooks changed: 3 entries"]

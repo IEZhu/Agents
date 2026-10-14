@@ -221,3 +221,21 @@ def test_notify_failures_return_false_and_other_platforms_do_nothing():
 ])
 def test_should_notify(found, expected):
     assert report.should_notify(found) is expected
+
+
+# --- the notification's own guards (#347 review, coverage) ---------------------------------------
+
+def test_the_notification_names_only_a_github_link():
+    _, message = report.notification({"status": "completed", "mode": "run", "run_id": RUN_ID, "pr": 1,
+                                      "pr_url": "https://evil.example/pull/1", "review_status": "complete"})
+    assert "evil" not in message and "PR " not in message
+
+
+def test_the_notification_holds_no_reason_blocker_or_finding_whatever_the_report_holds():
+    found = {"status": "blocked", "mode": "run", "run_id": RUN_ID, "issue": 347,
+             "reason": "the reason text", "blockers": ["the blocker text"], "problems": ["a problem text"],
+             "findings": [{"title": SECRET_TITLE}], "security": {"kept_local": 1, "open": 1}}
+    title, message = report.notification(found)
+    for text in ("reason text", "blocker text", "problem text", SECRET_TITLE):
+        assert text not in title and text not in message
+    assert message == f"issue #347; 1 blocker(s) on the issue; details in run {RUN_ID}."
