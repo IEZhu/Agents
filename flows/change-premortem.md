@@ -32,15 +32,16 @@ A session that delegates this step itself follows the
 [delegation contract](README.md#delegated-workers): `get_subagent_context` with
 `result_type="review"`, the unchanged `worker_context` to a fresh worker, and
 `validate_subagent_result` with the retained contract before the result is
-used. Run directly through Agents-Core MCP
-(`run_flow(flow="change-premortem", request=...)`), apply the returned
-`persona_activation` as a switch first.
+used. When the flow is run directly through Agents-Core MCP
+(`run_flow(flow="change-premortem", request=...)`), the caller applies the
+returned `persona_activation` as a switch first.
 
 ## Inputs
 
 - **The change:** the range from the run's base (`pinned`) to the head, with
   the materials of [code-review-pass](code-review-pass.md#inputs): the diff,
-  the commit log, the changed files at the head and `criteria.md`.
+  the commit log, the changed files at the head (read `head/<path>`, not the
+  working directory's copy at `pinned`) and `criteria.md`.
 - **The review log:** `reviews.json` (accepted reviews and their findings) and
   `decisions.json` (what the session fixed or declined, with reasons).
 
@@ -75,8 +76,11 @@ A `ReviewPayload` with one `Finding` per risk:
 | `recommendation` | The fix, or the test or check that would catch it before merge |
 | `evidence_ids` | The evidence items that support it |
 
-Name a security risk plainly as security in its explanation: the runner keeps
-such a risk local ([design 5.8](../docs/autodev-plan.md#58-public-visibility)).
+Name a security risk plainly in its explanation (secrets, credentials,
+permissions, injection, trust boundaries): the runner marks a risk
+`security: true` by such keywords in its location, explanation and
+recommendation, and keeps a marked risk local
+([design 5.8](../docs/autodev-plan.md#58-public-visibility)).
 The evidence includes one item whose reference is exactly the reviewed range,
 and cites no other 40-character commit IDs than the run's base, the range's
 ends and the commits since the base.
@@ -91,12 +95,15 @@ decision, recorded with `{worker_cmd} decide` in an autodev run:
 - `mitigated`: a test or code already covers it, named in the reason;
 - `known_risk`: accepted, with the reason.
 
-Unresolved risks are handled by level (Q3): `low` and `info` go into the pull
-request section "Pre-mortem: known risks"; each `medium`, `high` or `critical`
-risk becomes an issue labelled `autodev:risk` that the runner creates through
-its broker and links from the pull request (at most three per run). A security
-risk goes to neither place: it stays in the local run record, and an open one
-blocks the pull request.
+Unresolved risks are handled by the runner's `security` mark first, then by
+level (Q3). A risk marked `security: true` goes neither into the pull request
+nor into an issue: it stays in the local run record, and one that is neither
+fixed and verified nor `mitigated` ends the implementation stage blocked, so
+no pull request is opened. Of the other risks, `low` and `info` go into the
+pull request section "Pre-mortem: known risks"; each `medium`, `high` or
+`critical` one becomes an issue labelled `autodev:risk` that the runner creates
+through its broker and links from the pull request (at most three per run;
+further ones stay in the run record).
 
 ## Done
 
