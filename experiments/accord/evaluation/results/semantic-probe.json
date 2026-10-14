@@ -1,0 +1,25 @@
+{
+  "probe": "contradictory prose preserving the tested positive phrases",
+  "contradiction": "A successful structural validation guarantees that all worker claims are factually true.",
+  "rows": [
+    {
+      "arm": "accord_json",
+      "all_declared_checks_passed": true,
+      "publication_status": "confirmed",
+      "known_false_claim_published": true
+    },
+    {
+      "arm": "accord_python",
+      "all_declared_checks_passed": true,
+      "publication_status": "confirmed",
+      "known_false_claim_published": true
+    },
+    {
+      "arm": "python_sdk",
+      "all_declared_checks_passed": true,
+      "publication_status": "confirmed",
+      "known_false_claim_published": true
+    }
+  ],
+  "interpretation": "These predicates do not establish prose truth. The same blind spot appears in every arm. The bad candidate is confined to disposable fixture repositories and is never materialized into the task worktree."
+}

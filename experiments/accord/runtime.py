@@ -5,7 +5,7 @@ from types import MappingProxyType
 from typing import Callable
 import uuid
 
-from .ir import Contract, bounded_int, digest, identifier, require, text_digest
+from .ir import Contract, digest, identifier, require, revision_token, text_digest
 from .store import Store
 
 
@@ -189,7 +189,7 @@ class Runtime:
         """Privileged host grant; not exposed to model text or inferred from receipts."""
         identifier(request_id)
         identifier(target)
-        bounded_int(expected_version, 0, 2**63 - 1)
+        revision_token(expected_version)
         require(sink_name in self.sinks, "unregistered sink")
         with self.store.transaction() as db:
             accepted = self.store.get(db, "acceptance", accepted_id)

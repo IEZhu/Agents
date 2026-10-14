@@ -1,0 +1,15 @@
+{
+  "ir": "accord.contract/0.1",
+  "name": "subagent_testing_guide",
+  "inputs": ["test_guide", "core_tests", "mcp_tests", "api_guide", "project_config", "test_evidence"],
+  "output_max_bytes": 65536,
+  "checks": {
+    "bounded_edit": "1",
+    "runnable_command": "2",
+    "source_alignment": "1",
+    "focused_tests": "1"
+  },
+  "publish_to": ["test_guide"],
+  "request_budget": 2,
+  "policy_revision": "p1"
+}

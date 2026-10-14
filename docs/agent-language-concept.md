@@ -150,8 +150,8 @@ The [instruction-signing proposal](instruction-signing-spec.md) is related but s
 |---|---|---|
 | 0: semantic design | [IR 0.1](accord-ir.md), separate state records, explicit transaction boundaries and counterexamples | Implemented subset specified and reviewed; larger language semantics remain open |
 | 1: library experiment | [Python prototype](../experiments/accord/README.md), separate host/sink SQLite ledgers and deterministic fake model | Adversarial tests cover the bounded trusted-host subset; production worktree containment is deferred |
-| 2: language experiment | Parser for the small surface language, effect/typestate diagnostics and TypeScript bindings | Same contract fixtures and receipts behave equivalently through both adapters |
-| 3: real evaluation | Bounded repository tasks using existing models and a comparison implementation | Measured reliability and authoring costs justify retaining the language boundary |
+| 2: repository evaluation | [Three-arm comparison](accord-repository-evaluation.md), real Git publication and ordinary Python SDK | Completed one recorded task: equivalent runtime observations, shared semantic blind spot; no standalone-language benefit established |
+| 3: portability and authoring study | Multiple workflows, independently consuming IR backends and measured authoring/debugging effort | Proceed to surface syntax only if diagnostics or effort improve over an equally protected SDK |
 
 Do not implement a custom VM, model provider, distributed scheduler, package registry or optimizer in the MVP. Do not promise factual truth, universal prompt-injection prevention or exactly-once arbitrary external effects.
 
@@ -168,10 +168,10 @@ Predeclare these acceptance scenarios:
 - A worker is cancelled during an external action: the record preserves and reconciles the dispatched action.
 - Recorded execution resumes without another model call; deliberate resampling creates a new attempt and invalidates old acceptance.
 
-Measure unsafe action admissions, wrong-revision acceptances, duplicate external effects where the sink supports deduplication, task success by independent artifact checks, tokens/cost, recovery time, and developer time to author/debug contracts. Report actual sample sizes, models, adapter versions and failures; no benchmark results exist yet. Continue only if the contract representation catches meaningful mistakes or reduces work compared with the equally protected SDK. Otherwise retain the IR as a library format and drop the standalone syntax.
+Measure unsafe action admissions, wrong-revision acceptances, duplicate external effects where the sink supports deduplication, task success by independent artifact checks, tokens/cost, recovery time, and developer time to author/debug contracts. Report actual sample sizes, models, adapter versions and failures; the recorded repository comparison measures runtime conformance only, not model quality or productivity. Continue only if the contract representation catches meaningful mistakes or reduces work compared with the equally protected SDK. Otherwise retain the IR as a library format and drop the standalone syntax.
 
 ## Open questions
 
 The hardest design questions are the completeness of dependency manifests, validator governance, the size of the policy algebra, and whether adapter conformance is strong enough for portability. Another is whether acceptance should be a reusable certificate or an affine handle whose action eligibility is consumed by the ledger. The proposed answer separates reusable content-specific check receipts from consumable action authority.
 
-The versioned IR and executable counterexamples now exist in the [Python experiment](../experiments/accord/README.md). They test a bounded runtime model, not the productivity or portability value of a language. The next step is a realistic repository adapter plus an independently implemented second adapter, followed by comparison with an equally protected SDK before committing to a compiler.
+The versioned IR, executable counterexamples and [real repository comparison](accord-repository-evaluation.md) now exist. The three arms have equal observed behavior on this one task, including a shared semantic false positive. Retain Accord as an IR/library and defer a compiler. The next evidence must concern independent IR consumers and measured authoring/debugging benefits across distinct workflows; the separate SDK does not establish IR portability.

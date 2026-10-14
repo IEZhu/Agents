@@ -52,7 +52,7 @@ A child task uses `host.create_task(child_contract, parent=task)`. Its request c
 
 ## What the tests establish
 
-Recorded local run on 2026-10-14: **29 unittest methods passed on Python 3.13.13**. Several methods include multiple adversarial cases. These are deterministic correctness checks, not production reliability measurements or a formal proof.
+Initial local run on 2026-10-14: **29 runtime unittest methods passed on Python 3.13.13**. The subsequent [repository evaluation](evaluation/README.md) adds nine tests; the current full experiment suite passes **38 methods**. Several methods include multiple adversarial cases. These are deterministic correctness checks, not production reliability measurements or a formal proof.
 
 | Boundary | Executed cases |
 |---|---|
@@ -75,9 +75,11 @@ Each race uses separate SQLite connections, barriers/events and bounded waits. C
 - `sink.py`: separate simulated destination with atomic target CAS and operation deduplication.
 - `__main__.py`: runnable lost-response/recovery example.
 - `tests/test_runtime.py`: executable counterexamples and subprocess crash tests.
+- `evaluation/`: a real repository task, Git adapter, three-arm SDK comparison and raw evidence.
+- `tests/test_evaluation.py`: adapter races, receipt recovery, revision tokens and comparison controls.
 
-All Python callbacks, the validator registry, host administration APIs and both databases are trusted. There is no containment of arbitrary Python, filesystem or network access, no authenticated cross-host receipts, no provider billing enforcement, no general workflow scheduler and no compiler. Validators establish only their declared predicates; the example's text checks do not establish factual correctness. The example does not publish to a real repository or remote service.
+All Python callbacks, the validator registry, host administration APIs and both databases are trusted. There is no containment of arbitrary Python, filesystem or network access, no authenticated cross-host receipts, no provider billing enforcement, no general workflow scheduler and no compiler. Validators establish only their declared predicates; the example's text checks do not establish factual correctness. The basic demo uses simulated storage. The separate repository evaluation publishes to a dedicated local Git ref; neither publishes to a remote service.
 
 A host policy/input/cancellation change before dispatch admission blocks a new send. A change after admission cannot retract an already admitted write. The destination alone enforces its version precondition at write time. Missing reconciliation data does not establish that an earlier send failed; automatic resend additionally requires durable destination deduplication. No arbitrary external exactly-once guarantee is claimed.
 
-The design hypothesis remains open: this prototype demonstrates a runtime/library boundary, not that a separate language improves developer productivity. Next evaluate the same contracts through two independently implemented adapters and a real bounded repository workflow; compare with an equally protected Python SDK before adding syntax.
+The [real repository comparison](../../docs/accord-repository-evaluation.md) finds equivalent observations for JSON Accord, direct Python Accord and an independently implemented Python SDK across 24 scenarios. A semantic negative control fails in every arm. This supports a useful runtime/library boundary, while providing no evidence yet that standalone syntax improves productivity. Cross-backend IR portability and broader authoring studies remain open.

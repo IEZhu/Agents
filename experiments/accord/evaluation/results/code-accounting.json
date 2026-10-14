@@ -1,0 +1,107 @@
+{
+  "method": "Physical and nonblank lines include comments/docstrings. UTF-8 bytes include formatting.",
+  "groups": {
+    "accord_runtime_and_ir": [
+      {
+        "path": "experiments/accord/runtime.py",
+        "physical_lines": 330,
+        "nonblank_lines": 300,
+        "utf8_bytes": 17599,
+        "sha256": "f5da8ce4c66a73e8e93356b67fa7617bc8fd24d386d9ebc3207f1fe111af6662"
+      },
+      {
+        "path": "experiments/accord/ir.py",
+        "physical_lines": 125,
+        "nonblank_lines": 98,
+        "utf8_bytes": 4870,
+        "sha256": "bd669e7ee36f38ea79f472e68a8e9ef9680410e300f96cd4f1c21a3a939b5f7f"
+      }
+    ],
+    "independent_sdk_including_job_spec": [
+      {
+        "path": "experiments/accord/evaluation/python_sdk.py",
+        "physical_lines": 360,
+        "nonblank_lines": 329,
+        "utf8_bytes": 18752,
+        "sha256": "ee275f22b5db960c372de8f216d1677ea44ea6c130d658c2a789d91b3988dd25"
+      }
+    ],
+    "shared_storage": [
+      {
+        "path": "experiments/accord/store.py",
+        "physical_lines": 52,
+        "nonblank_lines": 43,
+        "utf8_bytes": 1880,
+        "sha256": "c926b69be397afa77071ee5e98616a72680ecb9bf9204ff4d3f888d0a7f8e995"
+      }
+    ],
+    "shared_git_adapter": [
+      {
+        "path": "experiments/accord/evaluation/git_sink.py",
+        "physical_lines": 141,
+        "nonblank_lines": 122,
+        "utf8_bytes": 7246,
+        "sha256": "6ac57b24ba9d8baab6e26563394cf2c469c5fbc290a2e74db2d4f3d343283033"
+      }
+    ],
+    "shared_workload_and_predicates": [
+      {
+        "path": "experiments/accord/evaluation/workload.py",
+        "physical_lines": 83,
+        "nonblank_lines": 62,
+        "utf8_bytes": 3577,
+        "sha256": "6fb44489555bef48ab3e46473dcb8c8645f8bd7449d450e307c3711a0ce653ea"
+      }
+    ],
+    "all_arm_wiring": [
+      {
+        "path": "experiments/accord/evaluation/clients.py",
+        "physical_lines": 43,
+        "nonblank_lines": 30,
+        "utf8_bytes": 1550,
+        "sha256": "47bc7fa37b837d4a63c43f719451ce977c8890ad6f89386bba5317f5b7646719"
+      }
+    ],
+    "json_task_declaration": [
+      {
+        "path": "experiments/accord/evaluation/contract.json",
+        "physical_lines": 15,
+        "nonblank_lines": 15,
+        "utf8_bytes": 411,
+        "sha256": "4cfa9e77f2a9938fd2c2d55537a41b7fc4b00f79a2a6eec9ff5c5c3ed4952268"
+      }
+    ],
+    "paired_harness": [
+      {
+        "path": "experiments/accord/evaluation/run.py",
+        "physical_lines": 304,
+        "nonblank_lines": 283,
+        "utf8_bytes": 15320,
+        "sha256": "f1a144a2d6c0eed000eb484b574dbf30e967b7ee33072f0bc825ee503636fbfa"
+      }
+    ]
+  },
+  "declarations": [
+    {
+      "function": "python_configuration",
+      "physical_lines": 7,
+      "source": "def python_configuration():\n    return dict(name=\"subagent_testing_guide\",\n                inputs=(\"test_guide\", \"core_tests\", \"mcp_tests\", \"api_guide\", \"project_config\", \"test_evidence\"),\n                output_max_bytes=65536,\n                checks=((\"bounded_edit\", \"1\"), (\"runnable_command\", \"2\"),\n                        (\"source_alignment\", \"1\"), (\"focused_tests\", \"1\")),\n                publish_to=(\"test_guide\",), request_budget=2, policy_revision=\"p1\")"
+    },
+    {
+      "function": "json_contract",
+      "physical_lines": 2,
+      "source": "def json_contract():\n    return Contract.parse((Path(__file__).parent / \"contract.json\").read_text())"
+    },
+    {
+      "function": "python_contract",
+      "physical_lines": 2,
+      "source": "def python_contract():\n    return Contract(**python_configuration())"
+    },
+    {
+      "function": "sdk_specification",
+      "physical_lines": 3,
+      "source": "def sdk_specification():\n    from .python_sdk import JobSpec\n    return JobSpec(**python_configuration())"
+    }
+  ],
+  "limits": "Runtime scopes differ: Accord includes child allocation and JSON parsing; SDK covers the tested single-task lifecycle. Neither counts as per-task authoring effort. No productivity or brevity win is inferred."
+}
