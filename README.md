@@ -462,6 +462,11 @@ store; the interaction journal `history.md` retains its separate role.
 
 ### Updates
 
+Feature PRs target `dev`; release PRs promote `dev` into `main`. Merged release
+PRs record the existing UTC calendar version with an immutable Git tag at the
+resulting commit. See [Calendar releases](docs/releases.md) for event guards,
+same-minute releases and retry behavior.
+
 The shared daemon has its own update controller. Run
 `.venv/bin/python -m src.daemon update` for a manual update; automatic daemon
 updates are opt-in through `.venv/bin/python -m src.daemon auto-update enable`.
