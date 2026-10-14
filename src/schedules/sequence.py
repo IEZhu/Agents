@@ -523,15 +523,10 @@ class Sequence:
             found = self.ctx.codex_availability(kind)
         else:
             codex = runner.codex_executable(self.ctx)
-            if not codex:
-                return "codex_missing"
-            try:
-                found = codex_probes.read_availability(
-                    self.ctx.directory, codex_sandbox.STAGE,
-                    version=codex_probes.installed_version(codex, path=self.path, command_runner=self.ctx.command_runner),
-                    shape=codex_probes.stage_shape(codex, self.config, kind))
-            except codex_sandbox.CodexSandboxError:
-                return "codex_missing"
+            version = codex_probes.installed_version(codex, path=self.path, command_runner=self.ctx.command_runner) \
+                if codex else None
+            found = codex_probes.configured_stage_availability(self.ctx.directory, self.config, kind, codex,
+                                                               version=version)
         return None if found.get("available") is True else str(found.get("reason") or "not_checked")
 
     def write_state(self, stage: str) -> None:
