@@ -73,3 +73,15 @@ def agents_core_version() -> str:
         return format_version(commit_time, dirty, _branch(status))
     except ValueError:
         return UNKNOWN
+
+
+@lru_cache(maxsize=1)
+def agents_core_branch() -> str | None:
+    """The installation's checked-out branch (#381); None on a detached HEAD or without git metadata.
+
+    Computed once per process, like the version: switching branches restarts the server.
+    """
+    if not (ROOT / ".git").exists():
+        return None
+    found = _git("symbolic-ref", "--quiet", "--short", "HEAD")
+    return found.strip() or None if found else None

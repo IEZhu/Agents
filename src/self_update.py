@@ -28,9 +28,13 @@ as well as imports. A start contending with activation waits before engine impor
 
 Safety invariants (both paths):
     * acts **only** when the checked-out branch is the target branch
-      (``AUTO_UPDATE_BRANCH``) — a no-op on feature branches / local dev,
+      (``AUTO_UPDATE_BRANCH``) — a no-op on feature branches / local dev —
+      or, given a :class:`src.update_channel.Policy`, a channel branch that the
+      setting moved away from (``main``, ``dev`` or the previous setting): the
+      update then switches the checkout to the target branch (#381),
     * only when the working tree is clean, and only **fast-forward** (never
-      merge / rebase / auto-checkout),
+      merge / rebase); a switch to a branch that does not contain HEAD (a
+      downgrade) needs the owner's recorded confirmation,
     * staging never mutates the live install; a failed prepare writes no marker,
       the legacy path rolls back a failed reindex, and a failed activation move
       rolls back the just-merged tree,
@@ -57,6 +61,7 @@ from typing import Optional
 
 from src import executables
 from src.startup import UPDATE_JOURNAL
+from src.update_channel import Policy, plausible_branch, policy_from
 
 from src.engine.config import (
     INSTALL_ROOT,
@@ -97,6 +102,17 @@ _STAGED_STORES = (
     ("implants_store", ".implants_hash"),
 )
 
+# The default switch policy of the updaters' entry points: the update keys in this
+# process's environment, which a stdio server loaded from .env (#381). The shared
+# service's controller passes the policy it read (`src.daemon.update`); None allows
+# no branch switch.
+FROM_ENVIRONMENT = "environment"
+
+
+def _policy(policy) -> Optional[Policy]:
+    return policy_from(os.environ) if policy == FROM_ENVIRONMENT else policy
+
+
 # A full 40-hex commit sha — the shape of both a marker's target_sha and the
 # basename of every staging worktree prepare_update creates.
 _FULL_SHA_RE = re.compile(r"\A[0-9a-f]{40}\Z")
@@ -113,6 +129,8 @@ class UpdateStatus:
     UP_TO_DATE = "UP_TO_DATE"
     SKIPPED_DIVERGED = "SKIPPED_DIVERGED"
     SKIPPED_AHEAD = "SKIPPED_AHEAD"
+    # A branch switch to code that does not contain HEAD, without the owner's confirmation.
+    SKIPPED_DOWNGRADE = "SKIPPED_DOWNGRADE"
     MERGE_FAILED = "MERGE_FAILED"
     REINDEX_FAILED = "REINDEX_FAILED"
     ROLLBACK_FAILED = "ROLLBACK_FAILED"
@@ -148,6 +166,7 @@ class PreparedStatus:
     UP_TO_DATE = UpdateStatus.UP_TO_DATE
     SKIPPED_DIVERGED = UpdateStatus.SKIPPED_DIVERGED
     SKIPPED_AHEAD = UpdateStatus.SKIPPED_AHEAD
+    SKIPPED_DOWNGRADE = UpdateStatus.SKIPPED_DOWNGRADE
     PREPARED = "PREPARED"
     PREPARE_WORKTREE_FAILED = "PREPARE_WORKTREE_FAILED"
     PREPARE_REINDEX_FAILED = "PREPARE_REINDEX_FAILED"
@@ -165,6 +184,7 @@ class ActivationStatus:
     INVALID_NOT_FF = "INVALID_NOT_FF"
     INVALID_DIRTY = "INVALID_DIRTY"
     INVALID_WRONG_BRANCH = "INVALID_WRONG_BRANCH"
+    INVALID_DOWNGRADE = "INVALID_DOWNGRADE"
     INVALID_STAGING_MISSING = "INVALID_STAGING_MISSING"
     INVALID_STAGING_INCONSISTENT = "INVALID_STAGING_INCONSISTENT"
     INVALID_CROSS_DEVICE = "INVALID_CROSS_DEVICE"
@@ -410,14 +430,16 @@ def _warn_if_deps_changed(repo_root: str, old_sha: str, new_sha: str, timeout: i
 
 # --- State + throttle persistence --------------------------------------------
 
-def _write_state(status: str, old_sha: str, new_sha: str) -> None:
-    """Atomically persist the latest update outcome to ``STATE_FILE``."""
+def _write_state(status: str, old_sha: str, new_sha: str, branch: Optional[str] = None) -> None:
+    """Atomically persist the latest update outcome to ``STATE_FILE``; *branch* names a switch's target."""
     payload = {
         "status": status,
         "old_sha": old_sha,
         "new_sha": new_sha,
         "ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
     }
+    if branch:
+        payload["branch"] = branch
     try:
         os.makedirs(os.path.dirname(STATE_FILE) or ".", exist_ok=True)
         tmp = STATE_FILE + ".tmp"
@@ -428,15 +450,19 @@ def _write_state(status: str, old_sha: str, new_sha: str) -> None:
         logger.debug("Auto-update: could not write state file: %s", e)
 
 
-def _begin_update(repo_root: str, old_sha: str, target_sha: str) -> None:
-    """Persist recovery evidence before touching the live tree or store files."""
+def _begin_update(repo_root: str, old_sha: str, target_sha: str, details=None) -> None:
+    """Persist recovery evidence before touching the live tree or store files.
+
+    *details* adds a branch switch's ``old_branch``, ``branch`` and ``branch_tip``
+    (see :func:`_rollback_activation`), so a manual recovery knows the branch to return to.
+    """
     data_dir = os.path.join(repo_root, "data")
     os.makedirs(data_dir, exist_ok=True)
     journal = os.path.join(data_dir, UPDATE_JOURNAL)
     # Exclusive creation never overwrites evidence of an earlier failed update.
     # A partial/unreadable journal also blocks startup, so writing in place is safe.
     with open(journal, "x", encoding="utf-8") as stream:
-        json.dump({"old_sha": old_sha, "target_sha": target_sha}, stream)
+        json.dump({"old_sha": old_sha, "target_sha": target_sha, **(details or {})}, stream)
         stream.flush()
         os.fsync(stream.fileno())
     if os.name != "posix":
@@ -493,7 +519,7 @@ def _touch_check_stamp() -> None:
 
 # --- Prepared-update marker (Phase A/B) --------------------------------------
 
-def _write_prepared_marker(target_sha, base_sha, branch, embedding_model, staging_dir, stores) -> None:
+def _write_prepared_marker(target_sha, base_sha, branch, embedding_model, staging_dir, stores, switch=None) -> None:
     """Atomically write the prepared-update marker.
 
     Written **last** by ``prepare_update`` — its presence is the sole signal that
@@ -511,6 +537,9 @@ def _write_prepared_marker(target_sha, base_sha, branch, embedding_model, stagin
         "stores": list(stores),
         "built_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
     }
+    if switch:
+        # A branch switch: activation checks out *branch* from ``switch_from``.
+        payload.update(switch_from=switch["from"], remote=switch["remote"], downgrade=bool(switch["downgrade"]))
     os.makedirs(os.path.dirname(PREPARED_MARKER) or ".", exist_ok=True)
     tmp = PREPARED_MARKER + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
@@ -536,11 +565,34 @@ def _read_prepared_marker():
 # --- Core state machine ------------------------------------------------------
 
 def _resolve_ff_target(repo_root: str, remote: str, branch: str, git_timeout: int):
+    """:func:`_resolve_target` without branch switches: ``(status, old_sha, target_sha)``."""
+    return _resolve_target(repo_root, remote, branch, git_timeout)[:3]
+
+
+def _branch_tip(repo_root: str, branch: str, target_sha: str, git_timeout: int):
+    """The local *branch*'s commit ("" when there is none), or None when it has commits
+    *target_sha* lacks: switching to the target would drop them."""
+    tip = _run_git(["rev-parse", "--verify", "--quiet", "refs/heads/" + branch], repo_root, git_timeout)
+    found = tip.stdout.strip() if tip.returncode == 0 else ""
+    if not found:
+        return ""
+    contained = _run_git(["merge-base", "--is-ancestor", found, target_sha], repo_root, git_timeout)
+    return found if contained.returncode == 0 else None
+
+
+def _resolve_target(repo_root: str, remote: str, branch: str, git_timeout: int, policy: Optional[Policy] = None):
     """Validate + fetch + measure how far *repo_root* is behind ``<remote>/<branch>``.
+
+    Returns ``(status, old_sha, target_sha, switch)``. With a *policy*, a checkout on
+    a channel branch other than *branch* (``Policy.may_switch``) resolves to a branch
+    switch: ``switch`` is ``{"from", "remote", "downgrade"}`` and the target is the
+    fetched tip whether or not it descends from HEAD; one that does not (a downgrade)
+    needs ``Policy.downgrade_confirmed``. Otherwise ``switch`` is None and the rules
+    below apply.
 
     Shared, mutation-free prefix of the legacy in-place path
     (:func:`check_and_apply_update`) and Phase B (:func:`prepare_update`). Handles
-    its own git errors and returns a tuple ``(status, old_sha, target_sha)``:
+    its own git errors; ``(status, old_sha, target_sha)`` are:
 
     * Terminal outcome (nothing to do, or a failure): ``status`` is the
       :class:`UpdateStatus` to surface and ``target_sha`` is ``None``.
@@ -559,20 +611,20 @@ def _resolve_ff_target(repo_root: str, remote: str, branch: str, git_timeout: in
             "Auto-update: refusing unsafe remote/branch (%r / %r); skipping.",
             remote, branch,
         )
-        return UpdateStatus.SKIPPED_BAD_CONFIG, "", None
+        return UpdateStatus.SKIPPED_BAD_CONFIG, "", None, None
 
     # Step 1 — git available and repo_root is a work tree.
     try:
         rev = _run_git(["rev-parse", "--is-inside-work-tree"], repo_root, git_timeout)
     except FileNotFoundError:
         logger.info("Auto-update: git not found; skipping.")
-        return UpdateStatus.NO_GIT, "", None
+        return UpdateStatus.NO_GIT, "", None, None
     except subprocess.TimeoutExpired:
         logger.warning("Auto-update: git timed out; skipping.")
-        return UpdateStatus.NO_GIT, "", None
+        return UpdateStatus.NO_GIT, "", None, None
     if rev.returncode != 0 or rev.stdout.strip() != "true":
         logger.info("Auto-update: %s is not a git work tree; skipping.", repo_root)
-        return UpdateStatus.NO_GIT, "", None
+        return UpdateStatus.NO_GIT, "", None, None
 
     network_reached = False
     old_sha = ""
@@ -580,29 +632,38 @@ def _resolve_ff_target(repo_root: str, remote: str, branch: str, git_timeout: in
         # Step 2 — branch guard: only act on the target branch.
         cur = _run_git(["rev-parse", "--abbrev-ref", "HEAD"], repo_root, git_timeout)
         current_branch = cur.stdout.strip() if cur.returncode == 0 else ""
+        switch = None
         if current_branch != branch:
-            logger.info(
-                "Auto-update: on '%s', target is '%s'; skipping (local development).",
-                current_branch or "?", branch,
-            )
-            return UpdateStatus.SKIPPED_WRONG_BRANCH, "", None
+            if policy is None or not policy.may_switch(current_branch, branch):
+                logger.info(
+                    "Auto-update: on '%s', target is '%s'; skipping (local development).",
+                    current_branch or "?", branch,
+                )
+                return UpdateStatus.SKIPPED_WRONG_BRANCH, "", None, None
+            # A switch writes the name into the repository's configuration: the same
+            # check as `channel set` (src/update_channel.py).
+            checked = _run_git(["check-ref-format", "--branch", branch], repo_root, git_timeout)
+            if not plausible_branch(branch) or checked.returncode != 0 or checked.stdout.strip() != branch:
+                logger.warning("Auto-update: refusing invalid branch name %r; skipping.", branch)
+                return UpdateStatus.SKIPPED_BAD_CONFIG, "", None, None
+            switch = {"from": current_branch, "remote": remote, "downgrade": False}
 
         # Step 3 — clean working tree (tracked files only; an incoming file that
         # collides with an untracked one makes the ff-merge fail loudly later).
         status = _run_git(["status", "--porcelain", "--untracked-files=no"], repo_root, git_timeout)
         if status.returncode != 0:
             logger.warning("Auto-update: git status failed; skipping. %s", status.stderr.strip())
-            return UpdateStatus.SKIPPED_DIRTY, "", None
+            return UpdateStatus.SKIPPED_DIRTY, "", None, None
         if status.stdout.strip():
             logger.info("Auto-update: working tree has uncommitted changes; skipping.")
-            return UpdateStatus.SKIPPED_DIRTY, "", None
+            return UpdateStatus.SKIPPED_DIRTY, "", None, None
 
         head = _run_git(["rev-parse", "HEAD"], repo_root, git_timeout)
         old_sha = head.stdout.strip() if head.returncode == 0 else ""
         if not old_sha:
             # Without a baseline commit we cannot roll back, so refuse to mutate.
             logger.warning("Auto-update: could not resolve current HEAD; skipping.")
-            return UpdateStatus.NO_GIT, "", None
+            return UpdateStatus.NO_GIT, "", None, None
 
         # Step 4 — fetch the target branch.
         try:
@@ -610,12 +671,14 @@ def _resolve_ff_target(repo_root: str, remote: str, branch: str, git_timeout: in
             fetch = _run_git(["fetch", remote, branch], repo_root, git_timeout)
         except subprocess.TimeoutExpired:
             logger.warning("Auto-update: git fetch timed out after %ds; serving current code.", git_timeout)
-            return UpdateStatus.FETCH_FAILED, old_sha, None
+            return UpdateStatus.FETCH_FAILED, old_sha, None, None
         if fetch.returncode != 0:
             logger.warning("Auto-update: git fetch failed; serving current code. %s", fetch.stderr.strip())
-            return UpdateStatus.FETCH_FAILED, old_sha, None
+            return UpdateStatus.FETCH_FAILED, old_sha, None, None
 
         remote_ref = f"{remote}/{branch}"
+        if switch is not None:
+            return _resolve_switch(repo_root, branch, remote_ref, old_sha, switch, policy, git_timeout)
 
         # Compare against FETCH_HEAD — fetch always points it at the just-fetched
         # branch tip, so this avoids depending on remote-tracking-ref refspec
@@ -628,13 +691,13 @@ def _resolve_ff_target(repo_root: str, remote: str, branch: str, git_timeout: in
         )
         if counts.returncode != 0:
             logger.warning("Auto-update: could not compare with %s; skipping. %s", remote_ref, counts.stderr.strip())
-            return UpdateStatus.FETCH_FAILED, old_sha, None
+            return UpdateStatus.FETCH_FAILED, old_sha, None, None
         try:
             behind_str, ahead_str = counts.stdout.split()
             behind, ahead = int(behind_str), int(ahead_str)
         except ValueError:
             logger.warning("Auto-update: unexpected rev-list output %r; skipping.", counts.stdout)
-            return UpdateStatus.FETCH_FAILED, old_sha, None
+            return UpdateStatus.FETCH_FAILED, old_sha, None, None
         if ahead > 0:
             # Local has commits the remote lacks: diverged (when also behind) or
             # purely ahead. Either way, never fast-forward over local work.
@@ -643,10 +706,10 @@ def _resolve_ff_target(repo_root: str, remote: str, branch: str, git_timeout: in
                 "Auto-update: local branch has unpushed commits vs %s (ahead %d, behind %d); skipping.",
                 remote_ref, ahead, behind,
             )
-            return outcome, old_sha, None
+            return outcome, old_sha, None, None
         if behind == 0:
             logger.info("Auto-update: already up to date with %s.", remote_ref)
-            return UpdateStatus.UP_TO_DATE, old_sha, None
+            return UpdateStatus.UP_TO_DATE, old_sha, None, None
 
         # Fast-forwardable — resolve the concrete target commit (both callers want
         # the explicit sha: the legacy path merges it, Phase B stages + records it).
@@ -654,14 +717,64 @@ def _resolve_ff_target(repo_root: str, remote: str, branch: str, git_timeout: in
         target_sha = tgt.stdout.strip() if tgt.returncode == 0 else ""
         if not target_sha:
             logger.warning("Auto-update: could not resolve FETCH_HEAD; skipping.")
-            return UpdateStatus.FETCH_FAILED, old_sha, None
-        return None, old_sha, target_sha
+            return UpdateStatus.FETCH_FAILED, old_sha, None, None
+        return None, old_sha, target_sha, None
     except (subprocess.TimeoutExpired, FileNotFoundError):
         # Pre-mutation, so no rollback is needed here. A post-fetch failure is
         # network-reached (FETCH_FAILED, which throttles); a pre-fetch local-op
         # failure stays pre-network (NO_GIT) so it never suppresses a later check.
         logger.warning("Auto-update: a git operation failed; serving current code.")
-        return (UpdateStatus.FETCH_FAILED if network_reached else UpdateStatus.NO_GIT), old_sha, None
+        return (UpdateStatus.FETCH_FAILED if network_reached else UpdateStatus.NO_GIT), old_sha, None, None
+
+
+def _resolve_switch(repo_root, branch, remote_ref, old_sha, switch, policy, git_timeout):
+    """The fetched tip of *branch* as a switch target (see :func:`_resolve_target`)."""
+    tgt = _run_git(["rev-parse", "FETCH_HEAD"], repo_root, git_timeout)
+    target_sha = tgt.stdout.strip() if tgt.returncode == 0 else ""
+    if not target_sha:
+        logger.warning("Auto-update: could not resolve FETCH_HEAD; skipping.")
+        return UpdateStatus.FETCH_FAILED, old_sha, None, None
+    contained = _run_git(["merge-base", "--is-ancestor", old_sha, target_sha], repo_root, git_timeout)
+    if contained.returncode not in (0, 1):
+        logger.warning("Auto-update: could not compare with %s; skipping. %s", remote_ref, contained.stderr.strip())
+        return UpdateStatus.FETCH_FAILED, old_sha, None, None
+    switch["downgrade"] = contained.returncode == 1
+    if switch["downgrade"] and not policy.downgrade_confirmed(branch, old_sha):
+        logger.warning(
+            "Auto-update: %s does not contain HEAD %s of '%s'; switching would go back to older code. "
+            "Confirm with `channel set %s --allow-downgrade`; skipping.",
+            remote_ref, old_sha[:9], switch["from"], branch,
+        )
+        return UpdateStatus.SKIPPED_DOWNGRADE, old_sha, None, None
+    switch["branch_tip"] = _branch_tip(repo_root, branch, target_sha, git_timeout)
+    if switch["branch_tip"] is None:
+        logger.warning("Auto-update: local branch '%s' has commits %s lacks; skipping the switch.", branch, remote_ref)
+        return UpdateStatus.SKIPPED_DIVERGED, old_sha, None, None
+    logger.info("Auto-update: switching from '%s' to %s.", switch["from"], remote_ref)
+    return None, old_sha, target_sha, switch
+
+
+def _move_to_target(repo_root: str, target_sha: str, branch: str, switch, git_timeout: int):
+    """The commit point: fast-forward, or for a *switch* check out *branch* at the target.
+
+    The switched-to local branch is named like the remote branch and tracks exactly that
+    remote branch, never another one. Returns the failing (or last) git result.
+    """
+    if not switch:
+        return _run_git(["merge", "--ff-only", target_sha], repo_root, git_timeout)
+    result = _run_git(["checkout", "--quiet", "--no-track", "-B", branch, target_sha], repo_root, git_timeout)
+    for key, value in (("remote", switch["remote"]), ("merge", "refs/heads/" + branch)):
+        if result.returncode != 0:
+            break
+        result = _run_git(["config", f"branch.{branch}.{key}", value], repo_root, git_timeout)
+    return result
+
+
+def _switch_rollback(branch: str, switch) -> dict:
+    """What :func:`_rollback_activation` needs to undo a switch to *branch*; empty for a fast-forward."""
+    if not switch:
+        return {}
+    return {"old_branch": switch["from"], "branch": branch, "branch_tip": switch.get("branch_tip") or ""}
 
 
 def check_and_apply_update(
@@ -673,30 +786,36 @@ def check_and_apply_update(
     reindex_timeout: int = AUTO_UPDATE_REINDEX_TIMEOUT,
     reindex_fn=None,
     validate_target=None,
+    policy=FROM_ENVIRONMENT,
 ) -> str:
     """Legacy in-place path: fast-forward *repo_root* and rebuild stores in place.
 
     Used when ``AGENTS_AUTO_UPDATE_STAGING=0``. Pure of threading/locking so it can
     be unit-tested directly. ``reindex_fn`` (``repo_root -> bool``) is injected in
-    tests; defaults to spawning ``python -m src.reindex``. Returns an
-    :class:`UpdateStatus` value.
+    tests; defaults to spawning ``python -m src.reindex``. A *policy* allows a
+    branch switch (:func:`_resolve_target`). Returns an :class:`UpdateStatus` value.
     """
     reindex = reindex_fn or (lambda rr: _run_reindex(rr, reindex_timeout))
 
-    status, old_sha, target_sha = _resolve_ff_target(repo_root, remote, branch, git_timeout)
+    status, old_sha, target_sha, switch = _resolve_target(repo_root, remote, branch, git_timeout,
+                                                          _policy(policy))
     if target_sha is None:
         return status  # terminal: skip / up-to-date / pre-merge failure
 
     if validate_target is not None:
         validate_target(old_sha, target_sha)
 
-    _begin_update(repo_root, old_sha, target_sha)
+    undo = _switch_rollback(branch, switch)
+    if undo:
+        _begin_update(repo_root, old_sha, target_sha, undo)
+    else:
+        _begin_update(repo_root, old_sha, target_sha)
     try:
-        # Step 6 — fast-forward only.
-        merge = _run_git(["merge", "--ff-only", target_sha], repo_root, git_timeout)
+        # Step 6 — fast-forward only (or the branch switch).
+        merge = _move_to_target(repo_root, target_sha, branch, switch, git_timeout)
         if merge.returncode != 0:
             logger.warning("Auto-update: fast-forward merge failed; skipping. %s", merge.stderr.strip())
-            return (UpdateStatus.MERGE_FAILED if _rollback_activation(repo_root, old_sha, git_timeout)
+            return (UpdateStatus.MERGE_FAILED if _rollback_activation(repo_root, old_sha, git_timeout, **undo)
                     else UpdateStatus.ROLLBACK_FAILED)
         new = _run_git(["rev-parse", "HEAD"], repo_root, git_timeout)
         new_sha = new.stdout.strip() if new.returncode == 0 else ""
@@ -721,7 +840,7 @@ def check_and_apply_update(
                 stores_invalidated = False
                 logger.error("Auto-update: cannot invalidate partial reindex results.", exc_info=True)
             tree_restored = _rollback_activation(repo_root, old_sha, git_timeout,
-                                                clear_journal=stores_invalidated)
+                                                clear_journal=stores_invalidated, **undo)
             if not (tree_restored and stores_invalidated):
                 return UpdateStatus.ROLLBACK_FAILED
             _write_state(UpdateStatus.REINDEX_FAILED, old_sha, new_sha)
@@ -732,7 +851,7 @@ def check_and_apply_update(
             "Auto-update: prepared update %s -> %s; takes effect on next restart.",
             old_sha[:9], new_sha[:9],
         )
-        _write_state(UpdateStatus.UPDATED, old_sha, new_sha)
+        _write_state(UpdateStatus.UPDATED, old_sha, new_sha, branch if switch else None)
         _finish_update(repo_root)
         return UpdateStatus.UPDATED
     except (subprocess.TimeoutExpired, FileNotFoundError):
@@ -743,7 +862,7 @@ def check_and_apply_update(
         # Even the merge command itself can time out after advancing HEAD.
         if old_sha:
             logger.error("Auto-update: exception after fast-forward; rolling back to %s.", old_sha[:9])
-            if not _rollback_activation(repo_root, old_sha, git_timeout):
+            if not _rollback_activation(repo_root, old_sha, git_timeout, **undo):
                 return UpdateStatus.ROLLBACK_FAILED
         logger.warning("Auto-update: a git operation failed; serving current code.")
         return UpdateStatus.FETCH_FAILED
@@ -955,6 +1074,7 @@ def prepare_update(
     staging_parent: Optional[str] = None,
     embedding_model: Optional[str] = None,
     validate_target=None,
+    policy=FROM_ENVIRONMENT,
 ) -> str:
     """Phase B: prepare a staged update WITHOUT mutating the live install.
 
@@ -965,13 +1085,15 @@ def prepare_update(
     in tests and by the daemon; defaults to spawning ``python -m src.reindex`` in
     the worktree. ``embedding_model`` is the model the marker records (default:
     this process's). ``validate_target(old_sha, target_sha)`` runs before anything
-    is built and may raise to refuse the target. Returns a :class:`PreparedStatus`
-    value.
+    is built and may raise to refuse the target. A *policy* allows a branch switch
+    (:func:`_resolve_target`); the marker then records it for activation. Returns a
+    :class:`PreparedStatus` value.
     """
     staging_parent = staging_parent or STAGING_ROOT
     reindex = reindex_fn or (lambda sd: _run_reindex_at(sd, reindex_timeout))
 
-    status, old_sha, target_sha = _resolve_ff_target(repo_root, remote, branch, git_timeout)
+    status, old_sha, target_sha, switch = _resolve_target(repo_root, remote, branch, git_timeout,
+                                                          _policy(policy))
     if target_sha is None:
         return status  # terminal: skip / up-to-date / pre-merge failure
 
@@ -1011,6 +1133,7 @@ def prepare_update(
             embedding_model=embedding_model or EMBEDDING_MODEL,
             staging_dir=staging_dir,
             stores=stores,
+            switch=switch,
         )
     except OSError as e:
         logger.error("Auto-update: prepare failed to finalize (%s); discarding staging.", e)
@@ -1058,8 +1181,12 @@ def _discard_staging(repo_root: str, git_timeout: int) -> None:
         logger.warning("Auto-update: staging cleanup failed; will retry later.", exc_info=True)
 
 
-def _validate_prepared(marker, repo_root, branch, embedding_model, git_timeout):
+def _validate_prepared(marker, repo_root, branch, embedding_model, git_timeout, policy=None):
     """Run the activation gates. Returns ``(invalid_status_or_None, already_at_target)``.
+
+    A marker with ``switch_from`` was built for a branch switch: it activates from that
+    branch at exactly the base it was built from, and a downgrade only while *policy*
+    still holds the confirmation for that HEAD.
 
     ``invalid_status_or_None`` is an :class:`ActivationStatus` ``INVALID_*`` when a
     gate fails (the caller discards the staging and returns it); ``None`` means OK
@@ -1111,7 +1238,8 @@ def _validate_prepared(marker, repo_root, branch, embedding_model, git_timeout):
         # Gate 3 — branch guard.
         cur = _run_git(["rev-parse", "--abbrev-ref", "HEAD"], repo_root, git_timeout)
         current_branch = cur.stdout.strip() if cur.returncode == 0 else ""
-        if current_branch != branch:
+        switching = current_branch != branch
+        if switching and (not marker.get("switch_from") or current_branch != marker.get("switch_from")):
             logger.info(
                 "Auto-update: on '%s', prepared for '%s'; discarding.",
                 current_branch or "?", branch,
@@ -1133,7 +1261,22 @@ def _validate_prepared(marker, repo_root, branch, embedding_model, git_timeout):
         # Gate 6 — fast-forward descendant of HEAD (or already there).
         head = _run_git(["rev-parse", "HEAD"], repo_root, git_timeout)
         head_sha = head.stdout.strip() if head.returncode == 0 else ""
-        if head_sha == target_sha:
+        if switching:
+            # Gate 6s — a switch activates from the commit it was built from.
+            if head_sha != base_sha:
+                logger.info("Auto-update: HEAD moved since the switch was prepared; discarding.")
+                return ActivationStatus.INVALID_NOT_FF, False
+            anc = _run_git(["merge-base", "--is-ancestor", "HEAD", target_sha], repo_root, git_timeout)
+            if anc.returncode != 0 and not (marker.get("downgrade") is True and policy is not None
+                                            and policy.downgrade_confirmed(branch, head_sha)):
+                logger.info("Auto-update: prepared switch to %s goes back to older code without a "
+                            "confirmation; discarding.", target_sha[:9])
+                return ActivationStatus.INVALID_DOWNGRADE, False
+            if _branch_tip(repo_root, branch, target_sha, git_timeout) is None:
+                logger.info("Auto-update: local branch '%s' has commits the target lacks; discarding.", branch)
+                return ActivationStatus.INVALID_NOT_FF, False
+            already_at_target = False
+        elif head_sha == target_sha:
             already_at_target = True
         else:
             anc = _run_git(["merge-base", "--is-ancestor", "HEAD", target_sha], repo_root, git_timeout)
@@ -1262,6 +1405,7 @@ def activate_prepared_update(
     *,
     git_timeout: int = AUTO_UPDATE_GIT_TIMEOUT,
     embedding_model: str = EMBEDDING_MODEL,
+    policy=FROM_ENVIRONMENT,
 ) -> str:
     """Phase A: activate a prepared update via a fast local ff-merge + file move.
 
@@ -1271,6 +1415,9 @@ def activate_prepared_update(
     failure discards the staging and keeps serving the old code; a move failure
     additionally rolls the just-merged tree back to the pre-merge commit (best
     effort), so a failed activation never leaves new code without its stores.
+    A marker built for a branch switch checks out *branch* at the target instead of
+    merging (:func:`_move_to_target`); a failure returns to the previous branch.
+    *policy* rechecks a downgrade's confirmation (:func:`_validate_prepared`).
     Pure of threading/locking. Returns an :class:`ActivationStatus` value.
     """
     marker = _read_prepared_marker()
@@ -1286,7 +1433,7 @@ def activate_prepared_update(
         return ActivationStatus.NO_MARKER
 
     invalid, already_at_target = _validate_prepared(
-        marker, repo_root, branch, embedding_model, git_timeout
+        marker, repo_root, branch, embedding_model, git_timeout, _policy(policy)
     )
     if invalid is not None:
         _discard_staging(repo_root, git_timeout)
@@ -1301,6 +1448,7 @@ def activate_prepared_update(
     # merged then died before the move) — we only need to finish the move.
     merged_now = False
     pre_merge_sha = ""
+    undo = {}
     if not already_at_target:
         try:
             head = _run_git(["rev-parse", "HEAD"], repo_root, git_timeout)
@@ -1310,19 +1458,24 @@ def activate_prepared_update(
                 logger.error("Auto-update: cannot resolve pre-merge HEAD; discarding.")
                 _discard_staging(repo_root, git_timeout)
                 return ActivationStatus.ACTIVATE_MERGE_FAILED
-            _begin_update(repo_root, pre_merge_sha, target_sha)
-            merge = _run_git(["merge", "--ff-only", target_sha], repo_root, git_timeout)
+            switch = _prepared_switch(marker, repo_root, branch, target_sha, git_timeout)
+            undo = _switch_rollback(branch, switch)
+            if undo:
+                _begin_update(repo_root, pre_merge_sha, target_sha, undo)
+            else:
+                _begin_update(repo_root, pre_merge_sha, target_sha)
+            merge = _move_to_target(repo_root, target_sha, branch, switch, git_timeout)
         except (subprocess.TimeoutExpired, FileNotFoundError) as e:
             logger.error("Auto-update: activation merge error: %s; discarding.", e)
             # A timeout can occur in post-merge, after HEAD has advanced.
-            restored = not pre_merge_sha or _rollback_activation(repo_root, pre_merge_sha, git_timeout)
+            restored = not pre_merge_sha or _rollback_activation(repo_root, pre_merge_sha, git_timeout, **undo)
             if restored:
                 _discard_staging(repo_root, git_timeout)
             return (ActivationStatus.ACTIVATE_MERGE_FAILED if restored
                     else ActivationStatus.ACTIVATE_ROLLBACK_FAILED)
         if merge.returncode != 0:
             logger.error("Auto-update: activation ff-merge failed; discarding. %s", merge.stderr.strip())
-            restored = _rollback_activation(repo_root, pre_merge_sha, git_timeout)
+            restored = _rollback_activation(repo_root, pre_merge_sha, git_timeout, **undo)
             if restored:
                 _discard_staging(repo_root, git_timeout)
             return (ActivationStatus.ACTIVATE_MERGE_FAILED if restored
@@ -1355,7 +1508,7 @@ def activate_prepared_update(
             # case the merge was a prior run's fait accompli — completing or
             # discarding is all that can be done there.
             tree_restored = _rollback_activation(repo_root, pre_merge_sha, git_timeout,
-                                                clear_journal=stores_invalidated)
+                                                clear_journal=stores_invalidated, **undo)
             restored = tree_restored and stores_invalidated
         elif stores_invalidated:
             # No code mutation in this run; missing hashes repair partial moves.
@@ -1366,16 +1519,45 @@ def activate_prepared_update(
                 else ActivationStatus.ACTIVATE_ROLLBACK_FAILED)
 
     _discard_staging(repo_root, git_timeout)
-    _write_state(ActivationStatus.ACTIVATED, old_sha, target_sha)
+    _write_state(ActivationStatus.ACTIVATED, old_sha, target_sha, branch if undo else None)
     _finish_update(repo_root)
     logger.info("Auto-update: activated prepared update %s -> %s.", (old_sha or "")[:9], target_sha[:9])
     return ActivationStatus.ACTIVATED
 
 
-def _rollback_activation(repo_root: str, old_sha: str, git_timeout: int, *, clear_journal=True) -> bool:
-    """Restore the pre-activation tree even if merge timed out after changing HEAD."""
+def _prepared_switch(marker, repo_root, branch, target_sha, git_timeout):
+    """The switch a validated *marker* asks for, or None when the checkout is on *branch* already."""
+    if not marker.get("switch_from"):
+        return None
+    cur = _run_git(["rev-parse", "--abbrev-ref", "HEAD"], repo_root, git_timeout)
+    if cur.returncode != 0 or cur.stdout.strip() == branch:
+        return None
+    return {"from": marker["switch_from"], "remote": marker.get("remote") or AUTO_UPDATE_REMOTE,
+            "downgrade": bool(marker.get("downgrade")),
+            "branch_tip": _branch_tip(repo_root, branch, target_sha, git_timeout) or ""}
+
+
+def _rollback_activation(repo_root: str, old_sha: str, git_timeout: int, *, clear_journal=True,
+                         old_branch: Optional[str] = None, branch: Optional[str] = None,
+                         branch_tip: str = "") -> bool:
+    """Restore the pre-activation tree even if merge timed out after changing HEAD.
+
+    After a branch switch (*old_branch* given) check *old_branch* out again first, then
+    put the switched-to *branch* back where it was (*branch_tip*) or remove it when the
+    switch created it.
+    """
     try:
+        if old_branch:
+            back = _run_git(["checkout", "--quiet", "--force", old_branch], repo_root, git_timeout)
+            if back.returncode != 0:
+                logger.error("Auto-update: could not check out '%s' again: %s", old_branch, back.stderr.strip())
+                return False
         result = _run_git(["reset", "--hard", old_sha], repo_root, git_timeout)
+        if result.returncode == 0 and old_branch and branch and branch != old_branch:
+            if branch_tip:
+                _run_git(["branch", "--force", branch, branch_tip], repo_root, git_timeout)
+            else:
+                _run_git(["branch", "--delete", "--force", branch], repo_root, git_timeout)
     except (subprocess.TimeoutExpired, OSError):
         logger.error("Auto-update: activation rollback raised.", exc_info=True)
         return False

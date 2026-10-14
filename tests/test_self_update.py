@@ -1764,3 +1764,134 @@ def test_legacy_reindex_failure_invalidates_new_store_hashes(repos, monkeypatch,
         assert not (live / ".skills_hash").exists()
         assert not (live / ".implants_hash").exists()
         assert not (live / self_update.UPDATE_JOURNAL).exists()
+
+
+# --- Update channel: branch switches of the stdio updater (#381) -------------
+
+def _publish_dev(repos, content="dev\n"):
+    """Upstream gets `dev`, one commit ahead of its main; upstream stays on main."""
+    _git(repos.upstream, "checkout", "-q", "-b", "dev")
+    _commit(repos.upstream, "dev.txt", content, "on dev")
+    tip = _head(repos.upstream)
+    _git(repos.upstream, "checkout", "-q", "main")
+    return tip
+
+
+def _branch(path):
+    return _git(path, "symbolic-ref", "--short", "HEAD").stdout.strip()
+
+
+@pytest.fixture
+def channel_env(monkeypatch):
+    """The stdio server's environment holds no update keys of the developer's shell."""
+    from src import update_channel
+    for key in update_channel.KEYS:
+        monkeypatch.delenv(key, raising=False)
+    return monkeypatch
+
+
+def test_staged_switch_from_main_to_dev_activates_on_the_next_start(repos, phase_a_env, channel_env):
+    tip = _publish_dev(repos)
+    old = _head(repos.local)
+    # The default policy is this process's environment, as a stdio server loaded it from .env.
+    status = self_update.prepare_update(str(repos.local), "origin", "dev",
+                                        reindex_fn=phase_a_env.builder, staging_parent=phase_a_env.parent)
+    assert status == PreparedStatus.PREPARED
+    marker = self_update._read_prepared_marker()
+    assert (marker["branch"], marker["switch_from"], marker["downgrade"]) == ("dev", "main", False)
+    assert _branch(repos.local) == "main" and _head(repos.local) == old  # prepare never touches the live tree
+
+    status = self_update.activate_prepared_update(str(repos.local), "dev", embedding_model=self_update.EMBEDDING_MODEL)
+    assert status == ActivationStatus.ACTIVATED
+    assert _branch(repos.local) == "dev" and _head(repos.local) == tip
+    assert _git(repos.local, "config", "branch.dev.remote").stdout.strip() == "origin"
+    assert _git(repos.local, "config", "branch.dev.merge").stdout.strip() == "refs/heads/dev"
+    assert json.loads(Path(self_update.STATE_FILE).read_text())["branch"] == "dev"
+    assert not (repos.local / "data" / ".update_in_progress.json").exists()
+
+
+def test_no_policy_never_switches(repos, phase_a_env, channel_env):
+    _publish_dev(repos)
+    status = self_update.prepare_update(str(repos.local), "origin", "dev", reindex_fn=phase_a_env.builder,
+                                        staging_parent=phase_a_env.parent, policy=None)
+    assert status == PreparedStatus.SKIPPED_WRONG_BRANCH
+
+
+def test_stdio_updater_leaves_a_third_branch_alone(repos, recorder, channel_env):
+    _publish_dev(repos)
+    _git(repos.local, "checkout", "-q", "-b", "feature")
+    assert check_and_apply_update(str(repos.local), "origin", "dev", reindex_fn=recorder) == \
+        UpdateStatus.SKIPPED_WRONG_BRANCH
+    assert recorder.calls == [] and _branch(repos.local) == "feature"
+
+
+def test_stdio_downgrade_needs_the_recorded_confirmation(repos, phase_a_env, channel_env):
+    tip = _publish_dev(repos)
+    _git(repos.local, "fetch", "-q", "origin", "dev")
+    _git(repos.local, "checkout", "-q", "-B", "dev", tip)
+    status = self_update.prepare_update(str(repos.local), "origin", "main",
+                                        reindex_fn=phase_a_env.builder, staging_parent=phase_a_env.parent)
+    assert status == PreparedStatus.SKIPPED_DOWNGRADE and self_update._read_prepared_marker() is None
+
+    channel_env.setenv("AGENTS_AUTO_UPDATE_ALLOW_DOWNGRADE", f"main@{tip}")
+    status = self_update.prepare_update(str(repos.local), "origin", "main",
+                                        reindex_fn=phase_a_env.builder, staging_parent=phase_a_env.parent)
+    assert status == PreparedStatus.PREPARED and self_update._read_prepared_marker()["downgrade"] is True
+    # The confirmation was withdrawn before the next start: the build is discarded.
+    channel_env.delenv("AGENTS_AUTO_UPDATE_ALLOW_DOWNGRADE")
+    status = self_update.activate_prepared_update(str(repos.local), "main", embedding_model=self_update.EMBEDDING_MODEL)
+    assert status == ActivationStatus.INVALID_DOWNGRADE and _branch(repos.local) == "dev"
+
+    channel_env.setenv("AGENTS_AUTO_UPDATE_ALLOW_DOWNGRADE", f"main@{tip}")
+    assert self_update.prepare_update(str(repos.local), "origin", "main", reindex_fn=phase_a_env.builder,
+                                      staging_parent=phase_a_env.parent) == PreparedStatus.PREPARED
+    status = self_update.activate_prepared_update(str(repos.local), "main", embedding_model=self_update.EMBEDDING_MODEL)
+    assert status == ActivationStatus.ACTIVATED
+    assert _branch(repos.local) == "main" and _head(repos.local) == _head(repos.upstream)
+    assert _git(repos.local, "rev-parse", "dev").stdout.strip() == tip
+
+
+def test_failed_store_move_after_a_switch_returns_to_the_previous_branch(repos, phase_a_env, channel_env, monkeypatch):
+    _publish_dev(repos)
+    old = _head(repos.local)
+    _git(repos.local, "branch", "dev", old)  # an older local dev the switch moves and the rollback restores
+    assert self_update.prepare_update(str(repos.local), "origin", "dev", reindex_fn=phase_a_env.builder,
+                                      staging_parent=phase_a_env.parent) == PreparedStatus.PREPARED
+
+    def failing_move(staging_dir, repo_root, stores):
+        raise OSError("disk full")
+    monkeypatch.setattr(self_update, "_activate_staged_stores", failing_move)
+    status = self_update.activate_prepared_update(str(repos.local), "dev", embedding_model=self_update.EMBEDDING_MODEL)
+    assert status == ActivationStatus.ACTIVATE_MOVE_FAILED
+    assert _branch(repos.local) == "main" and _head(repos.local) == old
+    assert _git(repos.local, "rev-parse", "dev").stdout.strip() == old
+    assert not (repos.local / "data" / ".update_in_progress.json").exists()
+
+
+def test_local_dev_with_commits_the_remote_lacks_is_not_switched_to(repos, recorder, channel_env):
+    _publish_dev(repos)
+    _git(repos.local, "checkout", "-q", "-b", "dev")
+    _commit(repos.local, "mine.txt", "local\n", "local work on dev")
+    mine = _head(repos.local)
+    _git(repos.local, "checkout", "-q", "main")
+    assert check_and_apply_update(str(repos.local), "origin", "dev", reindex_fn=recorder) == \
+        UpdateStatus.SKIPPED_DIVERGED
+    assert _git(repos.local, "rev-parse", "dev").stdout.strip() == mine and _branch(repos.local) == "main"
+
+
+def test_legacy_switch_rolls_back_to_main_when_the_reindex_fails(repos, channel_env):
+    _publish_dev(repos)
+    old = _head(repos.local)
+    status = check_and_apply_update(str(repos.local), "origin", "dev", reindex_fn=lambda root: False)
+    assert status == UpdateStatus.REINDEX_FAILED
+    assert _branch(repos.local) == "main" and _head(repos.local) == old
+    assert _git(repos.local, "rev-parse", "--verify", "--quiet", "refs/heads/dev", check=False).returncode == 1
+    status = check_and_apply_update(str(repos.local), "origin", "dev", reindex_fn=lambda root: True)
+    assert status == UpdateStatus.UPDATED and _branch(repos.local) == "dev"
+
+
+def test_invalid_branch_names_are_refused_before_a_switch(repos, recorder, channel_env):
+    for name in ("dev..x", "it's"):
+        assert check_and_apply_update(str(repos.local), "origin", name, reindex_fn=recorder) == \
+            UpdateStatus.SKIPPED_BAD_CONFIG
+    assert recorder.calls == []
