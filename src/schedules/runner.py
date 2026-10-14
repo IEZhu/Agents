@@ -468,10 +468,12 @@ def disable(ctx: Context) -> tuple[int, dict]:
     """Turn the schedule off and withdraw the acceptance of the automatic mode (#350 review): run
     mode needs ``enable --mode run --accept-shared-account`` again, whatever ``autodev.json`` says."""
     with autodev_config.writing(ctx.directory):
+        # The acceptance goes first: a failed withdrawal leaves the schedule as it was instead of
+        # off with a current acceptance that a hand edit could reuse (#350 review round 2).
+        automatic.revoke_acceptance(ctx.directory, ctx.clock(), by="disable")
         config = autodev_config.load(ctx.directory)
         config["enabled"] = False
         autodev_config.save(config, ctx.directory)
-        automatic.revoke_acceptance(ctx.directory, ctx.clock(), by="disable")
     return 0, {"ok": True, "enabled": False}
 
 
