@@ -6,8 +6,11 @@ each merged, same-repository `dev → main` PR with a Git tag at that PR's exact
 resulting merge commit, including squash and rebase merges. An ordinary close,
 a feature merge into `dev`, or a fork with a branch named `dev` publishes nothing.
 
-The displayed Agents-Core version stays `YY.MM.DD.HHMM`, derived from the
-installation's HEAD committer time in UTC by [src/version.py](../src/version.py).
+On a clean `main` checkout, the displayed Agents-Core version stays
+`YY.MM.DD.HHMM`, derived from the installation's HEAD committer time in UTC
+by [src/version.py](../src/version.py). An installation on `dev` adds `-dev`,
+and tracked uncommitted changes add `-dirty`; release tags use the plain
+calendar portion and identify the committed release revision.
 The tag normally has the form `v26.10.14.1200`. If another release already owns
 that minute, the new release gets `v26.10.14.1200-pr381`, with its PR number.
 The date portion retains the displayed version; the suffix distinguishes releases
