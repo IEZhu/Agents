@@ -184,3 +184,29 @@ def test_a_network_failure_cannot_verify(credentials):
 def test_only_reads_under_the_repository(credentials):
     _, transport = check(credentials)
     assert all(path.startswith(f"/repos/{REPOSITORY}/") for path in transport.requests)
+
+
+# --- fail-closed edges (#347 review, coverage) ----------------------------------------------------
+
+def test_more_secret_pages_than_the_client_reads_cannot_verify(credentials):
+    responses = copy.deepcopy(FIXTURE["responses"])
+    responses[SECRETS] = {"total_count": preconditions.SECRETS_PAGE + 1,
+                          "secrets": [{"name": f"S{number}"} for number in range(preconditions.SECRETS_PAGE)]}
+    transport = Transport(responses)
+    client = GitHubClient(REPOSITORY, lambda: TOKEN, transport=transport, max_pages=1)
+    missing = preconditions.check(client, credentials, repository=REPOSITORY)
+    assert missing == ["cannot verify the repository secrets (more than 1 pages)"]
+
+
+def test_a_review_count_on_another_rule_type_does_not_count(credentials):
+    responses = copy.deepcopy(FIXTURE["responses"])
+    responses[RULES] = [{"type": "deletion"}, {"type": "non_fast_forward"},
+                        {"type": "merge_queue", "parameters": {"required_approving_review_count": 1}}]
+    missing, _ = check(credentials, Transport(responses))
+    assert missing == [preconditions.REVIEW_ITEM]
+
+
+@pytest.mark.parametrize("count", [True, "1", 1.0, None])
+def test_a_review_count_that_is_not_an_integer_does_not_count(credentials, count):
+    missing, _ = check(credentials, review_count(count))
+    assert missing == [preconditions.REVIEW_ITEM]
