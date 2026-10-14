@@ -29,22 +29,25 @@ def safe_text(value: object) -> str:
     return " ".join("".join(char for char in text if char.isprintable()).split())[:FIELD_LIMIT]
 
 
-def run_local(arguments: list[str], deadline: float) -> str | None:
+def run_local(arguments: list[str], deadline: float, env: dict[str, str] | None = None) -> str | None:
+    """Run a local probe within its deadline, optionally isolating its environment."""
     remaining = deadline - time.monotonic()
     if remaining <= 0 or not shutil.which(arguments[0]):
         return None
     try:
         result = subprocess.run(arguments, capture_output=True, text=True, errors="replace",
-                                timeout=min(remaining, 0.75), check=False)
+                                timeout=min(remaining, 0.75), check=False, env=env)
     except (OSError, subprocess.TimeoutExpired):
         return None
     return result.stdout.strip() if result.returncode == 0 else None
 
 
 def git_summary(cwd: str, deadline: float) -> str:
+    """Read the selected workspace status without inherited Git operation context."""
+    environment = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
     output = run_local(["git", "--no-optional-locks", "-c", "core.fsmonitor=false",
                         "-c", "core.untrackedCache=false", "-C", cwd, "status",
-                        "--porcelain=v2", "--branch", "--untracked-files=normal"], deadline)
+                        "--porcelain=v2", "--branch", "--untracked-files=normal"], deadline, env=environment)
     if output is None:
         return ""
     fields = {}
@@ -96,6 +99,7 @@ def local_ip(deadline: float) -> str:
 
 
 def banner(payload: dict) -> str:
+    """Render a bounded local snapshot; an unbound workspace never probes Git."""
     deadline = time.monotonic() + PROBE_BUDGET
     cwd = payload.get("cwd")
     if not isinstance(cwd, str) or not cwd:
@@ -107,8 +111,9 @@ def banner(payload: dict) -> str:
     if source := safe_text(payload.get("source")):
         first.append(source)
     second = [f"CWD: {safe_text(cwd)}"]
-    if git := git_summary(cwd, deadline):
-        second.append(git)
+    if cwd != "(workspace not bound)":
+        if git := git_summary(cwd, deadline):
+            second.append(git)
     try:
         user = getpass.getuser()
     except (OSError, KeyError):
