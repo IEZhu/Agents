@@ -27,6 +27,15 @@ adds nothing; use it in Claude Code or in Cowork on your computer.
 The MCP server is not bundled in the plugin: it needs a local installation with its own Python
 environment and embedding model. Install it once (macOS or Linux, Python 3.11 or newer, Git):
 
+First add this repository's marketplace and install the plugin in Claude Code:
+
+```text
+/plugin marketplace add IEZhu/Agents
+/plugin install agents-core@agents-core
+```
+
+Then install the local server:
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/IEZhu/Agents/main/install.sh | bash
 ```
@@ -43,9 +52,10 @@ reads the same variable, so keep the absolute value set in the environment that 
 Code or Cowork (your shell profile, or the login environment for the desktop app), or the
 launcher looks in `~/.agents-core` and reports that Agents-Core is not installed.
 
-Then add the plugin from Claude's plugin directory (in Claude Code, `/plugin`; to try a local
-copy, `claude --plugin-dir ~/.agents-core/plugins/agents-core`) and start a new session. `/mcp` shows the `Agents-Core` server; ask
-Claude to call `list_agents` to check it.
+Start a new session. `/mcp` shows the `Agents-Core` server; ask Claude to call `list_agents` to
+check it. To try a local copy instead of a marketplace installation, use
+`claude --plugin-dir ~/.agents-core/plugins/agents-core`. The plugin can also be discovered
+through Claude's plugin directory when its listing is available.
 
 The plugin is only a launcher: it starts `scripts/start-server.sh`, which runs code outside the
 plugin folder, `~/.agents-core/.venv/bin/python ~/.agents-core/src/server.py` of the separately
