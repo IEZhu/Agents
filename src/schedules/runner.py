@@ -554,10 +554,10 @@ def readiness(ctx: Context, config: dict, *, github: list[str] | None = None) ->
     conditions = list(github_conditions(ctx, config) if github is None else github)
     codex_details, fallback = codex_stage_conditions(ctx, config)
     now = ctx.clock()
-    probe_missing, probe_details, freshness = automatic.probe_records(
+    probe_missing, probe_details = automatic.probe_records(
         ctx.directory, automatic.claude_stage_kinds(config, fallback), now)
     return automatic.Readiness(conditions + probe_missing, automatic.acceptance_problems(ctx.directory, now),
-                               probe_details, codex_details, automatic.read_acceptance(ctx.directory), freshness)
+                               probe_details, codex_details, automatic.read_acceptance(ctx.directory))
 
 
 def ready(ctx: Context) -> tuple[int, dict]:

@@ -188,8 +188,8 @@ recorded acceptance of the residual risks of the shared account; the reference i
    approving review), workflows that cannot approve, `CLAUDE_ROUTINE_TOKEN` not a repository
    secret (whether the `issue-agent` environment holds it is not checked), a passing probe record
    for each of the three stage kinds in each of the four modes, once (the twelve `probe` runs of
-   [acceptance A7](autodev-acceptance.md#a7-probes-hold-in-every-mode-and-the-broker-refuses)),
-   a passing `implement` and `submit` probe from the last 7 days, and your acceptance. A
+   [acceptance A7](autodev-acceptance.md#a7-probes-hold-in-every-mode-and-the-broker-refuses);
+   at any age, since every run probes before each session with Bash), and your acceptance. A
    `select` configured for Codex needs its Claude probe records only while its stored Codex
    check says unavailable, because a run then falls back to a Claude select session. It reads
    GitHub and the stored records, starts no probe, and records its result for the settings page.
@@ -209,11 +209,8 @@ The acceptance belongs to the act of turning run mode on: `autodev disable`, **T
 page and `enable --mode dry-run` withdraw it, so editing `autodev.json` back to run mode does not
 start real runs. A runner update that changes the risk list, any tripwire or failed probe (your
 own `probe` runs included), or an unreadable `tripwire.json` makes it stale: give it again with
-the same `enable` command, which a tripped schedule needs anyway. Every run that reaches the
-implement or submit session probes it again and so keeps those records fresh; after a week
-without one (an empty queue), `ready` and the refused runs name the kind, and `probe --mode
-scheduled --kind K --confirm-live-probe` refreshes it. `run-now --mode run` stays available
-without any of this, because you watch it (Q13).
+the same `enable` command, which a tripped schedule needs anyway. `run-now --mode run` stays
+available without any of this, because you watch it (Q13).
 
 ## Settings page
 

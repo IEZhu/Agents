@@ -149,18 +149,12 @@ Phase 1b of the plan (#350, [plan 5.7](autodev-plan.md#57-modes-probes-and-enabl
   `implement`, `submit`). A report counts when its probe session ran or when it failed (a select
   session's static checks alone neither replace a probe nor hide a failure); the `probe --mode M
   --kind K --confirm-live-probe` command records one, and so does every guarded stage session of
-  a run, under the mode it ran in. Two rules:
-  - *Every mode once* ([acceptance A7](autodev-acceptance.md#a7-probes-hold-in-every-mode-and-the-broker-refuses)):
-    for each kind in each mode (`dry-run`, `run-now`, `scheduled`, `resume`), the newest
-    counting report passed, at any age; one dated in the future (or without a time) is stale.
-  - *Fresh:* for `implement` and `submit`, the kinds with Bash, the newest passing report in any
-    mode (the probe is the same in each) is at most 7 days old. Every run that reaches such a
-    session probes it again first, so a schedule that runs keeps them fresh by itself; after a
-    week without one, `ready` and the tick's refusal name the kind and the record, and
-    `probe --mode scheduled --kind K --confirm-live-probe` refreshes it. `select` has no Bash: its
-    sessions get the static checks before every start, and its file-tool confinement is the one
-    the Bash kinds' probe sessions prove on every run (plan 5.7, decided in #343), so it needs no
-    fresh record.
+  a run, under the mode it ran in. The rule is *every mode once*
+  ([acceptance A7](autodev-acceptance.md#a7-probes-hold-in-every-mode-and-the-broker-refuses)):
+  for each kind in each mode (`dry-run`, `run-now`, `scheduled`, `resume`), the newest counting
+  report passed, at any age; one dated in the future (or without a time) is stale. No record has
+  to be recent: every run probes before every session with Bash, in every mode, and the session
+  starts only after its own probe passed (plan 5.7).
 - **Codex for `select`** (#344): a `select` configured for Codex runs with Codex while its stored
   stage availability (`codex-probe --kind stage --confirm-live-probe`, current for the installed
   codex and the configured launch) says available, and then needs no Claude probe records. While

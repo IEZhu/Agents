@@ -18,17 +18,11 @@ Every check reads stored state or GitHub; none starts a probe session or a model
 **Probe records.** A report in the run records counts when its probe session ran
 (``ran_session``) or when it failed: the static checks alone of a select session neither replace
 a probe session nor hide a failure. The owner's ``probe`` command records one (``probes[0]``),
-and every guarded stage session of a run adds one under the mode it ran in. Two rules:
-
-* *Every mode once* (plan acceptance A7): for each stage kind and each mode of `PROBE_MODES`, the
-  newest counting report must have passed, at any age (one dated in the future is stale).
-* *Fresh* (continuity): for each kind with Bash (`FRESH_KINDS`: ``implement`` and ``submit``),
-  the newest passing report, in any mode (the probe is the same in each), is at most
-  `PROBE_RECORD_MAX_AGE` old. Every run that reaches such a session probes it again and so
-  refreshes it; a week without one asks for ``probe --mode scheduled --kind K``, which `ready`
-  and the tick's refusal name. ``select`` has no Bash: its sessions get the static checks before
-  every start, and its file-tool confinement is the one the Bash kinds' probe sessions prove on
-  every run (plan 5.7, decided in #343), so it needs no fresh record.
+and every guarded stage session of a run adds one under the mode it ran in. The rule (plan
+acceptance A7): for each stage kind and each mode of `PROBE_MODES`, the newest counting report
+must have passed, at any age (one dated in the future or without a time is stale). No record has
+to be recent: every run probes before every session with Bash, in every mode, and a session
+starts only after its own probe passed (plan 5.7, the owner's decision of 2026-10-14).
 
 **The acceptance.** ``<state>/schedules/acceptance.json`` (0600 in the private directory): when
 it was given (``accepted``, UTC), the rows of plan section 11 it covers (`RISK_ROWS`), the version
@@ -62,7 +56,7 @@ from typing import Any
 
 from src.daemon.state import private_dir, read_json, write_json
 
-from . import decoys, records, sandbox, stages
+from . import decoys, records, stages
 from .lease import schedules_dir
 from .tick import fixed, parse_time
 
@@ -89,10 +83,6 @@ READY_COMMAND = "python -m src.schedules autodev ready"
 # The modes a probe is recorded under (`runner.probe`, `sequence.Sequence._probe_mode`); the probe
 # is the same in each, and the plan asks for a pass in every one (5.7, acceptance A7).
 PROBE_MODES = ("dry-run", "run-now", "scheduled", "resume")
-# The kinds whose sessions have Bash: every run probes them again before the session starts, so a
-# running schedule keeps their records fresh (see the module docstring).
-FRESH_KINDS = tuple(kind for kind in stages.KINDS if "Bash" in sandbox.tools_for(kind))
-PROBE_RECORD_MAX_AGE = 7 * 24 * 3600  # seconds the newest passing probe of a `FRESH_KINDS` kind counts
 PROBE_COMMAND = "python -m src.schedules probe --mode {mode} --kind {kind} --confirm-live-probe"
 PASSED, FAILED, STALE, MISSING = "passed", "failed", "stale", "missing"
 READY_NAME = "ready.json"
@@ -243,24 +233,14 @@ def _probe_item(kind: str, mode: str, status: str, run_id: str | None) -> str:
     return f"sandbox probe {kind} in {mode} mode: no record; run `{command}`"
 
 
-def _fresh_item(kind: str, mode: str, run_id: str | None, max_age: float) -> str:
-    command = PROBE_COMMAND.format(mode="scheduled", kind=kind)
-    return (f"sandbox probe {kind}: the newest passing record (run {run_id}, {mode} mode) is not from the last "
-            f"{max_age / 86400:g} days; a run's guarded {kind} session refreshes it, or run `{command}`")
-
-
 def probe_records(directory: str | Path | None, kinds: Iterable[str], now: datetime, *,
-                  modes: Iterable[str] = PROBE_MODES,
-                  max_age: float = PROBE_RECORD_MAX_AGE) -> tuple[list[str], dict, dict]:
-    """The missing probe records, named; every (kind, mode) with its status (`PASSED`, `FAILED`,
-    `STALE` or `MISSING`), the run it came from and when it finished; and each `FRESH_KINDS` kind's
-    newest passing report with its status (`PASSED` or `STALE`). See the module docstring. The
-    records are read newest first until every pair and fresh kind has its report."""
+                  modes: Iterable[str] = PROBE_MODES) -> tuple[list[str], dict]:
+    """The missing probe records, named, and every (kind, mode) with its status (`PASSED`,
+    `FAILED`, `STALE` or `MISSING`), the run it came from and when it finished. See the module
+    docstring. The records are read newest first until every pair has its report."""
     kinds, modes = list(kinds), list(modes)
     wanted = [(kind, mode) for kind in kinds for mode in modes]
-    fresh_kinds = [kind for kind in kinds if kind in FRESH_KINDS]
     found: dict[tuple[str, str], tuple[Mapping, Any]] = {}
-    newest: dict[str, tuple[Mapping, Any]] = {}
     for record in records.iter_records(directory) if wanted else ():
         reports = record.get("probes") if isinstance(record.get("probes"), list) else []
         for report in reversed(reports):  # a record lists its reports in the order they ran
@@ -271,15 +251,11 @@ def probe_records(directory: str | Path | None, kinds: Iterable[str], now: datet
             key = (report.get("kind"), report.get("mode"))
             if key in wanted and key not in found:
                 found[key] = (report, record.get("run_id"))
-            if report.get("kind") in fresh_kinds and report.get("kind") not in newest and report.get("ok") is True:
-                newest[report["kind"]] = (report, record.get("run_id"))
-        if len(found) == len(wanted) and len(newest) == len(fresh_kinds):
+        if len(found) == len(wanted):
             break  # before an older record is read
     problems: list[str] = []
     details: dict = {}
-    freshness: dict = {}
     for kind in kinds:
-        clean = True
         for mode in modes:
             report, run_id = found.get((kind, mode), ({}, None))
             finished = parse_time(report.get("finished")) if report else None
@@ -294,19 +270,8 @@ def probe_records(directory: str | Path | None, kinds: Iterable[str], now: datet
             details.setdefault(kind, {})[mode] = {"status": status, "run_id": run_id,
                                                   "finished": report.get("finished") if report else None}
             if status != PASSED:
-                clean = False
                 problems.append(_probe_item(kind, mode, status, run_id))
-        if kind not in fresh_kinds:
-            continue
-        report, run_id = newest.get(kind, ({}, None))
-        finished = parse_time(report.get("finished")) if report else None
-        fresh = finished is not None and 0 <= (fixed(now) - fixed(finished)).total_seconds() <= max_age
-        freshness[kind] = {"status": PASSED if fresh else STALE, "run_id": run_id,
-                           "mode": report.get("mode") if report else None,
-                           "finished": report.get("finished") if report else None}
-        if clean and not fresh:  # a missing or failed pair is named already; probing it refreshes the kind
-            problems.append(_fresh_item(kind, str(report.get("mode")), run_id, max_age))
-    return problems, details, freshness
+    return problems, details
 
 
 # --- the recorded `autodev ready` --------------------------------------------------------------------
@@ -370,7 +335,6 @@ class Readiness:
     probes: dict = field(default_factory=dict)
     codex: dict = field(default_factory=dict)
     accepted: dict | None = None
-    freshness: dict = field(default_factory=dict)
 
     @property
     def missing(self) -> list[str]:
@@ -383,7 +347,7 @@ class Readiness:
     def to_dict(self) -> dict:
         accepted = self.accepted or {}
         return {"ready": self.ready, "missing": self.missing, "conditions": list(self.conditions),
-                "probes": self.probes, "probe_freshness": self.freshness, "codex": self.codex,
+                "probes": self.probes, "codex": self.codex,
                 "acceptance": {"current": not self.acceptance, "problems": list(self.acceptance),
                                "accepted": accepted.get("accepted"), "source": accepted.get("source"),
                                "rows": list(RISK_ROWS), "risk_list_sha256": risk_list_version()},
