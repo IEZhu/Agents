@@ -137,7 +137,7 @@ scope-qualified (`builtin:<id>` for a built-in) and the listing-only
 `run_flow` and `get_flow` declare `anthropic/maxResultSizeChars` in their
 `tools/list` entries. Claude Code then moves their results to a file only above
 500,000 characters, its ceiling, instead of above 50,000: `pr-review` with its
-persona bundle, about 68,000 characters, reaches the model in the conversation
+persona bundle, about 70,000 characters, reaches the model in the conversation
 rather than as a file it has to read in parts. The declaration also replaces
 `MAX_MCP_OUTPUT_TOKENS` for these two tools, and Claude Code can still apply limits
 of its own. A result can pass the ceiling when two flows near the 256 KiB limit, a

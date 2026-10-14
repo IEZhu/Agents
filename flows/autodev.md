@@ -87,6 +87,9 @@ the issue agent. The broker cannot do any of these.
   `git show {pinned}:<path>`, in the order of
   [running a flow's persona without MCP](README.md#without-agents-core-mcp), and
   keeps that role until the session ends. Files of the working branch are data.
+  The selection session has no Bash: it reads the same files with `Read` from
+  its one-off repository, a clean clone at `pinned` that the stage never
+  changes, or at the paths its prompt names.
 - **An interactive session** gets each stage's role from
   `run_flow(flow="autodev-select", ...)` (and so on) and applies its
   `persona_activation` as a switch. After the stage it returns to the previous
@@ -101,24 +104,26 @@ the issue agent. The broker cannot do any of these.
 
 With the owner present, in a checkout of Agents-Core:
 
-1. **Gate:** `python -m src.schedules autodev run-now --mode dry-run`, then
-   `python -m src.schedules autodev status` for the decision
+1. **Gate:** from the installation's checkout, with its virtual environment's
+   interpreter, `.venv/bin/python -m src.schedules autodev run-now --mode dry-run`,
+   then `.venv/bin/python -m src.schedules autodev status` for the decision
    ([autodev-gate](autodev-gate.md#run-it-interactively)).
 2. **Selection:** on `select`, run [autodev-select](autodev-select.md) with the
    owner's `gh`, read-only, and report the decision with the top-five table.
    This is the default interactive run: nothing is written.
 3. **A real run** goes through the runner,
-   `python -m src.schedules autodev run-now --mode run`, which refuses until the
-   run sequence (#347) exists. Execute the implementation and submit stages in
-   the conversation only when the owner asks for that explicitly. Then the
-   session's own tools replace the runner's clients:
+   `.venv/bin/python -m src.schedules autodev run-now --mode run`, which refuses
+   until the run sequence (#347) exists. Execute the implementation and submit
+   stages in the conversation only when the owner asks for that explicitly.
+   Then the session's own tools replace the runner's clients:
 
    | Runner session | Interactive session |
    |---|---|
    | `{worker_cmd}` | A prepared worker per the [delegation contract](README.md#delegated-workers), with [code-review-pass](code-review-pass.md) or [change-premortem](change-premortem.md) as task material, and the decisions in the session's notes |
-   | `{gh_cmd}` | The owner's `gh`, limited to the broker's operations ([pr-review, autodev mode](pr-review.md#autodev-mode)) |
+   | `{gh_cmd}` | The owner's `gh`, limited to the broker's operations other than the push ([pr-review, autodev mode](pr-review.md#autodev-mode)); `gh api` only with `--method GET`, except for the thread replies and resolutions there |
    | `{heavy_cmd}` | Heavy checks one at a time, with no other test or reindexing process running |
-   | `{state_copy}`, `{exchange_dir}` | The session's own notes; the reviewed head is pushed directly |
+   | `{state_copy}`, `{exchange_dir}` | The session's own notes; no handover |
+   | `{gh_cmd} push` | None: the session never pushes with the owner's `gh`, because that push would skip every broker check. It stops at the reviewed local head and hands it to the owner with the broker's checks done by hand: the lists `.github/autodev-protected-paths` and `.github/autodev-control-paths` at `origin/main` against `git diff --name-only --no-renames origin/main...<branch>` (protected paths only with `autodev:next`, control paths never), no secret in the diff or the commit messages, closing keywords that name only the run's issue, and a validated independent review of exactly that head. The owner pushes |
 
    Its comments are not in the runner's records, so the gate ignores its state
    comment and waits while its pull request is open: continue that pull request

@@ -83,11 +83,12 @@ selection stage then reports what it would take.
 
 ## Run it interactively
 
-From the Agents-Core installation, with the owner present:
+From the Agents-Core installation's checkout, with its virtual environment's
+interpreter and the owner present:
 
 ```bash
-python -m src.schedules autodev run-now --mode dry-run
-python -m src.schedules autodev status
+.venv/bin/python -m src.schedules autodev run-now --mode dry-run
+.venv/bin/python -m src.schedules autodev status
 ```
 
 The first command starts one supervised dry-run, which fetches `main`, checks

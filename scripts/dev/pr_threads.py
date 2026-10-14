@@ -14,14 +14,19 @@ reviews on the current head so they are not overlooked.
 In `autodev` mode the owner and self-development share one account (docs/autodev-plan.md
 5.1), so the login cannot tell them apart: a thread counts as answered only when its last
 comment starts with the agent marker line, the owner's reviews on the head are printed
-even when `gh` is logged in as the owner, and `--resolve-mine` is refused.
+even when `gh` is logged in as the owner, and `--resolve-mine` is refused. Each thread
+and review is also marked TRUSTED or untrusted: only an allowlisted bot, by login and
+numeric account ID (`gate.trusted_bot`), is a trusted source of findings (design 5.2).
 """
 import argparse
 import json
+from pathlib import Path
 import subprocess
+import sys
 
 DEFAULT, AUTODEV = "default", "autodev"
 MARKER = "<!-- autodev -->"  # the first line of every self-development comment (design 5.5)
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 # Threads are paged with a cursor; each thread's first comment (the finding) and last
 # comment (who spoke last) are fetched directly, so long threads need no paging.
@@ -30,17 +35,25 @@ QUERY = """query($owner:String!,$name:String!,$n:Int!,$after:String){repository(
     pageInfo{hasNextPage endCursor}
     nodes{id isResolved path line
       first:comments(first:1){nodes{databaseId author{login} body}}
-      last:comments(last:1){nodes{databaseId author{login} body}}}}}}}"""
+      last:comments(last:1){nodes{databaseId author{login}}}}}}}}"""
+# Autodev mode also reads the last comment's body (the marker) and each author's node type
+# and bot account ID (the allowlist), as the broker's thread query does.
+AUTODEV_QUERY = """query($owner:String!,$name:String!,$n:Int!,$after:String){repository(owner:$owner,name:$name){
+  pullRequest(number:$n){headRefOid reviewThreads(first:100,after:$after){
+    pageInfo{hasNextPage endCursor}
+    nodes{id isResolved path line
+      first:comments(first:1){nodes{databaseId author{__typename login ... on Bot{databaseId}} body}}
+      last:comments(last:1){nodes{databaseId author{__typename login ... on Bot{databaseId}} body}}}}}}}"""
 
 
 def gh(*args: str) -> str:
     return subprocess.check_output(["gh", *args], text=True)
 
 
-def threads(owner: str, name: str, number: int) -> tuple[str, list[dict]]:
+def threads(owner: str, name: str, number: int, query: str = QUERY) -> tuple[str, list[dict]]:
     nodes, after = [], None
     while True:
-        args = ["api", "graphql", "-f", f"query={QUERY}", "-F", f"owner={owner}", "-F", f"name={name}", "-F", f"n={number}"]
+        args = ["api", "graphql", "-f", f"query={query}", "-F", f"owner={owner}", "-F", f"name={name}", "-F", f"n={number}"]
         if after:
             args += ["-f", f"after={after}"]
         data = json.loads(gh(*args))["data"]["repository"]["pullRequest"]
@@ -62,6 +75,29 @@ def marked(body: str | None) -> bool:
     return body == MARKER or body.startswith((MARKER + "\n", MARKER + "\r\n"))
 
 
+def trusted(user: dict | None) -> bool:
+    """An allowlisted bot by login and integer account ID (REST shape): `gate.trusted_bot`,
+    imported only in autodev mode, so the default mode needs nothing but `gh`."""
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    from src.schedules.gate import trusted_bot
+
+    return trusted_bot(user)
+
+
+def graphql_user(comment: dict | None) -> dict | None:
+    """A GraphQL comment author in the REST shape `trusted` reads, as the broker builds it: a
+    `Bot` node's login without `[bot]` gets it appended; a `User` or a deleted account is no bot."""
+    author = (comment or {}).get("author") or {}
+    if author.get("__typename") != "Bot" or not isinstance(author.get("login"), str):
+        return None
+    return {"login": author["login"] + "[bot]", "id": author.get("databaseId")}
+
+
+def trust(user: dict | None) -> str:
+    return "TRUSTED" if trusted(user) else "untrusted"
+
+
 def answered(last: dict, me: str, mode: str) -> bool:
     """The last comment is yours; in autodev mode also marked, since the owner shares the account."""
     return login(last) == me and (mode != AUTODEV or marked(last.get("body")))
@@ -78,7 +114,7 @@ def show(repo: str, number: int, me: str, resolve_mine: bool, mode: str = DEFAUL
     if resolve_mine and mode == AUTODEV:
         raise ValueError("--resolve-mine is not used in autodev mode")
     owner, name = repo.split("/")
-    head, nodes = threads(owner, name, number)
+    head, nodes = threads(owner, name, number, AUTODEV_QUERY if mode == AUTODEV else QUERY)
     open_threads = [t for t in nodes if not t["isResolved"]]
     print(f"#{number} head {head[:7]}: {len(open_threads)} unresolved of {len(nodes)} threads")
     for t in open_threads:
@@ -88,11 +124,14 @@ def show(repo: str, number: int, me: str, resolve_mine: bool, mode: str = DEFAUL
             print(f"  resolved {t['path']}:{t['line']}")
             continue
         state = "answered" if answered(last, me, mode) else "UNANSWERED"
-        print(f"  {state} {t['path']}:{t['line']} {login(first)} c{first['databaseId']}")
+        source = f" {trust(graphql_user(first))}" if mode == AUTODEV else ""
+        print(f"  {state} {t['path']}:{t['line']} {login(first)} c{first['databaseId']}{source}")
         print("    " + first["body"].replace("\n", " ")[:500])
     if not resolve_mine:
         for r in review_bodies(repo, number, head, me, mode):
-            print(f"  REVIEW {(r.get('user') or {}).get('login', 'ghost')} {r['submitted_at']}: " + r["body"].replace("\n", " ")[:800])
+            source = f" {trust(r.get('user'))}" if mode == AUTODEV else ""
+            print(f"  REVIEW {(r.get('user') or {}).get('login', 'ghost')} {r['submitted_at']}{source}: "
+                  + r["body"].replace("\n", " ")[:800])
     return len(open_threads)
 
 
