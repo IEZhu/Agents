@@ -9,6 +9,8 @@ and the [documentation map](../docs/README.md) for supporting references.
 
 Every flow that launches an AI reviewer, verifier or other worker follows the [mandatory delegation contract](../docs/routing_flow.md#delegated-workers): call `get_subagent_context`, require `status: prepared`, retain the original contract, and pass the compact `worker_context` unchanged to a fresh native worker. For every returned or revised output, call `validate_subagent_result` with that contract and require `valid: true` before using it, then check evidence and acceptance criteria. No endpoint failure permits unprepared delegation or unvalidated acceptance; report the limitation and work in the parent when practical. Flow-specific requirements for an independent review remain unsatisfied when no validated independent review ran.
 
+When a flow is task material for a prepared worker, as [code-review-pass](code-review-pass.md) and [change-premortem](change-premortem.md) are for the workers of an [autodev](autodev.md) run, the package and the worker rules govern: the flow's persona frontmatter, its exact component lists, a personal overlay and its steps about `run_flow` and role activation do not apply. The worker gets a compact role from the package and returns only the package's result schema; the flow contributes its method where it does not conflict.
+
 ## Available flows
 
 | Flow | Purpose | Result |
@@ -21,13 +23,22 @@ Every flow that launches an AI reviewer, verifier or other worker follows the [m
 | [Issue implementation](issue-implementation.md) | `/agent run_plan` / `run`: implement, self-review, independent review, pre-mortem, PR and the full bot review cycle in the same session | A pull request with review results or a precise blocker, left unmerged |
 | [Thread close](thread-close.md) | Close a conversation: inventory what it produced, verify each result against the current state with evidence levels (V0 claimed to V4 accepted), audit the thread for its own errors and secure unsaved work | A report with per-artifact levels; in apply mode one `#thread-close` history entry and memory updates at V2 or above |
 | [A/B eval](ab-eval.md) | Evaluate a change (rule, skill, implant, prompt, setting or embedding model) on hosted models and Opus with blind judging and statistics | A recorded result, a recommendation and an unmerged pull request |
+| [Autodev](autodev.md) | The self-development pipeline: gate, selection, implementation with reviews and a pre-mortem, then a pull request in `pr-review`'s autodev mode; describes the runner's stages and an interactive run | One pull request left for the owner, `autodev:blocked`, or a dry-run decision |
+| [Autodev gate](autodev-gate.md) | The gate rules of the runner's code in words: select, resume or wait | A decision with its reason |
+| [Autodev selection](autodev-select.md) | Pick the most useful issue the owner labelled `autodev:ready` or `autodev:next`: admission filters, readiness and WSJF, read-only | The stage's structured output: decision, issue, slice and the top-five scores |
+| [Autodev implementation](autodev-implement.md) | Implement the slice, have workers review it until clean, run a pre-mortem and hand the commits over, without pushing | The stage's structured output with the branch, head, checks, reviews and pull request sections |
+| [Code review pass](code-review-pass.md) | Review one commit range against the acceptance criteria, as a delegated worker or directly | A `ReviewPayload` |
+| [Change pre-mortem](change-premortem.md) | Name the three to five likeliest reasons a merged change breaks, as a delegated worker or directly | A `ReviewPayload` with one finding per risk |
 
 Built-in flows declare their persona: `documentation-refresh` runs as
 `tech_writer`, `issue-plan` as `system_architect`, `issue-implementation` as
 `software_engineer`, `pr-review` as `code_reviewer`, `thread-close` as
-`investigative_analyst` and `ab-eval` as `ai_senior_engineer`, each with an exact list of skills and implants (see
+`investigative_analyst`, `ab-eval` as `ai_senior_engineer`, `autodev-select`
+as `product_manager`, `autodev-implement` as `software_engineer`,
+`code-review-pass` as `code_reviewer` and `change-premortem` as `sysadmin`, each
+with an exact list of skills and implants (see
 [choosing a flow's agent](#choose-a-flows-agent-and-components)). The
-`issue-agent` dispatcher has none.
+`issue-agent` and `autodev` dispatchers and the `autodev-gate` rules have none.
 
 The three issue flows run in a Claude Code cloud routine that a GitHub Actions
 bridge starts for the owner's `/agent` comments, not from a local request. See
@@ -126,7 +137,7 @@ scope-qualified (`builtin:<id>` for a built-in) and the listing-only
 `run_flow` and `get_flow` declare `anthropic/maxResultSizeChars` in their
 `tools/list` entries. Claude Code then moves their results to a file only above
 500,000 characters, its ceiling, instead of above 50,000: `pr-review` with its
-persona bundle, about 58,000 characters, reaches the model in the conversation
+persona bundle, about 68,000 characters, reaches the model in the conversation
 rather than as a file it has to read in parts. The declaration also replaces
 `MAX_MCP_OUTPUT_TOKENS` for these two tools, and Claude Code can still apply limits
 of its own. A result can pass the ceiling when two flows near the 256 KiB limit, a
