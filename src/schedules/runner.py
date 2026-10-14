@@ -349,10 +349,11 @@ def tick(ctx: Context) -> tuple[int, dict]:
 def enable(ctx: Context, mode: str) -> tuple[int, dict]:
     if mode in REAL_MODES:
         return 1, refusal(mode)
-    config = autodev_config.load(ctx.directory)
-    was_enabled = config["enabled"]
-    config.update(enabled=True, mode=mode)
-    autodev_config.save(config, ctx.directory)
+    with autodev_config.writing(ctx.directory):  # the page and the tripwire write it too
+        config = autodev_config.load(ctx.directory)
+        was_enabled = config["enabled"]
+        config.update(enabled=True, mode=mode)
+        autodev_config.save(config, ctx.directory)
     now = ctx.clock()
     if not was_enabled:
         _save_tick_state(ctx, {**_tick_state(ctx), "enabled_at": iso(now)})
@@ -365,13 +366,15 @@ def enable(ctx: Context, mode: str) -> tuple[int, dict]:
 
 
 def disable(ctx: Context) -> tuple[int, dict]:
-    config = autodev_config.load(ctx.directory)
-    config["enabled"] = False
-    autodev_config.save(config, ctx.directory)
+    with autodev_config.writing(ctx.directory):
+        config = autodev_config.load(ctx.directory)
+        config["enabled"] = False
+        autodev_config.save(config, ctx.directory)
     return 0, {"ok": True, "enabled": False}
 
 
-def _summary(record: dict) -> dict:
+def run_summary(record: dict) -> dict:
+    """A run record's fields that `status` and the settings page (#348) list."""
     gate_decision = record.get("gate") or {}
     return {key: value for key, value in {
         "run_id": record.get("run_id"), "mode": record.get("mode"), "trigger": record.get("trigger"),
@@ -393,7 +396,7 @@ def status(ctx: Context) -> tuple[int, dict]:
         "heavy_lease_held": heavy.held(ctx.directory),
         "next_slot": iso(next_slot(config["times"], now)),
         "tick": _tick_state(ctx),
-        "recent_runs": [_summary(record) for record in records.all_records(ctx.directory)[:5]],
+        "recent_runs": [run_summary(record) for record in records.all_records(ctx.directory)[:5]],
         "real_modes": {"run_now": True, "scheduled": False, "missing": list(MISSING_FOR_REAL_MODES)},
     }
 
