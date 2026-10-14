@@ -324,6 +324,60 @@ def test_a_flow_that_loads_after_sign_in_was_lost_shows_no_controls():
     assert result["late"]["group"] is False and result["after"]["group"] is False
 
 
+@pytest.fixture(scope="module")
+def versions():
+    return run("ui_history")
+
+
+def test_a_flow_shows_its_text_before_its_versions_arrive(versions):
+    """#371: the version list is a separate request after the text; computing it never delays opening."""
+    loading = versions["while_loading"]
+    assert loading["title"] == "doc" and loading["content"].startswith("---\npersona: tester")
+    assert loading["panes"]["shown"] == ["editor"]
+    assert loading["flow_get_first"]
+    assert loading["history_request"] == "/ui/api/flow/history?id=user%3Adoc"
+    assert loading["head"] == "History…" and loading["disabled"] and loading["options"] == []
+    assert loading["busy"] == "true" and loading["head_title"] is None
+
+
+def test_the_versions_fill_the_list_and_open_an_old_version(versions):
+    assert versions["loaded"] == {"head": "History (2)", "disabled": False, "busy": None, "head_title": None, "options": [
+        ["git-bbbbb", "2026-10-02 09:30:00 UTC (deleted)"], ["git-aaaaa", "2026-10-01 10:00:00 UTC"]]}
+    opened = versions["version"]
+    assert opened["request"] == "/ui/api/flow?id=user%3Adoc&version=git-" + "a" * 40
+    assert opened["content"] == "# Old aaaaa\n" and opened["select_value"] == ""
+    assert opened["notice"].startswith("Loaded version git-" + "a" * 40)
+
+
+def test_a_late_version_list_does_not_replace_the_open_flows(versions):
+    assert versions["other_flow"] == {"title": "plain", "head": "No history", "disabled": True, "options": [],
+                                      "busy": None, "head_title": None}
+    assert versions["late_answer"] == versions["other_flow"]
+
+
+def test_a_save_keeps_the_newer_version_list_when_the_older_answers_last(versions):
+    """A save reopens the flow; the list asked before it must not replace the one asked after it."""
+    assert versions["saved_requests"] == {"pending": 2, "put": "user:doc"}
+    newer = {"title": "doc", "head": "History (3)", "disabled": False, "busy": None, "head_title": None, "options": [
+        ["git-ccccc", "2026-10-03 08:00:00 UTC"], ["git-bbbbb", "2026-10-02 09:30:00 UTC (deleted)"],
+        ["git-aaaaa", "2026-10-01 10:00:00 UTC"]]}
+    assert versions["saved"] == newer
+    assert versions["saved_late"] == newer
+
+
+def test_a_builtin_flow_asks_for_no_versions(versions):
+    empty = {"title": "review", "head": "No history", "disabled": True, "options": [], "busy": None, "head_title": None}
+    assert versions["builtin"] == {**empty, "asked": []}
+    assert versions["builtin_late"] == empty  # the list of the flow left meanwhile stays out
+
+
+def test_an_unreadable_version_list_leaves_the_text_usable(versions):
+    """The reason is on the list's head, with how to retry; the text stays editable."""
+    assert versions["failed"] == {"title": "doc", "head": "History unavailable", "disabled": True, "options": [],
+                                  "busy": None, "head_title": "flow_history: Git failed. Reopen the flow to try again.",
+                                  "content": versions["while_loading"]["content"], "read_only": False}
+
+
 def test_the_page_keeps_its_content_security_policy():
     html, script, _ = page_parts()
     assert not re.search(r"\son[a-z]+\s*=", html)
