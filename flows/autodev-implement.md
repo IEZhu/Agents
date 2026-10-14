@@ -73,8 +73,9 @@ relying on memory ([design 8.5](../docs/autodev-plan.md#85-stage-personas)):
   task's parsed state with its findings (each with the runner's `security`
   mark and the decision so far), the decisions recorded so far, and
   `open_findings`, the findings that keep the push gate closed now;
-- `{state_copy}/state.json` when it exists: the run sequence's own summary of
-  the run (the pinned commit, the stage, the persona source);
+- `{state_copy}/state.json`: the run sequence's own summary of the run (the
+  pinned commit, the stage, the issue, the branch, the slice and the persona
+  source), rewritten at every stage transition;
 - `git log --oneline {pinned}..{branch}` in `{worktree}`.
 
 `worker-log.json` lists only finished workers. A request refused with
