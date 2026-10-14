@@ -95,6 +95,7 @@ CONTROL_PATH = "the change needs a control path; a local patch for the owner is 
 PROTECTED_PATH = "the change touches protected paths without autodev:next"
 FOREIGN_HEAD = "the pull request's head is not the head this runner pushed"
 SUBMIT_BLOCKED = "the submit stage ended blocked"
+GENERIC_BLOCKED = "the run stopped and needs the owner; the details are in the local run record"
 
 
 class Stopped(Exception):
@@ -352,12 +353,21 @@ class Sequence:
         self.note(cleanup_executed=True, cleanup=done)
 
     def block(self, blockers: list[str], *, unclaim: bool = True) -> None:
-        """``autodev:blocked`` with the neutral ``blockers`` on the run's issue, and the claim removed."""
+        """``autodev:blocked`` with the neutral ``blockers`` on the run's issue, and the claim removed.
+        A list the broker refuses to post (a mention, a closing keyword for another issue, a
+        secret-like value) is replaced by `GENERIC_BLOCKED`, so the issue is still labelled."""
         self.note(blockers=list(blockers))
         if self.broker is None or self.broker.run.issue is None:
             return
         try:
-            self.comment(self.broker.block(blockers))
+            try:
+                comment = self.broker.block(blockers)
+            except broker_module.BrokerRefused as error:
+                if self.broker.log.done("block"):
+                    raise  # something was written: no second comment
+                self.note(block_refused=str(error)[:300])
+                comment = self.broker.block([GENERIC_BLOCKED])
+            self.comment(comment)
             if unclaim:
                 self.broker.unclaim()
         except broker_module.BrokerRefused as error:
@@ -922,22 +932,24 @@ class Sequence:
             state = {"head": head if isinstance(head, str) else None, "next_attempt": next_attempt,
                      "rounds": int((output or {}).get("rounds") or 0), "review_status": status,
                      "findings": list((output or {}).get("findings") or [])}
+            written = False
             try:
-                body, clean = broker_module.state_body(state, datetime.now(timezone.utc))
+                _, clean = broker_module.state_body(state, datetime.now(timezone.utc))
                 self.comment(self.broker.state(state, comment_id=state_comment))  # type: ignore[union-attr]
-                next_attempt = clean["next_attempt"]
+                next_attempt, written = clean["next_attempt"], True
             except (ValueError, broker_module.BrokerRefused) as error:
                 self.note(state_comment_failed=str(error)[:300])
             self._risk_issues()
-            if status == "waiting_bots" and next_attempt:
+            if status == "waiting_bots" and next_attempt and written:  # the gate trusts only a written comment
                 tick = runner._tick_state(self.ctx)
                 runner._save_tick_state(self.ctx, {**tick, "next_attempt": {"at": next_attempt, "pr": pr}})
         self.note(next_attempt=next_attempt)
         if status == "blocked":
-            reason = (output or {}).get("reason") or SUBMIT_BLOCKED
-            self.block([SUBMIT_BLOCKED if output is None else str(reason)], unclaim=pr is None)
+            # The session's own reason stays in the local record: only a fixed phrase goes public.
+            reason = str((output or {}).get("reason") or "")[:300]
+            self.block([SUBMIT_BLOCKED], unclaim=pr is None)
             raise Stopped({"status": "blocked", "reason": SUBMIT_BLOCKED if output is None else
-                           f"the submit stage ended blocked: {str(reason)[:200]}"})
+                           f"{SUBMIT_BLOCKED}: {reason}"})
         self.note(status="completed")
 
     def _risk_issues(self) -> None:
