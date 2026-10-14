@@ -637,7 +637,6 @@ def _codex_probe(ctx: Context, config: dict, run_id: str, kind: str, markers: li
         mode = codex_sandbox.login_mode(config)
         codex = codex_executable(ctx)
         path = run_environment(ctx)["PATH"]
-        home_dir = codex_sandbox.codex_home(ctx.directory)
         planted = decoys.ensure(ctx.directory, ctx.home, keychain=config["sandbox"]["decoy_keychain"],
                                 runner=ctx.command_runner)
         markers.extend(decoy.marker for decoy in planted)
@@ -648,24 +647,27 @@ def _codex_probe(ctx: Context, config: dict, run_id: str, kind: str, markers: li
     run_dir = records.run_dir(run_id, ctx.directory)
     temp_root = session = None
     try:
+        # HOME, CODEX_HOME and TMPDIR are new empty directories inside the run's temporary root,
+        # removed with it below: nothing of a Codex process survives the run.
         temp_root = sandbox.make_temp_root(ctx.temp_base)
-        common = dict(kind=kind, home=ctx.home, codex_home=home_dir, tmp_root=temp_root,
-                      run_home=codex_sandbox.prepare_run_home(temp_root), out_dir=private_dir(run_dir / "codex-out"),
-                      profile=run_dir / "codex-profile" / "codex.sb")
+        directories = codex_sandbox.prepare_run_directories(temp_root)
+        common = dict(kind=kind, home=ctx.home, tmp_root=temp_root, out_dir=private_dir(run_dir / "codex-out"),
+                      profile=run_dir / "codex-profile" / "codex.sb", state_dir=Path(ctx.directory),
+                      installation=Path(ctx.installation), **directories)
         if kind == codex_sandbox.WORKER:
             paths = codex_sandbox.CodexPaths(**common, **_codex_work(run_dir))
         else:
             session = (ctx.probe_session or default_probe_session)(ctx, config, run_id)
             paths = codex_sandbox.CodexPaths(**common, repository=Path(session.layout["repository"]),
                                              exchange=Path(session.layout["exchange"]),
-                                             read_roots=(Path(session.layout["state_copy"]), Path(session.venv)))
+                                             read_roots=(Path(session.layout["state_copy"]),), venv=Path(session.venv))
         targets = codex_probes.CodexTargets(
             state_dir=Path(ctx.directory), secrets_dir=ctx.home / ".config" / "agents-autodev",
-            runner=probe_targets(ctx, config, sandbox.LOGIN_CONFIG_DIR) if kind == codex_sandbox.STAGE else None)
+            runner=probe_targets(ctx, config, mode or sandbox.LOGIN_CONFIG_DIR) if kind == codex_sandbox.STAGE else None)
         settings = (config["delegates"].get("code-review-pass") or {}).get("codex") or {}
         if kind == codex_sandbox.STAGE:
             settings = (config["stages"]["implement"].get("codex") or settings)
-        with codex_proxy.ConnectProxy(codex_sandbox.allowed_hosts(mode)) as proxy:
+        with codex_proxy.ConnectProxy(codex_sandbox.allowed_hosts()) as proxy:
             options = dict(path=path, proxy=proxy, mode=mode, targets=targets, persistent=planted,
                            directory=ctx.directory, run_id=run_id, model=settings.get("model"),
                            effort=settings.get("effort"), known=known, platform=ctx.platform,
@@ -675,11 +677,10 @@ def _codex_probe(ctx: Context, config: dict, run_id: str, kind: str, markers: li
                 decision = codex_probes.stage_availability(codex, paths, timeout=ctx.probe_timeout, **options)
             else:
                 decision = codex_probes.decide(codex, paths, **options)
-            report = decision.report
-            if report is not None and "workspace_write_blocks_network" not in report.installed \
-                    and ctx.platform == "darwin" and codex and report.installed.get("version"):
-                report.installed.update(codex_probes.installed_checks(os.path.realpath(codex), path=path,
-                                                                      execute_=ctx.codex_execute))
+            markers.extend(decision.known_values())
+            if decision.report is not None:
+                codex_probes.complete_installed(decision.report, codex, path=path, platform=ctx.platform,
+                                                execute_=ctx.codex_execute)
     except (codex_sandbox.CodexSandboxError, sandbox.SandboxError) as error:
         return {"status": "refused", "reason": f"codex: {error}"}
     except repos.FetchError as error:

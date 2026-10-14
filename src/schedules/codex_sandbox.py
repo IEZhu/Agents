@@ -12,27 +12,32 @@ between Codex and the Claude worker.
   in the SBPL text, so a path cannot add a rule; the text depends only on the kind and on how many
   parameters there are. Reads: the system directories codex needs, the codex package, and the
   run's directories; the owner's home directory is denied except those directories, whose
-  ancestors under it get a metadata allow (codex canonicalises them). Writes: ``CODEX_HOME``, the
-  output directory, the run's temporary root and ``/dev/null`` (worker); the stage adds the
-  one-off repository (except its ``.git/config`` and ``.git/hooks``) and the exchange directory.
+  ancestors under it get a metadata allow (codex canonicalises them). Writes: the run's temporary
+  root (which holds the per-run ``CODEX_HOME`` and ``HOME``), the output directory and
+  ``/dev/null`` (worker); the stage adds the one-off repository (except the repository and
+  ``.git`` entries themselves, ``.git/config``, ``.git/hooks`` and the git redirectors) and the
+  exchange directory, and may run its environment's interpreter. ``sysctl-read`` is limited to
+  Codex's own allowlist; interpreters that can call ``sysctl`` directly are not executable.
   Network: only ``localhost:<proxy port>`` (Seatbelt accepts only ``*`` or ``localhost`` hosts),
-  where the runner's CONNECT proxy (`src.schedules.codex_proxy`) tunnels to the login mode's hosts.
-* **argv** (`argv`): ``/usr/bin/sandbox-exec -f <profile> -D ... <codex> exec --ignore-user-config
-  --ignore-rules --ephemeral -s read-only --skip-git-repo-check -C <tree> --output-schema <file>
-  -o <file>`` plus `HARDENING` (extension sources and model-command secrets), ``-m`` and
-  ``-c model_reasoning_effort=`` when set, and ``-`` (the prompt on standard input). The stage
-  session uses ``-s workspace-write -C <one-off repository>``, `STAGE_SWITCHES` and ``--json``.
-  Never ``--add-dir``, a ``--dangerously-*`` flag or ``danger-full-access`` (`check_argv`).
+  where the runner's CONNECT proxy (`src.schedules.codex_proxy`) tunnels to ``api.openai.com``.
+* **argv** (`prefix` and `codex_command`): ``/usr/bin/sandbox-exec -f <profile> -D ... <codex> exec
+  --ignore-user-config --ignore-rules --ephemeral -s read-only --skip-git-repo-check -C <tree>
+  --output-schema <file> -o <file>`` plus `HARDENING` (extension sources and model-command
+  secrets), ``-m`` and ``-c model_reasoning_effort=`` when set, and ``-`` (the prompt on standard
+  input). The stage session uses ``-s workspace-write -C <one-off repository>``, `STAGE_SWITCHES`
+  and ``--json``. Never ``--add-dir``, ``--approve-for-me``, a profile (``-p``), a ``--dangerously-*``
+  flag, ``danger-full-access`` or another ``sandbox*`` configuration key (`check_argv`).
 * **Environment** (`environment`): an allowlist, separate from `runner.run_environment`:
-  ``PATH``, ``HOME`` (an empty per-run directory), ``LANG``, ``CODEX_HOME``, ``TMPDIR`` (the run's
-  temporary root, `sandbox.make_temp_root`), ``HTTPS_PROXY`` and ``HTTP_PROXY`` (the runner's proxy)
-  and, only in the ``keychain:<service>`` login mode, ``CODEX_API_KEY``.
-* **Login** (`codex_home`, `hygiene_problems`, `require_login`): ``CODEX_HOME`` is a persistent
-  runner-owned directory (0700) in the autodev state, logged in once by the owner to a separate
-  account. Before every start the runner refuses a ``CODEX_HOME`` that holds instruction or
-  extension files, and runs ``codex login status`` (no model turn; only its exit status counts).
+  ``PATH``, ``HOME``, ``CODEX_HOME`` and ``TMPDIR`` (empty per-run directories inside the run's
+  temporary root, `sandbox.make_temp_root` and `prepare_run_directories`), ``LANG``,
+  ``HTTPS_PROXY`` and ``HTTP_PROXY`` (the runner's proxy) and ``CODEX_API_KEY``.
+* **Login** (`login_mode`): the only mode is ``codex.login: "keychain:<service>"``: the runner
+  reads an OpenAI API key of a separate project with a spending limit (Q8) from that keychain
+  item and passes it as ``CODEX_API_KEY`` to the codex process only. ``CODEX_HOME`` is created
+  empty for each run (`prepare_run_directories`) and removed with the temporary root; before a start it
+  may hold only what codex itself creates (`hygiene_problems`), never ``auth.json``.
 
-Nothing here starts a model or a process other than ``codex --version`` and ``codex login status``.
+Nothing here starts a model or a process other than ``codex --version``.
 """
 from __future__ import annotations
 
@@ -51,7 +56,6 @@ from src.daemon.state import atomic_private, private_dir
 
 from . import records, sandbox, scan
 from .config import CODEX_EFFORTS
-from .lease import schedules_dir
 
 SANDBOX_EXEC = "/usr/bin/sandbox-exec"
 WORKER, STAGE = "worker", "stage"
@@ -61,20 +65,19 @@ EFFORTS = CODEX_EFFORTS
 # features list` and the source at tag rust-v0.162.1); another version is unverified.
 VERIFIED_VERSIONS = ("0.162.1",)
 VERSION_LINE = re.compile(r"codex-cli (\d+\.\d+\.\d+)")
-LOGIN_API_KEY, LOGIN_CHATGPT = "api-key", "chatgpt"
-LOGIN_MODES = (LOGIN_API_KEY, LOGIN_CHATGPT)
 KEYCHAIN_PREFIX = sandbox.KEYCHAIN_PREFIX
 API_KEY_VARIABLE = "CODEX_API_KEY"  # exec reads this, not OPENAI_API_KEY (research, auth precedence)
 PROXY_VARIABLES = ("HTTPS_PROXY", "HTTP_PROXY")
-BASE_VARIABLES = ("PATH", "HOME", "LANG", "CODEX_HOME", "TMPDIR", *PROXY_VARIABLES)
+BASE_VARIABLES = ("PATH", "HOME", "LANG", "CODEX_HOME", "TMPDIR", *PROXY_VARIABLES, API_KEY_VARIABLE)
 FORBIDDEN_NAME = sandbox.FORBIDDEN_NAME
-# The proxy's allowlist per login mode (research: the API-key provider uses api.openai.com; a
-# ChatGPT login uses chatgpt.com and refreshes its token at auth.openai.com). All on port 443.
+# The proxy's allowlist: the API-key provider uses api.openai.com (research), on port 443.
 API_HOSTS = ("api.openai.com",)
-CHATGPT_HOSTS = ("api.openai.com", "chatgpt.com", "auth.openai.com")
 PROXY_PORT_HTTPS = 443
 CODEX_HOME_NAME = "codex-home"
 RUN_HOME_NAME = "home"
+# TMPDIR is a directory inside the temporary root, not the root itself: codex refuses to create its
+# arg0 helpers (apply_patch on PATH) when CODEX_HOME lies under TMPDIR (arg0/src/lib.rs at the tag).
+RUN_TMP_NAME = "tmp"
 OUTPUT_NAME = "last-message.txt"
 PACKAGE_MANIFEST = "codex-package.json"
 PROFILE_MAX_BYTES = 64 * 1024
@@ -94,33 +97,55 @@ HARDENING = (
 )
 # workspace-write would also make the shared /tmp writable (TMPDIR is the run's own root).
 STAGE_SWITCHES = ("-c", "sandbox_workspace_write.exclude_slash_tmp=true")
-FORBIDDEN_ARGUMENTS = ("--add-dir", "danger-full-access")
-FORBIDDEN_PREFIX = "--dangerously"
+FORBIDDEN_PREFIXES = ("--add-dir", "--approve-for-me", "--dangerously", "--profile")
+_CONFIG_FLAGS = ("-c", "--config")
 _PLAIN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._\[\]-]{0,63}")
 _CONTROL = re.compile(r"[\x00-\x1f\x7f]")
-# Instruction and extension sources in CODEX_HOME that --ignore-user-config does not drop
-# (research: the User layer stays). Names compare case-insensitively (the default macOS volume is).
-UNCLEAN_FILES = ("agents.md", "agents.override.md", "hooks.json", "config.toml")
-UNCLEAN_DIRECTORIES = ("rules", "plugins")
-SKILLS_DIRECTORY = "skills"
-SYSTEM_SKILLS = ".system"  # codex's own bundled-skill cache (source: ext/skills tests at the tag)
+# CODEX_HOME is created empty for every run; before a start it may hold only what codex itself
+# creates (`codex --version` and `codex sandbox` create tmp/arg0; a session adds log/ and its
+# state and log databases). Everything else is refused; these names are refused by name, because
+# codex loads them despite --ignore-user-config and --ignore-rules (the research and the source
+# at the tag): .env (arg0 sets every non-CODEX_ variable from it), AGENTS*.md, hooks.json,
+# *config.toml, rules/, plugins/, skills/, models_cache.json (trusted base instructions) and
+# auth.json (a stored login; the key comes from the keychain only).
+CODEX_HOME_DIRECTORIES = ("tmp", "log")
+CODEX_HOME_FILES = re.compile(r"(?:state|logs)_[0-9]{1,3}\.sqlite(?:-wal|-shm|-journal)?")
+REFUSED_ENTRIES = (".env", "agents.md", "agents.override.md", "hooks.json", "config.toml", "rules", "plugins",
+                   "skills", "models_cache.json", "auth.json")
 # System locations a codex package may not be: its directory is readable and executable in full.
 _BROAD = tuple(Path(path) for path in ("/", "/usr", "/usr/local", "/opt", "/opt/homebrew", "/Applications",
-                                       "/Library", "/System", "/private", "/private/tmp", "/private/var", "/Users"))
+                                       "/Library", "/System", "/private", "/private/tmp", "/private/var", "/Users",
+                                       "/nix", "/nix/store"))
+# sysctl-read: Codex's own allowlist (codex-rs/sandboxing/src/seatbelt_base_policy.sbpl at
+# rust-v0.162.1) plus the three names a trace of `codex --version` and `codex sandbox --
+# /usr/bin/true` under this profile showed every process reading at start (2026-10-14). Defense in
+# depth only: in testing on macOS 26.5.1 the name allowlist did not stop a sandboxed command from
+# reading a same-user process's environment, so model commands can reach the codex process's
+# ``CODEX_API_KEY`` (a residual risk: the key is a separate project's with a spending limit, the
+# proxy reaches api.openai.com only, and the key is a known secret of the run's scan,
+# `codex_probes.Decision.known`). The interpreters below are not executable either way.
+SYSCTL_NAMES = (
+    "hw.activecpu", "hw.busfrequency_compat", "hw.byteorder", "hw.cacheconfig", "hw.cachelinesize_compat",
+    "hw.cpufamily", "hw.cpufrequency_compat", "hw.cputype", "hw.l1dcachesize_compat", "hw.l1icachesize_compat",
+    "hw.l2cachesize_compat", "hw.l3cachesize_compat", "hw.logicalcpu_max", "hw.machine", "hw.model", "hw.memsize",
+    "hw.ncpu", "hw.nperflevels", "hw.packages", "hw.pagesize_compat", "hw.pagesize", "hw.physicalcpu",
+    "hw.physicalcpu_max", "hw.logicalcpu", "hw.cpufrequency", "hw.tbfrequency_compat", "hw.vectorunit",
+    "machdep.cpu.brand_string", "kern.argmax", "kern.hostname", "kern.maxfilesperproc", "kern.maxproc",
+    "kern.osproductversion", "kern.osrelease", "kern.ostype", "kern.osvariant_status", "kern.osversion",
+    "kern.secure_kernel", "kern.sysv.semmns", "kern.usrstack64", "kern.version", "sysctl.proc_cputype", "vm.loadavg",
+)
+SYSCTL_PREFIXES = ("hw.optional.arm.", "hw.optional.armv8_", "hw.perflevel", "kern.proc.pgrp.", "kern.proc.pid.",
+                   "net.routetable.")
+SYSCTL_TRACED = ("kern.bootargs", "kern.iossupportversion", "security.mac.lockdown_mode_state")
+# Interpreters in the executable directories that can call sysctl or a C function directly (perl's
+# syscall, Ruby's Fiddle, JXA's ObjC bridge, Swift, LLDB's Python, the CLT Python); a review or a
+# stage needs none of them (a stage runs its own environment's interpreter, `CodexPaths.venv`).
+DENIED_EXECUTABLES = r"^/usr/bin/(perl|ruby|irb|erb|osascript|osacompile|swift|lldb|python|pydoc|tclsh|wish|jrunscript|jshell)"
+CLT = "/Library/Developer/CommandLineTools"
 
 
 class CodexSandboxError(RuntimeError):
     """A Codex process cannot be built or started safely; the message never holds a secret."""
-
-
-class CodexLoginRequired(CodexSandboxError):
-    """``CODEX_HOME`` holds no login; ``command`` is the owner's command for the separate account."""
-
-    def __init__(self, codex_home: Path, detail: str):
-        self.codex_home = codex_home
-        self.command = f"CODEX_HOME={codex_home} codex login"
-        super().__init__(f"the runner's CODEX_HOME is not logged in ({detail}); log the separate account in once: "
-                         f"{self.command} (or --with-api-key / --device-auth)")
 
 
 # --- paths ---------------------------------------------------------------------------------------------
@@ -137,12 +162,14 @@ def _inside(path: Path, root: Path) -> bool:
 class CodexPaths:
     """Every path a Codex process's profile, argv and environment name. All absolute.
 
-    ``home`` is the owner's home directory (denied except the run's directories); ``codex_home``,
-    ``tmp_root`` (`sandbox.make_temp_root`; ``run_home``, the process's ``HOME``, is an empty
-    directory inside it) and ``out_dir`` (the ``-o`` file) are writable; ``profile`` is the outer
-    profile file, outside every directory the process may read or write. A worker reads ``tree``
-    (``-C``), ``materials`` and ``schema``; a stage session writes ``repository`` (``-C``) and
-    ``exchange``. ``read_roots`` are further read-only roots (a stage's environment or state copy).
+    ``home`` is the owner's home directory (denied except the run's directories); ``tmp_root``
+    (`sandbox.make_temp_root`) holds ``codex_home`` and ``run_home`` (the process's ``CODEX_HOME``
+    and ``HOME``, empty per-run directories directly inside it) and is writable with ``out_dir``
+    (the ``-o`` file); ``profile`` is the outer profile file, outside every directory the process
+    may read or write. A worker reads ``tree`` (``-C``), ``materials`` and ``schema``; a stage
+    session writes ``repository`` (``-C``) and ``exchange`` and may run ``venv``'s interpreter.
+    ``read_roots`` are further read-only roots (a stage's state copy). ``state_dir`` (the autodev
+    state) and ``installation`` (the installation checkout) are protected like the home directory.
     """
 
     kind: str
@@ -158,10 +185,18 @@ class CodexPaths:
     repository: Path | None = None
     exchange: Path | None = None
     read_roots: tuple[Path, ...] = ()
+    venv: Path | None = None
+    state_dir: Path | None = None
+    installation: Path | None = None
 
     @property
     def output(self) -> Path:
         return self.out_dir / OUTPUT_NAME
+
+    @property
+    def tmpdir(self) -> Path:
+        """The process's ``TMPDIR``: `RUN_TMP_NAME` inside the temporary root (`prepare_run_directories`)."""
+        return Path(self.tmp_root) / RUN_TMP_NAME
 
     @property
     def cwd(self) -> Path:
@@ -169,7 +204,8 @@ class CodexPaths:
 
     @property
     def writable(self) -> tuple[Path, ...]:
-        found = [self.codex_home, self.tmp_root, self.out_dir]
+        """The writable roots (``codex_home`` and ``run_home`` lie inside ``tmp_root``)."""
+        found = [self.tmp_root, self.out_dir]
         if self.kind == STAGE:
             found += [self.repository, self.exchange]  # type: ignore[list-item]
         return tuple(found)
@@ -178,12 +214,21 @@ class CodexPaths:
     def readable(self) -> tuple[Path, ...]:
         """The read-only roots (directories and the schema file)."""
         found = [self.tree, self.materials, self.schema] if self.kind == WORKER else []
-        return tuple(path for path in [*found, *self.read_roots] if path is not None)
+        return tuple(path for path in [*found, *self.read_roots, *self.interpreters] if path is not None)
+
+    @property
+    def interpreters(self) -> tuple[Path, ...]:
+        """A stage's environment and the installation prefix of its base interpreter: the profile
+        lets the stage read and execute both (`sandbox.interpreter_roots`)."""
+        if self.kind != STAGE or self.venv is None:
+            return ()
+        base = sandbox.venv_base_interpreter(Path(self.venv))
+        return (Path(self.venv), *(sandbox.interpreter_roots(base) if base is not None else ()))
 
     def named(self) -> dict[str, Path]:
         found = {name: getattr(self, name) for name in (
             "home", "codex_home", "tmp_root", "run_home", "out_dir", "profile", "tree", "materials", "schema",
-            "repository", "exchange") if getattr(self, name) is not None}
+            "repository", "exchange", "venv", "state_dir", "installation") if getattr(self, name) is not None}
         for index, root in enumerate(self.read_roots):
             found[f"read_roots[{index}]"] = root
         return found
@@ -192,8 +237,10 @@ class CodexPaths:
         """Why these paths are unsafe for a Codex process; empty when they are fine."""
         if self.kind not in KINDS:
             return [f"not a Codex kind: {self.kind!r} (one of {', '.join(KINDS)})"]
-        needed = ("tree", "materials", "schema") if self.kind == WORKER else ("repository", "exchange")
+        needed = ("tree", "materials", "schema") if self.kind == WORKER else ("repository", "exchange", "venv")
         found = [f"a {self.kind} needs {name}" for name in needed if getattr(self, name) is None]
+        if self.kind == WORKER and self.venv is not None:
+            found.append("only a stage runs its environment's interpreter (venv)")
         for name, path in self.named().items():
             if not Path(path).is_absolute():
                 found.append(f"{name} must be absolute: {path}")
@@ -203,15 +250,23 @@ class CodexPaths:
             return found
         home = _real(self.home)
         protected = {"home": home, "ssh": home / ".ssh", "library": home / "Library",
-                     "keychains": home / "Library/Keychains"}
+                     "keychains": home / "Library/Keychains", "secrets": home / ".config" / "agents-autodev"}
+        if self.state_dir is not None:
+            protected["state"] = _real(self.state_dir)
+        if self.installation is not None:
+            protected["installation"] = _real(self.installation)
         writable = {name: _real(getattr(self, name)) for name in
-                    ("codex_home", "tmp_root", "out_dir", *(("repository", "exchange") if self.kind == STAGE else ()))}
+                    ("tmp_root", "out_dir", *(("repository", "exchange") if self.kind == STAGE else ()))}
         readable = {name: _real(path) for name, path in self.named().items()
                     if name in ("tree", "materials", "schema") or name.startswith("read_roots")}
+        for index, root in enumerate(self.interpreters):
+            readable["venv" if index == 0 else f"interpreter[{index - 1}]"] = _real(root)
         for name, path in {**writable, **readable}.items():
             for label, guarded in protected.items():
                 if _inside(guarded, path):
                     found.append(f"{name} ({path}) equals or contains {label} ({guarded})")
+            if name.startswith(("venv", "interpreter")) and (path in _BROAD or len(path.parts) < 3):
+                found.append(f"{name} ({path}) is too broad to read and execute in full")
         names = list(writable)
         for index, first in enumerate(names):
             for second in names[index + 1:]:
@@ -219,32 +274,34 @@ class CodexPaths:
                     found.append(f"the writable {first} and {second} must not lie inside one another")
         for name, path in readable.items():
             for other, root in writable.items():
-                if _inside(path, root):
-                    found.append(f"the read-only {name} lies inside the writable {other}")
+                if _inside(path, root) or _inside(root, path):
+                    found.append(f"the read-only {name} and the writable {other} overlap")
         profile = _real(self.profile)
         for name, path in {**writable, **readable}.items():
             if _inside(profile, path):
                 found.append(f"the profile lies inside {name}, which the process can reach")
-        run_home = _real(self.run_home)
-        if run_home.parent != _real(self.tmp_root):
-            found.append("run_home must be a directory directly inside the temporary root")
+        tmp_root = _real(self.tmp_root)
+        for name in ("run_home", "codex_home"):
+            if _real(getattr(self, name)).parent != tmp_root:
+                found.append(f"{name} must be a directory directly inside the temporary root")
+        if len({_real(self.run_home), _real(self.codex_home), _real(self.tmpdir)}) != 3:
+            found.append("run_home, codex_home and the run's TMPDIR must be different directories")
         if self.kind == STAGE and not os.path.isdir(_real(self.repository) / ".git"):  # type: ignore[arg-type]
             found.append("the one-off repository's .git must be a directory (a gitdir file would move the "
                          ".git/config and hooks the profile denies)")
         return found
 
 
-def codex_home(directory: str | Path | None = None) -> Path:
-    """The persistent runner-owned ``CODEX_HOME``: ``<state>/schedules/codex-home`` (0700)."""
-    private_dir(schedules_dir(directory))
-    return private_dir(schedules_dir(directory) / CODEX_HOME_NAME)
-
-
-def prepare_run_home(tmp_root: Path) -> Path:
-    """The process's ``HOME``: a new empty 0700 directory inside the run's temporary root."""
-    path = Path(tmp_root) / RUN_HOME_NAME
-    os.mkdir(path, 0o700)
-    return path
+def prepare_run_directories(tmp_root: Path) -> dict[str, Path]:
+    """The process's ``HOME``, ``CODEX_HOME`` and ``TMPDIR``: new empty 0700 directories inside the
+    run's temporary root, removed with it (`sandbox.remove_temp_root`); never shared between runs
+    or kinds. Returns ``run_home`` and ``codex_home`` (`CodexPaths` derives ``tmpdir``)."""
+    found = {}
+    for key, name in (("run_home", RUN_HOME_NAME), ("codex_home", CODEX_HOME_NAME), ("tmpdir", RUN_TMP_NAME)):
+        found[key] = Path(tmp_root) / name
+        os.mkdir(found[key], 0o700)
+    del found["tmpdir"]
+    return found
 
 
 def directory_problems(path: Path, name: str, *, empty: bool = False) -> list[str]:
@@ -261,11 +318,10 @@ def directory_problems(path: Path, name: str, *, empty: bool = False) -> list[st
 
 
 def hygiene_problems(path: Path) -> list[str]:
-    """What in ``CODEX_HOME`` codex would load despite ``--ignore-user-config`` and
-    ``--ignore-rules``: ``AGENTS.md``, ``AGENTS.override.md``, ``hooks.json``, ``config.toml``,
-    ``*.config.toml`` profiles, ``rules/``, ``plugins/`` and user skills (anything in ``skills/``
-    but codex's own ``.system`` cache). A model command can write ``CODEX_HOME``, so a previous run
-    could have planted any of them; the runner checks before every start."""
+    """What in the per-run ``CODEX_HOME`` codex did not create itself: only the directories
+    `CODEX_HOME_DIRECTORIES` and the database files `CODEX_HOME_FILES` may exist (plain, not
+    links); `REFUSED_ENTRIES` are named as sources codex would load. The runner checks before the
+    probes and again right before a start, since a probe or another process could have written it."""
     problems = directory_problems(path, "CODEX_HOME")
     if problems:
         return problems
@@ -273,23 +329,22 @@ def hygiene_problems(path: Path) -> list[str]:
         entries = list(os.scandir(path))
     except OSError as error:
         return [f"CODEX_HOME cannot be listed: {type(error).__name__}"]
-    for entry in entries:
-        lowered = entry.name.lower()
-        if lowered in UNCLEAN_FILES or lowered.endswith(".config.toml"):
-            problems.append(f"CODEX_HOME holds {entry.name}")
-        elif lowered in UNCLEAN_DIRECTORIES:
-            problems.append(f"CODEX_HOME holds {entry.name}/")
-        elif lowered == SKILLS_DIRECTORY:
-            try:
-                skills = list(os.scandir(entry.path)) if entry.is_dir(follow_symlinks=False) else None
-            except OSError:
-                skills = None
-            if skills is None:
-                problems.append(f"CODEX_HOME holds {entry.name}, which is not a plain directory")
-            elif extra := sorted(item.name for item in skills if item.name != SYSTEM_SKILLS):
-                problems.append(f"CODEX_HOME holds user skills: {', '.join(extra[:5])}")
-            elif any(not item.is_dir(follow_symlinks=False) for item in skills):
-                problems.append(f"CODEX_HOME holds {entry.name}/{SYSTEM_SKILLS}, which is not a plain directory")
+    for entry in sorted(entries, key=lambda item: item.name):
+        name = entry.name
+        try:
+            mode = os.lstat(entry.path).st_mode
+        except OSError:
+            problems.append(f"CODEX_HOME holds {name}, which cannot be checked")
+            continue
+        if name in CODEX_HOME_DIRECTORIES and stat.S_ISDIR(mode):
+            continue
+        if CODEX_HOME_FILES.fullmatch(name) and stat.S_ISREG(mode):
+            continue
+        lowered = name.lower()
+        if lowered in REFUSED_ENTRIES or lowered.endswith(".config.toml"):
+            problems.append(f"CODEX_HOME holds {name}, which codex would load")
+        else:
+            problems.append(f"CODEX_HOME holds {name}, which codex does not create")
     return problems
 
 
@@ -332,8 +387,8 @@ def package_problems(package: Path, paths: CodexPaths) -> list[str]:
 
 def installed_version(codex: str, *, env: Mapping[str, str],
                       runner: Callable[..., subprocess.CompletedProcess] = subprocess.run) -> str | None:
-    """The ``X.Y.Z`` of ``codex --version`` (no model turn), or None; ``env`` names a fresh or the
-    runner's ``CODEX_HOME`` (codex creates ``tmp/arg0`` in it)."""
+    """The ``X.Y.Z`` of ``codex --version`` (no model turn), or None; ``env`` must name a fresh
+    ``CODEX_HOME`` and ``HOME`` (codex creates ``tmp/arg0`` in it and reads ``.env`` from it)."""
     try:
         result = runner([codex, "--version"], capture_output=True, text=True, env=dict(env), stdin=subprocess.DEVNULL,
                         timeout=COMMAND_TIMEOUT, check=False)
@@ -361,21 +416,33 @@ def ancestors(home: Path, targets: Iterable[Path]) -> list[Path]:
     return found
 
 
+# The stage's write denials inside the one-off repository: the repository and its .git entries
+# themselves (a rename moves everything below them past every path rule), .git/config, the hooks,
+# and the files that redirect git elsewhere (and their directories, which a rename would also move).
+GIT_DENIALS = (("REPO_GIT", ".git"), ("REPO_GIT_CONFIG", ".git/config"), ("REPO_GIT_COMMONDIR", ".git/commondir"),
+               ("REPO_GIT_INFO", ".git/info"), ("REPO_GIT_INFO_ALTERNATES", ".git/info/alternates"),
+               ("REPO_GIT_OBJECTS", ".git/objects"), ("REPO_GIT_OBJECTS_INFO", ".git/objects/info"),
+               ("REPO_GIT_OBJECTS_ALTERNATES", ".git/objects/info/alternates"))
+_NOT_REACHED = {"HOME_DIR", "REPO_GIT_HOOKS", *(name for name, _ in GIT_DENIALS)}
+
+
 def parameters(paths: CodexPaths, package: Path, proxy_port: int) -> list[tuple[str, str]]:
     """The ``-D`` parameters of the profile: resolved paths and the proxy port, nothing else."""
     if not isinstance(proxy_port, int) or isinstance(proxy_port, bool) or not 0 < proxy_port < 65536:
         raise CodexSandboxError("the proxy port must be an integer from 1 to 65535")
-    found = [("HOME_DIR", _real(paths.home)), ("CODEX_HOME", _real(paths.codex_home)), ("TMP_DIR", _real(paths.tmp_root)),
-             ("OUT_DIR", _real(paths.out_dir)), ("CODEX_PKG", _real(package))]
+    found = [("HOME_DIR", _real(paths.home)), ("TMP_DIR", _real(paths.tmp_root)), ("OUT_DIR", _real(paths.out_dir)),
+             ("CODEX_PKG", _real(package))]
     if paths.kind == WORKER:
         found += [("TREE", _real(paths.tree)), ("MATERIALS", _real(paths.materials)),  # type: ignore[arg-type]
                   ("SCHEMA", _real(paths.schema))]  # type: ignore[arg-type]
     else:
         repository = _real(paths.repository)  # type: ignore[arg-type]
-        found += [("REPO", repository), ("EXCHANGE", _real(paths.exchange)),  # type: ignore[arg-type]
-                  ("REPO_GIT_CONFIG", repository / ".git" / "config"), ("REPO_GIT_HOOKS", repository / ".git" / "hooks")]
+        found += [("REPO", repository), ("EXCHANGE", _real(paths.exchange))]  # type: ignore[arg-type]
+        found += [(name, repository / relative) for name, relative in GIT_DENIALS]
+        found += [("REPO_GIT_HOOKS", repository / ".git" / "hooks")]
+        found += [(f"INTERPRETER_{index}", _real(root)) for index, root in enumerate(paths.interpreters)]
     found += [(f"READ_ROOT_{index}", _real(root)) for index, root in enumerate(paths.read_roots)]
-    reached = [path for name, path in found if name not in ("HOME_DIR", "REPO_GIT_CONFIG", "REPO_GIT_HOOKS")]
+    reached = [path for name, path in found if name not in _NOT_REACHED]
     found += [(f"ANCESTOR_{index}", path) for index, path in enumerate(ancestors(paths.home, reached))]
     pairs = [(name, str(value)) for name, value in found] + [("PROXY_PORT", str(proxy_port))]
     for name, value in pairs:
@@ -388,20 +455,32 @@ def _params(names: Iterable[str], form: str) -> str:
     return " ".join(f'({form} (param "{name}"))' for name in names)
 
 
+def _sysctl_rule() -> list[str]:
+    names = [f'(sysctl-name "{name}")' for name in (*SYSCTL_NAMES, *SYSCTL_TRACED)]
+    names += [f'(sysctl-name-prefix "{prefix}")' for prefix in SYSCTL_PREFIXES]
+    lines = ["(allow sysctl-read"]
+    for start in range(0, len(names), 4):
+        lines.append("  " + " ".join(names[start:start + 4]))
+    lines[-1] += ")"
+    return lines
+
+
 def profile_text(kind: str, names: Sequence[str]) -> str:
     """The outer SBPL profile of ``kind`` for the parameter ``names`` (`parameters`). It names no
     path of the run: every run-specific path is a parameter, so the text only grows with the
-    number of read roots and ancestors. Based on the research's tested deny-default profile
-    (``outer-final.sb``, 2026-10-14: codex starts, git and the bundled rg run, home reads, writes
-    and ports are denied); the order matters, because a later rule wins: the run's directories are
-    allowed after the home directory is denied."""
+    number of read roots, interpreter roots and ancestors. Based on the research's tested
+    deny-default profile (``outer-final.sb``, 2026-10-14: codex starts, git and the bundled rg run,
+    home reads, writes and ports are denied); the order matters, because a later rule wins: the
+    run's directories are allowed after the home directory is denied, and the stage's git
+    denials come after its repository is allowed."""
     if kind not in KINDS:
         raise CodexSandboxError(f"not a Codex kind: {kind!r}")
     names = list(names)
     ancestors_ = [name for name in names if name.startswith("ANCESTOR_")]
     roots = [name for name in names if name.startswith("READ_ROOT_")]
-    reads = ["CODEX_HOME", "TMP_DIR", "OUT_DIR"]
-    writes = ["CODEX_HOME", "TMP_DIR", "OUT_DIR"]
+    interpreters = [name for name in names if name.startswith("INTERPRETER_")]
+    reads = ["TMP_DIR", "OUT_DIR"]
+    writes = ["TMP_DIR", "OUT_DIR"]
     if kind == WORKER:
         reads_extra = f"{_params(['TREE', 'MATERIALS'], 'subpath')} {_params(['SCHEMA'], 'literal')}"
     else:
@@ -415,28 +494,35 @@ def profile_text(kind: str, names: Sequence[str]) -> str:
         "(allow process-exec",
         '  (subpath (param "CODEX_PKG"))',
         '  (subpath "/bin") (subpath "/usr/bin") (subpath "/usr/libexec")',
-        '  (subpath "/Library/Developer/CommandLineTools/usr/bin")',
-        '  (subpath "/Library/Developer/CommandLineTools/usr/libexec"))',
+        f'  (literal "{CLT}/usr/bin/git") (subpath "{CLT}/usr/libexec/git-core"))',
+        f'(deny process-exec (regex #"{DENIED_EXECUTABLES}"))',
+    ]
+    if kind == STAGE and interpreters:
+        lines.append(f"(allow process-exec {_params(interpreters, 'subpath')})")
+    lines += [
         "(allow signal (target same-sandbox))",
-        "(allow sysctl-read)",
+        *_sysctl_rule(),
         "(allow file-read-metadata)",
         "(allow file-read*",
         '  (literal "/") (subpath "/System") (subpath "/usr/lib") (subpath "/usr/share")',
-        '  (subpath "/Library/Preferences") (subpath "/bin") (subpath "/usr/bin") (subpath "/usr/libexec")',
+        '  (subpath "/bin") (subpath "/usr/bin") (subpath "/usr/libexec")',
         '  (subpath "/private/etc/ssl") (literal "/private/etc/hosts")',
-        '  (subpath "/Library/Developer/CommandLineTools") (literal "/private/var/db/xcode_select_link")',
+        f'  (subpath "{CLT}") (literal "/private/var/db/xcode_select_link")',
         '  (subpath (param "CODEX_PKG"))',
         '  (literal "/dev/null") (literal "/dev/urandom") (literal "/dev/random"))',
         ';; The owner\'s home directory: denied, then the run\'s directories inside it re-allowed below.',
         '(deny file-read* (subpath (param "HOME_DIR")))',
         f'(allow file-read-metadata {_params(["HOME_DIR", *ancestors_], "literal")})',
         f"(allow file-read* {_params(reads, 'subpath')} {reads_extra}"
-        + (f" {_params(roots, 'subpath')}" if roots else "") + ")",
+        + (f" {_params(roots, 'subpath')}" if roots else "")
+        + (f" {_params(interpreters, 'subpath')}" if kind == STAGE and interpreters else "") + ")",
         f"(allow file-write* {_params(writes, 'subpath')}",
         '  (literal "/dev/null") (literal "/dev/dtracehelper"))',
     ]
     if kind == STAGE:
-        lines.append('(deny file-write* (literal (param "REPO_GIT_CONFIG")) (subpath (param "REPO_GIT_HOOKS")))')
+        lines += [";; The repository and .git entries themselves, .git/config, the hooks and git's redirectors.",
+                  f"(deny file-write* (literal (param \"REPO\")) {_params([name for name, _ in GIT_DENIALS], 'literal')}",
+                  '  (subpath (param "REPO_GIT_HOOKS")))']
     lines.append('(allow network-outbound (remote ip (string-append "localhost:" (param "PROXY_PORT"))))')
     return "\n".join(lines) + "\n"
 
@@ -511,76 +597,90 @@ def codex_command(codex: str, paths: CodexPaths, *, model: str | None = None, ef
     return [*command, "-"]
 
 
+def _config_values(argv: Sequence[str]) -> list[str]:
+    """Every ``-c``/``--config`` value of ``argv``, separate or attached (``--config=k=v``, ``-ck=v``)."""
+    found = []
+    for index, argument in enumerate(argv):
+        if argument in _CONFIG_FLAGS:
+            if index + 1 < len(argv):
+                found.append(argv[index + 1])
+        elif argument.startswith("--config="):
+            found.append(argument[len("--config="):])
+        elif argument.startswith("-c") and len(argument) > 2 and not argument.startswith("--"):
+            found.append(argument[2:])
+    return found
+
+
 def check_argv(argv: Sequence[str], profile: Path) -> list[str]:
     """What makes ``argv`` unsafe whatever else it holds: it must start with the profile prefix and
-    hold no ``--add-dir``, no ``--dangerously-*`` flag and no ``danger-full-access``."""
+    hold no argument starting with ``--add-dir``, ``--approve-for-me``, ``--dangerously`` or
+    ``--profile``, no ``-p``, no ``danger-full-access`` and no ``sandbox*`` configuration key other
+    than the stage's own `STAGE_SWITCHES` value."""
     problems = []
     if list(argv[:3]) != [SANDBOX_EXEC, "-f", str(profile)]:
         problems.append(f"the argv must start with {SANDBOX_EXEC} -f <profile>")
-    for argument in argv:
-        if argument in FORBIDDEN_ARGUMENTS or argument.startswith(FORBIDDEN_PREFIX) or "danger-full-access" in argument:
-            problems.append(f"the argv holds the forbidden argument {argument.split('=')[0]}")
+    for argument in argv[3:]:
+        name = argument.split("=", 1)[0]
+        if (argument.startswith(FORBIDDEN_PREFIXES) or "danger-full-access" in argument
+                or re.fullmatch(r"-p.*", argument)):
+            problems.append(f"the argv holds the forbidden argument {name}")
+    for value in _config_values(argv[3:]):
+        key = value.split("=", 1)[0].strip().strip('"')
+        if key.startswith("sandbox") and value != STAGE_SWITCHES[1]:
+            problems.append(f"the argv sets the configuration key {key[:40]}")
     return problems
 
 
 # --- environment -----------------------------------------------------------------------------------------
 
-def login_mode(config: Mapping) -> str:
-    """``api-key``, ``chatgpt`` or ``keychain:<service>`` from ``autodev.json`` ``codex.login``."""
-    mode = (config.get("codex") or {}).get("login", LOGIN_API_KEY)
-    if mode in LOGIN_MODES or (isinstance(mode, str) and mode.startswith(KEYCHAIN_PREFIX)
-                               and mode[len(KEYCHAIN_PREFIX):].strip()):
+def login_mode(config: Mapping) -> str | None:
+    """``keychain:<service>`` from ``autodev.json`` ``codex.login``, or None when it is not set (the
+    decision then falls back with ``login_missing``)."""
+    mode = (config.get("codex") or {}).get("login")
+    if mode is None:
+        return None
+    if isinstance(mode, str) and mode.startswith(KEYCHAIN_PREFIX) and mode[len(KEYCHAIN_PREFIX):].strip():
         return mode
-    raise CodexSandboxError("codex.login must be api-key, chatgpt or keychain:<service>")
+    raise CodexSandboxError("codex.login must be keychain:<service> (an API key of a separate project in the keychain)")
 
 
-def allowed_hosts(mode: str) -> tuple[str, ...]:
-    """The hosts the proxy tunnels to (port 443) for the login ``mode``."""
-    return CHATGPT_HOSTS if mode == LOGIN_CHATGPT else API_HOSTS
+def allowed_hosts() -> tuple[str, ...]:
+    """The hosts the proxy tunnels to (port 443)."""
+    return API_HOSTS
 
 
 def proxy_url(port: int) -> str:
     return f"http://127.0.0.1:{int(port)}"
 
 
-def environment(paths: CodexPaths, *, path: str, proxy_port: int, mode: str = LOGIN_API_KEY,
-                api_key: str | None = None, lang: str | None = None) -> dict[str, str]:
+def environment(paths: CodexPaths, *, path: str, proxy_port: int, api_key: str,
+                lang: str | None = None) -> dict[str, str]:
     """The Codex process's whole environment, built from the allowlist; `CodexSandboxError` names
     a refused variable (never a value)."""
     if not path or any(not os.path.isabs(entry) for entry in path.split(os.pathsep)):
         raise CodexSandboxError("PATH must be a list of absolute directories")
+    if not isinstance(api_key, str) or not api_key.strip():
+        raise CodexSandboxError("the Codex launch needs the API key from the keychain")
     built = {"PATH": path, "HOME": str(_real(paths.run_home)), "LANG": lang or sandbox.DEFAULT_LANG,
-             "CODEX_HOME": str(_real(paths.codex_home)), "TMPDIR": str(_real(paths.tmp_root)),
-             "HTTPS_PROXY": proxy_url(proxy_port), "HTTP_PROXY": proxy_url(proxy_port)}
-    if mode.startswith(KEYCHAIN_PREFIX):
-        if not api_key:
-            raise CodexSandboxError("the keychain login mode needs the API key")
-        built[API_KEY_VARIABLE] = api_key
-    elif api_key is not None:
-        raise CodexSandboxError(f"{API_KEY_VARIABLE} is passed only in the keychain login mode")
-    if problems := check_environment(built, paths, proxy_port, mode):
+             "CODEX_HOME": str(_real(paths.codex_home)), "TMPDIR": str(_real(paths.tmpdir)),
+             "HTTPS_PROXY": proxy_url(proxy_port), "HTTP_PROXY": proxy_url(proxy_port), API_KEY_VARIABLE: api_key}
+    if problems := check_environment(built, paths, proxy_port):
         raise CodexSandboxError("; ".join(problems))
     return built
 
 
-def check_environment(env: Mapping[str, str], paths: CodexPaths, proxy_port: int,
-                      mode: str = LOGIN_API_KEY) -> list[str]:
+def check_environment(env: Mapping[str, str], paths: CodexPaths, proxy_port: int) -> list[str]:
     """Every way ``env`` departs from the allowlist; values are scanned but never named."""
     problems = []
-    keychain = mode.startswith(KEYCHAIN_PREFIX)
-    allowed = set(BASE_VARIABLES) | ({API_KEY_VARIABLE} if keychain else set())
     for name in env:
-        if name not in allowed:
-            problems.append(f"{name} is not on the Codex allowlist")
-        elif FORBIDDEN_NAME.search(name) and name != API_KEY_VARIABLE:
-            problems.append(f"{name} names a secret")
-    if API_KEY_VARIABLE in env and not keychain:
-        problems.append(f"{API_KEY_VARIABLE} is passed only in the keychain login mode")
+        if name not in BASE_VARIABLES:
+            problems.append(f"{name} is not on the Codex allowlist"
+                            + (" (it names a secret)" if FORBIDDEN_NAME.search(name) else ""))
     for name in BASE_VARIABLES:
         if name not in env:
             problems.append(f"{name} is missing")
     expected = {"HOME": str(_real(paths.run_home)), "CODEX_HOME": str(_real(paths.codex_home)),
-                "TMPDIR": str(_real(paths.tmp_root)), "HTTPS_PROXY": proxy_url(proxy_port),
+                "TMPDIR": str(_real(paths.tmpdir)), "HTTPS_PROXY": proxy_url(proxy_port),
                 "HTTP_PROXY": proxy_url(proxy_port)}
     for name, value in expected.items():
         if name in env and env[name] != value:
@@ -590,45 +690,12 @@ def check_environment(env: Mapping[str, str], paths: CodexPaths, proxy_port: int
     scanner = scan.Scanner()
     for name, value in env.items():
         if name == API_KEY_VARIABLE:
-            continue  # the one secret this mode passes on purpose; model commands inherit only core variables
+            continue  # the one secret passed on purpose; model commands inherit only core variables
         if "\x00" in value:
             problems.append(f"{name} holds a NUL character")
         elif scanner.scan(value) or any(pattern.search(value) for pattern in records.SECRET_PATTERNS):
             problems.append(f"{name} holds secret-like text")
     return problems
-
-
-# --- login -----------------------------------------------------------------------------------------------
-
-def login_environment(codex_home_dir: Path, *, path: str, home: Path) -> dict[str, str]:
-    """The environment of ``codex login status``: the runner's ``CODEX_HOME`` and an empty ``HOME``."""
-    return {"PATH": path, "HOME": str(home), "LANG": sandbox.DEFAULT_LANG, "CODEX_HOME": str(codex_home_dir)}
-
-
-def login_status(codex: str, codex_home_dir: Path, *, path: str, home: Path,
-                 runner: Callable[..., subprocess.CompletedProcess] = subprocess.run) -> dict:
-    """``{"logged_in": bool, "detail": str}`` from ``codex login status`` under ``CODEX_HOME`` (no
-    model turn; it exits 0 when a login is stored and 1 otherwise, per the source at the tag). Its
-    output names the login and part of an API key, so it is discarded: only the exit status and a
-    fixed message are kept."""
-    try:
-        result = runner([codex, "login", "status"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                        env=login_environment(codex_home_dir, path=path, home=home), stdin=subprocess.DEVNULL,
-                        timeout=COMMAND_TIMEOUT, check=False)
-    except (OSError, subprocess.SubprocessError) as error:
-        return {"logged_in": False, "detail": f"codex login status failed: {type(error).__name__}"}
-    if result.returncode == 0:
-        return {"logged_in": True, "detail": "logged in"}
-    return {"logged_in": False, "detail": f"not logged in (exit code {result.returncode})"}
-
-
-def require_login(codex: str, codex_home_dir: Path, *, path: str, home: Path,
-                  runner: Callable[..., subprocess.CompletedProcess] = subprocess.run) -> dict:
-    """`login_status`, or `CodexLoginRequired` naming the owner's command."""
-    status = login_status(codex, codex_home_dir, path=path, home=home, runner=runner)
-    if not status["logged_in"]:
-        raise CodexLoginRequired(codex_home_dir, status["detail"])
-    return status
 
 
 # --- the launch ------------------------------------------------------------------------------------------
@@ -672,10 +739,17 @@ class CodexLaunch:
                               "profile": self.profile, "executable": list(self.executable)}, sort_keys=True)
         return hashlib.sha256(payload.encode()).hexdigest()
 
+    def shape(self) -> str:
+        """SHA-256 over what does not change from run to run: the kind, the profile text, the codex
+        flags without paths, the environment's names and the executable's resolved path and
+        SHA-256. The stored stage availability is bound to it (`codex_probes.read_availability`)."""
+        payload = json.dumps({"kind": self.kind, "profile": self.profile, "flags": describe_flags(self),
+                              "env": sorted(self.env), "executable": list(self.executable)}, sort_keys=True)
+        return hashlib.sha256(payload.encode()).hexdigest()
 
-def build(codex: str, paths: CodexPaths, *, path: str, proxy_port: int, mode: str = LOGIN_API_KEY,
-          api_key: str | None = None, model: str | None = None, effort: str | None = None,
-          lang: str | None = None) -> CodexLaunch:
+
+def build(codex: str, paths: CodexPaths, *, path: str, proxy_port: int, api_key: str, mode: str = KEYCHAIN_PREFIX,
+          model: str | None = None, effort: str | None = None, lang: str | None = None) -> CodexLaunch:
     """Build a Codex launch: its profile is written here; nothing starts. ``codex`` may be a link;
     the argv names its resolved path, whose package the profile allows."""
     if problems := paths.problems():
@@ -687,8 +761,12 @@ def build(codex: str, paths: CodexPaths, *, path: str, proxy_port: int, mode: st
     params = parameters(paths, package, proxy_port)
     text = profile_text(paths.kind, [name for name, _ in params])
     command = codex_command(identity[0], paths, model=model, effort=effort)
-    env = environment(paths, path=path, proxy_port=proxy_port, mode=mode, api_key=api_key, lang=lang)
-    if problems := directory_problems(paths.run_home, "the run's HOME", empty=True):
+    env = environment(paths, path=path, proxy_port=proxy_port, api_key=api_key, lang=lang)
+    for directory, name in ((paths.run_home, "the run's HOME"), (paths.codex_home, "the run's CODEX_HOME"),
+                            (paths.tmpdir, "the run's TMPDIR")):
+        if problems := directory_problems(directory, name):
+            raise CodexSandboxError("; ".join(problems))
+    if problems := hygiene_problems(paths.codex_home):
         raise CodexSandboxError("; ".join(problems))
     write_profile(paths.profile, text)
     argv = (*prefix(paths.profile, params), *command)
@@ -725,15 +803,22 @@ def check_launch(launch: CodexLaunch) -> list[str]:
             problems.append("the profile on disk differs from the launch's")
     except CodexSandboxError as error:
         problems.append(str(error))
-    problems += check_environment(launch.env, paths, launch.proxy_port, launch.mode)
+    problems += check_environment(launch.env, paths, launch.proxy_port)
     problems += sandbox.temp_root_problems(paths.tmp_root)
+    problems += directory_problems(paths.run_home, "the run's HOME")
+    problems += directory_problems(paths.tmpdir, "the run's TMPDIR")
     problems += hygiene_problems(paths.codex_home)
     return problems
 
 
+def describe_flags(launch: CodexLaunch) -> list[str]:
+    """The codex flags of a launch without its paths."""
+    return [item for item in launch.command[1:] if not os.path.isabs(item)]
+
+
 def describe(launch: CodexLaunch) -> dict[str, Any]:
-    """What a record may keep about a launch: kind, digest, version-independent argv shape (the
+    """What a record may keep about a launch: kind, digests, version-independent argv shape (the
     codex flags without paths), the login mode and the parameter names; never the environment."""
-    flags = [item for item in launch.command[1:] if not os.path.isabs(item)]
-    return {"kind": launch.kind, "digest": launch.digest(), "flags": flags, "mode": launch.mode.split(":")[0],
-            "parameters": [name for name, _ in launch.parameters], "executable": launch.executable[0]}
+    return {"kind": launch.kind, "digest": launch.digest(), "shape": launch.shape(), "flags": describe_flags(launch),
+            "mode": launch.mode.split(":")[0], "parameters": [name for name, _ in launch.parameters],
+            "executable": launch.executable[0]}
