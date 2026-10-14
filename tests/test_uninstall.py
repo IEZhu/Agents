@@ -718,9 +718,9 @@ def test_registry_entries_with_foreign_names_are_never_removed(home):
                                           "-a", "WonderMr")
 
 
-def readiness_profiles(tmp_path, monkeypatch, platform):
+def readiness_profiles(tmp_path, monkeypatch, platform, home_name="home with spaces"):
     """Install the real adapters into fake profiles using a fake installation's interpreter."""
-    home = tmp_path / "home with spaces"
+    home = tmp_path / home_name
     home.mkdir()
     installation = checkout(home / ".agents-core")
     for name in ("session_readiness.py", "session_readiness_mcp.py"):
@@ -821,6 +821,112 @@ def test_uninstall_preserves_other_handlers_and_shared_readiness_runtime(tmp_pat
     updated = json.loads(target.read_bytes())
     assert updated["hooks"]["SessionStart"] == [{"matcher": readiness_installer.MATCHER, "hooks": [other]}, untouched]
     assert all(path.read_bytes() == content for path, content in shared.items())
+
+
+@pytest.mark.parametrize("platform", ["linux", "win32"])
+def test_uninstall_preserves_quoted_readiness_runtime_in_modified_mixed_handler(tmp_path, monkeypatch, platform):
+    ctx, paths, runtimes, _ = readiness_profiles(tmp_path, monkeypatch, platform, home_name="O'Neil home")
+    target, _ = paths["claude"]
+    document = json.loads(target.read_bytes())
+    group = document["hooks"]["SessionStart"][0]
+    modified = {**group["hooks"][0], "timeout": 12}
+    group["hooks"].append(modified)
+    target.write_text(json.dumps(document), encoding="utf-8")
+    before = runtimes["claude"][0].read_bytes()
+    plan = uninstall.readiness_items(ctx, uninstall.Backups(ctx), ctx.home / ".agents-core")
+    report = uninstall.execute(plan, credentials=False)
+    assert not report["failed"] and not report["refused"]
+    updated = target.read_bytes()
+    assert json.loads(updated)["hooks"]["SessionStart"] == [{"matcher": readiness_installer.MATCHER, "hooks": [modified]}]
+    assert json.dumps(modified).encode() in updated and b'"theme": "keep"' in updated
+    assert runtimes["claude"][0].read_bytes() == before
+
+
+@pytest.mark.parametrize("dependency", ["claude", "desktop-runtime", "desktop-helper"])
+def test_uninstall_preserves_runtime_referenced_from_another_client(tmp_path, monkeypatch, dependency):
+    ctx, paths, runtimes, _ = readiness_profiles(tmp_path, monkeypatch, "linux")
+    copied = runtimes["claude"] if dependency == "claude" else runtimes["desktop"]
+    referenced = copied[-1] if dependency == "desktop-helper" else copied[0]
+    target, _ = paths["cursor"]
+    document = json.loads(target.read_bytes())
+    modified = {"command": readiness_installer.command_for(referenced, "--custom"), "timeout": 12}
+    document["hooks"]["sessionStart"].append(modified)
+    target.write_text(json.dumps(document), encoding="utf-8")
+    before = {path: path.read_bytes() for path in copied}
+    plan = uninstall.readiness_items(ctx, uninstall.Backups(ctx), ctx.home / ".agents-core")
+    report = uninstall.execute(plan, credentials=False)
+    assert not report["failed"] and not report["refused"]
+    assert copied[0].read_bytes() == before[copied[0]]
+    if dependency == "desktop-helper":
+        assert copied[1].read_bytes() == before[copied[1]]
+    elif dependency == "desktop-runtime":
+        assert not copied[1].exists()
+    updated = target.read_bytes()
+    assert json.loads(updated)["hooks"]["sessionStart"] == [modified]
+    assert json.dumps(modified).encode() in updated and b'"version": 1' in updated
+
+
+@pytest.mark.parametrize("change", ["reference", "new-config", "invalid", "unreadable"])
+@pytest.mark.parametrize("dependency", ["claude", "desktop-helper"])
+def test_uninstall_rechecks_other_client_configs_before_runtime_removal(tmp_path, monkeypatch, change, dependency):
+    ctx, paths, runtimes, _ = readiness_profiles(tmp_path, monkeypatch, "linux")
+    copied = runtimes["claude"] if dependency == "claude" else runtimes["desktop"]
+    referenced = copied[-1] if dependency == "desktop-helper" else copied[0]
+    target, _ = paths["cursor"]
+    document = json.loads(target.read_bytes())
+    if change == "new-config":
+        target.unlink()
+    plan = uninstall.readiness_items(ctx, uninstall.Backups(ctx), ctx.home / ".agents-core")
+    if change in ("reference", "new-config"):
+        document["hooks"]["sessionStart"].append({
+            "command": readiness_installer.command_for(referenced, "--custom"), "timeout": 12})
+        target.write_text(json.dumps(document), encoding="utf-8")
+    elif change == "invalid":
+        target.write_bytes(b"{invalid after inventory")
+    else:
+        read_bytes = Path.read_bytes
+
+        def unreadable(path):
+            if path == target:
+                raise PermissionError("scratch configuration is unreadable")
+            return read_bytes(path)
+
+        monkeypatch.setattr(Path, "read_bytes", unreadable)
+    report = uninstall.execute(plan, credentials=False)
+    assert all(path.exists() for path in copied)
+    assert all(any(str(path) in entry for entry in report["refused"]) for path in copied)
+    if change in ("reference", "new-config"):
+        assert not report["failed"]
+
+
+@pytest.mark.parametrize("change", ["invalid", "unreadable", "malformed-command", "encoded-command", "unknown-wrapper"])
+def test_uninstall_preserves_runtimes_when_another_config_is_uncertain(tmp_path, monkeypatch, change):
+    ctx, paths, runtimes, _ = readiness_profiles(tmp_path, monkeypatch, "linux")
+    target, _ = paths["cursor"]
+    if change == "invalid":
+        target.write_bytes(b"{invalid before inventory")
+    elif change == "unreadable":
+        read_bytes = Path.read_bytes
+
+        def unreadable(path):
+            if path == target:
+                raise PermissionError("scratch configuration is unreadable")
+            return read_bytes(path)
+
+        monkeypatch.setattr(Path, "read_bytes", unreadable)
+    else:
+        document = json.loads(target.read_bytes())
+        commands = {"malformed-command": "unclosed 'quote",
+                    "encoded-command": "powershell.exe -NoProfile -NonInteractive -EncodedCommand unknown!",
+                    "unknown-wrapper": "powershell.exe -EncodedCommand unknown!"}
+        command = commands[change]
+        document["hooks"]["sessionStart"].append({"command": command, "timeout": 12})
+        target.write_text(json.dumps(document), encoding="utf-8")
+    plan = uninstall.readiness_items(ctx, uninstall.Backups(ctx), ctx.home / ".agents-core")
+    candidate = str(runtimes["claude"][0])
+    assert any(item.target == candidate and item.action == "keep" for item in plan)
+    report = uninstall.execute(plan, credentials=False)
+    assert not report["failed"] and runtimes["claude"][0].exists()
 
 
 def test_uninstall_keeps_modified_runtime_and_unrelated_files(tmp_path, monkeypatch):

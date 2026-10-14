@@ -1113,25 +1113,34 @@ def remove_readiness(content: bytes, client: str, script: Path, installation: Pa
 
 
 def _readiness_referenced(content: bytes | None, path: Path) -> bool:
-    """Include modified encoded wrappers: any remaining reference keeps its runtime."""
+    """Decode quoted commands without running them; uncertain references keep the runtime."""
     if content is None:
         return False
-    document = json.loads(content.decode("utf-8-sig"))
+    try:
+        document = json.loads(content.decode("utf-8-sig"))
+    except ValueError:
+        return True
+    if not isinstance(document, dict):
+        return True
 
-    def refers(value) -> bool:
+    def refers(value, *, command=False) -> bool:
         if isinstance(value, dict):
-            return any(refers(child) for child in value.values())
+            return any(refers(child, command=key == "command") for key, child in value.items())
         if isinstance(value, list):
-            return any(refers(child) for child in value)
+            return any(refers(child, command=command) for child in value)
         if isinstance(value, str):
             if str(path) in value:
                 return True
-            match = re.search(r"-EncodedCommand\s+([A-Za-z0-9+/=]+)", value)
-            if match:
-                try:
-                    return str(path) in base64.b64decode(match[1], validate=True).decode("utf-16-le")
-                except (binascii.Error, UnicodeDecodeError):
-                    pass
+            if command:
+                # PowerShell single-quoted literals escape apostrophes by doubling them.
+                if any(str(path) in literal.replace("''", "'")
+                       for literal in re.findall(r"'((?:[^']|'')*)'", value)):
+                    return True
+                encoded = re.search(r"-EncodedCommand\b", value, re.IGNORECASE) is not None
+                if encoded and not value.startswith("powershell.exe -NoProfile -NonInteractive -EncodedCommand "):
+                    return True  # an unfamiliar wrapper cannot establish that the runtime is unused
+                arguments = _readiness_arguments(value, windows=encoded)
+                return arguments is None or any(str(path) in argument for argument in arguments)
         return False
     return refers(document)
 
@@ -1148,17 +1157,26 @@ def readiness_items(ctx: Context, backups: Backups, installation: Path) -> list[
     targets += [("desktop", path, path.parent / "agents-core-readiness/hooks" / READINESS_SCRIPT)
                 for client, path in client_files(ctx) if client == "desktop"]
     items, seen = [], set()
+    configurations, remaining, candidates = [], [], []
+    uncertain = False
     for client, target, script in targets:
-        if _real(target) in seen or not target.is_file():
+        if _real(target) in seen:
             continue
         seen.add(_real(target))
+        configurations.append(target)  # include missing files in the execution-time recheck
         transform = lambda content, client=client, script=script: remove_readiness(
             content, client, script, installation, windows=ctx.windows)
         try:
             original = target.read_bytes()
             updated = transform(original)
+        except FileNotFoundError:
+            uncertain |= os.path.lexists(target)
+            continue
         except (OSError, ValueError, TypeError):
+            uncertain = True
             continue  # an invalid or unreadable client configuration never proves ownership
+        uncertain |= _is_link(target)
+        remaining.append(updated)
         changed = updated != original
         if changed:
             items.append(Item("registration", str(target), "edit", source,
@@ -1169,6 +1187,10 @@ def readiness_items(ctx: Context, backups: Backups, installation: Path) -> list[
                               "readiness adapter is modified or belongs to another installation; remove it yourself"))
         files = [(script, "session_readiness.py")] if client != "desktop" else [
             (script.with_name(name), name) for name in ("session_readiness.py", "session_readiness_mcp.py")]
+        candidates.append((client, target, script, changed, files))
+
+    # A retained adapter in any client can use another client's copied runtime.
+    for client, target, script, changed, files in candidates:
         for runtime, name in files:
             if not os.path.lexists(runtime):
                 continue
@@ -1178,7 +1200,8 @@ def readiness_items(ctx: Context, backups: Backups, installation: Path) -> list[
             try:
                 expected = (installation / "scripts" / name).read_bytes()
                 owned = (changed and not _is_link(target) and not _is_link(runtime) and runtime.read_bytes() == expected
-                         and not any(_readiness_referenced(updated, path) for path in references))
+                         and not uncertain and not any(_readiness_referenced(content, path)
+                                                       for content in remaining for path in references))
             except (OSError, ValueError):
                 owned = False
             if not owned:
@@ -1186,13 +1209,23 @@ def readiness_items(ctx: Context, backups: Backups, installation: Path) -> list[
                                   "readiness runtime is modified, still referenced, or its ownership is unverified"))
                 continue
 
-            def remove_runtime(runtime=runtime, expected=expected, target=target, references=references):
+            def remove_runtime(runtime=runtime, expected=expected, references=references):
                 check_removable(ctx, runtime)
-                if _is_link(target):
-                    raise Refused("readiness configuration became a symbolic link; remove the runtime yourself")
-                current = target.read_bytes() if target.exists() else None
-                if runtime.read_bytes() != expected or any(_readiness_referenced(current, path) for path in references):
-                    raise Refused("readiness runtime changed or is still referenced; remove it yourself")
+                if runtime.read_bytes() != expected:
+                    raise Refused("readiness runtime changed; remove it yourself")
+                for configuration in configurations:
+                    if _is_link(configuration):
+                        raise Refused("readiness configuration became a symbolic link; remove the runtime yourself")
+                    try:
+                        current = configuration.read_bytes()
+                    except FileNotFoundError:
+                        if not os.path.lexists(configuration):
+                            continue
+                        raise Refused("readiness configuration cannot be read; remove the runtime yourself")
+                    except OSError as error:
+                        raise Refused("readiness configuration cannot be read; remove the runtime yourself") from error
+                    if any(_readiness_referenced(current, path) for path in references):
+                        raise Refused("readiness runtime is still referenced or its use is uncertain; remove it yourself")
                 return remove_path(ctx, runtime)
             items.append(Item("data", str(runtime), "remove", source, "unchanged copied readiness runtime", remove_runtime))
     return items

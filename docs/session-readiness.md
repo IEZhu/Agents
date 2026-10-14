@@ -144,8 +144,10 @@ The [full uninstaller](../README.md#uninstall) also inventories these adapters. 
 unchanged generated entries whose interpreter is in the selected installation's `.venv`,
 including encoded Windows commands. It keeps unrelated handlers in a mixed group and backs
 up edited configurations. Copied runtimes are removed only if they still match that
-installation's source and no remaining adapter references them. Modified settings or files,
-adapters using another interpreter, and copies whose source has changed since installation
+installation's source and no remaining adapter in any inventoried client configuration references
+them. The uninstaller rechecks every configuration before deleting a runtime, including the Desktop
+helper's dependency; unreadable configurations or uncertain commands keep the copies. Modified
+settings or files, adapters using another interpreter, and copies whose source has changed since installation
 are reported as kept for manual removal. Use `--dry-run` to inspect this inventory first.
 
 Official references: [Claude Code hooks](https://code.claude.com/docs/en/hooks#sessionstart),
