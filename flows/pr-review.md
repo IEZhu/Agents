@@ -440,9 +440,16 @@ allows, never a merge.
 **Inputs** come from the runner: `branch` (the implementation stage's, or the
 gate's `resume_branch`), `description_extra` (the implementation stage's
 `pr_sections`), the issue and its slice, `max_bot_rounds` (3 by default) and
-`max_wait_minutes` (120 by default). The prompt fills `{pinned}`, `{branch}`,
-`{exchange_dir}`, `{worker_cmd}` and `{gh_cmd}` as for
-[autodev-implement](autodev-implement.md#inputs-and-the-session).
+`max_wait_minutes` (120 by default). The prompt fills `{pinned}`,
+`{worktree}`, `{branch}`, `{exchange_dir}`, `{state_copy}`, `{worker_cmd}`,
+`{gh_cmd}` and `{heavy_cmd}` as for
+[autodev-implement](autodev-implement.md#inputs-and-the-session), with the same
+Bash timeouts. The checks run only as `{heavy_cmd} -- <command>`. The session
+has no network: instead of fetching in [step 1](#1-establish-the-current-state),
+read the pull request with `{gh_cmd} read '{"endpoint": "pull", "number": <PR>}'`;
+when it is not mergeable because the base moved, end with
+`review_status: blocked` while the broker refuses a rebased branch and a merge
+commit (item 1).
 
 **Writes go through the broker.** A runner session has no network and no
 credentials; it reaches GitHub only with `{gh_cmd}`
@@ -493,9 +500,11 @@ it hands the reviewed head to the owner, who pushes it
    ```
 
    Run `wait` with a Bash timeout of 600000 ms and again while it says
-   `running`. Use `'{"head": "<sha>", "verification": true}'` instead only in
-   a run that already accepted its pre-mortem: after the pre-mortem the worker
-   service starts no other review, and the verification runs once. Decide the
+   `running`. When `{state_copy}/worker-log.json` lists an accepted pre-mortem,
+   request `'{"head": "<sha>", "verification": true}'` instead: after the
+   pre-mortem the worker service starts no other review. How many reviews and
+   verifications a stage gets is the runner's choice; a refused request ends
+   the stage blocked (below). Decide the
    findings as in [autodev-implement](autodev-implement.md#4-review-until-clean)
    until `open_findings` is empty, then push exactly that head:
    `{gh_cmd} push '{"slug": "<slug>", "head": "<sha>"}'`. Your own review
@@ -522,7 +531,10 @@ it hands the reviewed head to the owner, who pushes it
    as a `Bot` node, whose login gets `[bot]` appended, never as a `User` with
    the same login); only their review objects and
    inline comments, and their replies to comments by the agent or the owner. A
-   bot's reply in a thread someone else started is ignored. Unresolved bot
+   bot's reply in a thread someone else started is ignored. In an interactive
+   run, `pr_threads.py --mode autodev` marks a thread by its first comment and
+   shows the last reply's author and body; read a trusted bot's reply in a
+   thread the agent or the owner started from there. Unresolved bot
    findings on earlier heads are in scope; the current-head rule of
    [step 3](#3-obtain-reviews-for-the-current-head) concerns only the evidence
    of completion. Every other review or comment, the owner account's included,
