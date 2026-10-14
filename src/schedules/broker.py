@@ -572,6 +572,8 @@ class Broker:
     review and pre-mortem records and its own log there. ``decoys`` are the sandbox's decoy markers
     (`src.schedules.decoys`, #343): the scan knows them in every mode, and a hit on one also calls
     ``on_decoy`` with the hits (the run sequence turns the schedule off there) before the refusal.
+    ``known`` are further secrets of the run, such as the Codex API key (#344,
+    `codex_probes.Decision.known`): the scan refuses them in every mode and the log masks them.
     """
 
     def __init__(self, run: Run, *, credentials: Credentials | None, git: TrustedGit,
@@ -582,7 +584,8 @@ class Broker:
                  earlier_records: Callable[[], list[dict]] = records.all_records,
                  key_reader: Callable[[Path], bytes] = Path.read_bytes,
                  decoys: Iterable[scan.KnownSecret] = (),
-                 on_decoy: Callable[[tuple[scan.Hit, ...]], None] | None = None):
+                 on_decoy: Callable[[tuple[scan.Hit, ...]], None] | None = None,
+                 known: Iterable[scan.KnownSecret] = ()):
         self.run = run
         self.credentials = credentials
         self.git = git
@@ -598,9 +601,11 @@ class Broker:
         self._lock = threading.RLock()
         self._token: str | None = None
         self.branch: str | None = None  # set by the first push
-        known: list[scan.KnownSecret] = []
+        known = list(known)
+        if not all(isinstance(secret, scan.KnownSecret) for secret in known):
+            raise TypeError("known secrets must be KnownSecret instances")
         if not run.read_only:
-            known = self._open(key_reader)
+            known = self._open(key_reader) + known
         decoys = tuple(decoys)
         self._decoy_labels = frozenset(secret.label for secret in decoys)
         self._on_decoy = on_decoy

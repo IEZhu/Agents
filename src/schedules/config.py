@@ -30,7 +30,9 @@ LIMITS = ("max_reviews", "max_bot_rounds", "max_wait_minutes")
 # ReasoningEffort::from_str). Codex itself accepts any non-empty string and sends it to the API,
 # so the configuration refuses everything else for a Codex profile (#344).
 CODEX_EFFORTS = ("none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra", "persistent")
-CODEX_LOGINS = ("api-key", "chatgpt")
+# codex.login modes removed in #344 (round 1): a stored login lives in CODEX_HOME, which model
+# commands can read; the key now comes from the keychain only.
+REMOVED_CODEX_LOGINS = ("api-key", "chatgpt")
 MAX_CATCH_UP_MINUTES = 24 * 60
 # The installation this module runs from: src/schedules/config.py is two levels below it.
 INSTALLATION = Path(__file__).resolve().parents[2]
@@ -67,11 +69,11 @@ DEFAULTS: dict[str, Any] = {
     # names the plugins a session's init event may list (built-in ones load even in safe mode;
     # calibrated by the owner's live check, empty by default, so any plugin fails the probes).
     "sandbox": {"login": "config-dir", "decoy_keychain": False, "allowed_plugins": []},
-    # Codex workers and stage sessions (#344, docs/autodev-codex.md): "api-key" or "chatgpt" (the
-    # login the owner stored once in the runner's CODEX_HOME; it decides which hosts the runner's
-    # proxy tunnels to) or "keychain:<service>" (an API key read from that keychain item and passed
-    # as CODEX_API_KEY).
-    "codex": {"login": "api-key"},
+    # Codex workers and stage sessions (#344, docs/autodev-codex.md): "keychain:<service>", the
+    # keychain item holding an API key of a separate OpenAI project with a spending limit, passed
+    # to the codex process only as CODEX_API_KEY. Unset (null) by default: every Codex step then
+    # falls back to the Claude worker with login_missing.
+    "codex": {"login": None},
 }
 
 _HHMM = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
@@ -259,9 +261,12 @@ def validate(config: Any) -> dict:
         problems.append("codex must have login")
     else:
         login = codex["login"]
-        if not (login in CODEX_LOGINS or (isinstance(login, str) and login.startswith("keychain:")
-                                          and login[len("keychain:"):].strip())):
-            problems.append("codex.login must be api-key, chatgpt or keychain:<service>")
+        if login in REMOVED_CODEX_LOGINS:
+            problems.append(f"codex.login {login} was removed: Codex reads its API key only from the keychain; "
+                            "set codex.login to keychain:<service> (or null to leave Codex unused)")
+        elif not (login is None or (isinstance(login, str) and login.startswith("keychain:")
+                                    and login[len("keychain:"):].strip())):
+            problems.append("codex.login must be keychain:<service> or null")
     if problems:
         raise ConfigError(problems)
     return config

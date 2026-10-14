@@ -5,18 +5,27 @@ name fails to compile with "host must be * or localhost"), so the outer profile 
 process reach only ``localhost:<port>``, and this proxy, outside the sandbox, decides where that
 port leads. It listens on 127.0.0.1 on an ephemeral port, started before the profile is written
 (the port is a profile parameter and the ``HTTPS_PROXY`` value). It accepts only ``CONNECT
-<host>:443`` for the hosts of the login mode (`codex_sandbox.allowed_hosts`) and relays the bytes
-both ways without reading them (it never terminates TLS); every other target, and every request
-that is not ``CONNECT``, gets ``403``. It records each requested target (host and port only, a
-few hundred at most) and counts accepted connections, which the probes read. `ConnectProxy.close`
-ends every tunnel; the run closes it when it ends (a context manager).
+<host>:443`` for ``api.openai.com`` (`codex_sandbox.allowed_hosts`) and relays the bytes both
+ways without reading them (it never terminates TLS); every other target, and every request that
+is not ``CONNECT``, gets ``403``. It records each requested target (host and port only, a few
+hundred at most) and counts accepted connections, which the probes read.
+
+Any local process can reach the listener, and a tunnel to an allowed host is a channel the proxy
+cannot read, so it is bounded: at most `MAX_CLIENTS` connections and `MAX_TUNNELS` tunnels at a
+time (``503`` beyond either), and a tunnel ends after `IDLE_TIMEOUT` seconds without a byte in
+either direction, after `TUNNEL_SECONDS` seconds or after `TUNNEL_BYTES` bytes (``ended`` counts
+why). `ConnectProxy.close` ends every tunnel; the run closes it when it ends (a context manager),
+and `codex_probes.start` also closes it when the codex process exits (`ConnectProxy.close_when`).
 """
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 import re
+import selectors
 import socket
 import threading
+import time
+from typing import Any
 
 from .codex_sandbox import PROXY_PORT_HTTPS
 
@@ -25,9 +34,19 @@ HEADER_TIMEOUT = 10.0
 CONNECT_TIMEOUT = 15.0
 RELAY_CHUNK = 65536
 MAX_RECORDED = 500
+# Bounds on what the listener serves (any local process can reach it). codex keeps a few
+# connections to the API open at a time; the limits are well above that and far below what would
+# exhaust the runner's threads or descriptors.
+MAX_CLIENTS = 16
+MAX_TUNNELS = 8
+IDLE_TIMEOUT = 300.0
+TUNNEL_SECONDS = 3600.0
+TUNNEL_BYTES = 256 * 1024 * 1024
+POLL_INTERVAL = 0.25
 FORBIDDEN = b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
 ESTABLISHED = b"HTTP/1.1 200 Connection Established\r\n\r\n"
 BAD_GATEWAY = b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+BUSY = b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
 _HOST = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+")
 _TARGET = re.compile(r"(?P<host>[A-Za-z0-9.-]{1,253}):(?P<port>[0-9]{1,5})")
 _METHOD = re.compile(r"[A-Z]{1,16}")
@@ -43,25 +62,41 @@ class ConnectProxy:
 
     ``connect`` opens the upstream connection (default `socket.create_connection`); the tests
     pass one that leads to a local listener. ``requests`` lists ``{"method", "target", "allowed"}``
-    for each request, ``accepted`` counts connections and ``tunnels`` the tunnels opened."""
+    for each request (plus ``"reason"`` when a limit refused it), ``accepted`` counts connections,
+    ``tunnels`` the tunnels opened, ``busy`` the connections and tunnels refused by a limit and
+    ``ended`` the tunnels a limit ended (``idle``, ``time``, ``bytes``). The limits default to the
+    module's constants."""
 
     def __init__(self, allowed: Iterable[str], *, port: int = PROXY_PORT_HTTPS,
-                 connect: Callable[[tuple[str, int], float], socket.socket] | None = None):
+                 connect: Callable[[tuple[str, int], float], socket.socket] | None = None,
+                 max_clients: int = MAX_CLIENTS, max_tunnels: int = MAX_TUNNELS, idle_timeout: float = IDLE_TIMEOUT,
+                 tunnel_seconds: float = TUNNEL_SECONDS, tunnel_bytes: int = TUNNEL_BYTES):
         self.allowed = frozenset(host.lower() for host in allowed)
         for host in self.allowed:
             if not _HOST.fullmatch(host):
                 raise ValueError(f"not a host name: {host!r}")
+        for name, value in (("max_clients", max_clients), ("max_tunnels", max_tunnels), ("idle_timeout", idle_timeout),
+                            ("tunnel_seconds", tunnel_seconds), ("tunnel_bytes", tunnel_bytes)):
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
+                raise ValueError(f"{name} must be positive")
         self.port_allowed = port
         self._connect = connect or (lambda address, timeout: socket.create_connection(address, timeout=timeout))
+        self.max_clients, self.max_tunnels = int(max_clients), int(max_tunnels)
+        self.idle_timeout, self.tunnel_seconds, self.tunnel_bytes = float(idle_timeout), float(tunnel_seconds), int(tunnel_bytes)
         self.requests: list[dict] = []
         self.accepted = 0
         self.tunnels = 0
         self.dropped = 0
+        self.busy = 0
+        self.ended = {"idle": 0, "time": 0, "bytes": 0}
+        self._clients = 0
+        self._open_tunnels = 0
         self._lock = threading.Lock()
         self._closing = threading.Event()
         self._sockets: set[socket.socket] = set()
         self._threads: list[threading.Thread] = []
         self._server: socket.socket | None = None
+        self._port = 0
 
     # --- lifecycle ---
 
@@ -71,6 +106,7 @@ class ConnectProxy:
         server.listen(32)
         server.settimeout(0.2)
         self._server = server
+        self._port = server.getsockname()[1]
         thread = threading.Thread(target=self._accept_loop, name="codex-proxy", daemon=True)
         thread.start()
         self._threads.append(thread)
@@ -80,7 +116,7 @@ class ConnectProxy:
     def port(self) -> int:
         if self._server is None:
             raise RuntimeError("the proxy is not started")
-        return self._server.getsockname()[1]
+        return self._port
 
     def close(self) -> None:
         self._closing.set()
@@ -90,8 +126,26 @@ class ConnectProxy:
             open_sockets = list(self._sockets)
         for sock in open_sockets:
             _close(sock)
+        current = threading.current_thread()
         for thread in list(self._threads):
-            thread.join(timeout=2)
+            if thread is not current:
+                thread.join(timeout=2)
+
+    @property
+    def closed(self) -> bool:
+        return self._closing.is_set()
+
+    def close_when(self, process: Any) -> threading.Thread:
+        """Close the proxy once ``process`` (a `subprocess.Popen`) has exited; polls without waiting
+        on it, so the caller may wait on the process itself."""
+        def watch() -> None:
+            while not self._closing.is_set() and process.poll() is None:
+                time.sleep(POLL_INTERVAL)
+            self.close()
+
+        thread = threading.Thread(target=watch, name="codex-proxy-watch", daemon=True)
+        thread.start()
+        return thread
 
     def __enter__(self) -> ConnectProxy:
         return self.start() if self._server is None else self
@@ -114,10 +168,13 @@ class ConnectProxy:
             self._sockets.discard(sock)
         _close(sock)
 
-    def _record(self, method: str, target: str, allowed: bool) -> None:
+    def _record(self, method: str, target: str, allowed: bool, *, reason: str | None = None) -> None:
         with self._lock:
             if len(self.requests) < MAX_RECORDED:
-                self.requests.append({"method": method, "target": target, "allowed": allowed})
+                entry = {"method": method, "target": target, "allowed": allowed}
+                if reason is not None:
+                    entry["reason"] = reason
+                self.requests.append(entry)
             else:
                 self.dropped += 1
 
@@ -131,6 +188,16 @@ class ConnectProxy:
                 return
             with self._lock:
                 self.accepted += 1
+                full = self._clients >= self.max_clients
+                if full:
+                    self.busy += 1
+                else:
+                    self._clients += 1
+            if full:
+                client.settimeout(1.0)
+                _send(client, BUSY)
+                _close(client)
+                continue
             self._track(client)
             thread = threading.Thread(target=self._serve, args=(client,), daemon=True)
             thread.start()
@@ -138,6 +205,13 @@ class ConnectProxy:
                 self._threads = [item for item in self._threads if item.is_alive()] + [thread]
 
     def _serve(self, client: socket.socket) -> None:
+        try:
+            self._handle(client)
+        finally:
+            with self._lock:
+                self._clients -= 1
+
+    def _handle(self, client: socket.socket) -> None:
         try:
             header, rest = _read_header(client)
         except OSError:
@@ -158,13 +232,32 @@ class ConnectProxy:
             return
         host, port = match["host"].lower().rstrip("."), int(match["port"])
         allowed = host in self.allowed and port == self.port_allowed
-        self._record(method, f"{_shown(host)}:{port}", allowed)
         if not allowed or self._closing.is_set():
+            self._record(method, f"{_shown(host)}:{port}", False)
             _send(client, FORBIDDEN)
             self._untrack(client)
             return
+        with self._lock:
+            full = self._open_tunnels >= self.max_tunnels
+            if full:
+                self.busy += 1
+            else:
+                self._open_tunnels += 1
+        if full:
+            self._record(method, f"{_shown(host)}:{port}", False, reason="tunnel limit")
+            _send(client, BUSY)
+            self._untrack(client)
+            return
+        self._record(method, f"{_shown(host)}:{port}", True)
         try:
-            upstream = self._connect((host, port), CONNECT_TIMEOUT)
+            self._tunnel(client, (host, port), rest)
+        finally:
+            with self._lock:
+                self._open_tunnels -= 1
+
+    def _tunnel(self, client: socket.socket, address: tuple[str, int], rest: bytes) -> None:
+        try:
+            upstream = self._connect(address, CONNECT_TIMEOUT)
         except OSError:
             _send(client, BAD_GATEWAY)
             self._untrack(client)
@@ -172,6 +265,7 @@ class ConnectProxy:
         self._track(upstream)
         with self._lock:
             self.tunnels += 1
+        moved = len(rest)
         try:
             client.sendall(ESTABLISHED)
             if rest:
@@ -180,14 +274,51 @@ class ConnectProxy:
             self._untrack(upstream)
             self._untrack(client)
             return
-        client.settimeout(None)
-        upstream.settimeout(None)
-        back = threading.Thread(target=_relay, args=(upstream, client), daemon=True)
-        back.start()
-        _relay(client, upstream)
-        back.join(timeout=5)
+        ended = self._relay(client, upstream, moved)
+        if ended:
+            with self._lock:
+                self.ended[ended] += 1
         self._untrack(upstream)
         self._untrack(client)
+
+    def _relay(self, client: socket.socket, upstream: socket.socket, moved: int) -> str | None:
+        """Copy bytes both ways (never inspected) until both sides close, the proxy closes or a
+        limit ends the tunnel; returns the limit (``idle``, ``time``, ``bytes``) or None."""
+        started = last = time.monotonic()
+        if moved > self.tunnel_bytes:
+            return "bytes"
+        peers = {client: upstream, upstream: client}
+        for sock in peers:
+            sock.settimeout(self.idle_timeout)  # bounds a blocked send as well
+        selector = selectors.DefaultSelector()
+        try:
+            for sock in peers:
+                selector.register(sock, selectors.EVENT_READ)
+            while not self._closing.is_set() and selector.get_map():
+                now = time.monotonic()
+                if now - started >= self.tunnel_seconds:
+                    return "time"
+                if now - last >= self.idle_timeout:
+                    return "idle"
+                wait = min(POLL_INTERVAL, self.tunnel_seconds - (now - started), self.idle_timeout - (now - last))
+                for key, _ in selector.select(timeout=max(wait, 0.0)):
+                    source = key.fileobj
+                    target = peers[source]  # type: ignore[index]
+                    chunk = source.recv(RELAY_CHUNK)  # type: ignore[union-attr]
+                    if not chunk:
+                        selector.unregister(source)
+                        _shutdown_write(target)
+                        continue
+                    moved += len(chunk)
+                    if moved > self.tunnel_bytes:
+                        return "bytes"
+                    target.sendall(chunk)
+                    last = time.monotonic()
+        except (OSError, ValueError):
+            return None
+        finally:
+            selector.close()
+        return None
 
 
 def _read_header(client: socket.socket) -> tuple[bytes | None, bytes]:
@@ -207,18 +338,9 @@ def _read_header(client: socket.socket) -> tuple[bytes | None, bytes]:
     return header, rest
 
 
-def _relay(source: socket.socket, target: socket.socket) -> None:
-    """Copy bytes from ``source`` to ``target`` until either side closes (never inspected)."""
+def _shutdown_write(sock: socket.socket) -> None:
     try:
-        while True:
-            chunk = source.recv(RELAY_CHUNK)
-            if not chunk:
-                break
-            target.sendall(chunk)
-    except OSError:
-        pass
-    try:
-        target.shutdown(socket.SHUT_WR)
+        sock.shutdown(socket.SHUT_WR)
     except OSError:
         pass
 
