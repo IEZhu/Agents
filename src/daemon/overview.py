@@ -1,6 +1,6 @@
 """What the landing page tells about this installation (#188), for ``GET /ui/api/overview``.
 
-The version, links to the repository the installation came from (its ``origin``, credentials
+The version, the update channel (#381), links to the repository the installation came from (its ``origin``, credentials
 stripped), the embedding model, the counts of agents, rules, skills, implants and flows, the
 directories with their sizes, and which AI apps have an Agents-Core entry in their
 configuration. Sizes are measured without following symlinks and kept for ``CACHE_SECONDS``;
@@ -158,6 +158,25 @@ def directories(service_directory: Path) -> list[dict]:
     return [{"id": key, "label": label, "path": str(path), "size": size_of(path)} for key, label, path in places]
 
 
+def updates(service_directory, root: Path = INSTALL_ROOT) -> dict:
+    """The update channel (#381): configured and checked-out branch, whether scheduled updates are on,
+    and the last scheduled run. Local reads only; the configured branch is the ``.env`` value the
+    scheduled updater follows (the service's own environment does not override it)."""
+    from src import update_channel
+    from .state import read_json
+    try:
+        channel = update_channel.summary(root, environ={})
+    except (OSError, ValueError) as error:
+        channel = {"error": f"{type(error).__name__}: {error}"}
+    try:
+        config = read_json(Path(service_directory) / "service.json", {}) or {}
+        last_run = read_json(Path(service_directory) / "auto-update.json", {}) or {}
+    except (OSError, ValueError):
+        config, last_run = {}, {}
+    return {**channel, "auto_update": bool((config.get("auto_update") or {}).get("enabled")),
+            "last_run": last_run}
+
+
 class Overview:
     """The overview. Sizes are measured at most once per ``CACHE_SECONDS``, one measurement at a time;
     the rest is read with each request. ``home`` is the user's home, where the apps' configurations are."""
@@ -176,5 +195,6 @@ class Overview:
                 self._sizes = (self.clock(), {"model": model(), "directories": directories(self.service.directory)})
             sizes = self._sizes[1]
         return {"version": agents_core_version(), "repository": repository(), "counts": counts(),
+                "updates": updates(self.service.directory),
                 "apps": configured_apps(self.service.directory, self.home),
                 "registrations": registration_report(self.service.directory, self.home), **sizes}

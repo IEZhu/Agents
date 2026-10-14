@@ -23,6 +23,12 @@ run cannot start between the update's check and its maintenance marker either.
 Targets that the transaction would refuse (a diverged branch, a dirty tree,
 changed dependency manifests) are rejected before the service is touched, so a
 blocked update never costs a restart.
+
+The branch is the installation's update channel (`src.update_channel`, #381): the
+``.env`` key ``AGENTS_AUTO_UPDATE_BRANCH``, which this scheduled run reads although its
+environment has no other ``.env`` value. When the setting moved away from the
+checked-out channel branch, the run switches branches through the same transaction;
+a checkout on any other branch is local development and is skipped.
 """
 from datetime import datetime, timezone
 import logging
@@ -51,6 +57,12 @@ def settings(controller):
     return {"enabled": bool(configured.get("enabled")),
             "interval": int(configured.get("interval", DEFAULT_INTERVAL)),
             "idle_seconds": int(configured.get("idle_seconds", DEFAULT_IDLE_SECONDS))}
+
+
+def channel(controller):
+    """The update channel this command uses (`src.update_channel.read`)."""
+    from src import update_channel
+    return update_channel.read(controller.config["installation"])
 
 
 def label(controller):
@@ -126,19 +138,20 @@ def _enabled(controller):
     The updater's git runs without the user's global git configuration (#279): a fork that needs a
     credential helper, proxy, CA file or SSH command set only there would fail every fetch.
     """
-    from src.engine.config import AUTO_UPDATE_BRANCH, AUTO_UPDATE_REMOTE
     from src.self_update import _is_safe_arg
     result = status(controller)
-    if not (_is_safe_arg(AUTO_UPDATE_REMOTE) and _is_safe_arg(AUTO_UPDATE_BRANCH)):
+    found = channel(controller)
+    remote, branch = found.remote, found.branch
+    if not (_is_safe_arg(remote) and _is_safe_arg(branch)):
         return result  # every run reports it (check_target)
     try:
-        listed = _git(controller, "ls-remote", "--quiet", "--exit-code", AUTO_UPDATE_REMOTE,
-                      "refs/heads/" + AUTO_UPDATE_BRANCH, check=False)
+        listed = _git(controller, "ls-remote", "--quiet", "--exit-code", remote,
+                      "refs/heads/" + branch, check=False)
         problem = (listed.stderr.strip()[-300:] or f"exit code {listed.returncode}") if listed.returncode else None
     except (OSError, subprocess.SubprocessError) as error:
         problem = str(error)
     if problem:
-        result["warning"] = (f"the updater cannot reach {AUTO_UPDATE_REMOTE}/{AUTO_UPDATE_BRANCH} without your global "
+        result["warning"] = (f"the updater cannot reach {remote}/{branch} without your global "
                              f"git configuration ({problem}); put what it needs (credential helper, proxy, CA file, "
                              "SSH command) in the installation's repository configuration: "
                              "docs/shared-mcp-daemon.md#tools-and-path")
@@ -167,8 +180,15 @@ def status(controller):
         loaded = service.TaskScheduler(controller).updater_scheduled()
     else:
         loaded = controller.launchctl("print", f"gui/{os.getuid()}/{label(controller)}", check=False).returncode == 0
-    return {**settings(controller), "scheduled": loaded,
-            "last_run": read_json(controller.directory / "auto-update.json", {})}
+    result = {**settings(controller), "scheduled": loaded,
+              "last_run": read_json(controller.directory / "auto-update.json", {})}
+    if controller.config.get("installation"):
+        from src import update_channel
+        try:
+            result["channel"] = update_channel.summary(controller.config["installation"])
+        except (OSError, ValueError) as error:
+            result["channel"] = {"error": f"{type(error).__name__}: {error}"}
+    return result
 
 
 def _git(controller, *args, check=True):
@@ -182,15 +202,26 @@ def _git(controller, *args, check=True):
 
 
 def check_target(controller, remote=None, branch=None):
-    """Fetch and classify the tracked branch without touching the service."""
-    from src.engine.config import AUTO_UPDATE_BRANCH, AUTO_UPDATE_REMOTE
+    """Fetch and classify the channel's branch without touching the service.
+
+    A checkout on another channel branch (`src.update_channel.Policy.may_switch`) is a
+    branch switch: ``available`` with ``switch``, also when the target does not move the
+    commit; a switch to code that does not contain HEAD needs the recorded confirmation.
+    """
     from src.self_update import _is_safe_arg
-    remote, branch = remote or AUTO_UPDATE_REMOTE, branch or AUTO_UPDATE_BRANCH
+    from src.update_channel import plausible_branch
+    configured = channel(controller)
+    remote, branch = remote or configured.remote, branch or configured.branch
     if not (_is_safe_arg(remote) and _is_safe_arg(branch)):
         return {"state": "skipped", "reason": f"unsafe remote or branch name: {remote!r} {branch!r}"}
     current = _git(controller, "symbolic-ref", "--quiet", "--short", "HEAD", check=False).stdout.strip()
-    if current != branch:
+    switching = current != branch
+    if switching and not configured.policy.may_switch(current, branch):
         return {"state": "skipped", "reason": f"checked-out branch is {current or 'detached'}, not {branch}"}
+    if switching:
+        named = _git(controller, "check-ref-format", "--branch", branch, check=False)
+        if not plausible_branch(branch) or named.returncode or named.stdout.strip() != branch:
+            return {"state": "skipped", "reason": f"invalid branch name: {branch!r}"}
     if _git(controller, "status", "--porcelain", "--untracked-files=no").stdout.strip():
         return {"state": "skipped", "reason": "tracked files have local changes"}
     fetched = _git(controller, "fetch", "--quiet", remote, branch, check=False)
@@ -198,10 +229,20 @@ def check_target(controller, remote=None, branch=None):
         return {"state": "skipped", "reason": "fetch failed: " + fetched.stderr.strip()[-300:]}
     head = _git(controller, "rev-parse", "HEAD").stdout.strip()
     target = _git(controller, "rev-parse", "FETCH_HEAD").stdout.strip()
-    if head == target:
+    if head == target and not switching:
         return {"state": "up_to_date", "head": head}
     found = {"head": head, "target": target}
-    if _git(controller, "merge-base", "--is-ancestor", head, target, check=False).returncode:
+    behind = _git(controller, "merge-base", "--is-ancestor", head, target, check=False).returncode
+    if switching:
+        found["switch"] = {"from": current, "to": branch, "downgrade": bool(behind)}
+        if behind and not configured.policy.downgrade_confirmed(branch, head):
+            return {**found, "state": "skipped",
+                    "reason": f"{remote}/{branch} does not contain HEAD of {current}: switching would go back "
+                              f"to older code; confirm with `channel set {branch} --allow-downgrade`"}
+        tip = _git(controller, "rev-parse", "--verify", "--quiet", "refs/heads/" + branch, check=False).stdout.strip()
+        if tip and _git(controller, "merge-base", "--is-ancestor", tip, target, check=False).returncode:
+            return {**found, "state": "skipped", "reason": f"local branch {branch} has commits {remote}/{branch} lacks"}
+    elif behind:
         return {**found, "state": "skipped", "reason": "not a fast-forward"}
     changed = _git(controller, "diff", "--name-only", head, target, "--", *DEPENDENCIES).stdout.split()
     if changed:

@@ -103,6 +103,10 @@ def installation(tmp_path, monkeypatch):
         controller.builds += 1
         return True
     monkeypatch.setattr(update, "prepare_reindex", prepare_reindex)
+    # The update channel comes from the installation's .env, not the developer's shell (#381).
+    from src import update_channel
+    for key in update_channel.KEYS:
+        monkeypatch.delenv(key, raising=False)
     # Changes to os.environ made by the controller should not escape this test.
     for key in ("AGENTS_AUTO_UPDATE", "EMBEDDING_MODEL", "FASTEMBED_CACHE_DIR", "AGENTS_MODEL_ARTIFACT", "AGENTS_MODEL_PATH", "PATH"):
         monkeypatch.setenv(key, __import__('os').environ.get(key, ""))
@@ -206,7 +210,7 @@ def test_failed_merge_keeps_the_old_code_and_restarts(installation, monkeypatch)
 def test_activation_that_cannot_restore_the_tree_is_rolled_back(installation, monkeypatch):
     controller, root, old, target = installation
 
-    def stuck(repo_root, branch=None, *, git_timeout=None, embedding_model=None):
+    def stuck(repo_root, branch=None, *, git_timeout=None, embedding_model=None, policy=None):
         git(root, "merge", "--ff-only", target)
         (root / "data/skills_store.npz").write_text("torn")
         return self_update.ActivationStatus.ACTIVATE_ROLLBACK_FAILED
@@ -675,3 +679,88 @@ def test_update_refuses_a_service_uninstalled_meanwhile(model_switch):
     with pytest.raises(RuntimeError, match="not installed"):
         offline_update(controller)
     assert downloads == [] and git(root, "rev-parse", "HEAD") == old
+
+
+# --- Update channel: switching branches inside the transaction (#381) -------
+
+def _channel(root):
+    from tests.test_update_channel import push_dev
+    return push_dev(root)
+
+
+def _upstream(root, branch):
+    return (git(root, "config", f"branch.{branch}.remote"), git(root, "config", f"branch.{branch}.merge"))
+
+
+def test_channel_set_dev_switches_the_next_update_to_dev(installation):
+    from src import update_channel
+    controller, root, old, target = installation
+    tip = _channel(root)
+    update_channel.set_branch(root, "dev")
+    result = offline_update(controller)
+    assert result["state"] == "UPDATED" and result["branch"] == "dev" and result["branch_from"] == "main"
+    assert git(root, "symbolic-ref", "--short", "HEAD") == "dev" and git(root, "rev-parse", "HEAD") == tip
+    assert _upstream(root, "dev") == ("origin", "refs/heads/dev")
+    # Built while serving, then one stop for activation and probation.
+    assert controller.builds == 1 and controller.stops == 1 and controller.probes == 1
+    assert (root / "data/skills_store.npz").read_text() == "new-index"
+    assert git(root, "rev-parse", "main") == old  # the previous branch stays where it was
+    assert update_channel.show(root, network=False)["checked_out"] == "dev"
+    assert not (controller.directory / "transaction.json").exists()
+    assert offline_update(controller)["state"] == "UP_TO_DATE"
+
+
+def test_failed_probation_after_a_switch_returns_to_main_with_the_previous_stores(installation):
+    from src import update_channel
+    controller, root, old, target = installation
+    _channel(root)
+    update_channel.set_branch(root, "dev")
+    controller.fail_ready = 1
+    result = offline_update(controller)
+    assert result["state"] == "rolled_back"
+    assert git(root, "symbolic-ref", "--short", "HEAD") == "main" and git(root, "rev-parse", "HEAD") == old
+    assert (root / "data/skills_store.npz").read_text() == "old-index"
+    assert subprocess.run([GIT, "-C", str(root), "rev-parse", "--verify", "--quiet", "refs/heads/dev"],
+                          capture_output=True).returncode == 1  # the switch created it; the rollback removed it
+    assert not (controller.directory / "transaction.json").exists() and controller.running
+
+
+def test_a_downgrade_is_refused_until_it_is_confirmed(installation):
+    from src import update_channel
+    controller, root, old, target = installation
+    tip = _channel(root)
+    update_channel.set_branch(root, "dev")
+    assert offline_update(controller)["state"] == "UPDATED"
+    stops = controller.stops
+    # A hand-edited setting back to main: HEAD (dev) is not in origin/main.
+    env = root / ".env"
+    env.write_text(env.read_text().replace("AGENTS_AUTO_UPDATE_BRANCH=dev", "AGENTS_AUTO_UPDATE_BRANCH=main"))
+    assert offline_update(controller)["state"] == "SKIPPED_DOWNGRADE"
+    assert git(root, "symbolic-ref", "--short", "HEAD") == "dev" and controller.stops == stops
+    update_channel.set_branch(root, "main", allow_downgrade=True)
+    result = offline_update(controller)
+    assert result["state"] == "UPDATED" and result["branch"] == "main"
+    assert git(root, "symbolic-ref", "--short", "HEAD") == "main" and git(root, "rev-parse", "HEAD") == target
+    assert _upstream(root, "main") == ("origin", "refs/heads/main")
+    assert git(root, "rev-parse", "dev") == tip
+
+
+def test_a_third_branch_is_left_alone(installation):
+    from src import update_channel
+    controller, root, old, target = installation
+    _channel(root)
+    update_channel.set_branch(root, "dev")
+    git(root, "checkout", "--quiet", "-b", "experiment")
+    assert offline_update(controller)["state"] == "SKIPPED_WRONG_BRANCH"
+    assert git(root, "symbolic-ref", "--short", "HEAD") == "experiment" and controller.stops == 0
+
+
+def test_an_exported_branch_overrides_env_for_one_command(installation, monkeypatch):
+    from src import update_channel
+    controller, root, old, target = installation
+    _channel(root)
+    update_channel.set_branch(root, "dev")
+    monkeypatch.setenv("AGENTS_AUTO_UPDATE_BRANCH", "main")
+    result = offline_update(controller)
+    assert result["state"] == "UPDATED" and "branch" not in result
+    assert git(root, "symbolic-ref", "--short", "HEAD") == "main" and git(root, "rev-parse", "HEAD") == target
