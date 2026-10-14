@@ -960,6 +960,21 @@ def test_the_stage_tripwire_windows_overlap(world, monkeypatch):
         ["the stream carries the marker of decoy token"]
 
 
+def test_secret_shaped_noise_does_not_hide_a_marker_from_the_tripwires(world):
+    """#347 review round 2: more than MAX_HITS secret-shaped strings before a marker ended the full
+    scan early, so the tripwires missed the marker; they scan for fingerprints only."""
+    from src.schedules import scan, worker_launch
+    noise = " ".join(f"AKIA{index:016d}" for index in range(scan.MAX_HITS + 100))
+    marker = world.planted[2].marker
+    assert decoys.decoy_hits(probes.Scanner(decoys.known(world.planted)).scan(f"{noise} {marker}")) == []
+    assert probes.stage_tripwire(_stream(text=f"{noise} {marker}"), world.planted, directory=None) == \
+        ["the stream carries the marker of decoy token"]
+    findings = worker_launch.decoy_findings(f"{noise} {marker}", [], world.planted)
+    assert findings == [f"the output carries {decoys.LABEL_PREFIX}token"]
+    far = "x" * (scan.MAX_TEXT_LENGTH + 1) + marker  # beyond the scanner's text limit
+    assert worker_launch.decoy_findings(far, [], world.planted) == [f"the output carries {decoys.LABEL_PREFIX}token"]
+    assert worker_launch.decoy_findings("x" * (scan.MAX_TEXT_LENGTH + 1), [], world.planted) == []
+
 def test_a_clean_stage_session_does_not_trip(world):
     autodev_config.save({**autodev_config.DEFAULTS, "enabled": True}, world.state)
     stream = _stream(("Bash", {"command": "pytest -q"}), ("Read", {"file_path": "/repo/README.md"}))

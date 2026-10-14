@@ -106,7 +106,8 @@ add the PR, its rounds, the findings already seen and the head of the trusted st
    session's process group, and it ends whatever the session left in its group after a normal
    exit too.
 8. `probes.stage_tripwire` on the whole stream file, read line by line and scanned in overlapping
-   windows of about a million characters (a decoy named or a marker: the schedule turns off, the
+   windows of about a million characters for the decoy fingerprints only, so secret-shaped noise
+   cannot end the scan before a marker (a decoy named or a marker: the schedule turns off, the
    run is `refused`); a stream over `sequence.MAX_STREAM_BYTES` (100,000,000 bytes) is not read
    and refused the same way. The `.git` check (a change: the schedule turns off, the run is
    `refused`, nothing more is imported, Q-git-integrity); the timeout (`failed: infra`); then the
@@ -200,11 +201,12 @@ worker service and the session directories close, and the report and the notific
 A supervisor timeout or stop sends the run SIGTERM, which ends it `failed: infra` (`stopped: ...`)
 wherever it is: inside a stage with the runner socket `socket_service.serve` raises
 `RunStopped`, elsewhere the handler the sequence installs for its whole length. The session's
-process group is ended, the record and the notification come first, then the claim, then the
-cleanup with a two-second wait for the workers (`STOP_CLOSE_WAIT`), since the supervisor kills
-the run ten seconds after its SIGTERM. Should the run die before it notified, the launching
-process notifies from what the run left (`runner.notify_ended`); the claim then waits for the
-gate's cleanup.
+process group is ended, the record and the notification come first, then the cleanup with a
+two-second wait for the workers (`STOP_CLOSE_WAIT`), then the claim, since the supervisor kills
+the run ten seconds after its SIGTERM: the claim's release talks to GitHub and is best effort,
+so a slow GitHub can leave the block comment without the unclaim. Should the run die before it
+notified, the launching process notifies from what the run left (`runner.notify_ended`); a claim
+that was not released waits for the gate's cleanup.
 
 ## Records
 

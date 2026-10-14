@@ -300,13 +300,18 @@ class _Hits:
 
 
 class Scanner:
-    """Scans texts against the token patterns, entropy and fingerprints of ``known``."""
+    """Scans texts against the token patterns, entropy and fingerprints of ``known``.
 
-    def __init__(self, known: Iterable[KnownSecret] = ()):
+    ``known_only`` scans for the fingerprints alone (in every decoded layer and view), for the
+    tripwires that look for a decoy marker: otherwise ``MAX_HITS`` secret-shaped strings anywhere
+    in a text would end the scan before the fingerprints and hide a marker (#347 review)."""
+
+    def __init__(self, known: Iterable[KnownSecret] = (), *, known_only: bool = False):
         known = tuple(known)
         if not all(isinstance(secret, KnownSecret) for secret in known):
             raise TypeError("known secrets must be KnownSecret instances")
         self._fingerprints = tuple(_fingerprint(secret) for secret in known)
+        self._known_only = known_only
 
     def scan(self, text: str) -> tuple[Hit, ...]:
         """Every hit in ``text``, ordered by offset; empty when the text is clean.
@@ -331,11 +336,12 @@ class Scanner:
             raise SecretFound(hits)
 
     def _scan_layer(self, layer: _Layer, hits: _Hits) -> None:
-        for name, pattern in TOKEN_PATTERNS.items():
-            for match in pattern.finditer(layer.text):
-                hits.add(HitKind.PATTERN, name, layer.origin(*match.span()))
+        if not self._known_only:
+            for name, pattern in TOKEN_PATTERNS.items():
+                for match in pattern.finditer(layer.text):
+                    hits.add(HitKind.PATTERN, name, layer.origin(*match.span()))
         diff = layer.depth == 0 and _DIFF_HUNK.search(layer.text) is not None
-        if layer.depth == 0:
+        if layer.depth == 0 and not self._known_only:
             self._scan_joined_lines(layer, diff, hits)
             # Decoded bytes look random; entropy there would only add false hits.
             exempt = {match.span() for match in _ENTROPY_EXEMPT.finditer(layer.text)}
