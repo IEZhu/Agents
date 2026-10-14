@@ -411,6 +411,14 @@ although the sandbox holds, or pass although it does not, until it is observed:
   The env-vars page also lists `CLAUDE_CODE_MESSAGING_SOCKET` and `CLAUDE_CODE_MESSAGING_TOKEN`
   for sessions that bind an inbox socket; if a `-p` session exports them, the secret-name check
   fails until the owner decides.
+- **Moving a parent of a protected path.** The probes write to `.git/config` and `.git/hooks`
+  of the one-off repository directly. The #344 review showed with the real `sandbox-exec` that a
+  Seatbelt profile denying only those two paths still lets a process rename the `.git` directory
+  itself and change the files under the new name; a deny of the `.git` directory node closed it.
+  Whether sandbox-runtime denies moves of a `denyWrite` path's parents is not documented, and no
+  probe covers it yet. Until the owner confirms it on the installed binary, the fallback is to add
+  the `.git` directory to `denyWrite` or to check after each session, outside the sandbox, that
+  `.git` is the same directory and its `config` and hooks are unchanged (#347).
 - **The re-opened git configuration.** Entropy hits count, so a public key or another long random
   value in the global git configuration or a file it includes fails the static check.
 - **Network probes.** `dscacheutil`, `dig`, `gh`, `git credential-osxkeychain` and the virtual
