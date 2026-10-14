@@ -1,0 +1,1575 @@
+{
+  "base_revision": "8ab433012fc16e68f95ca538dfbb4bf4d082a3d7",
+  "python": "3.13.13",
+  "arms": [
+    "accord_json",
+    "accord_python",
+    "sdk_python",
+    "sdk_json"
+  ],
+  "rows": [
+    {
+      "arm": "accord_json",
+      "variant": 1,
+      "scenario": "success",
+      "passed": true,
+      "status": "confirmed",
+      "publications": 1,
+      "root_remaining": 1,
+      "child_remaining": 0,
+      "replay_calls": 2,
+      "child_accepted": true,
+      "root_accepted": true,
+      "root_control": "active",
+      "changed_paths": [
+        "docs/subagent-contract.md",
+        "src/engine/subagent_validation.py",
+        "tests/test_subagent_paths.py"
+      ],
+      "published_sha256": "7ba1bf1a4df210b479db6c2ff73cd432d9db26e7c02a8b61674eb8d96541a0fe"
+    },
+    {
+      "arm": "accord_python",
+      "variant": 1,
+      "scenario": "success",
+      "passed": true,
+      "status": "confirmed",
+      "publications": 1,
+      "root_remaining": 1,
+      "child_remaining": 0,
+      "replay_calls": 2,
+      "child_accepted": true,
+      "root_accepted": true,
+      "root_control": "active",
+      "changed_paths": [
+        "docs/subagent-contract.md",
+        "src/engine/subagent_validation.py",
+        "tests/test_subagent_paths.py"
+      ],
+      "published_sha256": "7ba1bf1a4df210b479db6c2ff73cd432d9db26e7c02a8b61674eb8d96541a0fe"
+    },
+    {
+      "arm": "sdk_python",
+      "variant": 1,
+      "scenario": "success",
+      "passed": true,
+      "status": "confirmed",
+      "publications": 1,
+      "root_remaining": 1,
+      "child_remaining": 0,
+      "replay_calls": 2,
+      "child_accepted": true,
+      "root_accepted": true,
+      "root_control": "active",
+      "changed_paths": [
+        "docs/subagent-contract.md",
+        "src/engine/subagent_validation.py",
+        "tests/test_subagent_paths.py"
+      ],
+      "published_sha256": "7ba1bf1a4df210b479db6c2ff73cd432d9db26e7c02a8b61674eb8d96541a0fe"
+    },
+    {
+      "arm": "sdk_json",
+      "variant": 1,
+      "scenario": "success",
+      "passed": true,
+      "status": "confirmed",
+      "publications": 1,
+      "root_remaining": 1,
+      "child_remaining": 0,
+      "replay_calls": 2,
+      "child_accepted": true,
+      "root_accepted": true,
+      "root_control": "active",
+      "changed_paths": [
+        "docs/subagent-contract.md",
+        "src/engine/subagent_validation.py",
+        "tests/test_subagent_paths.py"
+      ],
+      "published_sha256": "7ba1bf1a4df210b479db6c2ff73cd432d9db26e7c02a8b61674eb8d96541a0fe"
+    },
+    {
+      "arm": "accord_json",
+      "variant": 1,
+      "scenario": "child_target_expansion",
+      "passed": true,
+      "status": "blocked",
+      "publications": 0,
+      "root_remaining": 3,
+      "child_remaining": null,
+      "replay_calls": 0,
+      "child_accepted": false,
+      "root_accepted": false,
+      "root_control": "active",
+      "changed_paths": [],
+      "published_sha256": null
+    },
+    {
+      "arm": "accord_python",
+      "variant": 1,
+      "scenario": "child_target_expansion",
+      "passed": true,
+      "status": "blocked",
+      "publications": 0,
+      "root_remaining": 3,
+      "child_remaining": null,
+      "replay_calls": 0,
+      "child_accepted": false,
+      "root_accepted": false,
+      "root_control": "active",
+      "changed_paths": [],
+      "published_sha256": null
+    },
+    {
+      "arm": "sdk_python",
+      "variant": 1,
+      "scenario": "child_target_expansion",
+      "passed": true,
+      "status": "blocked",
+      "publications": 0,
+      "root_remaining": 3,
+      "child_remaining": null,
+      "replay_calls": 0,
+      "child_accepted": false,
+      "root_accepted": false,
+      "root_control": "active",
+      "changed_paths": [],
+      "published_sha256": null
+    },
+    {
+      "arm": "sdk_json",
+      "variant": 1,
+      "scenario": "child_target_expansion",
+      "passed": true,
+      "status": "blocked",
+      "publications": 0,
+      "root_remaining": 3,
+      "child_remaining": null,
+      "replay_calls": 0,
+      "child_accepted": false,
+      "root_accepted": false,
+      "root_control": "active",
+      "changed_paths": [],
+      "published_sha256": null
+    },
+    {
+      "arm": "accord_json",
+      "variant": 1,
+      "scenario": "child_input_expansion",
+      "passed": true,
+      "status": "blocked",
+      "publications": 0,
+      "root_remaining": 3,
+      "child_remaining": null,
+      "replay_calls": 0,
+      "child_accepted": false,
+      "root_accepted": false,
+      "root_control": "active",
+      "changed_paths": [],
+      "published_sha256": null
+    },
+    {
+      "arm": "accord_python",
+      "variant": 1,
+      "scenario": "child_input_expansion",
+      "passed": true,
+      "status": "blocked",
+      "publications": 0,
+      "root_remaining": 3,
+      "child_remaining": null,
+      "replay_calls": 0,
+      "child_accepted": false,
+      "root_accepted": false,
+      "root_control": "active",
+      "changed_paths": [],
+      "published_sha256": null
+    },
+    {
+      "arm": "sdk_python",
+      "variant": 1,
+      "scenario": "child_input_expansion",
+      "passed": true,
+      "status": "blocked",
+      "publications": 0,
+      "root_remaining": 3,
+      "child_remaining": null,
+      "replay_calls": 0,
+      "child_accepted": false,
+      "root_accepted": false,
+      "root_control": "active",
+      "changed_paths": [],
+      "published_sha256": null
+    },
+    {
+      "arm": "sdk_json",
+      "variant": 1,
+      "scenario": "child_input_expansion",
+      "passed": true,
+      "status": "blocked",
+      "publications": 0,
+      "root_remaining": 3,
+      "child_remaining": null,
+      "replay_calls": 0,
+      "child_accepted": false,
+      "root_accepted": false,
+      "root_control": "active",
+      "changed_paths": [],
+      "published_sha256": null
+    },
+    {
+      "arm": "accord_json",
+      "variant": 1,
+      "scenario": "child_output_expansion",
+      "passed": true,
+      "status": "blocked",
+      "publications": 0,
+      "root_remaining": 3,
+      "child_remaining": null,
+      "replay_calls": 0,
+      "child_accepted": false,
+      "root_accepted": false,
+      "root_control": "active",
+      "changed_paths": [],
+      "published_sha256": null
+    },
+    {
+      "arm": "accord_python",
+      "variant": 1,
+      "scenario": "child_output_expansion",
+      "passed": true,
+      "status": "blocked",
+      "publications": 0,
+      "root_remaining": 3,
+      "child_remaining": null,
+      "replay_calls": 0,
+      "child_accepted": false,
+      "root_accepted": false,
+      "root_control": "active",
+      "changed_paths": [],
+      "published_sha256": null
+    },
+    {
+      "arm": "sdk_python",
+      "variant": 1,
+      "scenario": "child_output_expansion",
+      "passed": true,
+      "status": "blocked",
+      "publications": 0,
+      "root_remaining": 3,
+      "child_remaining": null,
+      "replay_calls": 0,
+      "child_accepted": false,
+      "root_accepted": false,
+      "root_control": "active",
+      "changed_paths": [],
+      "published_sha256": null
+    },
+    {
+      "arm": "sdk_json",
+      "variant": 1,
+      "scenario": "child_output_expansion",
+      "passed": true,
+      "status": "blocked",
+      "publications": 0,
+      "root_remaining": 3,
+      "child_remaining": null,
+      "replay_calls": 0,
+      "child_accepted": false,
+      "root_accepted": false,
+      "root_control": "active",
+      "changed_paths": [],
+      "published_sha256": null
+    },
+    {
+      "arm": "accord_json",
+      "variant": 1,
+      "scenario": "excess_allocation",
+      "passed": true,
+      "status": "blocked",
+      "publications": 0,
+      "root_remaining": 3,
+      "child_remaining": null,
+      "replay_calls": 0,
+      "child_accepted": false,
+      "root_accepted": false,
+      "root_control": "active",
+      "changed_paths": [],
+      "published_sha256": null
+    },
+    {
+      "arm": "accord_python",
+      "variant": 1,
+      "scenario": "excess_allocation",
+      "passed": true,
+      "status": "blocked",
+      "publications": 0,
+      "root_remaining": 3,
+      "child_remaining": null,
+      "replay_calls": 0,
+      "child_accepted": false,
+      "root_accepted": false,
+      "root_control": "active",
+      "changed_paths": [],
+      "published_sha256": null
+    },
+    {
+      "arm": "sdk_python",
+      "variant": 1,
+      "scenario": "excess_allocation",
+      "passed": true,
+      "status": "blocked",
+      "publications": 0,
+      "root_remaining": 3,
+      "child_remaining": null,
+      "replay_calls": 0,
+      "child_accepted": false,
+      "root_accepted": false,
+      "root_control": "active",
+      "changed_paths": [],
+      "published_sha256": null
+    },
+    {
+      "arm": "sdk_json",
+      "variant": 1,
+      "scenario": "excess_allocation",
+      "passed": true,
+      "status": "blocked",
+      "publications": 0,
+      "root_remaining": 3,
+      "child_remaining": null,
+      "replay_calls": 0,
+      "child_accepted": false,
+      "root_accepted": false,
+      "root_control": "active",
+      "changed_paths": [],
+      "published_sha256": null
+    },
+    {
+      "arm": "accord_json",
+      "variant": 1,
+      "scenario": "parent_cancel_before_child",
+      "passed": true,
+      "status": "blocked",
+      "publications": 0,
+      "root_remaining": 2,
+      "child_remaining": 1,
+      "replay_calls": 0,
+      "child_accepted": false,
+      "root_accepted": false,
+      "root_control": "cancelled",
+      "changed_paths": [],
+      "published_sha256": null
+    },
+    {
+      "arm": "accord_python",
+      "variant": 1,
+      "scenario": "parent_cancel_before_child",
+      "passed": true,
+      "status": "blocked",
+      "publications": 0,
+      "root_remaining": 2,
+      "child_remaining": 1,
+      "replay_calls": 0,
+      "child_accepted": false,
+      "root_accepted": false,
+      "root_control": "cancelled",
+      "changed_paths": [],
+      "published_sha256": null
+    },
+    {
+      "arm": "sdk_python",
+      "variant": 1,
+      "scenario": "parent_cancel_before_child",
+      "passed": true,
+      "status": "blocked",
+      "publications": 0,
+      "root_remaining": 2,
+      "child_remaining": 1,
+      "replay_calls": 0,
+      "child_accepted": false,
+      "root_accepted": false,
+      "root_control": "cancelled",
+      "changed_paths": [],
+      "published_sha256": null
+    },
+    {
+      "arm": "sdk_json",
+      "variant": 1,
+      "scenario": "parent_cancel_before_child",
+      "passed": true,
+      "status": "blocked",
+      "publications": 0,
+      "root_remaining": 2,
+      "child_remaining": 1,
+      "replay_calls": 0,
+      "child_accepted": false,
+      "root_accepted": false,
+      "root_control": "cancelled",
+      "changed_paths": [],
+      "published_sha256": null
+    },
+    {
+      "arm": "accord_json",
+      "variant": 1,
+      "scenario": "behavior_mutant",
+      "passed": true,
+      "status": "blocked",
+      "publications": 0,
+      "root_remaining": 1,
+      "child_remaining": 0,
+      "replay_calls": 2,
+      "child_accepted": true,
+      "root_accepted": false,
+      "root_control": "active",
+      "changed_paths": [],
+      "published_sha256": null
+    },
+    {
+      "arm": "accord_python",
+      "variant": 1,
+      "scenario": "behavior_mutant",
+      "passed": true,
+      "status": "blocked",
+      "publications": 0,
+      "root_remaining": 1,
+      "child_remaining": 0,
+      "replay_calls": 2,
+      "child_accepted": true,
+      "root_accepted": false,
+      "root_control": "active",
+      "changed_paths": [],
+      "published_sha256": null
+    },
+    {
+      "arm": "sdk_python",
+      "variant": 1,
+      "scenario": "behavior_mutant",
+      "passed": true,
+      "status": "blocked",
+      "publications": 0,
+      "root_remaining": 1,
+      "child_remaining": 0,
+      "replay_calls": 2,
+      "child_accepted": true,
+      "root_accepted": false,
+      "root_control": "active",
+      "changed_paths": [],
+      "published_sha256": null
+    },
+    {
+      "arm": "sdk_json",
+      "variant": 1,
+      "scenario": "behavior_mutant",
+      "passed": true,
+      "status": "blocked",
+      "publications": 0,
+      "root_remaining": 1,
+      "child_remaining": 0,
+      "replay_calls": 2,
+      "child_accepted": true,
+      "root_accepted": false,
+      "root_control": "active",
+      "changed_paths": [],
+      "published_sha256": null
+    },
+    {
+      "arm": "accord_json",
+      "variant": 1,
+      "scenario": "parent_child_receipts",
+      "passed": true,
+      "status": "blocked",
+      "publications": 0,
+      "root_remaining": 1,
+      "child_remaining": 0,
+      "replay_calls": 2,
+      "child_accepted": true,
+      "root_accepted": false,
+      "root_control": "active",
+      "changed_paths": [],
+      "published_sha256": null
+    },
+    {
+      "arm": "accord_python",
+      "variant": 1,
+      "scenario": "parent_child_receipts",
+      "passed": true,
+      "status": "blocked",
+      "publications": 0,
+      "root_remaining": 1,
+      "child_remaining": 0,
+      "replay_calls": 2,
+      "child_accepted": true,
+      "root_accepted": false,
+      "root_control": "active",
+      "changed_paths": [],
+      "published_sha256": null
+    },
+    {
+      "arm": "sdk_python",
+      "variant": 1,
+      "scenario": "parent_child_receipts",
+      "passed": true,
+      "status": "blocked",
+      "publications": 0,
+      "root_remaining": 1,
+      "child_remaining": 0,
+      "replay_calls": 2,
+      "child_accepted": true,
+      "root_accepted": false,
+      "root_control": "active",
+      "changed_paths": [],
+      "published_sha256": null
+    },
+    {
+      "arm": "sdk_json",
+      "variant": 1,
+      "scenario": "parent_child_receipts",
+      "passed": true,
+      "status": "blocked",
+      "publications": 0,
+      "root_remaining": 1,
+      "child_remaining": 0,
+      "replay_calls": 2,
+      "child_accepted": true,
+      "root_accepted": false,
+      "root_control": "active",
+      "changed_paths": [],
+      "published_sha256": null
+    },
+    {
+      "arm": "accord_json",
+      "variant": 1,
+      "scenario": "tampered_after_accept",
+      "passed": true,
+      "status": "blocked",
+      "publications": 0,
+      "root_remaining": 0,
+      "child_remaining": 0,
+      "replay_calls": 3,
+      "child_accepted": true,
+      "root_accepted": true,
+      "root_control": "active",
+      "changed_paths": [],
+      "published_sha256": null
+    },
+    {
+      "arm": "accord_python",
+      "variant": 1,
+      "scenario": "tampered_after_accept",
+      "passed": true,
+      "status": "blocked",
+      "publications": 0,
+      "root_remaining": 0,
+      "child_remaining": 0,
+      "replay_calls": 3,
+      "child_accepted": true,
+      "root_accepted": true,
+      "root_control": "active",
+      "changed_paths": [],
+      "published_sha256": null
+    },
+    {
+      "arm": "sdk_python",
+      "variant": 1,
+      "scenario": "tampered_after_accept",
+      "passed": true,
+      "status": "blocked",
+      "publications": 0,
+      "root_remaining": 0,
+      "child_remaining": 0,
+      "replay_calls": 3,
+      "child_accepted": true,
+      "root_accepted": true,
+      "root_control": "active",
+      "changed_paths": [],
+      "published_sha256": null
+    },
+    {
+      "arm": "sdk_json",
+      "variant": 1,
+      "scenario": "tampered_after_accept",
+      "passed": true,
+      "status": "blocked",
+      "publications": 0,
+      "root_remaining": 0,
+      "child_remaining": 0,
+      "replay_calls": 3,
+      "child_accepted": true,
+      "root_accepted": true,
+      "root_control": "active",
+      "changed_paths": [],
+      "published_sha256": null
+    },
+    {
+      "arm": "accord_json",
+      "variant": 1,
+      "scenario": "stale_source",
+      "passed": true,
+      "status": "blocked",
+      "publications": 0,
+      "root_remaining": 1,
+      "child_remaining": 0,
+      "replay_calls": 2,
+      "child_accepted": true,
+      "root_accepted": true,
+      "root_control": "active",
+      "changed_paths": [],
+      "published_sha256": null
+    },
+    {
+      "arm": "accord_python",
+      "variant": 1,
+      "scenario": "stale_source",
+      "passed": true,
+      "status": "blocked",
+      "publications": 0,
+      "root_remaining": 1,
+      "child_remaining": 0,
+      "replay_calls": 2,
+      "child_accepted": true,
+      "root_accepted": true,
+      "root_control": "active",
+      "changed_paths": [],
+      "published_sha256": null
+    },
+    {
+      "arm": "sdk_python",
+      "variant": 1,
+      "scenario": "stale_source",
+      "passed": true,
+      "status": "blocked",
+      "publications": 0,
+      "root_remaining": 1,
+      "child_remaining": 0,
+      "replay_calls": 2,
+      "child_accepted": true,
+      "root_accepted": true,
+      "root_control": "active",
+      "changed_paths": [],
+      "published_sha256": null
+    },
+    {
+      "arm": "sdk_json",
+      "variant": 1,
+      "scenario": "stale_source",
+      "passed": true,
+      "status": "blocked",
+      "publications": 0,
+      "root_remaining": 1,
+      "child_remaining": 0,
+      "replay_calls": 2,
+      "child_accepted": true,
+      "root_accepted": true,
+      "root_control": "active",
+      "changed_paths": [],
+      "published_sha256": null
+    },
+    {
+      "arm": "accord_json",
+      "variant": 1,
+      "scenario": "repeat_publication",
+      "passed": true,
+      "status": "confirmed",
+      "publications": 1,
+      "root_remaining": 1,
+      "child_remaining": 0,
+      "replay_calls": 2,
+      "child_accepted": true,
+      "root_accepted": true,
+      "root_control": "active",
+      "changed_paths": [
+        "docs/subagent-contract.md",
+        "src/engine/subagent_validation.py",
+        "tests/test_subagent_paths.py"
+      ],
+      "published_sha256": "7ba1bf1a4df210b479db6c2ff73cd432d9db26e7c02a8b61674eb8d96541a0fe"
+    },
+    {
+      "arm": "accord_python",
+      "variant": 1,
+      "scenario": "repeat_publication",
+      "passed": true,
+      "status": "confirmed",
+      "publications": 1,
+      "root_remaining": 1,
+      "child_remaining": 0,
+      "replay_calls": 2,
+      "child_accepted": true,
+      "root_accepted": true,
+      "root_control": "active",
+      "changed_paths": [
+        "docs/subagent-contract.md",
+        "src/engine/subagent_validation.py",
+        "tests/test_subagent_paths.py"
+      ],
+      "published_sha256": "7ba1bf1a4df210b479db6c2ff73cd432d9db26e7c02a8b61674eb8d96541a0fe"
+    },
+    {
+      "arm": "sdk_python",
+      "variant": 1,
+      "scenario": "repeat_publication",
+      "passed": true,
+      "status": "confirmed",
+      "publications": 1,
+      "root_remaining": 1,
+      "child_remaining": 0,
+      "replay_calls": 2,
+      "child_accepted": true,
+      "root_accepted": true,
+      "root_control": "active",
+      "changed_paths": [
+        "docs/subagent-contract.md",
+        "src/engine/subagent_validation.py",
+        "tests/test_subagent_paths.py"
+      ],
+      "published_sha256": "7ba1bf1a4df210b479db6c2ff73cd432d9db26e7c02a8b61674eb8d96541a0fe"
+    },
+    {
+      "arm": "sdk_json",
+      "variant": 1,
+      "scenario": "repeat_publication",
+      "passed": true,
+      "status": "confirmed",
+      "publications": 1,
+      "root_remaining": 1,
+      "child_remaining": 0,
+      "replay_calls": 2,
+      "child_accepted": true,
+      "root_accepted": true,
+      "root_control": "active",
+      "changed_paths": [
+        "docs/subagent-contract.md",
+        "src/engine/subagent_validation.py",
+        "tests/test_subagent_paths.py"
+      ],
+      "published_sha256": "7ba1bf1a4df210b479db6c2ff73cd432d9db26e7c02a8b61674eb8d96541a0fe"
+    },
+    {
+      "arm": "accord_json",
+      "variant": 2,
+      "scenario": "success",
+      "passed": true,
+      "status": "confirmed",
+      "publications": 1,
+      "root_remaining": 3,
+      "child_remaining": 0,
+      "replay_calls": 2,
+      "child_accepted": true,
+      "root_accepted": true,
+      "root_control": "active",
+      "changed_paths": [
+        "docs/subagent-contract.md",
+        "src/engine/subagent_validation.py",
+        "tests/test_subagent_paths.py"
+      ],
+      "published_sha256": "7ba1bf1a4df210b479db6c2ff73cd432d9db26e7c02a8b61674eb8d96541a0fe"
+    },
+    {
+      "arm": "accord_python",
+      "variant": 2,
+      "scenario": "success",
+      "passed": true,
+      "status": "confirmed",
+      "publications": 1,
+      "root_remaining": 3,
+      "child_remaining": 0,
+      "replay_calls": 2,
+      "child_accepted": true,
+      "root_accepted": true,
+      "root_control": "active",
+      "changed_paths": [
+        "docs/subagent-contract.md",
+        "src/engine/subagent_validation.py",
+        "tests/test_subagent_paths.py"
+      ],
+      "published_sha256": "7ba1bf1a4df210b479db6c2ff73cd432d9db26e7c02a8b61674eb8d96541a0fe"
+    },
+    {
+      "arm": "sdk_python",
+      "variant": 2,
+      "scenario": "success",
+      "passed": true,
+      "status": "confirmed",
+      "publications": 1,
+      "root_remaining": 3,
+      "child_remaining": 0,
+      "replay_calls": 2,
+      "child_accepted": true,
+      "root_accepted": true,
+      "root_control": "active",
+      "changed_paths": [
+        "docs/subagent-contract.md",
+        "src/engine/subagent_validation.py",
+        "tests/test_subagent_paths.py"
+      ],
+      "published_sha256": "7ba1bf1a4df210b479db6c2ff73cd432d9db26e7c02a8b61674eb8d96541a0fe"
+    },
+    {
+      "arm": "sdk_json",
+      "variant": 2,
+      "scenario": "success",
+      "passed": true,
+      "status": "confirmed",
+      "publications": 1,
+      "root_remaining": 3,
+      "child_remaining": 0,
+      "replay_calls": 2,
+      "child_accepted": true,
+      "root_accepted": true,
+      "root_control": "active",
+      "changed_paths": [
+        "docs/subagent-contract.md",
+        "src/engine/subagent_validation.py",
+        "tests/test_subagent_paths.py"
+      ],
+      "published_sha256": "7ba1bf1a4df210b479db6c2ff73cd432d9db26e7c02a8b61674eb8d96541a0fe"
+    }
+  ],
+  "paired": [
+    {
+      "variant": 1,
+      "scenario": "success",
+      "equivalent": true
+    },
+    {
+      "variant": 1,
+      "scenario": "child_target_expansion",
+      "equivalent": true
+    },
+    {
+      "variant": 1,
+      "scenario": "child_input_expansion",
+      "equivalent": true
+    },
+    {
+      "variant": 1,
+      "scenario": "child_output_expansion",
+      "equivalent": true
+    },
+    {
+      "variant": 1,
+      "scenario": "excess_allocation",
+      "equivalent": true
+    },
+    {
+      "variant": 1,
+      "scenario": "parent_cancel_before_child",
+      "equivalent": true
+    },
+    {
+      "variant": 1,
+      "scenario": "behavior_mutant",
+      "equivalent": true
+    },
+    {
+      "variant": 1,
+      "scenario": "parent_child_receipts",
+      "equivalent": true
+    },
+    {
+      "variant": 1,
+      "scenario": "tampered_after_accept",
+      "equivalent": true
+    },
+    {
+      "variant": 1,
+      "scenario": "stale_source",
+      "equivalent": true
+    },
+    {
+      "variant": 1,
+      "scenario": "repeat_publication",
+      "equivalent": true
+    },
+    {
+      "variant": 2,
+      "scenario": "success",
+      "equivalent": true
+    }
+  ],
+  "inspection": {
+    "variants": [
+      {
+        "variant": 1,
+        "wire_sha256": "36164d910a9d92f116b56a02b6d9ca8f5f13ae6cf9ee357fdbacdadb58d04f26",
+        "inspection": {
+          "child": {
+            "checks": {
+              "bundle_scope": "1"
+            },
+            "inputs": [
+              "base_docs",
+              "base_schema",
+              "base_source",
+              "requirements"
+            ],
+            "ir": "accord.contract/0.1",
+            "name": "code_child",
+            "output_max_bytes": 60000,
+            "policy_revision": "p1",
+            "publish_to": [],
+            "request_budget": 1
+          },
+          "digest": "3e556aa33702ad1c92f8b7dd122879b0ff3b63ca96ac768fda19733778acb183",
+          "parent": {
+            "checks": {
+              "behavior": "1",
+              "bundle_scope": "1"
+            },
+            "inputs": [
+              "base_docs",
+              "base_schema",
+              "base_source",
+              "requirements"
+            ],
+            "ir": "accord.contract/0.1",
+            "name": "code_parent",
+            "output_max_bytes": 60000,
+            "policy_revision": "p1",
+            "publish_to": [
+              "code_patch"
+            ],
+            "request_budget": 3
+          },
+          "root_credits_after_allocation": 2
+        },
+        "all_four_declarations_equal": true,
+        "python_export_equivalent": true,
+        "inspection_without_runtime_or_task_import": true
+      },
+      {
+        "variant": 2,
+        "wire_sha256": "6e850ec5436c9b94908ada4bcd8b57c5cd35c4599f4b7e5c8563a58997cb3b84",
+        "inspection": {
+          "child": {
+            "checks": {
+              "bundle_scope": "1"
+            },
+            "inputs": [
+              "base_docs",
+              "base_schema",
+              "base_source",
+              "requirements"
+            ],
+            "ir": "accord.contract/0.1",
+            "name": "code_child",
+            "output_max_bytes": 60000,
+            "policy_revision": "p1",
+            "publish_to": [],
+            "request_budget": 1
+          },
+          "digest": "3e792cf8abab764ad98db5d82b59c8614d5c131b40d19850f7fd8540f539b20c",
+          "parent": {
+            "checks": {
+              "behavior_v2": "2",
+              "bundle_scope": "1"
+            },
+            "inputs": [
+              "base_docs",
+              "base_schema",
+              "base_source",
+              "requirements"
+            ],
+            "ir": "accord.contract/0.1",
+            "name": "code_parent",
+            "output_max_bytes": 60000,
+            "policy_revision": "p1",
+            "publish_to": [
+              "code_patch_v2"
+            ],
+            "request_budget": 5
+          },
+          "root_credits_after_allocation": 4
+        },
+        "all_four_declarations_equal": true,
+        "python_export_equivalent": true,
+        "inspection_without_runtime_or_task_import": true
+      }
+    ],
+    "invalid_rejected": [
+      "unknown_field",
+      "unknown_version",
+      "boolean_budget",
+      "missing_validator",
+      "child_expansion",
+      "duplicate_key"
+    ],
+    "formatting_identity_stable": true,
+    "budget_change_identity_differs": true
+  },
+  "candidate_sha256": "7ba1bf1a4df210b479db6c2ff73cd432d9db26e7c02a8b61674eb8d96541a0fe",
+  "input_sha256": {
+    "base_source": "26e06b8a4b949b539ed70a0d79e522b9c68dc5322b66a11fb346525209441ece",
+    "base_docs": "72f443750674fd605432b34c0afc3548ec5ca2c1d50636180aec9c72ecc66ac0",
+    "base_schema": "4d54c825d34260a783ba3ff2f528a5c876c7513104394ebab0d9fba710fceaa4",
+    "requirements": "8d70cde16ffabb8ab01b07603d68151929023b6dced616ed34a40ed75c35ff7c"
+  },
+  "implementation_sha256": {
+    "experiments/accord/delegation/__init__.py": "ac29081207f0066c1e0a0cd60594cfec3c9bcbf971a4c9ce7bfd808b4e3b795d",
+    "experiments/accord/delegation/backends.py": "1fc464fa9297e58ef23bb30425442c25934d51e68e6a46aaa8a6cbe9be13ef38",
+    "experiments/accord/delegation/behavior_probe.py": "e27034c527d955e9c56a51aa43a3a358fc01f8220485a81c4409db913026c263",
+    "experiments/accord/delegation/declarations.py": "c91f46d3ba5c7a2c8daba35efaad6b40251ea3df61de8414cb836f9d52ba8bb2",
+    "experiments/accord/delegation/git_bundle.py": "39b17cae22ab042e2c885a8b289fda06b8eaefeb880a1ab8dca54a7a8fd68205",
+    "experiments/accord/delegation/run.py": "e4906dcc035924e117969b91c023b7ee7a3ae1b96a7bea0dc4be413290821911",
+    "experiments/accord/delegation/sdk_ir.py": "7e78367316a4eb0f458e0a0800ff3a868d6340a85e0cce4eff50df4be8402775",
+    "experiments/accord/delegation/token_probe.py": "096e23f85a58c2afece8603b33c727e5d6d6cbc2ccba0673a049893a32a11d0f",
+    "experiments/accord/delegation/workload.py": "1ce68278709033cfc59bf8f5cb6dc152e3f1ddd38604e4601e79f276c0a04be7",
+    "experiments/accord/runtime.py": "f5da8ce4c66a73e8e93356b67fa7617bc8fd24d386d9ebc3207f1fe111af6662",
+    "experiments/accord/ir.py": "bd669e7ee36f38ea79f472e68a8e9ef9680410e300f96cd4f1c21a3a939b5f7f",
+    "experiments/accord/store.py": "c926b69be397afa77071ee5e98616a72680ecb9bf9204ff4d3f888d0a7f8e995",
+    "experiments/accord/evaluation/python_sdk.py": "ac98c838bd545e868e096fede286509be1c0edafb5f0033e37377613ba6c1f58",
+    "experiments/accord/evaluation/git_sink.py": "19542f0a57cf95dcc693951978f73ac5562d9ecdc06f6946f5be4450d305c426"
+  },
+  "behavior_executions": [
+    {
+      "passed": true,
+      "checks": [
+        {
+          "name": "nested_nonfinite",
+          "passed": true,
+          "code": "invalid_json_value",
+          "path": "$.evidence[0].score"
+        },
+        {
+          "name": "special_key",
+          "passed": true,
+          "code": "invalid_json_value",
+          "path": "$[\"a.b\"][0].x"
+        },
+        {
+          "name": "array_bound",
+          "passed": true,
+          "code": "array_too_large",
+          "path": "$.outer.items"
+        },
+        {
+          "name": "object_bound",
+          "passed": true,
+          "code": "object_too_large",
+          "path": "$.outer"
+        },
+        {
+          "name": "non_string_key",
+          "passed": true,
+          "code": "invalid_key",
+          "path": "$.outer"
+        },
+        {
+          "name": "oversized_key",
+          "passed": true,
+          "code": "invalid_key",
+          "path": "$.outer"
+        },
+        {
+          "name": "unsupported_value",
+          "passed": true,
+          "code": "invalid_json_value",
+          "path": "$.outer[0]"
+        },
+        {
+          "name": "duplicate_keys",
+          "passed": true,
+          "code": "duplicate_key",
+          "path": "$"
+        },
+        {
+          "name": "raw_nonfinite",
+          "passed": true,
+          "code": "non_finite",
+          "path": "$.a[0]"
+        },
+        {
+          "name": "trailing_json",
+          "passed": true,
+          "code": "invalid_json",
+          "path": "$"
+        },
+        {
+          "name": "root_type",
+          "passed": true,
+          "code": "object_required",
+          "path": "$"
+        },
+        {
+          "name": "payload_bound",
+          "passed": true,
+          "code": "payload_too_large",
+          "path": "$.outer"
+        },
+        {
+          "name": "depth_bound",
+          "passed": true,
+          "code": "structure_too_large",
+          "path": "$.a.a.a.a.a.a.a.a.a.a.a.a.a"
+        },
+        {
+          "name": "node_bound",
+          "passed": true,
+          "code": "structure_too_large",
+          "path": "$.a[98][99]"
+        },
+        {
+          "name": "invalid_unicode",
+          "passed": true,
+          "code": "invalid_json_value",
+          "path": "$.a"
+        },
+        {
+          "name": "unicode_before_structural_error",
+          "passed": true,
+          "code": "array_too_large",
+          "path": "$.b"
+        },
+        {
+          "name": "huge_int_before_structural_error",
+          "passed": true,
+          "code": "array_too_large",
+          "path": "$.b"
+        },
+        {
+          "name": "unicode_before_size_error",
+          "passed": true,
+          "code": "payload_too_large",
+          "path": "$"
+        },
+        {
+          "name": "finite_values",
+          "passed": true
+        },
+        {
+          "name": "array_at_bound",
+          "passed": true
+        },
+        {
+          "name": "object_at_bound",
+          "passed": true
+        },
+        {
+          "name": "result_prefix",
+          "passed": true
+        }
+      ],
+      "returncode": 0,
+      "source_sha256": "a54d36abe7c3cc793e4c5ba0c60fab388648f00948d1b8fd1149dbd853cde2f0",
+      "schema_sha256": "4d54c825d34260a783ba3ff2f528a5c876c7513104394ebab0d9fba710fceaa4"
+    },
+    {
+      "passed": false,
+      "checks": [
+        {
+          "name": "nested_nonfinite",
+          "passed": true,
+          "code": "invalid_json_value",
+          "path": "$.evidence[0].score"
+        },
+        {
+          "name": "special_key",
+          "passed": true,
+          "code": "invalid_json_value",
+          "path": "$[\"a.b\"][0].x"
+        },
+        {
+          "name": "array_bound",
+          "passed": false,
+          "observed": "accepted"
+        },
+        {
+          "name": "object_bound",
+          "passed": false,
+          "observed": "accepted"
+        },
+        {
+          "name": "non_string_key",
+          "passed": true,
+          "code": "invalid_key",
+          "path": "$.outer"
+        },
+        {
+          "name": "oversized_key",
+          "passed": true,
+          "code": "invalid_key",
+          "path": "$.outer"
+        },
+        {
+          "name": "unsupported_value",
+          "passed": true,
+          "code": "invalid_json_value",
+          "path": "$.outer[0]"
+        },
+        {
+          "name": "duplicate_keys",
+          "passed": true,
+          "code": "duplicate_key",
+          "path": "$"
+        },
+        {
+          "name": "raw_nonfinite",
+          "passed": true,
+          "code": "non_finite",
+          "path": "$.a[0]"
+        },
+        {
+          "name": "trailing_json",
+          "passed": true,
+          "code": "invalid_json",
+          "path": "$"
+        },
+        {
+          "name": "root_type",
+          "passed": true,
+          "code": "object_required",
+          "path": "$"
+        },
+        {
+          "name": "payload_bound",
+          "passed": true,
+          "code": "payload_too_large",
+          "path": "$.outer"
+        },
+        {
+          "name": "depth_bound",
+          "passed": true,
+          "code": "structure_too_large",
+          "path": "$.a.a.a.a.a.a.a.a.a.a.a.a.a"
+        },
+        {
+          "name": "node_bound",
+          "passed": true,
+          "code": "structure_too_large",
+          "path": "$.a[98][99]"
+        },
+        {
+          "name": "invalid_unicode",
+          "passed": true,
+          "code": "invalid_json_value",
+          "path": "$.a"
+        },
+        {
+          "name": "unicode_before_structural_error",
+          "passed": false,
+          "code": "invalid_json_value",
+          "path": "$.a"
+        },
+        {
+          "name": "huge_int_before_structural_error",
+          "passed": false,
+          "code": "invalid_json_value",
+          "path": "$.a"
+        },
+        {
+          "name": "unicode_before_size_error",
+          "passed": true,
+          "code": "payload_too_large",
+          "path": "$"
+        },
+        {
+          "name": "finite_values",
+          "passed": true
+        },
+        {
+          "name": "array_at_bound",
+          "passed": true
+        },
+        {
+          "name": "object_at_bound",
+          "passed": true
+        },
+        {
+          "name": "result_prefix",
+          "passed": true
+        }
+      ],
+      "returncode": 1,
+      "source_sha256": "7c9c3e9af15b6ab23a9b35a12b0845a82b4f9948d613898f1d46b5210c81dd44",
+      "schema_sha256": "4d54c825d34260a783ba3ff2f528a5c876c7513104394ebab0d9fba710fceaa4"
+    },
+    {
+      "passed": false,
+      "checks": [
+        {
+          "name": "nested_nonfinite",
+          "passed": false,
+          "code": "invalid_json_value",
+          "path": "$"
+        },
+        {
+          "name": "special_key",
+          "passed": false,
+          "code": "invalid_json_value",
+          "path": "$"
+        },
+        {
+          "name": "array_bound",
+          "passed": false,
+          "code": "array_too_large",
+          "path": "$"
+        },
+        {
+          "name": "object_bound",
+          "passed": false,
+          "code": "object_too_large",
+          "path": "$"
+        },
+        {
+          "name": "non_string_key",
+          "passed": false,
+          "code": "invalid_key",
+          "path": "$"
+        },
+        {
+          "name": "oversized_key",
+          "passed": false,
+          "code": "invalid_key",
+          "path": "$"
+        },
+        {
+          "name": "unsupported_value",
+          "passed": false,
+          "code": "invalid_json_value",
+          "path": "$"
+        },
+        {
+          "name": "duplicate_keys",
+          "passed": true,
+          "code": "duplicate_key",
+          "path": "$"
+        },
+        {
+          "name": "raw_nonfinite",
+          "passed": true,
+          "code": "non_finite",
+          "path": "$"
+        },
+        {
+          "name": "trailing_json",
+          "passed": true,
+          "code": "invalid_json",
+          "path": "$"
+        },
+        {
+          "name": "root_type",
+          "passed": true,
+          "code": "object_required",
+          "path": "$"
+        },
+        {
+          "name": "payload_bound",
+          "passed": true,
+          "code": "payload_too_large",
+          "path": "$"
+        },
+        {
+          "name": "depth_bound",
+          "passed": true,
+          "code": "structure_too_large",
+          "path": "$"
+        },
+        {
+          "name": "node_bound",
+          "passed": true,
+          "code": "structure_too_large",
+          "path": "$"
+        },
+        {
+          "name": "invalid_unicode",
+          "passed": true,
+          "code": "invalid_json_value",
+          "path": "$"
+        },
+        {
+          "name": "unicode_before_structural_error",
+          "passed": true,
+          "code": "array_too_large",
+          "path": "$"
+        },
+        {
+          "name": "huge_int_before_structural_error",
+          "passed": true,
+          "code": "array_too_large",
+          "path": "$"
+        },
+        {
+          "name": "unicode_before_size_error",
+          "passed": true,
+          "code": "payload_too_large",
+          "path": "$"
+        },
+        {
+          "name": "finite_values",
+          "passed": true
+        },
+        {
+          "name": "array_at_bound",
+          "passed": true
+        },
+        {
+          "name": "object_at_bound",
+          "passed": true
+        },
+        {
+          "name": "result_prefix",
+          "passed": false
+        }
+      ],
+      "returncode": 1,
+      "source_sha256": "26e06b8a4b949b539ed70a0d79e522b9c68dc5322b66a11fb346525209441ece",
+      "schema_sha256": "4d54c825d34260a783ba3ff2f528a5c876c7513104394ebab0d9fba710fceaa4"
+    },
+    {
+      "passed": false,
+      "checks": [
+        {
+          "name": "nested_nonfinite",
+          "passed": true,
+          "code": "invalid_json_value",
+          "path": "$.evidence[0].score"
+        },
+        {
+          "name": "special_key",
+          "passed": true,
+          "code": "invalid_json_value",
+          "path": "$[\"a.b\"][0].x"
+        },
+        {
+          "name": "array_bound",
+          "passed": true,
+          "code": "array_too_large",
+          "path": "$.outer.items"
+        },
+        {
+          "name": "object_bound",
+          "passed": true,
+          "code": "object_too_large",
+          "path": "$.outer"
+        },
+        {
+          "name": "non_string_key",
+          "passed": true,
+          "code": "invalid_key",
+          "path": "$.outer"
+        },
+        {
+          "name": "oversized_key",
+          "passed": true,
+          "code": "invalid_key",
+          "path": "$.outer"
+        },
+        {
+          "name": "unsupported_value",
+          "passed": true,
+          "code": "invalid_json_value",
+          "path": "$.outer[0]"
+        },
+        {
+          "name": "duplicate_keys",
+          "passed": true,
+          "code": "duplicate_key",
+          "path": "$"
+        },
+        {
+          "name": "raw_nonfinite",
+          "passed": true,
+          "code": "non_finite",
+          "path": "$.a[0]"
+        },
+        {
+          "name": "trailing_json",
+          "passed": true,
+          "code": "invalid_json",
+          "path": "$"
+        },
+        {
+          "name": "root_type",
+          "passed": true,
+          "code": "object_required",
+          "path": "$"
+        },
+        {
+          "name": "payload_bound",
+          "passed": true,
+          "code": "payload_too_large",
+          "path": "$.outer"
+        },
+        {
+          "name": "depth_bound",
+          "passed": true,
+          "code": "structure_too_large",
+          "path": "$.a.a.a.a.a.a.a.a.a.a.a.a.a"
+        },
+        {
+          "name": "node_bound",
+          "passed": true,
+          "code": "structure_too_large",
+          "path": "$.a[98][99]"
+        },
+        {
+          "name": "invalid_unicode",
+          "passed": true,
+          "code": "invalid_json_value",
+          "path": "$.a"
+        },
+        {
+          "name": "unicode_before_structural_error",
+          "passed": false,
+          "code": "invalid_json_value",
+          "path": "$.a"
+        },
+        {
+          "name": "huge_int_before_structural_error",
+          "passed": false,
+          "code": "invalid_json_value",
+          "path": "$.a"
+        },
+        {
+          "name": "unicode_before_size_error",
+          "passed": false,
+          "code": "invalid_json_value",
+          "path": "$.a"
+        },
+        {
+          "name": "finite_values",
+          "passed": true
+        },
+        {
+          "name": "array_at_bound",
+          "passed": true
+        },
+        {
+          "name": "object_at_bound",
+          "passed": true
+        },
+        {
+          "name": "result_prefix",
+          "passed": true
+        }
+      ],
+      "returncode": 1,
+      "source_sha256": "02991471bc0bb5ca3e952f8c5ceac688b983f0dbab3ca1055f57f9d331f5e9bf",
+      "schema_sha256": "4d54c825d34260a783ba3ff2f528a5c876c7513104394ebab0d9fba710fceaa4"
+    }
+  ],
+  "base_failed_checks": [
+    "nested_nonfinite",
+    "special_key",
+    "array_bound",
+    "object_bound",
+    "non_string_key",
+    "oversized_key",
+    "unsupported_value",
+    "result_prefix"
+  ],
+  "initial_failed_checks": [
+    "unicode_before_structural_error",
+    "huge_int_before_structural_error",
+    "unicode_before_size_error"
+  ],
+  "all_passed": true,
+  "limits": [
+    "One delegated code task with a review-driven correction; deterministic replay, not four model samples.",
+    "Native host performed actual AI work; simulated credits count replay callbacks only.",
+    "Shared storage/hash helpers, validators, Git adapter and sequential host adoption glue.",
+    "Behavior subprocesses cached by exact source/schema bytes across arms; not a security sandbox.",
+    "Variant 2 changes registered validator revision/name, not its predicate semantics.",
+    "No provider inference timing, billing, productivity or general superiority measurement."
+  ]
+}

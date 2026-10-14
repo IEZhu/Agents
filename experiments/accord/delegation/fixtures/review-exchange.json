@@ -1,0 +1,175 @@
+{
+  "contract": {
+    "protocol": "agents-core/subagent/1",
+    "task_id": "51f4da3a-594e-4a7c-b4cf-03628fb25b67",
+    "attempt_id": "1",
+    "agent": "code_reviewer",
+    "bundle_revision": "a9a88f46cf8ef3c1aeea2ec5aca6ac327c544ce57f67c67a8372c4ebcce28ff9",
+    "contract_revision": "5b8a27b66d62fdbf10fe08f615a6ce156a8864d00f67f0100135a1919140951e",
+    "task": "Review the delegated production-code diagnostic fix and the new Accord IR-vs-SDK evaluation for real correctness and evidence defects. Files are being completed; read candidate production files under /private/tmp/accord-code-candidate first, then experiments/accord/delegation and SDK changes. Save final exact envelope to /private/tmp/accord-delegation-review-result.json.",
+    "context": [
+      "Worktree /Users/alexey.zhuchkov/.codex/worktrees/agent-language-concept/Agents HEAD8ab43301. Real patch in /private/tmp/accord-code-candidate/{src/engine/subagent_validation.py,tests/test_subagent_paths.py,docs/subagent-contract.md}; parent will validate and integrate later. Read original source via git show HEAD:path as needed.",
+      "Experiment sources experiments/accord/delegation/{protocol.md,sdk_ir.py,declarations.py,behavior_probe.py,workload.py,git_bundle.py,backends.py}, more runner/tests coming. Existing GitSink was reviewed/fixed in prior turn; new logical_target attribute permits BundleSink with same single-ref CAS/dedup implementation.",
+      "Four arms JSON/native Python x Accord Runtime/independent SDK. SDK now child-aware, no Contract/Runtime import. One actual native worker generates code; paired trials replay bytes. Current IR has no child result dataflow, so same host glue enforces adoption; no full live inference orchestration claim.",
+      "User also proposed compiling/transferring prompts as token IDs. Parent researches vLLM raw-ID input/HF chat templates and runs local tokenization-only probe with cached embedding tokenizers, explicitly not generation/prefill/quality/billing measurement.",
+      "Do not run a broad/heavy suite concurrently. Bounded isolated probes and source reads permitted. Parent will send ready notification when final runner/data available."
+    ],
+    "scope": [
+      "Read relevant worktree and candidate sources, local Git state and result files.",
+      "Run bounded temporary probes; write only /private/tmp/accord-delegation-review-result.json."
+    ],
+    "non_goals": [
+      "No repository edits, commits, remote actions, persona activation, further delegation or broad suite.",
+      "No demands for production sandbox or standalone compiler outside experimental scope."
+    ],
+    "acceptance_criteria": [
+      {
+        "id": "ac-1",
+        "description": "Check production change preserves parser errors, bounds, accepted values and safe unambiguous nested diagnostics; reproduce concrete defects if found."
+      },
+      {
+        "id": "ac-2",
+        "description": "Check four-arm fairness, independent SDK IR decoding, parent-child authority/budget parity, actual code behavior tests, shared Git bundle adapter and claim limits."
+      },
+      {
+        "id": "ac-3",
+        "description": "Identify whether practical IR interchange/inspection claims are supported and whether Python export/token-probe controls avoid attributing runtime or KV-cache benefits to syntax. Return actionable findings, not speculative demands."
+      }
+    ],
+    "result_type": "review",
+    "budgets": {
+      "max_skills": 3,
+      "max_implants": 0,
+      "max_context_chars": 16000
+    }
+  },
+  "result": {
+    "protocol": "agents-core/subagent/1",
+    "task_id": "51f4da3a-594e-4a7c-b4cf-03628fb25b67",
+    "attempt_id": "1",
+    "bundle_revision": "a9a88f46cf8ef3c1aeea2ec5aca6ac327c544ce57f67c67a8372c4ebcce28ff9",
+    "contract_revision": "5b8a27b66d62fdbf10fe08f615a6ce156a8864d00f67f0100135a1919140951e",
+    "status": "completed",
+    "result": {
+      "summary": "No remaining actionable findings in the reviewed final snapshot. Review reproduced three error-code precedence regressions in the initial production candidate; implementation attempt 2 corrected them and passed independent rechecks. The four-arm evidence supports bounded contract interchange and inspection with equal observed lifecycle guards, including ordinary Python export. The token probe supports local encoding and integrity-bound transport only; the final documentation preserves those limits and does not attribute inference, billing, productivity or KV-cache benefits to syntax.",
+      "findings": []
+    },
+    "evidence": [
+      {
+        "id": "production-recheck",
+        "reference": "exec_command:012fdd; /private/tmp/accord-code-candidate/src/engine/subagent_validation.py:102",
+        "description": "Independently reran all 56 focused candidate tests: 56 passed. Rechecked invalid Unicode before an oversized array, oversized integer before an oversized array, and invalid Unicode before canonical size failure against the frozen base; final error codes match. Final source SHA256 a54d36abe7c3cc793e4c5ba0c60fab388648f00948d1b8fd1149dbd853cde2f0."
+      },
+      {
+        "id": "initial-regression",
+        "reference": "exec_command:18c224; exec_command:2d7000; experiments/accord/delegation/fixtures/candidate-initial.json",
+        "description": "Initial candidate changed array_too_large to invalid_json_value for mixed-invalid inputs and payload_too_large to invalid_json_value when canonical size exceeded the cap. Reported to parent before correction. The preserved initial artifact and final comparison retain the three failures."
+      },
+      {
+        "id": "sdk-regressions",
+        "reference": "exec_command:f24bc7; experiments/accord/evaluation/python_sdk.py:88; experiments/accord/tests/test_sdk_delegation.py",
+        "description": "Independently executed 15 SDK delegation tests: all passed. Source review traced transactional allocation, subset/output guards, ancestor cancellation, replay and reconciliation. SDK lifecycle does not import Contract or Runtime classes."
+      },
+      {
+        "id": "interchange-controls",
+        "reference": "exec_command:0f63d0; experiments/accord/delegation/sdk_ir.py; experiments/accord/delegation/backends.py",
+        "description": "Independent probes confirmed equal normalized declarations for four arms in both variants, successful inspector subprocesses without Runtime or task-declaration imports, and rejection of unknown fields, Boolean budget, empty checks and child expansion. Reviewed native export equivalence and strict decoder source."
+      },
+      {
+        "id": "paired-evidence",
+        "reference": "exec_command:511306; experiments/accord/delegation/run.py; experiments/accord/delegation/results/comparison.json",
+        "description": "Reviewed all 48 result rows and 12 equivalent groups, runner admission/adoption logic and implementation hashes. Recorded source executions show final candidate 22/22, initial 19/22, base 14/22 and weakened-bounds mutation 18/22. Verified candidate fixture digest 7ba1bf1a4df210b479db6c2ff73cd432d9db26e7c02a8b61674eb8d96541a0fe and the implementation manifest present at inspection."
+      },
+      {
+        "id": "publication-bytes",
+        "reference": "exec_command:2ab5e2; experiments/accord/delegation/results/local-publication.json; experiments/accord/delegation/git_bundle.py",
+        "description": "Independently read published commit 0fd2b607dfd9516c94ad25bbfaf009143e98a1b8 and verified its exact three changed paths and every published file hash. BundleSink uses the shared single-ref CAS/dedup implementation; reviewed its multi-file tree construction."
+      },
+      {
+        "id": "token-recheck",
+        "reference": "exec_command:2f0e01; experiments/accord/delegation/token_probe.py; experiments/accord/delegation/results/token-transport.json",
+        "description": "Independently loaded both recorded tokenizer files and verified persisted packet decoding, re-encoding equality, source hash, token count, JSON/packet/compressed byte measurements and all seven rejection/roundtrip checks. Both reconstruct the 15456-byte prepared context with 3617 IDs. No model inference or packet writes occurred in this recheck."
+      },
+      {
+        "id": "claim-review",
+        "reference": "docs/accord-delegation-evaluation.md; docs/accord-prompt-artifacts.md; experiments/accord/delegation/protocol.md",
+        "description": "Reviewed final prose and protocol amendments. They disclose two implementation attempts, review-added checks, shared adapters/helpers, replay rather than independent model samples, unchanged variant-2 predicate semantics, explicit sequential adoption glue, embedding-tokenizer provenance and unmeasured inference effects."
+      },
+      {
+        "id": "provider-docs",
+        "reference": "[vLLM input API](https://docs.vllm.ai/en/stable/api/vllm/inputs/), [Transformers chat templates](https://huggingface.co/docs/transformers/main/en/chat_templating), [vLLM prefix caching](https://docs.vllm.ai/en/stable/features/automatic_prefix_caching/)",
+        "description": "Opened authoritative documentation during review and verified the cited token-ID input field, special-token duplication caveat, and distinction between prefix-prefill reuse and new-token decoding. These are documented capabilities, not executed engine measurements."
+      }
+    ],
+    "artifacts": [
+      {
+        "path": "/private/tmp/accord-delegation-review-result.json",
+        "purpose": "Exact final review envelope for parent structural validation."
+      }
+    ],
+    "checks": [
+      {
+        "name": "Final production diagnostic source review, three compatibility reproductions and 56 focused tests",
+        "status": "passed",
+        "evidence_ids": [
+          "production-recheck",
+          "initial-regression"
+        ]
+      },
+      {
+        "name": "Independent SDK delegation regression module: 15 tests",
+        "status": "passed",
+        "evidence_ids": [
+          "sdk-regressions"
+        ]
+      },
+      {
+        "name": "Four-arm declarations, independent inspection, Python export and final paired-evidence audit",
+        "status": "passed",
+        "evidence_ids": [
+          "interchange-controls",
+          "paired-evidence"
+        ]
+      },
+      {
+        "name": "Published three-file Git artifact byte verification",
+        "status": "passed",
+        "evidence_ids": [
+          "publication-bytes"
+        ]
+      },
+      {
+        "name": "Token packet reconstruction, transport measurements and seven integrity controls",
+        "status": "passed",
+        "evidence_ids": [
+          "token-recheck"
+        ]
+      },
+      {
+        "name": "Final claims and cited provider-capability documentation review",
+        "status": "passed",
+        "evidence_ids": [
+          "claim-review",
+          "provider-docs"
+        ]
+      },
+      {
+        "name": "Independent repetition of all 48 trials, the parent 200-case suite, and broader repository suite",
+        "status": "not_run",
+        "evidence_ids": []
+      }
+    ],
+    "limitations": [
+      "This review independently ran the 56 new production tests, 15 SDK tests, selected interchange probes and token controls; it audited the full paired-run evidence rather than rerunning all 48 trials or the parent 200-case suite.",
+      "The controlled experiment shares storage/hash helpers, validators, publication adapter and sequential adoption glue. It does not demonstrate a concurrent declarative child-result handoff or independently sampled model performance.",
+      "The two cached embedding-tokenizer files produce identical IDs for this prompt. Exact local reconstruction does not establish portability across unrelated tokenizers or any inference, billing, quality or KV-cache improvement.",
+      "The clean final review is bounded to the inspected sources and stated predicates; it is not proof of arbitrary candidate-code correctness or production sandboxing."
+    ],
+    "remaining_work": [],
+    "question": null
+  },
+  "parent_validation": {
+    "valid": true,
+    "verification": "structural_only"
+  }
+}

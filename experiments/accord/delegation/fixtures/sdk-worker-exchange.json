@@ -1,0 +1,169 @@
+{
+  "contract": {
+    "protocol": "agents-core/subagent/1",
+    "task_id": "b61e9a17-a9ec-4849-b917-273b8ad74dd6",
+    "attempt_id": "1",
+    "agent": "software_engineer",
+    "bundle_revision": "84ab398bb33ef814b44839c86162b0e0beff26e2fe94e1faf3753f388c7e7712",
+    "contract_revision": "cb6cd198c45ee7712a7a0640d14bfad33142566f068bc99ec8fc28dd7d6eb1db",
+    "task": "Extend the ordinary Python SDK baseline with parent/child delegation parity to Accord Runtime, without importing Contract or Runtime. Save full revised source to /private/tmp/accord-sdk-delegating.py, focused tests to /private/tmp/accord-sdk-delegation-tests.py, and exact result envelope to /private/tmp/accord-sdk-delegate-result.json.",
+    "context": [
+      "Worktree /Users/alexey.zhuchkov/.codex/worktrees/agent-language-concept/Agents. Baseline experiments/accord/evaluation/python_sdk.py, reference experiments/accord/runtime.py, tests/test_runtime.py. User requests harder real-code task with delegation and IR vs SDK comparison.",
+      "Current SDK has only single-task lifecycle. Parent will add a separate data-only plan loader lowering unmodified Accord Contract JSON to this SDK's JobSpec and compare native Python declarations. Do not implement that loader or plan validation.",
+      "Sharing Store and primitive hash/identifier helpers is intentional; copy no parent prompt. Reference access is permitted and will be disclosed, so no claim of blinded independent design."
+    ],
+    "scope": [
+      "Read relevant worktree files.",
+      "Write only /private/tmp/accord-sdk-delegating.py, /private/tmp/accord-sdk-delegation-tests.py and /private/tmp/accord-sdk-delegate-result.json.",
+      "Run bounded tests using temporary module import; no broad repository suite."
+    ],
+    "non_goals": [
+      "No repository edits, commit, push, installs, external messages, worker spawning or persona activation.",
+      "No compiler, scheduler or prompt serialization. Preserve existing single-task behavior."
+    ],
+    "acceptance_criteria": [
+      {
+        "id": "ac-1",
+        "description": "PythonSDK.create_task(spec, *, parent=None) atomically transfers request credits, enforces child input/target/output scope, checks parent freshness and preserves root behavior."
+      },
+      {
+        "id": "ac-2",
+        "description": "Cancelling an ancestor blocks fresh descendant work, while completed-output replay and already-admitted effect reconciliation remain possible as in existing semantics."
+      },
+      {
+        "id": "ac-3",
+        "description": "Run focused child budget race/scope/cancellation tests and existing baseline-relevant checks where practical; report exact results and limits. No Contract/Runtime dependency added."
+      }
+    ],
+    "result_type": "implementation",
+    "budgets": {
+      "max_skills": 3,
+      "max_implants": 0,
+      "max_context_chars": 16000
+    }
+  },
+  "result": {
+    "protocol": "agents-core/subagent/1",
+    "task_id": "b61e9a17-a9ec-4849-b917-273b8ad74dd6",
+    "attempt_id": "1",
+    "bundle_revision": "84ab398bb33ef814b44839c86162b0e0beff26e2fe94e1faf3753f388c7e7712",
+    "contract_revision": "cb6cd198c45ee7712a7a0640d14bfad33142566f068bc99ec8fc28dd7d6eb1db",
+    "status": "completed",
+    "result": {
+      "summary": "Extended the SDK with atomic scoped parent/child delegation and ancestor cancellation admission checks. Completed inference replay and admitted-effect reconciliation retain their existing behavior. The production source adds no Contract or Runtime dependency. All 15 focused delegation tests, 23 adapted lifecycle tests, and 9 existing evaluation tests pass.",
+      "changes": [
+        {
+          "path": "/private/tmp/accord-sdk-delegating.py",
+          "description": "Full revised SDK source. create_task(spec, *, parent=None) verifies parent freshness, restricts child inputs, publication targets and output size, and transfers request credits in the same transaction as child creation. Fresh admission traverses ancestor cancellation state; historical root records lacking a parent field remain compatible. Replay and reconciliation paths are unchanged."
+        },
+        {
+          "path": "/private/tmp/accord-sdk-delegation-tests.py",
+          "description": "Fifteen focused tests cover budget transfer and allocation/spending races, transactional rollback, scope restrictions, stale parent inputs and profile ABA, multilevel cancellation, replay, effect reconciliation, blocked retries, sibling independence, legacy roots, and dependency isolation. ACCORD_SDK_SOURCE selects an alternate SDK source for comparison."
+        }
+      ]
+    },
+    "evidence": [
+      {
+        "id": "source-delegation",
+        "reference": "/private/tmp/accord-sdk-delegating.py:88-135",
+        "description": "The implementation debits and inserts under one Store transaction and routes fresh operations through ancestor-aware _current_task. SHA256 ac98c838bd545e868e096fede286509be1c0edafb5f0033e37377613ba6c1f58."
+      },
+      {
+        "id": "focused-tests",
+        "reference": "/private/tmp/accord-sdk-delegation-tests.py",
+        "description": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. python3 /private/tmp/accord-sdk-delegation-tests.py completed with exit 0: Ran 15 tests in 0.106s, OK. Test source SHA256 5d1b3c31fbc9b21a7306a5dbe17ae910f6505b692c0cd2d06b55551324a10718."
+      },
+      {
+        "id": "red-run",
+        "reference": "Execution against experiments/accord/evaluation/python_sdk.py using ACCORD_SDK_SOURCE",
+        "description": "The initial focused suite ran 15 tests against the unchanged baseline and exited 1 with 17 errors, including subtests: create_task rejected the parent keyword. The dependency-import test passed."
+      },
+      {
+        "id": "lifecycle-regression",
+        "reference": "/Users/alexey.zhuchkov/.codex/worktrees/agent-language-concept/Agents/experiments/accord/tests/test_runtime.py:RuntimeTests",
+        "description": "An in-process test adapter translated existing Contract dataclass fixtures into JobSpec and substituted PythonSDK for Runtime. All 23 selected existing RuntimeTests passed in 0.185s. Four subprocess-dependent tests were excluded because those child processes import the original Runtime."
+      },
+      {
+        "id": "evaluation-regression",
+        "reference": "/Users/alexey.zhuchkov/.codex/worktrees/agent-language-concept/Agents/experiments/accord/tests/test_evaluation.py:EvaluationTests",
+        "description": "With the temporary source loaded as experiments.accord.evaluation.python_sdk, all 9 existing evaluation tests passed in 2.258s."
+      },
+      {
+        "id": "reference-semantics",
+        "reference": "/Users/alexey.zhuchkov/.codex/worktrees/agent-language-concept/Agents/experiments/accord/runtime.py:53-93; experiments/accord/store.py:19-30",
+        "description": "Reference Runtime enforces ancestor liveness, parent snapshot freshness, scope narrowing and request-credit transfer. Store uses BEGIN IMMEDIATE and rolls back on BaseException. These sources were read directly before implementation."
+      }
+    ],
+    "artifacts": [
+      {
+        "path": "/private/tmp/accord-sdk-delegating.py",
+        "purpose": "Full revised source ready for parent review and integration."
+      },
+      {
+        "path": "/private/tmp/accord-sdk-delegation-tests.py",
+        "purpose": "Runnable focused delegation regression suite using temporary module import."
+      },
+      {
+        "path": "/private/tmp/accord-sdk-delegate-result.json",
+        "purpose": "Exact worker result envelope for contract validation."
+      }
+    ],
+    "checks": [
+      {
+        "name": "Original baseline red run: parent delegation unsupported",
+        "status": "failed",
+        "evidence_ids": [
+          "red-run"
+        ]
+      },
+      {
+        "name": "Focused delegation regressions: 15 passed",
+        "status": "passed",
+        "evidence_ids": [
+          "focused-tests",
+          "source-delegation"
+        ]
+      },
+      {
+        "name": "Existing lifecycle regressions adapted to SDK: 23 passed",
+        "status": "passed",
+        "evidence_ids": [
+          "lifecycle-regression"
+        ]
+      },
+      {
+        "name": "Existing evaluation regressions: 9 passed",
+        "status": "passed",
+        "evidence_ids": [
+          "evaluation-regression"
+        ]
+      },
+      {
+        "name": "Revised SDK AST has no Contract or Runtime import",
+        "status": "passed",
+        "evidence_ids": [
+          "focused-tests"
+        ]
+      },
+      {
+        "name": "Four existing subprocess crash tests against the revised SDK",
+        "status": "not_run",
+        "evidence_ids": [
+          "lifecycle-regression"
+        ]
+      }
+    ],
+    "limitations": [
+      "Reference Runtime and tests were consulted; this is not a blinded independent design. Shared Store and primitive helpers remain intentional dependencies.",
+      "Four existing process-death tests were excluded from the adapted suite: test_process_death_after_model_leaves_charged_unreplayable_attempt, test_process_death_after_sink_commit_reconciles_without_duplicate, test_process_death_before_send_reuses_exact_operation, and test_uncertain_dispatch_with_new_guard_failure_stays_unknown. Focused tests exercise ancestor cancellation with lost replies and blocked retries in-process.",
+      "TokenSave reported that the worktree is not initialized; the worktree has no .codegraph directory. Inspection used direct source reads without initializing either index.",
+      "No repository files were edited. Integration and any broader validation belong to the parent task."
+    ],
+    "remaining_work": [],
+    "question": null
+  },
+  "parent_validation": {
+    "valid": true,
+    "verification": "structural_only"
+  }
+}

@@ -1,0 +1,141 @@
+{
+  "experiment": "local encoder and integrity-bound transport only",
+  "input_path": "/Users/alexey.zhuchkov/.codex/worktrees/agent-language-concept/Agents/experiments/accord/delegation/fixtures/worker-context.txt",
+  "input_sha256": "0925dcc38fbca96fec72653fdeb5cca6653a81e85fd39f7ab7af60fdf7f04b33",
+  "input_utf8_bytes": 15456,
+  "tokenizers_version": "0.22.2",
+  "profiles": [
+    {
+      "name": "harrier",
+      "tokenizer_path": "/Users/alexey.zhuchkov/.cache/fastembed/local/microsoft--harrier-oss-v1-270m/d59c919d0159aea2c19ed7d04288fcdd048d0f9c/tokenizer.json",
+      "profile": {
+        "name": "harrier",
+        "tokenizer_sha256": "ec95be298bea26f90370854faa650744c9fb0a04ca5e5ff95dd3913393ac5e45",
+        "tokenizers_version": "0.22.2",
+        "render_profile": "already-rendered-worker-context-utf8-v1-no-chat-template",
+        "add_special_tokens": false,
+        "padding": false,
+        "truncation": false,
+        "decode_skip_special_tokens": false
+      },
+      "tokenizer_file_bytes": 20323311,
+      "tokenizer_sha256": "ec95be298bea26f90370854faa650744c9fb0a04ca5e5ff95dd3913393ac5e45",
+      "input_sha256": "0925dcc38fbca96fec72653fdeb5cca6653a81e85fd39f7ab7af60fdf7f04b33",
+      "decoded_sha256": "0925dcc38fbca96fec72653fdeb5cca6653a81e85fd39f7ab7af60fdf7f04b33",
+      "encode_decode_exact_roundtrip": true,
+      "receiver_verified_roundtrip": true,
+      "serialized_packet_verified_roundtrip": true,
+      "effective_padding": null,
+      "effective_truncation": null,
+      "token_count": 3617,
+      "utf8_text_bytes": 15456,
+      "json_ids_bytes": 20811,
+      "uint32_le_ids_bytes": 14468,
+      "zlib_text_bytes_level_9": 6095,
+      "zlib_uint32_ids_bytes_level_9": 5622,
+      "packet_json_bytes": 21565,
+      "packet_artifact_bytes": 21566,
+      "packet_path": "/Users/alexey.zhuchkov/.codex/worktrees/agent-language-concept/Agents/experiments/accord/delegation/results/token-transport-harrier-packet.json",
+      "ids_sha256": "84039a5b2eb916af066baf8800f60af185bfde483cec8408d1e4a2df5c5518d3"
+    },
+    {
+      "name": "embeddinggemma",
+      "tokenizer_path": "/Users/alexey.zhuchkov/.cache/fastembed/local/google--embeddinggemma-300m/5090578d9565bb06545b4552f76e6bc2c93e4a66/tokenizer.json",
+      "profile": {
+        "name": "embeddinggemma",
+        "tokenizer_sha256": "4dda02faaf32bc91031dc8c88457ac272b00c1016cc679757d1c441b248b9c47",
+        "tokenizers_version": "0.22.2",
+        "render_profile": "already-rendered-worker-context-utf8-v1-no-chat-template",
+        "add_special_tokens": false,
+        "padding": false,
+        "truncation": false,
+        "decode_skip_special_tokens": false
+      },
+      "tokenizer_file_bytes": 20323312,
+      "tokenizer_sha256": "4dda02faaf32bc91031dc8c88457ac272b00c1016cc679757d1c441b248b9c47",
+      "input_sha256": "0925dcc38fbca96fec72653fdeb5cca6653a81e85fd39f7ab7af60fdf7f04b33",
+      "decoded_sha256": "0925dcc38fbca96fec72653fdeb5cca6653a81e85fd39f7ab7af60fdf7f04b33",
+      "encode_decode_exact_roundtrip": true,
+      "receiver_verified_roundtrip": true,
+      "serialized_packet_verified_roundtrip": true,
+      "effective_padding": null,
+      "effective_truncation": null,
+      "token_count": 3617,
+      "utf8_text_bytes": 15456,
+      "json_ids_bytes": 20811,
+      "uint32_le_ids_bytes": 14468,
+      "zlib_text_bytes_level_9": 6095,
+      "zlib_uint32_ids_bytes_level_9": 5622,
+      "packet_json_bytes": 21572,
+      "packet_artifact_bytes": 21573,
+      "packet_path": "/Users/alexey.zhuchkov/.codex/worktrees/agent-language-concept/Agents/experiments/accord/delegation/results/token-transport-embeddinggemma-packet.json",
+      "ids_sha256": "84039a5b2eb916af066baf8800f60af185bfde483cec8408d1e4a2df5c5518d3"
+    }
+  ],
+  "checks": [
+    {
+      "name": "valid packet roundtrip",
+      "status": "passed"
+    },
+    {
+      "name": "wrong tokenizer profile rejected before decode",
+      "status": "passed",
+      "error": "tokenizer/render profile mismatch",
+      "decode_called": false
+    },
+    {
+      "name": "wrong render profile rejected before decode",
+      "status": "passed",
+      "error": "tokenizer/render profile mismatch",
+      "decode_called": false
+    },
+    {
+      "name": "tampered IDs rejected before decode",
+      "status": "passed",
+      "error": "IDs integrity mismatch",
+      "decode_called": false
+    },
+    {
+      "name": "negative ID rejected before decode",
+      "status": "passed",
+      "error": "IDs must be unsigned 32-bit integers",
+      "decode_called": false
+    },
+    {
+      "name": "unexpected input rejected before decode",
+      "status": "passed",
+      "error": "input hash mismatch",
+      "decode_called": false
+    },
+    {
+      "name": "rehashed wrong text rejected before return",
+      "status": "passed",
+      "error": "decoded input differs from expected source",
+      "decode_called": true
+    }
+  ],
+  "comparison": {
+    "first_two_id_sequences_equal": true,
+    "first_two_tokenizer_differing_top_level_fields": [
+      "added_tokens"
+    ]
+  },
+  "limits": {
+    "input_bytes": 1000000,
+    "tokenizer_bytes": 50000000,
+    "token_ids": 1000000
+  },
+  "limitations": [
+    "Cached model directories are embedding models; this probe loads only tokenizer JSON, with no model inference.",
+    "Two tokenizer files may produce identical IDs on this input; this is not evidence for portability across unrelated tokenizers.",
+    "Input is already-rendered worker-context text, not a chat template or engine request; no system/role/tool framing was measured.",
+    "No native token-ID messaging was attempted. The agent tool accepts text, so these packets are only local artifacts.",
+    "Hashes bind integrity to separately supplied expected profile and source values; they do not authenticate a sender.",
+    "Token IDs are an encoding of text, not compiled prompt semantics, inference state, or a KV cache.",
+    "Byte lengths are local serialization measurements. No billing, inference latency, quality, or KV-cache-saving claim is made."
+  ],
+  "packet_artifacts": [
+    "/Users/alexey.zhuchkov/.codex/worktrees/agent-language-concept/Agents/experiments/accord/delegation/results/token-transport-harrier-packet.json",
+    "/Users/alexey.zhuchkov/.codex/worktrees/agent-language-concept/Agents/experiments/accord/delegation/results/token-transport-embeddinggemma-packet.json"
+  ]
+}

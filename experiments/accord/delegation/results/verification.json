@@ -1,0 +1,38 @@
+{
+  "checks": [
+    {
+      "name": "four-arm replay",
+      "command": "python -m experiments.accord.delegation.run --output experiments/accord/delegation/results",
+      "exit_code": 0,
+      "runs": 48,
+      "equivalent_groups": 12
+    },
+    {
+      "name": "experimental suite",
+      "command": "python3 -m unittest discover -s experiments/accord/tests -q",
+      "exit_code": 0,
+      "passed": 60
+    },
+    {
+      "name": "integrated repository suite",
+      "command": "LANGFUSE_TRACING_ENABLED=false PYTHONDONTWRITEBYTECODE=1 /Users/alexey.zhuchkov/Documents/Agents/.venv/bin/python -m pytest tests/test_subagent.py tests/test_subagent_mcp.py tests/test_subagent_paths.py -q -p no:cacheprovider",
+      "exit_code": 0,
+      "passed": 200
+    },
+    {
+      "name": "token transport probe",
+      "command": "python -m experiments.accord.delegation.token_probe",
+      "exit_code": 0,
+      "passed": 7
+    },
+    {
+      "name": "implementation/publication hashes and new-document links",
+      "passed": true
+    }
+  ],
+  "not_run": [
+    "Full repository suite",
+    "Provider inference or token-ID agent messaging",
+    "Chat-model cold/warm KV-cache benchmark"
+  ]
+}

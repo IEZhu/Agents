@@ -1,0 +1,342 @@
+{
+  "base": {
+    "passed": false,
+    "checks": [
+      {
+        "name": "nested_nonfinite",
+        "passed": false,
+        "code": "invalid_json_value",
+        "path": "$"
+      },
+      {
+        "name": "special_key",
+        "passed": false,
+        "code": "invalid_json_value",
+        "path": "$"
+      },
+      {
+        "name": "array_bound",
+        "passed": false,
+        "code": "array_too_large",
+        "path": "$"
+      },
+      {
+        "name": "object_bound",
+        "passed": false,
+        "code": "object_too_large",
+        "path": "$"
+      },
+      {
+        "name": "non_string_key",
+        "passed": false,
+        "code": "invalid_key",
+        "path": "$"
+      },
+      {
+        "name": "oversized_key",
+        "passed": false,
+        "code": "invalid_key",
+        "path": "$"
+      },
+      {
+        "name": "unsupported_value",
+        "passed": false,
+        "code": "invalid_json_value",
+        "path": "$"
+      },
+      {
+        "name": "duplicate_keys",
+        "passed": true,
+        "code": "duplicate_key",
+        "path": "$"
+      },
+      {
+        "name": "raw_nonfinite",
+        "passed": true,
+        "code": "non_finite",
+        "path": "$"
+      },
+      {
+        "name": "trailing_json",
+        "passed": true,
+        "code": "invalid_json",
+        "path": "$"
+      },
+      {
+        "name": "root_type",
+        "passed": true,
+        "code": "object_required",
+        "path": "$"
+      },
+      {
+        "name": "payload_bound",
+        "passed": true,
+        "code": "payload_too_large",
+        "path": "$"
+      },
+      {
+        "name": "depth_bound",
+        "passed": true,
+        "code": "structure_too_large",
+        "path": "$"
+      },
+      {
+        "name": "node_bound",
+        "passed": true,
+        "code": "structure_too_large",
+        "path": "$"
+      },
+      {
+        "name": "invalid_unicode",
+        "passed": true,
+        "code": "invalid_json_value",
+        "path": "$"
+      },
+      {
+        "name": "finite_values",
+        "passed": true
+      },
+      {
+        "name": "array_at_bound",
+        "passed": true
+      },
+      {
+        "name": "object_at_bound",
+        "passed": true
+      },
+      {
+        "name": "result_prefix",
+        "passed": false
+      }
+    ],
+    "returncode": 1,
+    "source_sha256": "26e06b8a4b949b539ed70a0d79e522b9c68dc5322b66a11fb346525209441ece",
+    "schema_sha256": "4d54c825d34260a783ba3ff2f528a5c876c7513104394ebab0d9fba710fceaa4"
+  },
+  "candidate": {
+    "passed": true,
+    "checks": [
+      {
+        "name": "nested_nonfinite",
+        "passed": true,
+        "code": "invalid_json_value",
+        "path": "$.evidence[0].score"
+      },
+      {
+        "name": "special_key",
+        "passed": true,
+        "code": "invalid_json_value",
+        "path": "$[\"a.b\"][0].x"
+      },
+      {
+        "name": "array_bound",
+        "passed": true,
+        "code": "array_too_large",
+        "path": "$.outer.items"
+      },
+      {
+        "name": "object_bound",
+        "passed": true,
+        "code": "object_too_large",
+        "path": "$.outer"
+      },
+      {
+        "name": "non_string_key",
+        "passed": true,
+        "code": "invalid_key",
+        "path": "$.outer"
+      },
+      {
+        "name": "oversized_key",
+        "passed": true,
+        "code": "invalid_key",
+        "path": "$.outer"
+      },
+      {
+        "name": "unsupported_value",
+        "passed": true,
+        "code": "invalid_json_value",
+        "path": "$.outer[0]"
+      },
+      {
+        "name": "duplicate_keys",
+        "passed": true,
+        "code": "duplicate_key",
+        "path": "$"
+      },
+      {
+        "name": "raw_nonfinite",
+        "passed": true,
+        "code": "non_finite",
+        "path": "$.a[0]"
+      },
+      {
+        "name": "trailing_json",
+        "passed": true,
+        "code": "invalid_json",
+        "path": "$"
+      },
+      {
+        "name": "root_type",
+        "passed": true,
+        "code": "object_required",
+        "path": "$"
+      },
+      {
+        "name": "payload_bound",
+        "passed": true,
+        "code": "payload_too_large",
+        "path": "$.outer"
+      },
+      {
+        "name": "depth_bound",
+        "passed": true,
+        "code": "structure_too_large",
+        "path": "$.a.a.a.a.a.a.a.a.a.a.a.a.a"
+      },
+      {
+        "name": "node_bound",
+        "passed": true,
+        "code": "structure_too_large",
+        "path": "$.a[98][99]"
+      },
+      {
+        "name": "invalid_unicode",
+        "passed": true,
+        "code": "invalid_json_value",
+        "path": "$.a"
+      },
+      {
+        "name": "finite_values",
+        "passed": true
+      },
+      {
+        "name": "array_at_bound",
+        "passed": true
+      },
+      {
+        "name": "object_at_bound",
+        "passed": true
+      },
+      {
+        "name": "result_prefix",
+        "passed": true
+      }
+    ],
+    "returncode": 0,
+    "source_sha256": "02991471bc0bb5ca3e952f8c5ceac688b983f0dbab3ca1055f57f9d331f5e9bf",
+    "schema_sha256": "4d54c825d34260a783ba3ff2f528a5c876c7513104394ebab0d9fba710fceaa4"
+  },
+  "weakened_bounds_mutant": {
+    "passed": false,
+    "checks": [
+      {
+        "name": "nested_nonfinite",
+        "passed": true,
+        "code": "invalid_json_value",
+        "path": "$.evidence[0].score"
+      },
+      {
+        "name": "special_key",
+        "passed": true,
+        "code": "invalid_json_value",
+        "path": "$[\"a.b\"][0].x"
+      },
+      {
+        "name": "array_bound",
+        "passed": false,
+        "observed": "accepted"
+      },
+      {
+        "name": "object_bound",
+        "passed": false,
+        "observed": "accepted"
+      },
+      {
+        "name": "non_string_key",
+        "passed": true,
+        "code": "invalid_key",
+        "path": "$.outer"
+      },
+      {
+        "name": "oversized_key",
+        "passed": true,
+        "code": "invalid_key",
+        "path": "$.outer"
+      },
+      {
+        "name": "unsupported_value",
+        "passed": true,
+        "code": "invalid_json_value",
+        "path": "$.outer[0]"
+      },
+      {
+        "name": "duplicate_keys",
+        "passed": true,
+        "code": "duplicate_key",
+        "path": "$"
+      },
+      {
+        "name": "raw_nonfinite",
+        "passed": true,
+        "code": "non_finite",
+        "path": "$.a[0]"
+      },
+      {
+        "name": "trailing_json",
+        "passed": true,
+        "code": "invalid_json",
+        "path": "$"
+      },
+      {
+        "name": "root_type",
+        "passed": true,
+        "code": "object_required",
+        "path": "$"
+      },
+      {
+        "name": "payload_bound",
+        "passed": true,
+        "code": "payload_too_large",
+        "path": "$.outer"
+      },
+      {
+        "name": "depth_bound",
+        "passed": true,
+        "code": "structure_too_large",
+        "path": "$.a.a.a.a.a.a.a.a.a.a.a.a.a"
+      },
+      {
+        "name": "node_bound",
+        "passed": true,
+        "code": "structure_too_large",
+        "path": "$.a[98][99]"
+      },
+      {
+        "name": "invalid_unicode",
+        "passed": true,
+        "code": "invalid_json_value",
+        "path": "$.a"
+      },
+      {
+        "name": "finite_values",
+        "passed": true
+      },
+      {
+        "name": "array_at_bound",
+        "passed": true
+      },
+      {
+        "name": "object_at_bound",
+        "passed": true
+      },
+      {
+        "name": "result_prefix",
+        "passed": true
+      }
+    ],
+    "returncode": 1,
+    "source_sha256": "040a5af1a09c5c125552422d770343c03aa3e2821835d84e55b034a1a9a0523a",
+    "schema_sha256": "4d54c825d34260a783ba3ff2f528a5c876c7513104394ebab0d9fba710fceaa4"
+  }
+}

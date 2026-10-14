@@ -1,0 +1,170 @@
+{
+  "contract": {
+    "protocol": "agents-core/subagent/1",
+    "task_id": "746b45aa-eeea-4db5-ae1c-2f60e8e259c7",
+    "attempt_id": "1",
+    "agent": "software_engineer",
+    "bundle_revision": "272f1486e6e8efd065fbb59c5deea769f579b10d01888d6a6d157ccb422ea008",
+    "contract_revision": "3c3e986b626eba7ba2d583d894730e2799e0301feb04643ef3d4f2ee94896ed8",
+    "task": "Implement and run a bounded prompt token-ID transport probe using local cached tokenizers; evaluate user's idea without claiming model generation or KV cache savings.",
+    "context": [
+      "Worktree /Users/alexey.zhuchkov/.codex/worktrees/agent-language-concept/Agents; existing delegation experiment underway. Venv Python /Users/alexey.zhuchkov/Documents/Agents/.venv/bin/python has tokenizers; tiktoken/transformers absent.",
+      "Read only cached tokenizers: /Users/alexey.zhuchkov/.cache/fastembed/local/microsoft--harrier-oss-v1-270m/d59c919d0159aea2c19ed7d04288fcdd048d0f9c/tokenizer.json and /Users/alexey.zhuchkov/.cache/fastembed/local/google--embeddinggemma-300m/5090578d9565bb06545b4552f76e6bc2c93e4a66/tokenizer.json.",
+      "Native agent tool accepts text message, not token IDs. Packet profile should bind tokenizer SHA and render profile; input is already-rendered plain worker_context (not chat template). Hashes provide integrity binding, not authentication. Passing IDs cannot imply prompt semantics compilation."
+    ],
+    "scope": [
+      "Read exact prepared context and two cached tokenizers; write probe/results/test artifacts in /private/tmp; run tiny local probes."
+    ],
+    "non_goals": [
+      "No repository edits, no network/install, no model inference, no real agent token-ID messaging, no delegation, no broad tests."
+    ],
+    "acceptance_criteria": [
+      {
+        "id": "ac-1",
+        "description": "Produce a self-contained Python CLI /private/tmp/accord-token-probe.py using installed tokenizers, and JSON results /private/tmp/accord-token-probe-results.json on the exact text /private/tmp/accord-code-worker-context.txt."
+      },
+      {
+        "id": "ac-2",
+        "description": "Record tokenizer SHA256, input SHA256, encode/decode exact roundtrip, token count, UTF8/JSON IDs/uint32 bytes and zlib text bytes; use add_special_tokens=False and disable padding/truncation. Compare at least two local tokenizer profiles, reject wrong-profile artifact and tampered IDs before use."
+      },
+      {
+        "id": "ac-3",
+        "description": "Separate encoder transport experiment from chat model execution: cached models are embeddings, no engine inference, no billing/latency/quality claim. Include small focused tests of integrity and profile mismatch and report actual results."
+      },
+      {
+        "id": "ac-4",
+        "description": "Save exact required worker JSON to /private/tmp/accord-token-worker-result.json. No production writes."
+      }
+    ],
+    "result_type": "implementation",
+    "budgets": {
+      "max_skills": 3,
+      "max_implants": 0,
+      "max_context_chars": 16000
+    }
+  },
+  "result": {
+    "protocol": "agents-core/subagent/1",
+    "task_id": "746b45aa-eeea-4db5-ae1c-2f60e8e259c7",
+    "attempt_id": "1",
+    "bundle_revision": "272f1486e6e8efd065fbb59c5deea769f579b10d01888d6a6d157ccb422ea008",
+    "contract_revision": "3c3e986b626eba7ba2d583d894730e2799e0301feb04643ef3d4f2ee94896ed8",
+    "status": "completed",
+    "result": {
+      "summary": "Implemented and ran a bounded local tokenizer transport probe with tokenizers 0.22.2. Both cached profiles encode the exact 15,456-byte worker context to 3,617 IDs and decode it byte-for-byte, including after serialized packet reload. Compact JSON IDs occupy 20,811 bytes; uint32 little-endian IDs occupy 14,468 bytes; zlib level 9 text occupies 6,095 bytes; zlib level 9 uint32 IDs occupy 5,622 bytes. Profile-bound JSON packets occupy 21,565 and 21,572 bytes excluding their terminal newline. Seven focused checks passed. This is an encoder/transport experiment with no model inference or agent token-ID messaging.",
+      "changes": [
+        {
+          "path": "/private/tmp/accord-token-probe.py",
+          "description": "Self-contained Python CLI using the installed tokenizers package, bounded input/tokenizer reads, add_special_tokens=False, disabled padding/truncation, exact UTF-8 handling, tokenizer/render profile binding, integrity validation, serialization metrics, and seven focused checks. Supports --input, --output and repeated --profile NAME=TOKENIZER_JSON overrides."
+        },
+        {
+          "path": "/private/tmp/accord-token-probe-results.json",
+          "description": "Actual measurements, SHA256 values, exact roundtrip results, check outcomes, comparison and limitations from both local tokenizer profiles."
+        },
+        {
+          "path": "/private/tmp/accord-token-probe-results-harrier-packet.json",
+          "description": "Serialized Harrier-profile token-ID packet, reloaded and verified against the separately supplied profile and source digest."
+        },
+        {
+          "path": "/private/tmp/accord-token-probe-results-embeddinggemma-packet.json",
+          "description": "Serialized EmbeddingGemma-profile token-ID packet, reloaded and verified against the separately supplied profile and source digest."
+        }
+      ]
+    },
+    "evidence": [
+      {
+        "id": "E1",
+        "reference": "/private/tmp/accord-token-probe-results.json#input_sha256",
+        "description": "Exact source /private/tmp/accord-code-worker-context.txt: 15,456 UTF-8 bytes; SHA256 0925dcc38fbca96fec72653fdeb5cca6653a81e85fd39f7ab7af60fdf7f04b33."
+      },
+      {
+        "id": "E2",
+        "reference": "/private/tmp/accord-token-probe-results.json#profiles",
+        "description": "Harrier tokenizer SHA256 ec95be298bea26f90370854faa650744c9fb0a04ca5e5ff95dd3913393ac5e45; EmbeddingGemma tokenizer SHA256 4dda02faaf32bc91031dc8c88457ac272b00c1016cc679757d1c441b248b9c47. Both profiles report exact encode/decode and persisted-packet roundtrip with 3,617 IDs."
+      },
+      {
+        "id": "E3",
+        "reference": "/private/tmp/accord-token-probe-results.json#checks",
+        "description": "Final CLI run exited 0. Seven checks passed: valid roundtrip; wrong tokenizer profile; wrong render profile; tampered IDs; negative ID; unexpected input; and rehashed wrong text. Wrong profiles, tampered IDs, invalid ID and unexpected source were rejected before decode. Rehashed wrong text was rejected after decoding but before return."
+      },
+      {
+        "id": "E4",
+        "reference": "/private/tmp/accord-token-probe-results.json#comparison",
+        "description": "The two tokenizer JSON files differ in added_tokens, but their ID sequences for this exact input are equal. This limits conclusions about tokenizer diversity."
+      },
+      {
+        "id": "E5",
+        "reference": "/private/tmp/accord-token-probe.py",
+        "description": "Executed with /Users/alexey.zhuchkov/Documents/Agents/.venv/bin/python /private/tmp/accord-token-probe.py. Reads only tokenizer JSON and the supplied input; writes only /private/tmp artifacts; loads no model weights and invokes no inference engine or network API."
+      }
+    ],
+    "artifacts": [
+      {
+        "path": "/private/tmp/accord-token-probe.py",
+        "purpose": "Runnable local probe and focused integrity/profile tests."
+      },
+      {
+        "path": "/private/tmp/accord-token-probe-results.json",
+        "purpose": "Measurements, hashes, exact roundtrip results and seven actual check outcomes."
+      },
+      {
+        "path": "/private/tmp/accord-token-probe-results-harrier-packet.json",
+        "purpose": "Harrier-profile serialized transport artifact."
+      },
+      {
+        "path": "/private/tmp/accord-token-probe-results-embeddinggemma-packet.json",
+        "purpose": "EmbeddingGemma-profile serialized transport artifact."
+      },
+      {
+        "path": "/private/tmp/accord-token-worker-result.json",
+        "purpose": "Exact worker result envelope for parent validation."
+      }
+    ],
+    "checks": [
+      {
+        "name": "Exact source hashes, serialization measurements and byte-for-byte roundtrip for two tokenizer profiles",
+        "status": "passed",
+        "evidence_ids": [
+          "E1",
+          "E2"
+        ]
+      },
+      {
+        "name": "Seven focused transport integrity, profile mismatch and source binding checks",
+        "status": "passed",
+        "evidence_ids": [
+          "E3",
+          "E5"
+        ]
+      },
+      {
+        "name": "Compare actual tokenizer artifacts and ID sequences",
+        "status": "passed",
+        "evidence_ids": [
+          "E4"
+        ]
+      },
+      {
+        "name": "Model inference, native agent token-ID messaging, billing, inference latency or quality measurement",
+        "status": "not_run",
+        "evidence_ids": [
+          "E5"
+        ]
+      }
+    ],
+    "limitations": [
+      "Both cached directories belong to embedding models. Only tokenizer JSON was loaded; these results do not test a chat model or its API.",
+      "Distinct tokenizer hashes produced identical IDs for this input; the experiment does not establish portability across unrelated tokenizers.",
+      "The input is already-rendered worker-context text, with no chat template, role framing, tools or engine request. Native agent tools accept text; no token-ID messages were sent.",
+      "Hashes provide integrity binding to separately supplied expected values, not sender authentication. A party able to replace both an artifact and its trusted expectations can forge the hashes.",
+      "Token IDs preserve an encoding of the prompt text; they do not compile its semantics or represent inference/KV-cache state. No billing, inference latency, quality or KV-cache-saving claim follows from these byte measurements.",
+      "All created files are temporary experimental artifacts under /private/tmp; no production or repository files were changed."
+    ],
+    "remaining_work": [],
+    "question": null
+  },
+  "parent_validation": {
+    "valid": true,
+    "verification": "structural_only"
+  }
+}
