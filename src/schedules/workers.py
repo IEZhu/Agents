@@ -1063,9 +1063,13 @@ class WorkerService:
         if task.status == ACCEPTED:
             shown = task.findings[:MAX_FINDINGS_SHOWN]
             found["summary"] = clip(task.summary, LIMITS["summary"])
+            # The runner's security mark, so the session can apply the rules that depend on it: the
+            # gate's signal for a review finding, the pre-mortem risk's mark (kept local, design 5.8).
+            mark = security_signal if task.kind == PREMORTEM else gate_security_signal
             found["findings"] = [{"key": item["key"], "severity": item["severity"],
                                   **{name: clip(item[name], LIMITS[name]) for name in
                                      ("location", "explanation", "recommendation")},
+                                  "security": mark(item),
                                   "decision": (self.decisions.get(item["key"]) or {}).get("decision")}
                                  for item in shown]
             found["findings_not_shown"] = len(task.findings) - len(shown)
@@ -1075,7 +1079,8 @@ class WorkerService:
                 found["blocking"] = len(task.findings)
             if task.kind != PREMORTEM:
                 # Every finding of any review that keeps the push gate closed now (the ledger).
-                found["open_findings"] = [{name: item[name] for name in ("key", "severity", "reported_by", "decision")}
+                found["open_findings"] = [{name: item[name] for name in ("key", "severity", "security", "reported_by",
+                                                                         "decision")}
                                           for item in self._open_findings()[:MAX_FINDINGS_SHOWN]]
         return found
 
