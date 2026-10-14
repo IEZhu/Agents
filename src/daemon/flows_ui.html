@@ -4400,7 +4400,7 @@ const AUTODEV_LIMITS = [["max_reviews", "Reviews per change, at most"], ["max_bo
   ["max_wait_minutes", "Minutes per bot wait, at most"]];
 const CLIENT_NAMES = { claude: "Claude", codex: "Codex" };
 // `fields` holds the form's controls by name; `dirty`: typed and not saved, so a read keeps the form.
-const autodev = { shown: false, data: null, gen: 0, busy: false, dirty: false, fields: {}, status: null };
+const autodev = { shown: false, data: null, gen: 0, edits: 0, busy: false, dirty: false, fields: {}, status: null };
 
 function autodevAlert(text, kind = "", items = []) {
   const box = $("autodev-alert");
@@ -4445,6 +4445,7 @@ $("autodev-chip").addEventListener("click", () => (autodev.shown ? hideAutodevPa
 // only the status is new, and the revision stays the one the form was read at, so a save after a
 // change elsewhere is refused.
 async function loadAutodev() {
+  if (autodev.busy) return;  // a pending write owns the next settings and revision
   const gen = ++autodev.gen;
   let data;
   try {
@@ -4463,7 +4464,7 @@ async function loadAutodev() {
   }
 }
 
-function markAutodevDirty() { autodev.dirty = true; }
+function markAutodevDirty() { autodev.dirty = true; autodev.edits += 1; }
 
 function autodevButton(parent, label, handler, className, id) {
   const button = node("button", parent, label, className);
@@ -4622,7 +4623,7 @@ function renderAutodev(settings) {
   autodevButton(actions, "Save", saveAutodev, "primary", "ad-save");
   autodevButton(actions, "Defaults", () => {
     renderAutodev(autodev.data.defaults);
-    autodev.dirty = true;
+    markAutodevDirty();
     autodevAlert("The defaults are in the form; Save writes them.");
   }, "", "ad-defaults");
   autodevButton(actions, "Reload", () => {
@@ -4737,15 +4738,20 @@ function collectAutodev() {
 async function saveAutodev() {
   autodev.busy = true;
   autodev.gen += 1;  // a read sent before the save would show the settings it replaced
+  const edits = autodev.edits;
   autodevAlert("Saving…");
   try {
     const data = await api("/ui/api/autodev", { method: "PUT",
       body: { expected_revision: autodev.data.revision, settings: collectAutodev() } });
-    autodev.dirty = false;
+    autodev.dirty = edits !== autodev.edits;
     autodev.data = data;
-    renderAutodev();
+    // The response saved the submitted snapshot. Keep anything typed later, with its new revision.
+    if (autodev.dirty) renderAutodevStatus();
+    else renderAutodev();
     const warnings = data.warnings || [];
-    autodevAlert(warnings.length ? "Saved, with warnings:" : "Saved.", warnings.length ? "" : "ok", warnings);
+    const message = autodev.dirty ? "Saved; later edits are not saved." + (warnings.length ? " Warnings:" : "")
+      : warnings.length ? "Saved, with warnings:" : "Saved.";
+    autodevAlert(message, warnings.length || autodev.dirty ? "" : "ok", warnings);
   } catch (error) {
     if (error.signedOut) return;
     const problems = (error.data && error.data.problems) || [];
