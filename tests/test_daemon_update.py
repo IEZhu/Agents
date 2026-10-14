@@ -692,6 +692,26 @@ def _upstream(root, branch):
     return (git(root, "config", f"branch.{branch}.remote"), git(root, "config", f"branch.{branch}.merge"))
 
 
+def test_a_switch_whose_activation_failed_reports_no_branch_change(installation, monkeypatch):
+    """CodeRabbit on #394: the result named a switch that a failed activation had undone."""
+    from src import update_channel
+    controller, root, old, target = installation
+    _channel(root)
+    update_channel.set_branch(root, "dev")
+    run_git = self_update._run_git
+
+    def refuse_checkout(args, cwd, timeout):
+        if args[0] == "checkout" and "-B" in args:
+            return subprocess.CompletedProcess(args, 1, "", "checkout refused")
+        return run_git(args, cwd, timeout)
+    monkeypatch.setattr(self_update, "_run_git", refuse_checkout)
+
+    result = offline_update(controller)
+    assert result["state"] == "ACTIVATE_MERGE_FAILED"
+    assert "branch" not in result and "branch_from" not in result
+    assert git(root, "symbolic-ref", "--short", "HEAD") == "main" and git(root, "rev-parse", "HEAD") == old
+
+
 def test_channel_set_dev_switches_the_next_update_to_dev(installation):
     from src import update_channel
     controller, root, old, target = installation

@@ -471,7 +471,8 @@ def _offline_update(controller, expected_target, precheck, notes):
             phase(controller, journal, "committed")
             cleanup(controller)
             done = {"state": result, "health": ready}
-            if journal.get("old_branch"):
+            if journal.get("old_branch") and result == self_update.UpdateStatus.UPDATED:
+                # Only a switch that activated; a refused activation restored the old branch.
                 done.update(branch=journal["branch"], branch_from=journal["old_branch"])
             if switched:
                 done.update(model=switched["model"], model_from=journal["model_from"])
