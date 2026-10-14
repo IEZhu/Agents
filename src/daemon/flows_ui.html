@@ -342,6 +342,10 @@ details.persona summary { cursor: pointer; }
 .diagram .arrow { margin-left: 14px; line-height: 1; color: var(--muted); }
 .event-line { min-height: 1.45em; font-size: 13px; }
 .landing-off { display: flex; align-items: center; gap: 6px; }
+/* The Updates section (#381): the branch choice and its Save button on one row while they fit. */
+.update-choice { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; margin: 0; padding: 0; border: 0; }
+.update-choice legend { float: left; margin-right: 4px; padding: 0; color: var(--muted); }
+.update-choice label { display: flex; align-items: center; gap: 6px; }
 @media (prefers-reduced-motion: reduce) { .diagram .step { transition: none; } }
 @media (max-width: 760px) { #landing-grid, .tops { grid-template-columns: minmax(0, 1fr); } }
 dialog { border: 1px solid var(--line); border-radius: var(--r-dialog); background: var(--panel); color: var(--text); padding: 16px; width: min(420px, 92vw); }
@@ -464,6 +468,7 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
     <section class="card" aria-labelledby="stats-title"><h3 id="stats-title">Statistics</h3><div id="stats-body" class="card-body"></div></section>
     <section class="card" aria-labelledby="how-title"><h3 id="how-title">How it works</h3><div id="how-body" class="card-body"></div></section>
     <section class="card" aria-labelledby="apps-title"><h3 id="apps-title">AI apps</h3><div id="apps-body" class="card-body"></div></section>
+    <section class="card wide" aria-labelledby="updates-title"><h3 id="updates-title">Updates</h3><div id="updates-body" class="card-body"></div></section>
     <section class="card wide" aria-labelledby="system-title"><h3 id="system-title">Model, directories and sizes</h3><div id="system-body" class="card-body"></div></section>
   </div>
   <label class="landing-off"><input type="checkbox" id="landing-off"> Don't show on open</label>
@@ -3977,6 +3982,7 @@ function renderLanding() {
   renderStats();
   renderHow();
   renderApps();
+  renderUpdates();
   renderSystem();
 }
 
@@ -4245,6 +4251,116 @@ async function copyPath(path, button) {
   }
 }
 
+// --- Updates: the branch this installation follows (#381) -----------------------------------
+
+// The daemon saves main or dev into the installation's .env (src/daemon/updates_ui.py), the
+// setting `python -m src.daemon channel set` writes; the next scheduled run or `update` applies it.
+const UPDATE_SOURCES = { ".env": "set in .env", default: "the default", environment: "exported" };
+const updatePick = { branch: null, busy: false };  // the choice not saved yet, and a save in flight
+
+function lastRunText(run) {
+  if (!run || !run.state) return "none yet";
+  const when = run.time ? dateTime(run.time) + ": " : "";
+  const detail = run.reason || run.error;
+  return when + run.state + (detail ? " (" + detail + ")" : "");
+}
+
+// Rebuilt only when what it shows changes: the statistics' poll must not take the focus off a choice.
+function renderUpdates() {
+  const body = $("updates-body");
+  const overview = landing.overview;
+  const updates = overview && overview.updates;
+  const shown = JSON.stringify([overview && overview.version, updates || null, updatePick, landing.overviewFailed]);
+  if (body.dataset.shown === shown) return;
+  body.dataset.shown = shown;
+  body.replaceChildren();
+  if (!overview) return placeholder(body, landing.overviewFailed, "The update channel");
+  const facts = node("dl", body, null, "facts");
+  fact(facts, "Version", "Agents-Core " + overview.version);
+  if (!updates || updates.error) {
+    node("p", body, "The update channel could not be read" + (updates ? ": " + updates.error : "."), "meta");
+    return;
+  }
+  fact(facts, "Follows", updates.configured_branch + " (" + (UPDATE_SOURCES[updates.source] || updates.source) + ")");
+  fact(facts, "Checked out", updates.checked_out_branch || "a detached HEAD");
+  fact(facts, "Scheduled updates", updates.auto_update
+    ? "on, every " + Math.max(1, Math.floor((updates.interval || 900) / 60)) + " min when the service is idle" : "off");
+  fact(facts, "Last scheduled run", lastRunText(updates.last_run));
+  if (updates.when) node("p", body, updates.when, "meta");
+  const picked = updatePick.branch || updates.configured_branch;
+  const group = node("fieldset", body, null, "update-choice");
+  node("legend", group, "Follow");
+  for (const branch of updates.choices || []) {
+    const row = node("label", group);
+    const input = node("input", row);
+    input.type = "radio";
+    input.name = "update-branch";
+    input.value = branch;
+    input.checked = branch === picked;
+    input.disabled = updatePick.busy;
+    row.appendChild(document.createTextNode(branch === "main" ? "main (releases)" : branch === "dev" ? "dev (every merged pull request)" : branch));
+    input.addEventListener("change", () => {
+      if (!input.checked || updatePick.busy) return;
+      updatePick.branch = branch === updates.configured_branch ? null : branch;
+      renderUpdates();
+    });
+  }
+  const save = node("button", group, updatePick.busy ? "Saving…" : "Save");
+  save.type = "button";
+  save.disabled = updatePick.busy || picked === updates.configured_branch;
+  save.addEventListener("click", () => saveUpdateBranch(picked));
+  node("p", body, "Saving changes no code: " + (updates.update_command ? "`" + updates.update_command + "`" : "an update")
+    + " or the next scheduled run applies it. An AGENTS_AUTO_UPDATE_BRANCH exported in a shell overrides it for "
+    + "commands started there.", "meta");
+}
+
+function applyUpdates(data) {
+  if (data && data.updates) landing.overview = { ...landing.overview, version: data.version, updates: data.updates };
+}
+
+// A branch that does not contain the installed code is a downgrade: the daemon refuses it until the
+// owner confirms, and then saves it with allow_downgrade.
+async function saveUpdateBranch(branch) {
+  const updates = landing.overview && landing.overview.updates;
+  if (!updates || updatePick.busy) return;
+  updatePick.busy = true;
+  landingAlert("Saving…");
+  renderUpdates();
+  let allowDowngrade = false;
+  try {
+    for (;;) {
+      try {
+        const data = await api("/ui/api/updates", { method: "PUT",
+          body: { expected_revision: updates.revision, branch, allow_downgrade: allowDowngrade } });
+        applyUpdates(data);
+        updatePick.branch = null;
+        const saved = data.saved || {};
+        const warnings = saved.warnings || [];
+        landingAlert("Saved: this installation follows " + branch + ". " + (data.updates.when || "")
+          + (warnings.length ? " " + warnings.join(" ") : ""), "ok");
+        return;
+      } catch (error) {
+        if (error.signedOut || allowDowngrade || !error.data || error.data.error !== "downgrade") throw error;
+        const reason = error.message.replace(/; confirm with --allow-downgrade$/, "");
+        if (!confirm(reason + ".\n\nFollow " + branch + " anyway? The next update then installs older code.")) {
+          landingAlert("Not saved: this installation still follows " + updates.configured_branch + ".");
+          return;
+        }
+        allowDowngrade = true;
+      }
+    }
+  } catch (error) {
+    if (error.signedOut) return;
+    landingAlert("Not saved: " + error.message, "error");
+    if (error.data && error.data.error === "conflict") {  // changed elsewhere: show what it is now
+      try { applyUpdates(await api("/ui/api/updates")); } catch (_) {}
+    }
+  } finally {
+    updatePick.busy = false;
+    renderUpdates();
+  }
+}
+
 function renderSystem() {
   const body = $("system-body");
   body.replaceChildren();
@@ -4252,7 +4368,6 @@ function renderSystem() {
   if (!overview) return placeholder(body, landing.overviewFailed, "The overview");
   const model = overview.model || {}, counts = overview.counts || {}, flows = counts.flows || {};
   const facts = node("dl", body, null, "facts");
-  fact(facts, "Version", "Agents-Core " + overview.version);
   fact(facts, "Embedding model", (model.name || "unknown") + " · " + sizeText(model.size));
   fact(facts, "Components", [plural(counts.agents || 0, "agent"), plural(counts.rules || 0, "rule"),
                              plural(counts.skills || 0, "skill"), plural(counts.implants || 0, "implant")].join(", "));

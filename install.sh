@@ -11,7 +11,10 @@
 # Environment:
 #   AGENTS_HOME       install directory (default: ~/.agents-core)
 #   AGENTS_REPO_URL   repository URL (default: https://github.com/IEZhu/Agents.git)
-#   AGENTS_BRANCH     branch to install (default: main)
+#   AGENTS_BRANCH     branch to install (default: main): `dev` takes every merged pull
+#                     request, `main` only releases. init_repo.sh writes it into a new
+#                     .env as AGENTS_AUTO_UPDATE_BRANCH, so the updaters follow it, and
+#                     warns when an existing .env names another branch
 #   AGENTS_ASSUME_YES=1  skip the confirmation (also the behavior without a TTY)
 #   AGENTS_USER_SYNC_*   set up sync between machines without questions; init_repo.sh
 #                        never asks about it under --yes (README, "Sync between machines")
@@ -108,9 +111,9 @@ main() {
         case "$arg" in --yes|-y) ;; *) init_args+=("$arg") ;; esac
     done
     if [ "$have_tty" = true ] && [ ! -t 0 ]; then
-        AGENTS_GITHUB_TOKEN="$sync_github_token" exec "$home_dir/scripts/init_repo.sh" "${init_args[@]}" </dev/tty
+        AGENTS_GITHUB_TOKEN="$sync_github_token" AGENTS_BRANCH="$branch" exec "$home_dir/scripts/init_repo.sh" "${init_args[@]}" </dev/tty
     fi
-    AGENTS_GITHUB_TOKEN="$sync_github_token" exec "$home_dir/scripts/init_repo.sh" "${init_args[@]}"
+    AGENTS_GITHUB_TOKEN="$sync_github_token" AGENTS_BRANCH="$branch" exec "$home_dir/scripts/init_repo.sh" "${init_args[@]}"
 }
 
 main "$@"

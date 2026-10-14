@@ -10,7 +10,8 @@
 // item's group goes as the window is resized, or, for the "sync_*" scenarios (library sync, #170),
 // what the header chip, the Sync page, its wizard and the editor's notice show and which
 // /ui/api/sync requests the page sent, against a scripted API and timers the scenario fires, or, for
-// the "autodev*" scenarios (#348), what the Autodev page shows and which /ui/api/autodev requests it sent.
+// the "autodev*" scenarios (#348), what the Autodev page shows and which /ui/api/autodev requests it sent, or,
+// for the "landing_updates*" scenarios (#381), what the overview's Updates section shows and saves.
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 
@@ -61,7 +62,7 @@ let signedIn = ["search", "render", "persona_race", "agents", "history", "histor
 const revisions = {};  // sync_notice: a flow's revision after another machine changed it
 const deletedFlows = new Set();  // sync_notice: flows a cycle deleted (GET answers 404)
 const confirms = [];  // every question the page asked with confirm()
-let confirmAnswer = true;  // what confirm() answers; autodev_races answers no once
+let confirmAnswer = scenario !== "landing_updates_down_declined";  // what confirm() answers; autodev_races answers no once
 const replacedUrls = [];  // every history.replaceState call, as [state, title, url]
 const prompts = [];  // every question the page asked with prompt(), and the answer it suggested
 const puts = [];
@@ -532,8 +533,40 @@ const LANDING_STATS = {
 const LANDING_EMPTY = { ...LANDING_STATS, uptime_seconds: 42, events: [], skipped: [], apps: [],
   answers: { today: 0, last_7_days: 0, last_30_days: 0, per_day: Array.from({ length: 30 }, (_, index) => landingDay(29 - index, 0)),
              per_agent: [], per_repository: [], per_action: {}, per_app: [] } };
+// The Updates section (#381): the channel as /ui/api/overview and /ui/api/updates answer it.
+const downgrading = scenario.startsWith("landing_updates_down");
+let updatesNow = {
+  configured_branch: downgrading ? "dev" : "main", source: downgrading ? ".env" : "default",
+  checked_out_branch: downgrading ? "dev" : "main", action: "follow", revision: "r1", auto_update: true, interval: 900,
+  last_run: { time: "2026-10-14T10:00:00+00:00", state: "up_to_date" }, choices: ["main", "dev"],
+  update_command: ".venv/bin/python -m src.daemon update",
+  when: "Updates fast-forward " + (downgrading ? "dev" : "main") + " at the next scheduled run (every 15 min, when the service is idle), or now with `.venv/bin/python -m src.daemon update`. A saved change applies the same way.",
+};
+const updatesPuts = [];
+function updatesAnswer(method, body) {
+  if (method === "GET") return [200, { version: LANDING_OVERVIEW.version, updates: updatesNow }];
+  updatesPuts.push(body);
+  if (scenario === "landing_updates_conflict") {
+    updatesNow = { ...updatesNow, configured_branch: "dev", source: ".env", revision: "r2", action: "switch",
+                   when: "The switch from main to dev happens at the next scheduled run." };
+    return [409, { status: "error", error: "conflict", message: "the update channel changed since it was read; reload and try again" }];
+  }
+  if (body.expected_revision !== updatesNow.revision) return [409, { status: "error", error: "conflict", message: "stale" }];
+  if (downgrading && !body.allow_downgrade) {
+    return [409, { status: "error", error: "downgrade", message: "origin/main does not contain HEAD 0123456789ab of dev: "
+      + "switching would go back to older code, and state or .env changes that newer code made may not be read by it; "
+      + "confirm with --allow-downgrade" }];
+  }
+  const from = updatesNow.checked_out_branch;
+  updatesNow = { ...updatesNow, configured_branch: body.branch, source: ".env", revision: "r2",
+                 action: body.branch === from ? "follow" : "switch",
+                 when: "The switch from " + from + " to " + body.branch + " happens at the next scheduled run (every 15 min, when the service is idle), or now with `.venv/bin/python -m src.daemon update`." };
+  return [200, { version: LANDING_OVERVIEW.version, updates: updatesNow,
+                 saved: { branch: body.branch, downgrade: !!body.allow_downgrade } }];
+}
 function landingData(path, init) {
-  if (path === "/ui/api/overview") return [200, LANDING_OVERVIEW];
+  if (path === "/ui/api/overview") return [200, { ...LANDING_OVERVIEW, updates: updatesNow }];
+  if (path === "/ui/api/updates") return updatesAnswer(init.method || "GET", init.body ? JSON.parse(init.body) : null);
   if (path === "/ui/api/stats") return [200, scenario === "landing_empty" ? LANDING_EMPTY : LANDING_STATS];
   return agentsData(path, init);  // the flows, the other tabs and the sync status
 }
@@ -970,6 +1003,35 @@ if (isUi) {
   out.skill_dismissal.over_edge = pointerOver(cView, "md-edge");
   fire(seg("c-seg", 1), "click");
   out.skill_source = { view_hidden: byId("c-view").classes.has("hidden"), source_hidden: byId("c-source").classes.has("hidden") };
+  console.log(JSON.stringify(out));
+  process.exit(0);
+}
+
+if (scenario.startsWith("landing_updates")) {
+  const textOf = (node) => (node.nodeType === 3 ? node.textContent
+    : (node.textContent || "") + node.children.map(textOf).join(""));
+  const body = () => byId("updates-body");
+  const radios = () => findAll(body(), (n) => n.tag === "input" && n.type === "radio");
+  const saveButton = () => findAll(body(), (n) => n.tag === "button")[0];
+  const view = () => ({ text: textOf(body()), radios: radios().map((r) => [r.value, r.checked, r.disabled]),
+                        save: saveButton() ? [saveButton().textContent, saveButton().disabled] : null,
+                        alert: byId("landing-alert").textContent });
+  const out = { start: view() };
+  const first = radios()[0];
+  await fireTimers(30000);  // the statistics' poll re-renders the landing page
+  out.kept_after_poll = radios()[0] === first;
+  const target = downgrading ? "main" : "dev";
+  const pick = radios().find((r) => r.value === target);
+  pick.checked = true;
+  fire(pick, "change");
+  await sleep(0);
+  out.picked = view();
+  fire(saveButton(), "click");
+  await sleep(50);
+  out.saved = view();
+  out.puts = updatesPuts;
+  out.confirms = confirms;
+  out.reads = requests.filter((path) => path === "/ui/api/updates");
   console.log(JSON.stringify(out));
   process.exit(0);
 }
