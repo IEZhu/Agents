@@ -59,6 +59,10 @@ Read-only checks also looked for duplication in the user's workspace:
 
 No maintainers were contacted and no other chat was messaged. Research inspected available public work rather than establishing anyone's private roadmap or current staffing.
 
+## Prototype follow-through
+
+The ETAS abstract/upstream and CapLease abstract were rechecked while remodeling the IR on 2026-10-14. The overlap still supports a narrow experiment rather than a general-purpose language claim. [IR 0.1](accord-ir.md) now specifies separate acceptance, authorization and operation records, and the [Python prototype](../experiments/accord/README.md) exercises them with deterministic models and two SQLite databases. This is an Accord runtime experiment; it does not reproduce upstream implementations or establish a novel mechanism.
+
 ## Recommendation
 
 Start with an acceptance-contract IR and a host-language library. Make wrong-revision acceptance, missing checks, delegated overspending, replay and uncertain effects observable counterexamples. Compare with an equally protected SDK and with the closest implemented ETAS subset. The language is worth pursuing only if it makes these contracts clearer or prevents errors with less developer work; otherwise the useful deliverable is a library and adapter specification.
