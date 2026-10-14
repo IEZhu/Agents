@@ -119,12 +119,12 @@ def credentials(tmp_path):
 
 
 def make(tmp_path, credentials, *, mode="run", pr=None, git=None, api=None, reviewed=HEAD, premortem=None,
-         earlier_records=(), run_dir=None):
+         earlier_records=(), run_dir=None, stage="submit"):
     run = Run(RUN_ID, REPOSITORY, ISSUE, BASE, mode, frozenset({"autodev:ready"}), pr)
     api = api or FakeGitHub()
     found = Broker(run, credentials=credentials, git=git or FakeGit(), run_dir=run_dir or tmp_path, transport=api,
                    reviewed_head=lambda: reviewed, premortem=lambda: premortem or {},
-                   earlier_records=lambda: list(earlier_records))
+                   earlier_records=lambda: list(earlier_records), stage=stage)
     registry = Registry()
     register(registry, found)
     return found, registry, api
@@ -268,7 +268,7 @@ def test_the_push_command_uses_only_the_deploy_key_and_pinned_host_keys(credenti
     assert env["GIT_SSH_COMMAND"] == (
         f"ssh -F /dev/null -i {credentials.deploy_key} -o IdentitiesOnly=yes -o IdentityAgent=none "
         f"-o UserKnownHostsFile={credentials.known_hosts} -o GlobalKnownHostsFile=/dev/null "
-        "-o StrictHostKeyChecking=yes -o BatchMode=yes")
+        "-o StrictHostKeyChecking=yes -o BatchMode=yes -o ControlMaster=no -o ControlPath=none")
     assert "SSH_AUTH_SOCK" not in env
     assert env["GIT_CONFIG_GLOBAL"] and env["GIT_CONFIG_NOSYSTEM"] == "1"
     assert TOKEN not in json.dumps([argv, env])
@@ -357,6 +357,13 @@ def test_trusted_git_check_reads_the_lists_at_the_pinned_commit(tmp_path):
         verdict = trusted.check(base, head, {"autodev:next"})
         assert [refusal.reason for refusal in verdict.refusals] == [Reason.CONTROL_PATH]
     assert [refusal.reason for refusal in trusted.check(allowed, base, ()).refusals] == [Reason.NOT_DESCENDANT]
+    # A resume run bound to a merge base still reads the lists at pinned (#347): here a later
+    # commit whose control list no longer names CLAUDE.md, while the lists at `base` refuse it.
+    git("checkout", "-q", "-b", "relisted", base)
+    relisted = commit(".github/autodev-control-paths", "OTHER.md\n", "Another control list")
+    later = broker_module.TrustedGit(repository, lists_at=relisted)
+    assert later.check(base, control, {"autodev:next"}).allowed
+    assert not broker_module.TrustedGit(repository).check(base, control, {"autodev:next"}).allowed
 
 
 # --- PRs -----------------------------------------------------------------------------------------------

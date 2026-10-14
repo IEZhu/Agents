@@ -17,19 +17,18 @@ from pathlib import Path
 from typing import Any
 
 from src.daemon.state import private_dir, read_json, write_json
+from src.flow_execution import CLIENTS, CODEX_EFFORTS
 
 from .lease import schedules_dir
 
 CONFIG_NAME = "autodev.json"
 MODES = ("dry-run", "run")
-CLIENTS = ("claude", "codex")
 STAGES = ("select", "implement", "submit")
 DELEGATES = ("code-review-pass", "change-premortem")
 LIMITS = ("max_reviews", "max_bot_rounds", "max_wait_minutes")
-# model_reasoning_effort values codex-cli 0.162.1 knows (research, source at tag rust-v0.162.1:
-# ReasoningEffort::from_str). Codex itself accepts any non-empty string and sends it to the API,
-# so the configuration refuses everything else for a Codex profile (#344).
-CODEX_EFFORTS = ("none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra", "persistent")
+# CODEX_EFFORTS (imported above, src/flow_execution.py): the model_reasoning_effort values
+# codex-cli 0.162.1 knows. Codex itself accepts any non-empty string and sends it to the API, so
+# the configuration refuses everything else for a Codex profile (#344).
 # codex.login modes removed in #344 (round 1): a stored login lives in CODEX_HOME, which model
 # commands can read; the key now comes from the keychain only.
 REMOVED_CODEX_LOGINS = ("api-key", "chatgpt")

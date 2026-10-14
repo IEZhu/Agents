@@ -142,8 +142,22 @@ scripts/**
 src/schedules/**
 src/engine/**
 src/schemas/**
+src/flow_execution.py
 src/executables.py
 src/daemon/autoupdate.py
+src/__init__.py
+src/component_toggles.py
+src/daemon/__init__.py
+src/daemon/acl.py
+src/daemon/execution.py
+src/daemon/state.py
+src/file_lock.py
+src/model_migration.py
+src/user_library.py
+src/utils/__init__.py
+src/utils/langfuse_compat.py
+src/utils/prompt_loader.py
+src/version.py
 install.sh
 requirements*.txt
 pyproject.toml
@@ -151,7 +165,8 @@ uv.lock
 docs/cloud-runs.md
 ```
 
-- **Control paths** (`flows/autodev*`, `.github/**`, `src/schedules/**`, `src/engine/**`, `agents/**`, `rules/**`, `skills/**`, `implants/**`, and with them both list files) are not opened by any label. If a task needs them, the runner stops the run with `autodev:blocked` and leaves a local patch that the owner reviews and pushes.
+- **Control paths** (`flows/autodev*`, `.github/**`, `src/schedules/**`, `src/engine/**`, `src/flow_execution.py`, `src/__init__.py`, `src/component_toggles.py`, `src/daemon/__init__.py`, `src/daemon/acl.py`, `src/daemon/execution.py`, `src/daemon/state.py`, `src/executables.py`, `src/file_lock.py`, `src/model_migration.py`, `src/schemas/__init__.py`, `src/schemas/subagent.py`, `src/user_library.py`, `src/utils/__init__.py`, `src/utils/langfuse_compat.py`, `src/utils/prompt_loader.py`, `src/version.py`, `agents/**`, `rules/**`, `skills/**`, `implants/**`; with them both list files) are not opened by any label. If a task needs them, the runner stops the run with `autodev:blocked` and leaves a local patch that the owner reviews and pushes.
+  Amended by #347: `src/flow_execution.py` (the capability table the runner imports) joined both lists. After the #347 review the rest of the runner's import closure joined them too, from `src/__init__.py` to `src/version.py` (`src/daemon/state.py` sets the modes of the run records, for example); `tests/test_schedules_paths.py` computes the closure, including imports inside functions, and fails on a module outside the control paths. After the implementation stage the runner runs the change check itself on the imported head; a control-path refusal there, a blocked stage output whose commits touch one, or a push the broker refused for one writes `<run_dir>/export/<run-id>.patch` (`git format-patch`) and a verified `<run-id>.bundle` (`repos.TrustedRepository.export_commits`), moves the branch to `refs/autodev/quarantine/<run-id>/final`, and names both files in the run report and the owner's notification ([autodev-sequence.md](autodev-sequence.md)).
 - **The other protected paths** are opened by the `autodev:next` label (9.3, rule 6).
 - **The broker performs the check, not the model:** before each push it compares the changed paths with the list. It rejects:
   - a match without permission;
@@ -724,7 +739,7 @@ The selection session writes nothing. The runner posts the selection comment (`<
   - `input_required`: `blocked`;
   - `valid: false`: a new attempt, because the worker process has already exited. Amended by #345: within the same cap of two new attempts, as are a CLI that ends without a result and evidence that does not name the reviewed range.
 - **Confirmation.** The session checks each finding, reproduces it where possible, and decides: fix it or decline it with a reason. The session passes its decisions to the runner through `{worker_cmd} decide`. The runner keeps the log, keyed by a hash of `location` and `explanation`, in its records; a copy for recovery after compaction lies in a directory the session can only read. Amended by #345: `{worker_cmd} decide '{"key": "<16 hex>", "decision": "fixed" | "declined", "reason": "..."}'`; the copy is `worker-log.json` in the session's state copy.
-- **Clean** means no confirmed findings of level `medium` or higher. Amended by #345: the runner, not the model, carries the open findings. Its findings ledger (`findings-ledger.json`) holds every finding of level `medium` or higher of every accepted review, with the review that reported it last; every later review and the verification get the open ones with their decision state (`open-findings.json`, undecided ones and `fixed` claims included) and must report again each one still present. An entry is resolved only when a later accepted review was given it with a decision (`fixed` or `declined`) and did not report it again; an undecided entry stays open whatever later reviews say. `validated-review.json` records the review's kind, number, restriction, `clean`, `blocked` and the key, level and security signal of each of its findings of level `medium` or higher. `broker.validated_review_head` (`review_gate`), the push check and the pre-mortem's precondition, opens only for a record that is not blocked while every open ledger entry is a `medium` without a security signal (a fixed keyword rule over the explanation and recommendation, tighter than the rule that keeps pre-mortem risks local) declined with a reason against the review that reported it last. #347 relies on this gate before the push, besides the accepted pre-mortem and the local handling of security risks.
+- **Clean** means no confirmed findings of level `medium` or higher. Amended by #345: the runner, not the model, carries the open findings. Its findings ledger (`findings-ledger.json`) holds every finding of level `medium` or higher of every accepted review, with the review that reported it last; every later review and the verification get the open ones with their decision state (`open-findings.json`, undecided ones and `fixed` claims included) and must report again each one still present. An entry is resolved only when a later accepted review was given it with a decision (`fixed` or `declined`) and did not report it again; an undecided entry stays open whatever later reviews say. `validated-review.json` records the review's kind, number, restriction, `clean`, `blocked` and the key, level and security signal of each of its findings of level `medium` or higher. `broker.validated_review_head` (`review_gate`), the push check and the pre-mortem's precondition, opens only for a record that is not blocked while every open ledger entry is a `medium` without a security signal (a fixed keyword rule over the explanation and recommendation, tighter than the rule that keeps pre-mortem risks local) declined with a reason against the review that reported it last. The run sequence (#347) relies on this gate before the push, besides the accepted pre-mortem and the local handling of security risks.
 - **The limit** `max_reviews` is 3 by default, that is, at most two rounds of fixes (Q10). The last review (number `max_reviews`) considers only `critical`, `high`, security and regressions caused by fixes. If it finds any, the stage ends with `blocked: true`. #345 also drops the findings outside that scope before the session sees them and refuses a review beyond `max_reviews`; a last review with findings in its scope writes `blocked: true` into `validated-review.json`, which keeps the push gate closed, and the service refuses every further worker.
 - **Declined blockers.** A declined `critical`, `high` or security finding stays open until the next review accepts the reason; at the limit it counts as a blocker. Amended by #345: the next review accepts the reason when it was given the decline in `open-findings.json` and does not report the finding again.
 - **Design smell.** If one component produces findings review after review, the report says so plainly and proposes simplifying the design.
@@ -739,6 +754,8 @@ The premise: "The PR was merged, and a week later something broke. Why?" The ses
 4. `known_risk` items are handled by level (Q3). `low` and `info` go into the PR section "Pre-mortem: known risks". Each `medium`, `high` or `critical` risk becomes an issue with the `autodev:risk` label for later automatic analysis, created by the runner through the broker and linked from the PR. Security risks go to neither place: they stay local, and an open one blocks the PR (5.8). A risk issue enters the task pool only when the owner labels it `autodev:ready` or `autodev:next` (Q1).
 
 **The stage's output** is the session's structured output per the stage schema: `branch`, `head_sha`, `changes`, `checks`, `reviews`, `blocked`, `blockers`, `pr_sections` (the sections "Self-review", "Pre-mortem: known risks", "Declined findings"). The runner imports the final bundle, re-checks `head_sha` in the trusted repository and compares it with the last head covered by a validated review. With `blocked`, the runner sets `autodev:blocked` with a neutral list of blockers, and the bundle stays in a local quarantine ref.
+
+Amended by #347: one worker service spans the implement and submit stages (`workers.WorkerService`, `max_verifications = 1 + max_bot_rounds`; `rebind_importer` points it at the submit stage's exchange directory), because a second service of the same run would clear the push gate. After the implement session the runner imports the final bundle, runs the change check on the imported head, requires `head_sha` to be that head and the last head a validated review covered, an accepted pre-mortem and no open security risk, and otherwise blocks: `refs/heads/<branch>` moves to `refs/autodev/quarantine/<run-id>/final`, the issue gets `autodev:blocked` with the neutral blockers and loses `autodev:in-progress` (Q-claim), and a control-path change is exported as a patch and a bundle ([autodev-sequence.md](autodev-sequence.md#after-the-implement-stage)). After the #347 review: the broker answers only the submit session's writes (`Broker.enter_stage`), so the implement session cannot push or open a pull request before these checks; `gh.pr_create` of a new run also needs the accepted pre-mortem; a security-marked risk closes only as `fixed` with an accepted verification, never by the session's own `mitigated` or `known_risk`; and a branch an earlier run left in the trusted repository moves to `refs/autodev/quarantine/<run-id>/stale` before the implement stage.
 
 ### 9.5 Stage 3: PR and `pr-review`
 
@@ -762,6 +779,8 @@ The stage session runs `pr-review` in `autodev` mode; all writes go through the 
 6. Never merge, close issues or delete branches; the broker cannot perform these operations.
 
 **The run report:** `pinned`, the commit of the runner's code, the revisions of the flows read and the `bundle_revision` of the worker packages, the gate and selection decisions, the `requested` and `applied` profiles per stage and step, worker attempts and the decisions on their voice, checks, the PR link, the review status, the cost from the CLI's JSON output. The report goes into the run record and arrives as a macOS notification; security details stay local only.
+
+Amended by #347: the run sequence writes the state comment through the runner-internal `Broker.state` after every submit stage (a new one for a new PR, an edit of the recorded one on a resume), with `next_attempt` clamped to 24 hours ahead, records `{"id", "kind": "state", "number"}` in the run record and, with `waiting_bots`, writes the tick's `next_attempt`; it opens risk issues for the pre-mortem's known risks of level `medium` and above without a security signal and opens no PR while a security-marked risk is open (5.8). The report is `report` in the run record (`src.schedules.report`); the notification carries only fixed phrases, counts, the PR link and the export paths. Until the automatic mode (#350), a `waiting_bots` run is continued by the owner with `run-now --mode resume --pr N`, which the notification names.
 
 ### 9.6 Labels
 
@@ -883,6 +902,8 @@ Finish with the structured output required by the stage schema.
 ```
 
 Amended by #345: `{branch}` is the run's branch `claude/autodev-<issue>-<slug>` (the one `workers.Handover` imports and the broker pushes) and `{exchange_dir}` the stage's exchange directory; the run sequence (#347) renders both with the other placeholders.
+
+Amended by #347: the templates of all three stages are constants of `src/schedules/stages.py` (`TEMPLATES`); `render_prompt` replaces only the known placeholders with a regular expression (never `str.format`, since the prompts hold JSON braces), refuses a missing or unknown value and a value with a control character or a placeholder, and adds `{python}`, the stage environment's interpreter. The select template names only `{repository}`, `{worktree}`, `{pinned}` and `{inputs_file}`. Each stage's output schema is passed as `--json-schema` (Claude) or `--output-schema` (a Codex select stage).
 
 ### 10.5 Optional hardening: a dedicated user and account
 

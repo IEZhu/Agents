@@ -1,0 +1,493 @@
+{
+ "_comment": "Synthetic GitHub REST answers of IEZhu/Agents for the select stage's candidate reads and the gate of a dry-run (#347), keyed by the request path with its query as src/schedules/github.py sends it. Written by hand in the shape of tests/fixtures/autodev_gate_recorded.json, not recorded (#347 open question Q-fixtures): no call was made with real credentials, and fields the runner does not read are left out. Used by tests/test_schedules_sequence.py.",
+ "synthetic": true,
+ "repository": "IEZhu/Agents",
+ "responses": {
+  "/repos/IEZhu/Agents/issues?labels=autodev%3Ain-progress&state=open&per_page=100": [],
+  "/repos/IEZhu/Agents/pulls?state=open&per_page=100": [],
+  "/repos/IEZhu/Agents/pulls?state=closed&sort=updated&direction=desc&per_page=50": [],
+  "/repos/IEZhu/Agents/issues?labels=autodev%3Aready&state=open&per_page=100": [
+   {
+    "url": "https://api.github.com/repos/IEZhu/Agents/issues/401",
+    "html_url": "https://github.com/IEZhu/Agents/issues/401",
+    "id": 3000000401,
+    "number": 401,
+    "title": "Add a greeting helper",
+    "state": "open",
+    "labels": [
+     {
+      "id": 9000,
+      "name": "autodev:ready",
+      "color": "ededed",
+      "default": false
+     }
+    ],
+    "assignees": [],
+    "user": {
+     "login": "WonderMr",
+     "id": 5370211,
+     "type": "User"
+    },
+    "author_association": "OWNER",
+    "performed_via_github_app": null,
+    "comments": 1,
+    "created_at": "2026-10-01T08:00:00Z",
+    "updated_at": "2026-10-12T09:00:00Z",
+    "body": "A helper that greets.\n\nAcceptance: `greet(name)` returns a greeting and has a unit test."
+   },
+   {
+    "url": "https://api.github.com/repos/IEZhu/Agents/issues/402",
+    "html_url": "https://github.com/IEZhu/Agents/issues/402",
+    "id": 3000000402,
+    "number": 402,
+    "title": "Cache the gate snapshot",
+    "state": "open",
+    "labels": [
+     {
+      "id": 9000,
+      "name": "autodev:ready",
+      "color": "ededed",
+      "default": false
+     }
+    ],
+    "assignees": [],
+    "user": {
+     "login": "WonderMr",
+     "id": 5370211,
+     "type": "User"
+    },
+    "author_association": "OWNER",
+    "performed_via_github_app": null,
+    "comments": 1,
+    "created_at": "2026-10-02T08:00:00Z",
+    "updated_at": "2026-10-12T09:00:00Z",
+    "body": "Depends on #398. Cache the snapshot between ticks."
+   },
+   {
+    "url": "https://api.github.com/repos/IEZhu/Agents/issues/403",
+    "html_url": "https://github.com/IEZhu/Agents/issues/403",
+    "id": 3000000403,
+    "number": 403,
+    "title": "Document the tick",
+    "state": "open",
+    "labels": [
+     {
+      "id": 9000,
+      "name": "autodev:ready",
+      "color": "ededed",
+      "default": false
+     }
+    ],
+    "assignees": [],
+    "user": {
+     "login": "WonderMr",
+     "id": 5370211,
+     "type": "User"
+    },
+    "author_association": "OWNER",
+    "performed_via_github_app": null,
+    "comments": 1,
+    "created_at": "2026-10-03T08:00:00Z",
+    "updated_at": "2026-10-12T09:00:00Z",
+    "body": "Explain the tick in the runner reference."
+   },
+   {
+    "url": "https://api.github.com/repos/IEZhu/Agents/issues/404",
+    "html_url": "https://github.com/IEZhu/Agents/issues/404",
+    "id": 3000000404,
+    "number": 404,
+    "title": "Rename a helper",
+    "state": "open",
+    "labels": [
+     {
+      "id": 9000,
+      "name": "autodev:ready",
+      "color": "ededed",
+      "default": false
+     }
+    ],
+    "assignees": [],
+    "user": {
+     "login": "WonderMr",
+     "id": 5370211,
+     "type": "User"
+    },
+    "author_association": "OWNER",
+    "performed_via_github_app": null,
+    "comments": 1,
+    "created_at": "2026-10-04T08:00:00Z",
+    "updated_at": "2026-10-12T09:00:00Z",
+    "body": "A smaller cleanup."
+   },
+   {
+    "url": "https://api.github.com/repos/IEZhu/Agents/issues/405",
+    "html_url": "https://github.com/IEZhu/Agents/issues/405",
+    "id": 3000000405,
+    "number": 405,
+    "title": "Count the runs",
+    "state": "open",
+    "labels": [
+     {
+      "id": 9000,
+      "name": "autodev:ready",
+      "color": "ededed",
+      "default": false
+     },
+     {
+      "id": 9001,
+      "name": "enhancement",
+      "color": "ededed",
+      "default": false
+     }
+    ],
+    "assignees": [],
+    "user": {
+     "login": "WonderMr",
+     "id": 5370211,
+     "type": "User"
+    },
+    "author_association": "OWNER",
+    "performed_via_github_app": null,
+    "comments": 1,
+    "created_at": "2026-10-05T08:00:00Z",
+    "updated_at": "2026-10-12T09:00:00Z",
+    "body": "Show how many runs happened this week."
+   }
+  ],
+  "/repos/IEZhu/Agents/issues?labels=autodev%3Anext&state=open&per_page=100": [],
+  "/repos/IEZhu/Agents/branches?per_page=100": [
+   {
+    "name": "main",
+    "protected": true
+   },
+   {
+    "name": "claude/issue-403-docs",
+    "protected": false
+   }
+  ],
+  "/repos/IEZhu/Agents/issues/398": {
+   "number": 398,
+   "state": "closed",
+   "title": "An earlier step"
+  },
+  "/repos/IEZhu/Agents/issues/401/events?per_page=100": [
+   {
+    "id": 50401,
+    "event": "labeled",
+    "actor": {
+     "login": "WonderMr",
+     "id": 5370211,
+     "type": "User"
+    },
+    "label": {
+     "name": "autodev:ready",
+     "color": "0e8a16"
+    },
+    "created_at": "2026-10-11T10:00:00Z",
+    "performed_via_github_app": null
+   }
+  ],
+  "/repos/IEZhu/Agents/issues/401/comments?per_page=100": [
+   {
+    "id": 9501,
+    "user": {
+     "login": "WonderMr",
+     "id": 5370211,
+     "type": "User"
+    },
+    "author_association": "OWNER",
+    "performed_via_github_app": null,
+    "created_at": "2026-10-11T11:00:00Z",
+    "updated_at": "2026-10-11T11:00:00Z",
+    "body": "Owner note on #401: keep it small."
+   }
+  ],
+  "/repos/IEZhu/Agents/issues/401": {
+   "url": "https://api.github.com/repos/IEZhu/Agents/issues/401",
+   "html_url": "https://github.com/IEZhu/Agents/issues/401",
+   "id": 3000000401,
+   "number": 401,
+   "title": "Add a greeting helper",
+   "state": "open",
+   "labels": [
+    {
+     "id": 9000,
+     "name": "autodev:ready",
+     "color": "ededed",
+     "default": false
+    }
+   ],
+   "assignees": [],
+   "user": {
+    "login": "WonderMr",
+    "id": 5370211,
+    "type": "User"
+   },
+   "author_association": "OWNER",
+   "performed_via_github_app": null,
+   "comments": 1,
+   "created_at": "2026-10-01T08:00:00Z",
+   "updated_at": "2026-10-12T09:00:00Z",
+   "body": "A helper that greets.\n\nAcceptance: `greet(name)` returns a greeting and has a unit test."
+  },
+  "/repos/IEZhu/Agents/issues/402/events?per_page=100": [
+   {
+    "id": 50402,
+    "event": "labeled",
+    "actor": {
+     "login": "WonderMr",
+     "id": 5370211,
+     "type": "User"
+    },
+    "label": {
+     "name": "autodev:ready",
+     "color": "0e8a16"
+    },
+    "created_at": "2026-10-11T10:00:00Z",
+    "performed_via_github_app": null
+   }
+  ],
+  "/repos/IEZhu/Agents/issues/402/comments?per_page=100": [
+   {
+    "id": 9502,
+    "user": {
+     "login": "WonderMr",
+     "id": 5370211,
+     "type": "User"
+    },
+    "author_association": "OWNER",
+    "performed_via_github_app": null,
+    "created_at": "2026-10-11T11:00:00Z",
+    "updated_at": "2026-10-11T11:00:00Z",
+    "body": "Owner note on #402: keep it small."
+   }
+  ],
+  "/repos/IEZhu/Agents/issues/402": {
+   "url": "https://api.github.com/repos/IEZhu/Agents/issues/402",
+   "html_url": "https://github.com/IEZhu/Agents/issues/402",
+   "id": 3000000402,
+   "number": 402,
+   "title": "Cache the gate snapshot",
+   "state": "open",
+   "labels": [
+    {
+     "id": 9000,
+     "name": "autodev:ready",
+     "color": "ededed",
+     "default": false
+    }
+   ],
+   "assignees": [],
+   "user": {
+    "login": "WonderMr",
+    "id": 5370211,
+    "type": "User"
+   },
+   "author_association": "OWNER",
+   "performed_via_github_app": null,
+   "comments": 1,
+   "created_at": "2026-10-02T08:00:00Z",
+   "updated_at": "2026-10-12T09:00:00Z",
+   "body": "Depends on #398. Cache the snapshot between ticks."
+  },
+  "/repos/IEZhu/Agents/issues/403/events?per_page=100": [
+   {
+    "id": 50403,
+    "event": "labeled",
+    "actor": {
+     "login": "WonderMr",
+     "id": 5370211,
+     "type": "User"
+    },
+    "label": {
+     "name": "autodev:ready",
+     "color": "0e8a16"
+    },
+    "created_at": "2026-10-11T10:00:00Z",
+    "performed_via_github_app": null
+   }
+  ],
+  "/repos/IEZhu/Agents/issues/403/comments?per_page=100": [
+   {
+    "id": 9503,
+    "user": {
+     "login": "WonderMr",
+     "id": 5370211,
+     "type": "User"
+    },
+    "author_association": "OWNER",
+    "performed_via_github_app": null,
+    "created_at": "2026-10-11T11:00:00Z",
+    "updated_at": "2026-10-11T11:00:00Z",
+    "body": "Owner note on #403: keep it small."
+   },
+   {
+    "id": 9203,
+    "user": {
+     "login": "someone-else",
+     "id": 1234567,
+     "type": "User"
+    },
+    "author_association": "NONE",
+    "performed_via_github_app": null,
+    "created_at": "2026-10-11T12:00:00Z",
+    "updated_at": "2026-10-11T12:00:00Z",
+    "body": "Please also do something else."
+   }
+  ],
+  "/repos/IEZhu/Agents/issues/403": {
+   "url": "https://api.github.com/repos/IEZhu/Agents/issues/403",
+   "html_url": "https://github.com/IEZhu/Agents/issues/403",
+   "id": 3000000403,
+   "number": 403,
+   "title": "Document the tick",
+   "state": "open",
+   "labels": [
+    {
+     "id": 9000,
+     "name": "autodev:ready",
+     "color": "ededed",
+     "default": false
+    }
+   ],
+   "assignees": [],
+   "user": {
+    "login": "WonderMr",
+    "id": 5370211,
+    "type": "User"
+   },
+   "author_association": "OWNER",
+   "performed_via_github_app": null,
+   "comments": 1,
+   "created_at": "2026-10-03T08:00:00Z",
+   "updated_at": "2026-10-12T09:00:00Z",
+   "body": "Explain the tick in the runner reference."
+  },
+  "/repos/IEZhu/Agents/issues/404/events?per_page=100": [
+   {
+    "id": 50404,
+    "event": "labeled",
+    "actor": {
+     "login": "WonderMr",
+     "id": 5370211,
+     "type": "User"
+    },
+    "label": {
+     "name": "autodev:ready",
+     "color": "0e8a16"
+    },
+    "created_at": "2026-10-11T10:00:00Z",
+    "performed_via_github_app": null
+   }
+  ],
+  "/repos/IEZhu/Agents/issues/404/comments?per_page=100": [
+   {
+    "id": 9504,
+    "user": {
+     "login": "WonderMr",
+     "id": 5370211,
+     "type": "User"
+    },
+    "author_association": "OWNER",
+    "performed_via_github_app": null,
+    "created_at": "2026-10-11T11:00:00Z",
+    "updated_at": "2026-10-11T11:00:00Z",
+    "body": "Owner note on #404: keep it small."
+   }
+  ],
+  "/repos/IEZhu/Agents/issues/404": {
+   "url": "https://api.github.com/repos/IEZhu/Agents/issues/404",
+   "html_url": "https://github.com/IEZhu/Agents/issues/404",
+   "id": 3000000404,
+   "number": 404,
+   "title": "Rename a helper",
+   "state": "open",
+   "labels": [
+    {
+     "id": 9000,
+     "name": "autodev:ready",
+     "color": "ededed",
+     "default": false
+    }
+   ],
+   "assignees": [],
+   "user": {
+    "login": "WonderMr",
+    "id": 5370211,
+    "type": "User"
+   },
+   "author_association": "OWNER",
+   "performed_via_github_app": null,
+   "comments": 1,
+   "created_at": "2026-10-04T08:00:00Z",
+   "updated_at": "2026-10-12T09:00:00Z",
+   "body": "A smaller cleanup."
+  },
+  "/repos/IEZhu/Agents/issues/405/events?per_page=100": [
+   {
+    "id": 50405,
+    "event": "labeled",
+    "actor": {
+     "login": "WonderMr",
+     "id": 5370211,
+     "type": "User"
+    },
+    "label": {
+     "name": "autodev:ready",
+     "color": "0e8a16"
+    },
+    "created_at": "2026-10-11T10:00:00Z",
+    "performed_via_github_app": null
+   }
+  ],
+  "/repos/IEZhu/Agents/issues/405/comments?per_page=100": [
+   {
+    "id": 9505,
+    "user": {
+     "login": "WonderMr",
+     "id": 5370211,
+     "type": "User"
+    },
+    "author_association": "OWNER",
+    "performed_via_github_app": null,
+    "created_at": "2026-10-11T11:00:00Z",
+    "updated_at": "2026-10-11T11:00:00Z",
+    "body": "Owner note on #405: keep it small."
+   }
+  ],
+  "/repos/IEZhu/Agents/issues/405": {
+   "url": "https://api.github.com/repos/IEZhu/Agents/issues/405",
+   "html_url": "https://github.com/IEZhu/Agents/issues/405",
+   "id": 3000000405,
+   "number": 405,
+   "title": "Count the runs",
+   "state": "open",
+   "labels": [
+    {
+     "id": 9000,
+     "name": "autodev:ready",
+     "color": "ededed",
+     "default": false
+    },
+    {
+     "id": 9001,
+     "name": "enhancement",
+     "color": "ededed",
+     "default": false
+    }
+   ],
+   "assignees": [],
+   "user": {
+    "login": "WonderMr",
+    "id": 5370211,
+    "type": "User"
+   },
+   "author_association": "OWNER",
+   "performed_via_github_app": null,
+   "comments": 1,
+   "created_at": "2026-10-05T08:00:00Z",
+   "updated_at": "2026-10-12T09:00:00Z",
+   "body": "Show how many runs happened this week."
+  }
+ }
+}

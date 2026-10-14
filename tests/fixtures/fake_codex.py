@@ -37,7 +37,8 @@ without ``CODEX_API_KEY`` exits 1 (not logged in), and every call needs ``CODEX_
   ``tamper`` appends a line to every probe script it ran; ``listener_leak`` runs the local-listener
   probe for real but reports a denial (exit 1); ``git_broken`` reports the ``git --version`` control
   as bash's 126 (a git the profile cannot run) without running it.
-* ``exec`` with ``--output-schema`` is a worker (#345): it refuses a schema holding ``minLength`` or
+* ``exec`` with ``--output-schema`` and ``-s read-only`` is a worker (#345; a stage session, ``-s
+  workspace-write``, passes its stage schema too since #347): it refuses a schema holding ``minLength`` or
   ``maxLength`` as OpenAI's strict structured outputs do (``turn.failed``, exit 1), reads the
   worker_context from standard input and writes `fake_worker.build` of the ``worker`` outcome to
   the ``-o`` file, without a newline; ``worker.turn_failed`` fails the turn and writes nothing.
@@ -158,7 +159,7 @@ def do_exec():
         sys.stderr.write("Not logged in\n")
         return 1
     prompt = sys.stdin.read()
-    if "--output-schema" in ARGS:
+    if "--output-schema" in ARGS and "read-only" in ARGS:  # a stage (workspace-write) has a schema too (#347)
         return worker(prompt)
     commands = prompt.split("Commands:\n", 1)[1].strip().splitlines() if "Commands:\n" in prompt else []
     mode = SCENARIO.get("exec", "eperm")

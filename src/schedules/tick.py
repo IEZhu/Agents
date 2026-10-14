@@ -17,7 +17,8 @@ busy machine keeps from running is retried by every tick until it becomes ``miss
 The tick state (``<state_dir>/schedules/tick.json``) holds ``enabled_at`` (slots before it never
 count), ``last_slot`` (the newest slot run or missed), ``last_continuation`` (the newest
 ``next_attempt`` handled), ``next_attempt`` (``{"at": ISO time, "pr": N}``, written by the run
-sequence of #347) and a bounded ``missed`` list.
+sequence after a submit stage that waits for bots, `src.schedules.sequence`) and a bounded
+``missed`` list.
 
 Slots are wall-clock times in the local time zone (`local_zone`, a ``zoneinfo`` zone), and all
 arithmetic is on instants. A wall-clock time that a daylight-saving fall-back repeats counts once,

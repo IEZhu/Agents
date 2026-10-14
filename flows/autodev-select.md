@@ -32,7 +32,8 @@ clarifying questions and Output Format: decide, do not ask.
 It reads this flow and its persona, skill and rule files with `Read` from its
 one-off repository, a clean clone at `pinned` that this stage never changes,
 and the candidate data from `{inputs_file}`, a JSON file the runner writes
-(#347). Read nothing else outside the paths the prompt names.
+with GET requests only (`src/schedules/candidates.py`). Read nothing else
+outside the paths the prompt names.
 
 | Field of `{inputs_file}` | Content | Used by |
 |---|---|---|
@@ -42,9 +43,9 @@ and the candidate data from `{inputs_file}`, a JSON file the runner writes
 | `.author` (`login`, `id`), `.app` | Who opened it, and the app it was opened through or `null` | Filter 1 |
 | `.label_times` | When `autodev:ready` and `autodev:next` were last added | Ordering |
 | `.owner_activity` | The owner account's latest comment, edit or label event | Filter 4, readiness |
-| `.agent_state` | The issue agent's state from its trusted state comment (`phase`, `lock_time`), or `null` without one | Filter 3 |
+| `.agent_state` | The issue agent's state from its trusted state comment (`phase`, `lock_at`), or `null` without one | Filter 3 |
 | `.open_prs`, `.branches` | Open pull requests of the target that reference the issue; remote branches `claude/issue-<N>-*` and `claude/autodev-<N>-*` | Filter 4 |
-| `.dependencies` | Each referenced dependency `#N` with its state, and the parent epic's work order with the state of the earlier items | Filter 5 |
+| `.dependencies` | Each dependency `#N` the body names ("Builds on", "Depends on", "Blocked by", "after") with its state; the runner does not read the parent epic's work order yet, so judge it from the bodies you have | Filter 5 |
 | `.closed_autodev_prs` | Self-development pull requests for it closed without merging | Filter 8 |
 | `.body_path`, `.comments_path` | Files with the body and the comments (`id`, `author`, `app`, `created_at`, `body` each) | Pass two |
 
@@ -92,8 +93,10 @@ Drop a candidate when any filter fails:
    "after #N", or an earlier item in its parent epic's work order.
 6. It likely touches protected paths
    ([design 5.3](../docs/autodev-plan.md#53-protected-paths)) or carries
-   `area:security`, without `autodev:next`. No label opens the control paths
-   (`flows/autodev*`, `.github/**`, `src/schedules/**`, `src/engine/**`,
+   `area:security`, without `autodev:next`. No label opens the control paths,
+   the list in `.github/autodev-control-paths` of your clean clone at
+   `{pinned}` (read it with Read; among them `flows/autodev*`, `.github/**`,
+   `src/schedules/**`, `src/engine/**`, the modules the runner imports,
    `agents/**`, `rules/**`, `skills/**`, `implants/**`): when the task likely
    needs one, say so in its rationale, because the run will stop with
    `autodev:blocked` and leave a local patch for the owner. An `area:security`

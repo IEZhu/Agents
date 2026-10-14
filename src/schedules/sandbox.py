@@ -8,10 +8,12 @@ effect with a probe session that has exactly this argv, settings and environment
 * **argv** (`argv`): ``claude -p --restricted --safe-mode --tools <list> --strict-mcp-config
   --permission-mode dontAsk --permission-prompts none --disallowedTools mcp__*
   --no-session-persistence --settings <file> --add-dir <exchange> <state copy>
-  --output-format stream-json --verbose`` and the stage's ``--model`` and ``--effort``. The
-  ``select`` stage gets ``--tools Read,Grep,Glob``; ``implement`` and ``submit`` get
-  ``Bash,Read,Edit,Write,Glob,Grep``. The prompt goes on standard input. The working directory
-  is the one-off repository.
+  --output-format stream-json --verbose``, a stage session's ``--json-schema <schema>`` (#347:
+  the stage's output schema, `src.schedules.stages.schema_text`, inline) and the stage's
+  ``--model`` and ``--effort``. The ``select`` stage gets ``--tools Read,Grep,Glob``;
+  ``implement`` and ``submit`` get ``Bash,Read,Edit,Write,Glob,Grep``. The prompt goes on
+  standard input. The working directory is the one-off repository. The probe session of a spec
+  has the same argv, schema included, since the probe report is bound to the spec's digest.
 * **Settings** (`settings`, written by `write_settings` as a 0600 file the session cannot
   write): ``permissions.blockReadsOutsideWorkingDirectories``; ``Edit`` allow rules for the
   one-off repository and the exchange directory and ``Edit`` deny rules for the read-only state
@@ -369,17 +371,23 @@ def sessions_root(clone: Path) -> Path:
     return Path(clone).parent / SESSIONS_DIR
 
 
+STATE_COPY_DIR = "state"
+
+
 def session_layout(root: Path, run_id: str, stage: str) -> dict[str, Path]:
     """The conventional directories of one session under ``<root>/<run-id>/<stage>``: ``repo``
-    (one-off repository), ``exchange``, ``state`` (state copy), ``gh`` (empty ``GH_CONFIG_DIR``)
-    and ``settings.json``. The caller creates them (`prepare_layout`)."""
+    (one-off repository), ``exchange``, ``gh`` (empty ``GH_CONFIG_DIR``) and ``settings.json``;
+    and the run's state copy ``<root>/<run-id>/state``, one per run and shared by its stages
+    (#347: the worker service's ``worker-log.json`` and ``state.json`` stay visible to the submit
+    session). The caller creates them (`prepare_layout`)."""
     if not records.valid_run_id(run_id):
         raise ValueError(f"not a run ID: {run_id!r}")
     if stage not in KINDS and stage != "probe":
         raise ValueError(f"not a session kind: {stage!r}")
     base = Path(root) / run_id / stage
-    return {"base": base, "repository": base / "repo", "exchange": base / "exchange", "state_copy": base / "state",
-            "gh_config": base / "gh", "settings_file": base / "settings.json"}
+    return {"base": base, "repository": base / "repo", "exchange": base / "exchange",
+            "state_copy": Path(root) / run_id / STATE_COPY_DIR, "gh_config": base / "gh",
+            "settings_file": base / "settings.json"}
 
 
 def prepare_layout(layout: Mapping[str, Path]) -> None:
@@ -419,9 +427,23 @@ def tools_for(kind: str) -> tuple[str, ...]:
     return KIND_TOOLS[kind]
 
 
+def _schema_argument(schema: str) -> str:
+    """An inline ``--json-schema`` value: a JSON object of at most `SCHEMA_MAX_CHARS` characters."""
+    if not isinstance(schema, str) or len(schema) > SCHEMA_MAX_CHARS:
+        raise SandboxError("the --json-schema value must be JSON text of at most 64 KiB")
+    try:
+        parsed = json.loads(schema)
+    except ValueError:
+        parsed = None
+    if not isinstance(parsed, dict):
+        raise SandboxError("the --json-schema value must be a JSON object")
+    return schema
+
+
 def argv(claude: str, kind: str, paths: SessionPaths, *, model: str | None = None,
-         effort: str | None = None) -> list[str]:
-    """The exact argv of a Claude session of ``kind``; the prompt goes on standard input."""
+         effort: str | None = None, schema: str | None = None) -> list[str]:
+    """The exact argv of a Claude session of ``kind``; the prompt goes on standard input.
+    ``schema`` is the stage's inline ``--json-schema`` text (a JSON object)."""
     if not os.path.isabs(claude):
         raise SandboxError(f"the claude executable must be an absolute path: {claude!r}")
     command = [claude, "-p", "--restricted", "--safe-mode", "--tools", ",".join(tools_for(kind)),
@@ -429,6 +451,8 @@ def argv(claude: str, kind: str, paths: SessionPaths, *, model: str | None = Non
                "--disallowedTools", DISALLOWED_TOOLS, "--no-session-persistence",
                "--settings", str(paths.settings_file),
                "--add-dir", str(paths.exchange), str(paths.state_copy), *OUTPUT_FLAGS]
+    if schema is not None:
+        command += ["--json-schema", _schema_argument(schema)]
     for flag, value in (("--model", model), ("--effort", effort)):
         if value is not None:
             if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._\[\]-]{0,63}", value):
@@ -793,10 +817,12 @@ def executable_identity(claude: str, *, name: str = "claude") -> tuple[str, str]
 
 def build(claude: str, kind: str, paths: SessionPaths, *, path: str, mode: str = LOGIN_CONFIG_DIR,
           oauth_token: str | None = None, model: str | None = None, effort: str | None = None,
-          lang: str | None = None, run_variables: Mapping[str, str] | None = None) -> SessionSpec:
-    """Build a session: its settings file is written here; nothing starts."""
+          lang: str | None = None, run_variables: Mapping[str, str] | None = None,
+          schema: str | None = None) -> SessionSpec:
+    """Build a session: its settings file is written here; nothing starts. ``schema`` is a stage
+    session's output schema (``--json-schema``)."""
     content = settings(kind, paths)
-    command = tuple(argv(claude, kind, paths, model=model, effort=effort))
+    command = tuple(argv(claude, kind, paths, model=model, effort=effort, schema=schema))
     identity = executable_identity(claude)
     write_settings(paths, content)
     return SessionSpec(kind, command,
@@ -810,10 +836,11 @@ def check_spec(spec: SessionSpec, claude: str | None = None) -> list[str]:
     problems = list(spec.paths.problems())
     if problems:
         return problems
-    given = {flag: spec.argv[index + 1] for index, flag in enumerate(spec.argv[:-1]) if flag in ("--model", "--effort")}
+    given = {flag: spec.argv[index + 1] for index, flag in enumerate(spec.argv[:-1])
+             if flag in ("--model", "--effort", "--json-schema")}
     try:
         expected = argv(claude or spec.argv[0], spec.kind, spec.paths, model=given.get("--model"),
-                        effort=given.get("--effort"))
+                        effort=given.get("--effort"), schema=given.get("--json-schema"))
     except (SandboxError, ValueError) as error:
         return [str(error)]
     if list(spec.argv) != expected:
@@ -976,14 +1003,7 @@ def worker_argv(claude: str, paths: WorkerPaths, schema: str, *, model: str | No
     object); ``worker_context`` goes on standard input."""
     if not os.path.isabs(claude):
         raise SandboxError(f"the claude executable must be an absolute path: {claude!r}")
-    if not isinstance(schema, str) or len(schema) > SCHEMA_MAX_CHARS:
-        raise SandboxError("the --json-schema value must be JSON text of at most 64 KiB")
-    try:
-        parsed = json.loads(schema)
-    except ValueError:
-        parsed = None
-    if not isinstance(parsed, dict):
-        raise SandboxError("the --json-schema value must be a JSON object")
+    _schema_argument(schema)
     command = [claude, "-p", "--restricted", "--safe-mode", "--tools", ",".join(WORKER_TOOLS),
                "--strict-mcp-config", "--permission-mode", PERMISSION_MODE, "--permission-prompts", "none",
                "--disallowedTools", DISALLOWED_TOOLS, "--no-session-persistence",

@@ -101,6 +101,12 @@ class World:
         self.venv = fake_venv(base / "venv")
         self.schema = base / "schema.json"
         self.schema.write_text('{"type": "object"}\n')
+        # A stage reads its output schema from its read-only state copy (#347: --output-schema);
+        # `stage_paths` adds both, as a run's stage launch has them.
+        self.state_copy = base / "stage-state"
+        self.state_copy.mkdir()
+        self.stage_schema = self.state_copy / "schema-select.json"
+        self.stage_schema.write_text('{"type": "object"}\n')
         directories = cs.prepare_run_directories(tmp_root)
         self.codex_home, self.run_home = directories["codex_home"], directories["run_home"]
         self.codex = fake_codex(base / "fake", {"seen": str(base / "seen.jsonl")})
@@ -116,6 +122,10 @@ class World:
             values.update(repository=self.base / "repo", exchange=self.base / "exchange", venv=self.venv)
         values.update(changes)
         return CodexPaths(**values)
+
+    def stage_paths(self, **changes) -> CodexPaths:
+        """A stage launch as the run sequence builds it: the state copy and the output schema in it."""
+        return self.paths(cs.STAGE, **{"read_roots": (self.state_copy,), "schema": self.stage_schema, **changes})
 
     def targets(self, *, runner_targets=None) -> codex_probes.CodexTargets:
         return codex_probes.CodexTargets(state_dir=self.state, secrets_dir=self.home / ".config" / "agents-autodev",
@@ -346,12 +356,18 @@ def test_worker_argv_starts_with_the_outer_profile_and_never_widens(world):
 
 
 def test_stage_argv_writes_only_the_one_off_repository(world):
-    launch = build(world, world.paths(cs.STAGE))
+    launch = build(world, world.stage_paths())
     assert list(launch.argv[:3]) == [cs.SANDBOX_EXEC, "-f", str(world.base / "priv" / "stage.sb")]
     command = launch.command
     assert command[5:10] == ["-s", "workspace-write", "--skip-git-repo-check", "-C", str(world.base / "repo")]
     assert "sandbox_workspace_write.exclude_slash_tmp=true" in command and "--json" in command
-    assert command[-1] == "-" and "--output-schema" not in command
+    assert command[-1] == "-"
+    # The stage's output schema (#347), read from its state copy, a read-only root.
+    assert command[command.index("--output-schema") + 1] == str(world.stage_schema)
+    assert command.index("--json") < command.index("--output-schema") < command.index("-o")
+    assert "--output-schema" not in build(world, world.paths(cs.STAGE)).command
+    with pytest.raises(cs.CodexSandboxError, match="schema must lie inside one of its read-only roots"):
+        build(world, world.stage_paths(read_roots=()))
     assert not any(item.startswith("--add-dir") for item in launch.argv)
     names = [name for name, _ in launch.parameters]
     assert {"REPO", "EXCHANGE", "REPO_GIT", "REPO_GIT_CONFIG", "REPO_GIT_HOOKS", "REPO_GIT_COMMONDIR",
@@ -1428,12 +1444,18 @@ def test_an_unusable_git_has_its_own_reason(world, where):
 
 
 def test_the_stored_availability_reads_from_the_configuration_alone(world):
-    decision = stage(world, nested="ok", exec="sandboxed")
+    decision = stage(world, nested="ok", exec="sandboxed", paths=world.stage_paths())
     assert decision.codex, decision.report.failures
     config = {**autodev_config.DEFAULTS,
               "stages": {**autodev_config.DEFAULTS["stages"], "implement": {"client": "codex", "codex": {}}},
               "delegates": {**autodev_config.DEFAULTS["delegates"], "code-review-pass": {"client": "claude"}}}
     assert codex_probes.codex_settings(config, cs.STAGE) == {"model": None, "effort": None}  # what `stage` used
+    # Per stage kind (#347): a stage's own Codex settings, else the worker's.
+    selecting = {**config, "stages": {**config["stages"], "select": {"client": "codex",
+                                                                     "codex": {"model": "gpt-x", "effort": "low"}}}}
+    assert codex_probes.codex_settings(selecting, cs.STAGE, "select") == {"model": "gpt-x", "effort": "low"}
+    assert codex_probes.codex_settings(selecting, cs.STAGE) == {"model": None, "effort": None}
+    assert codex_probes.stage_shape(world.codex, selecting, "select") != codex_probes.stage_shape(world.codex, config)
     shape = codex_probes.stage_shape(world.codex, config)
     assert shape == decision.launch.shape() == stored_entry(world)["shape"]
     version = codex_probes.installed_version(world.codex, path=PATH)
