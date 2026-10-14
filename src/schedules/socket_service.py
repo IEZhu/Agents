@@ -21,7 +21,8 @@ text, which a handler treats as data only; no string may carry a control charact
 surrogate. A handler gets a `RequestContext` with its deadline, the peer's PID and a closing
 check. A type registered ``session_bound`` answers only a process of the current stage session
 (the runner names its root PID), checked on every request. The heavy-process lease
-(`src.schedules.heavy`) and the GitHub broker (`src.schedules.broker`) register here; the worker launcher (#345) will.
+(`src.schedules.heavy`), the GitHub broker (`src.schedules.broker`) and the worker launcher
+(`src.schedules.workers`) register here.
 
 `serve` also writes the thin clients ``gh``, ``worker`` and ``heavy`` (`src.schedules.client_stub`)
 into a ``clients`` directory beside the socket. When the run ends, normally, by an exception, or
@@ -65,7 +66,9 @@ READ_TIMEOUT = 10.0  # seconds for a whole request; an idle wait is unbounded wh
 MAX_CONNECTIONS = 16
 CLOSE_WAIT = 5.0  # seconds `close` waits for all connection threads together
 DEFAULT_DEADLINE = 5.0  # seconds a handler has unless its type registers another deadline
-MAX_DEADLINE = 120.0
+# The longest deadline a type may register: worker.wait (#345) waits up to 9 minutes in one call,
+# because the Bash tool of a session limits a call to 10.
+MAX_DEADLINE = 600.0
 TAKE_RETRY = 0.05  # seconds between attempts of `Connection.take`
 AF_UNIX_LIMITS = {"darwin": 103, "linux": 107}  # sizeof(sun_path) minus the terminating NUL
 DEFAULT_AF_UNIX_LIMIT = 103

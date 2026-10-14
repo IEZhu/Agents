@@ -910,11 +910,13 @@ def record_decision(run_id: str, directory: str | Path | None, step: str, decisi
                     persistent: Iterable[decoy_store.Decoy] = (), known: Iterable[str] = ()) -> dict:
     """Add the decision to the run record's ``clients`` list (masked with the decoy markers, the
     decision's API key and any other known secret): ``step``, ``client_requested``,
-    ``client_applied`` (None for an abort), ``fallback_reason``, ``aborted`` and ``abort_reason``."""
-    record = records.read_record(run_id, directory) or {}
-    record.setdefault("clients", []).append({"step": step, **decision.to_record()})
+    ``client_applied`` (None for an abort), ``fallback_reason``, ``aborted`` and ``abort_reason``.
+    The record is changed under its lock (`records.update_record`): a worker thread calls this
+    while the run sequence may write the same record."""
     markers = [decoy.marker for decoy in persistent] + decision.known_values() + [value for value in known if value]
-    return records.write_record(run_id, record, directory, known=markers)
+    return records.update_record(
+        run_id, lambda record: record.setdefault("clients", []).append({"step": step, **decision.to_record()}),
+        directory, known=markers)
 
 
 def start(decision: Decision, text: str, *, proxy: ConnectProxy, stdout: Any = None, stderr: Any = None,

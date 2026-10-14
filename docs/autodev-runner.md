@@ -19,7 +19,7 @@ does today.
 - **No run opens the runner socket yet.** The socket, its thin clients and the heavy-process
   lease exist; the run sequence of #347 will open them around its stage sessions, and only the
   heavy-process lease answers until #347 registers the broker (`src.schedules.broker.register`)
-  and the worker launcher (#345) registers its types.
+  and the worker launcher (`src.schedules.workers.register`, [autodev-workers.md](autodev-workers.md)).
   #347 must pass the sandbox's real writable set as `session_writable`, name the current stage
   session's root PID (`session_root`), and write `Endpoint.to_record()` into the run record as
   `endpoint`. The sandbox settings of #343 re-open the clients directory, the socket and the
@@ -56,6 +56,7 @@ failed, and 2 for wrong arguments.
 | `autodev ready` | A stub until #350: it lists the missing parts and exits with code 1. |
 | `probe [--mode M] [--kind K] --confirm-live-probe` | The owner's live check of the session sandbox: one probe session of kind `implement`, `submit` or `select` with exactly a run's argv, settings and environment (a real model turn, so it refuses without the flag). See [autodev-sandbox.md](autodev-sandbox.md#command). |
 | `codex-probe [--kind worker\|stage] --confirm-live-probe` | The owner's live check of Codex: the outer profile, the model-free probes, the nested-sandbox check and the decision between Codex and the Claude worker; a stage check also runs the probe plan through `codex exec` (a model turn) when those pass. See [autodev-codex.md](autodev-codex.md#command). |
+| `worker-probe --confirm-live-probe` | The owner's live check of the Claude worker (#345): one worker turn built as a review's, in a review's layout under the run directory, with a `Read` in its tree and one in its materials that must succeed and one outside both that must be denied (a model turn, so it refuses without the flag). See [autodev-workers.md](autodev-workers.md#current-limits). |
 
 ## Tick
 
@@ -154,8 +155,10 @@ around it, and the runner never executes a command sent through it.
   string may hold a control character other than newline and tab, or a lone surrogate. An
   integer lies between 1 and 1,000,000 unless its field sets other bounds. This part registers
   `heavy.acquire` and `heavy.release`; the broker registers its `gh.*` types
-  ([autodev-broker.md](autodev-broker.md)) and the worker launcher (#345) will register theirs.
-- **Handlers.** Each type has a deadline (5 seconds unless it registers another, at most 120). A
+  ([autodev-broker.md](autodev-broker.md)) and the worker launcher its `worker.*` types
+  ([autodev-workers.md](autodev-workers.md)).
+- **Handlers.** Each type has a deadline (5 seconds unless it registers another, at most 600, so
+  that `worker.wait` can wait 9 minutes within the 10 minutes a session's Bash call may take). A
   handler gets a `RequestContext` with that deadline, the peer's PID from the kernel and a
   `closing()` check; it bounds its own subprocess and network timeouts by the deadline and checks
   `closing()` right before any external write, aborting without the write once the server
@@ -164,7 +167,7 @@ around it, and the runner never executes a command sent through it.
   (`Connection.take` and `Connection.keep` refuse once it is closed). A type registered
   `session_bound=True` answers only a process whose ancestors include the current stage session's
   root PID, which the runner names through `session_root`; the check reads the process table on
-  every request and refuses when it cannot. The broker's types are session-bound, as those of #345 are meant to be, and the broker logs each remote write before and after it, so a write that a
+  every request and refuses when it cannot. The broker's and the worker launcher's types are session-bound, and the broker logs each remote write before and after it, so a write that a
   close interrupts stays visible.
 
 ### Thin clients
@@ -185,8 +188,8 @@ paths for the session prompt.
 | `heavy -- <command> [args]` | Takes the heavy-process lease, runs the command itself without a shell, with the inherited standard streams, keeps the connection open while it runs, then releases the lease. It passes SIGTERM, SIGHUP and SIGINT on to the command | The command's status, or 75 when the lease is refused, with the reason on standard error |
 
 Every client exits with 2 for wrong arguments and 69 when the socket cannot be reached; `heavy`
-exits with 127 or 126 when the command cannot be started. Until #347 registers the broker and #345 lands, `gh`
-and `worker` report every operation as an unknown request type.
+exits with 127 or 126 when the command cannot be started. Until #347 registers the broker and the worker
+launcher, `gh` and `worker` report every operation as an unknown request type.
 
 ### Heavy-process lease
 
