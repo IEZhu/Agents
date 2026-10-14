@@ -43,7 +43,7 @@ outside the paths the prompt names.
 | `.author` (`login`, `id`), `.app` | Who opened it, and the app it was opened through or `null` | Filter 1 |
 | `.label_times` | When `autodev:ready` and `autodev:next` were last added | Ordering |
 | `.owner_activity` | The owner account's latest comment, edit or label event | Filter 4, readiness |
-| `.agent_state` | The issue agent's state from its trusted state comment (`phase`, `lock_time`), or `null` without one | Filter 3 |
+| `.agent_state` | The issue agent's state from its trusted state comment (`phase`, `lock_at`), or `null` without one | Filter 3 |
 | `.open_prs`, `.branches` | Open pull requests of the target that reference the issue; remote branches `claude/issue-<N>-*` and `claude/autodev-<N>-*` | Filter 4 |
 | `.dependencies` | Each dependency `#N` the body names ("Builds on", "Depends on", "Blocked by", "after") with its state; the runner does not read the parent epic's work order yet, so judge it from the bodies you have | Filter 5 |
 | `.closed_autodev_prs` | Self-development pull requests for it closed without merging | Filter 8 |

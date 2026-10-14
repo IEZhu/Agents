@@ -71,7 +71,9 @@ prompt, not the flags, because the probe session of a stage has the same argv. I
 ``stage_seen`` file (JSON lines; ``values`` are the placeholders read back from the prompt with
 the template of `src.schedules.stages`, ``state_copy`` lists the run's state copy with each
 file's mode and, for ``state.json``, its content). ``stages`` (kind -> ``{"script", "output",
-"no_output", "sleep", "say"}``) drives it (``sleep`` waits after the script): each ``script`` line is run with ``/bin/bash -c`` in the
+"no_output", "sleep", "say", "pad"}``) drives it (``sleep`` waits after the script; ``pad`` emits that
+many characters of filler text events before ``say``, for a stream longer than a capture): each
+``script`` line is run with ``/bin/bash -c`` in the
 working directory and the session's environment after ``{name}`` (a prompt placeholder, e.g.
 ``{worker_cmd}`` or ``{exchange_dir}``) and ``{head}`` (``git rev-parse HEAD`` at that line) are
 filled in, and is reported as a Bash tool call with its output; then a ``result`` event carries
@@ -427,6 +429,10 @@ def stage(kind, text):
             "values": values, "state_copy": state_copy_listing(), "codes": []}
     emit({"type": "system", "subtype": "init", "session_id": "s", "tools": flag("--tools").split(","),
           "mcp_servers": [], "permissionMode": flag("--permission-mode"), "plugins": [], "model": "claude-opus-test"})
+    left, filler = int(plan.get("pad") or 0), "filler words of a long stage stream " * 2000
+    while left > 0:
+        emit({"type": "assistant", "message": {"content": [{"type": "text", "text": filler[:left]}]}})
+        left -= len(filler)
     if plan.get("say"):
         emit({"type": "assistant", "message": {"content": [{"type": "text", "text": plan["say"]}]}})
     for index, line in enumerate(plan.get("script", [])):

@@ -57,7 +57,8 @@ from src.daemon.state import private_dir, read_json, write_json
 from . import broker as broker_module
 from . import config as autodev_config
 from . import codex_probes, codex_proxy, codex_sandbox, decoys, drift, heavy, launchagent, lease, probes, records, repos
-from . import sandbox, scan, socket_service, stages, worker_launch, workers
+from . import run_state, sandbox, scan, socket_service, stages, worker_launch, workers
+from . import report as run_report
 from .github import GitHubClient, TokenUnavailable, keychain_token, token_provider
 from .heavy import HEAVY, heavy_processes  # noqa: F401 (HEAVY: moved to heavy, still importable here)
 from .supervise import SupervisorStopped, run_supervised
@@ -210,8 +211,9 @@ def run_autodev(ctx: Context, mode: str, *, pr: int | None = None, run_id: str |
     except lease.LeaseBusy as error:
         record.update(infra(f"lease: {error}"))
     record["finished"] = iso(ctx.clock())
-    if mode == "dry-run" and not record.get("cleanup_executed"):
-        record["note"] = "dry-run: the gate's cleanup actions were not executed"
+    if mode == "dry-run" and not record.get("cleanup_executed"):  # beside the sequence's own note
+        notes = [record["note"]] if record.get("note") else []
+        record["note"] = "; ".join([*notes, "dry-run: the gate's cleanup actions were not executed"])
     # Merged into what is on disk: the sequence, the probes and the worker threads added fields.
     written = records.update_record(run_id, lambda current: {**current, **record}, ctx.directory)
     return (0 if written["status"] == "completed" else 1), written
@@ -238,6 +240,18 @@ def remove_endpoint(record: dict, run_dir: Path) -> None:
         record["endpoint_cleanup"] = outcome
 
 
+def notify_ended(ctx: Context, record: dict, run_dir: Path) -> None:
+    """The owner's notification for a run the supervisor ended (a timeout, a stop), unless the run
+    notified before it ended (#347 review): the report from what the run left, the fixed phrases of
+    `report.notification`; ``record`` gets both."""
+    if record.get("notification") or not run_report.should_notify(record):
+        return
+    report = run_report.build_report(record, run_state.read_state(run_dir), run_dir)
+    title, message = run_report.notification(report)
+    sent = run_report.notify(title, message, runner=ctx.notify_runner, platform=ctx.platform)
+    record.update(report=report, notification={"sent": sent, "title": title, "by": "supervisor"})
+
+
 def launch(ctx: Context, mode: str, trigger: dict, *, pr: int | None = None) -> tuple[int, dict]:
     """Start one supervised run and return its completed record."""
     from . import sequence  # it imports this module
@@ -261,6 +275,7 @@ def launch(ctx: Context, mode: str, trigger: dict, *, pr: int | None = None) -> 
         record.update(infra(f"stopped: the supervisor received {signal.Signals(stopped.signal).name}; "
                             "the run's process tree was ended"))
         record.setdefault("finished", iso(ctx.clock()))
+        notify_ended(ctx, record, run_dir)
         records.write_record(run_id, record, ctx.directory)
         raise
     except OSError as error:
@@ -274,6 +289,7 @@ def launch(ctx: Context, mode: str, trigger: dict, *, pr: int | None = None) -> 
     elif outcome.timed_out:
         record.update(infra(f"timeout: the run exceeded {timeout} seconds; its process tree was ended"),
                       signalled=outcome.signalled)
+        notify_ended(ctx, record, run_dir)
     else:
         if outcome.signalled:  # processes the run left behind when it exited
             record["swept"] = outcome.signalled

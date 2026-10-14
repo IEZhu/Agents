@@ -7,7 +7,10 @@ started from. The session reaches it through the runner socket (`src.schedules.s
 with named, typed ``gh.*`` request types only (`register`); there is no raw REST or GraphQL
 passthrough. The broker sends GraphQL itself, with the fixed documents of `DOCUMENTS`.
 
-Socket operations (all session-bound):
+Socket operations (all session-bound). Only the ``submit`` stage session writes (#347 review):
+the runner names the stage whose session the socket serves (`Broker.enter_stage`), and every
+write below refuses for any other stage, so the implement session has only ``gh.read`` and
+``gh.threads``. Each log entry of a session operation names the stage.
 
 * ``gh.push`` pushes the run's branch with the deploy key, only when the head is the promoted
   ``refs/heads/claude/autodev-<issue>-<slug>`` of the trusted repository (a commit the runner
@@ -121,6 +124,9 @@ REVIEW_STATUSES = ("complete", "complete_with_followups", "waiting_bots", "block
 MAX_STATE_FINDINGS = 200
 MAX_NEXT_ATTEMPT = timedelta(hours=24)
 MODES = ("dry-run", "run", "resume")
+# Stage sessions whose socket requests may write to GitHub (design 9.4: the implement stage is local
+# git only; its push, pull request and comments wait for the runner's checks after it, #347 review).
+SESSION_WRITE_STAGES = ("submit",)
 LOG_NAME = "broker.jsonl"
 REVIEW_RECORD = "validated-review.json"  # written by the worker launcher (#345)
 PREMORTEM_RECORD = "premortem.json"  # written by the pre-mortem step (#345, #347)
@@ -635,6 +641,7 @@ class BrokerLog:
         self.entries: list[dict] = self._load(path) if path is not None else []
         self._known = [secret for secret in known if secret]
         self._lock = threading.Lock()
+        self.stage: str | None = None  # the stage session being served; named in each entry meanwhile
 
     @staticmethod
     def _load(path: Path) -> list[dict]:
@@ -659,6 +666,8 @@ class BrokerLog:
             self._known = self._known + [value for value in values if value and value not in self._known]
 
     def add(self, op: str, phase: str, **details: Any) -> dict:
+        if self.stage is not None:
+            details = {"stage": self.stage, **details}
         entry = records.mask({"at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "op": op,
                               "phase": phase, **details}, self._known)
         with self._lock:
@@ -746,6 +755,8 @@ class Broker:
     decision reads (#345), reaches the scan through `add_known`. ``pr_allowed`` returns why no pull
     request may be opened now (an open security risk of the run's pre-mortem, design 5.8), or None;
     ``gh.pr_create`` refuses with that reason, and fails closed when the check itself fails.
+    ``stage`` is the stage session the socket serves (`enter_stage`); a session's write refuses
+    unless it is one of `SESSION_WRITE_STAGES`, and None (no stage named) refuses too.
     """
 
     def __init__(self, run: Run, *, credentials: Credentials | None, git: TrustedGit,
@@ -758,7 +769,8 @@ class Broker:
                  decoys: Iterable[scan.KnownSecret] = (),
                  on_decoy: Callable[[tuple[scan.Hit, ...]], None] | None = None,
                  known: Iterable[scan.KnownSecret] = (),
-                 pr_allowed: Callable[[], str | None] | None = None):
+                 pr_allowed: Callable[[], str | None] | None = None,
+                 stage: str | None = None):
         self.run = run
         self.credentials = credentials
         self.git = git
@@ -790,6 +802,18 @@ class Broker:
         self.log = BrokerLog(self.run_dir / LOG_NAME if self.run_dir else None,
                              [self._token or ""] + [secret.value for secret in known if isinstance(secret.value, str)])
         self.api = _Api(run.repository, self._api_token, transport)
+        self.enter_stage(stage)
+
+    @property
+    def stage(self) -> str | None:
+        return self.log.stage
+
+    def enter_stage(self, stage: str | None) -> None:
+        """Name the stage session the socket serves now (None between sessions): only a
+        `SESSION_WRITE_STAGES` session's requests may write, and the log entries name it."""
+        if stage is not None and not (isinstance(stage, str) and stage.isidentifier()):
+            raise ValueError("stage must be a stage kind or None")
+        self.log.stage = stage  # one assignment: no lock, so a push in flight cannot hold the runner up
 
     def _open(self, key_reader: Callable[[Path], bytes]) -> list[scan.KnownSecret]:
         """Check both credentials of a real run (`credential_problems`) and return them as known
@@ -832,9 +856,15 @@ class Broker:
     # --- shared checks ---------------------------------------------------------------------------
 
     def _writable(self, op: str, request: RequestContext | None = None) -> None:
+        """Refuse a write in dry-run, and a session's write (``request``) outside a
+        `SESSION_WRITE_STAGES` stage or while the run closes; runner-internal writes pass no request."""
         if self.run.read_only:
             self.log.add(op, "refused", reason="dry-run")
             raise ReadOnly(f"{op}: the broker is read-only in dry-run")
+        if request is not None and self.stage not in SESSION_WRITE_STAGES:
+            reason = f"the {self.stage or 'unnamed'} stage may not write to GitHub; only the submit stage does"
+            self.log.add(op, "refused", reason=reason)
+            raise BrokerRefused(f"{op}: {reason}")
         if request is not None and request.closing():
             raise BrokerRefused(f"{op}: the run is closing")
 

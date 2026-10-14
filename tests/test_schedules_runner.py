@@ -342,6 +342,33 @@ def test_a_stopped_supervisor_completes_the_record_before_it_exits(ctx):
     assert record["reason"] == "stopped: the supervisor received SIGTERM; the run's process tree was ended"
 
 
+def test_a_run_the_supervisor_ended_still_notifies_the_owner(ctx):
+    """Correctness review #347: a run ended by a timeout or a stopped supervisor that could not
+    notify the owner itself is notified by the launching process, once."""
+    ctx.supervise = lambda argv, **kwargs: Supervised(-9, timed_out=True)
+    code, record = call(ctx, "autodev", "run-now")
+    assert code == 1 and record["reason"].startswith("timeout:") and record["notification"]["sent"] is True
+    [argv] = ctx.test.notifications
+    assert argv[-2] == "Autodev dry-run failed" and record["run_id"] in argv[-1]
+    assert record["report"]["status"] == "failed: infra"
+
+    def notified_itself(argv, **kwargs):
+        run_id = argv[argv.index("--run-id") + 1]
+        records.update_record(run_id, lambda current: {**current, "notification": {"sent": True, "title": "x"}},
+                              ctx.directory)
+        return Supervised(-9, timed_out=True)
+    ctx.supervise = notified_itself
+    call(ctx, "autodev", "run-now")
+    assert len(ctx.test.notifications) == 1
+
+    def stopped(argv, **kwargs):
+        raise SupervisorStopped(signal.SIGTERM)
+    ctx.supervise = stopped
+    with pytest.raises(SupervisorStopped):
+        call(ctx, "autodev", "run-now")
+    assert len(ctx.test.notifications) == 2 and ctx.test.notifications[-1][-2] == "Autodev dry-run failed"
+
+
 @pytest.fixture
 def temp_root():
     """A short temporary directory, as the runner's own, for private socket directories."""

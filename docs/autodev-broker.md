@@ -16,10 +16,11 @@ bound to one run: its issue, its PR, its branch and the pinned `main` commit the
   builds the `Broker` after the gate, unbound (`Run.issue` None) with the credentials, the run
   directory, every stage path a session may write as `session_writable`, the decoys with
   `decoys.trip` as `on_decoy`, and `pr_allowed` reporting an open security risk of the run's
-  pre-mortem; it registers it on the stage sessions' socket with `register(registry, broker)`,
-  binds it to the selected issue (`bind_issue`) or the resumed PR (`bind_issue`, then
-  `bind_resume`) and calls the runner-internal operations below. A dry-run builds no broker, so
-  it writes nothing and leaves no `broker.jsonl`.
+  pre-mortem or, in a new run, a pre-mortem not yet accepted; it registers it on the stage
+  sessions' socket with `register(registry, broker)`, names the stage of each session
+  (`enter_stage`, below), binds it to the selected issue (`bind_issue`) or the resumed PR
+  (`bind_issue`, then `bind_resume`) and calls the runner-internal operations below. A dry-run
+  builds no broker, so it writes nothing and leaves no `broker.jsonl`.
 - **Two inputs come from the worker launcher.** The worker launcher (#345,
   [autodev-workers.md](autodev-workers.md)) writes the findings ledger and the validated-review
   record after an accepted review and the pre-mortem record after an accepted pre-mortem; the broker
@@ -58,6 +59,15 @@ blocked before any session (Q-resume-head).
 Only these `gh.*` types are registered, all session-bound (only a process of the current stage
 session gets an answer). There is no raw REST or GraphQL request, no merge, close, reopen or
 branch deletion, no issue-body edit and no repository-label operation.
+
+**Stage binding (#347 review).** The runner names the stage whose session the socket serves
+(`Broker.enter_stage`, None between sessions; the constructor's `stage` is None by default). A
+session's write (`gh.push`, `gh.pr_create`, `gh.pr_edit`, `gh.comment`, `gh.comment_edit`,
+`gh.label`, `gh.resolve_thread`) is refused unless the stage is one of `SESSION_WRITE_STAGES`,
+which is only `submit`: the implement session reads (`gh.read`, `gh.threads`) and nothing more,
+so its push and pull request wait for the runner's checks after the stage (design 9.4). The
+refusal is logged, and every log entry written while a stage is named carries `stage`. The
+runner-internal operations pass no request and are not bound to a stage.
 
 | Type | Arguments | What the broker checks |
 |---|---|---|

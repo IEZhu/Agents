@@ -175,3 +175,48 @@ def test_branch_head(trusted, tmp_path, exchange):
     assert trusted.branch_head(BRANCH) is None
     _, result = imported(trusted, tmp_path, exchange)
     assert trusted.branch_head(BRANCH) == result.head
+
+
+# --- export guards (#347 review, coverage) -------------------------------------------------------
+
+def test_export_refuses_a_head_that_does_not_descend_from_base(trusted, tmp_path, exchange, github):
+    """A diverged head: base..head is not empty, but head does not descend from base."""
+    _, result = imported(trusted, tmp_path, exchange)
+    write(github, {"README.md": "# moved\n"})
+    moved = commit_all(github)
+    assert trusted.fetch() == moved
+    with pytest.raises(RepositoryError, match="does not descend from"):
+        trusted.export_commits(moved, result.head, tmp_path / "export", RUN_ID)
+
+
+def test_export_refuses_more_commits_than_an_import_takes(trusted, tmp_path, exchange, monkeypatch):
+    first = session(trusted, tmp_path)
+    work(first.path, {"a.txt": "a\n"})
+    write(first.path, {"b.txt": "b\n"})
+    head = commit_all(first.path, "second")
+    trusted.import_bundle(bundle(first.path, exchange, BRANCH, f"^{first.pinned}"), exchange, BRANCH, RUN_ID,
+                          first.pinned)
+    monkeypatch.setattr(repos, "MAX_IMPORT_COMMITS", 1)
+    with pytest.raises(RepositoryError, match="holds 2 commits, not 1 to 1"):
+        trusted.export_commits(first.pinned, head, tmp_path / "export", RUN_ID)
+
+
+def test_the_exported_bundle_needs_base(trusted, tmp_path, exchange):
+    """The bundle holds only base..head: a repository without base lacks its prerequisite."""
+    first, result = imported(trusted, tmp_path, exchange)
+    exported = trusted.export_commits(first.pinned, result.head, tmp_path / "export", RUN_ID)
+    empty = tmp_path / "empty"
+    fixture_git(tmp_path, "init", "--quiet", str(empty))
+    lacking = subprocess.run(["git", "-C", str(empty), "bundle", "verify", exported["bundle"]],
+                             env=fixture_environment(), capture_output=True, text=True)
+    assert lacking.returncode != 0 and first.pinned in lacking.stdout + lacking.stderr
+
+
+def test_a_stale_branch_goes_to_its_own_quarantine_ref(trusted, tmp_path, exchange):
+    """A branch an earlier run left is set aside under ``stale`` before a new run builds (#347 review)."""
+    _, result = imported(trusted, tmp_path, exchange)
+    ref = trusted.quarantine_branch(BRANCH, RUN_ID, "stale")
+    assert ref == f"refs/autodev/quarantine/{RUN_ID}/stale"
+    assert refs(trusted.path)[ref] == result.head and trusted.branch_head(BRANCH) is None
+    with pytest.raises(ValueError, match="not a quarantine name"):
+        trusted.quarantine_branch(BRANCH, RUN_ID, "../x")
