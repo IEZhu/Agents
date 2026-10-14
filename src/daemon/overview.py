@@ -12,6 +12,7 @@ import os
 import re
 import stat
 import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
@@ -158,14 +159,51 @@ def directories(service_directory: Path) -> list[dict]:
     return [{"id": key, "label": label, "path": str(path), "size": size_of(path)} for key, label, path in places]
 
 
-def updates(service_directory, root: Path = INSTALL_ROOT) -> dict:
-    """The update channel (#381): configured and checked-out branch, whether scheduled updates are on,
-    and the last scheduled run. Local reads only; the configured branch is the ``.env`` value the
-    scheduled updater follows (the service's own environment does not override it)."""
+# What a scheduled run's record may show on the page; its strings lose any credentials in a URL.
+LAST_RUN_KEYS = ("time", "state", "reason", "error", "switch", "head", "target")
+_CREDENTIALS = re.compile(r"([a-z][a-z0-9+.-]*://)[^/@\s]+@", re.I)
+
+
+def without_credentials(value):
+    """*value* (a string, or a mapping of them) without the user and password of any URL in it."""
+    if isinstance(value, str):
+        return _CREDENTIALS.sub(r"\1", value)
+    if isinstance(value, dict):
+        return {key: without_credentials(item) for key, item in value.items()}
+    return value
+
+
+def update_command(platform: str = sys.platform) -> str:
+    """The command that applies the channel now, run in the installation directory."""
+    python = r".venv\Scripts\python" if platform == "win32" else ".venv/bin/python"
+    return python + " -m src.daemon update"
+
+
+def when_text(channel: dict, scheduled: bool, interval: int, command: str) -> str:
+    """When the setting takes effect, in words: the next scheduled run, or the ``update`` command."""
+    configured, current = channel.get("configured_branch"), channel.get("checked_out_branch")
+    if scheduled:
+        when = (f"at the next scheduled run (every {max(1, interval // 60)} min, when the service is idle), "
+                f"or now with `{command}`")
+    else:
+        when = f"when you run `{command}`; scheduled updates are off"
+    if channel.get("action") == "switch":
+        return f"The switch from {current} to {configured} happens {when}."
+    if channel.get("action") == "follow":
+        return f"Updates fast-forward {configured} {when}. A saved change applies the same way."
+    return (f"The checkout is on {current or 'a detached HEAD'}, not main, dev or the previous setting: the "
+            "updaters leave it alone (local development) until one of them is checked out.")
+
+
+def updates(service_directory, root: Path | None = None, platform: str = sys.platform) -> dict:
+    """The update channel (#381): configured branch and its source, checked-out branch, whether
+    scheduled updates are on, the last scheduled run, the branches the page offers, the ``update``
+    command and when a saved setting takes effect. Local reads only; the configured branch is the
+    ``.env`` value the scheduled updater follows (the service's own environment does not override it)."""
     from src import update_channel
     from .state import read_json
     try:
-        channel = update_channel.summary(root, environ={})
+        channel = update_channel.summary(root or INSTALL_ROOT, environ={})
     except (OSError, ValueError) as error:
         channel = {"error": f"{type(error).__name__}: {error}"}
     try:
@@ -173,16 +211,29 @@ def updates(service_directory, root: Path = INSTALL_ROOT) -> dict:
         last_run = read_json(Path(service_directory) / "auto-update.json", {}) or {}
     except (OSError, ValueError):
         config, last_run = {}, {}
-    return {**channel, "auto_update": bool((config.get("auto_update") or {}).get("enabled")),
-            "last_run": last_run}
+    last_run = last_run if isinstance(last_run, dict) else {}
+    scheduled = config.get("auto_update") if isinstance(config, dict) else None
+    scheduled = scheduled if isinstance(scheduled, dict) else {}
+    try:
+        interval = int(scheduled.get("interval", 900))
+    except (TypeError, ValueError):
+        interval = 900
+    command = update_command(platform)
+    found = {**channel, "auto_update": bool(scheduled.get("enabled")), "interval": interval,
+             "last_run": without_credentials({key: last_run[key] for key in LAST_RUN_KEYS if key in last_run}),
+             "choices": list(update_channel.STANDARD_BRANCHES), "update_command": command}
+    if "error" not in channel:
+        found["when"] = when_text(channel, found["auto_update"], interval, command)
+    return found
 
 
 class Overview:
     """The overview. Sizes are measured at most once per ``CACHE_SECONDS``, one measurement at a time;
     the rest is read with each request. ``home`` is the user's home, where the apps' configurations are."""
 
-    def __init__(self, service, clock=time.monotonic, home: Path | None = None):
+    def __init__(self, service, clock=time.monotonic, home: Path | None = None, root: Path = INSTALL_ROOT):
         self.service = service
+        self.root = root  # the installation whose update channel the overview shows
         self.clock = clock
         self.home = home
         self._lock = threading.Lock()
@@ -195,6 +246,6 @@ class Overview:
                 self._sizes = (self.clock(), {"model": model(), "directories": directories(self.service.directory)})
             sizes = self._sizes[1]
         return {"version": agents_core_version(), "repository": repository(), "counts": counts(),
-                "updates": updates(self.service.directory),
+                "updates": updates(self.service.directory, self.root),
                 "apps": configured_apps(self.service.directory, self.home),
                 "registrations": registration_report(self.service.directory, self.home), **sizes}

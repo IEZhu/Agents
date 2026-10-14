@@ -17,7 +17,7 @@ on:
       - tests/conftest.py
       - .github/workflows/uninstall.yml
   push:
-    branches: [main]
+    branches: [main, dev]
     paths:
       - src/server.py
       - tests/test_tool_annotations.py
