@@ -190,8 +190,10 @@ recorded acceptance of the residual risks of the shared account; the reference i
    for each of the three stage kinds in each of the four modes, once (the twelve `probe` runs of
    [acceptance A7](autodev-acceptance.md#a7-probes-hold-in-every-mode-and-the-broker-refuses);
    at any age, since every run probes before each session with Bash), and your acceptance. A
-   `select` configured for Codex needs its Claude probe records only while its stored Codex
-   check says unavailable, because a run then falls back to a Claude select session. It reads
+   `select` configured for Codex needs its Claude probe records at readiness only while its stored
+   Codex check says unavailable. If Codex becomes unavailable before its stage or its live decision
+   falls back, a scheduled real run checks those records before starting the Claude session. It
+   refuses with the missing probe commands unless every mode has a passing record. `ready` reads
    GitHub and the stored records, starts no probe, and records its result for the settings page.
 2. Once only the acceptance is missing:
    `.venv/bin/python -m src.schedules autodev enable --mode run --accept-shared-account`. It lists
