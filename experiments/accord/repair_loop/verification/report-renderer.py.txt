@@ -1,0 +1,62 @@
+import json
+from pathlib import Path
+import statistics
+from collections import Counter
+
+root = Path('/Users/alexey.zhuchkov/.codex/worktrees/agent-language-concept/Agents')
+data = root / 'experiments/accord/repair_loop/results/qwen38-27b-m4max-20261014'
+analysis = json.loads((data / 'analysis.json').read_text())
+replay = json.loads((data / 'cross-replay.json').read_text())
+summary = json.loads((data / 'summary.json').read_text())
+rows = summary['episodes']
+assert len(rows) == 8 and analysis['verified'] and replay['complete_primary']
+assert replay['all_stage_outcomes_identical'] and len(replay['rows']) == 16
+totals = analysis['totals']
+names = {'accord':'Accord IR', 'python':'Python SDK'}
+episodes = [json.loads((data / f"episode-{row['index']:02d}" / 'episode.json').read_text()) for row in rows]
+stages = [stage for episode in episodes for stage in episode['stages']]
+errors = Counter(stage.get('error', 'behavior or decision rejected') for stage in stages if not stage['accepted'])
+corrections = []
+for episode in episodes:
+    impl = [stage for stage in episode['stages'] if stage['role'] == 'implement']
+    if len(impl) > 1 and impl[-1]['accepted']:
+        previous = impl[-2]['result']['result']['items'][0]
+        accepted = impl[-1]['result']['result']['items'][0]
+        corrections.append({'episode':episode['index'], 'only_added_final_lf':accepted == previous + '\n'})
+hits = sum(stage.get('cache', {}).get('actual_reused_tokens', 0) > 0 for stage in stages)
+reuse_requests = sum(stage.get('cache', {}).get('requested_reuse', False) for stage in stages)
+successful = {b:[r['full_elapsed_ms'] for r in rows if r['backend'] == b and r['completed']] for b in names}
+table = ['| Frontend | Successful episodes | First proposal passed repair gate | Median full time, all episodes | Median full time, successes | Model calls | Total episode time |', '|---|---:|---:|---:|---:|---:|---:|']
+for b in names:
+    g = analysis['groups'][b]
+    median_ok = f"{statistics.median(successful[b])/60000:.2f} min" if successful[b] else '—'
+    table.append(f"| {names[b]} | {g['successes']}/{g['episodes']} ({g['success_rate']:.0%}) | {g['first_attempt_fixes']}/{g['episodes']} | {g['median_full_ms']/60000:.2f} min | {median_ok} | {g['model_calls']} | {g['total_full_ms']/60000:.2f} min |")
+episode_table = ['| Order | Frontend | Seed | Implementation attempts | Total model calls | Complete solution | Full time |', '|---:|---|---:|---:|---:|---|---:|']
+for row in rows:
+    episode_table.append(f"| {row['index']} | {names[row['backend']]} | {row['seed']} | {row['implementation_attempts']} | {row['model_calls']} | {'yes' if row['completed'] else 'no'} | {row['full_elapsed_ms']/1000:.1f} s |")
+live_successes = sum(row['completed'] for row in rows)
+lead = f"The stronger-model pilot produced **{live_successes}/8 complete solutions**, including real code generation, the unchanged 46-check probe, independent review and parent acceptance. **No practical advantage from the IR itself was demonstrated**: replaying every captured trajectory through both runtimes preserved all stage outcomes. Live success rates and full times are below; their differences include model-output variability and different numbers of attempts."
+full_ms = sum(row['full_elapsed_ms'] for row in rows)
+host_ms = full_ms - totals['model_ms'] - totals['prepare_ms'] - totals['validation_ms']
+timing = (f"The primary batch took **{analysis['batch_elapsed_ms']/60000:.2f} min**, including {analysis['setup_ms']/1000:.2f} s of shared setup. Summed episode wall time was {full_ms/60000:.2f} min: {totals['model_ms']/60000:.2f} min in model HTTP requests, {totals['prepare_ms']/1000:.2f} s preparing contracts, {totals['validation_ms']/1000:.2f} s in actual MCP validation, and {host_ms/1000:.2f} s in other episode work. The server log reports 28.264 s to load/listen; adding that startup to the primary batch gives {(analysis['batch_elapsed_ms']+28264)/60000:.2f} min of execution/setup. Idle development time before the run is not a task-runtime measurement. The median paired Accord-minus-Python full-time difference was {analysis['median_paired_delta_ms']/1000:.1f} s; this is descriptive and includes failed versus successful paths.")
+control = (f"The post hoc cross-frontend control replayed **all eight captured trajectories through both frontends** (16 replay rows, zero new inference calls). Each runtime accepted exactly {live_successes}/8 of those identical trajectories, with **zero stage-outcome differences**. Original worker packages and unchanged raw responses were checked against their retained MCP receipts; frozen executable source hashes were verified before replay. This isolates the runtime decision on the observed responses: the live sample's backend labels do not explain a different acceptance outcome for the same candidate/trajectory.")
+cache = (f"There were **{totals['model_calls']} model requests**, {totals['input_tokens']:,} input tokens and {totals['output_tokens']:,} generated tokens. Resident reuse was requested on {reuse_requests} calls. Native counters recorded {totals['reused_tokens']:,} reused input tokens ({analysis['reuse_fraction']:.1%}), with {hits} calls showing a positive hit. ")
+if not hits:
+    cache += ("Both frontends enabled the same cache adapter, but this model/server profile recomputed every prompt. The first two implementation prompts even shared an exact 3,488-token prefix; a reusable token prefix alone did not establish a resident recurrent-state hit. This is an observed limitation of this configuration, not proof that all hybrid-model caching is impossible. No cache speedup can be claimed here. The prior dense 8B model's measured reuse does not transfer automatically to this architecture.")
+else:
+    cache += "These are actual server counters, not estimates from the requested cache flag. The same policy applied in both frontends."
+verification = (f"The full primary analyzer verified all frozen source hashes, request accounting, raw output/contract identities, timing summaries and token counters. It replayed {totals['behavior_replays']} admitted candidate behavior reports; {totals['valid_envelopes']}/{totals['model_calls']} primary envelopes had a captured valid MCP decision. Offline cross-replay verified all 16 runtime outcomes. Three additional negative controls reject a changed source hash, an empty snapshot and missing captures, bringing the unique test-method count to 120.\n\n")
+verification += 'Observed rejected-stage diagnostics: ' + '; '.join(f'`{error}` ({count})' for error, count in errors.items()) + '. '
+verification += ("The full-capture analyzer intentionally cannot certify a run with missing preparation/transport/validation artifacts; those failures remain visible in runner summaries, and replay marks missing captures unreplayable. The primary analyzed run has the required captures. The independently reviewed replay was corrected to check source hashes before execution; original review results are preserved unchanged.")
+correction_text = (f"Of {len(corrections)} accepted implementations reached after feedback, {sum(row['only_added_final_lf'] for row in corrections)} differed from the preceding rejected source only by adding the required final LF. These are formatting corrections leading to accepted repairs, not demonstrated iterative semantic debugging. Rejected candidates were neither corrected nor executed by the host. The first-proposal metric counts implementation-gate acceptance, independently of later review/adoption.")
+values = {'CORRECTIONS':correction_text, 'LEAD':lead, 'TABLE':'\n'.join(table), 'EPISODES':'\n'.join(episode_table), 'TIMING':timing, 'REPLAY':control, 'CACHE':cache, 'VERIFICATION':verification}
+text = Path('/private/tmp/accord-repair-report-template.md').read_text()
+text = text.replace('<!-- Fill measured outcomes only after the fixed pilot has completed. -->\n\n','')
+for key, value in values.items():
+    text = text.replace('{{'+key+'}}', value)
+assert '{{' not in text
+(root/'docs/accord-repair-loop-evaluation.md').write_text(text)
+derived = {'corrections':corrections,'successful_full_ms_medians':{b:statistics.median(v) if v else None for b,v in successful.items()},'failure_diagnostics':dict(errors),'cache_reuse_requests':reuse_requests,'cache_hit_calls':hits,'other_episode_work_ms':host_ms,'startup_plus_batch_ms':analysis['batch_elapsed_ms']+28264,'live_successes':live_successes}
+(data/'report-statistics.json').write_text(json.dumps(derived,indent=2)+'\n')
+print('\n'.join(table))
+print(json.dumps(derived,indent=2))

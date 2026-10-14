@@ -1,0 +1,24 @@
+"""Reflow only multiline integer arrays; preserve every JSON value exactly."""
+import hashlib
+import json
+from pathlib import Path
+import re
+
+root = Path('/Users/alexey.zhuchkov/.codex/worktrees/agent-language-concept/Agents/experiments/accord/repair_loop')
+pattern = re.compile(r'\[\n(?:[ \t]+-?\d+,?\n)+[ \t]*\]')
+changes = []
+for path in sorted((root / 'results').rglob('*.json')):
+    original = path.read_text()
+    compact = pattern.sub(lambda match: json.dumps(json.loads(match.group()), separators=(',', ':')), original)
+    if compact == original:
+        continue
+    before, after = json.loads(original), json.loads(compact)
+    assert before == after, path
+    if path.name == 'response.json':
+        assert before['content'] == after['content'], path
+    path.write_text(compact)
+    changes.append({'file':str(path.relative_to(root)), 'bytes_before':len(original.encode()),
+                    'bytes_after':len(compact.encode()),
+                    'canonical_sha256':hashlib.sha256(json.dumps(before, sort_keys=True, separators=(',', ':')).encode()).hexdigest()})
+(root/'verification/json-formatting.json').write_text(json.dumps({'only_integer_array_whitespace_changed':True,'all_json_values_equal':True,'files':changes},indent=2)+'\n')
+print(json.dumps({'files':len(changes),'saved_bytes':sum(x['bytes_before']-x['bytes_after'] for x in changes)}))

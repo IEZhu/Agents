@@ -1,0 +1,155 @@
+{
+  "kind": "offline-cross-frontend-replay",
+  "new_model_calls": 0,
+  "fresh_mcp_validations": 0,
+  "source_episodes": 8,
+  "planned_episodes": 8,
+  "complete_primary": true,
+  "rows": [
+    {
+      "source_episode": 1,
+      "source_backend": "accord",
+      "replay_backend": "accord",
+      "completed": false,
+      "stage_outcomes_identical": true,
+      "replayable": true,
+      "captured_responses_reused": 3
+    },
+    {
+      "source_episode": 1,
+      "source_backend": "accord",
+      "replay_backend": "python",
+      "completed": false,
+      "stage_outcomes_identical": true,
+      "replayable": true,
+      "captured_responses_reused": 3
+    },
+    {
+      "source_episode": 2,
+      "source_backend": "python",
+      "replay_backend": "accord",
+      "completed": true,
+      "stage_outcomes_identical": true,
+      "replayable": true,
+      "captured_responses_reused": 4
+    },
+    {
+      "source_episode": 2,
+      "source_backend": "python",
+      "replay_backend": "python",
+      "completed": true,
+      "stage_outcomes_identical": true,
+      "replayable": true,
+      "captured_responses_reused": 4
+    },
+    {
+      "source_episode": 3,
+      "source_backend": "python",
+      "replay_backend": "accord",
+      "completed": true,
+      "stage_outcomes_identical": true,
+      "replayable": true,
+      "captured_responses_reused": 3
+    },
+    {
+      "source_episode": 3,
+      "source_backend": "python",
+      "replay_backend": "python",
+      "completed": true,
+      "stage_outcomes_identical": true,
+      "replayable": true,
+      "captured_responses_reused": 3
+    },
+    {
+      "source_episode": 4,
+      "source_backend": "accord",
+      "replay_backend": "accord",
+      "completed": true,
+      "stage_outcomes_identical": true,
+      "replayable": true,
+      "captured_responses_reused": 4
+    },
+    {
+      "source_episode": 4,
+      "source_backend": "accord",
+      "replay_backend": "python",
+      "completed": true,
+      "stage_outcomes_identical": true,
+      "replayable": true,
+      "captured_responses_reused": 4
+    },
+    {
+      "source_episode": 5,
+      "source_backend": "accord",
+      "replay_backend": "accord",
+      "completed": true,
+      "stage_outcomes_identical": true,
+      "replayable": true,
+      "captured_responses_reused": 4
+    },
+    {
+      "source_episode": 5,
+      "source_backend": "accord",
+      "replay_backend": "python",
+      "completed": true,
+      "stage_outcomes_identical": true,
+      "replayable": true,
+      "captured_responses_reused": 4
+    },
+    {
+      "source_episode": 6,
+      "source_backend": "python",
+      "replay_backend": "accord",
+      "completed": true,
+      "stage_outcomes_identical": true,
+      "replayable": true,
+      "captured_responses_reused": 4
+    },
+    {
+      "source_episode": 6,
+      "source_backend": "python",
+      "replay_backend": "python",
+      "completed": true,
+      "stage_outcomes_identical": true,
+      "replayable": true,
+      "captured_responses_reused": 4
+    },
+    {
+      "source_episode": 7,
+      "source_backend": "python",
+      "replay_backend": "accord",
+      "completed": true,
+      "stage_outcomes_identical": true,
+      "replayable": true,
+      "captured_responses_reused": 4
+    },
+    {
+      "source_episode": 7,
+      "source_backend": "python",
+      "replay_backend": "python",
+      "completed": true,
+      "stage_outcomes_identical": true,
+      "replayable": true,
+      "captured_responses_reused": 4
+    },
+    {
+      "source_episode": 8,
+      "source_backend": "accord",
+      "replay_backend": "accord",
+      "completed": true,
+      "stage_outcomes_identical": true,
+      "replayable": true,
+      "captured_responses_reused": 3
+    },
+    {
+      "source_episode": 8,
+      "source_backend": "accord",
+      "replay_backend": "python",
+      "completed": true,
+      "stage_outcomes_identical": true,
+      "replayable": true,
+      "captured_responses_reused": 3
+    }
+  ],
+  "all_stage_outcomes_identical": true
+}

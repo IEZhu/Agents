@@ -1,0 +1,28 @@
+{
+  "artifacts": [],
+  "attempt_id": "1",
+  "bundle_revision": "fa63359bf881cf4f5b7facdd91802ca14db7b10f538a00b5408d823df399aad7",
+  "checks": [],
+  "contract_revision": "b53b665138d203330de64c07a50735e59d45b4bd98dc2ea133d8e61f4771c19d",
+  "evidence": [
+    {
+      "description": "Host report confirms the candidate patch passed all 46 checks, including raw surrogate rejection and size bound preservation.",
+      "id": "source",
+      "reference": "supplied source"
+    }
+  ],
+  "limitations": [
+    "No tools, commands, or file access were available; the review was derived solely from the supplied frozen source and constraints."
+  ],
+  "protocol": "agents-core/subagent/1",
+  "question": null,
+  "remaining_work": [],
+  "result": {
+    "items": [
+      "approve"
+    ],
+    "summary": "The candidate correctly normalizes raw unpaired UTF-16 surrogate str input to AccordError(\"invalid contract JSON\") by attempting utf-8 encode before the size gate, while preserving the 65536-byte bound, exact diagnostics, and all valid dict"
+  },
+  "status": "completed",
+  "task_id": "repair-r2-e03-adopt"
+}

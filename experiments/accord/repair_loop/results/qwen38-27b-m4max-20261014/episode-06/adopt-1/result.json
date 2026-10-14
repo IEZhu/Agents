@@ -1,0 +1,28 @@
+{
+  "artifacts": [],
+  "attempt_id": "1",
+  "bundle_revision": "fa63359bf881cf4f5b7facdd91802ca14db7b10f538a00b5408d823df399aad7",
+  "checks": [],
+  "contract_revision": "c7dab3e90452d3bcbe0761fc7339c683eb18b4a1b08bf1f630d1c57d3205e3e5",
+  "evidence": [
+    {
+      "description": "Host report shows 46/46 checks passed, including raw surrogate rejection, oversize diagnostics, and valid input preservation.",
+      "id": "source",
+      "reference": "supplied host report"
+    }
+  ],
+  "limitations": [
+    "No tools or execution environment available; verification is by static inspection of supplied evidence only."
+  ],
+  "protocol": "agents-core/subagent/1",
+  "question": null,
+  "remaining_work": [],
+  "result": {
+    "items": [
+      "approve"
+    ],
+    "summary": "The candidate correctly catches UnicodeEncodeError from data.encode(\"utf-8\") and raises AccordError(\"invalid contract JSON\") instead of leaking the encoding error. It preserves the 65536-byte bound and exact \"contract too large\" diagnostic,"
+  },
+  "status": "completed",
+  "task_id": "repair-r2-e06-adopt"
+}

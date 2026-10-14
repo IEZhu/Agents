@@ -1,0 +1,11 @@
+{
+  "status": "error",
+  "errors": [
+    {
+      "path": "$",
+      "code": "context_budget_exceeded",
+      "message": "Mandatory context needs 13344 characters; budget is 12000."
+    }
+  ],
+  "model_calls": 0
+}

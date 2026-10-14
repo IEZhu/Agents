@@ -1,0 +1,66 @@
+{
+  "role": "review",
+  "attempt": 1,
+  "accepted": true,
+  "model_called": true,
+  "prepare_ms": 107.11691691540182,
+  "render_tokenize_ms": 821.2687920313329,
+  "input_tokens": 7993,
+  "prompt_sha256": "3c79dc038febfa9e44cf2bb27d4d155bb6e8f1e6cb45f0bb6133bf6295f96af5",
+  "validation_ms": 539.7369998972863,
+  "validation": {
+    "valid": true,
+    "errors": [],
+    "verification": "structural_only"
+  },
+  "result": {
+    "artifacts": [],
+    "attempt_id": "1",
+    "bundle_revision": "fa63359bf881cf4f5b7facdd91802ca14db7b10f538a00b5408d823df399aad7",
+    "checks": [],
+    "contract_revision": "33299c1bb313f8d764005d39fa8c883a57fc097f9298cf7c8d355118100ea9f8",
+    "evidence": [
+      {
+        "description": "Frozen source at HEAD 7a22a1c9561950f85b40bf0c2e6a92b36959af82 (SHA256 bd669e7ee36f38ea79f472e68a8e9ef9680410e300f96cd4f1c21a3a939b5f7f) shows the existing if-1",
+        "id": "source",
+        "reference": "supplied source"
+      }
+    ],
+    "limitations": [
+      "No tools or execution available; checks are not_run."
+    ],
+    "protocol": "agents-core/subagent/1",
+    "question": null,
+    "remaining_work": [],
+    "result": {
+      "items": [
+        "approve"
+      ],
+      "summary": "The candidate correctly catches UnicodeEncodeError from data.encode(\"utf-8\") and raises AccordError(\"invalid contract JSON\") instead of leaking the error, while preserving the 65536-byte bound and all other behavior."
+    },
+    "status": "completed",
+    "task_id": "repair-r2-e04-review"
+  },
+  "decision": "approve",
+  "check_accept_ms": 21.931375027634203,
+  "model_ms": 193245.4587080283,
+  "cache": {
+    "requested_reuse": true,
+    "actual_reused_tokens": 0,
+    "actual_evaluated_tokens": 7993,
+    "registered_prefix_tokens": 1731,
+    "input_tokens": 7993,
+    "cache_state": "miss",
+    "prior_cache_state": "resident",
+    "lock_wait_ms": 0.013999990187585354,
+    "validation_ms": 0.3464999608695507,
+    "dispatch_ms": 193252.17945803888,
+    "lock_hold_ms": 193262.0914579602,
+    "service_total_ms": 193262.10545795038,
+    "service_ttft_ms": 119352.61487495154
+  },
+  "output_tokens": 458,
+  "stop_type": "eos",
+  "request_units_consumed": 1,
+  "elapsed_ms": 195015.64683392644
+}

@@ -1,0 +1,28 @@
+{
+  "artifacts": [],
+  "attempt_id": "1",
+  "bundle_revision": "fa63359bf881cf4f5b7facdd91802ca14db7b10f538a00b5408d823df399aad7",
+  "checks": [],
+  "contract_revision": "eafb882388fa081612ca5496dbc9ab2820694ac58fd0b58272fcecf41874966c",
+  "evidence": [
+    {
+      "description": "Candidate patch replaces the str/bytes gate with a utf-8 encode attempt for str, catching UnicodeEncodeError and raising AccordError(\"invalid contract JSON\")",
+      "id": "source",
+      "reference": "supplied source"
+    }
+  ],
+  "limitations": [
+    "No tools, commands, or file access were available; the review was derived solely from the supplied frozen source and constraints."
+  ],
+  "protocol": "agents-core/subagent/1",
+  "question": null,
+  "remaining_work": [],
+  "result": {
+    "items": [
+      "approve"
+    ],
+    "summary": "The candidate correctly normalizes raw unpaired UTF-16 surrogate str input to AccordError(\"invalid contract JSON\") by attempting utf-8 encode before the size gate, while preserving the 65536-byte bound, exact diagnostics, and all valid dict"
+  },
+  "status": "completed",
+  "task_id": "repair-r2-e03-review"
+}

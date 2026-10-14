@@ -1,0 +1,16 @@
+--- a/experiments/accord/ir.py
++++ b/experiments/accord/ir.py
+@@ -105,8 +105,11 @@
+     @classmethod
+     def parse(cls, data):
+         if isinstance(data, (str, bytes)):
+-            require(len(data.encode("utf-8") if isinstance(data, str) else data) <= 65536,
+-                    "contract too large")
++            try:
++                encoded = data.encode("utf-8") if isinstance(data, str) else data
++            except UnicodeEncodeError:
++                raise AccordError("invalid contract JSON")
++            require(len(encoded) <= 65536, "contract too large")
+             try:
+                 data = json.loads(data, object_pairs_hook=_unique_object,
+                                   parse_constant=_reject_constant)

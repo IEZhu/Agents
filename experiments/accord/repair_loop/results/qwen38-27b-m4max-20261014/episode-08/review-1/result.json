@@ -1,0 +1,28 @@
+{
+  "artifacts": [],
+  "attempt_id": "1",
+  "bundle_revision": "fa63359bf881cf4f5b7facdd91802ca14db7b10f538a00b5408d823df399aad7",
+  "checks": [],
+  "contract_revision": "aa0bc3e0b41a3bf9e749160e1139528b466f89c6384e3da9992be385dd3f5e39",
+  "evidence": [
+    {
+      "description": "Frozen baseline source for Contract.parse showing the original if block at lines 107-114.",
+      "id": "source",
+      "reference": "supplied source"
+    }
+  ],
+  "limitations": [
+    "No tools or execution available; checks are not_run."
+  ],
+  "protocol": "agents-core/subagent/1",
+  "question": null,
+  "remaining_work": [],
+  "result": {
+    "items": [
+      "approve"
+    ],
+    "summary": "The candidate correctly catches UnicodeEncodeError from data.encode(\"utf-8\") and raises AccordError(\"invalid contract JSON\") instead of leaking it, while preserving the 65536-byte bound and existing JSON parsing behavior."
+  },
+  "status": "completed",
+  "task_id": "repair-r2-e08-review"
+}

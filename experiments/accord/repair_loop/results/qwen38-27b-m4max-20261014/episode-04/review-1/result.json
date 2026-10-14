@@ -1,0 +1,28 @@
+{
+  "artifacts": [],
+  "attempt_id": "1",
+  "bundle_revision": "fa63359bf881cf4f5b7facdd91802ca14db7b10f538a00b5408d823df399aad7",
+  "checks": [],
+  "contract_revision": "33299c1bb313f8d764005d39fa8c883a57fc097f9298cf7c8d355118100ea9f8",
+  "evidence": [
+    {
+      "description": "Frozen source at HEAD 7a22a1c9561950f85b40bf0c2e6a92b36959af82 (SHA256 bd669e7ee36f38ea79f472e68a8e9ef9680410e300f96cd4f1c21a3a939b5f7f) shows the existing if-1",
+      "id": "source",
+      "reference": "supplied source"
+    }
+  ],
+  "limitations": [
+    "No tools or execution available; checks are not_run."
+  ],
+  "protocol": "agents-core/subagent/1",
+  "question": null,
+  "remaining_work": [],
+  "result": {
+    "items": [
+      "approve"
+    ],
+    "summary": "The candidate correctly catches UnicodeEncodeError from data.encode(\"utf-8\") and raises AccordError(\"invalid contract JSON\") instead of leaking the error, while preserving the 65536-byte bound and all other behavior."
+  },
+  "status": "completed",
+  "task_id": "repair-r2-e04-review"
+}

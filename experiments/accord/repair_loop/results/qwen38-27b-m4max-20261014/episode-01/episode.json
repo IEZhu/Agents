@@ -1,0 +1,328 @@
+{
+  "index": 1,
+  "backend": "accord",
+  "seed": 101,
+  "completed": false,
+  "implementation_passed": false,
+  "first_attempt_passed": false,
+  "model_calls": 3,
+  "request_units_consumed": 3,
+  "implementation_attempts": 3,
+  "model_ms": 371228.51525002625,
+  "prepare_ms": 2914.577583083883,
+  "validation_ms": 2622.659500921145,
+  "stages": [
+    {
+      "role": "implement",
+      "attempt": 1,
+      "accepted": false,
+      "model_called": true,
+      "prepare_ms": 42.004458024166524,
+      "render_tokenize_ms": 13.778290944173932,
+      "input_tokens": 4837,
+      "prompt_sha256": "3ea5659db76a84cb64268e5ce3e74c99b86bb93b814de5a5a44c47490eba83ac",
+      "validation_ms": 158.494041999802,
+      "validation": {
+        "valid": true,
+        "errors": [],
+        "verification": "structural_only"
+      },
+      "result": {
+        "artifacts": [],
+        "attempt_id": "1",
+        "bundle_revision": "fa63359bf881cf4f5b7facdd91802ca14db7b10f538a00b5408d823df399aad7",
+        "checks": [],
+        "contract_revision": "74534a2fb34c0fbb863c9f351a18d0b8332c7f86bb43fa9388fafc686c6d45fa",
+        "evidence": [
+          {
+            "description": "Frozen source lines 107-114 show the current if block that encodes str to utf-8 before the size check, which raises UnicodeEncodeError for raw unpaired surrog.",
+            "id": "source",
+            "reference": "supplied source"
+          }
+        ],
+        "limitations": [
+          "No tools or execution were performed; checks are empty."
+        ],
+        "protocol": "agents-core/subagent/1",
+        "question": null,
+        "remaining_work": [],
+        "result": {
+          "items": [
+            "        if isinstance(data, (str, bytes)):\n            if isinstance(data, str):\n                try:\n                    encoded = data.encode(\"utf-8\")\n                except UnicodeEncodeError:\n                    raise AccordError(\"invalid contract JSON\")\n                require(len(encoded) <= 65536, \"contract too large\")\n            else:\n                require(len(data) <= 65536, \"contract too large\")\n            try:\n                data = json.loads(data, object_pairs_hook=_unique_object,\n                                  parse_constant=_reject_constant)\n            except (ValueError, UnicodeError) as exc:\n                raise AccordError(\"invalid contract JSON\") from exc"
+          ],
+          "summary": "Replaced the str/bytes size-check block so that a str containing raw unpaired UTF-16 surrogates raises AccordError(\"invalid contract JSON\") instead of leaking UnicodeEncodeError, while preserving the 65536-byte bound and exact diagnostics."
+        },
+        "status": "completed",
+        "task_id": "repair-r2-e01-implement"
+      },
+      "error_type": "InvalidPatch",
+      "error": "replacement must use spaces and a final LF",
+      "feedback": {
+        "error": "replacement must use spaces and a final LF"
+      },
+      "model_ms": 86753.04149999283,
+      "cache": {
+        "requested_reuse": false,
+        "actual_reused_tokens": 0,
+        "actual_evaluated_tokens": 4837,
+        "registered_prefix_tokens": 1731,
+        "input_tokens": 4837,
+        "cache_state": "cold",
+        "prior_cache_state": "empty",
+        "lock_wait_ms": 0.0014159595593810081,
+        "validation_ms": 0.18737500067800283,
+        "dispatch_ms": 86760.64754195977,
+        "lock_hold_ms": 86764.73579206504,
+        "service_total_ms": 86764.7372080246,
+        "service_ttft_ms": 49344.786206958815
+      },
+      "output_tokens": 539,
+      "stop_type": "eos",
+      "request_units_consumed": 1,
+      "elapsed_ms": 87057.86008294672
+    },
+    {
+      "role": "implement",
+      "attempt": 2,
+      "accepted": false,
+      "model_called": true,
+      "prepare_ms": 109.35479204636067,
+      "render_tokenize_ms": 245.5219579860568,
+      "input_tokens": 5344,
+      "prompt_sha256": "7c15a3887337a1b10cb130d9530c3c4171b26cf7637a0a91f9ace9ea05110b52",
+      "validation_ms": 1001.8708339193836,
+      "validation": {
+        "valid": true,
+        "errors": [],
+        "verification": "structural_only"
+      },
+      "result": {
+        "artifacts": [],
+        "attempt_id": "2",
+        "bundle_revision": "fa63359bf881cf4f5b7facdd91802ca14db7b10f538a00b5408d823df399aad7",
+        "checks": [],
+        "contract_revision": "c62ed36b7d413219bfd9431a5b305cbd7495ea34cdca0d2149bafeb5b158e711",
+        "evidence": [
+          {
+            "description": "Frozen source lines 107-114 show the current if block that encodes str to utf-8 before the size check, which raises UnicodeEncodeError for raw unpaired surrog.",
+            "id": "source",
+            "reference": "supplied source"
+          }
+        ],
+        "limitations": [
+          "No tools or execution were performed; checks are empty."
+        ],
+        "protocol": "agents-core/subagent/1",
+        "question": null,
+        "remaining_work": [],
+        "result": {
+          "items": [
+            "        if isinstance(data, (str, bytes)):\n            try:\n                require(len(data.encode(\"utf-8\") if isinstance(data, str) else data) <= 65536,\n                        \"contract too large\")\n            except UnicodeEncodeError:\n                raise AccordError(\"invalid contract JSON\")\n            try:\n                data = json.loads(data, object_pairs_hook=_unique_object,\n                                  parse_constant=_reject_constant)\n            except (ValueError, UnicodeError) as exc:\n                raise AccordError(\"invalid contract JSON\") from exc"
+          ],
+          "summary": "Replaced the str/bytes size-check block so that a str containing raw unpaired UTF-16 surrogates raises AccordError(\"invalid contract JSON\") instead of leaking UnicodeEncodeError, while preserving the 65536-byte bound and exact diagnostics."
+        },
+        "status": "completed",
+        "task_id": "repair-r2-e01-implement"
+      },
+      "error_type": "InvalidPatch",
+      "error": "replacement must use spaces and a final LF",
+      "feedback": {
+        "error": "replacement must use spaces and a final LF"
+      },
+      "model_ms": 157812.5785420416,
+      "cache": {
+        "requested_reuse": true,
+        "actual_reused_tokens": 0,
+        "actual_evaluated_tokens": 5344,
+        "registered_prefix_tokens": 1731,
+        "input_tokens": 5344,
+        "cache_state": "miss",
+        "prior_cache_state": "resident",
+        "lock_wait_ms": 0.020459061488509178,
+        "validation_ms": 0.8745829109102488,
+        "dispatch_ms": 157816.78824999835,
+        "lock_hold_ms": 157818.82245792076,
+        "service_total_ms": 157818.84291698225,
+        "service_ttft_ms": 47479.73687492777
+      },
+      "output_tokens": 507,
+      "stop_type": "eos",
+      "request_units_consumed": 1,
+      "elapsed_ms": 159370.43116695713
+    },
+    {
+      "role": "implement",
+      "attempt": 3,
+      "accepted": false,
+      "model_called": true,
+      "prepare_ms": 2763.2183330133557,
+      "render_tokenize_ms": 700.3259579651058,
+      "input_tokens": 5319,
+      "prompt_sha256": "6eb26d41a2f1bd591b5537b65a0a43244ef04c1f004dcef1d39a8ce9c5a7f376",
+      "validation_ms": 1462.2946250019595,
+      "validation": {
+        "valid": true,
+        "errors": [],
+        "verification": "structural_only"
+      },
+      "result": {
+        "artifacts": [],
+        "attempt_id": "3",
+        "bundle_revision": "fa63359bf881cf4f5b7facdd91802ca14db7b10f538a00b5408d823df399aad7",
+        "checks": [],
+        "contract_revision": "9323918bc6733a42305a997151227b1bc22ee28d7e5a5dfb5d7442d0b262f7c4",
+        "evidence": [
+          {
+            "description": "Frozen source lines 107-114 show the current if block that encodes str to utf-8 before the size check, which raises UnicodeEncodeError for raw unpaired surrog.",
+            "id": "source",
+            "reference": "supplied source"
+          }
+        ],
+        "limitations": [
+          "No tools or execution were performed; checks are empty."
+        ],
+        "protocol": "agents-core/subagent/1",
+        "question": null,
+        "remaining_work": [],
+        "result": {
+          "items": [
+            "        if isinstance(data, (str, bytes)):\n            try:\n                require(len(data.encode(\"utf-8\") if isinstance(data, str) else data) <= 65536,\n                        \"contract too large\")\n            except UnicodeEncodeError:\n                raise AccordError(\"invalid contract JSON\")\n            try:\n                data = json.loads(data, object_pairs_hook=_unique_object,\n                                  parse_constant=_reject_constant)\n            except (ValueError, UnicodeError) as exc:\n                raise AccordError(\"invalid contract JSON\") from exc"
+          ],
+          "summary": "Replaced the str/bytes size-check block so that a str containing raw unpaired UTF-16 surrogates raises AccordError(\"invalid contract JSON\") instead of leaking UnicodeEncodeError, while preserving the 65536-byte bound and exact diagnostics."
+        },
+        "status": "completed",
+        "task_id": "repair-r2-e01-implement"
+      },
+      "error_type": "InvalidPatch",
+      "error": "replacement must use spaces and a final LF",
+      "feedback": {
+        "error": "replacement must use spaces and a final LF"
+      },
+      "model_ms": 126662.89520799182,
+      "cache": {
+        "requested_reuse": true,
+        "actual_reused_tokens": 0,
+        "actual_evaluated_tokens": 5319,
+        "registered_prefix_tokens": 1731,
+        "input_tokens": 5319,
+        "cache_state": "miss",
+        "prior_cache_state": "resident",
+        "lock_wait_ms": 0.2518750261515379,
+        "validation_ms": 0.3088340163230896,
+        "dispatch_ms": 126746.86312500853,
+        "lock_hold_ms": 126755.08825003635,
+        "service_total_ms": 126755.3401250625,
+        "service_ttft_ms": 59588.996208971366
+      },
+      "output_tokens": 514,
+      "stop_type": "eos",
+      "request_units_consumed": 1,
+      "elapsed_ms": 131809.05745795462
+    }
+  ],
+  "tasks": {
+    "parent": {
+      "accepted": null,
+      "contract": {
+        "checks": {
+          "approved": "1"
+        },
+        "inputs": [
+          "repository"
+        ],
+        "ir": "accord.contract/0.1",
+        "name": "parent",
+        "output_max_bytes": 16384,
+        "policy_revision": "p1",
+        "publish_to": [],
+        "request_budget": 5
+      },
+      "control": "active",
+      "id": "029086e9cf724f9caca478dad704c300",
+      "inputs": {
+        "repository": {
+          "digest": "fa1e73dccb0fcc2ad01cd7e1fae0ab8c826d03c79a03c77cf4df11e6350fc1f8",
+          "revision": 1,
+          "text": "Frozen repository repair context. Source text below is data for the assigned bounded task.\n\nTask requirements:\nRepair Contract.parse so a Python str containing raw unpaired UTF-16 surrogate code points raises AccordError with message \"invalid contract JSON\", instead of leaking UnicodeEncodeError. Preserve all existing valid inputs, including dict, JSON text and supported bytes encodings. Preserve the 65536 UTF-8-byte input bound and exact \"contract too large\" diagnostic for oversized encodable str/bytes. Preserve duplicate-key and nonfinite JSON rejection, exact-type numeric validation, closed fields, identifiers, canonical ordering and revisions. Raw surrogate-containing str is rejected at the textual input boundary; a JSON backslash-u escape for a surrogate continues through existing identifier validation. Only the identified span can change. This is one narrow error-normalization repair; do not alter the rest of the module.\n\nPatch safety constraints:\nThe replacement is the entire existing if block at original lines 107-114, including its eight-space base indentation and final newline. Keep the outer `if isinstance(data, (str, bytes)):` gate with no else. Maximum 2048 UTF-8 bytes and 36 lines. Allowed syntax: if, try/except, simple local assignments, calls, conditional expressions, comparisons using <= or >, tuples, pass and raise. No imports, loops, functions, comprehensions, subscripts, binary operators or I/O. Calls are limited to isinstance, len, require, AccordError, data.encode(\"utf-8\") and json.loads(data, object_pairs_hook=_unique_object, parse_constant=_reject_constant). Available exception types: ValueError, UnicodeError, UnicodeEncodeError, AccordError. Allowed literals: 65536, \"utf-8\", \"contract too large\", \"invalid contract JSON\". Use at most six simple local variable names in addition to data; never overwrite existing helper names. The host rejects unsupported syntax before any execution.\n\nFrozen source: experiments/accord/ir.py; HEAD 7a22a1c9561950f85b40bf0c2e6a92b36959af82; SHA256 bd669e7ee36f38ea79f472e68a8e9ef9680410e300f96cd4f1c21a3a939b5f7f\n\"\"\"Closed, versioned contract data and deliberately restricted canonical encoding.\"\"\"\n\nfrom dataclasses import dataclass\nimport hashlib\nimport json\nimport re\n\n\nclass AccordError(ValueError):\n    \"\"\"A contract or runtime precondition was not satisfied.\"\"\"\n\n\ndef require(condition, message):\n    if not condition:\n        raise AccordError(message)\n\n\ndef canonical(value):\n    return json.dumps(value, sort_keys=True, separators=(\",\", \":\"),\n                      ensure_ascii=False, allow_nan=False).encode(\"utf-8\")\n\n\ndef digest(kind, value):\n    return hashlib.sha256(kind.encode(\"ascii\") + b\"\\0\" + canonical(value)).hexdigest()\n\n\ndef text_digest(text):\n    return hashlib.sha256(text.encode(\"utf-8\")).hexdigest()\n\n\ndef identifier(value, *, revision=False):\n    pattern = r\"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}\" if revision else r\"[A-Za-z][A-Za-z0-9_.-]{0,63}\"\n    require(type(value) is str and re.fullmatch(pattern, value) is not None,\n            \"invalid identifier\")\n    return value\n\n\ndef bounded_int(value, low, high):\n    require(type(value) is int and low <= value <= high, \"integer outside allowed bounds\")\n    return value\n\n\ndef revision_token(value):\n    \"\"\"Adapter-owned CAS token: bounded integer or opaque printable ASCII text.\"\"\"\n    if type(value) is int:\n        return bounded_int(value, 0, 2**63 - 1)\n    require(type(value) is str and 1 <= len(value) <= 128 and\n            all(33 <= ord(char) <= 126 for char in value), \"invalid revision token\")\n    return value\n\n\ndef _unique_object(pairs):\n    result = {}\n    for key, value in pairs:\n        require(key not in result, \"duplicate JSON key\")\n        result[key] = value\n    return result\n\n\ndef _reject_constant(value):\n    raise AccordError(f\"nonfinite JSON: {value}\")\n\n\n@dataclass(frozen=True)\nclass Contract:\n    name: str\n    inputs: tuple[str, ...]\n    output_max_bytes: int\n    checks: tuple[tuple[str, str], ...]\n    publish_to: tuple[str, ...]\n    request_budget: int\n    policy_revision: str\n\n    def __post_init__(self):\n        identifier(self.name)\n        identifier(self.policy_revision, revision=True)\n        bounded_int(self.output_max_bytes, 1, 65536)\n        bounded_int(self.request_budget, 0, 10000)\n        for items in (self.inputs, self.publish_to):\n            require(type(items) is tuple, \"resource lists must be immutable tuples\")\n            for item in items:\n                identifier(item)\n            require(len(set(items)) == len(items), \"duplicate resource\")\n        require(type(self.checks) is tuple and len(self.checks) > 0, \"checks must be nonempty\")\n        for item in self.checks:\n            require(type(item) is tuple and len(item) == 2, \"invalid check\")\n            identifier(item[0])\n            identifier(item[1], revision=True)\n        require(len(dict(self.checks)) == len(self.checks), \"duplicate check\")\n        object.__setattr__(self, \"inputs\", tuple(sorted(self.inputs)))\n        object.__setattr__(self, \"publish_to\", tuple(sorted(self.publish_to)))\n        object.__setattr__(self, \"checks\", tuple(sorted(self.checks)))\n        require(len(canonical(self.to_dict())) <= 65536, \"contract too large\")\n\n    def to_dict(self):\n        return {\"ir\": \"accord.contract/0.1\", \"name\": self.name,\n                \"inputs\": list(self.inputs), \"output_max_bytes\": self.output_max_bytes,\n                \"checks\": dict(self.checks), \"publish_to\": list(self.publish_to),\n                \"request_budget\": self.request_budget, \"policy_revision\": self.policy_revision}\n\n    @property\n    def revision(self):\n        return digest(\"accord.contract/0.1\", self.to_dict())\n\n    @classmethod\n    def parse(cls, data):\n        if isinstance(data, (str, bytes)):\n            require(len(data.encode(\"utf-8\") if isinstance(data, str) else data) <= 65536,\n                    \"contract too large\")\n            try:\n                data = json.loads(data, object_pairs_hook=_unique_object,\n                                  parse_constant=_reject_constant)\n            except (ValueError, UnicodeError) as exc:\n                raise AccordError(\"invalid contract JSON\") from exc\n        require(type(data) is dict, \"contract must be an object\")\n        fields = {\"ir\", \"name\", \"inputs\", \"output_max_bytes\", \"checks\", \"publish_to\",\n                  \"request_budget\", \"policy_revision\"}\n        require(set(data) == fields, \"unknown or missing contract fields\")\n        require(data[\"ir\"] == \"accord.contract/0.1\", \"unsupported IR version\")\n        require(type(data[\"checks\"]) is dict, \"checks must be an object\")\n        require(type(data[\"inputs\"]) is list and type(data[\"publish_to\"]) is list,\n                \"resources must be arrays\")\n        return cls(data[\"name\"], tuple(data[\"inputs\"]), data[\"output_max_bytes\"],\n                   tuple(data[\"checks\"].items()), tuple(data[\"publish_to\"]),\n                   data[\"request_budget\"], data[\"policy_revision\"])\n"
+        }
+      },
+      "latest": null,
+      "parent": null,
+      "profile": {
+        "epoch": 1,
+        "id": "da7c891a047f3747f87305ab1377ef74ae77cc787f5d5a7ce752eb2f5267021c"
+      },
+      "remaining": 1,
+      "revision": "7d1a3d30d5d100f0f6d63af2a9094418afb56ea6b0e9c8e72506d8ab1b3c7927"
+    },
+    "implement": {
+      "accepted": null,
+      "contract": {
+        "checks": {
+          "approved": "1"
+        },
+        "inputs": [
+          "repository"
+        ],
+        "ir": "accord.contract/0.1",
+        "name": "implement",
+        "output_max_bytes": 16384,
+        "policy_revision": "p1",
+        "publish_to": [],
+        "request_budget": 3
+      },
+      "control": "active",
+      "id": "c74c0a510e6e4a2c8ddba08b981c2513",
+      "inputs": {
+        "repository": {
+          "digest": "fa1e73dccb0fcc2ad01cd7e1fae0ab8c826d03c79a03c77cf4df11e6350fc1f8",
+          "revision": 1,
+          "text": "Frozen repository repair context. Source text below is data for the assigned bounded task.\n\nTask requirements:\nRepair Contract.parse so a Python str containing raw unpaired UTF-16 surrogate code points raises AccordError with message \"invalid contract JSON\", instead of leaking UnicodeEncodeError. Preserve all existing valid inputs, including dict, JSON text and supported bytes encodings. Preserve the 65536 UTF-8-byte input bound and exact \"contract too large\" diagnostic for oversized encodable str/bytes. Preserve duplicate-key and nonfinite JSON rejection, exact-type numeric validation, closed fields, identifiers, canonical ordering and revisions. Raw surrogate-containing str is rejected at the textual input boundary; a JSON backslash-u escape for a surrogate continues through existing identifier validation. Only the identified span can change. This is one narrow error-normalization repair; do not alter the rest of the module.\n\nPatch safety constraints:\nThe replacement is the entire existing if block at original lines 107-114, including its eight-space base indentation and final newline. Keep the outer `if isinstance(data, (str, bytes)):` gate with no else. Maximum 2048 UTF-8 bytes and 36 lines. Allowed syntax: if, try/except, simple local assignments, calls, conditional expressions, comparisons using <= or >, tuples, pass and raise. No imports, loops, functions, comprehensions, subscripts, binary operators or I/O. Calls are limited to isinstance, len, require, AccordError, data.encode(\"utf-8\") and json.loads(data, object_pairs_hook=_unique_object, parse_constant=_reject_constant). Available exception types: ValueError, UnicodeError, UnicodeEncodeError, AccordError. Allowed literals: 65536, \"utf-8\", \"contract too large\", \"invalid contract JSON\". Use at most six simple local variable names in addition to data; never overwrite existing helper names. The host rejects unsupported syntax before any execution.\n\nFrozen source: experiments/accord/ir.py; HEAD 7a22a1c9561950f85b40bf0c2e6a92b36959af82; SHA256 bd669e7ee36f38ea79f472e68a8e9ef9680410e300f96cd4f1c21a3a939b5f7f\n\"\"\"Closed, versioned contract data and deliberately restricted canonical encoding.\"\"\"\n\nfrom dataclasses import dataclass\nimport hashlib\nimport json\nimport re\n\n\nclass AccordError(ValueError):\n    \"\"\"A contract or runtime precondition was not satisfied.\"\"\"\n\n\ndef require(condition, message):\n    if not condition:\n        raise AccordError(message)\n\n\ndef canonical(value):\n    return json.dumps(value, sort_keys=True, separators=(\",\", \":\"),\n                      ensure_ascii=False, allow_nan=False).encode(\"utf-8\")\n\n\ndef digest(kind, value):\n    return hashlib.sha256(kind.encode(\"ascii\") + b\"\\0\" + canonical(value)).hexdigest()\n\n\ndef text_digest(text):\n    return hashlib.sha256(text.encode(\"utf-8\")).hexdigest()\n\n\ndef identifier(value, *, revision=False):\n    pattern = r\"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}\" if revision else r\"[A-Za-z][A-Za-z0-9_.-]{0,63}\"\n    require(type(value) is str and re.fullmatch(pattern, value) is not None,\n            \"invalid identifier\")\n    return value\n\n\ndef bounded_int(value, low, high):\n    require(type(value) is int and low <= value <= high, \"integer outside allowed bounds\")\n    return value\n\n\ndef revision_token(value):\n    \"\"\"Adapter-owned CAS token: bounded integer or opaque printable ASCII text.\"\"\"\n    if type(value) is int:\n        return bounded_int(value, 0, 2**63 - 1)\n    require(type(value) is str and 1 <= len(value) <= 128 and\n            all(33 <= ord(char) <= 126 for char in value), \"invalid revision token\")\n    return value\n\n\ndef _unique_object(pairs):\n    result = {}\n    for key, value in pairs:\n        require(key not in result, \"duplicate JSON key\")\n        result[key] = value\n    return result\n\n\ndef _reject_constant(value):\n    raise AccordError(f\"nonfinite JSON: {value}\")\n\n\n@dataclass(frozen=True)\nclass Contract:\n    name: str\n    inputs: tuple[str, ...]\n    output_max_bytes: int\n    checks: tuple[tuple[str, str], ...]\n    publish_to: tuple[str, ...]\n    request_budget: int\n    policy_revision: str\n\n    def __post_init__(self):\n        identifier(self.name)\n        identifier(self.policy_revision, revision=True)\n        bounded_int(self.output_max_bytes, 1, 65536)\n        bounded_int(self.request_budget, 0, 10000)\n        for items in (self.inputs, self.publish_to):\n            require(type(items) is tuple, \"resource lists must be immutable tuples\")\n            for item in items:\n                identifier(item)\n            require(len(set(items)) == len(items), \"duplicate resource\")\n        require(type(self.checks) is tuple and len(self.checks) > 0, \"checks must be nonempty\")\n        for item in self.checks:\n            require(type(item) is tuple and len(item) == 2, \"invalid check\")\n            identifier(item[0])\n            identifier(item[1], revision=True)\n        require(len(dict(self.checks)) == len(self.checks), \"duplicate check\")\n        object.__setattr__(self, \"inputs\", tuple(sorted(self.inputs)))\n        object.__setattr__(self, \"publish_to\", tuple(sorted(self.publish_to)))\n        object.__setattr__(self, \"checks\", tuple(sorted(self.checks)))\n        require(len(canonical(self.to_dict())) <= 65536, \"contract too large\")\n\n    def to_dict(self):\n        return {\"ir\": \"accord.contract/0.1\", \"name\": self.name,\n                \"inputs\": list(self.inputs), \"output_max_bytes\": self.output_max_bytes,\n                \"checks\": dict(self.checks), \"publish_to\": list(self.publish_to),\n                \"request_budget\": self.request_budget, \"policy_revision\": self.policy_revision}\n\n    @property\n    def revision(self):\n        return digest(\"accord.contract/0.1\", self.to_dict())\n\n    @classmethod\n    def parse(cls, data):\n        if isinstance(data, (str, bytes)):\n            require(len(data.encode(\"utf-8\") if isinstance(data, str) else data) <= 65536,\n                    \"contract too large\")\n            try:\n                data = json.loads(data, object_pairs_hook=_unique_object,\n                                  parse_constant=_reject_constant)\n            except (ValueError, UnicodeError) as exc:\n                raise AccordError(\"invalid contract JSON\") from exc\n        require(type(data) is dict, \"contract must be an object\")\n        fields = {\"ir\", \"name\", \"inputs\", \"output_max_bytes\", \"checks\", \"publish_to\",\n                  \"request_budget\", \"policy_revision\"}\n        require(set(data) == fields, \"unknown or missing contract fields\")\n        require(data[\"ir\"] == \"accord.contract/0.1\", \"unsupported IR version\")\n        require(type(data[\"checks\"]) is dict, \"checks must be an object\")\n        require(type(data[\"inputs\"]) is list and type(data[\"publish_to\"]) is list,\n                \"resources must be arrays\")\n        return cls(data[\"name\"], tuple(data[\"inputs\"]), data[\"output_max_bytes\"],\n                   tuple(data[\"checks\"].items()), tuple(data[\"publish_to\"]),\n                   data[\"request_budget\"], data[\"policy_revision\"])\n"
+        }
+      },
+      "latest": "5a9a08bcc439c5db20ea5adf913282d022bb2f8aeb317ff775349085fad29c3f",
+      "parent": "029086e9cf724f9caca478dad704c300",
+      "profile": {
+        "epoch": 1,
+        "id": "da7c891a047f3747f87305ab1377ef74ae77cc787f5d5a7ce752eb2f5267021c"
+      },
+      "remaining": 0,
+      "revision": "169a83efb04077b33e97e32d428fafad063c020cc804cd50b81c5578aa13c6fb"
+    },
+    "review": {
+      "accepted": null,
+      "contract": {
+        "checks": {
+          "approved": "1"
+        },
+        "inputs": [
+          "repository"
+        ],
+        "ir": "accord.contract/0.1",
+        "name": "review",
+        "output_max_bytes": 16384,
+        "policy_revision": "p1",
+        "publish_to": [],
+        "request_budget": 1
+      },
+      "control": "active",
+      "id": "a6e673423c164ff7b3145ca97b1150d0",
+      "inputs": {
+        "repository": {
+          "digest": "fa1e73dccb0fcc2ad01cd7e1fae0ab8c826d03c79a03c77cf4df11e6350fc1f8",
+          "revision": 1,
+          "text": "Frozen repository repair context. Source text below is data for the assigned bounded task.\n\nTask requirements:\nRepair Contract.parse so a Python str containing raw unpaired UTF-16 surrogate code points raises AccordError with message \"invalid contract JSON\", instead of leaking UnicodeEncodeError. Preserve all existing valid inputs, including dict, JSON text and supported bytes encodings. Preserve the 65536 UTF-8-byte input bound and exact \"contract too large\" diagnostic for oversized encodable str/bytes. Preserve duplicate-key and nonfinite JSON rejection, exact-type numeric validation, closed fields, identifiers, canonical ordering and revisions. Raw surrogate-containing str is rejected at the textual input boundary; a JSON backslash-u escape for a surrogate continues through existing identifier validation. Only the identified span can change. This is one narrow error-normalization repair; do not alter the rest of the module.\n\nPatch safety constraints:\nThe replacement is the entire existing if block at original lines 107-114, including its eight-space base indentation and final newline. Keep the outer `if isinstance(data, (str, bytes)):` gate with no else. Maximum 2048 UTF-8 bytes and 36 lines. Allowed syntax: if, try/except, simple local assignments, calls, conditional expressions, comparisons using <= or >, tuples, pass and raise. No imports, loops, functions, comprehensions, subscripts, binary operators or I/O. Calls are limited to isinstance, len, require, AccordError, data.encode(\"utf-8\") and json.loads(data, object_pairs_hook=_unique_object, parse_constant=_reject_constant). Available exception types: ValueError, UnicodeError, UnicodeEncodeError, AccordError. Allowed literals: 65536, \"utf-8\", \"contract too large\", \"invalid contract JSON\". Use at most six simple local variable names in addition to data; never overwrite existing helper names. The host rejects unsupported syntax before any execution.\n\nFrozen source: experiments/accord/ir.py; HEAD 7a22a1c9561950f85b40bf0c2e6a92b36959af82; SHA256 bd669e7ee36f38ea79f472e68a8e9ef9680410e300f96cd4f1c21a3a939b5f7f\n\"\"\"Closed, versioned contract data and deliberately restricted canonical encoding.\"\"\"\n\nfrom dataclasses import dataclass\nimport hashlib\nimport json\nimport re\n\n\nclass AccordError(ValueError):\n    \"\"\"A contract or runtime precondition was not satisfied.\"\"\"\n\n\ndef require(condition, message):\n    if not condition:\n        raise AccordError(message)\n\n\ndef canonical(value):\n    return json.dumps(value, sort_keys=True, separators=(\",\", \":\"),\n                      ensure_ascii=False, allow_nan=False).encode(\"utf-8\")\n\n\ndef digest(kind, value):\n    return hashlib.sha256(kind.encode(\"ascii\") + b\"\\0\" + canonical(value)).hexdigest()\n\n\ndef text_digest(text):\n    return hashlib.sha256(text.encode(\"utf-8\")).hexdigest()\n\n\ndef identifier(value, *, revision=False):\n    pattern = r\"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}\" if revision else r\"[A-Za-z][A-Za-z0-9_.-]{0,63}\"\n    require(type(value) is str and re.fullmatch(pattern, value) is not None,\n            \"invalid identifier\")\n    return value\n\n\ndef bounded_int(value, low, high):\n    require(type(value) is int and low <= value <= high, \"integer outside allowed bounds\")\n    return value\n\n\ndef revision_token(value):\n    \"\"\"Adapter-owned CAS token: bounded integer or opaque printable ASCII text.\"\"\"\n    if type(value) is int:\n        return bounded_int(value, 0, 2**63 - 1)\n    require(type(value) is str and 1 <= len(value) <= 128 and\n            all(33 <= ord(char) <= 126 for char in value), \"invalid revision token\")\n    return value\n\n\ndef _unique_object(pairs):\n    result = {}\n    for key, value in pairs:\n        require(key not in result, \"duplicate JSON key\")\n        result[key] = value\n    return result\n\n\ndef _reject_constant(value):\n    raise AccordError(f\"nonfinite JSON: {value}\")\n\n\n@dataclass(frozen=True)\nclass Contract:\n    name: str\n    inputs: tuple[str, ...]\n    output_max_bytes: int\n    checks: tuple[tuple[str, str], ...]\n    publish_to: tuple[str, ...]\n    request_budget: int\n    policy_revision: str\n\n    def __post_init__(self):\n        identifier(self.name)\n        identifier(self.policy_revision, revision=True)\n        bounded_int(self.output_max_bytes, 1, 65536)\n        bounded_int(self.request_budget, 0, 10000)\n        for items in (self.inputs, self.publish_to):\n            require(type(items) is tuple, \"resource lists must be immutable tuples\")\n            for item in items:\n                identifier(item)\n            require(len(set(items)) == len(items), \"duplicate resource\")\n        require(type(self.checks) is tuple and len(self.checks) > 0, \"checks must be nonempty\")\n        for item in self.checks:\n            require(type(item) is tuple and len(item) == 2, \"invalid check\")\n            identifier(item[0])\n            identifier(item[1], revision=True)\n        require(len(dict(self.checks)) == len(self.checks), \"duplicate check\")\n        object.__setattr__(self, \"inputs\", tuple(sorted(self.inputs)))\n        object.__setattr__(self, \"publish_to\", tuple(sorted(self.publish_to)))\n        object.__setattr__(self, \"checks\", tuple(sorted(self.checks)))\n        require(len(canonical(self.to_dict())) <= 65536, \"contract too large\")\n\n    def to_dict(self):\n        return {\"ir\": \"accord.contract/0.1\", \"name\": self.name,\n                \"inputs\": list(self.inputs), \"output_max_bytes\": self.output_max_bytes,\n                \"checks\": dict(self.checks), \"publish_to\": list(self.publish_to),\n                \"request_budget\": self.request_budget, \"policy_revision\": self.policy_revision}\n\n    @property\n    def revision(self):\n        return digest(\"accord.contract/0.1\", self.to_dict())\n\n    @classmethod\n    def parse(cls, data):\n        if isinstance(data, (str, bytes)):\n            require(len(data.encode(\"utf-8\") if isinstance(data, str) else data) <= 65536,\n                    \"contract too large\")\n            try:\n                data = json.loads(data, object_pairs_hook=_unique_object,\n                                  parse_constant=_reject_constant)\n            except (ValueError, UnicodeError) as exc:\n                raise AccordError(\"invalid contract JSON\") from exc\n        require(type(data) is dict, \"contract must be an object\")\n        fields = {\"ir\", \"name\", \"inputs\", \"output_max_bytes\", \"checks\", \"publish_to\",\n                  \"request_budget\", \"policy_revision\"}\n        require(set(data) == fields, \"unknown or missing contract fields\")\n        require(data[\"ir\"] == \"accord.contract/0.1\", \"unsupported IR version\")\n        require(type(data[\"checks\"]) is dict, \"checks must be an object\")\n        require(type(data[\"inputs\"]) is list and type(data[\"publish_to\"]) is list,\n                \"resources must be arrays\")\n        return cls(data[\"name\"], tuple(data[\"inputs\"]), data[\"output_max_bytes\"],\n                   tuple(data[\"checks\"].items()), tuple(data[\"publish_to\"]),\n                   data[\"request_budget\"], data[\"policy_revision\"])\n"
+        }
+      },
+      "latest": null,
+      "parent": "029086e9cf724f9caca478dad704c300",
+      "profile": {
+        "epoch": 1,
+        "id": "da7c891a047f3747f87305ab1377ef74ae77cc787f5d5a7ce752eb2f5267021c"
+      },
+      "remaining": 1,
+      "revision": "6bdee790b24e0ec62c414e66249cee473202ba8a5a6039c44fc499a4e62d9eee"
+    }
+  },
+  "active_elapsed_ms": 378277.5628749514
+}

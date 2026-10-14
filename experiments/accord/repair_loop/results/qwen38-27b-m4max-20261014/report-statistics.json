@@ -1,0 +1,36 @@
+{
+  "corrections": [
+    {
+      "episode": 2,
+      "only_added_final_lf": true
+    },
+    {
+      "episode": 4,
+      "only_added_final_lf": true
+    },
+    {
+      "episode": 5,
+      "only_added_final_lf": true
+    },
+    {
+      "episode": 6,
+      "only_added_final_lf": true
+    },
+    {
+      "episode": 7,
+      "only_added_final_lf": true
+    }
+  ],
+  "successful_full_ms_medians": {
+    "accord": 610466.6622079676,
+    "python": 689345.7056665211
+  },
+  "failure_diagnostics": {
+    "replacement must use spaces and a final LF": 8
+  },
+  "cache_reuse_requests": 21,
+  "cache_hit_calls": 0,
+  "other_episode_work_ms": 26108.74366853386,
+  "startup_plus_batch_ms": 4828359.332041965,
+  "live_successes": 7
+}

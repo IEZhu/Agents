@@ -1,0 +1,28 @@
+{
+  "artifacts": [],
+  "attempt_id": "1",
+  "bundle_revision": "fa63359bf881cf4f5b7facdd91802ca14db7b10f538a00b5408d823df399aad7",
+  "checks": [],
+  "contract_revision": "598dd8b0d4219de4e7bbae378dbd048c97ddd9417f70f0076ba42c7b6ce076c6",
+  "evidence": [
+    {
+      "description": "Frozen source at experiments/accord/ir.py, HEAD 7a22a1c9561950f85b40bf0c2e6a92b36959af82, SHA256 bd669e7ee36f38ea79f472e68a8e9ef9680410e300f96cd4f1c21a3a939b5f7",
+      "id": "source",
+      "reference": "supplied source"
+    }
+  ],
+  "limitations": [
+    "No tools executed; checks are not_run because execution is out of scope."
+  ],
+  "protocol": "agents-core/subagent/1",
+  "question": null,
+  "remaining_work": [],
+  "result": {
+    "items": [
+      "        if isinstance(data, (str, bytes)):\n            try:\n                encoded = data.encode(\"utf-8\") if isinstance(data, str) else data\n            except UnicodeEncodeError as exc:\n                raise AccordError(\"invalid contract JSON\") from exc\n            require(len(encoded) <= 65536, \"contract too large\")\n            try:\n                data = json.loads(data, object_pairs_hook=_unique_object,\n                                  parse_constant=_reject_constant)\n            except (ValueError, UnicodeError) as exc:\n                raise AccordError(\"invalid contract JSON\") from exc"
+    ],
+    "summary": "Wrap the UTF-8 encoding step in a try/except UnicodeEncodeError so raw unpaired surrogate strings raise AccordError(\"invalid contract JSON\") instead of leaking UnicodeEncodeError, while preserving the 65536-byte bound and all other behavior"
+  },
+  "status": "completed",
+  "task_id": "repair-r2-e02-implement"
+}

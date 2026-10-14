@@ -1,0 +1,28 @@
+{
+  "artifacts": [],
+  "attempt_id": "1",
+  "bundle_revision": "fa63359bf881cf4f5b7facdd91802ca14db7b10f538a00b5408d823df399aad7",
+  "checks": [],
+  "contract_revision": "0c1db938bdc7d92665a60252f050a8619b512e92d6b7f937dab7bc630b698566",
+  "evidence": [
+    {
+      "description": "Candidate patch replacing the Contract.parse input boundary block.",
+      "id": "source",
+      "reference": "supplied source"
+    }
+  ],
+  "limitations": [
+    "No tools or execution environment available; verification is by static inspection only."
+  ],
+  "protocol": "agents-core/subagent/1",
+  "question": null,
+  "remaining_work": [],
+  "result": {
+    "items": [
+      "approve"
+    ],
+    "summary": "The candidate correctly catches UnicodeEncodeError from data.encode(\"utf-8\") and raises AccordError(\"invalid contract JSON\") instead of leaking the encoding error. It preserves the 65536-byte bound and exact \"contract too large\" diagnostic,"
+  },
+  "status": "completed",
+  "task_id": "repair-r2-e06-review"
+}

@@ -34,3 +34,5 @@ After each generated response, the runner writes `pending-validation.json` and p
 MCP scheduling waits, actual model time and active host work are reported separately. Transport failures retain partial evidence and stop the pilot. There is no scored retry loop. All HTTP routes are allowlisted; save/restore APIs are absent. Whole text is still sent for each completion even when KV is reused.
 
 Two post-pilot protocol-correction calls are retained under `verification/`. They returned actual validator diagnostics under fresh attempt IDs. The final response was structurally valid but partial; neither call changes primary outcomes. `protocol_correction.py --consistent-status` additionally constrains the relation between status and remaining work, not the model decision.
+
+The [stronger-model follow-up](../repair_loop/README.md) adds a bounded correction loop and automatic MCP transport while retaining this exact workload and checker. It compares complete solution success and full episode time between Accord and PythonSDK.

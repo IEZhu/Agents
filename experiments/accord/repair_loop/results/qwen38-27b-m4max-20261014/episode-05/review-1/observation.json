@@ -1,0 +1,66 @@
+{
+  "role": "review",
+  "attempt": 1,
+  "accepted": true,
+  "model_called": true,
+  "prepare_ms": 141.48424996528774,
+  "render_tokenize_ms": 589.057500124909,
+  "input_tokens": 7999,
+  "prompt_sha256": "33ca4789ed8013119fdc847e93eb17951f8ffe8b37b60b172ffe18c4ecd9d266",
+  "validation_ms": 238.1417079595849,
+  "validation": {
+    "valid": true,
+    "errors": [],
+    "verification": "structural_only"
+  },
+  "result": {
+    "artifacts": [],
+    "attempt_id": "1",
+    "bundle_revision": "fa63359bf881cf4f5b7facdd91802ca14db7b10f538a00b5408d823df399aad7",
+    "checks": [],
+    "contract_revision": "fe57eb1bc1aa58dc764a7d7aed32955991c6a45261f2d4efbf1d3cf354969bee",
+    "evidence": [
+      {
+        "description": "Frozen source at lines 107-114 shows the existing if block with the size check and json.loads call.",
+        "id": "source",
+        "reference": "supplied source"
+      }
+    ],
+    "limitations": [
+      "No tools available to execute or test the replacement code."
+    ],
+    "protocol": "agents-core/subagent/1",
+    "question": null,
+    "remaining_work": [],
+    "result": {
+      "items": [
+        "approve"
+      ],
+      "summary": "Wrapped data.encode in try/except UnicodeEncodeError to raise AccordError(\"invalid contract JSON\") for raw unpaired UTF-16 surrogates, preserving the 65536-byte bound and all other behavior."
+    },
+    "status": "completed",
+    "task_id": "repair-r2-e05-review"
+  },
+  "decision": "approve",
+  "check_accept_ms": 41.04733292479068,
+  "model_ms": 151950.09187504184,
+  "cache": {
+    "requested_reuse": true,
+    "actual_reused_tokens": 0,
+    "actual_evaluated_tokens": 7999,
+    "registered_prefix_tokens": 1731,
+    "input_tokens": 7999,
+    "cache_state": "miss",
+    "prior_cache_state": "resident",
+    "lock_wait_ms": 0.012459000572562218,
+    "validation_ms": 0.5648329388350248,
+    "dispatch_ms": 151961.61066705827,
+    "lock_hold_ms": 151971.00616595708,
+    "service_total_ms": 151971.01862495765,
+    "service_ttft_ms": 91204.90658399649
+  },
+  "output_tokens": 362,
+  "stop_type": "eos",
+  "request_units_consumed": 1,
+  "elapsed_ms": 153113.66949998774
+}

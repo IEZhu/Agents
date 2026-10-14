@@ -1,0 +1,28 @@
+{
+  "artifacts": [],
+  "attempt_id": "1",
+  "bundle_revision": "fa63359bf881cf4f5b7facdd91802ca14db7b10f538a00b5408d823df399aad7",
+  "checks": [],
+  "contract_revision": "fb9a2ff4296048dd0c7ad3804181214cb71d88ba2cd1c779f77a17920429c19b",
+  "evidence": [
+    {
+      "description": "Frozen source at experiments/accord/ir.py; original lines 107-114 contain the size gate and json.loads try/except that leaks UnicodeEncodeError for raw unpaired",
+      "id": "source",
+      "reference": "supplied source"
+    }
+  ],
+  "limitations": [
+    "No tools, commands, or file access were available; the replacement was derived solely from the supplied frozen source and constraints."
+  ],
+  "protocol": "agents-core/subagent/1",
+  "question": null,
+  "remaining_work": [],
+  "result": {
+    "items": [
+      "        if isinstance(data, (str, bytes)):\n            if isinstance(data, str):\n                try:\n                    data = data.encode(\"utf-8\")\n                except UnicodeEncodeError:\n                    raise AccordError(\"invalid contract JSON\")\n            require(len(data) <= 65536, \"contract too large\")\n            try:\n                data = json.loads(data, object_pairs_hook=_unique_object,\n                                  parse_constant=_reject_constant)\n            except (ValueError, UnicodeError) as exc:\n                raise AccordError(\"invalid contract JSON\") from exc\n"
+    ],
+    "summary": "Normalize raw unpaired UTF-16 surrogate str input to AccordError(\"invalid contract JSON\") by attempting utf-8 encode before the size gate, while preserving the 65536-byte bound, exact diagnostics, and all valid dict/JSON/bytes inputs."
+  },
+  "status": "completed",
+  "task_id": "repair-r2-e03-implement"
+}

@@ -1,0 +1,66 @@
+{
+  "role": "review",
+  "attempt": 1,
+  "accepted": true,
+  "model_called": true,
+  "prepare_ms": 82.46999990660697,
+  "render_tokenize_ms": 176.08483298681676,
+  "input_tokens": 8027,
+  "prompt_sha256": "936d6bb13c77e60b8f598f16fde2f74beac3a11cb990d95e686daa85b868a3c5",
+  "validation_ms": 781.0193339828402,
+  "validation": {
+    "valid": true,
+    "errors": [],
+    "verification": "structural_only"
+  },
+  "result": {
+    "artifacts": [],
+    "attempt_id": "1",
+    "bundle_revision": "fa63359bf881cf4f5b7facdd91802ca14db7b10f538a00b5408d823df399aad7",
+    "checks": [],
+    "contract_revision": "d49bfc511e1a12a881aad1d7e38fca815a6974d5e6a33fdb8ab0e77d652f504e",
+    "evidence": [
+      {
+        "description": "Candidate patch wraps data.encode(\"utf-8\") in try/except UnicodeEncodeError, raising AccordError(\"invalid contract JSON\").",
+        "id": "source",
+        "reference": "supplied source"
+      }
+    ],
+    "limitations": [
+      "No tools or execution available; verification is by static inspection of the supplied source and constraints only."
+    ],
+    "protocol": "agents-core/subagent/1",
+    "question": null,
+    "remaining_work": [],
+    "result": {
+      "items": [
+        "approve"
+      ],
+      "summary": "The candidate correctly isolates the UTF-8 encoding step in a try/except UnicodeEncodeError block, converting raw unpaired surrogate strings into AccordError(\"invalid contract JSON\") before the size check. This preserves the 65536-byte size"
+    },
+    "status": "completed",
+    "task_id": "repair-r2-e07-review"
+  },
+  "decision": "approve",
+  "check_accept_ms": 5.0065419636666775,
+  "model_ms": 196755.9227090096,
+  "cache": {
+    "requested_reuse": true,
+    "actual_reused_tokens": 0,
+    "actual_evaluated_tokens": 8027,
+    "registered_prefix_tokens": 1731,
+    "input_tokens": 8027,
+    "cache_state": "miss",
+    "prior_cache_state": "resident",
+    "lock_wait_ms": 0.015125027857720852,
+    "validation_ms": 1.0903750080615282,
+    "dispatch_ms": 196756.40833296347,
+    "lock_hold_ms": 196757.75395799428,
+    "service_total_ms": 196757.76908302214,
+    "service_ttft_ms": 132551.0847090045
+  },
+  "output_tokens": 383,
+  "stop_type": "eos",
+  "request_units_consumed": 1,
+  "elapsed_ms": 197838.63799995743
+}

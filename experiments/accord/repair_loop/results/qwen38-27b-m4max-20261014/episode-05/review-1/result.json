@@ -1,0 +1,28 @@
+{
+  "artifacts": [],
+  "attempt_id": "1",
+  "bundle_revision": "fa63359bf881cf4f5b7facdd91802ca14db7b10f538a00b5408d823df399aad7",
+  "checks": [],
+  "contract_revision": "fe57eb1bc1aa58dc764a7d7aed32955991c6a45261f2d4efbf1d3cf354969bee",
+  "evidence": [
+    {
+      "description": "Frozen source at lines 107-114 shows the existing if block with the size check and json.loads call.",
+      "id": "source",
+      "reference": "supplied source"
+    }
+  ],
+  "limitations": [
+    "No tools available to execute or test the replacement code."
+  ],
+  "protocol": "agents-core/subagent/1",
+  "question": null,
+  "remaining_work": [],
+  "result": {
+    "items": [
+      "approve"
+    ],
+    "summary": "Wrapped data.encode in try/except UnicodeEncodeError to raise AccordError(\"invalid contract JSON\") for raw unpaired UTF-16 surrogates, preserving the 65536-byte bound and all other behavior."
+  },
+  "status": "completed",
+  "task_id": "repair-r2-e05-review"
+}

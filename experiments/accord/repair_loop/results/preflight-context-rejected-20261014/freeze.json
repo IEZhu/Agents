@@ -1,0 +1,563 @@
+{
+  "order": [
+    [
+      "accord",
+      101
+    ],
+    [
+      "python",
+      101
+    ],
+    [
+      "python",
+      202
+    ],
+    [
+      "accord",
+      202
+    ],
+    [
+      "accord",
+      303
+    ],
+    [
+      "python",
+      303
+    ],
+    [
+      "python",
+      404
+    ],
+    [
+      "accord",
+      404
+    ]
+  ],
+  "settings": {
+    "temperature": 0.2,
+    "seed": 101,
+    "n_predict": 1536,
+    "id_slot": 0,
+    "top_k": 0,
+    "top_p": 1.0,
+    "min_p": 0.0,
+    "repeat_penalty": 1.0
+  },
+  "max_implementation_attempts": 3,
+  "profile": {
+    "engine_build": "b11429-d81235049",
+    "model_sha256": "f5f1dd8920d417aac2718b0bda3403da274301efdd6760b4f0f4b864ff2ad57d",
+    "template_sha256": "c3cf9e34abf4f9e36c2d72165aa9c132d3e2a725b6c2586aaa3a8af9d7a81041",
+    "context_size": 16384,
+    "source_sha256": "bd669e7ee36f38ea79f472e68a8e9ef9680410e300f96cd4f1c21a3a939b5f7f",
+    "common_sha256": "fa1e73dccb0fcc2ad01cd7e1fae0ab8c826d03c79a03c77cf4df11e6350fc1f8",
+    "server_generation": "dedicated-18189-repair-loop",
+    "parallel": 1,
+    "ctx_checkpoints": 8,
+    "checkpoint_min_step": 512,
+    "kv_type": "f16/f16"
+  },
+  "props": {
+    "default_generation_settings": {
+      "params": {
+        "seed": 4294967295,
+        "temperature": 1.0,
+        "dynatemp_range": 0.0,
+        "dynatemp_exponent": 1.0,
+        "top_k": 20,
+        "top_p": 0.949999988079071,
+        "min_p": 0.05000000074505806,
+        "top_n_sigma": -1.0,
+        "xtc_probability": 0.0,
+        "xtc_threshold": 0.10000000149011612,
+        "typical_p": 1.0,
+        "repeat_last_n": 64,
+        "repeat_penalty": 1.0,
+        "presence_penalty": 0.0,
+        "frequency_penalty": 0.0,
+        "dry_multiplier": 0.0,
+        "dry_base": 1.75,
+        "dry_allowed_length": 2,
+        "dry_penalty_last_n": 64,
+        "mirostat": 0,
+        "mirostat_tau": 5.0,
+        "mirostat_eta": 0.10000000149011612,
+        "adaptive_target": -1.0,
+        "adaptive_decay": 0.8999999761581421,
+        "max_tokens": -1,
+        "n_predict": -1,
+        "n_keep": 0,
+        "n_discard": 0,
+        "ignore_eos": false,
+        "stream": false,
+        "n_probs": 0,
+        "min_keep": 0,
+        "chat_format": "Content-only",
+        "reasoning_format": "none",
+        "reasoning_in_content": false,
+        "generation_prompt": "",
+        "samplers": [
+          "penalties",
+          "dry",
+          "top_n_sigma",
+          "top_k",
+          "typ_p",
+          "top_p",
+          "min_p",
+          "xtc",
+          "temperature"
+        ],
+        "speculative.types": "none",
+        "timings_per_token": false,
+        "post_sampling_probs": false,
+        "backend_sampling": false,
+        "lora": []
+      },
+      "n_ctx": 16384
+    },
+    "total_slots": 1,
+    "model_alias": "accord-qwen38-27b",
+    "model_ftype": "Q4_K - Medium",
+    "model_path": "/Users/alexey.zhuchkov/.ollama/models/blobs/sha256-f5f1dd8920d417aac2718b0bda3403da274301efdd6760b4f0f4b864ff2ad57d",
+    "modalities": {
+      "vision": false,
+      "video": false,
+      "audio": false
+    },
+    "media_marker": "<__media_ZyEMj8e6SborYQ2nlAAzpnTHS7ZMqQxl__>",
+    "endpoint_slots": true,
+    "endpoint_props": false,
+    "endpoint_metrics": true,
+    "ui": false,
+    "ui_settings": {},
+    "chat_template": "{%- set image_count = namespace(value=0) %}\n{%- set video_count = namespace(value=0) %}\n{%- macro render_content(content, do_vision_count, is_system_content=false) %}\n    {%- if content is string %}\n        {{- content }}\n    {%- elif content is iterable and content is not mapping %}\n        {%- for item in content %}\n            {%- if 'image' in item or 'image_url' in item or item.type == 'image' %}\n                {%- if is_system_content %}\n                    {{- raise_exception('System message cannot contain images.') }}\n                {%- endif %}\n                {%- if do_vision_count %}\n                    {%- set image_count.value = image_count.value + 1 %}\n                {%- endif %}\n                {%- if add_vision_id %}\n                    {{- 'Picture ' ~ image_count.value ~ ': ' }}\n                {%- endif %}\n                {{- '<|vision_start|><|image_pad|><|vision_end|>' }}\n            {%- elif 'video' in item or item.type == 'video' %}\n                {%- if is_system_content %}\n                    {{- raise_exception('System message cannot contain videos.') }}\n                {%- endif %}\n                {%- if do_vision_count %}\n                    {%- set video_count.value = video_count.value + 1 %}\n                {%- endif %}\n                {%- if add_vision_id %}\n                    {{- 'Video ' ~ video_count.value ~ ': ' }}\n                {%- endif %}\n                {{- '<|vision_start|><|video_pad|><|vision_end|>' }}\n            {%- elif 'text' in item %}\n                {{- item.text }}\n            {%- else %}\n                {{- raise_exception('Unexpected item type in content.') }}\n            {%- endif %}\n        {%- endfor %}\n    {%- elif content is none or content is undefined %}\n        {{- '' }}\n    {%- else %}\n        {{- raise_exception('Unexpected content type.') }}\n    {%- endif %}\n{%- endmacro %}\n{%- if not messages %}\n    {{- raise_exception('No messages provided.') }}\n{%- endif %}\n{%- set reasoning_instructions = '' %}\n{%- if enable_thinking is undefined or enable_thinking is true %}\n    {%- set resolved_reasoning_effort = reasoning_effort|default('xhigh') %}\n    {%- if resolved_reasoning_effort not in ('xhigh', 'medium', 'low') %}\n        {{- raise_exception('Unexpected reasoning effort ' ~ reasoning_effort ~ '. Supported types are xhigh (default), medium, and low.') }}\n    {%- endif %}\n    {%- if resolved_reasoning_effort == 'xhigh' %}\n        {%- set reasoning_instructions = 'Reasoning effort is set to xhigh. Please think carefully through the task, validate key assumptions, consider plausible alternatives, and prioritize correctness, consistency, and clarity in the final answer.' %}\n    {%- elif resolved_reasoning_effort == 'low' %}\n        {%- set reasoning_instructions = 'Reasoning effort is set to low. Keep your thinking brief and focused, moving directly to the conclusion without unnecessary elaboration.' %}\n    {%- endif %}\n{%- endif %}\n{%- if tools and tools is iterable and tools is not mapping %}\n    {{- '<|im_start|>system\\n' }}\n    {%- if reasoning_instructions %}\n        {{- reasoning_instructions + '\\n\\n' }}\n    {%- endif %}\n    {{- \"# Tools\\n\\nYou have access to the following functions:\\n\\n<tools>\" }}\n    {%- for tool in tools %}\n        {{- \"\\n\" }}\n        {{- tool | tojson }}\n    {%- endfor %}\n    {{- \"\\n</tools>\" }}\n    {{- '\\n\\nIf you choose to call a function ONLY reply in the following format with NO suffix:\\n\\n<tool_call>\\n<function=example_function_name>\\n<parameter=example_parameter_1>\\nvalue_1\\n</parameter>\\n<parameter=example_parameter_2>\\nThis is the value for the second parameter\\nthat can span\\nmultiple lines\\n</parameter>\\n</function>\\n</tool_call>\\n\\n<IMPORTANT>\\nReminder:\\n- Function calls MUST follow the specified format: an inner <function=...></function> block must be nested within <tool_call></tool_call> XML tags\\n- Required parameters MUST be specified\\n- You may provide optional reasoning for your function call in natural language BEFORE the function call, but NOT after\\n- If there is no function call available, answer the question like normal with your current knowledge and do not tell the user about function calls\\n</IMPORTANT>' }}\n    {%- if messages[0].role == 'system' %}\n        {%- set content = render_content(messages[0].content, false, true)|trim %}\n        {%- if content %}\n            {{- '\\n\\n' + content }}\n        {%- endif %}\n    {%- endif %}\n    {{- '<|im_end|>\\n' }}\n{%- else %}\n    {%- if messages[0].role == 'system' %}\n        {%- set content = render_content(messages[0].content, false, true)|trim %}\n        {%- if content %}\n            {{- '<|im_start|>system\\n' + (reasoning_instructions + '\\n\\n' if reasoning_instructions else '')  + content + '<|im_end|>\\n' }}\n        {%- elif reasoning_instructions %}\n            {{- '<|im_start|>system\\n' + reasoning_instructions + '<|im_end|>\\n' }}\n        {%- endif %}\n    {%- elif reasoning_instructions %}\n        {{- '<|im_start|>system\\n' + reasoning_instructions + '<|im_end|>\\n' }}\n    {%- endif %}\n{%- endif %}\n{%- set ns = namespace(multi_step_tool=true, last_query_index=messages|length - 1) %}\n{%- for message in messages[::-1] %}\n    {%- set index = (messages|length - 1) - loop.index0 %}\n    {%- if ns.multi_step_tool and message.role == \"user\" %}\n        {%- set content = render_content(message.content, false)|trim %}\n        {%- if not(content.startswith('<tool_response>') and content.endswith('</tool_response>')) %}\n            {%- set ns.multi_step_tool = false %}\n            {%- set ns.last_query_index = index %}\n        {%- endif %}\n    {%- endif %}\n{%- endfor %}\n{%- if ns.multi_step_tool %}\n    {{- raise_exception('No user query found in messages.') }}\n{%- endif %}\n{%- for message in messages %}\n    {%- set content = render_content(message.content, true)|trim %}\n    {%- if message.role == \"system\" %}\n        {%- if not loop.first %}\n            {{- raise_exception('System message must be at the beginning.') }}\n        {%- endif %}\n    {%- elif message.role == \"user\" %}\n        {{- '<|im_start|>' + message.role + '\\n' + content + '<|im_end|>' + '\\n' }}\n    {%- elif message.role == \"assistant\" %}\n        {%- set reasoning_content = '' %}\n        {%- if message.reasoning_content is string %}\n            {%- set reasoning_content = message.reasoning_content %}\n        {%- endif %}\n        {%- set reasoning_content = reasoning_content|trim %}\n        {%- if preserve_thinking is undefined or preserve_thinking is true or loop.index0 > ns.last_query_index %}\n            {{- '<|im_start|>' + message.role + '\\n<think>\\n' + reasoning_content + '\\n</think>\\n\\n' + content }}\n        {%- else %}\n            {{- '<|im_start|>' + message.role + '\\n' + content }}\n        {%- endif %}\n        {%- if message.tool_calls and message.tool_calls is iterable and message.tool_calls is not mapping %}\n            {%- for tool_call in message.tool_calls %}\n                {%- if tool_call.function is defined %}\n                    {%- set tool_call = tool_call.function %}\n                {%- endif %}\n                {%- if loop.first %}\n                    {%- if content|trim %}\n                        {{- '\\n\\n<tool_call>\\n<function=' + tool_call.name + '>\\n' }}\n                    {%- else %}\n                        {{- '<tool_call>\\n<function=' + tool_call.name + '>\\n' }}\n                    {%- endif %}\n                {%- else %}\n                    {{- '\\n<tool_call>\\n<function=' + tool_call.name + '>\\n' }}\n                {%- endif %}\n                {%- if tool_call.arguments is defined and tool_call.arguments != '' %}\n                    {%- for args_name, args_value in tool_call.arguments|items %}\n                        {{- '<parameter=' + args_name + '>\\n' }}\n                        {%- set args_value = args_value | string if args_value is string else args_value | tojson | safe %}\n                        {{- args_value }}\n                        {{- '\\n</parameter>\\n' }}\n                    {%- endfor %}\n                {%- endif %}\n                {{- '</function>\\n</tool_call>' }}\n            {%- endfor %}\n        {%- endif %}\n        {{- '<|im_end|>\\n' }}\n    {%- elif message.role == \"tool\" %}\n        {%- if loop.previtem and loop.previtem.role != \"tool\" %}\n            {{- '<|im_start|>user' }}\n        {%- endif %}\n        {{- '\\n<tool_response>\\n' }}\n        {{- content }}\n        {{- '\\n</tool_response>' }}\n        {%- if not loop.last and loop.nextitem.role != \"tool\" %}\n            {{- '<|im_end|>\\n' }}\n        {%- elif loop.last %}\n            {{- '<|im_end|>\\n' }}\n        {%- endif %}\n    {%- else %}\n        {{- raise_exception('Unexpected message role.') }}\n    {%- endif %}\n{%- endfor %}\n{%- if add_generation_prompt %}\n    {{- '<|im_start|>assistant\\n' }}\n    {%- if enable_thinking is defined and enable_thinking is false %}\n        {{- '<think>\\n\\n</think>\\n\\n' }}\n    {%- else %}\n        {{- '<think>\\n' }}\n    {%- endif %}\n{%- endif %}",
+    "chat_template_caps": {
+      "supports_object_arguments": true,
+      "supports_parallel_tool_calls": true,
+      "supports_preserve_reasoning": true,
+      "supports_reasoning_effort": true,
+      "supports_string_content": true,
+      "supports_system_role": true,
+      "supports_tool_calls": true,
+      "supports_tools": true,
+      "supports_typed_content": true
+    },
+    "bos_token": "<|endoftext|>",
+    "eos_token": "<|im_end|>",
+    "build_info": "b11429-d81235049",
+    "is_sleeping": false,
+    "cors_proxy_enabled": false
+  },
+  "prefix_ids": [248045,8678,198,88173,12182,12368,2193,13,8483,1414,3559,369,795,364,279,12244,59056,3274,13,271,6065,8242,25,198,94987,18605,4482,748,264,12654,592,8222,6891,632,73560,19464,12,16,21,70376,1970,3387,24096,76817,1401,440,1876,328,11469,4954,4566,487,4370,314,50083,34707,31462,1401,13,78503,660,6149,2610,10804,11,2583,6249,11,4566,1414,321,7021,5639,3107,56373,13,78503,279,220,21,20,20,18,21,19464,12,23,52141,1879,6608,321,4581,328,19641,2166,3349,1,14648,364,59140,3107,66788,592,14,9363,13,78503,21814,15697,321,2397,24903,4566,35678,11,4581,10289,23311,10206,11,7629,4881,11,45640,11,41042,20735,321,51958,13,22305,70376,89574,592,369,17030,506,279,60427,1879,18169,26,264,4566,1142,48569,43867,12092,364,264,70376,9257,1472,6149,12448,10206,13,8020,279,10503,9111,628,2222,13,1061,369,799,14590,1412,50333,1954,12368,26,635,524,11263,279,2645,314,279,4536,13,271,42177,6925,16484,25,198,760,13329,369,279,4307,6149,413,2424,506,3889,4965,220,16,15,22,12,16,16,19,11,2583,1141,7810,27041,2255,67234,321,1534,37734,13,13262,279,15484,1510,331,11074,2507,11,318,485,11,5639,578,18173,17587,440,874,745,13,25749,220,17,15,19,23,19464,12,23,5639,321,220,18,21,4965,13,55688,18890,25,413,11,1380,14,11347,11,4145,2136,30152,11,6526,11,33539,22666,11,34322,1608,2564,466,835,11,43716,11,1440,321,4673,13,2233,14760,11,28782,11,5568,11,12310,4512,11,1146,19226,11,7620,19024,466,353,17011,13,38795,513,6973,310,11074,11,2343,11,1325,11,76817,1401,11,795,16803,437,4609,12,23,871,321,2857,22246,2507,11,1576,35226,30951,20266,9301,5146,11,4563,33810,20266,45427,33810,553,15661,4531,4346,25,14953,11,34707,1401,11,34707,31462,1401,11,76817,1401,13,55688,72710,25,220,21,20,20,18,21,11,328,4609,12,23,487,328,19641,2166,3349,487,328,11469,4954,4566,3158,5272,506,1379,4590,4145,2136,3759,4874,303,5089,310,795,26,2496,31153,6149,12755,4874,13,561,3357,57409,39072,18890,1518,866,10993,13,271,88173,2450,25,20554,14,182200,14,396,6971,26,31984,220,22,64,17,17,64,16,66,24,20,21,16,24,20,15,69,23,20,65,19,15,12849,15,66,17,68,21,64,24,17,65,18,21,24,20,24,2492,23,17,26,21050,17,20,21,20828,21,21,24,68,22,2059,18,21,69,18,23,12150,22,24,69,19,22,17,68,21,23,64,23,68,24,797,24,21,23,15,19,16,15,68,18,15,15,69,24,21,4243,19,69,16,66,17,16,64,18,64,24,18,24,65,20,69,22,69,198,12237,26022,11,2243,290,4954,795,321,33931,21068,41042,10845,71483,271,1445,795,8588,1120,795,1005,198,464,52665,198,464,2857,198,464,311,1358,1005,76817,1401,61264,1590,198,262,4071,32,4954,466,15135,76706,557,524,18933,71483,1358,727,1325,45905,11,1876,1590,198,262,413,524,2876,25,198,285,4673,76817,1401,7102,8,1358,727,41042,3553,1590,198,262,460,2857,20868,3553,11,3269,12268,3497,11,79657,28,41317,22698,681,198,2467,5790,48551,5433,11,2070,71422,5433,553,5987,437,4609,12,23,871,1358,727,20245,60584,11,869,1590,198,262,460,52665,62197,17,20,21,60584,16803,437,22599,871,478,292,11595,15,1,478,41042,3553,4430,93873,363,1358,727,1414,51215,7008,1590,198,262,460,52665,62197,17,20,21,7008,16803,437,4609,12,23,14755,93873,363,1358,727,12448,3553,11,11439,22841,5433,1590,198,262,5215,283,427,35643,32,37980,8868,15,12,24,1404,32,37980,8868,15,12,24,4790,12,14923,15,11,21,18,9571,413,22841,745,427,35643,32,37980,8868,1404,32,37980,8868,15,12,24,4790,12,14923,15,11,21,18,9571,198,262,1325,5627,3553,8,369,592,321,311,20874,6146,29933,11,869,8,369,524,2168,11,198,309,328,11469,12448,871,198,262,460,869,1358,727,59056,3906,3553,11,3238,11,1496,1590,198,262,1325,5627,3553,8,369,514,321,3238,2564,869,2564,1496,11,328,11326,4732,5252,13854,871,198,262,460,869,1358,727,22841,6256,3553,1590,198,262,4071,5755,27760,40411,3817,25,59056,7308,466,44932,40608,38016,1414,71483,198,262,413,913,3553,8,369,514,25,198,285,460,59056,3906,3553,11,220,15,11,220,17,332,21,18,471,220,16,8,198,262,1325,5627,3553,8,369,592,321,220,16,2564,2343,3553,8,2564,220,16,17,23,321,198,309,660,7,18,18,2564,5824,6717,8,2564,220,16,17,21,364,1122,303,869,681,328,11469,22841,3817,871,198,262,460,869,1358,727,696,9301,5146,1250,4568,1590,198,262,1067,283,4535,198,262,364,1328,11,869,303,13139,25,198,285,1325,4702,524,303,1067,11,328,61672,4566,1328,871,198,285,1067,7900,60,283,869,198,262,460,1067,1358,727,696,45427,33810,3553,1590,198,262,4673,76817,1401,925,1,6082,24903,4566,25,313,927,54084,1358,31,673,1005,925,40838,3497,8,198,1005,18605,25,198,262,803,25,592,198,262,10804,25,13992,16793,11,2423,60,198,262,2468,6144,12164,25,514,198,262,11988,25,13992,13787,5871,16793,11,592,1089,2423,60,198,262,3305,2270,25,13992,16793,11,2423,60,198,262,1622,66536,25,514,198,262,4687,57836,25,592,271,262,687,1259,2134,5945,3676,701,1590,198,285,12448,1153,2557,8,198,285,12448,1153,58257,57836,11,22841,3497,8,198,285,59056,3906,1153,13026,6144,12164,11,220,16,11,220,21,20,20,18,21,8,198,285,59056,3906,1153,7966,66536,11,220,15,11,220,16,15,15,15,15,8,198,285,364,3470,303,318,701,40980,11,638,31967,2270,1590,198,309,1325,5627,23573,8,369,13992,11,328,8960,11140,1902,381,49835,43716,871,198,309,364,1455,303,3470,25,198,388,12448,5225,8,198,309,1325,6686,13765,23573,578,606,2343,23573,681,328,61672,4939,871,198,285,1325,5627,1153,8820,82,8,369,13992,321,2343,1153,8820,82,8,835,220,15,11,328,47722,1902,381,2397,3092,871,198,285,364,1455,303,638,8820,82,25,198,309,1325,5627,5225,8,369,13992,321,2343,5225,8,606,220,17,11,328,11469,1716,871,198,309,12448,5225,58,15,2387,198,309,12448,5225,58,16,1089,22841,3497,8,198,285,1325,6686,30251,1153,8820,82,578,606,2343,1153,8820,82,681,328,61672,1716,871,198,285,1576,4692,84163,3676,701,11,328,24151,487,13992,42911,1153,40980,7461,198,285,1576,4692,84163,3676,701,11,328,26610,2270,487,13992,42911,1153,31967,2270,7461,198,285,1576,4692,84163,3676,701,11,328,47722,487,13992,42911,1153,8820,82,7461,198,285,1325,6686,87533,21693,1153,2312,5076,9831,2564,220,21,20,20,18,21,11,328,19641,2166,3349,871,271,262,687,310,5076,1153,1590,198,285,460,5046,396,763,328,182200,49894,14,15,13,16,487,328,591,763,638,2557,11,198,388,328,24151,763,1103,1153,40980,681,328,2911,6144,12164,763,638,13026,6144,12164,11,198,388,328,47722,763,6249,1153,8820,82,681,328,26610,2270,763,1103,1153,31967,2270,681,198,388,328,1967,66536,763,638,7966,66536,11,328,33639,57836,763,638,58257,57836,92,271,262,554,3573,198,262,687,22841,1153,1590,198,285,460,20245,437,182200,49894,14,15,13,16,487,638,2312,5076,2072,271,262,554,25901,198,262,687,4563,19776,11,795,1590,198,285,413,11074,2507,11,318,485,11,5639,35497,198,309,1325,6686,2507,16803,437,4609,12,23,871,413,11074,2507,11,592,8,745,795,8,2564,220,21,20,20,18,21,11,198,493,328,19641,2166,3349,871,198,309,1380,25,198,388,795,283,2857,22246,2507,11,1576,35226,30951,20266,9301,5146,11,198,6447,4563,33810,20266,45427,33810,8,198,309,3525,318,1094,1401,11,34707,1401,8,430,3328,25,198,388,4673,76817,1401,437,11469,4954,4566,871,494,3328,198,285,1325,5627,2507,8,369,6249,11,328,19641,1902,381,449,1576,871,198,285,4881,283,5046,396,487,328,591,487,328,24151,487,328,2911,6144,12164,487,328,47722,487,328,26610,2270,487,198,1638,328,1967,66536,487,328,33639,57836,8934,198,285,1325,13765,2507,8,606,4881,11,328,15615,466,7167,4954,4881,871,198,285,1325,2507,1143,396,1293,606,328,182200,49894,14,15,13,16,487,328,78349,15769,2243,871,198,285,1325,5627,2507,1143,47722,13611,369,6249,11,328,47722,1902,381,449,1576,871,198,285,1325,5627,2507,1143,24151,13611,369,1103,321,913,2507,1143,26610,2270,13611,369,1103,11,198,388,328,12380,1902,381,17839,871,198,285,460,12423,2507,1143,591,7664,13992,2507,1143,24151,61476,795,1143,2911,6144,12164,7664,198,4152,13992,2507,1143,47722,5348,3494,11519,13992,2507,1143,26610,2270,61476,198,4152,795,1143,1967,66536,7664,795,1143,33639,57836,13611,248046,198,248045,846,198],
+  "source_hashes": {
+    "experiments/accord/repair_loop/run.py": "6c2f129271c57d86c1bfd855663b9e630d505a623fcf650a4924897b7309abd1",
+    "experiments/accord/repair_loop/test_run.py": "f13baeae86114cf879dd6a91ca86ab4450f86702d72f76ddf9745061cc2ec9bb",
+    "experiments/accord/repair_loop/test_mcp_client.py": "f5f54dbd92836fd7d74c0d4aba4bcd3e7899c9441959c8a1c720284936f113ee",
+    "experiments/accord/repair_loop/mcp_client.py": "49d015c0fe064e342138534703ff93ed738c57595b0e78659ca1a40d93f63b88",
+    "experiments/accord/repair_loop/analyze.py": "e08768cb2852f1d2a6d1f49c1eda2e2314b7430f50d1d2f5c7f8122588dae63b",
+    "experiments/accord/repair_loop/protocol.md": "664b08f9cebc3c4766326ae74cc12dcccac6214a8cdbc16984dae79ce184db2f",
+    "experiments/accord/shared_kv/cache.py": "97c2bdf38ec85eb7dc8f4c413c9c8afc4fee2f2d79ab2dce8e302c91a70f7a6e",
+    "experiments/accord/shared_kv/workload/checker.py": "7d02b3d282a416cf6f01eb13f6b6467a6be59032df4c0dd3e4f11386dc3e2f3e",
+    "experiments/accord/shared_kv/workload/probe.py": "5270e78d4cda9f5acf1f5f4afad582c6f692137d9bca7009625f2f7f2b0b91dc",
+    "experiments/accord/shared_kv/workload/workload.json": "58552c69a93abeff4177be79f85d518d95de036fd13aff6967c97e6c0f09640e",
+    "experiments/accord/ir.py": "bd669e7ee36f38ea79f472e68a8e9ef9680410e300f96cd4f1c21a3a939b5f7f",
+    "experiments/accord/runtime.py": "f5da8ce4c66a73e8e93356b67fa7617bc8fd24d386d9ebc3207f1fe111af6662",
+    "experiments/accord/evaluation/python_sdk.py": "ac98c838bd545e868e096fede286509be1c0edafb5f0033e37377613ba6c1f58",
+    "experiments/accord/shared_kv/run.py": "0cd209600c4f81cb3cd2fbf4645e6e79f643f0f8622cdac77d79d0c6c2475bd7",
+    "experiments/accord/inference/client.py": "e168d6a59cdad00c5dfa458a109dfd412ba5b4eb27ee2cb7b4e97aa3a4898f21",
+    "experiments/accord/delegation/run.py": "e4906dcc035924e117969b91c023b7ee7a3ae1b96a7bea0dc4be413290821911",
+    "experiments/accord/store.py": "c926b69be397afa77071ee5e98616a72680ecb9bf9204ff4d3f888d0a7f8e995"
+  },
+  "baseline_checks": {
+    "passed": true,
+    "patch_rejection_cases": 33,
+    "baseline_roundtrip": true,
+    "baseline_behavior_count": 46,
+    "baseline_expected_failures": [
+      "raw_high_surrogate",
+      "raw_low_surrogate",
+      "raw_surrogate_in_json",
+      "raw_surrogate_pair"
+    ],
+    "baseline_report": {
+      "passed": false,
+      "count": 46,
+      "source_sha256": "bd669e7ee36f38ea79f472e68a8e9ef9680410e300f96cd4f1c21a3a939b5f7f",
+      "checks": [
+        {
+          "name": "valid_dictionary",
+          "passed": true,
+          "expected_type": "ok",
+          "expected_message": null,
+          "actual_type": "ok",
+          "actual_message": null
+        },
+        {
+          "name": "valid_json_text",
+          "passed": true,
+          "expected_type": "ok",
+          "expected_message": null,
+          "actual_type": "ok",
+          "actual_message": null
+        },
+        {
+          "name": "valid_utf8_bytes",
+          "passed": true,
+          "expected_type": "ok",
+          "expected_message": null,
+          "actual_type": "ok",
+          "actual_message": null
+        },
+        {
+          "name": "valid_utf16_bytes",
+          "passed": true,
+          "expected_type": "ok",
+          "expected_message": null,
+          "actual_type": "ok",
+          "actual_message": null
+        },
+        {
+          "name": "valid_utf32_bytes",
+          "passed": true,
+          "expected_type": "ok",
+          "expected_message": null,
+          "actual_type": "ok",
+          "actual_message": null
+        },
+        {
+          "name": "valid_json_ascii_escape",
+          "passed": true,
+          "expected_type": "ok",
+          "expected_message": null,
+          "actual_type": "ok",
+          "actual_message": null
+        },
+        {
+          "name": "exact_65536_text_bytes",
+          "passed": true,
+          "expected_type": "ok",
+          "expected_message": null,
+          "actual_type": "ok",
+          "actual_message": null
+        },
+        {
+          "name": "exact_65536_raw_bytes",
+          "passed": true,
+          "expected_type": "ok",
+          "expected_message": null,
+          "actual_type": "ok",
+          "actual_message": null
+        },
+        {
+          "name": "raw_high_surrogate",
+          "passed": false,
+          "expected_type": "AccordError",
+          "expected_message": "invalid contract JSON",
+          "actual_type": "UnicodeEncodeError",
+          "actual_message": "'utf-8' codec can't encode character '\\ud800' in position 0: surrogates not allowed"
+        },
+        {
+          "name": "raw_low_surrogate",
+          "passed": false,
+          "expected_type": "AccordError",
+          "expected_message": "invalid contract JSON",
+          "actual_type": "UnicodeEncodeError",
+          "actual_message": "'utf-8' codec can't encode character '\\udfff' in position 0: surrogates not allowed"
+        },
+        {
+          "name": "raw_surrogate_in_json",
+          "passed": false,
+          "expected_type": "AccordError",
+          "expected_message": "invalid contract JSON",
+          "actual_type": "UnicodeEncodeError",
+          "actual_message": "'utf-8' codec can't encode character '\\ud800' in position 39: surrogates not allowed"
+        },
+        {
+          "name": "raw_surrogate_pair",
+          "passed": false,
+          "expected_type": "AccordError",
+          "expected_message": "invalid contract JSON",
+          "actual_type": "UnicodeEncodeError",
+          "actual_message": "'utf-8' codec can't encode characters in position 39-40: surrogates not allowed"
+        },
+        {
+          "name": "oversize_ascii_text",
+          "passed": true,
+          "expected_type": "AccordError",
+          "expected_message": "contract too large",
+          "actual_type": "AccordError",
+          "actual_message": "contract too large"
+        },
+        {
+          "name": "oversize_raw_bytes",
+          "passed": true,
+          "expected_type": "AccordError",
+          "expected_message": "contract too large",
+          "actual_type": "AccordError",
+          "actual_message": "contract too large"
+        },
+        {
+          "name": "oversize_multibyte_text",
+          "passed": true,
+          "expected_type": "AccordError",
+          "expected_message": "contract too large",
+          "actual_type": "AccordError",
+          "actual_message": "contract too large"
+        },
+        {
+          "name": "malformed_json",
+          "passed": true,
+          "expected_type": "AccordError",
+          "expected_message": "invalid contract JSON",
+          "actual_type": "AccordError",
+          "actual_message": "invalid contract JSON"
+        },
+        {
+          "name": "invalid_utf8",
+          "passed": true,
+          "expected_type": "AccordError",
+          "expected_message": "invalid contract JSON",
+          "actual_type": "AccordError",
+          "actual_message": "invalid contract JSON"
+        },
+        {
+          "name": "truncated_utf8",
+          "passed": true,
+          "expected_type": "AccordError",
+          "expected_message": "invalid contract JSON",
+          "actual_type": "AccordError",
+          "actual_message": "invalid contract JSON"
+        },
+        {
+          "name": "duplicate_key",
+          "passed": true,
+          "expected_type": "AccordError",
+          "expected_message": "invalid contract JSON",
+          "actual_type": "AccordError",
+          "actual_message": "invalid contract JSON"
+        },
+        {
+          "name": "nonfinite_nan",
+          "passed": true,
+          "expected_type": "AccordError",
+          "expected_message": "invalid contract JSON",
+          "actual_type": "AccordError",
+          "actual_message": "invalid contract JSON"
+        },
+        {
+          "name": "nonfinite_infinity",
+          "passed": true,
+          "expected_type": "AccordError",
+          "expected_message": "invalid contract JSON",
+          "actual_type": "AccordError",
+          "actual_message": "invalid contract JSON"
+        },
+        {
+          "name": "nonfinite_negative_infinity",
+          "passed": true,
+          "expected_type": "AccordError",
+          "expected_message": "invalid contract JSON",
+          "actual_type": "AccordError",
+          "actual_message": "invalid contract JSON"
+        },
+        {
+          "name": "array_root",
+          "passed": true,
+          "expected_type": "AccordError",
+          "expected_message": "contract must be an object",
+          "actual_type": "AccordError",
+          "actual_message": "contract must be an object"
+        },
+        {
+          "name": "null_root",
+          "passed": true,
+          "expected_type": "AccordError",
+          "expected_message": "contract must be an object",
+          "actual_type": "AccordError",
+          "actual_message": "contract must be an object"
+        },
+        {
+          "name": "integer_root",
+          "passed": true,
+          "expected_type": "AccordError",
+          "expected_message": "contract must be an object",
+          "actual_type": "AccordError",
+          "actual_message": "contract must be an object"
+        },
+        {
+          "name": "boolean_root",
+          "passed": true,
+          "expected_type": "AccordError",
+          "expected_message": "contract must be an object",
+          "actual_type": "AccordError",
+          "actual_message": "contract must be an object"
+        },
+        {
+          "name": "bytearray_root",
+          "passed": true,
+          "expected_type": "AccordError",
+          "expected_message": "contract must be an object",
+          "actual_type": "AccordError",
+          "actual_message": "contract must be an object"
+        },
+        {
+          "name": "unknown_field",
+          "passed": true,
+          "expected_type": "AccordError",
+          "expected_message": "unknown or missing contract fields",
+          "actual_type": "AccordError",
+          "actual_message": "unknown or missing contract fields"
+        },
+        {
+          "name": "wrong_version",
+          "passed": true,
+          "expected_type": "AccordError",
+          "expected_message": "unsupported IR version",
+          "actual_type": "AccordError",
+          "actual_message": "unsupported IR version"
+        },
+        {
+          "name": "checks_array",
+          "passed": true,
+          "expected_type": "AccordError",
+          "expected_message": "checks must be an object",
+          "actual_type": "AccordError",
+          "actual_message": "checks must be an object"
+        },
+        {
+          "name": "inputs_string",
+          "passed": true,
+          "expected_type": "AccordError",
+          "expected_message": "resources must be arrays",
+          "actual_type": "AccordError",
+          "actual_message": "resources must be arrays"
+        },
+        {
+          "name": "publish_string",
+          "passed": true,
+          "expected_type": "AccordError",
+          "expected_message": "resources must be arrays",
+          "actual_type": "AccordError",
+          "actual_message": "resources must be arrays"
+        },
+        {
+          "name": "bool_budget",
+          "passed": true,
+          "expected_type": "AccordError",
+          "expected_message": "integer outside allowed bounds",
+          "actual_type": "AccordError",
+          "actual_message": "integer outside allowed bounds"
+        },
+        {
+          "name": "float_budget",
+          "passed": true,
+          "expected_type": "AccordError",
+          "expected_message": "integer outside allowed bounds",
+          "actual_type": "AccordError",
+          "actual_message": "integer outside allowed bounds"
+        },
+        {
+          "name": "negative_budget",
+          "passed": true,
+          "expected_type": "AccordError",
+          "expected_message": "integer outside allowed bounds",
+          "actual_type": "AccordError",
+          "actual_message": "integer outside allowed bounds"
+        },
+        {
+          "name": "large_budget",
+          "passed": true,
+          "expected_type": "AccordError",
+          "expected_message": "integer outside allowed bounds",
+          "actual_type": "AccordError",
+          "actual_message": "integer outside allowed bounds"
+        },
+        {
+          "name": "zero_output_limit",
+          "passed": true,
+          "expected_type": "AccordError",
+          "expected_message": "integer outside allowed bounds",
+          "actual_type": "AccordError",
+          "actual_message": "integer outside allowed bounds"
+        },
+        {
+          "name": "large_output_limit",
+          "passed": true,
+          "expected_type": "AccordError",
+          "expected_message": "integer outside allowed bounds",
+          "actual_type": "AccordError",
+          "actual_message": "integer outside allowed bounds"
+        },
+        {
+          "name": "duplicate_resource",
+          "passed": true,
+          "expected_type": "AccordError",
+          "expected_message": "duplicate resource",
+          "actual_type": "AccordError",
+          "actual_message": "duplicate resource"
+        },
+        {
+          "name": "empty_checks",
+          "passed": true,
+          "expected_type": "AccordError",
+          "expected_message": "checks must be nonempty",
+          "actual_type": "AccordError",
+          "actual_message": "checks must be nonempty"
+        },
+        {
+          "name": "bad_identifier",
+          "passed": true,
+          "expected_type": "AccordError",
+          "expected_message": "invalid identifier",
+          "actual_type": "AccordError",
+          "actual_message": "invalid identifier"
+        },
+        {
+          "name": "dictionary_surrogate",
+          "passed": true,
+          "expected_type": "AccordError",
+          "expected_message": "invalid identifier",
+          "actual_type": "AccordError",
+          "actual_message": "invalid identifier"
+        },
+        {
+          "name": "integer_check_revision",
+          "passed": true,
+          "expected_type": "AccordError",
+          "expected_message": "invalid identifier",
+          "actual_type": "AccordError",
+          "actual_message": "invalid identifier"
+        },
+        {
+          "name": "escaped_surrogate_json",
+          "passed": true,
+          "expected_type": "AccordError",
+          "expected_message": "invalid identifier",
+          "actual_type": "AccordError",
+          "actual_message": "invalid identifier"
+        },
+        {
+          "name": "nonascii_identifier_json",
+          "passed": true,
+          "expected_type": "AccordError",
+          "expected_message": "invalid identifier",
+          "actual_type": "AccordError",
+          "actual_message": "invalid identifier"
+        },
+        {
+          "name": "missing_field",
+          "passed": true,
+          "expected_type": "AccordError",
+          "expected_message": "unknown or missing contract fields",
+          "actual_type": "AccordError",
+          "actual_message": "unknown or missing contract fields"
+        }
+      ],
+      "returncode": 0,
+      "changed": false,
+      "checker_sha256": "7d02b3d282a416cf6f01eb13f6b6467a6be59032df4c0dd3e4f11386dc3e2f3e",
+      "probe_sha256": "5270e78d4cda9f5acf1f5f4afad582c6f692137d9bca7009625f2f7f2b0b91dc"
+    }
+  },
+  "created_unix": 1792003136.5658612
+}
