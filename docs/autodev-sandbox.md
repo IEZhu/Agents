@@ -29,7 +29,9 @@ has exactly the session's argv, settings and environment.
   anyway, and their confinement (`--restricted`, the read block, the permission rules) is the
   same as in a stage session, whose probes cover it on every run.
 - **Worker sessions are not covered here.** The Claude worker (no `--settings`, no Bash) belongs
-  to the worker launcher, #345.
+  to the worker launcher, #345. Codex workers and Codex stage sessions are in
+  [autodev-codex.md](autodev-codex.md) (#344), which reuses this part's temporary root, decoys,
+  executable binding and scan.
 - **The live check is the owner's.** `python -m src.schedules probe --confirm-live-probe` starts a
   real probe session (a model turn); nothing in the tests does. The behaviours listed under
   [Open items for the live check](#open-items-for-the-live-check) are documented or inferred, not
@@ -108,8 +110,9 @@ would therefore send every session to the fallback. The runner instead creates a
 root, `sandbox.make_temp_root()`: `/private/tmp/ad-<8 hex>`, 0700, so that
 `<root>/claude-<uid>` is at most `TMP_PATH_LIMIT` (40) bytes, checked by `SessionPaths.problems`;
 it lies outside every shared temporary root and is removed after the run
-(`sandbox.remove_temp_root`). The fake `claude` models the fallback, so an over-long root fails
-a test.
+(`sandbox.remove_temp_root`, which first gives every directory in it mode 0700 and clears the
+user immutable and append-only flags, never through a link, since a session may have taken them
+away). The fake `claude` models the fallback, so an over-long root fails a test.
 
 **The executable.** `sandbox.build` records the resolved path and SHA-256 of the `claude`
 executable in the spec (`SessionSpec.executable`), and the digest a probe report carries covers

@@ -57,6 +57,7 @@ after its probes passed.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping
+import contextlib
 from dataclasses import dataclass, field
 import hashlib
 import json
@@ -300,15 +301,57 @@ def temp_root_problems(path: Path) -> list[str]:
 
 
 def remove_temp_root(path: Path, base: Path = TMP_BASE) -> None:
-    """Delete a temporary root `make_temp_root` created under ``base``; anything else is left."""
+    """Delete a temporary root `make_temp_root` created under ``base``; anything else is left. A
+    session may write the root, so it may also have taken permissions away (``chmod 000`` on a
+    directory) or set the user immutable flag: both are restored first (`_restore_owner_access`)."""
     path = Path(path)
     if path.parent != Path(base) or not TMP_NAME.fullmatch(path.name):
         raise SandboxError(f"not a temporary root of the runner: {path}")
     try:
         if stat.S_ISDIR(os.lstat(path).st_mode):
+            _restore_owner_access(path)
             shutil.rmtree(path, ignore_errors=True)
     except FileNotFoundError:
         pass
+
+
+def _restore_owner_access(root: Path) -> None:
+    """Top down, never through a link: clear the user flags (``uchg``, ``uappnd``) of every entry
+    and give every directory mode 0700, so that `shutil.rmtree` can list and empty it."""
+    nofollow = os.chmod in os.supports_follow_symlinks
+    pending = [str(root)]
+    while pending:
+        directory = pending.pop()
+        try:
+            if not stat.S_ISDIR(os.lstat(directory).st_mode):
+                continue
+            _clear_flags(directory)
+            if nofollow:
+                os.chmod(directory, stat.S_IRWXU, follow_symlinks=False)
+            else:
+                os.chmod(directory, stat.S_IRWXU)
+            entries = list(os.scandir(directory))
+        except OSError:
+            continue
+        for entry in entries:
+            try:
+                if entry.is_dir(follow_symlinks=False):
+                    pending.append(entry.path)
+                else:
+                    _clear_flags(entry.path)
+            except OSError:
+                continue
+
+
+def _clear_flags(path: str) -> None:
+    """Clear the user immutable and append-only flags of ``path`` itself (``lchflags``, where the
+    platform has it), which keep `shutil.rmtree` from removing it or its entries."""
+    if not hasattr(os, "lchflags"):
+        return
+    with contextlib.suppress(OSError):
+        flags = getattr(os.lstat(path), "st_flags", 0)
+        if flags & (stat.UF_IMMUTABLE | stat.UF_APPEND):
+            os.lchflags(path, flags & ~(stat.UF_IMMUTABLE | stat.UF_APPEND))
 
 
 def sessions_root(clone: Path) -> Path:
@@ -723,18 +766,19 @@ class SessionSpec:
         return hashlib.sha256(payload.encode()).hexdigest()
 
 
-def executable_identity(claude: str) -> tuple[str, str]:
+def executable_identity(claude: str, *, name: str = "claude") -> tuple[str, str]:
     """The resolved path and SHA-256 of the ``claude`` executable (a Homebrew ``claude`` is a link
-    into a versioned Caskroom directory, so an upgrade changes both)."""
+    into a versioned Caskroom directory, so an upgrade changes both); ``name`` labels errors
+    (`src.schedules.codex_sandbox` binds ``codex`` the same way)."""
     real = os.path.realpath(claude)
     try:
         found = os.stat(real)
         if not stat.S_ISREG(found.st_mode) or not found.st_mode & 0o111:
-            raise SandboxError(f"the claude executable is not an executable file: {real}")
+            raise SandboxError(f"the {name} executable is not an executable file: {real}")
         with open(real, "rb") as stream:
             digest = hashlib.file_digest(stream, "sha256").hexdigest()
     except OSError as error:
-        raise SandboxError(f"the claude executable cannot be read: {real}: {type(error).__name__}") from None
+        raise SandboxError(f"the {name} executable cannot be read: {real}: {type(error).__name__}") from None
     return real, digest
 
 

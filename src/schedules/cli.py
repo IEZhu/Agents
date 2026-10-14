@@ -8,12 +8,16 @@
     python -m src.schedules autodev run-now [--mode dry-run|run|resume --pr N]
     python -m src.schedules probe [--mode dry-run|run-now|scheduled|resume] [--kind implement|submit|select]
                                   --confirm-live-probe
+    python -m src.schedules codex-probe [--kind worker|stage] --confirm-live-probe
 
 The exit code is 0 on success, 1 when a command refused or a run failed, and 2 for wrong
 arguments. The installation runs it by absolute path as ``<python> -P -m src.schedules …`` with
 ``PYTHONPATH`` naming the installation. Real modes refuse until #347 and #350 land. ``probe`` runs
 the sandbox probes of one session kind (#343) with a real probe session, so it refuses without
-``--confirm-live-probe``.
+``--confirm-live-probe``. ``codex-probe`` runs the Codex check (#344, docs/autodev-codex.md): the
+outer profile, the model-free probes, the nested-sandbox check and the decision between Codex and
+the Claude worker, and for ``--kind stage`` the probe plan through ``codex exec`` (a model turn)
+when the model-free checks pass; it refuses without ``--confirm-live-probe`` too.
 """
 from __future__ import annotations
 
@@ -49,6 +53,11 @@ def _parser() -> argparse.ArgumentParser:
     probe.add_argument(runner.PROBE_CONFIRMATION, dest="confirmed", action="store_true",
                        help="confirm that a real probe session (a model turn) may run")
 
+    codex = commands.add_parser("codex-probe", help="the Codex check: outer profile, probes and the fallback decision")
+    codex.add_argument("--kind", choices=list(runner.CODEX_PROBE_KINDS), default="worker")
+    codex.add_argument(runner.PROBE_CONFIRMATION, dest="confirmed", action="store_true",
+                       help="confirm that codex may run under its profile (and, for a stage, a model turn)")
+
     autodev = commands.add_parser("autodev", help="the autodev schedule")
     actions = autodev.add_subparsers(dest="action", required=True)
     install = actions.add_parser("install", help="install the scheduler LaunchAgent")
@@ -73,6 +82,8 @@ def dispatch(arguments: argparse.Namespace, ctx: runner.Context) -> tuple[int, d
         return runner.run_autodev(ctx, arguments.mode, pr=arguments.pr, run_id=arguments.run_id)
     if arguments.command == "probe":
         return runner.probe(ctx, arguments.mode, arguments.kind, arguments.confirmed)
+    if arguments.command == "codex-probe":
+        return runner.codex_probe(ctx, arguments.kind, arguments.confirmed)
     action = arguments.action
     if action == "install":
         if arguments.python:
@@ -94,7 +105,8 @@ def dispatch(arguments: argparse.Namespace, ctx: runner.Context) -> tuple[int, d
 def main(argv: Sequence[str] | None = None, ctx: runner.Context | None = None) -> int:
     parser = _parser()
     arguments = parser.parse_args(argv)
-    if arguments.command != "probe" and getattr(arguments, "mode", None) == "resume" and arguments.pr is None:
+    if arguments.command not in ("probe", "codex-probe") and getattr(arguments, "mode", None) == "resume" \
+            and arguments.pr is None:
         parser.error("--mode resume needs --pr N")
     if getattr(arguments, "run_id", None) and not runner.records.valid_run_id(arguments.run_id):
         parser.error("--run-id is not a run ID")
