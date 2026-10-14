@@ -391,7 +391,8 @@ if (scenario === "sync_hostkey_github") {
 // records [method, path, body] of every request. A save whose slots are not HH:MM is refused as the
 // daemon refuses it. As the daemon's revision leaves out enabled and mode, the switch keeps it; a
 // scenario changes it, with the settings, for a change made elsewhere. autodev_stored starts with
-// stored values the lists lack and a stored run mode; autodev_invalid with an invalid autodev.json.
+// stored values the lists lack and a stored run mode; autodev_invalid with an invalid autodev.json;
+// autodev_ready with the automatic mode ready (#350), so run is offered.
 const AUTODEV_DEFAULTS = isAutodev ? JSON.parse(process.env.AUTODEV_DEFAULTS) : null;
 const CLAUDE_EFFORT_LIST = ["low", "medium", "high", "xhigh", "max"];
 const CODEX_EFFORT_LIST = ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra", "persistent"];
@@ -404,6 +405,7 @@ if (scenario === "autodev_stored") {
   autodevState.settings.stages.select.claude.effort = "ultra";
   autodevState.settings.delegates["code-review-pass"].effort_followup = "minimal";
 }
+let autodevReady = scenario === "autodev_ready";  // what the daemon's readiness check says now
 const autodevHolds = {};  // "METHOD path" -> { promise, release }: the next such request answers on release
 const holdAutodev = (key) => {
   let release;
@@ -438,9 +440,17 @@ function autodevValidPayload() {
                        reason: "network: github.com unreachable", started: "2026-10-11T13:47:05+00:00" },
                      { run_id: "20261011T021700Z-aaaaaa", mode: "dry-run", trigger: { kind: "slot", at: "y" }, status: "completed",
                        decision: "select", started: "2026-10-11T02:17:05+00:00" }],
-              real_modes: { scheduled: false, missing: ["#350 automatic mode"] } },
+              automatic: autodevReady ? AUTODEV_READY : AUTODEV_NOT_READY },
   };
 }
+const AUTODEV_RISKS = [{ row: 1, risk: "A model read the keys", residual_risk: "a sandbox bug" },
+                       { row: 2, risk: "An agent decided", residual_risk: "agents act under the owner's account" },
+                       { row: 4, risk: "The agent pushed to main", residual_risk: "a broker bug" }];
+const AUTODEV_READY = { ready: true, missing: [], accepted: "2026-10-11T09:00:00+00:00", risks: AUTODEV_RISKS,
+                        risk_list_sha256: "v1" };
+const AUTODEV_NOT_READY = { ready: false, accepted: null, risks: AUTODEV_RISKS, risk_list_sha256: "v1",
+  missing: ["the API token", "sandbox probe implement in scheduled mode: no record; run `python -m src.schedules probe "
+            + "--mode scheduled --kind implement --confirm-live-probe`"] };
 function autodevAnswer(method, path, body) {
   autodevCalls.push([method, path, body]);
   if (method === "GET" && path === "/ui/api/autodev") return [200, autodevPayload()];
@@ -457,11 +467,18 @@ function autodevAnswer(method, path, body) {
     return [200, { ...autodevPayload(), saved: true, warnings: [] }];
   }
   if (method === "POST" && path === "/ui/api/autodev/enable") {
-    if (body.mode !== "dry-run") return [409, { status: "error", error: "mode_unavailable", missing: ["#350 automatic mode"],
-      message: "a scheduled run arrives with the automatic mode (#350); run `autodev run-now --mode run` for a supervised run" }];
+    if (body.mode === "run" && body.accept_shared_account !== true) {
+      return [409, { status: "error", error: "acceptance_required", missing: [], risks: AUTODEV_RISKS,
+                     message: "run mode starts real runs on the schedule under your GitHub account; turning it on needs "
+                              + "accept_shared_account: true" }];
+    }
+    if (body.mode === "run" && !autodevReady) {
+      return [409, { status: "error", error: "not_ready", missing: AUTODEV_NOT_READY.missing,
+                     message: "the automatic mode is not ready: 2 condition(s) missing" }];
+    }
     autodevState.enabled = true;
-    autodevState.mode = "dry-run";
-    return [200, { ...autodevPayload(), result: { ok: true, enabled: true, mode: "dry-run", scheduler_installed: false,
+    autodevState.mode = body.mode;
+    return [200, { ...autodevPayload(), result: { ok: true, enabled: true, mode: body.mode, scheduler_installed: false,
       note: "run `python -m src.schedules autodev install` so that ticks start" } }];
   }
   if (method === "POST" && path === "/ui/api/autodev/disable") {
@@ -1720,10 +1737,31 @@ if (isAutodev) {
                 review: textOf(field("ad-code-review-pass-codex")), clients: options("ad-select-client").map((o) => o[1]),
                 implement_clients: options("ad-implement-client").map((o) => o[1]) };
   out.mode = options("ad-mode");
+  out.automatic = { text: textOf(field("ad-automatic")),
+                    missing: field("ad-missing") ? field("ad-missing").children.map((n) => n.textContent) : null };
   out.status = status();
   out.efforts = { claude: options("ad-select-claude-effort").map((o) => o[0]),
                   followup: options("ad-code-review-pass-followup").map((o) => o[0]) };
   if (scenario === "autodev_codex") done();
+
+  if (scenario === "autodev_ready") {
+    // Run is offered; turning it on asks for the acceptance first, and "no" sends nothing.
+    await setValue("ad-mode", "run");
+    confirmAnswer = false;
+    await click("ad-switch");
+    out.declined = { confirms: confirms.slice(), posts: autodevCalls.filter(([method]) => method === "POST").length };
+    confirmAnswer = true;
+    await click("ad-switch");
+    out.enabled = { post: autodevCalls.at(-1), status: status(), alert: alert() };
+    // Readiness lost since the page read it (a probe record aged, a tripwire): the daemon refuses
+    // and the alert lists what is missing.
+    await click("ad-switch");
+    autodevReady = false;
+    await setValue("ad-mode", "run");
+    await click("ad-switch");
+    out.refused = { post: autodevCalls.at(-1)[2], alert: alert(), state: status().state };
+    done();
+  }
 
   if (scenario === "autodev_stored") {
     // Stored values the lists lack stay, marked; the review's follow-up list follows its client.

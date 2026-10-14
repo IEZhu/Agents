@@ -18,8 +18,11 @@ network access (#343), and the state directory is closed to them.
   may name, whether Codex can be a stage client (`codex_probes.configured_stage_availability`,
   as the run sequence asks; implement and submit commit, which a Codex stage cannot) and the
   status: on or off, the mode, the next slot (`tick.next_slot`), whether the scheduler job is
-  installed, and the newest runs (`runner.run_summary` of the run records). A file that does not
-  validate gives ``problems`` and no settings.
+  installed, the newest runs (`runner.run_summary` of the run records) and the automatic mode
+  (#350, ``automatic``): whether ``autodev ready`` passes (`runner.readiness`, with the
+  preconditions it reads from GitHub kept for `READY_TTL` seconds), what is missing, when the
+  owner's acceptance was given and the risks it covers. A file that does not validate gives
+  ``problems`` and no settings.
 - ``PUT /ui/api/autodev`` with ``{expected_revision, settings}``: the settings applied over the
   stored configuration (keys left out keep their values; the stage ``budget`` and the GitHub,
   sandbox and Codex login settings are never touched), then checked by ``config.validate`` and
@@ -28,14 +31,20 @@ network access (#343), and the state directory is closed to them.
   ``invalid_settings`` lists every problem and leaves the file as it was; 409 ``config_changed``
   when the configuration changed since the page read it. ``enabled`` and ``mode`` change only
   with the switch: a save takes them from the file as it is when it writes.
-- ``POST /ui/api/autodev/enable`` with ``{mode}``: ``runner.enable``. ``dry-run`` only: ``run``
-  is refused with 409 ``mode_unavailable`` until the automatic mode of #350, as the CLI refuses.
+- ``POST /ui/api/autodev/enable`` with ``{mode, accept_shared_account}``: ``runner.enable``, as
+  ``autodev enable`` runs it. ``run`` (the automatic mode, #350) is refused with 409
+  ``acceptance_required`` without ``accept_shared_account: true`` and 409 ``not_ready`` while a
+  condition is missing; otherwise the owner's acceptance is recorded (``source: page``). The page
+  offers ``run`` only while ``autodev ready`` passes, the acceptance included, so the first
+  acceptance is the CLI's.
 - ``POST /ui/api/autodev/disable``: ``runner.disable``.
 
 No answer carries a secret: the GitHub token and deploy key, the sandbox and Codex logins and
-the executables' paths stay out, and the run summaries are masked (`records.mask`, with the
-paths of the deploy key and of ``~/.config/agents-autodev`` as known secrets). Every request runs
-in a worker thread. A save holds ``config.writing`` (the lock the runner's ``enable`` and
+the executables' paths stay out, and the run summaries and the missing items are masked
+(`records.mask`, with the paths of the deploy key and of ``~/.config/agents-autodev`` as known
+secrets). The automatic mode's precondition reads take the broker's token from the keychain in
+the daemon, as ``autodev ready`` does; only the names of what is missing are kept. Every request
+runs in a worker thread. A save holds ``config.writing`` (the lock the runner's ``enable`` and
 ``disable`` and the decoy tripwire take too) from its load, the revision check included, to its
 write, so it never writes back ``enabled`` or ``mode`` loaded before another writer's save.
 The runner and the Codex modules load with the page's first request, not with the daemon.
@@ -64,6 +73,7 @@ PREFIX = "/ui/api/autodev"
 MAX_BODY = 64 * 1024
 RUNS_SHOWN = 10
 CAPABILITY_TTL = 600.0  # seconds the CLIs' effort lists and the codex version are kept
+READY_TTL = 60.0  # seconds the automatic mode's preconditions read from GitHub are kept (#350)
 INSTALLATION = Path(__file__).resolve().parents[2]
 EDITABLE = ("times", "catch_up_minutes", "allowed_hours", "require_ac_power", "limits", "stages", "delegates")
 SWITCHED = ("enabled", "mode")
@@ -298,6 +308,7 @@ class AutodevUI:
         self.context = context or (lambda: default_context(service))
         self.agents = agents or _agents
         self._cache: tuple | None = None  # (expires, key, facts)
+        self._github: tuple | None = None  # (expires, key, missing preconditions)
 
     async def handle(self, request: Request, path: str):
         routes = {PREFIX: {"GET": self.read, "PUT": self.save},
@@ -374,6 +385,27 @@ class AutodevUI:
                                   "checked": checked if isinstance(checked, str) else None}
         return {"installed": bool(facts["codex"]), "version": version, "stages": found_stages}
 
+    def _preconditions(self, ctx, config: Mapping) -> list[str]:
+        """The real-run preconditions read from GitHub (`runner.github_conditions`: the keychain token
+        and a few GETs), kept for `READY_TTL` seconds per repository and credentials setting."""
+        key = (config["repository"], json.dumps(config["github"], sort_keys=True))
+        cached = self._github
+        if cached is not None and cached[1] == key and cached[0] > time.monotonic():
+            return cached[2]
+        found = _runner().github_conditions(ctx, config)
+        self._github = (time.monotonic() + READY_TTL, key, found)
+        return found
+
+    def _automatic(self, ctx, config: Mapping) -> dict:
+        """The automatic mode (#350): whether ``autodev ready`` passes, what is missing (masked),
+        the acceptance and the risks it covers."""
+        from src.schedules import automatic
+        state = _runner().readiness(ctx, dict(config), github=self._preconditions(ctx, config))
+        accepted = state.accepted or {}
+        return {"ready": state.ready, "missing": records.mask(state.missing, secret_paths(config)),
+                "accepted": accepted.get("accepted") if not state.acceptance else None,
+                "risks": automatic.risks(), "risk_list_sha256": automatic.risk_list_version()}
+
     def _status(self, ctx, config: Mapping | None) -> dict:
         runner = _runner()
         known = secret_paths(config)
@@ -382,8 +414,7 @@ class AutodevUI:
         return {"enabled": config["enabled"] if config else None, "mode": config["mode"] if config else None,
                 "next_slot": iso(next_slot(config["times"], ctx.clock())) if config else None,
                 "scheduler": {"installed": ctx.scheduler().plist.is_file(), "supported": ctx.platform == "darwin"},
-                "runs": runs,
-                "real_modes": {"scheduled": False, "missing": list(runner.MISSING_FOR_REAL_MODES)}}
+                "runs": runs, "automatic": self._automatic(ctx, config) if config else None}
 
     def read(self, body: dict | None = None) -> dict:
         ctx = self.context()
@@ -438,13 +469,22 @@ class AutodevUI:
         mode = body.get("mode", "dry-run")
         if mode not in MODES:
             raise AutodevError("invalid_request", f"mode must be one of {', '.join(MODES)}")
+        accept = body.get("accept_shared_account", False)
+        if not isinstance(accept, bool):
+            raise AutodevError("invalid_request", "accept_shared_account must be true or false")
+        unknown = sorted(set(body) - {"mode", "accept_shared_account"})
+        if unknown:
+            raise AutodevError("invalid_request", f"unknown fields: {', '.join(unknown)}")
         runner = _runner()
         ctx = self.context()
-        self._load(ctx)  # an invalid file is refused before anything is written
-        code, result = runner.enable(ctx, mode)  # it takes the writers' lock itself
-        if code != 0:  # run: the automatic mode of #350
+        config = self._load(ctx)  # an invalid file is refused before anything is written
+        # As `autodev enable` runs it (it takes the writers' lock itself); run checks every condition
+        # afresh, then records the acceptance (#350).
+        code, result = runner.enable(ctx, mode, accept_shared_account=accept, source="page")
+        if code != 0:
+            extra = {"risks": result["risks"]} if "risks" in result else {}
             raise AutodevError(result.get("error") or "refused", result.get("message") or "refused", 409,
-                               missing=result.get("missing") or [])
+                               missing=records.mask(result.get("missing") or [], secret_paths(config)), **extra)
         return {**self.read(), "result": result}
 
     def disable(self, body: dict) -> dict:

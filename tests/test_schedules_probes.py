@@ -996,10 +996,19 @@ def _ctx(world, scenario, **changes):
         venv.mkdir(exist_ok=True)
         return runner.ProbeSession(layout, venv, lambda: shutil.rmtree(layout["base"].parent, ignore_errors=True))
 
-    return runner.Context(installation=world.base / "installation", directory=world.state, claude=claude,
-                          home=world.paths.home, platform="darwin", probe_session=session,
-                          command_runner=world.commands, managed_sources=lambda: [],
-                          agents_dir=world.base / "LaunchAgents", resolver=lambda host: True, **changes)
+    notifications = []
+
+    def notify(argv, **kwargs):  # the owner's notification (#350): recorded, never osascript
+        notifications.append(list(argv))
+        return subprocess.CompletedProcess(argv, 0, "", "")
+
+    ctx = runner.Context(installation=world.base / "installation", directory=world.state, claude=claude,
+                         home=world.paths.home, platform="darwin", probe_session=session,
+                         command_runner=world.commands, managed_sources=lambda: [],
+                         agents_dir=world.base / "LaunchAgents", resolver=lambda host: True, notify_runner=notify,
+                         **changes)
+    ctx.notifications = notifications
+    return ctx
 
 
 def test_the_cli_probe_refuses_without_confirmation(world, capsys):
@@ -1071,6 +1080,29 @@ def test_the_cli_probe_records_a_failure(world, capsys):
     assert output["status"] == "refused" and "tripwire" in output["reason"]
     assert autodev_config.load(world.state)["enabled"] is False
     assert all(decoy.marker not in json.dumps(output) for decoy in decoys.registered(world.state))
+    # The owner is told, with fixed phrases as osascript's arguments (#350).
+    [argv] = ctx.notifications
+    assert argv[0] == "/usr/bin/osascript" and argv[7:] == [
+        "Autodev schedule off", f"a tripwire fired and turned the schedule off; details in run {output['run_id']}."]
+    assert output["schedule_off"] == "tripwire" and output["notification"]["sent"] is True
+
+
+def test_a_failed_probe_without_a_decoy_turns_the_schedule_off_and_notifies(world, capsys):
+    """#350: any failed probe report, here a managed settings source (a static check), turns the
+    schedule off, recorded as a failed probe, and notifies."""
+    ctx = _ctx(world, {})
+    autodev_config.save({**autodev_config.load(world.state), "enabled": True}, world.state)
+    ctx.managed_sources = lambda: ["/Library/Application Support/ClaudeCode/managed-settings.json"]
+    assert cli.main(["probe", "--kind", "implement", runner.PROBE_CONFIRMATION], ctx=ctx) == 1
+    output = json.loads(capsys.readouterr().out)
+    assert output["status"] == "refused" and output["reason"] == "sandbox probes failed and turned the schedule off"
+    assert output["probes"][0]["ok"] is False and output["probes"][0]["tripped"] is False
+    assert autodev_config.load(world.state)["enabled"] is False
+    tripwire = json.loads((world.state / "schedules" / decoys.TRIPWIRE_NAME).read_text())["last"]
+    assert (tripwire["cause"], tripwire["run_id"]) == ("probe", output["run_id"])
+    [argv] = ctx.notifications
+    assert argv[7:] == ["Autodev schedule off",
+                        f"a sandbox probe failed and turned the schedule off; details in run {output['run_id']}."]
 
 
 # --- review round 2 ---------------------------------------------------------------------------------------

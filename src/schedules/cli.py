@@ -13,8 +13,10 @@
 
 The exit code is 0 on success, 1 when a command refused or a run failed, and 2 for wrong
 arguments. The installation runs it by absolute path as ``<python> -P -m src.schedules …`` with
-``PYTHONPATH`` naming the installation. ``run-now`` runs every mode under supervision; ``enable
---mode run`` refuses until the automatic mode (#350). ``probe`` runs
+``PYTHONPATH`` naming the installation. ``run-now`` runs every mode under supervision. ``ready``
+checks every condition of the automatic mode (#350) and names what is missing, exiting with 1
+until all pass; ``enable --mode run`` refuses without ``--accept-shared-account`` and while a
+condition is missing, then records the owner's acceptance of the residual risks. ``probe`` runs
 the sandbox probes of one session kind (#343) with a real probe session, so it refuses without
 ``--confirm-live-probe``. ``codex-probe`` runs the Codex check (#344, docs/autodev-codex.md): the
 outer profile, the model-free probes, the nested-sandbox check and the decision between Codex and
@@ -34,7 +36,7 @@ from typing import Sequence
 
 from src.daemon.state import state_dir
 
-from . import runner, sandbox
+from . import automatic, runner, sandbox
 from .config import ConfigError
 
 INSTALLATION = Path(__file__).resolve().parents[2]
@@ -52,7 +54,7 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--run-id")
 
     probe = commands.add_parser("probe", help="the sandbox probes of one session (a real claude -p probe session)")
-    probe.add_argument("--mode", choices=["dry-run", "run-now", "scheduled", "resume"], default="dry-run",
+    probe.add_argument("--mode", choices=list(automatic.PROBE_MODES), default="dry-run",
                        help="the mode the probe is recorded under; the probe is the same in every mode")
     probe.add_argument("--kind", choices=list(sandbox.KINDS), default="implement")
     probe.add_argument(runner.PROBE_CONFIRMATION, dest="confirmed", action="store_true",
@@ -75,13 +77,14 @@ def _parser() -> argparse.ArgumentParser:
     actions.add_parser("uninstall", help="remove the scheduler LaunchAgent")
     enable = actions.add_parser("enable", help="turn the schedule on")
     enable.add_argument("--mode", choices=["dry-run", "run"], required=True)
-    enable.add_argument("--accept-shared-account", action="store_true")
+    enable.add_argument(automatic.ACCEPT_FLAG, dest="accept_shared_account", action="store_true",
+                        help="run mode: accept the residual risks of plan section 11, rows 1, 2 and 4")
     actions.add_parser("disable", help="turn the schedule off")
     actions.add_parser("status", help="state, recent runs and the next slot")
     run_now = actions.add_parser("run-now", help="one supervised run now")
     run_now.add_argument("--mode", choices=["dry-run", "run", "resume"], default="dry-run")
     run_now.add_argument("--pr", type=int)
-    actions.add_parser("ready", help="check the automatic-mode conditions (a stub until #350)")
+    actions.add_parser("ready", help="check every condition of the automatic mode and name what is missing")
     return parser
 
 
@@ -104,7 +107,7 @@ def dispatch(arguments: argparse.Namespace, ctx: runner.Context) -> tuple[int, d
     if action == "uninstall":
         return 0, {"ok": True, **ctx.scheduler().uninstall()}
     if action == "enable":
-        return runner.enable(ctx, arguments.mode)
+        return runner.enable(ctx, arguments.mode, accept_shared_account=arguments.accept_shared_account)
     if action == "disable":
         return runner.disable(ctx)
     if action == "status":
