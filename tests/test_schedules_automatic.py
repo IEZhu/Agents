@@ -530,6 +530,27 @@ def test_disable_and_dry_run_withdraw_the_acceptance_and_a_hand_edit_does_not_re
     assert automatic.revoke_acceptance(ctx.directory, NOW, by="disable") is False  # once only
 
 
+def test_a_failed_withdrawal_leaves_the_schedule_on_instead_of_off_with_a_current_acceptance(ctx, monkeypatch):
+    """#350 review round 2: disable withdraws the acceptance before it turns the schedule off."""
+    record_every_probe(ctx)
+    assert call(ctx, "autodev", "enable", "--mode", "run", "--accept-shared-account")[0] == 0
+
+    def fail(*args, **kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(automatic, "revoke_acceptance", fail)
+    with pytest.raises(OSError):
+        runner.disable(ctx)
+    assert autodev_config.load(ctx.directory)["enabled"] is True  # unchanged, not off with a live acceptance
+
+
+def test_an_acceptance_of_another_version_is_stale_even_with_the_current_tripwire_count(ctx):
+    """#350 review round 2 (mutant G): the version check holds on its own."""
+    stored = accept(ctx)
+    assert automatic.acceptance_problems(ctx.directory, NOW) == []
+    automatic.write_json(automatic.acceptance_path(ctx.directory), {**stored, "version": 1})
+    assert automatic.acceptance_problems(ctx.directory, NOW) != []
+
 def test_ready_records_its_outcome_for_the_settings_page(ctx):
     code, result = call(ctx, "autodev", "ready")
     assert code == 1 and result["recorded"] == utc(NOW)
