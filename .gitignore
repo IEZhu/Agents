@@ -42,6 +42,8 @@ whisper_models/
 # Exceptions (keep these visible)
 !.gitignore
 !.git/
+!/.claude-plugin/
+!/.claude-plugin/marketplace.json
 # Generated benchmark reports
 evals/reports/*
 
