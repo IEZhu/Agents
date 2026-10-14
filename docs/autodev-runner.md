@@ -61,34 +61,49 @@ and `disable`, the functions behind the CLI commands above.
 - **Limits:** `max_reviews`, `max_bot_rounds` and `max_wait_minutes` (Q5, Q10).
 - **Profiles:** for each stage (`select`, `implement`, `submit`) and delegated step
   (`code-review-pass`, `change-premortem`) the client and, per client, the model and the effort;
-  the effort of the later reviews (`effort_followup`) as a setting of its own; the pre-mortem
-  role, chosen from the installation's agents (default `sysadmin`) (Q2, Q8, Q10, Q11). The
-  efforts offered are the capability table's (`src/flow_execution.py`), which the page builds from
-  `claude --version`, `claude --help` and `codex --version` (no model turn, a fresh empty `HOME`)
-  and keeps for ten minutes. Saving a Claude fallback for a Codex profile is allowed: a Codex
-  stage or step that cannot run uses it.
-- **Codex as a stage client (Q14):** shown as unavailable, with the reason in words, until the
-  stored stage availability says available (`codex_probes.configured_stage_availability`, which
-  the run sequence asks too: the codex version and the launch shape the configuration makes must
-  match, and the check must be at most 7 days old). `implement` and `submit` commit, which a Codex
-  stage cannot, so Codex stays unavailable for them. A Codex delegated step is decided before
-  every step ([autodev-codex.md](autodev-codex.md)).
+  the effort of the later reviews (`effort_followup`) as a setting of its own, where **Same as
+  the first** is stored as `effort_followup: null` and the later reviews then run with the first
+  review's effort (a pre-mortem runs once, so its `effort_followup` is neither shown nor checked);
+  the pre-mortem role, chosen from the installation's agents (default `sysadmin`) (Q2, Q8, Q10,
+  Q11). The efforts offered are the capability table's (`src/flow_execution.py`), which the page
+  builds from `claude --version`, `claude --help` and `codex --version` (no model turn, a fresh
+  empty `HOME`) and keeps for ten minutes. Saving a Claude fallback for a Codex profile is
+  allowed: a Codex stage or step that cannot run uses it.
+- **Codex as a stage client (Q14):** shown as unavailable, with the reason in words (every reason
+  the probes store has a text), until the stored stage availability says available
+  (`codex_probes.configured_stage_availability`, which the run sequence asks too: the codex
+  version and the launch shape the configuration makes must match, and the check must be at most
+  7 days old). `implement` and `submit` commit, which a Codex stage cannot, so Codex stays
+  unavailable for them. A Codex delegated step is decided before every step
+  ([autodev-codex.md](autodev-codex.md)).
 - **Switch and status:** **Turn on** enables `dry-run`; `run` is listed as unavailable, and the
   daemon refuses it (409 `mode_unavailable`, as `enable --mode run` refuses) until #350. The
   status shows on or off and the mode, the next slot (`tick.next_slot`), whether the scheduler job
   is installed, and the ten newest runs from the run records. Reading it starts nothing.
 
 Every save goes through `config.validate` (the same checks as `load`, `enable` and the runner)
-and then the capability table (`check_effort` for every client's effort and `effort_followup`,
+and then the capability table (`check_effort` for every client's effort and the review's `effort_followup`,
 `check_model`, whose warnings do not block) and the agent list, before `config.save` writes the
 file atomically into the private `schedules/` directory. A refusal lists every problem and leaves
-the file as it was. A file that changed since the page read it (the CLI, an editor) is not
-overwritten (409 `config_changed`), and a file that does not validate is shown with its problems
-and not written; fix it or remove it to get the defaults. Keys the page does not edit, among them
-`github`, `sandbox`, `codex.login` and the stage `budget`, keep their stored values. The page
-never shows the GitHub token, the deploy key, the logins or executable paths, and run reasons are
-masked. Stage sessions reach neither the page (they have no network, #343) nor the file (the
-state directory is closed to them).
+the file as it was. A configuration that changed since the page read it (the CLI, an editor) is
+not overwritten (409 `config_changed`), and a file that does not validate is shown with its
+problems and not written; fix it or remove it to get the defaults. The page's revision is the
+SHA-256 of the configuration it read (the file merged over the defaults) without `enabled` and
+`mode`: the switch, `autodev enable` and `disable` and the decoy tripwire change only those, so a
+form read before them still saves, and a save never writes them back. Every writer of
+`autodev.json` (the page's save, `enable`, `disable` and the tripwire) holds one lock,
+`schedules/autodev.lock` (`config.writing`), from its load to its write, so a save takes `enabled`
+and `mode` from the file as it is then: it cannot undo a tripwire's `enabled: false` or a
+switch made meanwhile. With unsaved edits, the switch keeps the form and its revision, so a
+change made elsewhere before it still refuses the save. Keys the page does not edit, among them
+`github`, `sandbox`, `codex.login` and the stage `budget`, keep their stored values; the first save
+writes every other key too, with the current defaults, as `enable` does, so a later change of a
+default does not apply to them. The page never shows the GitHub token, the deploy key, the logins
+or executable paths, and run reasons are masked. Stage sessions reach neither the page (they have
+no network, #343) nor the file (the state directory is closed to them). Like the flows editor,
+the page trusts the OS account: any process of yours can sign in automatically and use these
+routes, unless `flows-ui --auto off` is set
+([shared-mcp-daemon.md](shared-mcp-daemon.md#flow-editor)); `run` stays refused until #350.
 
 The API is `GET /ui/api/autodev`, `PUT /ui/api/autodev` with `{expected_revision, settings}`,
 `POST /ui/api/autodev/enable` with `{mode}` and `POST /ui/api/autodev/disable`. Like the Sync and

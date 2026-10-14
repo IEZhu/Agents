@@ -4298,8 +4298,9 @@ function hideAutodevPage() {
 
 $("autodev-chip").addEventListener("click", () => (autodev.shown ? hideAutodevPage() : showAutodevPage()));
 
-// A read that a newer one overtook is dropped. Unsaved edits stay on screen: only the status is new,
-// and the revision stays the one the form was read at, so a save after a change elsewhere is refused.
+// A read that a newer read, a save or the switch overtook is dropped. Unsaved edits stay on screen:
+// only the status is new, and the revision stays the one the form was read at, so a save after a
+// change elsewhere is refused.
 async function loadAutodev() {
   const gen = ++autodev.gen;
   let data;
@@ -4560,6 +4561,7 @@ function collectAutodev() {
 // The daemon checks everything; a refusal lists every problem and leaves autodev.json as it was.
 async function saveAutodev() {
   autodev.busy = true;
+  autodev.gen += 1;  // a read sent before the save would show the settings it replaced
   autodevAlert("Saving…");
   try {
     const data = await api("/ui/api/autodev", { method: "PUT",
@@ -4578,14 +4580,17 @@ async function saveAutodev() {
   }
 }
 
-// The switch writes autodev.json too: the form keeps what was typed and takes the new revision.
+// The switch writes autodev.json too, but only enabled and mode, which the revision leaves out: a
+// form with unsaved edits stays as typed and keeps the revision it was read at, so a save after a
+// change made elsewhere is still refused (the switch's answer carries that change).
 async function switchAutodev(mode) {
   autodev.busy = true;
+  autodev.gen += 1;
   try {
     const data = mode ? await api("/ui/api/autodev/enable", { method: "POST", body: { mode } })
       : await api("/ui/api/autodev/disable", { method: "POST", body: {} });
     if (autodev.dirty) {
-      autodev.data = { ...autodev.data, revision: data.revision, status: data.status };
+      autodev.data = { ...autodev.data, status: data.status };
       renderAutodevStatus();
     } else {
       autodev.data = data;

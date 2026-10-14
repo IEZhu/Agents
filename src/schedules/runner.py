@@ -349,10 +349,11 @@ def tick(ctx: Context) -> tuple[int, dict]:
 def enable(ctx: Context, mode: str) -> tuple[int, dict]:
     if mode in REAL_MODES:
         return 1, refusal(mode)
-    config = autodev_config.load(ctx.directory)
-    was_enabled = config["enabled"]
-    config.update(enabled=True, mode=mode)
-    autodev_config.save(config, ctx.directory)
+    with autodev_config.writing(ctx.directory):  # the page and the tripwire write it too
+        config = autodev_config.load(ctx.directory)
+        was_enabled = config["enabled"]
+        config.update(enabled=True, mode=mode)
+        autodev_config.save(config, ctx.directory)
     now = ctx.clock()
     if not was_enabled:
         _save_tick_state(ctx, {**_tick_state(ctx), "enabled_at": iso(now)})
@@ -365,9 +366,10 @@ def enable(ctx: Context, mode: str) -> tuple[int, dict]:
 
 
 def disable(ctx: Context) -> tuple[int, dict]:
-    config = autodev_config.load(ctx.directory)
-    config["enabled"] = False
-    autodev_config.save(config, ctx.directory)
+    with autodev_config.writing(ctx.directory):
+        config = autodev_config.load(ctx.directory)
+        config["enabled"] = False
+        autodev_config.save(config, ctx.directory)
     return 0, {"ok": True, "enabled": False}
 
 

@@ -11,7 +11,9 @@ network access (#343), and the state directory is closed to them.
 
 - ``GET /ui/api/autodev``: the settings the page edits (`editable`: the schedule, the limits, and
   the client, model and effort of every stage and delegated step, ``effort_followup`` and the
-  pre-mortem role), the defaults, the file's ``revision``, the effort lists of the capability
+  pre-mortem role), the defaults, the configuration's ``revision`` (`revision`: the loaded
+  configuration without ``enabled`` and ``mode``, so the switch and the tripwire leave it as it
+  was), the effort lists of the capability
   table (`src.flow_execution.installed`, kept for `CAPABILITY_TTL` seconds), the agents a role
   may name, whether Codex can be a stage client (`codex_probes.configured_stage_availability`,
   as the run sequence asks; implement and submit commit, which a Codex stage cannot) and the
@@ -24,8 +26,8 @@ network access (#343), and the state directory is closed to them.
   by `src.flow_execution` (``check_effort`` against the table, ``check_model``; a model warning
   does not block) and the role against the agents, then saved by ``config.save``. 400
   ``invalid_settings`` lists every problem and leaves the file as it was; 409 ``config_changed``
-  when the file changed since the page read it. ``enabled`` and ``mode`` change only with the
-  switch.
+  when the configuration changed since the page read it. ``enabled`` and ``mode`` change only
+  with the switch: a save takes them from the file as it is when it writes.
 - ``POST /ui/api/autodev/enable`` with ``{mode}``: ``runner.enable``. ``dry-run`` only: ``run``
   is refused with 409 ``mode_unavailable`` until the automatic mode of #350, as the CLI refuses.
 - ``POST /ui/api/autodev/disable``: ``runner.disable``.
@@ -33,7 +35,9 @@ network access (#343), and the state directory is closed to them.
 No answer carries a secret: the GitHub token and deploy key, the sandbox and Codex logins and
 the executables' paths stay out, and the run summaries are masked (`records.mask`, with the
 paths of the deploy key and of ``~/.config/agents-autodev`` as known secrets). Every request runs
-in a worker thread; the writes take one lock, so two of them never interleave a load and a save.
+in a worker thread. A save holds ``config.writing`` (the lock the runner's ``enable`` and
+``disable`` and the decoy tripwire take too) from its load, the revision check included, to its
+write, so it never writes back ``enabled`` or ``mode`` loaded before another writer's save.
 The runner and the Codex modules load with the page's first request, not with the daemon.
 """
 from __future__ import annotations
@@ -44,7 +48,6 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import threading
 import time
 from typing import Any, Callable, Mapping
 
@@ -65,19 +68,35 @@ INSTALLATION = Path(__file__).resolve().parents[2]
 EDITABLE = ("times", "catch_up_minutes", "allowed_hours", "require_ac_power", "limits", "stages", "delegates")
 SWITCHED = ("enabled", "mode")
 PREMORTEM = "change-premortem"
+# The delegated steps with later passes, which take effort_followup (the later reviews and the
+# verification review, `src.schedules.workers`); a pre-mortem runs once, so the run never reads its
+# effort_followup, and a stored one is not checked against its client.
+FOLLOWUPS = ("code-review-pass",)
 CLIENT_KEYS = ("model", "effort")
 SECRETS_DIR = "~/.config/agents-autodev"
-# Why Codex cannot be a stage client, in words; the reasons come from `codex_probes` and `stages`.
+# Why Codex cannot be a stage client, in words: every reason `codex_probes` stores (REASONS and
+# ABORT_REASONS) or `read_availability` gives, and the stages that commit (`stages`).
 REASONS = {
     "not_checked": "the stage probes have not passed yet: run `python -m src.schedules codex-probe --kind stage "
                    "--confirm-live-probe`",
-    "codex_missing": "the codex executable was not found (tools.json, PATH)",
     "version_changed": "the last check was for another codex version; check again",
     "shape_changed": "the last check was for other Codex settings of this stage; check again",
     "stale": "the last check is too old (7 days at most) or from the future; check again",
     "codex_stage_commit_unsupported": "this stage commits, and a Codex stage cannot (workspace-write keeps .git "
                                       "read-only)",
+    "platform_unsupported": "the Codex sandbox runs on macOS only",
+    "codex_missing": "the codex executable was not found (tools.json, PATH)",
+    "codex_version_unverified": "this codex version is not one the Codex sandbox was verified with",
+    "codex_home_unclean": "the run's CODEX_HOME holds something codex did not create itself, which it could load",
+    "login_missing": "no Codex API key: codex.login is not set, or its keychain item does not hold a key",
+    "profile_broken": "codex does not start under the sandbox profile",
     "nested_sandbox_unavailable": "a nested sandbox cannot apply on this macOS",
+    "probe_failed": "a model-free probe of the sandbox failed or could not run; see the check's report",
+    "venv_unusable": "the stage's Python environment does not run under the sandbox profile",
+    "git_unusable": "git does not run under the sandbox profile",
+    "workspace_write_network_open": "the Codex sandbox in workspace-write mode did not block network access",
+    "stage_probe_failed": "the stage probe session failed; see the check's report",
+    "deny_probe_succeeded": "a probe the sandbox must deny got through, or a decoy was read or leaked",
 }
 
 
@@ -130,8 +149,12 @@ def editable(config: Mapping) -> dict:
             "delegates": {name: profile("delegates", name) for name in DELEGATES}}
 
 
-def _profile(where: str, stored: dict, given: Any, keys: tuple[str, ...], problems: list[str]) -> dict:
-    """``stored`` with the keys ``given`` names; an empty client setting removes that client's object."""
+def _profile(where: str, stored: dict, given: Any, keys: tuple[str, ...], problems: list[str],
+             default: Mapping) -> dict:
+    """``stored`` with the keys ``given`` names; an empty client setting removes that client's object
+    and an empty role the role (the default applies). An empty ``effort_followup`` is stored as null
+    where the ``default`` profile has one (the later passes keep the first effort; without the key,
+    `config.load` would merge the default's back), else removed."""
     if not isinstance(given, dict):
         problems.append(f"{where} must be an object")
         return stored
@@ -160,7 +183,10 @@ def _profile(where: str, stored: dict, given: Any, keys: tuple[str, ...], proble
             continue
         value = given[key]
         if value is None or (isinstance(value, str) and not value.strip()):
-            profile.pop(key, None)
+            if key == "effort_followup" and key in default:
+                profile[key] = None
+            else:
+                profile.pop(key, None)
         elif isinstance(value, str):
             profile[key] = value.strip()
         else:
@@ -201,7 +227,7 @@ def apply(config: dict, settings: Any) -> dict:
             keys = ("client", *CLIENTS) if group == "stages" else \
                 ("client", *CLIENTS, "effort_followup", *(("role",) if name == PREMORTEM else ()))
             updated[group][name] = _profile(f"{group}.{name}", updated[group].get(name) or {}, profile, keys,
-                                            problems)
+                                            problems, DEFAULTS[group][name])
     if problems:
         raise ConfigError(problems)
     return updated
@@ -209,7 +235,8 @@ def apply(config: dict, settings: Any) -> dict:
 
 def execution_problems(config: Mapping, table: Mapping, agents: set[str]) -> tuple[list[str], list[str]]:
     """Problems and warnings of every profile against `src.flow_execution` (each client's model and
-    effort, ``effort_followup`` for the profile's client) and of the role against ``agents``."""
+    effort, ``effort_followup`` of the `FOLLOWUPS` for the profile's client) and of the role against
+    ``agents``."""
     problems: list[str] = []
     warnings: list[str] = []
 
@@ -234,7 +261,7 @@ def execution_problems(config: Mapping, table: Mapping, agents: set[str]) -> tup
                 except FlowInvalid as error:
                     problems.append(f"{where}.{client}.model: {error}")
                 effort(f"{where}.{client}.effort", client, settings.get("effort"))
-            if profile.get("effort_followup") is not None and profile.get("client") in CLIENTS:
+            if name in FOLLOWUPS and profile.get("effort_followup") is not None and profile.get("client") in CLIENTS:
                 effort(f"{where}.effort_followup", profile["client"], profile["effort_followup"])
             role = profile.get("role")
             if isinstance(role, str) and agents and role not in agents:
@@ -242,12 +269,15 @@ def execution_problems(config: Mapping, table: Mapping, agents: set[str]) -> tup
     return problems, warnings
 
 
-def revision(directory: str | Path) -> str:
-    """SHA-256 of ``autodev.json`` as it is on disk; empty when there is none (the defaults)."""
-    try:
-        return hashlib.sha256(autodev_config.config_path(directory).read_bytes()).hexdigest()
-    except FileNotFoundError:
-        return ""
+def revision(config: Mapping) -> str:
+    """The revision of a loaded configuration (`config.load`: the file merged over the defaults, or
+    the defaults): SHA-256 of its JSON without ``enabled`` and ``mode``. It describes exactly the
+    configuration it was computed from; only a change to another key changes it, so the switch, the
+    CLI's ``enable`` and ``disable`` and the tripwire leave a form's revision valid, and a file with
+    the defaults has the revision of no file."""
+    kept = {key: value for key, value in config.items() if key not in SWITCHED}
+    text = json.dumps(kept, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def secret_paths(config: Mapping | None) -> list[str]:
@@ -267,7 +297,6 @@ class AutodevUI:
         self.service = service
         self.context = context or (lambda: default_context(service))
         self.agents = agents or _agents
-        self._write = threading.Lock()  # one load-and-save at a time
         self._cache: tuple | None = None  # (expires, key, facts)
 
     async def handle(self, request: Request, path: str):
@@ -349,7 +378,7 @@ class AutodevUI:
         runner = _runner()
         known = secret_paths(config)
         runs = [records.mask(runner.run_summary(record), known)
-                for record in records.all_records(ctx.directory)[:RUNS_SHOWN]]
+                for record in records.all_records(ctx.directory, limit=RUNS_SHOWN)]
         return {"enabled": config["enabled"] if config else None, "mode": config["mode"] if config else None,
                 "next_slot": iso(next_slot(config["times"], ctx.clock())) if config else None,
                 "scheduler": {"installed": ctx.scheduler().plist.is_file(), "supported": ctx.platform == "darwin"},
@@ -358,14 +387,14 @@ class AutodevUI:
 
     def read(self, body: dict | None = None) -> dict:
         ctx = self.context()
-        try:
+        try:  # one read: the settings, the revision and the status describe the same file
             config, problems = autodev_config.load(ctx.directory), None
         except ConfigError as error:
             config, problems = None, error.problems
         facts = self._facts(ctx)
         table = facts["table"]
         return {
-            "revision": revision(ctx.directory),
+            "revision": revision(config) if config else "",  # an invalid file has no form to save
             "problems": problems,
             "settings": editable(config) if config else None,
             "defaults": editable(DEFAULTS),
@@ -388,11 +417,13 @@ class AutodevUI:
             raise AutodevError("invalid_request", f"unknown fields: {', '.join(unknown)}")
         ctx = self.context()
         table, agents = self._facts(ctx)["table"], self.agents()  # before the lock: the table may run the CLIs
-        with self._write:
-            if revision(ctx.directory) != expected:
+        # From the load to the write under the writers' lock: enabled and mode are the file's at the
+        # write (a tripwire's off, the CLI's on or off), and only the page's keys change.
+        with autodev_config.writing(ctx.directory):
+            config = self._load(ctx)
+            if revision(config) != expected:
                 raise AutodevError("config_changed", "autodev.json changed since the page read it; reload to see it",
                                    409)
-            config = self._load(ctx)
             try:
                 updated = autodev_config.validate(apply(config, body.get("settings")))
             except ConfigError as error:
@@ -409,9 +440,8 @@ class AutodevUI:
             raise AutodevError("invalid_request", f"mode must be one of {', '.join(MODES)}")
         runner = _runner()
         ctx = self.context()
-        with self._write:
-            self._load(ctx)  # an invalid file is refused before anything is written
-            code, result = runner.enable(ctx, mode)
+        self._load(ctx)  # an invalid file is refused before anything is written
+        code, result = runner.enable(ctx, mode)  # it takes the writers' lock itself
         if code != 0:  # run: the automatic mode of #350
             raise AutodevError(result.get("error") or "refused", result.get("message") or "refused", 409,
                                missing=result.get("missing") or [])
@@ -420,9 +450,8 @@ class AutodevUI:
     def disable(self, body: dict) -> dict:
         runner = _runner()
         ctx = self.context()
-        with self._write:
-            self._load(ctx)
-            _, result = runner.disable(ctx)
+        self._load(ctx)
+        _, result = runner.disable(ctx)
         return {**self.read(), "result": result}
 
     @staticmethod

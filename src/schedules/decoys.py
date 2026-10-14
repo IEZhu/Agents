@@ -432,9 +432,12 @@ def trip(directory: str | Path | None, reason: str, *, run_id: str | None = None
     now = now or datetime.now(timezone.utc)
     entry = {"time": now.astimezone(timezone.utc).isoformat(timespec="seconds"), "reason": reason, "run_id": run_id}
     try:
-        config = autodev_config.load(directory)
-        config["enabled"] = False
-        autodev_config.save(config, directory)
+        # Under the writers' lock: a settings-page save or an `enable` that loaded the file before
+        # this save cannot write `enabled: true` back over it.
+        with autodev_config.writing(directory):
+            config = autodev_config.load(directory)
+            config["enabled"] = False
+            autodev_config.save(config, directory)
         entry["schedule"] = "disabled"
     except (autodev_config.ConfigError, OSError) as error:
         entry["schedule"] = f"not changed: {type(error).__name__}"
