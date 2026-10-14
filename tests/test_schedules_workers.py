@@ -1267,6 +1267,68 @@ def test_a_fixed_finding_leaves_the_ledger_only_when_the_next_review_does_not_re
     assert broker.review_gate(world.run_dir) == (third, "clean")
 
 
+def test_a_fixed_finding_stays_open_when_the_next_review_sees_the_same_head(world):
+    # The verification review's reproduction: "fixed", no commit, a silent review of the same head.
+    world.scenario({"outcomes": [{"findings": [CRITICAL]}, {}, {}]})
+    service = world.service()
+    head = head_of(world)
+    one = finish(service, service.review({"head": head}))
+    key = one["findings"][0]["key"]
+    service.decide({"key": key, "decision": "fixed"})
+    two = finish(service, service.review({"head": head}))
+    assert two["range"] == one["range"] and two["findings"] == []
+    entry = ledger_entry(world, key)
+    assert (entry["status"], entry["handle"], entry["unmoved"]) == ("open", "review-1", "review-2")
+    assert broker.validated_review_head(world.run_dir) is None
+    assert two["open_findings"] == [{"key": key, "severity": "critical", "security": False, "reported_by": "review-1",
+                                     "decision": "fixed", "note": "marked fixed, but review-2 reviewed the head that "
+                                                                  "review-1 reported it on: commit the fix first"}]
+    ledger = json.loads((world.run_dir / workers.LEDGER_NAME).read_text())
+    assert ledger["reviews"][-1]["unmoved"] == [key] and ledger["reviews"][-1]["resolved"] == []
+    # A commit and a review of it that does not report the finding again resolve it.
+    third = head_of(world)
+    finish(service, service.review({"head": third}))
+    assert given_to(world, "review-3")[0]["note"].startswith("marked fixed")
+    assert ledger_entry(world, key)["status"] == "resolved"
+    assert broker.review_gate(world.run_dir) == (third, "clean")
+
+
+def test_a_key_repeated_in_one_result_keeps_its_highest_severity(world):
+    low = {**CRITICAL, "severity": "low"}
+    world.scenario({"outcomes": [{"findings": [low, CRITICAL]}]})
+    service = world.service()
+    one = finish(service, service.review({"head": head_of(world)}))
+    assert [item["severity"] for item in one["findings"]] == ["critical"]
+    assert ledger_entry(world, one["findings"][0]["key"])["level"] == "critical"
+    assert broker.validated_review_head(world.run_dir) is None
+
+
+def test_a_repeated_key_counts_in_the_scope_of_a_restricted_review_at_its_highest_severity(world):
+    # The last review drops a plain low finding; the same key repeated as critical is in its scope.
+    low = {**CRITICAL, "severity": "low"}
+    world.scenario({"outcomes": [{}, {"findings": [low, CRITICAL]}]})
+    service = world.service(config(limits={**autodev_config.DEFAULTS["limits"], "max_reviews": 2}))
+    finish(service, service.review({"head": head_of(world)}))
+    two = finish(service, service.review({"head": head_of(world)}))
+    assert two["restricted"] == "last" and [item["severity"] for item in two["findings"]] == ["critical"]
+    assert service.tasks["review-2"].dropped == 0
+    assert broker.validated_review_head(world.run_dir) is None
+
+
+def test_a_blocked_later_review_closes_the_gate_over_an_earlier_clean_one(world):
+    world.scenario({"outcomes": [{}, {"status": "input_required"}]})
+    service = world.service()
+    first = head_of(world)
+    finish(service, service.review({"head": first}))
+    assert broker.validated_review_head(world.run_dir) == first
+    state = finish(service, service.review({"head": first}))
+    assert state["status"] == "blocked"
+    head, why = broker.review_gate(world.run_dir)
+    assert head is None and why == "the stage ended blocked: review-2 ended blocked"
+    record = json.loads((world.run_dir / broker.REVIEW_RECORD).read_text())
+    assert (record["validated"], record["blocked"], record["handle"]) == (False, True, "review-2")
+
+
 def test_a_declined_medium_leaves_the_ledger_and_a_declined_high_waits_for_the_next_review(world):
     world.scenario({"outcomes": [{"findings": FINDINGS[:2]}, {}]})
     service = world.service()
