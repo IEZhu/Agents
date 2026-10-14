@@ -268,7 +268,7 @@ def test_the_push_command_uses_only_the_deploy_key_and_pinned_host_keys(credenti
     assert env["GIT_SSH_COMMAND"] == (
         f"ssh -F /dev/null -i {credentials.deploy_key} -o IdentitiesOnly=yes -o IdentityAgent=none "
         f"-o UserKnownHostsFile={credentials.known_hosts} -o GlobalKnownHostsFile=/dev/null "
-        "-o StrictHostKeyChecking=yes -o BatchMode=yes")
+        "-o StrictHostKeyChecking=yes -o BatchMode=yes -o ControlMaster=no -o ControlPath=none")
     assert "SSH_AUTH_SOCK" not in env
     assert env["GIT_CONFIG_GLOBAL"] and env["GIT_CONFIG_NOSYSTEM"] == "1"
     assert TOKEN not in json.dumps([argv, env])

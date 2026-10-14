@@ -28,6 +28,7 @@ scripts/**
 src/schedules/**
 src/engine/**
 src/schemas/**
+src/flow_execution.py
 src/executables.py
 src/daemon/autoupdate.py
 install.sh

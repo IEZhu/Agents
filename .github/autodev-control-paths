@@ -6,6 +6,7 @@ flows/autodev*
 .github/**
 src/schedules/**
 src/engine/**
+src/flow_execution.py
 agents/**
 rules/**
 skills/**

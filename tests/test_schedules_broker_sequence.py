@@ -313,3 +313,19 @@ def test_an_unreadable_deploy_key_is_a_missing_credential(tmp_path, credentials)
     with pytest.raises(CredentialsMissing, match="a readable deploy key"):
         Broker(Run(RUN_ID, REPOSITORY, ISSUE, BASE, "run"), credentials=credentials, git=FakeGit(), run_dir=tmp_path,
                transport=FakeGitHub(), key_reader=unreadable)
+
+
+def test_credential_values_are_the_readable_secrets_by_label(credentials):
+    """For the run sequence's scans and record masking (#347): the values, never in an answer."""
+    assert broker_module.credential_values(credentials) == {"broker token": TOKEN, "deploy key": KEY}
+    assert broker_module.credential_values(None) == {}
+
+    def unavailable():
+        raise github.TokenUnavailable("the keychain item could not be read")
+    assert broker_module.credential_values(Credentials(credentials.deploy_key, credentials.known_hosts,
+                                                       unavailable)) == {"deploy key": KEY}
+
+
+def test_the_push_turns_ssh_connection_sharing_off(credentials):
+    command = broker_module.ssh_command(credentials.deploy_key, credentials.known_hosts)
+    assert command.endswith("-o ControlMaster=no -o ControlPath=none")
