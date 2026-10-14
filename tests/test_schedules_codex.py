@@ -20,6 +20,7 @@ import socket
 import stat
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 
@@ -76,9 +77,12 @@ def fake_venv(directory: Path, exit_code: int = 0) -> Path:
 
 @pytest.fixture
 def temp_root():
-    root = sandbox.make_temp_root()
+    """The run's temporary root: under /private/tmp as in a run, or under the system temporary
+    directory where /private/tmp does not exist, so the emulator tests also run off macOS."""
+    base = sandbox.TMP_BASE if sandbox.TMP_BASE.is_dir() else Path(tempfile.gettempdir())
+    root = sandbox.make_temp_root(base)
     yield root
-    sandbox.remove_temp_root(root)
+    sandbox.remove_temp_root(root, base)
 
 
 class World:
