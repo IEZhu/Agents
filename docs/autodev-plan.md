@@ -1,6 +1,6 @@
 # Self-development: flow pipelines with contracts, execution profiles and local scheduled runs
 
-Date: 2026-10-12. Status: proposal, version 5, with the owner's answers to all questions ([section 13](#13-questions-for-the-owner)). Nothing is implemented; the checklist plan is in [section 14](#14-implementation-plan).
+Date: 2026-10-12. Status: proposal, version 5, with the owner's answers to all questions ([section 13](#13-questions-for-the-owner)). Phase 0 is done and the phase 1a code is implemented (#338 to #348); the phase 1a acceptance runs wait for the owner, and the later phases are not implemented. The checklist plan is in [section 14](#14-implementation-plan); the owner's guide to what exists is [autodev.md](autodev.md).
 
 Document history:
 
@@ -1010,43 +1010,45 @@ The owner answered all questions on 2026-10-12. Each item states the decision; t
 
 ### Phase 1a. Supervised MVP
 
+State on 2026-10-14: the code of every item below is implemented by #338 to #348, with the issue in brackets; #338 to #342 are on `main`, and #343 to #348 are stacked branches that wait for the owner's merge. What only a live run can show is listed under "Acceptance of 1a" and in the open items of [autodev-sandbox.md](autodev-sandbox.md#open-items-for-the-live-check) and [autodev-codex.md](autodev-codex.md#open-items-for-the-live-check); the owner's procedure for each is [autodev-acceptance.md](autodev-acceptance.md).
+
 **Flows:**
 
-- [ ] `flows/autodev.md`: a dispatcher without a persona; a description for an interactive run and for the runner to read.
-- [ ] `flows/autodev-gate.md`: the gate rules in words (the code lives in the runner).
-- [ ] `flows/autodev-select.md`: `product_manager`; read-only; the stage's output schema.
-- [ ] `flows/autodev-implement.md`: `software_engineer`; the review loop through `{worker_cmd}`, tests through `{heavy_cmd}`, the log in `state.json`; the stage's output schema.
-- [ ] `flows/code-review-pass.md`: `code_reviewer`; output `ReviewPayload`; a note "as a delegated worker".
-- [ ] `flows/change-premortem.md`: the role per Q2; output `ReviewPayload`; the same note.
-- [ ] `flows/pr-review.md`: the `autodev` mode (9.5).
-- [ ] `scripts/dev/pr_threads.py`: in `autodev` mode do not use `--resolve-mine`; show the owner's reviews even when logged in with the owner's account.
-- [ ] New flows with a persona declare `skills` and `implants` lists. Persona assertions go into `tests/test_flows.py`. A paragraph about delegated workers goes into `flows/README.md`.
+- [x] `flows/autodev.md`: a dispatcher without a persona; a description for an interactive run and for the runner to read (#346).
+- [x] `flows/autodev-gate.md`: the gate rules in words (the code lives in the runner) (#346).
+- [x] `flows/autodev-select.md`: `product_manager`; read-only; the stage's output schema (#346).
+- [x] `flows/autodev-implement.md`: `software_engineer`; the review loop through `{worker_cmd}`, tests through `{heavy_cmd}`, the log in `state.json`; the stage's output schema (#346, #347).
+- [x] `flows/code-review-pass.md`: `code_reviewer`; output `ReviewPayload`; a note "as a delegated worker" (#346).
+- [x] `flows/change-premortem.md`: the role per Q2; output `ReviewPayload`; the same note (#346).
+- [x] `flows/pr-review.md`: the `autodev` mode (9.5) (#346). It does not list the resume inputs (`pr`, `rounds`, `findings_seen`, `state_comment_head`); [autodev-sequence.md](autodev-sequence.md) documents them.
+- [x] `scripts/dev/pr_threads.py`: in `autodev` mode do not use `--resolve-mine`; show the owner's reviews even when logged in with the owner's account (#346).
+- [x] New flows with a persona declare `skills` and `implants` lists. Persona assertions go into `tests/test_flows.py`. A paragraph about delegated workers goes into `flows/README.md` (#346).
 
 **Runner (`src/schedules/`):**
 
-- [ ] `tick`, `run`, the `autodev …` commands (10.2); slots, the catch-up window, `missed`, allowed hours, power.
-- [ ] The gate in code (9.2) with tests on recorded API responses.
-- [ ] The runner's trusted repository; a one-off repository per session; importing bundles (`git bundle`) with validation; a clean git configuration; push by explicit URL and refspec; a drift check of all imported modules; a read-only `.venv`; quarantine refs.
-- [ ] Stage sessions: isolated CLI profiles, the flags of 5.6, the prompts of 10.4, stage output schemas, `state.json`.
-- [ ] `worker`: preparation with `prepare_subagent`, materials, starting the CLI with `worker_context` on stdin, the length check, `validate_result`, attempts, the record; asynchronous `start` and `wait`.
-- [ ] Check which keywords of the `subagent/1` review schema `--json-schema` and `--output-schema` accept.
-- [ ] The runner socket `{run_dir}/control.sock` with three services, and the thin clients `{gh_cmd}`, `{worker_cmd}`, `{heavy_cmd}`.
-- [ ] The broker (5.6), bound to the run's issue and PR, with a list of allowed read endpoints, an ID log and the scan; a read-only mode for `dry-run`; refusing to start in real mode without the Q15 credentials.
-- [ ] The socket in a directory the sandbox cannot write; `{heavy_cmd}` only grants a lease; `{worker_cmd} decide` for the decision log; the runner does not execute commands sent to it.
-- [ ] Worker materials from git objects; rejecting symbolic links pointing outside and gitlink entries; the runner computes ranges; `--end-of-options`; notifications with the data in arguments.
-- [ ] Case-insensitive protected paths, rejection on name collisions and for links; control paths that no label opens, with a local patch for the owner.
-- [ ] Session and worker environments from an allowlist; decoy files; a scan with entropy, base64 and hex, and fingerprints of known secrets.
-- [ ] The session sandbox settings (5.6) and the full set of probes from 5.7 with the same argv, settings and environment; the control probe writing to the exchange directory; probes before every session with Bash in every mode; the selection stage without Bash.
-- [ ] An outer `sandbox-exec` profile for the Codex worker and a separate account with a limit in its `CODEX_HOME`; if the nested sandbox does not work, only the Claude reviewer.
-- [ ] `heavy`: the machine-wide lock and a check for someone else's `pytest` and reindexing.
-- [ ] `caffeinate`, a new process group, terminating the tree, a lease for the auto-update in `src/daemon/autoupdate.py`, the `failed: infra` classification.
-- [ ] The LaunchAgent `local.agents-core.<id>.scheduler`, absolute CLI paths, an explicit `PATH`, a clone outside `~/Documents`.
-- [ ] Record the allowed `model_reasoning_effort` values of Codex; check `-s read-only` (reads outside the directory) and `workspace-write` (network).
-- [ ] Check on this version of Claude Code:
-  - `--safe-mode` does not break the subscription login;
-  - how `--permission-mode auto` and `--permission-prompts none` combine with `-p`;
-  - what a session with `--strict-mcp-config` and no servers sees.
-- [ ] Tests:
+- [x] `tick`, `run`, the `autodev …` commands (10.2); slots, the catch-up window, `missed`, allowed hours, power (#338).
+- [x] The gate in code (9.2) with tests on recorded API responses (#338, `tests/fixtures/autodev_gate_recorded.json`).
+- [x] The runner's trusted repository; a one-off repository per session; importing bundles (`git bundle`) with validation; a clean git configuration; push by explicit URL and refspec; a drift check of all imported modules; a read-only `.venv`; quarantine refs (#338 drift, #339).
+- [x] Stage sessions: isolated CLI profiles, the flags of 5.6, the prompts of 10.4, stage output schemas, `state.json` (#343 sessions, #347 schemas, prompts and `state.json`).
+- [x] `worker`: preparation with `prepare_subagent`, materials, starting the CLI with `worker_context` on stdin, the length check, `validate_result`, attempts, the record; asynchronous `start` and `wait` (#345).
+- [x] Check which keywords of the `subagent/1` review schema `--json-schema` and `--output-schema` accept (#345, from the CLIs' help, documentation and sources; not yet observed in a model turn, which `worker-probe` and the first real run do).
+- [x] The runner socket `{run_dir}/control.sock` with three services, and the thin clients `{gh_cmd}`, `{worker_cmd}`, `{heavy_cmd}` (#340; when that path is too long for `AF_UNIX`, a private `autodev-socket-*` directory).
+- [x] The broker (5.6), bound to the run's issue and PR, with a list of allowed read endpoints, an ID log and the scan; a read-only mode for `dry-run`; refusing to start in real mode without the Q15 credentials (#342; since #347 a dry-run builds no broker at all, and session writes are answered only in the submit stage).
+- [x] The socket in a directory the sandbox cannot write; `{heavy_cmd}` only grants a lease; `{worker_cmd} decide` for the decision log; the runner does not execute commands sent to it (#340, #345).
+- [x] Worker materials from git objects; rejecting symbolic links pointing outside and gitlink entries; the runner computes ranges; `--end-of-options`; notifications with the data in arguments (#345, #347).
+- [x] Case-insensitive protected paths, rejection on name collisions and for links; control paths that no label opens, with a local patch for the owner (#341, #347).
+- [x] Session and worker environments from an allowlist; decoy files; a scan with entropy, base64 and hex, and fingerprints of known secrets (#341, #343).
+- [x] The session sandbox settings (5.6) and the full set of probes from 5.7 with the same argv, settings and environment; the control probe writing to the exchange directory; probes before every session with Bash in every mode; the selection stage without Bash (#343, #347). The live probes are the owner's (acceptance below).
+- [x] An outer `sandbox-exec` profile for the Codex worker and a separate account with a limit in its `CODEX_HOME`; if the nested sandbox does not work, only the Claude reviewer (#344, amended: the API key of a separate OpenAI project in a keychain item and a new `CODEX_HOME` per run; on macOS 26.5.1 the nested sandbox fails, so the reviewer is Claude with `nested_sandbox_unavailable`).
+- [x] `heavy`: the machine-wide lock and a check for someone else's `pytest` and reindexing (#340).
+- [x] `caffeinate`, a new process group, terminating the tree, a lease for the auto-update in `src/daemon/autoupdate.py`, the `failed: infra` classification (#338).
+- [x] The LaunchAgent `local.agents-core.<id>.scheduler`, absolute CLI paths, an explicit `PATH`, a clone outside `~/Documents` (#338, #339).
+- [x] Record the allowed `model_reasoning_effort` values of Codex; check `-s read-only` (reads outside the directory) and `workspace-write` (network) (#344: the values from the source at `rust-v0.162.1`; `installed_checks` measures both; the research found that `read-only` reads the whole disk and `workspace-write` blocks the network).
+- [x] Check on this version of Claude Code (#343, from the documentation of 2.1.296; the live observations are open items in [autodev-sandbox.md](autodev-sandbox.md#open-items-for-the-live-check)):
+  - `--safe-mode` does not break the subscription login (documented to keep authentication with a separate `CLAUDE_CONFIG_DIR`);
+  - how `--permission-mode auto` and `--permission-prompts none` combine with `-p` (sessions use `--permission-mode dontAsk` with `--permission-prompts none`);
+  - what a session with `--strict-mcp-config` and no servers sees (connectors are closed by three more switches as well, and the init check counts MCP servers).
+- [x] Tests (#338 to #348):
   - command lines and environments of both clients;
   - the gate;
   - locks, slots and timeouts on a fake clock;
@@ -1054,24 +1056,24 @@ The owner answered all questions on 2026-10-12. Each item states the decision; t
   - the worker: a wrong length, `valid: false`, `partial`.
 
   Isolation: `AGENTS_SERVICE_DIR` pointing to a temporary directory in `tests/conftest.py`, rows in `tests/README.md`.
-- [ ] The autodev settings page in the daemon's web UI (`src/daemon/flows_ui.py` or a sibling page): schedule slots and allowed hours, limits, the client, model and effort of every stage and delegated step with a visible `effort_followup`, the pre-mortem role, the enable switch and the run status. It writes `autodev.json` and checks values against the capability table; Codex as a stage client stays unavailable until its probes pass (Q2, Q4, Q5, Q8, Q10, Q11, Q14). Tests next to `tests/test_flows_ui_page.py`.
-- [ ] Risk issues (Q3): the broker operation of 5.6, `autodev:risk` issues for unresolved pre-mortem risks of level `medium` and above, and tests that security risks and more than 3 issues per run are refused.
-- [ ] Documentation: an "Autodev" section in `docs/` (installation, modes, cost, limitations), a row in `docs/README.md`.
-- [ ] Own review cycles, a PR, `pr-review` in `no-merge` mode.
+- [x] The autodev settings page in the daemon's web UI (`src/daemon/flows_ui.py` or a sibling page): schedule slots and allowed hours, limits, the client, model and effort of every stage and delegated step with a visible `effort_followup`, the pre-mortem role, the enable switch and the run status. It writes `autodev.json` and checks values against the capability table; Codex as a stage client stays unavailable until its probes pass (Q2, Q4, Q5, Q8, Q10, Q11, Q14). Tests next to `tests/test_flows_ui_page.py` (#348: `src/daemon/autodev_ui.py`, `tests/test_autodev_ui.py`).
+- [x] Risk issues (Q3): the broker operation of 5.6, `autodev:risk` issues for unresolved pre-mortem risks of level `medium` and above, and tests that security risks and more than 3 issues per run are refused (#342, wired into the run by #347).
+- [x] Documentation: an "Autodev" section in `docs/` (installation, modes, cost, limitations), a row in `docs/README.md` (#349: [autodev.md](autodev.md) and [autodev-acceptance.md](autodev-acceptance.md)).
+- [ ] Own review cycles, a PR, `pr-review` in `no-merge` mode: #338 to #342 are merged; #343 to #349 wait for the owner's review and merge.
 
-**Acceptance of 1a:**
+**Acceptance of 1a** (all owner live steps; procedures and the results table in [autodev-acceptance.md](autodev-acceptance.md); none run by 2026-10-14):
 
-- [ ] `run-now --mode dry-run` prints the decision and the top-five table. The broker log is empty; snapshots of comments, labels, PRs and remote branches before and after match.
-- [ ] Three `dry-run`s: the agent's top five is compared with the owner's; the schedule is enabled only if they broadly match.
-- [ ] A real `run-now` on a small issue with `autodev:ready`, run together with the owner (Q13), ends with one of two outcomes:
+- [ ] `run-now --mode dry-run` prints the decision and the top-five table. The broker log is empty; snapshots of comments, labels, PRs and remote branches before and after match (A1).
+- [ ] Three `dry-run`s: the agent's top five is compared with the owner's; the schedule is enabled only if they broadly match (A2).
+- [ ] A real `run-now` on a small issue with `autodev:ready`, run together with the owner (Q13), ends with one of two outcomes (A3):
   - a PR with the `autodev` label, the sections "Self-review", "Pre-mortem: known risks", "Checks", and the regular suite run;
   - `autodev:blocked` with a neutral list of blockers.
-- [ ] The run record contains a review by the Codex process with the profile from `delegates`, `valid: true`, and a head equal to the PR's head.
-- [ ] A `.claude/settings.json` with a hook planted in the branch, and a modified `src/schedules`, do not affect the next session or the worker.
-- [ ] All probes of 5.7 are denied and the control probe passes, in every mode. The broker refuses: a push to `main`, a merge, a write to another issue or PR, a read outside `/repos/IEZhu/Agents`, the owner's labels.
-- [ ] A `.git/config` modified in the one-off repository and a planted hook affect neither the runner nor the next session.
-- [ ] The next run with an open PR: review finished gives `wait`; `next_attempt` reached or new trusted findings give `resume`.
-- [ ] A timeout leaves zero descendant processes; a daemon update during a run waits for it to finish.
+- [ ] The run record contains a review by the Codex process with the profile from `delegates`, `valid: true`, and a head equal to the PR's head (A4). On this Mac the review is expected to fall back to the Claude worker with `nested_sandbox_unavailable` (#344); record the run ID and the reason here.
+- [ ] A `.claude/settings.json` with a hook planted in the branch, and a modified `src/schedules`, do not affect the next session or the worker (A5).
+- [ ] All probes of 5.7 are denied and the control probe passes, in every mode. The broker refuses: a push to `main`, a merge, a write to another issue or PR, a read outside `/repos/IEZhu/Agents`, the owner's labels (A7; no command exercises the broker's refusals live, see the gap noted there).
+- [ ] A `.git/config` modified in the one-off repository and a planted hook affect neither the runner nor the next session (A6).
+- [ ] The next run with an open PR: review finished gives `wait`; `next_attempt` reached or new trusted findings give `resume` (A8).
+- [ ] A timeout leaves zero descendant processes; a daemon update during a run waits for it to finish (A9).
 
 ### Phase 1b. Automatic mode under the owner's account
 
