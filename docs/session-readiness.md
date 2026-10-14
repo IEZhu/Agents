@@ -61,7 +61,9 @@ plus initialization instructions to use it once per fresh conversation. Existing
 native snapshots take precedence to avoid duplication in inherited Code sessions.
 Repeated installation updates the owned hook without duplicating it. Existing
 hooks, permissions, models and Claude's custom status line remain in place. Changed
-configuration files receive an adjacent `.readiness-backup-<timestamp>` copy.
+configuration files receive an exclusively created adjacent `.backup.<unique-suffix>`
+copy through the shared backup helper; existing snapshots are never overwritten.
+A failed backup stops before runtime or configuration changes.
 The main Agents-Core installers do not enable this optional hook automatically.
 
 Start a fresh client session after installation. In Codex, open `/hooks` and review
