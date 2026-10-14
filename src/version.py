@@ -64,6 +64,10 @@ def agents_core_version() -> str:
         # ahead/behind count, which would walk history for nothing.
         status = _git("status", "--porcelain=v2", "--branch", "--no-ahead-behind", "--untracked-files=no")
         if status is None:
+            # A git older than 2.17 lacks --no-ahead-behind (an older git is still used when no
+            # newer one exists): the plain status keeps the version, without the branch suffix.
+            status = _git("status", "--porcelain", "--untracked-files=no")
+        if status is None:
             return UNKNOWN
         dirty = any(line.strip() and not line.startswith("#") for line in status.splitlines())
         return format_version(commit_time, dirty, _branch(status))
