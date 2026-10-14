@@ -37,8 +37,9 @@ state comment's rounds and findings; its state comment is edited, not duplicated
 **A stage session** (`Sequence.stage`): the effort check (`src.flow_execution`), the session's
 layout with the run's state copy, a one-off repository (with the branch for submit), the
 environment at ``pinned``, the inputs file and ``state.json``, the runner socket for a session
-with Bash, `sandbox.build` with the stage schema, `probes.guard` (a probe session for Bash kinds),
-`probes.record_report`, a ``.git`` snapshot, the prompt (`stages.render_prompt`), the session
+with Bash, `sandbox.build` with the stage schema, `probes.guard` (a probe session for Bash kinds;
+a failed report refuses the run and turns the schedule off, #350), `probes.record_report`, a
+``.git`` snapshot, the prompt (`stages.render_prompt`), the session
 through `probes.start_session` with the stage's timeout (its process group is killed afterwards),
 `probes.stage_tripwire` on the whole stream file (one over `MAX_STREAM_BYTES` is refused and turns
 the schedule off), the ``.git`` check (a change stops the run and turns the schedule off), and the
@@ -51,8 +52,10 @@ for ``select`` while the stored availability says so; otherwise, and always for 
 claim, without a pull request and without a block comment, blocks its issue with the generic
 phrase and removes the claim (`Sequence.release_claim`); the session directories and temporary
 roots are removed, the report goes into the record (`report.build_report`) and the owner is
-notified (`report.should_notify`). SIGTERM or SIGHUP (the supervisor's timeout or stop) ends the
-run ``failed: infra`` the same way, the record and the notification first. Statuses:
+notified (`report.should_notify`); a run that turned the schedule off (`decoys.tripped_by`) records
+``schedule_off`` with the cause, which the notification names first (#350). SIGTERM or SIGHUP (the
+supervisor's timeout or stop) ends the run ``failed: infra`` the same way, the record and the
+notification first. Statuses:
 ``completed``, ``blocked``, ``refused`` (preconditions, the sandbox, the tripwire, a changed
 ``.git``, a stream too long to scan) and ``failed: infra``.
 """
@@ -659,10 +662,13 @@ class Sequence:
                 probes.record_report(self.run_id, ctx.directory, report, self.planted, self.markers)
                 record.update(probe_digest=report.digest, probe_session=report.ran_session)
                 if not report.ok:
-                    tripped = " and the decoy tripwire turned the schedule off" if report.tripped else ""
+                    if not report.tripped:  # a failed probe turns the schedule off too (#350)
+                        decoys.trip(ctx.directory, f"sandbox probes failed before the {kind} session",
+                                    run_id=self.run_id, cause=decoys.PROBE)
+                    off = "the decoy tripwire turned the schedule off" if report.tripped else "the schedule is off"
                     self.stage_record(kind, {**record, "status": "refused", "reason": "sandbox probes failed"})
-                    raise refused(f"sandbox probes failed before the {kind} session{tripped}",
-                                  tripwire=bool(report.tripped))
+                    raise refused(f"sandbox probes failed before the {kind} session; {off}",
+                                  tripwire=bool(report.tripped), schedule="disabled")
                 before = integrity.git_snapshot(repository)
                 prompt = stages.render_prompt(kind, {name: values[name] for name in stages.template_fields(kind)})
                 exit_code, timed_out, stream = self._run_process(kind, stream_dir, lambda out, err: ctx.stage_starter(
@@ -1202,6 +1208,8 @@ class Sequence:
             self.fields["github_requests"] = list(self.client.requests)
         if not self.fields.get("status"):
             self.fields.update(runner.infra("cli: the run sequence ended without a status"))
+        if (entry := decoys.tripped_by(self.ctx.directory, self.run_id)) is not None:
+            self.fields["schedule_off"] = entry["cause"]  # the notification says so (#350)
         record = {**(records.read_record(self.run_id, self.ctx.directory) or {}), **self.fields,
                   "mode": self.mode, "run_id": self.run_id}
         report = run_report.build_report(record, run_state.read_state(self.run_dir), self.run_dir,

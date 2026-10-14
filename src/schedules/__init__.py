@@ -13,6 +13,7 @@ Sandboxed stage sessions reach the runner only through the runner socket (`socke
 serves the heavy-process lease (`heavy`), the broker and the workers to the thin clients it writes
 for each run.
 
-The schedule runs ``dry-run`` only; ``run-now`` starts supervised real runs, and a scheduled real
-run waits for the automatic mode (#350).
+The schedule runs ``dry-run``, or ``run`` in the automatic mode (`automatic`, #350): a scheduled
+real run starts only while ``autodev ready`` passes and the owner's acceptance of the residual
+risks is current. ``run-now`` starts supervised real runs.
 """

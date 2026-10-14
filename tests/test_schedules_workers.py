@@ -1029,9 +1029,14 @@ def test_a_follow_up_review_sees_files_earlier_rounds_changed(world):
     assert json.loads((second_materials / "range.json").read_text())["pinned"] == world.repo.base
 
 
+def _quiet(argv, **kwargs):  # the owner's notification (#350): never osascript in the tests
+    return subprocess.CompletedProcess(argv, 0, "", "")
+
+
 def _probe_context(world: World) -> runner.Context:
     return runner.Context(installation=world.base / "installation", directory=world.state, claude=world.claude,
-                          home=world.home, command_runner=keychain, agents_dir=world.base / "LaunchAgents")
+                          home=world.home, command_runner=keychain, agents_dir=world.base / "LaunchAgents",
+                          notify_runner=_quiet)
 
 
 PROBE_ANSWER = {"stdin_calls": True, "outcome": {"probe_answer": True}}

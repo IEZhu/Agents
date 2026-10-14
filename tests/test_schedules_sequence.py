@@ -593,8 +593,9 @@ def test_git_dir_tampering_stops_the_run_and_turns_the_schedule_off(world):
     assert record["blockers"] == [sequence.GENERIC_BLOCKED]
     assert subprocess.run(["git", "-C", str(world.trusted), "rev-parse", "--verify", "-q", f"refs/heads/{BRANCH}"],
                           capture_output=True).returncode != 0
-    [argv] = world.notifications
-    assert argv[-2] == "Autodev run refused"
+    [argv] = world.notifications  # the run turned the schedule off: the notification says so first (#350)
+    assert argv[-2] == "Autodev schedule off" and argv[-1].startswith("a tripwire fired and turned the schedule off")
+    assert record["schedule_off"] == "tripwire" and tripwire["last"]["cause"] == "tripwire"
 
 
 def test_invalid_stage_output_ends_the_stage_blocked_without_other_writes(world):
@@ -708,7 +709,9 @@ def test_stage_stream_naming_a_decoy_trips_the_schedule(world):
     assert autodev_config.load(world.state)["enabled"] is False
     assert marker not in json.dumps(record) and "selection" not in record
     [argv] = world.notifications
-    assert argv[-2] == "Autodev dry-run refused"
+    assert argv[-2:] == ["Autodev schedule off",
+                         f"a tripwire fired and turned the schedule off; details in run {record['run_id']}."]
+    assert record["schedule_off"] == "tripwire" and record["report"]["schedule_off"] == "tripwire"
 
 
 def test_a_decoy_marker_after_two_megabytes_of_stream_still_trips(world):
@@ -742,9 +745,19 @@ def test_a_stage_stream_over_the_hard_limit_is_refused_and_turns_the_schedule_of
 
 def test_failed_static_probe_never_starts_the_stage_session(world):
     world.ctx.managed_sources = lambda: ["/Library/Application Support/ClaudeCode/managed-settings.json"]
+    assert autodev_config.load(world.state)["enabled"] is True
     code, record = world.run("dry-run")
     assert code == 1 and record["status"] == "refused" and record["reason"].startswith("sandbox probes failed")
     assert world.stage_seen() == [] and record["probes"][0]["ok"] is False
+    # A failed probe turns the schedule off and tells the owner (#350).
+    assert record["reason"].endswith("the schedule is off") and record["schedule"] == "disabled"
+    assert autodev_config.load(world.state)["enabled"] is False
+    tripwire = json.loads((world.state / "schedules" / decoys.TRIPWIRE_NAME).read_text())["last"]
+    assert (tripwire["cause"], tripwire["run_id"]) == ("probe", record["run_id"])
+    [argv] = world.notifications
+    assert argv[0] == "/usr/bin/osascript" and argv[-2:] == [
+        "Autodev schedule off", f"a sandbox probe failed and turned the schedule off; details in run {record['run_id']}."]
+    assert record["schedule_off"] == "probe"
 
 
 def test_stage_timeout_kills_the_session_group(world):

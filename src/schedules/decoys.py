@@ -61,6 +61,10 @@ from .scan import HitKind, KnownSecret, Scanner
 REGISTRY_NAME = "decoys.json"
 REGISTRY_VERSION = 2
 TRIPWIRE_NAME = "tripwire.json"
+# Why `trip` turned the schedule off: a tripwire (a decoy, a changed .git, a stream too long to
+# scan) or a failed sandbox probe (#350).
+TRIPWIRE, PROBE = "tripwire", "probe"
+CAUSES = (TRIPWIRE, PROBE)
 MARKER_LENGTH = 48
 MARKER_ALPHABET = string.ascii_letters + string.digits
 LABEL_PREFIX = "decoy "
@@ -426,11 +430,17 @@ def self_test(decoys: Iterable[Decoy]) -> list[str]:
 
 
 def trip(directory: str | Path | None, reason: str, *, run_id: str | None = None,
-         now: datetime | None = None) -> dict:
+         now: datetime | None = None, cause: str = TRIPWIRE) -> dict:
     """Turn the schedule off (``enabled: false`` in ``autodev.json``) and record why in
-    ``<state>/schedules/tripwire.json``; ``reason`` names labels and checks, never a marker."""
+    ``<state>/schedules/tripwire.json``; ``reason`` names labels and checks, never a marker.
+    ``cause`` is one of `CAUSES`: `TRIPWIRE` (a decoy, a changed ``.git``, a stream too long to
+    scan) or `PROBE` (a failed sandbox probe, #350); the run that tripped names it in the owner's
+    notification (`tripped_by`)."""
+    if cause not in CAUSES:
+        raise ValueError(f"not a tripwire cause: {cause!r}")
     now = now or datetime.now(timezone.utc)
-    entry = {"time": now.astimezone(timezone.utc).isoformat(timespec="seconds"), "reason": reason, "run_id": run_id}
+    entry = {"time": now.astimezone(timezone.utc).isoformat(timespec="seconds"), "reason": reason, "run_id": run_id,
+             "cause": cause}
     try:
         # Under the writers' lock: a settings-page save or an `enable` that loaded the file before
         # this save cannot write `enabled: true` back over it.
@@ -450,3 +460,22 @@ def trip(directory: str | Path | None, reason: str, *, run_id: str | None = None
     private_dir(schedules_dir(directory))
     write_json(path, {"count": count + 1, "last": entry})
     return entry
+
+
+def last_trip(directory: str | Path | None = None) -> dict | None:
+    """The last entry of ``tripwire.json`` (`trip`), or None when there is none or it is unreadable."""
+    try:
+        data = read_json(schedules_dir(directory) / TRIPWIRE_NAME, None)
+    except (OSError, ValueError):
+        return None
+    last = data.get("last") if isinstance(data, dict) else None
+    return last if isinstance(last, dict) and isinstance(last.get("time"), str) else None
+
+
+def tripped_by(directory: str | Path | None, run_id: str | None) -> dict | None:
+    """The last tripwire entry when the run ``run_id`` wrote it (the run turned the schedule off),
+    with ``cause`` one of `CAUSES` (an entry written before #350 has none: `TRIPWIRE`); else None."""
+    last = last_trip(directory)
+    if not run_id or last is None or last.get("run_id") != run_id:
+        return None
+    return {**last, "cause": last.get("cause") if last.get("cause") in CAUSES else TRIPWIRE}

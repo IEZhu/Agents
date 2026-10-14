@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
-from datetime import datetime
+from datetime import datetime, timedelta
 import hashlib
 import json
 import os
@@ -21,8 +21,11 @@ import pytest_asyncio
 
 from src.daemon import autodev_ui
 from src.daemon.app import create_app
-from src.schedules import codex_probes, decoys, records, runner
+from src.schedules import automatic, codex_probes, decoys, records, runner, stages
 from src.schedules import config as autodev_config
+from src.schedules.broker import Credentials
+from src.schedules.github import GitHubClient, TokenUnavailable
+from tests.test_schedules_preconditions import KEY, TOKEN as GITHUB_API_TOKEN, Transport
 
 TOKEN = "s" * 48
 UI = {"X-Agents-UI": "1", "Origin": "http://127.0.0.1:8765"}
@@ -51,8 +54,23 @@ class FakeCommands:
         raise AssertionError(f"the page ran {argv}")
 
 
+def no_token():
+    raise TokenUnavailable("no token in the tests")
+
+
+@pytest.fixture
+def github(tmp_path):
+    """What the automatic mode's preconditions read (#350): the broker's credentials (no token by
+    default, so nothing is read) and a fake transport with the synthetic GitHub answers."""
+    keys = tmp_path / "keys"
+    keys.mkdir()
+    (keys / "deploy_key").write_text(KEY + "\n")
+    (keys / "github_known_hosts").write_text("github.com ssh-ed25519 placeholder\n")
+    return {"token": no_token, "transport": Transport(), "keys": keys}
+
+
 @pytest_asyncio.fixture
-async def daemon(tmp_path):
+async def daemon(tmp_path, github):
     state = tmp_path / "service"
     codex = tmp_path / "codex-package" / "bin" / "codex"
     codex.parent.mkdir(parents=True)
@@ -67,7 +85,12 @@ async def daemon(tmp_path):
         return runner.Context(installation=tmp_path / "installation", directory=state, python="/opt/python",
                               clock=lambda: NOW, launchctl=lambda argv: no_run(), agents_dir=tmp_path / "LaunchAgents",
                               supervise=no_run, claude=str(tmp_path / "claude-cli" / "claude"), codex=str(codex),
-                              command_runner=commands, platform="darwin")
+                              command_runner=commands, platform="darwin", notify_runner=no_run,
+                              credentials=lambda config: Credentials(github["keys"] / "deploy_key",
+                                                                     github["keys"] / "github_known_hosts",
+                                                                     lambda: github["token"]()),
+                              client_factory=lambda config: GitHubClient(config["repository"], lambda: GITHUB_API_TOKEN,
+                                                                         transport=github["transport"]))
 
     def runtime(port):
         from mcp.server.fastmcp import FastMCP
@@ -160,7 +183,10 @@ async def test_the_page_reads_the_defaults_and_writes_nothing(daemon):
     assert (status["enabled"], status["mode"], status["runs"]) == (False, "dry-run", [])
     assert status["next_slot"] == "2026-10-12T13:47:00+00:00"
     assert status["scheduler"] == {"installed": False, "supported": True}
-    assert status["real_modes"] == {"scheduled": False, "missing": ["#350 automatic mode"]}
+    automatic_mode = status["automatic"]
+    assert automatic_mode["ready"] is False and automatic_mode["accepted"] is None
+    assert automatic_mode["missing"][0] == "the API token" and len(automatic_mode["missing"]) == 1 + 12 + 1
+    assert [risk["row"] for risk in automatic_mode["risks"]] == [1, 2, 4]
     assert not config_file(state).exists() and not (state / "schedules" / "tick.json").exists()
     assert all(call[-1] in ("--version", "--help") for call in commands.calls)  # no model turn, no run
 
@@ -520,11 +546,19 @@ async def test_run_mode_is_refused_and_dry_run_turns_the_schedule_on_and_off(dae
     response = await http.post("/ui/api/autodev/enable", json={"mode": "run"}, headers=UI)
     assert response.status_code == 409
     answer = response.json()
-    assert answer["error"] == "mode_unavailable" and answer["missing"] == ["#350 automatic mode"]
-    assert "automatic mode (#350)" in answer["message"]
+    assert answer["error"] == "acceptance_required" and "accept_shared_account: true" in answer["message"]
+    assert [risk["row"] for risk in answer["risks"]] == [1, 2, 4]
+    response = await http.post("/ui/api/autodev/enable", json={"mode": "run", "accept_shared_account": True},
+                               headers=UI)
+    assert response.status_code == 409
+    answer = response.json()
+    assert answer["error"] == "not_ready" and answer["missing"][0] == "the API token"
     assert not config_file(state).exists() and not (state / "schedules" / "tick.json").exists()
-    response = await http.post("/ui/api/autodev/enable", json={"mode": "scheduled"}, headers=UI)
-    assert response.status_code == 400 and response.json()["error"] == "invalid_request"
+    assert not automatic.acceptance_path(state).exists()
+    for body in ({"mode": "scheduled"}, {"mode": "run", "accept_shared_account": "yes"},
+                 {"mode": "dry-run", "accept": True}):
+        response = await http.post("/ui/api/autodev/enable", json=body, headers=UI)
+        assert response.status_code == 400 and response.json()["error"] == "invalid_request", body
 
     response = await http.post("/ui/api/autodev/enable", json={"mode": "dry-run"}, headers=UI)
     assert response.status_code == 200, response.text
@@ -539,12 +573,68 @@ async def test_run_mode_is_refused_and_dry_run_turns_the_schedule_on_and_off(dae
     assert tick["enabled_at"] == "2026-10-12T02:20:00+00:00"
     # A run asked for while dry-run is on changes nothing either.
     before = config_file(state).read_bytes()
-    assert (await http.post("/ui/api/autodev/enable", json={"mode": "run"}, headers=UI)).status_code == 409
+    assert (await http.post("/ui/api/autodev/enable", json={"mode": "run", "accept_shared_account": True},
+                            headers=UI)).status_code == 409
     assert config_file(state).read_bytes() == before
 
     response = await http.post("/ui/api/autodev/disable", json={}, headers=UI)
     assert response.status_code == 200 and response.json()["status"]["enabled"] is False
     assert autodev_config.load(state)["enabled"] is False
+
+
+def record_every_probe(state):
+    """A passing probe record of every stage kind in every mode, as the owner's probe command writes it."""
+    for index, (kind, mode) in enumerate((kind, mode) for kind in stages.KINDS for mode in automatic.PROBE_MODES):
+        run_id = records.new_run_id(NOW - timedelta(hours=12) + timedelta(minutes=index))
+        records.write_record(run_id, {"trigger": {"kind": "probe"}, "mode": mode, "session_kind": kind,
+                                      "status": "completed",
+                                      "probes": [{"kind": kind, "mode": mode, "ok": True, "ran_session": True,
+                                                  "finished": (NOW - timedelta(hours=1)).isoformat()}]}, state)
+
+
+@pytest.mark.asyncio
+async def test_the_page_offers_run_mode_once_ready_passes_and_records_the_acceptance(daemon, github):
+    http, state, _, _ = daemon
+    github["token"] = lambda: GITHUB_API_TOKEN
+    record_every_probe(state)
+    found = (await read(http))["status"]["automatic"]
+    assert found["ready"] is False and found["missing"] == [automatic.acceptance_problems(state)[0]]
+    # The first acceptance is the CLI's (the page offers run only while ready passes, acceptance included).
+    automatic.record_acceptance(state, NOW - timedelta(hours=1), source="cli")
+    found = (await read(http))["status"]["automatic"]
+    assert found == {"ready": True, "missing": [], "accepted": "2026-10-12T01:20:00+00:00",
+                     "risks": automatic.risks(), "risk_list_sha256": automatic.risk_list_version()}
+    requests = len(github["transport"].requests)
+    await read(http)
+    assert len(github["transport"].requests) == requests  # the GitHub reads are kept for READY_TTL
+
+    response = await http.post("/ui/api/autodev/enable", json={"mode": "run"}, headers=UI)
+    assert response.status_code == 409 and response.json()["error"] == "acceptance_required"
+    response = await http.post("/ui/api/autodev/enable", json={"mode": "run", "accept_shared_account": True},
+                               headers=UI)
+    assert response.status_code == 200, response.text
+    answer = response.json()
+    assert (answer["result"]["mode"], answer["result"]["acceptance"]["source"]) == ("run", "page")
+    assert (answer["status"]["enabled"], answer["status"]["mode"]) == (True, "run")
+    stored = automatic.read_acceptance(state)
+    assert stored["source"] == "page" and stored["accepted"] == "2026-10-12T02:20:00+00:00"  # given now
+    assert stat.S_IMODE(automatic.acceptance_path(state).stat().st_mode) == 0o600
+    assert len(github["transport"].requests) > requests  # enabling checks GitHub afresh
+    text = json.dumps(answer)
+    assert GITHUB_API_TOKEN not in text and KEY not in text
+
+
+@pytest.mark.asyncio
+async def test_a_tripwire_takes_run_mode_back_from_the_page(daemon, github):
+    http, state, _, _ = daemon
+    github["token"] = lambda: GITHUB_API_TOKEN
+    record_every_probe(state)
+    automatic.record_acceptance(state, NOW - timedelta(hours=1), source="cli")
+    assert (await read(http))["status"]["automatic"]["ready"] is True
+    decoys.trip(state, "stage session: the stream carries the marker of decoy token")
+    found = (await read(http))["status"]["automatic"]
+    assert found["ready"] is False and found["accepted"] is None
+    assert "a tripwire turned the schedule off after it" in found["missing"][0]
 
 
 @pytest.mark.asyncio
