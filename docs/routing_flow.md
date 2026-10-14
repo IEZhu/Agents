@@ -124,8 +124,9 @@ metadata `scope`, and the loaded component lists: `skills_loaded` (skill file ID
 `implants_loaded` (each implant's `short_name`, or its file ID when none is
 declared) and `rules_loaded` (rule names). The footer shows these lists, then a
 plain Markdown segment `Agents-Core <version>`. The version is the UTC commit
-time of the installation's `HEAD` as `YY.MM.DD.HHMM` (`-dirty` when tracked files
-have uncommitted changes, `unknown` without git metadata), computed once per
+time of the installation's `HEAD` as `YY.MM.DD.HHMM` (`-dev` when the installation
+is on the integration branch `dev`, `-dirty` when tracked files have uncommitted
+changes, both as in `26.10.14.1146-dev-dirty`; `unknown` without git metadata), computed once per
 process by `src/version.py`. Under the shared daemon the version text is a link,
 `[Agents-Core <version>](http://127.0.0.1:<port>/ui)`, to the web UI; standalone stdio
 servers show the version as plain text. A stdio server of a service installation
