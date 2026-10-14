@@ -824,7 +824,32 @@ class Sequence:
         outcome = self.stage(stages.IMPLEMENT, inputs=inputs, issue=issue, run_branch=branch)
         self._stage_done(stages.IMPLEMENT)
         self.after_implement(outcome, issue, branch, labels)
-        self.submit(issue, branch, slice=output["slice"], description_extra=outcome.output["pr_sections"])
+        self.submit(issue, branch, slice=output["slice"], description_extra=outcome.output["pr_sections"],
+                    labels=labels)
+
+    def _base(self) -> str:
+        """The run's base: ``pinned``, or the merge base a resume run's broker is bound to."""
+        return self.broker.run.base if self.broker is not None else self.pinned  # type: ignore[return-value]
+
+    def _change_refusals(self, head: str | None, labels: Iterable[str]) -> list:
+        """The change check's refusals of ``<base>..head`` in the trusted repository (the lists at
+        ``pinned``), or none without a head."""
+        if head is None:
+            return []
+        trusted = self._trusted()
+        try:
+            classes = path_check.load_path_classes(trusted.path, self.pinned)
+            return list(path_check.check_changes(trusted.path, self._base(), head, labels, classes).refusals)
+        except path_check.PathsError as error:
+            raise infra(f"cli: the change check: {error}") from None
+
+    def _export(self, head: str) -> None:
+        """The control-path change ``<base>..head`` as a patch and a bundle for the owner (design 5.3)."""
+        try:
+            exports = self._trusted().export_commits(self._base(), head, self.run_dir / repos.EXPORT_DIR, self.run_id)
+            self.note(exports={key: exports[key] for key in ("patch", "bundle", "sha256", "commits")})
+        except (repos.RepositoryError, ValueError, OSError) as error:
+            self.note(export_failed=f"{type(error).__name__}: {str(error)[:300]}")
 
     def _premortem_accepted(self) -> bool:
         data = read_json(self.run_dir / broker_module.PREMORTEM_RECORD, None)
@@ -843,13 +868,7 @@ class Sequence:
         except (repos.RepositoryError, ValueError, OSError) as error:
             raise infra(f"cli: the final import: {type(error).__name__}: {error}") from None
         head = trusted.branch_head(branch)
-        refusals: list = []
-        if head is not None:
-            try:
-                classes = path_check.load_path_classes(trusted.path, self.pinned)
-                refusals = list(path_check.check_changes(trusted.path, self.pinned, head, labels, classes).refusals)
-            except path_check.PathsError as error:
-                raise infra(f"cli: the change check: {error}") from None
+        refusals = self._change_refusals(head, labels)
         control = [item for item in refusals if item.reason == path_check.Reason.CONTROL_PATH]
         output = outcome.output
         if output is None:
@@ -877,11 +896,7 @@ class Sequence:
         if not blockers:
             return
         if control and head is not None:
-            try:
-                exports = trusted.export_commits(self.pinned, head, self.run_dir / repos.EXPORT_DIR, self.run_id)
-                self.note(exports={key: exports[key] for key in ("patch", "bundle", "sha256", "commits")})
-            except (repos.RepositoryError, ValueError, OSError) as error:
-                self.note(export_failed=f"{type(error).__name__}: {str(error)[:300]}")
+            self._export(head)
         if head is not None:
             try:
                 self.note(quarantined=trusted.quarantine_branch(branch, self.run_id))
@@ -893,7 +908,7 @@ class Sequence:
     # --- submit -------------------------------------------------------------------------------------
 
     def submit(self, issue: int, branch: str, *, slice: Mapping | None, description_extra: Mapping,
-               resume: Mapping | None = None, state_comment: int | None = None) -> None:
+               labels: Iterable[str] = (), resume: Mapping | None = None, state_comment: int | None = None) -> None:
         layout = self._layout(stages.SUBMIT)
         self.service.rebind_importer(workers.Handover(self._trusted(), Path(layout["exchange"]), branch))  # type: ignore[union-attr]
         limits = self.config["limits"]
@@ -902,7 +917,7 @@ class Sequence:
                                       max_wait_minutes=int(limits["max_wait_minutes"]), resume=resume)
         outcome = self.stage(stages.SUBMIT, inputs=inputs, branch=branch, issue=issue, run_branch=branch)
         self._stage_done(stages.SUBMIT)
-        self.after_submit(outcome, state_comment)
+        self.after_submit(outcome, state_comment, branch=branch, labels=list(labels))
 
     def _recorded_state_comment(self, pr: int) -> int | None:
         """The newest state comment of ``pr`` an earlier run record lists."""
@@ -915,7 +930,8 @@ class Sequence:
                     return comment["id"]
         return None
 
-    def after_submit(self, outcome: StageOutcome, state_comment: int | None) -> None:
+    def after_submit(self, outcome: StageOutcome, state_comment: int | None, *, branch: str,
+                     labels: list[str]) -> None:
         """The runner's steps after the submit stage (design 9.5)."""
         output = outcome.output
         pr = self.broker.run.pr  # type: ignore[union-attr]
@@ -945,9 +961,17 @@ class Sequence:
                 runner._save_tick_state(self.ctx, {**tick, "next_attempt": {"at": next_attempt, "pr": pr}})
         self.note(next_attempt=next_attempt)
         if status == "blocked":
-            # The session's own reason stays in the local record: only a fixed phrase goes public.
+            # A push the broker refused for a control path: the owner's local patch (design 5.3).
+            current = self._trusted().branch_head(branch)
+            control = [item for item in self._change_refusals(current, labels)
+                       if item.reason == path_check.Reason.CONTROL_PATH]
+            blockers = [SUBMIT_BLOCKED]
+            if control and current is not None:
+                self._export(current)
+                blockers.append(CONTROL_PATH)
+            # The session's own reason stays in the local record: only fixed phrases go public.
             reason = str((output or {}).get("reason") or "")[:300]
-            self.block([SUBMIT_BLOCKED], unclaim=pr is None)
+            self.block(blockers, unclaim=pr is None)
             raise Stopped({"status": "blocked", "reason": SUBMIT_BLOCKED if output is None else
                            f"{SUBMIT_BLOCKED}: {reason}"})
         self.note(status="completed")
@@ -1017,7 +1041,7 @@ class Sequence:
             raise infra(f"network: {error}") from None
         layout = self._layout(stages.SUBMIT)
         self._open_service(issue, base, branch, Path(layout["exchange"]), criteria)
-        self.submit(issue, branch, slice=None, description_extra={},
+        self.submit(issue, branch, slice=None, description_extra={}, labels=labels,
                     resume={"pr": pr, "rounds": rounds, "findings_seen": seen, "state_comment_head": state_head},
                     state_comment=self._recorded_state_comment(pr))
 

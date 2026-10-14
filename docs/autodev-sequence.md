@@ -156,7 +156,9 @@ and needs the owner; the details are in the local run record", so the issue is l
 - with `waiting_bots`, `next_attempt` in `schedules/tick.json` as `{"at", "pr"}`.
 
 A submit stage that ends `blocked` (or without a valid output) blocks the issue with the fixed
-phrase "the submit stage ended blocked"; the session's reason stays in the record's `reason`, and
+phrase "the submit stage ended blocked"; when the branch the submit stage handed over touches a
+control path (the broker refused its push), the change is exported as after the implement stage
+and the control-path blocker is added; the session's reason stays in the record's `reason`, and
 the claim stays while a PR exists. The tick's `next_attempt` is written only after the state
 comment was, since the gate trusts nothing else. A pull request is refused by the broker while a security risk
 is open (`Broker(pr_allowed=...)`).

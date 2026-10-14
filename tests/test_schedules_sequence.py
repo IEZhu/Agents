@@ -877,3 +877,24 @@ def test_a_blocked_submit_posts_only_a_fixed_phrase(world):
     assert "unclaim" not in world.ops(record)  # the claim stays while the PR is open
     state = [call for call in world.api.calls if call[1] == f"{BASE}/issues/{PR}/comments"]
     assert state and '"review_status": "blocked"' in state[0][2]["body"]
+
+
+def test_a_push_refused_for_a_control_path_in_the_submit_stage_is_exported(world):
+    control = ["mkdir -p src/schedules && echo 'VALUE = 2' > src/schedules/extra.py",
+               "git add -A && git commit -q -m 'Touch a control path'",
+               "git bundle create -q {exchange_dir}/handover.bundle {branch} ^{pinned}",
+               """{worker_cmd} review '{"head": "{head}", "verification": true}'""",
+               """{worker_cmd} wait '{"handle": "verify-1"}'""",
+               SUBMIT[0]]
+    world.scenario(stages_plan(submit_script=control,
+                               submit_out={**submit_output("blocked"), "pr_url": None, "head_sha": None}))
+    code, record = world.run("run")
+    assert code == 1 and record["status"] == "blocked" and record["pr"] is None
+    [seen] = [item for item in world.stage_seen() if item["kind"] == "submit"]
+    assert seen["codes"][-1] == 1  # the broker refused the push
+    refused = [entry for entry in world.log(record) if entry["op"] == "push" and entry["phase"] == "refused"]
+    assert refused and "src/schedules/extra.py (control path)" in refused[0]["reason"]
+    assert record["blockers"] == [sequence.SUBMIT_BLOCKED, sequence.CONTROL_PATH]
+    patch = Path(record["exports"]["patch"])
+    assert patch.is_file() and "src/schedules/extra.py" in patch.read_text()
+    assert world.pushes == [] and world.ops(record)[-2:] == ["block", "unclaim"]
