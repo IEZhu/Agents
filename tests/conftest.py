@@ -132,6 +132,8 @@ def no_real_notifications(monkeypatch):
     (``subprocess.run``) on macOS, it would show the owner a real notification, so it fails the test."""
     import subprocess
     import sys
+    if os.name == "nt":  # the runner needs POSIX signals (client_stub) and never notifies on Windows
+        return
     try:
         from src.schedules import report
     except ImportError:  # a platform the runner does not load on: nothing can notify
