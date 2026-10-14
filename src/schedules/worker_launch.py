@@ -28,7 +28,8 @@ CLI is never acceptance.
 A process runs in its own session and process group, is killed with its group at the timeout or
 when the launcher stops, and its standard streams go to private files that are removed once read.
 Standard output (at most `MAX_STDOUT_BYTES`, the first part of a larger one) stays in the result
-for the caller's tripwire scan of every attempt, failed ones included. Output files are opened
+for the caller's tripwire scan of every attempt, failed ones included; overflow fails either
+client's attempt even when a separate result file is valid. Output files are opened
 without following a link and without blocking, and only a regular file with one link is read.
 """
 from __future__ import annotations
@@ -445,13 +446,18 @@ class Launcher:
                 result.launch = cs.describe(decision.launch)  # type: ignore[arg-type]
                 if os.path.lexists(paths.output):
                     raise LaunchRefused("the Codex output file exists before the start")
-                code, ended, result.stdout = self._start_codex(decision, proxy, context, attempt_dir, timeout)
+                code, ended, result.stdout, too_large = self._start_codex(decision, proxy, context, attempt_dir,
+                                                                         timeout)
         except (cs.CodexSandboxError, sandbox.SandboxError) as error:
             raise LaunchRefused(f"codex: {error}") from None
         finally:
             for root in (temp_root, read_root):
                 if root is not None:
                     sandbox.remove_temp_root(root, self.temp_base)
+        if too_large:
+            result.cli, result.failure = {"exit_code": code, "ended": ended}, \
+                f"the codex worker's standard output exceeds {MAX_STDOUT_BYTES} bytes"
+            return result
         try:
             data = read_bounded(paths.output, MAX_OUTPUT_BYTES)
         except OutputTooLarge as error:
@@ -466,9 +472,9 @@ class Launcher:
         return result
 
     def _start_codex(self, decision: codex_probes.Decision, proxy: codex_proxy.ConnectProxy, context: str,
-                     attempt_dir: Path, timeout: float) -> tuple[int | None, str | None, str]:
+                     attempt_dir: Path, timeout: float) -> tuple[int | None, str | None, str, bool]:
         """Start Codex (`codex_probes.start`); its exit code, how it ended and the first
-        `MAX_STDOUT_BYTES` of its standard output (for the tripwire scan)."""
+        `MAX_STDOUT_BYTES` of its standard output (for the tripwire scan), and whether it held more."""
         out, err = attempt_dir / "codex.stdout", attempt_dir / "codex.stderr"
         try:
             with open(out, "xb") as stdout, open(err, "xb") as stderr:
@@ -477,8 +483,8 @@ class Launcher:
                 process = self.codex_start(decision, context, proxy=proxy, stdout=stdout, stderr=stderr,
                                            platform=self.platform)
                 code, ended = wait(process, timeout, self.stop)
-            data, _ = read_capped(out, MAX_STDOUT_BYTES)
-            return code, ended, (data or b"").decode("utf-8", "replace")
+            data, more = read_capped(out, MAX_STDOUT_BYTES)
+            return code, ended, (data or b"").decode("utf-8", "replace"), more
         finally:
             for path in (out, err):
                 with contextlib.suppress(FileNotFoundError):
