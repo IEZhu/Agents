@@ -5,19 +5,29 @@ to hold the library's ``.lock``. A prepared commit is pinned before any working
 file changes; its trees and metadata are the write-ahead journal. Recovery can
 finish an interrupted operation without keeping another copy of file contents.
 Portable history commits are read from incoming refs but never checked out.
+
+Reads of the version list are cached per library (#371): the combined events of
+every ref ``events()`` reads, with blob IDs in place of file bytes, keyed by those
+refs' commits. A moved, rewritten or removed ref expands only the commits the cache
+has not seen and combines every commit's events again. History is read from the
+commits as stored: replace refs and grafts, which change a commit without moving a
+ref, are ignored.
 """
 from __future__ import annotations
 
+from collections import OrderedDict
 from datetime import datetime, timezone
 from functools import wraps
 import hashlib
 import json
+import logging
 import os
 from pathlib import Path, PurePosixPath
 import re
 import stat
+import threading
 import time
-from typing import Mapping
+from typing import Iterable, Mapping
 import uuid
 
 from src.flows import FlowError
@@ -33,6 +43,8 @@ RECEIVED_PREFIX = "refs/agents-core/received/"
 LEGACY_SUPPORT_REF = "refs/agents-core/legacy-support"
 LEGACY_SUPPORT_MANIFEST = "legacy-support.json"
 ACCEPTED_PREFIX = "refs/agents-core/accepted/"
+# The refs of remote copies events() reads, by name, before HISTORY_REF (see _listed_refs).
+_SOURCE_PREFIXES = (INCOMING_PREFIX, RECEIVED_PREFIX, ACCEPTED_PREFIX)
 MANAGED_KEY = "agents-sync.managed"
 MESSAGE_PREFIX = "Agents-Core-History: "
 PORTABLE_METADATA = ".agents-history-event.json"
@@ -42,10 +54,69 @@ _VERSION = re.compile(r"(?:git-[0-9a-f]{40}|\d{8}T\d{12}Z-[0-9a-f]{12}(?:-delete
 _OID = re.compile(r"[0-9a-f]{40}")
 _FLOW_PATH = re.compile(r"(?:common|repos/[a-z0-9_][a-z0-9._-]*)/[a-z0-9]+(?:-[a-z0-9]+)*\.md")
 _RESERVED = re.compile(r"(?:con|prn|aux|nul|com[0-9]|lpt[0-9])(?:\..*)?", re.I)
+_TIP = re.compile(r"([0-9a-f]{40}) ([a-z]+)")
+# Entry counts, not bytes: an index holds every walked commit's events (blob IDs, no file bytes).
+INDEX_LIBRARIES = 8  # cached libraries; the least recently used is dropped first
+DIGEST_LIMIT = 4096  # cached SHA-256 digests of archived blobs, by blob ID
+# Commits as stored: no replace refs, and an empty graft file whose deprecation hint stays quiet.
+_STORED_OBJECTS = {"GIT_NO_REPLACE_OBJECTS": "1", "GIT_GRAFT_FILE": os.devnull, "GIT_CONFIG_COUNT": "1",
+                   "GIT_CONFIG_KEY_0": "advice.graftFileDeprecated", "GIT_CONFIG_VALUE_0": "false"}
+
+logger = logging.getLogger(__name__)
 
 
 class HistoryError(FlowError):
     """A refused input or recoverable Git/working-tree operation failure."""
+
+
+class _HistoryGit(Git):
+    """``Git`` that reads history commits as stored (#371).
+
+    Replace refs and grafts can give a commit other parents or another message
+    without moving any ref, so a cache keyed by the refs' commits would serve the
+    old reading while a fresh one sees the new; neither is ever written here.
+    """
+
+    def environment(self, extra: dict[str, str] | None = None) -> dict[str, str]:
+        return super().environment({**_STORED_OBJECTS, **(extra or {})})
+
+
+class _Index:
+    """One library's combined events, with blob IDs where ``events()`` returns bytes.
+
+    ``expanded`` holds each walked commit's own events (a pure function of the
+    commit), so a moved ref costs only the commits it added.
+    """
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.tips: tuple[tuple[str, str], ...] | None = None
+        self.order: tuple[str, ...] = ()
+        self.expanded: dict[str, tuple[bool, tuple[dict, ...]]] = {}
+        self.events: tuple[dict, ...] = ()
+        # The tips whose history was refused, and why: raised again until a ref moves.
+        self.refused: tuple[tuple[tuple[str, str], ...], HistoryError] | None = None
+
+
+_indexes: OrderedDict[str, _Index] = OrderedDict()
+_digest_cache: OrderedDict[str, str] = OrderedDict()
+_cache_lock = threading.Lock()
+
+
+def _library_index(root: Path) -> _Index:
+    with _cache_lock:
+        index = _indexes.pop(str(root), None) or _Index()
+        _indexes[str(root)] = index
+        while len(_indexes) > INDEX_LIBRARIES:
+            _indexes.popitem(last=False)
+        return index
+
+
+def clear_cache() -> None:
+    """Forget every cached index and digest; the next read recomputes."""
+    with _cache_lock:
+        _indexes.clear()
+        _digest_cache.clear()
 
 
 def commit_message(metadata: dict) -> bytes:
@@ -76,7 +147,7 @@ class LibraryHistory:
     def __init__(self, root: str | Path):
         self.root = Path(root).expanduser().resolve()
         self.directory = self.root / ".git" / "agents-core-history"
-        self.git = Git(self.root, config=self.directory / "gitconfig", ssh=None)
+        self.git = _HistoryGit(self.root, config=self.directory / "gitconfig", ssh=None)
         self._trees: dict[str, dict[str, str]] = {}
         self._blobs: dict[str, bytes] = {}
         self._commit_trees: dict[str, str] = {}
@@ -230,30 +301,14 @@ class LibraryHistory:
     def _prime_blobs(self, ids: list[str]) -> None:
         self._blobs.update(self._objects([oid for oid in ids if oid not in self._blobs], "blob"))
 
-    def _prime_events(self, records: list[tuple[str, str | None, dict]]) -> None:
-        self._prime_trees([commit for record in records for commit in record[:2] if commit])
-        blobs = []
-        for commit, parent, metadata in records:
-            tree, before = self._tree(commit), self._tree(parent)
-            if metadata.get("portable"):
-                paths = [metadata.get("previous_path"), metadata.get("content_path")]
-                changes = metadata.get("changes", {})
-                if isinstance(changes, dict):
-                    paths.extend(changes.values())
-                blobs.extend(tree[path] for path in paths if isinstance(path, str) and path in tree)
-            else:
-                path = metadata.get("path")
-                if isinstance(path, str):
-                    blobs.extend(oid for oid in (tree.get(path), before.get(path)) if oid)
-                paths = metadata.get("paths", [])
-                if isinstance(paths, list):
-                    blobs.extend(tree[path] for path in paths if isinstance(path, str) and path in tree)
-                archive_paths = metadata.get("archive_paths", [])
-                if isinstance(archive_paths, list):
-                    for path in archive_paths:
-                        if isinstance(path, str):
-                            blobs.extend(oid for oid in (tree.get(path), before.get(path)) if oid)
-        self._prime_blobs(blobs)
+    def _prime_records(self, records: Iterable[tuple[str, str | None, dict]]) -> None:
+        """Batch the trees of the records' commits and parents, parents' headers included."""
+        commits = [commit for record in records for commit in record[:2] if commit]
+        missing = [commit for commit in dict.fromkeys(commits)
+                   if commit not in self._commit_trees and commit not in self._trees]
+        for commit, data in self._objects(missing, "commit").items():
+            self._commit_trees[commit] = self._commit_header(data)[0]
+        self._prime_trees(commits)
 
     def _make_tree(self, parent: str | None, changes: Mapping[str, bytes | None]) -> str:
         index = self.directory / ("index-" + uuid.uuid4().hex)
@@ -392,26 +447,36 @@ class LibraryHistory:
         except GitError as error:
             raise self._fail(str(error)) from None
 
-    def _commits(self, refs: list[str]) -> list[tuple[str, str | None, dict]]:
+    def _rev_list(self, refs: list[str]) -> list[str]:
         if not refs:
             return []
         # Retained history tips can exceed Windows' command-line limit.
-        ids = self.git.text("rev-list", "--reverse", "--stdin",
-                            input=("\n".join(refs) + "\n").encode()).splitlines()
+        return self.git.text("rev-list", "--reverse", "--stdin",
+                             input=("\n".join(refs) + "\n").encode()).splitlines()
+
+    def _commit_header(self, data: bytes) -> tuple[str, list[str]]:
+        """A commit object's tree and parents."""
+        try:
+            fields = data.partition(b"\n\n")[0].splitlines()
+            tree = next(line[5:].decode("ascii") for line in fields if line.startswith(b"tree "))
+            parents = [line[7:].decode("ascii") for line in fields if line.startswith(b"parent ")]
+        except (StopIteration, UnicodeError):
+            raise self._fail("a history commit has invalid headers") from None
+        return tree, parents
+
+    def _commits(self, refs: list[str]) -> list[tuple[str, str | None, dict]]:
+        return self._records(self._rev_list(refs))
+
+    def _records(self, ids: list[str]) -> list[tuple[str, str | None, dict]]:
+        """``(commit, first parent, metadata)`` of the given commits that carry a history event."""
         if not ids:
             return []
         records = []
         objects = self._objects(ids, "commit")
         for expected in ids:
             data = objects[expected]
-            headers, _, body = data.partition(b"\n\n")
-            try:
-                fields = headers.splitlines()
-                self._commit_trees[expected] = next(line[5:].decode("ascii") for line in fields
-                                                    if line.startswith(b"tree "))
-                parents = [line[7:].decode("ascii") for line in fields if line.startswith(b"parent ")]
-            except (StopIteration, UnicodeError):
-                raise self._fail("a history commit has invalid headers") from None
+            body = data.partition(b"\n\n")[2]
+            self._commit_trees[expected], parents = self._commit_header(data)
             metadata = None
             for line in body.decode("utf-8", "replace").splitlines():
                 if line.startswith(MESSAGE_PREFIX):
@@ -441,14 +506,35 @@ class LibraryHistory:
                 commits.append((expected, parent, metadata))
         return commits
 
+    def _listed_refs(self, fields: str = "") -> list[tuple[str, str]]:
+        """``(ref, fields)`` of every ref ``events()`` reads, in walk order: the remote copies'
+        refs by name, then HISTORY_REF. The one selection behind ``_refs`` and ``_tips``."""
+        sources, history = [], []
+        for line in self.git.text("for-each-ref", "--format=%(refname)" + (" " + fields if fields else ""),
+                                  *_SOURCE_PREFIXES, HISTORY_REF).splitlines():
+            ref, _, values = line.partition(" ")  # a ref name has no space
+            if ref == HISTORY_REF:
+                history.append((ref, values))
+            elif ref.startswith(_SOURCE_PREFIXES):  # not other refs under the HISTORY_REF pattern
+                sources.append((ref, values))
+        return sources + history
+
     def _refs(self) -> list[str]:
-        refs = self.git.text("for-each-ref", "--format=%(refname)", INCOMING_PREFIX,
-                             RECEIVED_PREFIX, ACCEPTED_PREFIX).splitlines()
-        if self._rev(HISTORY_REF):
-            refs.append(HISTORY_REF)
-        return refs
+        """The refs ``events()`` reads; HISTORY_REF only when it names a commit."""
+        return [ref for ref, _ in self._listed_refs() if ref != HISTORY_REF or self._rev(HISTORY_REF)]
+
+    def _tips(self) -> tuple[tuple[str, str], ...] | None:
+        """``(ref, commit)`` of each ref ``_refs()`` names, in its order; None for a ref that is not a commit."""
+        tips = []
+        for ref, values in self._listed_refs("%(objectname) %(objecttype)"):
+            match = _TIP.fullmatch(values)
+            if match is None or match[2] != "commit":
+                return None
+            tips.append((ref, match[1]))
+        return tuple(tips)
 
     def _event(self, commit: str, parent: str | None, metadata: dict) -> dict:
+        """One event of a commit; ``content``, ``previous`` and ``changes`` hold blob IDs."""
         path = metadata.get("path")
         if path is not None:
             self._lexical_path(path)
@@ -467,7 +553,7 @@ class LibraryHistory:
                     return None
                 if not isinstance(entry, str) or entry not in tree:
                     raise self._fail("a portable history event names a missing blob")
-                return self._blob(tree[entry])
+                return tree[entry]
             previous, content = data("previous_path"), data("content_path")
             changes = metadata.get("changes", {})
             if not isinstance(changes, dict):
@@ -477,17 +563,17 @@ class LibraryHistory:
                 self._lexical_path(target)
                 if stored is not None and (not isinstance(stored, str) or stored not in tree):
                     raise self._fail("a portable history change names a missing blob")
-                resolved[target] = self._blob(tree.get(stored)) if stored is not None else None
+                resolved[target] = tree.get(stored) if stored is not None else None
         else:
-            previous = self._blob(before.get(path)) if path else None
-            content = self._blob(tree.get(path)) if path else None
+            previous = before.get(path) if path else None
+            content = tree.get(path) if path else None
             paths = metadata.get("paths", [])
             if not isinstance(paths, list) or not all(isinstance(item, str) for item in paths):
                 raise self._fail("a history event has invalid changes")
             resolved = {}
             for target in paths:
                 self._lexical_path(target)
-                resolved[target] = self._blob(tree.get(target))
+                resolved[target] = tree.get(target)
         return {"id": source_id, "version": source_id, "commit": commit, "parent": parent,
                 "action": metadata.get("action"), "path": path, "paths": sorted(resolved),
                 "time": metadata.get("time", ""), "archive": archive,
@@ -495,7 +581,7 @@ class LibraryHistory:
                 "changes": resolved, "legacy_id": metadata.get("legacy_id") or metadata.get("version")}
 
     def _combine_events(self, preferred: dict, other: dict, *, native: bool) -> dict:
-        """Combine filtered copies of an event, refusing contradictory bytes."""
+        """Combine filtered copies of an event, refusing contradictory bytes (equal blob IDs are equal bytes)."""
         def conflict():
             raise self._fail("conflicting copies of a history event: " + preferred["id"])
         if preferred["deleted"] != other["deleted"]:
@@ -531,19 +617,26 @@ class LibraryHistory:
             merged["changes"], merged["paths"] = changes, sorted(changes)
         return merged
 
-    def _events(self, records: list[tuple[str, str | None, dict]]) -> list[dict]:
-        self._prime_events(records)
+    def _expand(self, commit: str, parent: str | None, metadata: dict) -> list[dict]:
+        """A commit's own events: its transition and, for a Replace, each archived flow."""
+        expanded = [self._event(commit, parent, metadata)]
+        if not metadata.get("portable") and self._adoption_data(metadata) is not None:
+            tree = self._tree(commit)
+            for path in metadata["archive_paths"]:
+                expanded.append(self._event(commit, parent, {**metadata, "path": path, "paths": [],
+                                      "deleted": path not in tree}))
+        return expanded
+
+    def _combine(self, expansions: Iterable[tuple[bool, Iterable[dict]]]) -> list[dict]:
+        """Merge ``(portable, events)`` of each commit in walk order into one sorted list.
+
+        A lazy ``expansions`` keeps the first problem in walk order the one reported.
+        """
         result = {}
-        for commit, parent, metadata in records:
-            expanded = [self._event(commit, parent, metadata)]
-            if not metadata.get("portable") and self._adoption_data(metadata) is not None:
-                tree = self._tree(commit)
-                for path in metadata["archive_paths"]:
-                    expanded.append(self._event(commit, parent, {**metadata, "path": path, "paths": [],
-                                          "deleted": path not in tree}))
+        for commit_portable, expanded in expansions:
             for event in expanded:
                 key = (event["path"], event["id"])
-                portable = bool(metadata.get("portable"))
+                portable = commit_portable
                 if key in result:
                     previous, previous_portable = result[key]
                     if not portable and previous_portable:
@@ -555,11 +648,121 @@ class LibraryHistory:
         return sorted((event for event, _ in result.values()),
                       key=lambda event: (event["time"], event["commit"]))
 
+    def _combined(self, records: list[tuple[str, str | None, dict]]) -> list[dict]:
+        """Events of the records, with blob IDs in place of bytes."""
+        self._prime_records(records)
+        return self._combine((bool(metadata.get("portable")), self._expand(commit, parent, metadata))
+                             for commit, parent, metadata in records)
+
+    def _hydrate(self, events: Iterable[dict]) -> list[dict]:
+        """Replace the events' blob IDs with their bytes, read in one batch."""
+        events = list(events)
+        self._prime_blobs([oid for event in events
+                           for oid in (event["content"], event["previous"], *event["changes"].values()) if oid])
+        return [{**event, "paths": list(event["paths"]), "content": self._blob(event["content"]),
+                 "previous": self._blob(event["previous"]),
+                 "changes": {path: self._blob(oid) for path, oid in event["changes"].items()}}
+                for event in events]
+
+    def _events(self, records: list[tuple[str, str | None, dict]]) -> list[dict]:
+        return self._hydrate(self._combined(records))
+
     @_git_errors
     def events(self, refs: list[str] | None = None) -> list[dict]:
         """All exact versions, including discarded history retained privately."""
+        if refs is None:
+            return self._hydrate(self._index())
         self._ensure_repository()
-        return self._events(self._commits(self._refs() if refs is None else refs))
+        return self._events(self._commits(refs))
+
+    def _index(self) -> tuple[dict, ...]:
+        """``events()`` with blob IDs, shared by every reader of this library until a ref moves.
+
+        A ref that is not a commit, or refs that cannot be listed, are computed in
+        full without the cache. History the library refuses (a ``HistoryError``, such
+        as conflicting copies) is raised at once, as a full computation raises it, and
+        again without recomputing or logging until a ref moves. An
+        update that fails otherwise (Git, or an unexpected error) is retried once from
+        scratch with the refs listed again, since they may have moved meanwhile.
+        """
+        self._ensure_repository()
+        index = _library_index(self.root)
+        with index.lock:  # one computation per library; concurrent readers wait for it
+            tips = self._listed_tips()
+            if tips is None:
+                return self._uncached()
+            if index.tips != tips:
+                if index.refused is not None and index.refused[0] == tips:
+                    raise index.refused[1].with_traceback(None)
+                try:
+                    self._update(index, tips)
+                except HistoryError as error:
+                    index.refused = (tips, error)
+                    logger.warning("Library history: %s is refused: %s", self.root, error)
+                    raise
+                except Exception:
+                    if not index.expanded:
+                        raise
+                    logger.warning("Library history: an incremental update of %s failed; recomputing it",
+                                   self.root, exc_info=True)
+                    index.tips, index.order, index.expanded, index.events = None, (), {}, ()
+                    tips = self._listed_tips()
+                    if tips is None:
+                        return self._uncached()
+                    self._update(index, tips)
+            return index.events
+
+    def _listed_tips(self) -> tuple[tuple[str, str], ...] | None:
+        try:
+            return self._tips()
+        except GitError:
+            return None  # e.g. a ref naming a missing object; the full computation reports it
+
+    def _uncached(self) -> tuple[dict, ...]:
+        return tuple(self._combined(self._commits(self._refs())))
+
+    def _update(self, index: _Index, tips: tuple[tuple[str, str], ...]) -> None:
+        """Walk the tips and expand only commits the index has not seen.
+
+        A commit's expansion depends only on that commit, so the expansions of
+        commits still in the walk are kept and those of commits that left it (a
+        rewritten or removed ref) are dropped. Every commit's events are combined
+        again in the walk order of a full computation, so the result is identical.
+        Nothing changes in ``index`` until it succeeds.
+        """
+        order = tuple(self._rev_list([oid for _, oid in tips]))
+        known = index.expanded
+        new = [commit for commit in order if commit not in known]
+        records = {record[0]: record for record in self._records(new)}
+        self._prime_records(records.values())
+        expanded = dict(known)
+
+        def expansions():
+            for commit in order:
+                if commit not in expanded:
+                    record = records.get(commit)
+                    # A commit without a history event (e.g. an unrelated portable one) adds none.
+                    expanded[commit] = (bool(record[2].get("portable")), tuple(self._expand(*record))) \
+                        if record else (False, ())
+                yield expanded[commit]
+
+        events = tuple(self._combine(expansions()))
+        index.tips, index.order, index.events, index.refused = tips, order, events, None
+        index.expanded = {commit: expanded[commit] for commit in order}
+
+    def _digests(self, oids: list[str]) -> dict[str, str]:
+        """SHA-256 of blobs by ID, read only for blobs no earlier request hashed."""
+        with _cache_lock:
+            known = {oid: _digest_cache[oid] for oid in oids if oid in _digest_cache}
+        missing = [oid for oid in dict.fromkeys(oids) if oid not in known]
+        computed = {oid: hashlib.sha256(raw).hexdigest() for oid, raw in self._objects(missing, "blob").items()}
+        with _cache_lock:
+            for oid in dict.fromkeys(oids):
+                _digest_cache[oid] = known.get(oid) or computed[oid]
+                _digest_cache.move_to_end(oid)
+            while len(_digest_cache) > DIGEST_LIMIT:
+                _digest_cache.popitem(last=False)
+        return {**known, **computed}
 
     def _adoption_data(self, metadata: dict) -> dict | None:
         if "adoption" not in metadata:
@@ -715,32 +918,35 @@ class LibraryHistory:
             refs.append("^" + boundary)
         return self._events(self._commits(refs))
 
-    def _archived(self, event: dict) -> bytes | None:
+    def _archived(self, event: dict) -> str | bytes | None:
+        """What the event's version restores: a blob ID in the index's events (``_index``),
+        the bytes in hydrated ones (``events()``); None when it keeps no version."""
         if event["archive"]:
             return event["content"]
         if event["action"] in ("baseline", "initialize"):
             return None
         return event["previous"]
 
+    @_git_errors
     def history(self, path: str) -> list[dict]:
+        """The path's versions, newest first; only their own blobs are read, once per process."""
         self._lexical_path(path)
-        versions = []
-        for event in reversed(self.events()):
-            raw = self._archived(event)
-            if event["path"] == path and raw is not None:
-                versions.append({"version": event["id"], "revision_prefix": hashlib.sha256(raw).hexdigest()[:12],
-                                 "deleted": event["deleted"], "time": event["time"]})
-        return versions
+        selected = [(event, oid) for event in reversed(self._index())
+                    if event["path"] == path and (oid := self._archived(event)) is not None]
+        digests = self._digests([oid for _, oid in selected])
+        return [{"version": event["id"], "revision_prefix": digests[oid][:12],
+                 "deleted": event["deleted"], "time": event["time"]} for event, oid in selected]
 
+    @_git_errors
     def read(self, path: str, version: str) -> bytes:
         self._lexical_path(path)
         if not isinstance(version, str) or not _VERSION.fullmatch(version):
             raise HistoryError("flow_invalid: unknown version")
-        for event in self.events():
+        for event in self._index():
             if event["path"] == path and version in (event["id"], event["legacy_id"]):
-                raw = self._archived(event)
-                if raw is not None:
-                    return raw
+                oid = self._archived(event)
+                if oid is not None:
+                    return self._blob(oid)
         raise HistoryError("flow_not_found: version not found")
 
     def _reconcile(self, paths: list[str], *, flow_path: str | None = None) -> None:

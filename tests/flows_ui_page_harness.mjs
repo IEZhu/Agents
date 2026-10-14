@@ -5,6 +5,7 @@
 // "persona_race", the Persona panel's state while a save and a navigation overlap, or, for
 // "agents", what the Agents tab lists, finds and shows, and which listings the page requested, or,
 // for "ui_panes" and "ui_signout", which pane and header controls show as items open and close, or,
+// for "ui_history", how a flow's versions load after its text (#371), or,
 // for "place", where itemPlace puts groups of given widths, or, for "ui_place", where the open
 // item's group goes as the window is resized, or, for the "sync_*" scenarios (library sync, #170),
 // what the header chip, the Sync page, its wizard and the editor's notice show and which
@@ -70,6 +71,8 @@ let releasePersonaPut = null;  // persona_race: the test decides when the PUT an
 const deletes = [];
 let holdDelete = false, releaseDelete = null;  // ui_panes: a delete that answers late
 let holdFlowGet = false, releaseFlowGet = null;  // ui_signout: a flow that loads past the sign-in screen
+let holdHistory = false, failHistory = false;  // ui_history: version lists answer when the scenario releases them, in its order
+const historyHolds = [];
 const respond = (status, body) => ({ status, ok: status < 400, statusText: "", json: async () => body });
 
 async function fetchStub(path, init = {}) {
@@ -114,6 +117,12 @@ async function fetchStub(path, init = {}) {
     return respond(200, { status: "deleted" });
   }
   if (isUi && holdFlowGet && path.startsWith("/ui/api/flow?")) await new Promise((resolve) => { releaseFlowGet = resolve; });
+  if (isUi && path.startsWith("/ui/api/flow/history?") && (holdHistory || failHistory)) {
+    // The list as it was when asked, like a server's: a held answer may be older than a later one.
+    const answer = failHistory ? [500, { status: "error", error: "flow_history: Git failed" }] : uiData(path, init);
+    if (holdHistory) await new Promise((resolve) => historyHolds.push(resolve));
+    return respond(...answer);
+  }
   if (isUi) return respond(...uiData(path, init));
   if (scenario === "agents") return respond(...agentsData(path, init));
   if (scenario === "search") {
@@ -130,21 +139,42 @@ const DOCS = {
   "user:doc": "---\npersona: tester\n---\n# Doc\n\n## One\n\ntext **bold**\n\n## Two\n\n- item\n",
   "user:plain": "just text, no headings\n",
 };
+// ui_history: the versions of user:doc, newest first, as /ui/api/flow/history lists them.
+const VERSIONS = {
+  "user:doc": [{ version: "git-" + "b".repeat(40), revision_prefix: "bbbbbbbbbbbb", deleted: true, time: "2026-10-02T09:30:00.123456+00:00" },
+               { version: "git-" + "a".repeat(40), revision_prefix: "aaaaaaaaaaaa", deleted: false, time: "2026-10-01T10:00:00+00:00" }],
+};
 function uiData(path, init) {
   if (path.startsWith("/ui/api/flows")) {
     return [200, { flows: Object.keys(DOCS).map((id) => ({ id, source: "user", title: id.slice(5), content: DOCS[id] })), repositories: [] }];
   }
-  if (path.startsWith("/ui/api/flow?")) {
+  if (path.startsWith("/ui/api/flow/history?")) {
     const id = new URLSearchParams(path.split("?")[1]).get("id");
+    return [200, { status: "success", id, history: VERSIONS[id] || [] }];
+  }
+  if (path.startsWith("/ui/api/flow?")) {
+    const params = new URLSearchParams(path.split("?")[1]), id = params.get("id");
     if (deletedFlows.has(id)) return [404, { status: "error", error: "flow_not_found: use list_flows to discover available flows" }];
+    if (id.startsWith("builtin:")) {  // ui_history: a built-in flow, which keeps no versions
+      return [200, { flow: { id, source: "builtin", title: id.slice(8), revision: "b1", source_path: "flows/" + id.slice(8) + ".md" },
+                     content: "# Built-in\n" }];
+    }
+    if (params.get("version")) {  // an old version: its text and identity, no versions of its own
+      return [200, { flow: { id, source: "user", title: id.slice(5), version: params.get("version"), revision: "old" },
+                     content: "# Old " + params.get("version").slice(4, 9) + "\n" }];
+    }
     return [200, { flow: { id, source: "user", title: id.slice(5), revision: revisions[id] || "rev1", source_path: "p" },
-                   content: savedText[id] ?? DOCS[id], history: [] }];
+                   content: savedText[id] ?? DOCS[id] }];
   }
   if (path === "/ui/api/flow" && init.method === "PUT") {
     const body = JSON.parse(init.body);
     puts.push(body);
     if (putStatus !== 200) return [putStatus, { error: "conflict" }];
     savedText[body.id] = body.content;
+    if (scenario === "ui_history") {  // the save is the newest version of the flow
+      VERSIONS[body.id] = [{ version: "git-" + "c".repeat(40), revision_prefix: "cccccccccccc", deleted: false,
+                             time: "2026-10-03T08:00:00+00:00" }, ...(VERSIONS[body.id] || [])];
+    }
     return [200, { status: "saved", flow: { id: body.id } }];
   }
   if (path === "/ui/api/history/repos") return [200, { repos: [] }];
@@ -765,6 +795,70 @@ if (isUi) {
     await sleep(40);
     steps.late_delete_rule = { ...panes(), title: byId("c-title").textContent, deletes: deletes.map((d) => d.id) };
     console.log(JSON.stringify(steps));
+    process.exit(0);
+  }
+  if (scenario === "ui_history") {
+    // The text shows before the versions answer; the list then fills in and opens an old version.
+    const history = () => ({ head: byId("history").children[0]?.textContent ?? null, disabled: byId("history").disabled,
+                             options: byId("history").children.slice(1).map((o) => [o.value.slice(0, 9), o.textContent]),
+                             busy: byId("history").getAttribute("aria-busy"), head_title: byId("history").children[0]?.title ?? null });
+    holdHistory = true;
+    await open(0);
+    const flowGet = requests.findIndex((path) => path.startsWith("/ui/api/flow?"));
+    const historyGet = requests.findIndex((path) => path.startsWith("/ui/api/flow/history?"));
+    out.while_loading = { title: byId("title").textContent, content: byId("content").value, panes: panes(), ...history(),
+                          flow_get_first: flowGet >= 0 && historyGet > flowGet, history_request: requests[historyGet] };
+    historyHolds.shift()();
+    await sleep(20);
+    out.loaded = history();
+    const select = byId("history");
+    select.value = VERSIONS["user:doc"][1].version;
+    fire(select, "change");
+    await sleep(40);
+    out.version = { content: byId("content").value, notice: byId("notice").textContent, select_value: select.value,
+                    request: requests.filter((path) => path.startsWith("/ui/api/flow?")).at(-1) };
+    // A late list of a flow the user left does not replace the list of the flow now open.
+    await open(0);
+    await open(1);
+    historyHolds.pop()();  // user:plain's list answers first…
+    await sleep(20);
+    out.other_flow = { title: byId("title").textContent, ...history() };
+    historyHolds.shift()();  // …then user:doc's
+    await sleep(20);
+    out.late_answer = { title: byId("title").textContent, ...history() };
+    // A list that cannot be read says so; the text stays usable.
+    holdHistory = false;
+    failHistory = true;
+    await open(0);
+    out.failed = { title: byId("title").textContent, ...history(), content: byId("content").value,
+                   read_only: !!byId("content").readOnly };
+    // A save reopens the flow: two lists of the same flow are in flight, and the newer one stays
+    // even when the older answers last.
+    failHistory = false;
+    holdHistory = true;
+    await open(0);  // asks for the list before the save
+    byId("content").value = "# Doc saved\n";
+    fire(byId("content"), "input");
+    fire(byId("save"), "click");
+    await sleep(80);  // the save reopened the flow, which asks again: the saved version is listed too
+    out.saved_requests = { pending: historyHolds.length, put: puts.at(-1)?.id ?? null };
+    historyHolds.pop()();  // the newer list answers first…
+    await sleep(20);
+    out.saved = { title: byId("title").textContent, ...history() };
+    historyHolds.shift()();  // …then the one asked before the save
+    await sleep(20);
+    out.saved_late = { title: byId("title").textContent, ...history() };
+    // A built-in flow keeps no versions: nothing is asked, and the list of the flow left meanwhile stays out.
+    await open(0);
+    const asked = requests.length;
+    await context.openFlow("builtin:review");
+    await sleep(20);
+    out.builtin = { title: byId("title").textContent, ...history(),
+                    asked: requests.slice(asked).filter((path) => path.startsWith("/ui/api/flow/history?")) };
+    historyHolds.shift()();  // user:doc's list answers after the built-in flow opened
+    await sleep(20);
+    out.builtin_late = { title: byId("title").textContent, ...history() };
+    console.log(JSON.stringify(out));
     process.exit(0);
   }
   if (scenario === "ui_signout") {
