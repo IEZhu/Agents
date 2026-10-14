@@ -12,7 +12,8 @@ create, prints it grouped by kind, asks once, and then:
   routing reminder, after a backup of every file it edits; everything else in those files stays
   byte for byte;
 * removes the state, data, cache and log directories, the one-command installation directory
-  (``~/.agents-core``) and the autodev trusted clone;
+  (``~/.agents-core``), the autodev trusted clone and the autodev sandbox decoys (fake secrets in
+  the home directory and the opt-in decoy keychain item);
 * removes the credentials it knows (the ``agents-autodev-github`` keychain item and the autodev
   deploy key directory) only after a second, explicit confirmation, or with
   ``--yes --include-credentials``.
@@ -69,6 +70,13 @@ MEMORY_INDEX_ENTRIES = (
     "- [Agents-Core routing is mandatory](feedback_agents_core_routing.md) — always call route_and_load() before any response, no exceptions",
 )
 KEYCHAIN_SERVICE = "agents-autodev-github"  # src/schedules/github.py
+# src/schedules/decoys.py: decoy names are random per installation and only in its registry; these
+# are their shapes, and a decoy file must still hold the marker the registry records for it.
+DECOY_DIR_NAME = re.compile(r"\.(?:config|cache|local|tokens|auth|creds|keys|session|cloud|api)"
+                            r"(?:-[0-9a-f]{8}|_[0-9a-f]{6}|[0-9a-f]{4})")
+DECOY_KEYCHAIN_SERVICE = re.compile(r"(?:api-token|cli-credentials|service-token)-[0-9a-f]{12}")
+DECOY_KEYCHAIN_ACCOUNT = re.compile(r"user-[0-9a-f]{8}")
+DECOY_MARKER = re.compile(r"[A-Za-z0-9]{48,}")
 # Labels and task names with the installation's 16-hex id (src/daemon/state.py, src/user_sync/schedule.py);
 # names derived from a state directory that is not named so are added from the inventory (state_dirs).
 LAUNCH_AGENT = re.compile(r"^local\.agents-core\.[0-9a-f]{16}(?:\.updater|\.sync|\.scheduler)?\.plist$")
@@ -986,6 +994,78 @@ def _mentions_us(path: Path) -> bool:
         begin in content for begin, _ in MARKERS)
 
 
+def _is_decoy(path: Path, marker: str) -> bool:
+    """A small regular file, never a link, that holds its registered decoy marker."""
+    try:
+        status = os.lstat(path)
+        return stat.S_ISREG(status.st_mode) and status.st_size < 4096 and marker.encode() in path.read_bytes()
+    except OSError:
+        return False
+
+
+def _decoy_registries(states: Sequence[Path]) -> list[dict]:
+    return [registry for registry in (_read_json(state / "schedules/decoys.json") for state in states)
+            if isinstance(registry, dict)]
+
+
+def decoy_items(ctx: Context, states: Sequence[Path]) -> list[Item]:
+    """The autodev sandbox decoys each state's ``schedules/decoys.json`` registers: the random
+    decoy directory directly in the home directory, the files outside it that still hold their
+    registered marker, and the opt-in decoy keychain item. They are fake secrets, so they go with
+    the data, not the credentials."""
+    items: list[Item] = []
+    source = "src/schedules/decoys.py ensure (autodev sandbox decoys)"
+    registries = _decoy_registries(states)
+    directories: list[Path] = []
+    for registry in registries:
+        value = registry.get("directory")
+        if not isinstance(value, str) or not os.path.isabs(value):
+            continue
+        directory = Path(value)
+        if DECOY_DIR_NAME.fullmatch(directory.name) and _real(directory.parent) == _real(ctx.home) \
+                and not _is_link(directory) and directory.is_dir() and directory not in directories:
+            directories.append(directory)
+    listed: set[str] = set()
+    keychains: list[tuple[str, str]] = []
+    for registry in registries:
+        item = registry.get("keychain")
+        if isinstance(item, dict) and isinstance(item.get("service"), str) and isinstance(item.get("account"), str) \
+                and DECOY_KEYCHAIN_SERVICE.fullmatch(item["service"]) and DECOY_KEYCHAIN_ACCOUNT.fullmatch(item["account"]):
+            if (item["service"], item["account"]) not in keychains:
+                keychains.append((item["service"], item["account"]))
+        for entry in registry.get("files") if isinstance(registry.get("files"), list) else []:
+            value = entry.get("path") if isinstance(entry, dict) else None
+            marker = entry.get("marker") if isinstance(entry, dict) else None
+            if not isinstance(value, str) or not os.path.isabs(value) or not isinstance(marker, str) \
+                    or not DECOY_MARKER.fullmatch(marker):
+                continue
+            path = Path(value)
+            if _real(path) in listed or _within(path, directories) or not _within(path, [ctx.home]) \
+                    or not _is_decoy(path, marker):
+                continue
+            listed.add(_real(path))
+            items.append(Item("data", str(path), "remove", source, "an autodev sandbox decoy (a fake secret)",
+                              lambda path=path: remove_path(ctx, path)))
+    for directory in directories:
+        items.append(Item("data", str(directory), "remove", source, "the autodev sandbox decoys (fake secrets)",
+                          lambda directory=directory: remove_path(ctx, directory)))
+    if ctx.platform != "darwin":
+        return items
+    for service, account in keychains:  # only a registry that recorded the opt-in item names it
+        found = ctx.runner(["/usr/bin/security", "find-generic-password", "-s", service, "-a", account])
+        if found.returncode != 0:
+            continue
+
+        def unkey(service=service, account=account):
+            result = ctx.runner(["/usr/bin/security", "delete-generic-password", "-s", service, "-a", account])
+            if result.returncode:
+                raise RuntimeError(f"security delete-generic-password exited {result.returncode}")
+            return "removed"
+        items.append(Item("data", f"keychain item {service}", "remove", source,
+                          "the opt-in decoy keychain item (a fake secret)", unkey))
+    return items
+
+
 def build_plan(ctx: Context, *, keep_data: bool = False) -> list[Item]:
     items: list[Item] = []
     backups = Backups(ctx)
@@ -1191,6 +1271,7 @@ def build_plan(ctx: Context, *, keep_data: bool = False) -> list[Item]:
     for clone in clones:
         items.append(Item("data", str(clone), "remove", "src/schedules/config.py DEFAULTS['clone'] (autodev trusted clone)",
                           "the autodev trusted repository", lambda clone=clone: remove_path(ctx, clone)))
+    items += decoy_items(ctx, states)
 
     # --- caches: the default, the one FASTEMBED_CACHE_DIR names (environment or .env), each service's
     default_cache = ctx.home / ".cache/fastembed"

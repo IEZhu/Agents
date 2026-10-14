@@ -370,6 +370,7 @@ KNOWN_FIXTURE_FILES = {
     "evals/templates/report.html.j2": "an SRI integrity hash (sha384-...)",
     "tests/fixtures/autodev_gate_recorded.json": "a recorded GitHub URL with a token-like query value",
     "tests/test_library_history.py": "fake ghp_ tokens",
+    "tests/test_schedules_probes.py": "a high-entropy git config value for the sandbox's static git config check",
     "tests/test_schedules_runner.py": "a fake private key header",
     "tests/test_schedules_scan.py": "this scan's own fixtures: a private key header",
     "tests/test_sync_ui.py": "a fake OpenSSH private key",

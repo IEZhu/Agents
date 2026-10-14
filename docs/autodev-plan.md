@@ -75,7 +75,7 @@ Checked on 2026-10-12 on `main` (5a4975d), in the installed CLIs, on this machin
 | 18 | `user-sync.yml` and `windows-installer.yml` trigger on `pull_request`; there is a `CLAUDE_ROUTINE_TOKEN` secret | `.github/workflows/` | `.github/**` is protected; the secret moves to a GitHub environment |
 | 19 | The owner's `gh` keeps its token in the keychain with the `repo` and `workflow` scopes; `gh` cannot issue tokens but can add deploy keys (`gh repo deploy-key add --allow-write`). The home directory is closed to other users (750), `~/Documents` is 700 | `gh auth status`, `ls -ld` | Without a sandbox, a model under the owner's user can reach the owner's token. The session sandbox closes the home directory (row 21) |
 | 20 | `~/Documents/Agents` is the live daemon installation; its branches must not be switched | session memory | The agent works in a separate clone and working trees |
-| 21 | Claude Code 2.1.294 has a sandbox for Bash commands. Settings: `sandbox.enabled`; `sandbox.allowUnsandboxedCommands` (with `false`, the `dangerouslyDisableSandbox` parameter has no effect); `sandbox.filesystem.denyRead`, `allowRead`, `allowWrite`; `sandbox.network.allowedDomains`, `allowUnixSockets`. **Reads are allowed by default** (the profile starts with `(allow file-read*)`); `denyRead` closes paths, and `allowRead` only reopens parts of a denied path. A separate setting, `permissions.blockReadsOutsideWorkingDirectories`, closes reads outside the working directories. According to a reviewer's finding, the default profile allows access to the keychain services. `--strict-mcp-config` turns off the claude.ai connectors | strings of the `claude` 2.1.294 binary, `claude --help`, the third check; the documentation was not read | The home directory and `~/Library/Keychains` are closed with an explicit `denyRead`. Probes before every session check what the sandbox actually blocks |
+| 21 | (Amended by #343: the documentation was read on 2026-10-13 against 2.1.296; corrections in 5.6 and [autodev-sandbox.md](autodev-sandbox.md).) Claude Code 2.1.294 has a sandbox for Bash commands. Settings: `sandbox.enabled`; `sandbox.allowUnsandboxedCommands` (with `false`, the `dangerouslyDisableSandbox` parameter has no effect); `sandbox.filesystem.denyRead`, `allowRead`, `allowWrite`; `sandbox.network.allowedDomains`, `allowUnixSockets`. **Reads are allowed by default** (the profile starts with `(allow file-read*)`); `denyRead` closes paths, and `allowRead` only reopens parts of a denied path. A separate setting, `permissions.blockReadsOutsideWorkingDirectories`, closes reads outside the working directories. According to a reviewer's finding, the default profile allows access to the keychain services. `--strict-mcp-config` turns off the claude.ai connectors | strings of the `claude` 2.1.294 binary, `claude --help`, the third check; the documentation was not read | The home directory and `~/Library/Keychains` are closed with an explicit `denyRead`. Probes before every session check what the sandbox actually blocks |
 
 ## 4. Human and autonomy
 
@@ -208,24 +208,38 @@ Every write goes into the broker log with the ID of the created object.
 
 A test on 2026-10-12 with throwaway branches and a temporary draft PR confirmed the token's limits: it can open and edit a PR and comment, but creating a branch and merging the PR were both refused with HTTP 403 ("Resource not accessible by personal access token"). A key added through `gh` is tied to the `gh` token and disappears if that token is revoked. Both secrets are stored where the sandbox cannot read.
 
-**A stage session (Claude).** Launch:
+**A stage session (Claude).** Launch (amended by #343 after the settings and sandboxing documentation was read on 2026-10-13; reference: [autodev-sandbox.md](autodev-sandbox.md)):
 
 ```text
-claude -p --restricted --safe-mode --tools Bash,Read,Edit,Write,Glob,Grep --strict-mcp-config --permission-prompts none --settings <sandbox>
+claude -p --restricted --safe-mode --tools Bash,Read,Edit,Write,Glob,Grep --strict-mcp-config --permission-mode dontAsk --permission-prompts none --disallowedTools "mcp__*" --no-session-persistence --settings <sandbox> --add-dir <exchange directory> <state copy> --output-format stream-json --verbose
 ```
 
-- `--restricted` limits the file tools to the working directories and ignores settings files other than `--settings`. `--strict-mcp-config` turns off both MCP servers and the claude.ai connectors.
+- `--restricted` limits the file tools to the working directories (the one-off repository, the working directory, and the `--add-dir` directories) and ignores settings files other than `--settings`. The file tools (Read, Edit, Write, Grep, Glob) run **outside** the Bash sandbox: `denyRead` does not stop them; `--restricted`, `permissions.blockReadsOutsideWorkingDirectories` and permission rules do.
+- `--permission-mode dontAsk` is pinned: without it a `-p` run starts in the default mode, where Edit and Write would prompt and `--permission-prompts none` would deny them, or in auto mode when feature flags are not fetched. `Edit` allow rules for the one-off repository and the exchange directory let the session edit there; `Edit` deny rules keep the state copy and the virtual environment read-only (both rule kinds also feed the sandbox's `allowWrite` and `denyWrite`).
+- `--strict-mcp-config` drops configured MCP servers; the documentation does not say it drops the claude.ai connectors, so `disableClaudeAiConnectors`, `ENABLE_CLAUDEAI_MCP_SERVERS=false` and `--disallowedTools "mcp__*"` close them (`--tools` never removes MCP tools). `--no-session-persistence` keeps transcripts out of the configuration directory.
 - The Bash sandbox:
   ```json
-  {"permissions": {"blockReadsOutsideWorkingDirectories": true},
-   "sandbox": {"enabled": true, "autoAllowBashIfSandboxed": true, "allowUnsandboxedCommands": false,
+  {"permissions": {"blockReadsOutsideWorkingDirectories": true,
+                   "allow": ["Edit(//<one-off repository>/**)", "Edit(//<exchange directory>/**)"],
+                   "deny": ["Edit(//<state copy>/**)", "Edit(//<.venv>/**)"]},
+   "sandbox": {"enabled": true, "failIfUnavailable": true, "autoAllowBashIfSandboxed": true, "allowUnsandboxedCommands": false,
      "filesystem": {"disabled": false,
-                    "denyRead": ["~", "~/Library/Keychains"],
-                    "allowRead": ["<one-off repository>", "<.venv, read-only>", "<exchange directory>", "<state copy directory>"],
-                    "allowWrite": ["<one-off repository>", "<exchange directory>"]},
-     "network": {"allowedDomains": [], "allowUnixSockets": ["<runner socket>"]}}}
+                    "denyRead": ["~/", "~/Library/Keychains", "<owner's per-user temporary directory, resolved>",
+                                 "/private/tmp/claude-<uid>", "/private/tmp/claude", "<autodev state directory>",
+                                 "<session CLAUDE_CONFIG_DIR>"],
+                    "allowRead": ["<one-off repository>", "<.venv, read-only>", "<exchange directory>", "<state copy directory>",
+                                  "<run's temporary root>",
+                                  "<runtime read roots: the thin clients' directory, the interpreters they need>", "<runner socket>"],
+                    "allowWrite": ["<one-off repository>", "<exchange directory>", "<run's temporary root>"],
+                    "denyWrite": ["<owner's per-user temporary directory>", "/private/tmp/claude-<uid>", "/private/tmp/claude"]},
+     "network": {"allowedDomains": [], "strictAllowlist": true, "allowUnixSockets": ["<runner socket>"]},
+     "credentials": {"envVars": [{"name": "CLAUDE_CODE_OAUTH_TOKEN", "mode": "deny"}]}},
+   "disableClaudeAiConnectors": true}
   ```
-- The environment is built from an allowlist: `PATH`, `HOME`, `LANG`, `TMPDIR`, `CLAUDE_CONFIG_DIR` and the run variables. No tokens; `GH_CONFIG_DIR` points to an empty directory.
+  `failIfUnavailable` makes Claude Code exit when the sandbox cannot start instead of running commands unsandboxed (the CLI default). `strictAllowlist` refuses hosts outside the empty allowlist in every permission mode. Only `~/` is a documented home prefix (a bare `~` is not), so every other path is absolute. The runtime read roots are an addition: the thin clients and the interpreter they run must be readable when they lie under `~/`; a read root re-opens what it covers, so none may equal or contain the home directory, `~/.ssh`, `~/Library` or a `denyRead` entry. `denyWrite` only tightens: the shared temporary roots, which sandbox-runtime may keep writable, must not carry data from one run to the next or to other agents. None of `excludedCommands`, `allowAppleEvents`, `enableWeakerNetworkIsolation`, `enableWeakerNestedSandbox`, `ignoreViolations`, `network.allowAllUnixSockets`, `allowLocalBinding`, `allowMachLookup`, proxy ports or `tlsTerminate` may be set; the runner refuses settings that differ from the ones it builds, and binds the resolved path and SHA-256 of the `claude` executable into what a probe clears.
+- **Temporary directories.** The sandbox gives Bash `$CLAUDE_CODE_TMPDIR/claude-<uid>` as `$TMPDIR` (default `/tmp/claude-<uid>`), not the caller's `TMPDIR`, and a long override gets "a short fallback `$TMPDIR` under the system default" (env-vars documentation; the review of 2.1.294 read the threshold as 44 bytes for `<override>/claude-<uid>`, the fallback being `/tmp/claude-<uid>`, the owner's shared Claude temporary root). The runner therefore creates a short per-run temporary root, `/private/tmp/ad-<8 hex>` (0700, created and removed by the runner, so that `<root>/claude-<uid>` stays at most 40 bytes), sets `CLAUDE_CODE_TMPDIR` and `TMPDIR` to it, adds it to `allowRead` and `allowWrite`, and adds the owner's per-user temporary directory, `/private/tmp/claude-<uid>` and `/private/tmp/claude` (other Claude sessions' scratch) to `denyRead` and `denyWrite`. The probes check that `$TMPDIR` resolves inside the temporary root.
+- The environment is built by its own allowlist builder (`src/schedules/sandbox.py`), not by the runner's `run_environment`, which copies the owner's `HOME` and `TMPDIR`: `PATH`, `HOME`, `LANG`, `CLAUDE_CONFIG_DIR`, `CLAUDE_CODE_TMPDIR`, `TMPDIR`, `GH_CONFIG_DIR` (an empty directory), `ENABLE_CLAUDEAI_MCP_SERVERS=false`, `DISABLE_AUTOUPDATER=1` and the run's `AUTODEV_*` variables. No name with `TOKEN`, `KEY`, `SECRET` or `PASSWORD`, and every value passes the scan.
+- **Login.** A separate `CLAUDE_CONFIG_DIR` has no subscription login: the credentials are keyed to the directory. `CLAUDE_CONFIG_DIR` is therefore a persistent runner-owned directory in the autodev state (`<state_dir>/schedules/claude-config`, 0700), logged in once by the owner (`CLAUDE_CONFIG_DIR=<dir> claude auth login`); before a session the runner checks `claude auth status --json` (no model turn) and refuses with that command. An optional login mode, `sandbox.login: "keychain:<service>"` in `autodev.json`, passes the OAuth token of that keychain item as `CLAUDE_CODE_OAUTH_TOKEN` instead, denied to Bash by `sandbox.credentials.envVars`.
 - **The selection stage runs without Bash** (`--tools Read,Grep,Glob`): the runner passes the task data in a file.
 
 **A stage session (Codex)** is not used in the automatic mode until it is confirmed that `-s workspace-write` closes the home directory and the network (Q14).
@@ -257,27 +271,31 @@ codex exec --ignore-user-config --ignore-rules --ephemeral -s read-only -C <tree
 - base64 and hex variants;
 - fingerprints of secrets the runner knows: its own token and key.
 
-Decoy files lie in the home directory. Their contents in outgoing text, or an attempt to read them in the sandbox log, turns the schedule off. On any match the operation is rejected and the run gets `blocked`.
+Decoy files lie in the home directory. Their contents in outgoing text, or a stage session's tool call that names one (even a refused one; amended by #343: the sandbox violation log is not read), turns the schedule off. On any match the operation is rejected and the run gets `blocked`.
+
+Decoys (#343): a fake key block `~/.ssh/id_ed25519_<random>` (only when `~/.ssh` exists), `credentials-<random>.json` and `token-<random>.txt` in a random directory `~/.<word>-<random>`, each 0600 with a unique marker of 48 random letters and digits (at least 40, so the entropy check is a reliable second detector) registered as a known secret of the scan; an opt-in decoy keychain item with a random name and the broker item's ACL shape (`sandbox.decoy_keychain`); and, for each probe, one decoy in the owner's temporary directory and one in `/private/tmp/claude-<uid>`. Nothing in a decoy says it is one, and the random names and the markers live only in the runner's private state (`schedules/decoys.json`), which the sandbox denies, never in the repository a session can read. Detection is a `known` hit in a probe's capture or in the broker's outgoing text, a probe that read a decoy, or a stage session's tool call that names a decoy or carries a marker (`probes.stage_tripwire`, called by #347); the sandbox violation log is not read.
 
 ### 5.7 Modes, probes and enabling conditions
 
-**Probes run before every session with Bash, in every mode:** `dry-run`, `run-now`, scheduled, `resume`. The runner runs them with exactly the same argv, settings file and environment as the session, through Bash and through the Read tool. Any failure aborts the run.
+**Probes run before every session with Bash, in every mode:** `dry-run`, `run-now`, scheduled, `resume`. The runner runs them with exactly the same argv, settings file, environment, working directory and `claude` executable (resolved path and SHA-256) as the session; only the prompt differs. A session starts only within 15 minutes of a passing report for that exact session, after the static checks pass again (amended by #343). The file tools run outside the sandbox, so every read vector goes through Bash **and through each file tool** (Read, Grep, Glob), and every write vector through Bash, Write and Edit (amended by #343; the full list with research IDs is in [autodev-sandbox.md](autodev-sandbox.md#probes)). Detection is the runner's, not the model's: it parses the stream-json output, checks every expected tool call (exactly its input) and its outcome, counts a probe as denied only on proof (a refusing exit code, or the call among the permission denials; any other error is a failure), checks the filesystem itself and scans the capture. Every Bash read and write runs twice: in a form the permission layer recognises and may refuse, and from a runner-written script it cannot read into, so the sandbox itself is proven. Any failure aborts the run before the session starts.
 
 | Probe | Expected |
 |---|---|
-| Write to the exchange directory | success (proves the sandbox loaded) |
-| Write to a decoy file outside the sandbox | denied |
-| Read `~/.ssh`, decoy files, `~/Library/Keychains` | denied |
-| `gh auth token`, `security find-generic-password` for the `gh`, broker and Claude items | denied |
-| Network: an external address and local TCP ports | denied |
-| Bypass through `dangerouslyDisableSandbox` | denied |
-| Someone else's Unix socket; starting jobs through `launchctl`, `open`, `osascript` | denied |
-| Write to the trusted repository, the runner's records, `.venv`, the installation, `autodev.json`, the scheduler plist | denied |
-| Environment variables with `TOKEN`, `KEY`, `SECRET`, `PASSWORD` in the name | none present |
-| Effective settings: no `excludedCommands`, `allowAllUnixSockets`, `allowLocalBinding`, `allowMachLookup`, `filesystem.disabled` | as stated |
-| The session's tool list | only the listed built-in tools, no MCP |
+| Positive controls: write to the exchange directory through Bash and Write; Write and Edit in the one-off repository; Read, Grep and Glob of a seed file; write to `$TMPDIR`; connect to the runner socket | success (proves the allow list is not too tight, not that the sandbox loaded) |
+| Negative control: a Bash write (from a runner-written script) to the decoy directory in `~`, which any unsandboxed process could write, plus `failIfUnavailable` | denied (proves the sandbox loaded) |
+| Read `~/.ssh`, the decoys, `~/Library/Keychains`, the session's `CLAUDE_CONFIG_DIR`, `~/.git-credentials` (when it exists), the decoy registry, the state directory, the owner's temporary directory, `/private/tmp/claude-<uid>` and `/private/tmp/claude`, through Bash (inline and from a script), Read, Grep and Glob (real files and directories by exit code or name only) | denied |
+| Keychain through securityd: `security find-generic-password` for the broker, `gh` and Claude items and `find-internet-password` / `git credential-osxkeychain` for github.com (exit code only), each only when it exists outside the sandbox, and the decoy item (its value) | denied with an exit code other than 44 (not found); an allowed lookup blocks real modes until the token is stored elsewhere; no existing item and no decoy item is "untested", a failure |
+| `gh auth token` | denied |
+| Network: an external address (also with `--noproxy`, which must fail on name resolution), the metadata address, the system resolver, UDP DNS, a runner-owned TCP listener, the daemon's port and a listen on 127.0.0.1 | denied; the listener counts no connection; a runner that cannot resolve the address itself leaves the network "untested", a failure |
+| Bypass through `dangerouslyDisableSandbox`: a script that writes into the decoy directory and reads a decoy, the flag checked in the stream | denied (by the sandbox or by the permission layer) |
+| A runner-owned decoy Unix socket and `/var/run/docker.sock`; starting jobs through `launchctl`, `open`, `osascript` | denied; no connection, no launchd job |
+| Write to the trusted repository and its hooks, the runner's records, `.venv`, the installation, the state directory and the directory of `autodev.json`, the scheduler plist's directory, the state copy, `CLAUDE_CONFIG_DIR`, `GH_CONFIG_DIR`, the settings file's directory, the socket's directory, the read roots, the shared temporary roots and `~`, through Bash and Write (a new file; Edit for the state copy after its Read); zero-byte appends to `autodev.json`, the plist and the settings file | denied; no canary; the exit code detects an append; the trusted repository's config and hooks unchanged |
+| A symbolic link to a decoy in the exchange directory (read through Bash and Read), a link to the decoy directory (a new file written through Bash and Write) and a hard link to a decoy | denied |
+| Environment variables as Bash sees them; open descriptors; where `$TMPDIR` resolves | only the session allowlist and the names the shell and the CLI add, none with `TOKEN`, `KEY`, `SECRET`, `PASSWORD`; a few descriptors; inside the run's temporary root |
+| Effective settings, before the probe session: the settings file equals what the launcher builds (`failIfUnavailable`, `strictAllowlist`, no `excludedCommands`, `allowAllUnixSockets`, `allowLocalBinding`, `allowMachLookup`, `allowAppleEvents`, weaker isolation, `ignoreViolations`, proxy ports, `filesystem.disabled`); no managed settings source; no hard link or outward symbolic link in the writable trees; the scan finds each decoy marker in every encoding; the re-opened git configuration and every file it includes hold no secret | as stated |
+| The session's `system/init` event | exactly the listed built-in tools, no MCP server, only the plugins `sandbox.allowed_plugins` names (calibrated in the live check), permission mode `dontAsk` |
 
-Probe results go into the runner's records, which the session cannot change.
+Probe results go into the runner's records, which the session cannot change: verdicts, exit codes and hit metadata only, masked; raw output is dropped and never reaches a stage session. A decoy that was read or leaked also turns the schedule off. The selection stage (no Bash) gets the static checks before every session; the runner runs its file-tool probes on request (`python -m src.schedules probe --kind select`), since a stage session's probes already cover the same file-tool confinement on every run (decided in #343). The Claude worker's confinement belongs to the worker launcher, #345.
 
 | Mode | What the schedule does | Additional conditions the runner checks itself |
 |---|---|---|
