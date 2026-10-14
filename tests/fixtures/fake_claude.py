@@ -63,6 +63,22 @@ becomes the summary and the result text), ``probe_answer`` (the worker check's a
 ``structured_output`` is ``{"verdict": "ok"}`` with each ``autodev-worker-probe-<tree|materials>-…``
 line the calls read under its kind) and ``pad`` (characters of filler in the result object, for
 the output cap); ``sleep`` delays the answer.
+
+**Stage mode (#347).** ``-p`` with ``stream-json`` whose prompt is a stage prompt (it starts with
+``You are the <kind> stage of an autodev run``) is a stage session; the mode is picked from the
+prompt, not the flags, because the probe session of a stage has the same argv. It appends
+``{"kind", "argv", "env", "cwd", "prompt", "values", "state_copy"}`` to the scenario's
+``stage_seen`` file (JSON lines; ``values`` are the placeholders read back from the prompt with
+the template of `src.schedules.stages`, ``state_copy`` lists the run's state copy with each
+file's mode and, for ``state.json``, its content). ``stages`` (kind -> ``{"script", "output",
+"no_output", "sleep", "say", "pad"}``) drives it (``sleep`` waits after the script; ``pad`` emits that
+many characters of filler text events before ``say``, for a stream longer than a capture): each
+``script`` line is run with ``/bin/bash -c`` in the
+working directory and the session's environment after ``{name}`` (a prompt placeholder, e.g.
+``{worker_cmd}`` or ``{exchange_dir}``) and ``{head}`` (``git rev-parse HEAD`` at that line) are
+filled in, and is reported as a Bash tool call with its output; then a ``result`` event carries
+``output`` as ``structured_output`` (``{head}`` and placeholders filled in its strings) and a
+``total_cost_usd``. The exit codes of the lines go to ``stage_seen`` as ``codes``.
 """
 import fnmatch
 import json
@@ -349,10 +365,104 @@ def worker():
     return outcome.get("exit", 0)
 
 
+STAGE_PROMPT = re.compile(r"\AYou are the (select|implement|submit) stage of an autodev run")
+
+
+def prompt_values(kind, text):
+    """The placeholder values of a rendered stage prompt, read back with the kind's template."""
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # the checkout; imported only here
+    from src.schedules import stages as stage_templates
+
+    template = stage_templates.TEMPLATES[kind]
+    pattern, seen = "", set()
+    for part in re.split(r"(\{[a-z_]+\})", template):
+        name = part[1:-1] if part.startswith("{") and part.endswith("}") else None
+        if name in stage_templates.PLACEHOLDERS:
+            pattern += f"(?P={name})" if name in seen else f"(?P<{name}>.+?)"
+            seen.add(name)
+        else:
+            pattern += re.escape(part)
+    match = re.fullmatch(pattern, text, re.S)
+    return match.groupdict() if match else {}
+
+
+def state_copy_listing():
+    roots = add_dirs()[1:]
+    if not roots:
+        return {}
+    found = {}
+    for path in sorted(Path(roots[0]).rglob("*")):
+        if path.is_file():
+            entry = {"mode": oct(path.stat().st_mode & 0o777)}
+            if path.name == "state.json":
+                entry["content"] = json.loads(path.read_text())
+            found[str(path.relative_to(roots[0]))] = entry
+    return found
+
+
+def fill(text, values, head):
+    names = "|".join(re.escape(name) for name in values)
+    text = re.sub(r"\{(" + names + r")\}", lambda match: values[match[1]], text) if names else text
+    return text.replace("{head}", head)
+
+
+def fill_all(value, values, head):
+    if isinstance(value, str):
+        return fill(value, values, head)
+    if isinstance(value, list):
+        return [fill_all(item, values, head) for item in value]
+    if isinstance(value, dict):
+        return {key: fill_all(item, values, head) for key, item in value.items()}
+    return value
+
+
+def current_head():
+    done = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=False)
+    return done.stdout.strip() if done.returncode == 0 else ""
+
+
+def stage(kind, text):
+    """One stage session: the scenario's script for ``kind``, then its structured output."""
+    plan = (SCENARIO.get("stages") or {}).get(kind) or {}
+    values = prompt_values(kind, text)
+    seen = {"kind": kind, "argv": ARGS, "env": dict(os.environ), "cwd": os.getcwd(), "prompt": text,
+            "values": values, "state_copy": state_copy_listing(), "codes": []}
+    emit({"type": "system", "subtype": "init", "session_id": "s", "tools": flag("--tools").split(","),
+          "mcp_servers": [], "permissionMode": flag("--permission-mode"), "plugins": [], "model": "claude-opus-test"})
+    left, filler = int(plan.get("pad") or 0), "filler words of a long stage stream " * 2000
+    while left > 0:
+        emit({"type": "assistant", "message": {"content": [{"type": "text", "text": filler[:left]}]}})
+        left -= len(filler)
+    if plan.get("say"):
+        emit({"type": "assistant", "message": {"content": [{"type": "text", "text": plan["say"]}]}})
+    for index, line in enumerate(plan.get("script", [])):
+        command = fill(line, values, current_head())
+        use_id = f"toolu_s{index:04d}"
+        emit({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": use_id, "name": "Bash",
+                                                            "input": {"command": command}}]}})
+        done = subprocess.run(["/bin/bash", "-c", command], capture_output=True, text=True, check=False)
+        seen["codes"].append(done.returncode)
+        emit({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": use_id,
+                                                       "content": (done.stdout + done.stderr)[-4000:],
+                                                       "is_error": done.returncode != 0}]}})
+    if SCENARIO.get("stage_seen"):
+        with open(SCENARIO["stage_seen"], "a", encoding="utf-8") as stream:
+            stream.write(json.dumps(seen) + "\n")
+    time.sleep(plan.get("sleep", 0))  # after the script: a timeout test starts children first
+    event = {"type": "result", "subtype": "success", "is_error": False, "permission_denials": [],
+             "total_cost_usd": 0.25}
+    if not plan.get("no_output"):
+        event["structured_output"] = fill_all(plan.get("output", {}), values, current_head())
+    emit(event)
+    return 0
+
+
 def session():
     if flag("--output-format") == "json":
         return worker()
     text = sys.stdin.read()
+    if (match := STAGE_PROMPT.match(text)) is not None:
+        return stage(match[1], text)
     time.sleep(SCENARIO.get("sleep", 0))
     calls = [json.loads(line) for line in text.split("\n") if line.startswith('{"tool"')]
     if SCENARIO.get("seen"):

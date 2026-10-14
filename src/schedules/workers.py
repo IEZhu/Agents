@@ -25,27 +25,29 @@ keeps every record. The session never names a command, a ref or a path.
 * **Review policy** (9.4, Q10): the first review covers the run's base up to the head with the
   delegate's effort; review *n* > 1 covers the range since the last reviewed head (the same range
   again when the head did not move) plus the decision log, with ``effort_followup``; review
-  ``max_reviews`` (when it is not the first) is restricted to ``critical`` and ``high``
-  findings, security and regressions caused by fixes; no review starts beyond ``max_reviews``.
-  Every later review and the verification also get ``open-findings.json``: each finding of the
-  findings ledger that keeps the push gate closed, with its decision state (undecided, ``fixed``
-  or ``declined`` with the reason), and the instruction to report again each one still present.
-  The verification review (after an accepted pre-mortem) covers the commits since the last full
-  review, considers ``critical``, ``high`` and security, and is not counted. A restricted review
-  (the last one or the verification) that reports any finding in its scope ends the stage
-  blocked. An outcome is accepted only when the output is valid, ``completed``, an evidence item
-  names the reviewed range ``<base>..<head>`` and no evidence item names another 40-hex commit
-  than the run's base, the range's ends and the commits since the run's base; ``partial``,
-  ``failed``, an evidence mismatch, ``valid: false`` and a CLI failure give a new attempt with a
-  new ``attempt_id`` (a new package), at most `MAX_ATTEMPTS` in all, then ``blocked``;
-  ``input_required`` gives ``blocked`` at once. The tripwire scans every attempt, a failed one
-  included (standard output, the raw result, the permission denials): a decoy or a known secret
-  gives ``blocked`` at once, and a decoy also turns the schedule off. A Claude worker killed at
-  its timeout or by a stop prints no result object, so a decoy it read in that attempt is not
-  seen (``--output-format json`` writes the denials only at the end). Infrastructure problems (no
-  CLI, no login, a refused launch, a package whose length is wrong, a Codex decision that aborted
-  the step) give ``failed``. After ``blocked``, ``failed`` or a blocking restricted review the
-  service refuses new workers: the stage ends blocked.
+  ``max_reviews`` (when it is not the first) is restricted to ``critical`` and ``high`` findings,
+  security and regressions caused by fixes; no review starts beyond ``max_reviews``. Every later
+  review and the verification also get ``open-findings.json``: each finding of the findings ledger
+  that keeps the push gate closed, with its decision state (undecided, ``fixed`` or ``declined``
+  with the reason), and the instruction to report again each one still present. The verification
+  review (after an accepted pre-mortem) covers the commits since the last full review, considers
+  ``critical``, ``high`` and security, and is not counted; a run gets at most ``max_verifications``
+  of them (1 by default; #347 passes ``1 + max_bot_rounds``, so each bot round of the submit stage
+  gets one), each later one covering the commits since the previous one. A restricted review (the
+  last one or a verification) that reports any finding in its scope ends the stage blocked. An
+  outcome is accepted only when the output is valid, ``completed``, an evidence item names the
+  reviewed range ``<base>..<head>`` and no evidence item names another 40-hex commit than the run's
+  base, the range's ends and the commits since the run's base; ``partial``, ``failed``, an evidence
+  mismatch, ``valid: false`` and a CLI failure give a new attempt with a new ``attempt_id`` (a new
+  package), at most `MAX_ATTEMPTS` in all, then ``blocked``; ``input_required`` gives ``blocked``
+  at once. The tripwire scans every attempt, a failed one included (standard output, the raw
+  result, the permission denials): a decoy or a known secret gives ``blocked`` at once, and a decoy
+  also turns the schedule off. A Claude worker killed at its timeout or by a stop prints no result
+  object, so a decoy it read in that attempt is not seen (``--output-format json`` writes the
+  denials only at the end). Infrastructure problems (no CLI, no login, a refused launch, a package
+  whose length is wrong, a Codex decision that aborted the step) give ``failed``. After
+  ``blocked``, ``failed`` or a blocking restricted review the service refuses new workers: the
+  stage ends blocked.
 * **Records**: each attempt is ``<run_dir>/workers/<handle>/attempt-<n>.json`` (the package
   revision, the retained contract, the client, the raw structured output with its SHA-256, the
   validation response, the covered range and head, the verdict), masked with the run's known
@@ -78,6 +80,15 @@ keeps every record. The session never names a command, a ref or a path.
   goes to the session's read-only state copy (``worker-log.json``) for recovery after a
   compaction. A secret a launch learns (the Codex API key of a decision) goes to ``on_known``,
   which the run points at `broker.Broker.add_known`.
+* **One service per run** (#347): the implement and submit stages share it, because a new
+  service clears the push gate (`WorkerService._clear_stale`); `WorkerService.rebind_importer`
+  points it at the submit stage's exchange directory between them. Each attempt record keeps the
+  ``requested`` client, model and effort beside the applied ones, for the run report.
+  `open_security_risks` and `risk_candidates` read the pre-mortem record and the decision log for
+  the run sequence: a security-marked risk that is not ``fixed`` and verified blocks the pull
+  request (design 5.8; the session's own ``mitigated`` or ``known_risk`` does not close it, #347
+  review), and a ``known_risk`` of level ``medium`` or higher without a security signal becomes a
+  risk issue (Q3).
 """
 from __future__ import annotations
 
@@ -383,9 +394,12 @@ class WorkerService:
                  prepare: Callable[[dict], Any] = prepare_subagent,
                  validate: Callable[[Any, Any], ValidationResponse] = validate_result,
                  repository: mat.ReviewRepository | None = None, importer: Importer | None = None,
-                 on_known: Callable[[Sequence[KnownSecret]], None] | None = None):
-        if isinstance(importer, Handover) and importer.issue() != binding.issue:
-            raise ValueError(f"the handover branch {importer.branch} is not a branch of issue #{binding.issue}")
+                 on_known: Callable[[Sequence[KnownSecret]], None] | None = None,
+                 max_verifications: int = MAX_VERIFICATIONS):
+        self._check_importer(importer, binding)
+        if not isinstance(max_verifications, int) or isinstance(max_verifications, bool) or max_verifications < 1:
+            raise ValueError("max_verifications must be a positive integer")
+        self.max_verifications = max_verifications
         self.binding = binding
         self.config = config
         self.launcher = launcher
@@ -408,6 +422,18 @@ class WorkerService:
         self._tree_lock = threading.Lock()
         self._threads: list[threading.Thread] = []
         self._clear_stale()
+
+    @staticmethod
+    def _check_importer(importer: Importer | None, binding: Binding) -> None:
+        if isinstance(importer, Handover) and importer.issue() != binding.issue:
+            raise ValueError(f"the handover branch {importer.branch} is not a branch of issue #{binding.issue}")
+
+    def rebind_importer(self, importer: Importer | None) -> None:
+        """Import from another stage's exchange directory from now on (the submit stage after the
+        implement stage, #347); the records, the ledger and the push gate stay this service's."""
+        self._check_importer(importer, self.binding)
+        with self._lock:
+            self.importer = importer
 
     def _clear_stale(self) -> None:
         """Remove the review and pre-mortem records and the findings ledger, and set aside a
@@ -595,11 +621,14 @@ class WorkerService:
             if not any(task.kind == PREMORTEM and task.status == ACCEPTED for task in self.tasks.values()):
                 raise RequestRefused("the verification review follows an accepted pre-mortem")
             number = 1 + sum(task.kind == VERIFY for task in self.tasks.values())
-            if number > MAX_VERIFICATIONS:
-                raise RequestRefused("the verification review already ran for this run")
-            base = reviews[-1].head  # the last full review was accepted (`_require_open`)
+            if number > self.max_verifications:
+                raise RequestRefused("the verification review already ran for this run" if self.max_verifications == 1
+                                     else f"the {self.max_verifications} verification reviews of this run already ran")
+            # The last full review, then the last verification: each was accepted (`_require_open`).
+            base = [task for task in self.tasks.values() if task.kind in (REVIEW, VERIFY)][-1].head
             if base == head:
-                raise RequestRefused("no commits since the last full review: there is nothing to verify")
+                since = "the last full review" if number == 1 else "the last verification"
+                raise RequestRefused(f"no commits since {since}: there is nothing to verify")
             if not self.repository.is_ancestor(base, head):
                 base = self.binding.base
             return self._task(VERIFY, number, base, head, followup=True, restricted="verification")
@@ -766,6 +795,7 @@ class WorkerService:
                                        f"infra: worker_context has {len(package.worker_context)} characters, not its "
                                        f"context_chars {package.context_chars}; the worker was not started")
         client, model, effort, fallback = self.client(task)
+        record["requested"] = {"client": client, "model": model, "effort": effort, "fallback": dict(fallback)}
         try:
             launch = self.launcher.run(client=client, step=STEPS[task.kind], context=package.worker_context,
                                        schema=package.result_schema, tree=tree, materials=materials,
@@ -1112,6 +1142,80 @@ class WorkerService:
                                                                          "decision", "note") if name in item}
                                           for item in self._open_findings()[:MAX_FINDINGS_SHOWN]]
         return found
+
+
+# --- what the run sequence reads (#347) ---------------------------------------------------------------
+
+def _premortem_decision(entry: Any) -> dict | None:
+    """The latest decision of a decision-log entry (the current one, then its history from the
+    newest) that a pre-mortem handle made, or None."""
+    if not isinstance(entry, dict):
+        return None
+    history = entry.get("history") if isinstance(entry.get("history"), list) else []
+    for decision in [entry, *reversed(history)]:
+        if isinstance(decision, dict) and str(decision.get("handle") or "").startswith(f"{PREMORTEM}-"):
+            return decision
+    return None
+
+
+def _time(value: Any) -> datetime | None:
+    try:
+        moment = datetime.fromisoformat(str(value))
+    except ValueError:
+        return None
+    return moment if moment.tzinfo is not None else None
+
+
+def _logged_decisions(run_dir: Path) -> dict[str, dict]:
+    data = broker_records._read_json(Path(run_dir) / DECISIONS_NAME)
+    logged = data.get("decisions") if isinstance(data, dict) else None
+    return {entry["key"]: entry for entry in logged or []
+            if isinstance(entry, dict) and isinstance(entry.get("key"), str)}
+
+
+def _verified_since(run_dir: Path) -> list[datetime]:
+    """Start times of the run's accepted verification reviews that did not end the stage blocked."""
+    data = broker_records._read_json(Path(run_dir) / STATE_NAME)
+    tasks = data.get("tasks") if isinstance(data, dict) else None
+    found = []
+    for task in tasks or []:
+        if isinstance(task, dict) and task.get("kind") == VERIFY and task.get("status") == ACCEPTED and \
+                task.get("blocked") is False and (started := _time(task.get("started"))) is not None:
+            found.append(started)
+    return found
+
+
+def open_security_risks(run_dir: str | Path) -> list[str]:
+    """The keys of the run's validated pre-mortem risks with a security signal
+    (`broker.security_signal`) that are still open: their latest pre-mortem decision is not
+    ``fixed`` followed by an accepted verification review that started after the decision and did
+    not end the stage blocked. ``mitigated`` and ``known_risk`` are the session's own word, with
+    nothing that checks it, so they leave the risk open (#347 review): the run blocks and the owner
+    decides. Design 5.8: such a risk blocks the pull request; the details stay in the run record.
+    A run without a pre-mortem record has none (the runner requires an accepted pre-mortem before
+    the submit stage separately)."""
+    decisions, verified = _logged_decisions(Path(run_dir)), _verified_since(Path(run_dir))
+    found = []
+    for key, finding in broker_records.read_premortem(run_dir).items():
+        if not broker_records.security_signal(finding):
+            continue
+        decision = _premortem_decision(decisions.get(key)) or {}
+        decided = _time(decision.get("time"))
+        if decision.get("decision") == "fixed" and decided is not None and \
+                any(started >= decided for started in verified):
+            continue
+        found.append(key)
+    return found
+
+
+def risk_candidates(run_dir: str | Path) -> list[str]:
+    """The keys of the run's validated pre-mortem risks that become risk issues (Q3): the latest
+    pre-mortem decision is ``known_risk``, the level ``medium`` or higher (`broker.RISK_LEVELS`),
+    and no security signal; in the record's order. `broker.Broker.create_risk_issues` caps them."""
+    decisions = _logged_decisions(Path(run_dir))
+    return [key for key, finding in broker_records.read_premortem(run_dir).items()
+            if finding.level in broker_records.RISK_LEVELS and not broker_records.security_signal(finding)
+            and (_premortem_decision(decisions.get(key)) or {}).get("decision") == "known_risk"]
 
 
 def register(registry: Registry, service: WorkerService) -> WorkerService:

@@ -73,8 +73,9 @@ relying on memory ([design 8.5](../docs/autodev-plan.md#85-stage-personas)):
   task's parsed state with its findings (each with the runner's `security`
   mark and the decision so far), the decisions recorded so far, and
   `open_findings`, the findings that keep the push gate closed now;
-- `{state_copy}/state.json` when it exists: the run sequence's own summary of
-  the run (the pinned commit, the stage, the persona source);
+- `{state_copy}/state.json`: the run sequence's own summary of the run (the
+  pinned commit, the stage, the issue, the branch, the slice and the persona
+  source), rewritten at every stage transition;
 - `git log --oneline {pinned}..{branch}` in `{worktree}`.
 
 `worker-log.json` lists only finished workers. A request refused with
@@ -269,9 +270,10 @@ refuses it otherwise ("the pre-mortem needs a clean validated review").
 4. **Known risks by level and mark** (Q3). A risk with `security: true` goes
    neither into the pull request sections nor into an issue (the broker
    refuses such an issue too): it stays in the run record. Unless it is
-   `fixed` and verified or `mitigated`, it is open and blocks the pull request:
-   end with `blocked: true` and a neutral blocker ("an open pre-mortem risk
-   needs the owner"). Of the other known risks, `low` and `info` go into the
+   `fixed` and verified, it is open and blocks the pull request (`mitigated`
+   or `known_risk` does not close it; nothing checks either): end with
+   `blocked: true` and a neutral blocker ("an open pre-mortem risk needs the
+   owner"). Of the other known risks, `low` and `info` go into the
    pull request section "Pre-mortem: known risks", and each `medium`, `high` or
    `critical` one becomes an `autodev:risk` issue that the runner creates
    through its broker and links from the pull request; do not write those into

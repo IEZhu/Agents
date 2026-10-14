@@ -53,7 +53,8 @@ the caller passes); only verdicts, exit codes and hit metadata reach the report,
 from a fixed set (`_tool_name`), and every other name the stream chose is checked and masked first
 (`_safe_name`). Raw output is dropped. After the session its whole process group is killed. A
 decoy read or a decoy marker anywhere turns the schedule off (`decoys.trip`); `stage_tripwire` does
-the same for a stage session's stream (#347).
+the same for a stage session's stream, scanned whole in overlapping windows (`decoy_labels`) however
+long it is; the run sequence (`src.schedules.sequence`) calls it after every stage session.
 """
 from __future__ import annotations
 
@@ -89,6 +90,11 @@ MARK = "__probe__"
 PROBE_TIMEOUT = 1200  # seconds for the whole probe session
 MAX_REPORT_AGE = 900  # seconds a passing report covers a session start
 MAX_CAPTURE = 2_000_000  # characters of stdout kept; more is a failure (below scan.MAX_TEXT_LENGTH)
+# A stage session's stream has no cap here (#347 review): `stage_tripwire` reads it in chunks of whole
+# lines of about SCAN_WINDOW characters and scans each in windows that overlap by SCAN_OVERLAP, far
+# more than any encoded form of a marker spans; the run sequence bounds the stream's size itself.
+SCAN_WINDOW = 1_000_000
+SCAN_OVERLAP = 65_536
 MAX_STDERR = 64 * 1024
 MAX_FDS = 16  # open descriptors the observe probe may list (calibrated by the live check)
 READ_CHUNK = 65536
@@ -1589,27 +1595,58 @@ def start_session(spec: sandbox.SessionSpec, report: ProbeReport, text: str, *, 
     return process
 
 
-def stage_tripwire(stdout: str, persistent: Iterable[decoy_store.Decoy], *, directory: str | Path | None,
-                   run_id: str | None = None) -> list[str]:
+def decoy_labels(scanner: Scanner, text: str) -> set[str]:
+    """The decoys whose marker ``text`` carries, by label: scanned in windows of `SCAN_WINDOW`
+    characters that overlap by `SCAN_OVERLAP`, so a text of any length is scanned whole."""
+    labels = set()
+    for start in range(0, max(1, len(text) - SCAN_OVERLAP), SCAN_WINDOW):
+        window = text[start:start + SCAN_WINDOW + SCAN_OVERLAP]
+        labels |= {hit.name.removeprefix(decoy_store.LABEL_PREFIX)
+                   for hit in decoy_store.decoy_hits(scanner.scan(window))}
+    return labels
+
+
+def _line_chunks(lines: Iterable[str]) -> Iterable[str]:
+    """Consecutive whole lines joined into chunks of about `SCAN_WINDOW` characters; a longer line
+    is a chunk of its own."""
+    chunk, size = [], 0
+    for line in lines:
+        if chunk and size + len(line) > SCAN_WINDOW:
+            yield "".join(chunk)
+            chunk, size = [], 0
+        chunk.append(line if line.endswith("\n") else line + "\n")
+        size += len(line)
+    if chunk:
+        yield "".join(chunk)
+
+
+def stage_tripwire(stdout: str | Iterable[str], persistent: Iterable[decoy_store.Decoy], *,
+                   directory: str | Path | None, run_id: str | None = None) -> list[str]:
     """For #347: scan a stage session's stream-json output for any tool call that names a decoy
     (its random file name, directory name or keychain service) or carries a decoy marker, and for
     a marker anywhere in the stream; an attempt counts even when it was denied. Any finding turns
     the schedule off (`decoys.trip`); the findings name labels and call numbers, never a value.
-    Best effort: a call that reaches a decoy through a pattern it does not spell out is caught
-    only if the marker comes back."""
+    ``stdout`` is the stream's text or its lines (the stream file opened as text): it is read in
+    chunks of whole lines (`_line_chunks`), each scanned whole (`decoy_labels`) for the decoy
+    fingerprints only, so neither length nor secret-shaped noise leaves a marker unscanned (#347
+    review). Best effort: a call that reaches a decoy through a
+    pattern it does not spell out is caught only if the marker comes back."""
     decoys = list(persistent)
-    stream = parse_stream(stdout)
-    scanner = Scanner(decoy_store.known(decoys))
+    # Fingerprints only: secret-shaped noise must not end the scan before a marker (#347 review).
+    scanner = Scanner(decoy_store.known(decoys), known_only=True)
     references = decoy_store.references(decoys)
-    findings = []
-    for index, use in enumerate(stream.uses, 1):
-        text = json.dumps(use["input"], ensure_ascii=False) + "\n" + str(use["name"])
-        for label, names in references.items():
-            if any(name in text for name in names):
-                tool = _tool_name(use["name"], sandbox.STAGE_TOOLS)
-                findings.append(f"tool call {index} ({tool}) names decoy {label}")
-    labels = {hit.name.removeprefix(decoy_store.LABEL_PREFIX)
-              for text in (stdout, *stream.texts) for hit in decoy_store.decoy_hits(scanner.scan(text))}
+    findings, labels, calls = [], set(), 0
+    for chunk in _line_chunks(stdout.splitlines(keepends=True) if isinstance(stdout, str) else stdout):
+        stream = parse_stream(chunk)
+        for use in stream.uses:
+            calls += 1
+            text = json.dumps(use["input"], ensure_ascii=False) + "\n" + str(use["name"])
+            for label, names in references.items():
+                if any(name in text for name in names):
+                    tool = _tool_name(use["name"], sandbox.STAGE_TOOLS)
+                    findings.append(f"tool call {calls} ({tool}) names decoy {label}")
+        for text in (chunk, *stream.texts):
+            labels |= decoy_labels(scanner, text)
     findings += [f"the stream carries the marker of decoy {label}" for label in sorted(labels)]
     if findings:
         decoy_store.trip(directory, "stage session: " + "; ".join(findings[:10]), run_id=run_id)

@@ -55,11 +55,12 @@ rc=<code>`` lines read from the ``--json`` event stream; `exec_plan` lists the r
 among them ``observe.env``, which fails when a model command sees the API key or the proxy
 variables). Codex stays unavailable with the reason
 unless every probe is denied and every control passes; the result is stored in
-``<state>/schedules/codex-availability.json`` for #347 and #348 with the installed checks, the
+``<state>/schedules/codex-availability.json`` for the run sequence and #348 with the installed checks, the
 codex version and the launch's run-independent shape (`codex_sandbox.launch_shape`);
 `read_availability` treats an entry as unavailable once the version or the shape differs or it is
-older than `AVAILABILITY_MAX_AGE`. Reading it needs no key and no run: #347 and #348 pass
-``version=installed_version(codex, path=...)`` and ``shape=stage_shape(codex, config)``.
+older than `AVAILABILITY_MAX_AGE`. Reading it needs no key and no run: the run sequence (#347,
+for a Codex select stage) and #348 pass ``version=installed_version(codex, path=...)`` and
+``shape=stage_shape(codex, config, stage_kind)``.
 """
 from __future__ import annotations
 
@@ -110,7 +111,7 @@ CAPTURE_LIMIT = 64 * 1024
 EXEC_TIMEOUT = probes.PROBE_TIMEOUT
 MAX_REPORT_AGE = probes.MAX_REPORT_AGE
 AVAILABILITY_NAME = "codex-availability.json"
-AVAILABILITY_MAX_AGE = 7 * 24 * 3600  # seconds a stored stage availability counts (#347 and #348 re-check)
+AVAILABILITY_MAX_AGE = 7 * 24 * 3600  # seconds a stored stage availability counts (the run sequence and #348 re-check)
 API_KEY_LABEL = "codex api key"
 MAX_WARNINGS = 8  # codex's own warning items a report keeps (each bounded to WARNING_LIMIT characters)
 WARNING_LIMIT = 200
@@ -743,7 +744,7 @@ def installed_version(codex: str, *, path: str,
                       base: Path | None = None) -> str | None:
     """The ``X.Y.Z`` of ``codex --version`` run with a fresh scratch ``CODEX_HOME`` and ``HOME``
     (`_scratch`, removed afterwards; codex reads ``$CODEX_HOME/.env`` first), or None. No model
-    turn and no key: #347 and #348 pass it to `read_availability`."""
+    turn and no key: the run sequence and #348 pass it to `read_availability`."""
     with _scratch(base) as root:
         return cs.installed_version(codex, env=_scratch_environment(root, path), runner=command_runner)
 
@@ -1468,15 +1469,19 @@ def stage_availability(codex: str | None, paths: cs.CodexPaths, *, path: str, pr
     return decision
 
 
-def codex_settings(config: Mapping, kind: str) -> dict:
+STAGE_KIND_DEFAULT = "implement"
+
+
+def codex_settings(config: Mapping, kind: str, stage_kind: str | None = None) -> dict:
     """The ``model`` and ``effort`` of a Codex ``kind`` launch from ``autodev.json``: a worker uses
-    ``delegates.code-review-pass.codex``, a stage ``stages.implement.codex`` and else the
-    worker's. The owner's check (`runner.codex_probe`) and `stage_shape` read them the same way, so
-    a stage launch of #347 must use them too, or its shape differs (``shape_changed``)."""
+    ``delegates.code-review-pass.codex``, a stage ``stages.<stage_kind>.codex`` (``implement``
+    when none is named) and else the worker's. The owner's check (`runner.codex_probe`), the run
+    sequence (#347, which names the stage kind) and `stage_shape` read them the same way, so a
+    stage launch must use them too, or its shape differs (``shape_changed``)."""
     delegates, stages = config.get("delegates") or {}, config.get("stages") or {}
     settings = ((delegates.get("code-review-pass") or {}).get("codex")) or {}
     if kind == cs.STAGE:
-        settings = ((stages.get("implement") or {}).get("codex")) or settings
+        settings = ((stages.get(stage_kind or STAGE_KIND_DEFAULT) or {}).get("codex")) or settings
     return {"model": settings.get("model"), "effort": settings.get("effort")} if isinstance(settings, dict) else {}
 
 
@@ -1490,11 +1495,12 @@ def _launch_shape(kind: str, codex: str | None, model: str | None, effort: str |
         return ""
 
 
-def stage_shape(codex: str, config: Mapping) -> str:
-    """The shape of the stage launch the configuration makes with ``codex`` (`codex_settings`,
-    `codex_sandbox.launch_shape`): no key, no run, no file written. #347 and #348 pass it to
-    `read_availability`; `codex_sandbox.CodexSandboxError` when the executable cannot be read."""
-    settings = codex_settings(config, cs.STAGE)
+def stage_shape(codex: str, config: Mapping, stage_kind: str | None = None) -> str:
+    """The shape of the ``stage_kind`` stage launch the configuration makes with ``codex``
+    (`codex_settings`, `codex_sandbox.launch_shape`; with ``--output-schema``): no key, no run, no
+    file written. #347 and #348 pass it to `read_availability`;
+    `codex_sandbox.CodexSandboxError` when the executable cannot be read."""
+    settings = codex_settings(config, cs.STAGE, stage_kind)
     return cs.launch_shape(cs.STAGE, codex, model=settings.get("model"), effort=settings.get("effort"))
 
 

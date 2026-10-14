@@ -27,11 +27,19 @@ Claude side is [autodev-sandbox.md](autodev-sandbox.md) (#343), whose helpers th
   step on an abort** (`decision.abort`, see [Probes and the decision](#probes-and-the-decision)),
   running neither client. It returns `decision.known` (the API key as a known secret) to its caller,
   and the worker service forwards each launch's known secrets to its `on_known`; the run sequence
-  (#347) points that at `broker.Broker.add_known`, since the broker exists before any worker
-  decides, or reads the key before it builds the broker and passes it as `Broker(known=...)`. #347
-  starts a Codex stage session only while `read_availability(version=..., shape=...)` says it is
-  available, and the settings page (#348) shows the stored reason; both read it without a key or a
-  run ([the stored availability](#codex-as-a-stage-client-q14)).
+  (#347) points that at `broker.Broker.add_known`, since it builds the broker before any worker
+  decides.
+- **Only the select stage runs as Codex (#347).** The run sequence starts a Codex stage session
+  only for `select` and only while `read_availability(version=..., shape=...)` says it is
+  available; then it decides (`decide`, recorded as the step `stage-select`), starts the session
+  through `start` with the stage's `--output-schema`, reads the `-o` file and validates it as a
+  Claude output is validated. Otherwise, and always for `implement` and `submit`, the stage runs
+  as a Claude session with `client_requested`, `client_applied` and `fallback_reason` in its
+  record: `codex_stage_commit_unsupported` for a stage that commits, since a `workspace-write`
+  session cannot write `.git` and the runner-side commit on its behalf is not built (#347 open
+  question Q-codex-commit), or the stored or decided reason (on this Mac
+  `nested_sandbox_unavailable`). The settings page (#348) shows the stored reason; both read it
+  without a key or a run ([the stored availability](#codex-as-a-stage-client-q14)).
 - **The live check is the owner's.** `python -m src.schedules codex-probe --confirm-live-probe`
   runs the real checks. Nothing in the tests starts the real `codex` or a model turn; the profile
   tests apply the generated profile with the real `/usr/bin/sandbox-exec` to files, a shell-script
@@ -350,7 +358,8 @@ the probe report (`codex_probes`, with its digest), masked with the decoy marker
 Codex decision whose probes passed at most 15 minutes ago for the same digest (argv,
 environment, working directory, profile, executable), with its proxy running with the Codex
 hosts, `check_launch` passing again and the
-`CODEX_HOME` allowlist checked once more right before the process starts. #345 and #347 call it;
+`CODEX_HOME` allowlist checked once more right before the process starts. The worker launcher
+(#345) and the run sequence's Codex select stage (#347) call it;
 `run_exec_probe` (below) is the only other place that starts codex for a model turn.
 
 ### Fallback reasons
@@ -423,25 +432,30 @@ layout), the codex flags without paths, the environment's variable names and the
 resolved path and SHA-256. `codex_sandbox.launch_shape(kind, codex, model=..., effort=...)`
 computes it from the executable alone (placeholder paths, no key, no run directory, no profile
 file), and `CodexLaunch.shape()` of a built launch is equal; `codex_probes.stage_shape(codex,
-config)` takes the model and effort from `autodev.json` (`codex_settings`: `stages.implement.codex`,
-else `delegates.code-review-pass.codex`, as the `codex-probe` check does).
+config, stage_kind)` takes the model and effort from `autodev.json` (`codex_settings(config,
+"stage", stage_kind)`: `stages.<stage_kind>.codex`, `implement` when no kind is named, else
+`delegates.code-review-pass.codex`). The `codex-probe` check probes the stage the configuration
+runs with Codex (`runner.codex_stage_kind`: the first stage whose client is `codex`, else
+`implement`). Since #347 a stage launch carries `--output-schema <file>`, the stage's schema
+(`stages.write_schema`) inside its read-only state copy, so a stored availability from before is
+`shape_changed` once.
 
 `read_availability(directory, kind, version=..., shape=...)` treats it as unavailable when it was
 never checked or the stored entry is not an object (`not_checked`), when the check failed (its
 reason), when the installed version differs (`version_changed`), when the shape differs
 (`shape_changed`, for example another effort in `autodev.json` or an upgraded executable), or
-when it is older than `AVAILABILITY_MAX_AGE` (7 days) or dated in the future (`stale`). #347 and
-#348 call it without a key or a run:
+when it is older than `AVAILABILITY_MAX_AGE` (7 days) or dated in the future (`stale`). The run
+sequence (#347) and the settings page (#348) call it without a key or a run:
 
 ```text
 codex_probes.read_availability(directory, version=codex_probes.installed_version(codex, path=...),
-                               shape=codex_probes.stage_shape(codex, config))
+                               shape=codex_probes.stage_shape(codex, config, "select"))
 ```
 
 `installed_version` runs `codex --version` with a scratch `CODEX_HOME` and `HOME`;
 `stage_shape` raises `CodexSandboxError` when the executable cannot be read (Codex is then
-unavailable). A #347 stage launch must use `codex_settings(config, "stage")`, or its shape
-differs from the stored one.
+unavailable). A stage launch uses `codex_settings(config, "stage", kind)`, or its shape differs
+from the stored one.
 
 ## Installed-version checks
 
@@ -482,7 +496,8 @@ What the design does not close, and what bounds each:
   the key is a known secret of the run (`Decision.known`): every probe capture is scanned for it,
   the run record is masked with it (`record_decision`, the runner's markers), and the broker's
   outgoing-text scan refuses any text that holds it: #345 returns `decision.known` and forwards it
-  through the worker service's `on_known` to `Broker.add_known`, which #347 wires up.
+  through the worker service's `on_known` to `Broker.add_known`, which the run sequence (#347)
+  wires up.
   A leaked key costs at most the project's budget until the owner revokes it.
 - **The allowed host is a data channel.** Tunnels to `api.openai.com` are TLS the proxy cannot
   read, and model commands share the profile, so they can reach the proxy port too. Anything a

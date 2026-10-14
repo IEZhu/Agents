@@ -12,44 +12,62 @@ bound to one run: its issue, its PR, its branch and the pinned `main` commit the
 
 ## Current limits
 
-- **No run opens the broker yet.** The run sequence (#347) creates a `Broker` for each real run,
-  registers it with `register(registry, broker)` and calls the runner-internal operations.
+- **One broker per real run (#347).** The run sequence ([autodev-sequence.md](autodev-sequence.md))
+  builds the `Broker` after the gate, unbound (`Run.issue` None) with the credentials, the run
+  directory, every stage path a session may write as `session_writable`, the decoys with
+  `decoys.trip` as `on_decoy`, and `pr_allowed` reporting an open security risk of the run's
+  pre-mortem or, in a new run, a pre-mortem not yet accepted; it registers it on the stage
+  sessions' socket with `register(registry, broker)`, names the stage of each session
+  (`enter_stage`, below), binds it to the selected issue (`bind_issue`) or the resumed PR
+  (`bind_issue`, then `bind_resume`) and calls the runner-internal operations below. A dry-run
+  builds no broker, so it writes nothing and leaves no `broker.jsonl`.
 - **Two inputs come from the worker launcher.** The worker launcher (#345,
   [autodev-workers.md](autodev-workers.md)) writes the findings ledger and the validated-review
   record after an accepted review and the pre-mortem record after an accepted pre-mortem; the broker
   reads them through `validated_review_head(run_dir)` (`review_gate`: open only while no accepted
-  review left an open blocker in the ledger) and `read_premortem(run_dir)`. The broker's tests still
-  write fixture files; `tests/test_schedules_workers.py` reads the launcher's records back through
-  both functions. A finding's `security` mark comes from `SECURITY_KEYWORDS` until the run sequence
-  (#347) adds the stage output's marks.
+  review left an open blocker in the ledger) and `read_premortem(run_dir)`. A finding's `security`
+  mark is the runner's own: `workers.GATE_SECURITY` for a review finding and `SECURITY_KEYWORDS`
+  for a pre-mortem risk, applied by the worker service when it writes the records; the stage
+  output carries only counts, so no mark comes from the session.
 - **A secret known later reaches the scan through `add_known`.** The Codex API key of a worker's
   decision exists only after the broker; `Broker.add_known` adds it to the outgoing-text scan
-  and the log masking, and #347 passes it as the worker service's `on_known`.
-- **Earlier run records carry no `issue` or `pr` yet.** The gate's cleanup uses them
-  (`bound_numbers`); #347 writes both fields into each run record.
-- **State comments have no writer yet.** The gate trusts a state comment
-  (`<!-- autodev:state {JSON} -->`) only by its recorded ID; writing and editing it is
-  runner-internal and comes with the run sequence (#347). No socket operation can write or edit
-  an `<!-- autodev:…` sub-marker.
+  and the log masking, and the run sequence passes it as the worker service's `on_known`.
+- **Run records carry `issue` and `pr`.** The run sequence writes both (and the `comments` it
+  wrote, each `{"id", "kind", "number"}`), which the gate's cleanup (`bound_numbers`) and
+  `Broker.state` read.
+- **The state comment's writer is the run sequence.** It calls `Broker.state` after every submit
+  stage: a new comment for a new PR, an edit of the state comment an earlier run record names for
+  a resumed one. No socket operation can write or edit an `<!-- autodev:…` sub-marker.
 
-## Open decision: pushing a resume run after `main` moved (#347)
+<a id="open-decision-pushing-a-resume-run-after-main-moved-347"></a>
 
-A resume run checks its push against the run's pinned `main` (`run.base`). When `main` advanced
-after the PR branch was created, none of the three ways out passes today: pushing the existing
-branch tip is refused as `head is not a descendant of base`, merging `main` in is refused as a
-merge commit, and a rebased branch is refused by GitHub as a non-fast-forward push, because the
-broker never force-pushes. So a resume run cannot yet push a fix for a conflict with the base.
+## Decision: pushing a resume run after `main` moved (#347)
 
-The choice belongs to the run sequence (#347): either check a resume push against the PR's
-merge-base instead of the pinned `main`, or allow `--force-with-lease=<branch>:<last pushed head>`
-for the run's own branch only, after the same change check against the pinned `main`. Until it is
-decided, the broker keeps every push check and has no force push.
+A resume run's broker is bound to the merge base of the PR branch and the pinned `main` when the
+branch no longer descends from `pinned` (`Run.base`, chosen by the run sequence), so the change
+check, the outgoing scan and the bundle import of the resumed branch work against the commits the
+branch itself added (#347 open question Q-resume-push, default adopted); the path lists are still
+read at `pinned` (`TrustedGit(lists_at=pinned)`). There is still no force
+push: merging `main` in is refused as a merge commit, and a rebased branch is refused by GitHub as
+a non-fast-forward push. A conflict with the base therefore ends the submit stage with
+`review_status: blocked` for the owner, and the history stays append-only. A resume run whose PR
+head is not the head the trusted repository imported (someone else pushed to the branch) is
+blocked before any session (Q-resume-head).
 
 ## Socket operations
 
 Only these `gh.*` types are registered, all session-bound (only a process of the current stage
 session gets an answer). There is no raw REST or GraphQL request, no merge, close, reopen or
 branch deletion, no issue-body edit and no repository-label operation.
+
+**Stage binding (#347 review).** The runner names the stage whose session the socket serves
+(`Broker.enter_stage`, None between sessions; the constructor's `stage` is None by default). A
+session's write (`gh.push`, `gh.pr_create`, `gh.pr_edit`, `gh.comment`, `gh.comment_edit`,
+`gh.label`, `gh.resolve_thread`) is refused unless the stage is one of `SESSION_WRITE_STAGES`,
+which is only `submit`: the implement session reads (`gh.read`, `gh.threads`) and nothing more,
+so its push and pull request wait for the runner's checks after the stage (design 9.4). The
+refusal is logged, and every log entry written while a stage is named carries `stage`. The
+runner-internal operations pass no request and are not bound to a stage.
 
 | Type | Arguments | What the broker checks |
 |---|---|---|

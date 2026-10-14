@@ -174,6 +174,24 @@ def test_settings_file_is_private_and_checked_on_disk(paths, claude):
     assert "the settings file on disk differs from the session's settings" in sandbox.check_spec(spec)
 
 
+def test_a_stage_session_carries_its_output_schema(paths, claude):
+    schema = json.dumps({"type": "object", "properties": {"a": {"type": "string"}}}, separators=(",", ":"))
+    argv = sandbox.argv("/opt/claude", "implement", paths, model="opus", effort="xhigh", schema=schema)
+    assert argv[argv.index("--json-schema") + 1] == schema
+    assert argv.index("--verbose") < argv.index("--json-schema") < argv.index("--model")
+    spec = sandbox.build(claude, "implement", paths, path=SESSION_PATH, model="opus", schema=schema)
+    assert sandbox.check_spec(spec) == []
+    other = sandbox.build(claude, "implement", paths, path=SESSION_PATH, model="opus", schema='{"type":"object"}')
+    assert other.digest() != spec.digest()  # a probe report covers exactly one schema
+    without = sandbox.build(claude, "implement", paths, path=SESSION_PATH, model="opus")
+    assert "--json-schema" not in without.argv and sandbox.check_spec(without) == []
+    doubled = dataclasses.replace(spec, argv=(*spec.argv, "--json-schema", schema))
+    assert "the argv differs from the launcher's" in sandbox.check_spec(doubled)
+    for bad in ("[1]", "not json", "x" * (sandbox.SCHEMA_MAX_CHARS + 1)):
+        with pytest.raises(SandboxError):
+            sandbox.argv("/opt/claude", "select", paths, schema=bad)
+
+
 def test_check_spec_names_an_extra_tool_and_a_linked_worktree(paths, claude):
     spec = sandbox.build(claude, "select", paths, path=SESSION_PATH)
     argv = list(spec.argv)
@@ -330,6 +348,10 @@ def test_layout_and_interpreter_roots(tmp_path_factory):
     assert layout["repository"] == root / RUN_ID / "implement" / "repo"
     assert layout["exchange"].is_dir() and not layout["repository"].exists()
     assert stat.S_IMODE(os.stat(layout["base"]).st_mode) == 0o700
+    # One state copy per run, shared by its stages (#347).
+    assert layout["state_copy"] == root / RUN_ID / "state" and layout["state_copy"].is_dir()
+    assert sandbox.session_layout(root, RUN_ID, "submit")["state_copy"] == layout["state_copy"]
+    assert sandbox.session_layout(root, RUN_ID, "submit")["exchange"] != layout["exchange"]
     with pytest.raises(ValueError):
         sandbox.session_layout(root, "../x", "implement")
     python = Path(os.path.realpath(sys.executable))

@@ -13,15 +13,20 @@ has exactly the session's argv, settings and environment.
 
 ## Current limits
 
-- **No stage session starts yet.** The run sequence (#347) builds every Claude session with
-  `sandbox.build`, runs `probes.guard` and `probes.require` before it, writes the report with
-  `probes.record_report` and starts the session only through `probes.start_session`. That holds
-  in every mode: `dry-run`, `run-now`, scheduled and `resume`. #347 also creates the run's
-  temporary root with `sandbox.make_temp_root` and removes it with `sandbox.remove_temp_root`,
+- **Every stage session is guarded (#347).** The run sequence
+  ([autodev-sequence.md](autodev-sequence.md#a-stage-session)) builds every Claude stage session
+  with `sandbox.build`, with the stage's output schema as `--json-schema`, runs `probes.guard`
+  before it, writes the report with `probes.record_report`, refuses the run when the report
+  failed, and starts the session only through `probes.start_session`; in every mode: `dry-run`,
+  `run-now`, scheduled and `resume`. It creates the stage's temporary root with
+  `sandbox.make_temp_root` and removes it with `sandbox.remove_temp_root` at the end of the run,
   passes the broker's token and deploy key and, in the keychain login mode, the OAuth token to
-  `guard(known=...)`, passes `sandbox.allowed_plugins`, passes the decoys to
-  `Broker(decoys=..., on_decoy=...)` with `decoys.trip` as the callback, and runs
-  `probes.stage_tripwire` on every stage session's stream.
+  `guard(known=...)` (a dry-run reads the broker's secrets only to scan for them), passes
+  `sandbox.allowed_plugins`, gives the broker the decoys with `decoys.trip` as `on_decoy`, runs
+  `probes.stage_tripwire` on every stage session's stream and checks the one-off repository's
+  `.git` after every session (`src.schedules.integrity`). All stages of a run share one state
+  copy (`session_layout`: `<sessions>/<run-id>/state`), so the worker log and `state.json` stay
+  visible to the submit session.
 - **Selection sessions get the static checks only.** A session without Bash (`select`) is guarded
   by the static checks before every run; its file-tool probes run only on request
   (`python -m src.schedules probe --kind select`, which forces them). The issue asks for probes
@@ -184,8 +189,11 @@ same, accepting only the name shapes of `decoys.py`, as data.
 reason (labels, checks and call numbers, never a marker) and the run in
 `<state_dir>/schedules/tripwire.json`. It is called by a probe that reads a decoy, by a decoy
 marker anywhere in a probe's output, by a decoy marker in the broker's outgoing text
-(`Broker(on_decoy=...)`), and by `probes.stage_tripwire`, which #347 runs on a stage session's
-stream-json output: any tool call that names a decoy (its random file or directory name or
+(`Broker(on_decoy=...)`), and by `probes.stage_tripwire`, which the run sequence runs on every
+stage session's whole stream-json output (read line by line and scanned in windows that overlap,
+for the decoy fingerprints only, so neither length nor secret-shaped noise leaves a marker
+unscanned; a stream over `sequence.MAX_STREAM_BYTES` is refused unread
+and trips too): any tool call that names a decoy (its random file or directory name or
 keychain service), even one that was refused, or a marker anywhere in the stream. It is a
 tripwire, not a wall: a call that reaches a decoy through a pattern it does not spell out is
 caught only when the marker comes back.
@@ -421,9 +429,13 @@ although the sandbox holds, or pass although it does not, until it is observed:
   Seatbelt profile denying only those two paths still lets a process rename the `.git` directory
   itself and change the files under the new name; a deny of the `.git` directory node closed it.
   Whether sandbox-runtime denies moves of a `denyWrite` path's parents is not documented, and no
-  probe covers it yet. Until the owner confirms it on the installed binary, the fallback is to add
-  the `.git` directory to `denyWrite` or to check after each session, outside the sandbox, that
-  `.git` is the same directory and its `config` and hooks are unchanged (#347).
+  probe covers it yet. Until the owner confirms it on the installed binary, the run sequence
+  (#347) checks after each session, outside the sandbox and without git, that `.git` is the same
+  directory and its `config`, hooks and redirect files are unchanged (`src.schedules.integrity`);
+  a change stops the run before the runner's own final import (bundles the session handed to
+  `worker.review` during the stage may already be imported), ends it `refused`, notifies the owner
+  and turns the schedule off. Adding the `.git` directory itself to `denyWrite` waits for the owner's live
+  check.
 - **The re-opened git configuration.** Entropy hits count, so a public key or another long random
   value in the global git configuration or a file it includes fails the static check.
 - **Network probes.** `dscacheutil`, `dig`, `gh`, `git credential-osxkeychain` and the virtual
