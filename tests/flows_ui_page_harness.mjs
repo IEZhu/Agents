@@ -1891,6 +1891,28 @@ if (isAutodev) {
     done();
   }
 
+  if (scenario === "autodev_save_writer") {
+    await setValue("ad-catch-up", "55");
+    const releasePut = holdAutodev("PUT /ui/api/autodev");
+    await click("ad-save");
+    const savedAt = autodevState.revision;
+    await setValue("ad-catch-up", "66");
+    // Another writer changes an untouched field after the first write. The PUT response
+    // describes that first write, so the retained form must keep its older revision.
+    autodevState.settings = { ...autodevState.settings, allowed_hours: "07:00-20:00" };
+    autodevState.revision = "external-writer";
+    releasePut();
+    await sleep(40);
+    out.saved = { catch_up: value("ad-catch-up"), hours: value("ad-hours"), saved_at: savedAt,
+                  unload_blocked: unloadBlocked(), alert: alert() };
+    await click("ad-save");
+    out.refused = { put: puts().at(-1)[2], catch_up: value("ad-catch-up"), hours: value("ad-hours"),
+                    stored_catch_up: autodevState.settings.catch_up_minutes,
+                    stored_hours: autodevState.settings.allowed_hours, stored_at: autodevState.revision,
+                    unload_blocked: unloadBlocked(), alert: alert() };
+    done();
+  }
+
   if (scenario === "autodev_races") {
     // Reload asks before it drops unsaved edits; "no" keeps them and sends nothing.
     await setValue("ad-catch-up", "55");

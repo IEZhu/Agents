@@ -419,6 +419,10 @@ class AutodevUI:
             config, problems = autodev_config.load(ctx.directory), None
         except ConfigError as error:
             config, problems = None, error.problems
+        return self._view(ctx, config, problems)
+
+    def _view(self, ctx, config: Mapping | None, problems: list[str] | None = None) -> dict:
+        """Build the page from one configuration snapshot, including a save's exact write."""
         facts = self._facts(ctx)
         table = facts["table"]
         return {
@@ -460,7 +464,9 @@ class AutodevUI:
             if problems:
                 raise self._invalid(problems)
             autodev_config.save(updated, ctx.directory)
-        return {**self.read(), "saved": True, "warnings": warnings}
+        # Another writer may change the file after the lock ends. Its revision must not be
+        # paired with the submitted form, which the page keeps when later edits are pending.
+        return {**self._view(ctx, updated), "saved": True, "warnings": warnings}
 
     def enable(self, body: dict) -> dict:
         mode = body.get("mode", "dry-run")

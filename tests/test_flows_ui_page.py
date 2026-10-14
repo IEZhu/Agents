@@ -1618,6 +1618,23 @@ def test_autodev_refused_save_keeps_later_corrections_and_the_revision(autodev_s
     assert corrected["alert"] == "Saved." and corrected["unload_blocked"] is False
 
 
+def test_autodev_later_edits_cannot_overwrite_another_writers_different_field():
+    result = run_autodev("autodev_save_writer")
+    saved = result["saved"]
+    assert saved["catch_up"] == "66" and saved["hours"] == DEFAULT_FORM["hours"]
+    assert saved["unload_blocked"] is True
+    assert saved["alert"]["text"] == "Saved; later edits are not saved."
+    refused = result["refused"]
+    assert refused["put"]["expected_revision"] == saved["saved_at"] != refused["stored_at"]
+    assert refused["put"]["settings"]["catch_up_minutes"] == 66
+    assert refused["put"]["settings"]["allowed_hours"] == DEFAULT_FORM["hours"]
+    assert refused["catch_up"] == "66" and refused["hours"] == DEFAULT_FORM["hours"]
+    assert refused["stored_catch_up"] == 55 and refused["stored_hours"] == "07:00-20:00"
+    assert refused["alert"] == {"text": "autodev.json changed since the page read it; reload to see it",
+                                "className": "notice error", "items": []}
+    assert refused["unload_blocked"] is True
+
+
 def test_autodev_keeps_stored_values_the_lists_lack_and_shows_a_stored_run_mode():
     stored = run_autodev("autodev_stored")
     assert stored["stored"]["select_effort"] == "ultra"
