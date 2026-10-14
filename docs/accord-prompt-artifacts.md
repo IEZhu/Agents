@@ -23,6 +23,10 @@ Seven focused checks pass: exact roundtrip, wrong tokenizer profile, wrong rende
 
 The native worker interface used here accepts a text message. The probe measured the prepared context body, excluding the host wrapper and any hidden chat framing. No token-ID packet was sent to a real subagent. Exact restoration in these two profiles is an observed property, not a promise for every tokenizer or text.
 
+## Real-model follow-up
+
+The [inference evaluation](accord-inference-evaluation.md) now tests direct integer input and actual saved/restored KV state on Qwen3 8B with llama.cpp. It compares the same full prompts across text/ID and cold/warm cache cells, retains every raw response, and separates operational timing from one-time preparation. This follow-up provides inference evidence; the encoding-only measurements above remain a separate historical probe.
+
 ## Proposed architecture, not an IR 0.1 extension
 
 ```mermaid
@@ -43,7 +47,7 @@ The executable probe implements a much smaller integrity-bound packet for alread
 
 Preparing IDs may avoid repeated tokenizer work when the backend supports direct input, but the model still needs to process the sequence. Reusing prior model computation requires a separate mechanism: vLLM's automatic prefix caching reuses KV cache for a shared prefix and reduces prefill work, while it does not accelerate new-token decoding. See [vLLM automatic prefix caching](https://docs.vllm.ai/en/stable/features/automatic_prefix_caching/). The current probe measured none of these inference effects.
 
-For Accord, the useful hypothesis is a versioned prompt package with optional backend artifacts and cache references. Python can build it; there is no demonstrated need for a custom language. The next experiment should compare text versus exact token input on one supported chat engine, then cold versus warm prefix caching, recording tokenizer time, prefill latency, transport bytes, correctness and any actual provider accounting separately.
+For Accord, the useful hypothesis is a versioned prompt package with optional backend artifacts and cache references. Python can build it; there is no demonstrated need for a custom language. The [real-model follow-up](accord-inference-evaluation.md) implements that comparison in ordinary Python. It keeps prepared inputs and cache metadata outside IR 0.1; backend optimization does not require new language syntax.
 
 ## Reproduce
 

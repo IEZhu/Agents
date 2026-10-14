@@ -1,0 +1,1103 @@
+{
+  "cells": {
+    "text_cold": {
+      "runs": 36,
+      "correct": 21,
+      "valid_json": 36,
+      "limit_stops": 0,
+      "max_sampled_rss_bytes": 692994048,
+      "client_ttft_ms": {
+        "median": 15667.617270490155,
+        "min": 12800.545125035569,
+        "max": 17853.74262498226
+      },
+      "client_total_ms": {
+        "median": 16111.63583304733,
+        "min": 13039.910249994136,
+        "max": 19144.136708928272
+      },
+      "operational_ttft_ms": {
+        "median": 15667.624333000276,
+        "min": 12800.548042054288,
+        "max": 17853.746959008276
+      },
+      "operational_total_ms": {
+        "median": 16111.643041542266,
+        "min": 13039.913167012855,
+        "max": 19144.147291895933
+      },
+      "prompt_ms": {
+        "median": 15549.012,
+        "min": 12780.687,
+        "max": 17779.555
+      },
+      "predicted_ms": {
+        "median": 450.318,
+        "min": 140.975,
+        "max": 2035.667
+      },
+      "prompt_n": {
+        "median": 3809.0,
+        "min": 3780,
+        "max": 3848
+      },
+      "cache_n": {
+        "median": 0.0,
+        "min": 0,
+        "max": 0
+      },
+      "predicted_n": {
+        "median": 7.0,
+        "min": 6,
+        "max": 18
+      },
+      "restore_ms": {
+        "median": 0.0,
+        "min": 0,
+        "max": 0
+      },
+      "validation_ms": {
+        "median": 0.008354021701961756,
+        "min": 0.0029170187190175056,
+        "max": 0.23662496823817492
+      },
+      "request_body_bytes": {
+        "median": 18439.0,
+        "min": 18311,
+        "max": 18569
+      },
+      "server_cpu_seconds": {
+        "median": 0.9100000000000037,
+        "min": 0.6300000000000097,
+        "max": 1.5199999999999818
+      }
+    },
+    "ids_cold": {
+      "runs": 36,
+      "correct": 21,
+      "valid_json": 36,
+      "limit_stops": 0,
+      "max_sampled_rss_bytes": 689078272,
+      "client_ttft_ms": {
+        "median": 15495.668562478386,
+        "min": 12970.146334031597,
+        "max": 17090.828333981335
+      },
+      "client_total_ms": {
+        "median": 15984.83347898582,
+        "min": 13498.87279199902,
+        "max": 17870.294708991423
+      },
+      "operational_ttft_ms": {
+        "median": 15501.563728961628,
+        "min": 12971.108084078878,
+        "max": 17092.37920900341
+      },
+      "operational_total_ms": {
+        "median": 15997.638853499666,
+        "min": 13499.795792042278,
+        "max": 17871.8455840135
+      },
+      "prompt_ms": {
+        "median": 15472.451000000001,
+        "min": 12924.991,
+        "max": 16969.965
+      },
+      "predicted_ms": {
+        "median": 432.0475,
+        "min": 139.974,
+        "max": 1375.36
+      },
+      "prompt_n": {
+        "median": 3809.0,
+        "min": 3780,
+        "max": 3848
+      },
+      "cache_n": {
+        "median": 0.0,
+        "min": 0,
+        "max": 0
+      },
+      "predicted_n": {
+        "median": 7.0,
+        "min": 6,
+        "max": 18
+      },
+      "restore_ms": {
+        "median": 0.0,
+        "min": 0,
+        "max": 0
+      },
+      "validation_ms": {
+        "median": 1.965229050256312,
+        "min": 0.4422080237418413,
+        "max": 46.259667025879025
+      },
+      "request_body_bytes": {
+        "median": 17661.0,
+        "min": 17531,
+        "max": 17841
+      },
+      "server_cpu_seconds": {
+        "median": 0.894999999999996,
+        "min": 0.6200000000000045,
+        "max": 1.6700000000000017
+      }
+    },
+    "text_warm": {
+      "runs": 36,
+      "correct": 21,
+      "valid_json": 36,
+      "limit_stops": 0,
+      "max_sampled_rss_bytes": 690028544,
+      "client_ttft_ms": {
+        "median": 317.9541460121982,
+        "min": 133.71037505567074,
+        "max": 771.8668750021607
+      },
+      "client_total_ms": {
+        "median": 637.22733350005,
+        "min": 353.59291604254395,
+        "max": 1562.713999999687
+      },
+      "operational_ttft_ms": {
+        "median": 773.3389579225332,
+        "min": 281.40937513671815,
+        "max": 1874.67033311259
+      },
+      "operational_total_ms": {
+        "median": 1032.0605210145004,
+        "min": 457.8991230810061,
+        "max": 2574.390208115801
+      },
+      "prompt_ms": {
+        "median": 217.17000000000002,
+        "min": 106.721,
+        "max": 501.251
+      },
+      "predicted_ms": {
+        "median": 265.007,
+        "min": 101.708,
+        "max": 1180.108
+      },
+      "prompt_n": {
+        "median": 57.0,
+        "min": 28,
+        "max": 96
+      },
+      "cache_n": {
+        "median": 3752.0,
+        "min": 3752,
+        "max": 3752
+      },
+      "predicted_n": {
+        "median": 7.0,
+        "min": 6,
+        "max": 18
+      },
+      "restore_ms": {
+        "median": 421.9455830170773,
+        "min": 103.98041596636176,
+        "max": 1421.5169169474393
+      },
+      "validation_ms": {
+        "median": 0.9136250009760261,
+        "min": 0.3257910721004009,
+        "max": 20.68895800039172
+      },
+      "request_body_bytes": {
+        "median": 18438.0,
+        "min": 18310,
+        "max": 18568
+      },
+      "server_cpu_seconds": {
+        "median": 0.5649999999999942,
+        "min": 0.28999999999999204,
+        "max": 0.9699999999999989
+      }
+    },
+    "ids_warm": {
+      "runs": 36,
+      "correct": 21,
+      "valid_json": 36,
+      "limit_stops": 0,
+      "max_sampled_rss_bytes": 693075968,
+      "client_ttft_ms": {
+        "median": 220.17833299469203,
+        "min": 123.95012506749481,
+        "max": 575.7588749984279
+      },
+      "client_total_ms": {
+        "median": 484.1669999877922,
+        "min": 325.8219170384109,
+        "max": 2170.915915980004
+      },
+      "operational_ttft_ms": {
+        "median": 445.507270982489,
+        "min": 262.5649587716907,
+        "max": 1283.9394580805674
+      },
+      "operational_total_ms": {
+        "median": 754.4976249919273,
+        "min": 393.7207917915657,
+        "max": 2612.8834990086034
+      },
+      "prompt_ms": {
+        "median": 209.78050000000002,
+        "min": 104.391,
+        "max": 491.445
+      },
+      "predicted_ms": {
+        "median": 260.0835,
+        "min": 121.603,
+        "max": 1935.967
+      },
+      "prompt_n": {
+        "median": 57.0,
+        "min": 28,
+        "max": 96
+      },
+      "cache_n": {
+        "median": 3752.0,
+        "min": 3752,
+        "max": 3752
+      },
+      "predicted_n": {
+        "median": 7.0,
+        "min": 6,
+        "max": 18
+      },
+      "restore_ms": {
+        "median": 208.70710455346853,
+        "min": 46.236416907049716,
+        "max": 892.4888330511749
+      },
+      "validation_ms": {
+        "median": 2.4502499727532268,
+        "min": 0.7800419116392732,
+        "max": 58.773583034053445
+      },
+      "request_body_bytes": {
+        "median": 17660.0,
+        "min": 17530,
+        "max": 17840
+      },
+      "server_cpu_seconds": {
+        "median": 0.4850000000000012,
+        "min": 0.2599999999999909,
+        "max": 0.8999999999999986
+      }
+    }
+  },
+  "contrasts": {
+    "text_cold_vs_ids_cold": {
+      "pairs": 36,
+      "exact_text_matches": 36,
+      "exact_token_matches": 36,
+      "correct_to_wrong": [],
+      "wrong_to_correct": [],
+      "paired_request_ttft_ratio_median": 1.013083040353968,
+      "paired_operational_total_ratio_median": 1.0082256915213534,
+      "paired_operational_total_saved_ms_median": 135.35037508700043
+    },
+    "text_warm_vs_ids_warm": {
+      "pairs": 36,
+      "exact_text_matches": 36,
+      "exact_token_matches": 36,
+      "correct_to_wrong": [],
+      "wrong_to_correct": [],
+      "paired_request_ttft_ratio_median": 1.3421872213625088,
+      "paired_operational_total_ratio_median": 1.333568194103143,
+      "paired_operational_total_saved_ms_median": 283.5603539715521
+    },
+    "text_cold_vs_text_warm": {
+      "pairs": 36,
+      "exact_text_matches": 36,
+      "exact_token_matches": 36,
+      "correct_to_wrong": [],
+      "wrong_to_correct": [],
+      "paired_request_ttft_ratio_median": 48.27259206024229,
+      "paired_operational_total_ratio_median": 15.185308823676284,
+      "paired_operational_total_saved_ms_median": 14947.69281311892
+    },
+    "ids_cold_vs_ids_warm": {
+      "pairs": 36,
+      "exact_text_matches": 36,
+      "exact_token_matches": 36,
+      "correct_to_wrong": [],
+      "wrong_to_correct": [],
+      "paired_request_ttft_ratio_median": 66.6200007163171,
+      "paired_operational_total_ratio_median": 21.982366102622898,
+      "paired_operational_total_saved_ms_median": 15166.66704195086
+    }
+  },
+  "costs": {
+    "text": {
+      "requests": 36,
+      "cold_total_ms": 579048.2237926917,
+      "warm_total_including_cache_setup_ms": 54366.58474430442,
+      "cache_setup_ms": 10907.532874145545,
+      "cold_token_preparation_ms": 0,
+      "warm_token_preparation_ms": 112.55420977249742,
+      "rendering_ms": 66.08537409920245,
+      "estimated_cache_break_even_requests": 0.7405672143066205,
+      "logical_input_tokens": 137202,
+      "cold_evaluated_prompt_tokens": 137202,
+      "warm_evaluated_prompt_tokens": 2130,
+      "warm_reused_prompt_tokens": 135072,
+      "priming_evaluated_prompt_tokens": 3752
+    },
+    "ids": {
+      "requests": 36,
+      "cold_total_ms": 575025.3511606716,
+      "warm_total_including_cache_setup_ms": 42807.75633046869,
+      "cache_setup_ms": 10907.532874145545,
+      "cold_token_preparation_ms": 112.55420977249742,
+      "warm_token_preparation_ms": 112.55420977249742,
+      "rendering_ms": 66.08537409920245,
+      "estimated_cache_break_even_requests": 0.7229847477853966,
+      "logical_input_tokens": 137202,
+      "cold_evaluated_prompt_tokens": 137202,
+      "warm_evaluated_prompt_tokens": 2130,
+      "warm_reused_prompt_tokens": 135072,
+      "priming_evaluated_prompt_tokens": 3752
+    }
+  },
+  "distinct_tasks": 12,
+  "runs": 144,
+  "failures": [
+    {
+      "case": "receipt_coverage_repair",
+      "repeat": 1,
+      "cell": "text_cold",
+      "content": "{\"answer\": \"A\"}",
+      "score": {
+        "correct": false,
+        "valid_json": true,
+        "reason": "wrong_value"
+      },
+      "stop_type": "eos"
+    },
+    {
+      "case": "receipt_coverage_repair",
+      "repeat": 1,
+      "cell": "ids_cold",
+      "content": "{\"answer\": \"A\"}",
+      "score": {
+        "correct": false,
+        "valid_json": true,
+        "reason": "wrong_value"
+      },
+      "stop_type": "eos"
+    },
+    {
+      "case": "receipt_coverage_repair",
+      "repeat": 1,
+      "cell": "text_warm",
+      "content": "{\"answer\": \"A\"}",
+      "score": {
+        "correct": false,
+        "valid_json": true,
+        "reason": "wrong_value"
+      },
+      "stop_type": "eos"
+    },
+    {
+      "case": "receipt_coverage_repair",
+      "repeat": 1,
+      "cell": "ids_warm",
+      "content": "{\"answer\": \"A\"}",
+      "score": {
+        "correct": false,
+        "valid_json": true,
+        "reason": "wrong_value"
+      },
+      "stop_type": "eos"
+    },
+    {
+      "case": "opaque_recovery_missing_receipt",
+      "repeat": 1,
+      "cell": "text_cold",
+      "content": "{\"answer\": \"confirmed\"}",
+      "score": {
+        "correct": false,
+        "valid_json": true,
+        "reason": "wrong_value"
+      },
+      "stop_type": "eos"
+    },
+    {
+      "case": "opaque_recovery_missing_receipt",
+      "repeat": 1,
+      "cell": "ids_cold",
+      "content": "{\"answer\": \"confirmed\"}",
+      "score": {
+        "correct": false,
+        "valid_json": true,
+        "reason": "wrong_value"
+      },
+      "stop_type": "eos"
+    },
+    {
+      "case": "opaque_recovery_missing_receipt",
+      "repeat": 1,
+      "cell": "text_warm",
+      "content": "{\"answer\": \"confirmed\"}",
+      "score": {
+        "correct": false,
+        "valid_json": true,
+        "reason": "wrong_value"
+      },
+      "stop_type": "eos"
+    },
+    {
+      "case": "opaque_recovery_missing_receipt",
+      "repeat": 1,
+      "cell": "ids_warm",
+      "content": "{\"answer\": \"confirmed\"}",
+      "score": {
+        "correct": false,
+        "valid_json": true,
+        "reason": "wrong_value"
+      },
+      "stop_type": "eos"
+    },
+    {
+      "case": "integer_validator_return",
+      "repeat": 0,
+      "cell": "text_warm",
+      "content": "{\"answer\": true}",
+      "score": {
+        "correct": false,
+        "valid_json": true,
+        "reason": "wrong_value"
+      },
+      "stop_type": "eos"
+    },
+    {
+      "case": "integer_validator_return",
+      "repeat": 0,
+      "cell": "ids_warm",
+      "content": "{\"answer\": true}",
+      "score": {
+        "correct": false,
+        "valid_json": true,
+        "reason": "wrong_value"
+      },
+      "stop_type": "eos"
+    },
+    {
+      "case": "integer_validator_return",
+      "repeat": 0,
+      "cell": "text_cold",
+      "content": "{\"answer\": true}",
+      "score": {
+        "correct": false,
+        "valid_json": true,
+        "reason": "wrong_value"
+      },
+      "stop_type": "eos"
+    },
+    {
+      "case": "integer_validator_return",
+      "repeat": 0,
+      "cell": "ids_cold",
+      "content": "{\"answer\": true}",
+      "score": {
+        "correct": false,
+        "valid_json": true,
+        "reason": "wrong_value"
+      },
+      "stop_type": "eos"
+    },
+    {
+      "case": "opaque_recovery_missing_receipt",
+      "repeat": 2,
+      "cell": "ids_cold",
+      "content": "{\"answer\": \"confirmed\"}",
+      "score": {
+        "correct": false,
+        "valid_json": true,
+        "reason": "wrong_value"
+      },
+      "stop_type": "eos"
+    },
+    {
+      "case": "opaque_recovery_missing_receipt",
+      "repeat": 2,
+      "cell": "text_warm",
+      "content": "{\"answer\": \"confirmed\"}",
+      "score": {
+        "correct": false,
+        "valid_json": true,
+        "reason": "wrong_value"
+      },
+      "stop_type": "eos"
+    },
+    {
+      "case": "opaque_recovery_missing_receipt",
+      "repeat": 2,
+      "cell": "ids_warm",
+      "content": "{\"answer\": \"confirmed\"}",
+      "score": {
+        "correct": false,
+        "valid_json": true,
+        "reason": "wrong_value"
+      },
+      "stop_type": "eos"
+    },
+    {
+      "case": "opaque_recovery_missing_receipt",
+      "repeat": 2,
+      "cell": "text_cold",
+      "content": "{\"answer\": \"confirmed\"}",
+      "score": {
+        "correct": false,
+        "valid_json": true,
+        "reason": "wrong_value"
+      },
+      "stop_type": "eos"
+    },
+    {
+      "case": "integer_validator_return",
+      "repeat": 1,
+      "cell": "ids_warm",
+      "content": "{\"answer\": true}",
+      "score": {
+        "correct": false,
+        "valid_json": true,
+        "reason": "wrong_value"
+      },
+      "stop_type": "eos"
+    },
+    {
+      "case": "integer_validator_return",
+      "repeat": 1,
+      "cell": "text_cold",
+      "content": "{\"answer\": true}",
+      "score": {
+        "correct": false,
+        "valid_json": true,
+        "reason": "wrong_value"
+      },
+      "stop_type": "eos"
+    },
+    {
+      "case": "integer_validator_return",
+      "repeat": 1,
+      "cell": "ids_cold",
+      "content": "{\"answer\": true}",
+      "score": {
+        "correct": false,
+        "valid_json": true,
+        "reason": "wrong_value"
+      },
+      "stop_type": "eos"
+    },
+    {
+      "case": "integer_validator_return",
+      "repeat": 1,
+      "cell": "text_warm",
+      "content": "{\"answer\": true}",
+      "score": {
+        "correct": false,
+        "valid_json": true,
+        "reason": "wrong_value"
+      },
+      "stop_type": "eos"
+    },
+    {
+      "case": "integer_type_guard_regression",
+      "repeat": 2,
+      "cell": "text_warm",
+      "content": "{\"answer\": {\"type\": \"number\", \"value\": 1.0}}",
+      "score": {
+        "correct": false,
+        "valid_json": true,
+        "reason": "wrong_type"
+      },
+      "stop_type": "eos"
+    },
+    {
+      "case": "integer_type_guard_regression",
+      "repeat": 2,
+      "cell": "ids_warm",
+      "content": "{\"answer\": {\"type\": \"number\", \"value\": 1.0}}",
+      "score": {
+        "correct": false,
+        "valid_json": true,
+        "reason": "wrong_type"
+      },
+      "stop_type": "eos"
+    },
+    {
+      "case": "integer_type_guard_regression",
+      "repeat": 2,
+      "cell": "text_cold",
+      "content": "{\"answer\": {\"type\": \"number\", \"value\": 1.0}}",
+      "score": {
+        "correct": false,
+        "valid_json": true,
+        "reason": "wrong_type"
+      },
+      "stop_type": "eos"
+    },
+    {
+      "case": "integer_type_guard_regression",
+      "repeat": 2,
+      "cell": "ids_cold",
+      "content": "{\"answer\": {\"type\": \"number\", \"value\": 1.0}}",
+      "score": {
+        "correct": false,
+        "valid_json": true,
+        "reason": "wrong_type"
+      },
+      "stop_type": "eos"
+    },
+    {
+      "case": "opaque_recovery_missing_receipt",
+      "repeat": 0,
+      "cell": "ids_warm",
+      "content": "{\"answer\": \"confirmed\"}",
+      "score": {
+        "correct": false,
+        "valid_json": true,
+        "reason": "wrong_value"
+      },
+      "stop_type": "eos"
+    },
+    {
+      "case": "opaque_recovery_missing_receipt",
+      "repeat": 0,
+      "cell": "text_cold",
+      "content": "{\"answer\": \"confirmed\"}",
+      "score": {
+        "correct": false,
+        "valid_json": true,
+        "reason": "wrong_value"
+      },
+      "stop_type": "eos"
+    },
+    {
+      "case": "opaque_recovery_missing_receipt",
+      "repeat": 0,
+      "cell": "ids_cold",
+      "content": "{\"answer\": \"confirmed\"}",
+      "score": {
+        "correct": false,
+        "valid_json": true,
+        "reason": "wrong_value"
+      },
+      "stop_type": "eos"
+    },
+    {
+      "case": "opaque_recovery_missing_receipt",
+      "repeat": 0,
+      "cell": "text_warm",
+      "content": "{\"answer\": \"confirmed\"}",
+      "score": {
+        "correct": false,
+        "valid_json": true,
+        "reason": "wrong_value"
+      },
+      "stop_type": "eos"
+    },
+    {
+      "case": "integer_type_guard_regression",
+      "repeat": 0,
+      "cell": "text_cold",
+      "content": "{\"answer\": {\"type\": \"number\", \"value\": 1.0}}",
+      "score": {
+        "correct": false,
+        "valid_json": true,
+        "reason": "wrong_type"
+      },
+      "stop_type": "eos"
+    },
+    {
+      "case": "integer_type_guard_regression",
+      "repeat": 0,
+      "cell": "ids_cold",
+      "content": "{\"answer\": {\"type\": \"number\", \"value\": 1.0}}",
+      "score": {
+        "correct": false,
+        "valid_json": true,
+        "reason": "wrong_type"
+      },
+      "stop_type": "eos"
+    },
+    {
+      "case": "integer_type_guard_regression",
+      "repeat": 0,
+      "cell": "text_warm",
+      "content": "{\"answer\": {\"type\": \"number\", \"value\": 1.0}}",
+      "score": {
+        "correct": false,
+        "valid_json": true,
+        "reason": "wrong_type"
+      },
+      "stop_type": "eos"
+    },
+    {
+      "case": "integer_type_guard_regression",
+      "repeat": 0,
+      "cell": "ids_warm",
+      "content": "{\"answer\": {\"type\": \"number\", \"value\": 1.0}}",
+      "score": {
+        "correct": false,
+        "valid_json": true,
+        "reason": "wrong_type"
+      },
+      "stop_type": "eos"
+    },
+    {
+      "case": "digest_only_freshness_regression",
+      "repeat": 2,
+      "cell": "ids_warm",
+      "content": "{\"answer\": true}",
+      "score": {
+        "correct": false,
+        "valid_json": true,
+        "reason": "wrong_value"
+      },
+      "stop_type": "eos"
+    },
+    {
+      "case": "digest_only_freshness_regression",
+      "repeat": 2,
+      "cell": "text_cold",
+      "content": "{\"answer\": true}",
+      "score": {
+        "correct": false,
+        "valid_json": true,
+        "reason": "wrong_value"
+      },
+      "stop_type": "eos"
+    },
+    {
+      "case": "digest_only_freshness_regression",
+      "repeat": 2,
+      "cell": "ids_cold",
+      "content": "{\"answer\": true}",
+      "score": {
+        "correct": false,
+        "valid_json": true,
+        "reason": "wrong_value"
+      },
+      "stop_type": "eos"
+    },
+    {
+      "case": "digest_only_freshness_regression",
+      "repeat": 2,
+      "cell": "text_warm",
+      "content": "{\"answer\": true}",
+      "score": {
+        "correct": false,
+        "valid_json": true,
+        "reason": "wrong_value"
+      },
+      "stop_type": "eos"
+    },
+    {
+      "case": "receipt_coverage_repair",
+      "repeat": 2,
+      "cell": "ids_cold",
+      "content": "{\"answer\": \"A\"}",
+      "score": {
+        "correct": false,
+        "valid_json": true,
+        "reason": "wrong_value"
+      },
+      "stop_type": "eos"
+    },
+    {
+      "case": "receipt_coverage_repair",
+      "repeat": 2,
+      "cell": "text_warm",
+      "content": "{\"answer\": \"A\"}",
+      "score": {
+        "correct": false,
+        "valid_json": true,
+        "reason": "wrong_value"
+      },
+      "stop_type": "eos"
+    },
+    {
+      "case": "receipt_coverage_repair",
+      "repeat": 2,
+      "cell": "ids_warm",
+      "content": "{\"answer\": \"A\"}",
+      "score": {
+        "correct": false,
+        "valid_json": true,
+        "reason": "wrong_value"
+      },
+      "stop_type": "eos"
+    },
+    {
+      "case": "receipt_coverage_repair",
+      "repeat": 2,
+      "cell": "text_cold",
+      "content": "{\"answer\": \"A\"}",
+      "score": {
+        "correct": false,
+        "valid_json": true,
+        "reason": "wrong_value"
+      },
+      "stop_type": "eos"
+    },
+    {
+      "case": "integer_type_guard_regression",
+      "repeat": 1,
+      "cell": "ids_cold",
+      "content": "{\"answer\": {\"type\": \"number\", \"value\": 1.0}}",
+      "score": {
+        "correct": false,
+        "valid_json": true,
+        "reason": "wrong_type"
+      },
+      "stop_type": "eos"
+    },
+    {
+      "case": "integer_type_guard_regression",
+      "repeat": 1,
+      "cell": "text_warm",
+      "content": "{\"answer\": {\"type\": \"number\", \"value\": 1.0}}",
+      "score": {
+        "correct": false,
+        "valid_json": true,
+        "reason": "wrong_type"
+      },
+      "stop_type": "eos"
+    },
+    {
+      "case": "integer_type_guard_regression",
+      "repeat": 1,
+      "cell": "ids_warm",
+      "content": "{\"answer\": {\"type\": \"number\", \"value\": 1.0}}",
+      "score": {
+        "correct": false,
+        "valid_json": true,
+        "reason": "wrong_type"
+      },
+      "stop_type": "eos"
+    },
+    {
+      "case": "integer_type_guard_regression",
+      "repeat": 1,
+      "cell": "text_cold",
+      "content": "{\"answer\": {\"type\": \"number\", \"value\": 1.0}}",
+      "score": {
+        "correct": false,
+        "valid_json": true,
+        "reason": "wrong_type"
+      },
+      "stop_type": "eos"
+    },
+    {
+      "case": "digest_only_freshness_regression",
+      "repeat": 1,
+      "cell": "text_warm",
+      "content": "{\"answer\": true}",
+      "score": {
+        "correct": false,
+        "valid_json": true,
+        "reason": "wrong_value"
+      },
+      "stop_type": "eos"
+    },
+    {
+      "case": "digest_only_freshness_regression",
+      "repeat": 1,
+      "cell": "ids_warm",
+      "content": "{\"answer\": true}",
+      "score": {
+        "correct": false,
+        "valid_json": true,
+        "reason": "wrong_value"
+      },
+      "stop_type": "eos"
+    },
+    {
+      "case": "digest_only_freshness_regression",
+      "repeat": 1,
+      "cell": "text_cold",
+      "content": "{\"answer\": true}",
+      "score": {
+        "correct": false,
+        "valid_json": true,
+        "reason": "wrong_value"
+      },
+      "stop_type": "eos"
+    },
+    {
+      "case": "digest_only_freshness_regression",
+      "repeat": 1,
+      "cell": "ids_cold",
+      "content": "{\"answer\": true}",
+      "score": {
+        "correct": false,
+        "valid_json": true,
+        "reason": "wrong_value"
+      },
+      "stop_type": "eos"
+    },
+    {
+      "case": "integer_validator_return",
+      "repeat": 2,
+      "cell": "text_cold",
+      "content": "{\"answer\": true}",
+      "score": {
+        "correct": false,
+        "valid_json": true,
+        "reason": "wrong_value"
+      },
+      "stop_type": "eos"
+    },
+    {
+      "case": "integer_validator_return",
+      "repeat": 2,
+      "cell": "ids_cold",
+      "content": "{\"answer\": true}",
+      "score": {
+        "correct": false,
+        "valid_json": true,
+        "reason": "wrong_value"
+      },
+      "stop_type": "eos"
+    },
+    {
+      "case": "integer_validator_return",
+      "repeat": 2,
+      "cell": "text_warm",
+      "content": "{\"answer\": true}",
+      "score": {
+        "correct": false,
+        "valid_json": true,
+        "reason": "wrong_value"
+      },
+      "stop_type": "eos"
+    },
+    {
+      "case": "integer_validator_return",
+      "repeat": 2,
+      "cell": "ids_warm",
+      "content": "{\"answer\": true}",
+      "score": {
+        "correct": false,
+        "valid_json": true,
+        "reason": "wrong_value"
+      },
+      "stop_type": "eos"
+    },
+    {
+      "case": "digest_only_freshness_regression",
+      "repeat": 0,
+      "cell": "ids_cold",
+      "content": "{\"answer\": true}",
+      "score": {
+        "correct": false,
+        "valid_json": true,
+        "reason": "wrong_value"
+      },
+      "stop_type": "eos"
+    },
+    {
+      "case": "digest_only_freshness_regression",
+      "repeat": 0,
+      "cell": "text_warm",
+      "content": "{\"answer\": true}",
+      "score": {
+        "correct": false,
+        "valid_json": true,
+        "reason": "wrong_value"
+      },
+      "stop_type": "eos"
+    },
+    {
+      "case": "digest_only_freshness_regression",
+      "repeat": 0,
+      "cell": "ids_warm",
+      "content": "{\"answer\": true}",
+      "score": {
+        "correct": false,
+        "valid_json": true,
+        "reason": "wrong_value"
+      },
+      "stop_type": "eos"
+    },
+    {
+      "case": "digest_only_freshness_regression",
+      "repeat": 0,
+      "cell": "text_cold",
+      "content": "{\"answer\": true}",
+      "score": {
+        "correct": false,
+        "valid_json": true,
+        "reason": "wrong_value"
+      },
+      "stop_type": "eos"
+    },
+    {
+      "case": "receipt_coverage_repair",
+      "repeat": 0,
+      "cell": "ids_warm",
+      "content": "{\"answer\": \"A\"}",
+      "score": {
+        "correct": false,
+        "valid_json": true,
+        "reason": "wrong_value"
+      },
+      "stop_type": "eos"
+    },
+    {
+      "case": "receipt_coverage_repair",
+      "repeat": 0,
+      "cell": "text_cold",
+      "content": "{\"answer\": \"A\"}",
+      "score": {
+        "correct": false,
+        "valid_json": true,
+        "reason": "wrong_value"
+      },
+      "stop_type": "eos"
+    },
+    {
+      "case": "receipt_coverage_repair",
+      "repeat": 0,
+      "cell": "ids_cold",
+      "content": "{\"answer\": \"A\"}",
+      "score": {
+        "correct": false,
+        "valid_json": true,
+        "reason": "wrong_value"
+      },
+      "stop_type": "eos"
+    },
+    {
+      "case": "receipt_coverage_repair",
+      "repeat": 0,
+      "cell": "text_warm",
+      "content": "{\"answer\": \"A\"}",
+      "score": {
+        "correct": false,
+        "valid_json": true,
+        "reason": "wrong_value"
+      },
+      "stop_type": "eos"
+    }
+  ],
+  "api_charges_usd": 0,
+  "electricity_cost": null,
+  "energy_joules": null,
+  "hardware_amortization": null,
+  "limits": [
+    "One quantized model and one local device; descriptive repeated measurements, not a general performance guarantee.",
+    "Request timing excludes one-time rendering/tokenization; operational timing adds artifact validation and cache restore.",
+    "Cold cache erase is test setup and excluded; warm disk restore is included in operational timing.",
+    "CPU seconds and sampled RSS do not measure GPU energy or per-request peak device memory.",
+    "Cost aggregation is measured service time plus observed setup, not a provider invoice or production-load forecast.",
+    "Twelve distinct deterministic repository tasks; repeats are not independent quality samples."
+  ],
+  "completed_at": "2026-10-14T16:38:24.781838+00:00"
+}

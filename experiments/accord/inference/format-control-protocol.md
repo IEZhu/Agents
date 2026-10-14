@@ -1,0 +1,9 @@
+# Additional format-order control
+
+Designed after observing a partial primary run, before any calls in this control. The primary protocol, workload, settings and raw measurements remain unchanged. This is a disclosed post-hoc diagnostic, not a replacement primary experiment or a new quality benchmark.
+
+The primary rotation balances every cell's position, but does not balance immediate predecessor pairs inside task blocks: each of text-cold → IDs-cold, IDs-cold → text-warm, text-warm → IDs-warm, and IDs-warm → text-cold occurs 27 times. Kernel/graph/buffer state can therefore confound small representation-only differences even after clearing/restoring the prompt KV state. The large cold/warm effect is separately supported by actual evaluated/reused-token counters.
+
+Use the same twelve tasks, complete prepared inputs, snapshot, model and generation settings. Shuffle case order with seed 20261015. Before each case, run one declared unscored warm preconditioning request, with alternating text/ID representation across the twelve blocks; retain its output and timing. For even block indices use text/IDs/IDs/text, and for odd indices IDs/text/text/IDs. This balances each representation in all four positions and includes both pair directions for every case. Each of the 48 measured requests still clears and restores the exact same prefix snapshot, with restore/validation included in operational latency. Preconditioning is explicitly excluded from the steady-state comparison and separately accounted.
+
+Report 24 paired text/ID contrasts, per-direction results, output identity and strict answer scores. Preserve every result; no retries or question/answer edits. Compare these numbers with the primary experiment descriptively. This control does not create a universal tokenizer-speed claim, eliminate all desktop/GPU drift, or measure provider pricing. It adds no cold inference calls and runs only after the primary server sequence finishes.

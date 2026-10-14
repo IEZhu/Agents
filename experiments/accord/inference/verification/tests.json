@@ -1,0 +1,8 @@
+{
+  "command": "python3 -m unittest discover -s experiments/accord/tests -v",
+  "status": "passed",
+  "tests": 69,
+  "elapsed_seconds": 7.628,
+  "scorer_control_cases": 23,
+  "scorer_expected_answer_cases": 12
+}
