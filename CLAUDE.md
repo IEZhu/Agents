@@ -178,7 +178,10 @@ above only where their required state or tool is unavailable:
 
 ## Repository notes
 
-For contribution instructions, read [AGENTS.md](AGENTS.md). The
+For contribution instructions, read [AGENTS.md](AGENTS.md). Never edit, commit
+or switch branches in the live installation checkout the daemon runs from; work
+in a linked worktree cut from `origin/dev` and open the PR against `dev`
+(AGENTS.md, "Make changes"). The
 [documentation map](docs/README.md) distinguishes current references from plans
 and recorded results. To refresh both human documentation and AI instructions,
 execute [flows/documentation-refresh.md](flows/documentation-refresh.md).
