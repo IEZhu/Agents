@@ -81,7 +81,9 @@ relying on memory ([design 8.5](../docs/autodev-plan.md#85-stage-personas)):
 `<handle> is still running; wait for it` names the worker to wait for: wait on
 that handle. An entry of `open_findings` names the review that reported it
 last in `reported_by` and its decision for that review, `null` while undecided;
-a finding with a decision for its current review is not decided again.
+a finding with a decision for its current review is not decided again. An entry
+with a `note` was marked `fixed`, but the next review saw the same head: commit
+the fix (or decide it `declined` with the proof) before the next review.
 Continue from the first step that is not done.
 
 ## 1. Branch and requirements
@@ -193,7 +195,12 @@ A cycle is one review and the fixes for it
      does not report it again, which costs a review and is impossible after
      the last one.
    - A `fixed` decision does not open the gate either: the next review, which
-     is given the claim, resolves the finding by not reporting it again.
+     is given the claim, resolves the finding by not reporting it again, and
+     only when it reviews a later head than the review that reported it. So
+     decide `fixed` only for a fix you commit before the next review; when
+     nothing needs to change, decide `declined` with the proof instead. A
+     review of the same head leaves a `fixed` finding open with a `note` in
+     `open_findings`.
 
    Record every decision before the next request:
 
@@ -225,9 +232,11 @@ A cycle is one review and the fixes for it
 7. **The limit** is `max_reviews` (3: at most two rounds of fixes). The last
    review considers only `critical`, `high`, security, regressions caused by
    fixes and the open earlier findings; any finding in that scope ends the
-   stage with `blocked: true`, and an open earlier finding that it reports
-   again keeps the gate closed, which ends it too. No review starts beyond the
-   limit.
+   stage with `blocked: true`. An open earlier `critical`, `high` or
+   `security: true` finding that it reports again is in that scope and ends it
+   too; an earlier `medium` with `security: false` that it reports again
+   outside its scope does not end the stage and can be declined again for this
+   review. No review starts beyond the limit.
 8. **Design smell:** when one component draws findings review after review, say
    so in the self-review section and propose a simpler design instead of
    another patch.

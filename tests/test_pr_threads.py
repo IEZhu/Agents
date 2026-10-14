@@ -173,6 +173,23 @@ def test_autodev_mode_shows_the_owners_reviews_and_counts_only_marked_answers(mo
     assert mutations(fake_gh) == []
 
 
+def test_autodev_mode_shows_the_last_reply_with_its_trust(monkeypatch, capsys, fake_gh):
+    # A thread the agent started, where the bot replied last: the reply counts (pr-review, autodev item 3).
+    started = thread("T_reply", 6, owner(61, "<!-- autodev -->\nWhy x?"), comment(62, BOT, "Reply\nfinding"))
+    monkeypatch.setitem(globals(), "THREADS", [*THREADS, started])
+    run(monkeypatch, "7", "--mode", "autodev")
+    out = capsys.readouterr().out
+    assert "  UNANSWERED src/x.py:6 WonderMr c61 untrusted\n" in out
+    assert "    last: coderabbitai c62 TRUSTED: Reply finding\n" in out
+    assert "    last: WonderMr c22 untrusted: <!-- autodev --> Fixed in abc1234.\n" in out
+    assert "c31 TRUSTED\n    Finding three\n    last:" not in out  # one comment: no last line
+
+
+def test_default_mode_prints_no_last_reply(monkeypatch, capsys, fake_gh):
+    run(monkeypatch, "7")
+    assert "    last:" not in capsys.readouterr().out
+
+
 def test_show_refuses_resolve_mine_in_autodev_mode(fake_gh):
     with pytest.raises(ValueError):
         pr_threads.show(REPO, 7, ME, True, pr_threads.AUTODEV)

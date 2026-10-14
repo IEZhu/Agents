@@ -127,6 +127,10 @@ def show(repo: str, number: int, me: str, resolve_mine: bool, mode: str = DEFAUL
         source = f" {trust(graphql_user(first))}" if mode == AUTODEV else ""
         print(f"  {state} {t['path']}:{t['line']} {login(first)} c{first['databaseId']}{source}")
         print("    " + first["body"].replace("\n", " ")[:500])
+        if mode == AUTODEV and last["databaseId"] != first["databaseId"]:
+            # A trusted bot's reply in a thread the agent or the owner started counts (pr-review, autodev item 3).
+            print(f"    last: {login(last)} c{last['databaseId']} {trust(graphql_user(last))}: "
+                  + (last.get("body") or "").replace("\n", " ")[:500])
     if not resolve_mine:
         for r in review_bodies(repo, number, head, me, mode):
             source = f" {trust(r.get('user'))}" if mode == AUTODEV else ""
