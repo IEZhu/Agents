@@ -337,7 +337,7 @@ class RiskFinding:
     level: str
     title: str
     body: str
-    security: bool  # a security mark in the stage output
+    security: bool  # the runner's security mark (the worker service's, from SECURITY_KEYWORDS)
 
 
 def read_premortem(run_dir: str | Path) -> dict[str, RiskFinding]:
@@ -492,11 +492,15 @@ def push_command(trusted: Path, repository: str, sha: str, issue: int, slug: str
 
 
 class TrustedGit:
-    """git on the trusted repository for a push; tests replace it with a fake."""
+    """git on the trusted repository for a push; tests replace it with a fake. ``lists_at`` is the
+    commit the path lists are read from (the run's ``pinned``); by default the change check's base,
+    which differs from ``pinned`` only for a resume run bound to a merge base (#347)."""
 
-    def __init__(self, path: str | os.PathLike[str], runner: PushRunner = subprocess.run):
+    def __init__(self, path: str | os.PathLike[str], runner: PushRunner = subprocess.run,
+                 lists_at: str | None = None):
         self.path = Path(path)
         self._runner = runner
+        self.lists_at = lists_at
 
     def branch_head(self, branch: str) -> str | None:
         result = gitsafe.git_test(self.path, "rev-parse", "--verify", "--quiet", "--end-of-options",
@@ -505,7 +509,7 @@ class TrustedGit:
         return sha if result.returncode == 0 and _SHA.fullmatch(sha) else None
 
     def check(self, base: str, head: str, labels: Iterable[str]) -> paths.ChangeCheck:
-        classes = paths.load_path_classes(self.path, base)
+        classes = paths.load_path_classes(self.path, self.lists_at or base)
         return paths.check_changes(self.path, base, head, labels, classes)
 
     def outgoing(self, base: str, head: str) -> tuple[str, str]:
