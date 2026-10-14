@@ -50,6 +50,7 @@ import time
 from typing import Any
 
 from src.daemon.state import atomic_private, private_dir
+from src.flow_execution import CLAUDE_EFFORTS  # noqa: F401 (claude --help of 2.1.296; workers imports it here)
 
 from . import codex_probes, codex_proxy, probes, sandbox
 from . import codex_sandbox as cs
@@ -57,7 +58,6 @@ from . import decoys as decoy_store
 from .scan import HitKind, KnownSecret, Scanner
 
 CLAUDE, CODEX = codex_probes.CLAUDE, codex_probes.CODEX
-CLAUDE_EFFORTS = ("low", "medium", "high", "xhigh", "max")  # claude --help of 2.1.296
 DEFAULT_TIMEOUT = 30 * 60  # seconds of one attempt unless the delegate's budget sets timeout_minutes
 MAX_STDOUT_BYTES = 4 * 1024 * 1024
 MAX_OUTPUT_BYTES = 512 * 1024  # the Codex -o file; validate_result takes 128000 characters
