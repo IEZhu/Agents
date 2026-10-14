@@ -6,7 +6,7 @@ and `src.schedules.stages.select_inputs` and `write_select_inputs` write it into
 copy. The pool is every open issue labelled ``autodev:ready`` or ``autodev:next`` (two list
 requests: ``labels`` is an AND filter), pull requests excluded, at most `MAX_CANDIDATES` of them
 (the oldest label first is not known here, so the newest issues are kept; the count of dropped
-ones goes into the inputs). For each candidate:
+ones goes into the run record's ``candidates``, not into the inputs). For each candidate:
 
 * the metadata of the list answer: ``number``, ``title``, ``labels`` (names), ``assignees``
   (logins), ``created_at``, ``updated_at``, ``author`` (``login``, ``id``) and ``app`` (the slug of

@@ -40,7 +40,8 @@ git only on metadata no session can write.
 * **Push.** ``push_arguments`` builds the git arguments of the broker's push (#342): an explicit
   URL and ``<sha>:refs/heads/claude/autodev-<issue>-<slug>``. Nothing here pushes.
 * **A blocked run** (#347): ``quarantine_branch`` moves the run's imported branch to
-  ``refs/autodev/quarantine/<run-id>/final``, and ``export_commits`` writes the imported commits
+  ``refs/autodev/quarantine/<run-id>/final`` (and, before a new run builds, a branch an earlier
+  run left to ``.../<run-id>/stale``), and ``export_commits`` writes the imported commits
   ``base..head`` as a ``git format-patch`` file and a verified bundle into the run's records (a
   control path no label opens, design 5.3: the owner's local patch). ``merge_base`` and
   ``blob_ids`` (the flow revisions a run read at ``pinned``) read the trusted repository only.
@@ -77,6 +78,7 @@ from . import gitsafe
 PINNED_REF = "refs/remotes/origin/main"
 MAIN_REFSPEC = f"+refs/heads/main:{PINNED_REF}"
 QUARANTINE = "refs/autodev/quarantine"
+QUARANTINE_NAMES = ("final", "stale")  # a run's branch ref names beside the numbered imports
 # fsck on every object that arrives; no automatic gc or maintenance, which could run later. Blobs over
 # 1 MiB are streamed rather than held whole, and one thread packs, so a bundle of small, highly
 # compressible blobs cannot make git's own memory grow with their inflated size (#339 review round 2).
@@ -462,17 +464,21 @@ class TrustedRepository:
         os.chmod(kept, 0o400)
         return kept
 
-    def quarantine_branch(self, branch: str, run_id: str) -> str:
-        """Move a blocked run's ``refs/heads/<branch>`` to ``refs/autodev/quarantine/<run-id>/final``
-        (design 9.4: the blocked bundle stays in a local quarantine ref); returns that ref."""
+    def quarantine_branch(self, branch: str, run_id: str, name: str = "final") -> str:
+        """Move ``refs/heads/<branch>`` to ``refs/autodev/quarantine/<run-id>/<name>``; returns that
+        ref. ``final``: a blocked run's branch (design 9.4: the blocked bundle stays in a local
+        quarantine ref); ``stale``: a branch an earlier run left, set aside before a new run builds
+        its own (#347 review)."""
         branch = _branch(branch)
         if not isinstance(run_id, str) or not _RUN_ID.fullmatch(run_id):
             raise ValueError(f"not a run ID: {run_id!r}")
+        if name not in QUARANTINE_NAMES:
+            raise ValueError(f"not a quarantine name: {name!r}")
         self.verify()
         head = self.branch_head(branch)
         if head is None:
             raise RepositoryError(f"the trusted repository has no {branch}")
-        target = f"{QUARANTINE}/{run_id}/final"
+        target = f"{QUARANTINE}/{run_id}/{name}"
         self._git("update-ref", "-m", f"autodev quarantine {run_id}", "--", target, head, "0" * 40)
         self._git("update-ref", "-m", f"autodev quarantine {run_id}", "-d", "--", f"refs/heads/{branch}", head)
         return target

@@ -23,6 +23,7 @@ STATE = {"head": HEAD, "next_attempt": "2026-10-14T12:15:00Z", "rounds": 1, "rev
 def unbound(tmp_path, credentials, *, mode="run", api=None, earlier_records=(), **options):
     tmp_path.mkdir(exist_ok=True)
     api = api or FakeGitHub()
+    options.setdefault("stage", "submit")
     found = Broker(Run(RUN_ID, REPOSITORY, None, BASE, mode), credentials=credentials, git=FakeGit(),
                    run_dir=tmp_path, transport=api, reviewed_head=lambda: HEAD, premortem=lambda: {},
                    earlier_records=lambda: list(earlier_records), **options)
@@ -264,7 +265,8 @@ def pushed(tmp_path, credentials, pr_allowed):
     run = Run(RUN_ID, REPOSITORY, ISSUE, BASE, "run", frozenset({"autodev:ready"}))
     api = FakeGitHub()
     found = Broker(run, credentials=credentials, git=FakeGit(), run_dir=tmp_path, transport=api,
-                   reviewed_head=lambda: HEAD, premortem=lambda: {}, earlier_records=lambda: [], pr_allowed=pr_allowed)
+                   reviewed_head=lambda: HEAD, premortem=lambda: {}, earlier_records=lambda: [], pr_allowed=pr_allowed,
+                   stage="submit")
     registry = Registry()
     register(registry, found)
     assert ask(registry, "gh.push", {"slug": SLUG, "head": HEAD})["ok"]
@@ -329,3 +331,42 @@ def test_credential_values_are_the_readable_secrets_by_label(credentials):
 def test_the_push_turns_ssh_connection_sharing_off(credentials):
     command = broker_module.ssh_command(credentials.deploy_key, credentials.known_hosts)
     assert command.endswith("-o ControlMaster=no -o ControlPath=none")
+
+
+# --- the stage binding (#347 review) -------------------------------------------------------------------
+
+SESSION_WRITES = {
+    "gh.push": {"slug": SLUG, "head": HEAD}, "gh.pr_create": {"title": "Title", "body": "Body"},
+    "gh.pr_edit": {"title": "Title"}, "gh.comment": {"number": ISSUE, "body": f"{MARKER}\nhello"},
+    "gh.comment_edit": {"comment_id": 1, "body": f"{MARKER}\nchanged"},
+    "gh.label": {"number": ISSUE, "label": BLOCKED_LABEL, "action": "add"},
+    "gh.resolve_thread": {"thread_id": "T1"}}
+
+
+@pytest.mark.parametrize("stage", [None, "select", "implement"])
+def test_only_the_submit_stage_session_writes(tmp_path, credentials, stage):
+    """The implement session gets gh.read and gh.threads only: every session write refuses outside
+    the submit stage, is logged with the stage, and nothing is written to GitHub."""
+    found, registry, api = make(tmp_path, credentials, pr=501, stage=stage)
+    for request_type, args in SESSION_WRITES.items():
+        refused(ask(registry, request_type, args), "only the submit stage does")
+    assert ask(registry, "gh.read", {"endpoint": "issue", "number": ISSUE})["ok"]
+    assert ask(registry, "gh.threads")["ok"]
+    assert api.writes() == []
+    entries = [entry for entry in logged(tmp_path) if entry["phase"] == "refused"]
+    assert [entry["op"] for entry in entries] == [name.removeprefix("gh.") for name in SESSION_WRITES]
+    assert all(entry.get("stage") == stage for entry in entries)
+    # The runner-internal writes do not depend on the stage; the submit session writes.
+    found.block(["a blocker"])
+    found.enter_stage("submit")
+    assert ask(registry, "gh.push", {"slug": SLUG, "head": HEAD})["ok"]
+    assert [entry["stage"] for entry in logged(tmp_path) if entry["op"] == "push" and entry["phase"] == "done"] == \
+        ["submit"]
+
+
+def test_a_stage_name_is_a_kind_or_none(tmp_path, credentials):
+    found, _, _ = make(tmp_path, credentials)
+    with pytest.raises(ValueError, match="stage must be"):
+        found.enter_stage("sub mit")
+    found.enter_stage(None)
+    assert found.stage is None

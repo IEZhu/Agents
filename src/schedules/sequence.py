@@ -13,19 +13,23 @@ the candidates (`candidates.fetch_candidates`, GET only); none at all ends the r
 session; otherwise the select stage. A dry-run stops there with the decision and the top-five
 table; no broker exists in a dry-run, so nothing can be written. A real run then binds its broker
 to the selected issue (`broker.Broker.bind_issue`), posts the selection comment and the claim
-(`Broker.select`), opens one worker service for the implement and submit stages
+(`Broker.select`), sets aside a ``refs/heads/<branch>`` an earlier run left in the trusted
+repository (`Sequence._set_aside`), opens one worker service for the implement and submit stages
 (`workers.WorkerService`, ``max_verifications = 1 + max_bot_rounds``) and runs the implement
-stage. After it (`Sequence.after_implement`): the final handover import, the change check on the
-imported head, the head checks (the output's ``head_sha`` is the imported head and the last head a
-validated review covered), the accepted pre-mortem and no open security risk (design 5.8). A
-blocker on any of these ends the run ``blocked``: a control-path change is exported as a patch and
+stage. The broker answers a session's write only in the submit stage (`Broker.enter_stage`), so
+the implement session reads GitHub and nothing more. After it (`Sequence.after_implement`): the
+final handover import, the change check on the imported head, the head checks (the output's
+``head_sha`` is the imported head and the last head a validated review covered), the accepted
+pre-mortem, no open security risk (design 5.8) and no pull request yet. A blocker on any of these
+ends the run ``blocked``: a control-path change is exported as a patch and
 a bundle (`repos.TrustedRepository.export_commits`), the branch moves to a local quarantine ref,
 the issue gets ``autodev:blocked`` with the neutral blockers and loses its claim. Otherwise the
 service imports from the submit stage's exchange from now on (`WorkerService.rebind_importer`)
 and the submit stage runs on a repository holding the branch. After it (`Sequence.after_submit`):
-the state comment on the pull request (`Broker.state`, with ``next_attempt``), the risk issues of
-the pre-mortem's known risks (`Broker.create_risk_issues`), and with ``waiting_bots`` the tick's
-``next_attempt``. ``resume`` checks that the pull request's head is the head the trusted
+the output must name the broker's pull request and pushed head (the record, the report and the
+state comment take both from the broker), the state comment on the pull request (`Broker.state`,
+with ``next_attempt``), the risk issues of the pre-mortem's known risks
+(`Broker.create_risk_issues`), and with ``waiting_bots`` the tick's ``next_attempt``. ``resume`` checks that the pull request's head is the head the trusted
 repository imported (otherwise blocked), takes ``pinned`` or the merge base as the base, opens a
 fresh worker service (its push gate starts closed) and runs the submit stage with the trusted
 state comment's rounds and findings; its state comment is edited, not duplicated.
@@ -36,15 +40,21 @@ environment at ``pinned``, the inputs file and ``state.json``, the runner socket
 with Bash, `sandbox.build` with the stage schema, `probes.guard` (a probe session for Bash kinds),
 `probes.record_report`, a ``.git`` snapshot, the prompt (`stages.render_prompt`), the session
 through `probes.start_session` with the stage's timeout (its process group is killed afterwards),
-`probes.stage_tripwire`, the ``.git`` check (a change stops the run and turns the schedule off),
-and the output check (`stages.validate_output`). A stage configured for Codex runs as Codex only
+`probes.stage_tripwire` on the whole stream file (one over `MAX_STREAM_BYTES` is refused and turns
+the schedule off), the ``.git`` check (a change stops the run and turns the schedule off), and the
+output check (the last result event, `stages.parse_stage_stream`, then `stages.validate_output`).
+A stage configured for Codex runs as Codex only
 for ``select`` while the stored availability says so; otherwise, and always for ``implement`` and
 ``submit``, it falls back to Claude with the reason (`stages.stage_profile`).
 
-**The end.** ``state.json`` (stage ``done``), the session directories and temporary roots are
-removed, the report goes into the record (`report.build_report`) and the owner is notified
-(`report.should_notify`). Statuses: ``completed``, ``blocked``, ``refused`` (preconditions, the
-sandbox, the tripwire, a changed ``.git``) and ``failed: infra``.
+**The end.** ``state.json`` (stage ``done``); a run that ends other than ``completed`` after its
+claim, without a pull request and without a block comment, blocks its issue with the generic
+phrase and removes the claim (`Sequence.release_claim`); the session directories and temporary
+roots are removed, the report goes into the record (`report.build_report`) and the owner is
+notified (`report.should_notify`). SIGTERM or SIGHUP (the supervisor's timeout or stop) ends the
+run ``failed: infra`` the same way, the record and the notification first. Statuses:
+``completed``, ``blocked``, ``refused`` (preconditions, the sandbox, the tripwire, a changed
+``.git``, a stream too long to scan) and ``failed: infra``.
 """
 from __future__ import annotations
 
@@ -83,6 +93,11 @@ STREAM_NAME = "stream.jsonl"
 STDERR_NAME = "stderr.log"
 COMMIT_AUTHOR = f"{repos.SESSION_NAME} <{repos.SESSION_EMAIL}>"
 TERMINATE_WAIT = 10
+STOP_CLOSE_WAIT = 2.0  # seconds the workers get after a stop, inside the supervisor's grace period
+STOP_TERMINATE_WAIT = 1.0  # seconds a stopped run's session gets between SIGTERM and SIGKILL
+# A stage stream longer than this is refused unread and turns the schedule off (#347 review): every
+# shorter one is scanned whole and parsed to its end.
+MAX_STREAM_BYTES = 100_000_000
 
 # Blockers the runner posts on the issue (`broker.Broker.block`): neutral, no details.
 INVALID_OUTPUT = "the {kind} stage ended without a valid result"
@@ -94,6 +109,7 @@ OPEN_RISK = "an open pre-mortem risk needs the owner"
 CONTROL_PATH = "the change needs a control path; a local patch for the owner is in the run records"
 PROTECTED_PATH = "the change touches protected paths without autodev:next"
 FOREIGN_HEAD = "the pull request's head is not the head this runner pushed"
+EARLY_PR = "a pull request was opened before the runner's checks after the implement stage"
 SUBMIT_BLOCKED = "the submit stage ended blocked"
 GENERIC_BLOCKED = "the run stopped and needs the owner; the details are in the local run record"
 
@@ -176,12 +192,13 @@ def _sha256_json(value: Any) -> str | None:
     return hashlib.sha256(json.dumps(value, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
 
-def _kill_group(process: subprocess.Popen) -> None:
-    """End the session's process group (it is a session leader, `probes.start_session`)."""
+def _kill_group(process: subprocess.Popen, wait: float = TERMINATE_WAIT) -> None:
+    """End the session's process group (it is a session leader, `probes.start_session`): SIGTERM,
+    then SIGKILL after ``wait`` seconds."""
     with contextlib.suppress(ProcessLookupError, PermissionError, OSError):
         os.killpg(process.pid, signal.SIGTERM)
     try:
-        process.wait(timeout=TERMINATE_WAIT)
+        process.wait(timeout=wait)
     except subprocess.TimeoutExpired:
         pass
     with contextlib.suppress(ProcessLookupError, PermissionError, OSError):
@@ -249,20 +266,65 @@ class Sequence:
     # --- the run ----------------------------------------------------------------------------------
 
     def run(self) -> dict:
+        """The run (see the module docstring), then its end. SIGTERM or SIGHUP, the supervisor's
+        timeout or stop, raises `socket_service.RunStopped` anywhere in it (inside a stage with the
+        runner socket through `socket_service.serve`); the run then ends ``failed: infra`` and
+        records, notifies, releases its claim and cleans up, in that order, before the
+        supervisor's grace period ends. A second signal during that end is only recorded."""
+        stop = {"armed": True, "stopped": None, "raised": False}
+        previous = socket_service._install_stop_handlers(stop)
+        stopped = False
         try:
-            self._run()
-        except Stopped as stop:
-            self.fields.update(stop.fields)
-        except broker_module.CredentialsMissing as error:
-            self.fields.update(preconditions.refusal(error.missing))
-        except Exception as error:  # noqa: BLE001 (a defect still ends the run recorded and notified)
-            self.fields.update(runner.infra(f"cli: the run sequence failed: {type(error).__name__}: "
-                                            f"{str(error)[:300]}"))
+            try:
+                self._run()
+            except Stopped as error:
+                self.fields.update(error.fields)
+            except broker_module.CredentialsMissing as error:
+                self.fields.update(preconditions.refusal(error.missing))
+            except socket_service.RunStopped as error:
+                stop["armed"], stopped = False, True
+                self.fields.update(runner.infra(f"stopped: the run received {signal.Signals(error.signal).name} "
+                                                "(a supervisor timeout or stop); it ended its session and recorded"))
+            except Exception as error:  # noqa: BLE001 (a defect still ends the run recorded and notified)
+                self.fields.update(runner.infra(f"cli: the run sequence failed: {type(error).__name__}: "
+                                                f"{str(error)[:300]}"))
+            finally:
+                stop["armed"] = False
+            self._end(stopped)
         finally:
-            self._final_state()
-            self._close()
-        self._finish()
+            socket_service._restore_handlers(previous)
         return records.mask(self.fields, self.markers)  # the caller merges it into the record unmasked
+
+    def _end(self, stopped: bool) -> None:
+        """``state.json`` done, the claim released (`release_claim`), the session directories and
+        workers ended (`_close`), the report and the notification (`_finish`). After a stop the
+        record and the notification come first and the workers get `STOP_CLOSE_WAIT`: the
+        supervisor kills the run `supervise.GRACE_SECONDS` after its SIGTERM."""
+        self._final_state()
+        if stopped:
+            self._write(lambda record: record.update(self.fields))
+            self._finish()
+            self.release_claim()
+            self._close(wait=STOP_CLOSE_WAIT)
+            return
+        self.release_claim()
+        self._close()
+        self._finish()
+
+    def release_claim(self) -> None:
+        """A run that ends other than ``completed`` after its claim, with no pull request and no
+        block comment yet (a failure, a refusal, a stop), blocks its issue with `GENERIC_BLOCKED`
+        and removes the claim, as a blocked run does (Q-claim, #347 review): the issue neither waits
+        six hours for the gate's stale-claim cleanup nor returns to the pool unseen."""
+        broker = self.broker
+        if broker is None or broker.run.issue is None or broker.run.pr is not None or broker.run.read_only:
+            return
+        if self.fields.get("status") == "completed" or not broker.log.done("select") or broker.log.done("block"):
+            return
+        try:
+            self.block([GENERIC_BLOCKED])
+        except Exception as error:  # noqa: BLE001 (the end of the run goes on)
+            self.note(block_failed=f"{type(error).__name__}: {str(error)[:300]}")
 
     def _run(self) -> None:
         checked = check_drift(self.ctx, self.config)
@@ -328,6 +390,9 @@ class Sequence:
         run = broker_module.Run(self.run_id, self.repository, None, base, mode)
 
         def pr_allowed() -> str | None:
+            # A new run's pull request needs the accepted pre-mortem too (#347 review); a resume's exists.
+            if mode != "resume" and not self._premortem_accepted():
+                return NO_PREMORTEM
             return OPEN_RISK if workers.open_security_risks(self.run_dir) else None
 
         try:
@@ -526,15 +591,21 @@ class Sequence:
                   "exchange_dir": str(layout["exchange"]), "branch": run_branch or branch,
                   "commit_author": COMMIT_AUTHOR, "python": str(Path(self.venv) / "bin" / "python")}
         stream_dir = private_dir(private_dir(self.run_dir / STAGES_DIR) / kind)
-        if profile["client"] == "codex":
-            outcome = self._codex_stage(kind, profile, layout, session, values, stream_dir, record,
-                                        issue=issue, candidates=candidates, run_branch=run_branch)
-            if outcome is not None:
-                return outcome
-            profile = stages.stage_profile(kind, self.config, codex_unavailable=record["fallback_reason"])
-            record.update(client="claude", fallback_reason=profile["fallback_reason"])
-        return self._claude_stage(kind, profile, layout, session, values, stream_dir, record,
-                                  issue=issue, candidates=candidates, run_branch=run_branch)
+        if self.broker is not None:
+            self.broker.enter_stage(kind)  # only the submit session's requests may write (#347 review)
+        try:
+            if profile["client"] == "codex":
+                outcome = self._codex_stage(kind, profile, layout, session, values, stream_dir, record,
+                                            issue=issue, candidates=candidates, run_branch=run_branch)
+                if outcome is not None:
+                    return outcome
+                profile = stages.stage_profile(kind, self.config, codex_unavailable=record["fallback_reason"])
+                record.update(client="claude", fallback_reason=profile["fallback_reason"])
+            return self._claude_stage(kind, profile, layout, session, values, stream_dir, record,
+                                      issue=issue, candidates=candidates, run_branch=run_branch)
+        finally:
+            if self.broker is not None:
+                self.broker.enter_stage(None)
 
     def _seconds(self, kind: str) -> float:
         override = (self.ctx.stage_seconds or {}).get(kind)
@@ -595,7 +666,7 @@ class Sequence:
                                   tripwire=bool(report.tripped))
                 before = integrity.git_snapshot(repository)
                 prompt = stages.render_prompt(kind, {name: values[name] for name in stages.template_fields(kind)})
-                exit_code, timed_out, text = self._run_process(kind, stream_dir, lambda out, err: ctx.stage_starter(
+                exit_code, timed_out, stream = self._run_process(kind, stream_dir, lambda out, err: ctx.stage_starter(
                     spec, report, prompt, stdout=out, stderr=err, platform=ctx.platform,
                     managed=ctx.managed_sources))
             except (sandbox.SandboxError, socket_service.UnsafeSocketDirectory) as error:
@@ -604,48 +675,60 @@ class Sequence:
             except (ValueError, OSError) as error:
                 self.stage_record(kind, {**record, "status": "failed", "reason": f"{type(error).__name__}"})
                 raise infra(f"cli: {kind} session: {type(error).__name__}: {error}") from None
-        result = stages.parse_stage_stream(text)
+        self._tripwire(kind, record, stream)
+        with open(stream, encoding="utf-8", errors="replace") as lines:
+            result = stages.parse_stage_stream(lines)
         record.update(exit=exit_code, timed_out=timed_out, cost_usd=result.cost_usd, denials=len(result.denials),
                       execution=stages.execution_of(kind, self.config, spec.argv, result, client="claude",
                                                     fallback_reason=profile.get("fallback_reason")))
-        return self._after_session(kind, record, layout, repository, before, text, timed_out,
+        return self._after_session(kind, record, layout, repository, before, timed_out,
                                    result.structured if result.structured is not None else None,
                                    result.info.get("problem"), issue=issue, candidates=candidates,
                                    run_branch=run_branch)
 
-    def _run_process(self, kind: str, stream_dir: Path, start: Callable) -> tuple[int | None, bool, str]:
+    def _run_process(self, kind: str, stream_dir: Path, start: Callable) -> tuple[int | None, bool, Path]:
         """Start the session with standard output and error into the run directory, wait with the
-        stage's timeout, then end its process group; the exit code, whether it timed out, its output."""
+        stage's timeout, then end its process group; the exit code, whether it timed out, and the
+        file its output went to."""
         stream, errors = stream_dir / STREAM_NAME, stream_dir / STDERR_NAME
         with open(stream, "wb") as out, open(errors, "wb") as err:
             os.chmod(stream, 0o600)
             os.chmod(errors, 0o600)
             process = start(out, err)
             self.holder["pid"] = process.pid
-            timed_out = False
+            timed_out, stopping = False, False
             try:
                 process.wait(timeout=self._seconds(kind))
             except subprocess.TimeoutExpired:
                 timed_out = True
+            except socket_service.RunStopped:
+                stopping = True  # the supervisor's grace period runs: SIGKILL after one second
+                raise
             finally:
-                _kill_group(process)
+                _kill_group(process, STOP_TERMINATE_WAIT if stopping else TERMINATE_WAIT)
                 self.holder["pid"] = None
-        size = stream.stat().st_size
-        if size > probes.MAX_CAPTURE:
-            text = stream.read_bytes()[:probes.MAX_CAPTURE].decode("utf-8", "replace")
-        else:
-            text = stream.read_text(encoding="utf-8", errors="replace")
-        return process.returncode, timed_out, text
+        return process.returncode, timed_out, stream
 
-    def _after_session(self, kind: str, record: dict, layout: dict, repository: Path, before: dict, text: str,
-                       timed_out: bool, raw: Any, problem: str | None, *, issue: int | None,
-                       candidates: Iterable[int] | None, run_branch: str | None) -> StageOutcome:
-        """The tripwire, the ``.git`` check and the output check after a session ended."""
-        findings = probes.stage_tripwire(text, self.planted, directory=self.ctx.directory, run_id=self.run_id)
+    def _tripwire(self, kind: str, record: dict, stream: Path) -> None:
+        """`probes.stage_tripwire` on the whole stream file, read line by line (#347 review); a
+        stream over `MAX_STREAM_BYTES` cannot be scanned in time and is refused the same way."""
+        size = stream.stat().st_size
+        if size > MAX_STREAM_BYTES:
+            reason = f"the {kind} session's stream has {size} bytes, more than the {MAX_STREAM_BYTES} bytes scanned"
+            decoys.trip(self.ctx.directory, f"{kind} session: {reason}", run_id=self.run_id)
+            self.stage_record(kind, {**record, "status": "refused", "reason": "the stream is too long to scan"})
+            raise refused(f"{reason}; the schedule is off", tripwire=True)
+        with open(stream, encoding="utf-8", errors="replace") as lines:
+            findings = probes.stage_tripwire(lines, self.planted, directory=self.ctx.directory, run_id=self.run_id)
         if findings:
             self.stage_record(kind, {**record, "status": "refused", "reason": "the decoy tripwire"})
             raise refused(f"the decoy tripwire turned the schedule off after the {kind} session", tripwire=True,
                           tripwire_findings=findings[:10])
+
+    def _after_session(self, kind: str, record: dict, layout: dict, repository: Path, before: dict,
+                       timed_out: bool, raw: Any, problem: str | None, *, issue: int | None,
+                       candidates: Iterable[int] | None, run_branch: str | None) -> StageOutcome:
+        """The ``.git`` check and the output check after a session ended and passed `_tripwire`."""
         try:
             changes = integrity.git_changes(before, integrity.git_snapshot(repository))
         except OSError as error:
@@ -711,7 +794,7 @@ class Sequence:
                     return None
                 before = integrity.git_snapshot(repository)
                 prompt = stages.render_prompt(kind, {name: values[name] for name in stages.template_fields(kind)})
-                exit_code, timed_out, text = self._run_process(kind, stream_dir, lambda out, err: ctx.codex_start(
+                exit_code, timed_out, stream = self._run_process(kind, stream_dir, lambda out, err: ctx.codex_start(
                     decision, prompt, proxy=proxy, stdout=out, stderr=err, platform=ctx.platform))
         except codex_sandbox.CodexSandboxError as error:
             self.stage_record(kind, {**record, "status": "refused", "reason": f"codex: {error}"})
@@ -722,9 +805,10 @@ class Sequence:
             raw = paths.output.read_text(encoding="utf-8")
         except OSError:
             raw = None
+        self._tripwire(kind, record, stream)
         record.update(exit=exit_code, timed_out=timed_out, client="codex", fallback_reason=None,
                       execution=stages.execution_of(kind, self.config, decision.launch.argv, None, client="codex"))
-        return self._after_session(kind, record, layout, repository, before, text, timed_out, raw,
+        return self._after_session(kind, record, layout, repository, before, timed_out, raw,
                                    "codex wrote no output", issue=issue, candidates=candidates,
                                    run_branch=run_branch)
 
@@ -812,6 +896,7 @@ class Sequence:
         slug = stages.branch_slug(str(candidate.get("title") or ""), issue)
         branch = repos.branch_name(issue, slug)
         self.note(issue=issue, branch=branch)
+        self._set_aside(branch)
         if self.state is not None:
             self.state.issue, self.state.branch = issue, branch
             self.state.slice, self.state.criteria_refs = dict(output["slice"]), list(output["criteria_refs"])
@@ -826,6 +911,20 @@ class Sequence:
         self.after_implement(outcome, issue, branch, labels)
         self.submit(issue, branch, slice=output["slice"], description_extra=outcome.output["pr_sections"],
                     labels=labels)
+
+    def _set_aside(self, branch: str) -> None:
+        """Move a ``refs/heads/<branch>`` an earlier run left in the trusted repository (a failed or
+        refused run, a squash-merged slice, a closed pull request selected again) to this run's
+        ``refs/autodev/quarantine/<run-id>/stale`` before the implement stage, and record it: the run
+        builds on ``pinned``, and no import is refused as a non-fast-forward of it (#347 review)."""
+        trusted = self._trusted()
+        try:
+            stale = trusted.branch_head(branch)
+            if stale is not None:
+                self.note(stale_branch={"head": stale,
+                                        "quarantined": trusted.quarantine_branch(branch, self.run_id, "stale")})
+        except (repos.RepositoryError, ValueError) as error:
+            raise infra(f"cli: trusted repository: {error}") from None
 
     def _base(self) -> str:
         """The run's base: ``pinned``, or the merge base a resume run's broker is bound to."""
@@ -888,6 +987,11 @@ class Sequence:
             blockers.append(CONTROL_PATH)
         elif refusals:
             blockers.append(PROTECTED_PATH)
+        if (early := self.broker.run.pr) is not None:  # type: ignore[union-attr]
+            # The broker lets only the submit session write; should a pull request exist anyway,
+            # it is named in the record, the report and the notification, and the run stops.
+            blockers.append(EARLY_PR)
+            self.note(pr=early, pr_url=f"https://github.com/{self.repository}/pull/{early}")
         self.note(implement={"head": head, "blocked": bool(blockers),
                              "change_check": [{"path": item.path, "reason": str(item.reason)} for item in refusals[:20]]},
                   checks=list((output or {}).get("checks") or []), head=head)
@@ -902,7 +1006,7 @@ class Sequence:
                 self.note(quarantined=trusted.quarantine_branch(branch, self.run_id))
             except (repos.RepositoryError, ValueError) as error:
                 self.note(quarantine_failed=str(error)[:300])
-        self.block(list(dict.fromkeys(blockers)))
+        self.block(list(dict.fromkeys(blockers)), unclaim=early is None)  # the claim stays while a PR exists
         raise Stopped({"status": "blocked", "reason": "the implementation stage ended blocked"})
 
     # --- submit -------------------------------------------------------------------------------------
@@ -917,7 +1021,7 @@ class Sequence:
                                       max_wait_minutes=int(limits["max_wait_minutes"]), resume=resume)
         outcome = self.stage(stages.SUBMIT, inputs=inputs, branch=branch, issue=issue, run_branch=branch)
         self._stage_done(stages.SUBMIT)
-        self.after_submit(outcome, state_comment, branch=branch, labels=list(labels))
+        self.after_submit(outcome, state_comment, branch=branch, labels=list(labels), resume=resume)
 
     def _recorded_state_comment(self, pr: int) -> int | None:
         """The newest state comment of ``pr`` an earlier run record lists."""
@@ -930,24 +1034,54 @@ class Sequence:
                     return comment["id"]
         return None
 
+    def _pushed_head(self) -> str | None:
+        """The head the broker last pushed in this run, else (a resume that has not pushed) the
+        trusted repository's head of the PR's branch, which the resume checked against the PR."""
+        pushed = [entry.get("head") for entry in self.broker.log.done("push")]  # type: ignore[union-attr]
+        if pushed and isinstance(pushed[-1], str):
+            return pushed[-1]
+        branch = self.broker.branch  # type: ignore[union-attr]
+        return self._trusted().branch_head(branch) if branch else None
+
+    def _submit_problems(self, output: Mapping, pr: int | None, head: str | None) -> list[str]:
+        """What makes a schema-valid submit output unusable (#347 review): a PR link that is not the
+        broker's PR, and for an unblocked status no PR or a head the broker did not push."""
+        problems = []
+        url = output.get("pr_url")
+        if url is not None and (pr is None or int(str(url).rstrip("/").rsplit("/", 1)[-1]) != pr):
+            problems.append("pr_url: not this run's pull request")
+        if output["review_status"] != "blocked":
+            if pr is None:
+                problems.append("no pull request was opened")
+            elif output.get("head_sha") != head:
+                problems.append("head_sha: not the head the broker pushed")
+        return problems
+
     def after_submit(self, outcome: StageOutcome, state_comment: int | None, *, branch: str,
-                     labels: list[str]) -> None:
-        """The runner's steps after the submit stage (design 9.5)."""
+                     labels: list[str], resume: Mapping | None = None) -> None:
+        """The runner's steps after the submit stage (design 9.5). The PR and its link come from
+        the broker and the state's head from its last push, never from the session's output; an
+        output that names others is invalid, as is an unblocked one without a PR. An invalid
+        output keeps a resume's rounds and findings in the state comment."""
         output = outcome.output
         pr = self.broker.run.pr  # type: ignore[union-attr]
+        head = self._pushed_head() if pr is not None else None
+        if output is not None and (problems := self._submit_problems(output, pr, head)):
+            self.note(submit_problems=problems, pr_url_reported=output.get("pr_url"),
+                      head_reported=output.get("head_sha"))
+            output = None
         status = output["review_status"] if output is not None else "blocked"
-        head = (output or {}).get("head_sha")
-        if head is None and self.broker.branch:  # type: ignore[union-attr]
-            head = self._trusted().branch_head(self.broker.branch)  # type: ignore[union-attr]
         next_attempt = output.get("next_attempt") if output is not None and status == "waiting_bots" else None
-        pr_url = (output or {}).get("pr_url") or (f"https://github.com/{self.repository}/pull/{pr}" if pr else None)
+        pr_url = f"https://github.com/{self.repository}/pull/{pr}" if pr is not None else None
         self.note(pr=pr, pr_url=pr_url, review_status=status)
         if self.state is not None:
             self.state.pr = pr
         if pr is not None:
-            state = {"head": head if isinstance(head, str) else None, "next_attempt": next_attempt,
-                     "rounds": int((output or {}).get("rounds") or 0), "review_status": status,
-                     "findings": list((output or {}).get("findings") or [])}
+            earlier = resume or {}
+            rounds = output["rounds"] if output is not None else int(earlier.get("rounds") or 0)
+            findings = output["findings"] if output is not None else list(earlier.get("findings_seen") or [])
+            state = {"head": head, "next_attempt": next_attempt, "rounds": rounds, "review_status": status,
+                     "findings": list(findings)}
             written = False
             try:
                 _, clean = broker_module.state_body(state, datetime.now(timezone.utc))
@@ -1054,9 +1188,9 @@ class Sequence:
         with contextlib.suppress(ValueError, OSError):
             run_state.write_state(self.run_dir, self.state, self._state_copy(), known=self.markers)
 
-    def _close(self) -> None:
+    def _close(self, wait: float = workers.CLOSE_WAIT) -> None:
         if self.service is not None:
-            self.service.close()
+            self.service.close(wait)
         for root in self.temp_roots:
             with contextlib.suppress(OSError, sandbox.SandboxError):
                 sandbox.remove_temp_root(root, self.ctx.temp_base)

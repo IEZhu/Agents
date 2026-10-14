@@ -17,6 +17,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from datetime import datetime, timedelta, timezone
 
@@ -121,10 +122,11 @@ class FakeGet:
 
 
 class FakeBrokerApi:
-    """The broker's REST writes and reads; records every call."""
+    """The broker's REST writes and reads; records every call. ``fail`` lists ``(method, path,
+    payload or None, status)``: a matching call gets that HTTP status."""
 
     def __init__(self):
-        self.calls, self.next_id, self.pulls = [], 9000, {}
+        self.calls, self.next_id, self.pulls, self.fail = [], 9000, {}, []
 
     def __call__(self, method, url, headers, body):
         assert headers["Authorization"] == f"Bearer {TOKEN}"
@@ -132,6 +134,9 @@ class FakeBrokerApi:
         path = url.removeprefix(API).split("?")[0]
         self.calls.append((method, path, payload))
         self.next_id += 1
+        for fail_method, fail_path, fail_payload, status in self.fail:
+            if (fail_method, fail_path) == (method, path) and fail_payload in (None, payload):
+                return status, {}, b'{"message": "Validation Failed"}'
         if method == "GET" and path.startswith(f"{BASE}/pulls/"):
             number = int(path.rsplit("/", 1)[1])
             return 200, {}, json.dumps(self.pulls.get(number, {})).encode()
@@ -368,6 +373,12 @@ def test_fake_run_walks_select_implement_submit(world):
     assert world.api.writes() == [("POST", f"{BASE}/issues/{ISSUE}/comments"), ("POST", f"{BASE}/issues/{ISSUE}/labels"),
                                   ("POST", f"{BASE}/pulls"), ("POST", f"{BASE}/issues/{PR}/labels"),
                                   ("POST", f"{BASE}/issues/{PR}/comments")]
+    # The stage binding: the session writes are all the submit stage's; the implement stage wrote
+    # nothing, and the runner's own writes name no stage.
+    done = [(entry["op"], entry.get("stage")) for entry in world.log(record) if entry["phase"] == "done"]
+    assert done == [("bind_issue", None), ("select", None), ("select", None), ("push", "submit"),
+                    ("pr_create", "submit"), ("label", "submit"), ("state", None)]
+    assert not [entry for entry in world.log(record) if entry.get("stage") == "implement"]
     [push] = world.pushes
     head = git(world.trusted, "rev-parse", f"refs/heads/{BRANCH}")
     assert push[-1] == f"{head}:refs/heads/{BRANCH}" and record["head"] == head
@@ -575,9 +586,11 @@ def test_git_dir_tampering_stops_the_run_and_turns_the_schedule_off(world):
     assert autodev_config.load(world.state)["enabled"] is False
     tripwire = json.loads((world.state / "schedules" / decoys.TRIPWIRE_NAME).read_text())
     assert ".git changed" in tripwire["last"]["reason"] and tripwire["last"]["schedule"] == "disabled"
-    # Nothing imported after the session, no further stage, no push, no block comment.
+    # Nothing imported after the session, no further stage, no push; the issue is blocked with the
+    # generic phrase and unclaimed, as a blocked run's (#347 review).
     assert [item["kind"] for item in world.stage_seen()] == ["select", "implement"]
-    assert world.pushes == [] and world.ops(record) == ["bind_issue", "select"]
+    assert world.pushes == [] and world.ops(record) == ["bind_issue", "select", "block", "unclaim"]
+    assert record["blockers"] == [sequence.GENERIC_BLOCKED]
     assert subprocess.run(["git", "-C", str(world.trusted), "rev-parse", "--verify", "-q", f"refs/heads/{BRANCH}"],
                           capture_output=True).returncode != 0
     [argv] = world.notifications
@@ -640,8 +653,50 @@ def test_pr_create_refuses_while_a_security_risk_is_open(world, tmp_path):
     found.run_dir, found.credentials = run_dir, world.credentials(world.config)
     opened = found._open_broker("run", world.pinned)
     assert opened._pr_refusal() == sequence.OPEN_RISK
-    (run_dir / broker.PREMORTEM_RECORD).unlink()
+    (run_dir / broker.PREMORTEM_RECORD).write_text(json.dumps({"validated": True, "findings": []}))
     assert opened._pr_refusal() is None
+
+
+def test_pr_create_needs_the_accepted_premortem_in_a_new_run(world, tmp_path):
+    """Security review #347: a new run's pull request needs the accepted pre-mortem; a resume's exists."""
+    for mode, expected in (("run", sequence.NO_PREMORTEM), ("resume", None)):
+        run_dir = tmp_path / mode
+        run_dir.mkdir()
+        found = sequence.Sequence(world.ctx, world.config, records.new_run_id(NOW), mode, pr=None, now=NOW)
+        found.run_dir, found.credentials = run_dir, world.credentials(world.config)
+        opened = found._open_broker(mode, world.pinned)
+        assert opened._pr_refusal() == expected
+        (run_dir / broker.PREMORTEM_RECORD).write_text(json.dumps({"validated": False, "findings": []}))
+        assert opened._pr_refusal() == expected
+
+
+def test_the_implement_session_cannot_push_or_open_a_pull_request(world):
+    """Security review #347: the implement session gets gh.read and gh.threads only. A push and a
+    pull request it asks for after a validated review are refused and logged with the stage, and
+    the runner's checks after the stage still decide (here: no pre-mortem)."""
+    world.scenario(stages_plan(implement_script=COMMIT + REVIEW + [SUBMIT[0], SUBMIT[1]]))
+    code, record = world.run("run")
+    assert code == 1 and record["status"] == "blocked" and record["blockers"] == [sequence.NO_PREMORTEM]
+    [implement] = [item for item in world.stage_seen() if item["kind"] == "implement"]
+    assert implement["codes"][-2:] == [1, 1]
+    refused = [(entry["op"], entry.get("stage")) for entry in world.log(record) if entry["phase"] == "refused"]
+    assert refused == [("push", "implement"), ("pr_create", "implement")]
+    assert world.pushes == [] and ("POST", f"{BASE}/pulls") not in world.api.writes() and record.get("pr") is None
+    assert world.ops(record) == ["bind_issue", "select", "push", "pr_create", "block", "unclaim"]
+
+
+def test_a_pull_request_opened_before_the_checks_blocks_and_is_named(world, monkeypatch):
+    """Defence in depth: should the broker let the implement session open a pull request, the
+    runner's step after the stage names it in the record and the notification and blocks."""
+    monkeypatch.setattr(broker, "SESSION_WRITE_STAGES", ("implement", "submit"))
+    world.scenario(stages_plan(implement_script=COMMIT + REVIEW + PREMORTEM + [SUBMIT[0], SUBMIT[1]]))
+    code, record = world.run("run")
+    assert code == 1 and record["status"] == "blocked", record.get("reason")
+    assert record["blockers"] == [sequence.EARLY_PR] and record["pr"] == PR and record["pr_url"] == PR_URL
+    [argv] = world.notifications
+    assert argv[-2] == "Autodev run blocked" and PR_URL in argv[-1]
+    assert [item["kind"] for item in world.stage_seen()] == ["select", "implement"]
+    assert world.ops(record) == ["bind_issue", "select", "push", "pr_create", "block"]  # the claim stays
 
 
 def test_stage_stream_naming_a_decoy_trips_the_schedule(world):
@@ -654,6 +709,35 @@ def test_stage_stream_naming_a_decoy_trips_the_schedule(world):
     assert marker not in json.dumps(record) and "selection" not in record
     [argv] = world.notifications
     assert argv[-2] == "Autodev dry-run refused"
+
+
+def test_a_decoy_marker_after_two_megabytes_of_stream_still_trips(world):
+    """Security review #347: the tripwire scans the whole stream, not its first 2,000,000 characters."""
+    planted = decoys.ensure(world.state, world.home)
+    marker = next(decoy.marker for decoy in planted if decoy.path is not None)
+    world.scenario({"select": {"output": SELECT_OUTPUT, "pad": 2_400_000, "say": f"I found {marker} somewhere."}})
+    code, record = world.run("dry-run")
+    assert code == 1 and record["status"] == "refused" and record["tripwire"] is True
+    assert autodev_config.load(world.state)["enabled"] is False
+    assert any("marker of decoy" in finding for finding in record["tripwire_findings"])
+
+
+def test_a_long_stage_stream_keeps_its_result_event(world):
+    """Security review #347: the result event is read from the end of a stream of any length."""
+    world.scenario({"select": {"output": SELECT_OUTPUT, "pad": 2_400_000}})
+    code, record = world.run("dry-run")
+    assert code == 0 and record["status"] == "completed", (record.get("reason"), record.get("problems"))
+    assert record["selection"]["issue"] == ISSUE
+    assert (world.run_dir(record) / "stages" / "select" / "stream.jsonl").stat().st_size > 2_400_000
+
+
+def test_a_stage_stream_over_the_hard_limit_is_refused_and_turns_the_schedule_off(world, monkeypatch):
+    monkeypatch.setattr(sequence, "MAX_STREAM_BYTES", 200_000)
+    world.scenario({"select": {"output": SELECT_OUTPUT, "pad": 300_000}})
+    code, record = world.run("dry-run")
+    assert code == 1 and record["status"] == "refused" and record["tripwire"] is True
+    assert "200000 bytes" in record["reason"] and record["stages"]["select"]["status"] == "refused"
+    assert autodev_config.load(world.state)["enabled"] is False
 
 
 def test_failed_static_probe_never_starts_the_stage_session(world):
@@ -694,6 +778,85 @@ def test_endpoint_is_recorded_before_the_first_session_with_bash(world):
     assert not Path(record["endpoint"]["socket"]).exists()  # closed with the stage
 
 
+# --- a branch an earlier run left, a stop from the supervisor --------------------------------------
+
+def test_a_branch_an_earlier_run_left_is_set_aside_before_the_implement_stage(world):
+    """Correctness review #347: refs/heads/<branch> left by an earlier run of the issue (a failed or
+    refused run, a squash-merged slice, a closed PR) moves to this run's quarantine and is recorded;
+    the run builds on pinned and pushes only its own commits."""
+    stale = _branch_in_trusted(world)
+    code, record = world.run("run")
+    assert code == 0 and record["status"] == "completed", (record.get("reason"), record.get("blockers"))
+    quarantined = f"{repos.QUARANTINE}/{record['run_id']}/stale"
+    assert record["stale_branch"] == {"head": stale, "quarantined": quarantined}
+    assert git(world.trusted, "rev-parse", quarantined) == stale
+    head = git(world.trusted, "rev-parse", f"refs/heads/{BRANCH}")
+    assert head == record["head"] and head != stale
+    assert git(world.trusted, "rev-parse", f"{head}~1") == world.pinned
+    [push] = world.pushes
+    assert push[-1] == f"{head}:refs/heads/{BRANCH}"
+
+
+class Escaped(BaseException):
+    """SIGTERM reached the test's own handler: the sequence installed none."""
+
+
+@pytest.fixture
+def sigterm_guard():
+    """A SIGTERM the sequence does not handle raises `Escaped` instead of ending pytest."""
+    def escaped(number, frame):
+        raise Escaped(number)
+    previous = signal.signal(signal.SIGTERM, escaped)
+    yield
+    signal.signal(signal.SIGTERM, previous)
+
+
+def _stop_during(world, kind: str, delay: float = 1.0) -> None:
+    """SIGTERM to this process ``delay`` seconds after the ``kind`` session started, as the
+    supervisor's sweep sends it on a timeout or a stop."""
+    start = world.ctx.stage_starter
+
+    def starter(spec, report, prompt, **options):
+        process = start(spec, report, prompt, **options)
+        if prompt.startswith(f"You are the {kind} stage"):
+            threading.Timer(delay, os.kill, (os.getpid(), signal.SIGTERM)).start()
+        return process
+    world.ctx.stage_starter = starter
+
+
+def test_a_stop_during_the_implement_stage_records_unclaims_cleans_up_and_notifies(world, sigterm_guard):
+    """Correctness review #347: SIGTERM during a stage with the runner socket (RunStopped) still
+    writes the record, blocks and unclaims the issue, removes the session directories and notifies."""
+    plan = stages_plan(implement_script=["cat /dev/null"])
+    plan["implement"]["sleep"] = 60
+    world.scenario(plan)
+    _stop_during(world, "implement")
+    started = time.monotonic()
+    code, record = world.run("run")
+    assert time.monotonic() - started < 50
+    assert code == 1 and record["status"] == "failed: infra" and record["reason"].startswith("stopped: ")
+    assert "SIGTERM" in record["reason"] and record["report"]["status"] == "failed: infra"
+    [argv] = world.notifications
+    assert argv[-2] == "Autodev run failed" and f"issue #{ISSUE}" in argv[-1]
+    assert world.ops(record) == ["bind_issue", "select", "block", "unclaim"]
+    assert record["blockers"] == [sequence.GENERIC_BLOCKED]
+    assert not (world.runner_dir / "sessions" / record["run_id"]).exists()
+    assert records.read_record(record["run_id"], world.state)["notification"]["sent"] is True
+
+
+def test_a_stop_during_the_select_stage_records_and_notifies(world, sigterm_guard):
+    """Correctness review #347: SIGTERM outside the runner socket (the select stage) no longer ends
+    the process without a record, a cleanup or a notification."""
+    world.scenario({"select": {"output": SELECT_OUTPUT, "sleep": 60}})
+    _stop_during(world, "select")
+    code, record = world.run("dry-run")
+    assert code == 1 and record["status"] == "failed: infra" and record["reason"].startswith("stopped: ")
+    [argv] = world.notifications
+    assert argv[-2] == "Autodev dry-run failed"
+    assert not (world.runner_dir / "sessions" / record["run_id"]).exists()
+    assert signal.getsignal(signal.SIGTERM).__name__ == "escaped"  # the previous handler is back
+
+
 # --- resume ----------------------------------------------------------------------------------------
 
 def _open_pr(world, head: str, comments=None) -> None:
@@ -713,6 +876,15 @@ def _branch_in_trusted(world) -> str:
     head = world.commit({"src/greeting.py": "def greet(name):\n    return name\n"}, "Add a greeting helper")
     git(world.work, "push", "-q", str(world.trusted), f"{head}:refs/heads/{BRANCH}")
     return head
+
+
+def test_a_dry_run_keeps_the_sequences_note(world):
+    """Correctness review #347: run_autodev adds its dry-run note to the sequence's, not over it."""
+    _open_pr(world, _branch_in_trusted(world))
+    code, record = world.run("dry-run", pr=PR)
+    assert code == 0 and record["gate"]["decision"] == "resume" and world.stage_seen() == []
+    assert record["note"] == ("dry-run: the gate decided resume; no session started; "
+                              "dry-run: the gate's cleanup actions were not executed")
 
 
 def test_resume_with_a_foreign_head_blocks(world):
@@ -753,6 +925,25 @@ def test_resume_binds_the_pr_and_needs_a_new_review_before_push(world):
     assert ("PATCH", f"{BASE}/issues/comments/7001") in world.api.writes()
     assert not any(path == f"{BASE}/issues/{PR}/comments" for _, path in world.api.writes())
     assert {"id": 7001, "kind": "state", "number": PR} in record["comments"]
+
+
+def test_an_invalid_resume_output_keeps_the_rounds_and_findings_of_the_state_comment(world):
+    """Correctness review #347: the trusted state's rounds and findings survive an invalid output."""
+    head = _branch_in_trusted(world)
+    earlier = records.new_run_id(NOW - timedelta(days=1))
+    records.write_record(earlier, {"status": "completed", "issue": ISSUE, "pr": PR,
+                                   "comments": [{"id": 7001, "kind": "state", "number": PR}]}, world.state)
+    state = {"findings": ["review:11", "comment:12"], "head": head, "next_attempt": None,
+             "review_status": "waiting_bots", "rounds": 2}
+    _open_pr(world, head, [{"id": 7001, "body": "<!-- autodev -->\n<!-- autodev:state " + json.dumps(state) + " -->",
+                            "updated_at": "2026-10-13T00:00:00Z"}])
+    world.scenario({"submit": {"script": ["cat /dev/null"], "output": {"pr_url": PR_URL}}})
+    code, record = world.run("resume", pr=PR)
+    assert code == 1 and record["status"] == "blocked" and record["stages"]["submit"]["status"] == "invalid"
+    [patch] = [call for call in world.api.calls if call[:2] == ("PATCH", f"{BASE}/issues/comments/7001")]
+    written = json.loads(patch[2]["body"].split("<!-- autodev:state ", 1)[1].removesuffix(" -->"))
+    assert written == {"findings": ["review:11", "comment:12"], "head": head, "next_attempt": None,
+                       "review_status": "blocked", "rounds": 2}
 
 
 def test_resume_after_main_moved_uses_the_merge_base(world):
@@ -877,6 +1068,80 @@ def test_a_blocked_submit_posts_only_a_fixed_phrase(world):
     assert "unclaim" not in world.ops(record)  # the claim stays while the PR is open
     state = [call for call in world.api.calls if call[1] == f"{BASE}/issues/{PR}/comments"]
     assert state and '"review_status": "blocked"' in state[0][2]["body"]
+
+
+# --- what the runner checks without a session's help (#347 review) ---------------------------------
+
+def test_a_protected_path_without_autodev_next_blocks_after_the_implement_stage(world):
+    """The runner's own change check: a protected (not control) path, a valid unblocked output, a
+    review and a pre-mortem, no autodev:next: blocked before the submit stage, nothing exported."""
+    protected = ["git switch -q -c {branch}", "mkdir -p docs && echo 'notes' > docs/cloud-runs.md",
+                 "git add -A && git commit -q -m 'Note the cloud runs'",
+                 "git bundle create -q {exchange_dir}/handover.bundle {branch} ^{pinned}"]
+    world.scenario(stages_plan(implement_script=protected + REVIEW + PREMORTEM))
+    code, record = world.run("run")
+    assert code == 1 and record["status"] == "blocked", record.get("reason")
+    assert record["blockers"] == [sequence.PROTECTED_PATH]
+    assert [item["path"] for item in record["implement"]["change_check"]] == ["docs/cloud-runs.md"]
+    assert [item["kind"] for item in world.stage_seen()] == ["select", "implement"] and world.pushes == []
+    assert record["quarantined"].endswith("/final") and "exports" not in record
+    assert world.ops(record)[-2:] == ["block", "unclaim"]
+
+
+def test_a_state_comment_that_cannot_be_written_leaves_the_tick_alone(world):
+    """The gate trusts only a written state comment, so the tick's next_attempt waits for one."""
+    attempt = (datetime.now(timezone.utc) + timedelta(hours=2)).replace(microsecond=0)
+    world.scenario(stages_plan(submit_out=submit_output("waiting_bots", attempt.strftime("%Y-%m-%dT%H:%M:%SZ"))))
+    world.api.fail.append(("POST", f"{BASE}/issues/{PR}/comments", None, 422))
+    code, record = world.run("run")
+    assert code == 0 and record["status"] == "completed" and record["review_status"] == "waiting_bots"
+    assert "state_comment_failed" in record
+    tick = world.state / "schedules" / "tick.json"
+    assert not tick.exists() or "next_attempt" not in json.loads(tick.read_text())
+
+
+def test_a_block_whose_label_fails_posts_no_second_comment(world):
+    """Broker.block wrote its comment and failed on the label: no generic comment follows."""
+    world.scenario(stages_plan(implement_script=["cat /dev/null"], implement_output=blocked_output("stop here")))
+    world.api.fail.append(("POST", f"{BASE}/issues/{ISSUE}/labels", {"labels": ["autodev:blocked"]}, 422))
+    code, record = world.run("run")
+    assert code == 1 and record["status"] == "blocked" and "block_failed" in record
+    blocks = [call for call in world.api.calls if call[1] == f"{BASE}/issues/{ISSUE}/comments"
+              and "needs the owner" in call[2]["body"]]
+    assert len(blocks) == 1 and "- stop here" in blocks[0][2]["body"]
+
+
+def test_a_submit_output_naming_another_pull_request_is_invalid(world):
+    """Security review #347: the PR link comes from the broker; a session's other link blocks."""
+    other = f"https://github.com/{REPOSITORY}/pull/999"
+    world.scenario(stages_plan(submit_out={**submit_output(), "pr_url": other}))
+    code, record = world.run("run")
+    assert code == 1 and record["status"] == "blocked" and record["pr"] == PR and record["pr_url"] == PR_URL
+    assert record["submit_problems"] == ["pr_url: not this run's pull request"]
+    assert record["pr_url_reported"] == other and record["review_status"] == "blocked"
+    [argv] = world.notifications
+    assert "999" not in argv[-1] and PR_URL in argv[-1]
+    assert "unclaim" not in world.ops(record)  # the claim stays while the PR is open
+
+
+def test_a_submit_output_with_another_head_is_invalid_and_the_state_names_the_pushed_head(world):
+    world.scenario(stages_plan(submit_out={**submit_output(), "head_sha": "e" * 40}))
+    code, record = world.run("run")
+    assert code == 1 and record["status"] == "blocked"
+    assert record["submit_problems"] == ["head_sha: not the head the broker pushed"]
+    head = git(world.trusted, "rev-parse", f"refs/heads/{BRANCH}")
+    [state] = [call for call in world.api.calls if call[1] == f"{BASE}/issues/{PR}/comments"
+               and "autodev:state" in call[2]["body"]]
+    assert f'"head": "{head}"' in state[2]["body"] and "e" * 40 not in state[2]["body"]
+
+
+def test_a_completed_submit_without_a_pull_request_is_blocked(world):
+    world.scenario(stages_plan(submit_script=["cat /dev/null"],
+                               submit_out={**submit_output(), "pr_url": None, "head_sha": None}))
+    code, record = world.run("run")
+    assert code == 1 and record["status"] == "blocked" and record["pr"] is None and record["pr_url"] is None
+    assert record["submit_problems"] == ["no pull request was opened"]
+    assert world.ops(record)[-2:] == ["block", "unclaim"]
 
 
 def test_a_push_refused_for_a_control_path_in_the_submit_stage_is_exported(world):

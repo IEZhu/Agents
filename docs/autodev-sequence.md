@@ -51,7 +51,11 @@ tick's `next_attempt`, so #350 needs no change there; until then the notificatio
    to the issue (`Broker.bind_issue`), posts the selection comment with the score table and sets
    `autodev:in-progress` (`Broker.select`), and records the comment's ID.
 7. **The implement stage** on a one-off repository at `pinned`, with the worker service and the
-   broker on the runner socket.
+   broker on the runner socket. A `refs/heads/<branch>` that an earlier run of the issue left in
+   the trusted repository (a failed or refused run, a squash-merged slice, a closed pull request
+   selected again) first moves to `refs/autodev/quarantine/<run-id>/stale`, recorded as
+   `stale_branch`, so the run builds on `pinned` and its imports are not refused as a
+   non-fast-forward of foreign commits.
 8. **After the implement stage** (below): submit, or `blocked`.
 9. **The submit stage** on a one-off repository that holds the run's branch, with the same worker
    service importing from the submit stage's exchange directory.
@@ -76,7 +80,7 @@ add the PR, its rounds, the findings already seen and the head of the trusted st
    `select` and only while the stored availability says so; `implement` and `submit` fall back to
    Claude with `codex_stage_commit_unsupported` (a `workspace-write` Codex session cannot write
    `.git`, Q-codex-commit), and an unavailable Codex with its reason (Q-codex-fallback). The
-   record keeps `client_requested`, `client_applied` and `fallback_reason`.
+   stage record keeps `requested_client`, `client` (the applied one) and `fallback_reason`.
 2. The effort and model checks (`flow_execution.check_effort`, `check_model`) against the
    capability table read from the installed CLIs; a value the client does not take refuses the
    run with `flow_invalid` and the allowed values.
@@ -89,7 +93,10 @@ add the PR, its rounds, the findings already seen and the head of the trusted st
 5. For a session with Bash, the runner socket with the registry of the run (the heavy-process
    lease, the broker's `gh.*` and the worker service's `worker.*` types), the stage's writable
    paths as `session_writable` and the session's root PID as `session_root`; the record's
-   `endpoint` is written before the session starts.
+   `endpoint` is written before the session starts. The runner names the stage to the broker
+   (`Broker.enter_stage`) for the session's length: only the submit session's `gh.*` writes are
+   answered, so the implement session has `gh.read` and `gh.threads` and nothing else (design
+   9.4); each broker log entry of a session names its stage.
 6. `sandbox.build` with the stage's output schema as `--json-schema`, `probes.guard` (a probe
    session for a stage with Bash, the static checks for `select`), `probes.record_report`. A
    failed report refuses the run before the session.
@@ -98,11 +105,14 @@ add the PR, its rounds, the findings already seen and the head of the trusted st
    into `<run_dir>/stages/<kind>/stream.jsonl`. After the stage's timeout the runner ends the
    session's process group, and it ends whatever the session left in its group after a normal
    exit too.
-8. `probes.stage_tripwire` on the stream (a decoy named or a marker: the schedule turns off, the
-   run is `refused`); the `.git` check (a change: the schedule turns off, the run is `refused`,
-   nothing more is imported, Q-git-integrity); the timeout (`failed: infra`); then the output:
-   `parse_stage_stream` and `stages.validate_output` with the run's repository, issue, candidates
-   and branch. An invalid or missing output ends the stage `invalid` and the run `blocked`.
+8. `probes.stage_tripwire` on the whole stream file, read line by line and scanned in overlapping
+   windows of about a million characters (a decoy named or a marker: the schedule turns off, the
+   run is `refused`); a stream over `sequence.MAX_STREAM_BYTES` (100,000,000 bytes) is not read
+   and refused the same way. The `.git` check (a change: the schedule turns off, the run is
+   `refused`, nothing more is imported, Q-git-integrity); the timeout (`failed: infra`); then the
+   output: `parse_stage_stream` reads the stream to its end and takes the last result event, and
+   `stages.validate_output` checks it with the run's repository, issue, candidates and branch. An
+   invalid or missing output ends the stage `invalid` and the run `blocked`.
 
 A Codex select stage builds `codex_sandbox.CodexPaths` with the state copy as its read-only root
 and the stage schema in it (`stages.write_schema`, `--output-schema`), decides with
@@ -124,7 +134,12 @@ Timeouts (Q-timeouts): select 30 minutes, implement `stages.implement.budget.tim
 - a valid, unblocked output must name the imported head, which must be the last head a validated
   review covered (`broker.validated_review_head`), and the pre-mortem must have been accepted
   (`premortem.json`);
-- no security-marked pre-mortem risk may be open (`workers.open_security_risks`, design 5.8);
+- no security-marked pre-mortem risk may be open (`workers.open_security_risks`, design 5.8): only
+  `fixed` followed by an accepted verification review closes one; the session's own `mitigated` or
+  `known_risk` does not;
+- no pull request may exist yet: the broker answers only the submit session's writes, and should
+  one exist anyway, the record, the report and the notification name it and the run blocks,
+  keeping the claim;
 - a blocked output brings its own blockers.
 
 Any blocker ends the run `blocked`. A control-path change (a refusal with `control_path`) is
@@ -137,20 +152,28 @@ report and the notification. The imported branch moves to
 writes itself are fixed phrases: "the final head is not the head the session handed over", "no
 validated review covers the final head", "the pre-mortem did not run on this change", "an open
 pre-mortem risk needs the owner", "the change needs a control path; a local patch for the owner is
-in the run records", "the change touches protected paths without autodev:next" and "the
-implement stage ended without a valid result". A blocked output's own blockers are posted as
+in the run records", "the change touches protected paths without autodev:next", "a pull request
+was opened before the runner's checks after the implement stage" and "the implement stage ended
+without a valid result". A blocked output's own blockers are posted as
 they are (the output check already refused a mention or a sub-marker); a list the broker still
 refuses (a closing keyword for another issue, a secret-like value) is replaced by "the run stopped
 and needs the owner; the details are in the local run record", so the issue is labelled anyway.
 
 ## After the submit stage
 
-`Sequence.after_submit`, when the session opened or resumed a PR:
+`Sequence.after_submit` first checks the output against the broker: the PR and its link are the
+broker's (`Broker.run.pr`, opened with `gh.pr_create` or bound by the resume), never the session's.
+An output whose `pr_url` names another pull request, an unblocked one without a PR, or one whose
+`head_sha` is not the head the broker last pushed (for a resume that did not push, the branch head
+the resume checked) is invalid: the record keeps `submit_problems`, `pr_url_reported` and
+`head_reported`, and the stage counts as blocked. Then, when there is a PR:
 
-- the state comment (`Broker.state`): `head`, `next_attempt` (only with `waiting_bots`, at most 24
-  hours ahead), `rounds`, `review_status` and the finding IDs; a new comment for a new PR, an edit
-  of the comment an earlier run record names for a resumed one; its ID goes into the record's
-  `comments` as `{"id", "kind": "state", "number": <pr>}`;
+- the state comment (`Broker.state`): `head` (the broker's), `next_attempt` (only with
+  `waiting_bots`, at most 24 hours ahead), `rounds`, `review_status` and the finding IDs; after an
+  invalid output a resume keeps the trusted state comment's rounds and findings, so the bot-round
+  limit and the findings seen survive; a new comment for a new PR, an edit of the comment an
+  earlier run record names for a resumed one; its ID goes into the record's `comments` as
+  `{"id", "kind": "state", "number": <pr>}`;
 - risk issues for `workers.risk_candidates` (known risks of level `medium` and above without a
   security signal) through `Broker.create_risk_issues`, at most three per run;
 - with `waiting_bots`, `next_attempt` in `schedules/tick.json` as `{"at", "pr"}`.
@@ -160,8 +183,28 @@ phrase "the submit stage ended blocked"; when the branch the submit stage handed
 control path (the broker refused its push), the change is exported as after the implement stage
 and the control-path blocker is added; the session's reason stays in the record's `reason`, and
 the claim stays while a PR exists. The tick's `next_attempt` is written only after the state
-comment was, since the gate trusts nothing else. A pull request is refused by the broker while a security risk
-is open (`Broker(pr_allowed=...)`).
+comment was, since the gate trusts nothing else. The broker refuses a pull request while a
+security risk is open, and in a new run (not a resume) before the pre-mortem was accepted
+(`Broker(pr_allowed=...)`).
+
+## The end
+
+`state.json` gets the stage `done`. A run that ends other than `completed` after its claim, with
+no pull request and no block comment yet (a timeout, a network or CLI failure, the tripwire, a
+changed `.git`, a sandbox refusal of the submit probes, a stop), blocks the issue with "the run
+stopped and needs the owner; the details are in the local run record" and removes the claim, as a
+blocked run does (Q-claim): the issue neither waits for the gate's six-hour stale-claim cleanup
+nor returns to the pool unseen. A run with a PR keeps its claim for the gate's resume. Then the
+worker service and the session directories close, and the report and the notification follow.
+
+A supervisor timeout or stop sends the run SIGTERM, which ends it `failed: infra` (`stopped: ...`)
+wherever it is: inside a stage with the runner socket `socket_service.serve` raises
+`RunStopped`, elsewhere the handler the sequence installs for its whole length. The session's
+process group is ended, the record and the notification come first, then the claim, then the
+cleanup with a two-second wait for the workers (`STOP_CLOSE_WAIT`), since the supervisor kills
+the run ten seconds after its SIGTERM. Should the run die before it notified, the launching
+process notifies from what the run left (`runner.notify_ended`); the claim then waits for the
+gate's cleanup.
 
 ## Records
 
@@ -174,7 +217,9 @@ with `top_five` and the Markdown `table`), `issue`, `branch`, `pr`, `pr_url`, `r
 `requested` and `applied`, `probe_digest`, `stream`, `output_sha256`, `exit`, `timed_out`,
 `cost_usd`, `integrity`, `problems`), `capabilities`, `workers` and `clients` (from the worker
 service), `checks` (the implement output's), `implement` (the imported head and the change
-check), `blockers`, `exports`, `quarantined`, `risk_issues`, `report` and `notification`. Every
+check), `stale_branch` (`head`, `quarantined`), `submit_problems`, `pr_url_reported`,
+`head_reported`, `blockers`, `block_refused`, `block_failed`, `exports`, `quarantined`,
+`risk_issues`, `state_comment_failed`, `report` and `notification`. Every
 write goes through `records.update_record` and is masked with the run's known secrets (the decoy
 markers, the broker's token and deploy key, the OAuth token, a Codex API key).
 
@@ -193,13 +238,14 @@ issues, the exports, the blockers, the cost the CLI reported and the security co
 | Status | When |
 |---|---|
 | `completed` | The gate waited, no candidate, the selection said `none`, a dry-run's selection, or a PR with `complete`, `complete_with_followups` or `waiting_bots` |
-| `blocked` | A blocker after the implement stage, a blocked submit stage, an invalid stage output, a resume whose head is foreign |
-| `refused` | A missing precondition, a failed probe, the decoy tripwire, a changed `.git`, a sandbox or login refusal, an effort the client does not take |
-| `failed: infra` | The network, a CLI, the lease, drift, a timeout, or a defect in the sequence itself |
+| `blocked` | A blocker after the implement stage, a blocked submit stage, an invalid stage output (also a submit output naming another PR or head, or an unblocked one without a PR), a resume whose head is foreign |
+| `refused` | A missing precondition, a failed probe, the decoy tripwire, a stream too long to scan, a changed `.git`, a sandbox or login refusal, an effort the client does not take |
+| `failed: infra` | The network, a CLI, the lease, drift, a timeout, a supervisor stop, or a defect in the sequence itself |
 
 The owner is notified of every real run and of a dry-run that did not complete (Q-notify-dry): a
 title and a message of fixed phrases, counts, the PR link and the export paths, passed to
-`osascript` as arguments of a constant script, never inside it.
+`osascript` as arguments of a constant script, never inside it. A run the supervisor ended is
+notified by the run itself or, when it could not, by the launching process.
 
 ## Before the first real run
 

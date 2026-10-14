@@ -190,7 +190,9 @@ reason (labels, checks and call numbers, never a marker) and the run in
 `<state_dir>/schedules/tripwire.json`. It is called by a probe that reads a decoy, by a decoy
 marker anywhere in a probe's output, by a decoy marker in the broker's outgoing text
 (`Broker(on_decoy=...)`), and by `probes.stage_tripwire`, which the run sequence runs on every
-stage session's stream-json output: any tool call that names a decoy (its random file or directory name or
+stage session's whole stream-json output (read line by line and scanned in windows that overlap,
+so no length leaves a part unscanned; a stream over `sequence.MAX_STREAM_BYTES` is refused unread
+and trips too): any tool call that names a decoy (its random file or directory name or
 keychain service), even one that was refused, or a marker anywhere in the stream. It is a
 tripwire, not a wall: a call that reaches a decoy through a pattern it does not spell out is
 caught only when the marker comes back.
@@ -429,8 +431,9 @@ although the sandbox holds, or pass although it does not, until it is observed:
   probe covers it yet. Until the owner confirms it on the installed binary, the run sequence
   (#347) checks after each session, outside the sandbox and without git, that `.git` is the same
   directory and its `config`, hooks and redirect files are unchanged (`src.schedules.integrity`);
-  a change stops the run before any import, ends it `refused`, notifies the owner and turns the
-  schedule off. Adding the `.git` directory itself to `denyWrite` waits for the owner's live
+  a change stops the run before the runner's own final import (bundles the session handed to
+  `worker.review` during the stage may already be imported), ends it `refused`, notifies the owner
+  and turns the schedule off. Adding the `.git` directory itself to `denyWrite` waits for the owner's live
   check.
 - **The re-opened git configuration.** Entropy hits count, so a public key or another long random
   value in the global git configuration or a file it includes fails the static check.

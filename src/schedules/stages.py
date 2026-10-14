@@ -31,8 +31,8 @@ what the run sequence needs around one stage session; it starts nothing.
   ``issues/<n>/``), `implement_inputs`, `submit_inputs` (a resume adds the trusted state
   comment's ``pr``, ``rounds``, ``findings_seen`` and ``state_comment_head``) and `write_inputs`;
   `write_schema` writes a Codex stage's ``--output-schema`` file beside them.
-* **Around the session.** `parse_stage_stream` reads a ``--output-format stream-json`` capture
-  (the ``system/init`` event, the last ``result`` event with ``structured_output``, the reported
+* **Around the session.** `parse_stage_stream` reads a ``--output-format stream-json`` stream to its
+  end (the ``system/init`` event, the last ``result`` event with ``structured_output``, the reported
   model and cost, the permission denials); `stage_profile` picks the client a stage runs with
   (a Codex stage falls back to Claude, #347 Q-codex-commit and Q-codex-fallback); `execution_of`
   gives the stage's ``requested`` profile from ``autodev.json`` and the ``applied`` one from the
@@ -652,10 +652,12 @@ class StageResult:
     denials: list[dict] = field(default_factory=list)
 
 
-def parse_stage_stream(stdout: str) -> StageResult:
-    """The ``system/init`` event, the last ``result`` event and what they say (see `StageResult`)."""
+def parse_stage_stream(stdout: str | Iterable[str]) -> StageResult:
+    """The ``system/init`` event, the last ``result`` event and what they say (see `StageResult`).
+    ``stdout`` is the stream's text or its lines (the stream file opened as text, read to its end
+    one line at a time, so the result event of a stream of any length is found, #347 review)."""
     init, result, unparsed = None, None, 0
-    for line in stdout.splitlines():
+    for line in stdout.splitlines() if isinstance(stdout, str) else stdout:
         if not line.strip():
             continue
         try:

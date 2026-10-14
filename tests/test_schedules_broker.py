@@ -119,12 +119,12 @@ def credentials(tmp_path):
 
 
 def make(tmp_path, credentials, *, mode="run", pr=None, git=None, api=None, reviewed=HEAD, premortem=None,
-         earlier_records=(), run_dir=None):
+         earlier_records=(), run_dir=None, stage="submit"):
     run = Run(RUN_ID, REPOSITORY, ISSUE, BASE, mode, frozenset({"autodev:ready"}), pr)
     api = api or FakeGitHub()
     found = Broker(run, credentials=credentials, git=git or FakeGit(), run_dir=run_dir or tmp_path, transport=api,
                    reviewed_head=lambda: reviewed, premortem=lambda: premortem or {},
-                   earlier_records=lambda: list(earlier_records))
+                   earlier_records=lambda: list(earlier_records), stage=stage)
     registry = Registry()
     register(registry, found)
     return found, registry, api

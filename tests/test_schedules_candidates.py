@@ -1,6 +1,7 @@
 """The select stage's candidate fetch (#347): GET requests only, every field of the select flow's inputs."""
 import json
 from pathlib import Path
+import re
 
 from src.schedules import candidates, stages
 from src.schedules.gate import OWNER_ID
@@ -70,6 +71,16 @@ def test_the_agent_state_counts_only_from_the_owner_account():
     assert candidates.agent_state(bot) is None
     assert candidates.agent_state([{"id": 3, "user": OWNER, "body": state, "updated_at": "x"}]) == \
         {"phase": "implementing", "lock_at": "2026-10-14T08:00:00Z"}
+
+
+def test_the_agent_state_fields_are_the_ones_the_select_flow_names():
+    """#347 review: the select flow drops a candidate that lacks a field it names, so the names agree."""
+    flow = (Path(__file__).resolve().parents[1] / "flows" / "autodev-select.md").read_text(encoding="utf-8")
+    row = next(line for line in flow.splitlines() if line.startswith("| `.agent_state` |"))
+    state = '<!-- issue-agent:state\n{"phase": "implementing", "lock_at": null}\n-->'
+    found = candidates.agent_state([{"id": 3, "user": OWNER, "body": state, "updated_at": "x"}])
+    named = re.search(r"\(([^)]*)\)", row.split("|")[2])[1]  # "(`phase`, `lock_at`)"
+    assert re.findall(r"`([a-z_]+)`", named) == list(found)
 
 
 def test_open_and_closed_pull_requests_of_an_issue():
