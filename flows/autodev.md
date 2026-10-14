@@ -59,10 +59,11 @@ The runner, not a session, does these steps
    `{worker_cmd}`, from packages the runner prepares and validates
    ([autodev-workers.md](../docs/autodev-workers.md)), and the heavy-process
    lease for `{heavy_cmd}`.
-5. **After the implementation:** the import of the final bundle, the check that
-   `head_sha` is the last head a validated review covered, and with
-   `blocked: true` the label `autodev:blocked` with the neutral blockers, the
-   bundle kept in a local quarantine ref.
+5. **After the implementation:** the import of the final bundle; with
+   `blocked: false` the check that `head_sha` is the last head a validated
+   review covered; with `blocked: true` (no review needed) or any failed check
+   the label `autodev:blocked` with the neutral blockers, the bundle kept in a
+   local quarantine ref for the owner.
 6. **After the submit stage:** the state comment on the pull request
    (`<!-- autodev -->`, `<!-- autodev:state {JSON} -->` with the head,
    `next_attempt`, the rounds, the review status and the findings seen), the

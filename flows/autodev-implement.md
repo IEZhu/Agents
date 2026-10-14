@@ -134,8 +134,10 @@ Continue from the first step that is not done.
    `<python>` is the interpreter of the run's environment, which the runner
    prepares outside the tree and names in the prompt. When the regular suite
    does not finish within one call, run it in groups of test files that each
-   fit (for example `tests/test_[a-m]*.py`, then the rest) and record each group
-   as a check. Exit code 75 means the lease was refused because another heavy
+   fit and record each group as a check. Name the files of each group
+   explicitly (list them with `ls tests/test_*.py` first): `{heavy_cmd}` runs
+   the command without a shell, so a glob such as `tests/test_[a-m]*.py` would
+   reach pytest unexpanded. Exit code 75 means the lease was refused because another heavy
    process runs: wait a few minutes and try again, at most three times, then
    end with `blocked: true` ("the heavy-process lease stayed busy"). Exit code
    69 means the runner socket cannot be reached: an infrastructure failure, so
@@ -278,9 +280,12 @@ refuses it otherwise ("the pre-mortem needs a clean validated review").
 
 ## 6. Finish
 
-1. The final head must be the last head an accepted review or verification
-   covered, with `open_findings` empty: no commit after it. Hand the bundle
-   over once more.
+1. With `blocked: false`, the final head must be the last head an accepted
+   review or verification covered, with `open_findings` empty: no commit after
+   it. With `blocked: true`, no review is needed (for example a closed path
+   found in step 1.4 before the first review): hand over the commits you have,
+   if any, and the runner keeps them for the owner without the review check.
+   Hand the bundle over once more in either case.
 2. With a blocker, the runner sets `autodev:blocked` on the issue with the
    blockers you list and keeps the bundle in a local quarantine ref. Write
    blockers neutrally: the list can be public, security details cannot

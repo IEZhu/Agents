@@ -94,6 +94,32 @@ def test_shipped_catalog_is_loadable():
     assert {entry["id"] for entry in entries} >= {"documentation-refresh", "pr-review"}
 
 
+# The autodev flows (#346): the dispatcher and the gate's rules have no persona; each stage
+# and delegated step declares its agent with exact skills and implants (design 8.5, 9.1).
+AUTODEV_PERSONAS = {
+    "autodev": None,
+    "autodev-gate": None,
+    "autodev-select": {
+        "agent": "product_manager",
+        "skills": ["skill-product-frameworks", "skill-decision-frameworks", "skill-analysis-critical",
+                   "skill-structured-output"],
+        "implants": ["implant-verify-assumptions", "implant-second-order-thinking"]},
+    "autodev-implement": {
+        "agent": "software_engineer",
+        "skills": ["skill-dev-clean-code", "skill-dev-testing", "skill-dev-debugging", "skill-dev-security",
+                   "skill-git-conventions", "skill-structured-output"],
+        "implants": ["implant-regression-first", "implant-iteration-budget"]},
+    "code-review-pass": {
+        "agent": "code_reviewer",
+        "skills": ["skill-dev-clean-code", "skill-dev-testing", "skill-dev-security", "skill-dev-debugging"],
+        "implants": ["implant-chain-of-verification", "implant-regression-first"]},
+    "change-premortem": {
+        "agent": "sysadmin",
+        "skills": ["skill-dev-security", "skill-dev-testing", "skill-error-recovery", "skill-system-design"],
+        "implants": ["implant-premortem", "implant-second-order-thinking"]},
+}
+
+
 @pytest.mark.asyncio
 async def test_builtin_flow_personas_build_complete_bundles(monkeypatch):
     """A declared persona must activate: unknown or invalid components would fail every run.
@@ -128,32 +154,6 @@ async def test_builtin_flow_personas_build_complete_bundles(monkeypatch):
     assert declared["issue-agent"] is None
     for flow_id, spec in AUTODEV_PERSONAS.items():
         assert declared[flow_id] == spec
-
-
-# The autodev flows (#346): the dispatcher and the gate's rules have no persona; each stage
-# and delegated step declares its agent with exact skills and implants (design 8.5, 9.1).
-AUTODEV_PERSONAS = {
-    "autodev": None,
-    "autodev-gate": None,
-    "autodev-select": {
-        "agent": "product_manager",
-        "skills": ["skill-product-frameworks", "skill-decision-frameworks", "skill-analysis-critical",
-                   "skill-structured-output"],
-        "implants": ["implant-verify-assumptions", "implant-second-order-thinking"]},
-    "autodev-implement": {
-        "agent": "software_engineer",
-        "skills": ["skill-dev-clean-code", "skill-dev-testing", "skill-dev-debugging", "skill-dev-security",
-                   "skill-git-conventions", "skill-structured-output"],
-        "implants": ["implant-regression-first", "implant-iteration-budget"]},
-    "code-review-pass": {
-        "agent": "code_reviewer",
-        "skills": ["skill-dev-clean-code", "skill-dev-testing", "skill-dev-security", "skill-dev-debugging"],
-        "implants": ["implant-chain-of-verification", "implant-regression-first"]},
-    "change-premortem": {
-        "agent": "sysadmin",
-        "skills": ["skill-dev-security", "skill-dev-testing", "skill-error-recovery", "skill-system-design"],
-        "implants": ["implant-premortem", "implant-second-order-thinking"]},
-}
 
 
 def test_list_flows_shows_the_autodev_flows_with_their_personas(tmp_path):

@@ -104,8 +104,9 @@ Drop a candidate when any filter fails:
 8. A self-development PR for it was closed without merging, unless it has
    `autodev:next`.
 
-Rank the survivors by a provisional score from the metadata and keep the
-fifteen best.
+Keep every survivor with `autodev:next` (the owner's priority comes before
+the cutoff), then rank the others by a provisional score from the metadata and
+fill up to fifteen in all.
 
 ## 3. Pass two: bodies of the fifteen best
 
@@ -120,6 +121,10 @@ what the bodies say, then set:
 - **0.5:** the issue needs a slice, and the first slice is obvious.
 - **0:** open questions to the owner, no criteria, or comments by other people
   after the owner's last edit, unless it has `autodev:next`.
+- **0 always, `autodev:next` included:** a current hold by the owner in the
+  issue or its comments ("hold", "wait for", "until I approve", a pending
+  approval or decision the owner asked for) that no later owner comment lifts.
+  Name the hold in the rationale.
 
 **WSJF** (Weighted Shortest Job First):
 
