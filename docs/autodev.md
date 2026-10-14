@@ -14,6 +14,12 @@ repeating them. The phase 1a acceptance runs are in [autodev-acceptance.md](auto
 by hand with `run-now` and watches them. Scheduled real runs are the automatic mode of #350.
 None of the live checks on this page had run when it was written (2026-10-14).
 
+**Public records.** The repository is public. When you note the results of live checks in the
+acceptance table, the plan or the open items of these pages, write only pass or fail, run IDs
+and neutral reasons. Keep a failed deny check, a decoy or tripwire finding, the contents of a
+plant marker and the paths or commands that got through in the local run records or a private
+note ([plan 5.8](autodev-plan.md#58-public-visibility)).
+
 | Need | Reference |
 |---|---|
 | The design, its decisions and the checklist plan | [autodev-plan.md](autodev-plan.md) |
@@ -41,6 +47,10 @@ None of the live checks on this page had run when it was written (2026-10-14).
   `clone --revision`), `gh` (the sandbox probes expect it on the session's `PATH`), and `codex`
   only if you want Codex. `autodev install` records their absolute paths in
   `<state_dir>/schedules/tools.json`.
+- **For your own commands.** `jq`, which this page and the
+  [acceptance runbook](autodev-acceptance.md) use to read the JSON that every command prints, and
+  your own `gh` login (`gh auth login`): the host-key command below and the runbook's snapshots
+  and issue lists read GitHub with it, using GET requests only. The runner never uses it.
 - **The trusted repository.** The runner keeps its own bare clone at `clone` in `autodev.json`
   (default `~/.local/share/agents-autodev/IEZhu-Agents`) and creates it on first use. It must lie
   outside `~/Documents` and the installation. The session directories go into `sessions/` beside
@@ -49,15 +59,15 @@ None of the live checks on this page had run when it was written (2026-10-14).
 ### GitHub
 
 Phase 0 set these up on 2026-10-12 ([plan, phase 0](autodev-plan.md#phase-0-decisions-and-protection)).
-A real run reads them again before it starts and ends `refused` with the missing items
+A real run reads the first three again before it starts and ends `refused` with the missing items
 (`src/schedules/preconditions.py`); a dry-run does not check them.
 
 - `main` is protected: the rules `deletion` and `non_fast_forward`, and a `pull_request` rule
   with at least one required approving review.
 - Workflows cannot approve pull requests (`can_approve_pull_request_reviews` is false).
 - `CLAUDE_ROUTINE_TOKEN` is not a repository secret; it lives in the `issue-agent` environment.
-- The labels of [plan 9.6](autodev-plan.md#96-labels) exist. You set `autodev:ready`,
-  `autodev:next` and `autodev:skip`; the runner sets the others.
+- The labels of [plan 9.6](autodev-plan.md#96-labels) exist; the preconditions do not check
+  them. You set `autodev:ready`, `autodev:next` and `autodev:skip`; the runner sets the others.
 
 ### Broker credentials (Q15)
 
@@ -286,18 +296,24 @@ no measured numbers yet: the plan sets target values after the first ten runs
    Each prints a run record; `status: completed` means it passed (for `codex-probe`, that Codex
    is available, which this Mac is not expected to give). Note what you observe in the open
    items of [autodev-sandbox.md](autodev-sandbox.md#open-items-for-the-live-check) and
-   [autodev-codex.md](autodev-codex.md#open-items-for-the-live-check).
-7. **Three dry-runs** with `.venv/bin/python -m src.schedules autodev run-now`; compare each top
+   [autodev-codex.md](autodev-codex.md#open-items-for-the-live-check), as pass or fail only
+   (*Public records* above).
+7. **Label candidates:** give several open issues `autodev:ready`
+   ([plan 9.6](autodev-plan.md#96-labels)). Without an open `autodev:ready` or `autodev:next`
+   issue, a dry-run ends with `selection.decision: none` and no table.
+8. **Three dry-runs** with `.venv/bin/python -m src.schedules autodev run-now`; compare each top
    five with your own ([acceptance A1 and A2](autodev-acceptance.md#a1-a-dry-run-prints-the-decision-and-writes-nothing)).
-8. **Turn the schedule on in dry-run mode** only if they broadly match:
+9. **Turn the schedule on in dry-run mode** only if they broadly match:
    `.venv/bin/python -m src.schedules autodev enable --mode dry-run`.
-9. **The first supervised real run** on a small `autodev:ready` issue, watched:
-   `.venv/bin/python -m src.schedules autodev run-now --mode run`
-   ([acceptance A3](autodev-acceptance.md#a3-the-first-real-run-ends-with-a-pull-request-or-blocked)).
-10. **Continue a pull request** that waits for bots: the notification names
+10. **The first supervised real run** on a small `autodev:ready` issue, watched, after the probe
+    loop of acceptance A7 and, for Codex, step 4:
+    `.venv/bin/python -m src.schedules autodev run-now --mode run`
+    ([acceptance A3](autodev-acceptance.md#a3-the-first-real-run-ends-with-a-pull-request-or-blocked)).
+11. **Continue a pull request** that waits for bots: the notification names
     `run-now --mode resume --pr N`.
-11. **The rest of the acceptance runs** in [autodev-acceptance.md](autodev-acceptance.md).
-12. **Day to day:** label issues `autodev:ready` (during calibration) or `autodev:next`, skip
+12. **The rest of the acceptance runs** in [autodev-acceptance.md](autodev-acceptance.md), in the
+    order it gives.
+13. **Day to day:** label issues `autodev:ready` (during calibration) or `autodev:next`, skip
     some with `autodev:skip`, handle `autodev:blocked` issues, and review and merge the pull
     requests yourself ([plan 4](autodev-plan.md#4-human-and-autonomy)). Every run's record is
     `<state_dir>/schedules/runs/<run-id>/record.json`; the other files are listed in
