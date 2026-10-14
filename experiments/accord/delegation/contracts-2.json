@@ -1,0 +1,40 @@
+{
+  "child": {
+    "checks": {
+      "bundle_scope": "1"
+    },
+    "inputs": [
+      "base_docs",
+      "base_schema",
+      "base_source",
+      "requirements"
+    ],
+    "ir": "accord.contract/0.1",
+    "name": "code_child",
+    "output_max_bytes": 60000,
+    "policy_revision": "p1",
+    "publish_to": [],
+    "request_budget": 1
+  },
+  "ir": "accord.contract-set/0.1",
+  "parent": {
+    "checks": {
+      "behavior_v2": "2",
+      "bundle_scope": "1"
+    },
+    "inputs": [
+      "base_docs",
+      "base_schema",
+      "base_source",
+      "requirements"
+    ],
+    "ir": "accord.contract/0.1",
+    "name": "code_parent",
+    "output_max_bytes": 60000,
+    "policy_revision": "p1",
+    "publish_to": [
+      "code_patch_v2"
+    ],
+    "request_budget": 5
+  }
+}

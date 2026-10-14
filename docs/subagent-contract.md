@@ -209,8 +209,18 @@ size and diagnostic output. No caller-provided executable schema or remote `$ref
 resolution in v1: JSON Schemas come only from the fixed built-in result models.
 
 Return `valid: true/false`, a bounded list of errors with field paths and error
-codes, and `verification: structural_only`. Validation is stateless and does not
-write project memory or mutate persona state. It does not prove claims, rerun
+codes, and `verification: structural_only`. Nested structural and schema errors
+use paths such as `$.result.evidence[0].id`: ASCII identifier keys use dot notation,
+array positions use zero-based brackets, and other keys use JSON-quoted brackets
+with ASCII escapes (for example, `$.result["a.b"]`). Invalid keys identify their
+containing object without rendering the invalid key. Paths are capped at 256
+characters, with `...` marking truncation. Raw syntax/duplicate-key errors and
+whole-payload size errors identify the root; raw non-finite constants receive a
+nested location when strict decoding and bounded traversal can recover one.
+Location recovery preserves error-code precedence: structural checks run before
+serialization, and the canonical character limit is checked before UTF-8 encoding.
+Validation is stateless and does not write project memory or mutate persona
+state. It does not prove claims, rerun
 tests, open artifacts, establish authorization or mark the issue complete. The
 parent assesses evidence and acceptance criteria before integrating the work.
 

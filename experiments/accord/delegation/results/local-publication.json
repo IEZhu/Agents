@@ -1,0 +1,32 @@
+{
+  "base_revision": "8ab433012fc16e68f95ca538dfbb4bf4d082a3d7",
+  "head_before": "8ab433012fc16e68f95ca538dfbb4bf4d082a3d7",
+  "publication_ref": "refs/accord-eval/delegation-1a3993675c83/target",
+  "published_commit": "0fd2b607dfd9516c94ad25bbfaf009143e98a1b8",
+  "operation": "baaecb61f2dc34bdc4662a88daf27e172390f341e26e3d6c578b2bd2d3032cb4",
+  "observation": {
+    "status": "confirmed",
+    "publications": 1,
+    "root_remaining": 1,
+    "child_remaining": 0,
+    "replay_calls": 2,
+    "child_accepted": true,
+    "root_accepted": true,
+    "root_control": "active",
+    "changed_paths": [
+      "docs/subagent-contract.md",
+      "src/engine/subagent_validation.py",
+      "tests/test_subagent_paths.py"
+    ],
+    "published_sha256": "7ba1bf1a4df210b479db6c2ff73cd432d9db26e7c02a8b61674eb8d96541a0fe"
+  },
+  "head_and_index_unchanged_by_sink": true,
+  "checkout_unchanged_by_sink": true,
+  "candidate_sha256": "7ba1bf1a4df210b479db6c2ff73cd432d9db26e7c02a8b61674eb8d96541a0fe",
+  "files_sha256": {
+    "docs/subagent-contract.md": "919bc856864f1ef8aee11dc62af0001866d7ed55d2ce277ae30fb84e7c5bb1c5",
+    "src/engine/subagent_validation.py": "a54d36abe7c3cc793e4c5ba0c60fab388648f00948d1b8fd1149dbd853cde2f0",
+    "tests/test_subagent_paths.py": "6a30f82e65015b580818592d16acee14c42425271b440291a12f8577d5bff8c4"
+  },
+  "integration": "Parent copied exactly the accepted files after checking all original preimages; sequential, not atomic."
+}

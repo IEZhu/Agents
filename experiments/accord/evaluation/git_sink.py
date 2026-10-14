@@ -43,6 +43,7 @@ class GitSink:
         self.prefix = f"refs/accord-eval/{namespace}"
         self.ref = self.prefix + "/target"
         self.path = "tests/README.md"
+        self.logical_target = "test_guide"
         common = git(self.repo, "rev-parse", "--path-format=absolute", "--git-common-dir").stdout.strip()
         self.identity = digest("git-outcome-chain/2", [common, self.prefix, self.path])
         if initial is not None and self.tip(optional=True) is None:
@@ -91,7 +92,7 @@ class GitSink:
                    data=canonical(observation).decode() + "\n").stdout.strip()
 
     def apply(self, operation, intent, text):
-        require(intent["sink_identity"] == self.identity and intent["target"] == "test_guide", "wrong Git target")
+        require(intent["sink_identity"] == self.identity and intent["target"] == self.logical_target, "wrong Git target")
         require(intent["output"] == text_digest(text), "payload digest mismatch")
         expected = oid(intent["expected_version"])
         fingerprint = digest("accord.intent/0.1", intent)

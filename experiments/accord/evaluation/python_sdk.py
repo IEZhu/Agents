@@ -1,8 +1,8 @@
-"""Ordinary Python baseline for the single-task publication evaluation.
+"""Ordinary Python baseline for the publication and delegation evaluations.
 
 JobSpec is application configuration, with no contract IR or interpreter. This
 SDK implements its own durable lifecycle over the shared ledger and sink wire
-protocol. Child delegation is deliberately outside this baseline's scope.
+protocol, including scoped child jobs with transferred request credits.
 """
 
 from dataclasses import asdict, dataclass
@@ -85,8 +85,8 @@ class PythonSDK:
             self.store.put(db, "resource", name, current)
             return current
 
-    def create_task(self, spec):
-        """Create one job; this API intentionally has no parent/child parameter."""
+    def create_task(self, spec, *, parent=None):
+        """Create a job, transferring credits from an optional fresh parent."""
         require(isinstance(spec, JobSpec), "expected a JobSpec")
         with self.store.transaction() as db:
             active = self.store.get(db, "meta", "profile")
@@ -94,12 +94,22 @@ class PythonSDK:
             require(spec.policy_revision == self.profile["policy"], "policy revision unavailable")
             require(all(self.profile["validators"].get(name) == revision
                         for name, revision in spec.checks), "validator revision unavailable")
+            if parent is not None:
+                owner = self._current_task(db, parent)
+                require(set(spec.inputs) <= set(owner["spec"]["inputs"]), "child expands input scope")
+                require(set(spec.publish_to) <= set(owner["spec"]["publish_to"]), "child expands effect scope")
+                require(spec.output_max_bytes <= owner["spec"]["output_max_bytes"], "child expands output limit")
+                require(spec.request_budget <= owner["remaining"], "insufficient parent budget")
+                # Debit and child insertion share the ledger transaction, so
+                # allocation races and failed creation cannot mint credits.
+                owner["remaining"] -= spec.request_budget
+                self.store.put(db, "task", parent, owner)
             settings = asdict(spec)
             task_id = uuid.uuid4().hex
             self.store.put(db, "task", task_id, {
                 "id": task_id, "spec": settings, "revision": digest("python-sdk.job/1", settings),
                 "inputs": {name: self.store.get(db, "resource", name) for name in spec.inputs},
-                "profile": active, "control": "active", "remaining": spec.request_budget,
+                "profile": active, "parent": parent, "control": "active", "remaining": spec.request_budget,
                 "latest": None, "accepted": None,
             })
             return task_id
@@ -110,7 +120,12 @@ class PythonSDK:
 
     def _current_task(self, db, task_id):
         task = self.store.get(db, "task", task_id)
-        require(task["control"] == "active", "task cancelled")
+        current = task
+        while current is not None:
+            require(current["control"] == "active", "task or ancestor cancelled")
+            # Root jobs persisted by the original SDK have no parent field.
+            parent = current.get("parent")
+            current = self.store.get(db, "task", parent) if parent is not None else None
         active = self.store.get(db, "meta", "profile")
         require(active == task["profile"] and active["id"] == self.profile_id, "stale profile")
         for name, snapshot in task["inputs"].items():
