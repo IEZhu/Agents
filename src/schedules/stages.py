@@ -32,8 +32,10 @@ what the run sequence needs around one stage session; it starts nothing.
   comment's ``pr``, ``rounds``, ``findings_seen`` and ``state_comment_head``) and `write_inputs`.
 * **Around the session.** `parse_stage_stream` reads a ``--output-format stream-json`` capture
   (the ``system/init`` event, the last ``result`` event with ``structured_output``, the reported
-  model and cost, the permission denials); `execution_of` gives the stage's ``requested`` profile
-  from ``autodev.json`` and the ``applied`` one from the argv actually passed (design 6.5);
+  model and cost, the permission denials); `stage_profile` picks the client a stage runs with
+  (a Codex stage falls back to Claude, #347 Q-codex-commit and Q-codex-fallback); `execution_of`
+  gives the stage's ``requested`` profile from ``autodev.json`` and the ``applied`` one from the
+  argv actually passed (design 6.5);
   `branch_slug` makes the branch slug from an issue title; `selection_body` and `score_table`
   build the selection comment and the dry-run table.
 """
@@ -54,6 +56,7 @@ from pydantic import AfterValidator, BaseModel, ConfigDict, Field, StringConstra
 from src.daemon.state import atomic_private, private_dir
 
 from . import broker, repos
+from .config import DEFAULTS
 from .sandbox import SCHEMA_MAX_CHARS
 
 SELECT, IMPLEMENT, SUBMIT = "select", "implement", "submit"
@@ -63,6 +66,10 @@ SLUG_MAX = 40
 MAX_ERRORS = 20
 MAX_OUTPUT_CHARS = 512 * 1024  # a Codex -o text; the Claude result is an object
 MAX_CELL = 200
+# A Codex workspace-write stage cannot write .git, so it can neither commit nor hand over a bundle;
+# the runner-side commit on its behalf is deferred (#347 open question Q-codex-commit).
+CODEX_COMMIT_UNSUPPORTED = "codex_stage_commit_unsupported"
+WRITING_KINDS = (IMPLEMENT, SUBMIT)
 
 # --- the schemas: each flow's Result block, verbatim ---------------------------------------------
 
@@ -693,6 +700,27 @@ def _codex_effort(argv: Sequence[str]) -> str | None:
         if part == "-c" and argv[index + 1].startswith("model_reasoning_effort="):
             return argv[index + 1].partition("=")[2]
     return None
+
+
+def stage_profile(kind: str, config: Mapping, *, codex_unavailable: str | None = None) -> dict:
+    """The client, model and effort a stage session runs with, and why it is not the requested
+    client: a stage configured for Codex falls back to Claude (``stages.<kind>.claude`` when set,
+    else the defaults' Claude profile of that stage) with ``fallback_reason``
+    `CODEX_COMMIT_UNSUPPORTED` for a stage that commits (implement, submit) or
+    ``codex_unavailable`` (the stored availability's reason, `codex_probes.read_availability`) when
+    Codex cannot run; a Codex select stage runs with Codex otherwise (#347 Q-codex-fallback)."""
+    profile = ((config.get("stages") or {}).get(_kind(kind))) or {}
+    requested = profile.get("client") or "claude"
+    reason = None
+    if requested == "codex":
+        reason = CODEX_COMMIT_UNSUPPORTED if kind in WRITING_KINDS else codex_unavailable
+    client = "claude" if requested != "codex" or reason is not None else "codex"
+    settings = profile.get(client) if isinstance(profile.get(client), dict) else None
+    if settings is None and client == "claude":
+        settings = DEFAULTS["stages"][kind]["claude"]
+    settings = settings or {}
+    return {"client": client, "model": settings.get("model"), "effort": settings.get("effort"),
+            "requested": requested, "fallback_reason": reason}
 
 
 def execution_of(kind: str, config: Mapping, argv: Sequence[str], result: StageResult | None = None, *,
