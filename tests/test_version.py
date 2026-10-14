@@ -101,6 +101,21 @@ def test_dev_branch_from_the_status_header(monkeypatch, status, expected):
     assert version.agents_core_version() == expected
 
 
+@pytest.mark.parametrize("plain, expected", [("", "26.10.01.0801"), (" M src/x.py\n", "26.10.01.0801-dirty")])
+def test_a_git_without_the_v2_flags_keeps_the_plain_version(monkeypatch, plain, expected):
+    calls = []
+    def run(args, **kwargs):
+        calls.append(args)
+        if "log" in args:
+            return subprocess.CompletedProcess(args, 0, stdout="2026-10-01T08:01:00+00:00", stderr="")
+        if "--porcelain=v2" in args:  # git < 2.17: unknown option --no-ahead-behind
+            return subprocess.CompletedProcess(args, 129, stdout="", stderr="error: unknown option")
+        return subprocess.CompletedProcess(args, 0, stdout=plain, stderr="")
+    monkeypatch.setattr(version.subprocess, "run", run)
+    assert version.agents_core_version() == expected
+    assert [c for c in calls if "status" in c][-1][-2:] == ["--porcelain", "--untracked-files=no"]
+
+
 def test_one_status_call_reads_branch_and_changes(monkeypatch):
     calls = []
     def run(args, **kwargs):
