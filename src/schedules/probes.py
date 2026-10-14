@@ -1550,11 +1550,11 @@ def require(report: ProbeReport) -> ProbeReport:
 def record_report(run_id: str, directory: str | Path | None, report: ProbeReport,
                   persistent: Iterable[decoy_store.Decoy] = (), known: Iterable[str] = ()) -> dict:
     """Add the report to the run record as ``probes`` (a list, one per guarded session), masked
-    with the decoy markers and any other known secret."""
-    record = records.read_record(run_id, directory) or {}
-    record.setdefault("probes", []).append(report.to_record())
+    with the decoy markers and any other known secret, under the record's lock
+    (`records.update_record`)."""
     markers = [decoy.marker for decoy in persistent] + [value for value in known if value]
-    return records.write_record(run_id, record, directory, known=markers)
+    return records.update_record(run_id, lambda record: record.setdefault("probes", []).append(report.to_record()),
+                                 directory, known=markers)
 
 
 def start_session(spec: sandbox.SessionSpec, report: ProbeReport, text: str, *, stdout: Any = None,

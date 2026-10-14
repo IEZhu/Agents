@@ -28,10 +28,12 @@ has exactly the session's argv, settings and environment.
   before sessions with Bash; the file tools of a selection session run outside the sandbox
   anyway, and their confinement (`--restricted`, the read block, the permission rules) is the
   same as in a stage session, whose probes cover it on every run.
-- **Worker sessions are not covered here.** The Claude worker (no `--settings`, no Bash) belongs
-  to the worker launcher, #345. Codex workers and Codex stage sessions are in
-  [autodev-codex.md](autodev-codex.md) (#344), which reuses this part's temporary root, decoys,
-  executable binding and scan.
+- **Workers are covered elsewhere.** The Claude worker (no Bash) is built here
+  (`sandbox.build_worker`: the read-only tools, `--settings` with a session's read block and closed
+  sandbox block and no allow rules, the tree at `pinned` as working directory and the materials as
+  the only `--add-dir`) and started by the worker launcher, #345 ([autodev-workers.md](autodev-workers.md)).
+  Codex workers and Codex stage sessions are in [autodev-codex.md](autodev-codex.md) (#344), which
+  reuses this part's temporary root, decoys, executable binding and scan.
 - **The live check is the owner's.** `python -m src.schedules probe --confirm-live-probe` starts a
   real probe session (a model turn); nothing in the tests does. The behaviours listed under
   [Open items for the live check](#open-items-for-the-live-check) are documented or inferred, not

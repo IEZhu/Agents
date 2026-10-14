@@ -50,6 +50,15 @@ effect with a probe session that has exactly this argv, settings and environment
 
 * **The executable** (`executable_identity`): the spec binds the resolved path and SHA-256 of the
   ``claude`` executable, so an upgrade between the probe and the session changes the digest.
+* **The Claude worker** (#345, `build_worker`, checked by `check_worker_spec`): ``claude -p
+  --restricted --safe-mode --tools Read,Grep,Glob --strict-mcp-config --permission-mode dontAsk
+  --permission-prompts none --disallowedTools mcp__* --no-session-persistence --settings <file>
+  --add-dir <materials> --output-format json --json-schema <schema>`` and ``--model`` and
+  ``--effort``; the working directory is the tree at ``pinned`` (`WorkerPaths`). Its settings
+  (`worker_settings`) are a session's read block and closed sandbox block with no allow rules,
+  ``Edit`` denied on the tree and the materials and only the worker's own temporary root
+  writable; its environment is the session allowlist (`environment`). `src.schedules.worker_launch`
+  starts it.
 
 Nothing here starts a model; `src.schedules.probes.start_session` starts a stage session only
 after its probes passed.
@@ -862,4 +871,258 @@ def tree_problems(roots: Iterable[Path], limit: int = 200_000) -> list[str]:
                         problems.append(f"{path} is a symbolic link out of {root}")
                 elif stat.S_ISREG(found.st_mode) and found.st_nlink != 1:
                     problems.append(f"{path} has {found.st_nlink} hard links")
+    return problems
+
+
+# --- the Claude worker (#345) ----------------------------------------------------------------------------
+#
+# A delegated reviewer (design 5.6, 7.6, 9.4): ``claude -p`` with the read-only tools, its working
+# directory the tree at ``pinned`` and ``--add-dir`` only for the materials, both runner-written
+# from git objects (`src.schedules.materials`). The same confinement as a selection session
+# (``--restricted``, ``permissions.blockReadsOutsideWorkingDirectories``, the closed sandbox block)
+# with nothing writable but its own temporary root, and a single JSON result validated by the CLI
+# against ``--json-schema`` (``--output-format json`` instead of the session's stream).
+
+WORKER_KIND = "worker"
+WORKER_TOOLS = READ_TOOLS
+WORKER_OUTPUT_FLAGS = ("--output-format", "json")
+SCHEMA_MAX_CHARS = 64 * 1024  # an inline --json-schema; the subagent/1 schemas are about 3.7 KB
+
+
+@dataclass(frozen=True)
+class WorkerPaths:
+    """Every path a Claude worker's argv, settings and environment name. All absolute.
+
+    ``tree`` (the working directory) and ``materials`` (the only ``--add-dir``) are read-only and
+    runner-written; ``tmp_root`` (`make_temp_root`) is the only writable directory; ``config_dir``
+    (the persistent login, `config_dir`), ``gh_config`` (an empty directory), ``settings_file`` and
+    ``state_dir`` (the autodev state) lie outside the tree and the materials. Field names match
+    `SessionPaths` where the meaning does, so `environment` and `check_environment` serve both.
+    """
+
+    home: Path
+    tree: Path
+    materials: Path
+    config_dir: Path
+    gh_config: Path
+    settings_file: Path
+    tmp_root: Path
+    state_dir: Path
+    owner_temp: Path = field(default_factory=owner_temp_dir)
+    claude_temp: Path = field(default_factory=claude_temp_root)
+    claude_shared: Path = CLAUDE_SHARED_TEMP
+
+    @property
+    def tmp(self) -> Path:
+        return self.tmp_root
+
+    @property
+    def readable(self) -> tuple[Path, Path]:
+        return self.tree, self.materials
+
+    def all_paths(self) -> dict[str, Path]:
+        return {name: getattr(self, name) for name in (
+            "home", "tree", "materials", "config_dir", "gh_config", "settings_file", "tmp_root", "state_dir",
+            "owner_temp", "claude_temp", "claude_shared")}
+
+    def denied(self) -> dict[str, Path]:
+        """The ``denyRead`` entries as absolute paths, as for a session."""
+        return {"home": self.home, "keychains": self.home / "Library/Keychains", "owner_temp": self.owner_temp,
+                "claude_temp": self.claude_temp, "claude_shared": self.claude_shared, "state_dir": self.state_dir,
+                "config_dir": self.config_dir}
+
+    def problems(self) -> list[str]:
+        """Why these paths are unsafe for a worker; empty when they are fine."""
+        found = []
+        for name, path in self.all_paths().items():
+            if not Path(path).is_absolute():
+                found.append(f"{name} must be absolute: {path}")
+            elif UNSAFE_PATH.search(str(path)):
+                found.append(f"{name} holds a wildcard or control character: {path}")
+        if found:
+            return found
+        tree, materials = _real(self.tree), _real(self.materials)
+        if tree == materials or tree in materials.parents or materials in tree.parents:
+            found.append("the tree and the materials must not lie inside one another")
+        # What a worker reads may lie inside a denied region (the run's records), never around one.
+        protected = {**self.denied(), "ssh": self.home / ".ssh", "library": self.home / "Library"}
+        for name, root in (("tree", tree), ("materials", materials)):
+            for label, path in protected.items():
+                path = _real(path)
+                if root == path or root in path.parents:
+                    found.append(f"{name} ({root}) equals or contains {label} ({path})")
+        for name in ("config_dir", "gh_config", "settings_file", "tmp_root"):
+            path = _real(getattr(self, name))
+            for label, root in (("tree", tree), ("materials", materials)):
+                if path == root or root in path.parents or path in root.parents:
+                    found.append(f"{name} lies inside or around the {label}")
+        return found + self._temp_problems()
+
+    def _temp_problems(self) -> list[str]:
+        found = []
+        if len(str(bash_temp(self.tmp_root)).encode()) > TMP_PATH_LIMIT:
+            found.append(f"the temporary root is too long: {bash_temp(self.tmp_root)} exceeds {TMP_PATH_LIMIT} bytes")
+        tmp = _real(self.tmp_root)
+        for name in ("owner_temp", "claude_temp", "claude_shared", "state_dir", "config_dir", "home"):
+            other = _real(getattr(self, name))
+            if tmp == other or other in tmp.parents or tmp in other.parents:
+                found.append(f"the temporary root lies inside or around {name} ({other})")
+        return found
+
+
+def worker_argv(claude: str, paths: WorkerPaths, schema: str, *, model: str | None = None,
+                effort: str | None = None) -> list[str]:
+    """The exact argv of a Claude worker; ``schema`` is the inline ``--json-schema`` text (a JSON
+    object); ``worker_context`` goes on standard input."""
+    if not os.path.isabs(claude):
+        raise SandboxError(f"the claude executable must be an absolute path: {claude!r}")
+    if not isinstance(schema, str) or len(schema) > SCHEMA_MAX_CHARS:
+        raise SandboxError("the --json-schema value must be JSON text of at most 64 KiB")
+    try:
+        parsed = json.loads(schema)
+    except ValueError:
+        parsed = None
+    if not isinstance(parsed, dict):
+        raise SandboxError("the --json-schema value must be a JSON object")
+    command = [claude, "-p", "--restricted", "--safe-mode", "--tools", ",".join(WORKER_TOOLS),
+               "--strict-mcp-config", "--permission-mode", PERMISSION_MODE, "--permission-prompts", "none",
+               "--disallowedTools", DISALLOWED_TOOLS, "--no-session-persistence",
+               "--settings", str(paths.settings_file), "--add-dir", str(paths.materials),
+               *WORKER_OUTPUT_FLAGS, "--json-schema", schema]
+    for flag, value in (("--model", model), ("--effort", effort)):
+        if value is not None:
+            if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._\[\]-]{0,63}", value):
+                raise SandboxError(f"{flag} must be a plain name: {value!r}")
+            command += [flag, value]
+    return command
+
+
+def worker_settings(paths: WorkerPaths) -> dict:
+    """The ``--settings`` content of a Claude worker: a session's closed sandbox block and read
+    block, no allow rules, ``Edit`` denied on the tree and the materials, and nothing writable
+    but the worker's temporary root."""
+    if problems := paths.problems():
+        raise SandboxError("unsafe worker paths: " + "; ".join(problems))
+    return {
+        "permissions": {
+            "blockReadsOutsideWorkingDirectories": True,
+            "allow": [],
+            "deny": [f"Edit({_rule(paths.tree)}/**)", f"Edit({_rule(paths.materials)}/**)"],
+        },
+        "sandbox": {
+            "enabled": True,
+            "failIfUnavailable": True,
+            "autoAllowBashIfSandboxed": True,
+            "allowUnsandboxedCommands": False,
+            "filesystem": {
+                "disabled": False,
+                "denyRead": deny_read(paths),  # type: ignore[arg-type]
+                "allowRead": [str(paths.tree), str(paths.materials), str(paths.tmp_root)],
+                "allowWrite": [str(paths.tmp_root)],
+                "denyWrite": deny_write(paths),  # type: ignore[arg-type]
+            },
+            "network": {"allowedDomains": [], "strictAllowlist": True, "allowUnixSockets": []},
+            "credentials": {"envVars": [{"name": OAUTH_VARIABLE, "mode": "deny"}]},
+        },
+        "disableClaudeAiConnectors": True,
+    }
+
+
+def check_worker_settings(content: Mapping, paths: WorkerPaths) -> list[str]:
+    """Every difference from `worker_settings` that could loosen the worker; empty when it matches."""
+    problems = []
+    sandbox = _get(content, "sandbox")
+    for keys in LOOSENING_KEYS:
+        if _get(sandbox, *keys) is not _MISSING:
+            problems.append(f"sandbox.{'.'.join(keys)} must not be set")
+    if _get(content, "permissions", "blockReadsOutsideWorkingDirectories") is not True:
+        problems.append("permissions.blockReadsOutsideWorkingDirectories must be true")
+    if _get(content, "permissions", "allow") not in ([], _MISSING):
+        problems.append("permissions.allow must be empty for a worker")
+    if _get(content, "disableClaudeAiConnectors") is not True:
+        problems.append("disableClaudeAiConnectors must be true")
+    try:
+        expected = worker_settings(paths)
+    except SandboxError as error:
+        return problems + [str(error)]
+    if not problems and dict(content) != expected:
+        problems.append("the settings differ from the launcher's: " + ", ".join(_differences(content, expected)))
+    return problems
+
+
+@dataclass(frozen=True)
+class WorkerSpec:
+    """One Claude worker as it will start: argv, environment, working directory and settings."""
+
+    argv: tuple[str, ...]
+    env: Mapping[str, str] = field(repr=False)
+    paths: WorkerPaths
+    settings: Mapping[str, Any]
+    schema: str
+    mode: str = LOGIN_CONFIG_DIR
+    executable: tuple[str, str] | None = None
+
+    @property
+    def cwd(self) -> Path:
+        return self.paths.tree
+
+    def digest(self) -> str:
+        payload = json.dumps({"argv": list(self.argv), "env": dict(sorted(self.env.items())), "cwd": str(self.cwd),
+                              "settings": self.settings,
+                              "executable": list(self.executable) if self.executable else None}, sort_keys=True)
+        return hashlib.sha256(payload.encode()).hexdigest()
+
+    def describe(self) -> dict[str, Any]:
+        """What a record may keep: the argv without the inline schema and paths, the variable names,
+        the login mode and the executable; never the environment's values."""
+        flags = [item for item in self.argv[1:] if item != self.schema and not os.path.isabs(item)]
+        return {"kind": WORKER_KIND, "digest": self.digest(), "flags": flags, "env": sorted(self.env),
+                "mode": self.mode.split(":")[0], "executable": self.executable[0] if self.executable else None}
+
+
+def build_worker(claude: str, paths: WorkerPaths, *, schema: str, path: str, mode: str = LOGIN_CONFIG_DIR,
+                 oauth_token: str | None = None, model: str | None = None, effort: str | None = None,
+                 lang: str | None = None) -> WorkerSpec:
+    """Build a Claude worker: its settings file is written here; nothing starts."""
+    content = worker_settings(paths)
+    command = tuple(worker_argv(claude, paths, schema, model=model, effort=effort))
+    identity = executable_identity(claude)
+    write_settings(paths, content)  # type: ignore[arg-type]
+    env = environment(paths, path=path, mode=mode, oauth_token=oauth_token, lang=lang)  # type: ignore[arg-type]
+    return WorkerSpec(command, env, paths, content, schema, mode, identity)
+
+
+def check_worker_spec(spec: WorkerSpec) -> list[str]:
+    """Every way ``spec`` (and its settings file on disk) departs from what `build_worker` makes."""
+    problems = list(spec.paths.problems())
+    if problems:
+        return problems
+    given = {flag: spec.argv[index + 1] for index, flag in enumerate(spec.argv[:-1]) if flag in ("--model", "--effort")}
+    try:
+        expected = worker_argv(spec.argv[0], spec.paths, spec.schema, model=given.get("--model"),
+                               effort=given.get("--effort"))
+    except (SandboxError, ValueError) as error:
+        return [str(error)]
+    if list(spec.argv) != expected:
+        problems.append("the argv differs from the launcher's")
+    problems += check_worker_settings(spec.settings, spec.paths)
+    try:
+        on_disk = read_settings_file(spec.paths.settings_file)
+    except SandboxError as error:
+        problems.append(str(error))
+    else:
+        if on_disk != dict(spec.settings):
+            problems.append("the settings file on disk differs from the worker's settings")
+    problems += check_environment(spec.env, spec.paths, spec.mode)  # type: ignore[arg-type]
+    problems += temp_root_problems(spec.paths.tmp_root)
+    try:
+        identity = executable_identity(spec.argv[0])
+    except SandboxError as error:
+        return problems + [str(error)]
+    if spec.executable is None or tuple(spec.executable) != identity:
+        problems.append("the claude executable differs from the one the worker was built with "
+                        "(resolved path or SHA-256)")
+    real = Path(identity[0])
+    if any(real == root or root in real.parents for root in map(_real, (*spec.paths.readable, spec.paths.tmp_root))):
+        problems.append(f"the claude executable {real} lies inside the worker's tree, materials or temporary root")
     return problems

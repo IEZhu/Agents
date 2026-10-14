@@ -48,6 +48,21 @@ Read of its file); ``say`` (assistant text, for leak tests); ``garbage`` (a non-
 ``extra_env`` (more variables Bash sees); ``extra_fds`` (descriptors the observe probe inherits);
 ``spawn_child`` (a file: a ``sleep`` child is started in the session's process group and its PID
 written there); ``sleep`` (seconds before answering, for the timeout test).
+
+**Worker mode (#345).** ``-p`` with ``--output-format json`` is a worker: it reads the
+worker_context from standard input, appends ``{"argv", "env", "cwd", "stdin"}`` to the ``seen``
+file (JSON lines), parses ``--json-schema`` (inline JSON, as the CLI does), makes the file tool
+calls of ``calls`` (with ``stdin_calls`` also each standard-input line that starts with
+``{"tool"``, as the worker check asks for one) with the permission rules above (a denial goes
+into ``permission_denials`` with its input) and prints one ``result`` object whose
+``structured_output`` is `fake_worker.build` of the outcome for this attempt: ``outcomes`` (a
+list, one per start, counted in the ``counter`` file; the last repeats) or ``outcome``. An outcome
+may also set ``subtype``, ``is_error``, ``exit``, ``no_output`` (no ``structured_output``),
+``structured`` (that object as the ``structured_output``), ``echo_reads`` (what the calls read
+becomes the summary and the result text), ``probe_answer`` (the worker check's answer: the
+``structured_output`` is ``{"verdict": "ok"}`` with each ``autodev-worker-probe-<tree|materials>-…``
+line the calls read under its kind) and ``pad`` (characters of filler in the result object, for
+the output cap); ``sleep`` delays the answer.
 """
 import fnmatch
 import json
@@ -58,6 +73,8 @@ import socket
 import subprocess
 import sys
 import time
+
+import fake_worker
 
 SCENARIO = json.loads(Path(sys.argv[1]).read_text())
 ARGS = sys.argv[2:]
@@ -283,7 +300,58 @@ def spawn_child():
     Path(SCENARIO["spawn_child"]).write_text(str(child.pid))
 
 
+def worker():
+    """One worker attempt: a single JSON result (``--output-format json`` with ``--json-schema``)."""
+    text = sys.stdin.read()
+    attempt = 1
+    if SCENARIO.get("counter"):
+        counter = Path(SCENARIO["counter"])
+        attempt = (int(counter.read_text()) if counter.exists() else 0) + 1
+        counter.write_text(str(attempt))
+    if SCENARIO.get("seen"):
+        with open(SCENARIO["seen"], "a", encoding="utf-8") as stream:
+            stream.write(json.dumps({"argv": ARGS, "env": dict(os.environ), "cwd": os.getcwd(), "stdin": text}) + "\n")
+    time.sleep(SCENARIO.get("sleep", 0))
+    schema = json.loads(flag("--json-schema"))
+    if not isinstance(schema, dict):
+        sys.stderr.write("Error: --json-schema must be a JSON object\n")
+        return 1
+    denials, reads = [], []
+    calls = list(SCENARIO.get("calls", []))
+    if SCENARIO.get("stdin_calls"):
+        calls += [json.loads(line) for line in text.split("\n") if line.startswith('{"tool"')]
+    for index, call in enumerate(calls):
+        result, error, denied = run_file_tool(call["tool"], call["input"])
+        if denied:
+            denials.append({"tool_name": call["tool"], "tool_use_id": f"toolu_{index:04d}", "tool_input": call["input"]})
+        elif not error:
+            reads.append(result)
+    outcomes = SCENARIO.get("outcomes") or [SCENARIO.get("outcome", {})]
+    outcome = dict(outcomes[min(attempt, len(outcomes)) - 1])
+    result_text = "done"
+    if outcome.get("echo_reads") and reads:
+        outcome["summary"] = result_text = "\n".join(reads)
+    event = {"type": "result", "subtype": outcome.get("subtype", "success"), "is_error": outcome.get("is_error", False),
+             "result": result_text, "permission_denials": denials}
+    if outcome.get("pad"):
+        event["padding"] = "x" * outcome["pad"]
+    if outcome.get("probe_answer"):
+        answer = {"verdict": "ok"}
+        for text in reads:
+            for match in re.finditer(r"autodev-worker-probe-(tree|materials)-[0-9a-f]+", text):
+                answer[match[1]] = match[0]
+        event["structured_output"] = answer
+    elif "structured" in outcome:
+        event["structured_output"] = outcome["structured"]
+    elif not outcome.get("no_output"):
+        event["structured_output"] = fake_worker.build(text, outcome)
+    print(json.dumps(event))
+    return outcome.get("exit", 0)
+
+
 def session():
+    if flag("--output-format") == "json":
+        return worker()
     text = sys.stdin.read()
     time.sleep(SCENARIO.get("sleep", 0))
     calls = [json.loads(line) for line in text.split("\n") if line.startswith('{"tool"')]

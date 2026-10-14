@@ -12,7 +12,9 @@ Socket operations (all session-bound):
 * ``gh.push`` pushes the run's branch with the deploy key, only when the head is the promoted
   ``refs/heads/claude/autodev-<issue>-<slug>`` of the trusted repository (a commit the runner
   imported from a bundle, `src.schedules.repos`), equals the last head a validated review covered
-  (`validated_review_head`, written by the worker launcher of #345), passes the change check of
+  and no accepted review left an open blocker (`validated_review_head`, `review_gate`: the
+  records the worker launcher of #345 writes: the review record, the findings ledger and the
+  decision log), passes the change check of
   `src.schedules.paths` against the pinned commit, its diff and commit messages pass the scan
   of `src.schedules.scan`, and its commit messages name no other issue with a closing keyword.
 * ``gh.pr_create`` once per run, from the pushed branch to ``main``; ``gh.pr_edit`` changes only
@@ -103,6 +105,11 @@ MODES = ("dry-run", "run", "resume")
 LOG_NAME = "broker.jsonl"
 REVIEW_RECORD = "validated-review.json"  # written by the worker launcher (#345)
 PREMORTEM_RECORD = "premortem.json"  # written by the pre-mortem step (#345, #347)
+DECISIONS_RECORD = "worker-decisions.json"  # the session's decisions on findings (#345)
+LEDGER_RECORD = "findings-ledger.json"  # every open finding of every accepted review (#345)
+# A finding of these levels, or one with a security signal, stays open when declined (design 9.4).
+GATE_BLOCKING = ("critical", "high")
+NOT_CLEAN_LEVELS = ("critical", "high", "medium")
 KNOWN_HOSTS_NAME = "github_known_hosts"  # beside the deploy key
 GRAPHQL_URL = github.API + "/graphql"
 TIMEOUT = 30  # seconds of one API call
@@ -210,16 +217,97 @@ class CredentialsMissing(RuntimeError):
 # --- records the broker reads ---------------------------------------------------------------------
 
 def validated_review_head(run_dir: str | Path) -> str | None:
-    """The last head a validated review covered: ``<run_dir>/validated-review.json``.
+    """The last head a validated review covered when no accepted review left an open blocker
+    (`review_gate`); None otherwise. The push check and the pre-mortem's precondition (#345) read it."""
+    return review_gate(run_dir)[0]
 
-    The worker launcher (#345) writes ``{"validated": true, "status": "completed", "head": <sha>}``
-    after a review passed validation (design 9.4); until it lands, tests write the fixture.
+
+def review_gate(run_dir: str | Path) -> tuple[str | None, str]:
+    """The head of ``<run_dir>/validated-review.json`` when it opens the push gate, and why (or
+    why not); design 9.4 as amended by #345.
+
+    The worker launcher writes ``{"validated": true, "status": "completed", "head", "handle",
+    "kind", "number", "restricted", "clean", "blocked", "findings": [{"key", "level",
+    "security"}]}`` after every accepted review or verification, and before it the findings
+    ledger ``<run_dir>/findings-ledger.json``: ``{"head", "handle", "findings": [{"key", "level",
+    "security", "handle", "status", ...}]}``, every finding of level ``medium`` or higher of every
+    accepted review of the run, ``handle`` naming the latest review that reported it and
+    ``status`` ``open`` or ``resolved``. The runner resolves a finding only when a later accepted
+    review was given it with a decision (``fixed`` or ``declined``) in its materials and did not
+    report it again; an undecided finding stays open whatever later reviews say.
+
+    A worker task that ends ``blocked`` or ``failed`` replaces the record with ``{"validated":
+    false, "status": "blocked" | "failed", "blocked": true, "handle", ...}``: the stage ended
+    blocked, and the gate stays closed. ``clean`` speaks of the recorded review alone.
+
+    The gate opens only when the record says ``blocked: false`` (and ``clean: true`` when it lists
+    no finding), the ledger covers the record's head and handle and names every finding the
+    record lists, and every ``open`` entry is
+    ``medium``, carries no security signal (``security`` false; an unmarked one counts as
+    security) and was ``declined`` with a reason in ``<run_dir>/worker-decisions.json`` by a
+    decision that names the entry's handle (the latest such decision on its key, current or in its
+    history). A ``critical``, ``high`` or security entry keeps the gate closed even when declined,
+    until a later review that was given the decline does not report it again. A missing or
+    malformed field closes the gate.
     """
     data = _read_json(Path(run_dir) / REVIEW_RECORD)
+    if isinstance(data, dict) and data.get("status") in ("blocked", "failed") and data.get("blocked") is True:
+        return None, f"the stage ended blocked: {str(data.get('handle'))[:80]} ended {data['status']}"
     if not isinstance(data, dict) or data.get("validated") is not True or data.get("status") != "completed":
-        return None
+        return None, "no validated review"
     head = data.get("head")
-    return head if isinstance(head, str) and _SHA.fullmatch(head) else None
+    if not isinstance(head, str) or not _SHA.fullmatch(head):
+        return None, "the review record names no head"
+    if data.get("blocked") is not False:
+        return None, "the review ended the stage blocked"
+    listed = data.get("findings")
+    if not isinstance(listed, list) or not all(isinstance(item, dict) for item in listed):
+        return None, "the review record lists no findings"
+    if not listed and data.get("clean") is not True:
+        return None, "the review is not clean"
+    ledger = _read_json(Path(run_dir) / LEDGER_RECORD)
+    if not isinstance(ledger, dict) or ledger.get("head") != head or ledger.get("handle") != data.get("handle"):
+        return None, "the findings ledger does not cover this review"
+    entries = ledger.get("findings")
+    if not isinstance(entries, list) or not all(isinstance(item, dict) for item in entries):
+        return None, "the findings ledger lists no findings"
+    if not {item.get("key") for item in listed} <= {item.get("key") for item in entries}:
+        return None, "the findings ledger lacks a finding of this review"
+    decisions = _read_json(Path(run_dir) / DECISIONS_RECORD)
+    logged = decisions.get("decisions") if isinstance(decisions, dict) else None
+    by_key = {entry.get("key"): entry for entry in logged or [] if isinstance(entry, dict)}
+    declined = 0
+    for item in entries:
+        key, level, handle, status = (str(item.get("key"))[:16], item.get("level"), str(item.get("handle"))[:20],
+                                      item.get("status"))
+        if status == "resolved":
+            continue
+        if status != "open":
+            return None, f"finding {key} has an unknown status"
+        if level not in NOT_CLEAN_LEVELS:
+            return None, f"finding {key} has an unknown level"
+        if level in GATE_BLOCKING or item.get("security") is not False:
+            signal = ", security" if item.get("security") is not False else ""
+            return None, (f"finding {key} ({level}{signal}) of {handle} stays open until a later review that was "
+                          "given its decision does not report it again")
+        if not _declined_for(by_key.get(item.get("key")), item.get("handle")):
+            return None, (f"finding {key} ({level}) of {handle} is neither declined nor resolved by a later review "
+                          "that was given its decision")
+        declined += 1
+    return head, ("every remaining medium finding was declined" if declined else "clean")
+
+
+def _declined_for(entry: Any, handle: Any) -> bool:
+    """Whether the latest decision of a decision-log ``entry`` (the current one, then its history
+    from the newest) that names ``handle`` is ``declined`` with a reason."""
+    if not isinstance(entry, dict) or not isinstance(handle, str):
+        return False
+    history = entry.get("history") if isinstance(entry.get("history"), list) else []
+    for decision in [entry, *reversed(history)]:
+        if isinstance(decision, dict) and decision.get("handle") == handle:
+            return decision.get("decision") == "declined" and isinstance(decision.get("reason"), str) \
+                and bool(decision["reason"].strip())
+    return False
 
 
 @dataclass(frozen=True)
@@ -490,6 +578,11 @@ class BrokerLog:
                 entries.append(entry)
         return entries
 
+    def add_known(self, values: Iterable[str]) -> None:
+        """Mask ``values`` too from now on (secrets that became known after the log was opened)."""
+        with self._lock:
+            self._known = self._known + [value for value in values if value and value not in self._known]
+
     def add(self, op: str, phase: str, **details: Any) -> dict:
         entry = records.mask({"at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "op": op,
                               "phase": phase, **details}, self._known)
@@ -574,6 +667,8 @@ class Broker:
     ``on_decoy`` with the hits (the run sequence turns the schedule off there) before the refusal.
     ``known`` are further secrets of the run, such as the Codex API key (#344,
     `codex_probes.Decision.known`): the scan refuses them in every mode and the log masks them.
+    A secret that becomes known only after the broker exists, such as the key a worker's Codex
+    decision reads (#345), reaches the scan through `add_known`.
     """
 
     def __init__(self, run: Run, *, credentials: Credentials | None, git: TrustedGit,
@@ -610,6 +705,8 @@ class Broker:
         self._decoy_labels = frozenset(secret.label for secret in decoys)
         self._on_decoy = on_decoy
         known += decoys
+        self._known = known
+        self._known_lock = threading.Lock()
         self.scanner = scan.Scanner(known)
         self.log = BrokerLog(self.run_dir / LOG_NAME if self.run_dir else None,
                              [self._token or ""] + [secret.value for secret in known if isinstance(secret.value, str)])
@@ -639,6 +736,22 @@ class Broker:
         if len(key) >= scan.KNOWN_MIN_LENGTH:
             known.append(scan.KnownSecret("deploy key", key))
         return known
+
+    def add_known(self, secrets: Iterable[scan.KnownSecret]) -> None:
+        """Add secrets of the run that became known after construction (the Codex API key of a
+        worker's decision; `workers.WorkerService` calls this through its ``on_known``): from now on
+        the outgoing-text scan refuses them in every mode and the log masks them. Thread-safe; a
+        running scan finishes with the scanner it started with."""
+        secrets = list(secrets)
+        if not all(isinstance(secret, scan.KnownSecret) for secret in secrets):
+            raise TypeError("known secrets must be KnownSecret instances")
+        with self._known_lock:
+            new = [secret for secret in secrets if secret not in self._known]
+            if not new:
+                return
+            self._known = self._known + new
+            self.scanner = scan.Scanner(self._known)
+        self.log.add_known(secret.value for secret in new if isinstance(secret.value, str))
 
     def _api_token(self) -> str:
         if self._token is None:
