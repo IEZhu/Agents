@@ -644,6 +644,13 @@ skills and implants and switches each one on or off for the installation.
 
 ### Persona continuity
 
+For optional session readiness in every supported client (Claude Code, Codex,
+Cursor, Antigravity and Claude Desktop), see [Session readiness](docs/session-readiness.md).
+Install it separately using the [commands for your platform](docs/session-readiness.md#install);
+Codex requires reviewing and trusting the new hook in `/hooks`. Cursor and
+Antigravity request display in the first response; ordinary Claude Desktop Chat
+uses an MCP first-response fallback because it has no native lifecycle hook.
+
 Before each request, the model silently checks whether its active role fits the
 task. If it does, it keeps that role without routing, candidate selection or
 enrichment calls. A needed specialization change triggers routing; a known
