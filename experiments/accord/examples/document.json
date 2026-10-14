@@ -1,0 +1,10 @@
+{
+  "ir": "accord.contract/0.1",
+  "name": "document",
+  "inputs": ["spec"],
+  "output_max_bytes": 4096,
+  "checks": {"nonempty": "1", "mentions_spec": "1"},
+  "publish_to": ["report"],
+  "request_budget": 3,
+  "policy_revision": "p1"
+}

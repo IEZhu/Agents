@@ -1,6 +1,6 @@
 # Accord: a contract language for agent work
 
-Status: concept proposal, 2026-10-14. No compiler, runtime or new Agents-Core API is implemented. Accord is a working name; naming and trademark availability have not been checked.
+Status: research concept with an experimental [IR 0.1](accord-ir.md) and [Python interpreter](../experiments/accord/README.md), 2026-10-14. No compiler or new Agents-Core API is implemented. Accord is a working name; naming and trademark availability have not been checked.
 
 ## Design decision
 
@@ -86,39 +86,33 @@ A useful diagnostic should explain the violated contract, for example: “Public
 
 ## Minimal semantics
 
-The first core has eight operations: `snapshot`, `infer`, `delegate`, `check`, `accept`, `prepare`, `commit`, and `await_input`. Pure host-language computation remains ordinary Python or TypeScript. Model-selected tool calls enter the same mediated effect boundary as calls written by the developer.
+The broader proposed core has eight operations: `snapshot`, `infer`, `delegate`, `check`, `accept`, `prepare`, `commit`, and `await_input`. Pure host-language computation remains ordinary Python or TypeScript. Model-selected tool calls enter the same mediated effect boundary as calls written by the developer.
 
 1. `infer` validates output shape and returns a candidate. Malformed output is an explicit error or a bounded new attempt. Model confidence is metadata, never sufficient evidence for acceptance.
 2. `delegate` starts a task with immutable contract and attempt identities, a projected input manifest, an attenuated tool surface and a reserved budget. A child cannot receive authority its parent lacks. Its result is still a candidate until the parent's required validators run.
 3. `check` invokes a registered host validator against frozen input and output. The result includes pass, fail or not-run, diagnostic evidence, and the validator environment. Missing required checks cannot silently count as passed.
-4. `accept` evaluates the contract's acceptance policy against authentic matching receipts and any required human decision. It returns an accepted handle or diagnostics. The first version supports a small decidable policy algebra: all, any, required check IDs, exact revisions, and explicit host-recorded decisions.
-5. `prepare` constructs a canonical action intent and checks matching acceptance, current grant, policy, resource revision, expiry and revocation. It durably reserves the logical authorization instance before dispatch. The host repeats the checks at the commit boundary.
+4. `accept` evaluates the contract's acceptance policy against authentic matching receipts and any required human decision. It returns an accepted handle or diagnostics. IR 0.1 implements conjunction of required check IDs and exact revisions. Alternative policy branches and host-recorded human decisions are deferred until their witness and invalidation semantics are specified.
+5. `prepare` constructs a canonical action intent and checks matching acceptance, current grant, policy, resource revision, expiry and revocation. It durably reserves the logical authorization instance before dispatch. The host repeats the checks at dispatch admission. A separate sink transaction enforces target version preconditions at application; host admission and sink application are not one atomic commit.
 6. `commit` submits that intent through an adapter and records its external outcome. Replanning cannot mint a fresh logical authorization for the same consumed user request; replacement is an explicit host-authorized event.
 7. `await_input` persists a concrete dependency or required human decision. A response resumes that task; it does not authorize unrelated effects.
 8. A new input, output, validator or policy revision invalidates dependent acceptance. Dependency tracking must conservatively include relevant files, tool responses and declared validator environment. Hidden dependencies are a validator/adapter contract defect, not something a type checker can magically discover.
 
 ```mermaid
-stateDiagram-v2
-    [*] --> Assigned
-    Assigned --> Running
-    Running --> Candidate
-    Running --> NeedsInput
-    NeedsInput --> Running
-    Running --> Partial
-    Running --> Failed
-    Running --> Cancelled
-    Candidate --> Checking
-    Checking --> Rejected
-    Checking --> Accepted
-    Rejected --> Running: reserved attempt remains
-    Accepted --> Invalidated: dependency changes
-    Invalidated --> Checking: new snapshot and checks
-    Accepted --> Prepared: authority and freshness pass
-    Prepared --> Committed: confirmed external receipt
-    Prepared --> OutcomeUnknown: response or process lost
-    OutcomeUnknown --> Committed: reconciliation confirms
-    OutcomeUnknown --> Prepared: absence proven and retry authorized
+flowchart LR
+    T[Task: active or cancelled] --> C[Latest candidate and immutable snapshot]
+    C --> R[Host check receipts]
+    R --> A[Historical acceptance certificate]
+    A --> E{Current eligibility?}
+    G[One-use logical grant] --> E
+    E --> P[Prepared operation]
+    P --> D[Dispatched and authority spent]
+    D --> F[Confirmed or denied]
+    D --> U[Outcome unknown]
+    U --> F
+    U --> D
 ```
+
+Task control, acceptance history and operation state are independent. The `outcome_unknown` → `dispatched` edge reuses the same operation and requires both fresh admission guards and destination deduplication. An absent lookup alone is insufficient. A cancelled task can retain a historically accepted artifact and later receive confirmation of an already admitted action. IR 0.1 keeps only active/cancelled task control; the richer outcomes below remain language-design goals.
 
 `Partial`, `Failed`, `Cancelled` and `NeedsInput` preserve usable artifacts without representing completion. Cancelling a task does not undo already committed effects. A dispatched action remains subject to reconciliation even after cancellation.
 
@@ -154,8 +148,8 @@ The [instruction-signing proposal](instruction-signing-spec.md) is related but s
 
 | Stage | Deliverable | Completion criterion |
 |---|---|---|
-| 0: semantic design | Contract IR, event transitions, validator trust model and counterexamples | Independent review resolves receipt substitution, stale acceptance, delegated overspending and uncertain effects |
-| 1: library experiment | Python contract API, local SQLite ledger, one sandboxed worktree adapter and deterministic fake model | Each adversarial scenario below produces its declared outcome; all action paths use the broker |
+| 0: semantic design | [IR 0.1](accord-ir.md), separate state records, explicit transaction boundaries and counterexamples | Implemented subset specified and reviewed; larger language semantics remain open |
+| 1: library experiment | [Python prototype](../experiments/accord/README.md), separate host/sink SQLite ledgers and deterministic fake model | Adversarial tests cover the bounded trusted-host subset; production worktree containment is deferred |
 | 2: language experiment | Parser for the small surface language, effect/typestate diagnostics and TypeScript bindings | Same contract fixtures and receipts behave equivalently through both adapters |
 | 3: real evaluation | Bounded repository tasks using existing models and a comparison implementation | Measured reliability and authoring costs justify retaining the language boundary |
 
@@ -180,4 +174,4 @@ Measure unsafe action admissions, wrong-revision acceptances, duplicate external
 
 The hardest design questions are the completeness of dependency manifests, validator governance, the size of the policy algebra, and whether adapter conformance is strong enough for portability. Another is whether acceptance should be a reusable certificate or an affine handle whose action eligibility is consumed by the ledger. The proposed answer separates reusable content-specific check receipts from consumable action authority.
 
-The next concrete step is to write the versioned IR and eight counterexample fixtures, then evaluate an SDK implementation before committing to a compiler. This document proposes that work; it does not carry it out.
+The versioned IR and executable counterexamples now exist in the [Python experiment](../experiments/accord/README.md). They test a bounded runtime model, not the productivity or portability value of a language. The next step is a realistic repository adapter plus an independently implemented second adapter, followed by comparison with an equally protected SDK before committing to a compiler.
