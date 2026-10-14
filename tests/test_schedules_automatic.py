@@ -17,10 +17,11 @@ from pathlib import Path
 import re
 import stat
 import subprocess
+from types import SimpleNamespace
 
 import pytest
 
-from src.schedules import automatic, cli, decoys, records, runner, stages
+from src.schedules import automatic, cli, decoys, records, runner, sequence, stages
 from src.schedules import config as autodev_config
 from src.schedules import report as run_report
 from src.schedules.broker import Credentials
@@ -300,6 +301,113 @@ def test_a_committing_stage_configured_for_codex_still_needs_its_claude_probes(c
     assert code == 1 and result["codex"] == {}  # implement runs with Claude (stages.stage_profile)
     assert [item.split(":")[0] for item in result["missing"]] == [f"sandbox probe implement in {mode} mode"
                                                                    for mode in MODES]
+
+
+def fallback_stage(ctx, tmp_path, monkeypatch, *, mode="run", trigger="slot", available=True, fallback=True):
+    """Exercise the real stage transition; repository preparation and client sessions are fakes."""
+    settings = copy.deepcopy(autodev_config.DEFAULTS)
+    settings["stages"]["select"] = {"client": "codex", "codex": {"model": "gpt-6.1-sol", "effort": "high"}}
+    ctx.world["codex"]["select"] = {"available": available, "reason": None if available else "login_missing"}
+    run = sequence.Sequence(ctx, settings, records.new_run_id(NOW), mode, pr=None, now=NOW,
+                            trigger={"kind": trigger})
+    run.venv = tmp_path / "venv"
+    session = SimpleNamespace(path=tmp_path / "repository")
+    trusted = SimpleNamespace(create_session_repository=lambda *args, **kwargs: session)
+    layout = {"repository": str(session.path), "state_copy": str(tmp_path / "state-copy"),
+              "exchange": str(tmp_path / "exchange")}
+    monkeypatch.setattr(run, "_session_setup", lambda: None)
+    monkeypatch.setattr(run, "_capability_table", lambda: {})
+    monkeypatch.setattr(run, "_layout", lambda kind: layout)
+    monkeypatch.setattr(run, "_trusted", lambda: trusted)
+    monkeypatch.setattr(run, "write_state", lambda kind: None)
+    monkeypatch.setattr(sequence.flow_execution, "check_effort", lambda *args: None)
+    monkeypatch.setattr(sequence.flow_execution, "check_model", lambda *args: [])
+    monkeypatch.setattr(stages, "write_select_inputs", lambda *args: None)
+    clients, outcome = [], object()
+
+    def codex_stage(kind, profile, layout, session, values, stream_dir, record, **kwargs):
+        clients.append("codex-decision")
+        if fallback:
+            record["fallback_reason"] = "login_missing"
+            return None
+        clients.append("codex-session")
+        return outcome
+
+    def claude_stage(*args, **kwargs):
+        clients.append("claude-session")
+        return outcome
+
+    monkeypatch.setattr(run, "_codex_stage", codex_stage)
+    monkeypatch.setattr(run, "_claude_stage", claude_stage)
+    return run, clients, outcome
+
+
+@pytest.mark.parametrize("mode,trigger", [("run", "slot"), ("run", "continuation"),
+                                         ("resume", "slot"), ("resume", "continuation")])
+def test_live_codex_fallback_requires_claude_records_in_automatic_real_runs(ctx, tmp_path, monkeypatch,
+                                                                         mode, trigger):
+    run, clients, _ = fallback_stage(ctx, tmp_path, monkeypatch, mode=mode, trigger=trigger)
+    record_every_probe(ctx, kinds=("implement", "submit"))
+    accept(ctx)
+    assert runner.readiness(ctx, run.config, github=[]).ready  # stored Codex was available at the tick
+    with pytest.raises(sequence.Stopped) as stopped:
+        run.stage("select", inputs={})
+    missing = [f"sandbox probe select in {mode} mode: no record; run `python -m src.schedules probe --mode "
+               f"{mode} --kind select --confirm-live-probe`" for mode in MODES]
+    assert clients == ["codex-decision"]  # the fallback Claude session never starts
+    assert stopped.value.fields["status"] == "refused" and stopped.value.fields["missing"] == missing
+    stage = records.read_record(run.run_id, ctx.directory)["stages"]["select"]
+    assert stage["status"] == "refused" and stage["missing"] == missing
+    assert stage["requested_client"] == "codex" and stage["client"] == "claude"
+    assert stage["fallback_reason"] == "login_missing" and stage["reason"] == stopped.value.fields["reason"]
+
+
+@pytest.mark.parametrize("invalid", ["failed", "future", "static", "missing-mode"])
+def test_live_codex_fallback_requires_a_counting_passing_record_in_every_mode(ctx, tmp_path, monkeypatch, invalid):
+    run, clients, _ = fallback_stage(ctx, tmp_path, monkeypatch)
+    for mode in MODES:
+        if mode != "resume":
+            record_probe(ctx, "select", mode)
+    if invalid == "failed":
+        record_probe(ctx, "select", "resume", ok=False)
+    elif invalid == "future":
+        record_probe(ctx, "select", "resume", age=-timedelta(hours=1))
+    elif invalid == "static":
+        record_probe(ctx, "select", "resume", ran_session=False)
+    with pytest.raises(sequence.Stopped) as stopped:
+        run.stage("select", inputs={})
+    assert clients == ["codex-decision"]
+    [missing] = stopped.value.fields["missing"]
+    assert "select in resume mode" in missing and "--mode resume --kind select --confirm-live-probe" in missing
+
+
+def test_live_codex_fallback_runs_claude_when_every_mode_has_a_passing_record(ctx, tmp_path, monkeypatch):
+    run, clients, outcome = fallback_stage(ctx, tmp_path, monkeypatch)
+    record_every_probe(ctx, kinds=("select",))
+    assert run.stage("select", inputs={}) is outcome
+    assert clients == ["codex-decision", "claude-session"]
+
+
+@pytest.mark.parametrize("mode,trigger", [("dry-run", "slot"), ("dry-run", "continuation"),
+                                         ("run", "manual"), ("resume", "manual")])
+def test_live_codex_fallback_preserves_supervised_and_dry_runs(ctx, tmp_path, monkeypatch, mode, trigger):
+    run, clients, outcome = fallback_stage(ctx, tmp_path, monkeypatch, mode=mode, trigger=trigger)
+    assert run.stage("select", inputs={}) is outcome
+    assert clients == ["codex-decision", "claude-session"]
+
+
+def test_stored_codex_availability_changing_before_the_stage_also_requires_claude_records(ctx, tmp_path,
+                                                                                       monkeypatch):
+    run, clients, _ = fallback_stage(ctx, tmp_path, monkeypatch, available=False)
+    with pytest.raises(sequence.Stopped) as stopped:
+        run.stage("select", inputs={})
+    assert clients == [] and len(stopped.value.fields["missing"]) == len(MODES)
+
+
+def test_a_live_codex_session_still_needs_no_claude_probe_records(ctx, tmp_path, monkeypatch):
+    run, clients, outcome = fallback_stage(ctx, tmp_path, monkeypatch, fallback=False)
+    assert run.stage("select", inputs={}) is outcome
+    assert clients == ["codex-decision", "codex-session"]
 
 
 def test_the_probe_command_probes_the_claude_select_session_a_run_falls_back_to(ctx, monkeypatch):
