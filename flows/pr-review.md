@@ -563,7 +563,10 @@ it hands the reviewed head to the owner, who pushes it
 8. **The bot-round limit** is `max_bot_rounds` per pull request over its whole
    history, counted as in [Keep the cycle converging](#keep-the-cycle-converging).
    At the limit, the remaining findings go to Follow-ups and the result is
-   `review_status: complete_with_followups`; the runner notifies the owner.
+   `review_status: complete_with_followups`; the runner notifies the owner. A
+   remaining finding that needs a fix (security, or `critical`/`high` from a
+   trusted bot) is not a follow-up: the result is `review_status: blocked`
+   with a neutral reason, for the owner.
 9. **No waiting inside the session.** When the current head waits for a bot
    review (queued, running or paused), end the session with
    `review_status: waiting_bots` and `next_attempt`, the earliest time to look
