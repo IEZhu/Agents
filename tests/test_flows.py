@@ -94,6 +94,32 @@ def test_shipped_catalog_is_loadable():
     assert {entry["id"] for entry in entries} >= {"documentation-refresh", "pr-review"}
 
 
+# The autodev flows (#346): the dispatcher and the gate's rules have no persona; each stage
+# and delegated step declares its agent with exact skills and implants (design 8.5, 9.1).
+AUTODEV_PERSONAS = {
+    "autodev": None,
+    "autodev-gate": None,
+    "autodev-select": {
+        "agent": "product_manager",
+        "skills": ["skill-product-frameworks", "skill-decision-frameworks", "skill-analysis-critical",
+                   "skill-structured-output"],
+        "implants": ["implant-verify-assumptions", "implant-second-order-thinking"]},
+    "autodev-implement": {
+        "agent": "software_engineer",
+        "skills": ["skill-dev-clean-code", "skill-dev-testing", "skill-dev-debugging", "skill-dev-security",
+                   "skill-git-conventions", "skill-structured-output"],
+        "implants": ["implant-regression-first", "implant-iteration-budget"]},
+    "code-review-pass": {
+        "agent": "code_reviewer",
+        "skills": ["skill-dev-clean-code", "skill-dev-testing", "skill-dev-security", "skill-dev-debugging"],
+        "implants": ["implant-chain-of-verification", "implant-regression-first"]},
+    "change-premortem": {
+        "agent": "sysadmin",
+        "skills": ["skill-dev-security", "skill-dev-testing", "skill-error-recovery", "skill-system-design"],
+        "implants": ["implant-premortem", "implant-second-order-thinking"]},
+}
+
+
 @pytest.mark.asyncio
 async def test_builtin_flow_personas_build_complete_bundles(monkeypatch):
     """A declared persona must activate: unknown or invalid components would fail every run.
@@ -126,3 +152,37 @@ async def test_builtin_flow_personas_build_complete_bundles(monkeypatch):
     assert declared["pr-review"]["agent"] == "code_reviewer"
     assert declared["ab-eval"]["agent"] == "ai_senior_engineer"
     assert declared["issue-agent"] is None
+    for flow_id, spec in AUTODEV_PERSONAS.items():
+        assert declared[flow_id] == spec
+
+
+def test_list_flows_shows_the_autodev_flows_with_their_personas(tmp_path):
+    from src.user_flows import FlowLibrary
+
+    listed = {flow["id"]: flow for flow in
+              FlowLibrary(FlowCatalog(), user_dir=tmp_path / "library").list("builtin")["flows"]}
+    for flow_id, spec in AUTODEV_PERSONAS.items():
+        assert "persona_error" not in listed[flow_id]
+        assert listed[flow_id]["persona"] == spec
+        assert listed[flow_id]["persona_source"] == ("frontmatter" if spec else None)
+
+
+def test_delegated_step_flows_defer_to_the_prepared_package():
+    """Design 8.5: a prepared worker follows its package, not the flow's persona and activation."""
+    catalog = FlowCatalog()
+    for flow_id in ("code-review-pass", "change-premortem"):
+        text = catalog.load(flow_id).content
+        assert "## As a delegated worker" in text
+        assert "the package and its worker rules govern" in text
+        assert "ReviewPayload" in text
+    readme = (catalog.directory / "README.md").read_text(encoding="utf-8")
+    delegated = readme.split("## Delegated workers", 1)[1].split("\n## ", 1)[0]
+    assert "task material for a prepared worker" in delegated
+    assert "role activation do not apply" in delegated
+
+
+def test_readme_catalog_lists_every_builtin_flow():
+    catalog = FlowCatalog()
+    readme = (catalog.directory / "README.md").read_text(encoding="utf-8")
+    table = readme.split("## Available flows", 1)[1].split("\n## ", 1)[0]
+    assert [flow_id for flow_id in catalog.ids() if f"]({flow_id}.md)" not in table] == []
