@@ -525,3 +525,12 @@ def test_select_inputs_checks_the_mode_and_the_time():
         stages.select_inputs(repository=REPOSITORY, mode="resume", now="2026-10-14T12:00:00Z", issues=[])
     with pytest.raises(ValueError, match="UTC"):
         stages.select_inputs(repository=REPOSITORY, mode="run", now="2026-10-14T12:00:00", issues=[])
+
+
+def test_a_codex_stage_schema_file_is_read_only_beside_the_inputs(tmp_path):
+    path = stages.write_schema(tmp_path / "state", "select")
+    assert path == tmp_path / "state" / "schema-select.json"
+    assert json.loads(path.read_text()) == stages.SCHEMAS["select"] and stat.S_IMODE(path.stat().st_mode) == 0o400
+    assert stages.write_schema(tmp_path / "state", "select") == path  # rewritten in place
+    with pytest.raises(ValueError):
+        stages.write_schema(tmp_path / "state", "probe")

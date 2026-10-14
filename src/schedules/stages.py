@@ -29,7 +29,8 @@ what the run sequence needs around one stage session; it starts nothing.
   session can read but not write: `select_inputs` and `write_select_inputs` (the candidate issues
   of the select flow's inputs table, each body and comment list in its own file under
   ``issues/<n>/``), `implement_inputs`, `submit_inputs` (a resume adds the trusted state
-  comment's ``pr``, ``rounds``, ``findings_seen`` and ``state_comment_head``) and `write_inputs`.
+  comment's ``pr``, ``rounds``, ``findings_seen`` and ``state_comment_head``) and `write_inputs`;
+  `write_schema` writes a Codex stage's ``--output-schema`` file beside them.
 * **Around the session.** `parse_stage_stream` reads a ``--output-format stream-json`` capture
   (the ``system/init`` event, the last ``result`` event with ``structured_output``, the reported
   model and cost, the permission denials); `stage_profile` picks the client a stage runs with
@@ -765,6 +766,14 @@ def _read_only(path: Path, content: str) -> None:
         os.chmod(path, 0o600)  # replaced atomically below; the old copy was read-only
     atomic_private(path, content)
     os.chmod(path, 0o400)
+
+
+def write_schema(directory: str | os.PathLike[str], kind: str) -> Path:
+    """Write the stage's schema (`schema_text`) as ``<directory>/schema-<kind>.json``, read-only:
+    the ``--output-schema`` file of a Codex stage, inside its read-only state copy (#347)."""
+    path = private_dir(Path(directory)) / f"schema-{_kind(kind)}.json"
+    _read_only(path, schema_text(kind) + "\n")
+    return path
 
 
 def write_inputs(state_copy: str | os.PathLike[str], kind: str, data: Mapping) -> Path:

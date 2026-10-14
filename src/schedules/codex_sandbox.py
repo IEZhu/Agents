@@ -24,8 +24,9 @@ between Codex and the Claude worker.
   --ignore-user-config --ignore-rules --ephemeral -s read-only --skip-git-repo-check -C <tree>
   --output-schema <file> -o <file>`` plus `HARDENING` (extension sources and model-command
   secrets), ``-m`` and ``-c model_reasoning_effort=`` when set, and ``-`` (the prompt on standard
-  input). The stage session uses ``-s workspace-write -C <one-off repository>``, `STAGE_SWITCHES`
-  and ``--json``. Never ``--add-dir``, ``--approve-for-me``, a profile (``-p``), a ``--dangerously-*``
+  input). The stage session uses ``-s workspace-write -C <one-off repository>``, `STAGE_SWITCHES`,
+  ``--json`` and, with a ``schema`` (#347: the stage's output schema, a file in a read-only root
+  such as the run's state copy), ``--output-schema <file>``. Never ``--add-dir``, ``--approve-for-me``, a profile (``-p``), a ``--dangerously-*``
   flag, ``danger-full-access`` or another ``sandbox*`` configuration key (`check_argv`).
 * **Environment** (`environment`): an allowlist, separate from `runner.run_environment`:
   ``PATH`` (only the runner's directories the profile lets the process execute from, then
@@ -313,6 +314,9 @@ class CodexPaths:
                 found.append(f"{name} must be a directory directly inside the temporary root")
         if len({_real(self.run_home), _real(self.codex_home), _real(self.tmpdir)}) != 3:
             found.append("run_home, codex_home and the run's TMPDIR must be different directories")
+        if self.kind == STAGE and self.schema is not None and \
+                not any(_inside(_real(self.schema), _real(root)) for root in self.read_roots):
+            found.append("a stage's schema must lie inside one of its read-only roots (the profile reads only those)")
         if self.kind == STAGE and not os.path.isdir(_real(self.repository) / ".git"):  # type: ignore[arg-type]
             found.append("the one-off repository's .git must be a directory (a gitdir file would move the "
                          ".git/config and hooks the profile denies)")
@@ -615,8 +619,9 @@ def codex_command(codex: str, paths: CodexPaths, *, model: str | None = None, ef
                    "--output-schema", str(_real(paths.schema)), "-o", str(_real(paths.out_dir) / OUTPUT_NAME),  # type: ignore[arg-type]
                    *HARDENING]
     else:
+        schema = ["--output-schema", str(_real(paths.schema))] if paths.schema is not None else []
         command = [*common, "-s", "workspace-write", "--skip-git-repo-check", "-C",
-                   str(_real(paths.repository)), *HARDENING, *STAGE_SWITCHES, "--json",  # type: ignore[arg-type]
+                   str(_real(paths.repository)), *HARDENING, *STAGE_SWITCHES, "--json", *schema,  # type: ignore[arg-type]
                    "-o", str(_real(paths.out_dir) / OUTPUT_NAME)]
     command += _plain("-m", model)
     if check_effort(effort) is not None:

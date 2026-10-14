@@ -1468,15 +1468,19 @@ def stage_availability(codex: str | None, paths: cs.CodexPaths, *, path: str, pr
     return decision
 
 
-def codex_settings(config: Mapping, kind: str) -> dict:
+STAGE_KIND_DEFAULT = "implement"
+
+
+def codex_settings(config: Mapping, kind: str, stage_kind: str | None = None) -> dict:
     """The ``model`` and ``effort`` of a Codex ``kind`` launch from ``autodev.json``: a worker uses
-    ``delegates.code-review-pass.codex``, a stage ``stages.implement.codex`` and else the
-    worker's. The owner's check (`runner.codex_probe`) and `stage_shape` read them the same way, so
-    a stage launch of #347 must use them too, or its shape differs (``shape_changed``)."""
+    ``delegates.code-review-pass.codex``, a stage ``stages.<stage_kind>.codex`` (``implement``
+    when none is named) and else the worker's. The owner's check (`runner.codex_probe`), the run
+    sequence (#347, which names the stage kind) and `stage_shape` read them the same way, so a
+    stage launch must use them too, or its shape differs (``shape_changed``)."""
     delegates, stages = config.get("delegates") or {}, config.get("stages") or {}
     settings = ((delegates.get("code-review-pass") or {}).get("codex")) or {}
     if kind == cs.STAGE:
-        settings = ((stages.get("implement") or {}).get("codex")) or settings
+        settings = ((stages.get(stage_kind or STAGE_KIND_DEFAULT) or {}).get("codex")) or settings
     return {"model": settings.get("model"), "effort": settings.get("effort")} if isinstance(settings, dict) else {}
 
 
@@ -1490,11 +1494,12 @@ def _launch_shape(kind: str, codex: str | None, model: str | None, effort: str |
         return ""
 
 
-def stage_shape(codex: str, config: Mapping) -> str:
-    """The shape of the stage launch the configuration makes with ``codex`` (`codex_settings`,
-    `codex_sandbox.launch_shape`): no key, no run, no file written. #347 and #348 pass it to
-    `read_availability`; `codex_sandbox.CodexSandboxError` when the executable cannot be read."""
-    settings = codex_settings(config, cs.STAGE)
+def stage_shape(codex: str, config: Mapping, stage_kind: str | None = None) -> str:
+    """The shape of the ``stage_kind`` stage launch the configuration makes with ``codex``
+    (`codex_settings`, `codex_sandbox.launch_shape`; with ``--output-schema``): no key, no run, no
+    file written. #347 and #348 pass it to `read_availability`;
+    `codex_sandbox.CodexSandboxError` when the executable cannot be read."""
+    settings = codex_settings(config, cs.STAGE, stage_kind)
     return cs.launch_shape(cs.STAGE, codex, model=settings.get("model"), effort=settings.get("effort"))
 
 
