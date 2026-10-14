@@ -1303,3 +1303,115 @@ def test_the_landing_pages_answers_link_to_their_entries(landing):
     assert re.fullmatch(link.format(3), shown)
     reduced = run("landing_reduced")["event_links"]
     assert len(reduced) == 4 and all(re.fullmatch(link.format(n + 1), href) for n, href in enumerate(reduced))
+
+
+# --- the Autodev page (#348): the autodev schedule's settings, switch and status -----------------
+
+def run_autodev(scenario):
+    """An Autodev scenario against a scripted /ui/api/autodev whose settings are the daemon's own
+    defaults (`editable(DEFAULTS)`); times print in UTC."""
+    from src.daemon.autodev_ui import editable
+    from src.schedules.config import DEFAULTS
+    completed = subprocess.run([NODE, str(ROOT / "tests" / "flows_ui_page_harness.mjs"), str(PAGE), scenario],
+                               capture_output=True, text=True, timeout=60, check=True,
+                               env={**os.environ, "TZ": "UTC", "AUTODEV_DEFAULTS": json.dumps(editable(DEFAULTS))})
+    return json.loads(completed.stdout)
+
+
+@pytest.fixture(scope="module")
+def autodev():
+    return run_autodev("autodev")
+
+
+DEFAULT_PROFILES = {
+    "select": {"client": "claude", "claude": ["opus", "high"], "codex": ["", ""]},
+    "implement": {"client": "claude", "claude": ["opus", "xhigh"], "codex": ["", ""]},
+    "submit": {"client": "claude", "claude": ["opus", "high"], "codex": ["", ""]},
+    "code-review-pass": {"client": "codex", "claude": ["", ""], "codex": ["gpt-6.1-sol", "high"], "followup": "medium"},
+    "change-premortem": {"client": "claude", "claude": ["opus", "high"], "codex": ["", ""], "role": "sysadmin"},
+}
+DEFAULT_FORM = {"times": "02:17, 13:47", "catch_up": "120", "hours": "08:00-23:00,00:00-06:00", "ac": True,
+                "limits": ["3", "3", "120"], "profiles": DEFAULT_PROFILES}
+
+
+def test_the_autodev_chip_opens_the_page_in_place_of_the_list(autodev):
+    assert autodev["opened"] == {"shown": True, "main_hidden": True, "chip": "true", "title_focused": 1,
+                                 "tabs": ["false"] * 6, "gets": 1}
+    assert autodev["left"] == {"shown": False, "main_hidden": False, "chip": "false"}
+    assert autodev["tab"] == {"shown": False, "main_hidden": False, "chip": "false",
+                              "tabs": ["false", "true", "false", "false", "false", "false"]}
+
+
+def test_the_autodev_page_renders_the_defaults(autodev):
+    assert autodev["form"] == DEFAULT_FORM
+    assert autodev["efforts"]["claude"] == ["", "low", "medium", "high", "xhigh", "max"]
+    # The later reviews' effort is its own visible setting, offered from the review client's list.
+    assert autodev["efforts"]["followup"][:4] == ["", "none", "minimal", "low"] and "ultra" in autodev["efforts"]["followup"]
+    assert autodev["status"] == {
+        "state": "Off.", "next": "Next slot when on: 2026-10-12 13:47.", "switch": "Turn on",
+        "runs": "2026-10-11 13:47 · dry-run · slot · failed: infranetwork: github.com unreachable"
+                "2026-10-11 02:17 · dry-run · slot · completed · select"}
+
+
+def test_the_autodev_page_shows_codex_unavailable_with_the_reason(autodev):
+    codex = autodev["codex"]
+    assert codex["select"] == ("Codex is unavailable as this stage's client: the stage probes have not passed yet: run "
+                               "`python -m src.schedules codex-probe --kind stage --confirm-live-probe`.")
+    assert codex["implement"].startswith("Codex is unavailable as this stage's client: this stage commits")
+    assert codex["clients"] == codex["implement_clients"] == ["Claude", "Codex (unavailable)"]
+    assert codex["review"].startswith("Before every step the runner checks Codex with model-free probes")
+    available = run_autodev("autodev_codex")["codex"]
+    assert available["select"] == "Codex can run this stage: the stage probes passed (2026-10-11 11:00)."
+    assert available["clients"] == ["Claude", "Codex"] and available["implement_clients"][1] == "Codex (unavailable)"
+
+
+def test_the_autodev_page_offers_run_mode_only_as_unavailable(autodev):
+    assert autodev["mode"] == [["dry-run", "dry-run", False],
+                               ["run", "run (unavailable until the automatic mode, #350)", True]]
+    assert autodev["enabled"]["post"] == ["POST", "/ui/api/autodev/enable", {"mode": "dry-run"}]
+    assert autodev["enabled"]["status"]["state"] == "On, mode dry-run." and autodev["enabled"]["status"]["switch"] == "Turn off"
+    assert autodev["enabled"]["alert"] == {
+        "text": "Turned on in dry-run. Then run `python -m src.schedules autodev install` so that ticks start.",
+        "className": "notice ok", "items": []}
+    assert autodev["disabled"] == {"post": ["POST", "/ui/api/autodev/disable"],
+                                   "status": {**autodev["status"], "state": "Off.", "switch": "Turn on"}}
+
+
+def test_the_autodev_page_saves_every_setting_with_the_revision_it_read(autodev):
+    put = autodev["saved"]["put"]
+    assert put["expected_revision"] == ""  # no autodev.json yet: the defaults
+    settings = put["settings"]
+    assert settings["times"] == ["02:17", "13:47"] and settings["catch_up_minutes"] == 77  # typed before leaving
+    assert settings["limits"] == {"max_reviews": 4, "max_bot_rounds": 3, "max_wait_minutes": 120}
+    assert settings["stages"]["implement"] == {"client": "claude", "claude": {"model": "opus", "effort": "xhigh"},
+                                               "codex": {"model": "gpt-6.1-sol", "effort": "ultra"}}
+    assert settings["stages"]["select"]["codex"] is None
+    assert settings["delegates"]["code-review-pass"] == {"client": "codex", "claude": None,
+                                                         "codex": {"model": "gpt-6.1-sol", "effort": "high"},
+                                                         "effort_followup": "low"}
+    assert settings["delegates"]["change-premortem"]["role"] == "software_engineer"
+    assert "enabled" not in settings and "mode" not in settings  # only the switch changes them
+    assert autodev["saved"]["alert"] == {"text": "Saved.", "className": "notice ok", "items": []}
+    assert autodev["back"] == {"shown": True, "main_hidden": True, "chip": "true", "catch_up": "77", "gets": 2}
+
+
+def test_the_autodev_page_shows_a_refusal_and_keeps_what_was_typed(autodev):
+    assert autodev["refused"] == {"alert": {"text": "Not saved; autodev.json is unchanged:", "className": "notice error",
+                                            "items": ["times: '25:00' is not a time of day HH:MM"]},
+                                  "times": "25:00, 13:47", "puts": 2}
+    # The switch keeps the typed form and takes the revision of its own write, so the next save is accepted.
+    assert autodev["enabled"]["times"] == "25:00, 13:47"
+    assert autodev["after_switch"] == {"put": "e6", "alert": "Saved."}
+    assert autodev["defaults"] == {"form": DEFAULT_FORM, "alert": "The defaults are in the form; Save writes them."}
+
+
+def test_the_autodev_page_keeps_the_header_budget():
+    html, script, style = page_parts()
+    header = html[html.index("<header>"):html.index("</header>")]
+    assert header.index('id="sync-chip"') < header.index('id="autodev-chip"') < header.index('id="item-actions"')
+    assert re.search(r'<button id="autodev-chip"[^>]*aria-controls="autodev-page"', header)
+    css = css_rules(style)[""]
+    assert css["#autodev-chip"]["line-height"] == "12px" and css["#autodev-chip"]["white-space"] == "nowrap"
+    assert css["#chips"]["display"] == "flex" and css["#autodev-page"]["overflow-y"] == "auto"
+    # Every request goes through api() to the page's own origin.
+    assert '"/ui/api/autodev"' in script and "/ui/api/autodev/enable" in script
