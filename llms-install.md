@@ -38,7 +38,7 @@ On Windows, use the absolute `.venv\Scripts\python.exe` path and escape backslas
 
 On NixOS, add `LD_LIBRARY_PATH` with `/run/current-system/sw/share/nix-ld/lib` in the entry's `env` when using Nix Python, as described in [After Cloning](README.md#after-cloning).
 
-For a configuration dedicated to one project, add `"env": {"AGENTS_CLIENT_REPO_ROOT": "/absolute/path/to/project"}` to the server entry. Do not set this in a global entry shared by projects, or point it at your home directory or the server installation. Pass the actual project's absolute path as `workspace` to memory and workflow tools.
+For a configuration dedicated to one project, add `"env": {"AGENTS_CLIENT_REPO_ROOT": "/absolute/path/to/project"}` to the server entry. This override takes precedence over `workspace`, so memory and workflow tools cannot select another repository through `workspace` while it is set. Use a separate entry with a matching override for each project; omit the override when `workspace` should select the repository. Do not point the override at your home directory or the server installation. Pass the selected project's absolute path as `workspace` to memory and workflow tools.
 
 ## 3. Connect and verify
 
@@ -52,7 +52,7 @@ Record whether the client actually completed installation and connected successf
 
 - Missing executable: confirm setup finished and both absolute paths refer to the same installation.
 - Missing dependencies or model: inspect the setup output; use the project's documented repair or update procedure.
-- Wrong repository memory target: pass the selected project's absolute `workspace`, or use a project-specific MCP entry with `AGENTS_CLIENT_REPO_ROOT`.
+- Wrong repository memory target: when `AGENTS_CLIENT_REPO_ROOT` is set, correct that entry's project path and reconnect; otherwise pass the selected project's absolute `workspace`.
 - Duplicate tools in Claude Code: keep either its direct `Agents-Core` registration or the plugin, following the [plugin setup guide](plugins/agents-core/README.md#setup).
 
 To disconnect this client, remove only its `Agents-Core` entry. To remove the installation, follow [Uninstall](README.md#uninstall), starting with the dry run. The [plugin Privacy Policy](plugins/agents-core/README.md#privacy-policy) describes local storage, optional tracing and optional Git sync.
