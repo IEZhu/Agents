@@ -50,7 +50,8 @@ note ([plan 5.8](autodev-plan.md#58-public-visibility)).
 - **For your own commands.** `jq`, which this page and the
   [acceptance runbook](autodev-acceptance.md) use to read the JSON that every command prints, and
   your own `gh` login (`gh auth login`): the host-key command below and the runbook's snapshots
-  and issue lists read GitHub with it, using GET requests only. The runner never uses it.
+  and issue lists read GitHub with it, using read-only requests only (REST `GET`, and the GraphQL
+  queries behind `gh issue list` and `gh pr view`). The runner never uses it.
 - **The trusted repository.** The runner keeps its own bare clone at `clone` in `autodev.json`
   (default `~/.local/share/agents-autodev/IEZhu-Agents`) and creates it on first use. It must lie
   outside `~/Documents` and the installation. The session directories go into `sessions/` beside
