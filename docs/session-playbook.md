@@ -14,14 +14,23 @@ for Langfuse analysis.
 - **Commit identity.** Check `git config user.email` in each checkout before the first
   commit; a repository-local setting overrides the global one. When amending, use
   `git commit --amend --reset-author` so author and committer both change.
-- **Branches.** Use the requested base, or the current `HEAD` for a documentation
-  refresh. When branching from a remote ref, use `--no-track`
-  (`git worktree add --no-track -b codex/task-name <path> origin/main`), so a GUI client never
+- **Branches.** Use the requested base; otherwise cut from `origin/dev`, the
+  integration branch, and open the PR against `dev` (`main` takes release PRs from
+  `dev`). Use the current `HEAD` for a documentation refresh. When branching from a
+  remote ref, use `--no-track`
+  (`git worktree add --no-track -b codex/task-name <path> origin/dev`), so a GUI client never
   pushes a feature branch to the upstream it was cut from. The repository deletes a
   PR's branch when it is merged.
-- **Parallel work.** Give each independent change its own worktree, for example
-  under `.worktrees/` or `.claude/worktrees/`. Check existing worktrees first and
-  remove only your completed worktree once its changes are preserved and it is clean.
+- **Live installation.** Never edit, commit, stash, reset or switch branches in the
+  checkout the daemon runs from: the self-updater fast-forwards it only while it is
+  on `AGENTS_AUTO_UPDATE_BRANCH` with a clean tree, and otherwise skips it
+  (`SKIPPED_WRONG_BRANCH`, `SKIPPED_DIRTY`). If it is already off that branch or
+  dirty, tell the user instead of repairing it.
+- **Parallel work.** Give each change its own worktree, for example under
+  `.worktrees/` or `.claude/worktrees/`, never in a temporary directory or session
+  scratchpad, which get cleaned with any unpushed work. Check existing worktrees
+  first and remove only your completed worktree once its changes are preserved and
+  it is clean.
 - **One heavy process at a time.** The development laptop has rebooted under parallel
   pytest runs and embedding-model loads. Run the regular suite, which excludes tests
   marked `slow`, once and alone:
