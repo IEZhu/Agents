@@ -114,6 +114,7 @@ layers.
 
 ```bash
 claude plugin validate ./plugins/agents-core     # from the repository root; prints "Validation passed"
+claude plugin validate .                       # checks .claude-plugin/marketplace.json too
 LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest -q tests/test_tool_annotations.py
 ```
 
@@ -139,6 +140,22 @@ plugin:
   to `scripts\init_repo.bat`).
 
 ## Release
+
+### Repository marketplace
+
+The root [`.claude-plugin/marketplace.json`](../.claude-plugin/marketplace.json) lists
+`agents-core` from `./plugins/agents-core`. Its marketplace name is also `agents-core`, so the
+install id is `agents-core@agents-core`. The relative source resolves from the repository root.
+The plugin manifest remains the source for its version; the marketplace does not duplicate it.
+
+After the marketplace file reaches `main`, users can run `/plugin marketplace add IEZhu/Agents`
+and `/plugin install agents-core@agents-core` in Claude Code. This distribution path needs no
+Anthropic directory approval; the separately installed local server is still required.
+Follow the [marketplace creation guide](https://code.claude.com/docs/en/plugin-marketplaces)
+and [marketplace reference](https://code.claude.com/docs/en/plugins/marketplace-reference).
+The [distribution guide](distribution.md) records third-party routes and submission status.
+
+### Anthropic directory
 
 The directory follows a tracked branch or tag of `IEZhu/Agents` and scans each new commit it
 picks up, so a release is a push:

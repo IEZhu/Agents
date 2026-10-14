@@ -8,12 +8,16 @@ from pathlib import Path
 import shutil
 import signal
 import stat
+import subprocess
 import tempfile
 from types import SimpleNamespace
 
+from urllib.parse import parse_qs
+
 import pytest
 
-from src.schedules import cli, config as autodev_config, heavy, lease, records, runner, socket_service
+from src.schedules import broker, cli, config as autodev_config, github, heavy, lease, records, runner, sequence
+from src.schedules import socket_service
 from src.schedules.github import GitHubClient, TokenUnavailable
 from src.schedules.supervise import Supervised, SupervisorStopped
 from tests.test_schedules_github import FakeGitHub
@@ -29,12 +33,38 @@ def empty_github():
     return {f"{BASE}/issues": [[]], f"{BASE}/pulls": [[]]}
 
 
+class FakeGitHubByLabel(FakeGitHub):
+    """`FakeGitHub`, with the select stage's candidate lists (``autodev:ready``, ``autodev:next``)
+    answered from ``<path>?labels=<label>`` pages, empty by default."""
+
+    def __call__(self, url, headers):
+        path, _, query = url.removeprefix(github.API).partition("?")
+        label = (parse_qs(query).get("labels") or [None])[0]
+        if label in ("autodev:ready", "autodev:next"):
+            self.calls.append((url, dict(headers)))
+            return 200, {}, json.dumps(self.pages.get(f"{path}?labels={label}", [[]])[0]).encode()
+        return super().__call__(url, headers)
+
+
+def no_credentials(config):
+    """Credentials a test machine does not have: a real run refuses on its preconditions."""
+    def token():
+        raise TokenUnavailable("no token in the tests")
+    missing = Path("/nonexistent/autodev-test")
+    return broker.Credentials(missing / "deploy_key", missing / "github_known_hosts", token)
+
+
 @pytest.fixture
 def ctx(tmp_path, service_state_dir):
     clock = {"now": datetime(2026, 10, 12, 2, 20, tzinfo=ZONE)}
     pages = empty_github()
-    fake_github = FakeGitHub(pages)
+    fake_github = FakeGitHubByLabel(pages)
     supervised = []
+    notifications = []
+
+    def notify(argv, **kwargs):
+        notifications.append(list(argv))
+        return subprocess.CompletedProcess(argv, 0, "", "")
 
     def supervise(argv, **kwargs):
         """Run the child in this process, as the real supervisor would in a new process group."""
@@ -49,8 +79,10 @@ def ctx(tmp_path, service_state_dir):
         clock=lambda: clock["now"], launchctl=FakeLaunchd(), agents_dir=tmp_path / "LaunchAgents",
         client_factory=lambda config: GitHubClient(config["repository"], lambda: SECRET, transport=fake_github),
         drift_check=lambda installation: {"pinned": "c" * 40, "runner_commit": "c" * 40, "changed": []},
-        supervise=supervise, heavy_processes=lambda: [], on_ac_power=lambda: True)
-    context.test = SimpleNamespace(clock=clock, pages=pages, github=fake_github, supervised=supervised)
+        supervise=supervise, heavy_processes=lambda: [], on_ac_power=lambda: True, notify_runner=notify,
+        credentials=no_credentials)
+    context.test = SimpleNamespace(clock=clock, pages=pages, github=fake_github, supervised=supervised,
+                                   notifications=notifications)
     return context
 
 
@@ -152,22 +184,33 @@ def test_run_ids_cannot_name_other_paths(service_state_dir):
         assert records.read_record(bad, service_state_dir) is None
 
 
-# --- real modes refuse ------------------------------------------------------------------------------
+# --- real modes: run-now, and the automatic mode of #350 (tests/test_schedules_automatic.py) ------------
 
-@pytest.mark.parametrize("argv", [
-    ("autodev", "run-now", "--mode", "run"),
-    ("autodev", "run-now", "--mode", "resume", "--pr", "410"),
-    ("autodev", "enable", "--mode", "run", "--accept-shared-account"),
-    ("run", "autodev", "--mode", "run"),
-    ("run", "autodev", "--mode", "resume", "--pr", "410"),
-])
-def test_real_modes_refuse_and_name_the_missing_parts(ctx, argv):
-    code, result = call(ctx, *argv)
-    assert code == 1 and result["ok"] is False and result["error"] == "mode_unavailable"
-    assert result["missing"] == ["#347 run sequence", "#350 automatic mode"]
-    assert ctx.test.supervised == [] and ctx.test.github.calls == []
+def test_enabling_run_mode_refuses_while_the_automatic_mode_is_not_ready(ctx):
+    code, result = call(ctx, "autodev", "enable", "--mode", "run", "--accept-shared-account")
+    assert code == 1 and result["ok"] is False and result["error"] == "not_ready"
+    assert "the API token" in result["missing"] and "autodev ready" in result["message"]
+    assert ctx.test.supervised == [] and ctx.test.github.calls == []  # without the token nothing is read
     assert autodev_config.load(ctx.directory)["enabled"] is False
     assert not records.runs_dir(ctx.directory).exists()
+    assert not (ctx.directory / "schedules" / "acceptance.json").exists()
+
+
+@pytest.mark.parametrize("argv, mode", [
+    (("autodev", "run-now", "--mode", "run"), "run"),
+    (("autodev", "run-now", "--mode", "resume", "--pr", "410"), "resume"),
+])
+def test_run_now_starts_a_supervised_real_run_that_checks_its_preconditions(ctx, argv, mode):
+    code, record = call(ctx, *argv)
+    assert code == 1 and record["status"] == "refused" and record["mode"] == mode
+    assert record["missing"] == ["the deploy key", "the pinned github.com host keys", "the API token"]
+    assert "gate" not in record and ctx.test.github.calls == []  # nothing read before the preconditions
+    argv_, kwargs = ctx.test.supervised[0]
+    assert argv_[6:8] == ["--mode", mode]
+    assert kwargs["timeout"] == sequence.run_timeout(autodev_config.DEFAULTS, mode)
+    assert kwargs["timeout"] == (330 if mode == "run" else 120) * 60
+    [notification] = ctx.test.notifications
+    assert notification[-2] == "Autodev run refused"
 
 
 def test_resume_needs_a_pull_request(ctx, capsys):
@@ -183,13 +226,14 @@ def test_run_now_dry_run_reaches_the_gate_decision(ctx):
     assert code == 0 and record["status"] == "completed" and record["mode"] == "dry-run"
     assert record["gate"]["decision"] == "select" and record["cleanup_executed"] is False
     assert record["trigger"]["kind"] == "manual" and record["pinned"] == "c" * 40 and record["caffeinated"]
-    assert "#347" in record["selection"]
+    assert record["selection"]["decision"] == "none" and "autodev:ready" in record["selection"]["rationale"]
+    assert "probes" not in record and ctx.test.notifications == []  # no candidate: no session, no notification
     stored = records.read_record(record["run_id"], ctx.directory)
     assert stored["status"] == "completed" and SECRET not in json.dumps(stored)
     argv, kwargs = ctx.test.supervised[0]
     assert argv[:10] == ["/opt/python", "-P", "-m", "src.schedules", "run", "autodev", "--mode", "dry-run",
                          "--run-id", record["run_id"]]
-    assert kwargs["cwd"] == ctx.installation and kwargs["timeout"] == runner.DRY_RUN_TIMEOUT_MINUTES * 60
+    assert kwargs["cwd"] == ctx.installation and kwargs["timeout"] == sequence.run_timeout({}, "dry-run") == 3600
     environment = kwargs["env"]
     assert environment["PYTHONPATH"] == str(ctx.installation)
     assert environment["AGENTS_SERVICE_DIR"] == str(ctx.directory)
@@ -207,7 +251,8 @@ def test_dry_run_reports_cleanup_actions_without_executing_them(ctx):
     code, record = call(ctx, "autodev", "run-now")
     assert code == 0 and record["gate"]["decision"] == "select"
     assert record["gate"]["actions"][0]["op"] == "remove_label" and record["cleanup_executed"] is False
-    assert len(ctx.test.github.calls) == 4  # issues, events, open pulls, closed pulls: reads only
+    # Issues, events, open pulls, closed pulls, then the two candidate lists: reads only.
+    assert len(ctx.test.github.calls) == 6
 
 
 @pytest.mark.parametrize("failure, reason", [
@@ -241,6 +286,8 @@ def test_infrastructure_failures_are_recorded(ctx, failure, reason):
     code, record = call(ctx, "autodev", "run-now")
     assert code == 1 and record["status"] == "failed: infra" and record["reason"].startswith(reason)
     assert "gate" not in record
+    [notification] = ctx.test.notifications  # a dry-run that failed notifies the owner
+    assert notification[-2] == "Autodev dry-run failed"
 
 
 def test_a_held_lease_is_an_infrastructure_failure(ctx):
@@ -294,6 +341,33 @@ def test_a_stopped_supervisor_completes_the_record_before_it_exits(ctx):
     record = records.all_records(ctx.directory)[0]
     assert record["status"] == "failed: infra" and record["finished"]
     assert record["reason"] == "stopped: the supervisor received SIGTERM; the run's process tree was ended"
+
+
+def test_a_run_the_supervisor_ended_still_notifies_the_owner(ctx):
+    """Correctness review #347: a run ended by a timeout or a stopped supervisor that could not
+    notify the owner itself is notified by the launching process, once."""
+    ctx.supervise = lambda argv, **kwargs: Supervised(-9, timed_out=True)
+    code, record = call(ctx, "autodev", "run-now")
+    assert code == 1 and record["reason"].startswith("timeout:") and record["notification"]["sent"] is True
+    [argv] = ctx.test.notifications
+    assert argv[-2] == "Autodev dry-run failed" and record["run_id"] in argv[-1]
+    assert record["report"]["status"] == "failed: infra"
+
+    def notified_itself(argv, **kwargs):
+        run_id = argv[argv.index("--run-id") + 1]
+        records.update_record(run_id, lambda current: {**current, "notification": {"sent": True, "title": "x"}},
+                              ctx.directory)
+        return Supervised(-9, timed_out=True)
+    ctx.supervise = notified_itself
+    call(ctx, "autodev", "run-now")
+    assert len(ctx.test.notifications) == 1
+
+    def stopped(argv, **kwargs):
+        raise SupervisorStopped(signal.SIGTERM)
+    ctx.supervise = stopped
+    with pytest.raises(SupervisorStopped):
+        call(ctx, "autodev", "run-now")
+    assert len(ctx.test.notifications) == 2 and ctx.test.notifications[-1][-2] == "Autodev dry-run failed"
 
 
 @pytest.fixture
@@ -390,13 +464,19 @@ def test_enable_disable_and_a_tick_that_runs_the_due_slot(ctx):
     assert code == 0 and autodev_config.load(ctx.directory)["enabled"] is False
 
 
-def test_tick_in_run_mode_refuses_without_starting_anything(ctx):
+def test_tick_in_run_mode_refuses_without_starting_anything_while_not_ready(ctx):
     config = {**autodev_config.DEFAULTS, "enabled": True, "mode": "run"}
     autodev_config.save(config, ctx.directory)
     (ctx.directory / "schedules" / "tick.json").write_text(json.dumps({"enabled_at": "2026-10-12T00:00:00+03:00"}))
     code, result = call(ctx, "tick")
-    assert result["tick"]["action"] == "run" and result["run"]["error"] == "mode_unavailable"
+    assert result["tick"]["action"] == "run" and result["run"]["status"] == "refused"
+    assert result["run"]["reason"].startswith("automatic mode not ready: the deploy key; ")
+    assert "the API token" in result["run"]["reason"] and result["run"]["reason"].endswith(" more)")
     assert ctx.test.supervised == []
+    [record] = records.all_records(ctx.directory)  # recorded, and the owner is told
+    assert record["run_id"] == result["run"]["run_id"] and record["mode"] == "run" and "the API token" in record["missing"]
+    [argv] = ctx.test.notifications
+    assert argv[-2] == "Autodev run refused" and argv[-1] == f"details in run {record['run_id']}."
     state = json.loads((ctx.directory / "schedules" / "tick.json").read_text())
     assert state["last_slot"] == "2026-10-12T02:17:00+03:00"  # handled, not retried every five minutes
 
@@ -427,14 +507,20 @@ def test_status_reports_state_runs_and_the_next_slot(ctx):
     assert code == 0 and result["next_slot"] == "2026-10-12T13:47:00+03:00"
     assert result["scheduler"]["label"].endswith(".scheduler") and result["scheduler"]["installed"] is False
     assert result["recent_runs"][0]["status"] == "completed" and result["recent_runs"][0]["decision"] == "select"
-    assert result["lease_held"] is False and result["real_modes"]["available"] is False
+    assert result["lease_held"] is False and result["automatic"]["on"] is False
+    assert result["automatic"]["check"] == "python -m src.schedules autodev ready"
+    acceptance = result["automatic"]["acceptance"]
+    assert (acceptance["current"], acceptance["accepted"]) == (False, None) and "not recorded" in acceptance["problems"][0]
     assert result["heavy_lease_held"] is False
     assert result["config_file"] == str(ctx.directory / "schedules" / "autodev.json")
 
 
-def test_ready_is_a_stub_that_lists_what_is_missing(ctx):
+def test_ready_lists_what_is_missing_and_exits_with_one(ctx):
     code, result = call(ctx, "autodev", "ready")
-    assert code == 1 and result["ready"] is False and "#350 automatic mode" in result["missing"]
+    assert code == 1 and result["ok"] is True and result["ready"] is False
+    assert "the API token" in result["missing"] and result["acceptance"]["current"] is False
+    assert sum(item.startswith("sandbox probe ") for item in result["missing"]) == 12  # 3 kinds in 4 modes
+    assert ctx.test.supervised == [] and ctx.test.github.calls == []
 
 
 def test_install_and_uninstall_through_the_cli(ctx, tmp_path):

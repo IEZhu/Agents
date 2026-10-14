@@ -126,6 +126,29 @@ def fallback_journal(tmp_path_factory, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def no_real_notifications(monkeypatch):
+    """The autodev runner's macOS notification (`src.schedules.report.notify`) runs ``osascript``
+    through the context's ``notify_runner``; a test must pass a fake one. Left at the default
+    (``subprocess.run``) on macOS, it would show the owner a real notification, so it fails the test."""
+    import subprocess
+    import sys
+    if os.name == "nt":  # the runner needs POSIX signals (client_stub) and never notifies on Windows
+        return
+    try:
+        from src.schedules import report
+    except ImportError:  # a platform the runner does not load on: nothing can notify
+        return
+    real = report.notify
+
+    def guarded(title, message, *, runner=subprocess.run, platform=sys.platform, **options):
+        if runner is subprocess.run and platform == "darwin":
+            raise AssertionError("a test would run the real osascript: pass a fake notify_runner")
+        return real(title, message, runner=runner, platform=platform, **options)
+
+    monkeypatch.setattr(report, "notify", guarded)
+
+
+@pytest.fixture(autouse=True)
 def service_state_dir(tmp_path_factory, monkeypatch):
     """Every test gets its own empty service state directory in ``AGENTS_SERVICE_DIR``.
 

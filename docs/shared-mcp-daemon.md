@@ -692,7 +692,18 @@ seconds while the browser tab is visible (see
   workspace it belongs to. Personal and repository flows keep saved versions in
   the library's local Git repository, created during installation without
   requiring remote sync. The editor reads those Git versions and restoration
-  creates a new version. Earlier `.history` snapshots are imported automatically.
+  creates a new version. A flow's text opens at once (`GET /ui/api/flow` leaves
+  the versions out); the page then asks `GET /ui/api/flow/history` for the
+  History list, which reports a flow that neither exists nor has versions as not
+  found and keeps listing a deleted flow's versions. Each process keeps the
+  library's computed versions in memory, keyed by the commits of the history
+  refs, and reads only the commits a save or a sync added, also when a rewritten
+  ref drops others; replace refs and grafts are ignored. The memory is bounded by
+  counts, not bytes: 8 libraries and 4096 version digests, and a library's entry
+  grows with its history (blob IDs, no file contents). A version list or a version
+  read now reads only that flow's blobs, so a corrupt blob of an unrelated
+  version no longer fails it; reading all versions at once still reports it.
+  Earlier `.history` snapshots are imported automatically.
   The editor also compares a local copy with its built-in flow ("Show built-in") and detects
   conflicts with edits made from chat.
   The **Persona** panel of an open flow (built-in ones included) chooses the
@@ -743,11 +754,24 @@ seconds while the browser tab is visible (see
   With [user library sync](user-sync.md#repository-history) the entry also leaves
   what this machine shared, though the library's git history keeps it.
 
+The **Autodev** chip under the version, and `/ui#autodev`, open the autodev
+schedule's settings ([#348](https://github.com/IEZhu/Agents/issues/348)) in the place
+of the list and the item, as the Sync page opens: the slots, the catch-up window,
+the allowed hours and the AC-power requirement; the limits; the client, model and
+effort of every stage and delegated step, the effort of the later reviews and the
+pre-mortem role; whether Codex can be a stage client, with the reason when it
+cannot; the switch (run mode only while the last `autodev ready` the CLI recorded
+passed less than 15 minutes ago and the owner's acceptance of the residual risks is
+current, #350; the daemon reads no credential and nothing from GitHub for it) and the
+status with the recorded result, what is missing, the next slot and the newest runs. It reads and writes `<state_dir>/schedules/autodev.json` through
+the autodev configuration's own checks; see
+[the runner's settings page](autodev-runner.md#settings-page).
+
 The page fills the window: the header and the detail pane stay in place and only
 the list on the left scrolls (in the narrow layout, the list above the detail
 pane scrolls on its own, and the detail pane scrolls separately when its content is
-taller). The header holds the version, the [sync status](#sync-page), the
-controls of the open item, the tabs and, on Flows, "New flow". A flow's controls are *Rendered / Source*, "Contents",
+taller). The header holds the version, the [sync status](#sync-page) and the
+Autodev chip, the controls of the open item, the tabs and, on Flows, "New flow". A flow's controls are *Rendered / Source*, "Contents",
 the history, "Show built-in" (on a local copy of a built-in flow), "Delete" and
 "Save" (a built-in flow shows its "Edit copy" buttons instead of the history,
 "Delete" and "Save"); a rule, skill or implant has *Rendered / Source*, "Contents" and its

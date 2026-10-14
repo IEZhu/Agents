@@ -7,25 +7,39 @@ save is validated, and a save is atomic (`src.daemon.state.write_json`).
 ``clone`` is the runner's trusted repository (`src.schedules.repos`, design 5.4): an absolute
 path, or one that starts with ``~``, that lies neither under ``~/Documents`` nor under the
 installation, nor above either of them.
+
+Every writer holds `writing` from its load to its save: the settings page (#348), the runner's
+``enable`` and ``disable`` and the decoy tripwire (`src.schedules.decoys.trip`), so none of them
+writes back a configuration it loaded before another one's save (a tripwire's ``enabled: false``
+is never undone by a save that loaded the file earlier).
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
 import copy
 import os
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 from src.daemon.state import private_dir, read_json, write_json
+from src.file_lock import file_lock
+from src.flow_execution import CLIENTS, CODEX_EFFORTS
 
 from .lease import schedules_dir
 
 CONFIG_NAME = "autodev.json"
+LOCK_NAME = "autodev.lock"  # the sidecar lock of `writing`
 MODES = ("dry-run", "run")
-CLIENTS = ("claude", "codex")
 STAGES = ("select", "implement", "submit")
 DELEGATES = ("code-review-pass", "change-premortem")
 LIMITS = ("max_reviews", "max_bot_rounds", "max_wait_minutes")
+# CODEX_EFFORTS (imported above, src/flow_execution.py): the model_reasoning_effort values
+# codex-cli 0.162.1 knows. Codex itself accepts any non-empty string and sends it to the API, so
+# the configuration refuses everything else for a Codex profile (#344).
+# codex.login modes removed in #344 (round 1): a stored login lives in CODEX_HOME, which model
+# commands can read; the key now comes from the keychain only.
+REMOVED_CODEX_LOGINS = ("api-key", "chatgpt")
 MAX_CATCH_UP_MINUTES = 24 * 60
 # The installation this module runs from: src/schedules/config.py is two levels below it.
 INSTALLATION = Path(__file__).resolve().parents[2]
@@ -47,20 +61,34 @@ DEFAULTS: dict[str, Any] = {
         "submit": {"client": "claude", "claude": {"model": "opus", "effort": "high"}},
     },
     "delegates": {
+        # effort_followup: the later reviews' effort (Q10); null keeps the first review's effort.
         "code-review-pass": {"client": "codex", "codex": {"model": "gpt-6.1-sol", "effort": "high"},
                              "effort_followup": "medium"},
-        "change-premortem": {"client": "claude", "claude": {"model": "opus", "effort": "high"}},
+        # role: the pre-mortem worker's agent (Q2), a setting of the autodev settings page (#348).
+        "change-premortem": {"client": "claude", "claude": {"model": "opus", "effort": "high"}, "role": "sysadmin"},
     },
     "limits": {"max_reviews": 3, "max_bot_rounds": 3, "max_wait_minutes": 120},
     "github": {
         "deploy_key": "~/.config/agents-autodev/deploy_key",
         "token": "keychain:agents-autodev-github",
     },
+    # The session sandbox (#343, docs/autodev-sandbox.md): "config-dir" (a persistent
+    # CLAUDE_CONFIG_DIR the owner logs in once) or "keychain:<service>" (an OAuth token read from
+    # that keychain item); decoy_keychain plants the opt-in decoy keychain item; allowed_plugins
+    # names the plugins a session's init event may list (built-in ones load even in safe mode;
+    # calibrated by the owner's live check, empty by default, so any plugin fails the probes).
+    "sandbox": {"login": "config-dir", "decoy_keychain": False, "allowed_plugins": []},
+    # Codex workers and stage sessions (#344, docs/autodev-codex.md): "keychain:<service>", the
+    # keychain item holding an API key of a separate OpenAI project with a spending limit, passed
+    # to the codex process only as CODEX_API_KEY. Unset (null) by default: every Codex step then
+    # falls back to the Claude worker with login_missing.
+    "codex": {"login": None},
 }
 
 _HHMM = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
 _REPOSITORY = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 _ID = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+_ROLE = re.compile(r"[a-z0-9][a-z0-9_]{0,79}")
 
 
 class ConfigError(ValueError):
@@ -73,6 +101,17 @@ class ConfigError(ValueError):
 
 def config_path(directory: str | Path | None = None) -> Path:
     return schedules_dir(directory) / CONFIG_NAME
+
+
+@contextmanager
+def writing(directory: str | Path | None = None) -> Iterator[None]:
+    """Hold the lock every writer of ``autodev.json`` takes around its load and its save: a sidecar
+    OS lock (`src.file_lock`) that excludes other processes and other threads, and ends with the
+    process that holds it. Not reentrant: a holder must not call a function that takes it."""
+    path = schedules_dir(directory) / LOCK_NAME
+    private_dir(path.parent)
+    with file_lock(path):
+        yield
 
 
 def minutes(text: str) -> int:
@@ -149,8 +188,16 @@ def _profile(where: str, profile: Any, problems: list[str], extra: tuple[str, ..
     budget = profile.get("budget")
     if budget is not None and (not isinstance(budget, dict) or not _positive_int(budget.get("timeout_minutes"))):
         problems.append(f"{where}.budget.timeout_minutes must be a positive integer")
-    if "effort_followup" in profile and not _text(profile["effort_followup"]):
-        problems.append(f"{where}.effort_followup must be a non-empty string")
+    followup = profile.get("effort_followup")
+    if followup is not None and not _text(followup):  # null: the later passes keep the first effort
+        problems.append(f"{where}.effort_followup must be a non-empty string or null")
+    if client == "codex":
+        efforts = [("effort", settings.get("effort") if isinstance(settings, dict) else None)]
+        if followup is not None:
+            efforts.append(("effort_followup", followup))
+        for name, value in efforts:
+            if _text(value) and value not in CODEX_EFFORTS:
+                problems.append(f"{where}: the Codex {name} must be one of {', '.join(CODEX_EFFORTS)}")
 
 
 def validate(config: Any) -> dict:
@@ -203,7 +250,11 @@ def validate(config: Any) -> dict:
         problems.append(f"delegates may have only {', '.join(DELEGATES)}")
     else:
         for name, profile in delegates.items():
-            _profile(f"delegates.{name}", profile, problems, ("effort_followup", "budget"))
+            extra = ("effort_followup", "budget", *(("role",) if name == "change-premortem" else ()))
+            _profile(f"delegates.{name}", profile, problems, extra)
+            role = profile.get("role") if isinstance(profile, dict) else None
+            if role is not None and not (isinstance(role, str) and _ROLE.fullmatch(role)):
+                problems.append(f"delegates.{name}.role must be an agent name (lowercase letters, digits, underscores)")
     limits = config.get("limits")
     if not isinstance(limits, dict) or set(limits) != set(LIMITS) or \
             not all(_positive_int(limits[name]) for name in LIMITS):
@@ -217,6 +268,31 @@ def validate(config: Any) -> dict:
         token = github["token"]
         if not isinstance(token, str) or not token.startswith("keychain:") or not token[len("keychain:"):].strip():
             problems.append("github.token must name a keychain item: keychain:<service>")
+    sandbox = config.get("sandbox")
+    if not isinstance(sandbox, dict) or set(sandbox) != {"login", "decoy_keychain", "allowed_plugins"}:
+        problems.append("sandbox must have login, decoy_keychain and allowed_plugins")
+    else:
+        login = sandbox["login"]
+        if not (login == "config-dir" or (isinstance(login, str) and login.startswith("keychain:")
+                                          and login[len("keychain:"):].strip())):
+            problems.append("sandbox.login must be config-dir or keychain:<service>")
+        if not isinstance(sandbox["decoy_keychain"], bool):
+            problems.append("sandbox.decoy_keychain must be true or false")
+        plugins = sandbox["allowed_plugins"]
+        if not isinstance(plugins, list) or not all(isinstance(name, str) and re.fullmatch(r"[A-Za-z0-9_.@:-]{1,64}", name)
+                                                    for name in plugins):
+            problems.append("sandbox.allowed_plugins must be a list of plugin names")
+    codex = config.get("codex")
+    if not isinstance(codex, dict) or set(codex) != {"login"}:
+        problems.append("codex must have login")
+    else:
+        login = codex["login"]
+        if login in REMOVED_CODEX_LOGINS:
+            problems.append(f"codex.login {login} was removed: Codex reads its API key only from the keychain; "
+                            "set codex.login to keychain:<service> (or null to leave Codex unused)")
+        elif not (login is None or (isinstance(login, str) and login.startswith("keychain:")
+                                    and login[len("keychain:"):].strip())):
+            problems.append("codex.login must be keychain:<service> or null")
     if problems:
         raise ConfigError(problems)
     return config

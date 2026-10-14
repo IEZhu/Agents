@@ -324,6 +324,60 @@ def test_a_flow_that_loads_after_sign_in_was_lost_shows_no_controls():
     assert result["late"]["group"] is False and result["after"]["group"] is False
 
 
+@pytest.fixture(scope="module")
+def versions():
+    return run("ui_history")
+
+
+def test_a_flow_shows_its_text_before_its_versions_arrive(versions):
+    """#371: the version list is a separate request after the text; computing it never delays opening."""
+    loading = versions["while_loading"]
+    assert loading["title"] == "doc" and loading["content"].startswith("---\npersona: tester")
+    assert loading["panes"]["shown"] == ["editor"]
+    assert loading["flow_get_first"]
+    assert loading["history_request"] == "/ui/api/flow/history?id=user%3Adoc"
+    assert loading["head"] == "History…" and loading["disabled"] and loading["options"] == []
+    assert loading["busy"] == "true" and loading["head_title"] is None
+
+
+def test_the_versions_fill_the_list_and_open_an_old_version(versions):
+    assert versions["loaded"] == {"head": "History (2)", "disabled": False, "busy": None, "head_title": None, "options": [
+        ["git-bbbbb", "2026-10-02 09:30:00 UTC (deleted)"], ["git-aaaaa", "2026-10-01 10:00:00 UTC"]]}
+    opened = versions["version"]
+    assert opened["request"] == "/ui/api/flow?id=user%3Adoc&version=git-" + "a" * 40
+    assert opened["content"] == "# Old aaaaa\n" and opened["select_value"] == ""
+    assert opened["notice"].startswith("Loaded version git-" + "a" * 40)
+
+
+def test_a_late_version_list_does_not_replace_the_open_flows(versions):
+    assert versions["other_flow"] == {"title": "plain", "head": "No history", "disabled": True, "options": [],
+                                      "busy": None, "head_title": None}
+    assert versions["late_answer"] == versions["other_flow"]
+
+
+def test_a_save_keeps_the_newer_version_list_when_the_older_answers_last(versions):
+    """A save reopens the flow; the list asked before it must not replace the one asked after it."""
+    assert versions["saved_requests"] == {"pending": 2, "put": "user:doc"}
+    newer = {"title": "doc", "head": "History (3)", "disabled": False, "busy": None, "head_title": None, "options": [
+        ["git-ccccc", "2026-10-03 08:00:00 UTC"], ["git-bbbbb", "2026-10-02 09:30:00 UTC (deleted)"],
+        ["git-aaaaa", "2026-10-01 10:00:00 UTC"]]}
+    assert versions["saved"] == newer
+    assert versions["saved_late"] == newer
+
+
+def test_a_builtin_flow_asks_for_no_versions(versions):
+    empty = {"title": "review", "head": "No history", "disabled": True, "options": [], "busy": None, "head_title": None}
+    assert versions["builtin"] == {**empty, "asked": []}
+    assert versions["builtin_late"] == empty  # the list of the flow left meanwhile stays out
+
+
+def test_an_unreadable_version_list_leaves_the_text_usable(versions):
+    """The reason is on the list's head, with how to retry; the text stays editable."""
+    assert versions["failed"] == {"title": "doc", "head": "History unavailable", "disabled": True, "options": [],
+                                  "busy": None, "head_title": "flow_history: Git failed. Reopen the flow to try again.",
+                                  "content": versions["while_loading"]["content"], "read_only": False}
+
+
 def test_the_page_keeps_its_content_security_policy():
     html, script, _ = page_parts()
     assert not re.search(r"\son[a-z]+\s*=", html)
@@ -1303,3 +1357,222 @@ def test_the_landing_pages_answers_link_to_their_entries(landing):
     assert re.fullmatch(link.format(3), shown)
     reduced = run("landing_reduced")["event_links"]
     assert len(reduced) == 4 and all(re.fullmatch(link.format(n + 1), href) for n, href in enumerate(reduced))
+
+
+# --- the Autodev page (#348): the autodev schedule's settings, switch and status -----------------
+
+def run_autodev(scenario):
+    """An Autodev scenario against a scripted /ui/api/autodev whose settings are the daemon's own
+    defaults (`editable(DEFAULTS)`); times print in UTC."""
+    from src.daemon.autodev_ui import editable
+    from src.schedules.config import DEFAULTS
+    completed = subprocess.run([NODE, str(ROOT / "tests" / "flows_ui_page_harness.mjs"), str(PAGE), scenario],
+                               capture_output=True, text=True, timeout=60, check=True,
+                               env={**os.environ, "TZ": "UTC", "AUTODEV_DEFAULTS": json.dumps(editable(DEFAULTS))})
+    return json.loads(completed.stdout)
+
+
+@pytest.fixture(scope="module")
+def autodev():
+    return run_autodev("autodev")
+
+
+DEFAULT_PROFILES = {
+    "select": {"client": "claude", "claude": ["opus", "high"], "codex": ["", ""]},
+    "implement": {"client": "claude", "claude": ["opus", "xhigh"], "codex": ["", ""]},
+    "submit": {"client": "claude", "claude": ["opus", "high"], "codex": ["", ""]},
+    "code-review-pass": {"client": "codex", "claude": ["", ""], "codex": ["gpt-6.1-sol", "high"], "followup": "medium"},
+    "change-premortem": {"client": "claude", "claude": ["opus", "high"], "codex": ["", ""], "role": "sysadmin"},
+}
+DEFAULT_FORM = {"times": "02:17, 13:47", "catch_up": "120", "hours": "08:00-23:00,00:00-06:00", "ac": True,
+                "limits": ["3", "3", "120"], "profiles": DEFAULT_PROFILES}
+
+
+def test_the_autodev_chip_opens_the_page_in_place_of_the_list(autodev):
+    assert autodev["opened"] == {"shown": True, "main_hidden": True, "chip": "true", "title_focused": 1,
+                                 "tabs": ["false"] * 6, "gets": 1}
+    assert autodev["left"] == {"shown": False, "main_hidden": False, "chip": "false"}
+    assert autodev["tab"] == {"shown": False, "main_hidden": False, "chip": "false",
+                              "tabs": ["false", "true", "false", "false", "false", "false"]}
+
+
+def test_the_autodev_page_renders_the_defaults(autodev):
+    assert autodev["form"] == DEFAULT_FORM
+    assert autodev["efforts"]["claude"] == ["", "low", "medium", "high", "xhigh", "max"]
+    # The later reviews' effort is its own visible setting, offered from the review client's list.
+    assert autodev["efforts"]["followup"][:4] == ["", "none", "minimal", "low"] and "ultra" in autodev["efforts"]["followup"]
+    assert autodev["status"] == {
+        "state": "Off.", "next": "Next slot when on: 2026-10-12 13:47.", "switch": "Turn on",
+        "runs": "2026-10-11 13:47 · dry-run · slot · failed: infranetwork: github.com unreachable"
+                "2026-10-11 02:17 · dry-run · slot · completed · select"}
+
+
+def test_the_autodev_page_shows_codex_unavailable_with_the_reason(autodev):
+    codex = autodev["codex"]
+    assert codex["select"] == ("Codex is unavailable as this stage's client: the stage probes have not passed yet: run "
+                               "`python -m src.schedules codex-probe --kind stage --confirm-live-probe`.")
+    assert codex["implement"].startswith("Codex is unavailable as this stage's client: this stage commits")
+    assert codex["clients"] == codex["implement_clients"] == ["Claude", "Codex (unavailable)"]
+    assert codex["review"].startswith("Before every step the runner checks Codex with model-free probes")
+    available = run_autodev("autodev_codex")["codex"]
+    assert available["select"] == "Codex can run this stage: the stage probes passed (2026-10-11 11:00)."
+    assert available["clients"] == ["Claude", "Codex"] and available["implement_clients"][1] == "Codex (unavailable)"
+
+
+def test_the_autodev_page_offers_run_mode_only_on_a_recent_passing_ready(autodev):
+    assert autodev["mode"] == [["dry-run", "dry-run", False], ["run", "run (not ready)", True]]
+    assert autodev["automatic"]["missing"] == [
+        "the last `python -m src.schedules autodev ready` (2026-10-11T09:05:00+00:00) did not pass", "the API token",
+        "sandbox probe implement in scheduled mode: no record; run `python -m src.schedules probe --mode scheduled "
+        "--kind implement --confirm-live-probe`"]
+    assert autodev["automatic"]["text"].startswith("Last `autodev ready`: did not pass (2026-10-11 09:05).Run mode (real "
+                                                   "runs on the schedule) cannot be turned on here; missing:")
+    assert "This page reads no credential: run `python -m src.schedules autodev ready` in a terminal" \
+        in autodev["automatic"]["text"]
+    assert "autodev enable --mode run --accept-shared-account`; turning the schedule off or to dry-run withdraws the " \
+        "acceptance." in autodev["automatic"]["text"]
+    assert autodev["enabled"]["post"] == ["POST", "/ui/api/autodev/enable", {"mode": "dry-run"}]
+    assert autodev["enabled"]["status"]["state"] == "On, mode dry-run." and autodev["enabled"]["status"]["switch"] == "Turn off"
+    assert autodev["enabled"]["alert"] == {
+        "text": "Turned on in dry-run. Then run `python -m src.schedules autodev install` so that ticks start.",
+        "className": "notice ok", "items": []}
+    assert autodev["disabled"] == {"post": ["POST", "/ui/api/autodev/disable"],
+                                   "status": {**autodev["status"], "state": "Off.", "switch": "Turn on"}}
+
+
+def test_the_autodev_page_saves_every_setting_with_the_revision_it_read(autodev):
+    put = autodev["saved"]["put"]
+    assert put["expected_revision"] == ""  # no autodev.json yet: the defaults
+    settings = put["settings"]
+    assert settings["times"] == ["02:17", "13:47"] and settings["catch_up_minutes"] == 77  # typed before leaving
+    assert settings["limits"] == {"max_reviews": 4, "max_bot_rounds": 3, "max_wait_minutes": 120}
+    assert settings["stages"]["implement"] == {"client": "claude", "claude": {"model": "opus", "effort": "xhigh"},
+                                               "codex": {"model": "gpt-6.1-sol", "effort": "ultra"}}
+    assert settings["stages"]["select"]["codex"] is None
+    assert settings["delegates"]["code-review-pass"] == {"client": "codex", "claude": None,
+                                                         "codex": {"model": "gpt-6.1-sol", "effort": "high"},
+                                                         "effort_followup": "low"}
+    assert settings["delegates"]["change-premortem"]["role"] == "software_engineer"
+    assert "enabled" not in settings and "mode" not in settings  # only the switch changes them
+    assert autodev["saved"]["alert"] == {"text": "Saved.", "className": "notice ok", "items": []}
+    assert autodev["back"] == {"shown": True, "main_hidden": True, "chip": "true", "catch_up": "77", "gets": 2}
+
+
+def test_the_autodev_page_shows_a_refusal_and_keeps_what_was_typed(autodev):
+    assert autodev["refused"] == {"alert": {"text": "Not saved; autodev.json is unchanged:", "className": "notice error",
+                                            "items": ["times: '25:00' is not a time of day HH:MM"]},
+                                  "times": "25:00, 13:47", "puts": 2}
+    # The switch keeps the typed form and the revision it was read at; the switch alone (enabled and
+    # mode, which the revision leaves out) changed nothing else, so the next save is accepted.
+    assert autodev["enabled"]["times"] == "25:00, 13:47"
+    assert autodev["after_switch"] == {"put": "r4", "alert": "Saved."}
+    assert autodev["defaults"] == {"form": DEFAULT_FORM, "alert": "The defaults are in the form; Save writes them."}
+    # The defaults are unsaved edits: a read on coming back keeps them in the form.
+    assert autodev["defaults_kept"] == DEFAULT_FORM
+
+
+@pytest.fixture(scope="module")
+def autodev_races():
+    return run_autodev("autodev_races")
+
+
+def test_autodev_reload_asks_before_it_drops_unsaved_edits(autodev_races):
+    assert autodev_races["reload_no"] == {"confirms": ["Discard the Autodev settings you have not saved?"], "gets": 1,
+                                          "catch_up": "55"}
+    assert autodev_races["reload_yes"] == {"confirms": 2, "gets": 2, "catch_up": "120"}
+
+
+def test_autodev_sends_one_request_at_a_time_and_a_saved_form_is_clean(autodev_races):
+    assert autodev_races["busy"] == {"puts": 1, "alert": "Saved."}
+    # The next read after a save shows a change made elsewhere: nothing unsaved holds the form.
+    assert autodev_races["clean"] == {"catch_up": "45", "max_reviews": "5"}
+
+
+def test_autodev_defaults_in_a_clean_form_survive_a_read(autodev_races):
+    kept = autodev_races["defaults_kept"]
+    assert (kept["catch_up"], kept["max_reviews"]) == ("120", "3") and kept["gets"] == 4
+
+
+def test_autodev_drops_a_read_that_a_save_overtook(autodev_races):
+    stale = autodev_races["stale"]
+    assert stale["catch_up"] == "30"  # the saved form, not the older settings the read carried
+    assert stale["put"] == stale["saved_at"] and stale["alert"] == "Saved."
+
+
+def test_autodev_switch_with_unsaved_edits_keeps_the_revision_read(autodev_races):
+    switched = autodev_races["switched"]
+    assert switched["state"] == "On, mode dry-run." and switched["times"] == switched["times_after"] == "04:00"
+    assert switched["put"] == switched["read_at"]
+    assert switched["alert"] == {"text": "autodev.json changed since the page read it; reload to see it",
+                                 "className": "notice error", "items": []}
+
+
+def test_the_autodev_page_turns_run_mode_on_with_the_acceptance_once_ready():
+    ready = run_autodev("autodev_ready")
+    assert ready["mode"] == [["dry-run", "dry-run", False], ["run", "run (real runs on the schedule)", False]]
+    assert ready["automatic"]["missing"] is None
+    assert ready["automatic"]["text"].startswith("Last `autodev ready`: passed (2026-10-11 09:05).Run mode (real runs "
+                                                 "on the schedule) can be turned on here: `autodev ready` passed within "
+                                                 "the last 15 minutes, and your acceptance of the residual risks "
+                                                 "(2026-10-11 09:00) is current.")
+    # "No" to the acceptance sends nothing; "yes" sends the flag, as the CLI's --accept-shared-account.
+    [question] = ready["declined"]["confirms"]
+    assert question.startswith("Turn on real runs on the schedule under your GitHub account? You accept these "
+                               "residual risks (plan section 11):\n\n1. A model read the keys. Residual risk: a "
+                               "sandbox bug.\n2. ")
+    assert "\n4. The agent pushed to main. Residual risk: a broker bug." in question
+    assert ready["declined"]["posts"] == 0
+    assert ready["enabled"]["post"] == ["POST", "/ui/api/autodev/enable", {"mode": "run", "accept_shared_account": True}]
+    assert ready["enabled"]["status"]["state"] == "On, mode run." and ready["enabled"]["alert"]["text"].startswith(
+        "Turned on in run.")
+    # A refusal lists what is missing.
+    assert ready["refused"]["post"] == {"mode": "run", "accept_shared_account": True}
+    assert ready["refused"]["alert"] == {
+        "text": "the automatic mode is not ready: 3 condition(s) missing", "className": "notice error",
+        "items": [
+                  "the last `python -m src.schedules autodev ready` (2026-10-11T09:05:00+00:00) did not pass", "the API token",
+                  "sandbox probe implement in scheduled mode: no record; run `python -m src.schedules probe --mode scheduled "
+                  "--kind implement --confirm-live-probe`"]}
+    assert ready["refused"]["state"] == "Off."
+
+
+def test_autodev_keeps_stored_values_the_lists_lack_and_shows_a_stored_run_mode():
+    stored = run_autodev("autodev_stored")
+    assert stored["stored"]["select_effort"] == "ultra"
+    assert stored["stored"]["select_options"][-1] == ["ultra", "ultra (Claude does not take it)", False]
+    assert stored["stored"]["followup"] == "minimal"
+    assert "On, mode run.Every tick checks `autodev ready` before a scheduled run and refuses it while a condition " \
+        "is missing; the latest runs say why." in stored["stored"]["status"]
+    assert stored["status"]["switch"] == "Turn off"
+    # The later reviews' list follows the review's client and keeps the stored value, marked.
+    assert stored["client_changed"] == {"followup": "minimal", "options": [
+        ["", "Same as the first", False], ["low", "low", False], ["medium", "medium", False], ["high", "high", False],
+        ["xhigh", "xhigh", False], ["max", "max", False], ["minimal", "minimal (Claude does not take it)", False]]}
+    assert stored["saved"] == {"select": {"model": "opus", "effort": "ultra"},
+                               "review": {"client": "claude", "claude": None,
+                                          "codex": {"model": "gpt-6.1-sol", "effort": "high"},
+                                          "effort_followup": "minimal"},
+                               "alert": "Saved."}
+
+
+def test_autodev_shows_an_invalid_file_without_a_form_or_switch():
+    assert run_autodev("autodev_invalid")["invalid"] == {
+        "shown": True, "main_hidden": True, "chip": "true", "problems": ["times must be a non-empty list of HH:MM"],
+        "state": "Unknown: autodev.json is invalid.", "controls": []}
+
+
+def test_the_autodev_link_opens_the_page_and_clears_the_hash():
+    assert run_autodev("autodev_link")["opened"] == {"shown": True, "main_hidden": True, "chip": "true", "gets": 1,
+                                                     "replaced": [[None, "", "/ui"]], "title_focused": 1}
+
+
+def test_the_autodev_page_keeps_the_header_budget():
+    html, script, style = page_parts()
+    header = html[html.index("<header>"):html.index("</header>")]
+    assert header.index('id="sync-chip"') < header.index('id="autodev-chip"') < header.index('id="item-actions"')
+    assert re.search(r'<button id="autodev-chip"[^>]*aria-controls="autodev-page"', header)
+    css = css_rules(style)[""]
+    assert css["#autodev-chip"]["line-height"] == "12px" and css["#autodev-chip"]["white-space"] == "nowrap"
+    assert css["#chips"]["display"] == "flex" and css["#autodev-page"]["overflow-y"] == "auto"
+    # Every request goes through api() to the page's own origin.
+    assert '"/ui/api/autodev"' in script and "/ui/api/autodev/enable" in script

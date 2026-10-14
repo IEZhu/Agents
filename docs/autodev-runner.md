@@ -7,29 +7,25 @@ does today.
 
 ## Current limits
 
-- **Dry-run only.** A dry-run fetches `main` into the trusted repository, checks the runner for
-  drift, reads GitHub and prints the gate decision with the cleanup actions the gate wants. It
-  executes none of them and starts no model.
-- **Every real mode refuses**: `run`, `resume`, `enable --mode run` and `run-now --mode run`
-  print a JSON error naming the missing parts (#347 run sequence, #350 automatic mode) and exit
-  with code 1. The GitHub broker exists ([autodev-broker.md](autodev-broker.md)), but no run
-  opens it yet.
-- **The selection stage does not run yet.** A `select` decision ends the dry-run; the selection
-  session comes with #347.
-- **No run opens the runner socket yet.** The socket, its thin clients and the heavy-process
-  lease exist; the run sequence of #347 will open them around its stage sessions, and only the
-  heavy-process lease answers until #347 registers the broker (`src.schedules.broker.register`)
-  and the worker launcher (#345) registers its types.
-  #347 must pass the sandbox's real writable set as `session_writable`, name the current stage
-  session's root PID (`session_root`), and write `Endpoint.to_record()` into the run record as
-  `endpoint`. The sandbox profile of #343 must let a session read the clients directory and the
-  clients' interpreter, which lies outside the virtual environment. Neither is verified in a real
-  sandbox yet: #347 checks that the clients start there and that the session cannot write the
-  socket's directory. The runner removes a killed run's socket, clients and private directory
-  only as the record's `endpoint` names them, so two cases leave an `autodev-socket-*` directory
-  in the runner's temporary directory: a run killed before #347 has recorded `endpoint` (#347
-  records it before the first session starts), and a supervisor that is itself killed, or a
-  reboot, before it cleans up.
+- **Real runs on demand, or on the schedule once `ready` passes.** `run-now --mode run` and
+  `run-now --mode resume --pr N` run the whole sequence under supervision
+  ([autodev-sequence.md](autodev-sequence.md)): the preconditions, the gate, the select,
+  implement and submit stages, and the runner's steps between them. A scheduled real run is the
+  [automatic mode](#automatic-mode) (#350): it starts only while `autodev ready` passes, your
+  acceptance of the residual risks included. The code is in place; whether `ready` passes on
+  this Mac, and the three automatic real runs of the phase 1b acceptance, are your live steps.
+- **A dry-run runs the select stage.** It reads GitHub, asks the gate and, on `select`, runs the
+  select session (static probe checks, no socket, no broker) and prints the decision with the
+  top-five table. It executes no cleanup action and writes nothing to GitHub.
+- **Not verified live yet.** The stage sessions, the clients inside the sandbox (that they start
+  and cannot write the socket's directory), a stage session's `--json-schema` argv, the
+  stream-json fields the report reads (`model` of the init event, `total_cost_usd` of the
+  result) and the owner's notification run only with fakes in the tests; the owner's first
+  supervised run checks them ([autodev-sequence.md](autodev-sequence.md#before-the-first-real-run)).
+- **Leftover socket directories.** The runner removes a killed run's socket, clients and private
+  directory as the record's `endpoint` names them; the run sequence records it before the first
+  session with Bash starts. A supervisor that is itself killed, or a reboot, before it cleans up
+  still leaves an `autodev-socket-*` directory in the runner's temporary directory.
 - **macOS only.** The scheduler is a LaunchAgent, and supervision uses POSIX process groups.
 
 ## Commands
@@ -42,12 +38,182 @@ failed, and 2 for wrong arguments.
 | Command | What it does |
 |---|---|
 | `tick` | The scheduler's cheap check. It starts a supervised run when a slot or a continuation is due and nothing blocks it. |
-| `run autodev [--mode M] [--pr N] [--run-id ID]` | One run. `tick` and `run-now` start it under supervision. |
+| `run autodev [--mode M] [--pr N] [--run-id ID]` | One run of the sequence ([autodev-sequence.md](autodev-sequence.md)) in mode `dry-run`, `run` or `resume`. `tick` and `run-now` start it under supervision. |
 | `autodev install [--python PATH]` / `uninstall` | Installs or removes the scheduler LaunchAgent. Both are idempotent. |
-| `autodev enable --mode dry-run` / `disable` | Turns the schedule on or off in `autodev.json`. |
-| `autodev status` | The configuration, the scheduler job, the run lease, the next slot, the tick state and the five latest runs. |
-| `autodev run-now [--mode dry-run]` | One supervised run now. |
-| `autodev ready` | A stub until #350: it lists the missing parts and exits with code 1. |
+| `autodev enable --mode dry-run\|run [--accept-shared-account]` / `disable` | Turns the schedule on or off in `autodev.json`. `--mode run` refuses without `--accept-shared-account` (`acceptance_required`, with the risks), while a condition of `ready` other than the acceptance is missing (`not_ready`, with the list) and when a tripwire fired while it checked (`tripped_during_enable`); then it records your acceptance and turns run mode on ([automatic mode](#automatic-mode)). `disable` and `--mode dry-run` withdraw the acceptance. The [settings page](#settings-page) has the same switch. |
+| `autodev status` | The configuration, the scheduler job, the run lease, the next slot, the tick state, the five latest runs and `automatic` (`on`, the acceptance and whether it is current, the `ready` command and its last recorded result; `status` reads nothing from GitHub). |
+| `autodev run-now [--mode dry-run\|run\|resume] [--pr N]` | One supervised run now; `resume` needs `--pr`. A real run checks its preconditions first and ends `refused` with the missing items. |
+| `autodev ready` | Checks every condition of the [automatic mode](#automatic-mode) and names each missing one; exit code 0 only when all pass. It reads GitHub and the stored records; it never starts a probe. It records its outcome in `schedules/ready.json` for the settings page. |
+| `probe [--mode M] [--kind K] --confirm-live-probe` | The owner's live check of the session sandbox: one probe session of kind `implement`, `submit` or `select` with exactly a run's argv, settings and environment (a real model turn, so it refuses without the flag). See [autodev-sandbox.md](autodev-sandbox.md#command). |
+| `codex-probe [--kind worker\|stage] --confirm-live-probe` | The owner's live check of Codex: the outer profile, the model-free probes, the nested-sandbox check and the decision between Codex and the Claude worker; a stage check also runs the probe plan through `codex exec` (a model turn) when those pass. See [autodev-codex.md](autodev-codex.md#command). |
+| `worker-probe --confirm-live-probe` | The owner's live check of the Claude worker (#345): one worker turn built as a review's, in a review's layout under the run directory, with a `Read` in its tree and one in its materials that must succeed and one outside both that must be denied (a model turn, so it refuses without the flag). See [autodev-workers.md](autodev-workers.md#current-limits). |
+
+## Settings page
+
+The daemon's web UI has an Autodev page (#348): the **Autodev** chip under the version opens it in
+the place of the list and the item, and `/ui#autodev` opens it directly. It is an early,
+autodev-only slice of the Schedules tab of #211. The routes are in `src/daemon/autodev_ui.py`,
+the page in `src/daemon/flows_ui.html`. It edits `autodev.json` only through
+`src/schedules/config.py` and turns the schedule on and off only through the runner's `enable`
+and `disable`, the functions behind the CLI commands above.
+
+- **Schedule:** the slots (local `HH:MM`, defaults 02:17 and 13:47), the catch-up window, the
+  allowed hours of continuations and the AC-power requirement (Q4).
+- **Limits:** `max_reviews`, `max_bot_rounds` and `max_wait_minutes` (Q5, Q10).
+- **Profiles:** for each stage (`select`, `implement`, `submit`) and delegated step
+  (`code-review-pass`, `change-premortem`) the client and, per client, the model and the effort;
+  the effort of the later reviews (`effort_followup`) as a setting of its own, where **Same as
+  the first** is stored as `effort_followup: null` and the later reviews then run with the first
+  review's effort (a pre-mortem runs once, so its `effort_followup` is neither shown nor checked);
+  the pre-mortem role, chosen from the installation's agents (default `sysadmin`) (Q2, Q8, Q10,
+  Q11). The efforts offered are the capability table's (`src/flow_execution.py`), which the page
+  builds from `claude --version`, `claude --help` and `codex --version` (no model turn, a fresh
+  empty `HOME`) and keeps for ten minutes. Saving a Claude fallback for a Codex profile is
+  allowed: a Codex stage or step that cannot run uses it. A client object left empty falls back
+  to its defaults after the save, as `load` merges the defaults in: the run reads a stage's Codex
+  settings from it, so the page shows the values the run would use.
+- **Codex as a stage client (Q14):** shown as unavailable, with the reason in words (every reason
+  the probes store has a text), until the stored stage availability says available
+  (`codex_probes.configured_stage_availability`, which the run sequence asks too: the codex
+  version and the launch shape the configuration makes must match, and the check must be at most
+  7 days old). `implement` and `submit` commit, which a Codex stage cannot, so Codex stays
+  unavailable for them. A Codex delegated step is decided before every step
+  ([autodev-codex.md](autodev-codex.md)).
+- **Switch and status:** **Turn on** enables the chosen mode. The daemon reads no credential:
+  neither the broker's token (no keychain call) nor the deploy key, and nothing from GitHub for
+  the automatic mode. It shows the last `autodev ready` the CLI recorded (`schedules/ready.json`,
+  with its time) and offers `run` only while that result passed at most 15 minutes ago and your
+  acceptance is current (`automatic.page_problems`); otherwise it lists **run (not ready)** and
+  what is missing. `disable` and `enable --mode dry-run` withdraw the acceptance, so the first
+  acceptance, and the one after every turn-off, is the CLI's (`enable --mode run
+  --accept-shared-account`): in practice the page turns run mode on only when `autodev.json` was
+  set back to run mode by hand. Turning run mode on asks you to accept the residual risks of plan
+  section 11, rows 1, 2 and 4 (a confirmation that lists them); the daemon then runs `enable`
+  with `accept_shared_account: true` and `source: page`, which checks the recorded result and the
+  acceptance again (the tripwire count included) and records a new acceptance (`source: page`).
+  The tick checks every condition before each scheduled run. The status shows on or off and the
+  mode, the next slot (`tick.next_slot`), whether the scheduler job is installed, the automatic
+  mode and the ten newest runs from the run records. Reading it starts no run and no probe.
+
+Every save goes through `config.validate` (the same checks as `load`, `enable` and the runner)
+and then the capability table (`check_effort` for every client's effort and the review's `effort_followup`,
+`check_model`, whose warnings do not block) and the agent list, before `config.save` writes the
+file atomically into the private `schedules/` directory. A refusal lists every problem and leaves
+the file as it was. A configuration that changed since the page read it (the CLI, an editor) is
+not overwritten (409 `config_changed`), and a file that does not validate is shown with its
+problems and not written; fix it or remove it to get the defaults. The page's revision is the
+SHA-256 of the configuration it read (the file merged over the defaults) without `enabled` and
+`mode`: the switch, `autodev enable` and `disable` and the decoy tripwire change only those, so a
+form read before them still saves, and a save never writes them back. Every writer of
+`autodev.json` (the page's save, `enable`, `disable` and the tripwire) holds one lock,
+`schedules/autodev.lock` (`config.writing`), from its load to its write, so a save takes `enabled`
+and `mode` from the file as it is then: it cannot undo a tripwire's `enabled: false` or a
+switch made meanwhile. The lock has no timeout: a writer stuck while holding it (a suspended
+`autodev enable`, a hung disk) would make a run's tripwire wait for it; a writer that ends,
+crashed or not, releases it. With unsaved edits, the switch keeps the form and its revision, so a
+change made elsewhere before it still refuses the save. Keys the page does not edit, among them
+`github`, `sandbox`, `codex.login` and the stage `budget`, keep their stored values; the first save
+writes every other key too, with the current defaults, as `enable` does, so a later change of a
+default does not apply to them. The page never shows the GitHub token, the deploy key, the logins
+or executable paths, and run reasons are masked. Stage sessions reach neither the page (they have
+no network, #343) nor the file (the state directory is closed to them). Like the flows editor,
+the page trusts the OS account: any process of yours can sign in automatically and use these
+routes, unless `flows-ui --auto off` is set
+([shared-mcp-daemon.md](shared-mcp-daemon.md#flow-editor)), run mode included: such a process
+can turn it on with the acceptance flag within 15 minutes of a passing `autodev ready` while the
+acceptance is current, as it could run the CLI. It cannot make the daemon read a credential.
+
+The API is `GET /ui/api/autodev`, `PUT /ui/api/autodev` with `{expected_revision, settings}`,
+`POST /ui/api/autodev/enable` with `{mode, accept_shared_account}` (409 `acceptance_required`,
+`not_ready` with `missing`, or `tripped_during_enable` for `run`) and `POST
+/ui/api/autodev/disable`. Like the Sync and
+History routes, every one needs the UI session and the page's `X-Agents-UI` header; a read may
+carry no `Origin` but the page's own, and a change must carry the page's own
+([shared-mcp-daemon.md](shared-mcp-daemon.md#flow-editor)).
+
+## Automatic mode
+
+Phase 1b of the plan (#350, [plan 5.7](autodev-plan.md#57-modes-probes-and-enabling-conditions)):
+`run` on the schedule, under your account. The code is `src/schedules/automatic.py` and
+`runner.readiness`. `autodev ready` checks, and names each missing item:
+
+- **The real-run preconditions** of #347 (`preconditions.check`, read from GitHub with the
+  broker's token): the deploy key, the pinned host keys and the token (Q15); the ruleset of
+  `main` with the `deletion` and `non_fast_forward` rules and a `pull_request` rule with at least
+  one required approving review; `can_approve_pull_request_reviews` false; and
+  `CLAUDE_ROUTINE_TOKEN` not a repository secret. Whether the `issue-agent` environment holds it
+  is not read: the broker token's access to environment secrets is unverified, and the
+  environment is the issue agent's concern, not the runner's. A read GitHub refuses is `cannot
+  verify …`.
+- **The sandbox probe records** (#343) of every stage kind a Claude session runs (`select`,
+  `implement`, `submit`). A report counts when its probe session ran or when it failed (a select
+  session's static checks alone neither replace a probe nor hide a failure); the `probe --mode M
+  --kind K --confirm-live-probe` command records one, and so does every guarded stage session of
+  a run, under the mode it ran in. The rule is *every mode once*
+  ([acceptance A7](autodev-acceptance.md#a7-probes-hold-in-every-mode-and-the-broker-refuses)):
+  for each kind in each mode (`dry-run`, `run-now`, `scheduled`, `resume`), the newest counting
+  report passed, at any age; one dated in the future (or without a time) is stale. No record has
+  to be recent: every run probes before every session with Bash, in every mode, and the session
+  starts only after its own probe passed (plan 5.7).
+- **Codex for `select`** (#344): a `select` configured for Codex runs with Codex while its stored
+  stage availability (`codex-probe --kind stage --confirm-live-probe`, current for the installed
+  codex and the configured launch) says available, and then needs no Claude probe records. While
+  it says unavailable (as `nested_sandbox_unavailable` on a Mac without the nested sandbox), a run
+  falls back to a Claude select session (`stages.stage_profile`), so `ready` asks for that
+  session's probe records instead, and `probe --kind select` probes that fallback session.
+  `implement` and `submit` configured for Codex run with Claude and need their Claude probes
+  (the `probe` command takes the Claude settings a run would use). The `codex` part of `ready`
+  shows each such stage's availability and the client a run gives it.
+- **Your acceptance** of the residual risks of plan section 11, rows 1 (a sandbox bug or bypass),
+  2 (an agent's action under your account counts as yours) and 4 (a broker bug, a leaked deploy
+  key), in `schedules/acceptance.json`: the date, the rows, the version of the risk list (SHA-256
+  of the rows' text, `automatic.RESIDUAL_RISKS`, which a test pins to the plan), where it was
+  given and the tripwire count (`tripwire.json` `count`) when it was given. It is current while
+  the rows and the version are today's, it was not withdrawn, it is not dated in the future,
+  `tripwire.json` can be read and its count is still the stored one, and no tripwire entry is
+  dated at or after it. A runner update that changes the risk list, a tripwire or a failed
+  sandbox probe asks for a new acceptance; so does an unreadable `tripwire.json` (it fails
+  closed). `disable` and `enable --mode dry-run` withdraw it (`revoked`, `revoked_by`), so an
+  edit of `autodev.json` back to run mode does not revive it.
+
+`ready` reads GitHub and the stored state only; it starts no probe session and no model turn. It
+records its outcome (when, whether it passed, what was missing) in `schedules/ready.json` for
+the [settings page](#settings-page), which reads no credential itself.
+
+`autodev enable --mode run --accept-shared-account` reads the tripwire count, then checks every
+condition other than the acceptance and refuses while one is missing; under the writers' lock it
+reads the count again and refuses with `tripped_during_enable` if a tripwire fired meanwhile (a
+concurrent run or probe can trip while the GitHub reads take seconds). Otherwise, under the same
+lock, it records the acceptance, dated when the checks began, with the count it read, and turns
+run mode on. Without the flag it refuses and names it. Every such `enable` records a fresh
+acceptance.
+
+A tick that finds `"mode": "run"` checks `ready` before it starts the run (a slot's `run`, or a
+continuation's `resume`). While `ready` fails, nothing starts: the tick writes a run record with
+`status: refused`, the reason `automatic mode not ready: …` and the full `missing` list, and the
+notification `Autodev run refused` names the run; the slot counts as handled. A refused
+continuation counts as handled too (no refusal every five minutes): its record has `pr_url`, and
+its notification names the PR and `continue with: run-now --mode resume --pr N`. The run's child
+checks again, under the run lease and before the sequence, that the schedule is still on in run
+mode and the acceptance still current (every command that can trip the schedule holds the run
+lease, so nothing else trips between this check and the first stage); otherwise it ends
+`refused` with `automatic mode no longer ready at the start: …` and notifies. A dry-run tick is
+unchanged and checks nothing of this.
+
+**Tripwires.** Any of these turns the schedule off (`enabled: false`, `decoys.trip`, recorded in
+`schedules/tripwire.json` with `cause`, under the writers' lock with the schedule change): a
+decoy read or leaked, a changed `.git`, a stream too long to scan (`cause: tripwire`), and since
+#350 a failed sandbox probe (`cause: probe`): a failed report before a stage session in any
+mode, a failed `probe` command, and a Codex deny probe that got through. A probe whose session
+read a decoy trips once, as a tripwire. The run or probe command that tripped it records
+`schedule_off` and sends a notification titled `Autodev schedule off` whose message starts with
+a fixed phrase (`a tripwire fired and turned the schedule off` or `a sandbox probe failed and
+turned the schedule off`) and names the run, passed to `osascript` as arguments only
+(`report.notify`); a run the supervisor ends after it tripped gets the same title. Every trip
+also makes your acceptance stale, a failed probe of your own (`probe` run by hand) and one
+caused by the environment (`C5 untested` offline, `C3 untested`) included: the schedule is off
+then anyway, and the `enable --mode run --accept-shared-account` that turns it on again records
+a new acceptance, so this costs no extra step. Read the run's record and `tripwire.json` first.
 
 ## Tick
 
@@ -146,8 +312,10 @@ around it, and the runner never executes a command sent through it.
   string may hold a control character other than newline and tab, or a lone surrogate. An
   integer lies between 1 and 1,000,000 unless its field sets other bounds. This part registers
   `heavy.acquire` and `heavy.release`; the broker registers its `gh.*` types
-  ([autodev-broker.md](autodev-broker.md)) and the worker launcher (#345) will register theirs.
-- **Handlers.** Each type has a deadline (5 seconds unless it registers another, at most 120). A
+  ([autodev-broker.md](autodev-broker.md)) and the worker launcher its `worker.*` types
+  ([autodev-workers.md](autodev-workers.md)).
+- **Handlers.** Each type has a deadline (5 seconds unless it registers another, at most 600, so
+  that `worker.wait` can wait 9 minutes within the 10 minutes a session's Bash call may take). A
   handler gets a `RequestContext` with that deadline, the peer's PID from the kernel and a
   `closing()` check; it bounds its own subprocess and network timeouts by the deadline and checks
   `closing()` right before any external write, aborting without the write once the server
@@ -156,7 +324,7 @@ around it, and the runner never executes a command sent through it.
   (`Connection.take` and `Connection.keep` refuse once it is closed). A type registered
   `session_bound=True` answers only a process whose ancestors include the current stage session's
   root PID, which the runner names through `session_root`; the check reads the process table on
-  every request and refuses when it cannot. The broker's types are session-bound, as those of #345 are meant to be, and the broker logs each remote write before and after it, so a write that a
+  every request and refuses when it cannot. The broker's and the worker launcher's types are session-bound, and the broker logs each remote write before and after it, so a write that a
   close interrupts stays visible.
 
 ### Thin clients
@@ -177,8 +345,9 @@ paths for the session prompt.
 | `heavy -- <command> [args]` | Takes the heavy-process lease, runs the command itself without a shell, with the inherited standard streams, keeps the connection open while it runs, then releases the lease. It passes SIGTERM, SIGHUP and SIGINT on to the command | The command's status, or 75 when the lease is refused, with the reason on standard error |
 
 Every client exits with 2 for wrong arguments and 69 when the socket cannot be reached; `heavy`
-exits with 127 or 126 when the command cannot be started. Until #347 registers the broker and #345 lands, `gh`
-and `worker` report every operation as an unknown request type.
+exits with 127 or 126 when the command cannot be started. The run sequence serves one registry
+for the implement and submit stages, with the heavy-process lease, the broker's `gh.*` types and
+the worker launcher's `worker.*` types; the select stage has no Bash and gets no socket.
 
 ### Heavy-process lease
 
@@ -200,8 +369,9 @@ none.
 The lease is cooperative coordination between well-behaved sessions, not a guarantee. Nothing
 stops a session from running `pytest` without `heavy --`, and a session that runs as the same
 user can exhaust the user's process limit so that `ps` fails. Enforcing one heavy process against
-a misbehaving session belongs to the sandbox (#343) and the run sequence (#347), for example with
-process and resource limits on the session's tree.
+a misbehaving session needs process and resource limits on the session's tree, which
+`probes.start_session` does not set; it stays a known residual of the run sequence (#347), bounded
+by the stage's timeout, after which the runner ends the session's process group.
 
 ## Files
 
@@ -210,22 +380,33 @@ All files live in the service state directory `<state_dir>` from `src.daemon.sta
 
 | Path | Content |
 |---|---|
-| `schedules/autodev.json` | The configuration. Defaults are design 10.3; a missing key takes its default. Validated on every load and save, written atomically. |
+| `schedules/autodev.json` | The configuration. Defaults are design 10.3; a missing key takes its default. Validated on every load and save, written atomically; the [settings page](#settings-page) edits it. |
 | `schedules/tick.json` | The tick state: `enabled_at`, `last_slot`, `last_continuation`, `next_attempt`, `missed`, `clock_reset` and the last decision. |
 | `schedules/run.lease` | The run lease. A run holds it from start to finish; the daemon's auto-update, `python -m src.daemon update` and `recover` hold it for their whole transaction, and the manual commands refuse with `an autodev run or a daemon update holds the run lease` while a run holds it. While a run holds it, the auto-update defers with `service is busy: an autodev run holds its run lease`; while the update holds it, a run ends as `failed: infra` (`lease`). A run that takes the lease checks `maintenance.json` and `transaction.json` again and ends as `failed: infra` (`update`) when one exists. A brief probe of the lease never fails a holder: taking it retries for one second. |
 | `schedules/heavy.lease` | The heavy-process lease. The runner holds it while a session's `heavy` client runs a check, and the tick waits while it is held. |
 | `schedules/runs/<run-id>/control.sock`, `schedules/runs/<run-id>/clients/` | The runner socket and its thin clients while a run serves them, when the socket path fits the `AF_UNIX` limit; otherwise both live in a private `autodev-socket-*` directory in the runner's temporary directory. Removed when the run ends, and by the runner after a killed run. |
-| `schedules/runs/<run-id>/record.json` | The run record: mode, trigger, status, gate decision, `pinned`, the GitHub paths read, and `comments` (the IDs of comments the runner wrote); `endpoint` (the socket and its clients, once a run opens them) and `endpoint_cleanup` (what the runner removed or kept after a killed run). Token-like strings are masked. |
+| `schedules/runs/<run-id>/record.json` | The run record: mode, trigger, status, gate decision, `pinned`, the GitHub paths read, and `comments` (the IDs of comments the runner wrote, each `{"id", "kind", "number"}`); `issue`, `pr`, `branch`, `selection`, `stages` (each stage's status, execution and probe digest), `probes`, `workers`, `blockers`, `exports`, `risk_issues`, `report` and `notification` ([autodev-sequence.md](autodev-sequence.md#records)); `endpoint` (the socket and its clients, once a run opens them) and `endpoint_cleanup` (what the runner removed or kept after a killed run). Token-like strings and the run's known secrets are masked. |
+| `schedules/runs/<run-id>/state.json` | The run state (`src.schedules.run_state`): the stage, the issue, the branch, the PR, `base`, `head` and the flow revisions; a read-only copy sits in the run's state copy for the sessions. |
+| `schedules/runs/<run-id>/stages/<kind>/stream.jsonl`, `stderr.log` | A stage session's raw output (private; the run record keeps only verdicts). |
+| `schedules/runs/<run-id>/broker.jsonl`, `workers/`, `workers.json`, `validated-review.json`, `premortem.json` | The broker's log ([autodev-broker.md](autodev-broker.md#broker-log)) and the worker service's records ([autodev-workers.md](autodev-workers.md#records)). |
+| `schedules/runs/<run-id>/export/<run-id>.patch`, `.bundle` | A control-path change for the owner ([autodev-sequence.md](autodev-sequence.md#after-the-implement-stage)). |
 | `schedules/runs/<run-id>/stdout.log`, `stderr.log` | The supervised run's output. |
+| `<clone>/../sessions/<run-id>/` | The run's session directories: `<kind>/repo`, `exchange`, `gh`, `settings.json`, and the shared read-only `state/` (inputs files, `state.json`, `worker-log.json`); removed when the run ends. |
 | `clone` (default `~/.local/share/agents-autodev/IEZhu-Agents`) | The trusted bare repository: `refs/remotes/origin/main` (`pinned`), imported `refs/heads/claude/autodev-*` branches, bundles refused after the fetch under `refs/autodev/quarantine/<run-id>/<n>`, and bundles refused before the fetch as read-only files `autodev-quarantine/<run-id>/<n>.bundle` inside it; `prune_quarantine()` drops both after 30 days. Outside the state directory. |
 | `schedules/tools.json` | The absolute paths of `claude`, `codex`, `gh` and `git` resolved at `install`. |
+| `schedules/claude-config/`, `schedules/decoys.json`, `schedules/tripwire.json` | The sessions' `CLAUDE_CONFIG_DIR`, the decoy registry and the last tripwire with its `cause` (`tripwire` or `probe`, #350) ([autodev-sandbox.md](autodev-sandbox.md#files)). |
+| `schedules/acceptance.json` | Your acceptance of the residual risks for the [automatic mode](#automatic-mode): `version` (2), `accepted` (UTC), `rows`, `risk_list_sha256`, the risks' text, `source` (`cli` or `page`), `tripwire_count`, and `revoked` with `revoked_by` once `disable` or `enable --mode dry-run` withdrew it. |
+| `schedules/ready.json` | The last `autodev ready`: `checked` (UTC), `ready` and `missing`; the [settings page](#settings-page) shows it and offers run mode on a passing one at most 15 minutes old. |
+| `schedules/codex-availability.json` | Whether Codex is available as a stage client. A Codex process's `HOME`, `CODEX_HOME` and `TMPDIR` are per run, inside the run's temporary root ([autodev-codex.md](autodev-codex.md#files)). |
 | `schedules/scheduler.log` | The scheduler's standard error. |
 | `~/Library/LaunchAgents/local.agents-core.<id>.scheduler.plist` | The scheduler job, with an explicit `PATH`, `PYTHONPATH` and `AGENTS_SERVICE_DIR`. The daemon's own agents are never touched. |
 
 ## Supervision and failures
 
 A run goes into a new process group under `caffeinate -i -w <pid>`, with a random per-run marker
-`AGENTS_SUPERVISED_RUN` in its environment. A dry-run may take 30 minutes. However the run ends,
+`AGENTS_SUPERVISED_RUN` in its environment. Its limit is the sum of its stages' timeouts plus
+30 minutes (`sequence.run_timeout`): a dry-run 60 minutes (select 30), a real run 330 (select 30,
+implement `stages.implement.budget.timeout_minutes`, 180 by default, submit 90) and a resume 120. However the run ends,
 by a normal exit, a timeout, or SIGTERM, SIGHUP or SIGINT to the supervisor, the supervisor sweeps
 it: SIGTERM to the group and to every process of the run, then, after a grace period, SIGKILL. A
 process of the run descends from it by parent PID, is in its group, carries the marker (read with
@@ -235,16 +416,26 @@ ends, so its PID and group cannot be reused, and only PIDs from a fresh scan are
 hides the environment of its platform binaries (`/bin`, `/usr/bin` and the rest of the system), so
 such a process that leaves the group and loses its parent before a scan sees it is not found:
 `/usr/bin/ssh` with `ControlPersist`, for one, detaches its master at once, which then lives until
-its persist time ends; when #347 adds git over ssh, its run environment should turn
-`ControlMaster` off. When `ps` fails or times out (5 seconds), the scan is blind and the sweep
+its persist time ends; the broker's push therefore runs ssh with `ControlMaster=no` and
+`ControlPath=none` (`broker.ssh_command`). When `ps` fails or times out (5 seconds), the scan is blind and the sweep
 reaches only the run's group; the record counts such scans as `failed_process_scans`. Processes
 swept after a normal exit are recorded as `swept`; a stop signal that arrives while the run starts
 ends the run as soon as it has a PID. A stopped supervisor records `failed: infra` (`stopped`) and
-exits with 128 plus the signal number.
+exits with 128 plus the signal number. The run itself handles the sweep's SIGTERM: it records,
+notifies and cleans up within the grace period, then releases its claim as far as the grace
+allows
+([autodev-sequence.md](autodev-sequence.md#the-end)); a run that timed out or was stopped without
+notifying is notified by the launching process (`runner.notify_ended`).
 
 Infrastructure failures end with the status `failed: infra` and a reason prefix: `cli` (a
 command or the keychain failed, or the run exited without a result), `network`, `lease`,
-`update`, `runner drift`, `timeout` and `stopped`. They set no label, and the next slot retries.
+`update`, `runner drift`, `timeout` and `stopped`. Before a run claims an issue they set no
+label, and the next slot retries; after the claim the issue gets `autodev:blocked` with a generic
+phrase and loses the claim, unless the run has a pull request
+([autodev-sequence.md](autodev-sequence.md#the-end)).
+A run also ends `completed`, `blocked` (the issue got `autodev:blocked`, or the select stage gave
+no valid result) or `refused` (a missing precondition, a failed probe, the decoy tripwire, a
+changed `.git`): see [autodev-sequence.md](autodev-sequence.md#statuses).
 
 The drift check fetches `main` into the trusted repository (below) and compares the runner's
 imported modules and `agents/`, `rules/`, `skills/` and `implants/` of the installation, including
@@ -281,9 +472,11 @@ grow with their inflated size. A git timeout inside an import refuses the bundle
   --revision=refs/remotes/origin/main` of the trusted repository: its own objects, no
   alternates, no hook samples, detached at `pinned`, without an `origin` remote, with the local
   identity `Alexey Zhuchkov <alexey.zhuchkov@gmail.com>`. `clone --revision` needs git 2.49 or
-  later. The function returns only the path; nothing in the runner takes a one-off repository's
-  path afterwards, so hooks or configuration a session plants there never run outside the
-  sandbox.
+  later. The submit stage's repository also holds the run's imported branch, fetched from the
+  trusted repository by its path and checked out, without a remote or an upstream. The function
+  returns only the path and the head; nothing in the runner runs git in a one-off repository
+  afterwards (the post-session check reads its `.git` without git, `src.schedules.integrity`),
+  so hooks or configuration a session plants there never run outside the sandbox.
 - **Bundles.** The session hands its commits over with
   `git bundle create <exchange>/<name>.bundle claude/autodev-<issue>-<slug> ^<base>`, where
   `<base>` is the `pinned` its one-off repository was created at.
@@ -309,11 +502,11 @@ grow with their inflated size. A git timeout inside an import refuses the bundle
   added, oldest first. A refusal names its reason; objects already fetched stay under the
   quarantine ref, and nothing reaches `refs/heads/`. `prune_quarantine()` removes quarantine refs
   and kept files of runs older than 30 days (`QUARANTINE_RETENTION`, judged by the time in the
-  runner's run ID) and then runs `git gc --prune=now`; the run sequence (#347) calls it under the
-  run lease.
+  runner's run ID) and then runs `git gc --prune=now`; the drift step of every run
+  (`runner.default_drift`) calls it under the run lease, right after the fetch.
 - **Push.** `push_arguments(url, sha, issue, slug)` builds the arguments the broker
   (`src.schedules.broker.push_command`) runs: `push --porcelain --no-follow-tags --no-signed <url> <sha>:refs/heads/claude/autodev-<issue>-<slug>`
-  with a GitHub URL, never a remote name. This part pushes nothing.
+  with a GitHub URL, never a remote name. Only the broker pushes.
 - **Environment.** `TrustedRepository.environment(commit, runner_dir)` returns
   `<runner_dir>/venvs/<hash>`, where the hash is SHA-256 over `requirements.txt`,
   `pyproject.toml` and `uv.lock` read at `commit` with `git cat-file blob` (an absent file
@@ -326,7 +519,7 @@ grow with their inflated size. A git timeout inside an import refuses the bundle
   missing or lacks its completion marker `.autodev-complete`. The build runs in a private
   sibling `venvs/.build-*`, whose scripts are pointed at the final path, is made read-only and is
   renamed into place, all under a lock per key (`venvs/<hash>.lock`): a second caller waits and
-  gets the first one's environment. The run sequence (#347) calls it.
+  gets the first one's environment. The run sequence calls it once per run, for `pinned`.
 
 ## GitHub access
 

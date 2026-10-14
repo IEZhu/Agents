@@ -15,8 +15,11 @@ git only on metadata no session can write.
 * **One-off repository.** ``create_session_repository`` clones the trusted repository with
   ``git clone --no-local --no-hardlinks --template=`` (no shared objects, no alternates, no hook
   samples) detached at ``pinned``, removes its ``origin`` remote and sets the session's commit
-  identity locally. It returns only a path: no function of this module takes a one-off
-  repository's path afterwards, so the runner never runs git on metadata the session wrote.
+  identity locally. With ``branch`` (the submit and resume stages of #347) it also fetches the
+  run's imported ``refs/heads/<branch>`` from the trusted repository by its path, without a
+  remote or an upstream, and checks it out. It returns only a path: no function of this module
+  takes a one-off repository's path afterwards, so the runner never runs git on metadata the
+  session wrote (`src.schedules.integrity` only reads ``.git`` without git).
 * **Bundles.** ``import_bundle`` takes a session's ``git bundle`` from its exchange directory: a
   regular file with a single link, not a symbolic link, of bounded size, copied before git reads
   it. It is checked against the session's ``base`` (``SessionRepository.pinned``), which must
@@ -36,6 +39,12 @@ git only on metadata no session can write.
   ``QUARANTINE_RETENTION``; the caller runs it under the run lease.
 * **Push.** ``push_arguments`` builds the git arguments of the broker's push (#342): an explicit
   URL and ``<sha>:refs/heads/claude/autodev-<issue>-<slug>``. Nothing here pushes.
+* **A blocked run** (#347): ``quarantine_branch`` moves the run's imported branch to
+  ``refs/autodev/quarantine/<run-id>/final`` (and, before a new run builds, a branch an earlier
+  run left to ``.../<run-id>/stale``), and ``export_commits`` writes the imported commits
+  ``base..head`` as a ``git format-patch`` file and a verified bundle into the run's records (a
+  control path no label opens, design 5.3: the owner's local patch). ``merge_base`` and
+  ``blob_ids`` (the flow revisions a run read at ``pinned``) read the trusted repository only.
 * **Environment.** ``environment`` returns a virtual environment under the runner's directory,
   keyed by the SHA-256 of ``requirements.txt``, ``pyproject.toml`` and ``uv.lock`` at a commit of
   main (``pinned`` or an ancestor; an imported session head is refused), read with
@@ -69,6 +78,7 @@ from . import gitsafe
 PINNED_REF = "refs/remotes/origin/main"
 MAIN_REFSPEC = f"+refs/heads/main:{PINNED_REF}"
 QUARANTINE = "refs/autodev/quarantine"
+QUARANTINE_NAMES = ("final", "stale")  # a run's branch ref names beside the numbered imports
 # fsck on every object that arrives; no automatic gc or maintenance, which could run later. Blobs over
 # 1 MiB are streamed rather than held whole, and one thread packs, so a bundle of small, highly
 # compressible blobs cannot make git's own memory grow with their inflated size (#339 review round 2).
@@ -78,6 +88,9 @@ FETCH_TIMEOUT = 600
 MAX_BUNDLE_BYTES = 128 * 1024 * 1024
 # Bounds on what untrusted bundle content can make the runner do (#339 review round 1).
 MAX_IMPORT_COMMITS = 200
+MAX_EXPORT_BYTES = 64 * 1024 * 1024  # the format-patch text of one export
+EXPORT_REFS = "refs/autodev/export"  # a bundle's ref while it is written, removed afterwards
+EXPORT_DIR = "export"  # <run_dir>/export/<run-id>.patch and .bundle: where the run sequence exports to
 MAX_LINK_TARGET = 4096  # PATH_MAX
 MAX_LINKS = 1000  # distinct symbolic link targets in one import
 MAX_DIFF_OUTPUT = 16 * 1024 * 1024
@@ -98,6 +111,7 @@ _SLUG = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 _BRANCH = re.compile(r"claude/autodev-([1-9][0-9]{0,8})-([a-z0-9]+(?:-[a-z0-9]+)*)")
 _MAX_SLUG = 60
 _RUN_ID = re.compile(r"[0-9]{8}T[0-9]{6}Z-[0-9a-f]{6}")
+_STEM = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,99}")
 _RAW_HEADER = re.compile(r":([0-7]{6}) ([0-7]{6}) ([0-9a-f]{40}) ([0-9a-f]{40}) ([ADMT])")
 _SYMLINK, _GITLINK = "120000", "160000"
 
@@ -134,10 +148,12 @@ class BundleRefused(RepositoryError):
 
 @dataclass(frozen=True)
 class SessionRepository:
-    """A one-off repository handed to one session. Nothing in this module runs git in it again."""
+    """A one-off repository handed to one session. Nothing in this module runs git in it again.
+    ``head`` is the run's branch tip it was created with, when it holds the branch."""
 
     path: Path
     pinned: str
+    head: str | None = None
 
 
 @dataclass(frozen=True)
@@ -276,12 +292,50 @@ class TrustedRepository:
         result = self._git_test("rev-parse", "--verify", "--quiet", "--end-of-options", f"{sha}^{{commit}}")
         return result.returncode == 0 and result.stdout.strip() == sha.encode("ascii")
 
+    def branch_head(self, branch: str) -> str | None:
+        """The tip of ``refs/heads/<branch>`` (an autodev branch), or None when there is none."""
+        result = self._git_test("rev-parse", "--verify", "--quiet", "--end-of-options",
+                                f"refs/heads/{_branch(branch)}^{{commit}}")
+        sha = result.stdout.decode("ascii", "replace").strip()
+        return sha if result.returncode == 0 and _SHA.fullmatch(sha) else None
+
+    def merge_base(self, one: str, two: str) -> str:
+        """The best common ancestor of two commits (a resume after main moved, #347)."""
+        one, two = _sha(one, "one"), _sha(two, "two")
+        result = self._git_test("merge-base", "--end-of-options", one, two)
+        sha = result.stdout.decode("ascii", "replace").strip()
+        if result.returncode != 0 or not _SHA.fullmatch(sha):
+            raise RepositoryError(f"{one} and {two} have no common ancestor")
+        return sha
+
+    def blob_ids(self, commit: str, paths: list[str] | tuple[str, ...]) -> dict[str, str | None]:
+        """The blob SHA of each path at ``commit`` of main (the flows a run read), None for one
+        that is absent or not a regular file."""
+        commit = self._main_commit(commit)
+        output = self._git("ls-tree", "-z", "--full-tree", "--end-of-options", commit, "--", *paths)
+        found: dict[str, str | None] = {path: None for path in paths}
+        for entry in output.decode("utf-8", "surrogateescape").split("\0"):
+            header, _, path = entry.partition("\t")
+            parts = header.split(" ")
+            if path in found and len(parts) == 3 and parts[1] == "blob" and parts[0] in ("100644", "100755") \
+                    and _SHA.fullmatch(parts[2]):
+                found[path] = parts[2]
+        return found
+
     # --- one-off repositories -----------------------------------------------------------------
 
-    def create_session_repository(self, destination: str | os.PathLike[str]) -> SessionRepository:
-        """A fresh clone at ``pinned`` for one session; the only git this module runs in it."""
+    def create_session_repository(self, destination: str | os.PathLike[str],
+                                  branch: str | None = None) -> SessionRepository:
+        """A fresh clone at ``pinned`` for one session, holding the run's imported ``branch``
+        checked out when one is named; the only git this module runs in it."""
         self.verify()
         pinned = self.pinned()
+        tip = None
+        if branch is not None:
+            branch = _branch(branch)
+            tip = self.branch_head(branch)
+            if tip is None:
+                raise RepositoryError(f"the trusted repository has no imported {branch}")
         destination = Path(os.path.abspath(destination))
         if os.path.lexists(destination):
             raise RepositoryError(f"{destination} already exists")
@@ -302,7 +356,22 @@ class TrustedRepository:
         if head != pinned:  # main moved between reading pinned and the clone
             shutil.rmtree(destination, ignore_errors=True)
             raise RepositoryError(f"the session repository is at {head}, not at pinned {pinned}")
-        return SessionRepository(destination, pinned)
+        if branch is None:
+            return SessionRepository(destination, pinned)
+        try:
+            # By the trusted repository's path, never a remote name; fetch sets no upstream.
+            gitsafe.git(destination, "fetch", "--quiet", "--no-tags", "--no-write-fetch-head",
+                        "--no-recurse-submodules", "--", str(self.path), f"refs/heads/{branch}:refs/heads/{branch}",
+                        config=CONFIG, timeout=FETCH_TIMEOUT)
+            gitsafe.git(destination, "switch", "--quiet", "--no-guess", branch, config=CONFIG)
+            head = gitsafe.git(destination, "rev-parse", "--verify", "HEAD", config=CONFIG).decode().strip()
+        except gitsafe.GitError as error:
+            shutil.rmtree(destination, ignore_errors=True)
+            raise RepositoryError(f"the run's branch could not be checked out: {error}") from None
+        if head != tip:  # the branch moved between reading its tip and the fetch
+            shutil.rmtree(destination, ignore_errors=True)
+            raise RepositoryError(f"the session repository's {branch} is at {head}, not at {tip}")
+        return SessionRepository(destination, pinned, tip)
 
 
     # --- bundles ------------------------------------------------------------------------------
@@ -394,6 +463,74 @@ class TrustedRepository:
         shutil.move(copy, kept)
         os.chmod(kept, 0o400)
         return kept
+
+    def quarantine_branch(self, branch: str, run_id: str, name: str = "final") -> str:
+        """Move ``refs/heads/<branch>`` to ``refs/autodev/quarantine/<run-id>/<name>``; returns that
+        ref. ``final``: a blocked run's branch (design 9.4: the blocked bundle stays in a local
+        quarantine ref); ``stale``: a branch an earlier run left, set aside before a new run builds
+        its own (#347 review)."""
+        branch = _branch(branch)
+        if not isinstance(run_id, str) or not _RUN_ID.fullmatch(run_id):
+            raise ValueError(f"not a run ID: {run_id!r}")
+        if name not in QUARANTINE_NAMES:
+            raise ValueError(f"not a quarantine name: {name!r}")
+        self.verify()
+        head = self.branch_head(branch)
+        if head is None:
+            raise RepositoryError(f"the trusted repository has no {branch}")
+        target = f"{QUARANTINE}/{run_id}/{name}"
+        self._git("update-ref", "-m", f"autodev quarantine {run_id}", "--", target, head, "0" * 40)
+        self._git("update-ref", "-m", f"autodev quarantine {run_id}", "-d", "--", f"refs/heads/{branch}", head)
+        return target
+
+    def export_commits(self, base: str, head: str, destination: str | os.PathLike[str], stem: str) -> dict:
+        """Write the commits ``base..head`` of the trusted repository as ``<destination>/<stem>.patch``
+        (``git format-patch --stdout``) and ``<destination>/<stem>.bundle`` (a bundle of
+        ``refs/autodev/export/<stem>`` at ``head`` without ``base``'s history, verified), both
+        read-only and new; returns ``{"patch", "bundle", "sha256": {"patch", "bundle"}, "commits",
+        "ref"}``. ``head`` must descend from ``base`` by 1 to `MAX_IMPORT_COMMITS` commits. The
+        bundle needs ``base`` in the repository it is fetched into (a clone of main has it)."""
+        base, head = _sha(base, "base"), _sha(head, "head")
+        if not isinstance(stem, str) or not _STEM.fullmatch(stem):
+            raise ValueError(f"not a file stem: {stem!r}")
+        self.verify()
+        if not self._is_commit(base) or not self._is_commit(head):
+            raise RepositoryError("both ends of the export must be commits of the trusted repository")
+        if base == head or self._git_test("merge-base", "--is-ancestor", "--end-of-options", base,
+                                          head).returncode != 0:
+            raise RepositoryError(f"{head} does not descend from {base}")
+        commits = self._git("rev-list", "--reverse", "--end-of-options", f"{base}..{head}").decode().split()
+        if not commits or len(commits) > MAX_IMPORT_COMMITS:
+            raise RepositoryError(f"the export holds {len(commits)} commits, not 1 to {MAX_IMPORT_COMMITS}")
+        directory = Path(os.path.abspath(destination))
+        if directory.is_relative_to(self.path):
+            raise RepositoryError("the export must be written outside the trusted repository")
+        directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+        _require_own_directory(directory)
+        patch, bundle = directory / f"{stem}.patch", directory / f"{stem}.bundle"
+        for path in (patch, bundle):
+            if os.path.lexists(path):
+                raise RepositoryError(f"{path} already exists")
+        try:
+            text = gitsafe.git_bounded(self.path, "format-patch", "--stdout", "--no-ext-diff", "--no-textconv",
+                                       "--end-of-options", f"{base}..{head}", max_output=MAX_EXPORT_BYTES,
+                                       config=CONFIG, timeout=FETCH_TIMEOUT)
+        except gitsafe.GitError as error:
+            raise RepositoryError(f"the patch could not be written: {error}") from None
+        _write_new(patch, text)
+        ref = f"{EXPORT_REFS}/{stem}"
+        self._git("update-ref", "--", ref, head)
+        try:
+            self._git("bundle", "create", str(bundle), ref, f"^{base}", timeout=FETCH_TIMEOUT)
+        finally:
+            self._git("update-ref", "-d", "--", ref, head)
+        verified = self._git_test("bundle", "verify", str(bundle))
+        if verified.returncode != 0:
+            raise RepositoryError("the exported bundle does not verify: "
+                                  + verified.stderr.decode("utf-8", "replace").strip()[-300:])
+        os.chmod(bundle, 0o400)
+        return {"patch": str(patch), "bundle": str(bundle), "commits": commits, "ref": ref,
+                "sha256": {"patch": _sha256(patch), "bundle": _sha256(bundle)}}
 
     def prune_quarantine(self, now: datetime | None = None,
                          retention: timedelta = QUARANTINE_RETENTION) -> list[str]:
@@ -686,6 +823,24 @@ def default_builder(venv: Path, files: Mapping[str, bytes]) -> None:
         subprocess.run([str(venv / "bin" / "python"), "-m", "pip", "install", "--disable-pip-version-check",
                         "--no-input", "-r", str(requirements)], check=True, stdin=subprocess.DEVNULL,
                        timeout=VENV_TIMEOUT, env=environment)
+
+
+def _write_new(path: Path, content: bytes) -> None:
+    """Write a new read-only file (never through a link, never over an existing file)."""
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(descriptor, "wb") as stream:
+        stream.write(content)
+        stream.flush()
+        os.fsync(stream.fileno())
+    os.chmod(path, 0o400)
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as stream:
+        while chunk := stream.read(1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _require_own_directory(path: Path) -> None:

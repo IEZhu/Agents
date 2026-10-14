@@ -18,8 +18,9 @@ counts none when ``ps`` fails, so the tick fails open there.
 
 The lease is cooperative coordination between well-behaved sessions, not a guarantee: nothing
 stops a session from running ``pytest`` without ``heavy --``, or from exhausting the user's process
-limit so that ``ps`` fails. Enforcing one heavy process against a misbehaving session belongs to
-the sandbox (#343) and the run sequence (#347).
+limit so that ``ps`` fails. Enforcing one heavy process against a misbehaving session needs
+process and resource limits on the session's tree, which no part sets yet; the run sequence (#347)
+bounds a session only by its stage timeout and ends its process group afterwards.
 """
 from __future__ import annotations
 
