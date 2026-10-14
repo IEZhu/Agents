@@ -706,6 +706,7 @@ def test_decoys_are_removed_with_the_data_but_only_real_decoy_files(home):
 
 
 def test_registry_entries_with_foreign_names_are_never_removed(home):
+    """Foreign registry names neither authorize removal nor trigger keychain lookups."""
     state = darwin_home(home)
     write(home / ".config/x", b"kept")  # the owner's own directory: not a decoy name
     write(state / "schedules/decoys.json", json.dumps({
@@ -759,6 +760,7 @@ def readiness_profiles(tmp_path, monkeypatch, platform, home_name="home with spa
 
 @pytest.mark.parametrize("platform", ["darwin", "linux", "win32"])
 def test_uninstall_removes_installed_readiness_adapters(tmp_path, monkeypatch, platform):
+    """Dry-run preserves profiles; uninstall removes owned readiness artifacts and is idempotent."""
     ctx, paths, runtimes, originals = readiness_profiles(tmp_path, monkeypatch, platform)
     before = snapshot(ctx.home)
     assert main(["--dry-run"], ctx=ctx, interactive=False) == 0
@@ -774,6 +776,7 @@ def test_uninstall_removes_installed_readiness_adapters(tmp_path, monkeypatch, p
 
 
 def readiness_entry(document, client):
+    """Return the first readiness handler or Desktop server entry for a client."""
     if client == "desktop":
         return document["mcpServers"]["Agents-Readiness"]
     if client == "antigravity":
@@ -786,6 +789,7 @@ def readiness_entry(document, client):
 @pytest.mark.parametrize("client", readiness_installer.CLIENTS)
 @pytest.mark.parametrize("change", ["modified", "other-installation"])
 def test_uninstall_preserves_modified_or_foreign_readiness(tmp_path, monkeypatch, client, change):
+    """Modified adapters and adapters from another installation retain their runtime copies."""
     ctx, paths, runtimes, _ = readiness_profiles(tmp_path, monkeypatch, "linux")
     target, _ = paths[client]
     document = json.loads(target.read_bytes())
@@ -807,6 +811,7 @@ def test_uninstall_preserves_modified_or_foreign_readiness(tmp_path, monkeypatch
 
 @pytest.mark.parametrize("platform", ["linux", "win32"])
 def test_uninstall_preserves_other_handlers_and_shared_readiness_runtime(tmp_path, monkeypatch, platform):
+    """Mixed groups keep custom handlers and any readiness runtime they still reference."""
     ctx, paths, runtimes, _ = readiness_profiles(tmp_path, monkeypatch, platform)
     target, script = paths["claude"]
     document = json.loads(target.read_bytes())
@@ -825,6 +830,7 @@ def test_uninstall_preserves_other_handlers_and_shared_readiness_runtime(tmp_pat
 
 @pytest.mark.parametrize("platform", ["linux", "win32"])
 def test_uninstall_preserves_quoted_readiness_runtime_in_modified_mixed_handler(tmp_path, monkeypatch, platform):
+    """A modified handler referencing an apostrophe-containing path keeps its runtime."""
     ctx, paths, runtimes, _ = readiness_profiles(tmp_path, monkeypatch, platform, home_name="O'Neil home")
     target, _ = paths["claude"]
     document = json.loads(target.read_bytes())
@@ -844,6 +850,7 @@ def test_uninstall_preserves_quoted_readiness_runtime_in_modified_mixed_handler(
 
 @pytest.mark.parametrize("dependency", ["claude", "desktop-runtime", "desktop-helper"])
 def test_uninstall_preserves_runtime_referenced_from_another_client(tmp_path, monkeypatch, dependency):
+    """References in another client retain the runtime and any dependency of its Desktop helper."""
     ctx, paths, runtimes, _ = readiness_profiles(tmp_path, monkeypatch, "linux")
     copied = runtimes["claude"] if dependency == "claude" else runtimes["desktop"]
     referenced = copied[-1] if dependency == "desktop-helper" else copied[0]
@@ -869,6 +876,7 @@ def test_uninstall_preserves_runtime_referenced_from_another_client(tmp_path, mo
 @pytest.mark.parametrize("change", ["reference", "new-config", "invalid", "unreadable"])
 @pytest.mark.parametrize("dependency", ["claude", "desktop-helper"])
 def test_uninstall_rechecks_other_client_configs_before_runtime_removal(tmp_path, monkeypatch, change, dependency):
+    """New references and uncertain configurations after inventory refuse runtime removal."""
     ctx, paths, runtimes, _ = readiness_profiles(tmp_path, monkeypatch, "linux")
     copied = runtimes["claude"] if dependency == "claude" else runtimes["desktop"]
     referenced = copied[-1] if dependency == "desktop-helper" else copied[0]
@@ -887,6 +895,7 @@ def test_uninstall_rechecks_other_client_configs_before_runtime_removal(tmp_path
         read_bytes = Path.read_bytes
 
         def unreadable(path):
+            """Simulate a configuration becoming unreadable after inventory."""
             if path == target:
                 raise PermissionError("scratch configuration is unreadable")
             return read_bytes(path)
@@ -901,6 +910,7 @@ def test_uninstall_rechecks_other_client_configs_before_runtime_removal(tmp_path
 
 @pytest.mark.parametrize("change", ["invalid", "unreadable", "malformed-command", "encoded-command", "unknown-wrapper"])
 def test_uninstall_preserves_runtimes_when_another_config_is_uncertain(tmp_path, monkeypatch, change):
+    """Unreadable configurations and uncertain commands prevent runtime cleanup during inventory."""
     ctx, paths, runtimes, _ = readiness_profiles(tmp_path, monkeypatch, "linux")
     target, _ = paths["cursor"]
     if change == "invalid":
@@ -909,6 +919,7 @@ def test_uninstall_preserves_runtimes_when_another_config_is_uncertain(tmp_path,
         read_bytes = Path.read_bytes
 
         def unreadable(path):
+            """Simulate a configuration that cannot be read during inventory."""
             if path == target:
                 raise PermissionError("scratch configuration is unreadable")
             return read_bytes(path)
@@ -930,6 +941,7 @@ def test_uninstall_preserves_runtimes_when_another_config_is_uncertain(tmp_path,
 
 
 def test_uninstall_keeps_modified_runtime_and_unrelated_files(tmp_path, monkeypatch):
+    """Modified runtime copies and unrelated files survive removal of owned adapters."""
     ctx, paths, runtimes, _ = readiness_profiles(tmp_path, monkeypatch, "linux")
     runtime = runtimes["desktop"][0]
     runtime.write_bytes(runtime.read_bytes() + b"\n# user's local change\n")
@@ -941,6 +953,7 @@ def test_uninstall_keeps_modified_runtime_and_unrelated_files(tmp_path, monkeypa
 
 
 def test_uninstall_finds_readiness_desktop_override_and_msix(tmp_path, monkeypatch):
+    """Desktop override and MSIX profiles have their owned adapters and runtime copies removed."""
     ctx, _, _, _ = readiness_profiles(tmp_path, monkeypatch, "win32")
     override = ctx.home / "profiles/Desktop/desktop.json"
     msix = ctx.home / "AppData/Local/Packages/Claude_example/LocalCache/Roaming/Claude/claude_desktop_config.json"
@@ -957,6 +970,7 @@ def test_uninstall_finds_readiness_desktop_override_and_msix(tmp_path, monkeypat
 
 
 def test_uninstall_rechecks_readiness_runtime_ownership_before_removing(tmp_path, monkeypatch):
+    """A Desktop adapter modified after inventory retains its configuration and both runtimes."""
     ctx, paths, runtimes, _ = readiness_profiles(tmp_path, monkeypatch, "linux")
     plan = uninstall.build_plan(ctx)
     target, _ = paths["desktop"]
@@ -971,6 +985,7 @@ def test_uninstall_rechecks_readiness_runtime_ownership_before_removing(tmp_path
 
 @pytest.mark.skipif(sys.platform == "win32", reason="creating symlinks needs a privilege on Windows")
 def test_uninstall_readiness_uses_the_venv_interpreter_path_without_resolving_it(tmp_path, monkeypatch):
+    """A venv interpreter symlink establishes adapter ownership without removing its system target."""
     ctx, _, runtimes, _ = readiness_profiles(tmp_path, monkeypatch, "linux")
     python = ctx.home / ".agents-core/.venv/bin/python"
     python.unlink()
@@ -982,6 +997,7 @@ def test_uninstall_readiness_uses_the_venv_interpreter_path_without_resolving_it
 
 
 def test_uninstall_keeps_readiness_runtime_referenced_by_another_desktop_server(tmp_path, monkeypatch):
+    """An unrelated Desktop server retains the runtime it references while the unused helper is removed."""
     ctx, paths, runtimes, _ = readiness_profiles(tmp_path, monkeypatch, "linux")
     target, _ = paths["desktop"]
     document = json.loads(target.read_bytes())

@@ -1001,6 +1001,7 @@ def _transform_for(client: str) -> Callable[[bytes], bytes | None] | None:
 
 
 def _mentions_us(path: Path) -> bool:
+    """Check readable file bytes for Agents-Core server names or routing markers."""
     try:
         content = path.read_bytes()
     except OSError:
@@ -1052,6 +1053,7 @@ def _readiness_arguments(command: str, *, windows: bool) -> list[str] | None:
 
 
 def _readiness_handler(handler, client: str, script: Path, installation: Path, *, windows: bool) -> bool:
+    """Match an unchanged generated handler using the selected installation's interpreter."""
     if not isinstance(handler, dict):
         return False
     expected = {"command": handler.get("command"), "timeout": 5}
@@ -1124,6 +1126,7 @@ def _readiness_referenced(content: bytes | None, path: Path) -> bool:
         return True
 
     def refers(value, *, command=False) -> bool:
+        """Scan nested values for the runtime path, treating uncertain commands as references."""
         if isinstance(value, dict):
             return any(refers(child, command=key == "command") for key, child in value.items())
         if isinstance(value, list):
@@ -1210,6 +1213,7 @@ def readiness_items(ctx: Context, backups: Backups, installation: Path) -> list[
                 continue
 
             def remove_runtime(runtime=runtime, expected=expected, references=references):
+                """Recheck runtime bytes and every configuration before removing an unreferenced copy."""
                 check_removable(ctx, runtime)
                 if runtime.read_bytes() != expected:
                     raise Refused("readiness runtime changed; remove it yourself")
@@ -1304,6 +1308,7 @@ def decoy_items(ctx: Context, states: Sequence[Path]) -> list[Item]:
 
 
 def build_plan(ctx: Context, *, keep_data: bool = False) -> list[Item]:
+    """Inventory uninstall actions and deferred operations without applying them."""
     items: list[Item] = []
     backups = Backups(ctx)
     installation = installation_dir(ctx)
