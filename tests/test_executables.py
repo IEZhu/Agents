@@ -281,11 +281,12 @@ def test_the_version_footers_git_ignores_the_users_configuration(tmp_path, monke
     # A repository of its own: the real checkout may enable FSMonitor in its own configuration.
     monkeypatch.setattr(version, "ROOT", committed_repository(tmp_path / "installation"))
     marker = hostile_configuration(tmp_path, monkeypatch)
-    status = ("--no-optional-locks", "-C", str(version.ROOT), "status", "--porcelain", "--untracked-files=no")
+    footer_status = ("status", "--porcelain=v2", "--branch", "--no-ahead-behind", "--untracked-files=no")
+    status = ("--no-optional-locks", "-C", str(version.ROOT), *footer_status)
     plain_git(*status, cwd=tmp_path)
     assert marker.exists(), "the hostile configuration must be live for this test to mean anything"
     marker.unlink()
-    assert version._git("status", "--porcelain", "--untracked-files=no") is not None
+    assert version._git(*footer_status) is not None
     assert not marker.exists()
 
 

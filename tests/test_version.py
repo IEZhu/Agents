@@ -36,7 +36,29 @@ def test_format_converts_to_utc_and_marks_dirty():
     assert version.format_version("2026-10-01T23:59:00-05:00", dirty=True) == "26.10.02.0459-dirty"
 
 
-def fake_git(monkeypatch, log, status=""):
+@pytest.mark.parametrize("branch, dirty, expected", [
+    ("dev", False, "26.10.01.0801-dev"),
+    ("dev", True, "26.10.01.0801-dev-dirty"),
+    ("main", False, "26.10.01.0801"),
+    ("(detached)", False, "26.10.01.0801"),
+    ("development", False, "26.10.01.0801"),
+    ("feature/dev", False, "26.10.01.0801"),
+    (None, True, "26.10.01.0801-dirty"),
+])
+def test_format_marks_only_the_dev_branch(branch, dirty, expected):
+    assert version.format_version("2026-10-01T08:01:00+00:00", dirty, branch) == expected
+
+
+MODIFIED = "1 .M N... 100644 100644 100644 " + "a" * 40 + " " + "b" * 40 + " src/x.py\n"
+
+
+def porcelain(branch="main", changes=""):
+    """``git status --porcelain=v2 --branch`` output."""
+    return f"# branch.oid {'c' * 40}\n# branch.head {branch}\n{changes}"
+
+
+def fake_git(monkeypatch, log, status=None):
+    status = porcelain() if status is None else status
     def run(args, **kwargs):
         out = log if "log" in args else status
         return subprocess.CompletedProcess(args, 0, stdout=out, stderr="")
@@ -63,8 +85,62 @@ def test_unknown_when_status_fails(monkeypatch):
 
 
 def test_dirty_tree_is_marked(monkeypatch):
-    fake_git(monkeypatch, "2026-10-01T08:01:00+00:00\n", " M src/x.py\n")
+    fake_git(monkeypatch, "2026-10-01T08:01:00+00:00\n", porcelain(changes=MODIFIED))
     assert version.agents_core_version() == "26.10.01.0801-dirty"
+
+
+@pytest.mark.parametrize("status, expected", [
+    (porcelain("dev"), "26.10.01.0801-dev"),
+    (porcelain("dev", MODIFIED), "26.10.01.0801-dev-dirty"),
+    (porcelain("dev") + "# branch.upstream origin/dev\n# branch.ab +0 -0\n", "26.10.01.0801-dev"),
+    (porcelain("(detached)"), "26.10.01.0801"),
+    ("", "26.10.01.0801"),  # no branch header at all: no suffix, not unknown
+])
+def test_dev_branch_from_the_status_header(monkeypatch, status, expected):
+    fake_git(monkeypatch, "2026-10-01T08:01:00+00:00\n", status)
+    assert version.agents_core_version() == expected
+
+
+def test_one_status_call_reads_branch_and_changes(monkeypatch):
+    calls = []
+    def run(args, **kwargs):
+        calls.append(args)
+        out = "2026-10-01T08:01:00+00:00" if "log" in args else porcelain("dev")
+        return subprocess.CompletedProcess(args, 0, stdout=out, stderr="")
+    monkeypatch.setattr(version.subprocess, "run", run)
+    assert version.agents_core_version() == "26.10.01.0801-dev"
+    status = [c for c in calls if "status" in c]
+    assert len(status) == 1
+    assert {"--porcelain=v2", "--branch", "--no-ahead-behind", "--untracked-files=no"} <= set(status[0])
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
+def test_dev_suffix_in_a_real_repository(monkeypatch, tmp_path):
+    repo = tmp_path / "repo"
+    def git(*args):
+        subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.com", "-C", str(repo), *args],
+                       check=True, capture_output=True, stdin=subprocess.DEVNULL)
+    repo.mkdir()
+    git("init", "-q", "-b", "main")
+    (repo / "a.txt").write_text("a\n")
+    git("add", "a.txt")
+    git("commit", "-q", "-m", "a")
+    monkeypatch.setattr(version, "ROOT", repo)
+
+    def current():
+        version.agents_core_version.cache_clear()
+        return version.agents_core_version()
+
+    assert current().count("-") == 0
+    git("switch", "-q", "-c", "dev")
+    assert current().endswith("-dev")
+    (repo / "a.txt").write_text("b\n")
+    assert current().endswith("-dev-dirty")
+    (repo / "untracked.txt").write_text("u\n")
+    git("restore", "a.txt")
+    assert current().endswith("-dev")  # untracked files do not make it dirty
+    git("switch", "-q", "--detach")
+    assert "-" not in current()
 
 
 @pytest.mark.parametrize("failure", [OSError("no git"), subprocess.TimeoutExpired("git", 5)])
