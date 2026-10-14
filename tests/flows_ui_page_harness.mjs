@@ -60,6 +60,8 @@ let signedIn = ["search", "render", "persona_race", "agents", "history", "histor
 const revisions = {};  // sync_notice: a flow's revision after another machine changed it
 const deletedFlows = new Set();  // sync_notice: flows a cycle deleted (GET answers 404)
 const confirms = [];  // every question the page asked with confirm()
+let confirmAnswer = true;  // what confirm() answers; autodev_races answers no once
+const replacedUrls = [];  // every history.replaceState call, as [state, title, url]
 const prompts = [];  // every question the page asked with prompt(), and the answer it suggested
 const puts = [];
 let putStatus = 200;
@@ -96,7 +98,14 @@ async function fetchStub(path, init = {}) {
   }
   if (isSync) return respond(...uiData(path, init));
   if (isAutodev && path.startsWith("/ui/api/autodev")) {
-    return respond(...autodevAnswer(init.method || "GET", path, init.body ? JSON.parse(init.body) : null));
+    const method = init.method || "GET";
+    const answer = autodevAnswer(method, path, init.body ? JSON.parse(init.body) : null);  // the state when sent
+    const hold = autodevHolds[method + " " + path];
+    if (hold) {  // the scenario decides when this one request answers
+      delete autodevHolds[method + " " + path];
+      await hold.promise;
+    }
+    return respond(...answer);
   }
   if (isAutodev) return respond(...uiData(path, init));
   if (isUi && init.method === "DELETE") {
@@ -350,15 +359,38 @@ if (scenario === "sync_hostkey_github") {
 // --- the Autodev page (#348): a scripted /ui/api/autodev ----------------------------------------
 // The settings are the daemon's defaults, as the test passes them (`editable(DEFAULTS)`); `autodevCalls`
 // records [method, path, body] of every request. A save whose slots are not HH:MM is refused as the
-// daemon refuses it.
+// daemon refuses it. As the daemon's revision leaves out enabled and mode, the switch keeps it; a
+// scenario changes it, with the settings, for a change made elsewhere. autodev_stored starts with
+// stored values the lists lack and a stored run mode; autodev_invalid with an invalid autodev.json.
 const AUTODEV_DEFAULTS = isAutodev ? JSON.parse(process.env.AUTODEV_DEFAULTS) : null;
 const CLAUDE_EFFORT_LIST = ["low", "medium", "high", "xhigh", "max"];
 const CODEX_EFFORT_LIST = ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra", "persistent"];
 const autodevCalls = [];
-const autodevState = { revision: "", enabled: false, settings: AUTODEV_DEFAULTS && JSON.parse(JSON.stringify(AUTODEV_DEFAULTS)) };
+const autodevState = { revision: "", enabled: false, mode: "dry-run",
+                       settings: AUTODEV_DEFAULTS && JSON.parse(JSON.stringify(AUTODEV_DEFAULTS)) };
+if (scenario === "autodev_stored") {
+  autodevState.enabled = true;
+  autodevState.mode = "run";
+  autodevState.settings.stages.select.claude.effort = "ultra";
+  autodevState.settings.delegates["code-review-pass"].effort_followup = "minimal";
+}
+const autodevHolds = {};  // "METHOD path" -> { promise, release }: the next such request answers on release
+const holdAutodev = (key) => {
+  let release;
+  const promise = new Promise((resolve) => { release = resolve; });
+  autodevHolds[key] = { promise };
+  return release;
+};
 const COMMITS = { available: false, reason: "codex_stage_commit_unsupported", checked: null,
                   message: "this stage commits, and a Codex stage cannot (workspace-write keeps .git read-only)" };
 function autodevPayload() {
+  if (scenario === "autodev_invalid") {
+    return { ...autodevValidPayload(), revision: "", problems: ["times must be a non-empty list of HH:MM"], settings: null,
+             codex: null, status: { ...autodevValidPayload().status, enabled: null, mode: null, next_slot: null } };
+  }
+  return autodevValidPayload();
+}
+function autodevValidPayload() {
   const select = scenario === "autodev_codex"
     ? { available: true, reason: null, message: null, checked: "2026-10-11T11:00:00+00:00" }
     : { available: false, reason: "not_checked", checked: null,
@@ -370,7 +402,7 @@ function autodevPayload() {
     capabilities: { claude: { client: "claude", efforts: CLAUDE_EFFORT_LIST, version: "2.1.296", source: "installed" },
                     codex: { client: "codex", efforts: CODEX_EFFORT_LIST, version: "0.162.1", source: "installed" } },
     codex: { installed: true, version: "0.162.1", stages: { select, implement: COMMITS, submit: COMMITS } },
-    status: { enabled: autodevState.enabled, mode: "dry-run", next_slot: "2026-10-12T13:47:00+00:00",
+    status: { enabled: autodevState.enabled, mode: autodevState.mode, next_slot: "2026-10-12T13:47:00+00:00",
               scheduler: { installed: false, supported: true },
               runs: [{ run_id: "20261011T134700Z-bbbbbb", mode: "dry-run", trigger: { kind: "slot", at: "x" }, status: "failed: infra",
                        reason: "network: github.com unreachable", started: "2026-10-11T13:47:05+00:00" },
@@ -398,13 +430,12 @@ function autodevAnswer(method, path, body) {
     if (body.mode !== "dry-run") return [409, { status: "error", error: "mode_unavailable", missing: ["#350 automatic mode"],
       message: "a scheduled run arrives with the automatic mode (#350); run `autodev run-now --mode run` for a supervised run" }];
     autodevState.enabled = true;
-    autodevState.revision = "e" + autodevCalls.length;
+    autodevState.mode = "dry-run";
     return [200, { ...autodevPayload(), result: { ok: true, enabled: true, mode: "dry-run", scheduler_installed: false,
       note: "run `python -m src.schedules autodev install` so that ticks start" } }];
   }
   if (method === "POST" && path === "/ui/api/autodev/disable") {
     autodevState.enabled = false;
-    autodevState.revision = "d" + autodevCalls.length;
     return [200, { ...autodevPayload(), result: { ok: true, enabled: false } }];
   }
   return [404, { error: "not_found" }];
@@ -507,9 +538,10 @@ const context = vm.createContext({
     getItem: (key) => { if (scenario.endsWith("nostorage")) throw new Error("denied"); return storage.has(key) ? storage.get(key) : null; },
     setItem: (key, value) => { if (scenario.endsWith("nostorage")) throw new Error("denied"); storage.set(key, value); },
   },
-  location: { hash: scenario === "used_code" ? "#code=used-code" : "", pathname: "/ui" },
-  history: { replaceState() {} },
-  fetch: fetchStub, alert() {}, confirm: (question) => { confirms.push(question); return true; },
+  location: { hash: scenario === "used_code" ? "#code=used-code" : scenario === "autodev_link" ? "#autodev" : "",
+              pathname: "/ui" },
+  history: { replaceState(...args) { replacedUrls.push(args); } },
+  fetch: fetchStub, alert() {}, confirm: (question) => { confirms.push(question); return confirmAnswer; },
   prompt: (question, suggested) => { prompts.push([question, suggested]); return suggested; },
   setTimeout: pageSetTimeout, clearTimeout: pageClearTimeout,
   console, URLSearchParams,
@@ -1571,8 +1603,22 @@ if (isAutodev) {
                           runs: textOf(field("ad-runs")), switch: field("ad-switch") && field("ad-switch").textContent });
   const openChip = async () => { fire(byId("autodev-chip"), "click"); await sleep(40); };
   const gets = () => autodevCalls.filter(([method]) => method === "GET").length;
+  const puts = () => autodevCalls.filter(([method]) => method === "PUT");
+  const done = () => { console.log(JSON.stringify(out)); process.exit(0); };
 
+  if (scenario === "autodev_link") {  // /ui#autodev opens the page and clears the hash
+    await sleep(40);
+    out.opened = { ...page(), gets: gets(), replaced: replacedUrls, title_focused: byId("autodev-title").focused };
+    done();
+  }
   await openChip();
+  if (scenario === "autodev_invalid") {  // the problems, and no form or switch
+    const card = root().children.find((child) => child.children.some((k) => k.tag === "h3" && k.textContent === "autodev.json is invalid"));
+    out.invalid = { ...page(), problems: card ? findAll(card, (n) => n.tag === "li").map((n) => n.textContent) : null,
+                    state: textOf(field("ad-state")),
+                    controls: ["ad-save", "ad-defaults", "ad-reload", "ad-switch", "ad-times", "ad-select-client"].filter((id) => field(id)) };
+    done();
+  }
   out.opened = { ...page(), title_focused: byId("autodev-title").focused, tabs: byId("tabs").children.map((b) => b.attrs["aria-pressed"]),
                  gets: gets() };
   out.form = form();
@@ -1583,9 +1629,71 @@ if (isAutodev) {
   out.status = status();
   out.efforts = { claude: options("ad-select-claude-effort").map((o) => o[0]),
                   followup: options("ad-code-review-pass-followup").map((o) => o[0]) };
-  if (scenario === "autodev_codex") {
-    console.log(JSON.stringify(out));
-    process.exit(0);
+  if (scenario === "autodev_codex") done();
+
+  if (scenario === "autodev_stored") {
+    // Stored values the lists lack stay, marked; the review's follow-up list follows its client.
+    out.stored = { select_effort: value("ad-select-claude-effort"), select_options: options("ad-select-claude-effort"),
+                   followup: value("ad-code-review-pass-followup"), status: textOf(field("ad-status")) };
+    await setValue("ad-code-review-pass-client", "claude");
+    out.client_changed = { followup: value("ad-code-review-pass-followup"), options: options("ad-code-review-pass-followup") };
+    await click("ad-save");
+    const put = puts().at(-1)[2].settings;
+    out.saved = { select: put.stages.select.claude, review: put.delegates["code-review-pass"], alert: alert().text };
+    done();
+  }
+
+  if (scenario === "autodev_races") {
+    // Reload asks before it drops unsaved edits; "no" keeps them and sends nothing.
+    await setValue("ad-catch-up", "55");
+    confirmAnswer = false;
+    await click("ad-reload");
+    out.reload_no = { confirms: confirms.slice(), gets: gets(), catch_up: value("ad-catch-up") };
+    confirmAnswer = true;
+    await click("ad-reload");
+    out.reload_yes = { confirms: confirms.length, gets: gets(), catch_up: value("ad-catch-up") };
+    // One request at a time: Save pressed again while the first save is under way sends nothing.
+    const releasePut = holdAutodev("PUT /ui/api/autodev");
+    await setValue("ad-max_reviews", "5");
+    await click("ad-save");
+    await click("ad-save");
+    releasePut();
+    await sleep(40);
+    out.busy = { puts: puts().length, alert: alert().text };
+    // A saved form is clean: the next read shows a change made elsewhere.
+    autodevState.settings = { ...autodevState.settings, catch_up_minutes: 45 };
+    autodevState.revision = "x1";
+    await openChip();
+    await openChip();
+    out.clean = { catch_up: value("ad-catch-up"), max_reviews: value("ad-max_reviews") };
+    // Defaults put in a clean form are unsaved edits too: a read on coming back keeps them.
+    await click("ad-defaults");
+    await openChip();
+    await openChip();
+    out.defaults_kept = { catch_up: value("ad-catch-up"), max_reviews: value("ad-max_reviews"), gets: gets() };
+    // A read sent before a save and answered after it is dropped: the form and the revision stay the saved ones.
+    const releaseGet = holdAutodev("GET /ui/api/autodev");
+    await click("ad-reload");
+    await setValue("ad-catch-up", "30");
+    await click("ad-save");
+    const savedAt = autodevState.revision;
+    releaseGet();
+    await sleep(40);
+    out.stale = { catch_up: value("ad-catch-up"), saved_at: savedAt };
+    await click("ad-save");
+    out.stale = { ...out.stale, put: puts().at(-1)[2].expected_revision, alert: alert().text };
+    // The switch with unsaved edits keeps the revision the form was read at: a change made elsewhere
+    // before it (which its write carries) still refuses the save.
+    const readAt = autodevState.revision;
+    await setValue("ad-times", "04:00");
+    autodevState.settings = { ...autodevState.settings, catch_up_minutes: 50 };
+    autodevState.revision = "x2";
+    await click("ad-switch");
+    out.switched = { state: status().state, times: value("ad-times") };
+    await click("ad-save");
+    out.switched = { ...out.switched, put: puts().at(-1)[2].expected_revision, read_at: readAt, alert: alert(),
+                     times_after: value("ad-times") };
+    done();
   }
 
   // Edits survive leaving the page; a tab leaves it too.
@@ -1610,7 +1718,7 @@ if (isAutodev) {
   await setValue("ad-times", "25:00, 13:47");
   await click("ad-save");
   out.refused = { alert: alert(), times: value("ad-times"), puts: autodevCalls.filter(([method]) => method === "PUT").length };
-  // The switch: on in dry-run (the form keeps what was typed and takes the new revision), then off.
+  // The switch: on in dry-run (the form keeps what was typed and the revision it was read at), then off.
   await click("ad-switch");
   out.enabled = { post: autodevCalls.at(-1), status: status(), alert: alert(), times: value("ad-times") };
   await setValue("ad-times", "03:00");
@@ -1622,8 +1730,11 @@ if (isAutodev) {
   await setValue("ad-max_reviews", "9");
   await click("ad-defaults");
   out.defaults = { form: form(), alert: alert().text };
-  console.log(JSON.stringify(out));
-  process.exit(0);
+  // The defaults are unsaved edits: leaving the page and coming back keeps them in the form.
+  await openChip();
+  await openChip();
+  out.defaults_kept = form();
+  done();
 }
 
 if (scenario === "history_adopt") {

@@ -7,21 +7,29 @@ save is validated, and a save is atomic (`src.daemon.state.write_json`).
 ``clone`` is the runner's trusted repository (`src.schedules.repos`, design 5.4): an absolute
 path, or one that starts with ``~``, that lies neither under ``~/Documents`` nor under the
 installation, nor above either of them.
+
+Every writer holds `writing` from its load to its save: the settings page (#348), the runner's
+``enable`` and ``disable`` and the decoy tripwire (`src.schedules.decoys.trip`), so none of them
+writes back a configuration it loaded before another one's save (a tripwire's ``enabled: false``
+is never undone by a save that loaded the file earlier).
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
 import copy
 import os
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 from src.daemon.state import private_dir, read_json, write_json
+from src.file_lock import file_lock
 from src.flow_execution import CLIENTS, CODEX_EFFORTS
 
 from .lease import schedules_dir
 
 CONFIG_NAME = "autodev.json"
+LOCK_NAME = "autodev.lock"  # the sidecar lock of `writing`
 MODES = ("dry-run", "run")
 STAGES = ("select", "implement", "submit")
 DELEGATES = ("code-review-pass", "change-premortem")
@@ -53,6 +61,7 @@ DEFAULTS: dict[str, Any] = {
         "submit": {"client": "claude", "claude": {"model": "opus", "effort": "high"}},
     },
     "delegates": {
+        # effort_followup: the later reviews' effort (Q10); null keeps the first review's effort.
         "code-review-pass": {"client": "codex", "codex": {"model": "gpt-6.1-sol", "effort": "high"},
                              "effort_followup": "medium"},
         # role: the pre-mortem worker's agent (Q2), a setting of the autodev settings page (#348).
@@ -92,6 +101,17 @@ class ConfigError(ValueError):
 
 def config_path(directory: str | Path | None = None) -> Path:
     return schedules_dir(directory) / CONFIG_NAME
+
+
+@contextmanager
+def writing(directory: str | Path | None = None) -> Iterator[None]:
+    """Hold the lock every writer of ``autodev.json`` takes around its load and its save: a sidecar
+    OS lock (`src.file_lock`) that excludes other processes and other threads, and ends with the
+    process that holds it. Not reentrant: a holder must not call a function that takes it."""
+    path = schedules_dir(directory) / LOCK_NAME
+    private_dir(path.parent)
+    with file_lock(path):
+        yield
 
 
 def minutes(text: str) -> int:
@@ -168,12 +188,13 @@ def _profile(where: str, profile: Any, problems: list[str], extra: tuple[str, ..
     budget = profile.get("budget")
     if budget is not None and (not isinstance(budget, dict) or not _positive_int(budget.get("timeout_minutes"))):
         problems.append(f"{where}.budget.timeout_minutes must be a positive integer")
-    if "effort_followup" in profile and not _text(profile["effort_followup"]):
-        problems.append(f"{where}.effort_followup must be a non-empty string")
+    followup = profile.get("effort_followup")
+    if followup is not None and not _text(followup):  # null: the later passes keep the first effort
+        problems.append(f"{where}.effort_followup must be a non-empty string or null")
     if client == "codex":
         efforts = [("effort", settings.get("effort") if isinstance(settings, dict) else None)]
-        if "effort_followup" in profile:
-            efforts.append(("effort_followup", profile["effort_followup"]))
+        if followup is not None:
+            efforts.append(("effort_followup", followup))
         for name, value in efforts:
             if _text(value) and value not in CODEX_EFFORTS:
                 problems.append(f"{where}: the Codex {name} must be one of {', '.join(CODEX_EFFORTS)}")

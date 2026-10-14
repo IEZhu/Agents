@@ -117,13 +117,19 @@ def read_record(run_id: str, directory: str | Path | None = None) -> dict | None
     return record if isinstance(record, dict) else None
 
 
-def all_records(directory: str | Path | None = None) -> list[dict]:
-    """Every readable record, newest first."""
+def all_records(directory: str | Path | None = None, *, limit: int | None = None) -> list[dict]:
+    """Every readable record, newest first; with ``limit``, the ``limit`` newest, reading no older one."""
     base = runs_dir(directory)
     if not base.is_dir():
         return []
-    names = sorted((path.name for path in base.iterdir() if valid_run_id(path.name)), reverse=True)
-    return [record for record in (read_record(name, directory) for name in names) if record]
+    found = []
+    for name in sorted((path.name for path in base.iterdir() if valid_run_id(path.name)), reverse=True):
+        if limit is not None and len(found) >= limit:
+            break
+        record = read_record(name, directory)
+        if record:
+            found.append(record)
+    return found
 
 
 def trusted_comment_ids(directory: str | Path | None = None) -> set[int]:

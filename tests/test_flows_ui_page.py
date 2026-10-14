@@ -1399,10 +1399,79 @@ def test_the_autodev_page_shows_a_refusal_and_keeps_what_was_typed(autodev):
     assert autodev["refused"] == {"alert": {"text": "Not saved; autodev.json is unchanged:", "className": "notice error",
                                             "items": ["times: '25:00' is not a time of day HH:MM"]},
                                   "times": "25:00, 13:47", "puts": 2}
-    # The switch keeps the typed form and takes the revision of its own write, so the next save is accepted.
+    # The switch keeps the typed form and the revision it was read at; the switch alone (enabled and
+    # mode, which the revision leaves out) changed nothing else, so the next save is accepted.
     assert autodev["enabled"]["times"] == "25:00, 13:47"
-    assert autodev["after_switch"] == {"put": "e6", "alert": "Saved."}
+    assert autodev["after_switch"] == {"put": "r4", "alert": "Saved."}
     assert autodev["defaults"] == {"form": DEFAULT_FORM, "alert": "The defaults are in the form; Save writes them."}
+    # The defaults are unsaved edits: a read on coming back keeps them in the form.
+    assert autodev["defaults_kept"] == DEFAULT_FORM
+
+
+@pytest.fixture(scope="module")
+def autodev_races():
+    return run_autodev("autodev_races")
+
+
+def test_autodev_reload_asks_before_it_drops_unsaved_edits(autodev_races):
+    assert autodev_races["reload_no"] == {"confirms": ["Discard the Autodev settings you have not saved?"], "gets": 1,
+                                          "catch_up": "55"}
+    assert autodev_races["reload_yes"] == {"confirms": 2, "gets": 2, "catch_up": "120"}
+
+
+def test_autodev_sends_one_request_at_a_time_and_a_saved_form_is_clean(autodev_races):
+    assert autodev_races["busy"] == {"puts": 1, "alert": "Saved."}
+    # The next read after a save shows a change made elsewhere: nothing unsaved holds the form.
+    assert autodev_races["clean"] == {"catch_up": "45", "max_reviews": "5"}
+
+
+def test_autodev_defaults_in_a_clean_form_survive_a_read(autodev_races):
+    kept = autodev_races["defaults_kept"]
+    assert (kept["catch_up"], kept["max_reviews"]) == ("120", "3") and kept["gets"] == 4
+
+
+def test_autodev_drops_a_read_that_a_save_overtook(autodev_races):
+    stale = autodev_races["stale"]
+    assert stale["catch_up"] == "30"  # the saved form, not the older settings the read carried
+    assert stale["put"] == stale["saved_at"] and stale["alert"] == "Saved."
+
+
+def test_autodev_switch_with_unsaved_edits_keeps_the_revision_read(autodev_races):
+    switched = autodev_races["switched"]
+    assert switched["state"] == "On, mode dry-run." and switched["times"] == switched["times_after"] == "04:00"
+    assert switched["put"] == switched["read_at"]
+    assert switched["alert"] == {"text": "autodev.json changed since the page read it; reload to see it",
+                                 "className": "notice error", "items": []}
+
+
+def test_autodev_keeps_stored_values_the_lists_lack_and_shows_a_stored_run_mode():
+    stored = run_autodev("autodev_stored")
+    assert stored["stored"]["select_effort"] == "ultra"
+    assert stored["stored"]["select_options"][-1] == ["ultra", "ultra (Claude does not take it)", False]
+    assert stored["stored"]["followup"] == "minimal"
+    assert "On, mode run.A scheduled run is refused until the automatic mode (#350); turn off, then on in dry-run." \
+        in stored["stored"]["status"]
+    assert stored["status"]["switch"] == "Turn off"
+    # The later reviews' list follows the review's client and keeps the stored value, marked.
+    assert stored["client_changed"] == {"followup": "minimal", "options": [
+        ["", "Same as the first", False], ["low", "low", False], ["medium", "medium", False], ["high", "high", False],
+        ["xhigh", "xhigh", False], ["max", "max", False], ["minimal", "minimal (Claude does not take it)", False]]}
+    assert stored["saved"] == {"select": {"model": "opus", "effort": "ultra"},
+                               "review": {"client": "claude", "claude": None,
+                                          "codex": {"model": "gpt-6.1-sol", "effort": "high"},
+                                          "effort_followup": "minimal"},
+                               "alert": "Saved."}
+
+
+def test_autodev_shows_an_invalid_file_without_a_form_or_switch():
+    assert run_autodev("autodev_invalid")["invalid"] == {
+        "shown": True, "main_hidden": True, "chip": "true", "problems": ["times must be a non-empty list of HH:MM"],
+        "state": "Unknown: autodev.json is invalid.", "controls": []}
+
+
+def test_the_autodev_link_opens_the_page_and_clears_the_hash():
+    assert run_autodev("autodev_link")["opened"] == {"shown": True, "main_hidden": True, "chip": "true", "gets": 1,
+                                                     "replaced": [[None, "", "/ui"]], "title_focused": 1}
 
 
 def test_the_autodev_page_keeps_the_header_budget():
