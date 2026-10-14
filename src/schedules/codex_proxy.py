@@ -12,7 +12,8 @@ hundred at most) and counts accepted connections, which the probes read.
 
 Any local process can reach the listener, and a tunnel to an allowed host is a channel the proxy
 cannot read, so it is bounded: at most `MAX_CLIENTS` connections and `MAX_TUNNELS` tunnels at a
-time (``503`` beyond either), and a tunnel ends after `IDLE_TIMEOUT` seconds without a byte in
+time (``503`` beyond either), the whole request head must arrive within `HEADER_TIMEOUT`
+seconds, and a tunnel ends after `IDLE_TIMEOUT` seconds without a byte in
 either direction, after `TUNNEL_SECONDS` seconds or after `TUNNEL_BYTES` bytes (``ended`` counts
 why). `ConnectProxy.close` ends every tunnel; the run closes it when it ends (a context manager),
 and `codex_probes.start` also closes it when the codex process exits (`ConnectProxy.close_when`).
@@ -70,19 +71,22 @@ class ConnectProxy:
     def __init__(self, allowed: Iterable[str], *, port: int = PROXY_PORT_HTTPS,
                  connect: Callable[[tuple[str, int], float], socket.socket] | None = None,
                  max_clients: int = MAX_CLIENTS, max_tunnels: int = MAX_TUNNELS, idle_timeout: float = IDLE_TIMEOUT,
-                 tunnel_seconds: float = TUNNEL_SECONDS, tunnel_bytes: int = TUNNEL_BYTES):
+                 tunnel_seconds: float = TUNNEL_SECONDS, tunnel_bytes: int = TUNNEL_BYTES,
+                 header_timeout: float = HEADER_TIMEOUT):
         self.allowed = frozenset(host.lower() for host in allowed)
         for host in self.allowed:
             if not _HOST.fullmatch(host):
                 raise ValueError(f"not a host name: {host!r}")
         for name, value in (("max_clients", max_clients), ("max_tunnels", max_tunnels), ("idle_timeout", idle_timeout),
-                            ("tunnel_seconds", tunnel_seconds), ("tunnel_bytes", tunnel_bytes)):
+                            ("tunnel_seconds", tunnel_seconds), ("tunnel_bytes", tunnel_bytes),
+                            ("header_timeout", header_timeout)):
             if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
                 raise ValueError(f"{name} must be positive")
         self.port_allowed = port
         self._connect = connect or (lambda address, timeout: socket.create_connection(address, timeout=timeout))
         self.max_clients, self.max_tunnels = int(max_clients), int(max_tunnels)
         self.idle_timeout, self.tunnel_seconds, self.tunnel_bytes = float(idle_timeout), float(tunnel_seconds), int(tunnel_bytes)
+        self.header_timeout = float(header_timeout)
         self.requests: list[dict] = []
         self.accepted = 0
         self.tunnels = 0
@@ -213,7 +217,7 @@ class ConnectProxy:
 
     def _handle(self, client: socket.socket) -> None:
         try:
-            header, rest = _read_header(client)
+            header, rest = _read_header(client, self.header_timeout)
         except OSError:
             self._untrack(client)
             return
@@ -321,12 +325,18 @@ class ConnectProxy:
         return None
 
 
-def _read_header(client: socket.socket) -> tuple[bytes | None, bytes]:
+def _read_header(client: socket.socket, timeout: float = HEADER_TIMEOUT) -> tuple[bytes | None, bytes]:
     """The request head (up to the blank line) and any bytes after it; None for a client that
-    closed or sent more than `HEADER_LIMIT` bytes without one."""
-    client.settimeout(HEADER_TIMEOUT)
+    closed, sent more than `HEADER_LIMIT` bytes without one or did not send it all within
+    ``timeout`` seconds: one deadline for the whole head, so a client that trickles a byte at a
+    time cannot hold a client slot."""
+    deadline = time.monotonic() + timeout
     data = b""
     while b"\r\n\r\n" not in data:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return None, b""
+        client.settimeout(remaining)
         chunk = client.recv(4096)
         if not chunk:
             return None, b""

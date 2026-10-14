@@ -28,9 +28,11 @@ between Codex and the Claude worker.
   and ``--json``. Never ``--add-dir``, ``--approve-for-me``, a profile (``-p``), a ``--dangerously-*``
   flag, ``danger-full-access`` or another ``sandbox*`` configuration key (`check_argv`).
 * **Environment** (`environment`): an allowlist, separate from `runner.run_environment`:
-  ``PATH``, ``HOME``, ``CODEX_HOME`` and ``TMPDIR`` (empty per-run directories inside the run's
-  temporary root, `sandbox.make_temp_root` and `prepare_run_directories`), ``LANG``,
-  ``HTTPS_PROXY`` and ``HTTP_PROXY`` (the runner's proxy) and ``CODEX_API_KEY``.
+  ``PATH`` (only the runner's directories the profile lets the process execute from, then
+  ``/usr/bin`` and ``/bin``: `launch_path`), ``HOME``, ``CODEX_HOME`` and ``TMPDIR`` (empty
+  per-run directories inside the run's temporary root, `sandbox.make_temp_root` and
+  `prepare_run_directories`), ``LANG``, ``HTTPS_PROXY`` and ``HTTP_PROXY`` (the runner's proxy)
+  and ``CODEX_API_KEY``.
 * **Login** (`login_mode`): the only mode is ``codex.login: "keychain:<service>"``: the runner
   reads an OpenAI API key of a separate project with a spending limit (Q8) from that keychain
   item and passes it as ``CODEX_API_KEY`` to the codex process only. ``CODEX_HOME`` is created
@@ -142,6 +144,16 @@ SYSCTL_TRACED = ("kern.bootargs", "kern.iossupportversion", "security.mac.lockdo
 # stage needs none of them (a stage runs its own environment's interpreter, `CodexPaths.venv`).
 DENIED_EXECUTABLES = r"^/usr/bin/(perl|ruby|irb|erb|osascript|osacompile|swift|lldb|python|pydoc|tclsh|wish|jrunscript|jshell)"
 CLT = "/Library/Developer/CommandLineTools"
+# The system directories of the profile's process-exec rule (`profile_text`); with the codex
+# package and a stage's interpreter roots they are the only places a launch's PATH may name
+# (`launch_path`). The Command Line Tools allow only git, which /usr/bin/git reaches.
+EXECUTABLE_DIRECTORIES = ("/bin", "/usr/bin", "/usr/libexec")
+SYSTEM_PATH = ("/usr/bin", "/bin")
+# What `launch_shape` renders the profile with: one parameter of each repeated kind, so the shape
+# covers every rule of the template but not a run's layout (how many read roots, interpreter roots
+# and home ancestors it has), and placeholder paths that are never created or read.
+SHAPE_PARAMETERS = ("ANCESTOR_0", "READ_ROOT_0", "INTERPRETER_0")
+SHAPE_ROOT = Path("/autodev-codex-shape")
 
 
 class CodexSandboxError(RuntimeError):
@@ -170,6 +182,9 @@ class CodexPaths:
     session writes ``repository`` (``-C``) and ``exchange`` and may run ``venv``'s interpreter.
     ``read_roots`` are further read-only roots (a stage's state copy). ``state_dir`` (the autodev
     state) and ``installation`` (the installation checkout) are protected like the home directory.
+    No root may equal or contain a protected place, and none may lie inside ``~/.ssh``,
+    ``~/Library``, the secrets directory or the state directory, except ``out_dir`` inside the
+    state directory.
     """
 
     kind: str
@@ -261,10 +276,22 @@ class CodexPaths:
                     if name in ("tree", "materials", "schema") or name.startswith("read_roots")}
         for index, root in enumerate(self.interpreters):
             readable["venv" if index == 0 else f"interpreter[{index - 1}]"] = _real(root)
+        # Nor may a root lie inside a place that holds secrets (the profile re-allows a root after the
+        # home deny): only the run's own output directory may lie inside the state directory, and so
+        # inside ~/Library, where the state lives on macOS.
+        enclosing = {label: protected[label] for label in ("ssh", "library", "secrets", "state") if label in protected}
+        state = protected.get("state")
         for name, path in {**writable, **readable}.items():
             for label, guarded in protected.items():
                 if _inside(guarded, path):
                     found.append(f"{name} ({path}) equals or contains {label} ({guarded})")
+            for label, guarded in enclosing.items():
+                if path == guarded or not _inside(path, guarded):
+                    continue
+                if (name == "out_dir" and label in ("state", "library") and state is not None
+                        and _inside(path, state) and _inside(state, guarded)):
+                    continue
+                found.append(f"{name} ({path}) lies inside {label} ({guarded})")
             if name.startswith(("venv", "interpreter")) and (path in _BROAD or len(path.parts) < 3):
                 found.append(f"{name} ({path}) is too broad to read and execute in full")
         names = list(writable)
@@ -653,25 +680,55 @@ def proxy_url(port: int) -> str:
     return f"http://127.0.0.1:{int(port)}"
 
 
+def executable_roots(paths: CodexPaths, package: Path | None = None) -> tuple[Path, ...]:
+    """The directories whose programs the profile lets the process execute: `EXECUTABLE_DIRECTORIES`,
+    the codex package and a stage's interpreter roots."""
+    found = [Path(directory) for directory in EXECUTABLE_DIRECTORIES]
+    if package is not None:
+        found.append(_real(package))
+    return (*found, *(_real(root) for root in paths.interpreters))
+
+
+def launch_path(path: str, paths: CodexPaths, package: Path | None = None) -> str:
+    """The launch's ``PATH``: the entries of ``path`` (the runner's) inside `executable_roots`, in
+    their order, then those of `SYSTEM_PATH` it lacks. A program anywhere else cannot start under
+    the profile (bash's 126), and an earlier one would hide the system's: with a nix or Homebrew
+    ``git`` first on the runner's PATH, ``git`` by name would not run (the round-2 review)."""
+    roots = executable_roots(paths, package)
+    found: list[str] = []
+    for entry in path.split(os.pathsep):
+        if (entry and os.path.isabs(entry) and entry not in found
+                and any(_inside(_real(entry), root) for root in roots)):
+            found.append(entry)
+    found += [entry for entry in SYSTEM_PATH if entry not in found]
+    return os.pathsep.join(found)
+
+
 def environment(paths: CodexPaths, *, path: str, proxy_port: int, api_key: str,
-                lang: str | None = None) -> dict[str, str]:
-    """The Codex process's whole environment, built from the allowlist; `CodexSandboxError` names
-    a refused variable (never a value)."""
+                lang: str | None = None, package: Path | None = None) -> dict[str, str]:
+    """The Codex process's whole environment, built from the allowlist; ``path`` is the runner's
+    ``PATH`` (`launch_path` keeps what the profile can execute; ``package`` is the codex package).
+    `CodexSandboxError` names a refused variable (never a value)."""
     if not path or any(not os.path.isabs(entry) for entry in path.split(os.pathsep)):
         raise CodexSandboxError("PATH must be a list of absolute directories")
     if not isinstance(api_key, str) or not api_key.strip():
         raise CodexSandboxError("the Codex launch needs the API key from the keychain")
-    built = {"PATH": path, "HOME": str(_real(paths.run_home)), "LANG": lang or sandbox.DEFAULT_LANG,
-             "CODEX_HOME": str(_real(paths.codex_home)), "TMPDIR": str(_real(paths.tmpdir)),
-             "HTTPS_PROXY": proxy_url(proxy_port), "HTTP_PROXY": proxy_url(proxy_port), API_KEY_VARIABLE: api_key}
-    if problems := check_environment(built, paths, proxy_port):
+    built = {"PATH": launch_path(path, paths, package), "HOME": str(_real(paths.run_home)),
+             "LANG": lang or sandbox.DEFAULT_LANG, "CODEX_HOME": str(_real(paths.codex_home)),
+             "TMPDIR": str(_real(paths.tmpdir)), "HTTPS_PROXY": proxy_url(proxy_port),
+             "HTTP_PROXY": proxy_url(proxy_port), API_KEY_VARIABLE: api_key}
+    if problems := check_environment(built, paths, proxy_port, package=package):
         raise CodexSandboxError("; ".join(problems))
     return built
 
 
-def check_environment(env: Mapping[str, str], paths: CodexPaths, proxy_port: int) -> list[str]:
+def check_environment(env: Mapping[str, str], paths: CodexPaths, proxy_port: int, *,
+                      package: Path | None = None) -> list[str]:
     """Every way ``env`` departs from the allowlist; values are scanned but never named."""
     problems = []
+    if "PATH" in env and env["PATH"] != launch_path(env["PATH"], paths, package):
+        problems.append("PATH must name only directories the profile lets the process execute from, "
+                        "with /usr/bin and /bin")
     for name in env:
         if name not in BASE_VARIABLES:
             problems.append(f"{name} is not on the Codex allowlist"
@@ -740,12 +797,38 @@ class CodexLaunch:
         return hashlib.sha256(payload.encode()).hexdigest()
 
     def shape(self) -> str:
-        """SHA-256 over what does not change from run to run: the kind, the profile text, the codex
-        flags without paths, the environment's names and the executable's resolved path and
-        SHA-256. The stored stage availability is bound to it (`codex_probes.read_availability`)."""
-        payload = json.dumps({"kind": self.kind, "profile": self.profile, "flags": describe_flags(self),
-                              "env": sorted(self.env), "executable": list(self.executable)}, sort_keys=True)
-        return hashlib.sha256(payload.encode()).hexdigest()
+        """What does not change from run to run (`shape_of`); `launch_shape` computes the same value
+        without a run. The stored stage availability is bound to it (`codex_probes.read_availability`)."""
+        return shape_of(self.kind, describe_flags(self), self.env, self.executable)
+
+
+def shape_of(kind: str, flags: Sequence[str], names: Iterable[str], executable: Sequence[str]) -> str:
+    """SHA-256 over the kind, the profile template (`profile_text` with `SHAPE_PARAMETERS`), the
+    codex flags without paths, the environment's variable names and the executable's resolved
+    path and SHA-256: no path, port or key of a run."""
+    payload = json.dumps({"kind": kind, "profile": profile_text(kind, SHAPE_PARAMETERS), "flags": list(flags),
+                          "env": sorted(names), "executable": list(executable)}, sort_keys=True)
+    return hashlib.sha256(payload.encode()).hexdigest()
+
+
+def placeholder_paths(kind: str) -> CodexPaths:
+    """Paths of ``kind`` under `SHAPE_ROOT` for `launch_shape`: never created, read or checked."""
+    root = SHAPE_ROOT
+    return CodexPaths(kind=kind, home=root / "home", codex_home=root / "tmp" / CODEX_HOME_NAME, tmp_root=root / "tmp",
+                      run_home=root / "tmp" / RUN_HOME_NAME, out_dir=root / "out", profile=root / "codex.sb",
+                      tree=root / "tree", materials=root / "materials", schema=root / "schema.json",
+                      repository=root / "repository", exchange=root / "exchange")
+
+
+def launch_shape(kind: str, codex: str, *, model: str | None = None, effort: str | None = None) -> str:
+    """The `CodexLaunch.shape` of a ``kind`` launch of ``codex`` with ``model`` and ``effort``,
+    computed from the executable alone: no key, no run directory, no profile file. `build` with
+    the same executable, model and effort gives a launch whose ``shape()`` is equal."""
+    if kind not in KINDS:
+        raise CodexSandboxError(f"not a Codex kind: {kind!r}")
+    identity = executable_identity(codex)
+    command = codex_command(identity[0], placeholder_paths(kind), model=model, effort=effort)
+    return shape_of(kind, _flags(command), BASE_VARIABLES, identity)
 
 
 def build(codex: str, paths: CodexPaths, *, path: str, proxy_port: int, api_key: str, mode: str = KEYCHAIN_PREFIX,
@@ -761,7 +844,7 @@ def build(codex: str, paths: CodexPaths, *, path: str, proxy_port: int, api_key:
     params = parameters(paths, package, proxy_port)
     text = profile_text(paths.kind, [name for name, _ in params])
     command = codex_command(identity[0], paths, model=model, effort=effort)
-    env = environment(paths, path=path, proxy_port=proxy_port, api_key=api_key, lang=lang)
+    env = environment(paths, path=path, proxy_port=proxy_port, api_key=api_key, lang=lang, package=package)
     for directory, name in ((paths.run_home, "the run's HOME"), (paths.codex_home, "the run's CODEX_HOME"),
                             (paths.tmpdir, "the run's TMPDIR")):
         if problems := directory_problems(directory, name):
@@ -803,7 +886,7 @@ def check_launch(launch: CodexLaunch) -> list[str]:
             problems.append("the profile on disk differs from the launch's")
     except CodexSandboxError as error:
         problems.append(str(error))
-    problems += check_environment(launch.env, paths, launch.proxy_port)
+    problems += check_environment(launch.env, paths, launch.proxy_port, package=package)
     problems += sandbox.temp_root_problems(paths.tmp_root)
     problems += directory_problems(paths.run_home, "the run's HOME")
     problems += directory_problems(paths.tmpdir, "the run's TMPDIR")
@@ -811,9 +894,13 @@ def check_launch(launch: CodexLaunch) -> list[str]:
     return problems
 
 
+def _flags(command: Sequence[str]) -> list[str]:
+    return [item for item in command[1:] if not os.path.isabs(item)]
+
+
 def describe_flags(launch: CodexLaunch) -> list[str]:
     """The codex flags of a launch without its paths."""
-    return [item for item in launch.command[1:] if not os.path.isabs(item)]
+    return _flags(launch.command)
 
 
 def describe(launch: CodexLaunch) -> dict[str, Any]:

@@ -35,7 +35,8 @@ without ``CODEX_API_KEY`` exits 1 (not logged in), and every call needs ``CODEX_
   ``error_item`` adds codex's own warning item (``{"type": "error", "message": ...}``) and
   ``turn_failed`` ends the turn with ``turn.failed`` and that message instead of ``turn.completed``;
   ``tamper`` appends a line to every probe script it ran; ``listener_leak`` runs the local-listener
-  probe for real but reports a denial (exit 1).
+  probe for real but reports a denial (exit 1); ``git_broken`` reports the ``git --version`` control
+  as bash's 126 (a git the profile cannot run) without running it.
 """
 import json
 import os
@@ -124,7 +125,9 @@ def run_script(path, mode):
         if not match:
             continue
         check, body = match["id"], match["body"]
-        if mode == "hole" and check.startswith(SIMULATED):
+        if SCENARIO.get("git_broken") and check == "control.git.script":
+            code = 126
+        elif mode == "hole" and check.startswith(SIMULATED):
             code = 0
         elif mode == "hole" or check.startswith("observe.") or (
                 check.startswith("control.") and "sandbox-loaded" not in check):

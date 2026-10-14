@@ -228,7 +228,7 @@ All files live in the service state directory `<state_dir>` from `src.daemon.sta
 | `clone` (default `~/.local/share/agents-autodev/IEZhu-Agents`) | The trusted bare repository: `refs/remotes/origin/main` (`pinned`), imported `refs/heads/claude/autodev-*` branches, bundles refused after the fetch under `refs/autodev/quarantine/<run-id>/<n>`, and bundles refused before the fetch as read-only files `autodev-quarantine/<run-id>/<n>.bundle` inside it; `prune_quarantine()` drops both after 30 days. Outside the state directory. |
 | `schedules/tools.json` | The absolute paths of `claude`, `codex`, `gh` and `git` resolved at `install`. |
 | `schedules/claude-config/`, `schedules/decoys.json`, `schedules/tripwire.json` | The sessions' `CLAUDE_CONFIG_DIR`, the decoy registry and the last decoy tripwire ([autodev-sandbox.md](autodev-sandbox.md#files)). |
-| `schedules/codex-home/`, `schedules/codex-availability.json` | The runner's `CODEX_HOME` (a separate account) and whether Codex is available as a stage client ([autodev-codex.md](autodev-codex.md#files)). |
+| `schedules/codex-availability.json` | Whether Codex is available as a stage client. A Codex process's `HOME`, `CODEX_HOME` and `TMPDIR` are per run, inside the run's temporary root ([autodev-codex.md](autodev-codex.md#files)). |
 | `schedules/scheduler.log` | The scheduler's standard error. |
 | `~/Library/LaunchAgents/local.agents-core.<id>.scheduler.plist` | The scheduler job, with an explicit `PATH`, `PYTHONPATH` and `AGENTS_SERVICE_DIR`. The daemon's own agents are never touched. |
 

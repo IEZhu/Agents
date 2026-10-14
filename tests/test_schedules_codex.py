@@ -15,6 +15,7 @@ import os
 from pathlib import Path
 import re
 import shlex
+import shutil
 import socket
 import stat
 import subprocess
@@ -280,7 +281,8 @@ def stage_ids(world, *extra) -> set[str]:
     reads = {f"read.{decoy.label}" for decoy in world.planted if decoy.path} | {"read.owner-temp-decoy"}
     return reads | {"control.codex-start", "control.proxy-port", "control.write-output", "control.write-tmpdir",
                     "control.read-exchange", "control.write-repository", "control.write-exchange",
-                    "control.venv-python", "list.ssh-dir", "list.keychains-dir", "list.secrets-dir", "list.home",
+                    "control.venv-python", "control.git", "list.ssh-dir", "list.keychains-dir", "list.secrets-dir",
+                    "list.home",
                     "list.state-dir", "write.decoy-dir", "write.private-dir", "write.venv", "write.repo-git-config",
                     "write.repo-git-hooks", "write.repo-git-rename", "network.direct", "network.proxy-refused",
                     "network.local-listener", "launchd.submit", *extra}
@@ -293,7 +295,8 @@ def exec_ids(world, *extra) -> set[str]:
         reads.add("read.decoy-registry.script")
     return reads | {
         "control.exchange.script", "control.repo.script", "control.tmpdir.script", "control.seed.script",
-        "control.sandbox-loaded.script", "list.ssh-dir.script", "list.keychains-dir.script", "list.home.script",
+        "control.git.script", "control.sandbox-loaded.script", "list.ssh-dir.script", "list.keychains-dir.script",
+        "list.home.script",
         "list.secrets-dir.script", "list.state-dir.script", "list.owner-temp.script", "git.config-global.script",
         "keychain.autodev-test-item.script", "network.external.script", "network.external-noproxy.script",
         "network.metadata.script", "network.dns.script", "network.udp.script", "network.listen.script",
@@ -455,7 +458,9 @@ def test_parameters_are_resolved_and_ancestors_get_metadata(world):
     deep.mkdir(parents=True, mode=0o700)
     link = world.base / "tree-link"
     link.symlink_to(world.base / "tree")
-    launch = build(world, world.paths(out_dir=deep, tree=link))
+    # The run's output directory inside the state, which lives in ~/Library on macOS (the only root
+    # allowed inside either).
+    launch = build(world, world.paths(out_dir=deep, tree=link, state_dir=deep.parent))
     params = dict(launch.parameters)
     assert params["TREE"] == str(world.base / "tree") and params["OUT_DIR"] == str(deep)
     assert "CODEX_HOME" not in params and params["TMP_DIR"] == str(real(world.tmp_root))
@@ -500,15 +505,39 @@ def test_a_tampered_profile_or_changed_argv_is_refused(world):
      "a stage needs venv"),
     (lambda w: {"kind": cs.STAGE, "repository": w.base / "repo", "exchange": w.base / "exchange", "venv": Path("/usr")},
      "too broad to read and execute"),
+    # Nor inside a place that holds secrets (the round-2 review read a fake key through such a root).
+    (lambda w: {"read_roots": (w.home / ".ssh" / "keys",)}, "read_roots[0] (%s) lies inside ssh"),
+    (lambda w: {"materials": w.home / "Library" / "Mail"}, "materials (%s) lies inside library"),
+    (lambda w: {"tree": w.home / ".config" / "agents-autodev" / "t"}, "tree (%s) lies inside secrets"),
+    (lambda w: {"schema": w.state / "schedules" / "schema.json"}, "schema (%s) lies inside state"),
+    (lambda w: {"tree": w.state / "schedules" / "runs" / "r" / "codex-out"}, "tree (%s) lies inside state"),
+    (lambda w: {"out_dir": w.home / ".ssh" / "out"}, "out_dir (%s) lies inside ssh"),
 ])
 def test_unsafe_paths_are_refused(world, change, fragment):
     values = change(world)
     if values.get("kind") == cs.STAGE:
         values = {"tree": None, "materials": None, "schema": None, **values}
+    if "%s" in fragment:
+        root = next(value for value in values.values() if value is not None)
+        fragment = fragment % real(root[0] if isinstance(root, tuple) else root)
     paths = world.paths(**values)
     assert any(fragment in problem for problem in paths.problems()), paths.problems()
     with pytest.raises(CodexSandboxError, match="unsafe Codex paths"):
         build(world, paths)
+
+
+def test_only_the_output_directory_may_lie_inside_the_state(world):
+    # On macOS the state lives in ~/Library/Application Support, and a run's output directory in it.
+    state = world.home / "Library" / "Application Support" / "Agents-Core" / "autodev"
+    out = state / "schedules" / "runs" / RUN_ID / "codex-out"
+    out.mkdir(parents=True)
+    assert world.paths(state_dir=state, out_dir=out).problems() == []
+    assert world.paths(state_dir=state, out_dir=out, read_roots=(state / "copy",)).problems() == [
+        f"read_roots[0] ({real(state / 'copy')}) lies inside library ({real(world.home / 'Library')})",
+        f"read_roots[0] ({real(state / 'copy')}) lies inside state ({real(state)})"]
+    elsewhere = world.home / "Library" / "Caches" / "out"  # inside ~/Library, outside the state
+    assert world.paths(state_dir=state, out_dir=elsewhere).problems() == [
+        f"out_dir ({real(elsewhere)}) lies inside library ({real(world.home / 'Library')})"]
 
 
 def test_the_package_must_be_a_codex_package_outside_the_run(world, tmp_path):
@@ -545,6 +574,34 @@ def test_environment_is_an_allowlist(world):
     assert any("must not be empty" in p for p in cs.check_environment({**env, "CODEX_HOME": ""}, paths, 40000))
     with pytest.raises(CodexSandboxError, match="PATH"):
         cs.environment(paths, path="bin:/usr/bin", proxy_port=40000, api_key=KEY)
+
+
+def tool_dir(world, name: str = "nixbin", *, exit_code: int = 126) -> Path:
+    """A directory outside the profile's executable directories with a ``git`` and a ``gh`` that
+    exit ``exit_code`` (126 stands for a program the profile does not let start, like a nix git)."""
+    directory = world.base / name
+    directory.mkdir()
+    for program in ("git", "gh"):
+        (directory / program).write_text(f"#!/bin/sh\nexit {exit_code}\n")
+        (directory / program).chmod(0o755)
+    return directory
+
+
+def test_the_launch_path_holds_only_directories_the_profile_can_execute(world):
+    tools = tool_dir(world)
+    runner_path = f"{tools}:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+    launch = build(world, world.paths(cs.STAGE), path=runner_path)
+    assert launch.env["PATH"] == "/usr/bin:/bin"  # the first git on the runner's PATH is not reachable
+    assert shutil.which("git", path=launch.env["PATH"]) == "/usr/bin/git"
+    package = Path(launch.package)
+    assert cs.launch_path(f"{package}/bin:{tools}:/usr/sbin", launch.paths, package) == f"{package}/bin:/usr/bin:/bin"
+    assert cs.launch_path("/usr/local/bin", launch.paths, package) == "/usr/bin:/bin"
+    venv_bin = str(real(world.venv) / "bin")  # a stage's environment may run
+    assert cs.launch_path(f"{venv_bin}:/bin", launch.paths, package) == f"{venv_bin}:/bin:/usr/bin"
+    assert cs.launch_path(f"{venv_bin}:/bin", world.paths(), package) == "/bin:/usr/bin"  # a worker's may not
+    widened = dataclasses.replace(launch, env={**launch.env, "PATH": f"{tools}:/usr/bin:/bin"})
+    assert any("PATH must name only directories" in problem for problem in cs.check_launch(widened))
+    assert cs.check_launch(launch) == []
 
 
 # --- the run's CODEX_HOME and the login -----------------------------------------------------------------
@@ -685,6 +742,31 @@ def test_proxy_tunnels_only_allowlisted_hosts_on_443():
         codex_proxy.ConnectProxy(["not a host"])
     with pytest.raises(ValueError, match="max_tunnels"):
         codex_proxy.ConnectProxy(cs.API_HOSTS, max_tunnels=0)
+    echo.close()
+
+
+def test_proxy_bounds_the_whole_request_head():
+    echo = Echo()
+    with codex_proxy.ConnectProxy(cs.API_HOSTS, connect=echo.connect, max_clients=1, header_timeout=0.6) as proxy:
+        slow = socket.create_connection(("127.0.0.1", proxy.port), timeout=5)
+        started, closed = time.monotonic(), False
+        for byte in CONNECT[:-4]:  # one byte every 0.2 s: each recv is far within the timeout
+            try:
+                slow.sendall(bytes([byte]))
+                slow.settimeout(0.2)
+                closed = slow.recv(16) == b""
+            except (TimeoutError, socket.timeout):
+                pass
+            except OSError:
+                closed = True
+            if closed or time.monotonic() - started > 4:
+                break
+        assert closed and time.monotonic() - started < 2.5
+        slow.close()
+        assert codex_probes._wait_for(lambda: proxy._clients == 0)
+        assert _request(proxy.port, CONNECT).startswith(b"HTTP/1.1 200")  # the slot is free again
+    with pytest.raises(ValueError, match="header_timeout"):
+        codex_proxy.ConnectProxy(cs.API_HOSTS, header_timeout=0)
     echo.close()
 
 
@@ -837,21 +919,53 @@ def test_a_file_planted_in_codex_home_after_the_decision_stops_the_start(world, 
             codex_probes.start(decision, "review", proxy=proxy, platform="darwin")
 
 
-def test_a_deny_probe_success_falls_back_and_aborts_the_codex_step(world):
+def test_a_deny_probe_success_aborts_the_step_instead_of_falling_back(world, monkeypatch):
     set_scenario(world.codex, nested="ok")
     decision = decide(world, execute=Emulator(world.codex, holes=("-private-dir",)))
-    assert (decision.client_applied, decision.reason) == ("claude", "deny_probe_succeeded")
-    assert decision.launch is None
+    assert decision.abort and (decision.client_applied, decision.reason) == (None, "deny_probe_succeeded")
+    assert not decision.codex and not decision.fallback and decision.launch is None
+    assert decision.reason in codex_probes.ABORT_REASONS and decision.reason not in codex_probes.REASONS
     assert {"id": "write.private-dir", "expect": "denied", "outcome": "allowed", "ok": False,
             "exit_code": 0} in decision.report.checks
     assert not decision.report.tripped
+    written = codex_probes.record_decision(RUN_ID, world.state, "code-review-pass", decision, world.planted)
+    entry = written["clients"][-1]
+    assert (entry["client_requested"], entry["client_applied"], entry["fallback_reason"], entry["aborted"],
+            entry["abort_reason"]) == ("codex", None, None, True, "deny_probe_succeeded")
+    with codex_proxy.ConnectProxy(cs.allowed_hosts()) as proxy, monkeypatch.context() as patched:
+        patched.setattr(codex_probes.subprocess, "Popen", lambda *args, **kwargs: pytest.fail("codex started"))
+        with pytest.raises(CodexSandboxError, match="aborted"):
+            codex_probes.start(decision, "review", proxy=proxy, platform="darwin")
+    # A failed control or nested check is a fallback, never an abort.
+    failing = Emulator(world.codex, force={"probe-": probes.Captured("", "", 126, False, False)})
+    fallback = decide(world, execute=failing)
+    assert fallback.fallback and not fallback.abort and (fallback.client_applied, fallback.reason) == (
+        "claude", "probe_failed")
+    entry = codex_probes.record_decision(RUN_ID, world.state, "code-review-pass", fallback)["clients"][-1]
+    assert (entry["client_applied"], entry["fallback_reason"], entry["aborted"], entry["abort_reason"]) == (
+        "claude", "probe_failed", False, None)
+    with pytest.raises(ValueError):
+        codex_probes.Decision("codex", None, "probe_failed", abort=True)
+    with pytest.raises(ValueError):
+        codex_probes.Decision("codex", "claude", "deny_probe_succeeded", abort=True)
+
+
+def test_a_tripped_schedule_aborts_whatever_failed_first(world):
+    report = codex_probes.CodexReport(cs.WORKER)
+    report.fail("probe_failed", "control.read-materials: expected allowed, got failed")
+    report.tripped = True
+    decision = codex_probes._conclude(report, "probe_failed", ())
+    assert decision.abort and decision.reason == "deny_probe_succeeded"
+    report.tripped = False
+    assert codex_probes._conclude(report, "probe_failed", ()).fallback
 
 
 def test_a_decoy_read_trips_the_schedule(world):
     set_scenario(world.codex, nested="ok")
     credentials = next(decoy for decoy in world.planted if decoy.label == "credentials")
     decision = decide(world, execute=Emulator(world.codex, holes=(str(credentials.path),)))
-    assert decision.reason == "deny_probe_succeeded" and decision.report.tripped
+    assert decision.reason == "deny_probe_succeeded" and decision.report.tripped and decision.abort
+    assert "a decoy was read or leaked during a Codex probe: credentials" in decision.report.failures
     assert any(hit["name"] == "decoy credentials" for hit in decision.report.hits)
     assert (world.state / "schedules" / decoys.TRIPWIRE_NAME).exists()
     assert credentials.marker not in json.dumps(decision.to_record())
@@ -865,7 +979,9 @@ def test_a_decoy_read_trips_the_schedule(world):
 def test_broken_profiles_and_failed_controls_fall_back(world, force, reason):
     set_scenario(world.codex, nested="ok")
     decision = decide(world, execute=Emulator(world.codex, force=force))
-    assert (decision.client_applied, decision.reason) == ("claude", reason)
+    aborted = reason == "deny_probe_succeeded"
+    expected = (None if aborted else "claude", reason, aborted)
+    assert (decision.client_applied, decision.reason, decision.abort) == expected
 
 
 @pytest.mark.parametrize("kind, hole, check_id", [
@@ -876,7 +992,7 @@ def test_broken_profiles_and_failed_controls_fall_back(world, force, reason):
 def test_each_write_probe_detects_its_own_hole(world, kind, hole, check_id):
     set_scenario(world.codex, nested="ok")
     decision = decide(world, kind=kind, execute=Emulator(world.codex, holes=(hole,)))
-    assert (decision.client_applied, decision.reason) == ("claude", "deny_probe_succeeded")
+    assert (decision.client_applied, decision.reason, decision.abort) == (None, "deny_probe_succeeded", True)
     failed = {entry["id"] for entry in decision.report.checks if not entry["ok"]}
     # A hook planted through the hole also changes .git/hooks, which the rename probe watches.
     assert failed == {check_id} | ({"write.repo-git-rename"} if check_id == "write.repo-git-hooks" else set())
@@ -1180,7 +1296,10 @@ def test_the_rename_and_edit_sequence_on_git_is_probed(world):
 ])
 def test_a_failing_stage_probe_keeps_codex_unavailable(world, scenario, reason):
     decision = stage(world, nested="ok", **scenario)
-    assert (decision.client_applied, decision.reason) == ("claude", reason)
+    aborted = reason == "deny_probe_succeeded"
+    expected = (None if aborted else "claude", reason, aborted)
+    assert (decision.client_applied, decision.reason, decision.abort) == expected
+    assert stored_entry(world)["reason"] == reason
     assert codex_probes.read_availability(world.state, version="0.162.1", shape="x")["available"] is False
     assert decision.report.exec_session["commands"] >= 1 or scenario.get("skip")
     if scenario["exec"] == "hole":
@@ -1221,7 +1340,9 @@ def test_stage_available_when_every_probe_is_denied(world, wrap):
 ])
 def test_the_stage_session_detects_what_its_exit_codes_hide(world, scenario, reason, failure):
     decision = stage(world, nested="ok", exec="sandboxed", **scenario)
-    assert (decision.client_applied, decision.reason) == ("claude", reason)
+    aborted = reason == "deny_probe_succeeded"
+    expected = (None if aborted else "claude", reason, aborted)
+    assert (decision.client_applied, decision.reason, decision.abort) == expected
     assert any(item.startswith(failure) for item in decision.report.failures), decision.report.failures
     if "env_leak" in scenario:  # names only: the key's value never reaches the report
         assert {"CODEX_API_KEY", "HTTPS_PROXY", "HTTP_PROXY"} <= set(decision.report.observed["model_command_env_exposed"])
@@ -1245,7 +1366,8 @@ def test_gh_and_programs_the_profile_cannot_execute(world):
     assert checks["gh.token.script"]["group"] == "C4" and checks["gh.token.script"]["ok"]
     # The plan runs the gh the runner found, and osascript, so that a refused exec counts as denied.
     launch = build(world, world.paths(cs.STAGE, profile=world.base / "priv" / "plan.sb"), path=f"{bin_dir}:{PATH}")
-    run = codex_probes.ProbeRun("0" * 16, list(world.planted), gh=codex_probes.find_gh(launch.env["PATH"]))
+    assert str(bin_dir) not in launch.env["PATH"].split(":")  # the profile cannot execute from it
+    run = codex_probes.ProbeRun("0" * 16, list(world.planted), gh=codex_probes.find_gh(f"{bin_dir}:{PATH}"))
     text = "\n".join(call.text for call in codex_probes.exec_plan(launch, run, world.targets()))
     assert codex_probes._exec_refused(f"{bin_dir / 'gh'} auth token >/dev/null 2>&1") in text
     assert f"exit {codex_probes.EXEC_REFUSED}; exit $rc ); echo __probe__ apple-events.osascript.script" in text
@@ -1270,6 +1392,70 @@ def test_the_stored_availability_is_bound_to_version_shape_and_age(world):
     assert other.shape() != shape  # another effort is another launch shape
     same = build(world, world.paths(cs.STAGE, profile=world.base / "priv" / "same.sb"), proxy_port=41000)
     assert same.shape() == shape and same.digest() != decision.launch.digest()  # paths and the port are per run
+
+
+def test_a_git_first_on_the_runners_path_outside_the_profile_does_not_break_the_stage(world):
+    tools = tool_dir(world)  # its git and gh exit 126, as a nix git does under the stage profile
+    decision = stage(world, nested="ok", exec="sandboxed", path=f"{tools}:{PATH}")
+    assert decision.codex, decision.report.failures
+    checks = {entry["id"]: entry for entry in decision.report.checks}
+    assert checks["control.git"]["ok"] and checks["control.git.script"]["ok"]
+    assert decision.launch.env["PATH"] == "/usr/bin:/bin"
+    assert decision.report.observed["gh"] == "probed"  # the runner's gh, run by absolute path
+    run = codex_probes.ProbeRun("0" * 16, list(world.planted))
+    plan = codex_probes.exec_plan(decision.launch, run, world.targets())
+    text = "\n".join(call.text for call in plan)
+    assert "/usr/bin/git config --global --list" in text and "git --version" in text
+
+
+@pytest.mark.parametrize("where", ["model-free", "exec"])
+def test_an_unusable_git_has_its_own_reason(world, where):
+    if where == "model-free":
+        set_scenario(world.codex, nested="ok")
+        decision = decide(world, kind=cs.STAGE, execute=Emulator(world.codex, force={
+            "git --version": probes.Captured("", "", 126, False, False)}))
+        failed = "control.git: expected allowed, got failed"
+    else:
+        decision = stage(world, nested="ok", exec="sandboxed", git_broken=True)
+        failed = "control.git.script: expected allowed, got failed"
+        assert stored_entry(world)["reason"] == "git_unusable"
+    assert (decision.client_applied, decision.reason) == ("claude", "git_unusable")
+    assert failed in decision.report.failures
+
+
+def test_the_stored_availability_reads_from_the_configuration_alone(world):
+    decision = stage(world, nested="ok", exec="sandboxed")
+    assert decision.codex, decision.report.failures
+    config = {**autodev_config.DEFAULTS,
+              "stages": {**autodev_config.DEFAULTS["stages"], "implement": {"client": "codex", "codex": {}}},
+              "delegates": {**autodev_config.DEFAULTS["delegates"], "code-review-pass": {"client": "claude"}}}
+    assert codex_probes.codex_settings(config, cs.STAGE) == {"model": None, "effort": None}  # what `stage` used
+    shape = codex_probes.stage_shape(world.codex, config)
+    assert shape == decision.launch.shape() == stored_entry(world)["shape"]
+    version = codex_probes.installed_version(world.codex, path=PATH)
+    assert version == "0.162.1"
+    assert codex_probes.read_availability(world.state, version=version, shape=shape)["available"] is True
+    changed = {**config, "stages": {**config["stages"], "implement": {"client": "codex", "codex": {"effort": "low"}}}}
+    other = codex_probes.stage_shape(world.codex, changed)
+    found = codex_probes.read_availability(world.state, version=version, shape=other)
+    assert (found["available"], found["reason"]) == (False, "shape_changed")
+    # The helper needs neither a key nor a run: nothing was written and no codex was started.
+    assert not (cs.SHAPE_ROOT).exists()
+    seen = len(world.seen())
+    codex_probes.stage_shape(world.codex, changed)
+    assert len(world.seen()) == seen
+    # A fallback is stored with the configuration's shape too.
+    fallback = stage(world, nested="eperm")  # the nested check fails
+    assert fallback.reason == "nested_sandbox_unavailable" and stored_entry(world)["shape"] == shape
+
+
+@pytest.mark.parametrize("content", [{"stage": ["x"]}, {"stage": "available"}, ["stage"], {"stage": {"available": 1}}])
+def test_a_damaged_stored_availability_reads_as_not_checked(world, content):
+    path = codex_probes.availability_path(world.state)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(content))
+    found = codex_probes.read_availability(world.state, version="0.162.1", shape="s")
+    assert found == {"available": False, "reason": "not_checked", "checked": None}
 
 
 def test_stage_without_any_keychain_probe_is_untested(world):
@@ -1350,6 +1536,44 @@ def test_cli_worker_check_records_the_fallback(world, capsys, monkeypatch):
     assert any(path.startswith(str(temp_base)) for path in used)
 
 
+def test_cli_records_an_aborted_step(world, capsys):
+    autodev_config.save({**autodev_config.DEFAULTS, "codex": {"login": MODE}}, world.state)
+    set_scenario(world.codex, nested="ok")
+    temp_base = real(world.base / "tmpbase")
+    temp_base.mkdir()
+    ctx = _ctx(world, temp_base=temp_base, codex_execute=Emulator(world.codex, holes=("-private-dir",)))
+    code = cli.main(["codex-probe", "--kind", "worker", "--confirm-live-probe"], ctx)
+    result = json.loads(capsys.readouterr().out)
+    assert code == 1 and result["status"] == "refused" and result["aborted"] is True
+    assert (result["client_applied"], result["fallback_reason"], result["abort_reason"]) == (
+        None, None, "deny_probe_succeeded")
+    assert "neither Codex nor the Claude worker" in result["reason"]
+    assert list(temp_base.iterdir()) == []
+
+
+def test_the_temporary_root_is_removed_whatever_a_session_did_to_it(tmp_path):
+    base = real(tmp_path / "base")
+    base.mkdir()
+    outside = base / "outside"
+    outside.mkdir(mode=0o755)
+    root = sandbox.make_temp_root(base)
+    directories = cs.prepare_run_directories(root)
+    log = directories["codex_home"] / "log"
+    log.mkdir()
+    (log / "f").write_text("x")
+    (log / "inner").mkdir()
+    os.chmod(log / "inner", 0)
+    os.chmod(log, 0)  # what a model command may do inside the writable temporary root
+    (directories["run_home"] / "link").symlink_to(outside, target_is_directory=True)
+    if hasattr(os, "chflags"):
+        locked = directories["run_home"] / "locked"
+        locked.write_text("x")
+        os.chflags(locked, stat.UF_IMMUTABLE)
+    sandbox.remove_temp_root(root, base)
+    assert not root.exists() and sorted(os.listdir(base)) == ["outside"]
+    assert stat.S_IMODE(os.lstat(outside).st_mode) == 0o755  # a link is never followed
+
+
 # --- the real Seatbelt (macOS) --------------------------------------------------------------------------
 
 @needs_seatbelt
@@ -1411,6 +1635,21 @@ def test_the_generated_profile_under_the_real_sandbox(world):
     finally:
         allowed.close()
         other.close()
+
+
+@needs_seatbelt
+def test_git_by_name_runs_under_the_stage_profile_whatever_comes_first_on_the_runners_path(world):
+    tools = tool_dir(world, exit_code=0)  # outside the profile's executable directories
+    launch = build(world, world.paths(cs.STAGE), path=f"{tools}:{PATH}")
+
+    def rc(command: str, env: dict) -> int:
+        return subprocess.run(launch.wrap(["/bin/sh", "-c", command]), env=env, cwd=launch.cwd, capture_output=True,
+                              timeout=30).returncode
+
+    assert rc("git --version", dict(launch.env)) == 0
+    assert rc("/usr/bin/git config --global --list", dict(launch.env)) not in codex_probes.INCONCLUSIVE_CODES
+    # Without the filter the first git on the PATH could not even start (the round-2 review: 126).
+    assert rc("git --version", {**launch.env, "PATH": f"{tools}:{PATH}"}) == 126
 
 
 @needs_seatbelt

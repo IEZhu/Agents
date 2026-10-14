@@ -110,8 +110,9 @@ would therefore send every session to the fallback. The runner instead creates a
 root, `sandbox.make_temp_root()`: `/private/tmp/ad-<8 hex>`, 0700, so that
 `<root>/claude-<uid>` is at most `TMP_PATH_LIMIT` (40) bytes, checked by `SessionPaths.problems`;
 it lies outside every shared temporary root and is removed after the run
-(`sandbox.remove_temp_root`). The fake `claude` models the fallback, so an over-long root fails
-a test.
+(`sandbox.remove_temp_root`, which first gives every directory in it mode 0700 and clears the
+user immutable and append-only flags, never through a link, since a session may have taken them
+away). The fake `claude` models the fallback, so an over-long root fails a test.
 
 **The executable.** `sandbox.build` records the resolved path and SHA-256 of the `claude`
 executable in the spec (`SessionSpec.executable`), and the digest a probe report carries covers
