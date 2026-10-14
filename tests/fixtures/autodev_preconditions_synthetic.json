@@ -1,0 +1,47 @@
+{
+ "_comment": "Synthetic GitHub REST responses for the reads of the real-run preconditions (src/schedules/preconditions.py, #347), in the shape GitHub's REST reference gives for GET /repos/R/rules/branches/main, /actions/permissions/workflow and /actions/secrets. Written by hand, not recorded (#347 open question Q-fixtures): no call was made with real credentials, and the field names are recalled from the reference, not verified against a live answer. The state mirrors what docs/autodev-plan.md records for 2026-10-12 (a ruleset with deletion, non_fast_forward and one required approval; workflows that cannot approve; no repository secrets); the ruleset ID is made up. Used by tests/test_schedules_preconditions.py.",
+ "synthetic": true,
+ "repository": "IEZhu/Agents",
+ "responses": {
+  "/repos/IEZhu/Agents/rules/branches/main?per_page=100": [
+   {
+    "type": "deletion",
+    "ruleset_source_type": "Repository",
+    "ruleset_source": "IEZhu/Agents",
+    "ruleset_id": 1000001
+   },
+   {
+    "type": "non_fast_forward",
+    "ruleset_source_type": "Repository",
+    "ruleset_source": "IEZhu/Agents",
+    "ruleset_id": 1000001
+   },
+   {
+    "type": "pull_request",
+    "parameters": {
+     "required_approving_review_count": 1,
+     "dismiss_stale_reviews_on_push": false,
+     "require_code_owner_review": false,
+     "require_last_push_approval": false,
+     "required_review_thread_resolution": false,
+     "allowed_merge_methods": [
+      "merge",
+      "squash",
+      "rebase"
+     ]
+    },
+    "ruleset_source_type": "Repository",
+    "ruleset_source": "IEZhu/Agents",
+    "ruleset_id": 1000001
+   }
+  ],
+  "/repos/IEZhu/Agents/actions/permissions/workflow": {
+   "default_workflow_permissions": "read",
+   "can_approve_pull_request_reviews": false
+  },
+  "/repos/IEZhu/Agents/actions/secrets?per_page=100&page=1": {
+   "total_count": 0,
+   "secrets": []
+  }
+ }
+}
