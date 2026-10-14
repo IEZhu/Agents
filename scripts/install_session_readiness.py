@@ -5,13 +5,11 @@ from __future__ import annotations
 import argparse
 import base64
 import binascii
-from datetime import datetime
 import json
 import os
 from pathlib import Path
 import re
 import shlex
-import shutil
 import sys
 import tempfile
 
@@ -19,6 +17,7 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from src.client_paths import client_config_path, client_home  # noqa: E402
+from scripts._helpers.backup_file import backup_file  # noqa: E402
 
 SCRIPT_NAME = "agents-core-session-readiness.py"
 MATCHER = "^(startup|clear)$"
@@ -196,14 +195,13 @@ def install(client: str, *, dry_run: bool = False) -> dict:
     script_changed = any(not path.exists() or path.read_bytes() != runtime for path, runtime in scripts.items())
     backup = None
     if not dry_run:
+        # Back up before changing even an existing runtime; failure preserves the installation.
+        if config_changed and original is not None:
+            backup = backup_file(target)
         for path, runtime in scripts.items():
             if not path.exists() or path.read_bytes() != runtime:
                 atomic_write(path, runtime)
         if config_changed:
-            if original is not None:
-                stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
-                backup = target.with_name(target.name + ".readiness-backup-" + stamp)
-                shutil.copy2(target, backup)
             atomic_write(target, content)
     return {"client": client, "config": str(target), "script": str(next(iter(scripts))),
             "scripts": [str(path) for path in scripts], "delivery": mode,

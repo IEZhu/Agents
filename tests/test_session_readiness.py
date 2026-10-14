@@ -341,3 +341,45 @@ async def test_mcp_stdio_handshake_and_read_only_tool(tmp_path):
             unbound = await session.call_tool("get_session_readiness", {})
             unbound_document = unbound.structuredContent or json.loads(unbound.content[0].text)
             assert unbound_document["workspace"] is None
+
+
+def test_install_preserves_prior_backups_during_repeated_updates(tmp_path, monkeypatch):
+    from datetime import datetime
+    # Force the old timestamp naming scheme to collide without waiting for a clock tick.
+    monkeypatch.setattr(installer, "datetime", SimpleNamespace(now=lambda: datetime(2026, 10, 14, 12)), raising=False)
+    monkeypatch.setattr(installer, "client_home", lambda _: tmp_path)
+    target = tmp_path / "settings.json"
+    prior = tmp_path / "settings.json.readiness-backup-20261014-120000-000000"
+    prior.write_bytes(b"older settings snapshot")
+    target.write_bytes(b"{}")
+    first = installer.install("claude")
+    assert prior.read_bytes() == b"older settings snapshot"
+    first_backup = Path(first["backup"])
+    assert first_backup.read_bytes() == b"{}"
+    # Simulate a user editing settings between installations.
+    updated = json.loads(target.read_text())
+    updated["theme"] = "light"
+    updated["hooks"]["SessionStart"] = []
+    raw = json.dumps(updated).encode()
+    target.write_bytes(raw)
+    second = installer.install("claude")
+    assert Path(second["backup"]) != first_backup
+    assert first_backup.read_bytes() == b"{}"
+    assert Path(second["backup"]).read_bytes() == raw
+    assert prior.read_bytes() == b"older settings snapshot"
+
+
+def test_backup_failure_prevents_runtime_and_config_changes(tmp_path, monkeypatch):
+    monkeypatch.setattr(installer, "client_home", lambda _: tmp_path)
+    target = tmp_path / "settings.json"
+    target.write_bytes(b"{}")
+    script = tmp_path / "hooks" / installer.SCRIPT_NAME
+    script.parent.mkdir()
+    script.write_bytes(b"previous runtime")
+    def fail_backup(_):
+        raise OSError("synthetic backup failure")
+    monkeypatch.setattr(installer, "backup_file", fail_backup, raising=False)
+    with pytest.raises(OSError, match="synthetic backup failure"):
+        installer.install("claude")
+    assert target.read_bytes() == b"{}"
+    assert script.read_bytes() == b"previous runtime"
