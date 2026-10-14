@@ -122,7 +122,8 @@ head is the requested head while [the push gate](#the-push-gate) is open (no ope
 findings ledger); the verification review needs an accepted pre-mortem and new commits since the
 last full review. `open-findings.json` lists each ledger entry that keeps the gate closed, with
 its severity, location, explanation, recommendation, the review that reported it last and its
-decision state (`null` for undecided, `fixed`, or `declined` with the reason); the worker is told
+decision state (`null` for undecided, `fixed`, or `declined` with the reason) and, for a `fixed`
+entry a review of the same head left open, a `note` saying so; the worker is told
 to report again, with location and explanation unchanged, every one still present or whose
 decline reason does not hold. For the restricted reviews the runner also drops findings outside
 their scope before the session sees them: anything below `high` that carries no security keyword
@@ -258,8 +259,8 @@ property) refuses the launch. `validate_result` on the raw output stays the only
 | `workers/<handle>/attempt-<n>.json` | Every attempt: the package revision and bundle ID, the retained contract, the client (`client_requested`, `client_applied`, `fallback_reason`), model and effort, the CLI's exit and subtype, the launch description (flags without paths or the schema, variable names, digest), the raw structured output with its SHA-256 and form (`object` for Claude, `text` for Codex), the validation response, the range, base and head, the verdict and its reason | The owner, #347 |
 | `workers.json` | The service's state: each task's range, status, reason, attempts and accepted attempt | The owner, #347 |
 | `record.json` | `workers`: a summary of each finished task; `clients`: each Codex decision; both through `records.update_record` | The runner, the status command |
-| `findings-ledger.json` | After an accepted review or verification, before its record: `{"head", "handle", "findings": [{"key", "level", "security", "handle", "kind", "status", "resolved_by", "reported_by", "location", "explanation", "recommendation"}], "reviews": [{"handle", "head", "given", "repeated", "resolved", "added"}]}`, every `medium`-or-higher finding of every accepted review | `broker.review_gate` |
-| `validated-review.json` | After an accepted review or verification: `{"validated": true, "status": "completed", "head", "base", "range", "handle", "kind", "number", "restricted", "clean", "blocked", "findings": [{"key", "level", "security"}], ...}`, `findings` being this review's of level `medium` or higher, `security` from `workers.gate_security_signal` | `broker.review_gate` and `broker.validated_review_head` (the push check, the pre-mortem's precondition) |
+| `findings-ledger.json` | After an accepted review or verification, before its record: `{"head", "handle", "findings": [{"key", "level", "security", "handle", "kind", "status", "resolved_by", "reported_by", "location", "explanation", "recommendation"}], "reviews": [{"handle", "head", "given", "repeated", "resolved", "added", "unmoved"}]}`, every `medium`-or-higher finding of every accepted review | `broker.review_gate` |
+| `validated-review.json` | After an accepted review or verification: `{"validated": true, "status": "completed", "head", "base", "range", "handle", "kind", "number", "restricted", "clean", "blocked", "findings": [{"key", "level", "security"}], ...}`, `findings` being this review's of level `medium` or higher, `security` from `workers.gate_security_signal`; `clean` speaks of this review alone. A task that ends `blocked` or `failed` replaces it with `{"validated": false, "status": "blocked" \| "failed", "blocked": true, "handle", ...}` | `broker.review_gate` and `broker.validated_review_head` (the push check, the pre-mortem's precondition) |
 | `premortem.json` | After an accepted pre-mortem: `{"validated": true, "findings": [{"id", "level", "title", "body", "security"}], ...}`, `id` the finding key, `security` from `broker.SECURITY_KEYWORDS` | `broker.read_premortem` (risk issues) |
 | `worker-decisions.json` | The latest decision per key with at most five earlier ones (`MAX_HISTORY`), location and explanation cut to the session's limits; at most 1,000 decisions per run | The push gate; #347 (the PR sections) |
 
@@ -286,7 +287,9 @@ changes it so:
 | The review ... | The entry |
 |---|---|
 | reports it again (in its scope, or outside it when the entry was in its `open-findings.json`) | stays or becomes `open` under the new handle, at the higher of both levels; a decision must name the new review |
-| was given it with a decision (`fixed` or `declined`) and does not report it again | `resolved` |
+| was given it `declined` and does not report it again | `resolved` |
+| was given it `fixed`, does not report it again and reviewed another head than the review that reported it | `resolved` |
+| was given it `fixed` but reviewed the head that reported it (no commit since) | unchanged and `open`, with `unmoved` naming the review: the same diff again cannot show a fix |
 | was given it undecided, or was not given it, and does not report it again | unchanged: an undecided finding stays open whatever later reviews say |
 | reports a new `medium`-or-higher finding in its scope | a new `open` entry |
 
@@ -299,8 +302,11 @@ decision that names the entry's handle (the latest such decision on its key, cur
 history). Such a declined `medium` has left the gate; a later review that reports it again
 re-opens it. A `critical`, `high` or security entry keeps the gate closed even when declined, until
 a later review that was given the decline does not report it again. A `fixed` decision does not
-open it either: the fix is resolved by the next review that was given the claim. A missing or
-malformed field closes the gate, and so does a record of an earlier service.
+open it either: the fix is resolved by the next review of a later head that was given the claim. A
+missing or malformed field closes the gate, and so does a record of an earlier service. A worker
+that ends `blocked` or `failed` ends the stage blocked: its marker replaces the record, and the
+gate stays closed also over an earlier clean review. A finding key a result lists twice counts once,
+at its higher severity.
 
 The security signal of a review finding is `workers.gate_security_signal`: a fixed keyword rule
 (`GATE_SECURITY`) over its explanation and recommendation, not its location, without the bare

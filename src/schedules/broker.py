@@ -236,6 +236,10 @@ def review_gate(run_dir: str | Path) -> tuple[str | None, str]:
     review was given it with a decision (``fixed`` or ``declined``) in its materials and did not
     report it again; an undecided finding stays open whatever later reviews say.
 
+    A worker task that ends ``blocked`` or ``failed`` replaces the record with ``{"validated":
+    false, "status": "blocked" | "failed", "blocked": true, "handle", ...}``: the stage ended
+    blocked, and the gate stays closed. ``clean`` speaks of the recorded review alone.
+
     The gate opens only when the record says ``blocked: false`` (and ``clean: true`` when it lists
     no finding), the ledger covers the record's head and handle and names every finding the
     record lists, and every ``open`` entry is
@@ -247,6 +251,8 @@ def review_gate(run_dir: str | Path) -> tuple[str | None, str]:
     malformed field closes the gate.
     """
     data = _read_json(Path(run_dir) / REVIEW_RECORD)
+    if isinstance(data, dict) and data.get("status") in ("blocked", "failed") and data.get("blocked") is True:
+        return None, f"the stage ended blocked: {str(data.get('handle'))[:80]} ended {data['status']}"
     if not isinstance(data, dict) or data.get("validated") is not True or data.get("status") != "completed":
         return None, "no validated review"
     head = data.get("head")

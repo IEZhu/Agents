@@ -53,13 +53,17 @@ keeps every record. The session never names a command, a ref or a path.
   ``clients`` list each Codex decision (both through `records.update_record`). An accepted review
   or verification updates the **findings ledger** ``<run_dir>/findings-ledger.json`` and then
   writes ``<run_dir>/validated-review.json`` (with its kind, number, restriction, ``clean``,
-  ``blocked`` and the keys, levels and security signal of its ``medium``-or-higher findings); an
-  accepted pre-mortem writes ``<run_dir>/premortem.json``; all in the format
-  `src.schedules.broker` reads (`review_gate`, `validated_review_head`, `read_premortem`).
+  ``blocked`` and the keys, levels and security signal of its ``medium``-or-higher findings;
+  ``clean`` speaks of this review alone, the ledger decides the gate); an accepted pre-mortem
+  writes ``<run_dir>/premortem.json``; all in the format `src.schedules.broker` reads
+  (`review_gate`, `validated_review_head`, `read_premortem`). A task that ends ``blocked`` or
+  ``failed`` replaces ``validated-review.json`` with an unvalidated ``blocked`` marker: the stage
+  ends blocked, and the push gate closes even over an earlier clean review.
 * **The ledger** holds every ``medium``-or-higher finding of every accepted review (not the
   pre-mortem's) with the handle of the latest review that reported it. The runner carries it, not
   the model: an entry is ``resolved`` only when a later accepted review was given it in
-  ``open-findings.json`` with a decision (``fixed`` or ``declined``) and did not report it again;
+  ``open-findings.json`` with a decision (``fixed`` or ``declined``) and did not report it again,
+  a ``fixed`` one only when that review's head differs from the reporting review's head;
   an undecided entry stays open whatever later reviews say, and a later report re-opens an entry
   under the new handle. The push gate (`broker.review_gate`), and with it the pre-mortem's
   precondition, opens only when every open entry is a ``medium`` without a security signal
@@ -847,7 +851,14 @@ class WorkerService:
         reported: dict[str, dict] = {}  # every distinct finding, in scope or not
         for finding in parsed.result.findings:
             key = finding_key(finding.location, finding.explanation)
-            if key in reported:
+            item = reported.get(key)
+            if item is not None:
+                # A key the result repeats keeps its highest severity: a critical copy listed after
+                # a low one is not lost.
+                item["severity"] = _higher(item["severity"], finding.severity)
+                if not any(kept is item for kept in findings) and self._in_scope(task, finding):
+                    findings.append(item)
+                    dropped -= 1
                 continue
             item = {"key": key, "severity": finding.severity, "location": finding.location,
                     "explanation": finding.explanation, "recommendation": finding.recommendation}
@@ -892,20 +903,27 @@ class WorkerService:
         An entry ``task`` reports again (in its scope, or out of it when it was given the entry)
         is open under ``task``'s handle at the higher of both levels, so a decision must name the
         new review. An open entry it was given with a decision (``fixed`` or ``declined``) and does
-        not report again is resolved. Every other entry stays as it is, an undecided one included.
+        not report again is resolved, a ``fixed`` one only when ``task``'s head differs from the
+        head of the review that reported it (the same diff again cannot show a fix: the entry
+        stays open with a note). Every other entry stays as it is, an undecided one included.
         Each new ``medium``-or-higher finding in its scope opens a new entry."""
         in_scope = {item["key"] for item in findings}
-        repeated, resolved, added = [], [], []
+        repeated, resolved, added, unmoved = [], [], [], []
         for key, entry in self.ledger.items():
             item = reported.get(key)
             if item is not None and (key in in_scope or key in task.given):
-                entry.update(handle=task.handle, kind=task.kind, status=OPEN, resolved_by=None,
+                entry.update(handle=task.handle, kind=task.kind, status=OPEN, resolved_by=None, unmoved=None,
                              level=_higher(entry["level"], item["severity"]),
                              security=entry["security"] or gate_security_signal(item),
                              recommendation=clip(item["recommendation"], LIMITS["recommendation"]))
                 entry["reported_by"] = [*entry["reported_by"], task.handle]
                 repeated.append(key)
             elif entry["status"] == OPEN and task.given.get(key) is not None:
+                reporter = self.tasks.get(entry["handle"])
+                if task.given[key] == "fixed" and (reporter is None or reporter.head == task.head):
+                    entry["unmoved"] = task.handle
+                    unmoved.append(key)
+                    continue
                 entry.update(status=RESOLVED, resolved_by=task.handle)
                 resolved.append(key)
         for item in findings:
@@ -917,7 +935,8 @@ class WorkerService:
                                                      ("location", "explanation", "recommendation")}}
                 added.append(item["key"])
         self.ledger_reviews.append({"handle": task.handle, "head": task.head, "given": dict(task.given),
-                                    "repeated": repeated, "resolved": resolved, "added": added, "time": _now()})
+                                    "repeated": repeated, "resolved": resolved, "added": added, "unmoved": unmoved,
+                                    "time": _now()})
         write_json(self.run_dir / LEDGER_NAME, records.mask({
             "run_id": self.binding.run_id, "head": task.head, "handle": task.handle,
             "findings": list(self.ledger.values()), "reviews": self.ledger_reviews, "written": _now()},
@@ -952,7 +971,10 @@ class WorkerService:
                 found.append({"key": entry["key"], "severity": entry["level"], "security": entry["security"],
                               "location": entry["location"], "explanation": entry["explanation"],
                               "recommendation": entry["recommendation"], "reported_by": entry["handle"],
-                              "decision": decision.get("decision"), "reason": decision.get("reason")})
+                              "decision": decision.get("decision"), "reason": decision.get("reason"),
+                              **({"note": f"marked fixed, but {entry['unmoved']} reviewed the head that "
+                                          f"{entry['handle']} reported it on: commit the fix first"}
+                                 if entry.get("unmoved") else {})})
         return found
 
     def _in_scope(self, task: Task, finding: Any) -> bool:
@@ -978,6 +1000,12 @@ class WorkerService:
     def _finish(self, task: Task, status: str, reason: str | None) -> None:
         with self._lock:
             task.status, task.reason, task.finished = status, records.mask(reason, self._known_values()), _now()
+            if status in (BLOCKED, FAILED):
+                # The stage ends blocked (`_require_open`), and the push gate closes with it, also
+                # over an earlier clean review.
+                write_json(self.run_dir / broker_records.REVIEW_RECORD, {
+                    "validated": False, "status": status, "blocked": True, "handle": task.handle,
+                    "kind": task.kind, "number": task.number, "head": task.head, "written": _now()})
             self._save_state()
             self._record_run(task)
             self._write_copy()
@@ -1080,7 +1108,7 @@ class WorkerService:
             if task.kind != PREMORTEM:
                 # Every finding of any review that keeps the push gate closed now (the ledger).
                 found["open_findings"] = [{name: item[name] for name in ("key", "severity", "security", "reported_by",
-                                                                         "decision")}
+                                                                         "decision", "note") if name in item}
                                           for item in self._open_findings()[:MAX_FINDINGS_SHOWN]]
         return found
 
