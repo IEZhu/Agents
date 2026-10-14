@@ -569,7 +569,9 @@ class Broker:
     network (``transport``), git (``git``), the validated-review head (``reviewed_head``), the
     pre-mortem record (``premortem``) and the earlier records are injectable. ``run_dir`` must not
     lie inside or around any of ``session_writable`` (`UnsafeRunDirectory`): the broker trusts the
-    review and pre-mortem records and its own log there.
+    review and pre-mortem records and its own log there. ``decoys`` are the sandbox's decoy markers
+    (`src.schedules.decoys`, #343): the scan knows them in every mode, and a hit on one also calls
+    ``on_decoy`` with the hits (the run sequence turns the schedule off there) before the refusal.
     """
 
     def __init__(self, run: Run, *, credentials: Credentials | None, git: TrustedGit,
@@ -578,7 +580,9 @@ class Broker:
                  reviewed_head: Callable[[], str | None] | None = None,
                  premortem: Callable[[], Mapping[str, RiskFinding]] | None = None,
                  earlier_records: Callable[[], list[dict]] = records.all_records,
-                 key_reader: Callable[[Path], bytes] = Path.read_bytes):
+                 key_reader: Callable[[Path], bytes] = Path.read_bytes,
+                 decoys: Iterable[scan.KnownSecret] = (),
+                 on_decoy: Callable[[tuple[scan.Hit, ...]], None] | None = None):
         self.run = run
         self.credentials = credentials
         self.git = git
@@ -597,6 +601,10 @@ class Broker:
         known: list[scan.KnownSecret] = []
         if not run.read_only:
             known = self._open(key_reader)
+        decoys = tuple(decoys)
+        self._decoy_labels = frozenset(secret.label for secret in decoys)
+        self._on_decoy = on_decoy
+        known += decoys
         self.scanner = scan.Scanner(known)
         self.log = BrokerLog(self.run_dir / LOG_NAME if self.run_dir else None,
                              [self._token or ""] + [secret.value for secret in known if isinstance(secret.value, str)])
@@ -649,6 +657,9 @@ class Broker:
     def _scan(self, op: str, text: str) -> None:
         hits = self.scanner.scan(text)
         if hits:
+            decoy_hits = tuple(hit for hit in hits if hit.kind == scan.HitKind.KNOWN and hit.name in self._decoy_labels)
+            if decoy_hits and self._on_decoy is not None:
+                self._on_decoy(decoy_hits)
             error = scan.SecretFound(hits)
             self.log.add(op, "refused", reason=str(error))
             raise BrokerRefused(f"{op}: {error}")

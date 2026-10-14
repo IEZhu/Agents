@@ -7,6 +7,7 @@ import pytest
 
 from src.schedules import broker as broker_module
 from src.schedules import github
+from src.schedules import scan as scan_module
 from src.schedules.broker import (MARKER, PREMORTEM_RECORD, REVIEW_RECORD, Broker, BrokerRefused, Credentials,
                                   CredentialsMissing, RiskFinding, Run, check_risk_issue, push_command, register)
 from src.schedules.gate import CLAIM_LABEL, OWNER_ID, STALE_CLAIM_COMMENT
@@ -473,6 +474,23 @@ def test_refuses_a_comment_that_looks_like_a_secret(tmp_path, credentials):
     secret = "ghp_" + "abcd" * 9
     refused(ask(registry, "gh.comment", {"number": ISSUE, "body": f"{MARKER}\n{secret}"}), "secret-like text found")
     assert api.writes() == []
+
+
+@pytest.mark.parametrize("mode", ["run", "dry-run"])
+def test_a_decoy_marker_in_outgoing_text_calls_the_tripwire(tmp_path, credentials, mode):
+    marker = "Dc" + "x7Kq" * 11
+    tripped = []
+    run = Run(RUN_ID, REPOSITORY, ISSUE, BASE, mode, frozenset({"autodev:ready"}), 501)
+    broker = Broker(run, credentials=credentials, git=FakeGit(), run_dir=tmp_path, transport=FakeGitHub(),
+                    reviewed_head=lambda: HEAD, premortem=lambda: {}, earlier_records=lambda: [],
+                    decoys=[scan_module.KnownSecret("decoy credentials", marker)], on_decoy=tripped.append)
+    with pytest.raises(BrokerRefused, match="secret-like text found"):
+        broker._scan("comment", f"{MARKER}\nfound {marker}")
+    assert [[hit.name for hit in hits] for hits in tripped] == [["decoy credentials"]]
+    with pytest.raises(BrokerRefused):
+        broker._scan("comment", "ghp_" + "abcd" * 9)  # a secret, but no decoy: no tripwire
+    assert len(tripped) == 1
+    assert marker not in (tmp_path / broker_module.LOG_NAME).read_text()
 
 
 def test_refuses_editing_a_comment_not_in_the_log(tmp_path, credentials):
