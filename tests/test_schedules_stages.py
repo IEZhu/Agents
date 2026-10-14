@@ -415,6 +415,31 @@ def test_execution_of_reads_the_requested_profile_and_the_argv():
     assert (codex["applied"]["model"], codex["applied"]["effort"]) == ("gpt-6.1-sol", "ultra")
 
 
+@pytest.mark.parametrize("kind, unavailable, expected", [
+    ("select", None, {"client": "codex", "model": "gpt-6.1-sol", "effort": "high", "requested": "codex",
+                      "fallback_reason": None}),
+    ("select", "nested_sandbox_unavailable", {"client": "claude", "model": "opus", "effort": "high",
+                                              "requested": "codex", "fallback_reason": "nested_sandbox_unavailable"}),
+    ("implement", None, {"client": "claude", "model": "opus", "effort": "xhigh", "requested": "codex",
+                         "fallback_reason": "codex_stage_commit_unsupported"}),
+    ("submit", "not_checked", {"client": "claude", "model": "sonnet", "effort": "medium", "requested": "codex",
+                               "fallback_reason": "codex_stage_commit_unsupported"}),
+])
+def test_stage_profile_falls_back_from_codex(kind, unavailable, expected):
+    settings = copy.deepcopy(config.DEFAULTS)
+    for name in stages.KINDS:
+        settings["stages"][name]["client"] = "codex"
+        settings["stages"][name]["codex"] = {"model": "gpt-6.1-sol", "effort": "high"}
+        del settings["stages"][name]["claude"]
+    settings["stages"]["submit"]["claude"] = {"model": "sonnet", "effort": "medium"}  # its own Claude profile
+    assert stages.stage_profile(kind, settings, codex_unavailable=unavailable) == expected
+
+
+def test_stage_profile_of_a_claude_stage():
+    assert stages.stage_profile("implement", config.DEFAULTS) == {
+        "client": "claude", "model": "opus", "effort": "xhigh", "requested": "claude", "fallback_reason": None}
+
+
 # --- inputs files ------------------------------------------------------------------------------------
 
 def mode(path):
