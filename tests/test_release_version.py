@@ -29,19 +29,25 @@ def http_error(code):
 
 
 class API:
-    def __init__(self, date="2026-10-14T14:00:59+02:00", tags=None, failure=None, race=None):
+    def __init__(self, date="2026-10-14T14:00:59+02:00", tags=None, failure=None, race=None,
+                 tag_objects=None):
         self.date, self.tags = date, dict(tags or {})
         self.failure, self.race, self.calls = failure, race, []
+        self.tag_objects = dict(tag_objects or {})
 
     def request(self, method, path, data=None):
         self.calls.append((method, path, data))
         if path == f"/git/commits/{SHA}":
             return {"committer": {"date": self.date}}
+        if method == "GET" and path.startswith("/git/tags/"):
+            return {"object": self.tag_objects[path.removeprefix("/git/tags/")]}
         if method == "GET":
             tag = path.removeprefix("/git/ref/tags/")
             if tag not in self.tags:
                 raise http_error(404)
-            return {"object": {"type": "commit", "sha": self.tags[tag]}}
+            target = self.tags[tag]
+            return {"object": target if isinstance(target, dict) else
+                    {"type": "commit", "sha": target}}
         if self.race is not None:
             self.tags[data["ref"].removeprefix("refs/tags/")] = self.race
             self.race = None
@@ -96,6 +102,57 @@ def test_rerun_is_noop_and_does_not_use_rerun_time():
     second = release.publish(promotion(), REPO, api)
     assert second == {**first, "status": "existing"}
     assert sum(method == "POST" for method, _, _ in api.calls) == 1
+
+
+@pytest.mark.parametrize("tag", ["v26.10.14.1200", "v26.10.14.1200-pr381"])
+@pytest.mark.parametrize("nested", [False, True])
+def test_matching_annotated_release_tag_is_reused_without_writes(tag, nested):
+    outer, inner = "c" * 40, "d" * 40
+    tags = {tag: {"type": "tag", "sha": outer}}
+    if tag.endswith("-pr381"):
+        tags["v26.10.14.1200"] = OTHER
+    objects = {outer: {"type": "commit", "sha": SHA}}
+    if nested:
+        objects[outer] = {"type": "tag", "sha": inner}
+        objects[inner] = {"type": "commit", "sha": SHA}
+    api = API(tags=tags, tag_objects=objects)
+    assert release.publish(promotion(), REPO, api) == {
+        "status": "existing", "version": "26.10.14.1200", "tag": tag, "sha": SHA,
+    }
+    assert api.tags == tags
+    assert all(method == "GET" for method, _, _ in api.calls)
+
+
+def test_annotated_tag_for_another_commit_is_preserved_and_uses_fallback():
+    obj = "c" * 40
+    target = {"type": "tag", "sha": obj}
+    api = API(tags={"v26.10.14.1200": target},
+              tag_objects={obj: {"type": "commit", "sha": OTHER}})
+    assert release.publish(promotion(), REPO, api)["tag"] == "v26.10.14.1200-pr381"
+    assert api.tags == {"v26.10.14.1200": target, "v26.10.14.1200-pr381": SHA}
+
+
+def test_concurrent_matching_annotated_tag_is_reused_without_fallback():
+    obj = "c" * 40
+    api = API(race={"type": "tag", "sha": obj},
+              tag_objects={obj: {"type": "commit", "sha": SHA}})
+    assert release.publish(promotion(), REPO, api)["status"] == "existing"
+    assert api.tags == {"v26.10.14.1200": {"type": "tag", "sha": obj}}
+    assert sum(method == "POST" for method, _, _ in api.calls) == 1
+
+
+@pytest.mark.parametrize("code", [403, 404])
+def test_annotated_tag_object_read_errors_fail_before_publication(code):
+    class UnreadableTag(API):
+        def request(self, method, path, data=None):
+            if path.startswith("/git/tags/"):
+                raise http_error(code)
+            return super().request(method, path, data)
+    api = UnreadableTag(tags={"v26.10.14.1200": {"type": "tag", "sha": "c" * 40}})
+    with pytest.raises(HTTPError) as error:
+        release.publish(promotion(), REPO, api)
+    assert error.value.code == code
+    assert all(method == "GET" for method, _, _ in api.calls)
 
 
 def test_same_minute_releases_get_distinct_stable_tags():

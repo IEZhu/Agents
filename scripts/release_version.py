@@ -9,13 +9,17 @@ from urllib.request import Request, urlopen
 
 
 class GitHub:
+    """Repository-scoped JSON client for the GitHub Git database API."""
+
     def __init__(self, repository, token):
+        """Bind credentials to a syntactically valid owner/repository name."""
         if not re.fullmatch(r"[\w.-]+/[\w.-]+", repository):
             raise ValueError("Invalid repository")
         self.prefix = f"https://api.github.com/repos/{repository}"
         self.token = token
 
     def request(self, method, path, data=None):
+        """Return decoded JSON, propagating HTTP and transport failures."""
         request = Request(
             self.prefix + path,
             data=json.dumps(data).encode("utf-8") if data is not None else None,
@@ -30,6 +34,7 @@ class GitHub:
 
 
 def release_pr(event, repository):
+    """Return a validated merged promotion PR, or None for unrelated events."""
     pr = event.get("pull_request") or {}
     head, base = pr.get("head") or {}, pr.get("base") or {}
     if not (
@@ -50,16 +55,21 @@ def release_pr(event, repository):
 
 
 def tag_target(api, tag):
+    """Resolve a tag to its final object; only a missing ref returns None."""
     try:
         ref = api.request("GET", f"/git/ref/tags/{tag}")
     except HTTPError as error:
         if error.code == 404:
             return None
         raise
-    return ref["object"]["type"], ref["object"]["sha"]
+    target = ref["object"]
+    while target["type"] == "tag":
+        target = api.request("GET", f"/git/tags/{target['sha']}")["object"]
+    return target["type"], target["sha"]
 
 
 def publish(event, repository, api):
+    """Create or reuse the merge commit's UTC calendar tag without moving refs."""
     pr = release_pr(event, repository)
     if pr is None:
         return {"status": "skipped"}
@@ -95,6 +105,7 @@ def publish(event, repository, api):
 
 
 def main():
+    """Read the Actions event and credentials, then print and summarize publication."""
     event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8"))
     repository = os.environ["GITHUB_REPOSITORY"]
     result = publish(event, repository, GitHub(repository, os.environ["GH_TOKEN"]))

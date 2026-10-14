@@ -19,7 +19,8 @@ own release procedures and are not changed by this workflow.
 
 Publication uses the merged PR's SHA and its commit time, so later changes to
 `main` and later workflow reruns do not select a different revision or date.
-An existing tag pointing directly to that commit is a successful no-op.
+An existing lightweight or annotated tag resolving to that commit is a successful
+no-op. Annotated tag objects are dereferenced before their targets are compared.
 Existing tags are never moved or deleted. A conflicting fallback name, missing
 commit, denied access, or API failure fails the job visibly. Retry a failed run
 through GitHub Actions after resolving its reported error.
@@ -39,8 +40,9 @@ HEAD; a tag records the released revision.
 
 Validation: `tests/test_release_version.py` covers event guards, invalid merge
 identity, UTC conversion, same-minute releases, reruns, concurrent creation,
-conflicts and API errors with a fake API. `tests/test_workflow_permissions.py`
-checks workflow permission boundaries. No test writes to GitHub.
+annotated tag reuse and conflicts, and API errors with a fake API.
+`tests/test_workflow_permissions.py` checks workflow permission boundaries. No test writes to GitHub.
 
 GitHub references: [merge events](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#running-your-pull_request-workflow-when-a-pull-request-merges),
-[Git refs API](https://docs.github.com/en/rest/git/refs).
+[Git refs API](https://docs.github.com/en/rest/git/refs), and
+[annotated tag objects](https://docs.github.com/en/rest/git/tags#get-a-tag).
