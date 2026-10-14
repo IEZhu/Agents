@@ -732,9 +732,10 @@ def test_a_downgrade_is_refused_until_it_is_confirmed(installation):
     update_channel.set_branch(root, "dev")
     assert offline_update(controller)["state"] == "UPDATED"
     stops = controller.stops
-    # A hand-edited setting back to main: HEAD (dev) is not in origin/main.
+    # A hand-edited setting back to main, previous dev: HEAD (dev) has a commit origin/main lacks.
     env = root / ".env"
-    env.write_text(env.read_text().replace("AGENTS_AUTO_UPDATE_BRANCH=dev", "AGENTS_AUTO_UPDATE_BRANCH=main"))
+    env.write_text(env.read_text().replace("AGENTS_AUTO_UPDATE_BRANCH=dev", "AGENTS_AUTO_UPDATE_BRANCH=main")
+                   .replace("AGENTS_AUTO_UPDATE_PREVIOUS_BRANCH=main", "AGENTS_AUTO_UPDATE_PREVIOUS_BRANCH=dev"))
     assert offline_update(controller)["state"] == "SKIPPED_DOWNGRADE"
     assert git(root, "symbolic-ref", "--short", "HEAD") == "dev" and controller.stops == stops
     update_channel.set_branch(root, "main", allow_downgrade=True)
@@ -763,4 +764,77 @@ def test_an_exported_branch_overrides_env_for_one_command(installation, monkeypa
     monkeypatch.setenv("AGENTS_AUTO_UPDATE_BRANCH", "main")
     result = offline_update(controller)
     assert result["state"] == "UPDATED" and "branch" not in result
+    assert "overrides .env (dev)" in result["note"]
     assert git(root, "symbolic-ref", "--short", "HEAD") == "main" and git(root, "rev-parse", "HEAD") == target
+
+
+# --- Review round 1 (#381) ---------------------------------------------------
+
+def test_an_exported_main_never_moves_a_dev_installation_after_a_release(installation, monkeypatch):
+    """txn-1: on dev with .env dev / previous main, an exported main (a release that contains HEAD)
+    leaves the checkout on dev and says that the environment overrode .env."""
+    from src import update_channel
+    from tests.test_update_channel import release
+    controller, root, old, target = installation
+    tip = _channel(root)
+    release(root)
+    git(root, "checkout", "--quiet", "-B", "dev", tip)
+    (root / ".env").write_text("AGENTS_AUTO_UPDATE_BRANCH=dev\nAGENTS_AUTO_UPDATE_PREVIOUS_BRANCH=main\n")
+    monkeypatch.setenv("AGENTS_AUTO_UPDATE_BRANCH", "main")
+    result = offline_update(controller)
+    assert result["state"] == "SKIPPED_WRONG_BRANCH" and "overrides .env (dev)" in result["note"]
+    assert git(root, "symbolic-ref", "--short", "HEAD") == "dev" and git(root, "rev-parse", "HEAD") == tip
+    assert controller.stops == 0 and update_channel.read(root, environ={}).branch == "dev"
+
+
+def test_main_after_a_release_switches_to_dev_without_a_confirmation(installation):
+    """txn-2: a release merge commit on main does not make main -> dev a downgrade."""
+    from src import update_channel
+    from tests.test_update_channel import release
+    controller, root, old, target = installation
+    tip = _channel(root)
+    merge = release(root)
+    git(root, "merge", "--quiet", "--ff-only", merge)
+    assert update_channel.set_branch(root, "dev")["downgrade"] is False
+    result = offline_update(controller)
+    assert result["state"] == "UPDATED" and result["branch"] == "dev"
+    assert git(root, "symbolic-ref", "--short", "HEAD") == "dev" and git(root, "rev-parse", "HEAD") == tip
+
+
+def test_a_channel_saved_during_the_build_defers_the_activation(installation, monkeypatch):
+    """txn-3: the owner saves main again while the main -> dev switch builds: nothing switches."""
+    from src import update_channel
+    from src.daemon import update
+    controller, root, old, target = installation
+    _channel(root)
+    update_channel.set_branch(root, "dev")
+    real = update.prepare
+
+    def prepare_then_save(*args, **kwargs):
+        status = real(*args, **kwargs)
+        update_channel.set_branch(root, "main")  # the page or `channel set`, under the channel lock only
+        return status
+    monkeypatch.setattr(update, "prepare", prepare_then_save)
+    result = offline_update(controller)
+    assert result == {"state": "deferred", "reason": "update channel changed during the build"}
+    assert git(root, "symbolic-ref", "--short", "HEAD") == "main" and git(root, "rev-parse", "HEAD") == old
+    assert controller.stops == 0
+    monkeypatch.setattr(update, "prepare", real)
+    result = offline_update(controller)
+    assert result["state"] == "UPDATED" and "branch" not in result
+    assert git(root, "symbolic-ref", "--short", "HEAD") == "main" and git(root, "rev-parse", "HEAD") == target
+
+
+def test_failed_probation_restores_the_target_branchs_upstream(installation):
+    """txn-5: the switch rewrote branch.dev.remote/merge; the controller's rollback restores them."""
+    from src import update_channel
+    controller, root, old, target = installation
+    _channel(root)
+    git(root, "branch", "dev", old)
+    git(root, "config", "branch.dev.remote", "upstream-x")
+    git(root, "config", "branch.dev.merge", "refs/heads/foo")
+    update_channel.set_branch(root, "dev")
+    controller.fail_ready = 1
+    assert offline_update(controller)["state"] == "rolled_back"
+    assert git(root, "symbolic-ref", "--short", "HEAD") == "main" and git(root, "rev-parse", "dev") == old
+    assert _upstream(root, "dev") == ("upstream-x", "refs/heads/foo")

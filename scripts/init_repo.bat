@@ -177,7 +177,8 @@ if !errorlevel! neq 0 (
     goto :fatal_exit
 )
 REM The updaters follow the branch that was installed (AGENTS_BRANCH), not env.example's main (#381).
-if defined AGENTS_BRANCH %SELECTED_PYTHON% "%HELPERS%\env_branch.py" "%ENV_FILE%" "%AGENTS_BRANCH%" --created
+REM AGENTS_BRANCH is expanded late (delayed expansion), after cmd has parsed quotes and operators.
+if defined AGENTS_BRANCH %SELECTED_PYTHON% "%HELPERS%\env_branch.py" "%ENV_FILE%" "!AGENTS_BRANCH!" --created
 echo   %GREEN%+%NC% .env created successfully
 echo(
 echo   %YELLOW%Required configuration:%NC%
@@ -190,7 +191,7 @@ goto :env_done
 :env_exists
 echo   %YELLOW%WARNING:%NC% .env file already exists
 REM A missing update branch is set to AGENTS_BRANCH, another one warned about (#381).
-if defined AGENTS_BRANCH %SELECTED_PYTHON% "%HELPERS%\env_branch.py" "%ENV_FILE%" "%AGENTS_BRANCH%"
+if defined AGENTS_BRANCH %SELECTED_PYTHON% "%HELPERS%\env_branch.py" "%ENV_FILE%" "!AGENTS_BRANCH!"
 echo   %GREEN%^>%NC% Checking for missing keys...
 %SELECTED_PYTHON% "%HELPERS%\merge_env.py" "%ENV_FILE%" "%ENV_EXAMPLE%"
 

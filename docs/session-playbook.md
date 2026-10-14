@@ -25,7 +25,7 @@ for Langfuse analysis.
   checkout the daemon runs from: the updaters fast-forward it only while it is on
   `AGENTS_AUTO_UPDATE_BRANCH` (its update channel in `.env`, read by the stdio
   servers and the daemon's controller alike) with a clean tree, switch it to that
-  branch only from `main`, `dev` or the previous setting, and otherwise skip it
+  branch only from the previous setting, and otherwise skip it
   (`SKIPPED_WRONG_BRANCH`, `SKIPPED_DIRTY`). The owner changes the channel with
   `python -m src.daemon channel set` or the web UI. If the checkout is already off
   a channel branch or dirty, tell the user instead of repairing it.

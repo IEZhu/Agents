@@ -80,6 +80,11 @@ class UpdatesUI:
         except OSError as error:
             return self._json({"status": "error", "error": "storage_error",
                                "message": f"storage_error: {error.strerror or error}"}, 500)
+        except ValueError:
+            # .env that is not UTF-8 (UnicodeDecodeError) or cannot be split into bindings; the
+            # exception text may quote it, so only the kind of failure reaches the page.
+            return self._json({"status": "error", "error": "storage_error",
+                               "message": "storage_error: .env could not be read"}, 500)
 
     @staticmethod
     def _json(value, status=200, **kwargs):

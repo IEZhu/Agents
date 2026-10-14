@@ -339,11 +339,17 @@ def env_section(source: str) -> str:
             'SELECTED_PYTHON="$TEST_PYTHON"\n' + source[start:end])
 
 
+def copy_env_helper(root):
+    """The branch helper and the module it loads (src/env_file.py), as an installation has them."""
+    for name in ("scripts/_helpers/env_branch.py", "src/env_file.py"):
+        (root / name).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(ROOT / name, root / name)
+
+
 def run_env_step(root, branch=None):
     """The real .env step on ``root`` (env.example and the helper copied in), AGENTS_BRANCH as given."""
-    (root / "scripts/_helpers").mkdir(parents=True, exist_ok=True)
     shutil.copyfile(ROOT / "env.example", root / "env.example")
-    shutil.copyfile(ROOT / "scripts/_helpers/env_branch.py", root / "scripts/_helpers/env_branch.py")
+    copy_env_helper(root)
     script = 'REPO_ROOT="$1"\n' + env_section((ROOT / "scripts/init_repo.sh").read_text(encoding="utf-8"))
     extra = {"AGENTS_BRANCH": branch} if branch is not None else {}
     return subprocess.run([BASH, "-c", "set -euo pipefail\n" + script, "bash", str(root)], capture_output=True,
@@ -395,36 +401,19 @@ def test_an_existing_env_without_the_key_gets_the_installed_branch_not_mains(tmp
     assert "AGENTS_AUTO_UPDATE_REMOTE" in values  # the merge still adds the other keys
 
 
-def test_an_unusable_branch_name_changes_nothing(tmp_path):
-    result = run_env_step(tmp_path, "-x y")
+@pytest.mark.parametrize("name", ["-x y", "a..b", "x.lock"])
+def test_an_unusable_branch_name_changes_nothing(tmp_path, name):
+    result = run_env_step(tmp_path, name)
     assert "is not a usable branch name" in result.stdout
     assert (tmp_path / ".env").read_text() == (ROOT / "env.example").read_text()
-
-
-@pytest.mark.parametrize("before, created, after", [
-    ("A=1\nexport AGENTS_AUTO_UPDATE_BRANCH='main'  # mine\nAGENTS_AUTO_UPDATE_BRANCH=main\n", True,
-     "A=1\nexport AGENTS_AUTO_UPDATE_BRANCH=dev  # mine\n"),
-    ("A=1", False, "A=1\nAGENTS_AUTO_UPDATE_BRANCH=dev\n"),
-    ("'AGENTS_AUTO_UPDATE_BRANCH'=dev\n", False, "'AGENTS_AUTO_UPDATE_BRANCH'=dev\n"),
-    ("AGENTS_AUTO_UPDATE_BRANCH=main\nAGENTS_AUTO_UPDATE_BRANCH=\"dev\"\n", False,
-     "AGENTS_AUTO_UPDATE_BRANCH=main\nAGENTS_AUTO_UPDATE_BRANCH=\"dev\"\n"),  # the last one wins: no warning
-])
-def test_the_helper_both_installers_call_sets_or_keeps_the_branch(tmp_path, before, created, after):
-    """scripts/_helpers/env_branch.py, which init_repo.bat calls as init_repo.sh does."""
-    env = tmp_path / ".env"
-    env.write_text(before)
-    env.chmod(0o640)
-    result = subprocess.run([sys.executable, str(ROOT / "scripts/_helpers/env_branch.py"), str(env), "dev",
-                             *(["--created"] if created else [])], capture_output=True, text=True, check=True)
-    assert env.read_text() == after and "WARNING" not in result.stdout
-    assert env.stat().st_mode & 0o777 == 0o640
 
 
 def test_the_windows_installer_calls_the_helper_for_a_new_and_an_existing_env():
     batch = (ROOT / "scripts/init_repo.bat").read_bytes().decode()
     created = batch[batch.index("\r\n:env_create\r\n"):batch.index("\r\n:env_exists\r\n")]
     existing = batch[batch.index("\r\n:env_exists\r\n"):batch.index("\r\n:env_done\r\n")]
-    call = 'if defined AGENTS_BRANCH %SELECTED_PYTHON% "%HELPERS%\\env_branch.py" "%ENV_FILE%" "%AGENTS_BRANCH%"'
+    # Delayed expansion: the value is expanded after cmd parsed the line, so `"` or `&` in it cannot run.
+    call = 'if defined AGENTS_BRANCH %SELECTED_PYTHON% "%HELPERS%\\env_branch.py" "%ENV_FILE%" "!AGENTS_BRANCH!"'
     assert call + " --created\r\n" in created and call + "\r\n" in existing
     assert existing.index("env_branch.py") < existing.index("merge_env.py")  # before env.example's main is merged
 
@@ -433,9 +422,9 @@ def test_the_windows_installer_calls_the_helper_for_a_new_and_an_existing_env():
 def channel_upstream(tmp_path):
     """A repository with main and dev whose init_repo.sh records AGENTS_BRANCH and runs the real .env step."""
     repo = tmp_path / "channel-upstream"
-    (repo / "scripts/_helpers").mkdir(parents=True)
+    (repo / "scripts").mkdir(parents=True)
     shutil.copyfile(ROOT / "env.example", repo / "env.example")
-    shutil.copyfile(ROOT / "scripts/_helpers/env_branch.py", repo / "scripts/_helpers/env_branch.py")
+    copy_env_helper(repo)
     stub = repo / "scripts/init_repo.sh"
     stub.write_text('#!/usr/bin/env bash\nset -euo pipefail\nhere="${0%/*}"\nREPO_ROOT="$(cd "$here/.." && pwd)"\n'
                     'echo "branch:${AGENTS_BRANCH:-unset}" > "$REPO_ROOT/ran.txt"\n'
@@ -468,3 +457,24 @@ def test_agents_branch_gives_an_installation_whose_updaters_follow_it(tmp_path, 
     assert (settings.branch, settings.sources["AGENTS_AUTO_UPDATE_BRANCH"]) == (expected, ".env")
     assert update_channel.plan(settings, expected) == "follow"
     assert env_values(checkout / ".env")["AGENTS_AUTO_UPDATE_BRANCH"] == expected  # what a stdio server loads
+
+
+def test_a_rerun_without_agents_branch_keeps_a_dev_checkout_on_dev(tmp_path, channel_upstream):
+    """install.sh again on an installation that follows dev: the checkout stays on dev (no implicit
+    downgrade to main), .env keeps its setting and init_repo.sh gets no AGENTS_BRANCH to warn about."""
+    from src import update_channel
+    extra = {"TEST_PYTHON": sys.executable}
+    assert run_install(tmp_path, channel_upstream, extra_env={**extra, "AGENTS_BRANCH": "dev"}).returncode == 0
+    checkout = tmp_path / "home/.agents-core"
+    (channel_upstream / "later.txt").write_text("later")  # a new commit on dev upstream
+    git("checkout", "-q", "dev", cwd=channel_upstream)
+    git("add", "-A", cwd=channel_upstream)
+    git("commit", "-q", "-m", "later on dev", cwd=channel_upstream)
+    git("checkout", "-q", "main", cwd=channel_upstream)
+    result = run_install(tmp_path, channel_upstream, extra_env=extra)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "(dev)" in result.stdout and "WARNING" not in result.stdout
+    assert update_channel.checked_out(checkout) == "dev"
+    assert (checkout / "later.txt").exists()  # fast-forwarded on its own branch
+    assert (checkout / "ran.txt").read_text().strip() == "branch:unset"
+    assert env_values(checkout / ".env")["AGENTS_AUTO_UPDATE_BRANCH"] == "dev"

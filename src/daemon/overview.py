@@ -161,7 +161,8 @@ def directories(service_directory: Path) -> list[dict]:
 
 # What a scheduled run's record may show on the page; its strings lose any credentials in a URL.
 LAST_RUN_KEYS = ("time", "state", "reason", "error", "switch", "head", "target")
-_CREDENTIALS = re.compile(r"([a-z][a-z0-9+.-]*://)[^/@\s]+@", re.I)
+# Up to the last `@` of the authority: a password may hold an unencoded `@`.
+_CREDENTIALS = re.compile(r"([a-z][a-z0-9+.-]*://)[^/\s]*@", re.I)
 
 
 def without_credentials(value):
@@ -191,8 +192,8 @@ def when_text(channel: dict, scheduled: bool, interval: int, command: str) -> st
         return f"The switch from {current} to {configured} happens {when}."
     if channel.get("action") == "follow":
         return f"Updates fast-forward {configured} {when}. A saved change applies the same way."
-    return (f"The checkout is on {current or 'a detached HEAD'}, not main, dev or the previous setting: the "
-            "updaters leave it alone (local development) until one of them is checked out.")
+    reason = channel.get("reason") or f"the checkout is on {current or 'a detached HEAD'}"
+    return f"The updaters leave this checkout alone: {reason}."
 
 
 def updates(service_directory, root: Path | None = None, platform: str = sys.platform) -> dict:

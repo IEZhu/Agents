@@ -230,14 +230,37 @@ def test_the_set_branch_call_runs_off_the_event_loop(installation, tmp_path, mon
     ("switch", False, "The switch from main to dev happens when you run `.venv/bin/python -m src.daemon update`; "
                       "scheduled updates are off."),
     ("follow", True, "Updates fast-forward dev at the next scheduled run"),
-    ("local", True, "The checkout is on feature/x, not main, dev or the previous setting"),
+    ("local", True, "The updaters leave this checkout alone: checked-out branch is feature/x, not dev or the "
+                    "previous setting main: local development."),
 ])
 def test_the_section_names_when_the_setting_applies(action, scheduled, expected):
     current = "feature/x" if action == "local" else "main"
-    text = overview.when_text({"configured_branch": "dev", "checked_out_branch": current, "action": action},
-                              scheduled, 900, overview.update_command("darwin"))
+    channel = {"configured_branch": "dev", "checked_out_branch": current, "action": action}
+    if action == "local":
+        channel["reason"] = update_channel.Policy(previous="main", setting="dev").reason(current, "dev")
+    text = overview.when_text(channel, scheduled, 900, overview.update_command("darwin"))
     assert text.startswith(expected)
 
 
 def test_windows_names_its_own_update_command():
     assert overview.update_command("win32") == r".venv\Scripts\python -m src.daemon update"
+
+
+@pytest.mark.asyncio
+async def test_a_put_on_an_unreadable_env_answers_a_storage_error(daemon):
+    """sec-4: a .env that is not UTF-8 gives a 500 storage_error, not an exception out of the app."""
+    http, root, state, old = daemon
+    push_dev(root)
+    (root / ".env").write_bytes(b"OPENAI_API_KEY=sk-secret\nX=\xff\n")
+    await login(http)
+    response = await put(http, expected_revision="", branch="dev")
+    assert response.status_code == 500
+    assert response.json() == {"status": "error", "error": "storage_error",
+                               "message": "storage_error: .env could not be read"}
+    assert (root / ".env").read_bytes() == b"OPENAI_API_KEY=sk-secret\nX=\xff\n"
+
+
+def test_a_password_with_an_at_sign_is_removed_whole():
+    """sec-5: everything up to the last `@` of the authority goes."""
+    assert overview.without_credentials("x https://u:p@ss-SECRET@host/x") == "x https://host/x"
+    assert overview.without_credentials("https://host/a@b and ssh://git@h:22/r") == "https://host/a@b and ssh://h:22/r"

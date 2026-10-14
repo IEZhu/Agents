@@ -1781,6 +1781,19 @@ def _branch(path):
     return _git(path, "symbolic-ref", "--short", "HEAD").stdout.strip()
 
 
+def _setting(repos, branch, previous=None):
+    """The installation's .env as `channel set` leaves it: the setting and the previous one."""
+    lines = [f"AGENTS_AUTO_UPDATE_BRANCH={branch}"] + ([f"AGENTS_AUTO_UPDATE_PREVIOUS_BRANCH={previous}"]
+                                                       if previous else [])
+    (repos.local / ".env").write_text("\n".join(lines) + "\n")
+
+
+def _release(repos):
+    """Upstream main gets a release: a merge commit of dev, which dev never gets."""
+    _git(repos.upstream, "merge", "-q", "--no-ff", "-m", "Release", "dev")
+    return _head(repos.upstream)
+
+
 @pytest.fixture
 def channel_env(monkeypatch):
     """The stdio server's environment holds no update keys of the developer's shell."""
@@ -1792,6 +1805,7 @@ def channel_env(monkeypatch):
 
 def test_staged_switch_from_main_to_dev_activates_on_the_next_start(repos, phase_a_env, channel_env):
     tip = _publish_dev(repos)
+    _setting(repos, "dev", "main")
     old = _head(repos.local)
     # The default policy is this process's environment, as a stdio server loaded it from .env.
     status = self_update.prepare_update(str(repos.local), "origin", "dev",
@@ -1812,6 +1826,7 @@ def test_staged_switch_from_main_to_dev_activates_on_the_next_start(repos, phase
 
 def test_no_policy_never_switches(repos, phase_a_env, channel_env):
     _publish_dev(repos)
+    _setting(repos, "dev", "main")
     status = self_update.prepare_update(str(repos.local), "origin", "dev", reindex_fn=phase_a_env.builder,
                                         staging_parent=phase_a_env.parent, policy=None)
     assert status == PreparedStatus.SKIPPED_WRONG_BRANCH
@@ -1819,6 +1834,7 @@ def test_no_policy_never_switches(repos, phase_a_env, channel_env):
 
 def test_stdio_updater_leaves_a_third_branch_alone(repos, recorder, channel_env):
     _publish_dev(repos)
+    _setting(repos, "dev", "main")
     _git(repos.local, "checkout", "-q", "-b", "feature")
     assert check_and_apply_update(str(repos.local), "origin", "dev", reindex_fn=recorder) == \
         UpdateStatus.SKIPPED_WRONG_BRANCH
@@ -1829,6 +1845,7 @@ def test_stdio_downgrade_needs_the_recorded_confirmation(repos, phase_a_env, cha
     tip = _publish_dev(repos)
     _git(repos.local, "fetch", "-q", "origin", "dev")
     _git(repos.local, "checkout", "-q", "-B", "dev", tip)
+    _setting(repos, "main", "dev")
     status = self_update.prepare_update(str(repos.local), "origin", "main",
                                         reindex_fn=phase_a_env.builder, staging_parent=phase_a_env.parent)
     assert status == PreparedStatus.SKIPPED_DOWNGRADE and self_update._read_prepared_marker() is None
@@ -1855,6 +1872,7 @@ def test_failed_store_move_after_a_switch_returns_to_the_previous_branch(repos, 
     _publish_dev(repos)
     old = _head(repos.local)
     _git(repos.local, "branch", "dev", old)  # an older local dev the switch moves and the rollback restores
+    _setting(repos, "dev", "main")
     assert self_update.prepare_update(str(repos.local), "origin", "dev", reindex_fn=phase_a_env.builder,
                                       staging_parent=phase_a_env.parent) == PreparedStatus.PREPARED
 
@@ -1874,6 +1892,7 @@ def test_local_dev_with_commits_the_remote_lacks_is_not_switched_to(repos, recor
     _commit(repos.local, "mine.txt", "local\n", "local work on dev")
     mine = _head(repos.local)
     _git(repos.local, "checkout", "-q", "main")
+    _setting(repos, "dev", "main")
     assert check_and_apply_update(str(repos.local), "origin", "dev", reindex_fn=recorder) == \
         UpdateStatus.SKIPPED_DIVERGED
     assert _git(repos.local, "rev-parse", "dev").stdout.strip() == mine and _branch(repos.local) == "main"
@@ -1881,6 +1900,7 @@ def test_local_dev_with_commits_the_remote_lacks_is_not_switched_to(repos, recor
 
 def test_legacy_switch_rolls_back_to_main_when_the_reindex_fails(repos, channel_env):
     _publish_dev(repos)
+    _setting(repos, "dev", "main")
     old = _head(repos.local)
     status = check_and_apply_update(str(repos.local), "origin", "dev", reindex_fn=lambda root: False)
     assert status == UpdateStatus.REINDEX_FAILED
@@ -1892,6 +1912,145 @@ def test_legacy_switch_rolls_back_to_main_when_the_reindex_fails(repos, channel_
 
 def test_invalid_branch_names_are_refused_before_a_switch(repos, recorder, channel_env):
     for name in ("dev..x", "it's"):
+        _setting(repos, "dev", "main")
+        (repos.local / ".env").write_text(f'AGENTS_AUTO_UPDATE_BRANCH="{name}"\nAGENTS_AUTO_UPDATE_PREVIOUS_BRANCH=main\n')
         assert check_and_apply_update(str(repos.local), "origin", name, reindex_fn=recorder) == \
             UpdateStatus.SKIPPED_BAD_CONFIG
     assert recorder.calls == []
+
+
+# --- Review round 1 (#381) ---------------------------------------------------
+
+def _activate(repos, branch="dev"):
+    return self_update.activate_prepared_update(str(repos.local), branch, embedding_model=self_update.EMBEDDING_MODEL)
+
+
+def _prepare_switch(repos, env):
+    return self_update.prepare_update(str(repos.local), "origin", "dev", reindex_fn=env.builder,
+                                      staging_parent=env.parent)
+
+
+def test_an_exported_branch_never_switches_a_dev_installation(repos, recorder, channel_env):
+    """txn-1: on dev with .env dev / previous main, an exported main (which contains HEAD) switches nothing."""
+    tip = _publish_dev(repos)
+    _release(repos)
+    _git(repos.local, "fetch", "-q", "origin", "dev")
+    _git(repos.local, "checkout", "-q", "-B", "dev", tip)
+    _setting(repos, "dev", "main")
+    channel_env.setenv("AGENTS_AUTO_UPDATE_BRANCH", "main")
+    assert check_and_apply_update(str(repos.local), "origin", "main", reindex_fn=recorder) == \
+        UpdateStatus.SKIPPED_WRONG_BRANCH
+    assert _branch(repos.local) == "dev" and _head(repos.local) == tip and recorder.calls == []
+
+
+def test_main_after_a_release_switches_to_dev_without_a_confirmation(repos, phase_a_env, channel_env):
+    """txn-2: the release merge commit on main is no downgrade."""
+    tip = _publish_dev(repos)
+    merge = _release(repos)
+    _git(repos.local, "pull", "-q", "--ff-only", "origin", "main")
+    assert _head(repos.local) == merge
+    _setting(repos, "dev", "main")
+    assert _prepare_switch(repos, phase_a_env) == PreparedStatus.PREPARED
+    assert self_update._read_prepared_marker()["downgrade"] is False
+    assert _activate(repos) == ActivationStatus.ACTIVATED
+    assert _branch(repos.local) == "dev" and _head(repos.local) == tip
+
+
+def test_the_updater_reads_fetch_head_once(repos, recorder, channel_env, monkeypatch):
+    """sec-1: FETCH_HEAD rewritten after the updater's first read does not change its target."""
+    tip = _publish_dev(repos)
+    _commit(repos.upstream, "file.txt", "v2\n", "main moves")
+    main_tip = _head(repos.upstream)
+    real = self_update._run_git
+    fetch_head = repos.local / ".git" / "FETCH_HEAD"
+
+    def racing(args, cwd, timeout):
+        result = real(args, cwd, timeout)
+        if any("FETCH_HEAD" in arg for arg in args) and not racing.done:
+            racing.done = True  # another fetch (dev) lands right after the first read
+            _git(repos.local, "fetch", "-q", "origin", "dev")
+            assert fetch_head.read_text().startswith(tip)
+        return result
+    racing.done = False
+    monkeypatch.setattr(self_update, "_run_git", racing)
+    assert check_and_apply_update(str(repos.local), "origin", "main", reindex_fn=recorder) == UpdateStatus.UPDATED
+    assert _head(repos.local) == main_tip
+
+
+def test_a_target_branch_in_another_worktree_is_skipped_before_the_build(repos, recorder, phase_a_env,
+                                                                         channel_env, tmp_path):
+    """txn-4: `checkout -B dev` would fail at activation; the switch waits instead."""
+    tip = _publish_dev(repos)
+    _setting(repos, "dev", "main")
+    _git(repos.local, "fetch", "-q", "origin", "dev")
+    _git(repos.local, "worktree", "add", "-q", "-b", "dev", str(tmp_path / "wt"), tip)
+    assert check_and_apply_update(str(repos.local), "origin", "dev", reindex_fn=recorder) == \
+        UpdateStatus.SKIPPED_BRANCH_IN_USE
+    assert _prepare_switch(repos, phase_a_env) == PreparedStatus.SKIPPED_BRANCH_IN_USE
+    assert recorder.calls == [] and self_update._read_prepared_marker() is None
+    _git(repos.local, "worktree", "remove", "--force", str(tmp_path / "wt"))
+    _git(repos.local, "branch", "-D", "dev")
+    # Checked out elsewhere after the build: activation discards it and stays on main.
+    assert _prepare_switch(repos, phase_a_env) == PreparedStatus.PREPARED
+    _git(repos.local, "worktree", "add", "-q", "-b", "dev", str(tmp_path / "wt2"), tip)
+    assert _activate(repos) == ActivationStatus.INVALID_BRANCH_IN_USE
+    assert _branch(repos.local) == "main" and self_update._read_prepared_marker() is None
+
+
+def test_a_rollback_restores_the_target_branchs_upstream(repos, channel_env):
+    """txn-5: the switch rewrites branch.dev.remote/merge; a rollback puts the old values back."""
+    _publish_dev(repos)
+    old = _head(repos.local)
+    _git(repos.local, "branch", "dev", old)
+    _git(repos.local, "config", "branch.dev.remote", "upstream-x")
+    _git(repos.local, "config", "branch.dev.merge", "refs/heads/foo")
+    _setting(repos, "dev", "main")
+    assert check_and_apply_update(str(repos.local), "origin", "dev", reindex_fn=lambda root: False) == \
+        UpdateStatus.REINDEX_FAILED
+    assert _branch(repos.local) == "main" and _git(repos.local, "rev-parse", "dev").stdout.strip() == old
+    assert _git(repos.local, "config", "branch.dev.remote").stdout.strip() == "upstream-x"
+    assert _git(repos.local, "config", "branch.dev.merge").stdout.strip() == "refs/heads/foo"
+    # A branch without upstream settings gets none back.
+    _git(repos.local, "config", "--unset", "branch.dev.remote")
+    _git(repos.local, "config", "--unset", "branch.dev.merge")
+    assert check_and_apply_update(str(repos.local), "origin", "dev", reindex_fn=lambda root: False) == \
+        UpdateStatus.REINDEX_FAILED
+    assert _git(repos.local, "config", "--get", "branch.dev.remote", check=False).returncode == 1
+
+
+def test_a_switch_is_discarded_when_head_moved_after_the_build(repos, phase_a_env, channel_env):
+    """txn-6 (a) / tests-4: gate 6s, HEAD must still be the base the switch was built from."""
+    _publish_dev(repos)
+    _setting(repos, "dev", "main")
+    assert _prepare_switch(repos, phase_a_env) == PreparedStatus.PREPARED
+    (repos.local / "mine.txt").write_text("local\n")
+    _git(repos.local, "add", "mine.txt")
+    _git(repos.local, "commit", "-q", "-m", "local work on main")
+    moved = _head(repos.local)
+    assert _activate(repos) == ActivationStatus.INVALID_NOT_FF
+    assert _branch(repos.local) == "main" and _head(repos.local) == moved
+    assert self_update._read_prepared_marker() is None and not any(Path(phase_a_env.parent).glob("*"))
+
+
+def test_a_switch_never_resets_a_local_target_branch_that_gained_commits(repos, phase_a_env, channel_env):
+    """txn-6 (b) / tests-4: `checkout -B` would drop commits local dev got after the build."""
+    tip = _publish_dev(repos)
+    _setting(repos, "dev", "main")
+    assert _prepare_switch(repos, phase_a_env) == PreparedStatus.PREPARED
+    _git(repos.local, "fetch", "-q", "origin", "dev")
+    tree = _git(repos.local, "rev-parse", f"{tip}^{{tree}}").stdout.strip()
+    mine = _git(repos.local, "commit-tree", tree, "-p", tip, "-m", "local on dev").stdout.strip()
+    _git(repos.local, "branch", "-f", "dev", mine)
+    assert _activate(repos) == ActivationStatus.INVALID_NOT_FF
+    assert _branch(repos.local) == "main" and _git(repos.local, "rev-parse", "dev").stdout.strip() == mine
+
+
+def test_a_switch_built_from_main_does_not_activate_from_another_branch(repos, phase_a_env, channel_env):
+    """tests-2: gate 3 checks the branch the switch was built from, even when the policy would allow it."""
+    _publish_dev(repos)
+    _setting(repos, "dev", "main")
+    assert _prepare_switch(repos, phase_a_env) == PreparedStatus.PREPARED
+    _git(repos.local, "checkout", "-q", "-b", "experiment")  # same commit as the build's base
+    _setting(repos, "dev", "experiment")
+    assert _activate(repos) == ActivationStatus.INVALID_WRONG_BRANCH
+    assert _branch(repos.local) == "experiment"
