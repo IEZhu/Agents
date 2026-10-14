@@ -87,7 +87,7 @@ def test_export_writes_a_patch_and_a_verified_bundle_of_the_imported_commits(tru
     first, result = imported(trusted, tmp_path, exchange)
     run_dir = tmp_path / "runs" / RUN_ID
     run_dir.mkdir(parents=True)
-    exported = trusted.export_commits(first.pinned, result.head, run_dir / "export", RUN_ID)
+    exported = trusted.export_commits(first.pinned, result.head, run_dir / repos.EXPORT_DIR, RUN_ID)
     patch, made = run_dir / "export" / f"{RUN_ID}.patch", run_dir / "export" / f"{RUN_ID}.bundle"
     assert (exported["patch"], exported["bundle"]) == (str(patch), str(made))
     assert exported["commits"] == list(result.commits) and exported["ref"] == f"refs/autodev/export/{RUN_ID}"
@@ -160,7 +160,8 @@ def test_blob_ids_read_the_flows_at_a_commit_of_main(trusted):
     pinned = trusted.pinned()
     found = trusted.blob_ids(pinned, ["README.md", "src/schedules/runner.py", "absent.md", "src"])
     assert found["README.md"] == fixture_git(trusted.path, "rev-parse", f"{pinned}:README.md")
-    assert found["src/schedules/runner.py"] == fixture_git(trusted.path, "rev-parse", f"{pinned}:src/schedules/runner.py")
+    runner = fixture_git(trusted.path, "rev-parse", f"{pinned}:src/schedules/runner.py")
+    assert found["src/schedules/runner.py"] == runner
     assert found["absent.md"] is None and found["src"] is None
 
 

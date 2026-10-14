@@ -408,7 +408,8 @@ def _issue_ref(ref: str, repository: str, issue: int | None) -> bool:
 
 
 def validate_output(kind: str, raw: Any, *, repository: str, issue: int | None = None,
-                    candidates: Iterable[int] | None = None, branch: str | None = None) -> tuple[dict | None, list[str]]:
+                    candidates: Iterable[int] | None = None,
+                    branch: str | None = None) -> tuple[dict | None, list[str]]:
     """The stage output as parsed (`parse_output`) when it passes its schema and the runner's
     rules (see the module docstring), else None and every problem found. ``issue`` is the run's
     issue (implement, submit), ``candidates`` the issue numbers the select inputs offered and
@@ -722,6 +723,7 @@ SELECT_ISSUE_FIELDS = ("number", "title", "labels", "assignees", "created_at", "
                        "label_times", "owner_activity", "agent_state", "open_prs", "branches", "dependencies",
                        "closed_autodev_prs")
 COMMENT_FIELDS = ("id", "author", "app", "created_at", "body")
+_FINDING = re.compile(r"(review|comment):[0-9]+")
 ISSUES_DIR = "issues"
 
 
@@ -774,8 +776,7 @@ def submit_inputs(*, branch: str, description_extra: Mapping, issue: int, slice:
         pr, rounds, seen, head = (resume.get(key) for key in ("pr", "rounds", "findings_seen", "state_comment_head"))
         if not _positive(pr) or not isinstance(rounds, int) or isinstance(rounds, bool) or rounds < 0:
             raise ValueError("a resume needs the PR number and the rounds of its state comment")
-        if not isinstance(seen, list) or not all(isinstance(item, str) and re.fullmatch(r"(review|comment):[0-9]+", item)
-                                                 for item in seen):
+        if not isinstance(seen, list) or not all(isinstance(item, str) and _FINDING.fullmatch(item) for item in seen):
             raise ValueError("findings_seen must list review:<id> and comment:<id>")
         if head is not None and not (isinstance(head, str) and re.fullmatch(r"[0-9a-f]{40}", head)):
             raise ValueError("state_comment_head must be a 40-hex SHA or null")

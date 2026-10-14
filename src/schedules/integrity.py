@@ -11,10 +11,11 @@ notifies the owner and turns the schedule off (#347 open question Q-git-integrit
 adopted). The runner never runs git in a one-off repository afterwards (`src.schedules.repos`), so
 a changed ``.git/config`` cannot execute in the runner.
 
-A snapshot is plain JSON data (the run record may keep it). `git_snapshot` is taken after `repos.TrustedRepository.create_session_repository` and before the
-session starts; `git_changes` compares it with a second snapshot after the session ended. A
-snapshot records, through one descriptor of ``.git`` opened without following a link (so a
-directory swapped in meanwhile cannot mix two views):
+`git_snapshot` is taken after `repos.TrustedRepository.create_session_repository` and before
+the session starts; `git_changes` compares it with a second snapshot after the session ended. A
+snapshot is plain JSON data (the run record may keep it); it records, through one descriptor of
+``.git`` opened without following a link (so a directory swapped in meanwhile cannot mix two
+views):
 
 * ``.git`` itself: a directory (device, inode and birth time), or what replaced it: a file (a
   ``gitdir:`` redirector, its SHA-256), a symbolic link, nothing;

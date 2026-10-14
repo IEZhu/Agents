@@ -110,7 +110,8 @@ CASES = [
     ("workflow permission 403", lambda: Transport(statuses={WORKFLOW: 403}), None,
      "cannot verify the workflow approval permission (HTTP 403)"),
     ("rules 404", lambda: Transport(statuses={RULES: 404}), None, "cannot verify main protection (HTTP 404)"),
-    ("secrets 403", lambda: Transport(statuses={SECRETS: 403}), None, "cannot verify the repository secrets (HTTP 403)"),
+    ("secrets 403", lambda: Transport(statuses={SECRETS: 403}), None,
+     "cannot verify the repository secrets (HTTP 403)"),
     ("routine token as a repository secret",
      lambda: with_answer(SECRETS, {"total_count": 2, "secrets": [
          {"name": "OTHER", "created_at": "2026-10-01T00:00:00Z", "updated_at": "2026-10-01T00:00:00Z"},
@@ -167,7 +168,8 @@ def test_an_unexpected_answer_cannot_verify(credentials, path, value, item):
 def test_the_secrets_are_read_page_by_page(credentials):
     responses = copy.deepcopy(FIXTURE["responses"])
     responses[SECRETS] = {"total_count": 101, "secrets": [{"name": f"S{number}"} for number in range(100)]}
-    responses[SECRETS.removesuffix("&page=1") + "&page=2"] = {"total_count": 101, "secrets": [{"name": "CLAUDE_ROUTINE_TOKEN"}]}
+    responses[SECRETS.removesuffix("&page=1") + "&page=2"] = {"total_count": 101,
+                                                              "secrets": [{"name": "CLAUDE_ROUTINE_TOKEN"}]}
     missing, transport = check(credentials, Transport(responses))
     assert missing == [preconditions.SECRET_ITEM] and transport.requests[-1].endswith("page=2")
 

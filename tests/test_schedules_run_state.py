@@ -14,10 +14,12 @@ def test_write_state_writes_the_record_and_a_read_only_copy(tmp_path):
     run_dir, copy_dir = tmp_path / "run", tmp_path / "copy"
     run_dir.mkdir()
     written = run_state.write_state(run_dir, state(), copy_dir, now=NOW)
-    assert written == json.loads((run_dir / "state.json").read_text()) == json.loads((copy_dir / "state.json").read_text())
+    assert written == json.loads((run_dir / "state.json").read_text())
+    assert written == json.loads((copy_dir / "state.json").read_text())
     assert stat.S_IMODE((copy_dir / "state.json").stat().st_mode) == 0o400
     assert stat.S_IMODE((run_dir / "state.json").stat().st_mode) == 0o600
-    assert set(written) == {"version", "run_id", "mode", "repository", "pinned", "runner_commit", "stage", "stages_done",
+    assert set(written) == {"version", "run_id", "mode", "repository", "pinned", "runner_commit", "stage",
+                            "stages_done",
                             "issue", "branch", "pr", "base", "head", "slice", "criteria_refs", "flows",
                             "persona_source", "limits", "updated"}
     assert written["version"] == 1 and written["persona_source"] == f"git show {SHA}:<path>"
