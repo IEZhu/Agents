@@ -1,0 +1,1 @@
+{"valid":false,"errors":[{"path":"$.result.status","code":"completed_incomplete","message":"Completed requires no remaining work or question."}],"verification":"structural_only"}

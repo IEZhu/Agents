@@ -1,0 +1,87 @@
+{
+  "role": "implement",
+  "call_id": "kv-e08-implement",
+  "input_tokens": 4669,
+  "render_tokenize_ms": 27.283207862637937,
+  "prompt_sha256": "8267e952235b50319fb6e688dd3607c9d0088a18134fd4d30d84ad406a724929",
+  "schema_sha256": "0cd1a0203e170e6f83fdb5c22b79eddfc37377e95b51c73ba237572165567b9b",
+  "response": {
+    "client_ttft_ms": 9033.396458020434,
+    "client_total_ms": 26871.322790975682,
+    "request_body_bytes": 24869,
+    "shared_kv": {
+      "requested_reuse": false,
+      "actual_reused_tokens": 0,
+      "actual_evaluated_tokens": 4669,
+      "registered_prefix_tokens": 3308,
+      "input_tokens": 4669,
+      "cache_state": "cold",
+      "prior_cache_state": "empty",
+      "lock_wait_ms": 0.001416075974702835,
+      "validation_ms": 0.19116699695587158,
+      "dispatch_ms": 26871.532416902483,
+      "lock_hold_ms": 26871.895083924755,
+      "service_total_ms": 26871.89650000073,
+      "service_ttft_ms": 9033.589041093364
+    },
+    "final": {
+      "timings": {
+        "cache_n": 0,
+        "prompt_n": 4669,
+        "prompt_ms": 9024.076,
+        "prompt_per_token_ms": 1.9327641893339043,
+        "prompt_per_second": 517.3936921630536,
+        "predicted_n": 434,
+        "predicted_ms": 17834.052,
+        "predicted_per_token_ms": 41.187187066974595,
+        "predicted_per_second": 24.279395394832314
+      },
+      "stop_type": "eos",
+      "tokens_evaluated": 4669,
+      "tokens_predicted": 434,
+      "truncated": false
+    },
+    "output_sha256": "7cd4d870381623dbfc3fe3c33d4157d9566d4bbef48e8679d511f6321b3d89d3",
+    "output_token_ids_sha256": "5729299775e522a15b885d86c890d806f00a6f34ed67e125aae29089edfea8c1"
+  },
+  "validation": {
+    "call_id": "kv-e08-implement",
+    "raw_sha256": "7cd4d870381623dbfc3fe3c33d4157d9566d4bbef48e8679d511f6321b3d89d3",
+    "contract_revision": "e712a2c82d80ff54986b8aab7bf139010906e218368f974beddf89c9c94a4db5",
+    "validation": {
+      "valid": true,
+      "errors": [],
+      "verification": "structural_only"
+    },
+    "mcp_validation_ms": 277
+  },
+  "validation_wait_ms": 2898.4273329842836,
+  "result": {
+    "artifacts": [],
+    "attempt_id": "1",
+    "bundle_revision": "f9f3efeec7a1e6fc90d3169d28a9a3e7d1b7eaa0272acb4ae1c3fb6349b81b21",
+    "checks": [],
+    "contract_revision": "e712a2c82d80ff54986b8aab7bf139010906e218368f974beddf89c9c94a4db5",
+    "evidence": [
+      {
+        "description": "Replaced the Contract.parse method to handle raw UTF-16 surrogate code points by raising AccordError with message 'invalid contract JSON' instead of leaking a '",
+        "id": "source",
+        "reference": "supplied source"
+      }
+    ],
+    "limitations": [],
+    "protocol": "agents-core/subagent/1",
+    "question": null,
+    "remaining_work": [],
+    "result": {
+      "items": [
+        "        if isinstance(data, (str, bytes)):\n            require(len(data.encode(\"utf-8\") if isinstance(data, str) else data) <= 65536,\n                    \"contract too large\")\n            try:\n                data = json.loads(data, object_pairs_hook=_unique_object,\n                                  parse_constant=_reject_constant)\n            except (ValueError, UnicodeError) as exc:\n                raise AccordError(\"invalid contract JSON\") from exc\n        require(type(data) is dict, \"contract must be an object\")\n"
+      ],
+      "summary": "Replaced the Contract.parse method to handle raw UTF-16 surrogate code points by raising AccordError with message 'invalid contract JSON' instead of leaking a UnicodeEncodeError."
+    },
+    "status": "completed",
+    "task_id": "kv-e08-implement"
+  },
+  "accepted": false,
+  "error": "single input-type gate required"
+}

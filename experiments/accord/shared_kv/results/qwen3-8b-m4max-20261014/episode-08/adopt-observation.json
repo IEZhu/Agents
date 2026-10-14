@@ -1,0 +1,89 @@
+{
+  "role": "adopt",
+  "call_id": "kv-e08-adopt",
+  "input_tokens": 4932,
+  "render_tokenize_ms": 16.89129206351936,
+  "prompt_sha256": "07af6d9463eba44686a2906b07b4ada67d1ae954c63c27df59fb1782d7d39fbe",
+  "schema_sha256": "29c02dce0af9a4671359698f0837cb2a0e28b91d766a2686743adc016695f671",
+  "response": {
+    "client_ttft_ms": 2501.1105409357697,
+    "client_total_ms": 14975.520957959816,
+    "request_body_bytes": 25619,
+    "shared_kv": {
+      "requested_reuse": true,
+      "actual_reused_tokens": 3521,
+      "actual_evaluated_tokens": 1411,
+      "registered_prefix_tokens": 3308,
+      "input_tokens": 4932,
+      "cache_state": "hit",
+      "prior_cache_state": "resident",
+      "lock_wait_ms": 0.009999959729611874,
+      "validation_ms": 0.25516701862215996,
+      "dispatch_ms": 14975.684707984328,
+      "lock_hold_ms": 14976.049541961402,
+      "service_total_ms": 14976.059541921131,
+      "service_ttft_ms": 2501.3757079141214
+    },
+    "final": {
+      "timings": {
+        "cache_n": 3521,
+        "prompt_n": 1411,
+        "prompt_ms": 2483.805,
+        "prompt_per_token_ms": 1.7603153791637136,
+        "prompt_per_second": 568.0800223850101,
+        "predicted_n": 327,
+        "predicted_ms": 12481.656,
+        "predicted_per_token_ms": 38.28728834355829,
+        "predicted_per_second": 26.11832917042418
+      },
+      "stop_type": "eos",
+      "tokens_evaluated": 4932,
+      "tokens_predicted": 327,
+      "truncated": false
+    },
+    "output_sha256": "a98cfd864c4c99db63d7ec73c5e13072bb401102fb3cc1d1595747fc8268dd2f",
+    "output_token_ids_sha256": "de9c366d03972b2629b8c3a6c9d9670dbc155266ea03f8760809a74db1e0a9b7"
+  },
+  "validation": {
+    "call_id": "kv-e08-adopt",
+    "raw_sha256": "a98cfd864c4c99db63d7ec73c5e13072bb401102fb3cc1d1595747fc8268dd2f",
+    "contract_revision": "90b9cbc78d86dd3c3fbba5b6d94a375a892a2e13679ae79067a3784e09ea6b66",
+    "validation": {
+      "valid": true,
+      "errors": [],
+      "verification": "structural_only"
+    },
+    "mcp_validation_ms": 284
+  },
+  "validation_wait_ms": 2667.464750004001,
+  "result": {
+    "artifacts": [],
+    "attempt_id": "1",
+    "bundle_revision": "f9f3efeec7a1e6fc90d3169d28a9a3e7d1b7eaa0272acb4ae1c3fb6349b81b21",
+    "checks": [],
+    "contract_revision": "90b9cbc78d86dd3c3fbba5b6d94a375a892a2e13679ae79067a3784e09ea6b66",
+    "evidence": [
+      {
+        "description": "The candidate repair was not validated by the host due to an error in the input-type gate. The patch is not confirmed to fix the raw-surrogate defect while pres",
+        "id": "source",
+        "reference": "supplied source"
+      }
+    ],
+    "limitations": [
+      "No tool calls or external validation performed"
+    ],
+    "protocol": "agents-core/subagent/1",
+    "question": null,
+    "remaining_work": [],
+    "result": {
+      "items": [
+        "reject"
+      ],
+      "summary": "The candidate repair was not validated by the host due to an error in the input-type gate. The patch is not confirmed to fix the raw-surrogate defect while preserving existing behavior."
+    },
+    "status": "completed",
+    "task_id": "kv-e08-adopt"
+  },
+  "decision": "reject",
+  "accepted": false
+}

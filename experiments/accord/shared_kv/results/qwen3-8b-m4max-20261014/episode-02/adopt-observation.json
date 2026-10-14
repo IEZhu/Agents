@@ -1,0 +1,91 @@
+{
+  "role": "adopt",
+  "call_id": "kv-e02-adopt",
+  "input_tokens": 4647,
+  "render_tokenize_ms": 18.593583023175597,
+  "prompt_sha256": "8ccbc6edca97a6b9915e1c6538cf9a373b645c2ef874d88fd9d3fbccb91e50ad",
+  "schema_sha256": "c4a3deafc1a245be30f0be6108fff71ad235a9df039712d8f5be23097cbe4926",
+  "response": {
+    "client_ttft_ms": 3957.202124991454,
+    "client_total_ms": 16121.802082983777,
+    "request_body_bytes": 24719,
+    "shared_kv": {
+      "requested_reuse": true,
+      "actual_reused_tokens": 3521,
+      "actual_evaluated_tokens": 1126,
+      "registered_prefix_tokens": 3308,
+      "input_tokens": 4647,
+      "cache_state": "hit",
+      "prior_cache_state": "resident",
+      "lock_wait_ms": 0.0077500008046627045,
+      "validation_ms": 0.2509159967303276,
+      "dispatch_ms": 16121.997499954887,
+      "lock_hold_ms": 16122.371165896766,
+      "service_total_ms": 16122.37891589757,
+      "service_ttft_ms": 3957.460790988989
+    },
+    "final": {
+      "timings": {
+        "cache_n": 3521,
+        "prompt_n": 1126,
+        "prompt_ms": 3949.731,
+        "prompt_per_token_ms": 3.5077539964476023,
+        "prompt_per_second": 285.0827056323582,
+        "predicted_n": 321,
+        "predicted_ms": 12161.267,
+        "predicted_per_token_ms": 38.003959375,
+        "predicted_per_second": 26.31304780990336
+      },
+      "stop_type": "eos",
+      "tokens_evaluated": 4647,
+      "tokens_predicted": 321,
+      "truncated": false
+    },
+    "output_sha256": "040eb7d063ebf2071ed79ea20346d46ce7c23338592d4d2d201e13eae7e497e8",
+    "output_token_ids_sha256": "b70d9011f02dcf3f535c7d95761c6a3d43506b5e4b4e1740cfb4acc60a048120"
+  },
+  "validation": {
+    "call_id": "kv-e02-adopt",
+    "raw_sha256": "040eb7d063ebf2071ed79ea20346d46ce7c23338592d4d2d201e13eae7e497e8",
+    "contract_revision": "c862a70472ece9bd8f25776e0cf155c75b8e887daa2561267c6d8c12cb6f8067",
+    "validation": {
+      "valid": true,
+      "errors": [],
+      "verification": "structural_only"
+    },
+    "mcp_validation_ms": 566
+  },
+  "validation_wait_ms": 3194.8370420141146,
+  "result": {
+    "artifacts": [],
+    "attempt_id": "1",
+    "bundle_revision": "f9f3efeec7a1e6fc90d3169d28a9a3e7d1b7eaa0272acb4ae1c3fb6349b81b21",
+    "checks": [],
+    "contract_revision": "c862a70472ece9bd8f25776e0cf155c75b8e887daa2561267c6d8c12cb6f8067",
+    "evidence": [
+      {
+        "description": "The host reported that the single input-type gate was required but not met, indicating the candidate implementation did not satisfy the necessary conditions for",
+        "id": "source",
+        "reference": "supplied source"
+      }
+    ],
+    "limitations": [
+      "The host's validation failed due to missing input-type gate compliance."
+    ],
+    "protocol": "agents-core/subagent/1",
+    "question": null,
+    "remaining_work": [
+      "Verify the input-type gate compliance for the candidate implementation."
+    ],
+    "result": {
+      "items": [
+        "reject"
+      ],
+      "summary": "The candidate implementation failed to meet the required input-type gate, as reported by the host."
+    },
+    "status": "partial",
+    "task_id": "kv-e02-adopt"
+  },
+  "accepted": false,
+  "error": "worker envelope or completion status invalid"
+}
