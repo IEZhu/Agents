@@ -1,0 +1,83 @@
+{
+  "status": "research baseline; verify before implementation",
+  "observed_date": "2026-10-15",
+  "baseline_commit": "d7e34eb10cb2ab9f593ebf782a4538f677484493",
+  "files": [
+    {
+      "path": "src/server.py",
+      "sha256": "f7c8b04cf7ae9fda45873f46a013f0883053b7ff77b4fe2840b3841d0676e9b3"
+    },
+    {
+      "path": "src/engine/subagent.py",
+      "sha256": "00f906c54e620ffbcd492466d07d0f04cf4dd25aa6ec993a46e694bbf3fffaf9"
+    },
+    {
+      "path": "src/engine/subagent_validation.py",
+      "sha256": "26e06b8a4b949b539ed70a0d79e522b9c68dc5322b66a11fb346525209441ece"
+    },
+    {
+      "path": "src/schemas/subagent.py",
+      "sha256": "4d54c825d34260a783ba3ff2f528a5c876c7513104394ebab0d9fba710fceaa4"
+    },
+    {
+      "path": "src/engine/rules.py",
+      "sha256": "ca6b815f10d367e2c6262c90af20f296d73e349e20dd1e2ef415cc665261bdb2"
+    },
+    {
+      "path": "src/engine/persona.py",
+      "sha256": "acffe300572d248b3e0e10d9598f1ce4f7ca079087ec971964eff0ec528ad7d2"
+    },
+    {
+      "path": "src/engine/persona_bundle.py",
+      "sha256": "4076905f8d6e506ddcfac85e56490f504cc5cfbd8baa2de56568c83404f73e83"
+    },
+    {
+      "path": "src/engine/config.py",
+      "sha256": "1da024224a37da4af7a85dc694a8295dbfde5bf842a307f58ace69030a1b6b21"
+    },
+    {
+      "path": "src/daemon/workspaces.py",
+      "sha256": "667d6d3db12c78854f0241a5db7fbb4c82d56772cbae82457c8bc0f0cc43a908"
+    },
+    {
+      "path": "src/daemon/app.py",
+      "sha256": "464f2082651cadb0d0872bd6e6fb562e62454ef7a48017dffd5b859bdf087ff1"
+    },
+    {
+      "path": "src/daemon/state.py",
+      "sha256": "77fdd04d19e4dc5b17ba5ac1654fd016ce9ce7080cf355aebd717ca7cf45119d"
+    },
+    {
+      "path": "src/file_lock.py",
+      "sha256": "e45ac0d3727e6bfa5fbd46ddbf19bebc38c626a6f8ef6dd797817232ae3ec1f9"
+    },
+    {
+      "path": "src/schedules/workers.py",
+      "sha256": "a3c8e21442f638eb10a62c0ec1b0b81000fb99ce85387f3dd300c1382ce2e7b6"
+    },
+    {
+      "path": "src/schedules/heavy.py",
+      "sha256": "1208ee4241370ae6b50d8b2167828ad16412f3f9389546a4e0f8a98885a2de38"
+    },
+    {
+      "path": "scripts/templates/routing-protocol-core.md",
+      "sha256": "f03b80af956c86342320802916321230b54c001aa735e8653319a11a1f85e426"
+    },
+    {
+      "path": "scripts/templates/memory-routing.md",
+      "sha256": "bc0c0faf96df1fcf3d4cc066091601196d9afa350c0c45ee1af1d9dfdeab74ef"
+    },
+    {
+      "path": "rules/subagents/README.md",
+      "sha256": "dc040ab3aad8ee9cf5d55fbffba634babc91c0dd798c98cef9b398fd3cc15f2e"
+    },
+    {
+      "path": "tests/test_subagent.py",
+      "sha256": "086f744bee16daa9936742a69c6b7f34f075efcaaf7f16f0ed85105840882119"
+    },
+    {
+      "path": "tests/test_subagent_mcp.py",
+      "sha256": "05ad00f86985300a4d0fbd0682c76c576d827c4b98b5d2039612156ba27ba718"
+    }
+  ]
+}

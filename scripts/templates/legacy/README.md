@@ -12,5 +12,11 @@ the previous version are reported as user-edited and are not migrated. Also add
 the new copy where the tests list the existing ones
 (`grep -rn memory-routing-v tests/`).
 
-`memory-routing-v11.md` preserves the reminder immediately before the persistent
-artifact-manifest instructions were added.
+The concurrent artifact and cooperation branches both introduced a distinct
+`memory-routing-v11.md`. Preserve every historical reminder byte-for-byte so
+installations from either branch can migrate:
+
+- `memory-routing-v11.md` retains the upstream reminder immediately before the persistent artifact-manifest instructions were added.
+- `memory-routing-v12.md` retains the cooperation branch's original `memory-routing-v11.md`, with coordination guidance before MCP mailbox instructions were added.
+- `memory-routing-v13.md` retains the artifact branch's current reminder before the cooperation instructions were merged.
+- `memory-routing-v14.md` retains the cooperation branch's current reminder before the artifact instructions were merged.

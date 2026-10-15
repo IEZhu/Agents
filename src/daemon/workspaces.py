@@ -37,10 +37,14 @@ class WorkspaceRegistry:
     def __init__(self, directory):
         self.directory = Path(directory)
         self.path = self.directory / "workspaces.json"
+        self.checkout_path = self.directory / "checkout-access.json"
 
-    def register(self, root):
+    def register(self, root, *, physical_root=None):
         root = Path(root).expanduser().resolve(strict=True)
         if not root.is_dir():
+            raise WorkspaceError("workspace_invalid")
+        physical = Path(physical_root if physical_root is not None else root).expanduser().resolve(strict=True)
+        if not physical.is_dir():
             raise WorkspaceError("workspace_invalid")
         private_dir(self.directory)
         with file_lock(self.directory / "workspaces.lock"):
@@ -48,13 +52,51 @@ class WorkspaceRegistry:
             for identity, saved in records.items():
                 if saved == str(root):
                     self.resolve(identity)
+                    self._grant_checkout(identity, physical)
                     return identity
             identity = str(uuid.uuid4())
             if identity in records:
                 raise WorkspaceError("workspace_invalid")
             records[identity] = str(root)
+            self._grant_checkout(identity, physical)
             write_json(self.path, records)
             return identity
+
+    def _grant_checkout(self, identity, physical):
+        """Called only under the registration lock, never from an MCP tool."""
+        grants = read_json(self.checkout_path, {})
+        if not isinstance(grants, dict):
+            raise WorkspaceError("workspace_invalid")
+        saved = grants.get(identity, [])
+        if not isinstance(saved, list) or not all(isinstance(item, str) for item in saved):
+            raise WorkspaceError("workspace_invalid")
+        if str(physical) not in saved:
+            if len(saved) >= 50:
+                raise WorkspaceError("workspace_invalid")
+            grants[identity] = [*saved, str(physical)]
+            write_json(self.checkout_path, grants)
+
+    def cooperation_roots(self, identity):
+        """Owner-registered physical grants; memory root normalization is unchanged."""
+        root = self.resolve(identity)
+        try:
+            grants = read_json(self.checkout_path, {})
+            if not isinstance(grants, dict):
+                raise ValueError()
+            # Registrations made before cooperation existed authorized their saved
+            # root only. They do not acquire external worktrees by Git membership.
+            saved = grants.get(identity, [str(root)])
+            if not isinstance(saved, list) or not 1 <= len(saved) <= 50:
+                raise ValueError()
+            result = []
+            for value in saved:
+                path = Path(value)
+                if not path.is_absolute() or str(path.resolve(strict=True)) != value or not path.is_dir():
+                    raise ValueError()
+                result.append(path)
+            return tuple(result)
+        except (ValueError, TypeError, OSError, RuntimeError):
+            raise WorkspaceError("workspace_invalid") from None
 
     def resolve(self, identity):
         if not identity:
@@ -87,6 +129,9 @@ class ClientContext:
     # call's workspace, or a stdio server's start directory). Unverified: the fallback journal
     # records it with the turn and nothing is written there (#292).
     claimed: str | None = None
+    # Explicit physical grants retained before history normalizes linked worktrees.
+    # Only cooperation uses these; workspace_target continues to enforce root.
+    cooperation_roots: tuple[Path, ...] = ()
 
     def workspace_root(self):
         if self.error or self.root is None:
