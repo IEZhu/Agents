@@ -1,0 +1,3365 @@
+{
+  "measurement": "Python len(worker_context), Unicode characters; not tokens",
+  "baseline": "origin/dev d7e34eb10cb2ab9f593ebf782a4538f677484493 before W6 instruction edits",
+  "request": {
+    "task_id": "cooperation-size",
+    "task": "Check the assigned work and report evidence.",
+    "acceptance_criteria": [
+      "Report actual checks and limitations."
+    ],
+    "max_skills": 3,
+    "max_implants": 0,
+    "max_context_chars": 16000
+  },
+  "profiles": 44,
+  "packages": 176,
+  "failures": 0,
+  "delta_chars": 1498,
+  "optional_skill_selection_changes": 0,
+  "results": [
+    {
+      "agent": "3d_print_finder",
+      "result_type": "generic",
+      "before_chars": 12679,
+      "status": "prepared",
+      "after_chars": 14177,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-3d-platforms",
+        "skill-fact-verification",
+        "skill-3d-print-search"
+      ],
+      "after_skills": [
+        "skill-3d-platforms",
+        "skill-fact-verification",
+        "skill-3d-print-search"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "3d_print_finder",
+      "result_type": "review",
+      "before_chars": 13353,
+      "status": "prepared",
+      "after_chars": 14851,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-3d-platforms",
+        "skill-fact-verification",
+        "skill-3d-print-search"
+      ],
+      "after_skills": [
+        "skill-3d-platforms",
+        "skill-fact-verification",
+        "skill-3d-print-search"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "3d_print_finder",
+      "result_type": "implementation",
+      "before_chars": 12976,
+      "status": "prepared",
+      "after_chars": 14474,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-3d-platforms",
+        "skill-fact-verification",
+        "skill-3d-print-search"
+      ],
+      "after_skills": [
+        "skill-3d-platforms",
+        "skill-fact-verification",
+        "skill-3d-print-search"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "3d_print_finder",
+      "result_type": "research",
+      "before_chars": 13057,
+      "status": "prepared",
+      "after_chars": 14555,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-3d-platforms",
+        "skill-fact-verification",
+        "skill-3d-print-search"
+      ],
+      "after_skills": [
+        "skill-3d-platforms",
+        "skill-fact-verification",
+        "skill-3d-print-search"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "agent_builder",
+      "result_type": "generic",
+      "before_chars": 12575,
+      "status": "prepared",
+      "after_chars": 14073,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-tech-writing",
+        "skill-prompt-design-process",
+        "skill-prompt-security"
+      ],
+      "after_skills": [
+        "skill-tech-writing",
+        "skill-prompt-design-process",
+        "skill-prompt-security"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "agent_builder",
+      "result_type": "review",
+      "before_chars": 13249,
+      "status": "prepared",
+      "after_chars": 14747,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-tech-writing",
+        "skill-prompt-design-process",
+        "skill-prompt-security"
+      ],
+      "after_skills": [
+        "skill-tech-writing",
+        "skill-prompt-design-process",
+        "skill-prompt-security"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "agent_builder",
+      "result_type": "implementation",
+      "before_chars": 12872,
+      "status": "prepared",
+      "after_chars": 14370,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-tech-writing",
+        "skill-prompt-design-process",
+        "skill-prompt-security"
+      ],
+      "after_skills": [
+        "skill-tech-writing",
+        "skill-prompt-design-process",
+        "skill-prompt-security"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "agent_builder",
+      "result_type": "research",
+      "before_chars": 12953,
+      "status": "prepared",
+      "after_chars": 14451,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-tech-writing",
+        "skill-prompt-design-process",
+        "skill-prompt-security"
+      ],
+      "after_skills": [
+        "skill-tech-writing",
+        "skill-prompt-design-process",
+        "skill-prompt-security"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "ai_senior_engineer",
+      "result_type": "generic",
+      "before_chars": 12639,
+      "status": "prepared",
+      "after_chars": 14137,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-agentic-loops",
+        "skill-prompt-engineering",
+        "skill-system-design"
+      ],
+      "after_skills": [
+        "skill-agentic-loops",
+        "skill-prompt-engineering",
+        "skill-system-design"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "ai_senior_engineer",
+      "result_type": "review",
+      "before_chars": 13313,
+      "status": "prepared",
+      "after_chars": 14811,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-agentic-loops",
+        "skill-prompt-engineering",
+        "skill-system-design"
+      ],
+      "after_skills": [
+        "skill-agentic-loops",
+        "skill-prompt-engineering",
+        "skill-system-design"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "ai_senior_engineer",
+      "result_type": "implementation",
+      "before_chars": 12936,
+      "status": "prepared",
+      "after_chars": 14434,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-agentic-loops",
+        "skill-prompt-engineering",
+        "skill-system-design"
+      ],
+      "after_skills": [
+        "skill-agentic-loops",
+        "skill-prompt-engineering",
+        "skill-system-design"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "ai_senior_engineer",
+      "result_type": "research",
+      "before_chars": 13017,
+      "status": "prepared",
+      "after_chars": 14515,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-agentic-loops",
+        "skill-prompt-engineering",
+        "skill-system-design"
+      ],
+      "after_skills": [
+        "skill-agentic-loops",
+        "skill-prompt-engineering",
+        "skill-system-design"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "alerts_describer",
+      "result_type": "generic",
+      "before_chars": 12473,
+      "status": "prepared",
+      "after_chars": 13971,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-tech-writing",
+        "skill-error-recovery",
+        "skill-structured-output"
+      ],
+      "after_skills": [
+        "skill-tech-writing",
+        "skill-error-recovery",
+        "skill-structured-output"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "alerts_describer",
+      "result_type": "review",
+      "before_chars": 13147,
+      "status": "prepared",
+      "after_chars": 14645,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-tech-writing",
+        "skill-error-recovery",
+        "skill-structured-output"
+      ],
+      "after_skills": [
+        "skill-tech-writing",
+        "skill-error-recovery",
+        "skill-structured-output"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "alerts_describer",
+      "result_type": "implementation",
+      "before_chars": 12770,
+      "status": "prepared",
+      "after_chars": 14268,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-tech-writing",
+        "skill-error-recovery",
+        "skill-structured-output"
+      ],
+      "after_skills": [
+        "skill-tech-writing",
+        "skill-error-recovery",
+        "skill-structured-output"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "alerts_describer",
+      "result_type": "research",
+      "before_chars": 12851,
+      "status": "prepared",
+      "after_chars": 14349,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-tech-writing",
+        "skill-error-recovery",
+        "skill-structured-output"
+      ],
+      "after_skills": [
+        "skill-tech-writing",
+        "skill-error-recovery",
+        "skill-structured-output"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "bio_hacker",
+      "result_type": "generic",
+      "before_chars": 12987,
+      "status": "prepared",
+      "after_chars": 14485,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-fact-verification",
+        "skill-source-trust-tiers",
+        "skill-bio-protocol-design"
+      ],
+      "after_skills": [
+        "skill-fact-verification",
+        "skill-source-trust-tiers",
+        "skill-bio-protocol-design"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "bio_hacker",
+      "result_type": "review",
+      "before_chars": 13661,
+      "status": "prepared",
+      "after_chars": 15159,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-fact-verification",
+        "skill-source-trust-tiers",
+        "skill-bio-protocol-design"
+      ],
+      "after_skills": [
+        "skill-fact-verification",
+        "skill-source-trust-tiers",
+        "skill-bio-protocol-design"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "bio_hacker",
+      "result_type": "implementation",
+      "before_chars": 13284,
+      "status": "prepared",
+      "after_chars": 14782,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-fact-verification",
+        "skill-source-trust-tiers",
+        "skill-bio-protocol-design"
+      ],
+      "after_skills": [
+        "skill-fact-verification",
+        "skill-source-trust-tiers",
+        "skill-bio-protocol-design"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "bio_hacker",
+      "result_type": "research",
+      "before_chars": 13365,
+      "status": "prepared",
+      "after_chars": 14863,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-fact-verification",
+        "skill-source-trust-tiers",
+        "skill-bio-protocol-design"
+      ],
+      "after_skills": [
+        "skill-fact-verification",
+        "skill-source-trust-tiers",
+        "skill-bio-protocol-design"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "black_hole_finder",
+      "result_type": "generic",
+      "before_chars": 12799,
+      "status": "prepared",
+      "after_chars": 14297,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-epistemic-method",
+        "skill-fact-verification",
+        "skill-agnotology"
+      ],
+      "after_skills": [
+        "skill-epistemic-method",
+        "skill-fact-verification",
+        "skill-agnotology"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "black_hole_finder",
+      "result_type": "review",
+      "before_chars": 13473,
+      "status": "prepared",
+      "after_chars": 14971,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-epistemic-method",
+        "skill-fact-verification",
+        "skill-agnotology"
+      ],
+      "after_skills": [
+        "skill-epistemic-method",
+        "skill-fact-verification",
+        "skill-agnotology"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "black_hole_finder",
+      "result_type": "implementation",
+      "before_chars": 13096,
+      "status": "prepared",
+      "after_chars": 14594,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-epistemic-method",
+        "skill-fact-verification",
+        "skill-agnotology"
+      ],
+      "after_skills": [
+        "skill-epistemic-method",
+        "skill-fact-verification",
+        "skill-agnotology"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "black_hole_finder",
+      "result_type": "research",
+      "before_chars": 13177,
+      "status": "prepared",
+      "after_chars": 14675,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-epistemic-method",
+        "skill-fact-verification",
+        "skill-agnotology"
+      ],
+      "after_skills": [
+        "skill-epistemic-method",
+        "skill-fact-verification",
+        "skill-agnotology"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "blender_scripter",
+      "result_type": "generic",
+      "before_chars": 12533,
+      "status": "prepared",
+      "after_chars": 14031,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-blender-scripting",
+        "skill-dev-debugging",
+        "skill-dev-testing"
+      ],
+      "after_skills": [
+        "skill-blender-scripting",
+        "skill-dev-debugging",
+        "skill-dev-testing"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "blender_scripter",
+      "result_type": "review",
+      "before_chars": 13207,
+      "status": "prepared",
+      "after_chars": 14705,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-blender-scripting",
+        "skill-dev-debugging",
+        "skill-dev-testing"
+      ],
+      "after_skills": [
+        "skill-blender-scripting",
+        "skill-dev-debugging",
+        "skill-dev-testing"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "blender_scripter",
+      "result_type": "implementation",
+      "before_chars": 12830,
+      "status": "prepared",
+      "after_chars": 14328,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-blender-scripting",
+        "skill-dev-debugging",
+        "skill-dev-testing"
+      ],
+      "after_skills": [
+        "skill-blender-scripting",
+        "skill-dev-debugging",
+        "skill-dev-testing"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "blender_scripter",
+      "result_type": "research",
+      "before_chars": 12911,
+      "status": "prepared",
+      "after_chars": 14409,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-blender-scripting",
+        "skill-dev-debugging",
+        "skill-dev-testing"
+      ],
+      "after_skills": [
+        "skill-blender-scripting",
+        "skill-dev-debugging",
+        "skill-dev-testing"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "child_psychologist",
+      "result_type": "generic",
+      "before_chars": 12827,
+      "status": "prepared",
+      "after_chars": 14325,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-psy-child-dev",
+        "skill-psy-digital-wellbeing",
+        "skill-psy-cbt"
+      ],
+      "after_skills": [
+        "skill-psy-child-dev",
+        "skill-psy-digital-wellbeing",
+        "skill-psy-cbt"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "child_psychologist",
+      "result_type": "review",
+      "before_chars": 13501,
+      "status": "prepared",
+      "after_chars": 14999,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-psy-child-dev",
+        "skill-psy-digital-wellbeing",
+        "skill-psy-cbt"
+      ],
+      "after_skills": [
+        "skill-psy-child-dev",
+        "skill-psy-digital-wellbeing",
+        "skill-psy-cbt"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "child_psychologist",
+      "result_type": "implementation",
+      "before_chars": 13124,
+      "status": "prepared",
+      "after_chars": 14622,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-psy-child-dev",
+        "skill-psy-digital-wellbeing",
+        "skill-psy-cbt"
+      ],
+      "after_skills": [
+        "skill-psy-child-dev",
+        "skill-psy-digital-wellbeing",
+        "skill-psy-cbt"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "child_psychologist",
+      "result_type": "research",
+      "before_chars": 13205,
+      "status": "prepared",
+      "after_chars": 14703,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-psy-child-dev",
+        "skill-psy-digital-wellbeing",
+        "skill-psy-cbt"
+      ],
+      "after_skills": [
+        "skill-psy-child-dev",
+        "skill-psy-digital-wellbeing",
+        "skill-psy-cbt"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "code_reviewer",
+      "result_type": "generic",
+      "before_chars": 12551,
+      "status": "prepared",
+      "after_chars": 14049,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-dev-clean-code",
+        "skill-dev-testing",
+        "skill-dev-security"
+      ],
+      "after_skills": [
+        "skill-dev-clean-code",
+        "skill-dev-testing",
+        "skill-dev-security"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "code_reviewer",
+      "result_type": "review",
+      "before_chars": 13225,
+      "status": "prepared",
+      "after_chars": 14723,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-dev-clean-code",
+        "skill-dev-testing",
+        "skill-dev-security"
+      ],
+      "after_skills": [
+        "skill-dev-clean-code",
+        "skill-dev-testing",
+        "skill-dev-security"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "code_reviewer",
+      "result_type": "implementation",
+      "before_chars": 12848,
+      "status": "prepared",
+      "after_chars": 14346,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-dev-clean-code",
+        "skill-dev-testing",
+        "skill-dev-security"
+      ],
+      "after_skills": [
+        "skill-dev-clean-code",
+        "skill-dev-testing",
+        "skill-dev-security"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "code_reviewer",
+      "result_type": "research",
+      "before_chars": 12929,
+      "status": "prepared",
+      "after_chars": 14427,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-dev-clean-code",
+        "skill-dev-testing",
+        "skill-dev-security"
+      ],
+      "after_skills": [
+        "skill-dev-clean-code",
+        "skill-dev-testing",
+        "skill-dev-security"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "daily_briefing",
+      "result_type": "generic",
+      "before_chars": 13167,
+      "status": "prepared",
+      "after_chars": 14665,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-fact-verification",
+        "skill-source-trust-tiers",
+        "skill-web-search"
+      ],
+      "after_skills": [
+        "skill-fact-verification",
+        "skill-source-trust-tiers",
+        "skill-web-search"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "daily_briefing",
+      "result_type": "review",
+      "before_chars": 13841,
+      "status": "prepared",
+      "after_chars": 15339,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-fact-verification",
+        "skill-source-trust-tiers",
+        "skill-web-search"
+      ],
+      "after_skills": [
+        "skill-fact-verification",
+        "skill-source-trust-tiers",
+        "skill-web-search"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "daily_briefing",
+      "result_type": "implementation",
+      "before_chars": 13464,
+      "status": "prepared",
+      "after_chars": 14962,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-fact-verification",
+        "skill-source-trust-tiers",
+        "skill-web-search"
+      ],
+      "after_skills": [
+        "skill-fact-verification",
+        "skill-source-trust-tiers",
+        "skill-web-search"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "daily_briefing",
+      "result_type": "research",
+      "before_chars": 13545,
+      "status": "prepared",
+      "after_chars": 15043,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-fact-verification",
+        "skill-source-trust-tiers",
+        "skill-web-search"
+      ],
+      "after_skills": [
+        "skill-fact-verification",
+        "skill-source-trust-tiers",
+        "skill-web-search"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "data_analyst",
+      "result_type": "generic",
+      "before_chars": 12490,
+      "status": "prepared",
+      "after_chars": 13988,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-forensic-process",
+        "skill-analysis-critical",
+        "skill-mathematical-reasoning"
+      ],
+      "after_skills": [
+        "skill-forensic-process",
+        "skill-analysis-critical",
+        "skill-mathematical-reasoning"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "data_analyst",
+      "result_type": "review",
+      "before_chars": 13164,
+      "status": "prepared",
+      "after_chars": 14662,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-forensic-process",
+        "skill-analysis-critical",
+        "skill-mathematical-reasoning"
+      ],
+      "after_skills": [
+        "skill-forensic-process",
+        "skill-analysis-critical",
+        "skill-mathematical-reasoning"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "data_analyst",
+      "result_type": "implementation",
+      "before_chars": 12787,
+      "status": "prepared",
+      "after_chars": 14285,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-forensic-process",
+        "skill-analysis-critical",
+        "skill-mathematical-reasoning"
+      ],
+      "after_skills": [
+        "skill-forensic-process",
+        "skill-analysis-critical",
+        "skill-mathematical-reasoning"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "data_analyst",
+      "result_type": "research",
+      "before_chars": 12868,
+      "status": "prepared",
+      "after_chars": 14366,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-forensic-process",
+        "skill-analysis-critical",
+        "skill-mathematical-reasoning"
+      ],
+      "after_skills": [
+        "skill-forensic-process",
+        "skill-analysis-critical",
+        "skill-mathematical-reasoning"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "data_forensic",
+      "result_type": "generic",
+      "before_chars": 12642,
+      "status": "prepared",
+      "after_chars": 14140,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-forensic-process",
+        "skill-fact-verification",
+        "skill-structured-output"
+      ],
+      "after_skills": [
+        "skill-forensic-process",
+        "skill-fact-verification",
+        "skill-structured-output"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "data_forensic",
+      "result_type": "review",
+      "before_chars": 13316,
+      "status": "prepared",
+      "after_chars": 14814,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-forensic-process",
+        "skill-fact-verification",
+        "skill-structured-output"
+      ],
+      "after_skills": [
+        "skill-forensic-process",
+        "skill-fact-verification",
+        "skill-structured-output"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "data_forensic",
+      "result_type": "implementation",
+      "before_chars": 12939,
+      "status": "prepared",
+      "after_chars": 14437,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-forensic-process",
+        "skill-fact-verification",
+        "skill-structured-output"
+      ],
+      "after_skills": [
+        "skill-forensic-process",
+        "skill-fact-verification",
+        "skill-structured-output"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "data_forensic",
+      "result_type": "research",
+      "before_chars": 13020,
+      "status": "prepared",
+      "after_chars": 14518,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-forensic-process",
+        "skill-fact-verification",
+        "skill-structured-output"
+      ],
+      "after_skills": [
+        "skill-forensic-process",
+        "skill-fact-verification",
+        "skill-structured-output"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "database_admin",
+      "result_type": "generic",
+      "before_chars": 12526,
+      "status": "prepared",
+      "after_chars": 14024,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-system-design",
+        "skill-dev-debugging",
+        "skill-dev-performance"
+      ],
+      "after_skills": [
+        "skill-system-design",
+        "skill-dev-debugging",
+        "skill-dev-performance"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "database_admin",
+      "result_type": "review",
+      "before_chars": 13200,
+      "status": "prepared",
+      "after_chars": 14698,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-system-design",
+        "skill-dev-debugging",
+        "skill-dev-performance"
+      ],
+      "after_skills": [
+        "skill-system-design",
+        "skill-dev-debugging",
+        "skill-dev-performance"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "database_admin",
+      "result_type": "implementation",
+      "before_chars": 12823,
+      "status": "prepared",
+      "after_chars": 14321,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-system-design",
+        "skill-dev-debugging",
+        "skill-dev-performance"
+      ],
+      "after_skills": [
+        "skill-system-design",
+        "skill-dev-debugging",
+        "skill-dev-performance"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "database_admin",
+      "result_type": "research",
+      "before_chars": 12904,
+      "status": "prepared",
+      "after_chars": 14402,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-system-design",
+        "skill-dev-debugging",
+        "skill-dev-performance"
+      ],
+      "after_skills": [
+        "skill-system-design",
+        "skill-dev-debugging",
+        "skill-dev-performance"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "debate_moderator",
+      "result_type": "generic",
+      "before_chars": 12860,
+      "status": "prepared",
+      "after_chars": 14358,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-fact-verification",
+        "skill-decision-frameworks",
+        "skill-analysis-critical"
+      ],
+      "after_skills": [
+        "skill-fact-verification",
+        "skill-decision-frameworks",
+        "skill-analysis-critical"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "debate_moderator",
+      "result_type": "review",
+      "before_chars": 13534,
+      "status": "prepared",
+      "after_chars": 15032,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-fact-verification",
+        "skill-decision-frameworks",
+        "skill-analysis-critical"
+      ],
+      "after_skills": [
+        "skill-fact-verification",
+        "skill-decision-frameworks",
+        "skill-analysis-critical"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "debate_moderator",
+      "result_type": "implementation",
+      "before_chars": 13157,
+      "status": "prepared",
+      "after_chars": 14655,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-fact-verification",
+        "skill-decision-frameworks",
+        "skill-analysis-critical"
+      ],
+      "after_skills": [
+        "skill-fact-verification",
+        "skill-decision-frameworks",
+        "skill-analysis-critical"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "debate_moderator",
+      "result_type": "research",
+      "before_chars": 13238,
+      "status": "prepared",
+      "after_chars": 14736,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-fact-verification",
+        "skill-decision-frameworks",
+        "skill-analysis-critical"
+      ],
+      "after_skills": [
+        "skill-fact-verification",
+        "skill-decision-frameworks",
+        "skill-analysis-critical"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "deep_researcher",
+      "result_type": "generic",
+      "before_chars": 13162,
+      "status": "prepared",
+      "after_chars": 14660,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-fact-verification",
+        "skill-source-trust-tiers",
+        "skill-web-search"
+      ],
+      "after_skills": [
+        "skill-fact-verification",
+        "skill-source-trust-tiers",
+        "skill-web-search"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "deep_researcher",
+      "result_type": "review",
+      "before_chars": 13836,
+      "status": "prepared",
+      "after_chars": 15334,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-fact-verification",
+        "skill-source-trust-tiers",
+        "skill-web-search"
+      ],
+      "after_skills": [
+        "skill-fact-verification",
+        "skill-source-trust-tiers",
+        "skill-web-search"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "deep_researcher",
+      "result_type": "implementation",
+      "before_chars": 13459,
+      "status": "prepared",
+      "after_chars": 14957,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-fact-verification",
+        "skill-source-trust-tiers",
+        "skill-web-search"
+      ],
+      "after_skills": [
+        "skill-fact-verification",
+        "skill-source-trust-tiers",
+        "skill-web-search"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "deep_researcher",
+      "result_type": "research",
+      "before_chars": 13540,
+      "status": "prepared",
+      "after_chars": 15038,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-fact-verification",
+        "skill-source-trust-tiers",
+        "skill-web-search"
+      ],
+      "after_skills": [
+        "skill-fact-verification",
+        "skill-source-trust-tiers",
+        "skill-web-search"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "devops_engineer",
+      "result_type": "generic",
+      "before_chars": 12420,
+      "status": "prepared",
+      "after_chars": 13918,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-system-design",
+        "skill-dev-security",
+        "skill-dev-debugging"
+      ],
+      "after_skills": [
+        "skill-system-design",
+        "skill-dev-security",
+        "skill-dev-debugging"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "devops_engineer",
+      "result_type": "review",
+      "before_chars": 13094,
+      "status": "prepared",
+      "after_chars": 14592,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-system-design",
+        "skill-dev-security",
+        "skill-dev-debugging"
+      ],
+      "after_skills": [
+        "skill-system-design",
+        "skill-dev-security",
+        "skill-dev-debugging"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "devops_engineer",
+      "result_type": "implementation",
+      "before_chars": 12717,
+      "status": "prepared",
+      "after_chars": 14215,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-system-design",
+        "skill-dev-security",
+        "skill-dev-debugging"
+      ],
+      "after_skills": [
+        "skill-system-design",
+        "skill-dev-security",
+        "skill-dev-debugging"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "devops_engineer",
+      "result_type": "research",
+      "before_chars": 12798,
+      "status": "prepared",
+      "after_chars": 14296,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-system-design",
+        "skill-dev-security",
+        "skill-dev-debugging"
+      ],
+      "after_skills": [
+        "skill-system-design",
+        "skill-dev-security",
+        "skill-dev-debugging"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "diagram_architect",
+      "result_type": "generic",
+      "before_chars": 12455,
+      "status": "prepared",
+      "after_chars": 13953,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-mermaid-best-practices",
+        "skill-system-design",
+        "skill-reasoning-logic"
+      ],
+      "after_skills": [
+        "skill-mermaid-best-practices",
+        "skill-system-design",
+        "skill-reasoning-logic"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "diagram_architect",
+      "result_type": "review",
+      "before_chars": 13129,
+      "status": "prepared",
+      "after_chars": 14627,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-mermaid-best-practices",
+        "skill-system-design",
+        "skill-reasoning-logic"
+      ],
+      "after_skills": [
+        "skill-mermaid-best-practices",
+        "skill-system-design",
+        "skill-reasoning-logic"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "diagram_architect",
+      "result_type": "implementation",
+      "before_chars": 12752,
+      "status": "prepared",
+      "after_chars": 14250,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-mermaid-best-practices",
+        "skill-system-design",
+        "skill-reasoning-logic"
+      ],
+      "after_skills": [
+        "skill-mermaid-best-practices",
+        "skill-system-design",
+        "skill-reasoning-logic"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "diagram_architect",
+      "result_type": "research",
+      "before_chars": 12833,
+      "status": "prepared",
+      "after_chars": 14331,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-mermaid-best-practices",
+        "skill-system-design",
+        "skill-reasoning-logic"
+      ],
+      "after_skills": [
+        "skill-mermaid-best-practices",
+        "skill-system-design",
+        "skill-reasoning-logic"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "document_ocr_expert",
+      "result_type": "generic",
+      "before_chars": 12675,
+      "status": "prepared",
+      "after_chars": 14173,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-forensic-process",
+        "skill-fact-verification",
+        "skill-structured-output"
+      ],
+      "after_skills": [
+        "skill-forensic-process",
+        "skill-fact-verification",
+        "skill-structured-output"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "document_ocr_expert",
+      "result_type": "review",
+      "before_chars": 13349,
+      "status": "prepared",
+      "after_chars": 14847,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-forensic-process",
+        "skill-fact-verification",
+        "skill-structured-output"
+      ],
+      "after_skills": [
+        "skill-forensic-process",
+        "skill-fact-verification",
+        "skill-structured-output"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "document_ocr_expert",
+      "result_type": "implementation",
+      "before_chars": 12972,
+      "status": "prepared",
+      "after_chars": 14470,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-forensic-process",
+        "skill-fact-verification",
+        "skill-structured-output"
+      ],
+      "after_skills": [
+        "skill-forensic-process",
+        "skill-fact-verification",
+        "skill-structured-output"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "document_ocr_expert",
+      "result_type": "research",
+      "before_chars": 13053,
+      "status": "prepared",
+      "after_chars": 14551,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-forensic-process",
+        "skill-fact-verification",
+        "skill-structured-output"
+      ],
+      "after_skills": [
+        "skill-forensic-process",
+        "skill-fact-verification",
+        "skill-structured-output"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "education_tutor",
+      "result_type": "generic",
+      "before_chars": 12729,
+      "status": "prepared",
+      "after_chars": 14227,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-pedagogy",
+        "skill-fact-verification",
+        "skill-narrative-craft"
+      ],
+      "after_skills": [
+        "skill-pedagogy",
+        "skill-fact-verification",
+        "skill-narrative-craft"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "education_tutor",
+      "result_type": "review",
+      "before_chars": 13403,
+      "status": "prepared",
+      "after_chars": 14901,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-pedagogy",
+        "skill-fact-verification",
+        "skill-narrative-craft"
+      ],
+      "after_skills": [
+        "skill-pedagogy",
+        "skill-fact-verification",
+        "skill-narrative-craft"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "education_tutor",
+      "result_type": "implementation",
+      "before_chars": 13026,
+      "status": "prepared",
+      "after_chars": 14524,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-pedagogy",
+        "skill-fact-verification",
+        "skill-narrative-craft"
+      ],
+      "after_skills": [
+        "skill-pedagogy",
+        "skill-fact-verification",
+        "skill-narrative-craft"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "education_tutor",
+      "result_type": "research",
+      "before_chars": 13107,
+      "status": "prepared",
+      "after_chars": 14605,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-pedagogy",
+        "skill-fact-verification",
+        "skill-narrative-craft"
+      ],
+      "after_skills": [
+        "skill-pedagogy",
+        "skill-fact-verification",
+        "skill-narrative-craft"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "fitness_coach",
+      "result_type": "generic",
+      "before_chars": 12882,
+      "status": "prepared",
+      "after_chars": 14380,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-fact-verification",
+        "skill-fitness-programming",
+        "skill-bio-mechanism"
+      ],
+      "after_skills": [
+        "skill-fact-verification",
+        "skill-fitness-programming",
+        "skill-bio-mechanism"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "fitness_coach",
+      "result_type": "review",
+      "before_chars": 13556,
+      "status": "prepared",
+      "after_chars": 15054,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-fact-verification",
+        "skill-fitness-programming",
+        "skill-bio-mechanism"
+      ],
+      "after_skills": [
+        "skill-fact-verification",
+        "skill-fitness-programming",
+        "skill-bio-mechanism"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "fitness_coach",
+      "result_type": "implementation",
+      "before_chars": 13179,
+      "status": "prepared",
+      "after_chars": 14677,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-fact-verification",
+        "skill-fitness-programming",
+        "skill-bio-mechanism"
+      ],
+      "after_skills": [
+        "skill-fact-verification",
+        "skill-fitness-programming",
+        "skill-bio-mechanism"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "fitness_coach",
+      "result_type": "research",
+      "before_chars": 13260,
+      "status": "prepared",
+      "after_chars": 14758,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-fact-verification",
+        "skill-fitness-programming",
+        "skill-bio-mechanism"
+      ],
+      "after_skills": [
+        "skill-fact-verification",
+        "skill-fitness-programming",
+        "skill-bio-mechanism"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "flipper_zero_developer",
+      "result_type": "generic",
+      "before_chars": 12805,
+      "status": "prepared",
+      "after_chars": 14303,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-flipper-zero-development",
+        "skill-dev-debugging",
+        "skill-dev-security"
+      ],
+      "after_skills": [
+        "skill-flipper-zero-development",
+        "skill-dev-debugging",
+        "skill-dev-security"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "flipper_zero_developer",
+      "result_type": "review",
+      "before_chars": 13479,
+      "status": "prepared",
+      "after_chars": 14977,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-flipper-zero-development",
+        "skill-dev-debugging",
+        "skill-dev-security"
+      ],
+      "after_skills": [
+        "skill-flipper-zero-development",
+        "skill-dev-debugging",
+        "skill-dev-security"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "flipper_zero_developer",
+      "result_type": "implementation",
+      "before_chars": 13102,
+      "status": "prepared",
+      "after_chars": 14600,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-flipper-zero-development",
+        "skill-dev-debugging",
+        "skill-dev-security"
+      ],
+      "after_skills": [
+        "skill-flipper-zero-development",
+        "skill-dev-debugging",
+        "skill-dev-security"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "flipper_zero_developer",
+      "result_type": "research",
+      "before_chars": 13183,
+      "status": "prepared",
+      "after_chars": 14681,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-flipper-zero-development",
+        "skill-dev-debugging",
+        "skill-dev-security"
+      ],
+      "after_skills": [
+        "skill-flipper-zero-development",
+        "skill-dev-debugging",
+        "skill-dev-security"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "instagram_analyst",
+      "result_type": "generic",
+      "before_chars": 12942,
+      "status": "prepared",
+      "after_chars": 14440,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-fact-verification",
+        "skill-analysis-critical",
+        "skill-decision-frameworks"
+      ],
+      "after_skills": [
+        "skill-fact-verification",
+        "skill-analysis-critical",
+        "skill-decision-frameworks"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "instagram_analyst",
+      "result_type": "review",
+      "before_chars": 13616,
+      "status": "prepared",
+      "after_chars": 15114,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-fact-verification",
+        "skill-analysis-critical",
+        "skill-decision-frameworks"
+      ],
+      "after_skills": [
+        "skill-fact-verification",
+        "skill-analysis-critical",
+        "skill-decision-frameworks"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "instagram_analyst",
+      "result_type": "implementation",
+      "before_chars": 13239,
+      "status": "prepared",
+      "after_chars": 14737,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-fact-verification",
+        "skill-analysis-critical",
+        "skill-decision-frameworks"
+      ],
+      "after_skills": [
+        "skill-fact-verification",
+        "skill-analysis-critical",
+        "skill-decision-frameworks"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "instagram_analyst",
+      "result_type": "research",
+      "before_chars": 13320,
+      "status": "prepared",
+      "after_chars": 14818,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-fact-verification",
+        "skill-analysis-critical",
+        "skill-decision-frameworks"
+      ],
+      "after_skills": [
+        "skill-fact-verification",
+        "skill-analysis-critical",
+        "skill-decision-frameworks"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "install_to_repo",
+      "result_type": "generic",
+      "before_chars": 12489,
+      "status": "prepared",
+      "after_chars": 13987,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-dev-clean-code",
+        "skill-git-conventions",
+        "skill-dev-debugging"
+      ],
+      "after_skills": [
+        "skill-dev-clean-code",
+        "skill-git-conventions",
+        "skill-dev-debugging"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "install_to_repo",
+      "result_type": "review",
+      "before_chars": 13163,
+      "status": "prepared",
+      "after_chars": 14661,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-dev-clean-code",
+        "skill-git-conventions",
+        "skill-dev-debugging"
+      ],
+      "after_skills": [
+        "skill-dev-clean-code",
+        "skill-git-conventions",
+        "skill-dev-debugging"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "install_to_repo",
+      "result_type": "implementation",
+      "before_chars": 12786,
+      "status": "prepared",
+      "after_chars": 14284,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-dev-clean-code",
+        "skill-git-conventions",
+        "skill-dev-debugging"
+      ],
+      "after_skills": [
+        "skill-dev-clean-code",
+        "skill-git-conventions",
+        "skill-dev-debugging"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "install_to_repo",
+      "result_type": "research",
+      "before_chars": 12867,
+      "status": "prepared",
+      "after_chars": 14365,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-dev-clean-code",
+        "skill-git-conventions",
+        "skill-dev-debugging"
+      ],
+      "after_skills": [
+        "skill-dev-clean-code",
+        "skill-git-conventions",
+        "skill-dev-debugging"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "investigative_analyst",
+      "result_type": "generic",
+      "before_chars": 12879,
+      "status": "prepared",
+      "after_chars": 14377,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-fact-verification",
+        "skill-forensic-process",
+        "skill-source-trust-tiers"
+      ],
+      "after_skills": [
+        "skill-fact-verification",
+        "skill-forensic-process",
+        "skill-source-trust-tiers"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "investigative_analyst",
+      "result_type": "review",
+      "before_chars": 13553,
+      "status": "prepared",
+      "after_chars": 15051,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-fact-verification",
+        "skill-forensic-process",
+        "skill-source-trust-tiers"
+      ],
+      "after_skills": [
+        "skill-fact-verification",
+        "skill-forensic-process",
+        "skill-source-trust-tiers"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "investigative_analyst",
+      "result_type": "implementation",
+      "before_chars": 13176,
+      "status": "prepared",
+      "after_chars": 14674,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-fact-verification",
+        "skill-forensic-process",
+        "skill-source-trust-tiers"
+      ],
+      "after_skills": [
+        "skill-fact-verification",
+        "skill-forensic-process",
+        "skill-source-trust-tiers"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "investigative_analyst",
+      "result_type": "research",
+      "before_chars": 13257,
+      "status": "prepared",
+      "after_chars": 14755,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-fact-verification",
+        "skill-forensic-process",
+        "skill-source-trust-tiers"
+      ],
+      "after_skills": [
+        "skill-fact-verification",
+        "skill-forensic-process",
+        "skill-source-trust-tiers"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "lawyer",
+      "result_type": "generic",
+      "before_chars": 13217,
+      "status": "prepared",
+      "after_chars": 14715,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-fact-verification",
+        "skill-legal-citation",
+        "skill-web-search"
+      ],
+      "after_skills": [
+        "skill-fact-verification",
+        "skill-legal-citation",
+        "skill-web-search"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "lawyer",
+      "result_type": "review",
+      "before_chars": 13891,
+      "status": "prepared",
+      "after_chars": 15389,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-fact-verification",
+        "skill-legal-citation",
+        "skill-web-search"
+      ],
+      "after_skills": [
+        "skill-fact-verification",
+        "skill-legal-citation",
+        "skill-web-search"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "lawyer",
+      "result_type": "implementation",
+      "before_chars": 13514,
+      "status": "prepared",
+      "after_chars": 15012,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-fact-verification",
+        "skill-legal-citation",
+        "skill-web-search"
+      ],
+      "after_skills": [
+        "skill-fact-verification",
+        "skill-legal-citation",
+        "skill-web-search"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "lawyer",
+      "result_type": "research",
+      "before_chars": 13595,
+      "status": "prepared",
+      "after_chars": 15093,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-fact-verification",
+        "skill-legal-citation",
+        "skill-web-search"
+      ],
+      "after_skills": [
+        "skill-fact-verification",
+        "skill-legal-citation",
+        "skill-web-search"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "literary_writer",
+      "result_type": "generic",
+      "before_chars": 12452,
+      "status": "prepared",
+      "after_chars": 13950,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-creative-craft",
+        "skill-narrative-craft",
+        "skill-literary-devices"
+      ],
+      "after_skills": [
+        "skill-creative-craft",
+        "skill-narrative-craft",
+        "skill-literary-devices"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "literary_writer",
+      "result_type": "review",
+      "before_chars": 13126,
+      "status": "prepared",
+      "after_chars": 14624,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-creative-craft",
+        "skill-narrative-craft",
+        "skill-literary-devices"
+      ],
+      "after_skills": [
+        "skill-creative-craft",
+        "skill-narrative-craft",
+        "skill-literary-devices"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "literary_writer",
+      "result_type": "implementation",
+      "before_chars": 12749,
+      "status": "prepared",
+      "after_chars": 14247,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-creative-craft",
+        "skill-narrative-craft",
+        "skill-literary-devices"
+      ],
+      "after_skills": [
+        "skill-creative-craft",
+        "skill-narrative-craft",
+        "skill-literary-devices"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "literary_writer",
+      "result_type": "research",
+      "before_chars": 12830,
+      "status": "prepared",
+      "after_chars": 14328,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-creative-craft",
+        "skill-narrative-craft",
+        "skill-literary-devices"
+      ],
+      "after_skills": [
+        "skill-creative-craft",
+        "skill-narrative-craft",
+        "skill-literary-devices"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "math_scientist",
+      "result_type": "generic",
+      "before_chars": 12647,
+      "status": "prepared",
+      "after_chars": 14145,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-mathematical-reasoning",
+        "skill-reasoning-logic",
+        "skill-code-generation"
+      ],
+      "after_skills": [
+        "skill-mathematical-reasoning",
+        "skill-reasoning-logic",
+        "skill-code-generation"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "math_scientist",
+      "result_type": "review",
+      "before_chars": 13321,
+      "status": "prepared",
+      "after_chars": 14819,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-mathematical-reasoning",
+        "skill-reasoning-logic",
+        "skill-code-generation"
+      ],
+      "after_skills": [
+        "skill-mathematical-reasoning",
+        "skill-reasoning-logic",
+        "skill-code-generation"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "math_scientist",
+      "result_type": "implementation",
+      "before_chars": 12944,
+      "status": "prepared",
+      "after_chars": 14442,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-mathematical-reasoning",
+        "skill-reasoning-logic",
+        "skill-code-generation"
+      ],
+      "after_skills": [
+        "skill-mathematical-reasoning",
+        "skill-reasoning-logic",
+        "skill-code-generation"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "math_scientist",
+      "result_type": "research",
+      "before_chars": 13025,
+      "status": "prepared",
+      "after_chars": 14523,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-mathematical-reasoning",
+        "skill-reasoning-logic",
+        "skill-code-generation"
+      ],
+      "after_skills": [
+        "skill-mathematical-reasoning",
+        "skill-reasoning-logic",
+        "skill-code-generation"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "mcp_builder",
+      "result_type": "generic",
+      "before_chars": 12640,
+      "status": "prepared",
+      "after_chars": 14138,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-mcp-development",
+        "skill-dev-api-design",
+        "skill-dev-security"
+      ],
+      "after_skills": [
+        "skill-mcp-development",
+        "skill-dev-api-design",
+        "skill-dev-security"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "mcp_builder",
+      "result_type": "review",
+      "before_chars": 13314,
+      "status": "prepared",
+      "after_chars": 14812,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-mcp-development",
+        "skill-dev-api-design",
+        "skill-dev-security"
+      ],
+      "after_skills": [
+        "skill-mcp-development",
+        "skill-dev-api-design",
+        "skill-dev-security"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "mcp_builder",
+      "result_type": "implementation",
+      "before_chars": 12937,
+      "status": "prepared",
+      "after_chars": 14435,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-mcp-development",
+        "skill-dev-api-design",
+        "skill-dev-security"
+      ],
+      "after_skills": [
+        "skill-mcp-development",
+        "skill-dev-api-design",
+        "skill-dev-security"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "mcp_builder",
+      "result_type": "research",
+      "before_chars": 13018,
+      "status": "prepared",
+      "after_chars": 14516,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-mcp-development",
+        "skill-dev-api-design",
+        "skill-dev-security"
+      ],
+      "after_skills": [
+        "skill-mcp-development",
+        "skill-dev-api-design",
+        "skill-dev-security"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "medical_expert",
+      "result_type": "generic",
+      "before_chars": 13324,
+      "status": "prepared",
+      "after_chars": 14822,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-fact-verification",
+        "skill-bio-protocol-design",
+        "skill-web-search"
+      ],
+      "after_skills": [
+        "skill-fact-verification",
+        "skill-bio-protocol-design",
+        "skill-web-search"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "medical_expert",
+      "result_type": "review",
+      "before_chars": 13998,
+      "status": "prepared",
+      "after_chars": 15496,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-fact-verification",
+        "skill-bio-protocol-design",
+        "skill-web-search"
+      ],
+      "after_skills": [
+        "skill-fact-verification",
+        "skill-bio-protocol-design",
+        "skill-web-search"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "medical_expert",
+      "result_type": "implementation",
+      "before_chars": 13621,
+      "status": "prepared",
+      "after_chars": 15119,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-fact-verification",
+        "skill-bio-protocol-design",
+        "skill-web-search"
+      ],
+      "after_skills": [
+        "skill-fact-verification",
+        "skill-bio-protocol-design",
+        "skill-web-search"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "medical_expert",
+      "result_type": "research",
+      "before_chars": 13702,
+      "status": "prepared",
+      "after_chars": 15200,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-fact-verification",
+        "skill-bio-protocol-design",
+        "skill-web-search"
+      ],
+      "after_skills": [
+        "skill-fact-verification",
+        "skill-bio-protocol-design",
+        "skill-web-search"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "presentation_coach",
+      "result_type": "generic",
+      "before_chars": 12673,
+      "status": "prepared",
+      "after_chars": 14171,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-narrative-craft",
+        "skill-dense-summarization",
+        "skill-creative-craft"
+      ],
+      "after_skills": [
+        "skill-narrative-craft",
+        "skill-dense-summarization",
+        "skill-creative-craft"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "presentation_coach",
+      "result_type": "review",
+      "before_chars": 13347,
+      "status": "prepared",
+      "after_chars": 14845,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-narrative-craft",
+        "skill-dense-summarization",
+        "skill-creative-craft"
+      ],
+      "after_skills": [
+        "skill-narrative-craft",
+        "skill-dense-summarization",
+        "skill-creative-craft"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "presentation_coach",
+      "result_type": "implementation",
+      "before_chars": 12970,
+      "status": "prepared",
+      "after_chars": 14468,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-narrative-craft",
+        "skill-dense-summarization",
+        "skill-creative-craft"
+      ],
+      "after_skills": [
+        "skill-narrative-craft",
+        "skill-dense-summarization",
+        "skill-creative-craft"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "presentation_coach",
+      "result_type": "research",
+      "before_chars": 13051,
+      "status": "prepared",
+      "after_chars": 14549,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-narrative-craft",
+        "skill-dense-summarization",
+        "skill-creative-craft"
+      ],
+      "after_skills": [
+        "skill-narrative-craft",
+        "skill-dense-summarization",
+        "skill-creative-craft"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "product_manager",
+      "result_type": "generic",
+      "before_chars": 12831,
+      "status": "prepared",
+      "after_chars": 14329,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-product-frameworks",
+        "skill-analysis-critical",
+        "skill-decision-frameworks"
+      ],
+      "after_skills": [
+        "skill-product-frameworks",
+        "skill-analysis-critical",
+        "skill-decision-frameworks"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "product_manager",
+      "result_type": "review",
+      "before_chars": 13505,
+      "status": "prepared",
+      "after_chars": 15003,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-product-frameworks",
+        "skill-analysis-critical",
+        "skill-decision-frameworks"
+      ],
+      "after_skills": [
+        "skill-product-frameworks",
+        "skill-analysis-critical",
+        "skill-decision-frameworks"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "product_manager",
+      "result_type": "implementation",
+      "before_chars": 13128,
+      "status": "prepared",
+      "after_chars": 14626,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-product-frameworks",
+        "skill-analysis-critical",
+        "skill-decision-frameworks"
+      ],
+      "after_skills": [
+        "skill-product-frameworks",
+        "skill-analysis-critical",
+        "skill-decision-frameworks"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "product_manager",
+      "result_type": "research",
+      "before_chars": 13209,
+      "status": "prepared",
+      "after_chars": 14707,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-product-frameworks",
+        "skill-analysis-critical",
+        "skill-decision-frameworks"
+      ],
+      "after_skills": [
+        "skill-product-frameworks",
+        "skill-analysis-critical",
+        "skill-decision-frameworks"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "prompt_engineer",
+      "result_type": "generic",
+      "before_chars": 12767,
+      "status": "prepared",
+      "after_chars": 14265,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-prompt-design-process",
+        "skill-prompt-engineering",
+        "skill-prompt-security"
+      ],
+      "after_skills": [
+        "skill-prompt-design-process",
+        "skill-prompt-engineering",
+        "skill-prompt-security"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "prompt_engineer",
+      "result_type": "review",
+      "before_chars": 13441,
+      "status": "prepared",
+      "after_chars": 14939,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-prompt-design-process",
+        "skill-prompt-engineering",
+        "skill-prompt-security"
+      ],
+      "after_skills": [
+        "skill-prompt-design-process",
+        "skill-prompt-engineering",
+        "skill-prompt-security"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "prompt_engineer",
+      "result_type": "implementation",
+      "before_chars": 13064,
+      "status": "prepared",
+      "after_chars": 14562,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-prompt-design-process",
+        "skill-prompt-engineering",
+        "skill-prompt-security"
+      ],
+      "after_skills": [
+        "skill-prompt-design-process",
+        "skill-prompt-engineering",
+        "skill-prompt-security"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "prompt_engineer",
+      "result_type": "research",
+      "before_chars": 13145,
+      "status": "prepared",
+      "after_chars": 14643,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-prompt-design-process",
+        "skill-prompt-engineering",
+        "skill-prompt-security"
+      ],
+      "after_skills": [
+        "skill-prompt-design-process",
+        "skill-prompt-engineering",
+        "skill-prompt-security"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "psychologist",
+      "result_type": "generic",
+      "before_chars": 12761,
+      "status": "prepared",
+      "after_chars": 14259,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-psy-cbt",
+        "skill-psy-nvc",
+        "skill-psy-digital-wellbeing"
+      ],
+      "after_skills": [
+        "skill-psy-cbt",
+        "skill-psy-nvc",
+        "skill-psy-digital-wellbeing"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "psychologist",
+      "result_type": "review",
+      "before_chars": 13435,
+      "status": "prepared",
+      "after_chars": 14933,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-psy-cbt",
+        "skill-psy-nvc",
+        "skill-psy-digital-wellbeing"
+      ],
+      "after_skills": [
+        "skill-psy-cbt",
+        "skill-psy-nvc",
+        "skill-psy-digital-wellbeing"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "psychologist",
+      "result_type": "implementation",
+      "before_chars": 13058,
+      "status": "prepared",
+      "after_chars": 14556,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-psy-cbt",
+        "skill-psy-nvc",
+        "skill-psy-digital-wellbeing"
+      ],
+      "after_skills": [
+        "skill-psy-cbt",
+        "skill-psy-nvc",
+        "skill-psy-digital-wellbeing"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "psychologist",
+      "result_type": "research",
+      "before_chars": 13139,
+      "status": "prepared",
+      "after_chars": 14637,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-psy-cbt",
+        "skill-psy-nvc",
+        "skill-psy-digital-wellbeing"
+      ],
+      "after_skills": [
+        "skill-psy-cbt",
+        "skill-psy-nvc",
+        "skill-psy-digital-wellbeing"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "purchase_researcher",
+      "result_type": "generic",
+      "before_chars": 13187,
+      "status": "prepared",
+      "after_chars": 14685,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-source-trust-tiers",
+        "skill-fact-verification",
+        "skill-purchase-research"
+      ],
+      "after_skills": [
+        "skill-source-trust-tiers",
+        "skill-fact-verification",
+        "skill-purchase-research"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "purchase_researcher",
+      "result_type": "review",
+      "before_chars": 13861,
+      "status": "prepared",
+      "after_chars": 15359,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-source-trust-tiers",
+        "skill-fact-verification",
+        "skill-purchase-research"
+      ],
+      "after_skills": [
+        "skill-source-trust-tiers",
+        "skill-fact-verification",
+        "skill-purchase-research"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "purchase_researcher",
+      "result_type": "implementation",
+      "before_chars": 13484,
+      "status": "prepared",
+      "after_chars": 14982,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-source-trust-tiers",
+        "skill-fact-verification",
+        "skill-purchase-research"
+      ],
+      "after_skills": [
+        "skill-source-trust-tiers",
+        "skill-fact-verification",
+        "skill-purchase-research"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "purchase_researcher",
+      "result_type": "research",
+      "before_chars": 13565,
+      "status": "prepared",
+      "after_chars": 15063,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-source-trust-tiers",
+        "skill-fact-verification",
+        "skill-purchase-research"
+      ],
+      "after_skills": [
+        "skill-source-trust-tiers",
+        "skill-fact-verification",
+        "skill-purchase-research"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "roblox_studio_expert",
+      "result_type": "generic",
+      "before_chars": 12744,
+      "status": "prepared",
+      "after_chars": 14242,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-roblox-development",
+        "skill-dev-debugging",
+        "skill-dev-performance"
+      ],
+      "after_skills": [
+        "skill-roblox-development",
+        "skill-dev-debugging",
+        "skill-dev-performance"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "roblox_studio_expert",
+      "result_type": "review",
+      "before_chars": 13418,
+      "status": "prepared",
+      "after_chars": 14916,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-roblox-development",
+        "skill-dev-debugging",
+        "skill-dev-performance"
+      ],
+      "after_skills": [
+        "skill-roblox-development",
+        "skill-dev-debugging",
+        "skill-dev-performance"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "roblox_studio_expert",
+      "result_type": "implementation",
+      "before_chars": 13041,
+      "status": "prepared",
+      "after_chars": 14539,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-roblox-development",
+        "skill-dev-debugging",
+        "skill-dev-performance"
+      ],
+      "after_skills": [
+        "skill-roblox-development",
+        "skill-dev-debugging",
+        "skill-dev-performance"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "roblox_studio_expert",
+      "result_type": "research",
+      "before_chars": 13122,
+      "status": "prepared",
+      "after_chars": 14620,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-roblox-development",
+        "skill-dev-debugging",
+        "skill-dev-performance"
+      ],
+      "after_skills": [
+        "skill-roblox-development",
+        "skill-dev-debugging",
+        "skill-dev-performance"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "security_expert",
+      "result_type": "generic",
+      "before_chars": 12795,
+      "status": "prepared",
+      "after_chars": 14293,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-dev-security",
+        "skill-confidence-markers",
+        "skill-analysis-critical"
+      ],
+      "after_skills": [
+        "skill-dev-security",
+        "skill-confidence-markers",
+        "skill-analysis-critical"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "security_expert",
+      "result_type": "review",
+      "before_chars": 13469,
+      "status": "prepared",
+      "after_chars": 14967,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-dev-security",
+        "skill-confidence-markers",
+        "skill-analysis-critical"
+      ],
+      "after_skills": [
+        "skill-dev-security",
+        "skill-confidence-markers",
+        "skill-analysis-critical"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "security_expert",
+      "result_type": "implementation",
+      "before_chars": 13092,
+      "status": "prepared",
+      "after_chars": 14590,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-dev-security",
+        "skill-confidence-markers",
+        "skill-analysis-critical"
+      ],
+      "after_skills": [
+        "skill-dev-security",
+        "skill-confidence-markers",
+        "skill-analysis-critical"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "security_expert",
+      "result_type": "research",
+      "before_chars": 13173,
+      "status": "prepared",
+      "after_chars": 14671,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-dev-security",
+        "skill-confidence-markers",
+        "skill-analysis-critical"
+      ],
+      "after_skills": [
+        "skill-dev-security",
+        "skill-confidence-markers",
+        "skill-analysis-critical"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "semantic_expert",
+      "result_type": "generic",
+      "before_chars": 12786,
+      "status": "prepared",
+      "after_chars": 14284,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-epistemic-method",
+        "skill-forensic-process",
+        "skill-fact-verification"
+      ],
+      "after_skills": [
+        "skill-epistemic-method",
+        "skill-forensic-process",
+        "skill-fact-verification"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "semantic_expert",
+      "result_type": "review",
+      "before_chars": 13460,
+      "status": "prepared",
+      "after_chars": 14958,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-epistemic-method",
+        "skill-forensic-process",
+        "skill-fact-verification"
+      ],
+      "after_skills": [
+        "skill-epistemic-method",
+        "skill-forensic-process",
+        "skill-fact-verification"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "semantic_expert",
+      "result_type": "implementation",
+      "before_chars": 13083,
+      "status": "prepared",
+      "after_chars": 14581,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-epistemic-method",
+        "skill-forensic-process",
+        "skill-fact-verification"
+      ],
+      "after_skills": [
+        "skill-epistemic-method",
+        "skill-forensic-process",
+        "skill-fact-verification"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "semantic_expert",
+      "result_type": "research",
+      "before_chars": 13164,
+      "status": "prepared",
+      "after_chars": 14662,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-epistemic-method",
+        "skill-forensic-process",
+        "skill-fact-verification"
+      ],
+      "after_skills": [
+        "skill-epistemic-method",
+        "skill-forensic-process",
+        "skill-fact-verification"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "software_engineer",
+      "result_type": "generic",
+      "before_chars": 12676,
+      "status": "prepared",
+      "after_chars": 14174,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-dev-clean-code",
+        "skill-dev-debugging",
+        "skill-dev-testing"
+      ],
+      "after_skills": [
+        "skill-dev-clean-code",
+        "skill-dev-debugging",
+        "skill-dev-testing"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "software_engineer",
+      "result_type": "review",
+      "before_chars": 13350,
+      "status": "prepared",
+      "after_chars": 14848,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-dev-clean-code",
+        "skill-dev-debugging",
+        "skill-dev-testing"
+      ],
+      "after_skills": [
+        "skill-dev-clean-code",
+        "skill-dev-debugging",
+        "skill-dev-testing"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "software_engineer",
+      "result_type": "implementation",
+      "before_chars": 12973,
+      "status": "prepared",
+      "after_chars": 14471,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-dev-clean-code",
+        "skill-dev-debugging",
+        "skill-dev-testing"
+      ],
+      "after_skills": [
+        "skill-dev-clean-code",
+        "skill-dev-debugging",
+        "skill-dev-testing"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "software_engineer",
+      "result_type": "research",
+      "before_chars": 13054,
+      "status": "prepared",
+      "after_chars": 14552,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-dev-clean-code",
+        "skill-dev-debugging",
+        "skill-dev-testing"
+      ],
+      "after_skills": [
+        "skill-dev-clean-code",
+        "skill-dev-debugging",
+        "skill-dev-testing"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "sysadmin",
+      "result_type": "generic",
+      "before_chars": 12661,
+      "status": "prepared",
+      "after_chars": 14159,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-error-recovery",
+        "skill-dev-debugging",
+        "skill-dev-security"
+      ],
+      "after_skills": [
+        "skill-error-recovery",
+        "skill-dev-debugging",
+        "skill-dev-security"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "sysadmin",
+      "result_type": "review",
+      "before_chars": 13335,
+      "status": "prepared",
+      "after_chars": 14833,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-error-recovery",
+        "skill-dev-debugging",
+        "skill-dev-security"
+      ],
+      "after_skills": [
+        "skill-error-recovery",
+        "skill-dev-debugging",
+        "skill-dev-security"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "sysadmin",
+      "result_type": "implementation",
+      "before_chars": 12958,
+      "status": "prepared",
+      "after_chars": 14456,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-error-recovery",
+        "skill-dev-debugging",
+        "skill-dev-security"
+      ],
+      "after_skills": [
+        "skill-error-recovery",
+        "skill-dev-debugging",
+        "skill-dev-security"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "sysadmin",
+      "result_type": "research",
+      "before_chars": 13039,
+      "status": "prepared",
+      "after_chars": 14537,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-error-recovery",
+        "skill-dev-debugging",
+        "skill-dev-security"
+      ],
+      "after_skills": [
+        "skill-error-recovery",
+        "skill-dev-debugging",
+        "skill-dev-security"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "system_architect",
+      "result_type": "generic",
+      "before_chars": 12783,
+      "status": "prepared",
+      "after_chars": 14281,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-system-design",
+        "skill-dev-api-design",
+        "skill-dev-performance"
+      ],
+      "after_skills": [
+        "skill-system-design",
+        "skill-dev-api-design",
+        "skill-dev-performance"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "system_architect",
+      "result_type": "review",
+      "before_chars": 13457,
+      "status": "prepared",
+      "after_chars": 14955,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-system-design",
+        "skill-dev-api-design",
+        "skill-dev-performance"
+      ],
+      "after_skills": [
+        "skill-system-design",
+        "skill-dev-api-design",
+        "skill-dev-performance"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "system_architect",
+      "result_type": "implementation",
+      "before_chars": 13080,
+      "status": "prepared",
+      "after_chars": 14578,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-system-design",
+        "skill-dev-api-design",
+        "skill-dev-performance"
+      ],
+      "after_skills": [
+        "skill-system-design",
+        "skill-dev-api-design",
+        "skill-dev-performance"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "system_architect",
+      "result_type": "research",
+      "before_chars": 13161,
+      "status": "prepared",
+      "after_chars": 14659,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-system-design",
+        "skill-dev-api-design",
+        "skill-dev-performance"
+      ],
+      "after_skills": [
+        "skill-system-design",
+        "skill-dev-api-design",
+        "skill-dev-performance"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "tech_writer",
+      "result_type": "generic",
+      "before_chars": 12834,
+      "status": "prepared",
+      "after_chars": 14332,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-fact-verification",
+        "skill-tech-writing",
+        "skill-git-conventions"
+      ],
+      "after_skills": [
+        "skill-fact-verification",
+        "skill-tech-writing",
+        "skill-git-conventions"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "tech_writer",
+      "result_type": "review",
+      "before_chars": 13508,
+      "status": "prepared",
+      "after_chars": 15006,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-fact-verification",
+        "skill-tech-writing",
+        "skill-git-conventions"
+      ],
+      "after_skills": [
+        "skill-fact-verification",
+        "skill-tech-writing",
+        "skill-git-conventions"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "tech_writer",
+      "result_type": "implementation",
+      "before_chars": 13131,
+      "status": "prepared",
+      "after_chars": 14629,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-fact-verification",
+        "skill-tech-writing",
+        "skill-git-conventions"
+      ],
+      "after_skills": [
+        "skill-fact-verification",
+        "skill-tech-writing",
+        "skill-git-conventions"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "tech_writer",
+      "result_type": "research",
+      "before_chars": 13212,
+      "status": "prepared",
+      "after_chars": 14710,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-fact-verification",
+        "skill-tech-writing",
+        "skill-git-conventions"
+      ],
+      "after_skills": [
+        "skill-fact-verification",
+        "skill-tech-writing",
+        "skill-git-conventions"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "universal_agent",
+      "result_type": "generic",
+      "before_chars": 12968,
+      "status": "prepared",
+      "after_chars": 14466,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-fact-verification",
+        "skill-decision-frameworks",
+        "skill-analysis-critical"
+      ],
+      "after_skills": [
+        "skill-fact-verification",
+        "skill-decision-frameworks",
+        "skill-analysis-critical"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "universal_agent",
+      "result_type": "review",
+      "before_chars": 13642,
+      "status": "prepared",
+      "after_chars": 15140,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-fact-verification",
+        "skill-decision-frameworks",
+        "skill-analysis-critical"
+      ],
+      "after_skills": [
+        "skill-fact-verification",
+        "skill-decision-frameworks",
+        "skill-analysis-critical"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "universal_agent",
+      "result_type": "implementation",
+      "before_chars": 13265,
+      "status": "prepared",
+      "after_chars": 14763,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-fact-verification",
+        "skill-decision-frameworks",
+        "skill-analysis-critical"
+      ],
+      "after_skills": [
+        "skill-fact-verification",
+        "skill-decision-frameworks",
+        "skill-analysis-critical"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "universal_agent",
+      "result_type": "research",
+      "before_chars": 13346,
+      "status": "prepared",
+      "after_chars": 14844,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-fact-verification",
+        "skill-decision-frameworks",
+        "skill-analysis-critical"
+      ],
+      "after_skills": [
+        "skill-fact-verification",
+        "skill-decision-frameworks",
+        "skill-analysis-critical"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "ux_designer",
+      "result_type": "generic",
+      "before_chars": 12757,
+      "status": "prepared",
+      "after_chars": 14255,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-ux-principles",
+        "skill-analysis-critical",
+        "skill-decision-frameworks"
+      ],
+      "after_skills": [
+        "skill-ux-principles",
+        "skill-analysis-critical",
+        "skill-decision-frameworks"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "ux_designer",
+      "result_type": "review",
+      "before_chars": 13431,
+      "status": "prepared",
+      "after_chars": 14929,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-ux-principles",
+        "skill-analysis-critical",
+        "skill-decision-frameworks"
+      ],
+      "after_skills": [
+        "skill-ux-principles",
+        "skill-analysis-critical",
+        "skill-decision-frameworks"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "ux_designer",
+      "result_type": "implementation",
+      "before_chars": 13054,
+      "status": "prepared",
+      "after_chars": 14552,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-ux-principles",
+        "skill-analysis-critical",
+        "skill-decision-frameworks"
+      ],
+      "after_skills": [
+        "skill-ux-principles",
+        "skill-analysis-critical",
+        "skill-decision-frameworks"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "ux_designer",
+      "result_type": "research",
+      "before_chars": 13135,
+      "status": "prepared",
+      "after_chars": 14633,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-ux-principles",
+        "skill-analysis-critical",
+        "skill-decision-frameworks"
+      ],
+      "after_skills": [
+        "skill-ux-principles",
+        "skill-analysis-critical",
+        "skill-decision-frameworks"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "website_analyst",
+      "result_type": "generic",
+      "before_chars": 13093,
+      "status": "prepared",
+      "after_chars": 14591,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-fact-verification",
+        "skill-source-trust-tiers",
+        "skill-analysis-critical"
+      ],
+      "after_skills": [
+        "skill-fact-verification",
+        "skill-source-trust-tiers",
+        "skill-analysis-critical"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "website_analyst",
+      "result_type": "review",
+      "before_chars": 13767,
+      "status": "prepared",
+      "after_chars": 15265,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-fact-verification",
+        "skill-source-trust-tiers",
+        "skill-analysis-critical"
+      ],
+      "after_skills": [
+        "skill-fact-verification",
+        "skill-source-trust-tiers",
+        "skill-analysis-critical"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "website_analyst",
+      "result_type": "implementation",
+      "before_chars": 13390,
+      "status": "prepared",
+      "after_chars": 14888,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-fact-verification",
+        "skill-source-trust-tiers",
+        "skill-analysis-critical"
+      ],
+      "after_skills": [
+        "skill-fact-verification",
+        "skill-source-trust-tiers",
+        "skill-analysis-critical"
+      ],
+      "errors": []
+    },
+    {
+      "agent": "website_analyst",
+      "result_type": "research",
+      "before_chars": 13471,
+      "status": "prepared",
+      "after_chars": 14969,
+      "delta_chars": 1498,
+      "before_skills": [
+        "skill-fact-verification",
+        "skill-source-trust-tiers",
+        "skill-analysis-critical"
+      ],
+      "after_skills": [
+        "skill-fact-verification",
+        "skill-source-trust-tiers",
+        "skill-analysis-critical"
+      ],
+      "errors": []
+    }
+  ]
+}

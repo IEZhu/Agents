@@ -4,7 +4,7 @@ These rules belong to `agents-core/subagent/1` worker packages prepared by
 `get_subagent_context`. They do not change the protocol 2 conversation rule
 loader and are not added to ordinary persona bundles.
 
-The worker builder loads all four files by sorted path and requires their names:
+The worker builder loads all five files by sorted path and requires their names:
 
 | Name | Responsibility |
 |---|---|
@@ -12,6 +12,7 @@ The worker builder loads all four files by sorted path and requires their names:
 | `worker-input` | Harmless assumptions versus critical dependencies and `input_required` |
 | `worker-completion` | Acceptance criteria, effort limits, partial results, and stop conditions |
 | `worker-result` | Exact JSON envelope, traceable evidence, and truthful check status |
+| `worker-cooperation` | Parent-mediated intersection handling, authorized sidecar use, valid claims, and unchanged final envelopes |
 
 Each file has YAML frontmatter with a unique `name` matching its
 `rule-<name>.mdc` filename and a nonempty `description`, followed by a nonempty
@@ -22,6 +23,11 @@ incomplete package. Keep changes short: every worker receives these rules.
 Worker scope is independent of universal presentation rules. The builder also
 retains installation-enabled non-presentation universal rules, including honesty
 and uncertainty, while excluding `answer-timestamp` and `language-match`.
+It excludes universal `agent-cooperation` with the reason `worker_equivalent`
+because the mandatory worker rule supplies its equivalent within the assignment.
+Turning conversation rules off does not remove `worker-cooperation`; if mandatory
+instructions exceed the character budget, preparation returns an error instead
+of dropping or cropping them.
 Language can be specified in the assignment; the returned artifact is always
 the selected JSON envelope. Do not add applicability fields to universal rules.
 
