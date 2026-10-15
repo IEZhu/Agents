@@ -1,9 +1,31 @@
 # Calendar releases
 
-Feature PRs target `dev`. Release PRs promote `dev` into `main`.
+## Procedure
+
+This is the one description of the release procedure; the README links it.
+
+- Every pull request targets `dev`, the integration branch.
+- A release is a pull request from `dev` into `main`. The owner reviews it and
+  merges it with a merge commit, never a squash or a rebase. Installations switch
+  between the branches with `channel set` ([update channel](../README.md#update-channel)):
+  a switch counts as a downgrade only when HEAD has non-merge commits the target
+  lacks, so the release's merge commit lets `main` → `dev` switch without a
+  confirmation. A squash or rebase merge would put commits on `main` that `dev`
+  lacks, and `main` → `dev` would then ask for one.
+- The release PR's description lists `Closes #N` for every issue merged into `dev`
+  since the last release: GitHub acts on closing keywords only when they reach the
+  default branch, `main`.
+- A hotfix merged into `main` is merged back into `dev`; until then `main` → `dev`
+  counts as a downgrade, because `dev` lacks the fix.
+- `dev` is never rebased or force-pushed: installations that follow it only
+  fast-forward.
+
+## Release tags
+
 The [Release version workflow](../.github/workflows/release-version.yml) records
 each merged, same-repository `dev → main` PR with a Git tag at that PR's exact
-resulting merge commit, including squash and rebase merges. An ordinary close,
+resulting merge commit. It also tags a squash or rebase merge, which the procedure
+above does not use. An ordinary close,
 a feature merge into `dev`, or a fork with a branch named `dev` publishes nothing.
 
 On a clean `main` checkout, the displayed Agents-Core version stays

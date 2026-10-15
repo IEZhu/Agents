@@ -431,3 +431,106 @@ def test_an_autodev_run_cannot_start_while_the_update_runs(scheduled, monkeypatc
     assert result["state"] == "UPDATED" and git(root, "rev-parse", "HEAD") == target
     assert refused == ["build"] and during_maintenance == [True]
     assert not lease.held(controller.directory)  # released with the transaction
+
+
+# --- Update channel (#381) ----------------------------------------------------
+
+def test_scheduled_run_follows_the_channel_setting_and_then_fast_forwards_dev(scheduled):
+    from src import update_channel
+    from tests.test_update_channel import push_dev
+    controller, root, old, target = scheduled
+    tip = push_dev(root)
+    update_channel.set_branch(root, "dev")  # the scheduled run reads it from .env
+    result = autoupdate.run(controller)
+    assert result["state"] == "UPDATED" and result["target"] == tip
+    assert result["switch"] == {"from": "main", "to": "dev", "downgrade": False}
+    assert git(root, "symbolic-ref", "--short", "HEAD") == "dev" and controller.stops == 1
+    assert autoupdate.status(controller)["channel"] == {
+        "configured_branch": "dev", "source": ".env", "checked_out_branch": "dev", "action": "follow",
+        "revision": update_channel.read(root).revision}
+    assert autoupdate.run(controller)["state"] == "up_to_date"
+
+    # New dev commits fast-forward as on main before.
+    head = git(root, "rev-parse", "HEAD")
+    git(root, "checkout", "--quiet", "--detach")
+    (root / "later.txt").write_text("later\n")
+    git(root, "add", "later.txt")
+    git(root, "commit", "--quiet", "-m", "later on dev")
+    later = git(root, "rev-parse", "HEAD")
+    git(root, "push", "--quiet", "origin", "HEAD:refs/heads/dev")
+    git(root, "checkout", "--quiet", "dev")
+    assert git(root, "rev-parse", "HEAD") == head
+    result = autoupdate.run(controller)
+    assert result["state"] == "UPDATED" and "switch" not in result
+    assert git(root, "rev-parse", "HEAD") == later and controller.stops == 2
+
+
+def test_scheduled_run_skips_a_third_branch_and_an_unconfirmed_downgrade(scheduled):
+    from src import update_channel
+    from tests.test_update_channel import push_dev
+    controller, root, old, target = scheduled
+    tip = push_dev(root)
+    update_channel.set_branch(root, "dev")
+    git(root, "checkout", "--quiet", "-b", "experiment")
+    result = autoupdate.run(controller)
+    assert result == {**result, "state": "skipped",
+                      "reason": "checked-out branch is experiment, not dev or the previous setting main: local "
+                                "development"}
+    git(root, "checkout", "--quiet", "-B", "dev", tip)
+    env = root / ".env"
+    env.write_text(env.read_text().replace("AGENTS_AUTO_UPDATE_BRANCH=dev", "AGENTS_AUTO_UPDATE_BRANCH=main")
+                   .replace("AGENTS_AUTO_UPDATE_PREVIOUS_BRANCH=main", "AGENTS_AUTO_UPDATE_PREVIOUS_BRANCH=dev"))
+    result = autoupdate.run(controller)
+    assert result["state"] == "skipped" and "--allow-downgrade" in result["reason"]
+    assert "keep dev with `channel set dev`" in result["reason"]  # tests-3: both ways out
+    assert result["switch"] == {"from": "dev", "to": "main", "downgrade": True}
+    assert controller.stops == 0
+    update_channel.set_branch(root, "main", allow_downgrade=True)
+    result = autoupdate.run(controller)
+    assert result["state"] == "UPDATED" and result["switch"]["downgrade"] is True
+    assert git(root, "symbolic-ref", "--short", "HEAD") == "main" and git(root, "rev-parse", "HEAD") == target
+
+
+def test_scheduled_run_reads_only_the_update_keys_from_env(scheduled, monkeypatch):
+    controller, root, old, target = scheduled
+    (root / ".env").write_text("AGENTS_AUTO_UPDATE_BRANCH=main\nUNRELATED_SECRET=not-for-the-controller\n")
+    monkeypatch.delenv("UNRELATED_SECRET", raising=False)
+    assert autoupdate.check_target(controller)["state"] == "available"
+    assert "UNRELATED_SECRET" not in os.environ
+    # An exported value overrides .env for this command.
+    monkeypatch.setenv("AGENTS_AUTO_UPDATE_BRANCH", "elsewhere")
+    found = autoupdate.check_target(controller)
+    assert found["state"] == "skipped" and "is exported and overrides .env (main)" in found["reason"]
+
+
+# --- Review round 1 (#381) ---------------------------------------------------
+
+def test_check_target_skips_a_target_branch_checked_out_in_another_worktree(scheduled, tmp_path):
+    """txn-4: otherwise every interval would build, stop, fail at `checkout -B` and roll back."""
+    from src import update_channel
+    from tests.test_update_channel import push_dev
+    controller, root, old, target = scheduled
+    tip = push_dev(root)
+    update_channel.set_branch(root, "dev")
+    git(root, "worktree", "add", "--quiet", "-b", "dev", str(tmp_path / "wt"), tip)
+    found = autoupdate.check_target(controller)
+    assert found["state"] == "skipped" and "checked out in another worktree" in found["reason"]
+    result = autoupdate.run(controller)
+    assert result["state"] == "skipped" and controller.stops == 0 and controller.builds == 0
+
+
+def test_check_target_refuses_a_local_target_ahead_of_its_remote_and_an_invalid_name(scheduled):
+    """tests-4: the switch prechecks that run before the service is touched."""
+    from src import update_channel
+    from tests.test_update_channel import push_dev
+    controller, root, old, target = scheduled
+    tip = push_dev(root)
+    update_channel.set_branch(root, "dev")
+    git(root, "branch", "dev", tip)
+    tree = git(root, "rev-parse", f"{tip}^{{tree}}")
+    git(root, "branch", "-f", "dev", git(root, "commit-tree", tree, "-p", tip, "-m", "local on dev"))
+    found = autoupdate.check_target(controller)
+    assert found["state"] == "skipped" and found["reason"] == "local branch dev has commits origin/dev lacks"
+    (root / ".env").write_text("AGENTS_AUTO_UPDATE_BRANCH=dev..x\nAGENTS_AUTO_UPDATE_PREVIOUS_BRANCH=main\n")
+    found = autoupdate.check_target(controller)
+    assert found == {"state": "skipped", "reason": "invalid branch name: 'dev..x'"}

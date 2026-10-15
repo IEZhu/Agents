@@ -1,8 +1,9 @@
 """Agents-Core version: the UTC commit time of the installation's HEAD.
 
 The version has the form ``YY.MM.DD.HHMM`` (for example ``26.10.01.1001``). On
-``main`` HEAD is the last merged pull request. ``-dev`` marks an installation on
-the integration branch ``dev``, ``-dirty`` uncommitted changes to tracked files
+``main`` HEAD is the last release (a merged release pull request from ``dev``); on
+``dev``, the last merged pull request. ``-dev`` marks an installation on the
+integration branch ``dev``, ``-dirty`` uncommitted changes to tracked files
 (``26.10.01.1001-dev-dirty`` has both); ``unknown`` means there is no readable
 git metadata.
 The value is computed once per process, which is correct because an applied
@@ -73,3 +74,15 @@ def agents_core_version() -> str:
         return format_version(commit_time, dirty, _branch(status))
     except ValueError:
         return UNKNOWN
+
+
+@lru_cache(maxsize=1)
+def agents_core_branch() -> str | None:
+    """The installation's checked-out branch (#381); None on a detached HEAD or without git metadata.
+
+    Computed once per process, like the version: switching branches restarts the server.
+    """
+    if not (ROOT / ".git").exists():
+        return None
+    found = _git("symbolic-ref", "--quiet", "--short", "HEAD")
+    return found.strip() or None if found else None

@@ -14,7 +14,7 @@ from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from src.version import agents_core_version
+from src.version import agents_core_branch, agents_core_version
 from .execution import TrackedExecutor, request_jobs, finish_jobs
 from .flows_ui import FlowsUI
 from .overview import Overview
@@ -111,6 +111,8 @@ class Service:
         return {"state": self.state, "service": "Agents-Core", "boot_id": self.boot_id,
                 "pid": os.getpid(), "version": importlib.metadata.version("mcp"),
                 "agents_core_version": agents_core_version(),
+                # The checked-out branch; `channel show` names the configured one (#381).
+                "agents_core_branch": agents_core_branch(),
                 "install_root": str(Path(__file__).resolve().parents[2]),
                 "uptime_seconds": round(time.monotonic() - self.started, 3),
                 "model_ready": self.transport is not None,
@@ -161,6 +163,7 @@ class Service:
         self.io = TrackedExecutor()
         # Fix the version before the first request can compute it on the event loop.
         await asyncio.to_thread(agents_core_version)
+        await asyncio.to_thread(agents_core_branch)
         asyncio.get_running_loop().set_default_executor(self.io)
         runtime = asyncio.create_task(self.start_runtime())
         diagnostics = asyncio.create_task(self.retain_diagnostics())
