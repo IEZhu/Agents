@@ -127,7 +127,8 @@ class _ChangedWhileReading(Exception):
 
 
 def installation_root() -> Path:
-    return Path(__file__).resolve().parents[2]
+    from src.runtime_paths import installation_root as canonical_installation_root
+    return canonical_installation_root()
 
 
 def installation_id(root: Path | None = None) -> str:

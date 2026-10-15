@@ -20,6 +20,7 @@ from src.schemas.subagent import (Budgets, MAX_REQUEST_CHARS, PROTOCOL, RESULT_M
 from src.utils.prompt_loader import process_imports, read_mdc, resolve_path
 
 WORKER_RULE_IDS = frozenset({"worker-scope", "worker-input", "worker-completion", "worker-result"})
+ARTIFACT_WORKER_RULE_ID = "worker-artifacts"
 PRESENTATION_RULE_IDS = frozenset({"answer-timestamp", "language-match"})
 WORKER_GUIDANCE = """# Task-scoped worker
 The assignment contract and fixed result schema below define this worker exchange.
@@ -74,7 +75,7 @@ def read_profile(agent_name: str) -> tuple[str, dict, str]:
     return profile_path, metadata, body
 
 
-def _rules() -> tuple[list[tuple[str, str]], list[SelectionDecision]]:
+def _rules(*, artifact_manifest: bool = False) -> tuple[list[tuple[str, str]], list[SelectionDecision]]:
     blocks, decisions = [], []
     off = component_toggles.disabled("rules")
     for rule in get_rules(fresh=True, strict=True):
@@ -95,11 +96,17 @@ def _rules() -> tuple[list[tuple[str, str]], list[SelectionDecision]]:
                 or not isinstance(description, str) or not description.strip()):
             raise ContractError("invalid_worker_rule", "Worker rule metadata is invalid or duplicated.")
         found.add(name)
+        if name == ARTIFACT_WORKER_RULE_ID and not artifact_manifest:
+            decisions.append(SelectionDecision(kind="rules", id=name, selected=False,
+                                               reason="artifact_manifest_absent"))
+            continue
         blocks.append((name, process_imports(body, {path}, strict=True)))
         decisions.append(SelectionDecision(kind="rules", id=name, selected=True,
                                            reason="mandatory_worker_rule"))
     if not WORKER_RULE_IDS <= found:
         raise ContractError("worker_rules_missing", "The four mandatory worker rules must be present.")
+    if artifact_manifest and ARTIFACT_WORKER_RULE_ID not in found:
+        raise ContractError("worker_artifact_rule_missing", "Artifact tasks require the artifact worker rule.")
     return blocks, decisions
 
 
@@ -160,9 +167,24 @@ def _assemble(request: PreparationRequest, task_id: str, body: str, rules: list[
         "result_type": request.result_type,
         "budgets": Budgets(**{key: getattr(request, key) for key in Budgets.model_fields}).model_dump(),
     }
+    artifact_reads = []
+    if request.artifact_manifest is not None:
+        manifest = request.artifact_manifest
+        contract_data["artifact_manifest"] = manifest.model_dump(mode="json", by_alias=True)
+        artifact_reads = ["## Pinned artifact reads\n"
+                          "Read required artifacts completely before claiming completion. Start with "
+                          "the exact calls below, then follow returned chunk offsets until complete. "
+                          "Optional entries may be read only using the same pinned manifest ID and SHA256."]
+        artifact_reads.extend(
+            "artifact_read(manifest_id=" + canonical_json(manifest.manifest_id)
+            + ", manifest_sha256=" + canonical_json(manifest.sha256)
+            + ", artifact_id=" + canonical_json(entry.artifact.artifact_id)
+            + ", offset=0, max_bytes=16384)"
+            for entry in manifest.entries if entry.required)
     contract_data["contract_revision"] = contract_fingerprint(contract_data)
     contract = TaskContract.model_validate(contract_data)
     context = "\n\n".join([*reusable, "## Assignment contract\n" + canonical_json(contract_data),
+                            *artifact_reads,
                             "## Required result JSON Schema\n" + canonical_json(schema)])
     descriptor = WorkerDescriptor(
         agent=request.agent_name, bundle_revision=revision,
@@ -179,11 +201,12 @@ def prepare_subagent(arguments: dict) -> PreparedPackage | PreparationError:
         arguments = bounded_object(arguments, max_chars=MAX_REQUEST_CHARS)
         request = PreparationRequest.model_validate(arguments)
         _, profile, body = read_profile(request.agent_name)
-        rules, decisions = _rules()
+        rules, decisions = _rules(artifact_manifest=request.artifact_manifest is not None)
         components, component_decisions = _components(request, profile)
         decisions.extend(component_decisions)
         schema = RESULT_MODELS[request.result_type].model_json_schema()
-        task_id = request.task_id or str(uuid.uuid4())
+        task_id = request.task_id or (request.artifact_manifest.task_id
+                                     if request.artifact_manifest is not None else str(uuid.uuid4()))
         mandatory_context, _, _ = _assemble(request, task_id, body, rules, [], schema)
         if len(mandatory_context) > request.max_context_chars:
             raise ContractError("context_budget_exceeded",

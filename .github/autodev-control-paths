@@ -17,7 +17,9 @@ src/daemon/state.py
 src/executables.py
 src/file_lock.py
 src/model_migration.py
+src/runtime_paths.py
 src/schemas/__init__.py
+src/schemas/artifacts.py
 src/schemas/subagent.py
 src/user_library.py
 src/utils/__init__.py

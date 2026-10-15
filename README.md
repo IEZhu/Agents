@@ -271,6 +271,8 @@ LANGFUSE_SECRET_KEY=
 LANGFUSE_HOST=https://cloud.langfuse.com
 ANTHROPIC_API_KEY=sk-ant-...    # Optional: for document OCR
 AGENTS_DEBUG=0                  # Set to 1 for per-call JSON debug logs
+# Optional local generation, disabled when unset; absolute owner JSON path
+# AGENTS_LOCAL_INFERENCE_CONFIG=/absolute/local-inference.json
 ```
 
 Both keys set enable tracing, so leave them empty to run without Langfuse. The
@@ -661,6 +663,22 @@ The server exposes MCP tools that any compatible client can call:
 | `describe_repo(repo_path=None, force_refresh=False)` | Repository summary bootstrap; returns `needs_summary` when sampling is unavailable (always over HTTP) or fails ([details](#-repository-memory)) |
 | `write_repo_summary(summary, repo_hash, repo_path=None, workspace_id=None)` | Persists the summary after `needs_summary`; pass its `repo_hash`, `repo_path` and `workspace_id` back unchanged |
 | `read_history(limit?, since?, query?, machine?, offset?, entry_id?)` | Recent entries or lazy semantic recall over the action log, with long texts as previews that keep the result under Claude Code's 50,000-character limit; `offset` pages on, `entry_id` returns one entry whole; with [user library sync](docs/user-sync.md#repository-history), also the entries the user's machines shared, filtered by `machine` (a label, or `local`) |
+| `artifact_publish` / `artifact_manifest_create` | Persist exact UTF-8 task data and pin selected artifact IDs/hashes in a task manifest; [artifact guide](docs/shared-artifacts.md) |
+| `artifact_manifest_get` / `artifact_read` / `artifact_manifest_verify` / `artifact_manifest_release` | Retrieve an active pinned manifest, read bounded slices, independently verify stored bytes or revoke subsequent manifest access while retaining data |
+| `local_inference_status()` | Lazy configuration/capability status for the optional local generation service; does not start a model or contact Redis |
+| `local_context_create` / `local_context_grant` / `local_context_revoke` / `local_context_release` | Capture owner-authorized shared text/files, issue scoped bearer grants, revoke a child or release a context |
+| `local_generate` / `local_generation_result` / `local_generation_cancel` | Submit one bounded completion, reconnect/poll its retained result, or cancel it; UUID deduplication prevents a repeated submit from generating twice |
+
+For shared task inputs, publish once and pass the complete manifest to
+`get_subagent_context.artifact_manifest`. Preparation pins it in the retained
+contract and supplies exact reads for a native worker. The parent still validates
+the unchanged result and independently verifies its artifact evidence. Optional
+`local_context_create.artifact_manifest` instead hydrates every selected entry
+exactly into the bounded local context before generation; it does not extend
+model capacity or provide a tool loop. Artifacts persist in private service state
+independently of Redis; manifest expiry/release ends access without deleting
+bytes. See [persistent shared artifacts](docs/shared-artifacts.md) for workspace
+capture boundaries, quotas and the complete workflow.
 
 The server also registers MCP prompts (slash commands): `ask` routes like
 `route_and_load`; one prompt per agent `routing.trigger_command` and per
@@ -731,8 +749,10 @@ web UI). Every successful switch, restore or
 refresh replaces all four blocks, including changed or removed rules, while
 preserving higher-priority instructions, conversation facts, goals, permissions
 and tool results. This is logical replacement: MCP cannot physically delete old
-messages. No history or cache clearing is required. The server never samples an
-answer.
+messages. No history or cache clearing is required. Persona tools never sample
+the conversation's answer. The separately enabled local inference tools execute
+bounded completions on an owned local engine; they do not replace the client's
+reasoning or native worker spawning.
 
 Protocol 2 is the only protocol since 2026-09-29 (installer default since
 2026-09-26). Clients pass `protocol_version=2` (also the default); any other value

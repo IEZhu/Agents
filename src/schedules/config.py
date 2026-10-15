@@ -25,6 +25,7 @@ from typing import Any, Iterator
 from src.daemon.state import private_dir, read_json, write_json
 from src.file_lock import file_lock
 from src.flow_execution import CLIENTS, CODEX_EFFORTS
+from src.runtime_paths import installation_root, runtime_root
 
 from .lease import schedules_dir
 
@@ -41,8 +42,8 @@ LIMITS = ("max_reviews", "max_bot_rounds", "max_wait_minutes")
 # commands can read; the key now comes from the keychain only.
 REMOVED_CODEX_LOGINS = ("api-key", "chatgpt")
 MAX_CATCH_UP_MINUTES = 24 * 60
-# The installation this module runs from: src/schedules/config.py is two levels below it.
-INSTALLATION = Path(__file__).resolve().parents[2]
+# Canonical content/state identity, including an explicit daemon runtime override.
+INSTALLATION = installation_root()
 
 DEFAULTS: dict[str, Any] = {
     "id": "autodev",
@@ -138,7 +139,7 @@ def hour_ranges(text: str) -> list[tuple[int, int]]:
 def runner_location(value: Any, installation: str | Path | None = None, *, what: str = "clone") -> Path:
     """``value`` as a resolved absolute path for the runner's own files (the trusted repository,
     its environments); ``ValueError`` when it is relative, or under or above ``~/Documents`` or
-    the installation, where a session or the daemon's checkout could reach it."""
+    the installation/runtime source, where a session or the daemon's checkout could reach it."""
     if not _text(value):
         raise ValueError(f"{what} must be a path")
     path = Path(os.path.expanduser(str(value)))
@@ -146,7 +147,8 @@ def runner_location(value: Any, installation: str | Path | None = None, *, what:
         raise ValueError(f"{what} must be an absolute path or start with ~")
     resolved = Path(os.path.realpath(path))
     for name, root in (("~/Documents", Path.home() / "Documents"),
-                       ("the installation", Path(installation) if installation is not None else INSTALLATION)):
+                       ("the installation", Path(installation) if installation is not None else INSTALLATION),
+                       ("the runtime source", runtime_root())):
         root = Path(os.path.realpath(root))
         if resolved.is_relative_to(root) or root.is_relative_to(resolved):
             raise ValueError(f"{what} must lie outside {name} ({root}): {resolved}")

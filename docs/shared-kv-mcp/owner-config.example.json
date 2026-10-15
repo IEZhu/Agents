@@ -1,0 +1,47 @@
+{
+  "schema": "agents-core/local-inference-config/1",
+  "enabled": false,
+  "llama_server_binary": "/absolute/path/to/llama-server",
+  "model_path": "/absolute/path/to/existing-model.gguf",
+  "model_label": "owner-selected-local-model",
+  "port": 18190,
+  "context_tokens": 16384,
+  "gpu_layers": 99,
+  "threads": 8,
+  "kv_type_k": "f16",
+  "kv_type_v": "f16",
+  "max_contexts": 8,
+  "max_grants_per_context": 16,
+  "max_queue": 16,
+  "max_context_bytes": 262144,
+  "max_source_files": 32,
+  "max_source_file_bytes": 131072,
+  "max_task_bytes": 65536,
+  "max_output_tokens": 2048,
+  "max_context_requests": 100,
+  "max_context_output_tokens": 65536,
+  "max_context_ttl_seconds": 3600,
+  "max_job_seconds": 600,
+  "shutdown_grace_seconds": 5,
+  "source_roots": {
+    "shared-kv-worktree": {
+      "path": "/Users/alexey.zhuchkov/.codex/worktrees/shared-kv-mcp/Agents",
+      "workspace_root": "/Users/alexey.zhuchkov/Documents/Agents"
+    }
+  },
+  "redis": {
+    "enabled": false,
+    "url_env": "AGENTS_LOCAL_KV_REDIS_URL",
+    "chunk_bytes": 4194304,
+    "max_snapshot_bytes": 1073741824,
+    "max_namespace_bytes": 2147483648,
+    "max_spool_bytes": 2147483648,
+    "max_pipeline_chunks": 8,
+    "connect_timeout_seconds": 1,
+    "io_timeout_seconds": 5,
+    "operation_timeout_seconds": 30,
+    "ttl_seconds": 900
+  },
+  "max_context_jobs": 200,
+  "max_release_tombstones": 1024
+}

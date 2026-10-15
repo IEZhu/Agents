@@ -18,9 +18,10 @@ import time
 from pathlib import Path
 
 from src import executables
+from src.runtime_paths import installation_root
 
 CACHE_SECONDS = 300
-INSTALL_ROOT = Path(__file__).resolve().parents[2]
+INSTALL_ROOT = installation_root()
 APPS = ("claude-code", "claude-desktop", "codex", "cursor")
 _SCP = re.compile(r"[^@/\s]+@([^:/\s]+):(.+)")
 _URL = re.compile(r"[a-z][a-z0-9+.-]*://(?:[^@/]*@)?([^/:]+)(?::\d+)?/(.+)", re.I)
