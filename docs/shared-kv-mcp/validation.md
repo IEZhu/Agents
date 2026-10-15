@@ -77,7 +77,7 @@ The standard live selection runs 17 cases and skips the resource-intensive spars
 
 Live tests are opt-in. Record exact engine executable hash/build, GGUF hash/model architecture, effective context/KV settings, renderer/template identity, OS/hardware, feature configuration and time. Reuse an existing permitted local model; no silent downloads or cloud API calls.
 
-Run the model only in a dedicated owned process on an unused port with private state. Never restart the shared installation to test a patch. Test a temporary daemon from the worktree with its own state, token and port, using fake retrieval if appropriate to avoid a second model load.
+Run the model only in a dedicated owned process with its own private Unix socket and private state. Never restart the shared installation to test a patch. Test a temporary daemon from the worktree with its own state, token and port, using fake retrieval if appropriate to avoid a second model load.
 
 Minimum live sequence:
 1. Cold request on dense model, with exact input/output/counter capture.
