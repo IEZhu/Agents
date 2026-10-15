@@ -1,4 +1,4 @@
-"""Publish a calendar release tag for a merged, same-repository dev -> main PR."""
+"""Publish a calendar tag and GitHub Release for a same-repository dev -> main PR."""
 from datetime import datetime, timezone
 import json
 import os
@@ -9,7 +9,7 @@ from urllib.request import Request, urlopen
 
 
 class GitHub:
-    """Repository-scoped JSON client for the GitHub Git database API."""
+    """Repository-scoped JSON client for GitHub's Git database and Releases APIs."""
 
     def __init__(self, repository, token):
         """Bind credentials to a syntactically valid owner/repository name."""
@@ -104,16 +104,65 @@ def publish(event, repository, api):
     raise RuntimeError("Both release tag names already target different objects")
 
 
+def published_release(api, tag):
+    """Read a release by tag, distinguishing a missing release from API failures."""
+    try:
+        return api.request("GET", f"/releases/tags/{tag}")
+    except HTTPError as error:
+        if error.code == 404:
+            return None
+        raise
+
+
+def publish_release(event, repository, api):
+    """Publish once after tagging; reruns preserve existing release content."""
+    result = publish(event, repository, api)
+    if result["status"] == "skipped":
+        return result
+    tag, sha = result["tag"], result["sha"]
+    existing = published_release(api, tag)
+    status = "existing"
+    if existing is None:
+        try:
+            api.request("POST", "/releases", {
+                "tag_name": tag, "target_commitish": sha, "name": tag,
+                "draft": False, "prerelease": False, "make_latest": "legacy",
+                "generate_release_notes": True,
+                "body": f"Promotion: https://github.com/{repository}/pull/{event['pull_request']['number']}\n\n"
+                        f"Merge commit: `{sha}`.\n\nCalendar version: `{result['version']}`.",
+            })
+            status = "created"
+        except HTTPError as error:
+            if error.code != 422:
+                raise
+            # Another publisher may have won. Reuse only an actual public release.
+            existing = published_release(api, tag)
+            if existing is None:
+                raise
+        else:
+            existing = published_release(api, tag)
+    if not (existing and existing.get("tag_name") == tag
+            and existing.get("draft") is False and existing.get("prerelease") is False
+            and existing.get("published_at")):
+        raise RuntimeError(f"Tag {tag} has no matching published stable release; inspect it manually")
+    if tag_target(api, tag) != ("commit", sha):
+        raise RuntimeError(f"Release tag {tag} no longer targets the merge commit")
+    return {**result, "github_release": status,
+            "release_url": f"https://github.com/{repository}/releases/tag/{tag}"}
+
+
 def main():
     """Read the Actions event and credentials, then print and summarize publication."""
     event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8"))
     repository = os.environ["GITHUB_REPOSITORY"]
-    result = publish(event, repository, GitHub(repository, os.environ["GH_TOKEN"]))
+    result = publish_release(event, repository, GitHub(repository, os.environ["GH_TOKEN"]))
     print(json.dumps(result))
     if result["status"] != "skipped" and os.environ.get("GITHUB_STEP_SUMMARY"):
         with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as summary:
             summary.write(f"Release version: **{result['version']}**\n\n"
-                          f"Tag: `{result['tag']}` at `{result['sha']}` ({result['status']}).\n")
+                          f"Tag: `{result['tag']}` at `{result['sha']}` ({result['status']}).\n\n"
+                          f"GitHub Release: {result['release_url']} ({result['github_release']}).\n\n"
+                          "Glama Auto-Release builds asynchronously; verify its build and published version separately.\n")
 
 
 if __name__ == "__main__":
