@@ -59,6 +59,7 @@ async def test_same_agent_keep_does_not_load_or_learn(bundle):
 
 @pytest.mark.asyncio
 async def test_success_complete_replaces_and_never_samples(bundle, monkeypatch):
+    """A complete persona switch replaces the bundle without invoking sampling."""
     sample = AsyncMock()
     monkeypatch.setattr("mcp.server.session.ServerSession.create_message", sample)
     response = json.loads(await server.get_agent_context(

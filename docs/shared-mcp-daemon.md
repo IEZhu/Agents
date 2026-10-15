@@ -1360,7 +1360,9 @@ Workflows do not check these paths.
 `describe_repo` never samples or writes project files. Follow its `instruction`
 before persisting: the running installation and runtime source root refuse
 summary writes with `status: rejected` and a `live_installation` reason, before
-creating a lock or cache. Existing summaries remain readable. A worktree may
+creating a lock or cache. Directory identity checks also reject case variants
+and macOS volume aliases of the protected checkout. Existing summaries remain
+readable. A worktree may
 normalize to its main checkout. For a nested worktree inside the authorized
 workspace, select its explicit physical `repo_path`. For an external worktree,
 first set a per-project `AGENTS_CLIENT_REPO_ROOT` to its physical path and

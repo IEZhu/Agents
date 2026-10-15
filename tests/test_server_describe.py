@@ -80,6 +80,7 @@ async def test_needs_summary_shape_without_sampling(repo):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("force_refresh", [False, True])
 async def test_describe_never_samples_or_writes(repo, force_refresh):
+    """Sampling-capable clients still receive a read-only description on every refresh."""
     sample = AsyncMock(side_effect=AssertionError("describe_repo must not request sampling"))
     ctx = SimpleNamespace(session=SimpleNamespace(
         create_message=sample, check_client_capability=lambda _: True,
@@ -93,6 +94,7 @@ async def test_describe_never_samples_or_writes(repo, force_refresh):
 
 @pytest.mark.asyncio
 async def test_describe_live_installation_is_read_only_and_write_is_rejected(repo, monkeypatch):
+    """Protected descriptions remain readable and never invite a forbidden write."""
     monkeypatch.setattr(describer_module, "installation_root", lambda: repo)
     (repo / "CLAUDE.md").write_text("# Installation instructions\n")
     before = {p.relative_to(repo): p.read_bytes() for p in repo.rglob("*") if p.is_file()}
@@ -123,6 +125,7 @@ async def test_write_persists_and_next_describe_is_up_to_date(repo):
 
 @pytest.mark.asyncio
 async def test_forced_describe_leaves_existing_summary_and_hash_unchanged(repo):
+    """A forced refresh returns context without replacing existing summary or cache files."""
     needs = await _describe()
     assert (await _write(needs, _valid_summary("original")))["status"] == "refreshed"
     before = {p.relative_to(repo): p.read_bytes() for p in repo.rglob("*") if p.is_file()}
@@ -132,6 +135,7 @@ async def test_forced_describe_leaves_existing_summary_and_hash_unchanged(repo):
 
 @pytest.mark.asyncio
 async def test_worktree_normalization_protects_installation_but_explicit_target_is_writable(repo, monkeypatch):
+    """Normalized roots stay protected while an authorized nested worktree can persist."""
     monkeypatch.setattr(describer_module, "installation_root", lambda: repo)
     (repo / "CLAUDE.md").write_text("# Live instructions\n")
     gitdir = repo / ".git" / "worktrees" / "feature"
@@ -164,6 +168,7 @@ async def test_worktree_normalization_protects_installation_but_explicit_target_
 
 @pytest.mark.asyncio
 async def test_http_direct_write_to_live_installation_is_rejected(repo, monkeypatch):
+    """HTTP cannot bypass installation protection by skipping the description call."""
     monkeypatch.setattr(describer_module, "installation_root", lambda: repo)
     ctx = SimpleNamespace(request_context=SimpleNamespace(
         request=SimpleNamespace(state=SimpleNamespace(
@@ -183,6 +188,7 @@ async def test_http_direct_write_to_live_installation_is_rejected(repo, monkeypa
 
 @pytest.mark.asyncio
 async def test_external_worktree_needs_physical_memory_root_override(repo, monkeypatch):
+    """An external worktree needs an explicit physical memory root before persistence."""
     monkeypatch.setattr(describer_module, "installation_root", lambda: repo)
     gitdir = repo / ".git" / "worktrees" / "external"
     gitdir.mkdir(parents=True)
@@ -283,6 +289,7 @@ async def test_http_write_requires_original_workspace_id(repo):
 
 @pytest.mark.asyncio
 async def test_slash_prompt_directs_the_needs_summary_fallback():
+    """The slash prompt preserves the handoff and obeys protected-write instructions."""
     result = await server.mcp.get_prompt("describe_repo", {"force": "yes"})
     text = result.messages[0].content.text
     assert "describe_repo(force_refresh=True)" in text

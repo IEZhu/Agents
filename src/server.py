@@ -2222,6 +2222,7 @@ def _register_memory_prompts():
         return arg.strip().lower() in ("1", "true", "force", "yes", "y", "on")
 
     async def describe_cmd(force: str = "") -> list:
+        """Guide read-only inspection and a separately permitted summary write."""
         force_arg = "True" if _truthy(force) else "False"
         return [UserMessage(
             "Call the `describe_repo("

@@ -29,6 +29,7 @@ def test_hints_cover_exactly_the_registered_tools():
 
 
 def test_tools_that_delete_or_replace_are_destructive_and_readers_are_read_only():
+    """Registered MCP hints distinguish explicit writes from repository inspection."""
     hints = {tool.name: tool.annotations for tool in tools()}
     for name in ("delete_flow", "clear_session_cache", "write_repo_summary"):
         assert hints[name].readOnlyHint is False and hints[name].destructiveHint is True, name
