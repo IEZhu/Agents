@@ -1,6 +1,6 @@
 """Idempotent, marker-bounded edits of CLAUDE.md (and friends).
 
-The MCP ``describe_repo`` tool uses this editor for the Repository Memory
+The MCP ``write_repo_summary`` tool uses this editor for the Repository Memory
 section. The installers maintain the routing section with
 ``scripts/_helpers/inject_claude_md.py``, a separate standard-library helper.
 
