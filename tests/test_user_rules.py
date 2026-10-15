@@ -280,3 +280,50 @@ def test_malformed_yaml_scalar_refresh_records_safe_error(library, monkeypatch, 
     assert current["last_error"] == "rule_invalid: malformed YAML metadata"
     assert current["content"] == initial["content"] and current["enabled"]
     assert current["revision"] != initial["revision"]
+
+
+def test_refresh_repairs_damaged_retained_snapshot_from_valid_source(library, monkeypatch):
+    """A valid source reversion must not promote damaged bytes stored under its old hash."""
+    original = library.subscribe(URL)
+    monkeypatch.setattr(user_rules, "fetch_rule", lambda *args, **kwargs: CONTENT + "New guidance.")
+    changed = library.refresh(original["id"], original["revision"])["rule"]
+    path = library._path(original["id"])
+    state = json.loads(path.read_text())
+    state["history"][0]["content"] = "damaged retained guidance"
+    path.write_text(json.dumps(state))
+    assert library.get(original["id"])["content_sha256"] == changed["content_sha256"]
+    monkeypatch.setattr(user_rules, "fetch_rule", lambda *args, **kwargs: CONTENT)
+    refreshed = library.refresh(original["id"], changed["revision"])
+    assert refreshed["status"] == "updated"
+    current = library.get(original["id"])
+    assert current["content"] == CONTENT and current["content_sha256"] == original["content_sha256"]
+    assert len(current["history"]) == 2
+    assert library.rules()[0].body == "Use corporate evidence."
+
+
+def test_invalid_snapshot_write_preserves_previous_accepted_state(library):
+    """Snapshot validation must finish before a failed write can replace usable guidance."""
+    original = library.subscribe(URL)
+    path = library._path(original["id"])
+    before = path.read_bytes()
+    state = json.loads(before)
+    state["history"][0]["content"] = "damaged guidance"
+    with pytest.raises(UserRuleError, match="snapshot integrity"):
+        library._write(state)
+    assert path.read_bytes() == before
+    assert library.get(original["id"])["content"] == CONTENT
+
+
+def test_deeply_nested_subscription_stays_a_management_diagnostic(library):
+    """Bounded JSON nesting damage must not hide other manageable rules or drop required guidance."""
+    original = library.subscribe(URL)
+    raw = "[" * 10000 + "0" + "]" * 10000
+    assert len(raw) < user_rules.MAX_STATE_BYTES
+    (library.root / "broken.json").write_text(raw)
+    entries = {entry["id"]: entry for entry in library.list()}
+    assert entries["user:broken"]["status"] == "error"
+    assert entries["user:broken"]["enabled"] is None
+    assert entries[original["id"]]["body"] == "Use corporate evidence."
+    assert library.get("user:broken")["status"] == "error"
+    with pytest.raises(UserRuleError, match="corrupt subscription"):
+        library.rules()
