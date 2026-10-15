@@ -36,13 +36,20 @@ def test_subscribe_caches_content_and_reads_without_network(library, monkeypatch
     "---\nname: team\nname: other\n---\nBody", "---\nname: team\napplies_to: all\n---\nBody",
     "---\nname: team\nexclude_agents: []\n---\nBody", "---\nname: team\nexec: command\n---\nBody",
     "---\nname: &n team\ncategory: *n\n---\nBody", CONTENT + "\n@/private/secret.mdc",
-    CONTENT.replace("Team rule", "@rules/secret.mdc"), CONTENT + "\x00", CONTENT + "x" * 65536,
+    CONTENT.replace("Team rule", "@rules/secret.mdc"), CONTENT + "\n@.mdc",
+    CONTENT + "\x00", CONTENT + "x" * 65536,
 ])
 def test_invalid_documents_never_enter_store(library, monkeypatch, content):
     monkeypatch.setattr(user_rules, "fetch_rule", lambda *args, **kwargs: content)
     with pytest.raises(UserRuleError, match="rule_invalid"):
         library.subscribe(URL)
     assert library.list() == []
+
+
+def test_repeated_at_signs_without_a_path_are_literal_text():
+    body = "@" * 65000
+    rule = parse_rule("---\nname: literal\n---\n" + body)
+    assert rule.body == body
 
 
 def test_initial_fetch_failure_does_not_subscribe(library, monkeypatch):
@@ -150,6 +157,103 @@ def test_symlink_and_corrupt_snapshot_fail_explicitly(library, tmp_path):
     with pytest.raises(UserRuleError, match="symlink"):
         library.delete(original["id"], original["revision"])
     assert target.read_text() == "untouched"
+
+
+def test_disabled_damaged_payload_does_not_block_default_delivery(library):
+    original = library.subscribe(URL)
+    disabled = library.set_enabled(original["id"], False, original["revision"])
+    path = library.root / "team.json"
+    state = json.loads(path.read_text())
+    state["history"][0]["content"] += "tampered"
+    path.write_text(json.dumps(state))
+    assert library.rules() == []
+    with pytest.raises(UserRuleError):
+        library.rules({original["id"]})
+    diagnostic = library.get(original["id"])
+    assert diagnostic["status"] == "error" and diagnostic["enabled"] is False
+    assert diagnostic["revision"] == disabled["revision"]
+    assert library.list() == [diagnostic]
+
+
+def test_noncanonical_json_is_a_diagnostic_and_never_a_rule(library, caplog):
+    original = library.subscribe(URL)
+    (library.root / "team.backup.json").write_text("private contents")
+    assert [r.name for r in library.rules()] == [original["id"]]
+    listing = library.list()
+    assert len(listing) == 2
+    diagnostic = next(row for row in listing if row.get("status") == "error")
+    assert diagnostic["file_name"] == "team.backup.json"
+    assert diagnostic["enabled"] is None and diagnostic["revision"] is None
+    assert "private contents" not in caplog.text
+
+
+@pytest.mark.parametrize("damage", ["invalid JSON", "[]", '{"enabled":false}'])
+def test_unknown_enabled_state_stays_fail_closed_but_management_is_available(library, damage):
+    original = library.subscribe(URL)
+    path = library.root / "team.json"
+    path.write_text(damage)
+    with pytest.raises(UserRuleError):
+        library.rules()
+    diagnostic = library.get(original["id"])
+    assert diagnostic["status"] == "error" and diagnostic["enabled"] is None
+    assert diagnostic["revision"] is None and library.list() == [diagnostic]
+    with pytest.raises(UserRuleError):
+        library.delete(original["id"], original["revision"])
+    assert path.read_text() == damage
+
+
+@pytest.mark.parametrize("content", ["tampered", None, 5])
+def test_explicit_rollback_can_recover_a_damaged_current_snapshot(library, monkeypatch, content):
+    original = library.subscribe(URL)
+    monkeypatch.setattr(user_rules, "fetch_rule", lambda *a, **kw: CONTENT + "New content")
+    updated = library.refresh(original["id"], original["revision"])["rule"]
+    path = library.root / "team.json"
+    state = json.loads(path.read_text())
+    state["history"][-1]["content"] = content
+    path.write_text(json.dumps(state))
+    with pytest.raises(UserRuleError):
+        library.rules()
+    diagnostic = library.get(original["id"])
+    assert diagnostic["status"] == "error" and diagnostic["enabled"] is True
+    restored = library.rollback(original["id"], original["content_sha256"], diagnostic["revision"])
+    assert restored["enabled"] and restored["content"] == CONTENT
+    assert library.rules()[0].body == "Use corporate evidence."
+
+
+def test_delete_damaged_payload_requires_unchanged_envelope_revision(library):
+    original = library.subscribe(URL)
+    path = library.root / "team.json"
+    state = json.loads(path.read_text())
+    state["history"][0]["content"] = "tampered"
+    path.write_text(json.dumps(state))
+    with pytest.raises(UserRuleError, match="rule_conflict"):
+        library.delete(original["id"], "stale")
+    assert path.exists()
+    library.delete(original["id"], original["revision"])
+    assert library.list() == []
+
+
+def test_damage_diagnostic_never_adopts_a_concurrent_repair_revision(library, monkeypatch):
+    original = library.subscribe(URL)
+    path = library.root / "team.json"
+    state = json.loads(path.read_text())
+    state["history"][0]["content"] = "tampered"
+    path.write_text(json.dumps(state))
+    current = library._current
+
+    def repair_during_validation(snapshot):
+        repaired = json.loads(path.read_text())
+        repaired["history"][0]["content"] = CONTENT
+        repaired["revision"] = "a" * 32
+        path.write_text(json.dumps(repaired))
+        return current(snapshot)
+
+    monkeypatch.setattr(library, "_current", repair_during_validation)
+    diagnostic = library.get(original["id"])
+    assert diagnostic["revision"] == original["revision"]
+    with pytest.raises(UserRuleError, match="rule_conflict"):
+        library.delete(original["id"], diagnostic["revision"])
+    assert path.exists()
 
 
 def test_auth_reference_is_forwarded_without_copying_secret(library, monkeypatch):

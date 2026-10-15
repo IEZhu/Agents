@@ -127,6 +127,23 @@ def test_catalog_retains_disabled_user_rules_for_reenable(bundle_tree, cached_li
     assert "user:team" in component_catalog.known_ids("rules")
 
 
+def test_catalog_surfaces_damage_without_making_it_selectable(bundle_tree, monkeypatch):
+    import json
+
+    monkeypatch.setattr(user_rules, "fetch_rule", lambda *a, **kw: "---\nname: team\n---\nAccepted guidance")
+    library = user_rules.RuleLibrary()
+    library.subscribe("https://rules.example/team.mdc")
+    path = library.root / "team.json"
+    state = json.loads(path.read_text())
+    state["history"][0]["content"] = "tampered"
+    path.write_text(json.dumps(state))
+    listing = {item["id"]: item for item in component_catalog.list_components("rules")}
+    assert listing["truth"]["body"]
+    assert listing["user:team"]["status"] == "error"
+    assert listing["user:team"]["body"] == "" and listing["user:team"]["error"]
+    assert "user:team" not in component_catalog.known_ids("rules")
+
+
 def test_compact_worker_uses_cached_rules_and_content_revision(worker_tree, cached_library, monkeypatch):
     first = prepared()
     assert "user:team" in first.descriptor.rules_loaded
