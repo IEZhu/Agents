@@ -15,7 +15,7 @@ When a flow is task material for a prepared worker, as [code-review-pass](code-r
 
 | Flow | Purpose | Result |
 |---|---|---|
-| [Shared local inference and KV cache](shared-kv-inference.md) | Implement the prepared Agents-Core local inference service and optional Redis snapshot backend in an authorized worktree | Reviewable implementation, focused tests and a capability/evaluation report |
+| [Shared local inference and KV cache](shared-kv-inference.md) | Reconcile the existing Agents-Core implementation, then implement requested local-inference or Redis snapshot gaps in an authorized worktree | Reviewable implementation, focused tests and a capability/evaluation report |
 | [Environment auto-configuration](environment-autoconfigure.md) | Audit installed AI clients and reconcile their environment with the current RTK, TokenSave and CodeGraph stack | Verified configuration changes, private backups, rollback steps and explicit compatibility limits |
 | [Documentation refresh](documentation-refresh.md) | Check and update documentation for people and AI against the implementation | Reviewed documentation changes on a separate branch, with validation results |
 | [PR/MR review](pr-review.md) | Review the diff, handle bot findings one push per round until they converge, and keep the description current | A merged request or a precise blocker, with a report in the invocation language |
