@@ -13,8 +13,8 @@ This is an Agents-Core-specific implementation flow. It is not a generic flow fo
 
 ## Inputs and defaults
 
-- Target repository: the caller's authorized Agents-Core worktree (required; no default path).
-- Branch: a dedicated feature branch named by the caller; preserve any existing research branch.
+- Target repository: the caller's authorized Agents-Core worktree (required; no default path). For new changes, create a linked worktree from current `origin/dev` under the target repository's instructions.
+- Branch: the caller's own implementation branch, normally `codex/<slug>`; preserve the historical shared-KV and research worktrees. The paths and branch recorded in the handoff are provenance, not defaults.
 - Owner-selected existing local GGUF and llama.cpp binary for optional live checks.
 - Implementation order: deterministic core, owned engine, resident cache, MCP job API, optional Redis, live checks.
 - Generation and Redis remain disabled by default.
@@ -26,8 +26,8 @@ If invoked through MCP in another installation, distinguish the flow source from
 
 1. Read the target AGENTS.md and CLAUDE.md and honor the shared persona/delegation protocol.
 2. Identify the caller's authorized target worktree, its branch and existing changes, and the caller's live installation path before proceeding. Never modify the live installation. Preserve unrelated changes.
-3. Read all files in the handoff's reading order. Use the API/architecture as the contract and [implementation-plan.md](../docs/shared-kv-mcp/implementation-plan.md) as the ordered checklist.
-4. Implement each milestone, starting with a fake backend. Run its focused tests before moving on. Do not skip cancellation, workspace-root or native-counter checks to reach a live demo.
+3. Read the handoff, its [reconciliation report](../docs/shared-kv-mcp/reconciliation-report.md) and the files in its reading order. Compare the requested behavior with the current source and tests before selecting gaps. Use the API/architecture as the contract and [implementation-plan.md](../docs/shared-kv-mcp/implementation-plan.md) as the ordered checklist; historical reports do not prove current runtime state.
+4. Implement only the requested unfinished milestones, starting each new behavior with a fake backend. Keep completed current behavior and its later fixes; do not recreate it or copy the old worktree wholesale. Run focused tests before moving on. Do not skip cancellation, workspace-root or native-counter checks to reach a live demo.
 5. If the selected engine cannot restore compatible snapshots, implement/report the unsupported capability and keep cold/resident operation usable. Do not claim Redis acceleration without live evidence.
 6. Update README, configuration and daemon/test documentation when corresponding behavior exists. Reconcile any necessary managed-protocol wording through the source template and required restatements.
 7. Run appropriate checks from [validation.md](../docs/shared-kv-mcp/validation.md). Run only one heavy process at a time.
