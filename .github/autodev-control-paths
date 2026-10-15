@@ -23,6 +23,8 @@ src/schemas/__init__.py
 src/schemas/artifacts.py
 src/schemas/subagent.py
 src/user_library.py
+src/user_rules.py
+src/rule_sources.py
 src/utils/__init__.py
 src/utils/langfuse_compat.py
 src/utils/prompt_loader.py

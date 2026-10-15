@@ -1,7 +1,8 @@
 """Read-only listing of agents, rules, skills and implants for the web UI.
 
 Every rule, skill and implant entry carries its ID, description, body and the
-current on/off state from ``src.component_toggles``. Skills also list the agents
+current on/off state from ``src.component_toggles`` or the cached user rule
+library. Catalog reads never fetch subscription URLs. Skills also list the agents
 that declare them (and in which tier), implants the agents that prefer them.
 Agents have no on/off state: an entry carries the agent's identity and, on
 request, its routing fields, skills by tier, preferred implants and prompt body.
@@ -74,10 +75,23 @@ def list_components(kind: str) -> list[dict]:
         raise component_toggles.ToggleError(f"unknown component kind: {kind!r}")
     if kind == "rules":
         off = component_toggles.disabled("rules")
-        return [{"id": rule.name, "description": rule.description, "short_name": "",
+        items = [{"id": rule.name, "description": rule.description, "short_name": "",
                  "body": rule.body, "declared_by": [], "enabled": rule.name not in off,
                  "category": rule.category, "priority": rule.priority}
                 for rule in load_all_rules()]
+        from src.user_rules import RuleLibrary
+        for rule in RuleLibrary().list():
+            if rule.get("status") == "error":
+                items.append({**rule, "description": "Unavailable cached user rule", "body": "",
+                              "short_name": "", "declared_by": [], "source": "user"})
+                continue
+            items.append({
+                **{key: rule[key] for key in ("id", "description", "body", "enabled",
+                                               "category", "priority", "url", "revision",
+                                               "content_sha256")},
+                "short_name": "", "declared_by": [], "source": "user",
+            })
+        return items
     skills, implants = _declarations()
     if kind == "skills":
         return _files(SKILLS_DIR, "skills", skills)
@@ -85,7 +99,7 @@ def list_components(kind: str) -> list[dict]:
 
 
 def known_ids(kind: str) -> set[str]:
-    return {item["id"] for item in list_components(kind)}
+    return {item["id"] for item in list_components(kind) if item.get("status") != "error"}
 
 
 def _text(value) -> str:
