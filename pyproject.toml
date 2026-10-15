@@ -25,6 +25,13 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+local-inference = [
+    "httpx>=0.28.1,<0.29",
+]
+local-inference-redis = [
+    "httpx>=0.28.1,<0.29",
+    "redis>=7.0.0,<7.1",
+]
 evals = [
     "datasets>=3.0",
     "pytest>=8.0",

@@ -86,13 +86,14 @@ def test_idle_service_is_updated_through_the_transaction(scheduled):
     assert controller.stops == 1
 
 
-def test_work_arriving_during_the_build_defers_the_restart_to_the_next_run(scheduled, monkeypatch):
+@pytest.mark.parametrize("health", [{"idle_seconds": 5}, {"local_inference_pending": 1}])
+def test_work_arriving_during_the_build_defers_the_restart_to_the_next_run(scheduled, monkeypatch, health):
     from src.daemon import update
     controller, root, old, target = scheduled
     build = update.prepare_reindex
 
     def busy_build(current, staging_dir):
-        controller.health.update(idle_seconds=5)  # a client calls while the update is built
+        controller.health.update(health)  # Detached work also blocks the activation check.
         return build(current, staging_dir)
     monkeypatch.setattr(update, "prepare_reindex", busy_build)
 
@@ -100,7 +101,7 @@ def test_work_arriving_during_the_build_defers_the_restart_to_the_next_run(sched
     assert result["state"] == "deferred" and result["reason"] == "service is busy"
     assert git(root, "rev-parse", "HEAD") == old and controller.stops == 0 and controller.builds == 1
 
-    controller.health.update(idle_seconds=600)
+    controller.health.update(idle_seconds=600, local_inference_pending=0)
     assert autoupdate.run(controller)["state"] == "UPDATED"
     assert git(root, "rev-parse", "HEAD") == target
     assert controller.stops == 1 and controller.builds == 1
@@ -138,7 +139,7 @@ def test_stdio_reader_starting_during_the_build_defers_the_restart(scheduled, mo
     assert git(root, "rev-parse", "HEAD") == old and controller.stops == 0 and controller.builds == 1
 
 
-@pytest.mark.parametrize("health", [{"inflight": 1}, {"io_pending": 1}, {"idle_seconds": 5}])
+@pytest.mark.parametrize("health", [{"inflight": 1}, {"io_pending": 1}, {"local_inference_pending": 1}, {"idle_seconds": 5}])
 def test_busy_service_defers_without_a_restart(scheduled, health):
     controller, root, old, _ = scheduled
     controller.health.update(health)
@@ -237,7 +238,8 @@ def test_enable_from_scratch_leaves_no_plist_when_launchd_refuses(scheduled):
     assert read_json(controller.directory / "service.json") == before
 
 
-def test_work_arriving_after_the_first_check_defers_before_draining(scheduled, monkeypatch):
+@pytest.mark.parametrize("work_key", ["inflight", "local_inference_pending"])
+def test_work_arriving_after_the_first_check_defers_before_draining(scheduled, monkeypatch, work_key):
     controller, root, old, _ = scheduled
     enabled = autoupdate._enabled_on_disk
     calls = []
@@ -245,7 +247,7 @@ def test_work_arriving_after_the_first_check_defers_before_draining(scheduled, m
     def busy_right_after_the_check(controller):
         calls.append(enabled(controller))
         if len(calls) == 1:  # a request lands between the first check and the transaction
-            controller.health["inflight"] = 1
+            controller.health[work_key] = 1
         return calls[-1]
 
     monkeypatch.setattr(autoupdate, "_enabled_on_disk", busy_right_after_the_check)

@@ -11,3 +11,6 @@ files matching `memory-routing-*.md`; without that copy, installed reminders of
 the previous version are reported as user-edited and are not migrated. Also add
 the new copy where the tests list the existing ones
 (`grep -rn memory-routing-v tests/`).
+
+`memory-routing-v11.md` preserves the reminder immediately before the persistent
+artifact-manifest instructions were added.

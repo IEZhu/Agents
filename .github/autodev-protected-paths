@@ -39,6 +39,7 @@ src/daemon/execution.py
 src/daemon/state.py
 src/file_lock.py
 src/model_migration.py
+src/runtime_paths.py
 src/user_library.py
 src/utils/__init__.py
 src/utils/langfuse_compat.py

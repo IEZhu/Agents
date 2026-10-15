@@ -33,6 +33,33 @@ LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/test_language.py
 LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/test_install_instructions.py tests/test_installer_instructions.py tests/test_codex_instructions.py tests/test_protocol_migration.py -q
 ```
 
+The default local-inference selection uses deterministic fake native HTTP/process
+and Redis adapters. It never requires a GGUF, running Redis, optional redis-py or
+cloud key; the real Redis module skips before optional imports:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/test_local_inference_*.py -q -p no:cacheprovider
+```
+
+Process/adapter tests use temporary loopback listeners and actual POSIX file-size
+limits. A sandbox must permit those bounded listeners; a denied socket is an
+environment failure, not native acceptance. The large snapshot test streams a
+sparse payload above 512 MiB with bounded chunks instead of retaining it whole.
+Enabled version 1 is POSIX-only: Windows collection omits these native/capture
+fixtures, while `test_optional_inference_disabled.py` checks portable disabled
+status, transport refusal and platform rejection before native I/O.
+For explicit real-server acceptance, provide a dedicated loopback endpoint through
+`AGENTS_REDIS_LIVE_TEST_URL` and set `AGENTS_RUN_REDIS_LIVE_TESTS=1`; the optional
+Redis extra must be available. Also set `AGENTS_RUN_REDIS_LIVE_LARGE=1` to select
+the separately gated 512-MiB-plus-one-byte streaming roundtrip. These tests create
+random installation namespaces, delete only their own keys, and never flush the
+database. See [the Redis live report](../docs/shared-kv-mcp/redis-live-report.md).
+Only one heavy test, embedding process or live model may run at once. For offline
+regular-suite checks select an already cached `EMBEDDING_MODEL` and set
+`HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1`; do not download a replacement to make a
+test pass. See [the live validation contract](../docs/shared-kv-mcp/validation.md)
+and [actual implementation results](../docs/shared-kv-mcp/implementation-report.md).
+
 Include slow tests, or select only slow tests:
 
 ```bash
@@ -72,6 +99,25 @@ The daemon smoke and soak tests (`scripts/daemon_smoke.py`) need the default
 model's plain-file copy (`microsoft/harrier-oss-v1-270m`) and start a temporary daemon. Run them alone in a dedicated checkout, as
 described in [daemon validation](../docs/shared-mcp-daemon.md#validation).
 
+### Persistent artifact checks
+
+The [artifact workflow](../docs/shared-artifacts.md) has focused checks using
+temporary filesystem stores and fake boundary services, with no model or Redis
+required:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/test_artifact_store.py tests/test_artifact_service.py tests/test_artifact_mcp.py tests/test_subagent_artifacts.py -q -p no:cacheprovider
+```
+
+These files cover durable identity and first-descriptor retention, workspace and
+safe-capture boundaries, byte quotas, complete integrity checks, bounded UTF-8
+reads, manifest expiry/release and immutable task-contract binding. Also run the
+local-inference selection above when changing manifest hydration or the checks
+before dispatch, publication and result retrieval. Shared instruction changes
+need the focused installer/migration and persona checks listed below. These are
+commands and coverage descriptions, not a recorded acceptance run; historical
+KV reports do not establish artifact-layer test or deployment results.
+
 ## Choose tests by change
 
 | Area | Starting points |
@@ -79,6 +125,7 @@ described in [daemon validation](../docs/shared-mcp-daemon.md#validation).
 | Routing and intent | `test_routing.py`, `test_intent.py` |
 | Protocol 2, fresh bundles and the footer version | `test_persona_protocol.py`, `test_persona_bundle.py`, `test_version.py` |
 | Compact worker profiles, bounded preparation and result validation | `test_subagent.py`, `test_subagent_mcp.py`; include `test_persona_protocol.py`, `test_log_interaction_contract.py` and installer/migration checks when shared instructions change |
+| Persistent artifacts, manifests and artifact-backed workers | `test_artifact_store.py`, `test_artifact_service.py`, `test_artifact_mcp.py`, `test_subagent_artifacts.py`; include `test_local_inference_*.py` for exact hydration and manifest rechecks, and installer/migration plus persona checks for shared instruction changes; [workflow](../docs/shared-artifacts.md) |
 | Skills, implants and rules, and their on/off switches | `test_skill_freshness.py`, `test_implant_gating.py`, `test_rules.py`, `test_web_search_skill.py`, `test_component_toggles.py` |
 | Embedding model, its prompts, batching and the one-time model switch | `test_embedder.py`, `test_embedding_prompts.py`, `test_model_migration.py` (no model is loaded); the service's switch is in `test_daemon_update.py` |
 | Installers: one-command install, version checks, client profiles, instructions, migration and the sync step | `test_installer_oneliner.py` (`install.sh` and `init_repo.sh --yes`; an update from a terminal that runs the real sync step and leaves the library's `.git` byte for byte; the GitHub token reaching `init_repo.sh` and never git; `AGENTS_BRANCH` becoming the update branch of a new `.env`; Unix only), `test_setup_cloud_env.py` (`scripts/setup_cloud_env.sh`; Unix only), `test_installer_python.py`, `test_installer_windows.py`, `test_installer_profiles.py`, `test_install_instructions.py`, `test_installer_instructions.py`, `test_codex_instructions.py`, `test_protocol_migration.py`, `test_inject_mcp.py`, `test_installer_sync.py` (both installers' sync section around a stub, the GitHub token only for the step; a pseudo-terminal on Unix, `cmd.exe` on Windows) |

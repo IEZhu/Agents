@@ -361,7 +361,7 @@ def _precheck(controller):
     if health.get("state") != "ready":
         return {"state": "deferred", "reason": f"service is {health.get('state')}"}
     # Work may have arrived since the first check; draining now would 503 it.
-    if health.get("inflight") or health.get("io_pending") or \
+    if health.get("inflight") or health.get("io_pending") or health.get("local_inference_pending") or \
             health.get("idle_seconds", 0) < settings(controller)["idle_seconds"]:
         return {"state": "deferred", "reason": "service is busy"}
     # The run lease needs no recheck: `_run` holds it for the whole transaction.
@@ -391,7 +391,7 @@ def _run(controller):
         # A stopped service stays stopped; the next manual start picks nothing up.
         return _record(controller, {**found, "state": "deferred", "reason": f"service is {health.get('state')}"})
     idle = settings(controller)["idle_seconds"]
-    if health.get("inflight") or health.get("io_pending") or health.get("idle_seconds", 0) < idle:
+    if health.get("inflight") or health.get("io_pending") or health.get("local_inference_pending") or health.get("idle_seconds", 0) < idle:
         return _record(controller, {**found, "state": "deferred", "reason": "service is busy"})
     if refusal := _run_lease_refusal(controller):
         return _record(controller, {**found, **refusal})
