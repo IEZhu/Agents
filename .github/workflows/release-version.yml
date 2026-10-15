@@ -45,7 +45,7 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.merge_commit_sha }}
           persist-credentials: false
-      - name: Record the calendar release version
+      - name: Publish the calendar tag and GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: python3 scripts/release_version.py
