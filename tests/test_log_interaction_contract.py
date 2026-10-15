@@ -277,3 +277,13 @@ async def test_a_symlinked_fallback_directory_is_an_error_not_a_crash(writer, mo
     response = await call(persona=FULL)
     assert response["status"] == "ERROR" and response["instruction"].startswith("Nothing was logged.")
     writer.assert_not_called()
+
+
+def test_server_choice_guidance_is_visible_before_truncation():
+    """#421: a Code-tab session lists Agents-Core and Agents-Core-Desktop; both texts say which to call."""
+    from pathlib import Path
+    guidance = "When both Agents-Core and Agents-Core-Desktop are listed, call Agents-Core"
+    text = server.mcp.instructions
+    assert guidance in text and text.index(guidance) + len(guidance) < 2048
+    template = (Path(__file__).resolve().parents[1] / "scripts/templates/routing-protocol-core.md").read_text()
+    assert "When both `Agents-Core` and `Agents-Core-Desktop` tools are listed, call\n`Agents-Core`" in template

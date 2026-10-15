@@ -3,8 +3,9 @@
 Usage: python inject_mcp.py <config_path> <python_abs> <server_abs> [--desktop]
 
 ``--desktop`` writes the Claude desktop app's entry, ``Agents-Core-Desktop``, which takes over an
-older ``Agents-Core`` entry with its other fields: Claude Code denies that name, so the app's
-Code-tab sessions use Claude Code's own Agents-Core (``src.client_paths.DESKTOP_SERVER``, #231).
+older ``Agents-Core`` entry with its other fields: a standalone install denies that name in
+Claude Code, so the app's Code-tab sessions use Claude Code's own Agents-Core
+(``src.client_paths.DESKTOP_SERVER``, #231; ``deny_desktop_mcp.py`` lifts it for the shared service, #421).
 
 While the shared service is installed for this installation (``data/.shared-service.json``), an
 entry that ``python -m src.daemon migrate`` wrote (the stdio bridge, or HTTP) stays as it is: setup
