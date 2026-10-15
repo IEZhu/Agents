@@ -33,7 +33,7 @@ from src.engine.fingerprint import configuration_revision
 from src import component_toggles
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.server import Context
-from mcp.types import SamplingMessage, TextContent, ClientCapabilities, SamplingCapability, ToolAnnotations
+from mcp.types import TextContent, ToolAnnotations
 from typing import Annotated, Optional, List
 from pydantic import Field
 
@@ -568,7 +568,7 @@ TOOL_HINTS = {
     "list_agents": tool_hints("List agents", read_only=True),
     "log_interaction": tool_hints("Log the turn to history", read_only=False, destructive=False, idempotent=False,
                                   open_world=True),
-    "describe_repo": tool_hints("Describe the repository", read_only=False, destructive=True, idempotent=False),
+    "describe_repo": tool_hints("Describe the repository", read_only=True),
     "write_repo_summary": tool_hints("Write the repository summary", read_only=False, destructive=True,
                                      idempotent=False),
     "read_history": tool_hints("Read history", read_only=True),
@@ -1216,46 +1216,6 @@ async def _load_and_enrich(agent_name: str, query: str, chat_history_list: List[
     return final_prompt, enrichment.skills_loaded, enrichment.implants_loaded, enrichment.rules_loaded, tier
 
 
-async def _sample_with_agent(ctx: Context, system_prompt: str, query: str) -> str:
-    """Use MCP sampling to generate a response with the agent's system prompt.
-
-    The client (Claude Desktop / Claude Code) executes the LLM call —
-    no API key needed on the server side. The systemPrompt is delivered
-    as a proper system prompt field, not as tool result text.
-    """
-    debug_log("_sample_with_agent", "req", {"query": query, "system_prompt_len": len(system_prompt)})
-    result = await ctx.session.create_message(
-        messages=[SamplingMessage(
-            role="user",
-            content=TextContent(type="text", text=query),
-        )],
-        system_prompt=system_prompt,
-        max_tokens=4096,
-    )
-    # Extract text from the sampling result
-    if hasattr(result.content, "text"):
-        text = result.content.text
-    elif isinstance(result.content, list):
-        text = "\n".join(
-            block.text for block in result.content if hasattr(block, "text")
-        )
-    else:
-        text = str(result.content)
-    debug_log("_sample_with_agent", "res", {"response_len": len(text), "response_preview": text[:500]})
-    return text
-
-
-def _supports_sampling(ctx: Context | None) -> bool:
-    if ctx is None or os.environ.get("AGENTS_TRANSPORT") == "http":
-        return False
-    try:
-        return ctx.session.check_client_capability(
-            ClientCapabilities(sampling=SamplingCapability())
-        ) is True
-    except (AttributeError, RuntimeError):
-        return False
-
-
 async def _persona_debug_request(tool: str, **arguments) -> str:
     """Correlate full persona diagnostics without changing protocol request ids."""
     call_id = str(uuid.uuid4())
@@ -1873,29 +1833,22 @@ async def describe_repo(
     force_refresh: bool = False,
     workspace: ta.opt_str(ta.WORKSPACE_DESC) = None,
 ) -> str:
-    """One-shot repo bootstrap.
+    """Read-only repository description; never samples or writes project files.
 
-    Builds a deterministic context bundle from the repo. When the client
-    supports MCP sampling, asks the calling LLM to distill it into a
-    structured summary and writes the result into the managed Repository
-    Memory section of CLAUDE.md. Otherwise (or when sampling fails) it
-    writes nothing and returns needs_summary; the summary is persisted only
-    once write_repo_summary is called. Future Claude sessions read that
-    section automatically and skip re-exploring the codebase.
+    Returns a cached summary preview or a deterministic context bundle and
+    needs_summary for the calling model. Persistence is a separate explicit
+    write_repo_summary call, which refuses the running installation/source root.
+    For those protected roots the instruction directs the caller to keep the
+    overview in its answer or use a separate worktree instead of writing here.
 
     Returns JSON whose fields depend on status:
-      refreshed: {status, action, path, hash, word_count, in_word_budget, summary_preview}
-        (action: created, appended or replaced)
       up-to-date: {status, path, hash, word_count, in_word_budget, summary_preview}
-      rejected, repo changed while sampling: {status, reason}
-      rejected, sampled summary failed the sanity check:
-        {status, reason, word_count, has_heading, summary_preview}
-      needs_summary (no sampling, or sampling failed; nothing written):
+      needs_summary (refresh required; nothing written):
         {status, workspace_id, repo_hash, repo_path, prompt, instruction}
       error: {status, error}; over stdio a workspace error adds pid, workspace_inputs
         and, from a server the Claude desktop app started, hint
-    Pass workspace_id, repo_path and repo_hash unchanged to write_repo_summary;
-    the key names intentionally match its parameters.
+    Follow instruction before persisting. When a write is allowed, pass
+    workspace_id, repo_path and repo_hash unchanged to write_repo_summary.
     """
     try:
         client = await resolve_client_context(ctx, workspace)
@@ -1916,20 +1869,7 @@ async def describe_repo(
 
         prompt = await loop.run_in_executor(None, describer.build_prompt)
 
-        # Try MCP sampling if context is available.
-        if _supports_sampling(ctx):
-            try:
-                summary = await _sample_with_agent(ctx, prompt, "Generate the repository overview.")
-                payload = await loop.run_in_executor(
-                    None, describer.write_summary, summary, decision.current_hash
-                )
-                debug_log("describe_repo", "res", payload)
-                return json.dumps(payload, ensure_ascii=False)
-            except Exception as sampling_err:
-                logger.debug("describe_repo: sampling unavailable, returning prompt: %s", sampling_err)
-                debug_log("describe_repo", "sampling_fallback", {"error": str(sampling_err)})
-
-        # Fallback: return the prompt for the calling model to process.
+        write_rejection = describer.write_rejection_reason()
         payload = {
             "status": "needs_summary",
             "workspace_id": client.workspace_id,
@@ -1937,7 +1877,14 @@ async def describe_repo(
             "repo_path": describer.repo_path,
             "prompt": prompt,
             "instruction": (
-                "Sampling is not available or failed. Generate the repository overview by "
+                f"{write_rejection} Generate the overview for your answer only, or use a "
+                "separate worktree with repo_path inside the authorized workspace. "
+                "For an external worktree, first set a per-project AGENTS_CLIENT_REPO_ROOT "
+                "to its physical path and reconnect MCP, or register that physical root "
+                "over HTTP. Call describe_repo again to obtain that target's own hash. "
+                "Do not persist a summary in this checkout."
+                if write_rejection else
+                "Generate the repository overview by "
                 "following the prompt above, then call write_repo_summary("
                 f'summary=<your output>, repo_hash="{decision.current_hash}", '
                 f'repo_path={json.dumps(repo_path)}, workspace_id={json.dumps(client.workspace_id)}'
@@ -1970,6 +1917,9 @@ async def write_repo_summary(
 ) -> str:
     """Persist a repository summary after describe_repo returned status='needs_summary'.
 
+    Writes CLAUDE.md and the fingerprint cache. Refuses the running installation
+    and runtime source root before creating a lock, summary or cache file.
+
     Call this with the summary you generated from the prompt and the
     repo_hash value from the describe_repo response. repo_path and
     workspace_id are optional over stdio; over HTTP pass both back from
@@ -1977,7 +1927,7 @@ async def write_repo_summary(
 
     Returns JSON whose fields depend on status:
       refreshed: {status, action, path, hash, word_count, in_word_budget, summary_preview}
-      rejected, stale repo_hash: {status, reason}
+      rejected, protected installation/source root or stale repo_hash: {status, reason}
       rejected, summary failed the sanity check:
         {status, reason, word_count, has_heading, summary_preview}
       error: {status, error}; over stdio a workspace error adds pid, workspace_inputs
@@ -2278,9 +2228,11 @@ def _register_memory_prompts():
             f"force_refresh={force_arg})` MCP tool now as your only next action. "
             "Do not call any other tools first. If it returns status "
             "`needs_summary`, nothing was written yet: generate the overview by "
-            "following its `prompt`, then call `write_repo_summary` with that "
+            "following its `prompt` and obey its `instruction`. Only when the "
+            "instruction allows persistence, call `write_repo_summary` with that "
             "summary and the `repo_hash`, `repo_path` and `workspace_id` it "
-            "returned, unchanged. Then report the final status, hash, word count, "
+            "returned, unchanged. A protected live installation must stay untouched; "
+            "report the overview in your answer instead. Then report the final status, hash, word count, "
             "and the summary preview."
         )]
     describe_cmd.__name__ = "describe_repo"

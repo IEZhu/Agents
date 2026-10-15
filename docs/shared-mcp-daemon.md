@@ -422,8 +422,8 @@ configuration file, the stdio server serves standalone and says so on stderr.
 `AGENTS_STDIO_STANDALONE=1` in the client's environment keeps it standalone, for
 debugging the server itself. Through the service the session runs on the
 service's configuration: other settings in the client's environment, such as
-`EMBEDDING_MODEL` or `RULES_ENABLED`, do not apply, and `describe_repo` answers
-`needs_summary` instead of sampling the client, as for every bridge client.
+`EMBEDDING_MODEL` or `RULES_ENABLED`, do not apply. `describe_repo` is read-only
+on every transport and answers `needs_summary` when a refresh is needed.
 Migrating the client remains the better setup: its bridge starts directly, without
 a Python process first.
 
@@ -1357,7 +1357,17 @@ project, for example a `CLAUDE.md` symlinked to a shared file. Registering the
 workspace again does not help: replace such links with files inside the project.
 Workflows do not check these paths.
 
-After `describe_repo`, pass the original `workspace_id`, `repo_path`, and
+`describe_repo` never samples or writes project files. Follow its `instruction`
+before persisting: the running installation and runtime source root refuse
+summary writes with `status: rejected` and a `live_installation` reason, before
+creating a lock or cache. Existing summaries remain readable. A worktree may
+normalize to its main checkout. For a nested worktree inside the authorized
+workspace, select its explicit physical `repo_path`. For an external worktree,
+first set a per-project `AGENTS_CLIENT_REPO_ROOT` to its physical path and
+reconnect MCP, or register that physical root over HTTP. Obtain a fresh
+description for the writable target before persisting its summary.
+
+For a writable project, after `describe_repo`, pass the original `workspace_id`, `repo_path`, and
 `repo_hash` to `write_repo_summary` together with the summary. The header must
 identify the original workspace; source files are hashed again under the project
 lock. If the write is rejected, obtain a fresh description. After an ambiguous

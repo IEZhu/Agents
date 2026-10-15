@@ -266,8 +266,10 @@ the markers so future protocol changes preserve them.
   `src/engine/rules.py`; the configuration can disable them with `RULES_ENABLED=0`,
   and the web UI switches single rules, skills and implants off for the
   installation (`src/component_toggles.py`).
-- `describe_repo()` bootstraps repository memory. When sampling is unavailable or
-  fails, `write_repo_summary(...)` completes the managed summary. `read_history(...)`
+- `describe_repo()` reads repository context without sampling or writing.
+  `write_repo_summary(...)` explicitly persists the managed summary and refuses
+  the running installation/source root before creating a lock or cache. Follow
+  the description's `instruction` before persisting. `read_history(...)`
   retrieves existing entries; `log_interaction(...)` records turn attribution.
 - Preserve unrelated Repository Memory sections and user instructions when
   updating managed routing sections. See [docs/routing_flow.md](docs/routing_flow.md)
