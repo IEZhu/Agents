@@ -40,6 +40,10 @@ Claude side is [autodev-sandbox.md](autodev-sandbox.md) (#343), whose helpers th
   question Q-codex-commit), or the stored or decided reason (on this Mac
   `nested_sandbox_unavailable`). The settings page (#348) shows the stored reason; both read it
   without a key or a run ([the stored availability](#codex-as-a-stage-client-q14)).
+  A scheduled real run starts a fallback Claude stage only after that kind's Claude sandbox probe
+  records pass in every required mode, even when the stored Codex check passed and only the live
+  decision falls back. Otherwise it ends `refused` with the missing probe commands
+  ([automatic mode](autodev-runner.md#automatic-mode)).
 - **The live check is the owner's.** `python -m src.schedules codex-probe --confirm-live-probe`
   runs the real checks. Nothing in the tests starts the real `codex` or a model turn; the profile
   tests apply the generated profile with the real `/usr/bin/sandbox-exec` to files, a shell-script
