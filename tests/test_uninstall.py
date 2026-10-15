@@ -74,9 +74,9 @@ def checkout(path: Path) -> Path:
 
 
 def fixture_git(path, *args):
-    """Run Git only for a temporary fixture checkout."""
+    """Run Git in a temporary fixture, without ambient overrides or background maintenance."""
     environment = {name: value for name, value in os.environ.items() if not name.startswith("GIT_")}
-    return subprocess.run(["git", "-C", str(path), "-c", "core.autocrlf=false",
+    return subprocess.run(["git", "-C", str(path), "-c", "core.autocrlf=false", "-c", "maintenance.auto=false", "-c", "gc.auto=0",
                            "-c", "user.name=Uninstall Test", "-c", "user.email=test@example.invalid", *args],
                           check=True, capture_output=True, env=environment)
 
