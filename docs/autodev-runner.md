@@ -123,6 +123,8 @@ routes, unless `flows-ui --auto off` is set
 can turn it on with the acceptance flag within 15 minutes of a passing `autodev ready` while the
 acceptance is current, as it could run the CLI. It cannot make the daemon read a credential.
 
+A successful Save returns the settings and revision of the exact configuration it wrote, even if another writer changes the file before its response is built. Edits made while Save is pending stay in the form unsaved and require another Save. The form keeps those edits with the first save's returned revision, so an intervening change to the settings covered by that revision still refuses the next save with 409 `config_changed`.
+
 The API is `GET /ui/api/autodev`, `PUT /ui/api/autodev` with `{expected_revision, settings}`,
 `POST /ui/api/autodev/enable` with `{mode, accept_shared_account}` (409 `acceptance_required`,
 `not_ready` with `missing`, or `tripped_during_enable` for `run`) and `POST

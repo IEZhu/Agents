@@ -1585,6 +1585,56 @@ def test_the_autodev_page_turns_run_mode_on_with_the_acceptance_once_ready():
     assert ready["refused"]["state"] == "Off."
 
 
+@pytest.fixture(scope="module")
+def autodev_save_edits():
+    return run_autodev("autodev_save_edits")
+
+
+def test_autodev_keeps_edits_made_while_a_save_is_pending(autodev_save_edits):
+    result = autodev_save_edits
+    assert result["saved"] == {"catch_up": "66", "followup": "low", "unload_blocked": True,
+                               "saved_at": result["saved"]["saved_at"],
+                               "alert": {"text": "Saved; later edits are not saved.", "className": "notice", "items": []}}
+    assert result["pending"] == {"gets": 1, "catch_up": "66", "followup": "low", "submitted": 55, "stored": 55}
+    assert result["kept"] == {"catch_up": "66", "followup": "low", "gets": 2, "unload_blocked": True,
+                              "confirms": ["Discard the Autodev settings you have not saved?"]}
+    saved = result["resaved"]
+    assert saved["put"]["expected_revision"] == result["saved"]["saved_at"]
+    assert saved["put"]["settings"]["catch_up_minutes"] == 66
+    assert saved["put"]["settings"]["delegates"]["code-review-pass"]["effort_followup"] == "low"
+    assert saved["alert"] == "Saved." and saved["unload_blocked"] is False
+
+
+def test_autodev_refused_save_keeps_later_corrections_and_the_revision(autodev_save_edits):
+    refused = autodev_save_edits["refused"]
+    assert refused == {"times": "04:00", "catch_up": "77", "gets": 2, "unload_blocked": True,
+                       "read_at": refused["read_at"], "stored_at": refused["read_at"],
+                       "alert": {"text": "Not saved; autodev.json is unchanged:", "className": "notice error",
+                                 "items": ["times: '25:00' is not a time of day HH:MM"]}}
+    corrected = autodev_save_edits["corrected"]
+    assert corrected["put"]["expected_revision"] == refused["read_at"]
+    assert corrected["put"]["settings"]["times"] == ["04:00"]
+    assert corrected["put"]["settings"]["catch_up_minutes"] == 77
+    assert corrected["alert"] == "Saved." and corrected["unload_blocked"] is False
+
+
+def test_autodev_later_edits_cannot_overwrite_another_writers_different_field():
+    result = run_autodev("autodev_save_writer")
+    saved = result["saved"]
+    assert saved["catch_up"] == "66" and saved["hours"] == DEFAULT_FORM["hours"]
+    assert saved["unload_blocked"] is True
+    assert saved["alert"]["text"] == "Saved; later edits are not saved."
+    refused = result["refused"]
+    assert refused["put"]["expected_revision"] == saved["saved_at"] != refused["stored_at"]
+    assert refused["put"]["settings"]["catch_up_minutes"] == 66
+    assert refused["put"]["settings"]["allowed_hours"] == DEFAULT_FORM["hours"]
+    assert refused["catch_up"] == "66" and refused["hours"] == DEFAULT_FORM["hours"]
+    assert refused["stored_catch_up"] == 55 and refused["stored_hours"] == "07:00-20:00"
+    assert refused["alert"] == {"text": "autodev.json changed since the page read it; reload to see it",
+                                "className": "notice error", "items": []}
+    assert refused["unload_blocked"] is True
+
+
 def test_autodev_keeps_stored_values_the_lists_lack_and_shows_a_stored_run_mode():
     stored = run_autodev("autodev_stored")
     assert stored["stored"]["select_effort"] == "ultra"
