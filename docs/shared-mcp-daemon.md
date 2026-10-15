@@ -20,11 +20,107 @@ it; the service then always uses the path recorded at installation.
 
 The daemon supports persona protocol 2 only. Transport migration does not
 rewrite client instructions. Follow [the routing protocol](routing_flow.md) when
-keeping, switching, restoring, or refreshing a role. HTTP never samples the final
-answer and does not expose `clear_session_cache`; administrative cache clearing
+keeping, switching, restoring, or refreshing a role. Persona tools never sample the final
+answer. Optional local inference executes separate completions as described below.
+HTTP does not expose `clear_session_cache`; administrative cache clearing
 uses the controller command below.
 
+## Persistent shared artifacts
+
+The six `artifact_*` tools persist exact UTF-8 task inputs under the private
+service-state `artifacts/` directory, independently of Redis or a live model.
+Publish content or a safe workspace-relative file capture, create a task
+manifest, then retain its exact ID and SHA256 for reads and verification. The
+authenticated workspace root bounds capture; memory's canonical worktree
+normalization and local-inference source aliases do not broaden it. Stdio
+requires a resolved client root, and HTTP uses the registered workspace header.
+
+Pass the complete manifest to `get_subagent_context.artifact_manifest` for
+contract-bound native-worker read instructions, or to
+`local_context_create.artifact_manifest` for exact broker hydration before byte
+and token budget checks. Local completions still have no tool loop. The parent
+must independently verify artifact-backed evidence alongside structural worker
+result validation. Expiry/release ends access without deleting persistent data;
+there is no garbage collection in this format, so release does not reclaim
+quotas. The [artifact operations guide](shared-artifacts.md) documents all six
+tools, persistence limits, required-input failures and both execution paths.
+
+## Local inference
+
+Local text generation is disabled by default and separate from the embedding
+executor. Install `.[local-inference]` in the service environment only when
+enabling it; `.[local-inference-redis]` additionally supplies the optional
+redis-py 7.0 client. These extras are not needed to import the server or call
+disabled tools. No tool downloads models or deploys configuration.
+
+Set `AGENTS_LOCAL_INFERENCE_CONFIG` to an absolute owner JSON path in the daemon's
+environment. Start from the [configuration example](shared-kv-mcp/owner-config.example.json),
+select an existing GGUF and executable, and register source roots against the
+authorized workspace root. Version 1 targets llama.cpp build 11429, commit
+`d81235049384534c167caea52b85a694f6103d14`; other builds fail closed. The service
+owns one child with a fresh private Unix socket, API key and spool; native HTTP
+never falls back to TCP or attaches to another engine. The schema-1 `port` field
+is accepted but unused. Only the owned child can be terminated. Effective context capacity is
+reported after startup, including the pinned engine's one-token headroom.
+
+Use `local_context_create`, retain its separate owner/access tokens privately,
+and grant bounded child capabilities with `local_context_grant`. Submit a UUID
+request with `local_generate`; it returns a job immediately. Poll with
+`local_generation_result` (at most 20 seconds per poll), then release the context.
+The submitting grant can inspect its jobs; the owner token can inspect all of
+the context's jobs. Actor labels do not authorize access. Repeated identical
+submissions keep their job and budget reservation; conflicting arguments fail.
+The [API contract](shared-kv-mcp/api-contract.md) gives exact schemas and errors.
+Direct stdio returns `transport_unsupported`; the existing stdio-to-HTTP bridge
+can reach this service. Workspace partitioning is for one trusted local OS owner.
+
+One FIFO transaction includes rendering, source freshness checks, generation,
+snapshot operations and fencing. Cancelling a waiter does not prove native work
+stopped: the service reaps its child before admitting the next transaction.
+Drain waits for local jobs and cleanup separately from embedding work. Shutdown
+has a bounded local grace period. Public logs, tracing, health and validation
+errors omit prompts, outputs, bearer tokens, source bytes and Redis credentials.
+
+Resident hits come from native counters checked against exact token prefixes.
+Missing owner probe evidence leaves capabilities `unknown`; observed reuse does
+not silently upgrade them. `cache_mode="off"` performs no snapshot reads/writes.
+Redis is disabled by default, stores chunked opaque state under signed bounded
+manifests, and never grants access independently of a live broker capability.
+Broker restart discards capabilities; engine-only restart can restore a verified
+snapshot for the still-live context. Snapshot failures fall back before one
+generation or retain an already completed answer with a cache warning.
+
+An artifact-backed context hydrates every selected manifest entry exactly and
+rechecks access/integrity before dispatch, publication and result reads. Reuse
+one context with separate grants for a common prefix; persistent artifact bytes
+do not enlarge effective model capacity or preserve ephemeral capabilities
+across a broker restart. See [shared artifacts](shared-artifacts.md#optional-local-completion).
+
+Run the explicit owner diagnostic and benchmark only in a separate private state
+directory with their own private native socket namespace. Their commands and observed acceptance
+are in the [implementation report](shared-kv-mcp/implementation-report.md).
+No ordinary status/import call runs a capability probe. See the
+[snapshot protocol](shared-kv-mcp/redis.md) and [validation matrix](shared-kv-mcp/validation.md).
+
 ## Installation and client migration
+
+An owner-controlled service configuration may explicitly set `runtime_root` to
+the absolute source tree executing `src.daemon`, while retaining `installation`
+as the canonical content/state identity. Without this field, the executing
+source and installation must match. Bootstrap binds these paths before engine
+imports and refuses mismatched sources or a late/conflicting binding. The
+canonical installation still supplies `.env`, component catalogs, personal
+flows, indexes, scheduler/user-sync identity and the installation lease; health
+reports both roots. This preserves the original stdio bridge's installation
+check. Both trees remain excluded from trusted runner locations.
+
+This field does not select an interpreter, copy dependencies, switch a running
+service or protect a mutable source tree. A source override requires a persistent
+owner-managed launcher/interpreter, verified source manifest, compatible existing
+dependencies, explicit updater handling and configuration rollback. Retain its
+worktree while it serves; never repoint a running daemon at edited files. The
+[resident deployment report](shared-kv-mcp/resident-deployment-report.md) records
+the local rollout and its exact checks separately from normal installation.
 
 Run commands from the installation root with its Python interpreter. For the
 first migration:
@@ -526,9 +622,12 @@ responds; otherwise it reports `not_installed`, `starting`, or `stopped` from lo
 configuration and launchd. A live response includes PID, boot ID, request
 counts (`inflight` for work, `streams` for open client notification streams),
 `idle_seconds` since the last request finished, and pending job counts
-(`io_pending` for running or queued I/O jobs, user sync's engine calls included,
-`inference_pending` for model work), and the `user_sync` summary
+(`io_pending` for running or queued I/O jobs, user sync and artifact work included,
+`inference_pending` for embedding work, and `local_inference_pending` for detached
+local-generation work), and the `user_sync` summary
 (see [User library sync](#user-library-sync)).
+Automatic update admission checks `local_inference_pending` both before building
+and again before draining, so detached generation prevents an idle update.
 When the service does not respond, `status` also reports `supervised` (launchd
 has the job loaded; on Windows, the task's repetition is on), `maintenance` and `transaction`, and reads the `user_sync`
 summary with the sync engine; a `transaction` that remains while no controller
@@ -670,7 +769,14 @@ the item, with no tab active:
   links to its entry on the History tab.
 - **AI apps**: Claude Code, Claude Desktop, Codex and Cursor, each connected,
   configured or not set up, in words.
-- **Model, directories and sizes**: the version, the embedding model and its size,
+- **Updates** ([#381](https://github.com/IEZhu/Agents/issues/381)): the version, the
+  branch the installation follows (its [update channel](../README.md#update-channel))
+  and where that setting comes from, the checked-out branch, whether scheduled
+  updates are on and the last scheduled run, and when a change applies: at the next
+  scheduled run, or with the `update` command it names. A `main` / `dev` choice with
+  **Save** writes the setting; a switch to a branch that does not contain the
+  installed code asks for a confirmation first.
+- **Model, directories and sizes**: the embedding model and its size,
   the counts of agents, rules, skills, implants and flows, and each directory with
   its path, size and **Copy**.
 
@@ -1058,8 +1164,22 @@ counts of agents, rules, skills, implants and flows (built-in, personal and in
 repositories); the directories (the installation, `data/`, the service directory,
 personal flows, the model cache and the stdio servers' logs) with their sizes; and
 per app whether a client configuration this machine has holds an Agents-Core entry
-(read like `audit`, without any header value). Sizes are measured off the event loop,
+(read like `audit`, without any header value), and the update channel: the
+configured branch and its source (`.env` or the default; the service's own
+environment does not count), the checked-out branch, whether scheduled updates are
+on and their interval, the last scheduled run (its strings without credentials),
+the offered branches, the `update` command, when a saved change applies and the
+setting's `revision`. Sizes are measured off the event loop,
 without following symlinks, at most every 5 minutes; the rest is read with each request.
+
+`GET /ui/api/updates` answers the version and that update channel; `PUT
+/ui/api/updates` with `{expected_revision, branch, allow_downgrade}` saves `main` or
+`dev` through `src.update_channel.set_branch`, the writer of `channel set`, in a
+worker thread (it reads the remote) and under `control.lock`. Both need the session
+and `X-Agents-UI` with a same-origin `Origin`. The PUT answers 400 for a branch the
+page does not offer, an unsafe one or one the remote does not have, 409 `conflict`
+for a stale revision, 409 `downgrade` until the page sends the owner's confirmation,
+409 `busy` while another control command runs, and 502 when the remote cannot be read.
 
 ## User library sync
 
@@ -1355,14 +1475,39 @@ without an execution time limit, and `IgnoreNew` skips a run while the previous
 one still updates. A run fetches `AGENTS_AUTO_UPDATE_REMOTE` /
 `AGENTS_AUTO_UPDATE_BRANCH` (defaults `origin` / `main`) and stops there when the installation is up to date
 and no [model switch](#embedding-model) is pending.
-Unlike stdio servers, the controller reads these variables,
-`AGENTS_AUTO_UPDATE_TIMEOUT` and `AGENTS_AUTO_UPDATE_REINDEX_TIMEOUT` from its own
-environment, not from `.env`: the updater LaunchAgent does not set them, so
-scheduled runs normally use the defaults, and a manual `update` uses the values
-exported in its shell. A run skips a target without touching the service when
-the checked-out branch is different, tracked files have local changes, the
-target is not a fast-forward, or dependency manifests changed; each skip is
-logged once per target. Otherwise it waits until the service is ready, has no
+These two are the installation's [update channel](../README.md#update-channel), which
+the stdio servers use as well: the controller (`update`, `auto-update run` and
+`status`, `channel`) reads them, `AGENTS_AUTO_UPDATE_PREVIOUS_BRANCH` and
+`AGENTS_AUTO_UPDATE_ALLOW_DOWNGRADE` from the installation's `.env` with
+`dotenv_values`, without loading the rest of `.env` into its environment. A
+variable exported in the controller's shell overrides the file for that command.
+`AGENTS_AUTO_UPDATE_TIMEOUT` and `AGENTS_AUTO_UPDATE_REINDEX_TIMEOUT` still come
+only from the controller's own environment: the updater LaunchAgent does not set
+them, so scheduled runs use the defaults, and a manual `update` uses the values
+exported in its shell.
+
+`.venv/bin/python -m src.daemon channel show` prints the configured branch and
+its source, the checked-out branch, HEAD, the remote tip and the last update
+results; `channel set <branch> [--allow-downgrade]` saves another branch under
+`control.lock`, and the overview's Updates section of the [flow editor](#overview-and-statistics) saves
+`main` or `dev` through the same function (`PUT /ui/api/updates`, with the
+session, `X-Agents-UI`, same-origin and revision checks of the other UI writes).
+Saving changes no code: the next `update` or scheduled run switches a checkout
+that is on the previous setting (`AGENTS_AUTO_UPDATE_PREVIOUS_BRANCH`, recorded by
+`set`) to the configured branch, inside the same transaction (gates, build while
+serving, probation, rollback to the previous branch, the target branch's old tip
+and upstream settings, and the stores). The transaction re-reads the channel
+after the build and defers, discarding the build, when it changed meanwhile. A
+branch exported over `.env` never switches; `update` reports the override in `note`. A target that
+lacks non-merge commits of HEAD is a downgrade and is skipped until the
+confirmation that `set --allow-downgrade` or the UI records for that HEAD; a
+release's merge commit is not one ([calendar releases](releases.md#procedure)).
+
+A run skips a target without touching the service when the checked-out branch is
+neither the configured branch nor the previous setting, or a switch would be needed
+to a branch exported over `.env`, the target branch is checked out in another
+worktree, tracked files have local changes, the target is not a fast-forward (or, for a switch, an
+unconfirmed downgrade), or dependency manifests changed; each skip is logged once per target. Otherwise it waits until the service is ready, has no
 work in flight, and has been idle for `--idle-seconds` (default 120), and then
 runs the same transaction as `update`. It also waits while any stdio server of
 this installation is running, since `update` would stop the service only to find

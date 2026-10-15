@@ -48,18 +48,22 @@ entry even when the [Claude plugin](#claude-plugin) serves it.
 |---|---|---|
 | `AGENTS_HOME` | `~/.agents-core` | Install directory |
 | `AGENTS_REPO_URL` | `https://github.com/IEZhu/Agents.git` | Repository for a fresh clone |
-| `AGENTS_BRANCH` | `main` | Branch to install; the standalone auto-updater acts only on `AGENTS_AUTO_UPDATE_BRANCH` (default `main`) |
+| `AGENTS_BRANCH` | `main` for a new clone; a rerun keeps the checked-out branch | Branch to install: `main` takes releases, `dev` every merged pull request. A new `.env` gets it as `AGENTS_AUTO_UPDATE_BRANCH`, so both updaters follow it; an existing `.env` that names another branch keeps it, with a warning ([update channel](#update-channel)) |
 | `AGENTS_ASSUME_YES` | unset | `1`, `true` or `yes` skips the confirmation, as does `... \| bash -s -- --yes` |
 | `AGENTS_USER_SYNC_REPO`, `AGENTS_USER_SYNC_REMOTE` | unset | Set up [sync between machines](#sync-between-machines) without questions, with the variables listed there |
 
 The installer never uses `sudo`. It refuses a non-empty `AGENTS_HOME` that is not
 an Agents-Core checkout.
 
-Rerunning it updates an existing checkout: it checks out `AGENTS_BRANCH`,
-fast-forwards it from the checkout's `origin`, then reruns setup, which refreshes
-dependencies in `.venv` and the indexes in place. First close the client sessions
-that run this installation's stdio server, as for any manual Git operation or
-rebuild. If this checkout serves the shared macOS service, update it with
+Rerunning it updates an existing checkout: it fast-forwards the checked-out
+branch from the checkout's `origin` (or checks out `AGENTS_BRANCH` when that is
+set), then reruns setup, which refreshes dependencies in `.venv` and the indexes
+in place, and warns when `.env` follows another branch than an explicit
+`AGENTS_BRANCH`. Without `AGENTS_BRANCH` a rerun keeps the checked-out branch
+(a detached HEAD gets `main`) and never switches channels: that is
+`channel set`'s job, with its downgrade check ([update channel](#update-channel)).
+First close the client sessions that run this installation's stdio server, as
+for any manual Git operation or rebuild. If this checkout serves the shared macOS service, update it with
 `.venv/bin/python -m src.daemon update` instead (see [Updates](#updates)).
 An update is refused when the checkout has uncommitted changes to tracked files
 (commit or stash them first). Untracked files do not block an update and are left
@@ -113,6 +117,11 @@ powershell -ExecutionPolicy Bypass -File scripts\uninstall.ps1 --dry-run   # Win
   `~/.claude/settings.json`), Claude Desktop, Codex, Cursor and Antigravity (with its
   `agents-core` plugin), and in the `.mcp.json`, `.codex/config.toml` and `.cursor/mcp.json` of
   every workspace the service registered. Other servers and settings stay byte for byte.
+  Optional session readiness hooks and Desktop's `Agents-Readiness` entry are removed only
+  when their generated settings still match and their interpreter belongs to this installation's
+  `.venv`. Their copied runtimes are removed only when unchanged and no remaining handler
+  references them. Modified entries, files and adapters from another installation are listed
+  as kept so you can remove them manually.
 - **Instructions**: only the section between the routing-protocol markers in
   `~/.claude/CLAUDE.md` and Codex's `AGENTS.md`, and the generated routing reminder in Claude's
   memory. A file left empty is deleted.
@@ -135,12 +144,25 @@ lists what was removed, what was kept and why. A path is removed only when it is
 inventory, is neither a symbolic link nor a junction, and resolves inside the home directory; a
 directory that `AGENTS_HOME`, `AGENTS_SERVICE_DIR`, `FASTEMBED_CACHE_DIR` or
 `AGENTS_USER_FLOWS_DIR` names is removed only when its content shows it is Agents-Core's (a
-checkout `AGENTS_HOME` names is kept when it has uncommitted changes, untracked files or a branch
-besides `main`), and
+checkout `AGENTS_HOME` names is kept when it has uncommitted changes, untracked files, a branch
+outside the published `main` and `dev` channels, commits from local refs, reflogs or HEAD
+outside known remote-tracking history, or ignored files outside the installer's `.env` file and `.venv/`
+directory), and
 nothing that is or contains a filesystem root, the home directory, `~/Documents` or a profile
 or XDG base directory is ever removed. Backups are private (0700 directories, 0600 files). A
-checkout you cloned yourself and run the script from is kept;
-so are the files Agents-Core wrote into your projects (`history.md`, `history/`, the Repository
+checkout you cloned yourself and run the script from is kept when it is separate from the
+installation being removed. The commit check uses existing local remote-tracking refs without
+fetching; it does not confirm that the remote is still available. `.env` and `.venv/` are
+intentional installation assets and can be removed, so keep personal files elsewhere. Other
+ignored material, including extra runtime caches, conservatively keeps the selected checkout.
+Registered submodules and retained `.git/modules` repositories also keep the whole checkout,
+because parent Git history does not establish ownership of nested private work.
+Git safety inspections use a copy of the process environment without inherited `GIT_*`
+overrides, while preserving all other entries; other uninstall commands inherit the normal
+environment. Untracked-file detection overrides Git settings that hide these files, and the
+selected checkout is inspected again immediately before removal, after confirmation. This is not a
+transaction with other writers: serialize install, uninstall and direct checkout edits.
+Also kept are the files Agents-Core wrote into your projects (`history.md`, `history/`, the Repository
 Memory section of `CLAUDE.md`), which the report lists. The logic is `src/uninstall.py`.
 
 ### Claude Code cloud sessions
@@ -267,6 +289,8 @@ LANGFUSE_SECRET_KEY=
 LANGFUSE_HOST=https://cloud.langfuse.com
 ANTHROPIC_API_KEY=sk-ant-...    # Optional: for document OCR
 AGENTS_DEBUG=0                  # Set to 1 for per-call JSON debug logs
+# Optional local generation, disabled when unset; absolute owner JSON path
+# AGENTS_LOCAL_INFERENCE_CONFIG=/absolute/local-inference.json
 ```
 
 Both keys set enable tracing, so leave them empty to run without Langfuse. The
@@ -321,6 +345,11 @@ The shared service switches in its update transaction instead
 | `FASTEMBED_CACHE_DIR` | `~/.cache/fastembed` | Persistent model cache; the shared service's `install` reads it only from the shell ([daemon guide](docs/shared-mcp-daemon.md)) |
 | `AGENTS_CLIENT_REPO_ROOT` | Unset: a tool call's `workspace` inside the client's MCP roots, else the nearest `.git` or `CLAUDE.md` at or above `CLAUDE_PROJECT_DIR` or the working directory ([rules](#-repository-memory)) | Explicit stdio memory and workflow target. Refused with `workspace_unsafe` when it is a system, program or home directory. Set it in a per-project MCP entry's `env`, never in the installation `.env`, a shared registration or the Desktop entry |
 | `RULES_ENABLED` | `1` | Include [shared rules](rules/README.md) in loaded context |
+| `AGENTS_COOPERATION_ENABLED` | `0` | Opt the installed daemon into the local [agent cooperation service and mailbox](docs/agent-cooperation/README.md); HTTP and existing stdio-bridge clients share it; standalone stdio returns `store_unavailable` |
+| `AGENTS_COOPERATION_RETENTION_DAYS` | `30` | Owner retention window for terminal cooperation receipts/events (integer, minimum 30); invalid values leave coordination unavailable; see [maintenance and recovery](docs/agent-cooperation/runtime.md) |
+| `AGENTS_USER_RULES_DIR` | `data/user-rules` in the installation | Machine-local cache for [URL-subscribed user rules](docs/user-rules.md), separate from flow sync |
+| `AGENTS_RULE_AUTH_HOSTS` | Unset | JSON map from a Bearer-token environment variable name to its exact permitted source hostname, required when `auth_env` is used for a user rule |
+| `AGENTS_RULE_PRIVATE_HOSTS` | Unset | Exact hostnames allowed to resolve to RFC1918 IPv4 for user-rule fetches; comma or whitespace separated; loopback/link-local remain denied |
 | `INTENT_CLASSIFIER_ENABLED` | `0` | Enable the optional intent-based enrichment classifier |
 | `AGENTS_USER_FLOWS_DIR` | `flows/.user` in the installation | Location (absolute path) of [personal and repository flows](flows/README.md#personal-and-repository-flows), their persona choices, and the installation's rule, skill and implant switches (`components.json`) |
 | `AGENTS_GITHUB_HOST` | `github.com` | GitHub host that [library sync](docs/user-sync.md#github) signs in to and calls; set it for GitHub Enterprise Server |
@@ -476,10 +505,12 @@ store; the interaction journal `history.md` retains its separate role.
 
 ### Updates
 
-Feature PRs target `dev`; release PRs promote `dev` into `main`. Merged release
-PRs record the existing UTC calendar version with an immutable Git tag at the
-resulting commit. See [Calendar releases](docs/releases.md) for event guards,
-same-minute releases and retry behavior.
+Feature PRs target `dev`; release PRs promote `dev` into `main`
+([branches and releases](#branches-and-releases), with the release
+[procedure](docs/releases.md#procedure)). Merged release PRs record the existing
+UTC calendar version with an immutable Git tag at the resulting commit. See
+[Calendar releases](docs/releases.md) for event guards, same-minute releases and
+retry behavior.
 
 The shared daemon has its own update controller. Run
 `.venv/bin/python -m src.daemon update` for a manual update; automatic daemon
@@ -488,6 +519,50 @@ See [service updates and recovery](docs/shared-mcp-daemon.md#updates-and-recover
 While the service runs, do not update its checkout with `install.sh`, `git pull` or
 `scripts/init_repo.sh`: they bypass drain, maintenance, index backup, probation
 and rollback. The daemon disables the standalone updater described below.
+
+#### Update channel
+
+An installation follows one branch, its update channel: `main` takes releases,
+`dev` every merged pull request ([branches and releases](#branches-and-releases)).
+The setting is `AGENTS_AUTO_UPDATE_BRANCH` in the installation's `.env` (default
+`main`), and both updaters read it: the stdio servers load `.env`, and the shared
+service's controller (`update`, `auto-update run` and `status`, `channel`) reads
+only the update channel keys from it. A variable exported in a shell overrides the
+file for the commands started there, but only to steer the fast-forwards of a
+checkout already on that branch: it never switches branches. `channel show`, `update`
+and `auto-update status` say when the environment overrode `.env`.
+
+```bash
+.venv/bin/python -m src.daemon channel show       # setting and source, checkout, HEAD, remote tip, last update
+.venv/bin/python -m src.daemon channel set dev    # follow dev from the next update on
+.venv/bin/python -m src.daemon channel set main --allow-downgrade
+```
+
+Without the shared service, `.venv/bin/python -m src.update_channel show|set`
+does the same. The web UI's overview (the version in its header) has an
+Updates section that shows the version, the setting and the checked-out branch,
+the scheduled updates and their last run, and saves `main` or `dev`. The CLI
+accepts any branch the remote has, with a warning: feature branches get
+rewritten and then stop fast-forwarding.
+
+Saving changes no code. The next update applies it: `update`, a scheduled run, or,
+without the service, a stdio server's next idle start. That update switches the
+checkout only when it is on the previous setting, which `set` records as
+`AGENTS_AUTO_UPDATE_PREVIOUS_BRANCH`; a checkout on any other branch is local
+development and stays untouched, and so is a checkout whose `.env` setting was
+edited by hand without a previous record (`channel set` names the way out). The
+switch runs through the usual update transaction, with its gates (idle service,
+clean tracked tree, unchanged dependency manifests), the build while the service
+serves, probation and rollback to the previous branch, with the target branch's
+old tip and upstream settings restored. It waits while another worktree has the
+target branch checked out. A switch to a branch that lacks non-merge commits of the installed HEAD,
+for example `dev` → `main` before a release, would go back to older code that may
+not read state or `.env` changes the newer code made: `set` refuses it until
+`--allow-downgrade` or the UI's confirmation, which is recorded for that HEAD only
+(`AGENTS_AUTO_UPDATE_ALLOW_DOWNGRADE`). A release's merge commit does not count, so
+`main` → `dev` after a release needs no confirmation. `AGENTS_BRANCH=dev` with
+`install.sh` installs `dev` and, for a new `.env`, writes it as the setting (an
+existing one keeps its setting, with a warning).
 
 #### Standalone stdio auto-update
 
@@ -512,10 +587,13 @@ mid-session:
 
 It is **safe by default**:
 
-- acts **only** when the checked-out branch is `AGENTS_AUTO_UPDATE_BRANCH` (default
-  `main`) — a **no-op on feature branches**, so local development is never touched;
-- only when the working tree is clean, and only **fast-forward** (never merge, rebase,
-  or switch branches);
+- follows `AGENTS_AUTO_UPDATE_BRANCH` (default `main`): it fast-forwards that
+  branch, or switches to it from the previous setting ([update
+  channel](#update-channel)) — a **no-op on feature branches**, so local development
+  is never touched;
+- only when the working tree is clean; a fast-forward (never merge or rebase), or
+  a branch switch to the target branch's tip, which needs the recorded confirmation
+  when that tip lacks commits of HEAD;
 - a failed staged build discards the worktree and leaves the install as-is; crash
   recovery also uses the store's torn-pair detection and content-hash re-embed;
 - staging and store paths must not contain symlinks; store moves are covered by
@@ -568,7 +646,7 @@ restart the server. An unreadable journal also requires this explicit recovery.
 ```env
 AGENTS_AUTO_UPDATE=1                     # 0 to disable
 AGENTS_AUTO_UPDATE_REMOTE=origin
-AGENTS_AUTO_UPDATE_BRANCH=main           # only updates when this branch is checked out
+AGENTS_AUTO_UPDATE_BRANCH=main           # the update channel: main (releases) or dev
 AGENTS_AUTO_UPDATE_TIMEOUT=30            # seconds per git op
 AGENTS_AUTO_UPDATE_INTERVAL=900          # throttle network checks (0 = every start)
 AGENTS_AUTO_UPDATE_REINDEX_TIMEOUT=3600  # seconds per index build (staged or in-place); stops only a hung build
@@ -597,17 +675,43 @@ The server exposes MCP tools that any compatible client can call:
 | `refresh_persona_context(query, current_persona, chat_history?)` | Refresh skills/implants for the active role without reselecting it |
 | `get_subagent_context(agent_name, task, acceptance_criteria, ...)` | Prepare a compact task-scoped worker role, bounded components and a versioned result contract; [worker guide](docs/subagent-contract.md) |
 | `validate_subagent_result(contract, result)` | Check the worker result against the parent-retained contract; structural validation only, without opening references |
+| `cooperation_register(...)` | Register bounded work in the optional local cooperation journal; does not spawn workers or grant repository access |
+| `cooperation_read(...)` | Read a bounded repository snapshot and ordered cooperation events through the verified workspace |
+| `cooperation_apply(...)` | Apply an authenticated, revision-checked cooperation action; journal claims coordinate participating agents, not arbitrary filesystem writes |
+| `cooperation_send(...)` | Persist a bounded message for a participant in the same repository through the shared MCP mailbox |
+| `cooperation_receive(...)` | Poll the authenticated participant's inbox; messages remain pending until acknowledged |
+| `cooperation_ack(...)` | Acknowledge inbox delivery only; does not accept agreement terms, artifacts or new permissions |
 | `load_implants(query\|task_type)` | Load cognitive reasoning strategies by semantic query or preset bundle |
 | `list_agents()` | Enumerate all available agents with metadata |
 | `list_flows(scope="all")` | Discover built-in, personal (`user:`) and repository (`repo:`) Markdown workflows, with IDs and content revisions |
 | `run_flow(flow, request="", repo_path=None, current_persona?)` | Load a workflow for the caller's repository; returns `needs_execution` for the current model to carry out using its tools, plus `persona_activation` when the flow names a persona |
 | `get_flow` / `save_flow` / `delete_flow` | Manage personal and repository flows from chat, with history and conflict detection; stored in the git-ignored `flows/.user` ([details](flows/README.md#personal-and-repository-flows)) |
 | `set_flow_persona(flow, agent?, skills?, implants?, rules?, reset=False)` | Choose the agent and exact skills, implants and rules a flow runs with, without copying its text; stored in `flows/.user/personas/`. Without `agent` the flow runs without a persona; `reset=true` restores the flow's frontmatter ([details](flows/README.md#choose-a-flows-agent-and-components)) |
+| `list_user_rules` / `get_user_rule` / `subscribe_user_rule` / `refresh_user_rule` | Inspect or explicitly fetch cached [URL-subscribed user rules](docs/user-rules.md); only subscribe and refresh contact the source |
+| `set_user_rule_enabled` / `rollback_user_rule` / `delete_user_rule` | Change a user rule using its current revision, without fetching; private cached content stays outside flow sync |
 | `log_interaction(agent_name, query, response_content, persona?, persona_action?, intent?, action?, outcome?, files?, tags?, request_id?, reasoning?)` | End-of-turn attribution log ([details](#-repository-memory)); `persona` is the last `SUCCESS`/`NO_CHANGE` descriptor object copied verbatim with all 7 keys (`agent`, `activation_id`, `bundle_revision`, `scope`, `skills_loaded`, `implants_loaded`, `rules_loaded`), `persona_action` is `keep`, `switch`, `refresh` or `restore` and only goes with `persona`; `files`/`tags` are JSON arrays. Malformed attribution is written as `unverified` |
 | `clear_session_cache()` | Stdio only: administrative reset of the shared enrichment cache; not required for persona changes. For HTTP, use `.venv/bin/python -m src.daemon clear-cache` |
 | `describe_repo(repo_path=None, force_refresh=False)` | Repository summary bootstrap; returns `needs_summary` when sampling is unavailable (always over HTTP) or fails ([details](#-repository-memory)) |
 | `write_repo_summary(summary, repo_hash, repo_path=None, workspace_id=None)` | Persists the summary after `needs_summary`; pass its `repo_hash`, `repo_path` and `workspace_id` back unchanged |
 | `read_history(limit?, since?, query?, machine?, offset?, entry_id?)` | Recent entries or lazy semantic recall over the action log, with long texts as previews that keep the result under Claude Code's 50,000-character limit; `offset` pages on, `entry_id` returns one entry whole; with [user library sync](docs/user-sync.md#repository-history), also the entries the user's machines shared, filtered by `machine` (a label, or `local`) |
+| `artifact_publish` / `artifact_manifest_create` | Persist exact UTF-8 task data and pin selected artifact IDs/hashes in a task manifest; [artifact guide](docs/shared-artifacts.md) |
+| `artifact_manifest_get` / `artifact_read` / `artifact_manifest_verify` / `artifact_manifest_release` | Retrieve an active pinned manifest, read bounded slices, independently verify stored bytes or revoke subsequent manifest access while retaining data |
+| `local_inference_status()` | Lazy configuration/capability status for the optional local generation service; does not start a model or contact Redis |
+| `local_context_create` / `local_context_grant` / `local_context_revoke` / `local_context_release` | Capture owner-authorized shared text/files, issue scoped bearer grants, revoke a child or release a context |
+| `local_generate` / `local_generation_result` / `local_generation_cancel` | Submit one bounded completion, reconnect/poll its retained result, or cancel it; UUID deduplication prevents a repeated submit from generating twice |
+
+For shared task inputs, publish once and pass the complete manifest to
+`get_subagent_context.artifact_manifest`. Preparation pins it in the retained
+contract and supplies exact reads for a native worker. The parent still validates
+the unchanged result and independently verifies its artifact evidence. Optional
+`local_context_create.artifact_manifest` instead hydrates every selected entry
+exactly into the bounded local context before generation; it does not extend
+model capacity or provide a tool loop. Artifacts persist in private service state
+independently of Redis; manifest expiry/release ends access without deleting
+bytes. See [persistent shared artifacts](docs/shared-artifacts.md) for workspace
+capture boundaries, quotas and the complete workflow.
+
+The optional [cooperation runtime](docs/agent-cooperation/README.md) is disabled by default. Its mailbox lets different AI MCP clients and model providers exchange messages through the same enabled installed HTTP daemon, including clients using the existing stdio bridge; it needs no native host messaging tool. Standalone stdio has no coordinator. Delivery is recipient polling, with no automatic model launch or wakeup. This source implementation has not been enabled in the live installation or evaluated with different provider models.
 
 The server also registers MCP prompts (slash commands): `ask` routes like
 `route_and_load`; one prompt per agent `routing.trigger_command` and per
@@ -678,8 +782,10 @@ web UI). Every successful switch, restore or
 refresh replaces all four blocks, including changed or removed rules, while
 preserving higher-priority instructions, conversation facts, goals, permissions
 and tool results. This is logical replacement: MCP cannot physically delete old
-messages. No history or cache clearing is required. The server never samples an
-answer.
+messages. No history or cache clearing is required. Persona tools never sample
+the conversation's answer. The separately enabled local inference tools execute
+bounded completions on an owned local engine; they do not replace the client's
+reasoning or native worker spawning.
 
 Protocol 2 is the only protocol since 2026-09-29 (installer default since
 2026-09-26). Clients pass `protocol_version=2` (also the default); any other value
@@ -1184,6 +1290,16 @@ refresh process](flows/documentation-refresh.md) for documentation work, and
 Keep reusable model task instructions in `flows/` and list them in the
 [workflow catalog](flows/README.md), which explains how to run them locally or
 through `run_flow`.
+
+### Branches and releases
+
+Every pull request targets `dev`, the integration branch; a release is a pull
+request from `dev` into `main`, merged with a merge commit and tagged with its
+calendar version. [Calendar releases](docs/releases.md) is the release procedure:
+the merge method, closing keywords, hotfixes, the rules for `dev` and the tag
+workflow. Installations choose their branch with `python -m src.daemon channel set
+main|dev` or the web UI's Updates section ([update channel](#update-channel)). The
+`push` triggers of the CI workflows cover `main` and `dev`.
 
 ### Validation
 

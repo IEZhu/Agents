@@ -562,6 +562,23 @@ def test_a_component_body_is_rendered_with_source_on_demand(ui):
     assert ui["skill_source"] == {"view_hidden": True, "source_hidden": False}
 
 
+def test_user_rule_toggle_uses_displayed_revision_and_reloads_a_conflict():
+    result = run("ui_user_rule_toggle")
+    first = {"kind": "rules", "id": "user:team", "enabled": True, "expected_revision": "r1"}
+    assert result["conflict"] == {
+        "puts": [first], "alerts": ["rule_conflict: stale revision"], "enabled": False,
+        "displayed": {"body": "Accepted B", "revision": "r2"},
+    }
+    assert result["retry"] == {"puts": [first, {**first, "expected_revision": "r2"}], "enabled": True}
+
+
+def test_damaged_user_rule_is_visible_but_cannot_be_toggled():
+    result = run("ui_user_rule_error")
+    assert result["damaged"] == {"disabled": True, "writes": [], "body": "",
+                                  "description": "rule_invalid: corrupt subscription"}
+    assert result["recovered"] == {"disabled": False, "body": "Repaired guidance"}
+
+
 @pytest.mark.parametrize("scenario, first_hidden, after_header_button, stored", [
     ("ui_narrow", True, False, [["agents-ui-toc-hidden", "0"]]),
     ("ui_narrow_stored", False, True, [["agents-ui-toc-hidden", "1"]]),
@@ -1238,6 +1255,55 @@ def test_the_choice_sends_ui_to_flows_and_survives_a_reload(landing):
                                  "new_flow": True, "reads": []}
 
 
+# --- the overview's Updates section (#381) -----------------------------------------------------
+
+def test_the_updates_section_shows_the_channel_and_saves_a_pick():
+    result = run("landing_updates")
+    start = result["start"]["text"]
+    for shown in ("Agents-Core 26.10.06.1200", "Followsmain (the default)", "Checked outmain",
+                  "Scheduled updateson, every 15 min when the service is idle", "up_to_date",
+                  "Updates fast-forward main at the next scheduled run"):
+        assert shown in start, shown
+    # The fixed note leaves when a save applies to `when` (also 'local' and scheduled updates off) and
+    # says that an exported branch never switches (#381 review round 2).
+    assert "only steers fast-forwards: it never switches branches" in start and "applies it" not in start
+    assert result["start"]["radios"] == [["main", True, False], ["dev", False, False]]
+    assert result["start"]["save"] == ["Save", True]  # nothing to save yet
+    assert result["kept_after_poll"]  # the statistics' poll does not rebuild the choice
+    assert result["picked"]["save"] == ["Save", False]
+    assert result["puts"] == [{"expected_revision": "r1", "branch": "dev", "allow_downgrade": False}]
+    assert result["confirms"] == []
+    saved = result["saved"]
+    assert "Followsdev (set in .env)" in saved["text"] and "The switch from main to dev happens" in saved["text"]
+    assert saved["alert"].startswith("Saved: this installation follows dev. The switch from main to dev happens")
+    assert saved["save"] == ["Save", True] and saved["radios"] == [["main", False, False], ["dev", True, False]]
+
+
+def test_a_downgrade_is_saved_only_after_the_confirmation():
+    result = run("landing_updates_down")
+    assert [put["allow_downgrade"] for put in result["puts"]] == [False, True]
+    assert {put["expected_revision"] for put in result["puts"]} == {"r1"}
+    assert len(result["confirms"]) == 1 and "would go back to older code" in result["confirms"][0]
+    assert "--allow-downgrade" not in result["confirms"][0] and "Follow main anyway?" in result["confirms"][0]
+    assert result["saved"]["alert"].startswith("Saved: this installation follows main.")
+    assert "Followsmain (set in .env)" in result["saved"]["text"]
+
+
+def test_a_declined_downgrade_saves_nothing():
+    result = run("landing_updates_down_declined")
+    assert result["puts"] == [{"expected_revision": "r1", "branch": "main", "allow_downgrade": False}]
+    assert len(result["confirms"]) == 1
+    assert result["saved"]["alert"] == "Not saved: this installation still follows dev."
+    assert "Followsdev (set in .env)" in result["saved"]["text"] and result["saved"]["save"] == ["Save", False]
+
+
+def test_a_conflict_shows_the_setting_as_it_is_now():
+    result = run("landing_updates_conflict")
+    assert len(result["puts"]) == 1 and result["reads"] == ["/ui/api/updates", "/ui/api/updates"]  # the PUT, then a GET
+    assert result["saved"]["alert"].startswith("Not saved: the update channel changed")
+    assert "Followsdev (set in .env)" in result["saved"]["text"] and result["saved"]["save"] == ["Save", True]
+
+
 def test_the_landing_page_opens_without_storage():
     result = run("landing_nostorage")
     assert result["start"]["landing"] and result["cards"]["stats"].startswith("16 answers") and result["stored"] == []
@@ -1534,6 +1600,56 @@ def test_the_autodev_page_turns_run_mode_on_with_the_acceptance_once_ready():
                   "sandbox probe implement in scheduled mode: no record; run `python -m src.schedules probe --mode scheduled "
                   "--kind implement --confirm-live-probe`"]}
     assert ready["refused"]["state"] == "Off."
+
+
+@pytest.fixture(scope="module")
+def autodev_save_edits():
+    return run_autodev("autodev_save_edits")
+
+
+def test_autodev_keeps_edits_made_while_a_save_is_pending(autodev_save_edits):
+    result = autodev_save_edits
+    assert result["saved"] == {"catch_up": "66", "followup": "low", "unload_blocked": True,
+                               "saved_at": result["saved"]["saved_at"],
+                               "alert": {"text": "Saved; later edits are not saved.", "className": "notice", "items": []}}
+    assert result["pending"] == {"gets": 1, "catch_up": "66", "followup": "low", "submitted": 55, "stored": 55}
+    assert result["kept"] == {"catch_up": "66", "followup": "low", "gets": 2, "unload_blocked": True,
+                              "confirms": ["Discard the Autodev settings you have not saved?"]}
+    saved = result["resaved"]
+    assert saved["put"]["expected_revision"] == result["saved"]["saved_at"]
+    assert saved["put"]["settings"]["catch_up_minutes"] == 66
+    assert saved["put"]["settings"]["delegates"]["code-review-pass"]["effort_followup"] == "low"
+    assert saved["alert"] == "Saved." and saved["unload_blocked"] is False
+
+
+def test_autodev_refused_save_keeps_later_corrections_and_the_revision(autodev_save_edits):
+    refused = autodev_save_edits["refused"]
+    assert refused == {"times": "04:00", "catch_up": "77", "gets": 2, "unload_blocked": True,
+                       "read_at": refused["read_at"], "stored_at": refused["read_at"],
+                       "alert": {"text": "Not saved; autodev.json is unchanged:", "className": "notice error",
+                                 "items": ["times: '25:00' is not a time of day HH:MM"]}}
+    corrected = autodev_save_edits["corrected"]
+    assert corrected["put"]["expected_revision"] == refused["read_at"]
+    assert corrected["put"]["settings"]["times"] == ["04:00"]
+    assert corrected["put"]["settings"]["catch_up_minutes"] == 77
+    assert corrected["alert"] == "Saved." and corrected["unload_blocked"] is False
+
+
+def test_autodev_later_edits_cannot_overwrite_another_writers_different_field():
+    result = run_autodev("autodev_save_writer")
+    saved = result["saved"]
+    assert saved["catch_up"] == "66" and saved["hours"] == DEFAULT_FORM["hours"]
+    assert saved["unload_blocked"] is True
+    assert saved["alert"]["text"] == "Saved; later edits are not saved."
+    refused = result["refused"]
+    assert refused["put"]["expected_revision"] == saved["saved_at"] != refused["stored_at"]
+    assert refused["put"]["settings"]["catch_up_minutes"] == 66
+    assert refused["put"]["settings"]["allowed_hours"] == DEFAULT_FORM["hours"]
+    assert refused["catch_up"] == "66" and refused["hours"] == DEFAULT_FORM["hours"]
+    assert refused["stored_catch_up"] == 55 and refused["stored_hours"] == "07:00-20:00"
+    assert refused["alert"] == {"text": "autodev.json changed since the page read it; reload to see it",
+                                "className": "notice error", "items": []}
+    assert refused["unload_blocked"] is True
 
 
 def test_autodev_keeps_stored_values_the_lists_lack_and_shows_a_stored_run_mode():

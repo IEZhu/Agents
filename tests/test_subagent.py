@@ -41,7 +41,7 @@ def worker_tree(tmp_path, monkeypatch):
     for component_id in implants:
         write_mdc(tmp_path / f"implants/{component_id}.mdc", {"description": component_id, "one_liner": "VAGUE"},
                   component_id + " OPERATIONAL FULL BODY")
-    for name in ("no-fabrication", "answer-timestamp", "language-match"):
+    for name in ("no-fabrication", "answer-timestamp", "language-match", "agent-cooperation"):
         write_mdc(tmp_path / f"rules/rule-{name}.mdc", {"name": name, "description": name}, name + " instructions")
     for name in subagent.WORKER_RULE_IDS:
         write_mdc(tmp_path / f"rules/subagents/rule-{name}.mdc", {"name": name, "description": name}, name + " instructions")
@@ -84,6 +84,9 @@ def test_default_policy_is_ranked_compiled_and_stateless(worker_tree, monkeypatc
     assert "Full persona" not in package.worker_context
     assert "answer-timestamp instructions" not in package.worker_context
     assert "language-match instructions" not in package.worker_context
+    assert "agent-cooperation instructions" not in package.worker_context
+    assert "worker-cooperation instructions" in package.worker_context
+    assert next(item for item in package.selection if item.id == "agent-cooperation").reason == "worker_equivalent"
     assert package.context_chars == len(package.worker_context) <= 16000
     assert package.worker_context.count("Compact engineering judgment.") == 1
     assert rules._cache is cache
@@ -108,12 +111,14 @@ def test_opt_in_implants_deliver_full_body(worker_tree):
 def test_toggles_apply_but_worker_contract_rules_are_mandatory(worker_tree, monkeypatch):
     monkeypatch.setattr(subagent.component_toggles, "disabled", lambda kind: {
         "skills": {"skill-test"}, "implants": {"implant-debug"},
-        "rules": {"no-fabrication", "worker-scope"}}[kind])
+        "rules": {"no-fabrication", "worker-scope", "worker-cooperation", "agent-cooperation"}}[kind])
     package = prepared(max_implants=2)
     assert "skill-test" not in package.descriptor.skills_loaded
     assert "implant-debug" not in package.descriptor.implants_loaded
     assert "no-fabrication" not in package.descriptor.rules_loaded
     assert "worker-scope" in package.descriptor.rules_loaded
+    assert "worker-cooperation" in package.descriptor.rules_loaded
+    assert next(item for item in package.selection if item.id == "agent-cooperation").reason == "worker_equivalent"
     monkeypatch.setattr(rules, "RULES_ENABLED", False)
     assert set(prepared().descriptor.rules_loaded) == subagent.WORKER_RULE_IDS
 
@@ -133,6 +138,7 @@ def test_revisions_separate_contract_and_delivered_sources(worker_tree):
 
 
 @pytest.mark.parametrize("relative", ["agents/engineer/subagent.mdc", "rules/subagents/rule-worker-scope.mdc",
+                                       "rules/subagents/rule-worker-cooperation.mdc",
                                        "rules/rule-no-fabrication.mdc", "skills/skill-test.mdc"])
 def test_delivered_instruction_changes_revision(worker_tree, relative):
     first = prepared()
@@ -155,6 +161,7 @@ def test_schema_changes_bundle_revision(worker_tree, monkeypatch):
     ("agents/engineer/system_prompt.mdc", "unknown_agent"),
     ("agents/engineer/subagent.mdc", "compact_profile_missing"),
     ("rules/subagents/rule-worker-input.mdc", "worker_rules_missing"),
+    ("rules/subagents/rule-worker-cooperation.mdc", "worker_rules_missing"),
     ("skills/skill-test.mdc", "invalid_source"),
 ])
 def test_missing_sources_never_return_partial_package(worker_tree, relative, code):
@@ -217,6 +224,15 @@ def test_budget_never_crops_mandatory_or_optional_instructions(worker_tree):
         assert (component_id + " COMPILED" in result.worker_context) == (component_id in result.descriptor.skills_loaded)
     assert "Compact engineering judgment." in result.worker_context
     assert all(name + " instructions" in result.worker_context for name in subagent.WORKER_RULE_IDS)
+
+
+def test_cooperation_rule_cannot_be_dropped_to_fit_budget(worker_tree):
+    path = worker_tree / "rules/subagents/rule-worker-cooperation.mdc"
+    path.write_text(path.read_text() + "\n" + "Mandatory cooperation instruction. " * 500)
+    response = prepare_subagent(request())
+    assert response.status == "error"
+    assert "context_budget_exceeded" in codes(response)
+    assert not hasattr(response, "worker_context")
 
 
 @pytest.mark.parametrize("result_type", list(RESULT_MODELS))

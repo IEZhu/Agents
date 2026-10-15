@@ -3,6 +3,7 @@ from copy import deepcopy
 from pathlib import Path
 from urllib.error import HTTPError
 import importlib.util
+import json
 
 import pytest
 import yaml
@@ -201,6 +202,174 @@ def test_invalid_or_naive_commit_time_fails(date):
     with pytest.raises(ValueError):
         release.publish(promotion(), REPO, api)
     assert not api.tags
+
+
+class ReleaseAPI(API):
+    """Fake published-release storage, separate from Git ref storage."""
+
+    def __init__(self, existing=None, release_failure=None, release_race=None, **kwargs):
+        super().__init__(**kwargs)
+        self.release = existing
+        self.release_failure = release_failure
+        self.release_race = release_race
+
+    def request(self, method, path, data=None):
+        if not path.startswith("/releases"):
+            return super().request(method, path, data)
+        self.calls.append((method, path, data))
+        if method == "GET":
+            if self.release is None:
+                raise http_error(404)
+            return self.release
+        assert method == "POST" and path == "/releases"
+        if self.release_race is not None:
+            self.release = self.release_race
+            raise http_error(422)
+        if self.release_failure is not None:
+            raise self.release_failure
+        self.release = {**data, "published_at": "2026-10-14T12:01:00Z"}
+        return self.release
+
+
+def published_release(**overrides):
+    """Return the public fields required to reuse a published stable release."""
+    return {"tag_name": "v26.10.14.1200", "draft": False, "prerelease": False,
+            "published_at": "2026-10-14T12:01:00Z", **overrides}
+
+
+def test_promotion_publishes_a_github_release_after_verifying_its_tag():
+    api = ReleaseAPI()
+    result = release.publish_release(promotion(), REPO, api)
+    assert result == {"status": "created", "version": "26.10.14.1200",
+                      "tag": "v26.10.14.1200", "sha": SHA, "github_release": "created",
+                      "release_url": "https://github.com/IEZhu/Agents/releases/tag/v26.10.14.1200"}
+    write = next(call for call in api.calls if call[:2] == ("POST", "/releases"))
+    assert write[2] == {
+        "tag_name": result["tag"], "target_commitish": SHA, "name": result["tag"],
+        "draft": False, "prerelease": False, "make_latest": "legacy",
+        "generate_release_notes": True,
+        "body": f"Promotion: https://github.com/{REPO}/pull/381\n\n"
+                f"Merge commit: `{SHA}`.\n\nCalendar version: `26.10.14.1200`.",
+    }
+    assert api.tags[result["tag"]] == SHA
+    assert api.calls[-2:] == [("GET", f"/releases/tags/{result['tag']}", None),
+                             ("GET", f"/git/ref/tags/{result['tag']}", None)]
+
+
+def test_published_release_rerun_preserves_existing_notes_and_makes_no_writes():
+    existing = published_release(body="Maintainer notes")
+    api = ReleaseAPI(existing=existing, tags={"v26.10.14.1200": SHA})
+    result = release.publish_release(promotion(), REPO, api)
+    assert result["status"] == result["github_release"] == "existing"
+    assert api.release == existing
+    assert all(method == "GET" for method, _, _ in api.calls)
+
+
+def test_failed_release_creation_can_resume_after_the_tag_was_created():
+    api = ReleaseAPI(release_failure=http_error(403))
+    with pytest.raises(HTTPError):
+        release.publish_release(promotion(), REPO, api)
+    assert api.tags == {"v26.10.14.1200": SHA}
+    api.release_failure = None
+    result = release.publish_release(promotion(), REPO, api)
+    assert result["status"] == "existing" and result["github_release"] == "created"
+    assert sum(path == "/git/refs" for _, path, _ in api.calls) == 1
+
+
+def test_same_minute_fallback_is_used_for_the_github_release_too():
+    api = ReleaseAPI(tags={"v26.10.14.1200": OTHER})
+    result = release.publish_release(promotion(), REPO, api)
+    assert api.release["tag_name"] == result["tag"] == "v26.10.14.1200-pr381"
+    assert api.tags["v26.10.14.1200"] == OTHER
+
+
+def test_concurrent_release_creation_is_reused_without_editing_it():
+    api = ReleaseAPI(release_race=published_release(body="Other publisher"))
+    result = release.publish_release(promotion(), REPO, api)
+    assert result["github_release"] == "existing"
+    assert api.release["body"] == "Other publisher"
+    assert all(method in {"GET", "POST"} for method, _, _ in api.calls)
+
+
+@pytest.mark.parametrize("overrides", [
+    {"draft": True}, {"prerelease": True}, {"published_at": None},
+    {"tag_name": "vwrong"}, {"draft": None},
+])
+@pytest.mark.parametrize("racing", [False, True])
+def test_non_public_or_mismatched_release_is_not_changed_or_accepted(overrides, racing):
+    existing = published_release(**overrides)
+    api = ReleaseAPI(**({"release_race": existing} if racing else {"existing": existing}))
+    with pytest.raises(RuntimeError, match="published stable release"):
+        release.publish_release(promotion(), REPO, api)
+    assert api.release == existing
+    assert all(method in {"GET", "POST"} for method, _, _ in api.calls)
+
+
+@pytest.mark.parametrize("failure", [http_error(401), http_error(403), http_error(422), OSError("offline")])
+def test_github_release_errors_are_visible_without_deleting_the_tag(failure):
+    api = ReleaseAPI(release_failure=failure)
+    with pytest.raises(type(failure)):
+        release.publish_release(promotion(), REPO, api)
+    assert api.tags == {"v26.10.14.1200": SHA}
+
+
+def test_release_lookup_denied_is_not_treated_as_missing():
+    class Denied(ReleaseAPI):
+        def request(self, method, path, data=None):
+            if path.startswith("/releases"):
+                raise http_error(403)
+            return super().request(method, path, data)
+    api = Denied()
+    with pytest.raises(HTTPError):
+        release.publish_release(promotion(), REPO, api)
+    assert api.release is None
+
+
+def test_release_tag_moved_by_another_writer_is_reported():
+    class Moved(ReleaseAPI):
+        def request(self, method, path, data=None):
+            result = super().request(method, path, data)
+            if method == "POST" and path == "/releases":
+                self.tags[data["tag_name"]] = OTHER
+            return result
+    with pytest.raises(RuntimeError, match="no longer targets"):
+        release.publish_release(promotion(), REPO, Moved())
+
+
+def test_non_release_event_does_not_publish_a_github_release():
+    api = ReleaseAPI()
+    event = promotion()
+    event["pull_request"]["base"]["ref"] = "dev"
+    assert release.publish_release(event, REPO, api) == {"status": "skipped"}
+    assert not api.calls
+
+
+def test_actions_entrypoint_publishes_and_reports_both_results(monkeypatch, tmp_path, capsys):
+    event_file, summary_file = tmp_path / "event.json", tmp_path / "summary.md"
+    event_file.write_text(json.dumps(promotion()), encoding="utf-8")
+    monkeypatch.setenv("GITHUB_EVENT_PATH", str(event_file))
+    monkeypatch.setenv("GITHUB_REPOSITORY", REPO)
+    monkeypatch.setenv("GH_TOKEN", "fake-test-token")
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary_file))
+    api = ReleaseAPI()
+    monkeypatch.setattr(release, "GitHub", lambda repository, token: api)
+    release.main()
+    output = json.loads(capsys.readouterr().out)
+    assert output["github_release"] == "created"
+    assert output["sha"] == SHA
+    summary = summary_file.read_text(encoding="utf-8")
+    assert output["release_url"] in summary and SHA in summary
+    assert "Glama Auto-Release builds asynchronously" in summary
+
+
+def test_created_release_must_be_visible_before_success():
+    class Invisible(ReleaseAPI):
+        def request(self, method, path, data=None):
+            if method == "GET" and path.startswith("/releases"):
+                raise http_error(404)
+            return super().request(method, path, data)
+    with pytest.raises(RuntimeError, match="published stable release"):
+        release.publish_release(promotion(), REPO, Invisible())
 
 
 def test_workflow_runs_only_after_main_merge_with_job_write_permission():

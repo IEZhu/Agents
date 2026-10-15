@@ -5,6 +5,10 @@ a defined task. Each flow describes its inputs, execution steps, checks, and
 expected result. Start with [AGENTS.md](../AGENTS.md) for repository instructions
 and the [documentation map](../docs/README.md) for supporting references.
 
+Use [bounded execution and evidence reuse](../docs/flow-execution.md) when running
+these flows: batch independent reads, retain source-bound evidence, and let one
+monitor wait without repeated model polling. This does not relax any flow gate.
+
 ## Delegated workers
 
 Every flow that launches an AI reviewer, verifier or other worker follows the [mandatory delegation contract](../docs/routing_flow.md#delegated-workers): call `get_subagent_context`, require `status: prepared`, retain the original contract, and pass the compact `worker_context` unchanged to a fresh native worker. For every returned or revised output, call `validate_subagent_result` with that contract and require `valid: true` before using it, then check evidence and acceptance criteria. No endpoint failure permits unprepared delegation or unvalidated acceptance; report the limitation and work in the parent when practical. Flow-specific requirements for an independent review remain unsatisfied when no validated independent review ran.
@@ -15,6 +19,7 @@ When a flow is task material for a prepared worker, as [code-review-pass](code-r
 
 | Flow | Purpose | Result |
 |---|---|---|
+| [Shared local inference and KV cache](shared-kv-inference.md) | Implement the prepared Agents-Core local inference service and optional Redis snapshot backend in an authorized worktree | Reviewable implementation, focused tests and a capability/evaluation report |
 | [Environment auto-configuration](environment-autoconfigure.md) | Audit installed AI clients and reconcile their environment with the current RTK, TokenSave and CodeGraph stack | Verified configuration changes, private backups, rollback steps and explicit compatibility limits |
 | [Documentation refresh](documentation-refresh.md) | Check and update documentation for people and AI against the implementation | Reviewed documentation changes on a separate branch, with validation results |
 | [PR/MR review](pr-review.md) | Review the diff, handle bot findings one push per round until they converge, and keep the description current | A merged request or a precise blocker, with a report in the invocation language |
@@ -199,9 +204,11 @@ An omitted list keeps the agent's own selection for that kind (retrieval and
 the agent's declared skills and implants, minus components switched off in the
 web UI). A list is exact: nothing is retrieved or added, the agent's skill policy
 does not restrict it, an empty list loads nothing, and components switched off
-in the web UI still load when a flow names them. Rules are named as in the
-footer (`no-fabrication`), skills and implants by file ID (`skill-web-search`,
-`implant-iteration-budget`); unknown IDs are rejected on save.
+in the web UI still load when a flow names them, except
+[URL-subscribed user rules](../docs/user-rules.md), which must be enabled.
+Rules are named as in the footer (`no-fabrication`, `user:team-conventions`),
+skills and implants by file ID (`skill-web-search`, `implant-iteration-budget`);
+unknown IDs are rejected on save. `user:` IDs are valid only in the rules list.
 
 Each user can replace that choice for any flow, built-in ones included, without
 copying its text: `set_flow_persona(flow, agent, skills, implants, rules)` or the

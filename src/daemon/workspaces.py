@@ -37,10 +37,14 @@ class WorkspaceRegistry:
     def __init__(self, directory):
         self.directory = Path(directory)
         self.path = self.directory / "workspaces.json"
+        self.checkout_path = self.directory / "checkout-access.json"
 
-    def register(self, root):
+    def register(self, root, *, physical_root=None):
         root = Path(root).expanduser().resolve(strict=True)
         if not root.is_dir():
+            raise WorkspaceError("workspace_invalid")
+        physical = Path(physical_root if physical_root is not None else root).expanduser().resolve(strict=True)
+        if not physical.is_dir():
             raise WorkspaceError("workspace_invalid")
         private_dir(self.directory)
         with file_lock(self.directory / "workspaces.lock"):
@@ -48,13 +52,76 @@ class WorkspaceRegistry:
             for identity, saved in records.items():
                 if saved == str(root):
                     self.resolve(identity)
-                    return identity
-            identity = str(uuid.uuid4())
-            if identity in records:
-                raise WorkspaceError("workspace_invalid")
-            records[identity] = str(root)
-            write_json(self.path, records)
+                    break
+            else:
+                identity = str(uuid.uuid4())
+                if identity in records:
+                    raise WorkspaceError("workspace_invalid")
+                records[identity] = str(root)
+                write_json(self.path, records)
+            try:
+                self._grant_checkout(identity, physical)
+            except (ValueError, OSError) as error:
+                # Optional checkout authorization must not disable ordinary memory.
+                # Keep invalid grants untouched and require explicit valid grants
+                # in cooperation_roots; never substitute the memory root on failure.
+                logger.warning("Cooperation checkout grant unavailable: %s", type(error).__name__)
             return identity
+
+    def _grant_checkout(self, identity, physical):
+        """Called only under the registration lock, never from an MCP tool."""
+        grants = read_json(self.checkout_path, {})
+        if not isinstance(grants, dict):
+            raise WorkspaceError("workspace_invalid")
+        saved = grants.get(identity, [])
+        current = [str(path) for path in self._existing_checkouts(saved)]
+        if str(physical) not in current:
+            if len(current) >= 50:
+                raise WorkspaceError("workspace_invalid")
+            current.append(str(physical))
+        if current != saved:
+            grants[identity] = current
+            write_json(self.checkout_path, grants)
+
+    @staticmethod
+    def _existing_checkouts(saved):
+        """Discard removed checkouts, but reject corrupt or retargeted grants."""
+        try:
+            if not isinstance(saved, list) or len(saved) > 50:
+                raise ValueError()
+            result = []
+            for value in saved:
+                if not isinstance(value, str):
+                    raise ValueError()
+                path = Path(value)
+                if not path.is_absolute() or str(path.resolve()) != value:
+                    raise ValueError()
+                try:
+                    resolved = path.resolve(strict=True)
+                except FileNotFoundError:
+                    continue
+                if str(resolved) != value or not path.is_dir():
+                    raise ValueError()
+                result.append(path)
+            return tuple(result)
+        except (ValueError, TypeError, OSError, RuntimeError):
+            raise WorkspaceError("workspace_invalid") from None
+
+    def cooperation_roots(self, identity):
+        """Owner-registered physical grants; memory root normalization is unchanged."""
+        self.resolve(identity)
+        try:
+            grants = read_json(self.checkout_path, {})
+            if not isinstance(grants, dict):
+                raise ValueError()
+            # Missing grants can also mean registration could not save them.
+            # Owner re-registration upgrades older memory-only registrations.
+            saved = grants.get(identity)
+            if not isinstance(saved, list) or not 1 <= len(saved) <= 50:
+                raise ValueError()
+            return self._existing_checkouts(saved)
+        except (ValueError, TypeError, OSError, RuntimeError):
+            raise WorkspaceError("workspace_invalid") from None
 
     def resolve(self, identity):
         if not identity:
@@ -87,6 +154,9 @@ class ClientContext:
     # call's workspace, or a stdio server's start directory). Unverified: the fallback journal
     # records it with the turn and nothing is written there (#292).
     claimed: str | None = None
+    # Explicit physical grants retained before history normalizes linked worktrees.
+    # Only cooperation uses these; workspace_target continues to enforce root.
+    cooperation_roots: tuple[Path, ...] = ()
 
     def workspace_root(self):
         if self.error or self.root is None:

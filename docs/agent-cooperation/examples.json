@@ -1,0 +1,276 @@
+{
+  "status": "synthetic illustrative fixtures; not executed requests and not a JSON Schema",
+  "protocol": "agents-core/cooperation/1",
+  "version": 1,
+  "proposal": {
+    "agreement_id": "agreement-api-1",
+    "proposal_revision": 1,
+    "pattern": "producer_consumer",
+    "required_participants": [
+      "root-a",
+      "root-b"
+    ],
+    "task_bindings": [
+      {
+        "participant_id": "root-a",
+        "task_id": "api-producer",
+        "attempt_id": "1",
+        "contract_revision": null
+      },
+      {
+        "participant_id": "root-b",
+        "task_id": "api-consumer",
+        "attempt_id": "1",
+        "contract_revision": null
+      }
+    ],
+    "terms": {
+      "scope": "Coordinate one API change and its client update",
+      "resources": [
+        {
+          "resource_type": "logical_intent",
+          "resource_key": "repo-demo:api/orders",
+          "access": "write",
+          "owner": "root-a"
+        },
+        {
+          "resource_type": "physical_file",
+          "resource_key": "checkout-a:src/orders.py",
+          "access": "write",
+          "owner": "root-a"
+        },
+        {
+          "resource_type": "physical_file",
+          "resource_key": "checkout-b:src/client.py",
+          "access": "write",
+          "owner": "root-b"
+        },
+        {
+          "resource_type": "integration_target",
+          "resource_key": "repo-demo:refs/heads/dev",
+          "access": "integrate",
+          "owner": "root-a"
+        }
+      ],
+      "dependencies": [
+        {
+          "consumer_task": "api-consumer",
+          "producer_task": "api-producer",
+          "artifact_id": "orders-contract-v1",
+          "gate": "consumer_accepted"
+        }
+      ],
+      "artifact_contracts": [
+        {
+          "artifact_id": "orders-contract-v1",
+          "producer": "root-a",
+          "consumer": "root-b",
+          "acceptance": [
+            "API signature and behavioral examples are pinned to a commit.",
+            "Compatibility checks and limitations are provided."
+          ]
+        }
+      ],
+      "integrator": "root-a",
+      "priority": {
+        "value": "normal",
+        "source": "default",
+        "evidence_ref": null
+      },
+      "checkpoint": {
+        "trigger": "API contract is ready for consumer validation",
+        "max_interval_seconds": 300
+      },
+      "completion_conditions": [
+        "Producer result verified.",
+        "Consumer result verified.",
+        "Integrator validates combined behavior at the integrated revision."
+      ],
+      "acknowledgement_timeout_seconds": 120
+    }
+  },
+  "event_example": {
+    "protocol": "agents-core/cooperation/1",
+    "event_id": "event-17",
+    "operation_id": "op-propose-1",
+    "repository_id": "repo-demo",
+    "revision": 17,
+    "actor_id": "root-a",
+    "subject_id": null,
+    "task_id": "api-producer",
+    "attempt_id": "1",
+    "generation": 1,
+    "kind": "propose",
+    "agreement_id": "agreement-api-1",
+    "proposal_revision": 1,
+    "reply_to": null,
+    "created_at": "2026-10-15T12:00:00Z",
+    "payload": {
+      "proposal_ref": "agreement-api-1:1"
+    }
+  },
+  "traces": [
+    {
+      "id": "pipeline",
+      "steps": [
+        {
+          "actor": "root-a",
+          "action": "propose",
+          "proposal_ref": "agreement-api-1:1"
+        },
+        {
+          "actor": "root-a",
+          "action": "acknowledge",
+          "proposal_ref": "agreement-api-1:1"
+        },
+        {
+          "actor": "root-b",
+          "action": "acknowledge",
+          "proposal_ref": "agreement-api-1:1",
+          "outcome": "service commits terms if revisions and generations still match"
+        },
+        {
+          "actor": "root-a",
+          "action": "acquire",
+          "resource_keys": [
+            "checkout-a:src/orders.py"
+          ],
+          "outcome": "claim granted only for ready bounded work unit"
+        },
+        {
+          "actor": "root-a",
+          "action": "checkpoint",
+          "artifact_id": "orders-contract-v1",
+          "outcome": "producer pins artifact revision/digest and actual checks"
+        },
+        {
+          "actor": "root-b",
+          "action": "accept_artifact",
+          "artifact_id": "orders-contract-v1",
+          "outcome": "consumer verifies evidence and unblocks dependent work"
+        },
+        {
+          "actor": "root-a",
+          "action": "release",
+          "resource_keys": [
+            "checkout-a:src/orders.py"
+          ]
+        },
+        {
+          "actor": "root-b",
+          "action": "acquire",
+          "resource_keys": [
+            "checkout-b:src/client.py"
+          ]
+        }
+      ],
+      "expected": "Only consumer work unrelated to the accepted interface may run before the artifact gate."
+    },
+    {
+      "id": "same_file_handoff",
+      "steps": [
+        {
+          "actor": "worker-a",
+          "action": "checkpoint",
+          "resource": "checkout-c:src/parser.py",
+          "release_ready": true
+        },
+        {
+          "actor": "worker-b",
+          "action": "acknowledge",
+          "accepted_checkpoint": "parser-checkpoint-4"
+        },
+        {
+          "actor": "parent",
+          "action": "handoff",
+          "old_owner": "worker-a",
+          "new_owner": "worker-b",
+          "expected_claim_revision": 24,
+          "outcome": "single transaction releases old claim and grants new claim"
+        }
+      ],
+      "expected": "Both worker assignments must already permit their work; otherwise parent prepares a new attempt before transfer."
+    },
+    {
+      "id": "stale_writer",
+      "steps": [
+        {
+          "actor": "service",
+          "action": "mark_suspect",
+          "participant": "root-a",
+          "reason": "heartbeat threshold exceeded"
+        },
+        {
+          "actor": "root-b",
+          "action": "acquire",
+          "resource_keys": [
+            "checkout-a:src/orders.py"
+          ],
+          "outcome": "claim_conflict; prior claim quarantined"
+        },
+        {
+          "actor": "root-a",
+          "action": "recover",
+          "outcome": "authenticated reconciliation issues new generation or fails"
+        }
+      ],
+      "expected": "TTL never proves execution stopped and never grants root-b access to root-a's checkout."
+    },
+    {
+      "id": "counterproposal",
+      "steps": [
+        {
+          "actor": "root-a",
+          "action": "propose",
+          "proposal_revision": 1
+        },
+        {
+          "actor": "root-b",
+          "action": "propose",
+          "proposal_revision": 2,
+          "supersedes": 1,
+          "outcome": "clear acknowledgements for prior terms"
+        },
+        {
+          "actor": "root-a",
+          "action": "acknowledge",
+          "proposal_revision": 1,
+          "outcome": "stale_revision"
+        }
+      ],
+      "expected": "Both required parties must explicitly acknowledge revision 2 before commitment."
+    },
+    {
+      "id": "no_channel",
+      "steps": [
+        {
+          "actor": "worker-a",
+          "action": "observe_overlap",
+          "resource": "checkout-c:src/parser.py"
+        },
+        {
+          "actor": "worker-a",
+          "action": "return_existing_worker_envelope",
+          "status": "input_required",
+          "question": "Who owns the parser edit and which checkpoint may I build on?"
+        }
+      ],
+      "expected": "Final worker result still uses agents-core/subagent/1; no cooperation fields or prose appended."
+    }
+  ],
+  "evidence_card": {
+    "name": "single-writer-parser-refactor",
+    "context": "Two changes modify parser behavior in the same file.",
+    "applicable_when": [
+      "A shared file cannot be safely partitioned.",
+      "A reviewer can work from a pinned commit."
+    ],
+    "solution": "One writer applies changes; reviewer sends evidence and recommendations.",
+    "source_revision": "SYNTHETIC_REPLACE_WITH_VERIFIED_COMMIT",
+    "validation_status": "not_run",
+    "limitations": [
+      "No inference that one writer has merge permission.",
+      "Unregistered writers are outside the journal guarantee."
+    ]
+  }
+}

@@ -36,11 +36,12 @@ import sys
 from typing import Sequence
 
 from src.daemon.state import state_dir
+from src.runtime_paths import installation_root
 
 from . import automatic, runner, sandbox
 from .config import ConfigError
 
-INSTALLATION = Path(__file__).resolve().parents[2]
+INSTALLATION = installation_root()
 
 
 def _parser() -> argparse.ArgumentParser:

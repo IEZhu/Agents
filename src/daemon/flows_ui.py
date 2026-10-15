@@ -15,9 +15,10 @@ which a cross-site page cannot send. Library sync (``/ui/api/sync…``, ``sync_u
 asks for the header on GET as well, because some of its reads reach the network, and so do
 the landing page's statistics and overview (``/ui/api/stats``, ``usage.py``; ``/ui/api/overview``,
 ``overview.py``), which only the page reads, the History tab (``/ui/api/history…``,
-``history_ui.py``), which shows the repositories' histories in full, and the Autodev page
+``history_ui.py``), which shows the repositories' histories in full, the Autodev page
 (``/ui/api/autodev…``, ``autodev_ui.py``), which reads and writes the autodev schedule's
-settings and runs the CLIs' ``--version`` and ``--help``.
+settings and runs the CLIs' ``--version`` and ``--help``, and the overview's Updates section
+(``/ui/api/updates``, ``updates_ui.py``), which saves the branch the installation follows.
 """
 import asyncio
 import hashlib
@@ -32,7 +33,7 @@ from pathlib import Path
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse
 
-from src import component_toggles
+from src import component_toggles, user_rules
 from src.component_catalog import known_ids, list_agents, list_components
 from src.flows import FlowCatalog, FlowError
 from src.user_flows import FlowLibrary
@@ -43,6 +44,7 @@ from .peer import loopback_peer_is_owner
 from .state import atomic_private, read_json
 from .sync_loop import DRAINING
 from .sync_ui import SyncUI, is_sync_path
+from .updates_ui import UpdatesUI, is_updates_path
 from .workspaces import WorkspaceError
 
 CODE_TTL = 120
@@ -98,7 +100,8 @@ def set_auto_sign_in(directory, enabled: bool) -> None:
 def _error_status(message: str) -> int:
     code = message.split(":", 1)[0]
     return {"flow_conflict": 409, "flow_not_found": 404, "flow_read_only": 403,
-            "repo_scope_unavailable": 400, "workspace_invalid": 400}.get(code, 400)
+            "repo_scope_unavailable": 400, "workspace_invalid": 400,
+            "rule_conflict": 409, "rule_not_found": 404}.get(code, 400)
 
 
 class FlowsUI:
@@ -112,6 +115,7 @@ class FlowsUI:
         self.sync = SyncUI(service)
         self.history = HistoryUI(service)
         self.autodev = AutodevUI(service)
+        self.updates = UpdatesUI(service)
 
     # --- access ----------------------------------------------------------------------
 
@@ -192,7 +196,8 @@ class FlowsUI:
                                         or request.headers.get("x-agents-ui") != "1"):
             return await self._json({"error": "origin_not_allowed"}, 403)(scope, receive, send)
         syncing = is_sync_path(path)
-        page_only = syncing or path in PAGE_READS or is_history_path(path) or is_autodev_path(path)
+        page_only = (syncing or path in PAGE_READS or is_history_path(path) or is_autodev_path(path)
+                     or is_updates_path(path))
         if page_only and request.method == "GET" and not self._page_request(request):
             return await self._json({"error": "origin_not_allowed"}, 403)(scope, receive, send)
         if path == "/ui/api/session" and request.method == "POST":
@@ -208,7 +213,8 @@ class FlowsUI:
         counted = not syncing
         # The Sync page's and the statistics' polls are not activity: an open page must not hold
         # back an automatic update.
-        active = not ((syncing and self.sync.passive(request.method, path)) or path in PAGE_READS)
+        active = not ((syncing and self.sync.passive(request.method, path)) or path in PAGE_READS
+                      or (is_updates_path(path) and request.method == "GET"))
         if counted:
             self.service.inflight += 1
         if active:
@@ -312,6 +318,8 @@ class FlowsUI:
             return await self.history.handle(request, path)
         if is_autodev_path(path):
             return await self.autodev.handle(request, path)
+        if is_updates_path(path):
+            return await self.updates.handle(request, path)
         query = request.query_params
         try:
             if path == STATS_PATH and request.method == "GET":
@@ -387,12 +395,23 @@ class FlowsUI:
                 if not isinstance(component_id, str) or component_id not in await asyncio.to_thread(
                         known_ids, kind):
                     raise FlowError("flow_not_found: unknown component")
-                await asyncio.to_thread(component_toggles.set_enabled, kind, component_id,
-                                        body["enabled"])
+                if kind == "rules" and component_id.startswith("user:"):
+                    library = user_rules.RuleLibrary()
+                    # Older UI clients send no revision. Still serialize the write
+                    # against the snapshot we read, catching concurrent refreshes.
+                    revision = body.get("expected_revision")
+                    if revision is None:
+                        current = await asyncio.to_thread(library.get, component_id)
+                        revision = current["revision"]
+                    await asyncio.to_thread(library.set_enabled, component_id,
+                                            body["enabled"], revision)
+                else:
+                    await asyncio.to_thread(component_toggles.set_enabled, kind, component_id,
+                                            body["enabled"])
                 return self._json({"status": "ok", "kind": kind, "id": component_id,
                                    "enabled": body["enabled"]})
             return self._json({"error": "not_found"}, 404)
-        except (FlowError, component_toggles.ToggleError) as error:
+        except (FlowError, component_toggles.ToggleError, user_rules.UserRuleError) as error:
             return self._json({"status": "error", "error": str(error)}, _error_status(str(error)))
         except OSError as error:
             return self._json({"status": "error", "error": f"storage_error: {error.strerror or error}"}, 500)

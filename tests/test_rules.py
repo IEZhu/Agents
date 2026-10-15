@@ -22,6 +22,7 @@ from src.utils.prompt_loader import split_frontmatter
 
 _FORBIDDEN_FIELDS = ("applies_to", "exclude_agents")
 _EXPECTED_RULE_NAMES = {
+    "agent-cooperation",
     "answer-timestamp",
     "no-fabrication",
     "honest-uncertainty",

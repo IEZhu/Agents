@@ -121,6 +121,7 @@ The list is kept in `.github/autodev-protected-paths` on `main`, the control pat
 
 ```text
 .github/**
+.coderabbit*
 .claude/**
 **/.claude/**
 **/CLAUDE.md
@@ -153,7 +154,10 @@ src/daemon/execution.py
 src/daemon/state.py
 src/file_lock.py
 src/model_migration.py
+src/runtime_paths.py
 src/user_library.py
+src/user_rules.py
+src/rule_sources.py
 src/utils/__init__.py
 src/utils/langfuse_compat.py
 src/utils/prompt_loader.py
@@ -165,8 +169,9 @@ uv.lock
 docs/cloud-runs.md
 ```
 
-- **Control paths** (`flows/autodev*`, `.github/**`, `src/schedules/**`, `src/engine/**`, `src/flow_execution.py`, `src/__init__.py`, `src/component_toggles.py`, `src/daemon/__init__.py`, `src/daemon/acl.py`, `src/daemon/execution.py`, `src/daemon/state.py`, `src/executables.py`, `src/file_lock.py`, `src/model_migration.py`, `src/schemas/__init__.py`, `src/schemas/subagent.py`, `src/user_library.py`, `src/utils/__init__.py`, `src/utils/langfuse_compat.py`, `src/utils/prompt_loader.py`, `src/version.py`, `agents/**`, `rules/**`, `skills/**`, `implants/**`; with them both list files) are not opened by any label. If a task needs them, the runner stops the run with `autodev:blocked` and leaves a local patch that the owner reviews and pushes.
+- **Control paths** (`flows/autodev*`, `.github/**`, `.coderabbit*`, `src/schedules/**`, `src/engine/**`, `src/flow_execution.py`, `src/__init__.py`, `src/component_toggles.py`, `src/daemon/__init__.py`, `src/daemon/acl.py`, `src/daemon/execution.py`, `src/daemon/state.py`, `src/executables.py`, `src/file_lock.py`, `src/model_migration.py`, `src/runtime_paths.py`, `src/schemas/__init__.py`, `src/schemas/artifacts.py`, `src/schemas/subagent.py`, `src/user_library.py`, `src/user_rules.py`, `src/rule_sources.py`, `src/utils/__init__.py`, `src/utils/langfuse_compat.py`, `src/utils/prompt_loader.py`, `src/version.py`, `agents/**`, `rules/**`, `skills/**`, `implants/**`; with them both list files) are not opened by any label. If a task needs them, the runner stops the run with `autodev:blocked` and leaves a local patch that the owner reviews and pushes.
   Amended by #347: `src/flow_execution.py` (the capability table the runner imports) joined both lists. After the #347 review the rest of the runner's import closure joined them too, from `src/__init__.py` to `src/version.py` (`src/daemon/state.py` sets the modes of the run records, for example); `tests/test_schedules_paths.py` computes the closure, including imports inside functions, and fails on a module outside the control paths. After the implementation stage the runner runs the change check itself on the imported head; a control-path refusal there, a blocked stage output whose commits touch one, or a push the broker refused for one writes `<run_dir>/export/<run-id>.patch` (`git format-patch`) and a verified `<run-id>.bundle` (`repos.TrustedRepository.export_commits`), moves the branch to `refs/autodev/quarantine/<run-id>/final`, and names both files in the run report and the owner's notification ([autodev-sequence.md](autodev-sequence.md)).
+  Amended on 2026-10-15: `.coderabbit*` joined both lists. CodeRabbit reads `.coderabbit.yaml` from the branch under review, so a run's branch could otherwise change how its own pull request is reviewed.
 - **The other protected paths** are opened by the `autodev:next` label (9.3, rule 6).
 - **The broker performs the check, not the model:** before each push it compares the changed paths with the list. It rejects:
   - a match without permission;
@@ -1086,7 +1091,7 @@ State on 2026-10-14: the code of every item below is implemented by #338 to #348
 
 ### Phase 1b. Automatic mode under the owner's account
 
-State on 2026-10-14: the code of the first two items is implemented by #350 on a branch stacked on #349, with tests on synthetic GitHub answers and stored probe records ([autodev-runner.md](autodev-runner.md#automatic-mode)), and revised after two review rounds and the owner's decisions of 2026-10-14 (section 13); it waits for the owner's review and merge. The acceptance is the owner's live steps; none has run.
+State on 2026-10-15: the code of the first two items is implemented by #350, following #349, with tests on synthetic GitHub answers and stored probe records ([autodev-runner.md](autodev-runner.md#automatic-mode)), and revised after two review rounds and the owner's decisions of 2026-10-14 (section 13). It was merged into `dev` in PR #387 on 2026-10-14. Issue #350 remains open for the owner's live acceptance steps below; those steps are still pending.
 
 - [x] The `ready` command and `enable --mode run --accept-shared-account`: the checks of 5.7 and recording the acceptance with the date and the version of the risk list (#350: `src/schedules/automatic.py`, `runner.readiness`). `ready` checks the real-run preconditions of #347 read from GitHub (the Q15 credentials, `main` protection with at least one required approving review, `can_approve_pull_request_reviews` false, `CLAUDE_ROUTINE_TOKEN` not a repository secret; its presence in the `issue-agent` environment is not read), the probe records and the acceptance; it never starts a probe. The probe rule: each stage kind a Claude session runs (a Codex `select` while its stored availability says unavailable, since a run then falls back to a Claude select session) has a passing record in each of the four modes once, at any age (A7); no record has to be recent, since every run probes before every session with Bash (5.7; the owner dropped the 7-day rule for `implement` and `submit` on 2026-10-14, section 13). The acceptance (`schedules/acceptance.json`) holds the date, the rows 1, 2 and 4, the SHA-256 of their text and the tripwire count; a changed text, a trip since it (another count or a later entry), an unreadable `tripwire.json` or a date in the future asks for a new one, and `disable` or `enable --mode dry-run` withdraws it. `enable` re-reads the tripwire count under the writers' lock and records the acceptance under it. A tick runs a scheduled `run` or `resume` only while `ready` passes, else it records the run `refused` and notifies (a refused continuation names its PR); the run's child checks the schedule and the acceptance again under the run lease. The settings page reads no credential: it shows the last `ready` result the CLI recorded and offers `run` only on a passing one at most 15 minutes old with a current acceptance.
 - [x] A triggered decoy or a failed probe turns the schedule off and sends a notification (#350: `decoys.trip` with `cause` `tripwire` or `probe`; a failed probe report before a stage session, a failed `probe` command and a Codex deny-probe success trip it too; the run or command that tripped it sends `Autodev schedule off` with a fixed phrase through `report.notify`).

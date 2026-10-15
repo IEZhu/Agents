@@ -4,8 +4,10 @@ Universal rules are short, always-on directives that every agent receives. They
 set the floor for honesty and fit. Guidance that depends on the agent, domain or
 register belongs in a [skill](../skills/README.md) listed in the agent's
 `core_skills`, `preferred_skills` or `capable_skills`.
-[`src/engine/rules.py`](../src/engine/rules.py) loads only `rules/rule-*.mdc`;
-this README is not a rule.
+[`src/engine/rules.py`](../src/engine/rules.py) loads built-ins from
+`rules/rule-*.mdc`; this README is not a rule. Protocol 2 bundles and compact
+workers also include enabled [URL-subscribed user rules](../docs/user-rules.md)
+from the local cache, separately from the built-in collection.
 
 ## Active rules
 
@@ -17,6 +19,7 @@ In load order:
 | 15 | `serve-the-request` | [rule-serve-the-request.mdc](rule-serve-the-request.mdc) | The request outranks persona and skill defaults. |
 | 20 | `honest-uncertainty` | [rule-honest-uncertainty.mdc](rule-honest-uncertainty.mdc) | Calibrate confidence on judgment calls. |
 | 30 | `anti-sycophancy` | [rule-anti-sycophancy.mdc](rule-anti-sycophancy.mdc) | Don't agree to agree. Push back on errors. |
+| 40 | `agent-cooperation` | [rule-agent-cooperation.mdc](rule-agent-cooperation.mdc) | Coordinate intersecting agent work within existing authorization. |
 | 90 | `language-match` | [rule-language-match.mdc](rule-language-match.mdc) | Match the language of the last message. |
 | 95 | `answer-timestamp` | [rule-answer-timestamp.mdc](rule-answer-timestamp.mdc) | Start the final answer with the time returned by `log_interaction`. |
 
@@ -32,7 +35,8 @@ removed, renamed or reprioritized.
   `rules_loaded` and the footer's `Rules` list the rule names. The footer's last
   segment, `Agents-Core <version>` (a link to the web UI under the shared daemon),
   follows the labelled lists and is not a rule. A flow persona that lists `rules`
-  gets exactly those rules, switched-off ones included; an empty list gives an
+  gets exactly those rules, including switched-off built-ins. Named `user:` rules
+  must be enabled; an empty list gives an
   empty `rules_block` ([flow personas](../flows/README.md#choose-a-flows-agent-and-components)).
 - Rules are sorted by `priority` (ascending), then by `name`.
 - Bundle assembly re-reads the files for every bundle in strict mode. An invalid
@@ -47,7 +51,7 @@ removed, renamed or reprioritized.
   `—` for `Rules`. See [environment variables](../README.md#environment-variables).
 - With the shared daemon, the local web UI (`.venv/bin/python -m src.daemon flows-ui`,
   tab *Rules*) can switch single rules off for the whole installation. A switched-off
-  rule leaves persona bundles and the footer unless a flow persona names it; its
+  built-in rule leaves persona bundles and the footer unless a flow persona names it; its
   file is untouched, and switching every rule off gives an empty
   `rules_block` like `RULES_ENABLED=0`. The per-query path used by the evaluation
   harnesses ignores the switches. See [Flow editor](../docs/shared-mcp-daemon.md#flow-editor).
@@ -61,10 +65,20 @@ input, completion and effort limits, and the exact JSON result contract.
 
 Worker preparation keeps installation-enabled non-presentation universal rules
 but excludes `answer-timestamp` and `language-match`; assignment language and the
-result schema control worker output. Worker scope rules do not depend on those
-presentation rules and are not added as applicability fields to universal files.
+result schema control worker output. It also excludes `agent-cooperation` with
+the selection reason `worker_equivalent`: the mandatory `worker-cooperation`
+rule supplies its task-scoped equivalent, even when conversation rules are off.
+Worker scope rules do not depend on those presentation rules and are not added
+as applicability fields to universal files.
 The worker package supplies the role without a new conversation activation,
 footer, or per-answer log call. Parent logging follows protocol 2 as before.
+
+`agent-cooperation` asks conversations to coordinate intersecting work through
+authorized records/channels. The optional [cooperation service](../docs/agent-cooperation/README.md)
+is disabled by default; the rule grants no permissions, requires no messaging to
+unrelated chats and preserves independent work when coordination is unavailable.
+New activations and explicit refreshes receive changed rules; an existing `keep`
+retains its applied bundle. Exact flow rule selections remain exact.
 
 Edit the worker collection and its focused validation checks when changing the
 worker contract. Do not add worker names to the universal `_EXPECTED_RULE_NAMES`

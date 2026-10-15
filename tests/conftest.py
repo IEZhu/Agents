@@ -57,6 +57,15 @@ CLIENT_CONFIG_OVERRIDES = (
 )
 
 
+def pytest_ignore_collect(collection_path, config):
+    # The enabled v1 backend/capture/spool contract is POSIX-only. Keep its
+    # native fixtures out of Windows collection; test_optional_inference_disabled
+    # still checks the portable disabled/import boundary on every platform.
+    if os.name != "posix" and collection_path.name.startswith("test_local_inference_"):
+        return True
+    return None
+
+
 def _pin_embedding_model() -> None:
     """Use the install's model so the copied stores' hashes can match."""
     if os.environ.get("EMBEDDING_MODEL"):
@@ -297,3 +306,11 @@ def no_server_restart(monkeypatch):
         # Not AssertionError: activation turns any Exception into the SystemExit a test may expect.
         pytest.fail(f"a test restarted the test process: {argv}")
     monkeypatch.setattr(self_update, "_exec_server", refuse)
+
+
+@pytest.fixture(autouse=True)
+def user_rule_store(tmp_path, monkeypatch):
+    """URL rule tests never read or mutate the owner's real subscriptions."""
+    directory = tmp_path / "user-rules"
+    monkeypatch.setenv("AGENTS_USER_RULES_DIR", str(directory))
+    return directory
