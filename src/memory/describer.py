@@ -361,29 +361,37 @@ class RepoDescriber:
         }
         for root in (installation_root(), runtime_root()):
             protected = root.resolve()
+            status = protected.stat()
+            protected_identity = (status.st_dev, status.st_ino)
             for target in targets:
-                if not target.is_relative_to(protected):
-                    continue
-                parent = target
-                while parent != protected:
+                for parent in (target, *target.parents):
+                    try:
+                        status = parent.stat()
+                    except (FileNotFoundError, NotADirectoryError):
+                        continue
+                    # Resolved spellings can still differ for the same macOS
+                    # directory (case variants and /System/Volumes/Data).
+                    if (status.st_dev, status.st_ino) == protected_identity:
+                        return (
+                            "live_installation: repository summaries cannot modify the running "
+                            "Agents-Core installation or runtime source checkout; use a separate worktree"
+                        )
                     # A nested linked worktree is a separate checkout. Plain
                     # subdirectories must not bypass installation protection.
                     if _main_checkout(parent) != parent:
                         break
-                    parent = parent.parent
-                else:
-                    return (
-                        "live_installation: repository summaries cannot modify the running "
-                        "Agents-Core installation or runtime source checkout; use a separate worktree"
-                    )
         return None
 
     def write_summary(self, summary: str, repo_hash: str) -> dict:
+        """Validate protected destinations and freshness before explicitly persisting a summary."""
         reason = self.write_rejection_reason()
         if reason:
             return {"status": "rejected", "reason": reason}
         from src.file_lock import file_lock
         with file_lock(os.path.join(self.repo_path, ".agents-description.lock")):
+            # A caller can wait on the lock while an ancestor is retargeted.
+            if reason := self.write_rejection_reason():
+                return {"status": "rejected", "reason": reason}
             if self.compute_repo_hash() != repo_hash:
                 return {"status": "rejected", "reason": "repo_hash changed; call describe_repo again"}
             return self._write_summary_locked(summary, repo_hash)
