@@ -740,7 +740,7 @@ def local_work(ctx: Context, checkout: Path) -> str | None:
     the installer's .env and .venv assets. Git failures also keep the whole checkout.
     """
     base = ["git", "-C", str(checkout)]
-    status = ctx.runner([*base, "status", "--porcelain"])
+    status = ctx.runner([*base, "status", "--porcelain", "--untracked-files=normal"])
     branches = ctx.runner([*base, "for-each-ref", "--format=%(refname:short)", "refs/heads"])
     if status.returncode != 0 or branches.returncode != 0:
         return "git could not check it for uncommitted work"
@@ -1565,11 +1565,20 @@ def build_plan(ctx: Context, *, keep_data: bool = False) -> list[Item]:
         if keep_data:  # states inside the checkout (Windows) keep user sync and the fallback journal too
             keep += [state / name for state in states if _within(state, [installation])
                      for name in KEEP_IN_STATE if (state / name).exists()]
+        def remove_installation():
+            """Recheck selected-checkout work after confirmation, immediately before removal."""
+            check_removable(ctx, installation, owned=owned)
+            if owned:
+                reason = local_work(ctx, installation)
+                if reason:
+                    raise Refused(f"checkout changed since planning: {reason}; kept, delete it yourself")
+            return remove_except(ctx, installation, keep, owned=owned)
+
         items.append(Item("installation", str(installation), "remove", "install.sh (git clone into AGENTS_HOME, "
                           "default ~/.agents-core), scripts/init_repo.sh (.venv, .env, data/)",
                           "the one-command installation" + ("; keeps " + ", ".join(
                               str(path.relative_to(installation)) for path in keep) + " (--keep-data)" if keep else ""),
-                          lambda: remove_except(ctx, installation, keep, owned=owned)))
+                          remove_installation))
     elif ctx.env_path("AGENTS_HOME") and installation.is_dir():
         items.append(Item("installation", str(installation), "keep", "AGENTS_HOME",
                           "named by AGENTS_HOME, but it is not an Agents-Core checkout; delete it yourself"))
