@@ -132,7 +132,7 @@ class RuleLibrary:
             return state
         except FileNotFoundError:
             raise UserRuleError(f"rule_not_found: {rule_id}") from None
-        except (OSError, KeyError, TypeError, ValueError, UnicodeError, StopIteration):
+        except (OSError, KeyError, TypeError, ValueError, UnicodeError, StopIteration, RecursionError):
             raise UserRuleError(f"rule_invalid: corrupt subscription {rule_id}") from None
 
     def _current(self, state: dict) -> dict:
@@ -225,11 +225,12 @@ class RuleLibrary:
 
     def _write(self, state: dict) -> dict:
         state["revision"] = uuid.uuid4().hex
+        metadata = self._metadata(state, full=True)
         raw = json.dumps(state, ensure_ascii=False, indent=2).encode("utf-8") + b"\n"
         if len(raw) > MAX_STATE_BYTES:
             raise UserRuleError("rule_invalid: subscription history is too large")
         atomic_write(self._path(state["id"]), raw)
-        return self._metadata(state, full=True)
+        return metadata
 
     def _check_revision(self, state: dict, expected_revision: str) -> None:
         if not expected_revision or state["revision"] != expected_revision:
@@ -268,10 +269,14 @@ class RuleLibrary:
             state["last_error"] = error_message
             if error_message is None:
                 digest = _digest(content)
-                if not any(item["sha256"] == digest for item in state["history"]):
+                existing = next((item for item in state["history"] if item["sha256"] == digest), None)
+                if existing is None:
                     state["history"].append({"sha256": digest, "content": content,
                                              "accepted_at": state["checked_at"]})
                     state["history"] = state["history"][-MAX_HISTORY:]
+                else:
+                    # A matching stored hash does not establish integrity of retained bytes.
+                    existing["content"] = content
                 state["content_sha256"] = digest
             result = self._write(state)
         if error_message is not None:

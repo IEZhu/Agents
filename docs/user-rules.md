@@ -104,7 +104,8 @@ and the Rules tab show an explicit error entry; `get_user_rule` returns a diagno
 for a damaged regular subscription file. A diagnostic contains no accepted body.
 It includes the enabled state, revision and retained hashes only when the stored
 envelope is valid; unknown enabled state or revision is `null`. Error entries cannot
-be selected for a flow or toggled through the Rules tab.
+be selected for a flow or toggled through the Rules tab. Excessive JSON nesting is
+also reported as a damaged subscription, leaving other entries manageable.
 
 Default activation and worker preparation fail closed for damaged enabled guidance
 or an unreadable envelope whose enabled state is unknown. They never silently drop
@@ -118,7 +119,10 @@ subscription or roll back to a retained valid hash. Rollback verifies the select
 snapshot and preserves the enabled flag; stale revisions remain conflicts. A bad
 envelope, invalid revision, or symlink requires the owner to inspect and quarantine
 or remove that file in the machine-local store. No recovery operation automatically
-disables, deletes or substitutes required guidance.
+disables, deletes or substitutes required guidance. A successful refresh uses the
+newly validated source bytes when their hash matches an older retained version;
+it never promotes damaged cached bytes by hash alone. Snapshot validation completes
+before a write can replace the accepted local state.
 
 ## Storage, authentication and private hosts
 
