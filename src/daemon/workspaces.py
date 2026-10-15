@@ -68,13 +68,38 @@ class WorkspaceRegistry:
         if not isinstance(grants, dict):
             raise WorkspaceError("workspace_invalid")
         saved = grants.get(identity, [])
-        if not isinstance(saved, list) or not all(isinstance(item, str) for item in saved):
-            raise WorkspaceError("workspace_invalid")
-        if str(physical) not in saved:
-            if len(saved) >= 50:
+        current = [str(path) for path in self._existing_checkouts(saved)]
+        if str(physical) not in current:
+            if len(current) >= 50:
                 raise WorkspaceError("workspace_invalid")
-            grants[identity] = [*saved, str(physical)]
+            current.append(str(physical))
+        if current != saved:
+            grants[identity] = current
             write_json(self.checkout_path, grants)
+
+    @staticmethod
+    def _existing_checkouts(saved):
+        """Discard removed checkouts, but reject corrupt or retargeted grants."""
+        try:
+            if not isinstance(saved, list) or len(saved) > 50:
+                raise ValueError()
+            result = []
+            for value in saved:
+                if not isinstance(value, str):
+                    raise ValueError()
+                path = Path(value)
+                if not path.is_absolute() or str(path.resolve()) != value:
+                    raise ValueError()
+                try:
+                    resolved = path.resolve(strict=True)
+                except FileNotFoundError:
+                    continue
+                if str(resolved) != value or not path.is_dir():
+                    raise ValueError()
+                result.append(path)
+            return tuple(result)
+        except (ValueError, TypeError, OSError, RuntimeError):
+            raise WorkspaceError("workspace_invalid") from None
 
     def cooperation_roots(self, identity):
         """Owner-registered physical grants; memory root normalization is unchanged."""
@@ -88,13 +113,7 @@ class WorkspaceRegistry:
             saved = grants.get(identity, [str(root)])
             if not isinstance(saved, list) or not 1 <= len(saved) <= 50:
                 raise ValueError()
-            result = []
-            for value in saved:
-                path = Path(value)
-                if not path.is_absolute() or str(path.resolve(strict=True)) != value or not path.is_dir():
-                    raise ValueError()
-                result.append(path)
-            return tuple(result)
+            return self._existing_checkouts(saved)
         except (ValueError, TypeError, OSError, RuntimeError):
             raise WorkspaceError("workspace_invalid") from None
 
