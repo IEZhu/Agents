@@ -39,7 +39,7 @@ def test_port_probe_allows_owned_time_wait_but_refuses_live_listener():
     assert port_available(port)
 
 
-def fake_executable(tmp_path, *, ignore_term=False, write_bytes=0, version="build 11429, commit d81235049"):
+def fake_executable(tmp_path, *, ignore_term=False, handler_delay=0, write_bytes=0, version="build 11429, commit d81235049"):
     binary = tmp_path / "fake-engine"
     binary.write_text(f"""#!{sys.executable}
 import os, signal, sys, time
@@ -50,7 +50,10 @@ if '--help' in sys.argv:
     print({' '.join(REQUIRED_FLAGS)!r})
     raise SystemExit(0)
 if {ignore_term!r}:
+    time.sleep({handler_delay!r})
     signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    with open({str(tmp_path / "signal-handler-ready")!r}, 'wb') as ready:
+        ready.write(b'ready')
 if {write_bytes!r}:
     destination = sys.argv[sys.argv.index('--slot-save-path') + 1] + '/limit-test.bin'
     with open(destination, 'wb') as stream:
@@ -121,13 +124,17 @@ async def test_occupied_port_refuses_without_touching_foreign_listener(tmp_path)
 
 @pytest.mark.asyncio
 async def test_ignored_terminate_kills_and_reaps_only_owned_child(tmp_path):
-    _, _, config = fake_executable(tmp_path, ignore_term=True)
+    _, _, config = fake_executable(tmp_path, ignore_term=True, handler_delay=0.1)
     process = OwnedProcess(config, tmp_path / "state", check_port=lambda _: True)
     try:
         await process.ensure_started()
         child = process._child
-        # Let the fake child install its own signal handler after exec.
-        await asyncio.sleep(0.05)
+        # The wrapper acknowledges its write limit before exec, so wait for
+        # the fake engine itself to confirm that SIGTERM is now ignored.
+        async with asyncio.timeout(5):
+            while not (tmp_path / "signal-handler-ready").exists():
+                assert child.returncode is None
+                await asyncio.sleep(0.01)
         started = time.monotonic()
         assert await process.fence() is True
         assert time.monotonic() - started < 0.6
