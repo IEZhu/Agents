@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import os
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
 
 from src.memory import managed_section
+from src.memory import describer as describer_module
 from src.memory.config import DESCRIBE_MARKER_BEGIN, DESCRIBE_MARKER_END
 from src.memory.describer import (
     DESCRIBE_PROMPT_TEMPLATE,
@@ -219,6 +221,151 @@ class TestWriteSummary:
         # Old body gone
         assert "one demo" not in content
         assert "two demo" in content
+
+
+class TestInstallationSafety:
+    def test_rechecks_destination_after_waiting_for_lock(self, describer, tmp_path, monkeypatch):
+        """A directory retargeted while acquiring the lock cannot reach the installation."""
+        from src import file_lock as locks
+        installation = tmp_path / "installation"
+        installation.mkdir()
+        original = "# Active instructions\n"
+        (installation / "CLAUDE.md").write_text(original)
+        monkeypatch.setattr(describer_module, "installation_root", lambda: installation)
+        destination = tmp_path / "data" / "summary"
+        destination.mkdir(parents=True)
+        describer.claude_md_path = str(destination / "CLAUDE.md")
+        expected_hash = describer.compute_repo_hash()
+        real_lock = locks.file_lock
+
+        @contextmanager
+        def retarget_while_locking(path):
+            """Reproduce a changed destination between validation and lock acquisition."""
+            with real_lock(path):
+                destination.rmdir()
+                try:
+                    destination.symlink_to(installation, target_is_directory=True)
+                except OSError:
+                    pytest.skip("symlinks unavailable")
+                yield
+
+        monkeypatch.setattr(locks, "file_lock", retarget_while_locking)
+        result = describer.write_summary(_valid_summary(), expected_hash)
+        assert result["status"] == "rejected" and "live_installation" in result["reason"]
+        assert describer.compute_repo_hash() == expected_hash
+        assert (installation / "CLAUDE.md").read_text() == original
+        assert not (installation / ".CLAUDE.md.lock").exists()
+        assert not Path(describer.hash_file).exists()
+
+    @pytest.mark.parametrize("root_kind", ["installation_root", "runtime_root"])
+    @pytest.mark.parametrize("alias_kind", ["case", "data-volume"])
+    @pytest.mark.parametrize("destination", ["root", "subdirectory", "summary", "hash"])
+    def test_rejects_physical_alias_of_active_checkout(self, describer, tmp_path, monkeypatch, root_kind, alias_kind, destination):
+        """Case and volume aliases cannot hide a protected directory identity."""
+        installation = tmp_path / "Installation"
+        installation.mkdir()
+        _seed_repo(installation)
+        alias = (
+            installation.with_name("INSTALLATION") if alias_kind == "case" else
+            Path("/System/Volumes/Data") / installation.relative_to(installation.anchor)
+        )
+        if not alias.is_dir() or not alias.samefile(installation) or alias.resolve() == installation.resolve():
+            pytest.skip("this filesystem does not expose the requested physical alias")
+        monkeypatch.setattr(describer_module, root_kind, lambda: installation)
+        if destination in ("root", "subdirectory"):
+            target = alias if destination == "root" else alias / "src"
+            describer = RepoDescriber(repo_path=str(target))
+        elif destination == "summary":
+            describer.claude_md_path = str(alias / "CLAUDE.md")
+        else:
+            describer.hash_file = str(alias / "data" / "memory" / ".describe_hash")
+        result = describer.write_summary(_valid_summary(), describer.compute_repo_hash())
+        assert result["status"] == "rejected" and "live_installation" in result["reason"]
+        for root in (tmp_path, installation, installation / "src"):
+            assert not (root / "CLAUDE.md").exists()
+            assert not (root / ".agents-description.lock").exists()
+            assert not (root / "data").exists()
+
+    @pytest.mark.parametrize("path_field", ["claude_md_path", "hash_file"])
+    def test_rejects_protected_replacement_symlink_pointing_outward(self, describer, tmp_path, monkeypatch, path_field):
+        """An atomic replacement must preserve protected symlink directory entries."""
+        installation = tmp_path / "installation"
+        installation.mkdir()
+        monkeypatch.setattr(describer_module, "installation_root", lambda: installation)
+        external = tmp_path / "external.md"
+        external.write_text("# External content\n")
+        protected = installation / "protected-file"
+        try:
+            protected.symlink_to(external)
+        except OSError:
+            pytest.skip("symlinks unavailable")
+        setattr(describer, path_field, str(protected))
+        result = describer.write_summary(_valid_summary(), describer.compute_repo_hash())
+        assert result["status"] == "rejected" and "live_installation" in result["reason"]
+        assert protected.is_symlink()
+        assert external.read_text() == "# External content\n"
+        assert list(installation.iterdir()) == [protected]
+        assert not (tmp_path / ".agents-description.lock").exists()
+        assert not (tmp_path / "CLAUDE.md").exists()
+        assert not (tmp_path / "data").exists()
+
+    @pytest.mark.parametrize("root_kind", ["installation_root", "runtime_root"])
+    def test_rejects_active_root_before_any_write(self, describer, tmp_path, monkeypatch, root_kind):
+        """Both active roots reject persistence before any lock or cache is created."""
+        monkeypatch.setattr(describer_module, root_kind, lambda: tmp_path)
+        original = "# Active instructions\n"
+        (tmp_path / "CLAUDE.md").write_text(original)
+        result = describer.write_summary(_valid_summary(), describer.compute_repo_hash())
+        assert result["status"] == "rejected"
+        assert "live_installation" in result["reason"]
+        assert (tmp_path / "CLAUDE.md").read_text() == original
+        assert not (tmp_path / ".agents-description.lock").exists()
+        assert not (tmp_path / "data").exists()
+
+    def test_rejects_subdirectory_of_installation(self, describer, tmp_path, monkeypatch):
+        """Selecting a plain subdirectory cannot bypass installation protection."""
+        monkeypatch.setattr(describer_module, "installation_root", lambda: tmp_path)
+        nested = RepoDescriber(repo_path=str(tmp_path / "src"))
+        result = nested.write_summary(_valid_summary(), nested.compute_repo_hash())
+        assert result["status"] == "rejected" and "live_installation" in result["reason"]
+        assert not (tmp_path / "src" / "CLAUDE.md").exists()
+        assert not (tmp_path / "src" / ".agents-description.lock").exists()
+        assert not (tmp_path / "src" / "data").exists()
+
+    def test_rejects_explicit_hash_target_in_installation(self, describer, tmp_path, monkeypatch):
+        """A protected fingerprint destination prevents all summary-write side effects."""
+        installation = tmp_path / "installation"
+        installation.mkdir()
+        monkeypatch.setattr(describer_module, "installation_root", lambda: installation)
+        describer.hash_file = str(installation / "data" / "memory" / ".describe_hash")
+        result = describer.write_summary(_valid_summary(), describer.compute_repo_hash())
+        assert result["status"] == "rejected" and "live_installation" in result["reason"]
+        assert not (tmp_path / "CLAUDE.md").exists()
+        assert not (tmp_path / ".agents-description.lock").exists()
+        assert list(installation.iterdir()) == []
+
+    @pytest.mark.parametrize("alias", [False, True])
+    def test_rejects_explicit_summary_target_in_installation(self, describer, tmp_path, monkeypatch, alias):
+        """Explicit summary paths and symlink aliases cannot modify the installation."""
+        installation = tmp_path / "installation"
+        installation.mkdir()
+        protected = installation / "CLAUDE.md"
+        protected.write_text("# Live instructions\n")
+        monkeypatch.setattr(describer_module, "installation_root", lambda: installation)
+        target = protected
+        if alias:
+            target = tmp_path / "CLAUDE.md"
+            try:
+                target.symlink_to(protected)
+            except OSError:
+                pytest.skip("symlinks unavailable")
+        describer.claude_md_path = str(target)
+        result = describer.write_summary(_valid_summary(), describer.compute_repo_hash())
+        assert result["status"] == "rejected"
+        assert "live_installation" in result["reason"]
+        assert protected.read_text() == "# Live instructions\n"
+        assert not (tmp_path / ".agents-description.lock").exists()
+        assert not (tmp_path / "data").exists()
 
 
 class TestUpToDateResponse:
