@@ -299,8 +299,7 @@ class ClientMigration:
     def url(self): return f"http://127.0.0.1:{self.config['port']}/mcp"
 
     def prepare(self, client, workspace=None, *, home=None, config_path=None, transport=None):
-        """One client configuration's change: ``(path, content, holds_a_secret)``, or ``None``
-        when ``claude-deny-desktop`` finds no denial to remove.
+        """One client configuration's change: ``(path, content, holds_a_secret)``.
 
         ``transport`` (``bridge`` or ``http``) sets a Codex or Cursor layer's transport; by
         default it follows ``layer_transport``.
@@ -347,18 +346,9 @@ class ClientMigration:
             entry = self.bridge(identity, app) if tracked(path) else {"type": "http", "url": self.url, "headers": headers}
             servers[SERVER] = transport_entry(servers.get(SERVER, {}), entry)
         elif client == "claude-deny-desktop":
-            # This service serves the desktop entry, so the denial an earlier install wrote only
-            # blocks Code-tab turns (#421): remove it, and write nothing when it is absent.
             document = self.read_config(path)
-            permissions = document.get("permissions")
-            deny = permissions.get("deny") if isinstance(permissions, dict) else None
-            if not isinstance(deny, list) or not set(DESKTOP_DENY_RULES) & set(map(str, deny)):
-                return None
-            permissions["deny"] = [rule for rule in deny if rule not in DESKTOP_DENY_RULES]
-            if not permissions["deny"]:
-                del permissions["deny"]
-            if not permissions:
-                del document["permissions"]
+            deny = document.setdefault("permissions", {}).setdefault("deny", [])
+            deny.extend(rule for rule in DESKTOP_DENY_RULES if rule not in deny)
         elif client == "cursor":
             document = self.read_config(path)
             servers = document.setdefault("mcpServers", {})

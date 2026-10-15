@@ -1065,29 +1065,17 @@ The Claude desktop app starts the servers of `claude_desktop_config.json` once, 
 any project, and injects them into the Code sessions it launches, which also start their
 own from the Claude Code registry. `init_repo` (like `python -m src.daemon migrate
 --clients desktop`) therefore names the desktop entry `Agents-Core-Desktop`, taking over
-an older `Agents-Core` entry there. Setup configures Claude Code with the desktop app even
-when Claude Code is not installed on its own, since the Code tab runs it. The desktop app
-reads the profile its own environment selects: when setup runs with `CLAUDE_CONFIG_DIR`,
-the app must see the same value.
-
-- **Standalone install.** The desktop entry is a process of its own, started outside any
-  project, so setup denies its tools in Claude Code (`permissions.deny`:
-  `mcp__Agents-Core-Desktop__*` in `~/.claude/settings.json`, or the `CLAUDE_CONFIG_DIR`
-  profile's). A Code-tab session then uses Claude Code's own `Agents-Core` for its project,
-  while the app's chats keep `Agents-Core-Desktop` (#231). Claude Code can still list the
-  denied tools, and calls to them are refused.
-- **Shared service.** The desktop entry is the bridge to the service, which resolves each
-  call's `workspace` (#253). A denial would only block Code-tab turns, so `migrate` and
-  setup remove the one an earlier install wrote and add none (#421). A Code-tab session
-  lists both servers; the routing instructions tell the model to prefer `Agents-Core`.
-  While the shared service is installed, setup keeps the entries `migrate` wrote. Neither
-  the service's upkeep nor self-update touches these files, so an installation that an
-  earlier version denied keeps that denial until setup or `python -m src.daemon migrate
-  --clients desktop` runs once more.
-
-The desktop server needs the `workspace` argument for its memory and flow tools
-([rules](#-repository-memory)); under the shared service, a `log_interaction` without it
-goes to the service's fallback journal.
+an older `Agents-Core` entry there, and denies its tools in Claude Code
+(`permissions.deny`: `mcp__Agents-Core-Desktop__*` in `~/.claude/settings.json`, or the
+`CLAUDE_CONFIG_DIR` profile's). Setup configures Claude Code with the desktop app even
+when Claude Code is not installed on its own, since the Code tab runs it. A Code-tab session
+then uses Claude Code's own `Agents-Core` for its project, while the app's chats keep
+`Agents-Core-Desktop` (#231); the session still sees both servers' instructions, and
+calls to the denied tools are refused. The desktop app reads the profile its own
+environment selects: when setup runs with `CLAUDE_CONFIG_DIR`, the app must see the
+same value. While the shared service is installed, setup keeps the entries `migrate`
+wrote. The shared desktop server still needs the `workspace` argument for its memory
+and flow tools ([rules](#-repository-memory)).
 
 ### Cursor (`.cursor/mcp.json` in the client project)
 
@@ -1214,8 +1202,8 @@ installation and workflows return an error.
 
 One stdio process can also serve several sessions. The Claude desktop app starts the
 servers in `claude_desktop_config.json` once, in `C:\Windows\System32` without
-`CLAUDE_PROJECT_DIR`, and injects them into its Code-tab sessions; a standalone install
-denies that entry in Claude Code (see above), so those sessions use their own server.
+`CLAUDE_PROJECT_DIR`, and injects them into its Code-tab sessions; setup and `migrate`
+deny that entry in Claude Code (see above), so those sessions use their own server.
 Its `roots/list` answer lists the folders of every open session,
 so neither the process nor its roots tell which project a call belongs to. The memory
 and flow tools therefore take `workspace`, the absolute path of the caller's working

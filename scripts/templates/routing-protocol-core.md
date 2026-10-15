@@ -83,8 +83,11 @@ role with `get_agent_context`; otherwise call `route_and_load` with the user's
 request, `protocol_version=2` and `current_persona=null`.
 
 The Claude desktop app adds its own `Agents-Core-Desktop` server to its Code
-sessions. When both `Agents-Core` and `Agents-Core-Desktop` tools are listed, call
-`Agents-Core`; a standalone install denies `Agents-Core-Desktop` in Claude Code.
+sessions; Claude Code denies it there but may still list its tools. When both
+`Agents-Core` and `Agents-Core-Desktop` are listed, make every call through
+`Agents-Core`, the first one included. If a call is refused because
+`Agents-Core-Desktop` is denied, repeat it through `Agents-Core`; never continue
+without the persona or the log.
 
 `ROUTE_REQUIRED` is an intermediate result, not an activated persona. Select the
 best canonical candidate and call `get_agent_context` in the same turn; do not
