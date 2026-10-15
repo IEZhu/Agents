@@ -58,8 +58,9 @@ environment. Start from the [configuration example](shared-kv-mcp/owner-config.e
 select an existing GGUF and executable, and register source roots against the
 authorized workspace root. Version 1 targets llama.cpp build 11429, commit
 `d81235049384534c167caea52b85a694f6103d14`; other builds fail closed. The service
-owns one private loopback child, API key and spool; it refuses an occupied port
-and never attaches to or kills another engine. Effective context capacity is
+owns one child with a fresh private Unix socket, API key and spool; native HTTP
+never falls back to TCP or attaches to another engine. The schema-1 `port` field
+is accepted but unused. Only the owned child can be terminated. Effective context capacity is
 reported after startup, including the pinned engine's one-token headroom.
 
 Use `local_context_create`, retain its separate owner/access tokens privately,
@@ -96,7 +97,7 @@ do not enlarge effective model capacity or preserve ephemeral capabilities
 across a broker restart. See [shared artifacts](shared-artifacts.md#optional-local-completion).
 
 Run the explicit owner diagnostic and benchmark only in a separate private state
-directory and on an unused engine port. Their commands and observed acceptance
+directory with their own private native socket namespace. Their commands and observed acceptance
 are in the [implementation report](shared-kv-mcp/implementation-report.md).
 No ordinary status/import call runs a capability probe. See the
 [snapshot protocol](shared-kv-mcp/redis.md) and [validation matrix](shared-kv-mcp/validation.md).
