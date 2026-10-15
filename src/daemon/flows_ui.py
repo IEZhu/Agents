@@ -33,7 +33,7 @@ from pathlib import Path
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse
 
-from src import component_toggles
+from src import component_toggles, user_rules
 from src.component_catalog import known_ids, list_agents, list_components
 from src.flows import FlowCatalog, FlowError
 from src.user_flows import FlowLibrary
@@ -100,7 +100,8 @@ def set_auto_sign_in(directory, enabled: bool) -> None:
 def _error_status(message: str) -> int:
     code = message.split(":", 1)[0]
     return {"flow_conflict": 409, "flow_not_found": 404, "flow_read_only": 403,
-            "repo_scope_unavailable": 400, "workspace_invalid": 400}.get(code, 400)
+            "repo_scope_unavailable": 400, "workspace_invalid": 400,
+            "rule_conflict": 409, "rule_not_found": 404}.get(code, 400)
 
 
 class FlowsUI:
@@ -394,12 +395,23 @@ class FlowsUI:
                 if not isinstance(component_id, str) or component_id not in await asyncio.to_thread(
                         known_ids, kind):
                     raise FlowError("flow_not_found: unknown component")
-                await asyncio.to_thread(component_toggles.set_enabled, kind, component_id,
-                                        body["enabled"])
+                if kind == "rules" and component_id.startswith("user:"):
+                    library = user_rules.RuleLibrary()
+                    # Older UI clients send no revision. Still serialize the write
+                    # against the snapshot we read, catching concurrent refreshes.
+                    revision = body.get("expected_revision")
+                    if revision is None:
+                        current = await asyncio.to_thread(library.get, component_id)
+                        revision = current["revision"]
+                    await asyncio.to_thread(library.set_enabled, component_id,
+                                            body["enabled"], revision)
+                else:
+                    await asyncio.to_thread(component_toggles.set_enabled, kind, component_id,
+                                            body["enabled"])
                 return self._json({"status": "ok", "kind": kind, "id": component_id,
                                    "enabled": body["enabled"]})
             return self._json({"error": "not_found"}, 404)
-        except (FlowError, component_toggles.ToggleError) as error:
+        except (FlowError, component_toggles.ToggleError, user_rules.UserRuleError) as error:
             return self._json({"status": "error", "error": str(error)}, _error_status(str(error)))
         except OSError as error:
             return self._json({"status": "error", "error": f"storage_error: {error.strerror or error}"}, 500)

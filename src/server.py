@@ -68,6 +68,8 @@ from src.daemon.workspaces import (resolve_client_context, workspace_inputs, des
 from src import flow_persona
 from src.flows import MAX_FLOW_BYTES, FlowCatalog, FlowError, execution_bundle
 from src.user_flows import FlowLibrary
+from src.user_rules import RuleLibrary, UserRuleError
+from src.rule_sources import RuleSourceError
 from src.schemas.protocol import PersonaDescriptor, PersonaAction
 from src.engine.persona import (
     load_persona, route_persona, parse_persona, error_response,
@@ -509,6 +511,18 @@ def tool_hints(title: str, *, read_only: bool, destructive: bool | None = None,
 # Each MCP tool's title and hints, applied by its decorator; tests/test_tool_annotations.py
 # checks that every registered tool has them.
 TOOL_HINTS = {
+    "list_user_rules": tool_hints("List URL user rules", read_only=True),
+    "get_user_rule": tool_hints("Read a URL user rule", read_only=True),
+    "subscribe_user_rule": tool_hints("Subscribe to a URL user rule", read_only=False,
+                                       destructive=False, open_world=True),
+    "refresh_user_rule": tool_hints("Refresh a URL user rule", read_only=False,
+                                     destructive=True, open_world=True),
+    "set_user_rule_enabled": tool_hints("Enable or disable a URL user rule", read_only=False,
+                                         destructive=True),
+    "rollback_user_rule": tool_hints("Restore a cached user rule version", read_only=False,
+                                      destructive=True),
+    "delete_user_rule": tool_hints("Remove a URL user rule subscription", read_only=False,
+                                    destructive=True),
     "list_flows": tool_hints("List flows", read_only=True),
     "get_flow": tool_hints("Read a flow", read_only=True),
     "save_flow": tool_hints("Save a personal flow", read_only=False, destructive=False, idempotent=False,
@@ -723,6 +737,90 @@ async def cooperation_ack(
     grants no resource claim or permission. Schema: agents-core://cooperation/schema.
     """
     return _cooperation_result(AckResponse, await _cooperation_call("ack", request, ctx, workspace))
+
+
+async def _user_rule_call(method: str, *args, **kwargs) -> str:
+    try:
+        result = await asyncio.to_thread(getattr(RuleLibrary(), method), *args, **kwargs)
+        return json.dumps(result, ensure_ascii=False)
+    except (UserRuleError, RuleSourceError) as error:
+        return json.dumps({"status": "error", "error": str(error)}, ensure_ascii=False)
+    except OSError:
+        return json.dumps({"status": "error", "error": "rule_storage_error: unable to access user rule storage"})
+
+
+@mcp.tool(**TOOL_HINTS["list_user_rules"])
+async def list_user_rules() -> str:
+    """List this user's URL rule subscriptions, enabled state, revision and last refresh error.
+
+    Across this installation's workspaces; never fetches the source. Corporate
+    rules stay separate from built-in rules and the synced personal flow library.
+    """
+    return await _user_rule_call("list")
+
+
+@mcp.tool(**TOOL_HINTS["get_user_rule"])
+async def get_user_rule(rule_id: str) -> str:
+    """Read a user:<name> rule's accepted MDC, revision and up to 20 cached versions.
+
+    Read before refresh, enable/disable, rollback or deletion. Never fetches a URL.
+    """
+    return await _user_rule_call("get", rule_id)
+
+
+@mcp.tool(**TOOL_HINTS["subscribe_user_rule"])
+async def subscribe_user_rule(url: str, auth_env: str | None = None) -> str:
+    """Subscribe to one HTTPS raw MDC rule when the user requests it.
+
+    Fetch and validate before enabling it as user:<frontmatter name>. Only name,
+    description, category and priority metadata are accepted; no MDC imports.
+    No redirects, URL credentials or queries except a Git ref parameter. Optional auth_env names a
+    server environment variable used as a Bearer token; never pass the token.
+    The owner must bind that variable to this host in AGENTS_RULE_AUTH_HOSTS.
+    This grants future explicitly refreshed content user-rule scope. Sources do
+    not become system instructions. No automatic refresh or background polling.
+    """
+    return await _user_rule_call("subscribe", url, auth_env=auth_env)
+
+
+@mcp.tool(**TOOL_HINTS["refresh_user_rule"])
+async def refresh_user_rule(rule_id: str, expected_revision: str) -> str:
+    """Fetch and accept a new version of an existing URL user rule on request.
+
+    Pass the revision from get_user_rule. Failure retains the last accepted
+    content and enabled state, and records last_error. No running persona changes:
+    refresh_persona_context issues the updated bundle; keep retains its old one.
+    """
+    return await _user_rule_call("refresh", rule_id, expected_revision)
+
+
+@mcp.tool(**TOOL_HINTS["set_user_rule_enabled"])
+async def set_user_rule_enabled(rule_id: str, enabled: bool, expected_revision: str) -> str:
+    """Enable or disable a user:<name> subscription using its current revision.
+
+    No fetch. Disabled user rules are unavailable even to exact flow selections.
+    """
+    return await _user_rule_call("set_enabled", rule_id, enabled, expected_revision)
+
+
+@mcp.tool(**TOOL_HINTS["rollback_user_rule"])
+async def rollback_user_rule(rule_id: str, content_sha256: str, expected_revision: str) -> str:
+    """Restore one of get_user_rule's cached content hashes, without a network request.
+
+    Preserves enabled state and the source URL. Future explicit refresh can accept
+    the source's latest content again. Existing issued personas are unchanged.
+    """
+    return await _user_rule_call("rollback", rule_id, content_sha256, expected_revision)
+
+
+@mcp.tool(**TOOL_HINTS["delete_user_rule"])
+async def delete_user_rule(rule_id: str, expected_revision: str) -> str:
+    """Remove a requested subscription and its cached versions using its current revision.
+
+    Does not edit the source document or built-in rules. This cannot be rolled
+    back locally; subscribe to its URL again to reconnect it.
+    """
+    return await _user_rule_call("delete", rule_id, expected_revision)
 
 
 @mcp.tool(**TOOL_HINTS["list_flows"])
