@@ -452,8 +452,9 @@ gate says `wait` again ([gate](autodev-runner.md#gate)).
 **Owner live step.** Bullet 9 of #349.
 
 **Timeout.** Shorten the implement stage to one minute with the snippet of
-[the guide](autodev.md#settings-page), changing
-`settings["stages"]["implement"]["budget"]["timeout_minutes"] = 1`. Then, on a throwaway issue:
+[the guide](autodev.md#settings-page): note the current
+`settings["stages"]["implement"]["budget"]["timeout_minutes"]` (180 unless you changed it),
+then set it to `1`. Then, on a throwaway issue:
 
 ```bash
 .venv/bin/python -m src.schedules autodev run-now --mode run > timeout-1.json
@@ -467,7 +468,7 @@ Every process of a run carries the run's random `AGENTS_SUPERVISED_RUN` marker i
 environment, which `ps -E` shows, except macOS platform binaries, whose environment macOS hides;
 the second check catches a process still working in the run's session directories.
 
-Set `timeout_minutes` back to 180 afterwards.
+Set `timeout_minutes` back to the value you noted afterwards.
 
 **Pass:** `status: failed: infra` with the reason
 `timeout: the implement session exceeded 1.0 minutes; its process group was ended`,
