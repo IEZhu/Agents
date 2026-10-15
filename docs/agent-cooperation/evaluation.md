@@ -1,7 +1,7 @@
 # Evaluation and acceptance
 
 Status: acceptance specification with a historical research delivery record below.
-The [implementation delivery record](README.md) reports actual runtime checks.
+The [implementation validation results](validation-results.md) report actual runtime checks.
 No runtime test, paid model evaluation or concurrency benchmark was performed by
 the research task; adding fixtures is not a model-evaluation result.
 

@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 
 MAX_INFLIGHT = 32
 MAX_STREAMS = 32
+COOPERATION_RETENTION_INTERVAL = 60 * 60
 # Where a bridge's `/workspaces` path came from (`register_workspace`).
 ORIGINS = ("cwd", "CLAUDE_PROJECT_DIR", "AGENTS_CLIENT_REPO_ROOT", "hook")
 
@@ -135,6 +136,8 @@ class Service:
                 "user_sync": self.user_sync.summary(), **self.local_inference.health()}
 
     async def start_runtime(self):
+        maintenance = None
+        maintenance_stop = asyncio.Event()
         try:
             mcp, self.server = await asyncio.to_thread(self.loader, self.port)
             if os.environ.get("AGENTS_COOPERATION_ENABLED") == "1":
@@ -163,17 +166,40 @@ class Service:
                 self.transport = transport
                 self.state = "ready"
                 self.user_sync.wake()  # automatic sync waits for readiness
+                if self.cooperation is not None:
+                    maintenance = asyncio.create_task(self.retain_cooperation(self.cooperation, maintenance_stop))
                 await self.stop.wait()
         except Exception:
             self.state = "failed"
             logger.exception("Runtime initialization failed")
         finally:
+            maintenance_stop.set()
+            if maintenance is not None:
+                # A cancelled to_thread waiter leaves its SQLite work running.
+                # Join the maintenance task before releasing coordinator ownership.
+                await maintenance
             if self.cooperation is not None:
                 coordinator, self.cooperation = self.cooperation, None
                 try:
                     await asyncio.to_thread(coordinator.close)
                 except Exception:
                     logger.warning("Cooperation shutdown failed")
+
+    async def retain_cooperation(self, coordinator, stopped):
+        """One bounded-rate pass at a time, owned by the coordinator lifecycle."""
+        while not stopped.is_set() and not self.stop.is_set():
+            if self.state == "ready":
+                try:
+                    # The default TrackedExecutor includes maintenance in health
+                    # and drain accounting. Never start another pass while draining.
+                    await asyncio.to_thread(coordinator.collect_terminal)
+                except Exception:
+                    # Retry next interval without exposing private store contents.
+                    logger.warning("Cooperation retention failed")
+            try:
+                await asyncio.wait_for(stopped.wait(), timeout=COOPERATION_RETENTION_INTERVAL)
+            except asyncio.TimeoutError:
+                pass
 
     async def retain_diagnostics(self):
         from .diagnostics import prune_debug

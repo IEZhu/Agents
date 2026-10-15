@@ -52,14 +52,20 @@ class WorkspaceRegistry:
             for identity, saved in records.items():
                 if saved == str(root):
                     self.resolve(identity)
-                    self._grant_checkout(identity, physical)
-                    return identity
-            identity = str(uuid.uuid4())
-            if identity in records:
-                raise WorkspaceError("workspace_invalid")
-            records[identity] = str(root)
-            self._grant_checkout(identity, physical)
-            write_json(self.path, records)
+                    break
+            else:
+                identity = str(uuid.uuid4())
+                if identity in records:
+                    raise WorkspaceError("workspace_invalid")
+                records[identity] = str(root)
+                write_json(self.path, records)
+            try:
+                self._grant_checkout(identity, physical)
+            except (ValueError, OSError) as error:
+                # Optional checkout authorization must not disable ordinary memory.
+                # Keep invalid grants untouched and require explicit valid grants
+                # in cooperation_roots; never substitute the memory root on failure.
+                logger.warning("Cooperation checkout grant unavailable: %s", type(error).__name__)
             return identity
 
     def _grant_checkout(self, identity, physical):
@@ -103,14 +109,14 @@ class WorkspaceRegistry:
 
     def cooperation_roots(self, identity):
         """Owner-registered physical grants; memory root normalization is unchanged."""
-        root = self.resolve(identity)
+        self.resolve(identity)
         try:
             grants = read_json(self.checkout_path, {})
             if not isinstance(grants, dict):
                 raise ValueError()
-            # Registrations made before cooperation existed authorized their saved
-            # root only. They do not acquire external worktrees by Git membership.
-            saved = grants.get(identity, [str(root)])
+            # Missing grants can also mean registration could not save them.
+            # Owner re-registration upgrades older memory-only registrations.
+            saved = grants.get(identity)
             if not isinstance(saved, list) or not 1 <= len(saved) <= 50:
                 raise ValueError()
             return self._existing_checkouts(saved)
