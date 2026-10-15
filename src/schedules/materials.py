@@ -43,8 +43,8 @@ from src.daemon.state import private_dir
 from . import gitsafe, repos
 
 MAX_TREE_ENTRIES = 50_000
-MAX_TREE_BYTES = 256 * 1024 * 1024  # blob bytes of the tree at pinned
-MAX_HEAD_BYTES = 64 * 1024 * 1024  # blob bytes of the files a range adds or changes
+MAX_TREE_BYTES = 256 * 1024 * 1024  # written regular-file bytes of the tree at pinned
+MAX_HEAD_BYTES = 64 * 1024 * 1024  # written bytes of the files a range adds or changes
 MAX_DIFF_BYTES = 8 * 1024 * 1024
 MAX_LOG_BYTES = 1024 * 1024
 MAX_LISTING_BYTES = 32 * 1024 * 1024  # ls-tree and diff-tree output
@@ -346,9 +346,13 @@ def export_tree(repository: ReviewRepository, commit: str, destination: Path) ->
     for start in range(0, len(files), BATCH):
         chunk = files[start:start + BATCH]
         contents = repository.blobs([entry.oid for entry in chunk], budget=budget)
+        # cat-file deduplicates blobs; the destination still has one copy for every path.
+        chunk_bytes = sum(len(contents[entry.oid]) for entry in chunk)
+        if chunk_bytes > budget:
+            raise MaterialsRefused("the materials would be too large")
+        budget -= chunk_bytes
         for entry in chunk:
             _write_new(root / entry.path, contents[entry.oid], root)
-        budget -= sum(len(contents[oid]) for oid in {entry.oid for entry in chunk})
     return {"commit": commit, "files": len(files), "links": targets, "left_out": left_out[:100]}
 
 
@@ -383,6 +387,8 @@ def assemble(repository: ReviewRepository, base: str, head: str, destination: Pa
         files, links, deleted = _classify(repository.changes(pinned, head))
     targets = _links(repository, links)
     contents = repository.blobs([change.new_oid for change in files], budget=MAX_HEAD_BYTES)
+    if sum(len(contents[change.new_oid]) for change in files) > MAX_HEAD_BYTES:
+        raise MaterialsRefused("the materials would be too large")
     diff = repository.diff(base, head)
     log = repository.log(base, head)
     root = _new_directory(destination)

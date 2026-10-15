@@ -243,7 +243,7 @@ class Controller:
             status = self.request()
             # Streams end on drain; waiting for them lets each client receive
             # its final chunk before launchd stops the process.
-            if not any(status.get(key, 0) for key in ("inflight", "io_pending", "streams")): return
+            if not any(status.get(key, 0) for key in ("inflight", "io_pending", "streams", "local_inference_pending")): return
             time.sleep(.1)
         self.request("/admin/resume", method="POST")
         raise TimeoutError("Drain timed out; runtime resumed without killing active work")
@@ -421,6 +421,15 @@ def main(argv=None):
     adopt.add_argument("--entry", action="append", default=[], metavar="ID", help="move this entry (repeatable)")
     adopt.add_argument("--dry-run", action="store_true", help="only list what would move")
     token = commands.add_parser("token"); token.add_argument("action", choices=["rotate"])
+    channel = commands.add_parser("channel", help="the branch this installation follows (#381); `update` or the "
+                                                   "next scheduled run applies a change")
+    channel_commands = channel.add_subparsers(dest="channel_command", required=True)
+    channel_commands.add_parser("show", help="configured branch and its source, checked-out branch, HEAD, "
+                                             "remote tip and the last update result")
+    channel_set = channel_commands.add_parser("set", help="follow another branch")
+    channel_set.add_argument("branch")
+    channel_set.add_argument("--allow-downgrade", action="store_true",
+                             help="confirm a switch to a branch that does not contain the installed code")
     auto = commands.add_parser("auto-update", help="unattended updates from the tracked branch")
     auto.add_argument("action", choices=["enable", "disable", "status", "run"])
     auto.add_argument("--interval", type=int, help="seconds between checks (default 900)")
@@ -632,6 +641,8 @@ def main(argv=None):
             webbrowser.open(result["url"])
         result = {"url": result.get("url"), "error": result.get("error"),
                   "note": "one-use link, valid for 2 minutes; the browser then stays signed in for 30 days after its last visit"}
+    elif args.command == "channel":
+        result, exit_code = channel_command(controller, args)
     elif args.command == "auto-update":
         from . import autoupdate
         if args.action == "enable":
@@ -650,6 +661,28 @@ def main(argv=None):
         result["user_sync"] = controller.sync_summary()  # the service does not answer
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return exit_code
+
+
+def channel_command(controller, args):
+    """``channel show|set`` (#381): ``(result, exit code)``. ``set`` writes under ``control.lock``.
+
+    Without an installed service it acts on the installation this code runs from, as
+    ``python -m src.update_channel`` does.
+    """
+    from src import update_channel
+    root = Path(controller.config.get("installation") or update_channel.INSTALL_ROOT)
+    if args.channel_command == "show":
+        return update_channel.show(root, state_dir=controller.directory if controller.config else None), 0
+    try:
+        with ExitStack() as locks:
+            if controller.config:
+                locks.enter_context(file_lock(controller.directory / "control.lock", blocking=False))
+            result = update_channel.set_branch(root, args.branch, allow_downgrade=args.allow_downgrade)
+    except BlockingIOError:
+        return {"state": "not_changed", "error": "another control command is running; try again"}, 1
+    except update_channel.ChannelError as error:
+        return {"state": "refused", "code": error.code, "error": str(error)}, 1
+    return {"state": "saved", **result}, 0
 
 
 def _sync_arguments(args):

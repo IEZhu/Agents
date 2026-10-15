@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import tempfile
+from src.runtime_paths import installation_root
 
 
 def state_dir(installation=None):
@@ -22,7 +23,7 @@ def default_state_dir(installation=None):
     process it starts (Code sessions, their terminals, stdio servers) writes new files under
     AppData into the package's private copy, which the Task Scheduler task never sees.
     """
-    root = Path(installation or Path(__file__).resolve().parents[2]).resolve()
+    root = Path(installation or installation_root()).resolve()
     identity = hashlib.sha256(str(root).encode()).hexdigest()[:16]
     if os.name == "nt":
         return Path(os.environ.get("USERPROFILE") or Path.home()) / ".agents-core" / identity

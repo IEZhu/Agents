@@ -11,6 +11,8 @@ create, prints it grouped by kind, asks once, and then:
   configuration, the managed routing section from global instruction files, and the generated
   routing reminder, after a backup of every file it edits; everything else in those files stays
   byte for byte;
+* removes unchanged session readiness adapters using this installation's interpreter and their
+  unchanged copied runtimes; modified adapters and runtimes are reported and kept;
 * removes the state, data, cache and log directories, the one-command installation directory
   (``~/.agents-core``), the autodev trusted clone and the autodev sandbox decoys (fake secrets in
   the home directory and the opt-in decoy keychain item);
@@ -35,6 +37,8 @@ parameters, so tests never touch the real account.
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
 import csv
 from dataclasses import dataclass, field
 import io
@@ -42,6 +46,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
 import shutil
 import stat
 import subprocess
@@ -52,10 +57,15 @@ from typing import Callable, Iterable, Mapping, Sequence
 
 import tomllib
 
+from src.update_channel import STANDARD_BRANCHES
+
 SERVER = "Agents-Core"
 DESKTOP_SERVER = "Agents-Core-Desktop"  # src/client_paths.py
 DESKTOP_DENY_RULES = tuple(f"mcp__{name}__*" for name in (DESKTOP_SERVER, DESKTOP_SERVER.replace("-", "_")))
 SERVER_NAMES = (SERVER, DESKTOP_SERVER)
+READINESS_SERVER = "Agents-Readiness"  # scripts/install_session_readiness.py
+READINESS_SCRIPT = "agents-core-session-readiness.py"
+READINESS_MATCHER = "^(startup|clear)$"
 # scripts/_helpers/inject_claude_md.py
 MARKERS = (
     (b"# >>> Agents-Core Routing Protocol (managed by init_repo) >>>",
@@ -113,12 +123,13 @@ Runner = Callable[..., subprocess.CompletedProcess]
 CODE_ROOT = Path(__file__).resolve().parents[1]  # the templates the installer generated the reminder from
 
 
-def run_command(argv: Sequence[str], *, input: bytes | None = None) -> subprocess.CompletedProcess:
-    """No shell, bytes in and out; a missing program is an exit code 127, not an exception."""
+def run_command(argv: Sequence[str], *, input: bytes | None = None,
+                env: Mapping[str, str] | None = None) -> subprocess.CompletedProcess:
+    """No shell; inherit the environment unless a caller supplies a scoped copy. Missing programs return 127."""
     given = {"input": input} if input is not None else {"stdin": subprocess.DEVNULL}
     try:
         return subprocess.run(list(argv), capture_output=True, timeout=60, check=False,
-                              creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), **given)
+                              creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), env=env, **given)
     except (FileNotFoundError, PermissionError) as error:
         return subprocess.CompletedProcess(list(argv), 127, b"", str(error).encode())
     except subprocess.TimeoutExpired:
@@ -504,7 +515,7 @@ def _spans(node: _Node, removed: set[int]) -> list[tuple[int, int]]:
 
 
 def _find_all(node: _Node, path: Sequence, value_test=None) -> list[tuple[_Node, int]]:
-    """Every (container, index) of a member at ``path`` (``*`` matches any key, ``[]`` array elements)."""
+    """Every member at ``path`` (``*``: any key, ``[]``: matching elements, integers: array indices)."""
     if not path:
         return []
     head, rest = path[0], path[1:]
@@ -516,6 +527,8 @@ def _find_all(node: _Node, path: Sequence, value_test=None) -> list[tuple[_Node,
             found += [(node, index)] if not rest else _find_all(child, rest, value_test)
     elif node.kind == "array" and head == "[]" and value_test is not None:
         found += [(node, index) for index, child in enumerate(node.members) if value_test(child)]
+    elif node.kind == "array" and isinstance(head, int) and 0 <= head < len(node.members):
+        found += [(node, head)] if not rest else _find_all(node.members[head], rest, value_test)
     return found
 
 
@@ -531,6 +544,11 @@ def _drop(document, path: Sequence, value_test=None) -> None:
                     del document[key]
     elif isinstance(document, list) and head == "[]":
         document[:] = [value for value in document if not value_test(value)]
+    elif isinstance(document, list) and isinstance(head, int) and 0 <= head < len(document):
+        if rest:
+            _drop(document[head], rest, value_test)
+        else:
+            del document[head]
 
 
 def remove_json_members(content: bytes, removals: Sequence[tuple[Sequence, Callable | None]],
@@ -718,19 +736,53 @@ def is_checkout(path: Path) -> bool:
 def local_work(ctx: Context, checkout: Path) -> str | None:
     """Why ``checkout`` may hold someone's work, or None for an install.sh clone.
 
-    install.sh clones main and never commits: uncommitted changes, untracked files Git does not
-    ignore, or a branch besides main mean the directory is a development checkout.
+    install.sh clones a published channel and never commits. Keep dirty/custom-branch
+    checkouts, commits outside known remote-tracking history, and ignored material outside
+    the installer's .env and .venv assets. Registered submodules or retained .git/modules
+    also keep the checkout: parent Git history does not cover their private state.
+    Git failures keep the whole checkout.
     """
     base = ["git", "-C", str(checkout)]
-    status = ctx.runner([*base, "status", "--porcelain"])
-    branches = ctx.runner([*base, "for-each-ref", "--format=%(refname:short)", "refs/heads"])
+    # These offline safety inspections must use this checkout, not a caller's Git context.
+    git_env = {name: value for name, value in os.environ.items() if not name.startswith("GIT_")}
+
+    def git(*arguments: str) -> subprocess.CompletedProcess:
+        """Inspect the selected checkout without inherited Git environment overrides."""
+        return ctx.runner([*base, *arguments], env=git_env)
+
+    # Deleted submodules retain repositories here even after all gitlinks are gone.
+    modules = checkout / ".git/modules"
+    if modules.exists() or _is_link(modules):
+        return "it contains retained submodule repositories"
+    submodules = git("submodule", "status", "--recursive")
+    if submodules.returncode != 0:
+        return "git could not check it for local work"
+    if submodules.stdout.strip():
+        return "it contains submodules whose private state is not covered by parent history"
+    status = git("status", "--porcelain", "--untracked-files=normal")
+    branches = git("for-each-ref", "--format=%(refname:short)", "refs/heads")
     if status.returncode != 0 or branches.returncode != 0:
         return "git could not check it for uncommitted work"
     if status.stdout.strip():
         return "it has uncommitted changes or untracked files"
-    others = sorted(set(branches.stdout.decode("utf-8", "replace").split()) - {"main"})
+    others = sorted(set(branches.stdout.decode("utf-8", "replace").split()) - set(STANDARD_BRANCHES))
     if others:
-        return "it has local branches besides main (" + ", ".join(others[:5]) + ")"
+        return "it has local branches besides main and dev (" + ", ".join(others[:5]) + ")"
+    # Include stashes, tags and reflogs as well as branches and detached HEAD.
+    commits = git("rev-list", "--count", "--all", "--reflog", "HEAD", "--not", "--remotes")
+    count = commits.stdout.strip()
+    if commits.returncode != 0 or not count.isdigit():
+        return "git could not check it for local work"
+    if int(count):
+        return "it has local commits outside known remote-tracking history"
+    ignored = git("ls-files", "--others", "--ignored", "--exclude-standard", "-z")
+    if ignored.returncode != 0 or (ignored.stdout and not ignored.stdout.endswith(b"\0")):
+        return "git could not check it for local work"
+    # init_repo creates these two assets. Other ignore patterns (including arbitrary
+    # dotfiles and archives) do not establish that their contents belong to the installer.
+    if any(entry != b".env" and not entry.startswith(b".venv/")
+           for entry in ignored.stdout.split(b"\0") if entry):
+        return "it has ignored files outside the installer's .env and .venv assets"
     return None
 
 
@@ -986,12 +1038,238 @@ def _transform_for(client: str) -> Callable[[bytes], bytes | None] | None:
 
 
 def _mentions_us(path: Path) -> bool:
+    """Check readable file bytes for Agents-Core server names or routing markers."""
     try:
         content = path.read_bytes()
     except OSError:
         return False
     return any(name.encode() in content for name in (*SERVER_NAMES, "agents-core")) or any(
         begin in content for begin, _ in MARKERS)
+
+
+# --- optional session readiness adapters -------------------------------------------------------
+
+def _readiness_python(value: str, installation: Path) -> bool:
+    """Match the venv path lexically: its Python is commonly a link to a system interpreter."""
+    if not isinstance(value, str) or not os.path.isabs(value):
+        return False
+    path = Path(os.path.abspath(value))
+    parents = [installation / ".venv/bin", installation / ".venv/Scripts"]
+    return (any(os.path.normcase(str(path.parent)) == os.path.normcase(os.path.abspath(parent)) for parent in parents)
+            and re.fullmatch(r"python(?:[0-9]+(?:\.[0-9]+)?)?(?:w?\.exe)?", path.name, re.IGNORECASE) is not None)
+
+
+def _readiness_arguments(command: str, *, windows: bool) -> list[str] | None:
+    """Decode only the exact PowerShell wrapper the readiness installer generates."""
+    if not isinstance(command, str):
+        return None
+    try:
+        arguments = shlex.split(command, posix=not windows)
+    except ValueError:
+        return None
+    if arguments[:4] == ["powershell.exe", "-NoProfile", "-NonInteractive", "-EncodedCommand"]:
+        if len(arguments) != 5:
+            return None
+        try:
+            decoded = base64.b64decode(arguments[4], validate=True).decode("utf-16-le")
+        except (binascii.Error, UnicodeDecodeError):
+            return None
+        match = re.search(r"\$readinessInputJson \| & (.+); exit \$LASTEXITCODE$", decoded)
+        if not match:
+            return None
+        arguments = [value.replace("''", "'") for value in re.findall(r"'((?:[^']|'')*)'", match[1])]
+        invocation = " ".join("'" + value.replace("'", "''") + "'" for value in arguments)
+        expected = ("[Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false); "
+                    "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); "
+                    "$OutputEncoding = [Console]::OutputEncoding; "
+                    "$readinessInputJson = [Console]::In.ReadToEnd(); "
+                    "$readinessInputJson | & " + invocation + "; exit $LASTEXITCODE")
+        if decoded != expected:
+            return None
+    return arguments
+
+
+def _readiness_handler(handler, client: str, script: Path, installation: Path, *, windows: bool) -> bool:
+    """Match an unchanged generated handler using the selected installation's interpreter."""
+    if not isinstance(handler, dict):
+        return False
+    expected = {"command": handler.get("command"), "timeout": 5}
+    if client != "cursor":
+        expected["type"] = "command"
+    if handler != expected:
+        return False
+    arguments = _readiness_arguments(handler.get("command"), windows=windows)
+    options = ["--client", client] if client in ("cursor", "antigravity") else []
+    return (arguments is not None and len(arguments) == 2 + len(options)
+            and _readiness_python(arguments[0], installation)
+            and arguments[1] == str(script) and arguments[2:] == options)
+
+
+def remove_readiness(content: bytes, client: str, script: Path, installation: Path, *, windows: bool) -> bytes | None:
+    """Remove exact generated adapters, preserving mixed groups and user-modified entries."""
+    document = json.loads(content.decode("utf-8-sig"))
+    if not isinstance(document, dict):
+        raise ValueError("the file's root is not a JSON object; edit it yourself")
+    removals, empty = [], []
+    if client == "desktop":
+        servers = document.get("mcpServers")
+        entry = servers.get(READINESS_SERVER) if isinstance(servers, dict) else None
+        helper = script.with_name("session_readiness_mcp.py")
+        if (isinstance(entry, dict) and entry == {"command": entry.get("command"), "args": [str(helper)]}
+                and _readiness_python(entry.get("command"), installation)):
+            removals.append((("mcpServers", READINESS_SERVER), None))
+        empty = [("mcpServers",)]
+    else:
+        if client == "antigravity":
+            prefix = ("agents-core-readiness", "SessionStart")
+            entry = document.get(prefix[0])
+            items = entry.get(prefix[1]) if isinstance(entry, dict) else None
+        else:
+            prefix = ("hooks", "sessionStart" if client == "cursor" else "SessionStart")
+            hooks = document.get("hooks")
+            items = hooks.get(prefix[1]) if isinstance(hooks, dict) else None
+        if isinstance(items, list):
+            # Descending indices keep the expected parsed edit aligned with original text offsets.
+            for index in range(len(items) - 1, -1, -1):
+                item = items[index]
+                if client in ("claude", "codex"):
+                    if (not isinstance(item, dict) or set(item) != {"matcher", "hooks"}
+                            or item["matcher"] != READINESS_MATCHER or not isinstance(item["hooks"], list)):
+                        continue
+                    owned = [i for i, handler in enumerate(item["hooks"])
+                             if _readiness_handler(handler, client, script, installation, windows=windows)]
+                    if owned and len(owned) == len(item["hooks"]):
+                        removals.append(((*prefix, index), None))
+                    else:
+                        removals += [((*prefix, index, "hooks", i), None) for i in reversed(owned)]
+                elif _readiness_handler(item, client, script, installation, windows=windows):
+                    removals.append(((*prefix, index), None))
+            if client == "antigravity" and removals and len(removals) == len(items) \
+                    and set(entry) == {"enabled", "SessionStart"} and entry["enabled"] is True:
+                removals = [((prefix[0],), None)]
+        empty = [prefix] + ([("hooks",)] if client != "antigravity" else [])
+    return remove_json_members(content, removals, drop_if_empty=empty, delete_when=[{}])
+
+
+def _readiness_referenced(content: bytes | None, path: Path) -> bool:
+    """Decode quoted commands without running them; uncertain references keep the runtime."""
+    if content is None:
+        return False
+    try:
+        document = json.loads(content.decode("utf-8-sig"))
+    except ValueError:
+        return True
+    if not isinstance(document, dict):
+        return True
+
+    def refers(value, *, command=False) -> bool:
+        """Scan nested values for the runtime path, treating uncertain commands as references."""
+        if isinstance(value, dict):
+            return any(refers(child, command=key == "command") for key, child in value.items())
+        if isinstance(value, list):
+            return any(refers(child, command=command) for child in value)
+        if isinstance(value, str):
+            if str(path) in value:
+                return True
+            if command:
+                # PowerShell single-quoted literals escape apostrophes by doubling them.
+                if any(str(path) in literal.replace("''", "'")
+                       for literal in re.findall(r"'((?:[^']|'')*)'", value)):
+                    return True
+                encoded = re.search(r"-EncodedCommand\b", value, re.IGNORECASE) is not None
+                if encoded and not value.startswith("powershell.exe -NoProfile -NonInteractive -EncodedCommand "):
+                    return True  # an unfamiliar wrapper cannot establish that the runtime is unused
+                arguments = _readiness_arguments(value, windows=encoded)
+                return arguments is None or any(str(path) in argument for argument in arguments)
+        return False
+    return refers(document)
+
+
+def readiness_items(ctx: Context, backups: Backups, installation: Path) -> list[Item]:
+    """Inventory readiness separately: its MCP server name alone does not establish ownership."""
+    source = "scripts/install_session_readiness.py"
+    profiles = [("claude", ctx.env_path("CLAUDE_CONFIG_DIR") or ctx.home / ".claude", "settings.json"),
+                ("codex", ctx.env_path("CODEX_HOME") or ctx.home / ".codex", "hooks.json"),
+                ("cursor", ctx.home / ".cursor", "hooks.json"),
+                ("antigravity", ctx.home / ".gemini/config", "hooks.json")]
+    targets = [(client, directory / name, directory / "hooks" / READINESS_SCRIPT)
+               for client, directory, name in profiles]
+    targets += [("desktop", path, path.parent / "agents-core-readiness/hooks" / READINESS_SCRIPT)
+                for client, path in client_files(ctx) if client == "desktop"]
+    items, seen = [], set()
+    configurations, remaining, candidates = [], [], []
+    uncertain = False
+    for client, target, script in targets:
+        if _real(target) in seen:
+            continue
+        seen.add(_real(target))
+        configurations.append(target)  # include missing files in the execution-time recheck
+        transform = lambda content, client=client, script=script: remove_readiness(
+            content, client, script, installation, windows=ctx.windows)
+        try:
+            original = target.read_bytes()
+            updated = transform(original)
+        except FileNotFoundError:
+            uncertain |= os.path.lexists(target)
+            continue
+        except (OSError, ValueError, TypeError):
+            uncertain = True
+            continue  # an invalid or unreadable client configuration never proves ownership
+        uncertain |= _is_link(target)
+        remaining.append(updated)
+        changed = updated != original
+        if changed:
+            items.append(Item("registration", str(target), "edit", source,
+                              "unchanged readiness adapters using this installation; a backup first",
+                              lambda target=target, transform=transform: edit_file(ctx, backups, target, transform)))
+        elif _readiness_referenced(original, script if client != "desktop" else script.with_name("session_readiness_mcp.py")):
+            items.append(Item("registration", str(target), "keep", source,
+                              "readiness adapter is modified or belongs to another installation; remove it yourself"))
+        files = [(script, "session_readiness.py")] if client != "desktop" else [
+            (script.with_name(name), name) for name in ("session_readiness.py", "session_readiness_mcp.py")]
+        candidates.append((client, target, script, changed, files))
+
+    # A retained adapter in any client can use another client's copied runtime.
+    for client, target, script, changed, files in candidates:
+        for runtime, name in files:
+            if not os.path.lexists(runtime):
+                continue
+            references = [runtime]
+            if client == "desktop":
+                references.append(script.with_name("session_readiness_mcp.py"))
+            try:
+                expected = (installation / "scripts" / name).read_bytes()
+                owned = (changed and not _is_link(target) and not _is_link(runtime) and runtime.read_bytes() == expected
+                         and not uncertain and not any(_readiness_referenced(content, path)
+                                                       for content in remaining for path in references))
+            except (OSError, ValueError):
+                owned = False
+            if not owned:
+                items.append(Item("data", str(runtime), "keep", source,
+                                  "readiness runtime is modified, still referenced, or its ownership is unverified"))
+                continue
+
+            def remove_runtime(runtime=runtime, expected=expected, references=references):
+                """Recheck runtime bytes and every configuration before removing an unreferenced copy."""
+                check_removable(ctx, runtime)
+                if runtime.read_bytes() != expected:
+                    raise Refused("readiness runtime changed; remove it yourself")
+                for configuration in configurations:
+                    if _is_link(configuration):
+                        raise Refused("readiness configuration became a symbolic link; remove the runtime yourself")
+                    try:
+                        current = configuration.read_bytes()
+                    except FileNotFoundError:
+                        if not os.path.lexists(configuration):
+                            continue
+                        raise Refused("readiness configuration cannot be read; remove the runtime yourself")
+                    except OSError as error:
+                        raise Refused("readiness configuration cannot be read; remove the runtime yourself") from error
+                    if any(_readiness_referenced(current, path) for path in references):
+                        raise Refused("readiness runtime is still referenced or its use is uncertain; remove it yourself")
+                return remove_path(ctx, runtime)
+            items.append(Item("data", str(runtime), "remove", source, "unchanged copied readiness runtime", remove_runtime))
+    return items
 
 
 def _is_decoy(path: Path, marker: str) -> bool:
@@ -1067,6 +1345,7 @@ def decoy_items(ctx: Context, states: Sequence[Path]) -> list[Item]:
 
 
 def build_plan(ctx: Context, *, keep_data: bool = False) -> list[Item]:
+    """Inventory uninstall actions and deferred operations without applying them."""
     items: list[Item] = []
     backups = Backups(ctx)
     installation = installation_dir(ctx)
@@ -1165,6 +1444,7 @@ def build_plan(ctx: Context, *, keep_data: bool = False) -> list[Item]:
         items.append(Item("registration", str(path), "edit", SOURCES.get(client, client),
                           "only the Agents-Core entries; a backup first",
                           lambda path=path, transform=transform: edit_file(ctx, backups, path, transform)))
+    items += readiness_items(ctx, backups, installation)
     plugin = ctx.home / ".gemini/config/plugins/agents-core"
     if plugin.exists() or _is_link(plugin):
         items.append(Item("registration", str(plugin), "remove",
@@ -1304,11 +1584,20 @@ def build_plan(ctx: Context, *, keep_data: bool = False) -> list[Item]:
         if keep_data:  # states inside the checkout (Windows) keep user sync and the fallback journal too
             keep += [state / name for state in states if _within(state, [installation])
                      for name in KEEP_IN_STATE if (state / name).exists()]
+        def remove_installation():
+            """Recheck selected-checkout work after confirmation, immediately before removal."""
+            check_removable(ctx, installation, owned=owned)
+            if owned:
+                reason = local_work(ctx, installation)
+                if reason:
+                    raise Refused(f"checkout changed since planning: {reason}; kept, delete it yourself")
+            return remove_except(ctx, installation, keep, owned=owned)
+
         items.append(Item("installation", str(installation), "remove", "install.sh (git clone into AGENTS_HOME, "
                           "default ~/.agents-core), scripts/init_repo.sh (.venv, .env, data/)",
                           "the one-command installation" + ("; keeps " + ", ".join(
                               str(path.relative_to(installation)) for path in keep) + " (--keep-data)" if keep else ""),
-                          lambda: remove_except(ctx, installation, keep, owned=owned)))
+                          remove_installation))
     elif ctx.env_path("AGENTS_HOME") and installation.is_dir():
         items.append(Item("installation", str(installation), "keep", "AGENTS_HOME",
                           "named by AGENTS_HOME, but it is not an Agents-Core checkout; delete it yourself"))

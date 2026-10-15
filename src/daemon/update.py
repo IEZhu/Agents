@@ -1,5 +1,5 @@
 """Offline controller transaction surrounding the existing ff-only updater."""
-from contextlib import ExitStack
+from contextlib import ExitStack, suppress
 from pathlib import Path
 import hashlib
 import json
@@ -55,7 +55,10 @@ def restore_files(controller, journal):
             raise RuntimeError("Installation HEAD changed outside this transaction; manual recovery required")
         # The file updater starts from a verified clean tree and retains the leases.
         from src import self_update
-        if not self_update._rollback_activation(str(root), journal["old_sha"], 30, clear_journal=False):
+        # A branch switch (#381) returns to the branch the installation was on.
+        switched = {key: journal[key] for key in ("old_branch", "branch", "branch_tip", "branch_config")
+                    if journal.get(key)}
+        if not self_update._rollback_activation(str(root), journal["old_sha"], 30, clear_journal=False, **switched):
             raise RuntimeError("Code rollback failed; maintenance retained")
     if journal.get("service_backup"):
         # The model switch rewrote service.json; the restored stores match the old model.
@@ -200,7 +203,16 @@ class TargetMoved(RuntimeError):
     """The branch moved after auto-update checked it; nothing was applied."""
 
 
-def prepare(controller, expected_target=None):
+def channel_settings(controller):
+    """The update keys for this command: exported variables over the installation's ``.env`` (#381).
+
+    Read with ``dotenv_values``; nothing else of ``.env`` enters the controller's environment (#279).
+    """
+    from src import update_channel
+    return update_channel.read(controller.config["installation"])
+
+
+def prepare(controller, expected_target=None, channel=None):
     """Build the update while the service serves: Phase B of the staged updater.
 
     The target and its stores land in a worktree under ``data/.prepared``; the live
@@ -209,16 +221,18 @@ def prepare(controller, expected_target=None):
     an earlier, deferred run left for the same target is reused. Every build passes
     the activation gates before the service stops, so a build that activation would
     refuse fails here instead. Returns a ``PreparedStatus`` value, or the
-    ``ActivationStatus`` of a refused build.
+    ``ActivationStatus`` of a refused build. *channel* (default: read now) names the
+    branch, which may differ from the checked-out one: then the build is a branch switch.
     """
     from src import self_update
-    from src.engine.config import AUTO_UPDATE_BRANCH, AUTO_UPDATE_GIT_TIMEOUT
+    from src.engine.config import AUTO_UPDATE_GIT_TIMEOUT
     config = controller.config
     root = Path(config["installation"])
+    channel = channel or channel_settings(controller)
 
     def refusal(marker):
-        return self_update._validate_prepared(marker, str(root), AUTO_UPDATE_BRANCH, config["model"],
-                                              AUTO_UPDATE_GIT_TIMEOUT)[0]
+        return self_update._validate_prepared(marker, str(root), channel.branch, config["model"],
+                                              AUTO_UPDATE_GIT_TIMEOUT, channel.policy)[0]
 
     def check(old, target):
         # Auto-update checked one commit before preparing; build only that one.
@@ -236,8 +250,10 @@ def prepare(controller, expected_target=None):
         if expected_target and marker and marker.get("target_sha") == expected_target and refusal(marker) is None \
                 and built_with_current_inputs(controller, expected_target):
             return self_update.PreparedStatus.PREPARED
-        status = self_update.prepare_update(repo_root=str(root), embedding_model=config["model"], validate_target=check,
-                                            reindex_fn=lambda staging_dir: prepare_reindex(controller, staging_dir))
+        status = self_update.prepare_update(repo_root=str(root), remote=channel.remote, branch=channel.branch,
+                                            embedding_model=config["model"], validate_target=check,
+                                            reindex_fn=lambda staging_dir: prepare_reindex(controller, staging_dir),
+                                            policy=channel.policy)
         if status != self_update.PreparedStatus.PREPARED:
             return status
         marker = self_update._read_prepared_marker() or {}
@@ -252,8 +268,8 @@ def prepare(controller, expected_target=None):
         return status
 
 
-def activate(controller, journal):
-    """Phase A on the stopped service: fast-forward and move the prepared stores in.
+def activate(controller, journal, channel=None):
+    """Phase A on the stopped service: fast-forward (or switch branches) and move the prepared stores in.
 
     A failed merge or move rolls the tree back inside activation; the stores then
     come back from the journal's backup, so the old code restarts on its own indexes
@@ -261,8 +277,10 @@ def activate(controller, journal):
     """
     from src import self_update
     status = self_update.ActivationStatus
-    result = self_update.activate_prepared_update(controller.config["installation"],
-                                                  embedding_model=controller.config["model"])
+    channel = channel or channel_settings(controller)
+    result = self_update.activate_prepared_update(controller.config["installation"], channel.branch,
+                                                  embedding_model=controller.config["model"],
+                                                  policy=channel.policy)
     if result == status.ACTIVATE_ROLLBACK_FAILED:
         raise RuntimeError("File updater rollback failed")
     if result in (status.ACTIVATE_MERGE_FAILED, status.ACTIVATE_MOVE_FAILED):
@@ -287,7 +305,46 @@ def load_service(controller):
     executables.configure(controller.config)
 
 
+def switch_journal(controller, channel):
+    """The rollback facts of a prepared branch switch (#381) for the journal; empty for a fast-forward.
+
+    Taken on the stopped service right before activation: the branch to return to, and
+    where the switched-to local branch pointed (empty when the switch creates it) with its
+    upstream settings, which the switch overwrites.
+    """
+    from src import self_update
+    marker = self_update._read_prepared_marker() or {}
+    root = Path(controller.config["installation"])
+
+    def git(*args):
+        return subprocess.run([executables.path("git"), *args], cwd=root, capture_output=True, text=True,
+                              stdin=subprocess.DEVNULL, env=executables.git_environment(root),
+                              creationflags=NO_WINDOW)
+    current = git("symbolic-ref", "--quiet", "--short", "HEAD").stdout.strip()
+    if not marker.get("switch_from") or current == channel.branch:
+        return {}
+    tip = git("rev-parse", "--verify", "--quiet", "refs/heads/" + channel.branch)
+    config = {key: git("config", "--get", f"branch.{channel.branch}.{key}").stdout.strip()
+              for key in ("remote", "merge")}
+    return {"old_branch": current, "branch": channel.branch,
+            "branch_tip": tip.stdout.strip() if tip.returncode == 0 else "", "branch_config": config}
+
+
+def _channel_used(channel):
+    """The channel values a build depends on; a change during the build defers the activation."""
+    return (channel.branch, channel.remote, channel.previous, channel.allow_downgrade, channel.setting)
+
+
 def offline_update(controller, expected_target=None, precheck=None):
+    """:func:`_offline_update`, with a note when an exported branch overrides ``.env`` (#381)."""
+    notes = []
+    result = _offline_update(controller, expected_target, precheck, notes)
+    if notes and isinstance(result, dict):
+        result.setdefault("note", notes[0])
+    return result
+
+
+def _offline_update(controller, expected_target, precheck, notes):
     """Update the installation; once per model generation also switch its embedding model.
 
     The update is built while the service still serves (`prepare`); the service
@@ -297,12 +354,23 @@ def offline_update(controller, expected_target=None, precheck=None):
     the lock again and rechecks the service. The default model downloads under the
     control lock while the service still serves (`switched_model_config`); a failed
     download changes nothing.
+
+    The branch comes from the installation's update channel (`channel_settings`,
+    #381). When it differs from the checked-out channel branch, the same transaction
+    switches branches: the build is the target branch's tip, activation checks that
+    branch out, and a failed probation returns to the previous branch and stores. A
+    downgrade needs the confirmation `channel set <branch> --allow-downgrade` recorded.
     """
     root = Path(controller.config["installation"])
     with file_lock(controller.directory / "control.lock", blocking=False):
         # Under the lock, so `uninstall` or another controller command cannot change
         # service.json while the model downloads; the service keeps serving meanwhile.
         load_service(controller)
+        # Before the controller takes the service's environment: an exported value
+        # overrides .env for this one command (#381).
+        channel = channel_settings(controller)
+        if channel.overridden:
+            notes.append(channel.override_note())
         from src.model_migration import service_switch_pending
         switched = None
         if service_switch_pending(controller.config):
@@ -318,7 +386,7 @@ def offline_update(controller, expected_target=None, precheck=None):
     os.environ.update(model_env(controller.config))
     executables.enter_service_environment()
     from src import self_update
-    prepared = prepare(controller, expected_target)
+    prepared = prepare(controller, expected_target, channel)
     if prepared in PREPARE_FAILED or prepared.startswith("INVALID_"):
         # Leave the switch pending: the next update tries both again.
         switched = None
@@ -331,6 +399,17 @@ def offline_update(controller, expected_target=None, precheck=None):
         if any(controller.config.get(key) != built.get(key) for key in BUILD_CONFIG):
             # The next run rebuilds for the new configuration.
             return {"state": "deferred", "reason": "service configuration changed during the build"}
+        if prepared == self_update.PreparedStatus.PREPARED and \
+                _channel_used(channel_settings(controller)) != _channel_used(channel):
+            # `channel set` or the page saved while the build ran: activating the build
+            # would apply the setting it replaced. The next run builds for the new one;
+            # until then the refused build is discarded, as `prepare` discards one, since
+            # a channel that is up to date never runs this transaction again.
+            # A held lock means a stdio server is updating; its own gates re-validate the build.
+            from src.engine.config import AUTO_UPDATE_GIT_TIMEOUT
+            with suppress(BlockingIOError), file_lock(root / "data/.update.lock", blocking=False):
+                self_update._discard_staging(str(root), AUTO_UPDATE_GIT_TIMEOUT)
+            return {"state": "deferred", "reason": "update channel changed during the build"}
         # Building takes minutes: work may have arrived, or `stop` or `disable` ran;
         # a deferred run keeps the build, and the next one activates it.
         if precheck is not None and (refusal := precheck()):
@@ -363,11 +442,12 @@ def offline_update(controller, expected_target=None, precheck=None):
                                          creationflags=NO_WINDOW).stdout.strip()
                     backup = private_dir(controller.directory / "rollback" / old)
                     backup_indexes(controller, backup)
-                    journal.update(old_sha=old, target_sha=target, backup=str(backup))
+                    journal.update(old_sha=old, target_sha=target, backup=str(backup),
+                                   **switch_journal(controller, channel))
                     phase(controller, journal, "applying")
                     mutated = True
                     with self_update._inherit_lock(session_fd), self_update._inherit_lock(updater_fd):
-                        result = activate(controller, journal)
+                        result = activate(controller, journal, channel)
                     if result != self_update.UpdateStatus.UPDATED:
                         # Leave the switch pending: the code and stores are the
                         # previous ones, and the next update tries both again.
@@ -390,10 +470,13 @@ def offline_update(controller, expected_target=None, precheck=None):
                 return rollback(controller, journal)
             phase(controller, journal, "committed")
             cleanup(controller)
+            done = {"state": result, "health": ready}
+            if journal.get("old_branch") and result == self_update.UpdateStatus.UPDATED:
+                # Only a switch that activated; a refused activation restored the old branch.
+                done.update(branch=journal["branch"], branch_from=journal["old_branch"])
             if switched:
-                return {"state": result, "health": ready, "model": switched["model"],
-                        "model_from": journal["model_from"]}
-            return {"state": result, "health": ready}
+                done.update(model=switched["model"], model_from=journal["model_from"])
+            return done
         except BaseException:
             if mutated:
                 # Retain journal on recovery failure; no normal start can pass.

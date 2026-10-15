@@ -1,5 +1,6 @@
 """Agents-Core version string and the footer version segment."""
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -129,14 +130,25 @@ def test_one_status_call_reads_branch_and_changes(monkeypatch):
     assert {"--porcelain=v2", "--branch", "--no-ahead-behind", "--untracked-files=no"} <= set(status[0])
 
 
-@pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
+def _git_version() -> tuple[int, int]:
+    out = subprocess.run(["git", "--version"], capture_output=True, text=True).stdout
+    found = re.search(r"(\d+)\.(\d+)", out)
+    return (int(found[1]), int(found[2])) if found else (0, 0)
+
+
+# A git older than 2.17 gets the plain version by design (no --no-ahead-behind, see
+# src/version.py), so the suffixes below need a newer one; the fixture itself uses only
+# commands an older git has (no init -b, switch or restore).
+@pytest.mark.skipif(shutil.which("git") is None or _git_version() < (2, 17),
+                    reason="needs git 2.17 or newer (status --no-ahead-behind)")
 def test_dev_suffix_in_a_real_repository(monkeypatch, tmp_path):
     repo = tmp_path / "repo"
     def git(*args):
         subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.com", "-C", str(repo), *args],
                        check=True, capture_output=True, stdin=subprocess.DEVNULL)
     repo.mkdir()
-    git("init", "-q", "-b", "main")
+    git("init", "-q")
+    git("checkout", "-q", "-b", "main")
     (repo / "a.txt").write_text("a\n")
     git("add", "a.txt")
     git("commit", "-q", "-m", "a")
@@ -147,14 +159,14 @@ def test_dev_suffix_in_a_real_repository(monkeypatch, tmp_path):
         return version.agents_core_version()
 
     assert current().count("-") == 0
-    git("switch", "-q", "-c", "dev")
+    git("checkout", "-q", "-b", "dev")
     assert current().endswith("-dev")
     (repo / "a.txt").write_text("b\n")
     assert current().endswith("-dev-dirty")
     (repo / "untracked.txt").write_text("u\n")
-    git("restore", "a.txt")
+    git("checkout", "--", "a.txt")
     assert current().endswith("-dev")  # untracked files do not make it dirty
-    git("switch", "-q", "--detach")
+    git("checkout", "-q", "--detach")
     assert "-" not in current()
 
 

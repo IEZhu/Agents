@@ -33,6 +33,8 @@ network access (#343), and the state directory is closed to them.
   ``invalid_settings`` lists every problem and leaves the file as it was; 409 ``config_changed``
   when the configuration changed since the page read it. ``enabled`` and ``mode`` change only
   with the switch: a save takes them from the file as it is when it writes.
+  A successful response returns the settings and revision of the exact written snapshot,
+  even if another writer changes the file before the response is built.
 - ``POST /ui/api/autodev/enable`` with ``{mode, accept_shared_account}``: ``runner.enable`` with
   ``source="page"``. ``run`` (the automatic mode, #350) is refused with 409
   ``acceptance_required`` without ``accept_shared_account: true``, 409 ``not_ready`` unless a
@@ -72,12 +74,13 @@ from src.schedules import records
 from src.schedules.config import DEFAULTS, DELEGATES, LIMITS, MODES, STAGES, ConfigError
 from src.schedules import config as autodev_config
 from src.schedules.tick import iso, next_slot
+from src.runtime_paths import installation_root
 
 PREFIX = "/ui/api/autodev"
 MAX_BODY = 64 * 1024
 RUNS_SHOWN = 10
 CAPABILITY_TTL = 600.0  # seconds the CLIs' effort lists and the codex version are kept
-INSTALLATION = Path(__file__).resolve().parents[2]
+INSTALLATION = installation_root()
 EDITABLE = ("times", "catch_up_minutes", "allowed_hours", "require_ac_power", "limits", "stages", "delegates")
 SWITCHED = ("enabled", "mode")
 PREMORTEM = "change-premortem"
@@ -418,6 +421,10 @@ class AutodevUI:
             config, problems = autodev_config.load(ctx.directory), None
         except ConfigError as error:
             config, problems = None, error.problems
+        return self._view(ctx, config, problems)
+
+    def _view(self, ctx, config: Mapping | None, problems: list[str] | None = None) -> dict:
+        """Build the page from one configuration snapshot, including a save's exact write."""
         facts = self._facts(ctx)
         table = facts["table"]
         return {
@@ -459,7 +466,9 @@ class AutodevUI:
             if problems:
                 raise self._invalid(problems)
             autodev_config.save(updated, ctx.directory)
-        return {**self.read(), "saved": True, "warnings": warnings}
+        # Another writer may change the file after the lock ends. Its revision must not be
+        # paired with the submitted form, which the page keeps when later edits are pending.
+        return {**self._view(ctx, updated), "saved": True, "warnings": warnings}
 
     def enable(self, body: dict) -> dict:
         mode = body.get("mode", "dry-run")

@@ -7,6 +7,7 @@
 # The owner's `autodev:next` label opens these paths, except the control paths listed
 # in .github/autodev-control-paths, which no label opens.
 .github/**
+.coderabbit*
 .claude/**
 **/.claude/**
 **/CLAUDE.md
@@ -39,7 +40,10 @@ src/daemon/execution.py
 src/daemon/state.py
 src/file_lock.py
 src/model_migration.py
+src/runtime_paths.py
 src/user_library.py
+src/user_rules.py
+src/rule_sources.py
 src/utils/__init__.py
 src/utils/langfuse_compat.py
 src/utils/prompt_loader.py

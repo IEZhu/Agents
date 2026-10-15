@@ -14,7 +14,8 @@ from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from src.version import agents_core_version
+from src.version import agents_core_branch, agents_core_version
+from src.runtime_paths import installation_root, runtime_root
 from .execution import TrackedExecutor, request_jobs, finish_jobs
 from .flows_ui import FlowsUI
 from .overview import Overview
@@ -26,6 +27,7 @@ logger = logging.getLogger(__name__)
 
 MAX_INFLIGHT = 32
 MAX_STREAMS = 32
+COOPERATION_RETENTION_INTERVAL = 60 * 60
 # Where a bridge's `/workspaces` path came from (`register_workspace`).
 ORIGINS = ("cwd", "CLAUDE_PROJECT_DIR", "AGENTS_CLIENT_REPO_ROOT", "hook")
 
@@ -76,7 +78,8 @@ def load_runtime(port):
 
 
 class Service:
-    def __init__(self, directory, token, port=8765, runtime_loader=load_runtime, *, hand_off_schedule=False):
+    def __init__(self, directory, token, port=8765, runtime_loader=load_runtime, *, hand_off_schedule=False,
+                 local_inference_service=None, artifact_service=None):
         self.directory = Path(directory)
         self.token = token
         self.port = port
@@ -94,6 +97,7 @@ class Service:
         self.io = None
         self.transport = None
         self.server = None
+        self.cooperation = None
         self.boot_id = str(uuid.uuid4())
         self.loop_lag_max = 0.0
         self.startup_loop_lag_max = 0.0
@@ -104,6 +108,12 @@ class Service:
         self.flows_ui = FlowsUI(self)
         # Only the service's entry point hands the library over from the OS scheduler (#168).
         self.user_sync = UserSync(self, hand_off_schedule=hand_off_schedule)
+        # This separate lazy broker does not read configuration or start a model here.
+        from src.local_inference.service import LocalInferenceService
+        from src.artifacts.service import ArtifactService
+        self.artifacts = artifact_service if artifact_service is not None else ArtifactService(self.directory / "artifacts")
+        self.local_inference = (local_inference_service if local_inference_service is not None else
+                                LocalInferenceService(self.directory / "local-inference", artifact_service=self.artifacts))
 
     def health(self):
         import sys
@@ -111,30 +121,85 @@ class Service:
         return {"state": self.state, "service": "Agents-Core", "boot_id": self.boot_id,
                 "pid": os.getpid(), "version": importlib.metadata.version("mcp"),
                 "agents_core_version": agents_core_version(),
-                "install_root": str(Path(__file__).resolve().parents[2]),
+                # The checked-out branch; `channel show` names the configured one (#381).
+                "agents_core_branch": agents_core_branch(),
+                "install_root": str(installation_root()), "runtime_root": str(runtime_root()),
                 "uptime_seconds": round(time.monotonic() - self.started, 3),
                 "model_ready": self.transport is not None,
                 "inflight": self.inflight, "streams": self.streams,
                 "idle_seconds": 0.0 if self.inflight else round(time.monotonic() - self.last_activity, 1),
                 # User sync's engine calls run in their own threads (sync_loop.py) and count here too.
-                "io_pending": (self.io.inflight if self.io else 0) + self.user_sync.pending,
+                "io_pending": (self.io.inflight if self.io else 0) + self.user_sync.pending + self.artifacts.pending,
                 "loop_lag_max_seconds": round(self.loop_lag_max, 6),
                 "startup_loop_lag_max_seconds": round(self.startup_loop_lag_max, 6),
                 "inference_pending": inference.pending if inference else 0,
-                "user_sync": self.user_sync.summary()}
+                "user_sync": self.user_sync.summary(), **self.local_inference.health()}
 
     async def start_runtime(self):
+        maintenance = None
+        maintenance_stop = asyncio.Event()
         try:
             mcp, self.server = await asyncio.to_thread(self.loader, self.port)
+            if os.environ.get("AGENTS_COOPERATION_ENABLED") == "1":
+                # This outer daemon, never a stdio/worktree server, owns the
+                # single optional coordinator and its service epoch.
+                coordinator = None
+                try:
+                    from src.cooperation.service import CooperationService
+                    retention_days = int(os.environ.get("AGENTS_COOPERATION_RETENTION_DAYS", "30"))
+                    if retention_days < 30:
+                        raise ValueError("Cooperation retention must be at least 30 days")
+                    coordinator = CooperationService(self.directory / "cooperation", retention_days=retention_days)
+                    await asyncio.to_thread(coordinator.start)
+                    self.cooperation = coordinator
+                except Exception:
+                    # Ordinary persona/history tools remain usable. Do not log
+                    # arbitrary exception text from a private coordination store.
+                    logger.warning("Cooperation service is unavailable")
+                    if coordinator is not None:
+                        try:
+                            await asyncio.to_thread(coordinator.close)
+                        except Exception:
+                            logger.warning("Cooperation startup cleanup failed")
             transport = mcp.streamable_http_app()
             async with mcp.session_manager.run():
                 self.transport = transport
                 self.state = "ready"
                 self.user_sync.wake()  # automatic sync waits for readiness
+                if self.cooperation is not None:
+                    maintenance = asyncio.create_task(self.retain_cooperation(self.cooperation, maintenance_stop))
                 await self.stop.wait()
         except Exception:
             self.state = "failed"
             logger.exception("Runtime initialization failed")
+        finally:
+            maintenance_stop.set()
+            if maintenance is not None:
+                # A cancelled to_thread waiter leaves its SQLite work running.
+                # Join the maintenance task before releasing coordinator ownership.
+                await maintenance
+            if self.cooperation is not None:
+                coordinator, self.cooperation = self.cooperation, None
+                try:
+                    await asyncio.to_thread(coordinator.close)
+                except Exception:
+                    logger.warning("Cooperation shutdown failed")
+
+    async def retain_cooperation(self, coordinator, stopped):
+        """One bounded-rate pass at a time, owned by the coordinator lifecycle."""
+        while not stopped.is_set() and not self.stop.is_set():
+            if self.state == "ready":
+                try:
+                    # The default TrackedExecutor includes maintenance in health
+                    # and drain accounting. Never start another pass while draining.
+                    await asyncio.to_thread(coordinator.collect_terminal)
+                except Exception:
+                    # Retry next interval without exposing private store contents.
+                    logger.warning("Cooperation retention failed")
+            try:
+                await asyncio.wait_for(stopped.wait(), timeout=COOPERATION_RETENTION_INTERVAL)
+            except asyncio.TimeoutError:
+                pass
 
     async def retain_diagnostics(self):
         from .diagnostics import prune_debug
@@ -161,6 +226,7 @@ class Service:
         self.io = TrackedExecutor()
         # Fix the version before the first request can compute it on the event loop.
         await asyncio.to_thread(agents_core_version)
+        await asyncio.to_thread(agents_core_branch)
         asyncio.get_running_loop().set_default_executor(self.io)
         runtime = asyncio.create_task(self.start_runtime())
         diagnostics = asyncio.create_task(self.retain_diagnostics())
@@ -173,6 +239,13 @@ class Service:
             self.state = "draining"
             self.close_streams()
             self.user_sync.drain()
+            self.local_inference.begin_drain()
+            # Detached generation is fenced before any generic executor shutdown.
+            try:
+                await self.local_inference.close()
+            except Exception:
+                logger.warning("Optional local inference cleanup was not confirmed")
+            await self.artifacts.close()
             deadline = time.monotonic() + 60
             while (self.inflight or self.io.inflight or self.user_sync.pending) and time.monotonic() < deadline:
                 await asyncio.sleep(.05)
@@ -208,6 +281,7 @@ class Service:
             self.close_streams()
             # Sync pushes what is left; io_pending covers it until it ends or is abandoned.
             self.user_sync.drain()
+            self.local_inference.begin_drain()
             return await JSONResponse(self.health())(scope, receive, send)
         if path == "/admin/exit" and request.method == "POST":
             # Windows has no SIGTERM from outside: Task Scheduler's /End terminates the process, and the
@@ -219,6 +293,7 @@ class Service:
             if self.transport is not None:
                 self.state = "ready"
                 self.user_sync.resume()
+                self.local_inference.resume()
             return await JSONResponse(self.health())(scope, receive, send)
         if path.startswith("/admin/user-sync/"):
             response = await self.user_sync.handle(request, path[len("/admin/user-sync/"):])
@@ -296,7 +371,22 @@ class Service:
                 root = client_root_from_directory(directory, launch_directory=origin == "cwd")
             else:
                 root = client_root_from_workspace(directory, roots)
-            return root, self.registry.register(root)
+            # Keep the physical authorization separately, before memory maps a
+            # linked worktree to its main checkout. MCP arguments never register
+            # or expand this grant.
+            from src.engine.config import _find_marker_upwards, _root_uri_path
+            physical = Path(directory).resolve(strict=True)
+            if origin != "AGENTS_CLIENT_REPO_ROOT":
+                marked = _find_marker_upwards(physical)
+                if marked is not None:
+                    authorized = (None if roots is None else
+                                  [value.resolve() for value in map(_root_uri_path, roots) if value is not None])
+                    # Only cwd implies project discovery. Named directories
+                    # stay bounded unless explicit MCP roots cover the marker.
+                    if ((roots is None and origin == "cwd") or (authorized is not None and
+                            any(marked.is_relative_to(value) for value in authorized))):
+                        physical = marked
+            return root, self.registry.register(root, physical_root=physical)
         try:
             root, identity = await asyncio.to_thread(register)
         except ClientRootError as error:
@@ -314,9 +404,22 @@ class Service:
             error = str(failure)
         if root is None:
             error = refusal(request.headers, error)
+        physical_roots = ()
+        if root is not None:
+            try:
+                physical_roots = await asyncio.to_thread(self.registry.cooperation_roots, identity)
+            except WorkspaceError:
+                # A malformed or removed physical grant disables cooperation;
+                # it does not change memory's independently verified root.
+                pass
         context = ClientContext(str(uuid.uuid4()), "http", identity, root, error, client=app,
-                                claimed=None if root else claimed_workspace(request.headers))
+                                claimed=None if root else claimed_workspace(request.headers),
+                                cooperation_roots=physical_roots)
         scope.setdefault("state", {})["client_context"] = context
+        scope["state"]["local_inference_service"] = self.local_inference
+        scope["state"]["artifact_service"] = self.artifacts
+        scope["state"]["cooperation_service"] = self.cooperation
+        scope["state"]["cooperation_authority"] = self.directory / "cooperation"
         if request.method == "POST":
             # Only an initialize names the client (clientInfo); the transport still reads every byte.
             receive = observing(receive, self.usage.apps, app, identity if root else None)
@@ -374,12 +477,14 @@ class Service:
             closing.set()
 
 
-def create_app(directory, token, port=8765, runtime_loader=load_runtime, *, hand_off_schedule=False):
+def create_app(directory, token, port=8765, runtime_loader=load_runtime, *, hand_off_schedule=False,
+               local_inference_service=None, artifact_service=None):
     """``hand_off_schedule``: the user-sync task removes the scheduled sync run of #168 when it
     starts; only ``bootstrap.serve`` sets it, so tests never reach the OS scheduler."""
     if not token or len(token) < 32:
         raise ValueError("A private bearer token of at least 32 characters is required")
-    service = Service(directory, token, port, runtime_loader, hand_off_schedule=hand_off_schedule)
+    service = Service(directory, token, port, runtime_loader, hand_off_schedule=hand_off_schedule,
+                      local_inference_service=local_inference_service, artifact_service=artifact_service)
     app = Starlette(lifespan=service.lifespan)
     # Route the original scope directly so MCP receives the request state.
     app.router.default = service

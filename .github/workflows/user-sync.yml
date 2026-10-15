@@ -19,7 +19,7 @@ on:
       - tests/test_ci_shard.py
       - .github/workflows/user-sync.yml
   push:
-    branches: [main]
+    branches: [main, dev]
     paths:
       - src/user_sync/**
       - src/user_library.py

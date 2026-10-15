@@ -26,6 +26,10 @@ REM                  plugin is installed and enabled (also
 REM                  AGENTS_FORCE_CLAUDE_CODE_MCP=1). The plugin's start script does
 REM                  not run on Windows, so the check never skips the entry here.
 REM   --help         Show this help message
+REM
+REM AGENTS_BRANCH: a new .env, or one without AGENTS_AUTO_UPDATE_BRANCH, gets this
+REM branch as the update branch; an existing .env that names another branch keeps
+REM it, with a warning (README, "Update channel").
 
 setlocal enabledelayedexpansion
 REM cmd cannot keep a variable from its children, so a GitHub token for sync setup
@@ -172,6 +176,9 @@ if !errorlevel! neq 0 (
     set "_FATAL_CTX=Failed to create .env from env.example (copy)"
     goto :fatal_exit
 )
+REM The updaters follow the branch that was installed (AGENTS_BRANCH), not env.example's main (#381).
+REM AGENTS_BRANCH is expanded late (delayed expansion), after cmd has parsed quotes and operators.
+if defined AGENTS_BRANCH %SELECTED_PYTHON% "%HELPERS%\env_branch.py" "%ENV_FILE%" "!AGENTS_BRANCH!" --created
 echo   %GREEN%+%NC% .env created successfully
 echo(
 echo   %YELLOW%Required configuration:%NC%
@@ -183,6 +190,8 @@ goto :env_done
 
 :env_exists
 echo   %YELLOW%WARNING:%NC% .env file already exists
+REM A missing update branch is set to AGENTS_BRANCH, another one warned about (#381).
+if defined AGENTS_BRANCH %SELECTED_PYTHON% "%HELPERS%\env_branch.py" "%ENV_FILE%" "!AGENTS_BRANCH!"
 echo   %GREEN%^>%NC% Checking for missing keys...
 %SELECTED_PYTHON% "%HELPERS%\merge_env.py" "%ENV_FILE%" "%ENV_EXAMPLE%"
 

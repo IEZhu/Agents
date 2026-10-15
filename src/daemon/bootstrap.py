@@ -8,6 +8,7 @@ import sys
 
 from src import executables
 from src.file_lock import file_lock
+from src.runtime_paths import configure_runtime_paths, installation_root
 from src.startup import assert_installation_safe
 from .state import private_dir, read_json, state_dir
 
@@ -76,9 +77,8 @@ def serve(directory=None, probation=None):
     config = read_json(directory / "service.json")
     if not config:
         raise RuntimeError("Service is not installed")
-    root = Path(config["installation"]).resolve()
-    if root != Path(__file__).resolve().parents[2]:
-        raise RuntimeError("Service configuration points at a different installation")
+    configure_runtime_paths(config["installation"], runtime_root=config.get("runtime_root"))
+    root = installation_root()
     handler = RotatingFileHandler(directory / "service.log", maxBytes=10 * 1024**2, backupCount=5)
     os.chmod(directory / "service.log", 0o600)
     logging.basicConfig(level=logging.INFO, handlers=[handler], force=True,

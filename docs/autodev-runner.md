@@ -123,6 +123,8 @@ routes, unless `flows-ui --auto off` is set
 can turn it on with the acceptance flag within 15 minutes of a passing `autodev ready` while the
 acceptance is current, as it could run the CLI. It cannot make the daemon read a credential.
 
+A successful Save returns the settings and revision of the exact configuration it wrote, even if another writer changes the file before its response is built. Edits made while Save is pending stay in the form unsaved and require another Save. The form keeps those edits with the first save's returned revision, so an intervening change to the settings covered by that revision still refuses the next save with 409 `config_changed`.
+
 The API is `GET /ui/api/autodev`, `PUT /ui/api/autodev` with `{expected_revision, settings}`,
 `POST /ui/api/autodev/enable` with `{mode, accept_shared_account}` (409 `acceptance_required`,
 `not_ready` with `missing`, or `tripped_during_enable` for `run`) and `POST
@@ -157,10 +159,14 @@ Phase 1b of the plan (#350, [plan 5.7](autodev-plan.md#57-modes-probes-and-enabl
   starts only after its own probe passed (plan 5.7).
 - **Codex for `select`** (#344): a `select` configured for Codex runs with Codex while its stored
   stage availability (`codex-probe --kind stage --confirm-live-probe`, current for the installed
-  codex and the configured launch) says available, and then needs no Claude probe records. While
+  codex and the configured launch) says available, and `ready` then needs no Claude probe records. While
   it says unavailable (as `nested_sandbox_unavailable` on a Mac without the nested sandbox), a run
   falls back to a Claude select session (`stages.stage_profile`), so `ready` asks for that
   session's probe records instead, and `probe --kind select` probes that fallback session.
+  Before a scheduled real run starts any Codex-to-Claude stage fallback, including a live decision
+  that disagrees with the stored availability, the sequence checks that kind's Claude probe records
+  in all four modes. Missing, failed or stale records end the run `refused`, with the probe commands
+  in `missing`, before the Claude session starts. Supervised runs and dry-runs keep their fallback.
   `implement` and `submit` configured for Codex run with Claude and need their Claude probes
   (the `probe` command takes the Claude settings a run would use). The `codex` part of `ready`
   shows each such stage's availability and the client a run gives it.

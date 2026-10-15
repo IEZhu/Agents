@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 import hashlib
 import json
@@ -477,6 +478,49 @@ async def test_the_revision_describes_the_settings_read_not_a_newer_file(daemon,
     assert response.status_code == 409 and response.json()["error"] == "config_changed"
     assert json.loads(path.read_text()) == {"catch_up_minutes": 50}
     assert data["revision"] == autodev_ui.revision({**copy.deepcopy(autodev_config.DEFAULTS), "catch_up_minutes": 100})
+
+
+@pytest.mark.asyncio
+async def test_a_save_response_describes_its_write_and_refuses_a_later_stale_form(daemon, monkeypatch):
+    http, state, _, _ = daemon
+    data = await read(http)
+    settings = copy.deepcopy(data["settings"])
+    settings["times"] = ["03:00"]
+    settings["stages"]["select"]["claude"]["model"] = "opus-next"
+    real_writing = autodev_config.writing
+    written = []
+
+    @contextmanager
+    def writing_then_changed(directory=None):
+        with real_writing(directory):
+            yield
+            written.append(autodev_config.load(directory))
+        # Another writer changes a different form field after this PUT releases its lock,
+        # before its response is built. No sleep or thread scheduling decides the interleaving.
+        with real_writing(directory):
+            newer = autodev_config.load(directory)
+            newer["allowed_hours"] = "07:00-20:00"
+            autodev_config.save(newer, directory)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(autodev_config, "writing", writing_then_changed)
+        response = await put(http, data["revision"], settings)
+    assert response.status_code == 200, response.text
+    saved = response.json()
+    assert len(written) == 1
+    assert saved["settings"] == autodev_ui.editable(written[0])
+    assert saved["revision"] == autodev_ui.revision(written[0])
+    assert saved["status"]["next_slot"] == "2026-10-12T03:00:00+00:00"
+    assert (saved["status"]["enabled"], saved["status"]["mode"]) == (False, "dry-run")
+    assert saved["saved"] is True and len(saved["warnings"]) == 1 and "opus-next" in saved["warnings"][0]
+    assert autodev_config.load(state)["allowed_hours"] == "07:00-20:00"
+    before = config_file(state).read_bytes()
+    # The page keeps its form when a later edit arrives during the PUT. Saving that full form
+    # with the first PUT's revision must refuse to overwrite the other writer's allowed hours.
+    settings["catch_up_minutes"] = 30
+    response = await put(http, saved["revision"], settings)
+    assert response.status_code == 409 and response.json()["error"] == "config_changed"
+    assert config_file(state).read_bytes() == before
 
 
 def _write_during_the_save(monkeypatch, write):

@@ -1,0 +1,122 @@
+{
+  "schema": "agents-core/handoff-source-manifest/1",
+  "date": "2026-10-14",
+  "base_revision": "34671459c6b0a445f0ad0812d7c1e4c8b3e22827",
+  "research_revision": "2f4f2810738d890f0d49c177bf0ab3c4780a6c3e",
+  "files": [
+    {
+      "revision": "34671459c6b0a445f0ad0812d7c1e4c8b3e22827",
+      "path": "src/server.py",
+      "bytes": 97727,
+      "sha256": "f7c8b04cf7ae9fda45873f46a013f0883053b7ff77b4fe2840b3841d0676e9b3"
+    },
+    {
+      "revision": "34671459c6b0a445f0ad0812d7c1e4c8b3e22827",
+      "path": "src/daemon/app.py",
+      "bytes": 19319,
+      "sha256": "28a45992297c147479b9617c32be529e8a7e2348afea29ebfdd50287d6115eb9"
+    },
+    {
+      "revision": "34671459c6b0a445f0ad0812d7c1e4c8b3e22827",
+      "path": "src/daemon/control.py",
+      "bytes": 39032,
+      "sha256": "7bd2d96b352f8f136ebfd944689ede22b7d2934c5ca148373572fdc05700c461"
+    },
+    {
+      "revision": "34671459c6b0a445f0ad0812d7c1e4c8b3e22827",
+      "path": "src/daemon/workspaces.py",
+      "bytes": 12384,
+      "sha256": "667d6d3db12c78854f0241a5db7fbb4c82d56772cbae82457c8bc0f0cc43a908"
+    },
+    {
+      "revision": "34671459c6b0a445f0ad0812d7c1e4c8b3e22827",
+      "path": "src/daemon/execution.py",
+      "bytes": 2425,
+      "sha256": "0178205ef8a558022e2d5245f08361c988f282c263511c0f550b358edc2abf81"
+    },
+    {
+      "revision": "34671459c6b0a445f0ad0812d7c1e4c8b3e22827",
+      "path": "src/engine/config.py",
+      "bytes": 29208,
+      "sha256": "1da024224a37da4af7a85dc694a8295dbfde5bf842a307f58ace69030a1b6b21"
+    },
+    {
+      "revision": "34671459c6b0a445f0ad0812d7c1e4c8b3e22827",
+      "path": "src/schemas/tool_args.py",
+      "bytes": 6350,
+      "sha256": "37b6216c9981c5a0d4913a26d77a21ba46fd96bc97d6a0098a7f83fa74a3786b"
+    },
+    {
+      "revision": "34671459c6b0a445f0ad0812d7c1e4c8b3e22827",
+      "path": "bridge/stdio.mjs",
+      "bytes": 12454,
+      "sha256": "ebaef632940c3cee36e4bfeef1e8663d5812533acc37bd14c08ada5887175386"
+    },
+    {
+      "revision": "34671459c6b0a445f0ad0812d7c1e4c8b3e22827",
+      "path": "tests/test_daemon.py",
+      "bytes": 15994,
+      "sha256": "2e25f105f69ac1d4dadad2ed27b2201935ca2a8c47b026e42b6990c877a8eaed"
+    },
+    {
+      "revision": "34671459c6b0a445f0ad0812d7c1e4c8b3e22827",
+      "path": "tests/test_tool_annotations.py",
+      "bytes": 1519,
+      "sha256": "f8cd42ba2721afeddaa55fdf6ce5e8add6dce8cba3662b897c50c554126a5fea"
+    },
+    {
+      "revision": "34671459c6b0a445f0ad0812d7c1e4c8b3e22827",
+      "path": "tests/README.md",
+      "bytes": 23841,
+      "sha256": "286b0e318c0f58451037183b51e7596d83ecbf7fd52fac6acd348213797dedb3"
+    },
+    {
+      "revision": "34671459c6b0a445f0ad0812d7c1e4c8b3e22827",
+      "path": "pyproject.toml",
+      "bytes": 990,
+      "sha256": "c20ee2b8fd232427821b4449fcc25bbe32c219978524fb34e448c1ccf259279c"
+    },
+    {
+      "revision": "2f4f2810738d890f0d49c177bf0ab3c4780a6c3e",
+      "path": "docs/accord-shared-kv-evaluation.md",
+      "bytes": 13028,
+      "sha256": "c3d1b0900f41056075de2f65eb9165ddb0a73ac31d2528cd6e5602a61f19e1cb"
+    },
+    {
+      "revision": "2f4f2810738d890f0d49c177bf0ab3c4780a6c3e",
+      "path": "docs/accord-repair-loop-evaluation.md",
+      "bytes": 11401,
+      "sha256": "06ca381ffba2ac35966e1bd4ac573e009facbce21843ad748d6907f65cbd5644"
+    },
+    {
+      "revision": "2f4f2810738d890f0d49c177bf0ab3c4780a6c3e",
+      "path": "docs/accord-inference-evaluation.md",
+      "bytes": 15916,
+      "sha256": "c52cd2d9ffd39b01cbf228747f4132d2cedc7cc6c3c287e04a4f7387d6b00a61"
+    },
+    {
+      "revision": "2f4f2810738d890f0d49c177bf0ab3c4780a6c3e",
+      "path": "experiments/accord/shared_kv/cache.py",
+      "bytes": 11447,
+      "sha256": "97c2bdf38ec85eb7dc8f4c413c9c8afc4fee2f2d79ab2dce8e302c91a70f7a6e"
+    },
+    {
+      "revision": "2f4f2810738d890f0d49c177bf0ab3c4780a6c3e",
+      "path": "experiments/accord/inference/client.py",
+      "bytes": 4721,
+      "sha256": "e168d6a59cdad00c5dfa458a109dfd412ba5b4eb27ee2cb7b4e97aa3a4898f21"
+    },
+    {
+      "revision": "2f4f2810738d890f0d49c177bf0ab3c4780a6c3e",
+      "path": "experiments/accord/shared_kv/test_cache.py",
+      "bytes": 16727,
+      "sha256": "824713b0e83a5560e43c32d1004c83feb42725ab8b578f57e07775e172cc1f2f"
+    },
+    {
+      "revision": "2f4f2810738d890f0d49c177bf0ab3c4780a6c3e",
+      "path": "experiments/accord/shared_kv/test_workflow.py",
+      "bytes": 5403,
+      "sha256": "c38c4268a884173068e1c6389a6981c6555ad83643f6dd34bbbd305def1b0ae3"
+    }
+  ]
+}

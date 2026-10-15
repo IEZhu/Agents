@@ -23,8 +23,9 @@ paths use it:
   until ``invalidate_cache()`` is called (e.g. by tests).
 
 ``RULES_ENABLED=0`` makes ``get_rules()`` return an empty list on both paths.
-Persona bundles also honor the per-rule switches of the web UI
-(``get_rules(apply_toggles=True)``); the per-query path ignores them.
+Persona bundles also honor the per-rule switches of the web UI and include
+enabled cached URL subscriptions (``get_rules(apply_toggles=True)``); the
+per-query evaluation path ignores both. Subscription reads never fetch a URL.
 """
 
 from __future__ import annotations
@@ -161,11 +162,16 @@ def load_selected_rules(names) -> List[Rule]:
     Unselected rule files are read leniently to find names, so a broken rule the
     flow does not use cannot block it. A missing or invalid selected rule raises,
     also with ``RULES_ENABLED=0``, which then delivers no rules as ``get_rules()`` does.
+    Named ``user:`` subscriptions must be enabled and have a valid cached snapshot.
     """
     wanted = set(names)
     if not wanted:
         return []
+    user_names = {name for name in wanted if name.startswith("user:")}
     rules: List[Rule] = []
+    if user_names:
+        from src.user_rules import RuleLibrary
+        rules.extend(RuleLibrary().rules(user_names))
     for path in sorted(glob.glob(os.path.join(RULES_DIR, "rule-*.mdc"))):
         found = _parse_rule_file(path)
         if found is None or found.name not in wanted:
@@ -227,7 +233,9 @@ def get_rules(
     (``src.component_toggles``), after the files were validated, so switching
     every rule off gives an empty list instead of the strict-load error. Only
     persona bundles ask for it; the per-query evaluation path ignores the
-    switches on purpose, so evaluation results do not depend on local settings.
+    switches and cached user subscriptions on purpose, so evaluation results do
+    not depend on local settings. User rules are read fresh from the local library
+    and merged by priority; their source URLs are never fetched during loading.
     """
     global _cache
     if not RULES_ENABLED:
@@ -240,7 +248,10 @@ def get_rules(
         rules = _cache
     if apply_toggles:
         off = component_toggles.disabled("rules")
+        from src.user_rules import RuleLibrary
         rules = [rule for rule in rules if rule.name not in off]
+        rules.extend(RuleLibrary().rules())
+        rules.sort(key=lambda rule: (rule.priority, rule.name))
     return rules
 
 

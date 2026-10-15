@@ -10,7 +10,8 @@
 // item's group goes as the window is resized, or, for the "sync_*" scenarios (library sync, #170),
 // what the header chip, the Sync page, its wizard and the editor's notice show and which
 // /ui/api/sync requests the page sent, against a scripted API and timers the scenario fires, or, for
-// the "autodev*" scenarios (#348), what the Autodev page shows and which /ui/api/autodev requests it sent.
+// the "autodev*" scenarios (#348), what the Autodev page shows and which /ui/api/autodev requests it sent, or,
+// for the "landing_updates*" scenarios (#381), what the overview's Updates section shows and saves.
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 
@@ -61,10 +62,13 @@ let signedIn = ["search", "render", "persona_race", "agents", "history", "histor
 const revisions = {};  // sync_notice: a flow's revision after another machine changed it
 const deletedFlows = new Set();  // sync_notice: flows a cycle deleted (GET answers 404)
 const confirms = [];  // every question the page asked with confirm()
-let confirmAnswer = true;  // what confirm() answers; autodev_races answers no once
+let confirmAnswer = scenario !== "landing_updates_down_declined";  // what confirm() answers; autodev_races answers no once
 const replacedUrls = [];  // every history.replaceState call, as [state, title, url]
 const prompts = [];  // every question the page asked with prompt(), and the answer it suggested
 const puts = [];
+const alerts = [];
+let userRuleToggle = { id: "user:team", description: "Team rule", enabled: false, declared_by: [],
+                       body: "Accepted A", revision: "r1" };
 let putStatus = 200;
 const savedText = {};  // what a PUT stored, served back by the next GET
 let releasePersonaPut = null;  // persona_race: the test decides when the PUT answers
@@ -145,6 +149,16 @@ const VERSIONS = {
                { version: "git-" + "a".repeat(40), revision_prefix: "aaaaaaaaaaaa", deleted: false, time: "2026-10-01T10:00:00+00:00" }],
 };
 function uiData(path, init) {
+  if (["ui_user_rule_toggle", "ui_user_rule_error"].includes(scenario)) {
+    if (path.startsWith("/ui/api/components")) return [200, { items: [{ ...userRuleToggle }] }];
+    if (path === "/ui/api/component" && init.method === "PUT") {
+      const body = JSON.parse(init.body);
+      puts.push(body);
+      if (body.expected_revision !== userRuleToggle.revision) return [409, { error: "rule_conflict: stale revision" }];
+      userRuleToggle = { ...userRuleToggle, enabled: body.enabled, revision: "r3" };
+      return [200, { status: "ok" }];
+    }
+  }
   if (path.startsWith("/ui/api/flows")) {
     return [200, { flows: Object.keys(DOCS).map((id) => ({ id, source: "user", title: id.slice(5), content: DOCS[id] })), repositories: [] }];
   }
@@ -532,8 +546,40 @@ const LANDING_STATS = {
 const LANDING_EMPTY = { ...LANDING_STATS, uptime_seconds: 42, events: [], skipped: [], apps: [],
   answers: { today: 0, last_7_days: 0, last_30_days: 0, per_day: Array.from({ length: 30 }, (_, index) => landingDay(29 - index, 0)),
              per_agent: [], per_repository: [], per_action: {}, per_app: [] } };
+// The Updates section (#381): the channel as /ui/api/overview and /ui/api/updates answer it.
+const downgrading = scenario.startsWith("landing_updates_down");
+let updatesNow = {
+  configured_branch: downgrading ? "dev" : "main", source: downgrading ? ".env" : "default",
+  checked_out_branch: downgrading ? "dev" : "main", action: "follow", revision: "r1", auto_update: true, interval: 900,
+  last_run: { time: "2026-10-14T10:00:00+00:00", state: "up_to_date" }, choices: ["main", "dev"],
+  update_command: ".venv/bin/python -m src.daemon update",
+  when: "Updates fast-forward " + (downgrading ? "dev" : "main") + " at the next scheduled run (every 15 min, when the service is idle), or now with `.venv/bin/python -m src.daemon update`. A saved change applies the same way.",
+};
+const updatesPuts = [];
+function updatesAnswer(method, body) {
+  if (method === "GET") return [200, { version: LANDING_OVERVIEW.version, updates: updatesNow }];
+  updatesPuts.push(body);
+  if (scenario === "landing_updates_conflict") {
+    updatesNow = { ...updatesNow, configured_branch: "dev", source: ".env", revision: "r2", action: "switch",
+                   when: "The switch from main to dev happens at the next scheduled run." };
+    return [409, { status: "error", error: "conflict", message: "the update channel changed since it was read; reload and try again" }];
+  }
+  if (body.expected_revision !== updatesNow.revision) return [409, { status: "error", error: "conflict", message: "stale" }];
+  if (downgrading && !body.allow_downgrade) {
+    return [409, { status: "error", error: "downgrade", message: "origin/main does not contain HEAD 0123456789ab of dev: "
+      + "switching would go back to older code, and state or .env changes that newer code made may not be read by it; "
+      + "confirm with --allow-downgrade" }];
+  }
+  const from = updatesNow.checked_out_branch;
+  updatesNow = { ...updatesNow, configured_branch: body.branch, source: ".env", revision: "r2",
+                 action: body.branch === from ? "follow" : "switch",
+                 when: "The switch from " + from + " to " + body.branch + " happens at the next scheduled run (every 15 min, when the service is idle), or now with `.venv/bin/python -m src.daemon update`." };
+  return [200, { version: LANDING_OVERVIEW.version, updates: updatesNow,
+                 saved: { branch: body.branch, downgrade: !!body.allow_downgrade } }];
+}
 function landingData(path, init) {
-  if (path === "/ui/api/overview") return [200, LANDING_OVERVIEW];
+  if (path === "/ui/api/overview") return [200, { ...LANDING_OVERVIEW, updates: updatesNow }];
+  if (path === "/ui/api/updates") return updatesAnswer(init.method || "GET", init.body ? JSON.parse(init.body) : null);
   if (path === "/ui/api/stats") return [200, scenario === "landing_empty" ? LANDING_EMPTY : LANDING_STATS];
   return agentsData(path, init);  // the flows, the other tabs and the sync status
 }
@@ -592,7 +638,7 @@ const context = vm.createContext({
   location: { hash: scenario === "used_code" ? "#code=used-code" : scenario === "autodev_link" ? "#autodev" : "",
               pathname: "/ui" },
   history: { replaceState(...args) { replacedUrls.push(args); } },
-  fetch: fetchStub, alert() {}, confirm: (question) => { confirms.push(question); return confirmAnswer; },
+  fetch: fetchStub, alert(message) { alerts.push(message); }, confirm: (question) => { confirms.push(question); return confirmAnswer; },
   prompt: (question, suggested) => { prompts.push([question, suggested]); return suggested; },
   setTimeout: pageSetTimeout, clearTimeout: pageClearTimeout,
   console, URLSearchParams,
@@ -744,6 +790,33 @@ if (scenario === "render") {
 
 if (isUi) {
   const out = {};
+  if (scenario === "ui_user_rule_error") {
+    userRuleToggle = { id: "user:team", description: "Unavailable cached user rule", declared_by: [], body: "",
+                       enabled: null, revision: null, status: "error", error: "rule_invalid: corrupt subscription" };
+    await openTab("rules");
+    await open(0);
+    await vm.runInContext("toggleItem()", context);
+    out.damaged = { disabled: byId("c-toggle").disabled, writes: [...puts],
+                    description: byId("c-description").textContent, body: byId("c-body").value };
+    userRuleToggle = { id: "user:team", description: "Team rule", declared_by: [], body: "Repaired guidance",
+                       enabled: true, revision: "r2" };
+    await vm.runInContext("loadComponents('rules', 'user:team')", context);
+    out.recovered = { disabled: byId("c-toggle").disabled, body: byId("c-body").value };
+    console.log(JSON.stringify(out));
+    process.exit(0);
+  }
+  if (scenario === "ui_user_rule_toggle") {
+    await openTab("rules");
+    await open(0);
+    userRuleToggle = { ...userRuleToggle, body: "Accepted B", revision: "r2" };
+    await vm.runInContext("toggleItem()", context);
+    out.conflict = { puts: [...puts], alerts: [...alerts], enabled: userRuleToggle.enabled,
+                     displayed: vm.runInContext("({body: state.item.body, revision: state.item.revision})", context) };
+    await vm.runInContext("toggleItem()", context);
+    out.retry = { puts: [...puts], enabled: userRuleToggle.enabled };
+    console.log(JSON.stringify(out));
+    process.exit(0);
+  }
   if (scenario === "ui_place") {
     // A personal flow's group, 456 px wide, beside a version (the sync chip sits under it) ending at
     // 222 px and a pane whose straight top edge starts at 304 + 22 + 13 px; the section tabs move as
@@ -970,6 +1043,35 @@ if (isUi) {
   out.skill_dismissal.over_edge = pointerOver(cView, "md-edge");
   fire(seg("c-seg", 1), "click");
   out.skill_source = { view_hidden: byId("c-view").classes.has("hidden"), source_hidden: byId("c-source").classes.has("hidden") };
+  console.log(JSON.stringify(out));
+  process.exit(0);
+}
+
+if (scenario.startsWith("landing_updates")) {
+  const textOf = (node) => (node.nodeType === 3 ? node.textContent
+    : (node.textContent || "") + node.children.map(textOf).join(""));
+  const body = () => byId("updates-body");
+  const radios = () => findAll(body(), (n) => n.tag === "input" && n.type === "radio");
+  const saveButton = () => findAll(body(), (n) => n.tag === "button")[0];
+  const view = () => ({ text: textOf(body()), radios: radios().map((r) => [r.value, r.checked, r.disabled]),
+                        save: saveButton() ? [saveButton().textContent, saveButton().disabled] : null,
+                        alert: byId("landing-alert").textContent });
+  const out = { start: view() };
+  const first = radios()[0];
+  await fireTimers(30000);  // the statistics' poll re-renders the landing page
+  out.kept_after_poll = radios()[0] === first;
+  const target = downgrading ? "main" : "dev";
+  const pick = radios().find((r) => r.value === target);
+  pick.checked = true;
+  fire(pick, "change");
+  await sleep(0);
+  out.picked = view();
+  fire(saveButton(), "click");
+  await sleep(50);
+  out.saved = view();
+  out.puts = updatesPuts;
+  out.confirms = confirms;
+  out.reads = requests.filter((path) => path === "/ui/api/updates");
   console.log(JSON.stringify(out));
   process.exit(0);
 }
@@ -1719,6 +1821,11 @@ if (isAutodev) {
   const openChip = async () => { fire(byId("autodev-chip"), "click"); await sleep(40); };
   const gets = () => autodevCalls.filter(([method]) => method === "GET").length;
   const puts = () => autodevCalls.filter(([method]) => method === "PUT");
+  const unloadBlocked = () => {
+    let blocked = false;
+    for (const handler of windowHandlers.beforeunload || []) handler({ preventDefault() { blocked = true; } });
+    return blocked;
+  };
   const done = () => { console.log(JSON.stringify(out)); process.exit(0); };
 
   if (scenario === "autodev_link") {  // /ui#autodev opens the page and clears the hash
@@ -1776,6 +1883,73 @@ if (isAutodev) {
     await click("ad-save");
     const put = puts().at(-1)[2].settings;
     out.saved = { select: put.stages.select.claude, review: put.delegates["code-review-pass"], alert: alert().text };
+    done();
+  }
+
+  if (scenario === "autodev_save_edits") {
+    // A held PUT stores the submitted snapshot; text and select edits made while it answers stay unsaved.
+    await setValue("ad-catch-up", "55");
+    const releasePut = holdAutodev("PUT /ui/api/autodev");
+    await click("ad-save");
+    const savedAt = autodevState.revision;
+    await setValue("ad-catch-up", "66");
+    await setValue("ad-code-review-pass-followup", "low");
+    // Reopening while the save is pending must not start a read that can overwrite its revision.
+    await openChip();
+    await openChip();
+    out.pending = { gets: gets(), catch_up: value("ad-catch-up"), followup: value("ad-code-review-pass-followup"),
+                    submitted: puts().at(-1)[2].settings.catch_up_minutes, stored: autodevState.settings.catch_up_minutes };
+    releasePut();
+    await sleep(40);
+    out.saved = { catch_up: value("ad-catch-up"), followup: value("ad-code-review-pass-followup"),
+                  alert: alert(), unload_blocked: unloadBlocked(), saved_at: savedAt };
+    // Later reads keep the unsaved form; Reload still asks before discarding it.
+    await openChip();
+    await openChip();
+    confirmAnswer = false;
+    await click("ad-reload");
+    out.kept = { catch_up: value("ad-catch-up"), followup: value("ad-code-review-pass-followup"),
+                 gets: gets(), confirms: confirms.slice(), unload_blocked: unloadBlocked() };
+    await click("ad-save");
+    out.resaved = { put: puts().at(-1)[2], alert: alert().text, unload_blocked: unloadBlocked() };
+
+    // A held refusal keeps later corrections and the revision of the last successful save.
+    const readAt = autodevState.revision;
+    await setValue("ad-times", "25:00");
+    const releaseError = holdAutodev("PUT /ui/api/autodev");
+    await click("ad-save");
+    await setValue("ad-times", "04:00");
+    await setValue("ad-catch-up", "77");
+    await openChip();
+    await openChip();
+    releaseError();
+    await sleep(40);
+    out.refused = { times: value("ad-times"), catch_up: value("ad-catch-up"), alert: alert(),
+                    gets: gets(), unload_blocked: unloadBlocked(), read_at: readAt, stored_at: autodevState.revision };
+    await click("ad-save");
+    out.corrected = { put: puts().at(-1)[2], alert: alert().text, unload_blocked: unloadBlocked() };
+    done();
+  }
+
+  if (scenario === "autodev_save_writer") {
+    await setValue("ad-catch-up", "55");
+    const releasePut = holdAutodev("PUT /ui/api/autodev");
+    await click("ad-save");
+    const savedAt = autodevState.revision;
+    await setValue("ad-catch-up", "66");
+    // Another writer changes an untouched field after the first write. The PUT response
+    // describes that first write, so the retained form must keep its older revision.
+    autodevState.settings = { ...autodevState.settings, allowed_hours: "07:00-20:00" };
+    autodevState.revision = "external-writer";
+    releasePut();
+    await sleep(40);
+    out.saved = { catch_up: value("ad-catch-up"), hours: value("ad-hours"), saved_at: savedAt,
+                  unload_blocked: unloadBlocked(), alert: alert() };
+    await click("ad-save");
+    out.refused = { put: puts().at(-1)[2], catch_up: value("ad-catch-up"), hours: value("ad-hours"),
+                    stored_catch_up: autodevState.settings.catch_up_minutes,
+                    stored_hours: autodevState.settings.allowed_hours, stored_at: autodevState.revision,
+                    unload_blocked: unloadBlocked(), alert: alert() };
     done();
   }
 
