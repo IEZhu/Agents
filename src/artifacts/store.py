@@ -343,9 +343,12 @@ class ArtifactStore:
             for entry in iterator:
                 if len(entries) >= maximum:
                     raise _error("quota_exceeded")
-                info = entry.stat(follow_symlinks=False)
-                ArtifactStore._private(info, directory=directories, path=Path(entry.path))
-                entries.append(Path(entry.path))
+                entry_path = Path(entry.path)
+                # Windows DirEntry.stat caches enumeration metadata with st_nlink
+                # set to zero. Query the path for the actual link count instead.
+                info = entry_path.lstat()
+                ArtifactStore._private(info, directory=directories, path=entry_path)
+                entries.append(entry_path)
         return entries
 
     def _reconcile(self, root: Path):

@@ -822,3 +822,35 @@ def test_windows_publish_read_remain_available_when_capture_is_unsupported(tmp_p
     artifact = store.publish(workspace, b"portable", name="input", media_type="text/plain")
     manifest = _manifest(store, workspace, artifact)
     assert ArtifactStore(store.directory).read(workspace, manifest["manifest_id"], manifest["sha256"], artifact["artifact_id"])["text"] == "portable"
+
+
+def test_enumeration_link_count_does_not_replace_actual_file_stat(tmp_path, workspace, monkeypatch):
+    store = ArtifactStore(tmp_path / "store")
+    artifact = store.publish(workspace, b"persisted", name="input", media_type="text/plain")
+    directory = _artifact_path(store, workspace, artifact)
+    real_scandir = storage.os.scandir
+
+    class EnumerationEntry:
+        def __init__(self, path):
+            self.path = str(path)
+
+        def stat(self, *, follow_symlinks=True):
+            # Python on Windows caches st_nlink=0 in directory enumeration data.
+            fields = list(Path(self.path).lstat())
+            fields[3] = 0
+            return os.stat_result(fields)
+
+    class Enumeration:
+        def __enter__(self):
+            return iter(EnumerationEntry(directory / name) for name in ("content", "metadata.json"))
+
+        def __exit__(self, *args):
+            pass
+
+    def scandir(path):
+        return Enumeration() if Path(path) == directory else real_scandir(path)
+
+    monkeypatch.setattr(storage.os, "scandir", scandir)
+    manifest = _manifest(store, workspace, artifact)
+    assert store.verify(workspace, manifest["manifest_id"], manifest["sha256"])["verified"] is True
+    assert store.read(workspace, manifest["manifest_id"], manifest["sha256"], artifact["artifact_id"])["text"] == "persisted"
