@@ -20,7 +20,8 @@ from tests.test_cooperation_identity import checkouts
 
 TOKEN = "x" * 48
 NAMES = ("cooperation_register", "cooperation_read", "cooperation_apply",
-         "cooperation_send", "cooperation_receive", "cooperation_ack")
+         "cooperation_send", "cooperation_receive", "cooperation_ack",
+         "cooperation_request_status", "cooperation_request_update", "cooperation_wait")
 
 
 def registration(checkout):
@@ -236,7 +237,8 @@ async def test_strict_mcp_errors_are_bounded_and_redacted(bad):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("name", ["cooperation_send", "cooperation_receive", "cooperation_ack"])
+@pytest.mark.parametrize("name", ["cooperation_send", "cooperation_receive", "cooperation_ack",
+                                 "cooperation_request_status", "cooperation_request_update", "cooperation_wait"])
 @pytest.mark.parametrize("bad", [
     {},
     {"request": {"protocol": PROTOCOL}, "unknown": "DO_NOT_ECHO"},
@@ -252,7 +254,8 @@ async def test_mailbox_mcp_wrappers_reject_invalid_input_without_leakage(name, b
     assert "DO_NOT_ECHO" not in content[0].text and "PRIVATE_BODY" not in content[0].text
 
 
-@pytest.mark.parametrize("model", [server.SendResponse, server.ReceiveResponse, server.AckResponse])
+@pytest.mark.parametrize("model", [server.SendResponse, server.ReceiveResponse, server.AckResponse,
+                                  server.RequestStatusResponse, server.WaitResponse])
 def test_invalid_mailbox_response_cannot_leak_message_or_capability(model, caplog):
     response = server._cooperation_result(model, {
         "protocol": PROTOCOL, "status": "ok", "capability": "private-capability-do-not-log",
@@ -473,9 +476,26 @@ async def test_independent_mcp_clients_request_reply_ack_and_private_inboxes(che
                 assert invalid_cursor["error"] == "invalid_request"
                 outbound = {**auth_a, "operation_id": "send-request", "recipient_id": second["participant_id"],
                             "kind": "request", "body": "PRIVATE_REQUEST_BODY", "correlation_id": "discussion-1"}
+                waiting = asyncio.create_task(invoke(client_b, "cooperation_wait", {
+                    **auth_b, "timeout_seconds": 2,
+                }, external))
                 sent = await invoke(client_a, "cooperation_send", outbound, main)
                 assert sent["status"] == "ok", sent
                 message = sent["message"]
+                event_page = await asyncio.wait_for(waiting, 3)
+                assert event_page["events"][0]["kind"] == "message_received"
+                assert event_page["events"][0]["message_id"] == message["message_id"]
+                assert "PRIVATE_REQUEST_BODY" not in json.dumps(event_page)
+                request_status = await invoke(client_a, "cooperation_request_status", {
+                    **auth_a, "message_id": message["message_id"],
+                }, main)
+                assert request_status["request"]["state"] == "pending"
+                assert request_status["request"]["delivery"] == "stored"
+                accepted_update = {**auth_b, "operation_id": "accept-request", "message_id": message["message_id"],
+                                   "expected_revision": 1, "state": "accepted"}
+                accepted = await invoke(client_b, "cooperation_request_update", accepted_update, external)
+                assert accepted["request"]["state"] == "accepted"
+                assert await invoke(client_b, "cooperation_request_update", accepted_update, external) == accepted
                 assert message["sender_id"] == message["actor_id"] == first["participant_id"]
                 assert message["acknowledged_at"] is None and message["acknowledged_by"] is None
                 assert await invoke(client_a, "cooperation_send", outbound, main) == sent
@@ -503,6 +523,12 @@ async def test_independent_mcp_clients_request_reply_ack_and_private_inboxes(che
                 response_inbox = await invoke(client_a, "cooperation_receive", auth_a, main)
                 assert response_inbox["messages"] == [reply["message"]]
                 assert reply["message"]["reply_to"] == message["message_id"]
+                completed = await invoke(client_b, "cooperation_request_update", {
+                    **auth_b, "operation_id": "complete-request", "message_id": message["message_id"],
+                    "expected_revision": 2, "state": "completed", "response_message_id": reply["message"]["message_id"],
+                }, external)
+                assert completed["request"]["state"] == "completed"
+                assert completed["request"]["delivery"] == "stored"
 
                 for client, auth, checkout, delivered in (
                     (client_b, auth_b, external, message), (client_a, auth_a, main, reply["message"]),
@@ -518,6 +544,12 @@ async def test_independent_mcp_clients_request_reply_ack_and_private_inboxes(che
                     }, checkout)
                     assert history["messages"][0]["acknowledged_at"] == acked["acknowledged_at"]
                     assert history["messages"][0]["acknowledged_by"] == auth["participant_id"]
+
+                final_status = await invoke(client_a, "cooperation_request_status", {
+                    **auth_a, "message_id": message["message_id"],
+                }, main)
+                assert final_status["request"]["state"] == "completed"
+                assert final_status["request"]["delivery"] == "acknowledged"
 
                 public = await invoke(client_a, "cooperation_read", {
                     "protocol": PROTOCOL, "repository_id": first["repository_id"],
