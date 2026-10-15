@@ -32,7 +32,7 @@ class FakeRunner:
         self.calls = []
         self.responses = responses or {}
 
-    def __call__(self, argv, *, input=None):
+    def __call__(self, argv, *, input=None, env=None):
         argv = list(argv)
         self.calls.append((argv, input))
         for prefix, (code, out) in self.responses.items():
@@ -735,6 +735,90 @@ def test_selected_checkout_git_state_is_preserved(home, case):
     else:
         assert reason is not None
     assert (installation / "source.txt").exists()
+
+
+
+@pytest.mark.parametrize("override", ["repository", "config"])
+@pytest.mark.parametrize("work", ["clean", "untracked", "ignored", "commit"])
+def test_selected_checkout_ignores_foreign_git_environment(home, monkeypatch, override, work):
+    """Inherited Git context must not replace the selected checkout with a clean foreign clone."""
+    installation = home / "selected-checkout"
+    installation.mkdir()
+
+    def git(*args):
+        return subprocess.run(["git", "-C", str(installation), "-c", "core.autocrlf=false",
+                               "-c", "user.name=Uninstall Test", "-c", "user.email=test@example.invalid", *args],
+                              check=True, capture_output=True)
+
+    git("init", "-q", "-b", "dev")
+    write(installation / ".gitignore", ".*\n!.gitignore\n")
+    write(installation / "source.txt", "published\n")
+    git("add", ".gitignore", "source.txt")
+    git("commit", "-qm", "published source")
+    git("update-ref", "refs/remotes/origin/dev", "HEAD")
+    foreign = home / "clean-foreign-checkout"
+    git("clone", "-q", "--no-hardlinks", str(installation), str(foreign))
+    if work == "untracked":
+        write(installation / "personal-notes.txt", "keep\n")
+    elif work == "ignored":
+        write(installation / ".private-notes", "keep\n")
+    elif work == "commit":
+        write(installation / "source.txt", "personal committed work\n")
+        git("commit", "-qam", "personal work")
+    if override == "repository":
+        monkeypatch.setenv("GIT_DIR", str(foreign / ".git"))
+        monkeypatch.setenv("GIT_WORK_TREE", str(foreign))
+    else:
+        monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
+        monkeypatch.setenv("GIT_CONFIG_KEY_0", "core.worktree")
+        monkeypatch.setenv("GIT_CONFIG_VALUE_0", str(foreign))
+    before = dict(os.environ)
+    ctx = context(home, "darwin", uninstall.run_command, AGENTS_HOME=str(installation))
+    reason = uninstall.local_work(ctx, installation)
+    assert (reason is None) == (work == "clean")
+    changed_names = [name for name in set(os.environ) | set(before)
+                     if os.environ.get(name) != before.get(name)]
+    assert not changed_names
+    assert (installation / "source.txt").exists()
+
+
+def test_checkout_inspection_preserves_other_environment_and_command_inheritance(home, monkeypatch):
+    """Git safety calls isolate repository overrides without mutating the process or OS commands."""
+    installation = home / "selected-checkout"
+    calls = []
+    monkeypatch.setenv("GIT_DIR", str(home / "foreign/.git"))
+    monkeypatch.setenv("GIT_WORK_TREE", str(home / "foreign"))
+    monkeypatch.setenv("AGENTS_UNINSTALL_ENV_SENTINEL", "preserved")
+    original_path = os.environ.get("PATH")
+    before = dict(os.environ)
+
+    def command(argv, **kwargs):
+        calls.append((list(argv), kwargs.get("env")))
+        operation = argv[3] if len(argv) > 3 else ""
+        output = {"rev-parse": b"GIT_DIR\nGIT_WORK_TREE\nGIT_CONFIG_COUNT\n",
+                  "for-each-ref": b"dev\n", "rev-list": b"0\n"}.get(operation, b"")
+        return subprocess.CompletedProcess(argv, 0, output, b"")
+
+    monkeypatch.setattr(subprocess, "run", command)
+    ctx = context(home, "darwin", uninstall.run_command, AGENTS_HOME=str(installation))
+    assert uninstall.local_work(ctx, installation) is None
+    inspections = [env for argv, env in calls if len(argv) > 3 and argv[3] in
+                   {"status", "for-each-ref", "rev-list", "ls-files"}]
+    assert len(inspections) == 4
+    for environment in inspections:
+        assert environment is not None
+        remaining_overrides = [name for name in ("GIT_DIR", "GIT_WORK_TREE") if name in environment]
+        assert not remaining_overrides
+        observed_sentinel = environment.get("AGENTS_UNINSTALL_ENV_SENTINEL")
+        observed_path = environment.get("PATH")
+        assert observed_sentinel == "preserved"
+        assert observed_path == original_path
+    uninstall.run_command(["non-git-os-command"])
+    inherited = calls[-1][1] is None
+    assert inherited
+    changed_names = [name for name in set(os.environ) | set(before)
+                     if os.environ.get(name) != before.get(name)]
+    assert not changed_names
 
 
 @pytest.mark.parametrize("command, response", [

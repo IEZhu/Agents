@@ -155,8 +155,10 @@ installation being removed. The commit check uses existing local remote-tracking
 fetching; it does not confirm that the remote is still available. `.env` and `.venv/` are
 intentional installation assets and can be removed, so keep personal files elsewhere. Other
 ignored material, including extra runtime caches, conservatively keeps the selected checkout.
-Untracked-file detection overrides Git settings that hide these files, and the selected
-checkout is inspected again immediately before removal, after confirmation. This is not a
+Git safety inspections use a copy of the process environment without inherited `GIT_*`
+overrides, while preserving all other entries; other uninstall commands inherit the normal
+environment. Untracked-file detection overrides Git settings that hide these files, and the
+selected checkout is inspected again immediately before removal, after confirmation. This is not a
 transaction with other writers: serialize install, uninstall and direct checkout edits.
 Also kept are the files Agents-Core wrote into your projects (`history.md`, `history/`, the Repository
 Memory section of `CLAUDE.md`), which the report lists. The logic is `src/uninstall.py`.

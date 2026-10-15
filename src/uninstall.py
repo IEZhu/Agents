@@ -123,12 +123,13 @@ Runner = Callable[..., subprocess.CompletedProcess]
 CODE_ROOT = Path(__file__).resolve().parents[1]  # the templates the installer generated the reminder from
 
 
-def run_command(argv: Sequence[str], *, input: bytes | None = None) -> subprocess.CompletedProcess:
-    """No shell, bytes in and out; a missing program is an exit code 127, not an exception."""
+def run_command(argv: Sequence[str], *, input: bytes | None = None,
+                env: Mapping[str, str] | None = None) -> subprocess.CompletedProcess:
+    """No shell; inherit the environment unless a caller supplies a scoped copy. Missing programs return 127."""
     given = {"input": input} if input is not None else {"stdin": subprocess.DEVNULL}
     try:
         return subprocess.run(list(argv), capture_output=True, timeout=60, check=False,
-                              creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), **given)
+                              creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), env=env, **given)
     except (FileNotFoundError, PermissionError) as error:
         return subprocess.CompletedProcess(list(argv), 127, b"", str(error).encode())
     except subprocess.TimeoutExpired:
@@ -740,8 +741,15 @@ def local_work(ctx: Context, checkout: Path) -> str | None:
     the installer's .env and .venv assets. Git failures also keep the whole checkout.
     """
     base = ["git", "-C", str(checkout)]
-    status = ctx.runner([*base, "status", "--porcelain", "--untracked-files=normal"])
-    branches = ctx.runner([*base, "for-each-ref", "--format=%(refname:short)", "refs/heads"])
+    # These offline safety inspections must use this checkout, not a caller's Git context.
+    git_env = {name: value for name, value in os.environ.items() if not name.startswith("GIT_")}
+
+    def git(*arguments: str) -> subprocess.CompletedProcess:
+        """Inspect the selected checkout without inherited Git environment overrides."""
+        return ctx.runner([*base, *arguments], env=git_env)
+
+    status = git("status", "--porcelain", "--untracked-files=normal")
+    branches = git("for-each-ref", "--format=%(refname:short)", "refs/heads")
     if status.returncode != 0 or branches.returncode != 0:
         return "git could not check it for uncommitted work"
     if status.stdout.strip():
@@ -750,13 +758,13 @@ def local_work(ctx: Context, checkout: Path) -> str | None:
     if others:
         return "it has local branches besides main and dev (" + ", ".join(others[:5]) + ")"
     # Include stashes, tags and reflogs as well as branches and detached HEAD.
-    commits = ctx.runner([*base, "rev-list", "--count", "--all", "--reflog", "HEAD", "--not", "--remotes"])
+    commits = git("rev-list", "--count", "--all", "--reflog", "HEAD", "--not", "--remotes")
     count = commits.stdout.strip()
     if commits.returncode != 0 or not count.isdigit():
         return "git could not check it for local work"
     if int(count):
         return "it has local commits outside known remote-tracking history"
-    ignored = ctx.runner([*base, "ls-files", "--others", "--ignored", "--exclude-standard", "-z"])
+    ignored = git("ls-files", "--others", "--ignored", "--exclude-standard", "-z")
     if ignored.returncode != 0 or (ignored.stdout and not ignored.stdout.endswith(b"\0")):
         return "git could not check it for local work"
     # init_repo creates these two assets. Other ignore patterns (including arbitrary
