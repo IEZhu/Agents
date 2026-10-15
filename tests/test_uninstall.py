@@ -682,7 +682,7 @@ def test_a_development_checkout_named_by_agents_home_is_kept(home, capsys, statu
 
 @pytest.mark.parametrize("case", ["published", "active-commit", "inactive-commit", "detached-commit",
                                  "tagged-commit", "reflog-commit", "stash", "no-remotes", "ignored-note",
-                                 "ignored-worktree", "venv-lookalike", "installation-assets"])
+                                 "ignored-worktree", "venv-lookalike", "installation-assets", "hidden-untracked"])
 def test_selected_checkout_git_state_is_preserved(home, case):
     """Real Git distinguishes published source and install assets from irreplaceable local state."""
     installation = home / "selected-checkout"
@@ -715,6 +715,9 @@ def test_selected_checkout_git_state_is_preserved(home, case):
         git("stash", "push", "-qm", "personal work")
     elif case == "no-remotes":
         git("update-ref", "-d", "refs/remotes/origin/dev")
+    elif case == "hidden-untracked":
+        git("config", "status.showUntrackedFiles", "no")
+        write(installation / "personal-notes.txt", "untracked personal work\n")
     elif case == "ignored-note":
         write(installation / ".private-notes", "keep this personal file\n")
     elif case == "ignored-worktree":
@@ -748,6 +751,32 @@ def test_selected_checkout_failed_safety_inspection_keeps_installation(home, cap
     assert main(["--yes"], ctx=ctx, interactive=False) == 0
     assert (installation / "src/server.py").exists()
     assert "git could not check it for local work" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("change", ["untracked", "commit", "ignored", "git-failure"])
+def test_selected_checkout_is_rechecked_after_confirmation(home, capsys, change):
+    """A previously clean removal plan must not delete work created while confirmation waits."""
+    darwin_home(home)
+    installation = checkout(home / "selected-checkout")
+    runner = FakeRunner()
+    ctx = context(home, "darwin", runner, AGENTS_HOME=str(installation))
+    ctx.source_root = installation
+    work = installation / "personal-notes.txt"
+
+    def confirm(_prompt):
+        write(work, "created after planning\n")
+        command, response = {
+            "untracked": ("status", (0, b"?? personal-notes.txt\n")),
+            "commit": ("rev-list", (0, b"1\n")),
+            "ignored": ("ls-files", (0, b".private-notes\0")),
+            "git-failure": ("rev-list", (128, b"")),
+        }[change]
+        runner.responses[("git", "-C", str(installation), command)] = response
+        return "y"
+
+    assert main([], ctx=ctx, ask=confirm, interactive=True) == 1
+    assert work.read_text() == "created after planning\n"
+    assert "checkout changed since planning" in capsys.readouterr().out
 
 
 def test_windows_states_inside_the_installation_are_found_and_kept_with_keep_data(home):
