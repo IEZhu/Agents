@@ -150,8 +150,14 @@ find and record it in the working list like a bot finding: a bot reports a few
 findings per pass, so each problem left for the bots costs a round.
 
 The expected setup runs CodeRabbit and Copilot automatically on the initial
-GitHub PR. Confirm that those reviews actually started. CodeRabbit normally
-reviews subsequent pushes automatically, but its quota is often exhausted.
+GitHub PR. CodeRabbit does so for pull requests into the default branch and
+into the base branches listed under `reviews.auto_review.base_branches` in
+`.coderabbit.yaml`. It reads that file from the pull request's head branch, so
+the file must be present there. In Agents-Core the list holds `dev`, the
+target branch of every pull request. Confirm that those reviews actually
+started.
+CodeRabbit normally reviews subsequent pushes automatically, but its quota is
+often exhausted.
 After each push of fixes, once the remote head updates, **explicitly
 re-request Copilot review when the integration is available and Copilot is not
 paused** under [Quota, rate limits and errors](#quota-rate-limits-and-errors),
@@ -230,6 +236,7 @@ neither approves nor clears findings.
 |---|---|---|---|
 | CodeRabbit | A comment marked `rate limited by coderabbit.ai`: "Review limit reached. Next included review available in N minutes." | Rate limit with a stated wait | Pause CodeRabbit until the time the comment was last updated plus N minutes: CodeRabbit rewrites this text into its long-lived summary comment, so its creation time is too early. After that, if no review of the current head has started, request one with a PR comment `@coderabbitai review`, once. A rate-limit reply to that request starts a new pause. |
 | CodeRabbit | A reply to `@coderabbitai review`: "Action not completed" and "Review rate limited.", with the status `Review rate limited`; after a push, the status alone | The same rate limit; the reply states no wait | Read the wait from CodeRabbit's summary comment on the PR, which then says "Review limit reached" and "Next included review available in N minutes", and pause as in the row above. CodeRabbit can replace that block within a minute (seen in 2026-10), so read the comment when the status appears, or from its edit history; when the wait can no longer be read, pause for one hour from the status time. |
+| CodeRabbit | The status `Review skipped: reviews are disabled for this base branch` | Not a quota pause: automatic review is off for this base branch, because the `.coderabbit.yaml` of the branch under review does not list it (for example a branch cut from `dev` before the file existed) | Do not record a pause. Request one review of the current head with `@coderabbitai review` and wait for it like any other review; the request counts against the hourly allowance. A branch updated from a target that carries the file is reviewed automatically after its next push. |
 | CodeRabbit | The status `Review paused`, and "Reviews paused" in its summary comment | Not a quota pause: CodeRabbit is available but stopped reviewing new pushes on its own because the branch received many commits | Do not record a pause. Request one review of the current head with `@coderabbitai review` when the head needs one, and wait for it like any other review. Do not send `@coderabbitai resume`, which reviews every later push. |
 | Copilot | A review body "...the user who requested the review has reached their quota limit." | Account quota exhausted; no reset time is given (in 2026-09 it returned within days, not at a fixed date) | Pause Copilot. While paused, request a review at most once per 24 hours, and only when the current head still needs one. A normal review ends the pause. |
 | Copilot | "Copilot encountered an error and was unable to review this pull request." | Transient failure | Re-request once after a few minutes. After a second failure on the same head, treat Copilot as unavailable for this round. |
