@@ -502,9 +502,14 @@ class CooperationService:
         self._scope(resources, subject)
         if subject["running"]:
             raise CooperationError("claim_conflict", "Release current work unit before changing intent")
+        dependency_ids = set()
         for dependency in action["dependencies"]:
             if (dependency["consumer_task"], dependency["consumer_attempt_id"]) != (subject["task_id"], subject["attempt_id"]):
                 raise CooperationError("scope_denied", "Only the consumer can declare its dependency")
+            dependency_id = digest([repo, None, dependency])
+            if dependency_id in dependency_ids:
+                raise CooperationError("invalid_request", "Duplicate dependency")
+            dependency_ids.add(dependency_id)
         # Replace only this consumer's gates, preserving other tasks and accumulated wait.
         for row in db.execute("SELECT id,body FROM dependencies WHERE repository_id=? AND agreement_id IS NULL", (repo,)).fetchall():
             dep = json.loads(row[1])
@@ -852,6 +857,8 @@ class CooperationService:
             agreement = self._agreement(db, repo, action["agreement_id"])
             if subject["participant_id"] not in agreement["required_participants"]:
                 raise CooperationError("unauthorized_actor")
+            if agreement["state"] in ("completed", "cancelled", "expired", "rejected", "superseded"):
+                raise CooperationError("stale_revision", "Terminal agreements cannot be cancelled again")
             agreement.update(state="cancelled", reason=action["reason"], terminal_at=now, revision=revision)
             self._save_agreement(db, repo, agreement)
             # Cancellation never releases another execution's claims.

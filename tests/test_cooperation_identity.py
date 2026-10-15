@@ -192,7 +192,82 @@ def test_retargeted_grant_still_fails_closed(checkouts):
     registry.register(main, physical_root=external)
     git(main, "worktree", "remove", str(external))
     external.symlink_to(main, target_is_directory=True)
+    original = registry.checkout_path.read_bytes()
     with pytest.raises(WorkspaceError, match="workspace_invalid"):
         registry.cooperation_roots(identity)
+    assert registry.register(main) == identity
+    assert registry.resolve(identity) == main
+    assert registry.checkout_path.read_bytes() == original
     with pytest.raises(WorkspaceError, match="workspace_invalid"):
-        registry.register(main)
+        registry.cooperation_roots(identity)
+
+
+@pytest.mark.parametrize("existing", [True, False])
+@pytest.mark.parametrize("malformed", [b"{", b"\xff", b"[]"])
+def test_malformed_grants_do_not_break_memory_registration(checkouts, existing, malformed):
+    main, external, authority = checkouts
+    registry = WorkspaceRegistry(authority)
+    previous = registry.register(main) if existing else None
+    registry.checkout_path.write_bytes(malformed)
+
+    identity = registry.register(main, physical_root=external)
+
+    assert previous is None or identity == previous
+    assert registry.resolve(identity) == main
+    assert registry.checkout_path.read_bytes() == malformed
+    with pytest.raises(WorkspaceError, match="workspace_invalid"):
+        registry.cooperation_roots(identity)
+
+
+def test_live_grant_limit_does_not_break_memory_registration(checkouts):
+    main, external, authority = checkouts
+    registry = WorkspaceRegistry(authority)
+    identity = registry.register(main)
+    for number in range(49):
+        checkout = authority / str(number)
+        checkout.mkdir()
+        registry.register(main, physical_root=checkout)
+    original = registry.checkout_path.read_bytes()
+
+    assert registry.register(main, physical_root=external) == identity
+
+    assert registry.resolve(identity) == main
+    assert registry.checkout_path.read_bytes() == original
+    roots = registry.cooperation_roots(identity)
+    assert len(roots) == 50
+    with pytest.raises(IdentityError, match="outside"):
+        resolve_identity(context(main, *roots), str(external), authority_path=authority)
+
+
+def test_failed_grant_write_does_not_authorize_memory_root(checkouts, monkeypatch):
+    from src.daemon import workspaces
+    main, _, authority = checkouts
+    registry = WorkspaceRegistry(authority)
+    write_json = workspaces.write_json
+
+    def fail_grant_write(path, value):
+        if path == registry.checkout_path:
+            raise OSError("grant storage unavailable")
+        write_json(path, value)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(workspaces, "write_json", fail_grant_write)
+        identity = registry.register(main)
+
+    assert registry.resolve(identity) == main
+    assert not registry.checkout_path.exists()
+    with pytest.raises(WorkspaceError, match="workspace_invalid"):
+        registry.cooperation_roots(identity)
+    assert registry.register(main) == identity
+    assert registry.cooperation_roots(identity) == (main,)
+
+
+def test_missing_grant_entry_does_not_authorize_memory_root(checkouts):
+    main, _, authority = checkouts
+    registry = WorkspaceRegistry(authority)
+    identity = registry.register(main)
+    registry.checkout_path.write_text("{}")
+
+    assert registry.resolve(identity) == main
+    with pytest.raises(WorkspaceError, match="workspace_invalid"):
+        registry.cooperation_roots(identity)

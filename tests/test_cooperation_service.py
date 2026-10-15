@@ -202,6 +202,22 @@ def _dependency(producer, consumer, artifact="result"):
     return {"producer_task": producer["task"], "consumer_task": consumer["task"], "artifact_id": artifact}
 
 
+def test_duplicate_intent_dependencies_are_rejected_without_mutation(h):
+    producer, consumer = h.register("producer"), h.register("consumer")
+    assert h.apply(consumer, _intent([resource("old.py")], [_dependency(producer, consumer, "old")]))["status"] == "ok"
+    before = h.read()
+    dependency = _dependency(producer, consumer, "new")
+    request = h.request(consumer, _intent([resource("new.py")], [dependency, dependency]))
+    result = h.service.apply(request, h.identity)
+    assert result["error"] == "invalid_request"
+    assert h.read() == before
+    with h.service.store.transaction(write=False) as db:
+        assert db.execute("SELECT COUNT(*) FROM receipts WHERE operation_id=?", (request.operation_id,)).fetchone()[0] == 0
+    corrected = request.model_dump()
+    corrected["action"]["dependencies"].pop()
+    assert h.service.apply(parse_apply(corrected), h.identity)["status"] == "ok"
+
+
 def _artifact(h, producer, artifact="result", head="b" * 40):
     return {"artifact_id": artifact, "producer_task_id": producer["task"], "producer_attempt_id": "1", "repository_id": h.identity.repository_id,
             "base_revision": "a" * 40, "head_revision": head, "path": "file.py", "digest": "c" * 64,
@@ -660,6 +676,34 @@ def test_cancel_receipt_replays_without_reauthorizing_cancelled_actor(h):
     assert result["status"] == "ok" and result["cancelled"]
     assert h.service.apply(request, h.identity) == result
     assert h.apply(actor, {"kind": "heartbeat"})["error"] == "unauthorized_actor"
+
+
+@pytest.mark.parametrize("state", ["completed", "cancelled", "expired", "rejected", "superseded"])
+def test_terminal_agreement_cannot_be_cancelled_again(h, state):
+    a, b = h.register("a"), h.register("b")
+    agreement = h.apply(a, h.proposal([a, b]))["agreement"]
+    # Exercise every stored terminal state, including historical superseded rows.
+    agreement.update(state=state, terminal_at=h.now, reason="original outcome")
+    with h.service.store.transaction() as db:
+        h.service._save_agreement(db, h.identity.repository_id, agreement)
+    h.now += 1
+    before = h.read()
+    request = h.request(b, {"kind": "cancel", "agreement_id": agreement["agreement_id"], "reason": "new outcome"})
+    assert h.service.apply(request, h.identity)["error"] == "stale_revision"
+    assert h.read() == before
+    with h.service.store.transaction(write=False) as db:
+        assert db.execute("SELECT COUNT(*) FROM receipts WHERE operation_id=?", (request.operation_id,)).fetchone()[0] == 0
+
+
+def test_agreement_cancel_receipt_replays_after_terminal_guard(h):
+    a, b = h.register("a"), h.register("b")
+    agreement = h.apply(a, h.proposal([a, b]))["agreement"]
+    request = h.request(a, {"kind": "cancel", "agreement_id": agreement["agreement_id"], "reason": "task ended"})
+    result = h.service.apply(request, h.identity)
+    assert result["status"] == "ok" and result["agreement"]["state"] == "cancelled"
+    h.now += 1
+    assert h.service.apply(request, h.identity) == result
+    assert h.apply(b, {"kind": "cancel", "agreement_id": agreement["agreement_id"], "reason": "later cancellation"})["error"] == "stale_revision"
 
 
 def test_inert_registration_retention_never_releases_established_ownership(h):
