@@ -32,13 +32,15 @@ class FakeRunner:
         self.calls = []
         self.responses = responses or {}
 
-    def __call__(self, argv, *, input=None):
+    def __call__(self, argv, *, input=None, env=None):
         argv = list(argv)
         self.calls.append((argv, input))
         for prefix, (code, out) in self.responses.items():
             if tuple(argv[:len(prefix)]) == prefix:
                 return subprocess.CompletedProcess(argv, code, out, b"")
-        return subprocess.CompletedProcess(argv, 0, b"", b"")
+        # Fixture checkouts model source reachable from a known remote unless overridden.
+        output = b"0\n" if len(argv) > 3 and argv[0] == "git" and argv[3] == "rev-list" else b""
+        return subprocess.CompletedProcess(argv, 0, output, b"")
 
     def ran(self, *prefix):
         return [argv for argv, _ in self.calls if tuple(argv[:len(prefix)]) == prefix]
@@ -69,6 +71,14 @@ def checkout(path: Path) -> Path:
     obj = write(path / ".git/objects/ab", "x")
     obj.chmod(0o444)  # as git keeps objects
     return path
+
+
+def fixture_git(path, *args):
+    """Run Git in a temporary fixture, without ambient overrides or background maintenance."""
+    environment = {name: value for name, value in os.environ.items() if not name.startswith("GIT_")}
+    return subprocess.run(["git", "-C", str(path), "-c", "core.autocrlf=false", "-c", "maintenance.auto=false", "-c", "gc.auto=0",
+                           "-c", "user.name=Uninstall Test", "-c", "user.email=test@example.invalid", *args],
+                          check=True, capture_output=True, env=environment)
 
 
 def snapshot(root: Path) -> dict:
@@ -644,10 +654,26 @@ def test_json_members_are_removed_in_one_parse(monkeypatch):
     assert last == b'{"mcpServers": {"a": 1}}'
 
 
+@pytest.mark.parametrize("branches", [b"main\n", b"dev\n", b"main\ndev\n"])
+def test_clean_standard_channel_checkout_named_by_agents_home_is_removed(home, branches):
+    """Published installation channels are eligible for the normal owned-path cleanup."""
+    darwin_home(home)
+    installation = checkout(home / "Documents/Agents")
+    runner = FakeRunner({("git", "-C", str(installation), "for-each-ref"): (0, branches)})
+    ctx = context(home, "darwin", runner, AGENTS_HOME=str(installation))
+    ctx.source_root = installation
+    assert main(["--yes"], ctx=ctx, interactive=False) == 0
+    assert not installation.exists()
+
+
 @pytest.mark.parametrize("status, branches, reason", [
     ((0, b"?? notes.md\n"), (0, b"main\n"), "it has uncommitted changes or untracked files"),
-    ((0, b""), (0, b"main\nfeature\n"), "it has local branches besides main (feature)"),
+    ((0, b" M src/server.py\n"), (0, b"dev\n"), "it has uncommitted changes or untracked files"),
+    ((0, b"?? notes.md\n"), (0, b"dev\n"), "it has uncommitted changes or untracked files"),
+    ((0, b""), (0, b"main\nfeature\n"), "it has local branches besides main and dev (feature)"),
+    ((0, b""), (0, b"dev\nfeature\n"), "it has local branches besides main and dev (feature)"),
     ((128, b""), (0, b"main\n"), "git could not check it for uncommitted work"),
+    ((0, b""), (128, b""), "git could not check it for uncommitted work"),
 ])
 def test_a_development_checkout_named_by_agents_home_is_kept(home, capsys, status, branches, reason):
     """Round 2 N2: AGENTS_HOME naming a checkout with work in it never deletes that work."""
@@ -660,6 +686,275 @@ def test_a_development_checkout_named_by_agents_home_is_kept(home, capsys, statu
     assert main(["--yes"], ctx=ctx, interactive=False) == 0
     assert (installation / "src/server.py").exists()
     assert f"named by AGENTS_HOME, but {reason}" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("override", ["repository", "config"])
+def test_git_fixture_setup_ignores_foreign_repository_environment(home, monkeypatch, override):
+    """Fixture initialization and commits must leave a caller-selected foreign repository unchanged."""
+    foreign = home / "foreign-fixture"
+    foreign.mkdir()
+    fixture_git(foreign, "init", "-q", "-b", "dev")
+    write(foreign / "source.txt", "original foreign work\n")
+    fixture_git(foreign, "add", "source.txt")
+    fixture_git(foreign, "commit", "-qm", "foreign source")
+    write(foreign / "source.txt", "staged foreign work\n")
+    fixture_git(foreign, "add", "source.txt")
+    original = snapshot(foreign)
+    if override == "repository":
+        monkeypatch.setenv("GIT_DIR", str(foreign / ".git"))
+        monkeypatch.setenv("GIT_WORK_TREE", str(foreign))
+        monkeypatch.setenv("GIT_INDEX_FILE", str(foreign / ".git/index"))
+    else:
+        monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
+        monkeypatch.setenv("GIT_CONFIG_KEY_0", "core.worktree")
+        monkeypatch.setenv("GIT_CONFIG_VALUE_0", str(foreign))
+    before = dict(os.environ)
+    installation = home / "selected-fixture"
+    installation.mkdir()
+    fixture_git(installation, "init", "-q", "-b", "dev")
+    write(installation / "source.txt", "selected fixture work\n")
+    fixture_git(installation, "add", "source.txt")
+    fixture_git(installation, "commit", "-qm", "selected fixture source")
+    assert (installation / ".git").is_dir()
+    assert snapshot(foreign) == original
+    changed_names = [name for name in set(os.environ) | set(before)
+                     if os.environ.get(name) != before.get(name)]
+    assert not changed_names
+
+
+@pytest.mark.parametrize("case", ["published", "active-commit", "inactive-commit", "detached-commit",
+                                 "tagged-commit", "reflog-commit", "stash", "no-remotes", "ignored-note",
+                                 "ignored-worktree", "venv-lookalike", "installation-assets", "hidden-untracked"])
+def test_selected_checkout_git_state_is_preserved(home, case):
+    """Real Git distinguishes published source and install assets from irreplaceable local state."""
+    installation = home / "selected-checkout"
+    installation.mkdir()
+
+    def git(*args):
+        return fixture_git(installation, *args)
+
+    git("init", "-q", "-b", "dev")
+    write(installation / ".gitignore", ".*\n!.gitignore\n")
+    write(installation / "source.txt", "published\n")
+    git("add", ".gitignore", "source.txt")
+    git("commit", "-qm", "published source")
+    git("update-ref", "refs/remotes/origin/dev", "HEAD")
+    if case in {"active-commit", "inactive-commit", "detached-commit", "tagged-commit", "reflog-commit"}:
+        if case == "inactive-commit":
+            git("checkout", "-qb", "main")
+        elif case in {"detached-commit", "tagged-commit", "reflog-commit"}:
+            git("checkout", "-q", "--detach")
+        write(installation / "source.txt", "personal committed work\n")
+        git("commit", "-qam", "personal work")
+        if case == "tagged-commit":
+            git("tag", "personal-work")
+        if case in {"inactive-commit", "tagged-commit", "reflog-commit"}:
+            git("checkout", "-q", "dev")
+    elif case == "stash":
+        write(installation / "source.txt", "stashed personal work\n")
+        git("stash", "push", "-qm", "personal work")
+    elif case == "no-remotes":
+        git("update-ref", "-d", "refs/remotes/origin/dev")
+    elif case == "hidden-untracked":
+        git("config", "status.showUntrackedFiles", "no")
+        write(installation / "personal-notes.txt", "untracked personal work\n")
+    elif case == "ignored-note":
+        write(installation / ".private-notes", "keep this personal file\n")
+    elif case == "ignored-worktree":
+        write(installation / ".worktrees/feature/source.txt", "other checkout\n")
+    elif case == "venv-lookalike":
+        write(installation / ".venv-personal/notes.txt", "not the install venv\n")
+    elif case == "installation-assets":
+        write(installation / ".env", "LANGFUSE_TRACING_ENABLED=false\n")
+        write(installation / ".venv/bin/python", "installer-owned placeholder\n")
+    ctx = context(home, "darwin", uninstall.run_command, AGENTS_HOME=str(installation))
+    ctx.source_root = installation
+    reason = uninstall.local_work(ctx, installation)
+    if case in {"published", "installation-assets"}:
+        assert reason is None
+    else:
+        assert reason is not None
+    assert (installation / "source.txt").exists()
+
+
+@pytest.mark.parametrize("override", ["repository", "config"])
+@pytest.mark.parametrize("work", ["clean", "untracked", "ignored", "commit"])
+def test_selected_checkout_ignores_foreign_git_environment(home, monkeypatch, override, work):
+    """Inherited Git context must not replace the selected checkout with a clean foreign clone."""
+    installation = home / "selected-checkout"
+    installation.mkdir()
+
+    def git(*args):
+        return fixture_git(installation, *args)
+
+    git("init", "-q", "-b", "dev")
+    write(installation / ".gitignore", ".*\n!.gitignore\n")
+    write(installation / "source.txt", "published\n")
+    git("add", ".gitignore", "source.txt")
+    git("commit", "-qm", "published source")
+    git("update-ref", "refs/remotes/origin/dev", "HEAD")
+    foreign = home / "clean-foreign-checkout"
+    git("clone", "-q", "--no-hardlinks", str(installation), str(foreign))
+    if work == "untracked":
+        write(installation / "personal-notes.txt", "keep\n")
+    elif work == "ignored":
+        write(installation / ".private-notes", "keep\n")
+    elif work == "commit":
+        write(installation / "source.txt", "personal committed work\n")
+        git("commit", "-qam", "personal work")
+    if override == "repository":
+        monkeypatch.setenv("GIT_DIR", str(foreign / ".git"))
+        monkeypatch.setenv("GIT_WORK_TREE", str(foreign))
+    else:
+        monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
+        monkeypatch.setenv("GIT_CONFIG_KEY_0", "core.worktree")
+        monkeypatch.setenv("GIT_CONFIG_VALUE_0", str(foreign))
+    before = dict(os.environ)
+    ctx = context(home, "darwin", uninstall.run_command, AGENTS_HOME=str(installation))
+    reason = uninstall.local_work(ctx, installation)
+    assert (reason is None) == (work == "clean")
+    changed_names = [name for name in set(os.environ) | set(before)
+                     if os.environ.get(name) != before.get(name)]
+    assert not changed_names
+    assert (installation / "source.txt").exists()
+
+
+@pytest.mark.parametrize("work", ["clean", "dirty", "ignored", "stash", "private-branch",
+                                 "inactive", "deinitialized", "removed-stash", "uninitialized"])
+def test_selected_checkout_with_submodules_is_kept(home, work):
+    """A parent repository cannot establish ownership of a nested repository's private state."""
+    source = home / "module-source"
+    source.mkdir()
+    fixture_git(source, "init", "-q", "-b", "dev")
+    write(source / "module.txt", "published module\n")
+    write(source / ".gitignore", ".private-notes\n")
+    fixture_git(source, "add", "module.txt", ".gitignore")
+    fixture_git(source, "commit", "-qm", "published module")
+    installation = home / "selected-with-module"
+    installation.mkdir()
+    fixture_git(installation, "init", "-q", "-b", "dev")
+    write(installation / "source.txt", "published parent\n")
+    fixture_git(installation, "add", "source.txt")
+    fixture_git(installation, "commit", "-qm", "published parent")
+    fixture_git(installation, "-c", "protocol.file.allow=always", "submodule", "add", "-q",
+                str(source), "deps/component")
+    fixture_git(installation, "commit", "-qam", "published with module")
+    fixture_git(installation, "update-ref", "refs/remotes/origin/dev", "HEAD")
+    fixture_git(installation, "config", "submodule.deps/component.ignore", "all")
+    module = installation / "deps/component"
+    if work in {"dirty", "stash", "private-branch", "removed-stash"}:
+        if work == "private-branch":
+            fixture_git(module, "checkout", "-qb", "personal-work")
+        write(module / "module.txt", "private work\n")
+        if work in {"stash", "removed-stash"}:
+            fixture_git(module, "stash", "push", "-qm", "private work")
+        elif work == "private-branch":
+            fixture_git(module, "commit", "-qam", "private work")
+            fixture_git(module, "checkout", "-q", "dev")
+    elif work == "ignored":
+        write(module / ".private-notes", "private work\n")
+    if work == "inactive":
+        fixture_git(installation, "config", "submodule.deps/component.active", "false")
+    elif work == "deinitialized":
+        fixture_git(installation, "submodule", "deinit", "-q", "deps/component")
+    elif work == "removed-stash":
+        fixture_git(installation, "rm", "-q", "deps/component")
+        fixture_git(installation, "commit", "-qam", "published module removal")
+        fixture_git(installation, "update-ref", "refs/remotes/origin/dev", "HEAD")
+        assert not fixture_git(installation, "submodule", "status", "--recursive").stdout.strip()
+        retained = installation / ".git/modules/deps/component"
+        assert fixture_git(installation, "--git-dir=" + str(retained), "--work-tree=" + str(installation),
+                           "rev-parse", "--verify", "refs/stash").stdout.strip()
+    if work == "uninitialized":
+        clone = home / "selected-uninitialized"
+        fixture_git(installation, "clone", "-q", "--no-hardlinks", str(installation), str(clone))
+        installation = clone
+        assert not (installation / ".git/modules").exists()
+    ctx = context(home, "darwin", uninstall.run_command, AGENTS_HOME=str(installation))
+    assert uninstall.local_work(ctx, installation) is not None
+    assert (installation / "source.txt").exists()
+
+
+def test_checkout_inspection_preserves_other_environment_and_command_inheritance(home, monkeypatch):
+    """Git safety calls isolate repository overrides without mutating the process or OS commands."""
+    installation = home / "selected-checkout"
+    calls = []
+    monkeypatch.setenv("GIT_DIR", str(home / "foreign/.git"))
+    monkeypatch.setenv("GIT_WORK_TREE", str(home / "foreign"))
+    monkeypatch.setenv("AGENTS_UNINSTALL_ENV_SENTINEL", "preserved")
+    original_path = os.environ.get("PATH")
+    before = dict(os.environ)
+
+    def command(argv, **kwargs):
+        calls.append((list(argv), kwargs.get("env")))
+        operation = argv[3] if len(argv) > 3 else ""
+        output = {"rev-parse": b"GIT_DIR\nGIT_WORK_TREE\nGIT_CONFIG_COUNT\n",
+                  "for-each-ref": b"dev\n", "rev-list": b"0\n"}.get(operation, b"")
+        return subprocess.CompletedProcess(argv, 0, output, b"")
+
+    monkeypatch.setattr(subprocess, "run", command)
+    ctx = context(home, "darwin", uninstall.run_command, AGENTS_HOME=str(installation))
+    assert uninstall.local_work(ctx, installation) is None
+    inspections = [env for argv, env in calls if len(argv) > 3 and argv[3] in
+                   {"submodule", "status", "for-each-ref", "rev-list", "ls-files"}]
+    assert len(inspections) == 5
+    for environment in inspections:
+        assert environment is not None
+        remaining_overrides = [name for name in ("GIT_DIR", "GIT_WORK_TREE") if name in environment]
+        assert not remaining_overrides
+        observed_sentinel = environment.get("AGENTS_UNINSTALL_ENV_SENTINEL")
+        observed_path = environment.get("PATH")
+        assert observed_sentinel == "preserved"
+        assert observed_path == original_path
+    uninstall.run_command(["non-git-os-command"])
+    inherited = calls[-1][1] is None
+    assert inherited
+    changed_names = [name for name in set(os.environ) | set(before)
+                     if os.environ.get(name) != before.get(name)]
+    assert not changed_names
+
+
+@pytest.mark.parametrize("command, response", [
+    ("rev-list", (128, b"")), ("rev-list", (0, b"")), ("rev-list", (0, b"not-a-count\n")),
+    ("ls-files", (128, b"")), ("ls-files", (0, b".private-notes")), ("submodule", (128, b"")),
+])
+def test_selected_checkout_failed_safety_inspection_keeps_installation(home, capsys, command, response):
+    """Failed or malformed Git safety results must never authorize recursive removal."""
+    darwin_home(home)
+    installation = checkout(home / "selected-checkout")
+    runner = FakeRunner({("git", "-C", str(installation), command): response})
+    ctx = context(home, "darwin", runner, AGENTS_HOME=str(installation))
+    ctx.source_root = installation
+    assert main(["--yes"], ctx=ctx, interactive=False) == 0
+    assert (installation / "src/server.py").exists()
+    assert "git could not check it for local work" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("change", ["untracked", "commit", "ignored", "git-failure", "submodule"])
+def test_selected_checkout_is_rechecked_after_confirmation(home, capsys, change):
+    """A previously clean removal plan must not delete work created while confirmation waits."""
+    darwin_home(home)
+    installation = checkout(home / "selected-checkout")
+    runner = FakeRunner()
+    ctx = context(home, "darwin", runner, AGENTS_HOME=str(installation))
+    ctx.source_root = installation
+    work = installation / "personal-notes.txt"
+
+    def confirm(_prompt):
+        write(work, "created after planning\n")
+        command, response = {
+            "untracked": ("status", (0, b"?? personal-notes.txt\n")),
+            "commit": ("rev-list", (0, b"1\n")),
+            "ignored": ("ls-files", (0, b".private-notes\0")),
+            "git-failure": ("rev-list", (128, b"")),
+            "submodule": ("submodule", (0, b"-0123456789abcdef deps/component\n")),
+        }[change]
+        runner.responses[("git", "-C", str(installation), command)] = response
+        return "y"
+
+    assert main([], ctx=ctx, ask=confirm, interactive=True) == 1
+    assert work.read_text() == "created after planning\n"
+    assert "checkout changed since planning" in capsys.readouterr().out
 
 
 def test_windows_states_inside_the_installation_are_found_and_kept_with_keep_data(home):

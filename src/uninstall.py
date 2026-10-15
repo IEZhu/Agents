@@ -57,6 +57,8 @@ from typing import Callable, Iterable, Mapping, Sequence
 
 import tomllib
 
+from src.update_channel import STANDARD_BRANCHES
+
 SERVER = "Agents-Core"
 DESKTOP_SERVER = "Agents-Core-Desktop"  # src/client_paths.py
 DESKTOP_DENY_RULES = tuple(f"mcp__{name}__*" for name in (DESKTOP_SERVER, DESKTOP_SERVER.replace("-", "_")))
@@ -121,12 +123,13 @@ Runner = Callable[..., subprocess.CompletedProcess]
 CODE_ROOT = Path(__file__).resolve().parents[1]  # the templates the installer generated the reminder from
 
 
-def run_command(argv: Sequence[str], *, input: bytes | None = None) -> subprocess.CompletedProcess:
-    """No shell, bytes in and out; a missing program is an exit code 127, not an exception."""
+def run_command(argv: Sequence[str], *, input: bytes | None = None,
+                env: Mapping[str, str] | None = None) -> subprocess.CompletedProcess:
+    """No shell; inherit the environment unless a caller supplies a scoped copy. Missing programs return 127."""
     given = {"input": input} if input is not None else {"stdin": subprocess.DEVNULL}
     try:
         return subprocess.run(list(argv), capture_output=True, timeout=60, check=False,
-                              creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), **given)
+                              creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), env=env, **given)
     except (FileNotFoundError, PermissionError) as error:
         return subprocess.CompletedProcess(list(argv), 127, b"", str(error).encode())
     except subprocess.TimeoutExpired:
@@ -733,19 +736,53 @@ def is_checkout(path: Path) -> bool:
 def local_work(ctx: Context, checkout: Path) -> str | None:
     """Why ``checkout`` may hold someone's work, or None for an install.sh clone.
 
-    install.sh clones main and never commits: uncommitted changes, untracked files Git does not
-    ignore, or a branch besides main mean the directory is a development checkout.
+    install.sh clones a published channel and never commits. Keep dirty/custom-branch
+    checkouts, commits outside known remote-tracking history, and ignored material outside
+    the installer's .env and .venv assets. Registered submodules or retained .git/modules
+    also keep the checkout: parent Git history does not cover their private state.
+    Git failures keep the whole checkout.
     """
     base = ["git", "-C", str(checkout)]
-    status = ctx.runner([*base, "status", "--porcelain"])
-    branches = ctx.runner([*base, "for-each-ref", "--format=%(refname:short)", "refs/heads"])
+    # These offline safety inspections must use this checkout, not a caller's Git context.
+    git_env = {name: value for name, value in os.environ.items() if not name.startswith("GIT_")}
+
+    def git(*arguments: str) -> subprocess.CompletedProcess:
+        """Inspect the selected checkout without inherited Git environment overrides."""
+        return ctx.runner([*base, *arguments], env=git_env)
+
+    # Deleted submodules retain repositories here even after all gitlinks are gone.
+    modules = checkout / ".git/modules"
+    if modules.exists() or _is_link(modules):
+        return "it contains retained submodule repositories"
+    submodules = git("submodule", "status", "--recursive")
+    if submodules.returncode != 0:
+        return "git could not check it for local work"
+    if submodules.stdout.strip():
+        return "it contains submodules whose private state is not covered by parent history"
+    status = git("status", "--porcelain", "--untracked-files=normal")
+    branches = git("for-each-ref", "--format=%(refname:short)", "refs/heads")
     if status.returncode != 0 or branches.returncode != 0:
         return "git could not check it for uncommitted work"
     if status.stdout.strip():
         return "it has uncommitted changes or untracked files"
-    others = sorted(set(branches.stdout.decode("utf-8", "replace").split()) - {"main"})
+    others = sorted(set(branches.stdout.decode("utf-8", "replace").split()) - set(STANDARD_BRANCHES))
     if others:
-        return "it has local branches besides main (" + ", ".join(others[:5]) + ")"
+        return "it has local branches besides main and dev (" + ", ".join(others[:5]) + ")"
+    # Include stashes, tags and reflogs as well as branches and detached HEAD.
+    commits = git("rev-list", "--count", "--all", "--reflog", "HEAD", "--not", "--remotes")
+    count = commits.stdout.strip()
+    if commits.returncode != 0 or not count.isdigit():
+        return "git could not check it for local work"
+    if int(count):
+        return "it has local commits outside known remote-tracking history"
+    ignored = git("ls-files", "--others", "--ignored", "--exclude-standard", "-z")
+    if ignored.returncode != 0 or (ignored.stdout and not ignored.stdout.endswith(b"\0")):
+        return "git could not check it for local work"
+    # init_repo creates these two assets. Other ignore patterns (including arbitrary
+    # dotfiles and archives) do not establish that their contents belong to the installer.
+    if any(entry != b".env" and not entry.startswith(b".venv/")
+           for entry in ignored.stdout.split(b"\0") if entry):
+        return "it has ignored files outside the installer's .env and .venv assets"
     return None
 
 
@@ -1547,11 +1584,20 @@ def build_plan(ctx: Context, *, keep_data: bool = False) -> list[Item]:
         if keep_data:  # states inside the checkout (Windows) keep user sync and the fallback journal too
             keep += [state / name for state in states if _within(state, [installation])
                      for name in KEEP_IN_STATE if (state / name).exists()]
+        def remove_installation():
+            """Recheck selected-checkout work after confirmation, immediately before removal."""
+            check_removable(ctx, installation, owned=owned)
+            if owned:
+                reason = local_work(ctx, installation)
+                if reason:
+                    raise Refused(f"checkout changed since planning: {reason}; kept, delete it yourself")
+            return remove_except(ctx, installation, keep, owned=owned)
+
         items.append(Item("installation", str(installation), "remove", "install.sh (git clone into AGENTS_HOME, "
                           "default ~/.agents-core), scripts/init_repo.sh (.venv, .env, data/)",
                           "the one-command installation" + ("; keeps " + ", ".join(
                               str(path.relative_to(installation)) for path in keep) + " (--keep-data)" if keep else ""),
-                          lambda: remove_except(ctx, installation, keep, owned=owned)))
+                          remove_installation))
     elif ctx.env_path("AGENTS_HOME") and installation.is_dir():
         items.append(Item("installation", str(installation), "keep", "AGENTS_HOME",
                           "named by AGENTS_HOME, but it is not an Agents-Core checkout; delete it yourself"))
