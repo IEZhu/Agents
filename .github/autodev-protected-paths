@@ -40,6 +40,8 @@ src/daemon/state.py
 src/file_lock.py
 src/model_migration.py
 src/user_library.py
+src/user_rules.py
+src/rule_sources.py
 src/utils/__init__.py
 src/utils/langfuse_compat.py
 src/utils/prompt_loader.py
