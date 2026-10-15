@@ -153,3 +153,46 @@ def test_registry_retains_physical_grants_separately(checkouts):
     # worktrees merely from the shared Git common directory.
     registry.register(main)
     assert set(registry.cooperation_roots(identity)) == {main, external}
+
+
+def test_removed_worktree_does_not_revoke_remaining_grants(checkouts):
+    main, external, authority = checkouts
+    registry = WorkspaceRegistry(authority)
+    identity = registry.register(main)
+    registry.register(main, physical_root=external)
+    git(main, "worktree", "remove", str(external))
+    assert registry.cooperation_roots(identity) == (main,)
+    registry.register(main)
+    from src.daemon.state import read_json
+    assert read_json(registry.checkout_path)[identity] == [str(main)]
+
+
+def test_removed_grants_do_not_exhaust_registration_limit(checkouts):
+    main, _, authority = checkouts
+    registry = WorkspaceRegistry(authority)
+    identity = registry.register(main)
+    old = []
+    for number in range(49):
+        checkout = authority / str(number)
+        checkout.mkdir()
+        registry.register(main, physical_root=checkout)
+        old.append(checkout)
+    for checkout in old:
+        checkout.rmdir()
+    new = authority / "new"
+    new.mkdir()
+    assert registry.register(main, physical_root=new) == identity
+    assert set(registry.cooperation_roots(identity)) == {main, new}
+
+
+def test_retargeted_grant_still_fails_closed(checkouts):
+    main, external, authority = checkouts
+    registry = WorkspaceRegistry(authority)
+    identity = registry.register(main)
+    registry.register(main, physical_root=external)
+    git(main, "worktree", "remove", str(external))
+    external.symlink_to(main, target_is_directory=True)
+    with pytest.raises(WorkspaceError, match="workspace_invalid"):
+        registry.cooperation_roots(identity)
+    with pytest.raises(WorkspaceError, match="workspace_invalid"):
+        registry.register(main)
