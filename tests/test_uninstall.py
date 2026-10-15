@@ -38,7 +38,9 @@ class FakeRunner:
         for prefix, (code, out) in self.responses.items():
             if tuple(argv[:len(prefix)]) == prefix:
                 return subprocess.CompletedProcess(argv, code, out, b"")
-        return subprocess.CompletedProcess(argv, 0, b"", b"")
+        # Fixture checkouts model source reachable from a known remote unless overridden.
+        output = b"0\n" if len(argv) > 3 and argv[0] == "git" and argv[3] == "rev-list" else b""
+        return subprocess.CompletedProcess(argv, 0, output, b"")
 
     def ran(self, *prefix):
         return [argv for argv, _ in self.calls if tuple(argv[:len(prefix)]) == prefix]
@@ -676,6 +678,76 @@ def test_a_development_checkout_named_by_agents_home_is_kept(home, capsys, statu
     assert main(["--yes"], ctx=ctx, interactive=False) == 0
     assert (installation / "src/server.py").exists()
     assert f"named by AGENTS_HOME, but {reason}" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("case", ["published", "active-commit", "inactive-commit", "detached-commit",
+                                 "tagged-commit", "reflog-commit", "stash", "no-remotes", "ignored-note",
+                                 "ignored-worktree", "venv-lookalike", "installation-assets"])
+def test_selected_checkout_git_state_is_preserved(home, case):
+    """Real Git distinguishes published source and install assets from irreplaceable local state."""
+    installation = home / "selected-checkout"
+    installation.mkdir()
+
+    def git(*args):
+        return subprocess.run(["git", "-C", str(installation), "-c", "core.autocrlf=false",
+                               "-c", "user.name=Uninstall Test", "-c", "user.email=test@example.invalid", *args],
+                              check=True, capture_output=True)
+
+    git("init", "-q", "-b", "dev")
+    write(installation / ".gitignore", ".*\n!.gitignore\n")
+    write(installation / "source.txt", "published\n")
+    git("add", ".gitignore", "source.txt")
+    git("commit", "-qm", "published source")
+    git("update-ref", "refs/remotes/origin/dev", "HEAD")
+    if case in {"active-commit", "inactive-commit", "detached-commit", "tagged-commit", "reflog-commit"}:
+        if case == "inactive-commit":
+            git("checkout", "-qb", "main")
+        elif case in {"detached-commit", "tagged-commit", "reflog-commit"}:
+            git("checkout", "-q", "--detach")
+        write(installation / "source.txt", "personal committed work\n")
+        git("commit", "-qam", "personal work")
+        if case == "tagged-commit":
+            git("tag", "personal-work")
+        if case in {"inactive-commit", "tagged-commit", "reflog-commit"}:
+            git("checkout", "-q", "dev")
+    elif case == "stash":
+        write(installation / "source.txt", "stashed personal work\n")
+        git("stash", "push", "-qm", "personal work")
+    elif case == "no-remotes":
+        git("update-ref", "-d", "refs/remotes/origin/dev")
+    elif case == "ignored-note":
+        write(installation / ".private-notes", "keep this personal file\n")
+    elif case == "ignored-worktree":
+        write(installation / ".worktrees/feature/source.txt", "other checkout\n")
+    elif case == "venv-lookalike":
+        write(installation / ".venv-personal/notes.txt", "not the install venv\n")
+    elif case == "installation-assets":
+        write(installation / ".env", "LANGFUSE_TRACING_ENABLED=false\n")
+        write(installation / ".venv/bin/python", "installer-owned placeholder\n")
+    ctx = context(home, "darwin", uninstall.run_command, AGENTS_HOME=str(installation))
+    ctx.source_root = installation
+    reason = uninstall.local_work(ctx, installation)
+    if case in {"published", "installation-assets"}:
+        assert reason is None
+    else:
+        assert reason is not None
+    assert (installation / "source.txt").exists()
+
+
+@pytest.mark.parametrize("command, response", [
+    ("rev-list", (128, b"")), ("rev-list", (0, b"")), ("rev-list", (0, b"not-a-count\n")),
+    ("ls-files", (128, b"")), ("ls-files", (0, b".private-notes")),
+])
+def test_selected_checkout_failed_safety_inspection_keeps_installation(home, capsys, command, response):
+    """Failed or malformed Git safety results must never authorize recursive removal."""
+    darwin_home(home)
+    installation = checkout(home / "selected-checkout")
+    runner = FakeRunner({("git", "-C", str(installation), command): response})
+    ctx = context(home, "darwin", runner, AGENTS_HOME=str(installation))
+    ctx.source_root = installation
+    assert main(["--yes"], ctx=ctx, interactive=False) == 0
+    assert (installation / "src/server.py").exists()
+    assert "git could not check it for local work" in capsys.readouterr().out
 
 
 def test_windows_states_inside_the_installation_are_found_and_kept_with_keep_data(home):

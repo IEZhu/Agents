@@ -735,8 +735,9 @@ def is_checkout(path: Path) -> bool:
 def local_work(ctx: Context, checkout: Path) -> str | None:
     """Why ``checkout`` may hold someone's work, or None for an install.sh clone.
 
-    install.sh clones a published channel and never commits: uncommitted changes, untracked
-    files Git does not ignore, or a branch besides main and dev mean a development checkout.
+    install.sh clones a published channel and never commits. Keep dirty/custom-branch
+    checkouts, commits outside known remote-tracking history, and ignored material outside
+    the installer's .env and .venv assets. Git failures also keep the whole checkout.
     """
     base = ["git", "-C", str(checkout)]
     status = ctx.runner([*base, "status", "--porcelain"])
@@ -748,6 +749,21 @@ def local_work(ctx: Context, checkout: Path) -> str | None:
     others = sorted(set(branches.stdout.decode("utf-8", "replace").split()) - set(STANDARD_BRANCHES))
     if others:
         return "it has local branches besides main and dev (" + ", ".join(others[:5]) + ")"
+    # Include stashes, tags and reflogs as well as branches and detached HEAD.
+    commits = ctx.runner([*base, "rev-list", "--count", "--all", "--reflog", "HEAD", "--not", "--remotes"])
+    count = commits.stdout.strip()
+    if commits.returncode != 0 or not count.isdigit():
+        return "git could not check it for local work"
+    if int(count):
+        return "it has local commits outside known remote-tracking history"
+    ignored = ctx.runner([*base, "ls-files", "--others", "--ignored", "--exclude-standard", "-z"])
+    if ignored.returncode != 0 or (ignored.stdout and not ignored.stdout.endswith(b"\0")):
+        return "git could not check it for local work"
+    # init_repo creates these two assets. Other ignore patterns (including arbitrary
+    # dotfiles and archives) do not establish that their contents belong to the installer.
+    if any(entry != b".env" and not entry.startswith(b".venv/")
+           for entry in ignored.stdout.split(b"\0") if entry):
+        return "it has ignored files outside the installer's .env and .venv assets"
     return None
 
 
