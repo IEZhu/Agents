@@ -11,7 +11,6 @@ from pathlib import Path
 import re
 import secrets
 import shutil
-import socket
 import stat
 import sys
 import tempfile
@@ -24,7 +23,7 @@ from .profile import new_engine_epoch
 
 PINNED_COMMIT = "d81235049384534c167caea52b85a694f6103d14"
 PINNED_BUILD = 11429
-REQUIRED_FLAGS = ("--model", "--host", "--port", "--parallel", "--ctx-size", "--gpu-layers",
+REQUIRED_FLAGS = ("--model", "--host", "--parallel", "--ctx-size", "--gpu-layers",
                   "--threads", "--threads-batch", "--cache-type-k", "--cache-type-v",
                   "--api-key-file", "--slot-save-path", "--cache-ram", "--no-cache-idle-slots",
                   "--no-context-shift", "--no-ui", "--no-agent", "--no-warmup", "--offline",
@@ -37,6 +36,17 @@ def private_directory(path: Path) -> None:
     if (not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid()
             or stat.S_IMODE(info.st_mode) & 0o077):
         raise LocalInferenceError("backend_unavailable", "Private backend state is unavailable.")
+
+
+def socket_directory() -> Path:
+    """Allocate a short private namespace below protected system ancestors."""
+    parent = Path("/tmp").resolve(strict=True)
+    for path in (parent, *parent.parents):
+        info = path.lstat()
+        if (not stat.S_ISDIR(info.st_mode) or info.st_uid not in (0, os.geteuid())
+                or (stat.S_IMODE(info.st_mode) & 0o022 and not info.st_mode & stat.S_ISVTX)):
+            raise LocalInferenceError("backend_unavailable", "The native socket namespace is unsafe.")
+    return Path(tempfile.mkdtemp(prefix="agents-native-", dir=parent))
 
 
 def child_environment() -> dict[str, str]:
@@ -80,19 +90,6 @@ def fingerprint_file(path: str, *, stop: threading.Event | None = None) -> FileF
         return FileFingerprint(identity, digest.hexdigest())
     finally:
         os.close(fd)
-
-
-def port_available(port: int) -> bool:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
-        # A closed owned listener can leave accepted connections in TIME_WAIT.
-        # Match the native listener's standard reuse setting; a live listener
-        # still prevents this exclusive bind (SO_REUSEPORT remains disabled).
-        probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        try:
-            probe.bind(("127.0.0.1", port))
-        except OSError:
-            return False
-    return True
 
 
 async def bounded_wait(awaitable, seconds: float):
@@ -326,11 +323,10 @@ def native_spool_bytes(directory: Path, current: Path) -> int:
 
 class OwnedProcess:
     def __init__(self, config: OwnerConfig, directory: Path | str, *,
-                 spawn=asyncio.create_subprocess_exec, check_port=port_available):
+                 spawn=asyncio.create_subprocess_exec):
         self.config = config
         self.directory = Path(directory) / "native"
         self._spawn = spawn
-        self._check_port = check_port
         self._lock = asyncio.Lock()
         self._pid = os.getpid()
         self._child = None
@@ -338,6 +334,8 @@ class OwnedProcess:
         self._drains = []
         self._run_directory = None
         self._run_identity = None
+        self._socket_directory = None
+        self._socket_identity = None
         self._lease_fd = None
         self.spool = None
         self.api_key = None
@@ -372,16 +370,41 @@ class OwnedProcess:
 
     @property
     def base_url(self) -> str:
-        return f"http://127.0.0.1:{self.config.port}"
+        # HTTP authority only. The client must use the private Unix transport.
+        return "http://local-engine"
+
+    @property
+    def socket_path(self) -> Path:
+        """Return only this epoch's private socket path, never a TCP fallback."""
+        if self._socket_directory is None:
+            raise LocalInferenceError("backend_unavailable", "The private native endpoint is unavailable.")
+        try:
+            info = self._socket_directory.lstat()
+        except OSError:
+            raise LocalInferenceError("backend_unavailable", "The private native endpoint is unavailable.") from None
+        if (not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid()
+                or stat.S_IMODE(info.st_mode) & 0o077
+                or (info.st_dev, info.st_ino) != self._socket_identity):
+            raise LocalInferenceError("backend_unavailable", "The private native endpoint changed.")
+        path = self._socket_directory / "engine.sock"
+        try:
+            endpoint = path.lstat()
+        except FileNotFoundError:
+            return path  # The wrapper acknowledgement can precede native bind.
+        except OSError:
+            raise LocalInferenceError("backend_unavailable", "The private native endpoint is unavailable.") from None
+        if not stat.S_ISSOCK(endpoint.st_mode) or endpoint.st_uid != os.geteuid():
+            raise LocalInferenceError("backend_unavailable", "The private native endpoint changed.")
+        return path
 
     @property
     def argv(self) -> tuple[str, ...]:
         """Exact effective engine arguments, excluding the private key location."""
-        return self._arguments("<private-api-key-file>", "<private-slot-directory>")
+        return self._arguments("<private-api-key-file>", "<private-slot-directory>", "<private-engine.sock>")
 
-    def _arguments(self, key_path: str, spool: str) -> tuple[str, ...]:
+    def _arguments(self, key_path: str, spool: str, endpoint: str) -> tuple[str, ...]:
         c = self.config
-        return (c.llama_server_binary, "--model", c.model_path, "--host", "127.0.0.1", "--port", str(c.port),
+        return (c.llama_server_binary, "--model", c.model_path, "--host", endpoint,
                 "--parallel", "1", "--ctx-size", str(c.context_tokens), "--gpu-layers", str(c.gpu_layers),
                 "--threads", str(c.threads), "--threads-batch", str(c.threads),
                 "--cache-type-k", c.kv_type_k, "--cache-type-v", c.kv_type_v,
@@ -461,8 +484,6 @@ class OwnedProcess:
                 if await self._file(lambda: (file_identity(self.config.llama_server_binary),
                                              file_identity(self.config.model_path))) != tuple(item.identity for item in self.files):
                     raise ValueError("native files changed before launch")
-                if not self._check_port(self.config.port):
-                    raise LocalInferenceError("backend_unavailable", "The configured loopback port is occupied.")
                 private_directory(self.directory)
                 try:
                     lease_key = spool_key(self.directory, create=True)
@@ -472,6 +493,15 @@ class OwnedProcess:
                 self._run_directory = Path(tempfile.mkdtemp(prefix="engine-", dir=self.directory))
                 run_info = self._run_directory.lstat()
                 self._run_identity = (run_info.st_dev, run_info.st_ino)
+                # Keep the sockaddr_un path below macOS's 104-byte limit even
+                # when the owner's persistent state path is much longer.
+                self._socket_directory = socket_directory()
+                private_directory(self._socket_directory)
+                socket_info = self._socket_directory.lstat()
+                self._socket_identity = (socket_info.st_dev, socket_info.st_ino)
+                endpoint = self.socket_path
+                if len(os.fsencode(endpoint)) >= 104 or "," in str(endpoint):
+                    raise ValueError("unsupported native socket path")
                 self._lease_fd = create_spool_lease(self._run_directory, lease_key)
                 self.spool = self._run_directory / "slots"
                 self.spool.mkdir(mode=0o700)
@@ -481,7 +511,7 @@ class OwnedProcess:
                 with os.fdopen(fd, "w", encoding="ascii") as stream:
                     stream.write(self.api_key + "\n")
                 limit = self.config.redis.max_snapshot_bytes
-                engine_argv = self._arguments(str(key), str(self.spool))
+                engine_argv = self._arguments(str(key), str(self.spool), str(endpoint))
                 self._spawn_task = asyncio.create_task(self._spawn(
                     sys.executable, "-I", str(Path(__file__).with_name("child_exec.py")), str(limit), "--lease-fd", str(self._lease_fd), *engine_argv,
                     cwd=str(self._run_directory), env=child_environment(), stdin=asyncio.subprocess.DEVNULL,
@@ -578,11 +608,21 @@ class OwnedProcess:
                     if (stat.S_ISDIR(run_info.st_mode)
                             and (run_info.st_dev, run_info.st_ino) == self._run_identity):
                         shutil.rmtree(self._run_directory)
+            if self._socket_directory is not None:
+                try:
+                    socket_info = self._socket_directory.lstat()
+                except FileNotFoundError:
+                    pass
+                else:
+                    if (stat.S_ISDIR(socket_info.st_mode)
+                            and (socket_info.st_dev, socket_info.st_ino) == self._socket_identity):
+                        shutil.rmtree(self._socket_directory)
         finally:
             if self._lease_fd is not None:
                 os.close(self._lease_fd)
                 self._lease_fd = None
         self._run_directory = self._run_identity = self.spool = self.api_key = None
+        self._socket_directory = self._socket_identity = None
         self.epoch = new_engine_epoch()
         self.state = "not_started"
         return True

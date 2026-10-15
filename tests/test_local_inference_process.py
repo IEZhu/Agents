@@ -19,24 +19,7 @@ from src.local_inference.config import OwnerConfig, RedisConfig
 from src.local_inference.models import LocalInferenceError
 from src.local_inference.process import (OwnedProcess, REQUIRED_FLAGS, child_environment,
                                          fingerprint_file, bounded_wait, create_spool_lease,
-                                         private_directory, reconcile_inactive_spools, spool_key, port_available)
-
-
-def test_port_probe_allows_owned_time_wait_but_refuses_live_listener():
-    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    listener.bind(("127.0.0.1", 0))
-    listener.listen(1)
-    port = listener.getsockname()[1]
-    try:
-        assert not port_available(port)
-        with socket.create_connection(("127.0.0.1", port), timeout=2) as client:
-            accepted, _ = listener.accept()
-            accepted.close()  # Active server close leaves the server port in TIME_WAIT.
-            assert client.recv(1) == b""
-    finally:
-        listener.close()
-    assert port_available(port)
+                                         private_directory, reconcile_inactive_spools, spool_key)
 
 
 def fake_executable(tmp_path, *, ignore_term=False, handler_delay=0, write_bytes=0, version="build 11429, commit d81235049"):
@@ -79,7 +62,7 @@ async def test_concurrent_start_private_state_and_owned_reaping(tmp_path, monkey
     _, _, config = fake_executable(tmp_path)
     monkeypatch.setenv("LLAMA_ARG_MODEL", "foreign-secret-model")
     monkeypatch.setenv("HTTP_PROXY", "http://secret-proxy")
-    process = OwnedProcess(config, tmp_path / "state", check_port=lambda _: True)
+    process = OwnedProcess(config, tmp_path / "state")
     try:
         await asyncio.gather(*(process.ensure_started() for _ in range(5)))
         child = process._child
@@ -103,29 +86,111 @@ async def test_concurrent_start_private_state_and_owned_reaping(tmp_path, monkey
 
 
 @pytest.mark.asyncio
-async def test_occupied_port_refuses_without_touching_foreign_listener(tmp_path):
+async def test_private_socket_ignores_legacy_port_and_cleans_owned_directory(tmp_path):
     _, _, config = fake_executable(tmp_path)
     listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     listener.bind(("127.0.0.1", 0)); listener.listen()
     config = config.model_copy(update={"port": listener.getsockname()[1]})
     process = OwnedProcess(config, tmp_path / "state")
     try:
-        with pytest.raises(LocalInferenceError) as caught:
-            await process.ensure_started()
-        assert caught.value.code == "backend_unavailable" and process._child is None
+        await process.ensure_started()
+        endpoint = process.socket_path
+        assert endpoint.name.endswith(".sock") and len(os.fsencode(endpoint)) < 104
+        assert stat.S_IMODE(endpoint.parent.stat().st_mode) == 0o700
+        assert process.argv[process.argv.index("--host") + 1] == "<private-engine.sock>"
+        assert "--port" not in process.argv
         assert listener.fileno() >= 0
         with socket.socket() as client:
             client.settimeout(0.1)
             client.connect(listener.getsockname())
+        await process.fence()
+        assert not endpoint.parent.exists()
     finally:
         listener.close()
         await process.close()
 
 
 @pytest.mark.asyncio
+async def test_socket_namespace_rotates_and_rejects_permission_or_path_replacement(tmp_path):
+    """Owner-controlled endpoint identity is required before constructing HTTP."""
+    _, _, config = fake_executable(tmp_path)
+    process = OwnedProcess(config, tmp_path / ("long-state-" * 20))
+    try:
+        await process.ensure_started()
+        first = process.socket_path
+        first.parent.chmod(0o755)
+        with pytest.raises(LocalInferenceError):
+            _ = process.socket_path
+        first.parent.chmod(0o700)
+        outside = tmp_path / "unrelated"; outside.write_text("preserve")
+        first.symlink_to(outside)
+        with pytest.raises(LocalInferenceError):
+            _ = process.socket_path
+        first.unlink()
+        await process.fence()
+        await process.ensure_started()
+        assert process.socket_path != first and not first.parent.exists()
+        assert outside.read_text() == "preserve"
+    finally:
+        await process.close()
+
+
+@pytest.mark.asyncio
+async def test_socket_cleanup_preserves_replaced_directory(tmp_path):
+    """A changed namespace is not owned cleanup state."""
+    _, _, config = fake_executable(tmp_path)
+    process = OwnedProcess(config, tmp_path / "state")
+    moved = None
+    try:
+        await process.ensure_started()
+        directory = process.socket_path.parent
+        moved = directory.with_name(directory.name + "-moved")
+        directory.rename(moved)
+        directory.mkdir(mode=0o700)
+        marker = directory / "foreign"; marker.write_text("preserve")
+        with pytest.raises(LocalInferenceError):
+            _ = process.socket_path
+        await process.fence()
+        assert marker.read_text() == "preserve"
+    finally:
+        await process.close()
+        if moved is not None:
+            moved.rmdir()
+            marker.unlink()
+            directory.rmdir()
+
+
+def test_socket_namespace_refuses_writable_nonsticky_ancestor(tmp_path, monkeypatch):
+    """Directory mode alone cannot protect an entry in a writable parent."""
+    import src.local_inference.process as module
+    unsafe = tmp_path / "unsafe"; unsafe.mkdir(mode=0o777); unsafe.chmod(0o777)
+    monkeypatch.setattr(module, "Path", lambda _: unsafe)
+    with pytest.raises(LocalInferenceError):
+        module.socket_directory()
+    assert list(unsafe.iterdir()) == []
+
+
+@pytest.mark.parametrize("name", ["é" * 70, "host,list.sock"])
+@pytest.mark.asyncio
+async def test_socket_path_rejects_encoded_length_and_host_delimiter(tmp_path, monkeypatch, name):
+    """Native --host must denote exactly one pathname within sockaddr_un."""
+    import src.local_inference.process as module
+    _, _, config = fake_executable(tmp_path)
+    directory = tmp_path / name; directory.mkdir(mode=0o700)
+    monkeypatch.setattr(module, "socket_directory", lambda: directory)
+    process = OwnedProcess(config, tmp_path / "state")
+    try:
+        with pytest.raises(LocalInferenceError):
+            await process.ensure_started()
+        assert not process.alive
+    finally:
+        await process.close()
+
+
+@pytest.mark.asyncio
 async def test_ignored_terminate_kills_and_reaps_only_owned_child(tmp_path):
     _, _, config = fake_executable(tmp_path, ignore_term=True, handler_delay=0.1)
-    process = OwnedProcess(config, tmp_path / "state", check_port=lambda _: True)
+    process = OwnedProcess(config, tmp_path / "state")
     try:
         await process.ensure_started()
         child = process._child
@@ -146,7 +211,7 @@ async def test_ignored_terminate_kills_and_reaps_only_owned_child(tmp_path):
 @pytest.mark.asyncio
 async def test_actual_child_file_size_limit_is_enforced(tmp_path):
     _, _, config = fake_executable(tmp_path, write_bytes=16384)
-    process = OwnedProcess(config, tmp_path / "state", check_port=lambda _: True)
+    process = OwnedProcess(config, tmp_path / "state")
     try:
         await process.ensure_started()
         spool = process.spool
@@ -162,7 +227,7 @@ async def test_actual_child_file_size_limit_is_enforced(tmp_path):
 @pytest.mark.asyncio
 async def test_file_drift_rehashes_and_restarts_with_new_epoch(tmp_path):
     _, model, config = fake_executable(tmp_path)
-    process = OwnedProcess(config, tmp_path / "state", check_port=lambda _: True)
+    process = OwnedProcess(config, tmp_path / "state")
     try:
         await process.ensure_started()
         old_child, old_epoch, old_files = process._child, process.epoch, process.files
@@ -177,7 +242,7 @@ async def test_file_drift_rehashes_and_restarts_with_new_epoch(tmp_path):
 @pytest.mark.asyncio
 async def test_wrong_build_and_symlink_state_are_refused(tmp_path):
     _, _, config = fake_executable(tmp_path, version="build 1, commit deadbeef")
-    process = OwnedProcess(config, tmp_path / "state", check_port=lambda _: True)
+    process = OwnedProcess(config, tmp_path / "state")
     try:
         with pytest.raises(LocalInferenceError):
             await process.ensure_started()
@@ -188,7 +253,7 @@ async def test_wrong_build_and_symlink_state_are_refused(tmp_path):
     outside = tmp_path / "outside"; outside.mkdir()
     state = tmp_path / "state"; state.mkdir(exist_ok=True)
     (state / "native").symlink_to(outside, target_is_directory=True)
-    process = OwnedProcess(config, state, check_port=lambda _: True)
+    process = OwnedProcess(config, state)
     try:
         with pytest.raises(LocalInferenceError):
             await process.ensure_started()
@@ -211,7 +276,7 @@ def test_fingerprint_rejects_nonregular_and_cancellation(tmp_path):
 @pytest.mark.asyncio
 async def test_hashing_uses_private_executor_and_checks_cancellation(tmp_path, monkeypatch):
     _, _, config = fake_executable(tmp_path)
-    process = OwnedProcess(config, tmp_path / "state", check_port=lambda _: True)
+    process = OwnedProcess(config, tmp_path / "state")
     started = threading.Event()
     exited = threading.Event()
     def hash_wait(path, *, stop=None):
@@ -239,7 +304,7 @@ async def test_hashing_uses_private_executor_and_checks_cancellation(tmp_path, m
 @pytest.mark.asyncio
 async def test_unconfirmed_reaping_refuses_new_process(tmp_path):
     _, _, config = fake_executable(tmp_path)
-    process = OwnedProcess(config, tmp_path / "state", check_port=lambda _: True)
+    process = OwnedProcess(config, tmp_path / "state")
     gate = asyncio.Event()
     class Unreapable:
         returncode = None
@@ -272,7 +337,7 @@ async def test_unconfirmed_reaping_refuses_new_process(tmp_path):
 async def test_disabled_process_performs_no_hash_spawn_or_state_write(tmp_path):
     def refuse(*args, **kwargs):
         raise AssertionError("disabled backend reached a side effect")
-    process = OwnedProcess(OwnerConfig(), tmp_path, spawn=refuse, check_port=refuse)
+    process = OwnedProcess(OwnerConfig(), tmp_path, spawn=refuse)
     with pytest.raises(LocalInferenceError) as caught:
         await process.ensure_started()
     assert caught.value.code == "disabled" and not process.directory.exists()
@@ -282,7 +347,7 @@ async def test_disabled_process_performs_no_hash_spawn_or_state_write(tmp_path):
 @pytest.mark.asyncio
 async def test_child_spawn_after_close_is_eventually_killed_and_reaped(tmp_path):
     _, _, config = fake_executable(tmp_path)
-    process = OwnedProcess(config, tmp_path / "state", check_port=lambda _: True)
+    process = OwnedProcess(config, tmp_path / "state")
     gate = asyncio.Event()
     class LateChild:
         returncode = None
@@ -372,7 +437,7 @@ def assign_private_run(process):
 @pytest.mark.parametrize("failed", [False, True])
 async def test_uncertain_spawn_retains_lease_until_exact_completion_and_reap(tmp_path, failed):
     _, _, config = fake_executable(tmp_path)
-    process = OwnedProcess(config, tmp_path / "state", check_port=lambda _: True)
+    process = OwnedProcess(config, tmp_path / "state")
     run, key = assign_private_run(process)
     gate = asyncio.Event()
     class LateChild:
@@ -416,7 +481,7 @@ async def test_uncertain_spawn_retains_lease_until_exact_completion_and_reap(tmp
 @pytest.mark.asyncio
 async def test_unconfirmed_child_reap_keeps_run_lease_and_orphan_bytes(tmp_path):
     _, _, config = fake_executable(tmp_path)
-    process = OwnedProcess(config, tmp_path / "state", check_port=lambda _: True)
+    process = OwnedProcess(config, tmp_path / "state")
     run, key = assign_private_run(process)
     gate = asyncio.Event()
     class Unreapable:
@@ -449,7 +514,7 @@ async def test_unconfirmed_child_reap_keeps_run_lease_and_orphan_bytes(tmp_path)
 @pytest.mark.parametrize("unsafe_key", [False, True])
 async def test_legacy_spool_does_not_disable_cold_native_startup(tmp_path, unsafe_key):
     _, _, config = fake_executable(tmp_path)
-    process = OwnedProcess(config, tmp_path / "state", check_port=lambda _: True)
+    process = OwnedProcess(config, tmp_path / "state")
     private_directory(process.directory)
     legacy = process.directory / "engine-legacy"
     legacy.mkdir(mode=0o700)
@@ -470,7 +535,7 @@ async def test_legacy_spool_does_not_disable_cold_native_startup(tmp_path, unsaf
 @pytest.mark.asyncio
 async def test_startup_reclaims_authenticated_inactive_run_before_new_engine(tmp_path):
     _, _, config = fake_executable(tmp_path)
-    process = OwnedProcess(config, tmp_path / "state", check_port=lambda _: True)
+    process = OwnedProcess(config, tmp_path / "state")
     old, _ = assign_private_run(process)
     (process.spool / ("snapshot-" + "f" * 32 + ".bin")).write_bytes(b"old partial")
     os.close(process._lease_fd)
@@ -485,7 +550,7 @@ async def test_startup_reclaims_authenticated_inactive_run_before_new_engine(tmp
 @pytest.mark.asyncio
 async def test_confirmed_stop_never_deletes_a_replaced_run_directory(tmp_path):
     _, _, config = fake_executable(tmp_path)
-    process = OwnedProcess(config, tmp_path / "state", check_port=lambda _: True)
+    process = OwnedProcess(config, tmp_path / "state")
     run, _ = assign_private_run(process)
     old = run.with_name("engine-renamed")
     run.rename(old)

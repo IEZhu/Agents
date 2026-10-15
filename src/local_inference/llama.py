@@ -105,11 +105,16 @@ class LlamaBackend:
         if self._client is not None:
             await self._close_client()
         factory = self._client_factory or httpx.AsyncClient
+        limits = httpx.Limits(max_connections=1, max_keepalive_connections=1)
+        transport = self._transport
+        if transport is None:
+            # No TCP connection is attempted, including during startup retries.
+            transport = httpx.AsyncHTTPTransport(uds=str(self.process.socket_path),
+                                                 trust_env=False, limits=limits)
         self._client = factory(
             base_url=self.process.base_url, trust_env=False, follow_redirects=False,
             timeout=httpx.Timeout(5.0, connect=1.0, pool=1.0),
-            limits=httpx.Limits(max_connections=1, max_keepalive_connections=1),
-            transport=self._transport,
+            limits=limits, transport=transport,
             headers={"Authorization": "Bearer " + self.process.api_key, "Accept-Encoding": "identity"})
         self._client_epoch = self.process.epoch
 

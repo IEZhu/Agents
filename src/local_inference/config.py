@@ -82,7 +82,8 @@ class OwnerConfig(StrictConfig):
     llama_server_binary: str | None = Field(default=None, min_length=1, max_length=4096)
     model_path: str | None = Field(default=None, min_length=1, max_length=4096)
     model_label: str = Field(default="owner-selected-local-model", min_length=1, max_length=128)
-    port: int = Field(default=18190, ge=1024, le=65535)
+    port: int = Field(default=18190, ge=1024, le=65535,
+                      description="Legacy schema-1 field; the private native transport does not use TCP.")
     context_tokens: int = Field(default=16384, ge=1)
     gpu_layers: int = Field(default=99, ge=0)
     threads: int = Field(default=8, ge=1)
