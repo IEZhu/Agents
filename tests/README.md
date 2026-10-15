@@ -109,6 +109,12 @@ required:
 PYTHONDONTWRITEBYTECODE=1 LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/test_artifact_store.py tests/test_artifact_service.py tests/test_artifact_mcp.py tests/test_subagent_artifacts.py -q -p no:cacheprovider
 ```
 
+The [Shared runtime workflow](../.github/workflows/shared-runtime.yml) runs
+persistent storage, service/MCP, prepared-artifact and portable disabled-inference
+checks on Linux, macOS and Windows. Its POSIX jobs also run fake native/Redis,
+runtime-identity and update-admission checks. It downloads no model and starts
+no real Redis; native Windows inference remains unsupported in version 1.
+
 These files cover durable identity and first-descriptor retention, workspace and
 safe-capture boundaries, byte quotas, complete integrity checks, bounded UTF-8
 reads, manifest expiry/release and immutable task-contract binding. Also run the

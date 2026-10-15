@@ -141,6 +141,114 @@ def test_even_small_reads_verify_the_entire_artifact(tmp_path, workspace):
         assert caught.value.code == "integrity_error"
 
 
+def test_new_publication_accounts_for_metadata_without_opening_unrelated_content(tmp_path, workspace, monkeypatch):
+    store = ArtifactStore(tmp_path / "store")
+    artifacts = [store.publish(workspace, content, name=f"input-{index}", media_type="text/plain")
+                 for index, content in enumerate((b"first", b"second", b"third"))]
+    content_paths = {_artifact_path(store, workspace, artifact) / "content" for artifact in artifacts}
+    metadata_paths = {_artifact_path(store, workspace, artifact) / "metadata.json" for artifact in artifacts}
+    opened_metadata = set()
+    real_open = storage.os.open
+    def guard_unrelated_content(path, flags, *args, **kwargs):
+        path = Path(path)
+        assert path not in content_paths, "quota accounting must not open unrelated artifact content"
+        if path in metadata_paths:
+            opened_metadata.add(path)
+        return real_open(path, flags, *args, **kwargs)
+    monkeypatch.setattr(storage.os, "open", guard_unrelated_content)
+
+    published = ArtifactStore(store.directory).publish(workspace, b"new text", name="new", media_type="text/plain")
+    assert published["sha256"] == hashlib.sha256(b"new text").hexdigest()
+    assert opened_metadata == metadata_paths
+
+
+@pytest.mark.parametrize("corruption", [
+    "metadata_json", "metadata_extra", "metadata_hash", "metadata_id", "metadata_oversized",
+    "metadata_size", "missing_content", "missing_metadata", "extra_file", "content_symlink",
+    "content_hardlink", "content_directory", "content_fifo", "content_mode", "metadata_mode",
+    "content_shorter", "content_longer",
+])
+def test_new_publication_rejects_invalid_existing_artifact_accounting(tmp_path, workspace, corruption):
+    if os.name != "posix" and corruption in {"content_fifo", "content_mode", "metadata_mode"}:
+        pytest.skip("POSIX special-file and mode policy; portable ACL and reparse checks have separate coverage")
+    store = ArtifactStore(tmp_path / "store")
+    artifact = store.publish(workspace, b"stored", name="existing", media_type="text/plain")
+    directory = _artifact_path(store, workspace, artifact)
+    metadata_path = directory / "metadata.json"
+    content_path = directory / "content"
+    outside = tmp_path / "outside"
+    _private_bytes(outside, b"stored")
+    if corruption == "metadata_json":
+        metadata_path.write_bytes(b'{"artifact_id":')
+    elif corruption == "metadata_oversized":
+        metadata_path.write_bytes(b" " * (storage._MAX_METADATA_BYTES + 1))
+    elif corruption.startswith("metadata_") and corruption != "metadata_mode":
+        metadata = json.loads(metadata_path.read_bytes())
+        if corruption == "metadata_extra":
+            metadata["unexpected"] = "field"
+        elif corruption == "metadata_hash":
+            metadata["sha256"] = "0" * 64
+        elif corruption == "metadata_id":
+            # The descriptor is internally consistent but belongs to another ID.
+            metadata["sha256"] = "0" * 64
+            metadata["artifact_id"] = "art_" + "0" * 64
+        elif corruption == "metadata_size":
+            metadata["size_bytes"] += 1
+        metadata_path.write_bytes(storage._canonical(metadata))
+    elif corruption == "missing_metadata":
+        metadata_path.unlink()
+    elif corruption == "extra_file":
+        _private_bytes(directory / "unexpected", b"extra")
+    elif corruption == "content_mode":
+        content_path.chmod(0o644)
+    elif corruption == "metadata_mode":
+        metadata_path.chmod(0o644)
+    else:
+        content_path.unlink()
+        if corruption == "content_symlink":
+            _symlink_or_skip(content_path, outside)
+        elif corruption == "content_hardlink":
+            os.link(outside, content_path)
+        elif corruption == "content_directory":
+            content_path.mkdir(mode=0o700)
+        elif corruption == "content_fifo":
+            os.mkfifo(content_path, mode=0o600)
+        elif corruption == "content_shorter":
+            _private_bytes(content_path, b"short")
+        elif corruption == "content_longer":
+            _private_bytes(content_path, b"longer than recorded")
+
+    with pytest.raises(ArtifactError) as caught:
+        ArtifactStore(store.directory).publish(workspace, b"new text", name="new", media_type="text/plain")
+    assert caught.value.code in {"integrity_error", "permission_denied", "quota_exceeded"}
+    new_id = "art_" + hashlib.sha256(b"new text").hexdigest()
+    assert not (_namespace(store, workspace) / "artifacts" / new_id).exists()
+    assert outside.read_bytes() == b"stored"
+
+
+def test_metadata_only_quota_scan_preserves_full_corruption_checks_on_consumption(tmp_path, workspace):
+    store = ArtifactStore(tmp_path / "store")
+    original = b"good content"
+    corrupted = b"good corrup!"
+    assert len(original) == len(corrupted)
+    artifact = store.publish(workspace, original, name="existing", media_type="text/plain")
+    manifest = _manifest(store, workspace, artifact)
+    (_artifact_path(store, workspace, artifact) / "content").write_bytes(corrupted)
+
+    # Quotas account for exact file sizes; byte integrity is checked when consumed.
+    store.publish(workspace, b"unrelated", name="new", media_type="text/plain")
+    restarted = ArtifactStore(store.directory)
+    for operation in (
+        lambda: restarted.read(workspace, manifest["manifest_id"], manifest["sha256"], artifact["artifact_id"]),
+        lambda: restarted.verify(workspace, manifest["manifest_id"], manifest["sha256"]),
+        lambda: restarted.publish(workspace, original, name="duplicate", media_type="text/plain"),
+        lambda: _manifest(restarted, workspace, artifact),
+    ):
+        with pytest.raises(ArtifactError) as caught:
+            operation()
+        assert caught.value.code == "integrity_error"
+
+
 def test_manifest_corruption_and_expected_hash_are_rejected(tmp_path, workspace):
     store = ArtifactStore(tmp_path / "store")
     artifact = store.publish(workspace, b"text", name="input", media_type="text/plain")

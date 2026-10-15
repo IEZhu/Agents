@@ -24,9 +24,9 @@
   "max_job_seconds": 600,
   "shutdown_grace_seconds": 5,
   "source_roots": {
-    "shared-kv-worktree": {
-      "path": "/Users/alexey.zhuchkov/.codex/worktrees/shared-kv-mcp/Agents",
-      "workspace_root": "/Users/alexey.zhuchkov/Documents/Agents"
+    "example-worktree": {
+      "path": "/absolute/path/to/authorized/worktree",
+      "workspace_root": "/absolute/path/to/registered/workspace"
     }
   },
   "redis": {

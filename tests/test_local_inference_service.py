@@ -401,3 +401,40 @@ async def test_cancelled_file_waiters_retain_admission_until_threads_finish(tmp_
         if third is not None:
             await asyncio.gather(third, return_exceptions=True)
         await service.close()
+
+
+@pytest.mark.asyncio
+async def test_revoke_during_watcher_settlement_suppresses_terminal_publication(tmp_path, monkeypatch):
+    service, backend, client, context = await make(tmp_path)
+    entered, release = asyncio.Event(), asyncio.Event()
+    settle, paused = service._settle, False
+    async def pause_watcher(task, timeout):
+        nonlocal paused
+        if not paused and task.get_coro().__qualname__ == "Event.wait":
+            paused = True
+            entered.set()
+            await release.wait()
+        return await settle(task, timeout)
+    monkeypatch.setattr(service, "_settle", pause_watcher)
+    try:
+        grant = (await service.call("local_context_grant", client,
+            {"context_id": context["context_id"], "owner_token": context["owner_token"],
+             "label": "worker", "max_requests": 1, "max_total_output_tokens": 8}))["data"]
+        accepted = (await service.call("local_generate", client,
+            arguments(context, access_token=grant["access_token"])))["data"]
+        job = service.registry.contexts[context["context_id"]].jobs[accepted["job_id"]]
+        await asyncio.wait_for(entered.wait(), 2)
+        assert not job.done_event.is_set() and len(backend.calls) == 1
+        revoked = await service.call("local_context_revoke", client,
+            {"context_id": context["context_id"], "owner_token": context["owner_token"],
+             "grant_id": grant["grant_id"]})
+        assert revoked["status"] == "ok"
+        release.set()
+        await asyncio.wait_for(job.done_event.wait(), 2)
+        terminal = (await poll(service, client, context, accepted))["data"]["result"]
+        assert terminal["status"] == "error" and terminal["error"]["code"] == "cancelled"
+        assert "output_text" not in terminal.get("data", {})
+        assert backend.fence_count == 1 and len(backend.calls) == 1
+    finally:
+        release.set()
+        await service.close()
