@@ -7,7 +7,7 @@ from pathlib import Path
 from pydantic import ValidationError
 import pytest
 
-from src.engine import subagent
+from src.engine import rules, subagent
 from src.engine.subagent import prepare_subagent
 from src.engine.subagent_validation import contract_fingerprint, validate_result
 from src.schemas.artifacts import ArtifactDescriptor, ArtifactManifest
@@ -204,6 +204,35 @@ def test_complete_manifest_and_instructions_are_mandatory_budget_data(artifact_w
     assert "Pinned artifact reads" in package.worker_context
     assert package.context_chars <= package.contract.budgets.max_context_chars
     assert any(decision.reason == "context_budget" for decision in package.selection)
+
+
+@pytest.mark.parametrize("common_rules_enabled", [True, False])
+def test_artifact_and_cooperation_rules_remain_mandatory_together(
+        artifact_worker_tree, monkeypatch, common_rules_enabled):
+    mandatory = {subagent.ARTIFACT_WORKER_RULE_ID, "worker-cooperation"}
+    monkeypatch.setattr(subagent.component_toggles, "disabled",
+                        lambda kind: frozenset(mandatory | {"agent-cooperation"})
+                        if kind == "rules" else frozenset())
+    monkeypatch.setattr(rules, "RULES_ENABLED", common_rules_enabled)
+    package = prepare_manifest()
+    assert mandatory <= set(package.descriptor.rules_loaded)
+    assert "agent-cooperation" not in package.descriptor.rules_loaded
+    for name in mandatory:
+        decision = next(item for item in package.selection if item.id == name)
+        assert decision.selected and decision.reason == "mandatory_worker_rule"
+        assert f"## Rule: {name}\n" in package.worker_context
+    assert package.contract.model_dump()["artifact_manifest"] == manifest()
+    assert validate_result(package.contract.model_dump(), report(package)).valid
+
+
+@pytest.mark.parametrize("rule_id", ["worker-cooperation", subagent.ARTIFACT_WORKER_RULE_ID])
+def test_artifact_and_cooperation_rules_cannot_be_dropped_for_combined_budget(
+        artifact_worker_tree, rule_id):
+    path = artifact_worker_tree / f"rules/subagents/rule-{rule_id}.mdc"
+    path.write_text(path.read_text() + "\n" + "Mandatory instruction. " * 800)
+    response = prepare_subagent(request(artifact_manifest=manifest()))
+    assert response.status == "error" and "context_budget_exceeded" in codes(response)
+    assert "worker_context" not in response.model_dump()
 
 
 def test_artifact_free_contracts_keep_original_shape_and_structural_validation(artifact_worker_tree,

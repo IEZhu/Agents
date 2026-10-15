@@ -327,6 +327,8 @@ The shared service switches in its update transaction instead
 | `FASTEMBED_CACHE_DIR` | `~/.cache/fastembed` | Persistent model cache; the shared service's `install` reads it only from the shell ([daemon guide](docs/shared-mcp-daemon.md)) |
 | `AGENTS_CLIENT_REPO_ROOT` | Unset: a tool call's `workspace` inside the client's MCP roots, else the nearest `.git` or `CLAUDE.md` at or above `CLAUDE_PROJECT_DIR` or the working directory ([rules](#-repository-memory)) | Explicit stdio memory and workflow target. Refused with `workspace_unsafe` when it is a system, program or home directory. Set it in a per-project MCP entry's `env`, never in the installation `.env`, a shared registration or the Desktop entry |
 | `RULES_ENABLED` | `1` | Include [shared rules](rules/README.md) in loaded context |
+| `AGENTS_COOPERATION_ENABLED` | `0` | Opt the installed daemon into the local [agent cooperation service and mailbox](docs/agent-cooperation/README.md); HTTP and existing stdio-bridge clients share it; standalone stdio returns `store_unavailable` |
+| `AGENTS_COOPERATION_RETENTION_DAYS` | `30` | Owner retention window for terminal cooperation receipts/events (integer, minimum 30); invalid values leave coordination unavailable; see [maintenance and recovery](docs/agent-cooperation/runtime.md) |
 | `INTENT_CLASSIFIER_ENABLED` | `0` | Enable the optional intent-based enrichment classifier |
 | `AGENTS_USER_FLOWS_DIR` | `flows/.user` in the installation | Location (absolute path) of [personal and repository flows](flows/README.md#personal-and-repository-flows), their persona choices, and the installation's rule, skill and implant switches (`components.json`) |
 | `AGENTS_GITHUB_HOST` | `github.com` | GitHub host that [library sync](docs/user-sync.md#github) signs in to and calls; set it for GitHub Enterprise Server |
@@ -652,6 +654,12 @@ The server exposes MCP tools that any compatible client can call:
 | `refresh_persona_context(query, current_persona, chat_history?)` | Refresh skills/implants for the active role without reselecting it |
 | `get_subagent_context(agent_name, task, acceptance_criteria, ...)` | Prepare a compact task-scoped worker role, bounded components and a versioned result contract; [worker guide](docs/subagent-contract.md) |
 | `validate_subagent_result(contract, result)` | Check the worker result against the parent-retained contract; structural validation only, without opening references |
+| `cooperation_register(...)` | Register bounded work in the optional local cooperation journal; does not spawn workers or grant repository access |
+| `cooperation_read(...)` | Read a bounded repository snapshot and ordered cooperation events through the verified workspace |
+| `cooperation_apply(...)` | Apply an authenticated, revision-checked cooperation action; journal claims coordinate participating agents, not arbitrary filesystem writes |
+| `cooperation_send(...)` | Persist a bounded message for a participant in the same repository through the shared MCP mailbox |
+| `cooperation_receive(...)` | Poll the authenticated participant's inbox; messages remain pending until acknowledged |
+| `cooperation_ack(...)` | Acknowledge inbox delivery only; does not accept agreement terms, artifacts or new permissions |
 | `load_implants(query\|task_type)` | Load cognitive reasoning strategies by semantic query or preset bundle |
 | `list_agents()` | Enumerate all available agents with metadata |
 | `list_flows(scope="all")` | Discover built-in, personal (`user:`) and repository (`repo:`) Markdown workflows, with IDs and content revisions |
@@ -679,6 +687,8 @@ model capacity or provide a tool loop. Artifacts persist in private service stat
 independently of Redis; manifest expiry/release ends access without deleting
 bytes. See [persistent shared artifacts](docs/shared-artifacts.md) for workspace
 capture boundaries, quotas and the complete workflow.
+
+The optional [cooperation runtime](docs/agent-cooperation/README.md) is disabled by default. Its mailbox lets different AI MCP clients and model providers exchange messages through the same enabled installed HTTP daemon, including clients using the existing stdio bridge; it needs no native host messaging tool. Standalone stdio has no coordinator. Delivery is recipient polling, with no automatic model launch or wakeup. This source implementation has not been enabled in the live installation or evaluated with different provider models.
 
 The server also registers MCP prompts (slash commands): `ask` routes like
 `route_and_load`; one prompt per agent `routing.trigger_command` and per

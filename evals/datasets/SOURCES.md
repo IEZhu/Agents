@@ -1,5 +1,12 @@
 # Eval Dataset Sources
 
+`cooperation.jsonl` is an authored synthetic behavior fixture set: 14 scenarios
+in English and Russian (28 records), covering root/worker roles and native-peer
+or no-peer channels. No real conversations or secrets were used. It records
+expected/forbidden actions for future authorized trace/rubric evaluation; it is
+not input for the persona-dialogue runner and no model result is implied. See
+[cooperation evaluation](../../docs/agent-cooperation/evaluation.md).
+
 Public datasets configured in `evals/scripts/fetch.py:DATASETS`. WildBench, MASSIVE and
 CLINC150 seed the routing/retrieval golden set; `run_mcp_vs_vanilla` samples its queries
 from the same list (`--dataset`, default `wildbench`). **Source query texts are
