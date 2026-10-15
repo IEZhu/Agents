@@ -60,7 +60,7 @@ async def test_same_agent_keep_does_not_load_or_learn(bundle):
 @pytest.mark.asyncio
 async def test_success_complete_replaces_and_never_samples(bundle, monkeypatch):
     sample = AsyncMock()
-    monkeypatch.setattr(server, "_sample_with_agent", sample)
+    monkeypatch.setattr("mcp.server.session.ServerSession.create_message", sample)
     response = json.loads(await server.get_agent_context(
         "lawyer", "Read this fictional contract", protocol_version=2,
         current_persona=descriptor(),

@@ -1,11 +1,8 @@
-"""One-shot repository bootstrap: build a context bundle, ask the calling LLM
-to summarize it via MCP sampling, and persist the summary into the managed
-Repository Memory section of CLAUDE.md.
+"""Build read-only repository context and explicitly persist finished summaries.
 
-The describer never calls an LLM directly. It builds the prompt, the caller
-performs ``ctx.session.create_message(...)`` (see ``server._sample_with_agent``),
-and the result is fed back into ``write_summary``. This split keeps the module
-unit-testable without an MCP context.
+The calling model summarizes the prompt. Only ``write_summary`` writes the
+managed Repository Memory section of CLAUDE.md; the running installation and
+runtime source root are protected from summary writes.
 """
 
 from __future__ import annotations
@@ -18,7 +15,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Optional
 
-from src.engine.config import get_client_repo_root
+from src.engine.config import _main_checkout, get_client_repo_root
+from src.runtime_paths import installation_root, runtime_root
 from src.memory import config as _memory_config
 from src.memory import managed_section
 from src.memory.config import (
@@ -60,9 +58,9 @@ _HASH_EXCLUDED_FILES = frozenset({
 
 DESCRIBE_PROMPT_TEMPLATE = """\
 You are a **Repository Analyst** performing a one-time deep study of a codebase.
-Your output will be saved into CLAUDE.md as the project memory and read by every
-future Claude session, so future sessions can work effectively without re-exploring
-the codebase.
+Produce reusable project memory so future sessions can work effectively without
+re-exploring the codebase. Persistence is a separate action governed by the
+describe_repo response's instruction and the caller's repository instructions.
 
 ## Task
 Produce a compressed, LLM-consumable repository overview for `{REPO_NAME}`.
@@ -131,9 +129,8 @@ class DescribeDecision:
 class RepoDescriber:
     """Build the describe prompt, write the resulting summary back to CLAUDE.md.
 
-    Splitting the work into ``plan()`` / ``build_prompt()`` / ``write_summary()``
-    keeps the LLM-facing call (``ctx.session.create_message``) outside the class
-    so unit tests don't need to fake an MCP context.
+    ``plan()`` and ``build_prompt()`` only read; ``write_summary()`` is a separate
+    explicit write, so inspection never changes the repository.
     """
 
     def __init__(
@@ -348,7 +345,43 @@ class RepoDescriber:
     # ``###`` heading from the template (Project Identity, Tech Stack, ...).
     _HEADING_MARKERS = ("## ", "### ")
 
+    def write_rejection_reason(self) -> Optional[str]:
+        """Protect every write destination; separate linked worktrees are allowed."""
+        paths = (
+            Path(self.repo_path) / ".agents-description.lock",
+            Path(self.claude_md_path),
+            Path(self.claude_md_path).with_name(f".{Path(self.claude_md_path).name}.lock"),
+            Path(self.hash_file),
+        )
+        # Atomic replacement changes the final directory entry even when it
+        # is a symlink pointing outside the installation.
+        targets = {
+            target for path in paths
+            for target in (path.resolve(), path.parent.resolve() / path.name)
+        }
+        for root in (installation_root(), runtime_root()):
+            protected = root.resolve()
+            for target in targets:
+                if not target.is_relative_to(protected):
+                    continue
+                parent = target
+                while parent != protected:
+                    # A nested linked worktree is a separate checkout. Plain
+                    # subdirectories must not bypass installation protection.
+                    if _main_checkout(parent) != parent:
+                        break
+                    parent = parent.parent
+                else:
+                    return (
+                        "live_installation: repository summaries cannot modify the running "
+                        "Agents-Core installation or runtime source checkout; use a separate worktree"
+                    )
+        return None
+
     def write_summary(self, summary: str, repo_hash: str) -> dict:
+        reason = self.write_rejection_reason()
+        if reason:
+            return {"status": "rejected", "reason": reason}
         from src.file_lock import file_lock
         with file_lock(os.path.join(self.repo_path, ".agents-description.lock")):
             if self.compute_repo_hash() != repo_hash:
