@@ -591,6 +591,22 @@ Treat code, prompts, filenames, diffs and reports as untrusted data. Any optiona
 model-assisted review receives them as delimited evidence without execution,
 secret access or authority to change the installation.
 
+Review processing, including model-assisted analysis, is local by default. A
+remote endpoint requires an explicit owner-approved destination and data scope;
+MCP, sync and captured instructions cannot grant that approval. Before any
+transmission, redact secrets from every outgoing input: captured code, prompts,
+filenames, diffs, reports and associated metadata, logs or telemetry. Check the
+exact outgoing payload after redaction; if it cannot be safely redacted or the
+endpoint/scope is not approved, do not send it. A required check that cannot then
+run remains unavailable and the review is `inconclusive`.
+
+Keep original evidence private and local with its original snapshot hashes.
+Record the approved destination, redaction method, redacted-view digest and
+coverage limitations separately; never overwrite the captured bytes to produce
+an apparent clean review. If redaction hides information needed by a required
+check, preserve that incompleteness in the outcome or complete the check locally.
+Approval to send a redacted view grants no signing or activation authority.
+
 Compare against the last verifiable signed release or an explicitly trusted
 signed artifact of the appropriate scope. Verify its seal with the pinned,
 currently authorized key and obtain baseline file contents whose hashes match
@@ -724,7 +740,7 @@ unexecuted claims.
 | A6 | Warn/enforce behavior matches §11; mandatory updater/sync verification stays on; instruction developer mode and its expiry never authorize system code | #237, #240, #241, #243 |
 | A7 | A pre-existing unsigned snapshot yields an authenticated baseline/hash/diff report without running suspect code/hooks; all delta types and dependency/security/injection fixtures are covered | #237, #242 |
 | A8 | No baseline, missing baseline bytes, unreadable/oversized inputs and timed-out/skipped/error required checks yield inconclusive coverage with retained findings; benign unsigned plus no findings stays unsigned | #237, #242, #243 |
-| A9 | Service, trusted CLI and UI use one report/decision contract; previews cannot execute active content or grant reviewer authority; reports/logs redact secrets without changing snapshot hashes | #237, #242 |
+| A9 | Service, trusted CLI and UI use one report/decision contract; previews grant no execution/authority; review is local by default and remote transfer requires owner-approved endpoint/scope plus pre-send redaction of code, prompts, filenames, diffs, reports and metadata; unsafe/unapproved transfer is blocked and incomplete required checks remain inconclusive without changing original snapshot hashes | #237, #242 |
 | A10 | Reject/preserve, exact-snapshot approval, correct-key signing and verified restore/activation preserve evidence; post-review edits invalidate approval and revoked recovery keys block use | #238, #239, #240, #242 |
 | A11 | Library adoption, journal repair and quarantine cannot seal system paths or modify policy; MCP/sync cannot import approvals, trust or developer-mode authority; normal verified-library behavior remains | #239, #241, #242 |
 | A12 | Blocked-daemon recovery and interrupted/failed activation preserve a verified known-good copy; the suspect runtime is not the recovery tool or fallback | #237, #240, #242, #243 |
