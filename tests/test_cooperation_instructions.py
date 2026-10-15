@@ -64,7 +64,7 @@ def test_managed_section_matches_canonical_template_and_previous_memory_is_retai
 
 
 def test_cooperation_fixtures_are_bilingual_bounded_and_cover_host_role_matrix():
-    rows = [json.loads(line) for line in (ROOT / "evals/datasets/cooperation.jsonl").read_text().splitlines()]
+    rows = [json.loads(line) for line in (ROOT / "evals/datasets/cooperation.jsonl").read_text(encoding="utf-8").splitlines()]
     required = {"id", "scenario_id", "language", "role", "host", "context", "query",
                 "expected_pattern", "expected_actions", "forbidden_actions", "requires_worker_envelope"}
     languages = defaultdict(set)
