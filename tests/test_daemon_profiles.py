@@ -93,6 +93,10 @@ def test_exact_file_override_for_each_client_is_backed_up_and_remembered(setup, 
     project.mkdir()
     target = tmp_path / "custom" / ("work.config.toml" if client == "codex" else "nonstandard.json")
     original = '# Keep this comment\n' if client == "codex" else '{"unrelated":true}'
+    if client == "claude-deny-desktop":
+        # Its migration only removes the denial a standalone install wrote (#421).
+        from src.client_paths import DESKTOP_DENY_RULES
+        original = json.dumps({"unrelated": True, "permissions": {"deny": list(DESKTOP_DENY_RULES)}})
     atomic_private(target, original)
     change = migration.prepare(client, project, config_path=target)
     backup = migration.apply([change])

@@ -478,6 +478,7 @@ def main(argv=None):
             clients = [client.strip() for client in args.clients.split(",")]
             if any(client not in CLIENTS for client in clients):
                 parser.error("Unknown client in --clients")
+            # The desktop entry becomes the bridge: drop the denial a standalone install wrote (#421).
             if "desktop" in clients: clients.append("claude-deny-desktop")
             if "claude" in clients and args.workspace and (args.workspace / ".mcp.json").exists(): clients.append("claude-project")
             if any(client not in clients for client, _ in overrides):
@@ -523,7 +524,8 @@ def main(argv=None):
             from .bootstrap import assert_service_safe
             assert_service_safe(controller.directory)
             migration = ClientMigration(controller.directory)
-            changes = [migration.prepare(client, args.workspace, config_path=selected.get(client)) for client in dict.fromkeys(clients)]
+            changes = [change for client in dict.fromkeys(clients)
+                       if (change := migration.prepare(client, args.workspace, config_path=selected.get(client)))]
             blocked = None
             if args.workspace is None:
                 # Codex merges a server's fields across its layers: the project layers take the

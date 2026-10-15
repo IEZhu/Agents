@@ -192,7 +192,9 @@ def test_shared_shell_injection_uses_explicit_client_and_exact_destination(tmp_p
     write_json(installation / "data/.shared-service.json", {"directory": str(state)})
     write_json(state / "service.json", {"installation": str(installation), "port": 8765, "node": sys.executable})
     atomic_private(state / "token", "private-test-token-only")
-    write_json(selected_profile / "settings.json", {"permissions": {"deny": ["existing-rule"]}, "userSetting": True})
+    # The denial an earlier standalone install wrote; the shared desktop entry lifts it (#421).
+    write_json(selected_profile / "settings.json", {"permissions": {"deny": [
+        "existing-rule", "mcp__Agents-Core-Desktop__*", "mcp__Agents_Core_Desktop__*"]}, "userSetting": True})
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
     monkeypatch.setattr(sys, "platform", "darwin")
     monkeypatch.setattr(sys, "path", sys.path.copy())
@@ -221,8 +223,7 @@ def test_shared_shell_injection_uses_explicit_client_and_exact_destination(tmp_p
         assert entry["args"][0] == str(installation / "bridge/stdio.mjs")
         settings = json.loads((selected_profile / "settings.json").read_text())
         assert settings["userSetting"] is True
-        assert set(settings["permissions"]["deny"]) == {
-            "existing-rule", "mcp__Agents-Core-Desktop__*", "mcp__Agents_Core_Desktop__*"}
+        assert settings["permissions"]["deny"] == ["existing-rule"]
         assert not (home / ".claude/settings.json").exists()
     else:
         # The user scope serves every project: a bridge per session names its own (#253),
@@ -304,15 +305,60 @@ def deny_helper(tmp_path, monkeypatch):
     deny = importlib.import_module("deny_desktop_mcp")
     path = tmp_path / "claude profile" / "settings.json"
 
-    def run(settings=None):
+    def run(settings=None, desktop=None):
         if settings is not None:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(json.dumps(settings), encoding="utf-8")
-        monkeypatch.setattr(sys, "argv", ["deny_desktop_mcp.py", str(path)])
+        argv = ["deny_desktop_mcp.py", str(path)]
+        if desktop is not None:
+            config = tmp_path / "desktop" / "claude_desktop_config.json"
+            config.parent.mkdir(exist_ok=True)
+            config.write_text(json.dumps({"mcpServers": {"Agents-Core-Desktop": desktop}}), encoding="utf-8")
+            argv += ["--desktop-config", str(config)]
+        monkeypatch.setattr(sys, "argv", argv)
         deny.main()
-        return json.loads(path.read_text(encoding="utf-8"))
+        return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
 
     return run
+
+
+STANDALONE = {"command": "/venv/bin/python", "args": ["/install/src/server.py"]}
+
+
+def test_deny_helper_denies_a_standalone_desktop_entry(deny_helper, capsys):
+    from src.client_paths import DESKTOP_DENY_RULES
+    assert deny_helper({"permissions": {"deny": ["Bash(rm *)"]}}, desktop=STANDALONE) == {
+        "permissions": {"deny": ["Bash(rm *)", *DESKTOP_DENY_RULES]}}
+    assert capsys.readouterr().out.strip() == "denied"
+
+
+@pytest.mark.parametrize("desktop", [BRIDGE, {"url": "http://127.0.0.1:8765/mcp"}])
+def test_deny_helper_lifts_the_denial_for_a_shared_service_entry(deny_helper, capsys, desktop):
+    """#421: the bridge resolves each call's workspace, so the #231 denial only blocks Code-tab turns."""
+    from src.client_paths import DESKTOP_DENY_RULES
+    original = {"permissions": {"deny": ["Bash(rm *)", *DESKTOP_DENY_RULES], "allow": ["x"]}, "userSetting": True}
+    assert deny_helper(original, desktop=desktop) == {
+        "permissions": {"deny": ["Bash(rm *)"], "allow": ["x"]}, "userSetting": True}
+    assert capsys.readouterr().out.strip() == "shared"
+    assert deny_helper({"permissions": {"deny": list(DESKTOP_DENY_RULES)}}, desktop=desktop) == {}
+
+
+def test_deny_helper_creates_no_settings_for_a_shared_service_entry(deny_helper, tmp_path):
+    assert deny_helper(desktop=BRIDGE) is None
+    assert not (tmp_path / "claude profile").exists()
+
+
+def test_deny_helper_denies_when_the_desktop_config_is_unreadable(deny_helper, tmp_path, monkeypatch, capsys):
+    from src.client_paths import DESKTOP_DENY_RULES
+    deny = importlib.import_module("deny_desktop_mcp")
+    settings = tmp_path / "claude profile" / "settings.json"
+    broken = tmp_path / "broken.json"
+    broken.write_text("{not json", encoding="utf-8")
+    for config in (broken, tmp_path / "missing.json"):
+        monkeypatch.setattr(sys, "argv", ["deny_desktop_mcp.py", str(settings), "--desktop-config", str(config)])
+        deny.main()
+        assert json.loads(settings.read_text(encoding="utf-8")) == {"permissions": {"deny": list(DESKTOP_DENY_RULES)}}
+        assert capsys.readouterr().out.strip() == "denied"
 
 
 def test_deny_helper_adds_the_desktop_rules_once_and_keeps_the_rest(deny_helper):

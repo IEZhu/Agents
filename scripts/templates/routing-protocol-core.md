@@ -82,6 +82,10 @@ Agents-Core, a role, the footer, or logging. Load an explicitly requested known
 role with `get_agent_context`; otherwise call `route_and_load` with the user's
 request, `protocol_version=2` and `current_persona=null`.
 
+The Claude desktop app adds its own `Agents-Core-Desktop` server to its Code
+sessions. When both `Agents-Core` and `Agents-Core-Desktop` tools are listed, call
+`Agents-Core`; a standalone install denies `Agents-Core-Desktop` in Claude Code.
+
 `ROUTE_REQUIRED` is an intermediate result, not an activated persona. Select the
 best canonical candidate and call `get_agent_context` in the same turn; do not
 finish with a candidate list or ask permission to complete the activation.
