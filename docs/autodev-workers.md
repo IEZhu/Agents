@@ -190,7 +190,9 @@ A gitlink anywhere in the tree or the range, a symbolic link whose target may le
 control character refuse the materials, and the review ends `blocked`. Symbolic links are never
 created: `links.json` lists the inward ones as text. Each file is created new (`O_EXCL`,
 `O_NOFOLLOW`) in a directory the module made; every git output is bounded (8 MiB of diff, 64 MiB
-of changed files, 256 MiB of tree, 1,000 commits).
+of changed files, 256 MiB of tree, 1,000 commits). The changed-file and tree byte limits count
+each written path, even when several paths share one blob; a batch that would exceed the
+remaining tree budget is refused before any of its files are written.
 
 ## The Claude worker
 
@@ -240,7 +242,9 @@ the Claude worker runs, and the decision's known secrets (the API key) still rea
 masking.
 When Codex is applied, `codex_probes.start` starts it (the only way) and the output is the raw text
 of the `-o` file, read without following links (at most 512 KiB) and only after exit code 0; it
-goes to `validate_result` as text, which also refuses duplicate keys. When `decide` falls back,
+goes to `validate_result` as text, which also refuses duplicate keys. Standard output is capped
+at 4 MiB as for Claude: overflow fails the attempt even with a valid `-o` result, and the bounded
+prefix is still scanned for the tripwire. When `decide` falls back,
 the Claude worker runs with the profile's `claude` model and effort (default `opus`, `high`; a
 follow-up uses `effort_followup` when Claude knows it), and the attempt record says
 `client_requested: codex`, `client_applied: claude` and `fallback_reason`.
