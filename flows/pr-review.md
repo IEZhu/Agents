@@ -151,9 +151,11 @@ findings per pass, so each problem left for the bots costs a round.
 
 The expected setup runs CodeRabbit and Copilot automatically on the initial
 GitHub PR. CodeRabbit does so for pull requests into the default branch and
-into the base branches listed under `reviews.auto_review.base_branches` in the
-repository's `.coderabbit.yaml`, which it reads from the branch under review
-(in Agents-Core, `dev`). Confirm that those reviews actually started.
+into the base branches listed under `reviews.auto_review.base_branches` in
+`.coderabbit.yaml`. It reads that file from the pull request's head branch, so
+the file must be present there. In Agents-Core the list holds `dev`, the
+target branch of every pull request. Confirm that those reviews actually
+started.
 CodeRabbit normally reviews subsequent pushes automatically, but its quota is
 often exhausted.
 After each push of fixes, once the remote head updates, **explicitly
