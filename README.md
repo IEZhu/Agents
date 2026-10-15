@@ -144,12 +144,25 @@ lists what was removed, what was kept and why. A path is removed only when it is
 inventory, is neither a symbolic link nor a junction, and resolves inside the home directory; a
 directory that `AGENTS_HOME`, `AGENTS_SERVICE_DIR`, `FASTEMBED_CACHE_DIR` or
 `AGENTS_USER_FLOWS_DIR` names is removed only when its content shows it is Agents-Core's (a
-checkout `AGENTS_HOME` names is kept when it has uncommitted changes, untracked files or a branch
-besides `main`), and
+checkout `AGENTS_HOME` names is kept when it has uncommitted changes, untracked files, a branch
+outside the published `main` and `dev` channels, commits from local refs, reflogs or HEAD
+outside known remote-tracking history, or ignored files outside the installer's `.env` file and `.venv/`
+directory), and
 nothing that is or contains a filesystem root, the home directory, `~/Documents` or a profile
 or XDG base directory is ever removed. Backups are private (0700 directories, 0600 files). A
-checkout you cloned yourself and run the script from is kept;
-so are the files Agents-Core wrote into your projects (`history.md`, `history/`, the Repository
+checkout you cloned yourself and run the script from is kept when it is separate from the
+installation being removed. The commit check uses existing local remote-tracking refs without
+fetching; it does not confirm that the remote is still available. `.env` and `.venv/` are
+intentional installation assets and can be removed, so keep personal files elsewhere. Other
+ignored material, including extra runtime caches, conservatively keeps the selected checkout.
+Registered submodules and retained `.git/modules` repositories also keep the whole checkout,
+because parent Git history does not establish ownership of nested private work.
+Git safety inspections use a copy of the process environment without inherited `GIT_*`
+overrides, while preserving all other entries; other uninstall commands inherit the normal
+environment. Untracked-file detection overrides Git settings that hide these files, and the
+selected checkout is inspected again immediately before removal, after confirmation. This is not a
+transaction with other writers: serialize install, uninstall and direct checkout edits.
+Also kept are the files Agents-Core wrote into your projects (`history.md`, `history/`, the Repository
 Memory section of `CLAUDE.md`), which the report lists. The logic is `src/uninstall.py`.
 
 ### Claude Code cloud sessions
