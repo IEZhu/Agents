@@ -5,6 +5,10 @@ a defined task. Each flow describes its inputs, execution steps, checks, and
 expected result. Start with [AGENTS.md](../AGENTS.md) for repository instructions
 and the [documentation map](../docs/README.md) for supporting references.
 
+Use [bounded execution and evidence reuse](../docs/flow-execution.md) when running
+these flows: batch independent reads, retain source-bound evidence, and let one
+monitor wait without repeated model polling. This does not relax any flow gate.
+
 ## Delegated workers
 
 Every flow that launches an AI reviewer, verifier or other worker follows the [mandatory delegation contract](../docs/routing_flow.md#delegated-workers): call `get_subagent_context`, require `status: prepared`, retain the original contract, and pass the compact `worker_context` unchanged to a fresh native worker. For every returned or revised output, call `validate_subagent_result` with that contract and require `valid: true` before using it, then check evidence and acceptance criteria. No endpoint failure permits unprepared delegation or unvalidated acceptance; report the limitation and work in the parent when practical. Flow-specific requirements for an independent review remain unsatisfied when no validated independent review ran.
