@@ -381,7 +381,10 @@ class Service:
                 if marked is not None:
                     authorized = (None if roots is None else
                                   [value.resolve() for value in map(_root_uri_path, roots) if value is not None])
-                    if authorized is None or any(marked.is_relative_to(value) for value in authorized):
+                    # Only cwd implies project discovery. Named directories
+                    # stay bounded unless explicit MCP roots cover the marker.
+                    if ((roots is None and origin == "cwd") or (authorized is not None and
+                            any(marked.is_relative_to(value) for value in authorized))):
                         physical = marked
             return root, self.registry.register(root, physical_root=physical)
         try:

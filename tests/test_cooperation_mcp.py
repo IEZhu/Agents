@@ -168,6 +168,44 @@ async def test_http_retains_external_access_and_single_lifecycle(checkouts, coor
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("origin", ["cwd", "CLAUDE_PROJECT_DIR", "hook", "AGENTS_CLIENT_REPO_ROOT"])
+@pytest.mark.parametrize("roots_kind", ["absent", "package", "checkout"])
+@pytest.mark.parametrize("linked", [False, True])
+async def test_workspace_origin_does_not_expand_named_physical_grants(
+        checkouts, coordinator, monkeypatch, origin, roots_kind, linked):
+    main, external, directory = checkouts
+    checkout = external if linked else main
+    package = checkout / "pkg"
+    package.mkdir()
+    monkeypatch.setenv("AGENTS_COOPERATION_ENABLED", "1")
+    body = {"path": str(package), "origin": origin}
+    if roots_kind != "absent":
+        body["roots"] = [(package if roots_kind == "package" else checkout).as_uri()]
+    expanded = origin != "AGENTS_CLIENT_REPO_ROOT" and (
+        roots_kind == "checkout" or roots_kind == "absent" and origin == "cwd")
+    app = create_app(directory, TOKEN, runtime_loader=runtime)
+    async with app.router.lifespan_context(app):
+        await ready(app)
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app),
+                                    base_url="http://127.0.0.1:8765") as http:
+            response = await http.post("/workspaces", json=body,
+                                       headers={"Authorization": "Bearer " + TOKEN})
+            assert response.status_code == 200, response.text
+            access = response.json()
+            memory_root = package if origin == "AGENTS_CLIENT_REPO_ROOT" and roots_kind == "absent" else main
+            assert access["root"] == str(memory_root)
+            grants = app.state.service.registry.cooperation_roots(access["workspace_id"])
+            assert grants == (checkout if expanded else package,)
+            actor = await call(http, "cooperation_register", {"request": registration(checkout)},
+                               access["workspace_id"])
+            if expanded:
+                assert actor["status"] == "ok"
+            else:
+                assert actor["error"] == "scope_denied"
+                assert not coordinator.instances[0].calls
+
+
+@pytest.mark.asyncio
 async def test_disabled_daemon_does_not_create_authority(checkouts, coordinator, monkeypatch):
     main, _, directory = checkouts
     monkeypatch.delenv("AGENTS_COOPERATION_ENABLED", raising=False)
