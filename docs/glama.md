@@ -77,6 +77,21 @@ Those local results cover the baseline and its warmed derivative. The separate s
 
 The provider log does not exercise functional `tools/call` operations, prove a complete image vulnerability scan, establish tenant/proxy isolation, or supply an immutable output-image digest. Those limits remain distinct from successful build/startup and publication. Glama's [release guide](https://glama.ai/blog/2026-03-15-how-to-make-a-release) describes image security scans as work performed for a release, and its TDQS page queues published releases for evaluation. Record their actual results when exposed; do not represent a quality badge or the absence of errors as a passing scan.
 
+## Troubleshoot the online Inspector
+
+On **2026-10-15 at 13:15 UTC**, the [Glama Inspector](https://glama.ai/mcp/inspector) reproduced `Streamable HTTP error: Unexpected content type: null` for a deployed Agents-Core instance when **Use proxy to bypass CORS restrictions** was checked. At **13:15:58 UTC**, the same endpoint and credentials connected with that option unchecked. Discovery returned **18 tools and 55 prompts**, and a subsequent read-only `list_agents` call returned an agent list with `isError: false`. The public Inspector test server also connected successfully. This comparison establishes a working direct connection and an observed failure through the Inspector proxy; the failing HTTP response's status, headers and body were not captured, so the internal proxy failure remains unexplained.
+
+The instance's [MCP Deployments](https://glama.ai/settings/mcp/deployments) profile showed `started`. Runtime logs showed the Python server completing readiness in **29.795 seconds**, then handling tool, resource and prompt discovery. The virtual machine had also been suspended and resumed. Those observations do not establish that suspension caused the Inspector error, and the connection error alone is not evidence of a Python crash.
+
+For the same symptom:
+
+1. Open the instance from MCP Deployments, check its status and **logs**, and look for completed readiness, discovery requests or a traceback. A successful image build is separate from a live client connection.
+2. In the Inspector, choose **Edit server**, uncheck **Use proxy to bypass CORS restrictions**, save, and connect again to the same Glama endpoint with its existing authentication. This changes the Inspector's connection route; keep the container's generated `mcp-proxy --` wrapper in place.
+3. Require **Connected**, successful discovery and a safe read-only call such as `list_agents` before recording recovery. This is a diagnostic comparison, not a guarantee that direct mode works for every remote server; other origins may require the proxy for CORS.
+4. If direct mode also fails, retain the failing request's method, HTTP status, response headers/body, console error and matching runtime timestamps for further investigation. MCP request responses require JSON or an SSE stream as described in the [transport specification](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports).
+
+The Inspector persists connection settings, including credentials, in its page URL. Never put an instance token or a token-bearing Inspector URL in this repository, PRs, screenshots or support messages. Use redacted evidence when documenting a failure.
+
 ## Build, publish and update
 
 Follow Glama's [release procedure](https://glama.ai/blog/2026-03-15-how-to-make-a-release), checking the current admin UI labels and results:
