@@ -4,8 +4,10 @@ Universal rules are short, always-on directives that every agent receives. They
 set the floor for honesty and fit. Guidance that depends on the agent, domain or
 register belongs in a [skill](../skills/README.md) listed in the agent's
 `core_skills`, `preferred_skills` or `capable_skills`.
-[`src/engine/rules.py`](../src/engine/rules.py) loads only `rules/rule-*.mdc`;
-this README is not a rule.
+[`src/engine/rules.py`](../src/engine/rules.py) loads built-ins from
+`rules/rule-*.mdc`; this README is not a rule. Protocol 2 bundles and compact
+workers also include enabled [URL-subscribed user rules](../docs/user-rules.md)
+from the local cache, separately from the built-in collection.
 
 ## Active rules
 
@@ -32,7 +34,8 @@ removed, renamed or reprioritized.
   `rules_loaded` and the footer's `Rules` list the rule names. The footer's last
   segment, `Agents-Core <version>` (a link to the web UI under the shared daemon),
   follows the labelled lists and is not a rule. A flow persona that lists `rules`
-  gets exactly those rules, switched-off ones included; an empty list gives an
+  gets exactly those rules, including switched-off built-ins. Named `user:` rules
+  must be enabled; an empty list gives an
   empty `rules_block` ([flow personas](../flows/README.md#choose-a-flows-agent-and-components)).
 - Rules are sorted by `priority` (ascending), then by `name`.
 - Bundle assembly re-reads the files for every bundle in strict mode. An invalid
@@ -47,7 +50,7 @@ removed, renamed or reprioritized.
   `—` for `Rules`. See [environment variables](../README.md#environment-variables).
 - With the shared daemon, the local web UI (`.venv/bin/python -m src.daemon flows-ui`,
   tab *Rules*) can switch single rules off for the whole installation. A switched-off
-  rule leaves persona bundles and the footer unless a flow persona names it; its
+  built-in rule leaves persona bundles and the footer unless a flow persona names it; its
   file is untouched, and switching every rule off gives an empty
   `rules_block` like `RULES_ENABLED=0`. The per-query path used by the evaluation
   harnesses ignores the switches. See [Flow editor](../docs/shared-mcp-daemon.md#flow-editor).
