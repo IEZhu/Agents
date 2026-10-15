@@ -22,7 +22,7 @@ Use pytest, fake clocks/events, temporary directories and injected transports. T
 | C12 | test_local_inference_service.py | Active timeout with continuing fake engine blocks next job until kill/reap; no unobserved background inference |
 | C13 | test_local_inference_service.py | Revoke/release immediately prevents publication; queued requests rejected; active engine cleanup stays serialized |
 | C14 | test_local_inference_service.py | Drain stops admission; resume reopens it; controller sees detached work; shutdown is bounded |
-| C15 | test_local_inference_process.py | Port collision never kills foreign process; only owned child/key/spool removed; a closed owned listener's TIME_WAIT permits restart |
+| C15 | test_local_inference_process.py | Legacy port listener is ignored; only owned child/key/spool/socket directory removed; socket namespace rotates per epoch and rejects unsafe ancestors, replaced directories and non-socket entries; cleanup checks directory identity |
 | C16 | test_local_inference_llama.py | Redirects, proxy env, malformed/trickled/oversized response, missing final SSE/counters fail safely; pinned partial/final slot sentinels are distinct; bounded startup health retries never dispatch a completion |
 | C17 | test_local_inference_llama.py | Full rendered tokenization including BOS agrees with engine; boundary-token merges do not fake prefix matches |
 | C18 | test_local_inference_cache.py | Cold, partial, resident hit and requested-but-zero-hit are distinct; counters sum correctly; hits cannot exceed LCP |
