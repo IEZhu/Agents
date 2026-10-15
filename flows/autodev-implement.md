@@ -6,6 +6,11 @@ persona:
 ---
 # Autodev implementation: build the slice, review until clean, pre-mortem
 
+Use [bounded execution and evidence reuse](../docs/flow-execution.md). Keep one
+worker per distinct responsibility and consume its completion through the
+runner's existing wait command; do not add a second polling loop. The runner's
+rights, review limits, required checks and failure handling below stay binding.
+
 The implementation stage of an [autodev](autodev.md) run
 ([design 9.4](../docs/autodev-plan.md#94-stage-2-implementation-review-until-clean-and-pre-mortem)).
 It implements the slice that [autodev-select](autodev-select.md) chose, on a
