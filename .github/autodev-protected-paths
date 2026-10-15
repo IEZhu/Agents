@@ -7,6 +7,7 @@
 # The owner's `autodev:next` label opens these paths, except the control paths listed
 # in .github/autodev-control-paths, which no label opens.
 .github/**
+.coderabbit*
 .claude/**
 **/.claude/**
 **/CLAUDE.md
