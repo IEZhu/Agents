@@ -178,11 +178,16 @@ def test_runtime_paths_refuse_conflicting_installations(tmp_path):
 def test_runner_excludes_runtime_children_and_ancestors_with_canonical_binding(tmp_path, candidate):
     process = _child("""
         import sys
+        from pathlib import Path
+        from unittest.mock import patch
         from src.runtime_paths import configure_runtime_paths, runtime_root
         configure_runtime_paths(sys.argv[1], runtime_root=runtime_root())
         from src.schedules.config import runner_location
         try:
-            runner_location(sys.argv[2])
+            # Isolate this guard from the earlier ~/Documents guard, even when
+            # this test's source checkout itself lives under ~/Documents.
+            with patch.object(Path, 'home', return_value=Path(sys.argv[1]).parent / 'home'):
+                runner_location(sys.argv[2])
         except ValueError as error:
             assert 'runtime source' in str(error)
         else:
