@@ -644,10 +644,26 @@ def test_json_members_are_removed_in_one_parse(monkeypatch):
     assert last == b'{"mcpServers": {"a": 1}}'
 
 
+@pytest.mark.parametrize("branches", [b"main\n", b"dev\n", b"main\ndev\n"])
+def test_clean_standard_channel_checkout_named_by_agents_home_is_removed(home, branches):
+    """Published installation channels are eligible for the normal owned-path cleanup."""
+    darwin_home(home)
+    installation = checkout(home / "Documents/Agents")
+    runner = FakeRunner({("git", "-C", str(installation), "for-each-ref"): (0, branches)})
+    ctx = context(home, "darwin", runner, AGENTS_HOME=str(installation))
+    ctx.source_root = installation
+    assert main(["--yes"], ctx=ctx, interactive=False) == 0
+    assert not installation.exists()
+
+
 @pytest.mark.parametrize("status, branches, reason", [
     ((0, b"?? notes.md\n"), (0, b"main\n"), "it has uncommitted changes or untracked files"),
-    ((0, b""), (0, b"main\nfeature\n"), "it has local branches besides main (feature)"),
+    ((0, b" M src/server.py\n"), (0, b"dev\n"), "it has uncommitted changes or untracked files"),
+    ((0, b"?? notes.md\n"), (0, b"dev\n"), "it has uncommitted changes or untracked files"),
+    ((0, b""), (0, b"main\nfeature\n"), "it has local branches besides main and dev (feature)"),
+    ((0, b""), (0, b"dev\nfeature\n"), "it has local branches besides main and dev (feature)"),
     ((128, b""), (0, b"main\n"), "git could not check it for uncommitted work"),
+    ((0, b""), (128, b""), "git could not check it for uncommitted work"),
 ])
 def test_a_development_checkout_named_by_agents_home_is_kept(home, capsys, status, branches, reason):
     """Round 2 N2: AGENTS_HOME naming a checkout with work in it never deletes that work."""

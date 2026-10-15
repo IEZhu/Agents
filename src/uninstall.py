@@ -57,6 +57,8 @@ from typing import Callable, Iterable, Mapping, Sequence
 
 import tomllib
 
+from src.update_channel import STANDARD_BRANCHES
+
 SERVER = "Agents-Core"
 DESKTOP_SERVER = "Agents-Core-Desktop"  # src/client_paths.py
 DESKTOP_DENY_RULES = tuple(f"mcp__{name}__*" for name in (DESKTOP_SERVER, DESKTOP_SERVER.replace("-", "_")))
@@ -733,8 +735,8 @@ def is_checkout(path: Path) -> bool:
 def local_work(ctx: Context, checkout: Path) -> str | None:
     """Why ``checkout`` may hold someone's work, or None for an install.sh clone.
 
-    install.sh clones main and never commits: uncommitted changes, untracked files Git does not
-    ignore, or a branch besides main mean the directory is a development checkout.
+    install.sh clones a published channel and never commits: uncommitted changes, untracked
+    files Git does not ignore, or a branch besides main and dev mean a development checkout.
     """
     base = ["git", "-C", str(checkout)]
     status = ctx.runner([*base, "status", "--porcelain"])
@@ -743,9 +745,9 @@ def local_work(ctx: Context, checkout: Path) -> str | None:
         return "git could not check it for uncommitted work"
     if status.stdout.strip():
         return "it has uncommitted changes or untracked files"
-    others = sorted(set(branches.stdout.decode("utf-8", "replace").split()) - {"main"})
+    others = sorted(set(branches.stdout.decode("utf-8", "replace").split()) - set(STANDARD_BRANCHES))
     if others:
-        return "it has local branches besides main (" + ", ".join(others[:5]) + ")"
+        return "it has local branches besides main and dev (" + ", ".join(others[:5]) + ")"
     return None
 
 
