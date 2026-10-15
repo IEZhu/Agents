@@ -1,0 +1,35 @@
+{
+  "sourceCommit": "b23f8ad60f39494b8e69ac6b6c6d656b8ede68cc",
+  "baseImage": "debian:trixie-slim",
+  "nodeVersion": "26",
+  "pythonVersion": "3.11",
+  "buildSteps": [
+    "apt-get update && apt-get install -y --no-install-recommends passwd util-linux && rm -rf /var/lib/apt/lists/*",
+    "UV_PYTHON_INSTALL_DIR=/opt/python uv python install 3.11 && UV_PYTHON_INSTALL_DIR=/opt/python UV_PYTHON_PREFERENCE=only-managed uv venv --python 3.11 /opt/agents-venv && UV_NO_CACHE=1 uv pip install --python /opt/agents-venv/bin/python -r requirements.txt && VIRTUAL_ENV=/opt/agents-venv uv pip check",
+    "useradd --create-home --uid 10001 agents && mkdir -p /app/data /home/agents/.cache/fastembed && chown -R agents:agents /app /home/agents",
+    "runuser -u agents -- env PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 AGENTS_AUTO_UPDATE=0 AGENTS_STDIO_STANDALONE=1 AGENTS_DEBUG=0 LANGFUSE_TRACING_ENABLED=false FASTEMBED_CACHE_DIR=/home/agents/.cache/fastembed /opt/agents-venv/bin/python -c 'from src.engine.readiness import run_blocking; run_blocking()'"
+  ],
+  "cmd": [
+    "runuser",
+    "-u",
+    "agents",
+    "--",
+    "env",
+    "PYTHONDONTWRITEBYTECODE=1",
+    "PYTHONUNBUFFERED=1",
+    "AGENTS_AUTO_UPDATE=0",
+    "AGENTS_STDIO_STANDALONE=1",
+    "AGENTS_DEBUG=0",
+    "LANGFUSE_TRACING_ENABLED=false",
+    "FASTEMBED_CACHE_DIR=/home/agents/.cache/fastembed",
+    "/opt/agents-venv/bin/python",
+    "-m",
+    "src.server"
+  ],
+  "environmentVariablesSchema": {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": false
+  },
+  "placeholderParameters": {}
+}
