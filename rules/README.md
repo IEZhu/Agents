@@ -17,6 +17,7 @@ In load order:
 | 15 | `serve-the-request` | [rule-serve-the-request.mdc](rule-serve-the-request.mdc) | The request outranks persona and skill defaults. |
 | 20 | `honest-uncertainty` | [rule-honest-uncertainty.mdc](rule-honest-uncertainty.mdc) | Calibrate confidence on judgment calls. |
 | 30 | `anti-sycophancy` | [rule-anti-sycophancy.mdc](rule-anti-sycophancy.mdc) | Don't agree to agree. Push back on errors. |
+| 40 | `agent-cooperation` | [rule-agent-cooperation.mdc](rule-agent-cooperation.mdc) | Coordinate intersecting agent work within existing authorization. |
 | 90 | `language-match` | [rule-language-match.mdc](rule-language-match.mdc) | Match the language of the last message. |
 | 95 | `answer-timestamp` | [rule-answer-timestamp.mdc](rule-answer-timestamp.mdc) | Start the final answer with the time returned by `log_interaction`. |
 
@@ -61,10 +62,20 @@ input, completion and effort limits, and the exact JSON result contract.
 
 Worker preparation keeps installation-enabled non-presentation universal rules
 but excludes `answer-timestamp` and `language-match`; assignment language and the
-result schema control worker output. Worker scope rules do not depend on those
-presentation rules and are not added as applicability fields to universal files.
+result schema control worker output. It also excludes `agent-cooperation` with
+the selection reason `worker_equivalent`: the mandatory `worker-cooperation`
+rule supplies its task-scoped equivalent, even when conversation rules are off.
+Worker scope rules do not depend on those presentation rules and are not added
+as applicability fields to universal files.
 The worker package supplies the role without a new conversation activation,
 footer, or per-answer log call. Parent logging follows protocol 2 as before.
+
+`agent-cooperation` asks conversations to coordinate intersecting work through
+authorized records/channels. The optional [cooperation service](../docs/agent-cooperation/README.md)
+is disabled by default; the rule grants no permissions, requires no messaging to
+unrelated chats and preserves independent work when coordination is unavailable.
+New activations and explicit refreshes receive changed rules; an existing `keep`
+retains its applied bundle. Exact flow rule selections remain exact.
 
 Edit the worker collection and its focused validation checks when changing the
 worker contract. Do not add worker names to the universal `_EXPECTED_RULE_NAMES`

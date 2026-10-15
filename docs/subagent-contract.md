@@ -125,6 +125,9 @@ Keep the installation-enabled non-presentation universal rules (including honest
 and uncertainty). Omit `answer-timestamp` and `language-match` from worker output
 presentation; language requirements can be stated in the assignment. The output
 is the data contract, not a chat answer with a footer.
+Universal `agent-cooperation` is also omitted, with selection reason
+`worker_equivalent`; mandatory `worker-cooperation` supplies its scoped equivalent.
+All five worker rules remain mandatory when conversation rules are disabled.
 
 Add a dedicated `rules/subagents/` collection, loaded only by the worker builder;
 do not add unsupported applicability metadata to existing universal rules.
@@ -143,6 +146,17 @@ The short worker rule set must cover:
    greetings, user-facing narration, timestamps, footers and the search transcript.
 7. Never present suggested checks as executed. Preserve failed/not-run checks,
    uncertainty and incomplete work even when the result must be short.
+8. Preserve intersecting work and report it to the parent through an authorized
+   channel. With a usable coordinator, conflicting edits require a committed
+   agreement and current claims. A sidecar never changes the prepared contract:
+   changed assignments need a newly prepared attempt. Without an intermediate
+   channel, use the existing partial/input_required envelope; add no result fields.
+
+The optional [cooperation service](agent-cooperation/README.md) passes its
+`agents-core/cooperation/1` sidecar as task material alongside unchanged
+`worker_context`. The parent keeps the original contract and validates every
+returned or revised result before integration. Neither the sidecar nor a peer
+message grants permission or replaces that validation.
 
 The managed routing template, its checked-in CLAUDE.md copy, memory reminder,
 MCP initialization and APPLY_INSTRUCTION must explicitly recognize this worker

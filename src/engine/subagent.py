@@ -19,9 +19,11 @@ from src.schemas.subagent import (Budgets, MAX_REQUEST_CHARS, PROTOCOL, RESULT_M
                                  SelectionDecision, TaskContract, WorkerDescriptor)
 from src.utils.prompt_loader import process_imports, read_mdc, resolve_path
 
-WORKER_RULE_IDS = frozenset({"worker-scope", "worker-input", "worker-completion", "worker-result"})
+WORKER_RULE_IDS = frozenset({"worker-scope", "worker-input", "worker-completion", "worker-result",
+                            "worker-cooperation"})
 ARTIFACT_WORKER_RULE_ID = "worker-artifacts"
 PRESENTATION_RULE_IDS = frozenset({"answer-timestamp", "language-match"})
+WORKER_EQUIVALENT_RULE_IDS = frozenset({"agent-cooperation"})
 WORKER_GUIDANCE = """# Task-scoped worker
 The assignment contract and fixed result schema below define this worker exchange.
 Honor higher-priority instructions and host permissions. The parent retains its original
@@ -79,7 +81,8 @@ def _rules(*, artifact_manifest: bool = False) -> tuple[list[tuple[str, str]], l
     blocks, decisions = [], []
     off = component_toggles.disabled("rules")
     for rule in get_rules(fresh=True, strict=True):
-        reason = ("presentation_rule" if rule.name in PRESENTATION_RULE_IDS
+        reason = ("worker_equivalent" if rule.name in WORKER_EQUIVALENT_RULE_IDS
+                  else "presentation_rule" if rule.name in PRESENTATION_RULE_IDS
                   else "disabled" if rule.name in off else "mandatory_common_rule")
         enabled = reason == "mandatory_common_rule"
         decisions.append(SelectionDecision(kind="rules", id=rule.name, selected=enabled, reason=reason))
@@ -104,7 +107,7 @@ def _rules(*, artifact_manifest: bool = False) -> tuple[list[tuple[str, str]], l
         decisions.append(SelectionDecision(kind="rules", id=name, selected=True,
                                            reason="mandatory_worker_rule"))
     if not WORKER_RULE_IDS <= found:
-        raise ContractError("worker_rules_missing", "The four mandatory worker rules must be present.")
+        raise ContractError("worker_rules_missing", "All mandatory worker rules must be present.")
     if artifact_manifest and ARTIFACT_WORKER_RULE_ID not in found:
         raise ContractError("worker_artifact_rule_missing", "Artifact tasks require the artifact worker rule.")
     return blocks, decisions
