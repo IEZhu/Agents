@@ -79,7 +79,7 @@ from src.daemon.state import private_dir, read_json
 
 from . import broker as broker_module
 from . import candidates as candidate_data
-from . import codex_probes, codex_proxy, codex_sandbox, decoys, drift, heavy, integrity, preconditions, probes
+from . import automatic, codex_probes, codex_proxy, codex_sandbox, decoys, drift, heavy, integrity, preconditions, probes
 from . import records, repos, run_state, runner, sandbox, scan, socket_service, stages, workers
 from . import paths as path_check
 from . import report as run_report
@@ -603,6 +603,14 @@ class Sequence:
                     return outcome
                 profile = stages.stage_profile(kind, self.config, codex_unavailable=record["fallback_reason"])
                 record.update(client="claude", fallback_reason=profile["fallback_reason"])
+            if profile["requested"] == "codex" and self.mode in runner.REAL_MODES \
+                    and self.trigger in runner.SCHEDULED_TRIGGERS:
+                # Readiness may have exempted this kind while stored Codex availability passed.
+                missing, _ = automatic.probe_records(self.ctx.directory, [kind], self.ctx.clock())
+                if missing:
+                    reason = "automatic Claude fallback not ready: " + "; ".join(missing)
+                    self.stage_record(kind, {**record, "status": "refused", "reason": reason, "missing": missing})
+                    raise refused(reason, missing=missing)
             return self._claude_stage(kind, profile, layout, session, values, stream_dir, record,
                                       issue=issue, candidates=candidates, run_branch=run_branch)
         finally:
