@@ -297,9 +297,11 @@ refuses it otherwise ("the pre-mortem needs a clean validated review").
 
 ## Result
 
-The stage's output schema. The runner imports the final bundle, re-checks
-`head_sha` in its trusted repository against the last validated review, and
-passes `branch` and `pr_sections` to the submit stage.
+The stage's output schema. The runner imports the final bundle. With
+`blocked: false` it re-checks `head_sha` in its trusted repository against the
+last validated review and passes `branch` and `pr_sections` to the submit
+stage. With `blocked: true` it skips that check, keeps the bundle in a local
+quarantine ref for the owner and starts no submit stage (step 6).
 
 ```json
 {
@@ -381,6 +383,9 @@ passes `branch` and `pr_sections` to the submit stage.
 
 ## Done
 
-The branch holds the slice, the final head is covered by an accepted review or
-verification and handed over, and the structured output matches the schema.
+With `blocked: false`, the branch holds the slice and its final head is covered
+by an accepted review or verification. With `blocked: true`, the blockers are
+listed and the commits made so far, if any, are handed over without a review.
+In both cases the bundle was handed over and the structured output matches the
+schema.
 Nothing was pushed and nothing was written to GitHub.
