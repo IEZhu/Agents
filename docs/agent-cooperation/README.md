@@ -16,6 +16,9 @@ The service reserves metadata and stores addressed messages for authenticated re
 | `cooperation_send` | Persist an authenticated message addressed to a participant in the same repository |
 | `cooperation_receive` | Poll only the authenticated participant's inbox, without consuming messages |
 | `cooperation_ack` | Record receipt of selected inbox messages; does not acknowledge agreement terms or accept artifacts |
+| `cooperation_wait` | Await private durable mailbox events with a separate resumable cursor and a bounded asynchronous wait |
+| `cooperation_request_status` | Read a sent or received request's delivery, processing state, revision, deadline and response reference |
+| `cooperation_request_update` | Record recipient processing or sender cancellation with a request revision and durable idempotency receipt |
 | `agents-core://cooperation/schema` | Read-only MCP resource containing the exact closed request, action, event and response JSON Schemas |
 
 Every tool accepts `request` (an object or raw JSON string) and optional `workspace`. Read the schema resource before constructing actions; [schemas.json](schemas.json) is its reproducible source export. Raw JSON rejects duplicate keys, nonfinite values and unknown fields. Inputs/events are limited to 32 KiB, text fields to 4,000 characters, scope/dependency/evidence lists to 50 and agreements to eight parties.
@@ -25,6 +28,8 @@ The typical sequence is registration, intent/discovery, message exchange, propos
 Use `communication_mode="mcp"` (the default) for direct mailbox participation; `native`, `parent_relay` and `checkpoint` remain available. Send a bounded request, let the recipient poll and acknowledge delivery, then reply with `reply_to` naming that message. Neither a received request nor an acknowledgement grants permission or transfers claims. See the [mailbox workflow](runtime.md#mailbox-workflow) for credentials, retries, cursors and limits. Provider independence describes the shared transport and schema; no cross-provider model trial or live deployment was performed.
 
 See [runtime operations](runtime.md) for configuration, access, priority, retention and recovery. The runnable examples are the isolated [MCP tests](../../tests/test_cooperation_mcp.py), [mailbox tests](../../tests/test_cooperation_mailbox.py) and [service tests](../../tests/test_cooperation_service.py). The historical [examples.json](examples.json) remains a design artifact, not a current request fixture.
+
+For notifications and processing outcomes, see [request tracking and event waits](runtime.md#request-tracking-and-event-waits). Notification delivery completes an active wait; it does not launch an idle model. A request marked completed remains subject to the parent's original contract validation and evidence checks.
 
 ## Ownership and recovery
 

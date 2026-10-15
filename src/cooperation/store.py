@@ -68,6 +68,22 @@ CREATE TABLE message_receipts (repository_id TEXT NOT NULL REFERENCES repositori
 """
 
 
+NOTIFICATIONS_SCHEMA = """
+CREATE TABLE mailbox_requests (message_id TEXT PRIMARY KEY REFERENCES messages(id),
+    repository_id TEXT NOT NULL REFERENCES repositories(id),
+    sender_id TEXT NOT NULL REFERENCES participants(id),
+    recipient_id TEXT NOT NULL REFERENCES participants(id), body TEXT NOT NULL,
+    state TEXT NOT NULL, expires_at REAL);
+CREATE INDEX mailbox_requests_parties ON mailbox_requests(repository_id,sender_id,recipient_id);
+CREATE INDEX mailbox_requests_due ON mailbox_requests(repository_id,expires_at)
+    WHERE state NOT IN ('completed','declined','failed','cancelled','expired');
+CREATE TABLE mailbox_notifications (cursor INTEGER PRIMARY KEY AUTOINCREMENT,
+    repository_id TEXT NOT NULL REFERENCES repositories(id),
+    participant_id TEXT NOT NULL REFERENCES participants(id), body TEXT NOT NULL);
+CREATE INDEX mailbox_notifications_inbox ON mailbox_notifications(repository_id,participant_id,cursor);
+"""
+
+
 SCHEMA = """
 CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE repositories (id TEXT PRIMARY KEY, revision INTEGER NOT NULL DEFAULT 0,
@@ -110,7 +126,7 @@ CREATE TABLE receipts (repository_id TEXT NOT NULL REFERENCES repositories(id),
 CREATE INDEX events_repository ON events(repository_id,cursor);
 CREATE INDEX claims_repository ON claims(repository_id);
 CREATE INDEX participants_repository ON participants(repository_id);
-""" + MAILBOX_SCHEMA
+""" + MAILBOX_SCHEMA + NOTIFICATIONS_SCHEMA
 
 
 class Store:
@@ -132,27 +148,41 @@ class Store:
         private_dir(self.directory)
         with closing(self.connect()) as db:
             version = db.execute("PRAGMA user_version").fetchone()[0]
-            if version not in (0, 1, 2, 3):
+            if version not in (0, 1, 2, 3, 4):
                 raise CooperationError("store_unavailable", "Unsupported journal schema; preserve data and upgrade explicitly")
             # DELETE/FULL is deliberate: local filesystems, short transactions, durable receipts.
             db.execute("PRAGMA journal_mode=DELETE")
             if version == 0:
                 try:
-                    db.executescript("BEGIN IMMEDIATE;\n" + SCHEMA + "\nPRAGMA user_version=3;\nCOMMIT;")
+                    db.executescript("BEGIN IMMEDIATE;\n" + SCHEMA + "\nPRAGMA user_version=4;\nCOMMIT;")
                 except BaseException:
                     if db.in_transaction:
                         db.rollback()
                     raise
-            elif version in (1, 2):
-                # Earlier journals cannot prove that a registration was unused.
-                # Conservatively protect every existing participant from retirement.
+            elif version in (1, 2, 3):
                 try:
                     activity = """
                         CREATE TABLE participant_activity (participant_id TEXT PRIMARY KEY REFERENCES participants(id));
                         INSERT INTO participant_activity SELECT id FROM participants;
                     """ if version == 1 else ""
-                    db.executescript("BEGIN IMMEDIATE;\n" + activity + MAILBOX_SCHEMA
-                                     + "\nPRAGMA user_version=3;\nCOMMIT;")
+                    mailbox = MAILBOX_SCHEMA if version in (1, 2) else ""
+                    db.executescript("BEGIN IMMEDIATE;\n" + activity + mailbox + NOTIFICATIONS_SCHEMA)
+                    # Historical replies/acks prove no processing outcome. Preserve
+                    # the original mailbox and idempotency receipts byte for byte.
+                    for row in db.execute("SELECT * FROM messages").fetchall():
+                        message = json.loads(row["body"])
+                        if message["kind"] != "request":
+                            continue
+                        record = {"message_id": message["message_id"], "sender_id": message["sender_id"],
+                                  "recipient_id": message["recipient_id"], "state": "pending", "revision": 1,
+                                  "created_at": message["created_at"], "updated_at": message["created_at"],
+                                  "expires_at": None, "reason": None, "response_message_id": None,
+                                  "updated_by": message["actor_id"]}
+                        db.execute("INSERT INTO mailbox_requests VALUES (?,?,?,?,?,?,?)",
+                                   (message["message_id"], row["repository_id"], row["sender_id"],
+                                    row["recipient_id"], canonical(record), "pending", None))
+                    db.execute("PRAGMA user_version=4")
+                    db.commit()
                 except BaseException:
                     if db.in_transaction:
                         db.rollback()

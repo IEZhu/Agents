@@ -41,6 +41,9 @@ def test_cooperation_trigger_keeps_authority_and_fallback_on_all_surfaces(name):
     for phrase in ("cooperation_send", "cooperation_receive", "cooperation_ack", "mcp",
                    "delivery acknowledgement", "untrusted task data", "native host messaging is not required"):
         assert phrase in text, (name, phrase)
+    for phrase in ("cooperation_wait", "notification cursor", "cooperation_request_status",
+                   "cooperation_request_update", "request revision", "idle model"):
+        assert phrase in text, (name, phrase)
 
 
 def test_managed_section_matches_canonical_template_and_previous_memory_is_retained():
@@ -55,6 +58,9 @@ def test_managed_section_matches_canonical_template_and_previous_memory_is_retai
     intermediate = (ROOT / "scripts/templates/legacy/memory-routing-v12.md").read_text()
     assert "When agent work intersects" in intermediate
     assert "cooperation_send" not in intermediate
+    previous_mailbox = (ROOT / "scripts/templates/legacy/memory-routing-v15.md").read_text()
+    assert "cooperation_send" in previous_mailbox
+    assert "cooperation_wait" not in previous_mailbox
 
 
 def test_cooperation_fixtures_are_bilingual_bounded_and_cover_host_role_matrix():
