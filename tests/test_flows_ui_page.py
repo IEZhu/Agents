@@ -572,6 +572,13 @@ def test_user_rule_toggle_uses_displayed_revision_and_reloads_a_conflict():
     assert result["retry"] == {"puts": [first, {**first, "expected_revision": "r2"}], "enabled": True}
 
 
+def test_damaged_user_rule_is_visible_but_cannot_be_toggled():
+    result = run("ui_user_rule_error")
+    assert result["damaged"] == {"disabled": True, "writes": [], "body": "",
+                                  "description": "rule_invalid: corrupt subscription"}
+    assert result["recovered"] == {"disabled": False, "body": "Repaired guidance"}
+
+
 @pytest.mark.parametrize("scenario, first_hidden, after_header_button, stored", [
     ("ui_narrow", True, False, [["agents-ui-toc-hidden", "0"]]),
     ("ui_narrow_stored", False, True, [["agents-ui-toc-hidden", "1"]]),

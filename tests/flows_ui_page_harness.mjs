@@ -149,7 +149,7 @@ const VERSIONS = {
                { version: "git-" + "a".repeat(40), revision_prefix: "aaaaaaaaaaaa", deleted: false, time: "2026-10-01T10:00:00+00:00" }],
 };
 function uiData(path, init) {
-  if (scenario === "ui_user_rule_toggle") {
+  if (["ui_user_rule_toggle", "ui_user_rule_error"].includes(scenario)) {
     if (path.startsWith("/ui/api/components")) return [200, { items: [{ ...userRuleToggle }] }];
     if (path === "/ui/api/component" && init.method === "PUT") {
       const body = JSON.parse(init.body);
@@ -790,6 +790,21 @@ if (scenario === "render") {
 
 if (isUi) {
   const out = {};
+  if (scenario === "ui_user_rule_error") {
+    userRuleToggle = { id: "user:team", description: "Unavailable cached user rule", declared_by: [], body: "",
+                       enabled: null, revision: null, status: "error", error: "rule_invalid: corrupt subscription" };
+    await openTab("rules");
+    await open(0);
+    await vm.runInContext("toggleItem()", context);
+    out.damaged = { disabled: byId("c-toggle").disabled, writes: [...puts],
+                    description: byId("c-description").textContent, body: byId("c-body").value };
+    userRuleToggle = { id: "user:team", description: "Team rule", declared_by: [], body: "Repaired guidance",
+                       enabled: true, revision: "r2" };
+    await vm.runInContext("loadComponents('rules', 'user:team')", context);
+    out.recovered = { disabled: byId("c-toggle").disabled, body: byId("c-body").value };
+    console.log(JSON.stringify(out));
+    process.exit(0);
+  }
   if (scenario === "ui_user_rule_toggle") {
     await openTab("rules");
     await open(0);

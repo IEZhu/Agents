@@ -81,6 +81,10 @@ def list_components(kind: str) -> list[dict]:
                 for rule in load_all_rules()]
         from src.user_rules import RuleLibrary
         for rule in RuleLibrary().list():
+            if rule.get("status") == "error":
+                items.append({**rule, "description": "Unavailable cached user rule", "body": "",
+                              "short_name": "", "declared_by": [], "source": "user"})
+                continue
             items.append({
                 **{key: rule[key] for key in ("id", "description", "body", "enabled",
                                                "category", "priority", "url", "revision",
@@ -95,7 +99,7 @@ def list_components(kind: str) -> list[dict]:
 
 
 def known_ids(kind: str) -> set[str]:
-    return {item["id"] for item in list_components(kind)}
+    return {item["id"] for item in list_components(kind) if item.get("status") != "error"}
 
 
 def _text(value) -> str:

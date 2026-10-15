@@ -97,6 +97,29 @@ refresh, rollback and deletion use the MCP operations above. A switch checks the
 revision of the displayed rule; a concurrent refresh or switch returns a conflict
 and reloads the current content for inspection before another attempt.
 
+### Damaged local snapshots
+
+Listing remains available when one local subscription is damaged. `list_user_rules`
+and the Rules tab show an explicit error entry; `get_user_rule` returns a diagnostic
+for a damaged regular subscription file. A diagnostic contains no accepted body.
+It includes the enabled state, revision and retained hashes only when the stored
+envelope is valid; unknown enabled state or revision is `null`. Error entries cannot
+be selected for a flow or toggled through the Rules tab.
+
+Default activation and worker preparation fail closed for damaged enabled guidance
+or an unreadable envelope whose enabled state is unknown. They never silently drop
+an owner restriction. A valid envelope with `enabled: false` does not require its
+inactive payload to parse. Explicit named selections stay strict. Noncanonical
+filenames cannot be subscriptions; enumeration ignores them for delivery, logs a
+content-free warning and lists a management diagnostic with the filename.
+
+When the envelope is intact, use the diagnostic revision to explicitly delete the
+subscription or roll back to a retained valid hash. Rollback verifies the selected
+snapshot and preserves the enabled flag; stale revisions remain conflicts. A bad
+envelope, invalid revision, or symlink requires the owner to inspect and quarantine
+or remove that file in the machine-local store. No recovery operation automatically
+disables, deletes or substitutes required guidance.
+
 ## Storage, authentication and private hosts
 
 The default store is `data/user-rules` under the installation's data directory.

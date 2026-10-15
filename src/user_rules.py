@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import re
 import uuid
@@ -26,7 +27,11 @@ MAX_HISTORY = 20
 MAX_SUBSCRIPTIONS = 32
 MAX_STATE_BYTES = 4 * 1024 * 1024
 _NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,79}")
-_IMPORT = re.compile(r"@[^\s`]+\.mdc\b", re.IGNORECASE)
+# Stop at another marker so repeated @ characters cannot rescan the same suffix.
+_IMPORT = re.compile(r"@[^@\s`]*\.mdc\b", re.IGNORECASE)
+_REVISION = re.compile(r"[0-9a-f]{32}")
+_SHA256 = re.compile(r"[0-9a-f]{64}")
+_LOG = logging.getLogger(__name__)
 
 
 class UserRuleError(ValueError):
@@ -103,7 +108,7 @@ class RuleLibrary:
             raise UserRuleError("rule_invalid: subscription must not be a symlink")
         return path
 
-    def _read(self, rule_id: str) -> dict:
+    def _read(self, rule_id: str, *, validate_current: bool = True) -> dict:
         path = self._path(rule_id)
         try:
             with path.open("rb") as stream:
@@ -111,21 +116,33 @@ class RuleLibrary:
             if len(raw) > MAX_STATE_BYTES:
                 raise ValueError("too large")
             state = json.loads(raw)
-            if (state["format"] != 1 or state["id"] != rule_id or type(state["enabled"]) is not bool
-                    or not isinstance(state["revision"], str) or not isinstance(state["url"], str)
+            if (type(state["format"]) is not int or state["format"] != 1 or state["id"] != rule_id
+                    or type(state["enabled"]) is not bool
+                    or not isinstance(state["revision"], str) or not _REVISION.fullmatch(state["revision"])
+                    or not isinstance(state["url"], str)
+                    or not isinstance(state["content_sha256"], str) or not _SHA256.fullmatch(state["content_sha256"])
                     or not isinstance(state["history"], list) or not 1 <= len(state["history"]) <= MAX_HISTORY):
                 raise ValueError("bad state")
-            self._current(state)
+            if any(not isinstance(item, dict) or not isinstance(item.get("sha256"), str)
+                   or not _SHA256.fullmatch(item["sha256"]) or not isinstance(item.get("accepted_at"), str)
+                   or "content" not in item for item in state["history"]):
+                raise ValueError("bad history envelope")
+            if validate_current:
+                self._current(state)
             return state
         except FileNotFoundError:
             raise UserRuleError(f"rule_not_found: {rule_id}") from None
-        except (KeyError, TypeError, ValueError, UnicodeError, StopIteration):
+        except (OSError, KeyError, TypeError, ValueError, UnicodeError, StopIteration):
             raise UserRuleError(f"rule_invalid: corrupt subscription {rule_id}") from None
 
     def _current(self, state: dict) -> dict:
-        snapshot = next(item for item in state["history"] if item["sha256"] == state["content_sha256"])
-        if _digest(snapshot["content"]) != snapshot["sha256"] or parse_rule(snapshot["content"]).name != state["id"]:
-            raise UserRuleError("rule_invalid: snapshot integrity check failed")
+        try:
+            snapshot = next(item for item in state["history"] if item["sha256"] == state["content_sha256"])
+            if (not isinstance(snapshot["content"], str) or _digest(snapshot["content"]) != snapshot["sha256"]
+                    or parse_rule(snapshot["content"]).name != state["id"]):
+                raise ValueError("invalid snapshot")
+        except (KeyError, TypeError, ValueError, StopIteration):
+            raise UserRuleError("rule_invalid: corrupt subscription snapshot integrity check failed") from None
         return snapshot
 
     def _metadata(self, state: dict, *, full: bool = False) -> dict:
@@ -143,11 +160,51 @@ class RuleLibrary:
         return result
 
     def list(self) -> list[dict]:
-        return [self._metadata(self._read(f"user:{path.stem}"))
-                for path in sorted(self.root.glob("*.json"))]
+        result = []
+        for path in sorted(self.root.glob("*.json")):
+            if not _NAME.fullmatch(path.stem):
+                fingerprint = hashlib.sha256(os.fsencode(path.name)).hexdigest()
+                _LOG.warning("Ignoring noncanonical user-rule filename sha256=%s", fingerprint)
+                result.append({"id": "invalid-file:" + fingerprint, "file_name": path.name,
+                               "status": "error", "error": "rule_invalid: noncanonical subscription filename",
+                               "enabled": None, "revision": None})
+                continue
+            rule_id = f"user:{path.stem}"
+            try:
+                result.append(self._entry(rule_id))
+            except UserRuleError as error:
+                # A concurrent explicit deletion need not leave a phantom error row.
+                if str(error).startswith("rule_not_found:"):
+                    continue
+                raise
+        return result
+
+    def _entry(self, rule_id: str, *, full: bool = False) -> dict:
+        try:
+            state = self._read(rule_id, validate_current=False)
+        except UserRuleError as error:
+            if str(error).startswith("rule_not_found:"):
+                raise
+            return self._diagnostic(rule_id, error)
+        try:
+            return self._metadata(state, full=full)
+        except UserRuleError as error:
+            return self._diagnostic(rule_id, error, state)
+
+    def _diagnostic(self, rule_id: str, error: UserRuleError, state: dict | None = None) -> dict:
+        result = {"id": rule_id, "status": "error", "error": str(error),
+                  "enabled": None, "revision": None}
+        _LOG.warning("Unavailable user rule %s: %s", rule_id, error)
+        if state is None:
+            return result
+        result.update({key: state[key] for key in ("enabled", "revision", "url", "content_sha256")})
+        result["history"] = [{"sha256": item["sha256"], "accepted_at": item["accepted_at"]}
+                             for item in state["history"]]
+        return result
 
     def get(self, rule_id: str) -> dict:
-        return self._metadata(self._read(rule_id), full=True)
+        self._path(rule_id)  # Invalid IDs and symlinks remain refusals, not usable diagnostics.
+        return self._entry(rule_id, full=True)
 
     def rules(self, names: set[str] | None = None) -> list:
         if names is not None:
@@ -155,7 +212,14 @@ class RuleLibrary:
             if any(not state["enabled"] for state in states):
                 raise UserRuleError("rule_disabled: enable the selected user rule before using it")
         else:
-            states = [self._read(f"user:{path.stem}") for path in sorted(self.root.glob("*.json"))]
+            states = []
+            for path in sorted(self.root.glob("*.json")):
+                if not _NAME.fullmatch(path.stem):
+                    _LOG.warning("Ignoring noncanonical user-rule filename sha256=%s",
+                                 hashlib.sha256(os.fsencode(path.name)).hexdigest())
+                    continue
+                # Only a valid envelope can establish that guidance is switched off.
+                states.append(self._read(f"user:{path.stem}", validate_current=False))
         rules = [parse_rule(self._current(state)["content"]) for state in states if state["enabled"]]
         return sorted(rules, key=lambda rule: (rule.priority, rule.name))
 
@@ -225,7 +289,7 @@ class RuleLibrary:
 
     def rollback(self, rule_id: str, content_sha256: str, expected_revision: str) -> dict:
         with file_lock(self.root / ".lock"):
-            state = self._read(rule_id)
+            state = self._read(rule_id, validate_current=False)
             self._check_revision(state, expected_revision)
             if not any(item["sha256"] == content_sha256 for item in state["history"]):
                 raise UserRuleError("rule_version_not_found: hash is not in retained history")
@@ -236,7 +300,7 @@ class RuleLibrary:
 
     def delete(self, rule_id: str, expected_revision: str) -> dict:
         with file_lock(self.root / ".lock"):
-            state = self._read(rule_id)
+            state = self._read(rule_id, validate_current=False)
             self._check_revision(state, expected_revision)
             self._path(rule_id).unlink()
         return {"status": "deleted", "id": rule_id}
