@@ -4,6 +4,18 @@ The mailbox extension has its own verification record below. The separate histor
 
 Implementation baseline: `d7e34eb10cb2ab9f593ebf782a4538f677484493` (`origin/dev`). All 19 SHA-256 source fingerprints in the research manifest matched before edits. Work was performed only in the separate `codex/agent-cooperation-runtime` worktree. The live installation remained clean; no rollout, publication, paid/model evaluation or unrelated chat message was performed.
 
+## Notifications and request-tracking checks
+
+The notification extension adds a schema-4 private event journal, bounded asynchronous waits and explicit processing states separate from delivery. The final focused command used the existing installation interpreter from the isolated implementation worktree: `LANGFUSE_TRACING_ENABLED=false python -m pytest tests/test_cooperation_requests.py tests/test_cooperation_notifications.py tests/test_cooperation_mailbox.py tests/test_cooperation_models.py tests/test_cooperation_instructions.py tests/test_subagent_combined_budget.py -q`. It passed **184 tests in 28.90 seconds**, exit 0.
+
+The new tests cover request/ACK separation, explicit response binding, allowed transitions, stale and competing revisions, terminal outcomes, deadline equality, durable replay, legacy receipt fingerprints, schema-3 backfill, foreign capabilities/repositories, direct-child relay, private pagination, multiple listeners, the empty-read/wait boundary, deadline-only wakeups, cancellation, restart, shutdown and projection rollback. The independent prepared review identified one lifecycle race after dispatching a scan. Both deterministic restart variants failed before the correction and passed afterward; old waits now recheck the captured epoch and service state before returning success.
+
+After that correction, the initialized two-client MCP request/reply/ack test plus `test_tool_annotations.py` passed **4 tests in 15.22 seconds**, exit 0. The MCP test discovers the new tools, starts an event wait, sends and accepts a request, binds a response to completion, acknowledges delivery and inspects the separate final processing/delivery state through real SDK transports and an isolated ASGI authority.
+
+The shared-instruction/migration selection completed with 218 passing and 45 skipped tests, plus two worker-budget failures subsequently corrected. The final budget/instruction run passed all 15 tests. The artifact-backed software-engineer review package used 15,986 Unicode characters against the unchanged 16,000-character default; this is a character measurement, not a token or model-quality claim. The previous mailbox-only size report below remains historical. Local-link inspection checked 245 targets with no broken paths.
+
+An expanded selection was deliberately interrupted after **595 passed and 12 skipped**, with no failures reported before interruption, because other heavy Python work was running on the shared machine. It is not a completed-suite result. No full regular suite, live rollout, daemon restart, idle-model wakeup or cross-provider model trial was performed. Notification waits complete active MCP calls; host-model wakeup remains an adapter boundary.
+
 ## Mailbox implementation checks
 
 | Check | Actual result |
