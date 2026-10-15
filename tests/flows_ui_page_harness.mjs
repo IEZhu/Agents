@@ -1781,6 +1781,11 @@ if (isAutodev) {
   const openChip = async () => { fire(byId("autodev-chip"), "click"); await sleep(40); };
   const gets = () => autodevCalls.filter(([method]) => method === "GET").length;
   const puts = () => autodevCalls.filter(([method]) => method === "PUT");
+  const unloadBlocked = () => {
+    let blocked = false;
+    for (const handler of windowHandlers.beforeunload || []) handler({ preventDefault() { blocked = true; } });
+    return blocked;
+  };
   const done = () => { console.log(JSON.stringify(out)); process.exit(0); };
 
   if (scenario === "autodev_link") {  // /ui#autodev opens the page and clears the hash
@@ -1838,6 +1843,73 @@ if (isAutodev) {
     await click("ad-save");
     const put = puts().at(-1)[2].settings;
     out.saved = { select: put.stages.select.claude, review: put.delegates["code-review-pass"], alert: alert().text };
+    done();
+  }
+
+  if (scenario === "autodev_save_edits") {
+    // A held PUT stores the submitted snapshot; text and select edits made while it answers stay unsaved.
+    await setValue("ad-catch-up", "55");
+    const releasePut = holdAutodev("PUT /ui/api/autodev");
+    await click("ad-save");
+    const savedAt = autodevState.revision;
+    await setValue("ad-catch-up", "66");
+    await setValue("ad-code-review-pass-followup", "low");
+    // Reopening while the save is pending must not start a read that can overwrite its revision.
+    await openChip();
+    await openChip();
+    out.pending = { gets: gets(), catch_up: value("ad-catch-up"), followup: value("ad-code-review-pass-followup"),
+                    submitted: puts().at(-1)[2].settings.catch_up_minutes, stored: autodevState.settings.catch_up_minutes };
+    releasePut();
+    await sleep(40);
+    out.saved = { catch_up: value("ad-catch-up"), followup: value("ad-code-review-pass-followup"),
+                  alert: alert(), unload_blocked: unloadBlocked(), saved_at: savedAt };
+    // Later reads keep the unsaved form; Reload still asks before discarding it.
+    await openChip();
+    await openChip();
+    confirmAnswer = false;
+    await click("ad-reload");
+    out.kept = { catch_up: value("ad-catch-up"), followup: value("ad-code-review-pass-followup"),
+                 gets: gets(), confirms: confirms.slice(), unload_blocked: unloadBlocked() };
+    await click("ad-save");
+    out.resaved = { put: puts().at(-1)[2], alert: alert().text, unload_blocked: unloadBlocked() };
+
+    // A held refusal keeps later corrections and the revision of the last successful save.
+    const readAt = autodevState.revision;
+    await setValue("ad-times", "25:00");
+    const releaseError = holdAutodev("PUT /ui/api/autodev");
+    await click("ad-save");
+    await setValue("ad-times", "04:00");
+    await setValue("ad-catch-up", "77");
+    await openChip();
+    await openChip();
+    releaseError();
+    await sleep(40);
+    out.refused = { times: value("ad-times"), catch_up: value("ad-catch-up"), alert: alert(),
+                    gets: gets(), unload_blocked: unloadBlocked(), read_at: readAt, stored_at: autodevState.revision };
+    await click("ad-save");
+    out.corrected = { put: puts().at(-1)[2], alert: alert().text, unload_blocked: unloadBlocked() };
+    done();
+  }
+
+  if (scenario === "autodev_save_writer") {
+    await setValue("ad-catch-up", "55");
+    const releasePut = holdAutodev("PUT /ui/api/autodev");
+    await click("ad-save");
+    const savedAt = autodevState.revision;
+    await setValue("ad-catch-up", "66");
+    // Another writer changes an untouched field after the first write. The PUT response
+    // describes that first write, so the retained form must keep its older revision.
+    autodevState.settings = { ...autodevState.settings, allowed_hours: "07:00-20:00" };
+    autodevState.revision = "external-writer";
+    releasePut();
+    await sleep(40);
+    out.saved = { catch_up: value("ad-catch-up"), hours: value("ad-hours"), saved_at: savedAt,
+                  unload_blocked: unloadBlocked(), alert: alert() };
+    await click("ad-save");
+    out.refused = { put: puts().at(-1)[2], catch_up: value("ad-catch-up"), hours: value("ad-hours"),
+                    stored_catch_up: autodevState.settings.catch_up_minutes,
+                    stored_hours: autodevState.settings.allowed_hours, stored_at: autodevState.revision,
+                    unload_blocked: unloadBlocked(), alert: alert() };
     done();
   }
 
