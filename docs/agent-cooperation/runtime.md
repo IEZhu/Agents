@@ -55,7 +55,7 @@ Mailbox calls do not require a journal revision or participant generation and do
 | `heartbeat` | Current actor/generation; reports overdue checkpoints without stealing ownership or extending the bounded work unit |
 | `checkpoint` | Immutable new checkpoint ID, producer-bound artifact revisions/digests, actual checks and limitations; release readiness is explicit |
 | `release` | Current release-ready checkpoint and exact claim revisions; a previous work unit's checkpoint cannot release a new unit |
-| `handoff` | Old owner release-ready checkpoint already accepted by the new owner, exact owner/digest and claim revisions, ready destination and atomic transfer |
+| `handoff` | Current task/generation bindings for every required agreement participant, old owner release-ready checkpoint accepted by the new owner, exact owner/digest and claim revisions, ready destination and atomic transfer |
 | `accept_artifact` | Exact producer task/attempt, artifact digest/head, consumer binding and passing consumer checks; changed artifacts invalidate old acceptance |
 | `cancel` | Acts only on the subject's task or nonterminal cooperation agreement; an original receipt still replays, while a new cancellation cannot overwrite a terminal outcome; held claims remain quarantined pending stopped-execution reconciliation |
 | `recover` | Current service epoch, valid owner/registered parent, previous generation, execution evidence, inspected checkpoint and complete claim set |
