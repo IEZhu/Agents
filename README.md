@@ -681,6 +681,9 @@ The server exposes MCP tools that any compatible client can call:
 | `cooperation_send(...)` | Persist a bounded message for a participant in the same repository through the shared MCP mailbox |
 | `cooperation_receive(...)` | Poll the authenticated participant's inbox; messages remain pending until acknowledged |
 | `cooperation_ack(...)` | Acknowledge inbox delivery only; does not accept agreement terms, artifacts or new permissions |
+| `cooperation_wait(...)` | Await private durable mailbox events for up to 30 seconds, or poll with timeout zero; resume with the notification cursor |
+| `cooperation_request_status(...)` | Inspect one sent or received request's delivery, processing state, revision and deadline |
+| `cooperation_request_update(...)` | Report processing or sender cancellation with a request revision and idempotent operation ID |
 | `load_implants(query\|task_type)` | Load cognitive reasoning strategies by semantic query or preset bundle |
 | `list_agents()` | Enumerate all available agents with metadata |
 | `list_flows(scope="all")` | Discover built-in, personal (`user:`) and repository (`repo:`) Markdown workflows, with IDs and content revisions |
@@ -711,7 +714,7 @@ independently of Redis; manifest expiry/release ends access without deleting
 bytes. See [persistent shared artifacts](docs/shared-artifacts.md) for workspace
 capture boundaries, quotas and the complete workflow.
 
-The optional [cooperation runtime](docs/agent-cooperation/README.md) is disabled by default. Its mailbox lets different AI MCP clients and model providers exchange messages through the same enabled installed HTTP daemon, including clients using the existing stdio bridge; it needs no native host messaging tool. Standalone stdio has no coordinator. Delivery is recipient polling, with no automatic model launch or wakeup. This source implementation has not been enabled in the live installation or evaluated with different provider models.
+The optional [cooperation runtime](docs/agent-cooperation/README.md) is disabled by default. Its mailbox lets different AI MCP clients and model providers exchange messages through the same enabled installed HTTP daemon, including clients using the existing stdio bridge; it needs no native host messaging tool. Standalone stdio has no coordinator. Clients can await private durable events with `cooperation_wait`, then read and acknowledge messages. Request processing and delivery have separate states. Waiting completes an active call; automatic launch or wakeup of an idle model requires a host adapter. This source implementation has not been enabled in the live installation or evaluated with different provider models.
 
 The server also registers MCP prompts (slash commands): `ask` routes like
 `route_and_load`; one prompt per agent `routing.trigger_command` and per
