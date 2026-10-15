@@ -583,13 +583,26 @@ class LocalInferenceService:
         except Exception:
             error = self._error(job, "backend_protocol_error")
         finally:
+            # Preserve uncertainty before cleanup cancellation changes task state.
+            interrupted = not pipeline.done() or pipeline.cancelled()
             cancelled.cancel()
             if not pipeline.done():
                 pipeline.cancel()
+        await self._settle(cancelled, self.config.shutdown_grace_seconds)
+        if error is None:
+            # Settling the watcher yields after the pipeline's final check. A
+            # concurrent revocation must still suppress terminal publication.
+            try:
+                self._authorize_active(record, grant, job)
+            except LocalInferenceError as failure:
+                failure.generation_dispatched = job.dispatched
+                error = failure
         if error is not None:
-            # Active errors may leave native evaluation running despite HTTP cancellation.
+            # Completed preflight refusals leave resident state valid. Fence only
+            # dispatched or interrupted work whose native outcome is uncertain.
             job.cancel_event.set()
-            await self._fence()
+            if job.dispatched or interrupted:
+                await self._fence()
             if not await self._settle(pipeline, self.config.shutdown_grace_seconds):
                 self._unavailable = True
             elif not pipeline.cancelled():
@@ -601,7 +614,6 @@ class LocalInferenceService:
             terminal = "cancelled" if error.code == "cancelled" else "failed"
         else:
             envelope, terminal = success(data), "succeeded"
-        await self._settle(cancelled, self.config.shutdown_grace_seconds)
         spans["total"] = max(0, self.clock() - job.accepted_at) * 1000
         self.registry.finish_job(job, envelope, terminal)
         setattr(self.metrics, terminal, getattr(self.metrics, terminal) + 1)

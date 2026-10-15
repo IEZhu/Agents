@@ -131,3 +131,26 @@ async def test_returned_sdk_terminal_data_cannot_mutate_retained_result(tmp_path
         assert len(backend.calls) == 1
     finally:
         await service.close()
+
+
+@pytest.mark.asyncio
+async def test_completed_preflight_refusal_preserves_other_resident_work(tmp_path):
+    service, backend, client, context = await make(tmp_path, context_tokens=2048)
+    try:
+        first = (await service.call("local_generate", client, arguments(context, task="small task A")))["data"]
+        warm = (await poll(service, client, context, first))["data"]["result"]
+        assert warm["status"] == "ok"
+        resident, epoch = service._resident, backend.info.epoch
+        too_large = (await service.call("local_generate", client, arguments(context, task="x" * 3000)))["data"]
+        terminal = (await poll(service, client, context, too_large))["data"]["result"]
+        assert terminal["error"]["code"] == "context_overflow"
+        assert terminal["consumed_budget"] == {"model_requests": 0, "output_tokens": 0}
+        assert service._resident == resident and backend.info.epoch == epoch
+        assert backend.fence_count == 0 and len(backend.calls) == 1
+        last = (await service.call("local_generate", client, arguments(context, task="small task B")))["data"]
+        result = (await poll(service, client, context, last))["data"]["result"]["data"]
+        assert result["reused_input_tokens"] > 0 and result["cache"]["state"] == "resident_hit"
+        assert backend.info.epoch == epoch and backend.fence_count == 0
+        assert len(backend.calls) == 2
+    finally:
+        await service.close()

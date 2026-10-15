@@ -472,7 +472,13 @@ class ArtifactStore:
             raise _error("integrity_error")
         return value
 
-    def _artifact(self, root: Path, artifact_id: str, *, expected: dict | None = None) -> tuple[dict, bytes]:
+    def _artifact_descriptor(self, root: Path, artifact_id: str, *, expected: dict | None = None) -> dict:
+        """Validate bounded metadata and the exact private artifact file layout.
+
+        Quota accounting needs the recorded size checked against the regular file's
+        lstat size. It must not read unrelated artifact content while holding the
+        store lock. Consumers of bytes additionally use _artifact for full integrity.
+        """
         if not isinstance(artifact_id, str) or not _ARTIFACT_ID.fullmatch(artifact_id):
             raise _error("invalid_input")
         directory = root / "artifacts" / artifact_id
@@ -489,6 +495,19 @@ class ArtifactStore:
             raise _error("integrity_error") from None
         if descriptor["artifact_id"] != artifact_id or (expected is not None and descriptor != expected):
             raise _error("integrity_error")
+        content_path = directory / "content"
+        try:
+            content_info = content_path.lstat()
+        except FileNotFoundError:
+            raise _error("integrity_error") from None
+        self._private(content_info, directory=False, path=content_path)
+        if content_info.st_size != descriptor["size_bytes"]:
+            raise _error("integrity_error")
+        return descriptor
+
+    def _artifact(self, root: Path, artifact_id: str, *, expected: dict | None = None) -> tuple[dict, bytes]:
+        descriptor = self._artifact_descriptor(root, artifact_id, expected=expected)
+        directory = root / "artifacts" / artifact_id
         content = self._read_file(directory / "content", self.max_artifact_bytes)
         if len(content) != descriptor["size_bytes"] or hashlib.sha256(content).hexdigest() != descriptor["sha256"]:
             raise _error("integrity_error")
@@ -515,7 +534,7 @@ class ArtifactStore:
                 raise _error("quota_exceeded")
             total = 0
             for entry in entries:
-                stored, _ = self._artifact(root, entry.name)
+                stored = self._artifact_descriptor(root, entry.name)
                 total += stored["size_bytes"]
             if total + len(content) > self.max_workspace_bytes:
                 raise _error("quota_exceeded")
