@@ -312,10 +312,11 @@ def desktop_started_hint(inputs):
         return None
     from src.client_paths import DESKTOP_SERVER, client_config_path
     return (f"The Claude desktop app started this server from {client_config_path('desktop')}, outside any "
-            "project, and serves all its sessions with it. A Code-tab session should use Claude Code's own "
-            "Agents-Core: run setup (scripts/init_repo) or `python -m src.daemon migrate --clients desktop` "
-            f"again, which names the app's entry {DESKTOP_SERVER} and denies it in Claude Code, then restart "
-            "the app. Any other call needs workspace inside a folder the app shares as an MCP root.")
+            "project, and serves all its sessions with it. Run setup (scripts/init_repo) again, which names "
+            f"the app's entry {DESKTOP_SERVER} and denies it in Claude Code, so a Code-tab session uses Claude "
+            "Code's own Agents-Core; or move the entry to the shared service with `python -m src.daemon migrate "
+            "--clients desktop`, whose bridge resolves each call's workspace. Then restart the app. Any other "
+            "call needs workspace inside a folder the app shares as an MCP root.")
 
 
 class HistoryStores:
