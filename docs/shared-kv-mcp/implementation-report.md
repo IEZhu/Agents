@@ -165,7 +165,7 @@ PYTHONDONTWRITEBYTECODE=1 LANGFUSE_TRACING_ENABLED=false \
   --workspace "$PWD" --repetitions 5 --max-output-tokens 384 --timeout-seconds 180
 ```
 
-These output files now exist and the scripts refuse to overwrite them. Select a new output filename for a rerun. The eviction control used the benchmark command with owner-config.json, --smoke --force-eviction and cap 32; it has its own report. SDK lifecycle checks are preserved as the private lifecycle.py harness and lifecycle-report-4.json.
+These output files were reported at the original checkpoint; their ignored raw artifacts are currently unavailable, as noted above. A script refusing to overwrite an existing destination does not establish that a historical report is still present. Select a new output filename for a rerun. The eviction control used the benchmark command with owner-config.json, --smoke --force-eviction and cap 32; its report was separate. The original SDK lifecycle references were the private lifecycle.py harness and lifecycle-report-4.json. See the [reconciliation report](reconciliation-report.md) for the later source comparison and its evidence limits.
 
 The full arm boundary includes setup/model startup, contexts/grants, submit/poll/check, failed outcomes, release cleanup and owned close. Workflow clocks exclude one-time arm setup, so full arm time is primary. MCP is authenticated in-process ASGI with production strict FastMCP; sockets/stdio bridge/retrieval startup are excluded. SDK uses the same service and authorization. No repair calls occur; first/final success denominators are identical. The frozen literal JSON checker can reject semantically valid implementation synonyms. Unmeasured spool peak/Redis transfer bytes remain null.
 
