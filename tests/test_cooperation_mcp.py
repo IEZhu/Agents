@@ -69,7 +69,7 @@ def coordinator(monkeypatch):
         def read(self, request, identity):
             self.calls.append((request, identity))
             return {"protocol": PROTOCOL, "status": "ok", "repository_id": identity.repository_id,
-                    "revision": 1, "service_epoch": 1, "minimum_cursor": 0, "snapshot_cursor": 0,
+                    "revision": 1, "service_epoch": 1, "minimum_cursor": 0, "snapshot_cursor": 0, "snapshot_time": 1000.0,
                     "next_cursor": 0, "has_more_events": False, "participants": [], "agreements": [],
                     "snapshot_counts": {"participants": 0, "agreements": 0}, "snapshot_truncated": False,
                     "claims": [], "artifacts": [], "dependencies": [], "ready": [], "events": [],

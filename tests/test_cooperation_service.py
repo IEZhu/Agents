@@ -450,6 +450,58 @@ def test_idle_and_blocked_time_do_not_age(h):
     assert queued[blocked["participant_id"]]["effective_priority"] == 0
 
 
+def test_reconciliation_invalidates_paginated_snapshot_and_emits_events(h):
+    h.register("a")
+    h.register("b")
+    first = h.read(limit=1)
+    h.now += 121
+    second = h.read(limit=1, offset=1)
+    assert second["revision"] > first["revision"]
+    assert second["snapshot_cursor"] > first["snapshot_cursor"]
+    events = h.read(cursor=first["snapshot_cursor"])["events"]
+    assert len(events) == 2
+    assert all(e["kind"] == "reconcile" and e["payload"]["reason"] == "heartbeat_overdue" for e in events)
+    assert h.read()["revision"] == second["revision"]
+
+
+def test_snapshot_time_pins_aging_across_queue_pages(h):
+    for task in ("a", "b"):
+        actor = h.register(task)
+        h.apply(actor, {"kind": "declare_intent", "resources": [resource(task)], "checkpoint": {"trigger": "done"}})
+    # Set an eligible-wait boundary without waiting long enough for liveness expiry.
+    with h.service.store.transaction() as db:
+        from src.cooperation.store import bodies
+        for participant in bodies(db, "participants", h.identity.repository_id):
+            participant["eligible_wait_seconds"] = 599
+            h.service._save_participant(db, participant)
+    full = h.read(limit=100)
+    first = h.read(limit=1)
+    h.now += 2
+    second = h.read(limit=1, offset=1, snapshot_time=first["snapshot_time"])
+    assert first["revision"] == second["revision"]
+    assert first["snapshot_time"] == second["snapshot_time"]
+    assert first["ready"] + second["ready"] == full["ready"]
+    assert h.read()["ready"][0]["effective_priority"] > first["ready"][0]["effective_priority"]
+    assert h.read(snapshot_time=h.now + 1)["error"] == "invalid_request"
+
+
+def test_proposal_expiry_and_restart_advance_snapshot_revision(h):
+    a, b = h.register("a"), h.register("b")
+    proposal = h.proposal([a, b])
+    proposal["terms"]["acknowledgement_timeout_seconds"] = 1
+    assert h.apply(a, proposal)["status"] == "ok"
+    before = h.read()
+    h.now += 2
+    expired = h.read(cursor=before["snapshot_cursor"])
+    assert expired["revision"] > before["revision"]
+    assert expired["events"][0]["payload"]["reason"] == "proposal_expired"
+    h.service.close()
+    h.service.start()
+    restarted = h.read(cursor=expired["snapshot_cursor"])
+    assert restarted["revision"] > expired["revision"]
+    assert all(e["payload"]["reason"] == "coordinator_restart" for e in restarted["events"])
+
+
 def test_task_attempt_composites_and_snapshot_pagination(h):
     h.register("a:b", attempt_id="c")
     h.register("a", attempt_id="b:c")

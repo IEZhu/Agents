@@ -14,10 +14,48 @@ from .models import PROTOCOL, EventEnvelope
 from .store import AdministrationLock, CooperationError, Store, bodies, canonical
 
 
+_SYNCHRONIZE = 0x00100000
+_ERROR_INVALID_PARAMETER = 87
+_WAIT_OBJECT_0 = 0
+_MAX_WINDOWS_PID = 0xFFFFFFFF
+
+
+def _windows_execution_stopped(pid):
+    """Query a process handle without sending a console event or terminating it."""
+    import ctypes
+    from ctypes import wintypes
+
+    if pid > _MAX_WINDOWS_PID:  # Do not let DWORD conversion select another PID.
+        return False
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+    kernel32.WaitForSingleObject.restype = wintypes.DWORD
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+
+    handle = kernel32.OpenProcess(_SYNCHRONIZE, False, pid)
+    if not handle:
+        # A valid, nonzero PID that no longer exists returns this error. Access
+        # denied and every other failure leave the execution quarantined.
+        return ctypes.get_last_error() == _ERROR_INVALID_PARAMETER
+    try:
+        stopped = kernel32.WaitForSingleObject(handle, 0) == _WAIT_OBJECT_0
+    finally:
+        closed = kernel32.CloseHandle(handle)
+    return stopped and bool(closed)
+
+
 def execution_stopped(pid):
     """Unknown, inaccessible, live or reused PIDs remain quarantined."""
     if isinstance(pid, bool) or not isinstance(pid, int) or pid <= 0:
         return False
+    if os.name == "nt":
+        try:
+            return _windows_execution_stopped(pid)
+        except (OSError, AttributeError):
+            return False
     try:
         os.kill(pid, 0)
     except ProcessLookupError:

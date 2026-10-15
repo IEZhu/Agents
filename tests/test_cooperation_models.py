@@ -205,6 +205,17 @@ def test_snapshot_pagination_counts_are_compatible_and_explicit():
         SnapshotCounts(participants=2, agreements=1, claims=True)
 
 
+@pytest.mark.parametrize("value", [True, -1.0, "1000", float("inf")])
+def test_snapshot_time_rejects_invalid_timestamp(value):
+    with pytest.raises((ValidationError, InvalidRequest)):
+        parse_read({"protocol": PROTOCOL, "repository_id": "repo", "snapshot_time": value})
+
+
+def test_coordinator_reconciliation_is_not_a_client_action():
+    with pytest.raises(ValidationError):
+        parse_apply(request({"kind": "reconcile", "reason": "heartbeat_overdue"}))
+
+
 @pytest.mark.parametrize("field,value", [("expected_revision", True), ("expected_revision", "0"),
                                         ("expected_revision", 0.0), ("expected_generation", False),
                                         ("expected_generation", 0), ("capability", 42)])
@@ -353,7 +364,7 @@ def test_declared_queue_reports_strict_bounded_truncation_metadata():
 
 def test_read_dependency_cycles_are_closed_bounded_text_lists():
     response = {"protocol": PROTOCOL, "status": "ok", "repository_id": "repo", "revision": 1,
-                "service_epoch": 1, "minimum_cursor": 0, "snapshot_cursor": 0, "next_cursor": 0,
+                "service_epoch": 1, "minimum_cursor": 0, "snapshot_cursor": 0, "snapshot_time": 1000.0, "next_cursor": 0,
                 "has_more_events": False, "participants": [], "agreements": [],
                 "snapshot_counts": {"participants": 0, "agreements": 0}, "snapshot_truncated": False,
                 "claims": [], "artifacts": [], "dependencies": [], "ready": [], "events": [],
