@@ -15,6 +15,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from src.version import agents_core_branch, agents_core_version
+from src.runtime_paths import installation_root, runtime_root
 from .execution import TrackedExecutor, request_jobs, finish_jobs
 from .flows_ui import FlowsUI
 from .overview import Overview
@@ -76,7 +77,8 @@ def load_runtime(port):
 
 
 class Service:
-    def __init__(self, directory, token, port=8765, runtime_loader=load_runtime, *, hand_off_schedule=False):
+    def __init__(self, directory, token, port=8765, runtime_loader=load_runtime, *, hand_off_schedule=False,
+                 local_inference_service=None, artifact_service=None):
         self.directory = Path(directory)
         self.token = token
         self.port = port
@@ -104,6 +106,12 @@ class Service:
         self.flows_ui = FlowsUI(self)
         # Only the service's entry point hands the library over from the OS scheduler (#168).
         self.user_sync = UserSync(self, hand_off_schedule=hand_off_schedule)
+        # This separate lazy broker does not read configuration or start a model here.
+        from src.local_inference.service import LocalInferenceService
+        from src.artifacts.service import ArtifactService
+        self.artifacts = artifact_service if artifact_service is not None else ArtifactService(self.directory / "artifacts")
+        self.local_inference = (local_inference_service if local_inference_service is not None else
+                                LocalInferenceService(self.directory / "local-inference", artifact_service=self.artifacts))
 
     def health(self):
         import sys
@@ -113,17 +121,17 @@ class Service:
                 "agents_core_version": agents_core_version(),
                 # The checked-out branch; `channel show` names the configured one (#381).
                 "agents_core_branch": agents_core_branch(),
-                "install_root": str(Path(__file__).resolve().parents[2]),
+                "install_root": str(installation_root()), "runtime_root": str(runtime_root()),
                 "uptime_seconds": round(time.monotonic() - self.started, 3),
                 "model_ready": self.transport is not None,
                 "inflight": self.inflight, "streams": self.streams,
                 "idle_seconds": 0.0 if self.inflight else round(time.monotonic() - self.last_activity, 1),
                 # User sync's engine calls run in their own threads (sync_loop.py) and count here too.
-                "io_pending": (self.io.inflight if self.io else 0) + self.user_sync.pending,
+                "io_pending": (self.io.inflight if self.io else 0) + self.user_sync.pending + self.artifacts.pending,
                 "loop_lag_max_seconds": round(self.loop_lag_max, 6),
                 "startup_loop_lag_max_seconds": round(self.startup_loop_lag_max, 6),
                 "inference_pending": inference.pending if inference else 0,
-                "user_sync": self.user_sync.summary()}
+                "user_sync": self.user_sync.summary(), **self.local_inference.health()}
 
     async def start_runtime(self):
         try:
@@ -176,6 +184,13 @@ class Service:
             self.state = "draining"
             self.close_streams()
             self.user_sync.drain()
+            self.local_inference.begin_drain()
+            # Detached generation is fenced before any generic executor shutdown.
+            try:
+                await self.local_inference.close()
+            except Exception:
+                logger.warning("Optional local inference cleanup was not confirmed")
+            await self.artifacts.close()
             deadline = time.monotonic() + 60
             while (self.inflight or self.io.inflight or self.user_sync.pending) and time.monotonic() < deadline:
                 await asyncio.sleep(.05)
@@ -211,6 +226,7 @@ class Service:
             self.close_streams()
             # Sync pushes what is left; io_pending covers it until it ends or is abandoned.
             self.user_sync.drain()
+            self.local_inference.begin_drain()
             return await JSONResponse(self.health())(scope, receive, send)
         if path == "/admin/exit" and request.method == "POST":
             # Windows has no SIGTERM from outside: Task Scheduler's /End terminates the process, and the
@@ -222,6 +238,7 @@ class Service:
             if self.transport is not None:
                 self.state = "ready"
                 self.user_sync.resume()
+                self.local_inference.resume()
             return await JSONResponse(self.health())(scope, receive, send)
         if path.startswith("/admin/user-sync/"):
             response = await self.user_sync.handle(request, path[len("/admin/user-sync/"):])
@@ -320,6 +337,8 @@ class Service:
         context = ClientContext(str(uuid.uuid4()), "http", identity, root, error, client=app,
                                 claimed=None if root else claimed_workspace(request.headers))
         scope.setdefault("state", {})["client_context"] = context
+        scope["state"]["local_inference_service"] = self.local_inference
+        scope["state"]["artifact_service"] = self.artifacts
         if request.method == "POST":
             # Only an initialize names the client (clientInfo); the transport still reads every byte.
             receive = observing(receive, self.usage.apps, app, identity if root else None)
@@ -377,12 +396,14 @@ class Service:
             closing.set()
 
 
-def create_app(directory, token, port=8765, runtime_loader=load_runtime, *, hand_off_schedule=False):
+def create_app(directory, token, port=8765, runtime_loader=load_runtime, *, hand_off_schedule=False,
+               local_inference_service=None, artifact_service=None):
     """``hand_off_schedule``: the user-sync task removes the scheduled sync run of #168 when it
     starts; only ``bootstrap.serve`` sets it, so tests never reach the OS scheduler."""
     if not token or len(token) < 32:
         raise ValueError("A private bearer token of at least 32 characters is required")
-    service = Service(directory, token, port, runtime_loader, hand_off_schedule=hand_off_schedule)
+    service = Service(directory, token, port, runtime_loader, hand_off_schedule=hand_off_schedule,
+                      local_inference_service=local_inference_service, artifact_service=artifact_service)
     app = Starlette(lifespan=service.lifespan)
     # Route the original scope directly so MCP receives the request state.
     app.router.default = service

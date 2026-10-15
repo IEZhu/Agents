@@ -7,16 +7,18 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Iterable, Optional
 
+from src.runtime_paths import installation_root
+
 logger = logging.getLogger(__name__)
 
 ENGINE_DIR = os.path.dirname(__file__)
 
 # --- Install root ------------------------------------------------------------
-# Where the Agents-Core source ships: agents/, skills/, implants/, capabilities/
+# Where the Agents-Core content ships: agents/, skills/, implants/, capabilities/
 # registry, and vector indexes keyed against those files (router_cache,
 # skills_store, implants_store, .router_cache_model). Shared across all client
 # repos that reach this install through a global MCP registration.
-INSTALL_ROOT = os.path.abspath(os.path.join(ENGINE_DIR, "../.."))
+INSTALL_ROOT = str(installation_root())
 INSTALL_DATA_DIR = os.path.join(INSTALL_ROOT, "data")
 AGENTS_DIR = os.path.join(INSTALL_ROOT, "agents")
 SKILLS_DIR = os.path.join(INSTALL_ROOT, "skills")

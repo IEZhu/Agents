@@ -72,12 +72,13 @@ from src.schedules import records
 from src.schedules.config import DEFAULTS, DELEGATES, LIMITS, MODES, STAGES, ConfigError
 from src.schedules import config as autodev_config
 from src.schedules.tick import iso, next_slot
+from src.runtime_paths import installation_root
 
 PREFIX = "/ui/api/autodev"
 MAX_BODY = 64 * 1024
 RUNS_SHOWN = 10
 CAPABILITY_TTL = 600.0  # seconds the CLIs' effort lists and the codex version are kept
-INSTALLATION = Path(__file__).resolve().parents[2]
+INSTALLATION = installation_root()
 EDITABLE = ("times", "catch_up_minutes", "allowed_hours", "require_ac_power", "limits", "stages", "delegates")
 SWITCHED = ("enabled", "mode")
 PREMORTEM = "change-premortem"
