@@ -74,7 +74,7 @@ def test_append_preserves_user_instructions_without_final_newline(tmp_path, help
 
 
 @pytest.mark.parametrize("legacy", ["memory-routing-v1.md", "memory-routing-v2.md", "memory-routing-v3.md", "memory-routing-v4.md",
-                                    "memory-routing-v5.md", "memory-routing-v6.md", "memory-routing-v7.md", "memory-routing-v8.md", "memory-routing-v9.md", "memory-routing-v10.md", "memory-routing-v11.md", "memory-routing-v12.md", "memory-routing-v13.md", "memory-routing-v14.md", "memory-routing-v15.md"])
+                                    "memory-routing-v5.md", "memory-routing-v6.md", "memory-routing-v7.md", "memory-routing-v8.md", "memory-routing-v9.md", "memory-routing-v10.md", "memory-routing-v11.md", "memory-routing-v12.md", "memory-routing-v13.md", "memory-routing-v14.md", "memory-routing-v15.md", "memory-routing-v16.md"])
 def test_known_memory_and_index_migrate_with_backups(tmp_path, helpers, legacy):
     _, memory = helpers
     reminder, index = tmp_path / memory.FILENAME, tmp_path / "MEMORY.md"

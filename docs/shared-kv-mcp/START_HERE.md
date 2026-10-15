@@ -1,14 +1,31 @@
 # Shared local inference and KV cache implementation handoff
 
-Status: historical implementation contract and worktree handoff. Later integration
-adds [persistent shared artifacts](../shared-artifacts.md); this handoff and its
-reports retain their original revisions and deployment checkpoints. Prepared on 2026-10-14; see the [implementation report](implementation-report.md) for original gates and the [Redis live report](redis-live-report.md) for historical real-server acceptance and benchmarking. On 2026-10-15 the owner separately authorized connecting the working service: resident reuse is enabled, Redis remains off in production, and fresh mode/fault tests passed. The [resident deployment report](resident-deployment-report.md) records deployment, the pinned worktree and paused updater, token-rotation preservation limits, recovery and fresh evidence. The diff remains uncommitted/unmerged; package defaults remain disabled.
+Status: historical specification and implementation handoff, prepared on 2026-10-14.
+The local-inference implementation and persistent artifacts were integrated through
+[PR #402](https://github.com/IEZhu/Agents/pull/402); cross-client MCP cooperation
+followed in [PR #407](https://github.com/IEZhu/Agents/pull/407). The
+[reconciliation report](reconciliation-report.md) compares the original working
+files with the integrated `dev` revision and records their disposition.
 
-## Start here
+The implementation and deployment reports describe their recorded checkpoints.
+Their uncommitted-diff, serving-worktree, paused-updater and Redis settings are
+historical observations, not the current installation state. Follow
+[current daemon operations](../shared-mcp-daemon.md#local-inference),
+[shared artifacts](../shared-artifacts.md) and
+[agent cooperation](../agent-cooperation/README.md) for maintained behavior.
+Inspect the actual service before making a deployment claim; packaged inference
+and Redis defaults remain disabled.
+
+The absolute worktree and branch below identify the original handoff. For new
+work, create an authorized linked worktree from current `origin/dev` under the
+repository instructions and reconcile the existing implementation first. Do not
+reuse the original worktree by default or replay completed milestones.
+
+## Original implementation contract
 
 Build an optional local model service behind Agents-Core MCP. Several agents should reuse previously computed prompt state when they use the same compatible local model and shared context. Implement resident reuse first, then optional Redis snapshot storage. Preserve ordinary Agents-Core behavior when the feature is disabled.
 
-The prepared checkout is:
+The original prepared checkout was:
 
 - Worktree: `/Users/alexey.zhuchkov/.codex/worktrees/shared-kv-mcp/Agents`.
 - Branch: `codex/shared-kv-mcp`.
@@ -18,7 +35,7 @@ The prepared checkout is:
 
 Do not merge or cherry-pick the experimental branch wholesale. It contains a research language, multiple historical harnesses and large evidence sets. Implement the small production component described here. Read reference files with `git show <recorded-commit>:<path>` without switching branches. [Evidence and provenance](evidence.md) supplies the exact paths.
 
-The original handoff authorized preparation only; implementation followed the user's request to execute [the implementation flow](../../flows/shared-kv-inference.md), and service connection followed separate explicit authorization. This document itself grants no further deployment, model-setting change, model-weight download, publication or messaging authorization. Local implementation and focused tests belong in this worktree. Keep the user's original research branch, worktree and chat available. A runtime worktree must remain present and its runtime source must not change for as long as a service is pinned to it.
+The original handoff authorized preparation only; implementation followed the user's request to execute [the implementation flow](../../flows/shared-kv-inference.md), and service connection followed separate explicit authorization. This document itself grants no further deployment, model-setting change, model-weight download, publication or messaging authorization. New implementation and focused tests belong in the caller's authorized linked worktree, not the original checkout listed above. Keep the user's original research branch, worktree and chat available. A runtime worktree must remain present and its runtime source must not change for as long as a service is pinned to it.
 
 ## Reading order
 
@@ -73,9 +90,9 @@ The original adapter shares a single slot sequentially and assumes a trusted hos
 - When blocked by a missing local model or unavailable optional dependency, finish independent code and fake tests; report the precise remaining live check. Do not claim that live acceptance passed.
 - Keep documentation in English. Explain completion to the user in their language.
 
-## Copyable prompt for the next model
+## Prompt for follow-up work
 
-> Work in /Users/alexey.zhuchkov/.codex/worktrees/shared-kv-mcp/Agents on codex/shared-kv-mcp. Read AGENTS.md and CLAUDE.md, then docs/shared-kv-mcp/START_HERE.md. Execute flows/shared-kv-inference.md in order. The architecture, API, Redis protocol and acceptance matrix in that package are the implementation contract. Start with the disabled-by-default resident-cache service and deterministic fake-engine tests, then implement the optional chunked Redis snapshot backend. Preserve the live installation and the existing Accord research worktree. Do not claim real model acceleration without native counters and complete wall-clock measurements. Do not deploy, push, open a PR, remove worktrees or close the chat without separate user authorization. Finish with the implemented milestones, actual check results, and any unperformed live acceptance.
+> Work in a fresh authorized Agents-Core worktree from current origin/dev. Read AGENTS.md, CLAUDE.md, docs/shared-kv-mcp/START_HERE.md and its reconciliation report. Compare the requested behavior with the current local-inference, artifact and cooperation implementations before choosing unfinished work. When the user invokes flows/shared-kv-inference.md, execute it for the requested gaps; retain the architecture, API, Redis and acceptance invariants without recreating completed milestones or copying the historical worktree wholesale. Preserve the live installation and existing worktrees. Do not claim live acceptance or acceleration without the corresponding primary evidence. Deployment, downloads, publication, worktree removal and chat closure require their own authorization. Report the actual changes, checks and remaining limits.
 
 ## Preparation checks already performed
 
