@@ -810,6 +810,9 @@ class CooperationService:
         agreement = self._agreement(db, repo, action["agreement_id"])
         if agreement["pattern"] != "handoff" or agreement["state"] not in ("committed", "active", "checkpointed"):
             raise CooperationError("scope_denied")
+        # Recovery advances generations without rewriting old consent. Apply
+        # the same current task-binding checks used by acknowledgement/acquire.
+        self._validate_terms(db, subject, agreement)
         acknowledgement = db.execute("SELECT body FROM acknowledgements WHERE repository_id=? AND agreement_id=? AND proposal_revision=? AND participant_id=?", (repo, agreement["agreement_id"], agreement["proposal_revision"], new["participant_id"])).fetchone()
         accepted = json.loads(acknowledgement[0]) if acknowledgement else {}
         if (accepted.get("accepted_checkpoint") != action["checkpoint_id"] or

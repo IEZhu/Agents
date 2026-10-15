@@ -295,6 +295,48 @@ def test_handoff_exact_checkpoint_atomic_transfer_c19(h):
     assert [c["participant_id"] for c in h.read()["claims"]] == [new["participant_id"]]
 
 
+@pytest.mark.parametrize("recovered_party", ["recipient", "observer"])
+def test_handoff_requires_fresh_generation_bound_consent_after_recovery(h, recovered_party):
+    old, new, observer = h.register("old"), h.register("new"), h.register("observer")
+    parties = [old, new, observer]
+    claims = h.acquire(old)["claims"]
+    proposal = h.apply(old, h.proposal(parties, owner=new, pattern="handoff"))["agreement"]
+    assert h.ack(old, proposal)["status"] == "ok"
+    assert h.ack(observer, proposal)["status"] == "ok"
+    assert h.checkpoint(old)["status"] == "ok"
+    assert h.ack(new, proposal, accepted_checkpoint="cp")["agreement"]["state"] == "committed"
+    assert h.recover(new if recovered_party == "recipient" else observer)["status"] == "ok"
+    action = {"kind": "handoff", "claims": [{"claim_id": c["claim_id"], "expected_revision": c["revision"]} for c in claims],
+              "old_owner": old["participant_id"], "new_owner": new["participant_id"],
+              "old_generation": old["generation"], "new_generation": new["generation"],
+              "checkpoint_id": "cp", "agreement_id": "agreement"}
+    request = h.request(old, action)
+    before = h.read()
+    denied = h.service.apply(request, h.identity)
+    assert denied["status"] == "error", denied
+    assert denied["error"] == "stale_generation", denied
+    assert h.read() == before
+    with h.service.store.transaction(write=False) as db:
+        assert db.execute("SELECT 1 FROM receipts WHERE operation_id=?", (request.operation_id,)).fetchone() is None
+
+    # Fresh terms and acknowledgements, including checkpoint acceptance, restore
+    # admission without borrowing any consent from the previous generation.
+    assert h.apply(old, {"kind": "cancel", "agreement_id": "agreement", "reason": "rebind recovered execution"})["status"] == "ok"
+    fresh = h.apply(old, h.proposal(parties, name="fresh", owner=new, pattern="handoff"))["agreement"]
+    action["agreement_id"] = "fresh"
+    assert h.ack(old, fresh)["status"] == "ok"
+    assert h.ack(observer, fresh)["status"] == "ok"
+    assert h.apply(old, action)["error"] == "scope_denied"
+    assert h.ack(new, fresh, accepted_checkpoint="cp")["agreement"]["state"] == "committed"
+    accepted_request = h.request(old, action)
+    transferred = h.service.apply(accepted_request, h.identity)
+    assert transferred["status"] == "ok", transferred
+    assert [c["participant_id"] for c in h.read()["claims"]] == [new["participant_id"]]
+    assert h.recover(new)["status"] == "ok"
+    assert h.service.apply(accepted_request, h.identity) == transferred
+    assert h.read()["claims"] == []  # Receipt replay never transfers ownership again.
+
+
 def test_disablement_retention_and_unfenced_shell_c21_c22_c23_c24_c26(h):
     a, b = h.register("duplicate-a"), h.register("duplicate-b")
     h.apply(a, {"kind": "heartbeat"})
