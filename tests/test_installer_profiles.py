@@ -47,7 +47,7 @@ def profile_installer(request, tmp_path):
     for name in ("routing-protocol-core.md", "memory-routing.md",
                  "legacy/memory-routing-v1.md", "legacy/memory-routing-v2.md",
                  "legacy/memory-routing-v3.md", "legacy/memory-routing-v4.md",
-                 "legacy/memory-routing-v5.md", "legacy/memory-routing-v6.md", "legacy/memory-routing-v7.md", "legacy/memory-routing-v8.md", "legacy/memory-routing-v9.md", "legacy/memory-routing-v10.md", "legacy/memory-routing-v11.md", "legacy/memory-routing-v12.md", "legacy/memory-routing-v13.md", "legacy/memory-routing-v14.md"):
+                 "legacy/memory-routing-v5.md", "legacy/memory-routing-v6.md", "legacy/memory-routing-v7.md", "legacy/memory-routing-v8.md", "legacy/memory-routing-v9.md", "legacy/memory-routing-v10.md", "legacy/memory-routing-v11.md", "legacy/memory-routing-v12.md", "legacy/memory-routing-v13.md", "legacy/memory-routing-v14.md", "legacy/memory-routing-v15.md"):
         shutil.copyfile(ROOT / "scripts/templates" / name, templates / name)
     home = tmp_path / "isolated home"
     home.mkdir()
@@ -211,76 +211,39 @@ def test_a_desktop_only_installation_configures_claude_code_for_the_code_tab(pro
         "mcp__Agents-Core-Desktop__*", "mcp__Agents_Core_Desktop__*"}
 
 
-DESKTOP_DENY = ["mcp__Agents-Core-Desktop__*", "mcp__Agents_Core_Desktop__*"]
-
-
-def test_installer_lifts_the_denial_for_a_shared_service_desktop_entry(profile_installer):
-    """#421: the shared service serves the desktop entry, so setup removes the #231 denial."""
-    if sys.platform == "darwin":
-        pytest.skip("macOS moves a shared desktop entry through the daemon; the deny step is tested below")
-    run, home, checkout, _, desktop = profile_installer
-    (checkout / "data").mkdir()
-    (checkout / "data/.shared-service.json").write_text(json.dumps({"directory": str(home / "service")}))
-    bridge = {"command": sys.executable,
-              "args": [str(checkout / "bridge/stdio.mjs"), str(home / "service/bridges/claude-desktop-routing.json")]}
-    desktop.parent.mkdir(parents=True)
-    desktop.write_text(json.dumps({"mcpServers": {"Agents-Core-Desktop": bridge}}))
-    settings = home / ".claude/settings.json"
-    settings.parent.mkdir(parents=True, exist_ok=True)
-    settings.write_text(json.dumps({"permissions": {"deny": ["Bash(rm *)", *DESKTOP_DENY]}}))
-
-    result = run({})
-
-    assert result.returncode == 0, result.stdout + result.stderr
-    assert json.loads(desktop.read_text())["mcpServers"] == {"Agents-Core-Desktop": bridge}
-    assert json.loads(settings.read_text()) == {"permissions": {"deny": ["Bash(rm *)"]}}
-    assert "served by the shared service" in result.stdout
-
-
-BRIDGE_ENTRY = {"command": "/usr/bin/node", "args": ["/install/bridge/stdio.mjs", "/state/bridges/desktop.json"]}
-
-
-@pytest.mark.skipif(sys.platform == "win32", reason="the Unix installer's step; Windows runs the cmd installer above")
-@pytest.mark.parametrize("entry,before,deny_after,printed", [
-    (BRIDGE_ENTRY, {"permissions": {"deny": ["Bash(rm *)", *DESKTOP_DENY]}}, ["Bash(rm *)"],
-     ["+ Agents-Core-Desktop is served by the shared service", "> Claude Desktop's Agents-Core-Desktop and"]),
-    ({"url": "http://127.0.0.1:8765/mcp"}, {"permissions": {"deny": [*DESKTOP_DENY]}}, None,
-     ["+ Agents-Core-Desktop is served by the shared service", "> Claude Desktop's Agents-Core-Desktop and"]),
-    ({"command": "/venv/bin/python", "args": ["/install/src/server.py"]}, {"permissions": {"deny": ["Bash(rm *)"]}},
-     ["Bash(rm *)", *DESKTOP_DENY], ["+ Agents-Core-Desktop denied in Claude Code", "Claude Code denies it"]),
-    (BRIDGE_ENTRY, {"permissions": []}, [],
-     ["x Failed to update the Agents-Core-Desktop denial", "! Claude Code's settings were not updated"]),
-], ids=["bridge", "http", "standalone", "unreadable-settings"])
-def test_bash_deny_step_follows_the_desktop_entry(tmp_path, entry, before, deny_after, printed):
-    """#421: the step and its summary follow the desktop entry the installer just wrote."""
+@pytest.mark.skipif(sys.platform == "win32", reason="the Unix installer's step; Windows runs the cmd installer")
+@pytest.mark.parametrize("order", [("Claude Desktop", "Claude Code"), ("Claude Code", "Claude Desktop")],
+                         ids=["installer-order", "reversed"])
+@pytest.mark.parametrize("before,denied,printed", [
+    ({"permissions": {"deny": ["Bash(rm *)"]}}, True,
+     ["+ Agents-Core-Desktop denied in Claude Code", "> Claude Desktop runs Agents-Core-Desktop for its chats"]),
+    ({"permissions": []}, False,
+     ["x Failed to deny Agents-Core-Desktop", "! Claude Code does not deny Agents-Core-Desktop"]),
+], ids=["denied", "unreadable-settings"])
+def test_bash_desktop_summary_prints_for_either_order(tmp_path, order, before, denied, printed):
+    """#421: names joined by single spaces matched neither summary pattern, so the note never printed."""
     source = (ROOT / "scripts/init_repo.sh").read_text()
-    step = between(source, "            # A standalone desktop entry stays out", "            # 2. Replace the managed")
+    step = between(source, "            # The desktop app's entry stays out", "            # 2. Replace the managed")
     note = between(source, '        case " ${CONFIGURED_ENVS[*]} " in', "        esac") + "        esac\n"
-    desktop, settings = tmp_path / "desktop config.json", tmp_path / "claude profile" / "settings.json"
-    desktop.write_text(json.dumps({"mcpServers": {"Agents-Core-Desktop": entry}}))
+    settings = tmp_path / "claude profile" / "settings.json"
     settings.parent.mkdir()
     settings.write_text(json.dumps(before))
-    script = tmp_path / "deny-step.sh"
+    script = tmp_path / "summary.sh"
     script.write_text("set -e\n"
                       "print_success() { printf '+ %s\\n' \"$*\"; }\nprint_error() { printf 'x %s\\n' \"$*\"; }\n"
                       "print_warn() { printf '! %s\\n' \"$*\"; }\nprint_step() { printf '> %s\\n' \"$*\"; }\n"
                       "backup_mcp_config() { :; }\nresolve_client_path() { printf '%s\\n' \"$SETTINGS\"; }\n"
-                      "CLAUDE_DESKTOP_DETECTED=true\nCONFIGURED_ENVS=(\"Claude Code\" \"Claude Desktop\")\n"
-                      + step + note)
-    environment = dict(os.environ, PYTHON_ABS=sys.executable, REPO_ROOT=str(ROOT),
-                       CLAUDE_DESKTOP_CONFIG=str(desktop), SETTINGS=str(settings))
+                      "CLAUDE_DESKTOP_DETECTED=true\n"
+                      f'CONFIGURED_ENVS=("Cursor" "{order[0]}" "{order[1]}")\n' + step + note)
+    environment = dict(os.environ, PYTHON_ABS=sys.executable, REPO_ROOT=str(ROOT), SETTINGS=str(settings))
 
     result = subprocess.run([shutil.which("bash"), str(script)], env=environment, capture_output=True,
                             text=True, timeout=20)
 
     assert result.returncode == 0, result.stdout + result.stderr
-    after = json.loads(settings.read_text())
-    if deny_after == []:
-        assert after == before  # the helper refused the shape and changed nothing
-    elif deny_after is None:
-        assert "permissions" not in after
-    else:
-        assert after["permissions"]["deny"] == deny_after
+    deny = json.loads(settings.read_text())["permissions"]
+    assert (deny == {"deny": ["Bash(rm *)", "mcp__Agents-Core-Desktop__*", "mcp__Agents_Core_Desktop__*"]}
+            if denied else deny == [])
     for text in printed:
         assert text in result.stdout, result.stdout
 

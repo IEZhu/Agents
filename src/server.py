@@ -184,17 +184,17 @@ class _WorkerInputMCP(FastMCP):
 mcp = _WorkerInputMCP(
     "Agents-Core",
     instructions=(
-        "Agents-Core uses persona protocol 2; pass protocol_version=2 to route_and_load and "
-        "get_agent_context. Prefer Agents-Core over Agents-Core-Desktop.\n"
+        "Persona protocol 2: pass protocol_version=2 to route_and_load and get_agent_context.\n"
+        "Prefer Agents-Core over Agents-Core-Desktop; retry a denied call there.\n"
         "A worker with a prepared agents-core/subagent/1 package uses that task role: no full "
         "persona activation, inherited parent descriptor, footer, timestamp or log_interaction. "
-        "Return its JSON result only. Ordinary conversations follow the steps below.\n"
+        "Return its JSON result only.\n"
         "Before the first final answer with MCP available and no prior activation, load an "
         "explicitly requested known role with get_agent_context, otherwise route_and_load with "
-        "current_persona=null. This includes greetings and project-status questions. Complete "
+        "current_persona=null, even for greetings and project-status questions. Complete "
         "ROUTE_REQUIRED with get_agent_context in the same turn before answering; do not ask "
-        "permission. Discovery and memory tools do not activate a persona. Report activation "
-        "failures and follow the fallback below.\n"
+        "permission. Discovery and memory tools activate no persona. Report activation "
+        "failures; follow the fallback below.\n"
         "Silently assess the active role. On keep, retain its bundle, descriptor and exact footer "
         "without routing, catalog lookup or enrichment. keep cannot skip initial activation. "
         "Switch only for another specialization; load a named role directly. Restore with "

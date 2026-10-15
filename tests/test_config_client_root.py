@@ -526,8 +526,6 @@ class TestResolveClientContext:
         """The Claude desktop app names its MCP client local-agent-mode-<server> (#231)."""
         hint = workspaces.desktop_started_hint({"client": "local-agent-mode-Agents-Core"})
         assert "claude_desktop_config.json" in hint and "Agents-Core-Desktop" in hint
-        # migrate moves the entry to the shared bridge, which is not denied (#421).
-        assert "migrate --clients desktop`, whose bridge resolves each call's workspace" in hint
         for inputs in (None, {"client": None}, {"client": "claude-code"}):
             assert workspaces.desktop_started_hint(inputs) is None
 

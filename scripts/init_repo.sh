@@ -328,10 +328,7 @@ if sys.platform == 'darwin' and marker.exists():
         migration = ClientMigration(directory)
         changes = [migration.prepare(client, config_path=destination)]
         if client == 'desktop':
-            # The desktop entry is the bridge now: drop the denial of a standalone install (#421).
-            cleanup = migration.prepare('claude-deny-desktop')
-            if cleanup:
-                changes.append(cleanup)
+            changes.append(migration.prepare('claude-deny-desktop'))
         migration.apply(changes)
     if client == 'claude':
         # A forced Claude Code entry beside the agents-core plugin stays forced in the
@@ -363,10 +360,9 @@ if not isinstance(servers, dict):
     print(f'ERROR: {config_path} mcpServers must be a JSON object', file=sys.stderr)
     sys.exit(1)
 
-# The Claude desktop app's entry has a name of its own: the app injects its servers into the
-# Code-tab sessions it launches. A standalone install denies it in Claude Code, so those use
-# Claude Code's per-project Agents-Core (#231); the shared-service bridge is allowed (#421).
-# It takes over an older Agents-Core entry.
+# The Claude desktop app's entry has a name of its own, which Claude Code denies: the app
+# injects its servers into the Code-tab sessions it launches, and those must use Claude
+# Code's per-project Agents-Core (#231). It takes over an older Agents-Core entry.
 name = 'Agents-Core-Desktop' if os.environ['MCP_CLIENT'] == 'desktop' else 'Agents-Core'
 # While the shared service is installed, an entry migrate wrote (HTTP, or the stdio bridge)
 # stays: setup writes standalone stdio registrations again only after uninstall.
@@ -877,24 +873,17 @@ else
                 CONFIGURED_ENVS+=("Claude Code")
             fi
 
-            # A standalone desktop entry stays out of Claude Code, its Code tab included (#231);
-            # one the shared service serves resolves each call's workspace, so it is allowed (#421).
+            # The desktop app's entry stays out of Claude Code, its Code tab included (#231).
             if [ "$CLAUDE_DESKTOP_DETECTED" = true ]; then
                 CLAUDE_CODE_SETTINGS="$(resolve_client_path config claude-deny-desktop)"
                 if [ -f "$CLAUDE_CODE_SETTINGS" ]; then
                     backup_mcp_config "$CLAUDE_CODE_SETTINGS" || exit 1
                 fi
-                if DESKTOP_ACCESS="$("$PYTHON_ABS" "$REPO_ROOT/scripts/_helpers/deny_desktop_mcp.py" \
-                        "$CLAUDE_CODE_SETTINGS" --desktop-config "$CLAUDE_DESKTOP_CONFIG")"; then
-                    if [ "$DESKTOP_ACCESS" = shared ]; then
-                        DESKTOP_SHARED=true
-                        print_success "Agents-Core-Desktop is served by the shared service; Claude Code does not deny it"
-                    else
-                        DESKTOP_DENIED=true
-                        print_success "Agents-Core-Desktop denied in Claude Code $CLAUDE_CODE_SETTINGS"
-                    fi
+                if "$PYTHON_ABS" "$REPO_ROOT/scripts/_helpers/deny_desktop_mcp.py" "$CLAUDE_CODE_SETTINGS" >/dev/null; then
+                    DESKTOP_DENIED=true
+                    print_success "Agents-Core-Desktop denied in Claude Code $CLAUDE_CODE_SETTINGS"
                 else
-                    print_error "Failed to update the Agents-Core-Desktop denial in Claude Code settings"
+                    print_error "Failed to deny Agents-Core-Desktop in Claude Code settings"
                 fi
             fi
 
@@ -987,17 +976,13 @@ else
     else
         print_success "MCP configured for: ${CONFIGURED_ENVS[*]}"
         # Claude Desktop (its Code tab included) also reads the Claude Code registry. Adjacent
-        # names share one space, so the second pattern has no leading space (#421).
+        # names share one space, so the second name has no leading space in its pattern (#421).
         case " ${CONFIGURED_ENVS[*]} " in
             *" Claude Desktop "*"Claude Code "*|*" Claude Code "*"Claude Desktop "*)
-                if [ "${DESKTOP_SHARED:-false}" = true ]; then
-                    print_step "Claude Desktop's Agents-Core-Desktop and Claude Code's Agents-Core reach the same"
-                    echo "    shared service. A Code-tab session lists both; the routing instructions prefer"
-                    echo "    Agents-Core, and either one serves the project that a call names in workspace."
-                elif [ "${DESKTOP_DENIED:-false}" != true ]; then
-                    print_warn "Claude Code's settings were not updated for Agents-Core-Desktop. A standalone"
-                    echo "    desktop entry needs mcp__Agents-Core-Desktop__* in permissions.deny of"
-                    echo "    $CLAUDE_CODE_SETTINGS; one the shared service serves needs none (README, desktop app)."
+                if [ "${DESKTOP_DENIED:-false}" != true ]; then
+                    print_warn "Claude Code does not deny Agents-Core-Desktop, so a Code-tab session of the"
+                    echo "    desktop app can reach the app's shared server, started outside any project. Add"
+                    echo "    mcp__Agents-Core-Desktop__* to permissions.deny in $CLAUDE_CODE_SETTINGS."
                 else
                     print_step "Claude Desktop runs Agents-Core-Desktop for its chats, outside any project."
                     echo "    Claude Code denies it, so a Code-tab session of the app uses Claude Code's own"

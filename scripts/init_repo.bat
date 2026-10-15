@@ -600,9 +600,8 @@ if !errorlevel! neq 0 (
     goto :skip_claude_desktop
 )
 
-REM Its own name: the app injects its servers into the Code-tab sessions it launches. A standalone
-REM install denies it in Claude Code below, so those use Claude Code's per-project Agents-Core
-REM (#231); the shared-service bridge is allowed (#421).
+REM Its own name, which Claude Code denies below: the app injects its servers into the Code-tab
+REM sessions it launches, and those must use Claude Code's per-project Agents-Core (#231).
 "%PYTHON_ABS%" "%HELPERS%\inject_mcp.py" "!CLAUDE_DESKTOP_CONFIG!" "%PYTHON_ABS%" "%SERVER_ABS%" --desktop
 if !errorlevel! equ 0 (
     echo   %GREEN%+%NC% Agents-Core-Desktop added to Claude Desktop config
@@ -644,10 +643,8 @@ if !errorlevel! equ 0 (
     echo   %RED%x%NC% Failed to update Claude Code config
 )
 :claude_code_mcp_done
-REM A standalone desktop entry stays out of Claude Code, its Code tab included (#231);
-REM one the shared service serves resolves each call's workspace, so it is allowed (#421).
+REM The desktop app's entry stays out of Claude Code, its Code tab included (#231).
 set "_DESKTOP_DENIED=false"
-set "_DESKTOP_SHARED=false"
 if "!CLAUDE_DESKTOP_DETECTED!"=="true" (
     if exist "!CLAUDE_CODE_SETTINGS!" (
         "%PYTHON_ABS%" "%HELPERS%\backup_file.py" "!CLAUDE_CODE_SETTINGS!" >nul
@@ -656,17 +653,12 @@ if "!CLAUDE_DESKTOP_DETECTED!"=="true" (
             goto :skip_claude_code
         )
     )
-    REM FOR /F invokes cmd /c, which strips the outer quote pair: keep another pair.
-    set "_DESKTOP_ACCESS="
-    for /f "delims=" %%R in ('""%PYTHON_ABS%" "%HELPERS%\deny_desktop_mcp.py" "!CLAUDE_CODE_SETTINGS!" --desktop-config "!CLAUDE_DESKTOP_CONFIG!""') do set "_DESKTOP_ACCESS=%%R"
-    if "!_DESKTOP_ACCESS!"=="shared" (
-        set "_DESKTOP_SHARED=true"
-        echo   %GREEN%+%NC% Agents-Core-Desktop is served by the shared service; Claude Code does not deny it
-    ) else if "!_DESKTOP_ACCESS!"=="denied" (
+    "%PYTHON_ABS%" "%HELPERS%\deny_desktop_mcp.py" "!CLAUDE_CODE_SETTINGS!" >nul
+    if !errorlevel! equ 0 (
         set "_DESKTOP_DENIED=true"
         echo   %GREEN%+%NC% Agents-Core-Desktop denied in Claude Code !CLAUDE_CODE_SETTINGS!
     ) else (
-        echo   %RED%x%NC% Failed to update the Agents-Core-Desktop denial in Claude Code settings
+        echo   %RED%x%NC% Failed to deny Agents-Core-Desktop in Claude Code settings
     )
 )
 
@@ -906,16 +898,10 @@ exit /b !_FATAL_EC!
 goto :eof
 
 :note_desktop_registration
-if "!_DESKTOP_SHARED!"=="true" (
-    echo   %GREEN%^>%NC% Claude Desktop's Agents-Core-Desktop and Claude Code's Agents-Core reach the same
-    echo     shared service. A Code-tab session lists both; the routing instructions prefer
-    echo     Agents-Core, and either one serves the project that a call names in workspace.
-    goto :eof
-)
 if not "!_DESKTOP_DENIED!"=="true" (
-    echo   %YELLOW%WARNING:%NC% Claude Code's settings were not updated for Agents-Core-Desktop. A standalone
-    echo     desktop entry needs mcp__Agents-Core-Desktop__* in permissions.deny of
-    echo     !CLAUDE_CODE_SETTINGS!; one the shared service serves needs none ^(README, desktop app^).
+    echo   %YELLOW%WARNING:%NC% Claude Code does not deny Agents-Core-Desktop, so a Code-tab session of the
+    echo     desktop app can reach the app's shared server, started outside any project. Add
+    echo     mcp__Agents-Core-Desktop__* to permissions.deny in !CLAUDE_CODE_SETTINGS!.
     goto :eof
 )
 echo   %GREEN%^>%NC% Claude Desktop runs Agents-Core-Desktop for its chats, outside any project.

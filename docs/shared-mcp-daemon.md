@@ -239,13 +239,10 @@ counts requests per app (see [Overview and statistics](#overview-and-statistics)
 configuration is one file per app and workspace. A configuration written
 before this header counts as `unknown` until `migrate` runs again.
 
-The Desktop bridge is named `Agents-Core-Desktop`. The desktop app adds it to
-its Code-tab sessions, next to Claude Code's own `Agents-Core`; both reach this
-daemon, and the bridge resolves each call's `workspace` (#253). Desktop migration
-therefore removes the `mcp__Agents-Core-Desktop__*` denials that a standalone
-install wrote to Claude Code's settings, keeping other policies, and adds none
-(#421). The routing instructions tell the model to prefer `Agents-Core` when it
-sees both.
+The Desktop bridge is named `Agents-Core-Desktop`. Desktop migration also adds
+denials for its namespace in Claude Code while retaining other policies. Verify
+the Code tab separately: importing Desktop servers can create a lightweight
+bridge, while tools are provided through the native `Agents-Core` entry.
 
 Reconnect MCP in open clients after writing configurations. An existing stdio
 process does not automatically become an HTTP client. `audit` reports scopes,
@@ -523,8 +520,7 @@ own MCP entry:
 `migrate` accepts one explicit file per client target and rejects repeated
 overrides for the same target. Migrate another profile in a separate invocation.
 Select each overridden target with `--clients`; Desktop migration also selects
-`claude-deny-desktop` (it removes the standalone denial there, and writes nothing
-when none is left), and Claude workspace migration selects an existing project
+`claude-deny-desktop`, and Claude workspace migration selects an existing project
 `.mcp.json` as `claude-project`.
 Existing unrelated fields and client enablement settings are preserved. When a
 workspace is supplied, the selected MCP entry receives that workspace's UUID.
