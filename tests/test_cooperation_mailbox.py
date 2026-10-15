@@ -273,6 +273,8 @@ def test_v2_migration_preserves_participants_claims_receipts_and_adds_mail(h):
     acquired = h.acquire(a)
     h.service.close()
     with sqlite3.connect(h.service.store.path) as db:
+        db.execute("DROP TABLE mailbox_notifications")
+        db.execute("DROP TABLE mailbox_requests")
         db.execute("DROP TABLE message_receipts")
         db.execute("DROP TABLE messages")
         db.execute("PRAGMA user_version=2")
@@ -282,7 +284,7 @@ def test_v2_migration_preserves_participants_claims_receipts_and_adds_mail(h):
     assert snapshot["claims"][0]["claim_id"] == acquired["claims"][0]["claim_id"]
     assert snapshot["claims"][0]["quarantined"]
     with h.service.store.transaction(write=False) as db:
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 3
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 4
         assert db.execute("SELECT COUNT(*) FROM participants").fetchone()[0] == 2
         assert db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 1
 
@@ -296,3 +298,27 @@ def test_disabled_admission_preserves_read_ack_and_receipts(h):
     assert send(h, a, b)["error"] == "store_unavailable"
     assert receive(h, b)["messages"] == [sent["message"]]
     assert ack(h, b, sent["message"])["status"] == "ok"
+
+
+def test_v3_upgrade_preserves_legacy_send_receipt_and_backfills_request(h):
+    from src.cooperation.models import parse_request_status
+
+    a, b = h.register("a"), h.register("b")
+    request = send_request(a, b, kind="request")
+    sent = h.service.send(request, h.identity)
+    with h.service.store.transaction(write=False) as db:
+        receipt = tuple(db.execute("SELECT * FROM message_receipts").fetchone())
+    h.service.close()
+    with sqlite3.connect(h.service.store.path) as db:
+        db.execute("DROP TABLE mailbox_notifications")
+        db.execute("DROP TABLE mailbox_requests")
+        db.execute("PRAGMA user_version=3")
+    h.service.start()
+    assert h.service.send(request, h.identity) == sent
+    tracked = h.service.request_status(parse_request_status(auth(a, message_id=sent["message"]["message_id"])), h.identity)
+    assert tracked["request"]["state"] == "pending"
+    assert tracked["request"]["revision"] == 1
+    with h.service.store.transaction(write=False) as db:
+        assert tuple(db.execute("SELECT * FROM message_receipts").fetchone()) == receipt
+        assert db.execute("SELECT COUNT(*) FROM messages").fetchone()[0] == 1
+        assert db.execute("SELECT COUNT(*) FROM mailbox_notifications").fetchone()[0] == 0

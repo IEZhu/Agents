@@ -27,7 +27,7 @@ The subsystem **reuses existing Agents-Core primitives** (FastMCP server, `Numpy
 
 | Decision | Choice | Rationale |
 |---|---|---|
-| Describe generation method | **Prompt + MCP sampling** | The server builds a prompt and context bundle, requests the calling LLM to generate a summary via `ctx.session.create_message(...)`, then writes the result to `CLAUDE.md`. `src/server.py` wraps the call in `_sample_with_agent`; since protocol 1 was removed (#101), `describe_repo` is its only caller and persona routing never samples. A client without sampling, or whose sampling call fails, gets `needs_summary` with the prompt and persists its own summary through `write_repo_summary`. |
+| Describe generation method | **Read-only prompt + explicit persistence** | `describe_repo` builds a prompt and context bundle without sampling or writing. A needed refresh returns `needs_summary`; the calling model follows its `instruction` and generates the overview. Only `write_repo_summary` persists it. Summary, hash and lock destinations in the running installation/source checkout are rejected before writes; separate linked worktrees remain eligible. |
 | `history.md` location | **Repo root; ignored in the Agents-Core checkout only** | The file stays next to the code as local per-repo memory. Agents-Core's own `.gitignore` excludes `history.md` and `history/`, but nothing adds these entries to a client project. By default the log stores raw prompts and responses, so add both entries to the client's ignore rules unless the team wants a versioned log. |
 | History write trigger | **`log_interaction(...)`** | The standalone `record_history()` was removed: `log_interaction(...)` always appends an entry to `history.md` and optionally sends a Langfuse generation trace. |
 | Semantic search | **Lazy** | `log_interaction(...)` stays fast (append only to `history.md`). `NumpyVectorStore` is built on the first `read_history(query=...)` call and refreshed when the SHA-256 of `history.md` plus the embedding configuration fingerprint differs from the stored `.history_fingerprint`, or the store file is missing. The fingerprint names the snapshot directory the process loaded the model from (`model_fingerprint()` in `src/engine/embedder.py`; `AGENTS_MODEL_ARTIFACT` takes precedence), not a snapshot another process downloaded later. A search checks the index, returns no results for a missing or empty history without loading the model, and checks the index again when the model it loaded has a different fingerprint than the one the index was checked against. When one cache directory matches the model, the fingerprint equals the one read from the cache refs, so existing markers stay valid. While the fingerprint is unchanged, the refresh reuses the stored vector of every entry whose id and document are unchanged and embeds only new or edited entries; a changed fingerprint, a missing marker or a missing store file re-embeds every entry. Reused vectors are read from the store file the marker describes, not from a copy another process may have replaced. Documents are embedded in batches of `EMBEDDING_BATCH_SIZE` (default 4), which bounds inference memory. The index is keyed by workspace and kept outside the client repository (see [service memory behavior](shared-mcp-daemon.md#memory-and-errors)). With user library sync, the index covers the history merged across machines and its hash covers every file of it, which are read under the shared history lock before any embedding. |
@@ -46,7 +46,7 @@ The subsystem **reuses existing Agents-Core primitives** (FastMCP server, `Numpy
 ## 2. Goals & Non-Goals
 
 **Goals**
-- New MCP tools: `describe_repo`, `write_repo_summary` (the fallback when there is no sampling or it fails), `read_history`; history writing integrated into existing `log_interaction`.
+- New MCP tools: read-only `describe_repo`, explicit `write_repo_summary`, `read_history`; history writing integrated into existing `log_interaction`.
 - Idempotent, non-destructive editing of `CLAUDE.md` via a new marker pair (separate from the existing routing-protocol section).
 - Append-only `history.md` at the repo root with content-hash dedup, monthly rotation, optional semantic recall.
 - Tests in the style of existing ones (`pytest`, `tmp_path`, mock embedder).
@@ -73,16 +73,12 @@ describe_repo(repo_path?, force_refresh=False)
   ├─ if hash unchanged and not force → return {status:"up-to-date"}
   ├─ tree walk (depth ≤ 3, excluding vendor) + reading key files → CONTEXT_BUNDLE
   ├─ render DESCRIBE_PROMPT (template) with CONTEXT_BUNDLE
-  ├─ if the client supports sampling:
-  │    ├─ ctx.session.create_message(prompt) # MCP sampling — Claude generates summary
-  │    ├─ managed_section.upsert(CLAUDE.md, DESCRIBE_MARKER_BEGIN/END, summary)
-  │    ├─ save hash → DESCRIBE_HASH_FILE
-  │    └─ return {status, path, hash, word_count, in_word_budget, summary_preview}
-  └─ else (or sampling fails) → write nothing, return
+  └─ without sampling or writing, return
        {status:"needs_summary", workspace_id, repo_hash, repo_path, prompt, instruction}
 
 write_repo_summary(summary, repo_hash, repo_path?, workspace_id?)
   ├─ HTTP transport: error unless workspace_id matches and repo_path is passed back
+  ├─ reject protected installation/source destinations before any lock or write
   ├─ {status:"rejected"} if compute_repo_hash() != repo_hash (the repo changed since describe_repo)
   ├─ managed_section.upsert(CLAUDE.md, DESCRIBE_MARKER_BEGIN/END, summary)
   ├─ save hash → DESCRIBE_HASH_FILE
@@ -126,11 +122,11 @@ read_history(limit=20, since?, query?, machine?, offset=0, entry_id?)
 | `src/memory/__init__.py` | Package marker |
 | `src/memory/config.py` | Constants: markers, thresholds; path constants (`HISTORY_FILE`, `CLAUDE_MD_FILE`, `MEMORY_DATA_DIR`, `DESCRIBE_HASH_FILE`, `HISTORY_ARCHIVE_DIR`) are exposed via PEP 562 `__getattr__` so they resolve lazily against `get_client_repo_root()` / `get_client_data_dir()` — see issue #36. |
 | `src/memory/managed_section.py` | Pure Python port of the inline marker editor in `scripts/init_repo.sh` (April 2026). Functions: `upsert_section`, `read_section`, `remove_section`. Atomic writes via `tempfile` + `os.replace`. |
-| `src/memory/describer.py` | `RepoDescriber`: hash → bundle → prompt → upsert of the summary (sampled by the server, or sent back through `write_repo_summary`) |
+| `src/memory/describer.py` | `RepoDescriber`: read-only hash → bundle → prompt; explicit protected write through `write_repo_summary` |
 | `src/memory/history.py` | `HistoryWriter` (append, dedup, rotate) + `HistoryReader` (recent + lazy semantic) + `HistoryStore` (wrapper around NumpyVectorStore) |
 | `tests/test_managed_section.py` | Marker editor tests (style of `tests/test_vector_store.py`) |
-| `tests/test_describer.py` | Hash, refresh logic, mock sampling, upsert verification |
-| `tests/test_server_describe.py` | Tool level: `needs_summary` without sampling or when sampling fails, `write_repo_summary` persistence and rejection, the direct write when sampling succeeds |
+| `tests/test_describer.py` | Hash, refresh logic, upsert verification, protected write destinations |
+| `tests/test_server_describe.py` | Tool level: read-only `needs_summary`, `write_repo_summary` persistence and rejection, installation protection and explicit worktree selection |
 | `tests/test_history.py` | Append, dedup, rotation, recent read, semantic search (mock embedder) |
 
 | Modified file | What changes |
@@ -144,7 +140,7 @@ read_history(limit=20, since?, query?, machine?, offset=0, entry_id?)
 | Existing | Location | Where reused |
 |---|---|---|
 | FastMCP `@mcp.tool()` decorator + JSON-string returns | `src/server.py` | All new tools — same registration pattern |
-| MCP sampling via `ctx.session.create_message(...)` | `src/server.py` (`_sample_with_agent`) | `describe_repo` uses the same sampling call when the client supports it; otherwise it returns `needs_summary` and `write_repo_summary` persists the result |
+| Read-only context + explicit write | `src/server.py`, `src/memory/describer.py` | `describe_repo` returns `needs_summary` without sampling or writing; `write_repo_summary` checks every write destination before persisting the result |
 | Marker editor for CLAUDE.md (inline Python) | Inline marker editor in `scripts/init_repo.sh` (April 2026) | Ported to `src/memory/managed_section.py`. The installers never imported it: they edit the routing section with `scripts/_helpers/inject_claude_md.py`, a separate implementation that also migrates the legacy routing marker pair. Only `describe_repo`/`write_repo_summary` use `managed_section` |
 | `SkillRetriever._compute_dir_hash` + `_needs_reindex` | `src/engine/skills.py` | `RepoDescriber.compute_repo_hash` + `plan()` |
 | `NumpyVectorStore` (atomic .npz+.json, thread-safe) | `src/engine/vector_store.py` | `HistoryStore` for semantic recall |
@@ -549,7 +545,7 @@ The implementation as of 2026-04-15 matched the spec, apart from the clarificati
 
 2. **CLAUDE.md/history.md hashes are excluded from the repo hash** (`_HASH_EXCLUDED_FILES` in `describer.py`). Without this, `describe_repo` would invalidate its own cache on every run — the side effect of writing to CLAUDE.md changes the top-level filenames.
 
-3. **`RepoDescriber` is split into `plan() / build_prompt() / write_summary()`**, and the `ctx.session.create_message(...)` call stays in `src/server.py`. This allows writing unit tests without an MCP context — tests do not use sampling. `src/server.py` samples only when the client declares the capability (never over HTTP); when it does not, or the sampling call raises, `describe_repo` returns `needs_summary` and writes nothing.
+3. **`RepoDescriber` is split into `plan() / build_prompt() / write_summary()`**. `describe_repo` only reads and returns `needs_summary` for every required refresh; the caller generates the overview and explicitly persists it through `write_repo_summary`. MCP sampling and its server helper were removed. `write_summary` rejects destinations in the running installation/source checkout before creating a lock or cache, including paths selected through aliases; separate linked worktrees remain eligible. The historical implementation steps above retain the original sampling plan.
 
 4. **`HistoryWriter`/`HistoryReader` are pure stdlib**, without numpy. `HistoryStore` (semantic recall) imports `NumpyVectorStore` and the embedder only on the first `search()`. This is critical for NixOS environments: writer/reader work even when numpy cannot load (semantic-store tests are marked `skipif` in that case).
 

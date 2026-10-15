@@ -46,6 +46,8 @@ Pattern = Literal["inform_reuse", "partition_join", "producer_consumer",
                   "bounded_dispute"]
 CommunicationMode = Literal["mcp", "native", "parent_relay", "checkpoint"]
 MessageKind = Literal["notice", "request", "response"]
+RequestState = Literal["pending", "accepted", "input_required", "completed",
+                       "declined", "failed", "cancelled", "expired"]
 
 
 class StrictModel(BaseModel):
@@ -376,6 +378,13 @@ class SendRequest(MailboxRequest):
     body: Text = Field(repr=False)
     reply_to: Identifier | None = None
     correlation_id: Identifier | None = None
+    expires_at: Timestamp | None = None
+
+    @model_validator(mode="after")
+    def request_deadline(self) -> SendRequest:
+        if self.expires_at is not None and self.kind != "request":
+            raise ValueError("Only requests can have a deadline")
+        return self
 
 
 class ReceiveRequest(MailboxRequest):
@@ -393,6 +402,59 @@ class AckRequest(MailboxRequest):
         if len(self.message_ids) != len(set(self.message_ids)):
             raise ValueError("message IDs must be unique")
         return self
+
+
+class RequestStatusRequest(MailboxRequest):
+    message_id: Identifier
+
+
+class RequestUpdateRequest(RequestStatusRequest):
+    operation_id: Identifier
+    expected_revision: Generation
+    state: Literal["accepted", "input_required", "completed", "declined", "failed", "cancelled"]
+    reason: Text | None = None
+    response_message_id: Identifier | None = None
+
+    @model_validator(mode="after")
+    def outcome_details(self) -> RequestUpdateRequest:
+        if self.state in ("input_required", "declined", "failed", "cancelled") and self.reason is None:
+            raise ValueError("This outcome requires a reason")
+        if self.state == "completed" and self.response_message_id is None:
+            raise ValueError("Completion requires a response message")
+        if self.state != "completed" and self.response_message_id is not None:
+            raise ValueError("Only completion can bind a response message")
+        return self
+
+
+class WaitRequest(MailboxRequest):
+    after_cursor: MailboxCursor = 0
+    limit: Annotated[int, Field(strict=True, ge=1, le=MAX_ITEMS)] = 20
+    timeout_seconds: Annotated[int, Field(strict=True, ge=0, le=30)] = 20
+
+
+class TrackedRequest(StrictModel):
+    message_id: Identifier
+    sender_id: Identifier
+    recipient_id: Identifier
+    state: RequestState
+    revision: Generation
+    created_at: Timestamp
+    updated_at: Timestamp
+    expires_at: Timestamp | None
+    reason: Text | None
+    response_message_id: Identifier | None
+    updated_by: Identifier | None
+    delivery: Literal["stored", "acknowledged"]
+    acknowledged_at: Timestamp | None
+
+
+class MailboxNotification(StrictModel):
+    cursor: MailboxCursor
+    kind: Literal["message_received", "message_acknowledged", "request_updated"]
+    message_id: Identifier
+    created_at: Timestamp
+    request_state: RequestState | None
+    request_revision: Generation | None
 
 
 class Message(StrictModel):
@@ -650,6 +712,25 @@ class AckSuccess(StrictModel):
     acknowledged_at: Timestamp
 
 
+class RequestStatusSuccess(StrictModel):
+    protocol: Protocol
+    status: Literal["ok"]
+    repository_id: Identifier
+    request: TrackedRequest
+
+
+class WaitSuccess(StrictModel):
+    protocol: Protocol
+    status: Literal["ok"]
+    repository_id: Identifier
+    participant_id: Identifier
+    events: Annotated[list[MailboxNotification], Field(max_length=MAX_ITEMS)]
+    next_cursor: MailboxCursor
+    has_more: bool
+    timed_out: bool
+    service_epoch: Generation
+
+
 class ApplySuccess(StrictModel):
     """Shared receipt fields; concrete subclasses add only their action result."""
 
@@ -768,6 +849,14 @@ class AckResponse(RootModel[AckSuccess | ErrorResponse]):
     model_config = ConfigDict(json_schema_extra={"type": "object"})
 
 
+class RequestStatusResponse(RootModel[RequestStatusSuccess | ErrorResponse]):
+    model_config = ConfigDict(json_schema_extra={"type": "object"})
+
+
+class WaitResponse(RootModel[WaitSuccess | ErrorResponse]):
+    model_config = ConfigDict(json_schema_extra={"type": "object"})
+
+
 class InvalidRequest(ValueError):
     """A deliberately bounded error that never includes request values."""
 
@@ -864,12 +953,26 @@ def parse_ack(value: dict[str, Any] | str) -> AckRequest:
     return _parse(AckRequest, value)
 
 
+def parse_request_status(value: dict[str, Any] | str) -> RequestStatusRequest:
+    return _parse(RequestStatusRequest, value)
+
+
+def parse_request_update(value: dict[str, Any] | str) -> RequestUpdateRequest:
+    return _parse(RequestUpdateRequest, value)
+
+
+def parse_wait(value: dict[str, Any] | str) -> WaitRequest:
+    return _parse(WaitRequest, value)
+
+
 def json_schemas() -> dict[str, Any]:
     """Export self-contained roots; every nested object is a closed model."""
     models = (RegisterRequest, ReadRequest, ApplyRequest, EventEnvelope, Claim,
               Artifact, AgreementTerms, Agreement, ErrorResponse, RegisterResponse,
               ReadResponse, ApplyResponse, SendRequest, ReceiveRequest, AckRequest,
-              Message, SendResponse, ReceiveResponse, AckResponse, *ACTION_MODELS)
+              Message, SendResponse, ReceiveResponse, AckResponse,
+              RequestStatusRequest, RequestUpdateRequest, WaitRequest, TrackedRequest,
+              MailboxNotification, RequestStatusResponse, WaitResponse, *ACTION_MODELS)
     return {"protocol": PROTOCOL, "max_request_bytes": MAX_REQUEST_BYTES,
             "max_json_depth": MAX_JSON_DEPTH,
             "schemas": {model.__name__: model.model_json_schema() for model in models}}

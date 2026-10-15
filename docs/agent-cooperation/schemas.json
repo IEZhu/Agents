@@ -10652,6 +10652,19 @@
           ],
           "default": null,
           "title": "Correlation Id"
+        },
+        "expires_at": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expires At"
         }
       },
       "required": [
@@ -11899,6 +11912,1154 @@
         }
       ],
       "title": "AckResponse",
+      "type": "object"
+    },
+    "RequestStatusRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "protocol": {
+          "const": "agents-core/cooperation/1",
+          "title": "Protocol",
+          "type": "string"
+        },
+        "repository_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Repository Id",
+          "type": "string"
+        },
+        "participant_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Participant Id",
+          "type": "string"
+        },
+        "capability": {
+          "maxLength": 4000,
+          "minLength": 1,
+          "title": "Capability",
+          "type": "string"
+        },
+        "subject_id": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Subject Id"
+        },
+        "message_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Message Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "protocol",
+        "repository_id",
+        "participant_id",
+        "capability",
+        "message_id"
+      ],
+      "title": "RequestStatusRequest",
+      "type": "object"
+    },
+    "RequestUpdateRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "protocol": {
+          "const": "agents-core/cooperation/1",
+          "title": "Protocol",
+          "type": "string"
+        },
+        "repository_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Repository Id",
+          "type": "string"
+        },
+        "participant_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Participant Id",
+          "type": "string"
+        },
+        "capability": {
+          "maxLength": 4000,
+          "minLength": 1,
+          "title": "Capability",
+          "type": "string"
+        },
+        "subject_id": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Subject Id"
+        },
+        "message_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Message Id",
+          "type": "string"
+        },
+        "operation_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "expected_revision": {
+          "minimum": 1,
+          "title": "Expected Revision",
+          "type": "integer"
+        },
+        "state": {
+          "enum": [
+            "accepted",
+            "input_required",
+            "completed",
+            "declined",
+            "failed",
+            "cancelled"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "maxLength": 4000,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        },
+        "response_message_id": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Response Message Id"
+        }
+      },
+      "required": [
+        "protocol",
+        "repository_id",
+        "participant_id",
+        "capability",
+        "message_id",
+        "operation_id",
+        "expected_revision",
+        "state"
+      ],
+      "title": "RequestUpdateRequest",
+      "type": "object"
+    },
+    "WaitRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "protocol": {
+          "const": "agents-core/cooperation/1",
+          "title": "Protocol",
+          "type": "string"
+        },
+        "repository_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Repository Id",
+          "type": "string"
+        },
+        "participant_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Participant Id",
+          "type": "string"
+        },
+        "capability": {
+          "maxLength": 4000,
+          "minLength": 1,
+          "title": "Capability",
+          "type": "string"
+        },
+        "subject_id": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Subject Id"
+        },
+        "after_cursor": {
+          "default": 0,
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "After Cursor",
+          "type": "integer"
+        },
+        "limit": {
+          "default": 20,
+          "maximum": 50,
+          "minimum": 1,
+          "title": "Limit",
+          "type": "integer"
+        },
+        "timeout_seconds": {
+          "default": 20,
+          "maximum": 30,
+          "minimum": 0,
+          "title": "Timeout Seconds",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "protocol",
+        "repository_id",
+        "participant_id",
+        "capability"
+      ],
+      "title": "WaitRequest",
+      "type": "object"
+    },
+    "TrackedRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "message_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Message Id",
+          "type": "string"
+        },
+        "sender_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Sender Id",
+          "type": "string"
+        },
+        "recipient_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Recipient Id",
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "pending",
+            "accepted",
+            "input_required",
+            "completed",
+            "declined",
+            "failed",
+            "cancelled",
+            "expired"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "revision": {
+          "minimum": 1,
+          "title": "Revision",
+          "type": "integer"
+        },
+        "created_at": {
+          "minimum": 0,
+          "title": "Created At",
+          "type": "number"
+        },
+        "updated_at": {
+          "minimum": 0,
+          "title": "Updated At",
+          "type": "number"
+        },
+        "expires_at": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expires At"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "maxLength": 4000,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reason"
+        },
+        "response_message_id": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Response Message Id"
+        },
+        "updated_by": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Updated By"
+        },
+        "delivery": {
+          "enum": [
+            "stored",
+            "acknowledged"
+          ],
+          "title": "Delivery",
+          "type": "string"
+        },
+        "acknowledged_at": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Acknowledged At"
+        }
+      },
+      "required": [
+        "message_id",
+        "sender_id",
+        "recipient_id",
+        "state",
+        "revision",
+        "created_at",
+        "updated_at",
+        "expires_at",
+        "reason",
+        "response_message_id",
+        "updated_by",
+        "delivery",
+        "acknowledged_at"
+      ],
+      "title": "TrackedRequest",
+      "type": "object"
+    },
+    "MailboxNotification": {
+      "additionalProperties": false,
+      "properties": {
+        "cursor": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Cursor",
+          "type": "integer"
+        },
+        "kind": {
+          "enum": [
+            "message_received",
+            "message_acknowledged",
+            "request_updated"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "message_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+          "title": "Message Id",
+          "type": "string"
+        },
+        "created_at": {
+          "minimum": 0,
+          "title": "Created At",
+          "type": "number"
+        },
+        "request_state": {
+          "anyOf": [
+            {
+              "enum": [
+                "pending",
+                "accepted",
+                "input_required",
+                "completed",
+                "declined",
+                "failed",
+                "cancelled",
+                "expired"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Request State"
+        },
+        "request_revision": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Request Revision"
+        }
+      },
+      "required": [
+        "cursor",
+        "kind",
+        "message_id",
+        "created_at",
+        "request_state",
+        "request_revision"
+      ],
+      "title": "MailboxNotification",
+      "type": "object"
+    },
+    "RequestStatusResponse": {
+      "$defs": {
+        "ErrorResponse": {
+          "additionalProperties": false,
+          "properties": {
+            "protocol": {
+              "const": "agents-core/cooperation/1",
+              "default": "agents-core/cooperation/1",
+              "title": "Protocol",
+              "type": "string"
+            },
+            "status": {
+              "const": "error",
+              "default": "error",
+              "title": "Status",
+              "type": "string"
+            },
+            "error": {
+              "enum": [
+                "invalid_request",
+                "unsupported_version",
+                "workspace_required",
+                "workspace_invalid",
+                "unauthorized_actor",
+                "scope_denied",
+                "stale_revision",
+                "stale_generation",
+                "claim_conflict",
+                "dependency_cycle",
+                "proposal_expired",
+                "idempotency_conflict",
+                "busy",
+                "cursor_expired",
+                "store_unavailable",
+                "dependency_wait",
+                "priority_wait",
+                "execution_lease_required",
+                "artifact_mismatch",
+                "mailbox_full"
+              ],
+              "title": "Error",
+              "type": "string"
+            },
+            "message": {
+              "maxLength": 4000,
+              "minLength": 1,
+              "title": "Message",
+              "type": "string"
+            },
+            "revision": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Revision"
+            },
+            "generation": {
+              "anyOf": [
+                {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Generation"
+            },
+            "minimum_cursor": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Minimum Cursor"
+            },
+            "cycle": {
+              "items": {
+                "maxLength": 4000,
+                "minLength": 1,
+                "type": "string"
+              },
+              "maxItems": 50,
+              "title": "Cycle",
+              "type": "array"
+            },
+            "cycle_truncated": {
+              "default": false,
+              "title": "Cycle Truncated",
+              "type": "boolean"
+            },
+            "service_epoch": {
+              "anyOf": [
+                {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Service Epoch"
+            },
+            "claim_ids": {
+              "items": {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+                "type": "string"
+              },
+              "maxItems": 50,
+              "title": "Claim Ids",
+              "type": "array"
+            },
+            "owner": {
+              "anyOf": [
+                {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Owner"
+            },
+            "participant_id": {
+              "anyOf": [
+                {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Participant Id"
+            }
+          },
+          "required": [
+            "error",
+            "message"
+          ],
+          "title": "ErrorResponse",
+          "type": "object"
+        },
+        "RequestStatusSuccess": {
+          "additionalProperties": false,
+          "properties": {
+            "protocol": {
+              "const": "agents-core/cooperation/1",
+              "title": "Protocol",
+              "type": "string"
+            },
+            "status": {
+              "const": "ok",
+              "title": "Status",
+              "type": "string"
+            },
+            "repository_id": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+              "title": "Repository Id",
+              "type": "string"
+            },
+            "request": {
+              "$ref": "#/$defs/TrackedRequest"
+            }
+          },
+          "required": [
+            "protocol",
+            "status",
+            "repository_id",
+            "request"
+          ],
+          "title": "RequestStatusSuccess",
+          "type": "object"
+        },
+        "TrackedRequest": {
+          "additionalProperties": false,
+          "properties": {
+            "message_id": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+              "title": "Message Id",
+              "type": "string"
+            },
+            "sender_id": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+              "title": "Sender Id",
+              "type": "string"
+            },
+            "recipient_id": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+              "title": "Recipient Id",
+              "type": "string"
+            },
+            "state": {
+              "enum": [
+                "pending",
+                "accepted",
+                "input_required",
+                "completed",
+                "declined",
+                "failed",
+                "cancelled",
+                "expired"
+              ],
+              "title": "State",
+              "type": "string"
+            },
+            "revision": {
+              "minimum": 1,
+              "title": "Revision",
+              "type": "integer"
+            },
+            "created_at": {
+              "minimum": 0,
+              "title": "Created At",
+              "type": "number"
+            },
+            "updated_at": {
+              "minimum": 0,
+              "title": "Updated At",
+              "type": "number"
+            },
+            "expires_at": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Expires At"
+            },
+            "reason": {
+              "anyOf": [
+                {
+                  "maxLength": 4000,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Reason"
+            },
+            "response_message_id": {
+              "anyOf": [
+                {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Response Message Id"
+            },
+            "updated_by": {
+              "anyOf": [
+                {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Updated By"
+            },
+            "delivery": {
+              "enum": [
+                "stored",
+                "acknowledged"
+              ],
+              "title": "Delivery",
+              "type": "string"
+            },
+            "acknowledged_at": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Acknowledged At"
+            }
+          },
+          "required": [
+            "message_id",
+            "sender_id",
+            "recipient_id",
+            "state",
+            "revision",
+            "created_at",
+            "updated_at",
+            "expires_at",
+            "reason",
+            "response_message_id",
+            "updated_by",
+            "delivery",
+            "acknowledged_at"
+          ],
+          "title": "TrackedRequest",
+          "type": "object"
+        }
+      },
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RequestStatusSuccess"
+        },
+        {
+          "$ref": "#/$defs/ErrorResponse"
+        }
+      ],
+      "title": "RequestStatusResponse",
+      "type": "object"
+    },
+    "WaitResponse": {
+      "$defs": {
+        "ErrorResponse": {
+          "additionalProperties": false,
+          "properties": {
+            "protocol": {
+              "const": "agents-core/cooperation/1",
+              "default": "agents-core/cooperation/1",
+              "title": "Protocol",
+              "type": "string"
+            },
+            "status": {
+              "const": "error",
+              "default": "error",
+              "title": "Status",
+              "type": "string"
+            },
+            "error": {
+              "enum": [
+                "invalid_request",
+                "unsupported_version",
+                "workspace_required",
+                "workspace_invalid",
+                "unauthorized_actor",
+                "scope_denied",
+                "stale_revision",
+                "stale_generation",
+                "claim_conflict",
+                "dependency_cycle",
+                "proposal_expired",
+                "idempotency_conflict",
+                "busy",
+                "cursor_expired",
+                "store_unavailable",
+                "dependency_wait",
+                "priority_wait",
+                "execution_lease_required",
+                "artifact_mismatch",
+                "mailbox_full"
+              ],
+              "title": "Error",
+              "type": "string"
+            },
+            "message": {
+              "maxLength": 4000,
+              "minLength": 1,
+              "title": "Message",
+              "type": "string"
+            },
+            "revision": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Revision"
+            },
+            "generation": {
+              "anyOf": [
+                {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Generation"
+            },
+            "minimum_cursor": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Minimum Cursor"
+            },
+            "cycle": {
+              "items": {
+                "maxLength": 4000,
+                "minLength": 1,
+                "type": "string"
+              },
+              "maxItems": 50,
+              "title": "Cycle",
+              "type": "array"
+            },
+            "cycle_truncated": {
+              "default": false,
+              "title": "Cycle Truncated",
+              "type": "boolean"
+            },
+            "service_epoch": {
+              "anyOf": [
+                {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Service Epoch"
+            },
+            "claim_ids": {
+              "items": {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+                "type": "string"
+              },
+              "maxItems": 50,
+              "title": "Claim Ids",
+              "type": "array"
+            },
+            "owner": {
+              "anyOf": [
+                {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Owner"
+            },
+            "participant_id": {
+              "anyOf": [
+                {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Participant Id"
+            }
+          },
+          "required": [
+            "error",
+            "message"
+          ],
+          "title": "ErrorResponse",
+          "type": "object"
+        },
+        "MailboxNotification": {
+          "additionalProperties": false,
+          "properties": {
+            "cursor": {
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "title": "Cursor",
+              "type": "integer"
+            },
+            "kind": {
+              "enum": [
+                "message_received",
+                "message_acknowledged",
+                "request_updated"
+              ],
+              "title": "Kind",
+              "type": "string"
+            },
+            "message_id": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+              "title": "Message Id",
+              "type": "string"
+            },
+            "created_at": {
+              "minimum": 0,
+              "title": "Created At",
+              "type": "number"
+            },
+            "request_state": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "pending",
+                    "accepted",
+                    "input_required",
+                    "completed",
+                    "declined",
+                    "failed",
+                    "cancelled",
+                    "expired"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Request State"
+            },
+            "request_revision": {
+              "anyOf": [
+                {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Request Revision"
+            }
+          },
+          "required": [
+            "cursor",
+            "kind",
+            "message_id",
+            "created_at",
+            "request_state",
+            "request_revision"
+          ],
+          "title": "MailboxNotification",
+          "type": "object"
+        },
+        "WaitSuccess": {
+          "additionalProperties": false,
+          "properties": {
+            "protocol": {
+              "const": "agents-core/cooperation/1",
+              "title": "Protocol",
+              "type": "string"
+            },
+            "status": {
+              "const": "ok",
+              "title": "Status",
+              "type": "string"
+            },
+            "repository_id": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+              "title": "Repository Id",
+              "type": "string"
+            },
+            "participant_id": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+              "title": "Participant Id",
+              "type": "string"
+            },
+            "events": {
+              "items": {
+                "$ref": "#/$defs/MailboxNotification"
+              },
+              "maxItems": 50,
+              "title": "Events",
+              "type": "array"
+            },
+            "next_cursor": {
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "title": "Next Cursor",
+              "type": "integer"
+            },
+            "has_more": {
+              "title": "Has More",
+              "type": "boolean"
+            },
+            "timed_out": {
+              "title": "Timed Out",
+              "type": "boolean"
+            },
+            "service_epoch": {
+              "minimum": 1,
+              "title": "Service Epoch",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "protocol",
+            "status",
+            "repository_id",
+            "participant_id",
+            "events",
+            "next_cursor",
+            "has_more",
+            "timed_out",
+            "service_epoch"
+          ],
+          "title": "WaitSuccess",
+          "type": "object"
+        }
+      },
+      "anyOf": [
+        {
+          "$ref": "#/$defs/WaitSuccess"
+        },
+        {
+          "$ref": "#/$defs/ErrorResponse"
+        }
+      ],
+      "title": "WaitResponse",
       "type": "object"
     },
     "DeclareIntent": {
