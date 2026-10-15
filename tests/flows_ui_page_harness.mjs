@@ -66,6 +66,9 @@ let confirmAnswer = scenario !== "landing_updates_down_declined";  // what confi
 const replacedUrls = [];  // every history.replaceState call, as [state, title, url]
 const prompts = [];  // every question the page asked with prompt(), and the answer it suggested
 const puts = [];
+const alerts = [];
+let userRuleToggle = { id: "user:team", description: "Team rule", enabled: false, declared_by: [],
+                       body: "Accepted A", revision: "r1" };
 let putStatus = 200;
 const savedText = {};  // what a PUT stored, served back by the next GET
 let releasePersonaPut = null;  // persona_race: the test decides when the PUT answers
@@ -146,6 +149,16 @@ const VERSIONS = {
                { version: "git-" + "a".repeat(40), revision_prefix: "aaaaaaaaaaaa", deleted: false, time: "2026-10-01T10:00:00+00:00" }],
 };
 function uiData(path, init) {
+  if (scenario === "ui_user_rule_toggle") {
+    if (path.startsWith("/ui/api/components")) return [200, { items: [{ ...userRuleToggle }] }];
+    if (path === "/ui/api/component" && init.method === "PUT") {
+      const body = JSON.parse(init.body);
+      puts.push(body);
+      if (body.expected_revision !== userRuleToggle.revision) return [409, { error: "rule_conflict: stale revision" }];
+      userRuleToggle = { ...userRuleToggle, enabled: body.enabled, revision: "r3" };
+      return [200, { status: "ok" }];
+    }
+  }
   if (path.startsWith("/ui/api/flows")) {
     return [200, { flows: Object.keys(DOCS).map((id) => ({ id, source: "user", title: id.slice(5), content: DOCS[id] })), repositories: [] }];
   }
@@ -625,7 +638,7 @@ const context = vm.createContext({
   location: { hash: scenario === "used_code" ? "#code=used-code" : scenario === "autodev_link" ? "#autodev" : "",
               pathname: "/ui" },
   history: { replaceState(...args) { replacedUrls.push(args); } },
-  fetch: fetchStub, alert() {}, confirm: (question) => { confirms.push(question); return confirmAnswer; },
+  fetch: fetchStub, alert(message) { alerts.push(message); }, confirm: (question) => { confirms.push(question); return confirmAnswer; },
   prompt: (question, suggested) => { prompts.push([question, suggested]); return suggested; },
   setTimeout: pageSetTimeout, clearTimeout: pageClearTimeout,
   console, URLSearchParams,
@@ -777,6 +790,18 @@ if (scenario === "render") {
 
 if (isUi) {
   const out = {};
+  if (scenario === "ui_user_rule_toggle") {
+    await openTab("rules");
+    await open(0);
+    userRuleToggle = { ...userRuleToggle, body: "Accepted B", revision: "r2" };
+    await vm.runInContext("toggleItem()", context);
+    out.conflict = { puts: [...puts], alerts: [...alerts], enabled: userRuleToggle.enabled,
+                     displayed: vm.runInContext("({body: state.item.body, revision: state.item.revision})", context) };
+    await vm.runInContext("toggleItem()", context);
+    out.retry = { puts: [...puts], enabled: userRuleToggle.enabled };
+    console.log(JSON.stringify(out));
+    process.exit(0);
+  }
   if (scenario === "ui_place") {
     // A personal flow's group, 456 px wide, beside a version (the sync chip sits under it) ending at
     // 222 px and a pane whose straight top edge starts at 304 + 22 + 13 px; the section tabs move as

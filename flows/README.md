@@ -200,9 +200,11 @@ An omitted list keeps the agent's own selection for that kind (retrieval and
 the agent's declared skills and implants, minus components switched off in the
 web UI). A list is exact: nothing is retrieved or added, the agent's skill policy
 does not restrict it, an empty list loads nothing, and components switched off
-in the web UI still load when a flow names them. Rules are named as in the
-footer (`no-fabrication`), skills and implants by file ID (`skill-web-search`,
-`implant-iteration-budget`); unknown IDs are rejected on save.
+in the web UI still load when a flow names them, except
+[URL-subscribed user rules](../docs/user-rules.md), which must be enabled.
+Rules are named as in the footer (`no-fabrication`, `user:team-conventions`),
+skills and implants by file ID (`skill-web-search`, `implant-iteration-budget`);
+unknown IDs are rejected on save. `user:` IDs are valid only in the rules list.
 
 Each user can replace that choice for any flow, built-in ones included, without
 copying its text: `set_flow_persona(flow, agent, skills, implants, rules)` or the

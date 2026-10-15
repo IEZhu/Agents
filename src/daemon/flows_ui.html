@@ -1843,11 +1843,20 @@ function renderAgentDetail(agent) {
 async function toggleItem() {
   const item = state.item, kind = state.tab;  // the tab can change while the request runs
   if (!item || kind === "agents") return;  // agents are read-only
+  const body = { kind, id: item.id, enabled: !item.enabled };
+  if (kind === "rules" && item.id.startsWith("user:")) body.expected_revision = item.revision;
   try {
-    await api("/ui/api/component", { method: "PUT", body: { kind, id: item.id, enabled: !item.enabled } });
+    await api("/ui/api/component", { method: "PUT", body });
     state.personaCatalog = null;  // the Persona panel marks switched-off components
     if (state.tab === kind) await loadComponents(kind, null, true);
-  } catch (error) { alert(error.message); }
+  } catch (error) {
+    if (error.status === 409 && state.tab === kind) {
+      state.personaCatalog = null;
+      try { await loadComponents(kind, null, true); }
+      catch (reloadError) { alert(error.message + "\n" + reloadError.message); return; }
+    }
+    alert(error.message);
+  }
 }
 $("c-toggle").addEventListener("click", toggleItem);
 
