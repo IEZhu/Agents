@@ -297,3 +297,11 @@ def no_server_restart(monkeypatch):
         # Not AssertionError: activation turns any Exception into the SystemExit a test may expect.
         pytest.fail(f"a test restarted the test process: {argv}")
     monkeypatch.setattr(self_update, "_exec_server", refuse)
+
+
+@pytest.fixture(autouse=True)
+def user_rule_store(tmp_path, monkeypatch):
+    """URL rule tests never read or mutate the owner's real subscriptions."""
+    directory = tmp_path / "user-rules"
+    monkeypatch.setenv("AGENTS_USER_RULES_DIR", str(directory))
+    return directory

@@ -27,6 +27,7 @@ from src.utils.prompt_loader import split_frontmatter
 KINDS = ("skills", "implants", "rules")
 _AGENT = re.compile(r"[a-z0-9][a-z0-9_]*")
 _COMPONENT = re.compile(r"[A-Za-z0-9_-]+")
+_RULE = re.compile(r"(?:user:)?[A-Za-z0-9_-]+")
 _MAX_COMPONENTS = 64
 _PERSONA_KEY = re.compile(r"""^[ \t]*(?:persona|"persona"|'persona')[ \t]*:""", re.MULTILINE)
 
@@ -68,8 +69,9 @@ def normalize(value) -> dict | None:
         if kind not in value or value[kind] is None:
             continue
         items = value[kind]
+        pattern = _RULE if kind == "rules" else _COMPONENT
         if not isinstance(items, list) or len(items) > _MAX_COMPONENTS or any(
-                not isinstance(item, str) or not _COMPONENT.fullmatch(item.removesuffix(".mdc"))
+                not isinstance(item, str) or not pattern.fullmatch(item.removesuffix(".mdc"))
                 for item in items):
             raise FlowError(f"flow_invalid: persona.{kind} must be a list of component IDs")
         spec[kind] = list(dict.fromkeys(item.removesuffix(".mdc") for item in items))

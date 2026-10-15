@@ -77,7 +77,13 @@ def read_profile(agent_name: str) -> tuple[str, dict, str]:
 def _rules() -> tuple[list[tuple[str, str]], list[SelectionDecision]]:
     blocks, decisions = [], []
     off = component_toggles.disabled("rules")
-    for rule in get_rules(fresh=True, strict=True):
+    from src.user_rules import RuleLibrary
+    from src.engine import rules as rules_module
+
+    user_rules = RuleLibrary().rules() if rules_module.RULES_ENABLED else []
+    common_rules = sorted([*get_rules(fresh=True, strict=True), *user_rules],
+                          key=lambda rule: (rule.priority, rule.name))
+    for rule in common_rules:
         reason = ("presentation_rule" if rule.name in PRESENTATION_RULE_IDS
                   else "disabled" if rule.name in off else "mandatory_common_rule")
         enabled = reason == "mandatory_common_rule"
