@@ -155,6 +155,8 @@ installation being removed. The commit check uses existing local remote-tracking
 fetching; it does not confirm that the remote is still available. `.env` and `.venv/` are
 intentional installation assets and can be removed, so keep personal files elsewhere. Other
 ignored material, including extra runtime caches, conservatively keeps the selected checkout.
+Registered submodules and retained `.git/modules` repositories also keep the whole checkout,
+because parent Git history does not establish ownership of nested private work.
 Git safety inspections use a copy of the process environment without inherited `GIT_*`
 overrides, while preserving all other entries; other uninstall commands inherit the normal
 environment. Untracked-file detection overrides Git settings that hide these files, and the
