@@ -673,6 +673,50 @@ seconds while the browser tab is visible (see
   refuses with 409 `entry_changed` when the entry is no longer there as shown.
   With [user library sync](user-sync.md#repository-history) the entry also leaves
   what this machine shared, though the library's git history keeps it.
+- **Memory** ([#297](https://github.com/IEZhu/Agents/issues/297)) shows the AI
+  clients' file-based memory and changes it.
+  - *Where it looks.* Claude Code keeps one Markdown file per item in
+    `<config dir>/projects/<project>/memory/`, with YAML frontmatter (`name`,
+    `description`, `metadata.type`), and the index `MEMORY.md`, one
+    `- [Title](file.md) — hook` line per item, which a session loads at its start.
+    `<project>` is the project's path with every character but letters and digits
+    replaced by `-`. The configuration directories are `~/.claude`, the daemon's own
+    `CLAUDE_CONFIG_DIR` and every directory a `claude` or `claude-deny-desktop`
+    record of `client-configs.json` names (`src/daemon/client_dirs.py`).
+  - *Other places and clients.* The top-level `<config dir>/memory/`, where the
+    installer puts the routing reminder, is listed as "Outside projects". Codex's
+    `$CODEX_HOME/memories/` is listed when it holds files. Cursor keeps no memory in
+    files, and the list says so.
+  - *The list.* One row per project, merged across configuration directories: the
+    registered workspace's name and path when one matches, a chip per configuration
+    directory with its item count, and the age of the newest change, the most recent
+    first. The search matches names here and item text on the server.
+  - *An open project.* It shows one configuration directory at a time; a select
+    switches to the others that hold its memory. *Rendered* shows each item under
+    its name, with its type, file, change time and description; a `[[name]]` link
+    opens another item of the directory. *Source* shows the files as they are.
+    "Contents" lists the items in `MEMORY.md` order, then those it does not link
+    and its links to missing files; `MEMORY.md` itself comes last.
+  - *Changing it.* **Edit** opens the whole file, frontmatter included, and **New
+    item** starts one from a template, optionally adding its line to `MEMORY.md`.
+    **Delete** moves the file to `memory-trash/` in the state directory and removes
+    the index lines that link to it. **Copy to** and **Move to** put the item into
+    the same project of another Claude Code configuration directory, creating the
+    project's directory there when needed, and append its index line unless the
+    target's index already links it. A file of the same name there is shown beside
+    the item, and **Replace** overwrites it only as shown.
+  - *Concurrency.* Claude Code writes memory without a lock. Every write carries the
+    SHA-256 of the version shown, and the daemon refuses with 409 `file_changed`
+    when the file differs right before its atomic rename. Only a session writing in
+    that very instant can still win or lose.
+  - *Requests.* The page reads `GET /ui/api/memory/projects`,
+    `GET /ui/api/memory?store=&project=`, `GET /ui/api/memory/file` and
+    `GET /ui/api/memory/search?q=`, and writes with `PUT /ui/api/memory/file`,
+    `POST /ui/api/memory/delete` and `POST /ui/api/memory/copy` (`memory_ui.py`).
+  - *Limits.* The reads need the page's `X-Agents-UI` header, as History's do. A
+    request names only a discovered configuration directory, an existing project
+    directory under its `projects/` and a plain file name; symlinks are refused,
+    and files over 256 KB are shown but not edited.
 
 The page fills the window: the header and the detail pane stay in place and only
 the list on the left scrolls (in the narrow layout, the list above the detail
