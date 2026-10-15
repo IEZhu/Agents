@@ -70,6 +70,7 @@ class CooperationService:
                     for participant in bodies(db, "participants", repo[0]):
                         if participant["status"] != "cancelled":
                             self._suspect(db, participant, "coordinator_restart")
+                            self._reconciliation_event(db, participant, "coordinator_restart", self.clock())
             self.started = True
         except BaseException:
             self.lock.close()
@@ -158,12 +159,14 @@ class CooperationService:
                                    generation=participant["generation"], service_epoch=self.epoch)
 
     def _suspect(self, db, participant, reason):
+        changed = participant["status"] != "suspect" or participant.get("reason") != reason
         participant["status"] = "suspect"
         participant["reason"] = reason
         self._save_participant(db, participant)
         repo = participant["repository_id"]
         for claim in bodies(db, "claims", repo):
             if claim["participant_id"] == participant["participant_id"]:
+                changed |= not claim["quarantined"]
                 claim["quarantined"] = True
                 db.execute("UPDATE claims SET body=? WHERE id=?", (canonical(claim), claim["claim_id"]))
         for agreement in bodies(db, "agreements", repo):
@@ -171,20 +174,41 @@ class CooperationService:
                 agreement["state"] = "suspended"
                 agreement["reason"] = reason
                 self._save_agreement(db, repo, agreement)
+                changed = True
+        return changed
+
+    def _reconciliation_event(self, db, participant, reason, now, agreement=None):
+        repo = participant["repository_id"]
+        revision = self._revision(db, repo) + 1
+        event = {"protocol": PROTOCOL, "event_id": str(uuid.uuid4()), "operation_id": str(uuid.uuid4()),
+                 "repository_id": repo, "revision": revision, "actor_id": "coordinator",
+                 "subject_id": participant["participant_id"], "task_id": participant["task_id"],
+                 "attempt_id": participant["attempt_id"], "generation": participant["generation"],
+                 "kind": "reconcile", "agreement_id": agreement["agreement_id"] if agreement else None,
+                 "proposal_revision": agreement["proposal_revision"] if agreement else None,
+                 "reply_to": None, "created_at": now, "payload": {"kind": "reconcile", "reason": reason}}
+        EventEnvelope.model_validate(event)
+        db.execute("UPDATE repositories SET revision=? WHERE id=?", (revision, repo))
+        db.execute("INSERT INTO events(repository_id,agreement_id,body,created_at) VALUES (?,?,?,?)",
+                   (repo, event["agreement_id"], canonical(event), now))
 
     def _reconcile(self, db, repo, now):
         for participant in bodies(db, "participants", repo):
             if participant["status"] == "active" and now - participant["last_seen"] > 120:
                 self._suspect(db, participant, "heartbeat_overdue")
+                self._reconciliation_event(db, participant, "heartbeat_overdue", now)
         for agreement in bodies(db, "agreements", repo):
             if agreement["state"] == "proposed" and now > agreement["deadline"]:
                 agreement["state"] = "expired"
                 agreement["terminal_at"] = now
                 self._save_agreement(db, repo, agreement)
+                participant = self._participant(db, repo, agreement["required_participants"][0])
+                self._reconciliation_event(db, participant, "proposal_expired", now, agreement)
         cyclic_tasks = {task for component in cyclic_components(self._declared_edges(db, repo)) for task in component}
         for participant in bodies(db, "participants", repo):
             if _task(participant) in cyclic_tasks and participant["status"] != "cancelled":
-                self._suspect(db, participant, "dependency_cycle")
+                if self._suspect(db, participant, "dependency_cycle"):
+                    self._reconciliation_event(db, participant, "dependency_cycle", now)
 
     def register(self, request, identity):
         try:
@@ -348,6 +372,9 @@ class CooperationService:
                 if not db.execute("SELECT 1 FROM repositories WHERE id=?", (repo,)).fetchone():
                     raise CooperationError("workspace_invalid")
                 now = self.clock()
+                snapshot_time = now if data.get("snapshot_time") is None else data["snapshot_time"]
+                if snapshot_time > now:
+                    raise CooperationError("invalid_request", "Snapshot time cannot be in the future")
                 self._reconcile(db, repo, now)
                 minimum = db.execute("SELECT minimum_cursor FROM repositories WHERE id=?", (repo,)).fetchone()[0]
                 cursor = data.get("cursor")
@@ -366,14 +393,14 @@ class CooperationService:
                 # Snapshot pagination is explicit: callers filter narrow participant/task IDs.
                 snapshots = {"participants": participants, "agreements": agreements,
                              "claims": bodies(db, "claims", repo), "artifacts": bodies(db, "artifacts", repo),
-                             "dependencies": bodies(db, "dependencies", repo), "ready": self._queue(db, repo, now)}
+                             "dependencies": bodies(db, "dependencies", repo), "ready": self._queue(db, repo, snapshot_time)}
                 counts = {name: len(items) for name, items in snapshots.items()}
                 cycles = self._cycles(self._declared_edges(db, repo))
                 offset, limit = data.get("offset", 0), data["limit"]
                 more = any(count > offset + limit for count in counts.values())
                 return {"protocol": PROTOCOL, "status": "ok", "repository_id": repo,
                         "revision": self._revision(db, repo), "service_epoch": self.epoch,
-                        "minimum_cursor": minimum, "snapshot_cursor": latest,
+                        "minimum_cursor": minimum, "snapshot_cursor": latest, "snapshot_time": snapshot_time,
                         "next_cursor": rows[-1][0] if rows else max(cursor or 0, minimum),
                         "has_more_events": bool(rows and rows[-1][0] < latest),
                         **{name: items[offset:offset + limit] for name, items in snapshots.items()},
@@ -895,7 +922,8 @@ class CooperationService:
                 cancelled = {p["participant_id"] for p in bodies(db, "participants", repo) if p["status"] == "cancelled" and p.get("terminal_at", self.clock()) < cutoff}
                 minimum = 0
                 for event in db.execute("SELECT cursor,agreement_id,body,created_at FROM events WHERE repository_id=? ORDER BY cursor", (repo,)).fetchall():
-                    actor = json.loads(event[2])["actor_id"]
+                    envelope = json.loads(event[2])
+                    actor = envelope["subject_id"] if envelope["kind"] == "reconcile" else envelope["actor_id"]
                     if event[3] >= cutoff or not (event[1] in terminal or (event[1] is None and actor in cancelled)):
                         break
                     db.execute("DELETE FROM events WHERE cursor=?", (event[0],))

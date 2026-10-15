@@ -343,6 +343,7 @@ class ReadRequest(StrictModel):
     cursor: RevisionNumber | None = None
     limit: int = Field(default=50, ge=1, le=100)
     offset: RevisionNumber = 0
+    snapshot_time: Timestamp | None = None
     participant_ids: IDList = Field(default_factory=list)
     agreement_ids: IDList = Field(default_factory=list)
     task_ids: IDList = Field(default_factory=list)
@@ -434,6 +435,13 @@ class OwnerCleanupPayload(StrictModel):
     released_claims: IDList
 
 
+class ReconcilePayload(StrictModel):
+    """Coordinator-only transition, never a participant mutation action."""
+
+    kind: Literal["reconcile"] = "reconcile"
+    reason: Literal["heartbeat_overdue", "dependency_cycle", "proposal_expired", "coordinator_restart"]
+
+
 class EventEnvelope(StrictModel):
     protocol: Protocol
     event_id: Identifier
@@ -447,12 +455,12 @@ class EventEnvelope(StrictModel):
     generation: Generation
     kind: Literal["declare_intent", "propose", "acknowledge", "reject", "acquire",
                   "heartbeat", "checkpoint", "release", "handoff", "accept_artifact",
-                  "cancel", "recover", "owner_cleanup"]
+                  "cancel", "recover", "owner_cleanup", "reconcile"]
     agreement_id: Identifier | None
     proposal_revision: Generation | None
     reply_to: Identifier | None
     created_at: Timestamp
-    payload: Action | OwnerCleanupPayload
+    payload: Action | OwnerCleanupPayload | ReconcilePayload
 
     @model_validator(mode="after")
     def event_kind(self) -> EventEnvelope:
@@ -596,6 +604,7 @@ class ReadSuccess(StrictModel):
     service_epoch: Generation
     minimum_cursor: RevisionNumber
     snapshot_cursor: RevisionNumber
+    snapshot_time: Timestamp
     next_cursor: RevisionNumber
     has_more_events: bool
     participants: Annotated[list[Participant], Field(max_length=100)]

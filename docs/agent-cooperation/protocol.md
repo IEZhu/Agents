@@ -131,7 +131,7 @@ The implementation exposes six MCP tools with strict internal schemas and client
 | Tool | Request | Result |
 |---|---|---|
 | `cooperation_register` | Verified `workspace`, actual `checkout_path`, task/attempt/parent identity, supported version, bounded scope and communication mode | Domain/participant identity, generation, private capability or parent-relay mode, current revision and protocol guidance |
-| `cooperation_read` | Verified workspace, repository identity, bounded filters, optional event cursor and limit | Consistent snapshot plus ordered events and next cursor; no capability secrets |
+| `cooperation_read` | Verified workspace, repository identity, bounded filters, optional event cursor, limit, offset and snapshot time | Consistent snapshot plus ordered events and next cursor; repeat the first page's `snapshot_time` and verify unchanged revision/epoch across pages; no capability secrets |
 | `cooperation_apply` | Verified workspace, participant capability, `operation_id`, expected revision/generation, typed action | Committed event/revision or a typed error with authoritative current state |
 | `cooperation_send` | Verified workspace, participant capability, `operation_id`, recipient, kind, body, optional reply/correlation references and child subject | Persisted private message or a typed error |
 | `cooperation_receive` | Verified workspace, participant capability, optional child subject, inbox cursor/limit and acknowledged filter | Non-destructive inbox page, next cursor and more-results flag |

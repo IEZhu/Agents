@@ -647,7 +647,7 @@ async def cooperation_register(
 
 @mcp.tool(**TOOL_HINTS["cooperation_read"])
 async def cooperation_read(
-    request: ta.unparsed_arg("object", "Closed agents-core/cooperation/1 read object or raw JSON. Required protocol and repository_id; optional cursor (event cursor integer), limit (1..100, default 50), offset (snapshot pagination integer >=0, default 0), participant_ids, agreement_ids, task_ids (each at most 50 IDs). Follow next_snapshot_offset for snapshot pages and next_cursor for events; restart snapshot pagination if its revision changes. No capability is returned. Maximum 32768 UTF-8 bytes, depth 8; no unknown fields or duplicate keys."),
+    request: ta.unparsed_arg("object", "Closed agents-core/cooperation/1 read object or raw JSON. Required protocol and repository_id; optional cursor (event cursor integer), limit (1..100, default 50), offset (snapshot pagination integer >=0, default 0), snapshot_time (nonnegative timestamp), participant_ids, agreement_ids, task_ids (each at most 50 IDs). Follow next_snapshot_offset and repeat the first page's snapshot_time; restart snapshot pagination if revision or service_epoch changes. Follow next_cursor for events. No capability is returned. Maximum 32768 UTF-8 bytes, depth 8; no unknown fields or duplicate keys."),
     workspace: ta.unparsed_arg("string", ta.WORKSPACE_DESC) = None,
     ctx: Context | None = None,
 ) -> ReadResponse:

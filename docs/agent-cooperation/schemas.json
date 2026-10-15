@@ -227,6 +227,19 @@
           "title": "Offset",
           "type": "integer"
         },
+        "snapshot_time": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Snapshot Time"
+        },
         "participant_ids": {
           "items": {
             "maxLength": 128,
@@ -2811,6 +2824,33 @@
           "title": "Propose",
           "type": "object"
         },
+        "ReconcilePayload": {
+          "additionalProperties": false,
+          "description": "Coordinator-only transition, never a participant mutation action.",
+          "properties": {
+            "kind": {
+              "const": "reconcile",
+              "default": "reconcile",
+              "title": "Kind",
+              "type": "string"
+            },
+            "reason": {
+              "enum": [
+                "heartbeat_overdue",
+                "dependency_cycle",
+                "proposal_expired",
+                "coordinator_restart"
+              ],
+              "title": "Reason",
+              "type": "string"
+            }
+          },
+          "required": [
+            "reason"
+          ],
+          "title": "ReconcilePayload",
+          "type": "object"
+        },
         "Reconciliation": {
           "additionalProperties": false,
           "properties": {
@@ -3152,7 +3192,8 @@
             "accept_artifact",
             "cancel",
             "recover",
-            "owner_cleanup"
+            "owner_cleanup",
+            "reconcile"
           ],
           "title": "Kind",
           "type": "string"
@@ -3263,6 +3304,9 @@
             },
             {
               "$ref": "#/$defs/OwnerCleanupPayload"
+            },
+            {
+              "$ref": "#/$defs/ReconcilePayload"
             }
           ],
           "title": "Payload"
@@ -6072,7 +6116,8 @@
                 "accept_artifact",
                 "cancel",
                 "recover",
-                "owner_cleanup"
+                "owner_cleanup",
+                "reconcile"
               ],
               "title": "Kind",
               "type": "string"
@@ -6183,6 +6228,9 @@
                 },
                 {
                   "$ref": "#/$defs/OwnerCleanupPayload"
+                },
+                {
+                  "$ref": "#/$defs/ReconcilePayload"
                 }
               ],
               "title": "Payload"
@@ -6978,6 +7026,11 @@
               "title": "Snapshot Cursor",
               "type": "integer"
             },
+            "snapshot_time": {
+              "minimum": 0,
+              "title": "Snapshot Time",
+              "type": "number"
+            },
             "next_cursor": {
               "minimum": 0,
               "title": "Next Cursor",
@@ -7109,6 +7162,7 @@
             "service_epoch",
             "minimum_cursor",
             "snapshot_cursor",
+            "snapshot_time",
             "next_cursor",
             "has_more_events",
             "participants",
@@ -7192,6 +7246,33 @@
             "effective_priority"
           ],
           "title": "ReadyTask",
+          "type": "object"
+        },
+        "ReconcilePayload": {
+          "additionalProperties": false,
+          "description": "Coordinator-only transition, never a participant mutation action.",
+          "properties": {
+            "kind": {
+              "const": "reconcile",
+              "default": "reconcile",
+              "title": "Kind",
+              "type": "string"
+            },
+            "reason": {
+              "enum": [
+                "heartbeat_overdue",
+                "dependency_cycle",
+                "proposal_expired",
+                "coordinator_restart"
+              ],
+              "title": "Reason",
+              "type": "string"
+            }
+          },
+          "required": [
+            "reason"
+          ],
+          "title": "ReconcilePayload",
           "type": "object"
         },
         "Reconciliation": {
@@ -9318,7 +9399,8 @@
                 "accept_artifact",
                 "cancel",
                 "recover",
-                "owner_cleanup"
+                "owner_cleanup",
+                "reconcile"
               ],
               "title": "Kind",
               "type": "string"
@@ -9429,6 +9511,9 @@
                 },
                 {
                   "$ref": "#/$defs/OwnerCleanupPayload"
+                },
+                {
+                  "$ref": "#/$defs/ReconcilePayload"
                 }
               ],
               "title": "Payload"
@@ -10003,6 +10088,33 @@
             "effective_priority"
           ],
           "title": "ReadyTask",
+          "type": "object"
+        },
+        "ReconcilePayload": {
+          "additionalProperties": false,
+          "description": "Coordinator-only transition, never a participant mutation action.",
+          "properties": {
+            "kind": {
+              "const": "reconcile",
+              "default": "reconcile",
+              "title": "Kind",
+              "type": "string"
+            },
+            "reason": {
+              "enum": [
+                "heartbeat_overdue",
+                "dependency_cycle",
+                "proposal_expired",
+                "coordinator_restart"
+              ],
+              "title": "Reason",
+              "type": "string"
+            }
+          },
+          "required": [
+            "reason"
+          ],
+          "title": "ReconcilePayload",
           "type": "object"
         },
         "Reconciliation": {
