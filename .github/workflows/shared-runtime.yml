@@ -1,0 +1,91 @@
+name: Shared runtime
+
+on:
+  pull_request:
+    paths:
+      - src/artifacts/**
+      - src/local_inference/**
+      - src/runtime_paths.py
+      - src/schemas/artifacts.py
+      - src/schemas/subagent.py
+      - src/engine/subagent.py
+      - src/server.py
+      - src/daemon/app.py
+      - src/daemon/control.py
+      - src/daemon/autoupdate.py
+      - rules/subagents/**
+      - tests/test_artifact*.py
+      - tests/test_subagent*.py
+      - tests/test_local_inference*.py
+      - tests/local_inference_fake.py
+      - tests/test_optional_inference_disabled.py
+      - tests/test_daemon_runtime_override.py
+      - tests/test_daemon_autoupdate.py
+      - tests/conftest.py
+      - requirements.txt
+      - pyproject.toml
+      - .github/workflows/shared-runtime.yml
+  push:
+    branches: [main, dev]
+    paths:
+      - src/artifacts/**
+      - src/local_inference/**
+      - src/runtime_paths.py
+      - src/schemas/artifacts.py
+      - src/schemas/subagent.py
+      - src/engine/subagent.py
+      - src/server.py
+      - src/daemon/app.py
+      - src/daemon/control.py
+      - src/daemon/autoupdate.py
+      - rules/subagents/**
+      - tests/test_artifact*.py
+      - tests/test_subagent*.py
+      - tests/test_local_inference*.py
+      - tests/local_inference_fake.py
+      - tests/test_optional_inference_disabled.py
+      - tests/test_daemon_runtime_override.py
+      - tests/test_daemon_autoupdate.py
+      - tests/conftest.py
+      - requirements.txt
+      - pyproject.toml
+      - .github/workflows/shared-runtime.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: shared-runtime-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    env:
+      LANGFUSE_TRACING_ENABLED: "false"
+      PYTHONDONTWRITEBYTECODE: "1"
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+    steps:
+      - name: Preserve exact source bytes
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+      - name: Install runtime and test dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Persistent artifacts and scoped worker contracts
+        run: python -B -m pytest tests/test_artifact_store.py tests/test_artifact_service.py tests/test_artifact_mcp.py tests/test_subagent_artifacts.py tests/test_optional_inference_disabled.py -q -p no:cacheprovider
+      - name: POSIX fake native and Redis boundaries, runtime identity and update admission
+        if: runner.os != 'Windows'
+        shell: bash
+        run: python -B -m pytest tests/test_local_inference_*.py tests/test_daemon_runtime_override.py tests/test_daemon_autoupdate.py -q -p no:cacheprovider

@@ -48,6 +48,7 @@ from xml.parsers.expat import ExpatError
 from src import windows_tasks
 from src.daemon.state import atomic_private, default_state_dir, read_json
 from src.file_lock import file_lock
+from src.runtime_paths import installation_root
 
 DEFAULT_INTERVAL = 5  # minutes
 MIN_INTERVAL, MAX_INTERVAL = 1, 60
@@ -670,7 +671,7 @@ def scheduler(*, installation: str | Path | None = None, python: str | None = No
     systemd and with cron, by default this process's, so they find the same ``git``
     and ``ssh``; an empty one sets none. Task Scheduler runs get the user's own.
     """
-    root = Path(installation or Path(__file__).resolve().parents[2]).resolve()
+    root = Path(installation or installation_root()).resolve()
     interpreter = python or sys.executable
     if not interpreter:
         raise RuntimeError("No Python interpreter to schedule; pass python=")

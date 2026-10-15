@@ -4,7 +4,9 @@ from __future__ import annotations
 from typing import Annotated, Any, Literal
 
 from pydantic import (AfterValidator, BaseModel, ConfigDict, Field, RootModel,
-                      StringConstraints)
+                      StringConstraints, model_serializer, model_validator)
+
+from src.schemas.artifacts import ArtifactManifest
 
 PROTOCOL = "agents-core/subagent/1"
 MAX_REQUEST_CHARS = 48000
@@ -57,6 +59,14 @@ class PreparationRequest(Budgets):
     scope: TextList = Field(default_factory=list)
     non_goals: TextList = Field(default_factory=list)
     result_type: ResultType = "generic"
+    artifact_manifest: ArtifactManifest | None = None
+
+    @model_validator(mode="after")
+    def artifact_task_matches(self) -> PreparationRequest:
+        if (self.artifact_manifest is not None and self.task_id is not None
+                and self.task_id != self.artifact_manifest.task_id):
+            raise ValueError("artifact manifest task_id must match the requested task_id")
+        return self
 
 
 class Criterion(StrictModel):
@@ -78,6 +88,20 @@ class TaskContract(StrictModel):
     acceptance_criteria: Annotated[list[Criterion], Field(min_length=1, max_length=50)]
     result_type: ResultType
     budgets: ContractBudgets
+    artifact_manifest: ArtifactManifest | None = None
+
+    @model_validator(mode="after")
+    def artifact_task_matches(self) -> TaskContract:
+        if self.artifact_manifest is not None and self.task_id != self.artifact_manifest.task_id:
+            raise ValueError("artifact manifest task_id must match the retained contract")
+        return self
+
+    @model_serializer(mode="wrap")
+    def omit_absent_manifest(self, handler):
+        data = handler(self)
+        if data.get("artifact_manifest") is None:
+            data.pop("artifact_manifest", None)
+        return data
 
 
 class Evidence(StrictModel):

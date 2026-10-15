@@ -20,11 +20,106 @@ it; the service then always uses the path recorded at installation.
 
 The daemon supports persona protocol 2 only. Transport migration does not
 rewrite client instructions. Follow [the routing protocol](routing_flow.md) when
-keeping, switching, restoring, or refreshing a role. HTTP never samples the final
-answer and does not expose `clear_session_cache`; administrative cache clearing
+keeping, switching, restoring, or refreshing a role. Persona tools never sample the final
+answer. Optional local inference executes separate completions as described below.
+HTTP does not expose `clear_session_cache`; administrative cache clearing
 uses the controller command below.
 
+## Persistent shared artifacts
+
+The six `artifact_*` tools persist exact UTF-8 task inputs under the private
+service-state `artifacts/` directory, independently of Redis or a live model.
+Publish content or a safe workspace-relative file capture, create a task
+manifest, then retain its exact ID and SHA256 for reads and verification. The
+authenticated workspace root bounds capture; memory's canonical worktree
+normalization and local-inference source aliases do not broaden it. Stdio
+requires a resolved client root, and HTTP uses the registered workspace header.
+
+Pass the complete manifest to `get_subagent_context.artifact_manifest` for
+contract-bound native-worker read instructions, or to
+`local_context_create.artifact_manifest` for exact broker hydration before byte
+and token budget checks. Local completions still have no tool loop. The parent
+must independently verify artifact-backed evidence alongside structural worker
+result validation. Expiry/release ends access without deleting persistent data;
+there is no garbage collection in this format, so release does not reclaim
+quotas. The [artifact operations guide](shared-artifacts.md) documents all six
+tools, persistence limits, required-input failures and both execution paths.
+
+## Local inference
+
+Local text generation is disabled by default and separate from the embedding
+executor. Install `.[local-inference]` in the service environment only when
+enabling it; `.[local-inference-redis]` additionally supplies the optional
+redis-py 7.0 client. These extras are not needed to import the server or call
+disabled tools. No tool downloads models or deploys configuration.
+
+Set `AGENTS_LOCAL_INFERENCE_CONFIG` to an absolute owner JSON path in the daemon's
+environment. Start from the [configuration example](shared-kv-mcp/owner-config.example.json),
+select an existing GGUF and executable, and register source roots against the
+authorized workspace root. Version 1 targets llama.cpp build 11429, commit
+`d81235049384534c167caea52b85a694f6103d14`; other builds fail closed. The service
+owns one private loopback child, API key and spool; it refuses an occupied port
+and never attaches to or kills another engine. Effective context capacity is
+reported after startup, including the pinned engine's one-token headroom.
+
+Use `local_context_create`, retain its separate owner/access tokens privately,
+and grant bounded child capabilities with `local_context_grant`. Submit a UUID
+request with `local_generate`; it returns a job immediately. Poll with
+`local_generation_result` (at most 20 seconds per poll), then release the context.
+The submitting grant can inspect its jobs; the owner token can inspect all of
+the context's jobs. Actor labels do not authorize access. Repeated identical
+submissions keep their job and budget reservation; conflicting arguments fail.
+The [API contract](shared-kv-mcp/api-contract.md) gives exact schemas and errors.
+Direct stdio returns `transport_unsupported`; the existing stdio-to-HTTP bridge
+can reach this service. Workspace partitioning is for one trusted local OS owner.
+
+One FIFO transaction includes rendering, source freshness checks, generation,
+snapshot operations and fencing. Cancelling a waiter does not prove native work
+stopped: the service reaps its child before admitting the next transaction.
+Drain waits for local jobs and cleanup separately from embedding work. Shutdown
+has a bounded local grace period. Public logs, tracing, health and validation
+errors omit prompts, outputs, bearer tokens, source bytes and Redis credentials.
+
+Resident hits come from native counters checked against exact token prefixes.
+Missing owner probe evidence leaves capabilities `unknown`; observed reuse does
+not silently upgrade them. `cache_mode="off"` performs no snapshot reads/writes.
+Redis is disabled by default, stores chunked opaque state under signed bounded
+manifests, and never grants access independently of a live broker capability.
+Broker restart discards capabilities; engine-only restart can restore a verified
+snapshot for the still-live context. Snapshot failures fall back before one
+generation or retain an already completed answer with a cache warning.
+
+An artifact-backed context hydrates every selected manifest entry exactly and
+rechecks access/integrity before dispatch, publication and result reads. Reuse
+one context with separate grants for a common prefix; persistent artifact bytes
+do not enlarge effective model capacity or preserve ephemeral capabilities
+across a broker restart. See [shared artifacts](shared-artifacts.md#optional-local-completion).
+
+Run the explicit owner diagnostic and benchmark only in a separate private state
+directory and on an unused engine port. Their commands and observed acceptance
+are in the [implementation report](shared-kv-mcp/implementation-report.md).
+No ordinary status/import call runs a capability probe. See the
+[snapshot protocol](shared-kv-mcp/redis.md) and [validation matrix](shared-kv-mcp/validation.md).
+
 ## Installation and client migration
+
+An owner-controlled service configuration may explicitly set `runtime_root` to
+the absolute source tree executing `src.daemon`, while retaining `installation`
+as the canonical content/state identity. Without this field, the executing
+source and installation must match. Bootstrap binds these paths before engine
+imports and refuses mismatched sources or a late/conflicting binding. The
+canonical installation still supplies `.env`, component catalogs, personal
+flows, indexes, scheduler/user-sync identity and the installation lease; health
+reports both roots. This preserves the original stdio bridge's installation
+check. Both trees remain excluded from trusted runner locations.
+
+This field does not select an interpreter, copy dependencies, switch a running
+service or protect a mutable source tree. A source override requires a persistent
+owner-managed launcher/interpreter, verified source manifest, compatible existing
+dependencies, explicit updater handling and configuration rollback. Retain its
+worktree while it serves; never repoint a running daemon at edited files. The
+[resident deployment report](shared-kv-mcp/resident-deployment-report.md) records
+the local rollout and its exact checks separately from normal installation.
 
 Run commands from the installation root with its Python interpreter. For the
 first migration:
@@ -526,9 +621,12 @@ responds; otherwise it reports `not_installed`, `starting`, or `stopped` from lo
 configuration and launchd. A live response includes PID, boot ID, request
 counts (`inflight` for work, `streams` for open client notification streams),
 `idle_seconds` since the last request finished, and pending job counts
-(`io_pending` for running or queued I/O jobs, user sync's engine calls included,
-`inference_pending` for model work), and the `user_sync` summary
+(`io_pending` for running or queued I/O jobs, user sync and artifact work included,
+`inference_pending` for embedding work, and `local_inference_pending` for detached
+local-generation work), and the `user_sync` summary
 (see [User library sync](#user-library-sync)).
+Automatic update admission checks `local_inference_pending` both before building
+and again before draining, so detached generation prevents an idle update.
 When the service does not respond, `status` also reports `supervised` (launchd
 has the job loaded; on Windows, the task's repetition is on), `maintenance` and `transaction`, and reads the `user_sync`
 summary with the sync engine; a `transaction` that remains while no controller

@@ -243,7 +243,7 @@ class Controller:
             status = self.request()
             # Streams end on drain; waiting for them lets each client receive
             # its final chunk before launchd stops the process.
-            if not any(status.get(key, 0) for key in ("inflight", "io_pending", "streams")): return
+            if not any(status.get(key, 0) for key in ("inflight", "io_pending", "streams", "local_inference_pending")): return
             time.sleep(.1)
         self.request("/admin/resume", method="POST")
         raise TimeoutError("Drain timed out; runtime resumed without killing active work")
