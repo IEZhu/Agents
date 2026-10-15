@@ -2219,6 +2219,7 @@ def _register_memory_prompts():
     """
 
     def _truthy(arg: str) -> bool:
+        """Interpret the optional slash-command force argument."""
         return arg.strip().lower() in ("1", "true", "force", "yes", "y", "on")
 
     async def describe_cmd(force: str = "") -> list:

@@ -42,6 +42,7 @@ def repo(tmp_path, monkeypatch):
 
 
 async def _describe(**kwargs) -> dict:
+    """Decode a repository-description tool response for behavior assertions."""
     return json.loads(await server.describe_repo(**kwargs))
 
 
@@ -57,6 +58,7 @@ async def _write(needs: dict, summary: str, **kwargs) -> dict:
 
 
 def _section(root) -> str | None:
+    """Read only the managed repository-memory section of a test checkout."""
     return managed_section.read_section(
         str(root / "CLAUDE.md"), DESCRIBE_MARKER_BEGIN, DESCRIBE_MARKER_END
     )
