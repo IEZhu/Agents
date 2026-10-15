@@ -563,7 +563,10 @@ running the daemon signs in by itself. It opens on an overview of the
 installation: usage statistics, the AI apps that use it, a live diagram of a
 request's path, and the model, directories and their sizes. The same page edits
 flows, shows every agent with its metadata and prompt (read-only), and lists rules,
-skills and implants and switches each one on or off for the installation.
+skills and implants and switches each one on or off for the installation. Its
+Memory tab reads, edits, creates and deletes Claude Code's file-based memory
+(`projects/<project>/memory/`) in every configuration directory the daemon knows,
+and copies or moves an item between them.
 
 ### Persona continuity
 

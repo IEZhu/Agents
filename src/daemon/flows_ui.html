@@ -175,6 +175,18 @@ textarea[readonly] { color: var(--muted); }
 .h-entry > .meta { margin-bottom: 6px; }
 .h-entry > .h-delete { margin-top: 4px; font-size: 12px; }
 .md-toc-item.h-day { font-weight: 600; }
+/* Memory (#297): one item under its heading, its buttons, an editor and a comparison of two versions. */
+.m-item { padding-bottom: 10px; margin-bottom: 14px; border-bottom: 1px solid var(--line); }
+.m-item > h2 { border-bottom: 0; margin-bottom: 2px; }
+.m-item > .meta { margin-bottom: 6px; }
+.m-item > .m-description { margin: 0 0 6px; font-style: italic; }
+.m-item textarea { min-height: 16rem; }
+.m-buttons { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.m-buttons button { font-size: 12px; }
+.m-field { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 6px; }
+.m-compare { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+.md-toc-item.m-group { font-weight: 600; }
+@media (max-width: 760px) { .m-compare { grid-template-columns: minmax(0, 1fr); } }
 .md-toc, .md { min-height: 0; overflow-y: auto; }
 .md-toc { border: 1px solid var(--line); border-radius: var(--r-toc); background: var(--panel); padding: 8px; }
 .md-toc-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
@@ -365,6 +377,12 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
       <button id="h-toc" class="hidden" aria-pressed="false">Contents</button>
       <select id="h-file" title="History files"></select>
     </div>
+    <div id="m-actions" class="hidden">
+      <div id="m-seg" class="seg inline" role="group" aria-label="Memory view"></div>
+      <button id="m-toc" class="hidden" aria-pressed="false">Contents</button>
+      <select id="m-store" title="Configuration directory"></select>
+      <button id="m-new">New item</button>
+    </div>
   </div>
   <div class="tabs" id="tabs" role="group" aria-label="Settings sections">
     <button data-tab="flows" class="active" aria-pressed="true">Flows</button>
@@ -373,6 +391,7 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
     <button data-tab="skills" aria-pressed="false">Skills</button>
     <button data-tab="implants" aria-pressed="false">Implants</button>
     <button data-tab="history" aria-pressed="false">History</button>
+    <button data-tab="memory" aria-pressed="false">Memory</button>
   </div>
   <button id="new">New flow</button>
 </header>
@@ -399,6 +418,11 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
     <div id="h-meta" class="meta"></div>
     <div id="h-notice" class="notice hidden" role="status"></div>
     <div class="pane hidden" id="h-source"><label for="h-text" id="h-source-label">Source (read-only)</label><textarea id="h-text" readonly spellcheck="false"></textarea></div>
+  </section>
+  <section id="mem" class="hidden detail">
+    <strong id="m-title" class="item-title"></strong>
+    <div id="m-meta" class="meta"></div>
+    <div id="m-notice" class="notice hidden" role="status"></div>
   </section>
   <section id="editor" class="hidden">
     <strong id="title" class="item-title"></strong>
@@ -455,7 +479,7 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
 const $ = (id) => document.getElementById(id);
 const state = { tab: "flows", category: "user", flows: [], repos: [], current: null, draft: null, dirty: false,
   upstream: null, items: [], item: null, workspaces: null, pending: null, gen: 0,
-  queries: { flows: "", agents: "", rules: "", skills: "", implants: "", history: "" },
+  queries: { flows: "", agents: "", rules: "", skills: "", implants: "", history: "", memory: "" },
   loadedTab: null,  // the tab whose list is on screen; null while a tab loads
   signedOut: false };
 // Library sync (#170): the last status, the Sync page, its wizard and the GitHub sign-in in progress.
@@ -623,6 +647,7 @@ function refreshList() {
   if (state.loadedTab !== state.tab) return;  // the list of this tab is still loading
   if (state.tab === "flows") renderList();
   else if (state.tab === "history") renderHistoryList();
+  else if (state.tab === "memory") renderMemoryList();
   else renderComponentList(state.tab);
 }
 
@@ -630,6 +655,7 @@ function setQuery(value) {
   state.queries[state.tab] = value;
   $("items").scrollTop = 0;  // a new query starts at its best match
   if (state.tab === "history") scheduleHistorySearch();
+  if (state.tab === "memory") scheduleMemorySearch();
   refreshList();
 }
 
@@ -762,7 +788,7 @@ function renderHistory(versions) {
 // Each detail pane: the header controls that act on its item and the title that names the item.
 // The welcome pane has neither.
 const PANES = { editor: { actions: "e-actions", title: "title" }, component: { actions: "c-actions", title: "c-title" },
-  hist: { actions: "h-actions", title: "h-title" } };
+  hist: { actions: "h-actions", title: "h-title" }, mem: { actions: "m-actions", title: "m-title" } };
 // Shows one pane with its controls in the header. Signed out, the controls stay hidden, so a
 // response that arrives after the sign-in screen showed cannot reveal them.
 function showPane(pane) {
@@ -1138,6 +1164,7 @@ function mdAnchor(parent, label, url, ctx) {
       event.preventDefault();
       let name = url.slice(1);
       try { name = decodeURIComponent(name); } catch (_) {}
+      if (ctx.anchor && ctx.anchor(name)) return;
       const target = ctx.ids.get("md-" + name.toLowerCase());
       if (target) target.scrollIntoView({ block: "start" });
     });
@@ -1388,8 +1415,9 @@ function mdBlocksAt(lines, parent, ctx) {
 
 // Replaces the children of `host` with the rendered document. Returns its headings (with their
 // elements) and the raw frontmatter text, or null.
-function renderMarkdown(text, host) {
-  const ctx = { ids: new Map(), seen: new Map(), headings: [], work: 0, depth: 0 };
+// `options.anchor(name)` may take a `#name` link before the document's own headings do; true when it did.
+function renderMarkdown(text, host, options = {}) {
+  const ctx = { ids: new Map(), seen: new Map(), headings: [], work: 0, depth: 0, anchor: options.anchor };
   let lines = String(text).replace(/\r\n?/g, "\n").split("\n"), meta = null;
   // Same contract as the server (split_flow_frontmatter): a block opened by `---` on the first
   // line and closed by the next `---` line counts only when it reads as a YAML mapping.
@@ -2167,6 +2195,466 @@ window.addEventListener("hashchange", () => {
   const link = historyLink(location.hash);
   if (link) openHistoryLink(link).catch(historyFailed);
 });
+
+// --- Memory (#297): the AI clients' memory files ----------------------------------------------
+//
+// The list shows one row per project, merged across Claude Code's configuration directories, the most
+// recently changed first; the search filters by name here and by item text on the server. An open
+// project shows one directory at a time (the select names the others that hold memory for it): every
+// item, rendered or as its source, with Edit, Copy to and Move to another configuration directory, and
+// Delete; then MEMORY.md. Contents lists the items in MEMORY.md order, then the items it does not link
+// and its links to missing files. A write carries the version shown, so a file Claude Code changed
+// meanwhile is never overwritten.
+
+const MEMORY_SEARCH_MS = 250;
+const MEMORY_FILE = /^[A-Za-z0-9][A-Za-z0-9._-]*\.md$/;
+// `edits` holds the open editors by file ({ file, text, original, sha256 }); `draft` a new item being
+// written; `compare` a copy that met a file of the same name: { file, target, move }.
+const memoryState = { gen: 0, rows: [], stores: [], notes: [], matches: null, matchQuery: null, searchTimer: null,
+  key: null, store: null, data: null, view: "rendered", edits: new Map(), draft: null, compare: null };
+
+const memoryFailed = (error) => { if (!error.signedOut) alert(error.message); };
+const itemCount = (count) => count + (count === 1 ? " item" : " items");
+
+function memoryNotice(text, kind = "") {
+  const box = $("m-notice");
+  box.textContent = text || "";
+  box.className = "notice" + (kind ? " " + kind : "") + (text ? "" : " hidden");
+}
+
+function memoryDirty() {
+  return [...memoryState.edits.values()].some((edit) => edit.text !== edit.original)
+    || !!(memoryState.draft && memoryState.draft.text !== memoryState.draft.original);
+}
+
+// Leaving unsaved text asks first, as the flow editor does.
+function confirmMemoryDiscard() {
+  return !memoryDirty() || confirm("Discard unsaved changes?");
+}
+
+async function loadMemoryProjects() {
+  const gen = ++state.gen;
+  const data = await api("/ui/api/memory/projects");
+  if (state.tab !== "memory" || gen !== state.gen) return;  // superseded while loading
+  memoryState.rows = data.projects;
+  memoryState.stores = data.stores;
+  memoryState.notes = data.notes || [];
+  state.loadedTab = "memory";
+  renderMemoryList();
+}
+
+function renderMemoryList() {
+  const query = state.queries.memory, terms = searchTerms(query), rows = memoryState.rows;
+  const matches = terms.length && memoryState.matchQuery === query ? memoryState.matches : null;
+  const byName = [], byText = [];
+  for (const row of rows) {
+    const name = [row.name, row.root, row.project].filter(Boolean).join("\n").toLowerCase();
+    if (terms.every((term) => name.includes(term))) byName.push({ row, textOnly: false });
+    else if (matches && matches.has(row.key)) byText.push({ row, textOnly: true });
+  }
+  const shown = byName.concat(byText);
+  rebuildList((nav) => {
+    heading(nav, "Memory (" + rows.length + ")");
+    if (!rows.length) empty(nav, "No memory files found");
+    else if (!shown.length) empty(nav, terms.length && !matches ? "Searching…" : "No matches");
+    for (const { row, textOnly } of shown) {
+      const button = document.createElement("button");
+      button.className = "item" + (memoryState.key === row.key ? " active" : "");
+      button.textContent = row.name;
+      if (row.newest) addChip(button, shortAge(row.newest));
+      for (const place of row.places) addChip(button, place.label.replace(/^~\//, "") + " " + place.items);
+      if (textOnly) addChip(button, "in text");
+      const small = document.createElement("small");
+      // A project no workspace is registered for already shows its directory name as its name.
+      small.textContent = row.root || (row.project ? "not a registered workspace"
+        : row.client === "codex" ? "$CODEX_HOME/memories" : "<config>/memory");
+      button.appendChild(small);
+      button.addEventListener("click", () => openMemory(row.key).catch(memoryFailed));
+      nav.appendChild(button);
+    }
+    if (!terms.length) for (const text of memoryState.notes) empty(nav, text);
+  });
+  showCount(shown.length, rows.length, query);
+}
+
+// The item text search runs on the server, a moment after the last key.
+function scheduleMemorySearch() {
+  clearTimeout(memoryState.searchTimer);
+  const query = state.queries.memory;
+  if (!searchTerms(query).length) {
+    memoryState.matches = memoryState.matchQuery = null;
+    return;
+  }
+  memoryState.searchTimer = setTimeout(async () => {
+    try {
+      const data = await api("/ui/api/memory/search?q=" + encodeURIComponent(query));
+      if (state.queries.memory !== query) return;  // the query changed meanwhile
+      memoryState.matches = new Map(data.projects.map((item) => [item.key, item.matches]));
+      memoryState.matchQuery = query;
+      if (state.tab === "memory") refreshList();
+    } catch (error) {
+      if (state.queries.memory === query) {  // the names still match; the text search is over
+        memoryState.matches = new Map();
+        memoryState.matchQuery = query;
+        if (state.tab === "memory") refreshList();
+      }
+      memoryFailed(error);
+    }
+  }, MEMORY_SEARCH_MS);
+}
+
+// Opens a project's memory in `store`, by default in its most recently changed directory. `keep` keeps
+// the open editors, for a reload after a change.
+async function openMemory(key, store, keep = false) {
+  if (!keep && !confirmMemoryDiscard()) return;
+  const gen = ++memoryState.gen;
+  const row = memoryState.rows.find((item) => item.key === key);
+  if (!row) {  // its last item left
+    memoryState.key = memoryState.store = memoryState.data = null;
+    renderMemoryList();
+    showPane("welcome");
+    return;
+  }
+  const place = row.places.find((item) => item.store === store)
+    || [...row.places].sort((a, b) => (b.newest || "").localeCompare(a.newest || ""))[0];
+  const data = await api("/ui/api/memory?" + new URLSearchParams({ store: place.store, project: row.project }));
+  if (gen !== memoryState.gen || state.tab !== "memory") return;  // superseded while loading
+  if (!keep || memoryState.store !== place.store) {
+    memoryState.edits.clear();
+    memoryState.draft = null;
+  }
+  memoryState.compare = null;
+  memoryState.key = key;
+  memoryState.store = place.store;
+  memoryState.data = data;
+  renderMemoryList();
+  showMemory(row);
+}
+
+// Reads the list and the open directory again after a change, and says what happened.
+async function reloadMemory(message) {
+  const key = memoryState.key, store = memoryState.store;
+  const data = await api("/ui/api/memory/projects");
+  if (state.tab !== "memory" || memoryState.key !== key) return;  // the reader moved on meanwhile
+  memoryState.rows = data.projects;
+  memoryState.stores = data.stores;
+  memoryState.notes = data.notes || [];
+  await openMemory(key, store, true);
+  if (message && memoryState.key === key) memoryNotice(message, "ok");
+}
+
+function showMemory(row) {
+  const data = memoryState.data;
+  showPane("mem");
+  $("m-title").textContent = data.name;
+  $("m-meta").textContent = [data.root, data.dir, itemCount(data.items.length)].filter(Boolean).join(" · ");
+  memoryNotice(data.broken.length ? "MEMORY.md links to missing files: " + data.broken.map((link) => link.file).join(", ") : "");
+  const select = $("m-store");
+  select.replaceChildren();
+  const counts = new Map(row.places.map((place) => [place.store, place.items]));
+  for (const place of data.places) {
+    const count = counts.get(place.store);
+    select.appendChild(new Option(place.label + (count == null ? "" : " · " + count), place.store));
+  }
+  select.value = data.store;
+  setMemoryView(memoryState.view);
+}
+
+function setMemoryView(view) {
+  if (view) memoryState.view = view;
+  markSeg($("m-seg"), memoryState.view);
+  if (memoryState.data) memoryView.show(memoryState.data);
+  else memoryView.close();
+}
+
+const rerenderMemory = () => { if (memoryState.data) memoryView.show(memoryState.data); };
+
+// `[[name]]` links another item of the directory by its name; an unknown name stays as written.
+function memoryLinks(text, names) {
+  return text.replace(/\[\[([A-Za-z0-9_.-]+)\]\]/g, (whole, name) => (names.has(name) ? "[" + name + "](#memory:" + name + ")" : whole));
+}
+
+function memoryAnchor(names) {
+  return (name) => {
+    if (!name.startsWith("memory:")) return false;
+    const file = names.get(name.slice(7));
+    if (file) memoryView.focus(file);
+    return true;
+  };
+}
+
+function memoryButton(parent, label, handler, className) {
+  const button = mdEl("button", className || "", parent);
+  button.textContent = label;
+  button.setAttribute("type", "button");
+  button.addEventListener("click", () => {
+    button.disabled = true;  // one request per click; a rebuild replaces the button
+    Promise.resolve(handler()).catch(memoryFailed).finally(() => { button.disabled = false; });
+  });
+  return button;
+}
+
+// Items in MEMORY.md order, then the ones it does not link.
+function memoryOrder(data) {
+  const byFile = new Map(data.items.map((item) => [item.file, item])), linked = [];
+  for (const link of data.index.links) {
+    const item = byFile.get(link.file);
+    if (item && !linked.includes(item)) linked.push(item);
+  }
+  return { linked, loose: data.items.filter((item) => !linked.includes(item)) };
+}
+
+function createMemoryView(id, section, button) {
+  const view = mdFrame(id, section, button);
+  view.nodes = new Map();  // file -> its section
+  view.show = (data) => {
+    view.shown = true;
+    view.root.classList.remove("hidden");
+    const top = view.doc.scrollTop;
+    view.doc.replaceChildren();
+    view.list.replaceChildren();
+    view.nodes = new Map();
+    const names = new Map(data.items.filter((item) => item.name).map((item) => [item.name, item.file]));
+    const group = (label) => { mdEl("div", "md-toc-item md-l1 m-group", view.list).textContent = label; };
+    const entry = (label, file, level = 2) => {
+      const link = mdEl("button", "md-toc-item md-l" + level, view.list);
+      link.textContent = label;
+      link.addEventListener("click", () => view.focus(file));
+    };
+    if (memoryState.draft) renderMemoryDraft(view.doc, data);
+    const { linked, loose } = memoryOrder(data);
+    for (const [label, items] of [["In MEMORY.md", linked], ["Not in MEMORY.md", loose]]) {
+      if (!items.length) continue;
+      if (data.client === "claude") group(label);
+      for (const item of items) {
+        renderMemoryItem(view, data, item, names);
+        entry(item.name || item.file, item.file);
+      }
+    }
+    if (data.broken.length) {
+      group("Broken links");
+      for (const link of data.broken) entry(link.title + " → " + link.file, "MEMORY.md");
+    }
+    if (data.client === "claude") {
+      renderMemoryIndex(view, data);
+      entry("MEMORY.md", "MEMORY.md", 1);
+    }
+    if (!data.items.length && !memoryState.draft) mdText("No memory items here yet.", mdEl("p", "meta", view.doc));
+    view.hasToc = data.items.length > 0;
+    view.doc.scrollTop = top;
+    view.apply();
+  };
+  view.focus = (file) => {
+    const target = view.nodes.get(file);
+    if (target) target.scrollIntoView({ block: "start" });
+  };
+  return view;
+}
+
+function renderMemoryItem(view, data, item, names) {
+  const host = mdEl("section", "m-item", view.doc);
+  view.nodes.set(item.file, host);
+  mdText(item.name || item.file, mdEl("h2", "", host));
+  if (item.unreadable) {
+    mdText(item.file + " cannot be read.", mdEl("div", "meta", host));
+    return;
+  }
+  mdText([item.type, item.file, "changed " + dateTime(item.mtime), bytes(item.bytes)].filter(Boolean).join(" · "),
+    mdEl("div", "meta", host));
+  if (item.description) mdText(item.description, mdEl("p", "m-description", host));
+  const edit = memoryState.edits.get(item.file);
+  if (edit) return memoryEditor(host, edit, () => saveMemoryFile(item.file), () => closeMemoryEdit(item.file));
+  if (item.text === null) mdText("Too large to show here.", mdEl("p", "meta", host));
+  else if (memoryState.view === "source") mdText(item.text, mdEl("pre", "", host));
+  else renderMarkdown(memoryLinks(item.text, names), mdEl("div", "", host), { anchor: memoryAnchor(names) });
+  const compare = memoryState.compare;
+  if (compare && compare.file === item.file) return memoryComparison(host, data, item, compare);
+  const row = mdEl("div", "m-buttons", host);
+  if (item.editable) memoryButton(row, "Edit", () => startMemoryEdit(item.file, item.text, item.sha256));
+  for (const target of data.targets) {
+    memoryButton(row, "Copy to " + target.label, () => copyMemoryItem(item, target, false));
+    memoryButton(row, "Move to " + target.label, () => copyMemoryItem(item, target, true));
+  }
+  if (item.sha256) memoryButton(row, "Delete", () => deleteMemoryItem(item), "danger");
+}
+
+function renderMemoryIndex(view, data) {
+  const host = mdEl("section", "m-item", view.doc), index = data.index;
+  view.nodes.set("MEMORY.md", host);
+  mdText("MEMORY.md", mdEl("h2", "", host));
+  mdText(index.exists ? "The index a Claude Code session loads at its start · " + plural(index.links.length, "link")
+    : "This directory has no MEMORY.md.", mdEl("div", "meta", host));
+  const edit = memoryState.edits.get("MEMORY.md");
+  if (edit) return memoryEditor(host, edit, () => saveMemoryFile("MEMORY.md"), () => closeMemoryEdit("MEMORY.md"));
+  if (index.exists && memoryState.view === "source") mdText(index.text, mdEl("pre", "", host));
+  else if (index.exists) renderMarkdown(index.text, mdEl("div", "", host));
+  const row = mdEl("div", "m-buttons", host);
+  memoryButton(row, index.exists ? "Edit" : "Create MEMORY.md",
+    () => startMemoryEdit("MEMORY.md", index.exists ? index.text : "", index.exists ? index.sha256 : null));
+}
+
+// An editor in an item's place: Save writes it, Cancel closes it.
+function memoryEditor(host, edit, save, cancel) {
+  const area = mdEl("textarea", "", host);
+  area.value = edit.text;
+  area.setAttribute("spellcheck", "false");
+  area.setAttribute("aria-label", "Text of " + edit.file);
+  area.addEventListener("input", () => { edit.text = area.value; });
+  const row = mdEl("div", "m-buttons", host);
+  memoryButton(row, "Save", save, "primary");
+  memoryButton(row, "Cancel", () => {
+    if (edit.text === edit.original || confirm("Discard unsaved changes?")) return cancel();
+  });
+  return area;
+}
+
+function startMemoryEdit(file, text, sha256) {
+  memoryState.edits.set(file, { file, text, original: text, sha256 });
+  rerenderMemory();
+  memoryView.focus(file);
+}
+
+// Closing an editor shows the file as it is now, which may have changed meanwhile.
+async function closeMemoryEdit(file) {
+  memoryState.edits.delete(file);
+  await reloadMemory();
+}
+
+async function saveMemoryFile(file) {
+  const data = memoryState.data, edit = memoryState.edits.get(file);
+  if (!data || !edit) return;
+  try {
+    await api("/ui/api/memory/file", { method: "PUT",
+      body: { store: data.store, project: data.project, file, text: edit.text, sha256: edit.sha256 } });
+  } catch (error) {
+    if (error.status !== 409) throw error;
+    memoryNotice(error.message + ". Your text stays in the editor: copy what you need, then Cancel shows the file as it is now.", "error");
+    return;
+  }
+  memoryState.edits.delete(file);
+  await reloadMemory("Saved " + file + ".");
+}
+
+function startMemoryDraft() {
+  const data = memoryState.data;
+  if (!data || memoryState.draft) return;
+  const text = "---\nname: new-item\ndescription: \"One line: when this item matters\"\nmetadata:\n  type: feedback\n  modified: "
+    + new Date().toISOString() + "\n---\n\nThe fact or the rule.\n\n**Why:** \n\n**How to apply:** \n";
+  memoryState.draft = { file: "new-item.md", text, original: text, index: data.client === "claude" };
+  rerenderMemory();
+  memoryView.doc.scrollTop = 0;
+}
+
+function renderMemoryDraft(doc, data) {
+  const draft = memoryState.draft, host = mdEl("section", "m-item", doc);
+  mdText("New item", mdEl("h2", "", host));
+  const field = mdEl("div", "m-field", host);
+  const label = mdEl("label", "", field);
+  label.textContent = "File name";
+  label.setAttribute("for", "m-draft-file");
+  const input = mdEl("input", "", field);
+  input.setAttribute("id", "m-draft-file");
+  input.value = draft.file;
+  input.addEventListener("input", () => { draft.file = input.value.trim(); });
+  if (data.client === "claude") {
+    const check = mdEl("label", "", field), box = mdEl("input", "", check);
+    box.type = "checkbox";
+    box.checked = draft.index;
+    box.addEventListener("change", () => { draft.index = box.checked; });
+    mdText(" Add to MEMORY.md", check);
+  }
+  memoryEditor(host, draft, createMemoryItem, () => { memoryState.draft = null; rerenderMemory(); });
+}
+
+async function createMemoryItem() {
+  const data = memoryState.data, draft = memoryState.draft;
+  if (!data || !draft) return;
+  if (!MEMORY_FILE.test(draft.file) || draft.file === "MEMORY.md") {
+    memoryNotice("A file name has letters, digits, dots, dashes or underscores, ends in .md and is not MEMORY.md.", "error");
+    return;
+  }
+  try {
+    await api("/ui/api/memory/file", { method: "PUT", body: { store: data.store, project: data.project, file: draft.file,
+      text: draft.text, sha256: null, index: draft.index } });
+  } catch (error) {
+    if (error.status !== 409) throw error;
+    memoryNotice(error.message + ". Choose another file name.", "error");
+    return;
+  }
+  const file = draft.file;
+  memoryState.draft = null;
+  await reloadMemory("Created " + file + ".");
+  memoryView.focus(file);
+}
+
+async function deleteMemoryItem(item) {
+  const data = memoryState.data;
+  if (!confirm("Delete " + item.file + " from " + data.label + "? The file moves to the service's memory trash, "
+    + "and its MEMORY.md line is removed.")) return;
+  let result;
+  try {
+    result = await api("/ui/api/memory/delete", { method: "POST",
+      body: { store: data.store, project: data.project, file: item.file, sha256: item.sha256 } });
+  } catch (error) {
+    if (error.status !== 409) throw error;
+    alert(error.message + ". The directory is shown again as it is now.");
+    await reloadMemory();
+    return;
+  }
+  memoryState.edits.delete(item.file);
+  await reloadMemory("Deleted " + item.file + ". A copy is kept in " + result.trash + ".");
+}
+
+// Copies or moves an item into the same project of another configuration directory. A file of the same
+// name there is shown beside this one; `replace` (its SHA-256) replaces it.
+async function copyMemoryItem(item, target, move, replace) {
+  const data = memoryState.data;
+  if (move && !replace && !confirm("Move " + item.file + " from " + data.label + " to " + target.label + "? It leaves "
+    + data.label + ", and a copy goes to the service's memory trash.")) return;
+  const body = { store: data.store, project: data.project, file: item.file, sha256: item.sha256, to_store: target.store, move };
+  if (replace) body.replace_sha256 = replace;
+  let result;
+  try {
+    result = await api("/ui/api/memory/copy", { method: "POST", body });
+  } catch (error) {
+    if (error.status === 409 && error.data && error.data.target) {
+      memoryState.compare = { file: item.file, target: error.data.target, move };
+      rerenderMemory();
+      memoryView.focus(item.file);
+      return;
+    }
+    if (error.status !== 409) throw error;
+    alert(error.message + ". The directory is shown again as it is now.");
+    await reloadMemory();
+    return;
+  }
+  memoryState.compare = null;
+  await reloadMemory((move ? "Moved " : "Copied ") + item.file + " to " + target.label
+    + (result.indexed ? ", with its MEMORY.md line." : "."));
+}
+
+function memoryComparison(host, data, item, compare) {
+  const box = mdEl("div", "m-compare", host);
+  for (const [label, text] of [["Here, in " + data.label, item.text], ["In " + compare.target.label, compare.target.text]]) {
+    const side = mdEl("div", "", box);
+    mdText(label, mdEl("strong", "", side));
+    mdText(text, mdEl("pre", "", side));
+  }
+  mdText(compare.target.label + " already has " + item.file + ".", mdEl("p", "meta", host));
+  const row = mdEl("div", "m-buttons", host);
+  const target = { store: compare.target.store, label: compare.target.label };
+  memoryButton(row, (compare.move ? "Move and replace" : "Replace") + " in " + target.label,
+    () => copyMemoryItem(item, target, compare.move, compare.target.sha256), "danger");
+  memoryButton(row, "Cancel", () => { memoryState.compare = null; rerenderMemory(); });
+}
+
+const memoryView = createMemoryView("m-view", $("mem"), $("m-toc"));
+buildSeg($("m-seg"), setMemoryView);
+markSeg($("m-seg"), "rendered");
+$("m-store").addEventListener("change", (event) => {
+  if (memoryState.key) openMemory(memoryState.key, event.target.value).catch(memoryFailed);
+});
+$("m-new").addEventListener("click", startMemoryDraft);
 
 // --- library sync (#170): the header chip, the Sync page and its setup wizard ------------
 //
@@ -4130,6 +4618,7 @@ function renderSystem() {
 
 async function showTab(tab) {
   if (tab === state.tab) return;
+  if (state.tab === "memory" && !confirmMemoryDiscard()) return;
   if (state.tab === "flows") {
     if (!confirmDiscard()) return;
     state.current = null; state.draft = null; setDirty(false);
@@ -4152,6 +4641,11 @@ async function showTab(tab) {
     historyState.gen += 1;  // a history still loading for the last visit does not open now
     historyState.repo = historyState.data = null;
     await loadHistoryRepos();
+  } else if (tab === "memory") {
+    memoryState.gen += 1;  // a directory still loading for the last visit does not open now
+    memoryState.key = memoryState.store = memoryState.data = memoryState.draft = memoryState.compare = null;
+    memoryState.edits.clear();
+    await loadMemoryProjects();
   } else {
     await loadComponents(tab);
   }
@@ -4179,7 +4673,7 @@ document.addEventListener("keydown", (event) => {
   event.preventDefault();
   $("search").focus();
 });
-window.addEventListener("beforeunload", (event) => { if (state.dirty) { event.preventDefault(); } });
+window.addEventListener("beforeunload", (event) => { if (state.dirty || memoryDirty()) { event.preventDefault(); } });
 
 (async () => {
   // /ui opens the landing page unless "Don't show on open" is checked; #overview, the version's link

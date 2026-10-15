@@ -53,7 +53,7 @@ const posts = [];
 const requests = [];  // every path the page fetched, in order
 const isUi = scenario.startsWith("ui");
 const isSync = scenario.startsWith("sync");
-let signedIn = ["search", "render", "persona_race", "agents", "history"].includes(scenario) || isUi || isSync;
+let signedIn = ["search", "render", "persona_race", "agents", "history", "memory"].includes(scenario) || isUi || isSync;
 const revisions = {};  // sync_notice: a flow's revision after another machine changed it
 const deletedFlows = new Set();  // sync_notice: flows a cycle deleted (GET answers 404)
 const confirms = [];  // every question the page asked with confirm()
@@ -105,6 +105,7 @@ async function fetchStub(path, init = {}) {
   }
   if (scenario === "persona_race") return personaRace(path, init);
   if (scenario === "history") return respond(...historyData(path, init));
+  if (scenario === "memory") return respond(...memoryData(path, init));
   if (path.startsWith("/ui/api/flows")) return respond(200, { flows: [], repositories: [] });
   return respond(200, { workspaces: [], items: [] });
 }
@@ -131,6 +132,7 @@ function uiData(path, init) {
     return [200, { status: "saved", flow: { id: body.id } }];
   }
   if (path === "/ui/api/history/repos") return [200, { repos: [] }];
+  if (path === "/ui/api/memory/projects") return [200, { stores: [], projects: [], notes: [] }];
   if (path.startsWith("/ui/api/components")) {
     return [200, { items: [{ id: "skill-a", short_name: "Skill A", description: "d", enabled: true, declared_by: [],
                              body: "# Skill A\n\n## Use\n\nBody <script>x</script>\n" }] }];
@@ -210,6 +212,79 @@ function historyData(path, init) {
     if (first) out.index = entries.map(({ id, timestamp, agent, persona_action }) => ({ id, timestamp, agent, persona_action }));
     if (focus !== undefined) out.focus = focus;
     return [200, out];
+  }
+  return uiData(path, init);
+}
+
+// --- Memory (#297): a scripted /ui/api/memory ------------------------------------------------
+// The project "agents" holds three items in ~/.claude, two linked by MEMORY.md, which also links a
+// missing file; ~/.claude-work holds one item of it. Writes are recorded in `memoryCalls`.
+const MEM_MAIN = "/home/me/.claude", MEM_WORK = "/home/me/.claude-work", MEM_PROJECT = "-home-me-code-agents";
+const memNote = (name, type, description, body) =>
+  "---\nname: " + name + "\ndescription: \"" + description + "\"\nmetadata:\n  type: " + type + "\n---\n\n" + body + "\n";
+const memItem = (file, name, type, description, body) => ({ file, name, type, description, modified: "2026-10-05T10:00:01Z",
+  mtime: new Date(Date.now() - 3600000).toISOString(), bytes: 120, editable: true, frontmatter: true,
+  text: memNote(name, type, description, body), sha256: (file.replace(/\W/g, "") + "0".repeat(64)).slice(0, 64) });
+const MEMORY_ITEMS = [memItem("workflow.md", "workflow", "feedback", "restate first", "See [[zsh]] and [[nobody]]."),
+                      memItem("zsh.md", "zsh", "reference", "arrays start at 1", "Body of zsh."),
+                      { ...memItem("loose.md", null, null, null, ""), text: "no frontmatter\n" }];
+const MEMORY_INDEX = "- [Workflow](workflow.md) — restate first\n- [zsh](zsh.md) — arrays\n- [Gone](gone.md) — deleted\n";
+const memLinks = () => MEMORY_INDEX.split("\n").map((line, k) => /\[(.*)\]\((.*)\)/.exec(line) && { title: RegExp.$1, file: RegExp.$2, line: k + 1 })
+  .filter(Boolean);
+const MEMORY_ROWS = [
+  { key: "claude:" + MEM_PROJECT, client: "claude", project: MEM_PROJECT, name: "agents", root: "/home/me/code/agents", workspace: "w-1",
+    places: [{ store: MEM_MAIN, label: "~/.claude", items: 3, newest: new Date(Date.now() - 2 * 60000).toISOString() },
+             { store: MEM_WORK, label: "~/.claude-work", items: 1, newest: new Date(Date.now() - 3 * 3600000).toISOString() }],
+    items: 4, newest: new Date(Date.now() - 2 * 60000).toISOString() },
+  { key: "claude:", client: "claude", project: "", name: "Outside projects", root: null, workspace: null,
+    places: [{ store: MEM_MAIN, label: "~/.claude", items: 1, newest: new Date(Date.now() - 86400000).toISOString() }],
+    items: 1, newest: new Date(Date.now() - 86400000).toISOString() },
+];
+const memoryCalls = [];
+function memoryData(path, init) {
+  const url = new URL("http://127.0.0.1" + path), query = url.searchParams, method = init.method || "GET";
+  const body = init.body ? JSON.parse(init.body) : null;
+  if (method !== "GET") memoryCalls.push([method, url.pathname, body]);
+  if (url.pathname === "/ui/api/memory/projects") {
+    return [200, { stores: [{ store: MEM_MAIN, label: "~/.claude", client: "claude" }, { store: MEM_WORK, label: "~/.claude-work", client: "claude" }],
+                   projects: MEMORY_ROWS, notes: ["Codex: no memory files.", "Cursor keeps no memory in files."] }];
+  }
+  if (url.pathname === "/ui/api/memory/search") {
+    return [200, { q: query.get("q"), projects: query.get("q") === "needle" ? [{ key: "claude:", matches: 1 }] : [] }];
+  }
+  if (url.pathname === "/ui/api/memory" && method === "GET") {
+    const store = query.get("store"), main = store === MEM_MAIN, project = query.get("project");
+    const items = project === "" ? [memItem("routing.md", "routing", "feedback", "d", "x")]
+      : main ? MEMORY_ITEMS : [memItem("zsh.md", "zsh", "reference", "older", "Older zsh.")];
+    const links = main && project ? memLinks() : [];
+    const label = main ? "~/.claude" : "~/.claude-work", other = main ? MEM_WORK : MEM_MAIN;
+    return [200, { store, label, client: "claude", project, key: "claude:" + project, name: project ? "agents" : "Outside projects",
+                   root: project ? "/home/me/code/agents" : null, dir: store + "/projects/" + project + "/memory", items,
+                   index: { exists: links.length > 0, sha256: links.length ? "i".repeat(64) : null, text: links.length ? MEMORY_INDEX : null, links },
+                   not_indexed: items.filter((item) => !links.some((link) => link.file === item.file)).map((item) => item.file),
+                   broken: links.filter((link) => !items.some((item) => item.file === link.file)),
+                   places: [{ store: MEM_MAIN, label: "~/.claude" }, { store: MEM_WORK, label: "~/.claude-work" }],
+                   targets: [{ store: other, label: main ? "~/.claude-work" : "~/.claude" }] }];
+  }
+  if (url.pathname === "/ui/api/memory/file" && method === "PUT") {
+    if (body.text === "CONFLICT") return [409, { status: "error", error: "file_changed: zsh.md changed since it was shown" }];
+    const item = MEMORY_ITEMS.find((entry) => entry.file === body.file);
+    if (body.sha256 === null && item) return [409, { status: "error", error: "file_exists: " + body.file + " already exists" }];
+    if (item) item.text = body.text;
+    else MEMORY_ITEMS.push({ ...memItem(body.file, body.file.slice(0, -3), "feedback", "new", ""), text: body.text });
+    return [200, { status: body.sha256 === null ? "created" : "saved", indexed: !!body.index }];
+  }
+  if (url.pathname === "/ui/api/memory/delete") {
+    MEMORY_ITEMS.splice(MEMORY_ITEMS.findIndex((item) => item.file === body.file), 1);
+    return [200, { status: "deleted", trash: "/state/memory-trash/x/claude/" + body.project + "/" + body.file }];
+  }
+  if (url.pathname === "/ui/api/memory/copy") {
+    if (!body.move && !body.replace_sha256) {
+      return [409, { status: "error", error: "target_exists: ~/.claude-work already has " + body.file,
+                     target: { store: MEM_WORK, label: "~/.claude-work", sha256: "t".repeat(64), text: "Older zsh.\n" } }];
+    }
+    if (body.move) MEMORY_ITEMS.splice(MEMORY_ITEMS.findIndex((item) => item.file === body.file), 1);
+    return [200, { status: body.move ? "moved" : "copied", indexed: true, trash: body.move ? "/state/memory-trash/y" : undefined }];
   }
   return uiData(path, init);
 }
@@ -417,7 +492,7 @@ const context = vm.createContext({
   console, URLSearchParams,
   Option: function Option(text, value) { return Object.assign(element(), { text, value }); },
 });
-for (const [index, tab] of ["flows", "agents", "rules", "skills", "implants", "history"].entries()) {
+for (const [index, tab] of ["flows", "agents", "rules", "skills", "implants", "history", "memory"].entries()) {
   const button = element();
   button.dataset.tab = tab;
   if (tab === "flows") button.classes.add("active");  // as the markup has it
@@ -761,7 +836,7 @@ if (scenario.startsWith("landing")) {
   }
   // Every tab leaves the landing page, and the version opens it again from there.
   out.tabs = [];
-  for (const tab of ["flows", "agents", "rules", "skills", "implants", "history"]) {
+  for (const tab of ["flows", "agents", "rules", "skills", "implants", "history", "memory"]) {
     await openTab(tab);
     const left = view();
     fire(byId("version-link"), "click", { preventDefault() {} });
@@ -1499,6 +1574,86 @@ if (scenario === "history") {
                  first: textOf(rendered()[0].children[0]), meta: byId("h-meta").textContent,
                  repos_read_again: requests.filter((path) => path === "/ui/api/history/repos").length - repoReads,
                  reread: requests.filter((path) => path.startsWith("/ui/api/history?")).at(-1) };
+  console.log(JSON.stringify(out));
+  process.exit(0);
+}
+
+if (scenario === "memory") {
+  const out = {};
+  const textOf = (node) => (node.nodeType === 3 ? node.textContent : (node.textContent || "") + node.children.map(textOf).join(""));
+  const hidden = (id) => byId(id).classes.has("hidden");
+  const view = byId("m-view"), doc = () => findAll(view, hasClass("md"))[0];
+  const items = () => findAll(doc(), hasClass("m-item"));
+  const section = (title) => items().find((node) => textOf(node.children[0]) === title);
+  const tagged = (node, tag) => findAll(node, (child) => child.tag === tag);
+  const labels = (node) => tagged(node, "button").map((button) => button.textContent);
+  const click = async (node, label) => {
+    fire(tagged(node, "button").find((button) => button.textContent === label), "click");
+    await sleep(80);
+  };
+  const area = (title) => tagged(section(title), "textarea")[0];
+  const write = (title, text) => { const box = area(title); box.value = text; fire(box, "input"); };
+  const notice = () => ({ text: byId("m-notice").textContent, kind: byId("m-notice").className });
+  await openTab("memory");
+  out.list = shown();
+  out.chips = buttons().map((button) => button.children.filter((child) => (child.className || "").startsWith("chip"))
+    .map((child) => child.textContent));
+  await open(0);
+  out.pane = { mem: !hidden("mem"), welcome: !hidden("welcome"), actions: !hidden("m-actions"),
+               group_pane: byId("item-actions").dataset.pane, title: byId("m-title").textContent, meta: byId("m-meta").textContent,
+               notice: notice(), stores: byId("m-store").children.map((option) => [option.text, option.value]),
+               store: byId("m-store").value, seg: byId("m-seg").children.map((button) => button.attrs["aria-pressed"]) };
+  out.sections = items().map((node) => textOf(node.children[0]));
+  out.toc = findAll(view, hasClass("md-toc-item")).map((item) => item.className + ":" + item.textContent);
+  const workflow = section("workflow");
+  out.workflow = { meta: textOf(workflow.children[1]), description: textOf(workflow.children[2]),
+                   links: tagged(workflow, "a").map((link) => link.attrs.href), text: textOf(workflow), buttons: labels(workflow) };
+  out.index_buttons = labels(section("MEMORY.md"));
+  fire(tagged(workflow, "a")[0], "click", { preventDefault() {} });
+  out.link_scrolled = section("zsh").scrolled;
+  fire(seg("m-seg", 1), "click");
+  await sleep(20);
+  out.source = tagged(section("zsh"), "pre").map(textOf);
+  fire(seg("m-seg", 0), "click");
+  await sleep(20);
+  await click(section("zsh"), "Edit");
+  out.editor = { value: area("zsh").value, buttons: labels(section("zsh")) };
+  write("zsh", "CONFLICT");
+  await click(section("zsh"), "Save");
+  out.conflict = { notice: notice(), editing: !!area("zsh"), put: memoryCalls.at(-1) };
+  write("zsh", "new zsh text\n");
+  await click(section("zsh"), "Save");
+  out.saved = { notice: notice(), editing: !!area("zsh"), put: memoryCalls.at(-1), text: textOf(section("zsh")) };
+  await click(section("zsh"), "Copy to ~/.claude-work");
+  out.compare = { pres: tagged(section("zsh"), "pre").map(textOf), buttons: labels(section("zsh")), call: memoryCalls.at(-1) };
+  await click(section("zsh"), "Replace in ~/.claude-work");
+  out.replaced = { call: memoryCalls.at(-1), notice: notice(), buttons: labels(section("zsh")) };
+  await click(section("zsh"), "Move to ~/.claude-work");
+  out.moved = { confirm: confirms.at(-1), call: memoryCalls.at(-1), notice: notice(), sections: items().map((node) => textOf(node.children[0])) };
+  await click(section("loose.md"), "Delete");
+  out.deleted = { confirm: confirms.at(-1), call: memoryCalls.at(-1), notice: notice() };
+  fire(byId("m-new"), "click");
+  await sleep(20);
+  out.draft = { first: textOf(items()[0].children[0]), file: tagged(items()[0], "input")[0].value,
+                index: tagged(items()[0], "input")[1].checked, buttons: labels(items()[0]) };
+  const input = tagged(items()[0], "input")[0];
+  input.value = "bad name";
+  fire(input, "input");
+  await click(items()[0], "Save");
+  out.bad_name = { notice: notice(), calls: memoryCalls.length };
+  input.value = "fresh.md";
+  fire(input, "input");
+  await click(items()[0], "Save");
+  out.created = { call: memoryCalls.at(-1), notice: notice(), first: textOf(items()[0].children[0]) };
+  byId("m-store").value = MEM_WORK;
+  fire(byId("m-store"), "change");
+  await sleep(60);
+  out.other_store = { read: requests.filter((path) => path.startsWith("/ui/api/memory?")).at(-1), sections: items().map((node) => textOf(node.children[0])),
+                      buttons: labels(section("zsh")) };
+  await type("needle");
+  out.search_pending = shown();
+  await sleep(350);
+  out.search_text = shown();
   console.log(JSON.stringify(out));
   process.exit(0);
 }
