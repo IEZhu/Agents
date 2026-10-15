@@ -738,7 +738,9 @@ def local_work(ctx: Context, checkout: Path) -> str | None:
 
     install.sh clones a published channel and never commits. Keep dirty/custom-branch
     checkouts, commits outside known remote-tracking history, and ignored material outside
-    the installer's .env and .venv assets. Git failures also keep the whole checkout.
+    the installer's .env and .venv assets. Registered submodules or retained .git/modules
+    also keep the checkout: parent Git history does not cover their private state.
+    Git failures keep the whole checkout.
     """
     base = ["git", "-C", str(checkout)]
     # These offline safety inspections must use this checkout, not a caller's Git context.
@@ -748,6 +750,15 @@ def local_work(ctx: Context, checkout: Path) -> str | None:
         """Inspect the selected checkout without inherited Git environment overrides."""
         return ctx.runner([*base, *arguments], env=git_env)
 
+    # Deleted submodules retain repositories here even after all gitlinks are gone.
+    modules = checkout / ".git/modules"
+    if modules.exists() or _is_link(modules):
+        return "it contains retained submodule repositories"
+    submodules = git("submodule", "status", "--recursive")
+    if submodules.returncode != 0:
+        return "git could not check it for local work"
+    if submodules.stdout.strip():
+        return "it contains submodules whose private state is not covered by parent history"
     status = git("status", "--porcelain", "--untracked-files=normal")
     branches = git("for-each-ref", "--format=%(refname:short)", "refs/heads")
     if status.returncode != 0 or branches.returncode != 0:
