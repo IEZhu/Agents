@@ -600,8 +600,9 @@ if !errorlevel! neq 0 (
     goto :skip_claude_desktop
 )
 
-REM Its own name, which Claude Code denies below: the app injects its servers into the Code-tab
-REM sessions it launches, and those must use Claude Code's per-project Agents-Core (#231).
+REM Its own name: the app injects its servers into the Code-tab sessions it launches. A standalone
+REM install denies it in Claude Code below, so those use Claude Code's per-project Agents-Core
+REM (#231); the shared-service bridge is allowed (#421).
 "%PYTHON_ABS%" "%HELPERS%\inject_mcp.py" "!CLAUDE_DESKTOP_CONFIG!" "%PYTHON_ABS%" "%SERVER_ABS%" --desktop
 if !errorlevel! equ 0 (
     echo   %GREEN%+%NC% Agents-Core-Desktop added to Claude Desktop config
@@ -912,9 +913,9 @@ if "!_DESKTOP_SHARED!"=="true" (
     goto :eof
 )
 if not "!_DESKTOP_DENIED!"=="true" (
-    echo   %YELLOW%WARNING:%NC% Claude Code does not deny Agents-Core-Desktop, so a Code-tab session of the
-    echo     desktop app can reach the app's shared server, started outside any project. Add
-    echo     mcp__Agents-Core-Desktop__* to permissions.deny in !CLAUDE_CODE_SETTINGS!.
+    echo   %YELLOW%WARNING:%NC% Claude Code's settings were not updated for Agents-Core-Desktop. A standalone
+    echo     desktop entry needs mcp__Agents-Core-Desktop__* in permissions.deny of
+    echo     !CLAUDE_CODE_SETTINGS!; one the shared service serves needs none ^(README, desktop app^).
     goto :eof
 )
 echo   %GREEN%^>%NC% Claude Desktop runs Agents-Core-Desktop for its chats, outside any project.

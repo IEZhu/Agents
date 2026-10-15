@@ -282,8 +282,10 @@ async def test_a_symlinked_fallback_directory_is_an_error_not_a_crash(writer, mo
 def test_server_choice_guidance_is_visible_before_truncation():
     """#421: a Code-tab session lists Agents-Core and Agents-Core-Desktop; both texts say which to call."""
     from pathlib import Path
-    guidance = "When both Agents-Core and Agents-Core-Desktop are listed, call Agents-Core"
     text = server.mcp.instructions
-    assert guidance in text and text.index(guidance) + len(guidance) < 2048
+    for phrase in ("Prefer Agents-Core over Agents-Core-Desktop",
+                   # The guidance must not push the delegation directive out of the window.
+                   "call get_subagent_context before spawning"):
+        assert phrase in text and text.index(phrase) + len(phrase) < 2048, phrase
     template = (Path(__file__).resolve().parents[1] / "scripts/templates/routing-protocol-core.md").read_text()
     assert "When both `Agents-Core` and `Agents-Core-Desktop` tools are listed, call\n`Agents-Core`" in template

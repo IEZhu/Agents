@@ -185,9 +185,7 @@ mcp = _WorkerInputMCP(
     "Agents-Core",
     instructions=(
         "Agents-Core uses persona protocol 2; pass protocol_version=2 to route_and_load and "
-        "get_agent_context.\n"
-        "When both Agents-Core and Agents-Core-Desktop are listed, call Agents-Core; a standalone "
-        "install denies Agents-Core-Desktop in Claude Code.\n"
+        "get_agent_context. Prefer Agents-Core over Agents-Core-Desktop.\n"
         "A worker with a prepared agents-core/subagent/1 package uses that task role: no full "
         "persona activation, inherited parent descriptor, footer, timestamp or log_interaction. "
         "Return its JSON result only. Ordinary conversations follow the steps below.\n"

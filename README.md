@@ -1080,7 +1080,10 @@ the app must see the same value.
   call's `workspace` (#253). A denial would only block Code-tab turns, so `migrate` and
   setup remove the one an earlier install wrote and add none (#421). A Code-tab session
   lists both servers; the routing instructions tell the model to prefer `Agents-Core`.
-  While the shared service is installed, setup keeps the entries `migrate` wrote.
+  While the shared service is installed, setup keeps the entries `migrate` wrote. Neither
+  the service's upkeep nor self-update touches these files, so an installation that an
+  earlier version denied keeps that denial until setup or `python -m src.daemon migrate
+  --clients desktop` runs once more.
 
 The desktop server needs the `workspace` argument for its memory and flow tools
 ([rules](#-repository-memory)); under the shared service, a `log_interaction` without it
