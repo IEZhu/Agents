@@ -16,16 +16,20 @@ for Langfuse analysis.
   `git commit --amend --reset-author` so author and committer both change.
 - **Branches.** Use the requested base; otherwise cut from `origin/dev`, the
   integration branch, and open the PR against `dev` (`main` takes release PRs from
-  `dev`). Use the current `HEAD` for a documentation refresh. When branching from a
+  `dev`: [release procedure](releases.md#procedure)). Use the current `HEAD` for a
+  documentation refresh. When branching from a
   remote ref, use `--no-track`
   (`git worktree add --no-track -b codex/task-name <path> origin/dev`), so a GUI client never
   pushes a feature branch to the upstream it was cut from. The repository deletes a
   PR's branch when it is merged.
 - **Live installation.** Never edit, commit, stash, reset or switch branches in the
-  checkout the daemon runs from: the self-updater fast-forwards it only while it is
-  on `AGENTS_AUTO_UPDATE_BRANCH` with a clean tree, and otherwise skips it
-  (`SKIPPED_WRONG_BRANCH`, `SKIPPED_DIRTY`). If it is already off that branch or
-  dirty, tell the user instead of repairing it.
+  checkout the daemon runs from: the updaters fast-forward it only while it is on
+  `AGENTS_AUTO_UPDATE_BRANCH` (its update channel in `.env`, read by the stdio
+  servers and the daemon's controller alike) with a clean tree, switch it to that
+  branch only from the previous setting, and otherwise skip it
+  (`SKIPPED_WRONG_BRANCH`, `SKIPPED_DIRTY`). The owner changes the channel with
+  `python -m src.daemon channel set` or the web UI. If the checkout is already off
+  a channel branch or dirty, tell the user instead of repairing it.
 - **Parallel work.** Give each change its own worktree, for example under
   `.worktrees/` or `.claude/worktrees/`, never in a temporary directory or session
   scratchpad, which get cleaned with any unpushed work. Check existing worktrees

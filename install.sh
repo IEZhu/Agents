@@ -11,7 +11,10 @@
 # Environment:
 #   AGENTS_HOME       install directory (default: ~/.agents-core)
 #   AGENTS_REPO_URL   repository URL (default: https://github.com/IEZhu/Agents.git)
-#   AGENTS_BRANCH     branch to install (default: main)
+#   AGENTS_BRANCH     branch to install (default: main): `dev` takes every merged pull
+#                     request, `main` only releases. init_repo.sh writes it into a new
+#                     .env as AGENTS_AUTO_UPDATE_BRANCH, so the updaters follow it, and
+#                     warns when an existing .env names another branch
 #   AGENTS_ASSUME_YES=1  skip the confirmation (also the behavior without a TTY)
 #   AGENTS_USER_SYNC_*   set up sync between machines without questions; init_repo.sh
 #                        never asks about it under --yes (README, "Sync between machines")
@@ -33,7 +36,11 @@ main() {
 
     local home_dir="${AGENTS_HOME:-$HOME/.agents-core}"
     local repo_url="${AGENTS_REPO_URL:-https://github.com/IEZhu/Agents.git}"
-    local branch="${AGENTS_BRANCH:-main}"
+    # AGENTS_BRANCH picks the branch; without it a rerun keeps the checked-out branch (the
+    # updaters move it, with their downgrade check: README, "Update channel") and a new
+    # clone gets main.
+    local branch="${AGENTS_BRANCH:-}"
+    local chosen_branch="${AGENTS_BRANCH:-}"
 
     if ! command -v git >/dev/null 2>&1; then
         echo "install.sh: git is required but was not found in PATH." >&2
@@ -61,9 +68,17 @@ main() {
             return 1
         fi
         action="update (git pull --ff-only) in"
+        if [ -z "$branch" ]; then
+            branch="$(git -C "$home_dir" symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
+        fi
     elif [ -e "$home_dir" ] && [ -n "$(ls -A "$home_dir" 2>/dev/null)" ]; then
         echo "install.sh: $home_dir exists and is not an Agents-Core checkout." >&2
         return 1
+    fi
+
+    if [ -z "$branch" ]; then
+        branch=main
+        [ -d "$home_dir/.git" ] || chosen_branch=main
     fi
 
     echo "Agents-Core installer"
@@ -108,9 +123,9 @@ main() {
         case "$arg" in --yes|-y) ;; *) init_args+=("$arg") ;; esac
     done
     if [ "$have_tty" = true ] && [ ! -t 0 ]; then
-        AGENTS_GITHUB_TOKEN="$sync_github_token" exec "$home_dir/scripts/init_repo.sh" "${init_args[@]}" </dev/tty
+        AGENTS_GITHUB_TOKEN="$sync_github_token" AGENTS_BRANCH="$chosen_branch" exec "$home_dir/scripts/init_repo.sh" "${init_args[@]}" </dev/tty
     fi
-    AGENTS_GITHUB_TOKEN="$sync_github_token" exec "$home_dir/scripts/init_repo.sh" "${init_args[@]}"
+    AGENTS_GITHUB_TOKEN="$sync_github_token" AGENTS_BRANCH="$chosen_branch" exec "$home_dir/scripts/init_repo.sh" "${init_args[@]}"
 }
 
 main "$@"

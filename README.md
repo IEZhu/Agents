@@ -48,18 +48,22 @@ entry even when the [Claude plugin](#claude-plugin) serves it.
 |---|---|---|
 | `AGENTS_HOME` | `~/.agents-core` | Install directory |
 | `AGENTS_REPO_URL` | `https://github.com/IEZhu/Agents.git` | Repository for a fresh clone |
-| `AGENTS_BRANCH` | `main` | Branch to install; the standalone auto-updater acts only on `AGENTS_AUTO_UPDATE_BRANCH` (default `main`) |
+| `AGENTS_BRANCH` | `main` for a new clone; a rerun keeps the checked-out branch | Branch to install: `main` takes releases, `dev` every merged pull request. A new `.env` gets it as `AGENTS_AUTO_UPDATE_BRANCH`, so both updaters follow it; an existing `.env` that names another branch keeps it, with a warning ([update channel](#update-channel)) |
 | `AGENTS_ASSUME_YES` | unset | `1`, `true` or `yes` skips the confirmation, as does `... \| bash -s -- --yes` |
 | `AGENTS_USER_SYNC_REPO`, `AGENTS_USER_SYNC_REMOTE` | unset | Set up [sync between machines](#sync-between-machines) without questions, with the variables listed there |
 
 The installer never uses `sudo`. It refuses a non-empty `AGENTS_HOME` that is not
 an Agents-Core checkout.
 
-Rerunning it updates an existing checkout: it checks out `AGENTS_BRANCH`,
-fast-forwards it from the checkout's `origin`, then reruns setup, which refreshes
-dependencies in `.venv` and the indexes in place. First close the client sessions
-that run this installation's stdio server, as for any manual Git operation or
-rebuild. If this checkout serves the shared macOS service, update it with
+Rerunning it updates an existing checkout: it fast-forwards the checked-out
+branch from the checkout's `origin` (or checks out `AGENTS_BRANCH` when that is
+set), then reruns setup, which refreshes dependencies in `.venv` and the indexes
+in place, and warns when `.env` follows another branch than an explicit
+`AGENTS_BRANCH`. Without `AGENTS_BRANCH` a rerun keeps the checked-out branch
+(a detached HEAD gets `main`) and never switches channels: that is
+`channel set`'s job, with its downgrade check ([update channel](#update-channel)).
+First close the client sessions that run this installation's stdio server, as
+for any manual Git operation or rebuild. If this checkout serves the shared macOS service, update it with
 `.venv/bin/python -m src.daemon update` instead (see [Updates](#updates)).
 An update is refused when the checkout has uncommitted changes to tracked files
 (commit or stash them first). Untracked files do not block an update and are left
@@ -476,10 +480,12 @@ store; the interaction journal `history.md` retains its separate role.
 
 ### Updates
 
-Feature PRs target `dev`; release PRs promote `dev` into `main`. Merged release
-PRs record the existing UTC calendar version with an immutable Git tag at the
-resulting commit. See [Calendar releases](docs/releases.md) for event guards,
-same-minute releases and retry behavior.
+Feature PRs target `dev`; release PRs promote `dev` into `main`
+([branches and releases](#branches-and-releases), with the release
+[procedure](docs/releases.md#procedure)). Merged release PRs record the existing
+UTC calendar version with an immutable Git tag at the resulting commit. See
+[Calendar releases](docs/releases.md) for event guards, same-minute releases and
+retry behavior.
 
 The shared daemon has its own update controller. Run
 `.venv/bin/python -m src.daemon update` for a manual update; automatic daemon
@@ -488,6 +494,50 @@ See [service updates and recovery](docs/shared-mcp-daemon.md#updates-and-recover
 While the service runs, do not update its checkout with `install.sh`, `git pull` or
 `scripts/init_repo.sh`: they bypass drain, maintenance, index backup, probation
 and rollback. The daemon disables the standalone updater described below.
+
+#### Update channel
+
+An installation follows one branch, its update channel: `main` takes releases,
+`dev` every merged pull request ([branches and releases](#branches-and-releases)).
+The setting is `AGENTS_AUTO_UPDATE_BRANCH` in the installation's `.env` (default
+`main`), and both updaters read it: the stdio servers load `.env`, and the shared
+service's controller (`update`, `auto-update run` and `status`, `channel`) reads
+only the update channel keys from it. A variable exported in a shell overrides the
+file for the commands started there, but only to steer the fast-forwards of a
+checkout already on that branch: it never switches branches. `channel show`, `update`
+and `auto-update status` say when the environment overrode `.env`.
+
+```bash
+.venv/bin/python -m src.daemon channel show       # setting and source, checkout, HEAD, remote tip, last update
+.venv/bin/python -m src.daemon channel set dev    # follow dev from the next update on
+.venv/bin/python -m src.daemon channel set main --allow-downgrade
+```
+
+Without the shared service, `.venv/bin/python -m src.update_channel show|set`
+does the same. The web UI's overview (the version in its header) has an
+Updates section that shows the version, the setting and the checked-out branch,
+the scheduled updates and their last run, and saves `main` or `dev`. The CLI
+accepts any branch the remote has, with a warning: feature branches get
+rewritten and then stop fast-forwarding.
+
+Saving changes no code. The next update applies it: `update`, a scheduled run, or,
+without the service, a stdio server's next idle start. That update switches the
+checkout only when it is on the previous setting, which `set` records as
+`AGENTS_AUTO_UPDATE_PREVIOUS_BRANCH`; a checkout on any other branch is local
+development and stays untouched, and so is a checkout whose `.env` setting was
+edited by hand without a previous record (`channel set` names the way out). The
+switch runs through the usual update transaction, with its gates (idle service,
+clean tracked tree, unchanged dependency manifests), the build while the service
+serves, probation and rollback to the previous branch, with the target branch's
+old tip and upstream settings restored. It waits while another worktree has the
+target branch checked out. A switch to a branch that lacks non-merge commits of the installed HEAD,
+for example `dev` → `main` before a release, would go back to older code that may
+not read state or `.env` changes the newer code made: `set` refuses it until
+`--allow-downgrade` or the UI's confirmation, which is recorded for that HEAD only
+(`AGENTS_AUTO_UPDATE_ALLOW_DOWNGRADE`). A release's merge commit does not count, so
+`main` → `dev` after a release needs no confirmation. `AGENTS_BRANCH=dev` with
+`install.sh` installs `dev` and, for a new `.env`, writes it as the setting (an
+existing one keeps its setting, with a warning).
 
 #### Standalone stdio auto-update
 
@@ -512,10 +562,13 @@ mid-session:
 
 It is **safe by default**:
 
-- acts **only** when the checked-out branch is `AGENTS_AUTO_UPDATE_BRANCH` (default
-  `main`) — a **no-op on feature branches**, so local development is never touched;
-- only when the working tree is clean, and only **fast-forward** (never merge, rebase,
-  or switch branches);
+- follows `AGENTS_AUTO_UPDATE_BRANCH` (default `main`): it fast-forwards that
+  branch, or switches to it from the previous setting ([update
+  channel](#update-channel)) — a **no-op on feature branches**, so local development
+  is never touched;
+- only when the working tree is clean; a fast-forward (never merge or rebase), or
+  a branch switch to the target branch's tip, which needs the recorded confirmation
+  when that tip lacks commits of HEAD;
 - a failed staged build discards the worktree and leaves the install as-is; crash
   recovery also uses the store's torn-pair detection and content-hash re-embed;
 - staging and store paths must not contain symlinks; store moves are covered by
@@ -568,7 +621,7 @@ restart the server. An unreadable journal also requires this explicit recovery.
 ```env
 AGENTS_AUTO_UPDATE=1                     # 0 to disable
 AGENTS_AUTO_UPDATE_REMOTE=origin
-AGENTS_AUTO_UPDATE_BRANCH=main           # only updates when this branch is checked out
+AGENTS_AUTO_UPDATE_BRANCH=main           # the update channel: main (releases) or dev
 AGENTS_AUTO_UPDATE_TIMEOUT=30            # seconds per git op
 AGENTS_AUTO_UPDATE_INTERVAL=900          # throttle network checks (0 = every start)
 AGENTS_AUTO_UPDATE_REINDEX_TIMEOUT=3600  # seconds per index build (staged or in-place); stops only a hung build
@@ -1184,6 +1237,16 @@ refresh process](flows/documentation-refresh.md) for documentation work, and
 Keep reusable model task instructions in `flows/` and list them in the
 [workflow catalog](flows/README.md), which explains how to run them locally or
 through `run_flow`.
+
+### Branches and releases
+
+Every pull request targets `dev`, the integration branch; a release is a pull
+request from `dev` into `main`, merged with a merge commit and tagged with its
+calendar version. [Calendar releases](docs/releases.md) is the release procedure:
+the merge method, closing keywords, hotfixes, the rules for `dev` and the tag
+workflow. Installations choose their branch with `python -m src.daemon channel set
+main|dev` or the web UI's Updates section ([update channel](#update-channel)). The
+`push` triggers of the CI workflows cover `main` and `dev`.
 
 ### Validation
 

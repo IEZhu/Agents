@@ -25,9 +25,10 @@ their recorded revision; they do not override the current implementation.
 - Inspect the branch, worktrees and existing changes first, and keep unrelated
   work intact.
 - Never change a live installation checkout in place. The daemon runs from it,
-  and the self-updater fast-forwards it only while it is on
-  `AGENTS_AUTO_UPDATE_BRANCH` with a clean tree, so a feature branch or an
-  uncommitted edit there silently stops updates. Do not edit, commit, stash,
+  and the updaters fast-forward it only while it is on
+  `AGENTS_AUTO_UPDATE_BRANCH` (its update channel in `.env`) with a clean tree,
+  switching to it only from the previous setting, so a feature
+  branch or an uncommitted edit there silently stops updates. Do not edit, commit, stash,
   reset or switch branches in it; reading, running its tools, `git fetch` and
   `git worktree add` are fine. If it is already off its update branch or dirty,
   tell the user instead of repairing it.
@@ -36,7 +37,8 @@ their recorded revision; they do not override the current implementation.
   `git worktree add --no-track -b codex/<slug> .worktrees/<slug> origin/dev`.
   Keep worktrees out of temporary directories and session scratchpads, which get
   cleaned with any unpushed work. Open the PR against `dev`, the integration
-  branch; `main` takes release PRs from `dev`. Remove your worktree once its work
+  branch; `main` takes release PRs from `dev`
+  ([release procedure](docs/releases.md#procedure)). Remove your worktree once its work
   is pushed or merged and it is clean.
 - Use a `codex/` branch for new work unless the user or the invoked flow specifies
   another name; for example, [issue implementation](flows/issue-implementation.md)

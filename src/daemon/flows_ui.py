@@ -15,9 +15,10 @@ which a cross-site page cannot send. Library sync (``/ui/api/sync…``, ``sync_u
 asks for the header on GET as well, because some of its reads reach the network, and so do
 the landing page's statistics and overview (``/ui/api/stats``, ``usage.py``; ``/ui/api/overview``,
 ``overview.py``), which only the page reads, the History tab (``/ui/api/history…``,
-``history_ui.py``), which shows the repositories' histories in full, and the Autodev page
+``history_ui.py``), which shows the repositories' histories in full, the Autodev page
 (``/ui/api/autodev…``, ``autodev_ui.py``), which reads and writes the autodev schedule's
-settings and runs the CLIs' ``--version`` and ``--help``.
+settings and runs the CLIs' ``--version`` and ``--help``, and the overview's Updates section
+(``/ui/api/updates``, ``updates_ui.py``), which saves the branch the installation follows.
 """
 import asyncio
 import hashlib
@@ -43,6 +44,7 @@ from .peer import loopback_peer_is_owner
 from .state import atomic_private, read_json
 from .sync_loop import DRAINING
 from .sync_ui import SyncUI, is_sync_path
+from .updates_ui import UpdatesUI, is_updates_path
 from .workspaces import WorkspaceError
 
 CODE_TTL = 120
@@ -112,6 +114,7 @@ class FlowsUI:
         self.sync = SyncUI(service)
         self.history = HistoryUI(service)
         self.autodev = AutodevUI(service)
+        self.updates = UpdatesUI(service)
 
     # --- access ----------------------------------------------------------------------
 
@@ -192,7 +195,8 @@ class FlowsUI:
                                         or request.headers.get("x-agents-ui") != "1"):
             return await self._json({"error": "origin_not_allowed"}, 403)(scope, receive, send)
         syncing = is_sync_path(path)
-        page_only = syncing or path in PAGE_READS or is_history_path(path) or is_autodev_path(path)
+        page_only = (syncing or path in PAGE_READS or is_history_path(path) or is_autodev_path(path)
+                     or is_updates_path(path))
         if page_only and request.method == "GET" and not self._page_request(request):
             return await self._json({"error": "origin_not_allowed"}, 403)(scope, receive, send)
         if path == "/ui/api/session" and request.method == "POST":
@@ -208,7 +212,8 @@ class FlowsUI:
         counted = not syncing
         # The Sync page's and the statistics' polls are not activity: an open page must not hold
         # back an automatic update.
-        active = not ((syncing and self.sync.passive(request.method, path)) or path in PAGE_READS)
+        active = not ((syncing and self.sync.passive(request.method, path)) or path in PAGE_READS
+                      or (is_updates_path(path) and request.method == "GET"))
         if counted:
             self.service.inflight += 1
         if active:
@@ -312,6 +317,8 @@ class FlowsUI:
             return await self.history.handle(request, path)
         if is_autodev_path(path):
             return await self.autodev.handle(request, path)
+        if is_updates_path(path):
+            return await self.updates.handle(request, path)
         query = request.query_params
         try:
             if path == STATS_PATH and request.method == "GET":

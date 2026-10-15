@@ -670,7 +670,14 @@ the item, with no tab active:
   links to its entry on the History tab.
 - **AI apps**: Claude Code, Claude Desktop, Codex and Cursor, each connected,
   configured or not set up, in words.
-- **Model, directories and sizes**: the version, the embedding model and its size,
+- **Updates** ([#381](https://github.com/IEZhu/Agents/issues/381)): the version, the
+  branch the installation follows (its [update channel](../README.md#update-channel))
+  and where that setting comes from, the checked-out branch, whether scheduled
+  updates are on and the last scheduled run, and when a change applies: at the next
+  scheduled run, or with the `update` command it names. A `main` / `dev` choice with
+  **Save** writes the setting; a switch to a branch that does not contain the
+  installed code asks for a confirmation first.
+- **Model, directories and sizes**: the embedding model and its size,
   the counts of agents, rules, skills, implants and flows, and each directory with
   its path, size and **Copy**.
 
@@ -1058,8 +1065,22 @@ counts of agents, rules, skills, implants and flows (built-in, personal and in
 repositories); the directories (the installation, `data/`, the service directory,
 personal flows, the model cache and the stdio servers' logs) with their sizes; and
 per app whether a client configuration this machine has holds an Agents-Core entry
-(read like `audit`, without any header value). Sizes are measured off the event loop,
+(read like `audit`, without any header value), and the update channel: the
+configured branch and its source (`.env` or the default; the service's own
+environment does not count), the checked-out branch, whether scheduled updates are
+on and their interval, the last scheduled run (its strings without credentials),
+the offered branches, the `update` command, when a saved change applies and the
+setting's `revision`. Sizes are measured off the event loop,
 without following symlinks, at most every 5 minutes; the rest is read with each request.
+
+`GET /ui/api/updates` answers the version and that update channel; `PUT
+/ui/api/updates` with `{expected_revision, branch, allow_downgrade}` saves `main` or
+`dev` through `src.update_channel.set_branch`, the writer of `channel set`, in a
+worker thread (it reads the remote) and under `control.lock`. Both need the session
+and `X-Agents-UI` with a same-origin `Origin`. The PUT answers 400 for a branch the
+page does not offer, an unsafe one or one the remote does not have, 409 `conflict`
+for a stale revision, 409 `downgrade` until the page sends the owner's confirmation,
+409 `busy` while another control command runs, and 502 when the remote cannot be read.
 
 ## User library sync
 
@@ -1355,14 +1376,39 @@ without an execution time limit, and `IgnoreNew` skips a run while the previous
 one still updates. A run fetches `AGENTS_AUTO_UPDATE_REMOTE` /
 `AGENTS_AUTO_UPDATE_BRANCH` (defaults `origin` / `main`) and stops there when the installation is up to date
 and no [model switch](#embedding-model) is pending.
-Unlike stdio servers, the controller reads these variables,
-`AGENTS_AUTO_UPDATE_TIMEOUT` and `AGENTS_AUTO_UPDATE_REINDEX_TIMEOUT` from its own
-environment, not from `.env`: the updater LaunchAgent does not set them, so
-scheduled runs normally use the defaults, and a manual `update` uses the values
-exported in its shell. A run skips a target without touching the service when
-the checked-out branch is different, tracked files have local changes, the
-target is not a fast-forward, or dependency manifests changed; each skip is
-logged once per target. Otherwise it waits until the service is ready, has no
+These two are the installation's [update channel](../README.md#update-channel), which
+the stdio servers use as well: the controller (`update`, `auto-update run` and
+`status`, `channel`) reads them, `AGENTS_AUTO_UPDATE_PREVIOUS_BRANCH` and
+`AGENTS_AUTO_UPDATE_ALLOW_DOWNGRADE` from the installation's `.env` with
+`dotenv_values`, without loading the rest of `.env` into its environment. A
+variable exported in the controller's shell overrides the file for that command.
+`AGENTS_AUTO_UPDATE_TIMEOUT` and `AGENTS_AUTO_UPDATE_REINDEX_TIMEOUT` still come
+only from the controller's own environment: the updater LaunchAgent does not set
+them, so scheduled runs use the defaults, and a manual `update` uses the values
+exported in its shell.
+
+`.venv/bin/python -m src.daemon channel show` prints the configured branch and
+its source, the checked-out branch, HEAD, the remote tip and the last update
+results; `channel set <branch> [--allow-downgrade]` saves another branch under
+`control.lock`, and the overview's Updates section of the [flow editor](#overview-and-statistics) saves
+`main` or `dev` through the same function (`PUT /ui/api/updates`, with the
+session, `X-Agents-UI`, same-origin and revision checks of the other UI writes).
+Saving changes no code: the next `update` or scheduled run switches a checkout
+that is on the previous setting (`AGENTS_AUTO_UPDATE_PREVIOUS_BRANCH`, recorded by
+`set`) to the configured branch, inside the same transaction (gates, build while
+serving, probation, rollback to the previous branch, the target branch's old tip
+and upstream settings, and the stores). The transaction re-reads the channel
+after the build and defers, discarding the build, when it changed meanwhile. A
+branch exported over `.env` never switches; `update` reports the override in `note`. A target that
+lacks non-merge commits of HEAD is a downgrade and is skipped until the
+confirmation that `set --allow-downgrade` or the UI records for that HEAD; a
+release's merge commit is not one ([calendar releases](releases.md#procedure)).
+
+A run skips a target without touching the service when the checked-out branch is
+neither the configured branch nor the previous setting, or a switch would be needed
+to a branch exported over `.env`, the target branch is checked out in another
+worktree, tracked files have local changes, the target is not a fast-forward (or, for a switch, an
+unconfirmed downgrade), or dependency manifests changed; each skip is logged once per target. Otherwise it waits until the service is ready, has no
 work in flight, and has been idle for `--idle-seconds` (default 120), and then
 runs the same transaction as `update`. It also waits while any stdio server of
 this installation is running, since `update` would stop the service only to find

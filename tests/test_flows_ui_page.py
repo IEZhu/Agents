@@ -1238,6 +1238,55 @@ def test_the_choice_sends_ui_to_flows_and_survives_a_reload(landing):
                                  "new_flow": True, "reads": []}
 
 
+# --- the overview's Updates section (#381) -----------------------------------------------------
+
+def test_the_updates_section_shows_the_channel_and_saves_a_pick():
+    result = run("landing_updates")
+    start = result["start"]["text"]
+    for shown in ("Agents-Core 26.10.06.1200", "Followsmain (the default)", "Checked outmain",
+                  "Scheduled updateson, every 15 min when the service is idle", "up_to_date",
+                  "Updates fast-forward main at the next scheduled run"):
+        assert shown in start, shown
+    # The fixed note leaves when a save applies to `when` (also 'local' and scheduled updates off) and
+    # says that an exported branch never switches (#381 review round 2).
+    assert "only steers fast-forwards: it never switches branches" in start and "applies it" not in start
+    assert result["start"]["radios"] == [["main", True, False], ["dev", False, False]]
+    assert result["start"]["save"] == ["Save", True]  # nothing to save yet
+    assert result["kept_after_poll"]  # the statistics' poll does not rebuild the choice
+    assert result["picked"]["save"] == ["Save", False]
+    assert result["puts"] == [{"expected_revision": "r1", "branch": "dev", "allow_downgrade": False}]
+    assert result["confirms"] == []
+    saved = result["saved"]
+    assert "Followsdev (set in .env)" in saved["text"] and "The switch from main to dev happens" in saved["text"]
+    assert saved["alert"].startswith("Saved: this installation follows dev. The switch from main to dev happens")
+    assert saved["save"] == ["Save", True] and saved["radios"] == [["main", False, False], ["dev", True, False]]
+
+
+def test_a_downgrade_is_saved_only_after_the_confirmation():
+    result = run("landing_updates_down")
+    assert [put["allow_downgrade"] for put in result["puts"]] == [False, True]
+    assert {put["expected_revision"] for put in result["puts"]} == {"r1"}
+    assert len(result["confirms"]) == 1 and "would go back to older code" in result["confirms"][0]
+    assert "--allow-downgrade" not in result["confirms"][0] and "Follow main anyway?" in result["confirms"][0]
+    assert result["saved"]["alert"].startswith("Saved: this installation follows main.")
+    assert "Followsmain (set in .env)" in result["saved"]["text"]
+
+
+def test_a_declined_downgrade_saves_nothing():
+    result = run("landing_updates_down_declined")
+    assert result["puts"] == [{"expected_revision": "r1", "branch": "main", "allow_downgrade": False}]
+    assert len(result["confirms"]) == 1
+    assert result["saved"]["alert"] == "Not saved: this installation still follows dev."
+    assert "Followsdev (set in .env)" in result["saved"]["text"] and result["saved"]["save"] == ["Save", False]
+
+
+def test_a_conflict_shows_the_setting_as_it_is_now():
+    result = run("landing_updates_conflict")
+    assert len(result["puts"]) == 1 and result["reads"] == ["/ui/api/updates", "/ui/api/updates"]  # the PUT, then a GET
+    assert result["saved"]["alert"].startswith("Not saved: the update channel changed")
+    assert "Followsdev (set in .env)" in result["saved"]["text"] and result["saved"]["save"] == ["Save", True]
+
+
 def test_the_landing_page_opens_without_storage():
     result = run("landing_nostorage")
     assert result["start"]["landing"] and result["cards"]["stats"].startswith("16 answers") and result["stored"] == []

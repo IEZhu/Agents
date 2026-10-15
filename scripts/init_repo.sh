@@ -38,6 +38,10 @@
 #
 # One-command install (macOS/Linux): see install.sh and README "Quick Start".
 #
+# AGENTS_BRANCH (install.sh passes the branch it installed): a new .env, or one without
+# AGENTS_AUTO_UPDATE_BRANCH, gets that branch as the update branch; an existing .env that
+# names another branch keeps it, with a warning (README, "Update channel").
+#
 # Installs the persona protocol: the model keeps its role across turns and routes
 # only when the task needs another specialization (docs/routing_flow.md).
 
@@ -491,6 +495,11 @@ if [ "$SKIP_ENV" = false ]; then
         print_warn ".env file already exists"
         print_step "Checking for missing keys..."
 
+        # AGENTS_BRANCH (install.sh passes it): a missing update branch is set to it, another one warned about (#381).
+        if [ -n "${AGENTS_BRANCH:-}" ]; then
+            "$SELECTED_PYTHON" "$REPO_ROOT/scripts/_helpers/env_branch.py" "$ENV_FILE" "$AGENTS_BRANCH"
+        fi
+
         # Check for missing keys and collect them with values
         MISSING_KEYS=()
         merge_missing_env_keys "$ENV_FILE" "$ENV_EXAMPLE"
@@ -504,6 +513,10 @@ if [ "$SKIP_ENV" = false ]; then
     else
         print_step "Creating .env from env.example..."
         cp "$ENV_EXAMPLE" "$ENV_FILE"
+        # The updaters follow the branch install.sh installed (AGENTS_BRANCH), not env.example's main (#381).
+        if [ -n "${AGENTS_BRANCH:-}" ]; then
+            "$SELECTED_PYTHON" "$REPO_ROOT/scripts/_helpers/env_branch.py" "$ENV_FILE" "$AGENTS_BRANCH" --created
+        fi
         print_success ".env created successfully!"
         echo ""
         echo -e "  ${YELLOW}⚠ Optional keys in .env:${NC}"
