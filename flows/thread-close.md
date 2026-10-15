@@ -6,6 +6,11 @@ persona:
 ---
 # Close a thread without losing its work or keeping its errors
 
+Follow [bounded execution and evidence reuse](../docs/flow-execution.md). Parse
+large transcripts outside model context, return a compact inventory, and open
+primary evidence for the claims under audit. Retain the independent verifier,
+all report fields, current-state checks and the owner's keep-open constraint.
+
 This is an executable instruction for an AI at the end of a conversation (a
 thread): before `/clear`, before switching to an unrelated task, or when the user
 asks to close it. It inventories what the thread produced, checks each result
@@ -117,6 +122,10 @@ Rules:
   responses, token totals, session id, time span and client. They describe effort
   and capability, not correctness, and never set a level. At most they decide
   what to review first: output of a small model, or a long correction loop.
+  Separate ordinary/compaction requests and uncached input/cached input/output
+  when the client provides them; deduplicate response IDs, never add cumulative
+  counters, and disclose unavailable worker totals. A token total is not a
+  billing receipt. Do not reparse or reprint the full transcript for every claim.
 
 ## 1. Establish the scope
 

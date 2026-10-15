@@ -6,6 +6,10 @@ persona:
 ---
 # Issue agent: implement a plan
 
+Use [bounded execution and evidence reuse](../docs/flow-execution.md) throughout:
+batch independent reads, carry exact-source evidence and use one monitor per
+pending run. Preserve the independent review and every required check below.
+
 Called by the [issue agent](issue-agent.md) for `/agent run_plan [vN]` and the
 execution half of `/agent run`. It implements an approved plan on a new branch,
 reviews its own work, opens a pull request and completes

@@ -6,6 +6,10 @@ persona:
 ---
 # Review and merge a pull request or merge request
 
+Follow [bounded execution and evidence reuse](../docs/flow-execution.md): one
+working record, grouped fixes, compact output and one monitor per pending run.
+All exact-head review, CI, authorization and merge conditions below still apply.
+
 The `code_reviewer` persona contributes review judgment for checking findings.
 This flow still fixes, commits, replies and merges: the persona's "flag, don't
 fix", its positive findings and its Output Format do not apply here, and an

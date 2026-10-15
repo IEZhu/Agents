@@ -126,6 +126,15 @@ KV reports do not establish artifact-layer test or deployment results.
 
 ## Choose tests by change
 
+The optional bounded GitHub run observer is tested offline with scripted API
+responses and a fake clock. Repeated unchanged states produce no intermediate
+model output; timeout, identity changes, reruns, skipped/failed jobs and partial
+pagination cannot pass. No live GitHub mutation or model is needed:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/test_watch_github_run.py -q -p no:cacheprovider
+```
+
 | Area | Starting points |
 |---|---|
 | Routing and intent | `test_routing.py`, `test_intent.py` |

@@ -11,6 +11,10 @@ for Langfuse analysis.
 
 ## Ground rules
 
+Apply [bounded execution and evidence reuse](flow-execution.md) to implementation,
+review and closing: batch independent reads, save raw evidence, and consume one
+monitor's completion per pending run while retaining the required quality gates.
+
 - **Commit identity.** Check `git config user.email` in each checkout before the first
   commit; a repository-local setting overrides the global one. When amending, use
   `git commit --amend --reset-author` so author and committer both change.
