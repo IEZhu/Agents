@@ -145,11 +145,12 @@ inventory, is neither a symbolic link nor a junction, and resolves inside the ho
 directory that `AGENTS_HOME`, `AGENTS_SERVICE_DIR`, `FASTEMBED_CACHE_DIR` or
 `AGENTS_USER_FLOWS_DIR` names is removed only when its content shows it is Agents-Core's (a
 checkout `AGENTS_HOME` names is kept when it has uncommitted changes, untracked files or a branch
-besides `main`), and
+outside the published `main` and `dev` channels), and
 nothing that is or contains a filesystem root, the home directory, `~/Documents` or a profile
 or XDG base directory is ever removed. Backups are private (0700 directories, 0600 files). A
-checkout you cloned yourself and run the script from is kept;
-so are the files Agents-Core wrote into your projects (`history.md`, `history/`, the Repository
+checkout you cloned yourself and run the script from is kept. For a checkout explicitly selected
+with `AGENTS_HOME`, these branch and status checks do not establish whether local commits are
+published or ignored files are personal. Also kept are the files Agents-Core wrote into your projects (`history.md`, `history/`, the Repository
 Memory section of `CLAUDE.md`), which the report lists. The logic is `src/uninstall.py`.
 
 ### Claude Code cloud sessions

@@ -13,8 +13,8 @@ This is an Agents-Core-specific implementation flow. It is not a generic flow fo
 
 ## Inputs and defaults
 
-- Target repository: caller's Agents-Core worktree, defaulting in this prepared session to `/Users/alexey.zhuchkov/.codex/worktrees/shared-kv-mcp/Agents`.
-- Branch: `codex/shared-kv-mcp`; preserve the existing research branch.
+- Target repository: the caller's authorized Agents-Core worktree (required; no default path).
+- Branch: a dedicated feature branch named by the caller; preserve any existing research branch.
 - Owner-selected existing local GGUF and llama.cpp binary for optional live checks.
 - Implementation order: deterministic core, owned engine, resident cache, MCP job API, optional Redis, live checks.
 - Generation and Redis remain disabled by default.
@@ -25,7 +25,7 @@ If invoked through MCP in another installation, distinguish the flow source from
 ## Steps
 
 1. Read the target AGENTS.md and CLAUDE.md and honor the shared persona/delegation protocol.
-2. Verify the target path/branch and existing changes. Never modify the live installation at `/Users/alexey.zhuchkov/Documents/Agents`. Preserve unrelated changes.
+2. Identify the caller's authorized target worktree, its branch and existing changes, and the caller's live installation path before proceeding. Never modify the live installation. Preserve unrelated changes.
 3. Read all files in the handoff's reading order. Use the API/architecture as the contract and [implementation-plan.md](../docs/shared-kv-mcp/implementation-plan.md) as the ordered checklist.
 4. Implement each milestone, starting with a fake backend. Run its focused tests before moving on. Do not skip cancellation, workspace-root or native-counter checks to reach a live demo.
 5. If the selected engine cannot restore compatible snapshots, implement/report the unsupported capability and keep cold/resident operation usable. Do not claim Redis acceleration without live evidence.
