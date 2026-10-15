@@ -1,0 +1,13 @@
+# CodeRabbit configuration: https://docs.coderabbit.ai/reference/configuration
+# CodeRabbit reads this file from the branch under review, so a branch cut from
+# dev before this file existed still gets "Review skipped" on a pull request into
+# dev (flows/pr-review.md, Quota, rate limits and errors).
+# Keep every value not set here from the CodeRabbit web settings: without this
+# flag a repository file replaces them instead of merging with them.
+inheritance: true
+reviews:
+  auto_review:
+    # Every pull request goes to dev first (docs/releases.md); main, the default
+    # branch, is reviewed without being listed. Entries are unanchored regexes.
+    base_branches:
+      - "^dev$"

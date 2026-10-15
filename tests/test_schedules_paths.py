@@ -214,7 +214,7 @@ def test_protected_but_not_control_paths(path):
     "flows/autodev-implement.md", ".github/workflows/x.yml", "src/engine/x.py", "src/schedules/x.py",
     PROTECTED_LIST, CONTROL_LIST, ".GitHub/Autodev-Control-Paths", "agents/x/system_prompt.mdc",
     "rules/x.mdc", "skills/x.mdc", "implants/x.mdc", "src/executables.py", "src/daemon/state.py",
-    "src/schemas/subagent.py",
+    "src/schemas/subagent.py", ".coderabbit.yaml", ".CodeRabbit.yml",
 ])
 def test_control_paths_with_the_current_lists(path):
     assert CURRENT.classify(path) is PathClass.CONTROL
