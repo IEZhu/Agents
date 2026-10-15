@@ -5,6 +5,7 @@ import importlib
 import json
 from pathlib import Path
 import time
+import tempfile
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -427,15 +428,18 @@ async def test_snapshot_unknown_never_dispatches_slot_operation(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_real_loopback_http_ignores_proxy_and_refuses_redirect(tmp_path, monkeypatch):
+async def test_private_unix_http_ignores_tcp_interceptor_proxy_and_redirect(tmp_path, monkeypatch):
     native = NativeHTTP()
     handlers = set()
-    async def serve(reader, writer):
+    intercepted = []
+    async def serve(reader, writer, *, foreign=False):
         task = asyncio.current_task(); handlers.add(task)
         try:
             header = await reader.readuntil(b"\r\n\r\n")
             lines = header.decode().split("\r\n")
             method, route, _ = lines[0].split()
+            if foreign:
+                intercepted.append(route)
             headers = dict(line.split(": ", 1) for line in lines[1:] if ": " in line)
             content = await reader.readexactly(int(headers.get("Content-Length", "0")))
             response = native.response(httpx.Request(method, "http://127.0.0.1" + route, content=content, headers=headers))
@@ -447,11 +451,16 @@ async def test_real_loopback_http_ignores_proxy_and_refuses_redirect(tmp_path, m
             writer.write(wire); await writer.drain()
         finally:
             writer.close(); await writer.wait_closed(); handlers.discard(task)
-    server = await asyncio.start_server(serve, "127.0.0.1", 0)
+    server = await asyncio.start_server(lambda r, w: serve(r, w, foreign=True), "127.0.0.1", 0)
     port = server.sockets[0].getsockname()[1]
+    directory = tempfile.TemporaryDirectory(prefix="agents-native-test-", dir="/tmp")
+    endpoint = Path(directory.name) / "engine.sock"
+    unix = await asyncio.start_unix_server(serve, path=str(endpoint))
     config = OwnerConfig(enabled=True, llama_server_binary="/fake/server", model_path="/fake/model",
                          port=port, context_tokens=128, max_output_tokens=8)
-    value = LlamaBackend(config, tmp_path, supervisor=FakeProcess(config, tmp_path))
+    process = FakeProcess(config, tmp_path)
+    process.socket_path = endpoint
+    value = LlamaBackend(config, tmp_path, supervisor=process)
     monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:1")
     monkeypatch.setenv("ALL_PROXY", "http://127.0.0.1:1")
     monkeypatch.setenv("NO_PROXY", "")
@@ -460,16 +469,46 @@ async def test_real_loopback_http_ignores_proxy_and_refuses_redirect(tmp_path, m
         prompt = await value.prepare([{"role": "user", "content": "synthetic"}])
         result = await value.generate(prompt, request(), cache_enabled=False)
         assert result.output_text == "ab"
+        assert intercepted == []
         native.status = 302; native.headers["location"] = "http://127.0.0.1:1/foreign"
         with pytest.raises(LocalInferenceError) as caught:
             await value.generate(prompt, request(), cache_enabled=False)
         assert caught.value.code == "backend_protocol_error"
         assert sum(path == "/completion" for path, _, _ in native.calls) == 2
+        assert intercepted == []
     finally:
         await value.close()
         server.close(); await server.wait_closed()
+        unix.close(); await unix.wait_closed()
         if handlers:
             await asyncio.gather(*handlers)
+        directory.cleanup()
+
+
+@pytest.mark.asyncio
+async def test_missing_private_socket_never_falls_back_to_tcp(tmp_path):
+    intercepted = []
+    async def foreign(reader, writer):
+        intercepted.append(await reader.read(4096))
+        writer.close()
+        await writer.wait_closed()
+    server = await asyncio.start_server(foreign, "127.0.0.1", 0)
+    config = OwnerConfig(enabled=True, llama_server_binary="/fake/server", model_path="/fake/model",
+                         port=server.sockets[0].getsockname()[1])
+    process = FakeProcess(config, tmp_path)
+    process.alive = True
+    with tempfile.TemporaryDirectory(prefix="agents-native-test-", dir="/tmp") as directory:
+        process.socket_path = Path(directory) / "missing.sock"
+        value = LlamaBackend(config, tmp_path, supervisor=process)
+        try:
+            await value._new_client()
+            with pytest.raises(LocalInferenceError) as caught:
+                await value._json("/props")
+            assert caught.value.code == "backend_unavailable"
+            assert intercepted == []
+        finally:
+            await value.close()
+            server.close(); await server.wait_closed()
 
 
 @pytest.mark.parametrize("payload", [b'{"prompt":"x","prompt":"y"}', b'{"prompt":NaN}',

@@ -41,9 +41,9 @@ cloud key; the real Redis module skips before optional imports:
 PYTHONDONTWRITEBYTECODE=1 LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/test_local_inference_*.py -q -p no:cacheprovider
 ```
 
-Process/adapter tests use temporary loopback listeners and actual POSIX file-size
-limits. A sandbox must permit those bounded listeners; a denied socket is an
-environment failure, not native acceptance. The large snapshot test streams a
+Process/adapter tests use private temporary Unix sockets, adversarial loopback
+listeners and actual POSIX file-size limits. A sandbox must permit those bounded
+listeners; a denied socket is an environment failure, not native acceptance. The large snapshot test streams a
 sparse payload above 512 MiB with bounded chunks instead of retaining it whole.
 Enabled version 1 is POSIX-only: Windows collection omits these native/capture
 fixtures, while `test_optional_inference_disabled.py` checks portable disabled
