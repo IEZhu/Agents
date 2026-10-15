@@ -44,6 +44,7 @@ whisper_models/
 !.git/
 !/.claude-plugin/
 !/.claude-plugin/marketplace.json
+!/.coderabbit.yaml
 # Generated benchmark reports
 evals/reports/*
 

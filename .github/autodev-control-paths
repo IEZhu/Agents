@@ -5,6 +5,7 @@
 # The runner's whole import closure is here (#347 review; tests/test_schedules_paths.py computes it).
 flows/autodev*
 .github/**
+.coderabbit*
 src/schedules/**
 src/engine/**
 src/flow_execution.py

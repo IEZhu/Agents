@@ -121,6 +121,7 @@ The list is kept in `.github/autodev-protected-paths` on `main`, the control pat
 
 ```text
 .github/**
+.coderabbit*
 .claude/**
 **/.claude/**
 **/CLAUDE.md
@@ -165,8 +166,9 @@ uv.lock
 docs/cloud-runs.md
 ```
 
-- **Control paths** (`flows/autodev*`, `.github/**`, `src/schedules/**`, `src/engine/**`, `src/flow_execution.py`, `src/__init__.py`, `src/component_toggles.py`, `src/daemon/__init__.py`, `src/daemon/acl.py`, `src/daemon/execution.py`, `src/daemon/state.py`, `src/executables.py`, `src/file_lock.py`, `src/model_migration.py`, `src/schemas/__init__.py`, `src/schemas/subagent.py`, `src/user_library.py`, `src/utils/__init__.py`, `src/utils/langfuse_compat.py`, `src/utils/prompt_loader.py`, `src/version.py`, `agents/**`, `rules/**`, `skills/**`, `implants/**`; with them both list files) are not opened by any label. If a task needs them, the runner stops the run with `autodev:blocked` and leaves a local patch that the owner reviews and pushes.
+- **Control paths** (`flows/autodev*`, `.github/**`, `.coderabbit*`, `src/schedules/**`, `src/engine/**`, `src/flow_execution.py`, `src/__init__.py`, `src/component_toggles.py`, `src/daemon/__init__.py`, `src/daemon/acl.py`, `src/daemon/execution.py`, `src/daemon/state.py`, `src/executables.py`, `src/file_lock.py`, `src/model_migration.py`, `src/schemas/__init__.py`, `src/schemas/subagent.py`, `src/user_library.py`, `src/utils/__init__.py`, `src/utils/langfuse_compat.py`, `src/utils/prompt_loader.py`, `src/version.py`, `agents/**`, `rules/**`, `skills/**`, `implants/**`; with them both list files) are not opened by any label. If a task needs them, the runner stops the run with `autodev:blocked` and leaves a local patch that the owner reviews and pushes.
   Amended by #347: `src/flow_execution.py` (the capability table the runner imports) joined both lists. After the #347 review the rest of the runner's import closure joined them too, from `src/__init__.py` to `src/version.py` (`src/daemon/state.py` sets the modes of the run records, for example); `tests/test_schedules_paths.py` computes the closure, including imports inside functions, and fails on a module outside the control paths. After the implementation stage the runner runs the change check itself on the imported head; a control-path refusal there, a blocked stage output whose commits touch one, or a push the broker refused for one writes `<run_dir>/export/<run-id>.patch` (`git format-patch`) and a verified `<run-id>.bundle` (`repos.TrustedRepository.export_commits`), moves the branch to `refs/autodev/quarantine/<run-id>/final`, and names both files in the run report and the owner's notification ([autodev-sequence.md](autodev-sequence.md)).
+  Amended on 2026-10-15: `.coderabbit*` joined both lists. CodeRabbit reads `.coderabbit.yaml` from the branch under review, so a run's branch could otherwise change how its own pull request is reviewed.
 - **The other protected paths** are opened by the `autodev:next` label (9.3, rule 6).
 - **The broker performs the check, not the model:** before each push it compares the changed paths with the list. It rejects:
   - a match without permission;
