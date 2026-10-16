@@ -174,9 +174,9 @@ a read-only retrospective that computes the metrics of
 [design 12](../docs/autodev-plan.md#12-metrics) from the run records and the
 pull requests, shows where runs stall and what they cost, and proposes changes
 to limits, profiles, roles and flows. The first one with ten real runs proposes
-the target values. It changes no settings, labels or pull requests and starts no
-runs; at the owner's request, and after the owner confirms its text, it opens
-one issue with the proposals.
+the target values. It changes no settings, existing labels or pull requests and
+starts no runs; at the owner's request, and after the owner confirms its text, it
+opens one issue with the proposals and labels only that issue.
 
 ## Done
 

@@ -72,10 +72,10 @@ record contents into anything public.
 5. List the autodev pull requests and issues:
 
    ```bash
-   gh pr list --repo <repo> --label autodev --state all --limit 200 --json number,state,createdAt,mergedAt,closedAt,headRefName,url
-   gh issue list --repo <repo> --label autodev:risk --state all --json number,state,createdAt,closedAt
-   gh issue list --repo <repo> --label autodev:blocked --state all --json number,state
-   gh issue list --repo <repo> --label autodev:in-progress --state open --json number,createdAt
+   gh pr list --repo <repo> --label autodev --state all --limit 500 --json number,state,createdAt,mergedAt,closedAt,headRefName,url
+   gh issue list --repo <repo> --label autodev:risk --state all --limit 500 --json number,state,createdAt,closedAt
+   gh issue list --repo <repo> --label autodev:blocked --state all --limit 500 --json number,state
+   gh issue list --repo <repo> --label autodev:in-progress --state open --limit 500 --json number,createdAt
    ```
 
    For each pull request read its state comment (`<!-- autodev:state {JSON} -->`:
@@ -87,9 +87,11 @@ record contents into anything public.
    last head the run recorded were made outside the run, normally the owner's
    edits before merge.
 
-Report how many runs and pull requests the window covers. With fewer than ten
-real (`run` or `resume`) runs, report counts and observations only: targets and
-trends need more data ([design 12](../docs/autodev-plan.md#12-metrics)).
+Report how many runs and pull requests the window covers, and the cumulative
+number of real (`run` or `resume`) runs over all records. Metrics use the window;
+the ten-run threshold uses the cumulative count. Below ten, report counts and
+observations only: targets and trends need more data
+([design 12](../docs/autodev-plan.md#12-metrics)).
 
 ## 2. Compute the pipeline metrics
 
@@ -147,8 +149,8 @@ At most five proposals, ordered by expected effect. Each one names:
 - the expected effect and the metric that shows it at the next retrospective;
 - the risk and how to undo it.
 
-Before ten real runs, propose no target values. At the first retrospective with
-ten or more, propose targets only for the design 12 metrics that have observed
+Before ten real runs in total, propose no target values. At the first
+retrospective with ten or more in total, propose targets only for the design 12 metrics that have observed
 values, each from those values; name the metrics that still have none.
 
 ## 6. Report
