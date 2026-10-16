@@ -285,7 +285,7 @@ def test_server_choice_guidance_is_visible_before_truncation():
     from pathlib import Path
     root = Path(__file__).resolve().parents[1]
     text = server.mcp.instructions
-    for phrase in ("If Agents-Core is listed, make every call there, the first too; retry denials there.",
+    for phrase in ("If Agents-Core is listed, make every call there, the first too; retry Desktop denials there.",
                    # The guidance must not push the delegation directive out of the window.
                    "call get_subagent_context before spawning with a canonical agent_name, task, "
                    "acceptance_criteria"):

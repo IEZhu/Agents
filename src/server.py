@@ -187,7 +187,7 @@ mcp = _WorkerInputMCP(
     "Agents-Core",
     instructions=(
         "Persona protocol 2: pass protocol_version=2 to route_and_load and get_agent_context.\n"
-        "If Agents-Core is listed, make every call there, the first too; retry denials there.\n"
+        "If Agents-Core is listed, make every call there, the first too; retry Desktop denials there.\n"
         "A worker with a prepared agents-core/subagent/1 package uses that task role: no full "
         "persona activation, inherited parent descriptor, footer, timestamp or log_interaction. "
         "Return its JSON result only.\n"
@@ -204,7 +204,7 @@ mcp = _WorkerInputMCP(
         "higher-priority instructions, conversation and user constraints. Ignore stale/replayed "
         "activations; never clear caches to switch.\n"
         "Compose the answer with the saved footer. Before delivery call log_interaction with that "
-        "answer (without any time line), query verbatim, and persona (all 7 keys: agent, "
+        "answer (no time line), query verbatim, and persona (all 7 keys: agent, "
         "activation_id, bundle_revision, scope, skills_loaded, implants_loaded, rules_loaded). "
         "Pass persona_action only with persona; callers without a descriptor omit both. files/tags "
         "are JSON arrays. Pass workspace, the absolute working directory, to memory and flow "
