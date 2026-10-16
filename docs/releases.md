@@ -30,19 +30,27 @@ not merge PRs or change protection settings. It also handles a squash or rebase 
 above does not use. An ordinary close,
 a feature merge into `dev`, or a fork with a branch named `dev` publishes nothing.
 
-On a clean `main` checkout, the displayed Agents-Core version stays
-`YY.MM.DD.HHMM`, derived from the installation's HEAD committer time in UTC
-by [src/version.py](../src/version.py). An installation on `dev` adds `-dev`,
-and tracked uncommitted changes add `-dirty`; release tags use the plain
-calendar portion and identify the committed release revision.
-The tag normally has the form `v26.10.14.1200`. If another release already owns
-that minute, the new release gets `v26.10.14.1200-pr381`, with its PR number.
-The date portion retains the displayed version; the suffix distinguishes releases
-within one minute. Python package and Claude plugin manifest versions have their
-own release procedures and are not changed by this workflow.
+A release keeps the version of the `dev` HEAD it promotes. The displayed
+Agents-Core version is `YY.MM.DD.HHMM`, the UTC committer time of the
+installation's HEAD ([src/version.py](../src/version.py)); an installation on
+`dev` adds `-dev`, and tracked uncommitted changes add `-dirty`. On `main`, a
+merge commit takes the committer time of the revision it merged, its second
+parent: the release that merged a `dev` showing `26.10.15.1814-dev` is
+`26.10.15.1814` on `main` and in its tag, not the minute of the merge. A merged
+revision older than main's previous HEAD (a hotfix on `main` not yet merged back
+into `dev`) and a squash or rebase merge keep the merge commit's own time, so the
+version on `main` never goes back; so does a shallow clone that lacks the parents.
+The tag normally has the form `v26.10.14.1200` and marks the merge commit on
+`main`. If another release already owns that minute, the new release gets
+`v26.10.14.1200-pr381`, with its PR number. The date portion retains the
+displayed version; the suffix distinguishes releases within one minute. Python
+package and Claude plugin manifest versions have their own release procedures and
+are not changed by this workflow. Releases up to `v26.10.15.1905` were named by
+the merge commit's own time; their tags stay as they are.
 
-Publication uses the merged PR's SHA and its commit time, so later changes to
-`main` and later workflow reruns do not select a different revision or date.
+Publication uses the merged PR's SHA and the commit times of it and its parents,
+so later changes to `main` and later workflow reruns do not select a different
+revision or date.
 An existing lightweight or annotated tag resolving to that commit is reused.
 Annotated tag objects are dereferenced before their targets are compared.
 Existing tags are never moved or deleted. A conflicting fallback name, missing
@@ -51,7 +59,7 @@ through GitHub Actions after resolving its reported error.
 
 The same job then creates a non-draft, non-prerelease GitHub Release for the
 verified tag, with a link to the promotion PR, the exact merge SHA, the calendar
-version, and GitHub-generated release notes. GitHub's `legacy` policy selects
+version with the commit it was taken from, and GitHub-generated release notes. GitHub's `legacy` policy selects
 the Latest release rather than explicitly promoting an old retry as Latest.
 An already published stable release for that tag is reused without changing its
 notes, assets, or publication time. Drafts, prereleases, and inconsistent API
@@ -73,7 +81,8 @@ has advanced beyond a release tag, the footer continues to identify that checkou
 HEAD; a tag records the released revision.
 
 Validation: `tests/test_release_version.py` covers event guards, invalid merge
-identity, UTC conversion, same-minute releases, reruns, concurrent creation,
+identity, UTC conversion, the version of the merged `dev` HEAD and its
+never-backwards fallback, same-minute releases, reruns, concurrent creation,
 annotated tag reuse and conflicts, GitHub Release publication and partial-failure
 recovery, preservation of existing releases, and API errors with a fake API.
 `tests/test_workflow_permissions.py` checks workflow permission boundaries. No test writes to GitHub.
