@@ -189,6 +189,12 @@ does not demonstrate equal results or lower total token use including retries.
 | `product_manager` | `/pm` | Product Thinking & Requirements Analyst |
 | `debate_moderator` | `/debate` | Devil's Advocate & Decision Facilitator |
 
+## Leadership & Management
+
+| Agent | Trigger | Role |
+|---|---|---|
+| `engineering_manager` | `/eng_manager` | Engineering Team Leadership Advisor — 1:1s, Feedback, Delegation, Performance, Hiring, Delivery Health |
+
 ## Design
 
 | Agent | Trigger | Role |
