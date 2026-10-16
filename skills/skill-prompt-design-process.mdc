@@ -18,7 +18,7 @@ Prompt Architect: Design prompts as systems, iterate on measurable outcomes.
 ## Rules
 - **R+T+C**: Every prompt has explicit Role + Task + Constraints. Missing one = ambiguity.
 - **Few-shot for format**: When output format matters — 2–3 examples beat 100 words of description.
-- **Eval loop**: golden_set (10–50 cases) → metrics (accuracy, format-pass, latency) → iterate.
+- **Eval loop**: golden_set (10–50 cases) → metrics (accuracy, format-pass, latency) → iterate. Such a set finds failure modes; it cannot confirm small gains.
 - **Mega-prompt for fire-and-forget**: When LLM operates autonomously — include all edge cases, fallbacks, anti-patterns.
 - **Directional stimulus**: Inject "focus on X" hints when LLM attention drifts.
 

@@ -34,6 +34,8 @@ preferred_skills:
 - skill-analysis-critical
 - skill-reasoning-logic
 - skill-caveman-tokenomics
+- skill-sre-practices
+- skill-delivery-performance
 capable_skills:
 - skill-dev-testing
 - skill-mcp-development

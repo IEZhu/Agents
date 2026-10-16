@@ -1,6 +1,7 @@
 ---
 agent: ai_senior_engineer
 skills:
+- skill-ai-engineering
 - skill-prompt-engineering
 - skill-system-design
 - skill-agentic-loops

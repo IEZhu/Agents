@@ -1,0 +1,154 @@
+{
+  "component": "skill-sre-practices",
+  "cases": [
+    {
+      "id": "ru-cpu-memory-paging-rules",
+      "agent": "devops_engineer",
+      "language": "ru",
+      "group": "alerting",
+      "history": [],
+      "user_message": "Настраиваю алерты в Prometheus для нашего публичного API (Go, днём около 3000 RPS). Сейчас дежурного будят три правила: CPU контейнера > 80% в течение 5 минут, память > 90% лимита и доля 5xx > 1% за 5 минут. Бизнесу мы обещаем 99.9% успешных запросов в месяц. Посмотри, что тут не так, и дай нормальные правила: что именно должно будить человека ночью?",
+      "why_in_scope": "The skill makes the model challenge cause-based pages (CPU, memory) and replace a raw 5-minute error-rate page with alerts tied to the monthly 99.9% target, using paired long and short windows. Without it, a strong model often tunes thresholds or adds `for:` clauses, keeps CPU and memory as pages, or proposes a single-window rule.",
+      "rubric": [
+        "Says CPU and memory thresholds should not wake anyone by themselves and moves them to dashboards or tickets, because they are causes that do not show user impact.",
+        "Pages on the error ratio measured against the 99.9% monthly target with at least two tiers that each require a long and a short window to breach, such as about 14.4x the allowed error rate over 1 hour and 5 minutes and about 6x over 6 hours and 30 minutes.",
+        "Computes the thresholds correctly from the 0.1% allowance (14.4x is a 1.44% error ratio, 6x is 0.6%) or writes them as multiples of 0.001.",
+        "Gives Prometheus rule expressions or recording rules that implement the proposal."
+      ]
+    },
+    {
+      "id": "en-for-duration-alert-card",
+      "agent": "alerts_describer",
+      "language": "en",
+      "group": "alerting",
+      "history": [],
+      "user_message": "Need an alert card for this one, it's for checkout-api:\n\n```yaml\n- alert: CheckoutHighErrorRate\n  expr: sum(rate(http_requests_total{job=\"checkout-api\",code=~\"5..\"}[5m])) / sum(rate(http_requests_total{job=\"checkout-api\"}[5m])) > 0.001\n  for: 1h\n  labels:\n    severity: critical\n```\n\nWe're committed to 99.9% successful checkouts per 30 days. Ship the card, and tell me if anything about the rule itself bugs you.",
+      "why_in_scope": "The skill gives the model the concrete failure modes of a fixed `for:` duration on an error-ratio alert and the multiwindow burn-rate replacement. Without it, a model typically writes the card and at most suggests a different threshold, missing that a total outage pages only after an hour and that a threshold equal to the allowed error rate merits a ticket rather than a page.",
+      "rubric": [
+        "Delivers the requested card for checkout-api with impact, a mitigation step and diagnostics.",
+        "Points out that with `for: 1h` even a total outage pages only after about an hour, by which time it has used more than the whole 30-day error allowance, and that the pending timer restarts whenever the ratio briefly drops below 0.1%.",
+        "Notes that a 0.1% threshold equals the allowed error rate (a burn rate of 1), which on its own warrants a ticket rather than a critical page.",
+        "Recommends replacing the rule with burn-rate alerts that pair a long and a short window (for example 14.4x over 1 hour and 5 minutes for paging) instead of a fixed duration."
+      ]
+    },
+    {
+      "id": "ru-nightly-cpu-page-card",
+      "agent": "alerts_describer",
+      "language": "ru",
+      "group": "alerting",
+      "history": [],
+      "user_message": "Сделай карточку для алерта NodeHighCPU:\n`100 - avg by (instance) (rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100 > 85`, for: 10m, severity: page.\nОн прилетает почти каждую ночь около 02:00, когда идёт бэкап базы, дежурные уже просто жмут ack и спят дальше. Пользователи ни разу не жаловались.",
+      "why_in_scope": "The skill tells the model that a page acknowledged without action, for a cause with no user impact, fails the paging bar and should be demoted or replaced rather than documented. Without it, a model tends to write the requested card, perhaps adding a silence for the backup window or a higher threshold, and keeps it as a page.",
+      "rubric": [
+        "States that an alert routinely acknowledged without action and with no user impact should not page, and recommends demoting it to a ticket or dashboard or removing it.",
+        "Does not stop at raising the threshold or silencing the 02:00 window; addresses whether the condition deserves a page at all.",
+        "Proposes what should page instead if the node matters: a user-facing symptom such as the error rate or latency of the services it hosts, or a definite imminent risk.",
+        "Still serves the request: provides the card or a clear non-paging replacement rather than refusing."
+      ]
+    },
+    {
+      "id": "en-config-push-incident-followup",
+      "agent": "devops_engineer",
+      "language": "en",
+      "group": "reliability-process",
+      "history": [],
+      "user_message": "Last Tuesday a bad config push took our payments API to about 30% errors for 40 minutes before on-call rolled it back. Our target is 99.9% successful requests over a rolling 30 days and nothing else has gone wrong this month. My VP wants the name of whoever pushed the config, and product wants to ship the new refunds flow tomorrow. What should I tell them, and what should we do now?",
+      "why_in_scope": "The skill supplies the error-budget arithmetic, predefined review triggers such as an on-call rollback, blameless framing and a pre-agreed budget policy for release decisions. Without it, a strong model may give generic incident advice, skip quantifying how much of the month's allowance the incident used, or tie the release decision to gut feeling.",
+      "rubric": [
+        "Recommends a written blameless review of the incident that focuses on contributing causes and how the bad config got through, and pushes back on naming the individual.",
+        "Estimates the incident used roughly 28% of the 30-day error allowance (0.3 x 40 min = 12 error-minutes against 0.001 x 43,200 min = 43.2), assuming roughly even traffic.",
+        "Bases the release decision on the remaining allowance or a pre-agreed policy: the allowance is not exhausted, so a blanket freeze is not automatically required, but fixing the config-push path takes priority.",
+        "Proposes concrete follow-up actions with owners or priority, such as config validation or a staged rollout of config changes."
+      ]
+    },
+    {
+      "id": "ru-cert-rotation-hiring",
+      "agent": "devops_engineer",
+      "language": "ru",
+      "group": "reliability-process",
+      "history": [],
+      "user_message": "У нас команда из 6 инженеров эксплуатации. Каждую неделю руками перевыпускаем и раскатываем TLS-сертификаты на 40 сервисах, примерно 2 часа на сервис. Ещё дежурного несколько раз за ночь будит алерт про упавший под, и он каждый раз делает одно и то же по инструкции: kubectl delete pod. Руководитель говорит, что это нормальная операционка, а когда сервисов станет 80, просто наймём ещё троих. Помоги аргументированно ответить.",
+      "why_in_scope": "The skill gives the model the defining traits of operational toil, the roughly 50% ceiling on it and the rule that a page answered by a fixed command should be automated. Without it, a model may argue for automation in general terms without quantifying the load or explaining why hiring for linearly growing manual work does not scale.",
+      "rubric": [
+        "Identifies the weekly certificate work and the scripted pod deletions as manual, repetitive, automatable work with no lasting value that grows linearly with the number of services.",
+        "Quantifies the load correctly: 40 x 2 h = 80 h a week out of about 240 h of team capacity (about a third), about 160 h at 80 services, before on-call, and compares it with a ceiling of about half of the engineers' time for operational work.",
+        "Proposes automation for both: automated certificate issuance and renewal, and automatic remediation instead of paging a human to delete the pod.",
+        "Says a page whose response is always the same fixed command should not wake a person."
+      ]
+    },
+    {
+      "id": "en-backup-job-alert",
+      "agent": "alerts_describer",
+      "language": "en",
+      "group": "alerting",
+      "history": [],
+      "user_message": "Card please for BackupJobFailed. It fires on every failed run of our hourly Postgres backup CronJob (`kube_job_status_failed{namespace=\"db\",job_name=~\"pg-backup.*\"} > 0`), severity: page. Our recovery point objective is 6 hours, so what actually matters is never going more than 6h without a good backup. Runs fail now and then because of S3 timeouts and the next one usually works.",
+      "why_in_scope": "The skill tells the model to alert on batch jobs by the time since their last success approaching the limit that matters, not by paging on every failed run. Without it, a model usually documents the per-failure page as given and adds retry advice.",
+      "rubric": [
+        "Recommends alerting on the time since the last successful backup approaching the 6-hour limit (for example from a last-success timestamp) instead of paging on each failed run.",
+        "Treats a single failed hourly run as non-paging (a ticket, a low-priority notification or nothing), since later runs can still succeed within the 6-hour window.",
+        "Sets the paging threshold below 6 hours, leaving time to take a manual backup before the objective is breached.",
+        "Delivers a usable card with a mitigation step (such as triggering a manual backup run) and diagnostics for the failed Job's pods and logs."
+      ]
+    },
+    {
+      "id": "ru-low-traffic-error-ratio",
+      "agent": "alerts_describer",
+      "language": "ru",
+      "group": "alerting",
+      "history": [],
+      "user_message": "Есть внутренний сервис генерации отчётов: днём около 200 запросов в час, ночью бывает 0–5 запросов в час. Цель — 99.9% успешных запросов за 30 дней. Хотим взять те же правила по доле 5xx, что и у основного API (у него около 5000 RPS), и сделать на них карточку. Сделай карточку и проверь, подойдут ли правила.",
+      "why_in_scope": "The skill warns that ratio-based alerts break down at low traffic and lists remedies from the SRE Workbook. Without it, a model tends to copy the main API's rule and write the card, missing that one or two failed night-time requests push the error ratio far past any paging threshold.",
+      "rubric": [
+        "Points out that with near-zero night traffic one or two failed requests push the error ratio far above any paging threshold, so copying the main API's rule will cause false pages.",
+        "Proposes at least one remedy: synthetic probe traffic, alerting on a group of related services, a minimum request count in the rule, or a lower target or longer window.",
+        "The proposed rule would not page on a single failed request at night.",
+        "Delivers the requested card and rule adapted to the chosen remedy."
+      ]
+    },
+    {
+      "id": "en-pager-overload-triage",
+      "agent": "devops_engineer",
+      "language": "en",
+      "group": "alerting",
+      "history": [],
+      "user_message": "Our on-call got 47 pages last week (12h shifts, one person). The paging alerts: DiskUsage > 80% on any node (fires on ~30 nodes at once when it fires), PodRestarts > 3 in 15m, checkout p99 latency > 800ms for 10m, TLS cert expires in < 30 days, Kafka consumer lag > 10000 messages on the order-events topic. People are burning out. Which of these should actually wake someone up, and what do I do with the rest?",
+      "why_in_scope": "The skill gives the paging bar (urgent, actionable, user-visible), the symptom-over-cause rule with its imminent-cause exception, and on-call load targets. Without it, a model may keep most alerts as pages with tuned thresholds or miss turning static disk usage into a time-to-full prediction.",
+      "rubric": [
+        "Keeps paging for the user-facing symptom (checkout latency) and moves the 30-day certificate expiry and pod restart counts to tickets or dashboards.",
+        "Replaces the static disk percentage page with a prediction of running out of space within hours (for example with predict_linear), leaving the static threshold at most a ticket.",
+        "Tackles volume: aggregates alerts so one problem yields about one page rather than 30 node pages, and sets a target of a few incidents per shift (Google's guidance is at most about two per 12-hour shift).",
+        "Judges Kafka lag by its user effect, such as how stale order processing gets, rather than by a raw message count."
+      ]
+    },
+    {
+      "id": "en-control-ghcr-workflow",
+      "agent": "devops_engineer",
+      "language": "en",
+      "group": "control",
+      "history": [],
+      "user_message": "Write a GitHub Actions workflow that builds the Dockerfile at our repo root and pushes the image to GHCR whenever a tag like v1.2.3 is pushed. Tag the image with the version and with latest.",
+      "why_in_scope": "Control: a CI task with no alerting, reliability-target or on-call content; the skill should not change the answer.",
+      "rubric": [
+        "Triggers on pushed tags matching v* (for example on: push: tags: ['v*']).",
+        "Grants the job packages: write permission and logs in to ghcr.io with GITHUB_TOKEN rather than a hardcoded credential.",
+        "Builds and pushes the image tagged with the version taken from the git tag and with latest."
+      ]
+    },
+    {
+      "id": "ru-control-k8s-limits",
+      "agent": "devops_engineer",
+      "language": "ru",
+      "group": "control",
+      "history": [],
+      "user_message": "Как в Kubernetes задать контейнеру лимиты: 512 МиБ памяти и половину ядра CPU? И что конкретно произойдёт, если приложение упрётся в каждый из этих лимитов?",
+      "why_in_scope": "Control: a resource-limits question unrelated to alerting policy; the skill should not change the answer.",
+      "rubric": [
+        "Gives a valid container spec with resources.limits memory: 512Mi and cpu: 500m (or 0.5).",
+        "Explains that exceeding the memory limit gets the container OOM-killed and restarted according to the pod's restart policy.",
+        "Explains that reaching the CPU limit causes throttling, not termination.",
+        "Explains how requests differ from limits (requests drive scheduling, limits set the ceiling)."
+      ]
+    }
+  ]
+}

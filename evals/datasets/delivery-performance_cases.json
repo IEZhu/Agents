@@ -1,0 +1,155 @@
+{
+ "component": "skill-delivery-performance",
+ "cases": [
+  {
+   "id": "ru-director-deploy-mandate",
+   "agent": "engineering_manager",
+   "language": "ru",
+   "group": "metrics-use",
+   "history": [],
+   "user_message": "Руковожу тремя командами: мобильное приложение, бэкенд-платформа и команда, которая поддерживает легаси-биллинг на мейнфрейме. Директор хочет, чтобы к концу года все три команды деплоили минимум раз в день, а раз в квартал мы публиковали рейтинг команд по частоте деплоев и доле неудачных релизов — лидерам премия. Помоги мне это внедрить так, чтобы команды не взбунтовались.",
+   "why_in_scope": "The skill tells the model to use delivery metrics per service against the team's own baseline, read throughput and stability together, and never turn them into mandates, rankings or comparisons between very different systems. A strong model may help roll the plan out or only soften its wording, missing the gaming risk and the mobile-versus-mainframe comparison problem.",
+   "rubric": [
+    "Pushes back on a mandatory daily-deploy target for every team, explaining that a metric turned into a target gets gamed (for example through trivial or artificially split deployments).",
+    "Advises against ranking the teams and tying bonuses to these numbers, noting that a mobile app, a platform backend and a mainframe billing system cannot be compared fairly; each team should be compared with its own baseline over time.",
+    "Recommends reading speed and stability measures together rather than pushing deploy frequency alone.",
+    "Offers a concrete alternative the manager can take to the director (for example per-team baselines, team-chosen improvement goals and a regular review of trends) rather than only refusing."
+   ]
+  },
+  {
+   "id": "ru-gitflow-ci-server",
+   "agent": "devops_engineer",
+   "language": "ru",
+   "group": "ci",
+   "history": [],
+   "user_message": "У нас GitFlow: ветка develop, feature-ветки живут по 1–3 недели, раз в месяц режем release-ветку и неделю её стабилизируем, в это время в develop мержить нельзя. Jenkins гоняет сборку и все тесты на каждой feature-ветке, это минут 40. Тимлид говорит, что CI у нас настроен и всё ок, но каждый мерж в develop — это день разруливания конфликтов, и после него develop часто красный. Что делать?",
+   "why_in_scope": "The skill states that a CI server building long-lived feature branches is not continuous integration and gives concrete thresholds: merge to trunk at least daily, branches of about two days, a commit build of about ten minutes, a red trunk fixed or reverted within minutes, no code freezes. A strong model may tune Jenkins or suggest more frequent rebasing while accepting the team lead's claim that CI is in place.",
+   "rubric": [
+    "Disagrees that the team practises continuous integration: building feature branches on a CI server is not integration; every developer's changes must reach the shared main line at least daily.",
+    "Recommends short-lived branches (about a day or two, one developer or a pair) and hiding unfinished work behind feature flags, branch by abstraction or dark launching.",
+    "Proposes a fast commit build of a few minutes (roughly ten minutes at most), for example by moving slow tests to a later pipeline stage, plus a rule that a red main is fixed or reverted immediately.",
+    "Gives an incremental migration path (for example a pilot team, gradually removing the stabilisation freeze) rather than a big-bang switch."
+   ]
+  },
+  {
+   "id": "ru-ai-failures-slow-down",
+   "agent": "engineering_manager",
+   "language": "ru",
+   "group": "speed-stability",
+   "history": [],
+   "user_message": "Полгода назад внедрили ИИ-ассистентов для кода, деплоить стали чаще, но теперь примерно каждый третий релиз приходится откатывать или срочно хотфиксить. Техлиды предлагают вернуться к релизам раз в две недели с общим регрессом перед каждым, «чтобы было стабильнее». Я склоняюсь согласиться. Это разумно?",
+   "why_in_scope": "The skill says speed and stability move together, that rising failures call for smaller batches and stronger automated checks rather than a slower cadence, and that DORA links AI adoption to lower delivery stability. A strong model may agree with the tech leads because slowing down sounds prudent.",
+   "rubric": [
+    "Advises against two-week releases as the main fix, explaining that bigger, less frequent releases carry more change per release and do not make delivery more stable.",
+    "Links the failures to larger or less carefully reviewed AI-generated changes and recommends keeping changes small, with stronger automated tests and review before merge.",
+    "Suggests checking the numbers per service (which deployments needed a rollback or hotfix, how long recovery took, how many unplanned fix deployments followed) rather than judging by one figure.",
+    "States the disagreement with the manager's inclination directly while giving a concrete plan the tech leads can accept."
+   ]
+  },
+  {
+   "id": "ru-team-culture-survey",
+   "agent": "engineering_manager",
+   "language": "ru",
+   "group": "culture",
+   "history": [],
+   "user_message": "Хочу понять, становится ли у нас в отделе (4 команды, 35 человек) культура лучше: после пары неприятных инцидентов люди стали меньше говорить о проблемах. Ежегодный HR-опрос вовлечённости слишком общий. Как это измерять по-нормальному и что потом делать с результатами?",
+   "why_in_scope": "The skill gives DORA's validated way to measure organisational culture: six team-level statements on information flow and trust, answered on a 1–7 agreement scale and averaged, and the point that culture changes through practices. A strong model may propose a generic engagement or eNPS survey without the information-flow focus.",
+   "rubric": [
+    "Proposes a short, recurring team-level survey focused on information flow and trust, with items such as whether bad news can be raised safely, whether failures are treated as chances to improve the system, whether responsibilities are shared and whether new ideas are welcome.",
+    "Uses an agreement scale (for example 1–7) and averages the items into one score per team that is tracked over time, with anonymity protected.",
+    "Pairs measurement with changes in practice, such as blameless incident reviews and cross-team collaboration, rather than relying on the survey alone.",
+    "Warns against using the scores to rank or punish teams or their managers."
+   ]
+  },
+  {
+   "id": "ru-control-first-one-on-one",
+   "agent": "engineering_manager",
+   "language": "ru",
+   "group": "control",
+   "history": [],
+   "user_message": "В понедельник у меня первая встреча один на один с новым сеньор-разработчиком, он пришёл из крупной компании. Как её провести, чтобы не превратить в статус-митинг?",
+   "why_in_scope": "Control case: a people-management question that delivery metrics and practices should not change.",
+   "rubric": [
+    "Gives a concrete agenda centred on the new engineer: background, goals, how they like to work and receive feedback, and what they need to get started.",
+    "Covers expectations for the first weeks and how the manager can help, and agrees on a cadence and follow-up for later one-on-ones.",
+    "Keeps the meeting conversational, with the engineer talking more than the manager, and avoids project status updates.",
+    "Answers in Russian at a length that fits a practical question."
+   ]
+  },
+  {
+   "id": "en-metrics-dashboard-definitions",
+   "agent": "devops_engineer",
+   "language": "en",
+   "group": "metrics-definitions",
+   "history": [],
+   "user_message": "I'm building a delivery metrics dashboard in Grafana for our 6 services. Data sources: GitHub (PRs, commits), Argo CD (syncs), PagerDuty (incidents), Jira. Leadership asked for \"the four standard ones\": deploy frequency, lead time, MTTR and change failure rate. My plan: lead time = Jira ticket created -> ticket Done; MTTR = average PagerDuty incident open -> resolved; change failure rate = PagerDuty incidents / deploys. Can you sanity-check this before I build it?",
+   "why_in_scope": "The skill gives the current DORA definitions: change lead time from commit to running in production, failed deployment recovery time (which replaced MTTR) and change fail rate counting only deployments that needed immediate intervention, plus the fifth metric, deployment rework rate. A strong model is likely to accept the four-key set and MTTR over all incidents, or to tweak the Jira-based lead time without moving its start to the commit.",
+   "rubric": [
+    "Corrects lead time to run from the commit to the change running in production (for example commit timestamp to the Argo CD sync that deployed it) and says ticket-created-to-Done measures something else.",
+    "Points out that recovery time and change failure rate should count only failures caused by deployments (rollbacks, hotfixes), not every PagerDuty incident such as a cloud provider outage, and that failed deployment recovery time has replaced MTTR.",
+    "Mentions that the current metric set has five measures, adding deployment rework rate (unplanned deployments made because of a production incident).",
+    "Computes the metrics per service and maps each one to concrete events in the named tools."
+   ]
+  },
+  {
+   "id": "en-change-board-after-outages",
+   "agent": "devops_engineer",
+   "language": "en",
+   "group": "change-approval",
+   "history": [],
+   "user_message": "After two bad outages last quarter, our VP wants every production change to go through a weekly change board meeting, plus a two-week code freeze before each monthly release. We're a payments company and SOX applies. I'm the one who has to implement this in GitLab and ServiceNow. Should I just build it, or is there something I should push back on?",
+   "why_in_scope": "The skill carries DORA's finding that approval by people outside the team is linked to worse delivery performance and to no lower change fail rate, and that segregation of duties can be met with recorded peer review plus automation, with extra scrutiny only for high-risk changes. A strong model may implement the board workflow as asked, adding only generic caveats.",
+   "rubric": [
+    "Pushes back with the reason that heavyweight external approval and freezes slow delivery, produce larger and riskier releases, and have not been shown to reduce change failures.",
+    "Proposes meeting SOX segregation of duties through merge request approval by someone other than the author, recorded in GitLab, plus automated tests and policy checks that leave an audit trail.",
+    "Recommends tiering changes by risk so that only high-risk changes get extra review, with a normal path fast enough to use for emergency changes.",
+    "Addresses the outages with concrete technical measures (for example smaller changes, progressive rollout, automated rollback, better monitoring) and suggests how to present the alternative to the VP."
+   ]
+  },
+  {
+   "id": "en-lead-time-19-days",
+   "agent": "engineering_manager",
+   "language": "en",
+   "group": "lead-time",
+   "history": [],
+   "user_message": "Our average lead time is 19 days (Jira \"In Progress\" -> \"Done\"). The teams swear the actual coding takes 2-3 days per ticket. Leadership wants us under 7 days by next quarter. Where would you look first, and what would you change?",
+   "why_in_scope": "The skill separates waiting from working time with value-stream measures (per-step lead time, process time, percent complete and accurate), points to queues, WIP limits and small batches, and pins delivery lead time to commit-to-production. A strong model may jump to generic productivity advice or accept the 7-day number as a target.",
+   "rubric": [
+    "Proposes measuring where the 19 days go step by step (waiting versus working time per stage, such as review, QA, approval and deployment) instead of pushing engineers to code faster.",
+    "Names likely queues such as code review wait, handoffs to QA, approvals, environment availability and release batching, as well as too much work in progress.",
+    "Recommends limiting work in progress and smaller work items, with at least one concrete mechanism (for example WIP limits per column, finishing before starting, swarming on blocked items).",
+    "Notes that the Jira span is not the same as commit-to-production lead time and cautions that a hard 7-day target can be gamed, for example by moving tickets to \"In Progress\" later."
+   ]
+  },
+  {
+   "id": "en-microservices-release-train",
+   "agent": "devops_engineer",
+   "language": "en",
+   "group": "architecture",
+   "history": [],
+   "user_message": "We split our monolith into 14 microservices last year (Kubernetes, Helm, GitLab CI). But we still ship once a month: all services are deployed together after a 3-day test run in the shared staging environment, because API changes in one service keep breaking others. Deploy frequency and lead time didn't improve at all. What did we miss?",
+   "why_in_scope": "The skill defines loose coupling by outcomes: a team tests and deploys its service on demand, without an integrated test environment or coordination with other teams, and services shipped together on a release train do not count. A strong model may focus on Kubernetes or pipeline tuning rather than independent deployability and contract testing.",
+   "rubric": [
+    "Identifies that the services are not independently testable and deployable, so the split gave no delivery benefit; the goal is that each service can be released on demand without coordinating with the others.",
+    "Recommends contract tests between services and backward-compatible API changes (for example expand-then-contract or versioned endpoints) so a service can ship without its consumers.",
+    "Recommends reducing reliance on the shared staging run, for example by testing each service in isolation with stubs or mocks of its dependencies.",
+    "Proposes an incremental path (for example decoupling one service's release at a time) and tracking deploy frequency and lead time per service to confirm progress."
+   ]
+  },
+  {
+   "id": "en-control-ghcr-workflow",
+   "agent": "devops_engineer",
+   "language": "en",
+   "group": "control",
+   "history": [],
+   "user_message": "Write a GitHub Actions workflow that builds the Docker image for our Node 20 app (Dockerfile at the repo root) and pushes it to GitHub Container Registry when I push a tag like v1.4.2. The image should be tagged with the version.",
+   "why_in_scope": "Control case: a concrete pipeline-authoring request that delivery-performance guidance should not change.",
+   "rubric": [
+    "Triggers on pushes of tags matching a v* pattern.",
+    "Logs in to ghcr.io with the workflow's GITHUB_TOKEN and grants the job packages: write permission.",
+    "Builds and pushes the image to ghcr.io under the repository owner, tagged with the version derived from the git tag.",
+    "The YAML is syntactically valid and uses maintained official actions (for example docker/login-action and docker/build-push-action)."
+   ]
+  }
+ ]
+}
