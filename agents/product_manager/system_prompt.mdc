@@ -37,6 +37,8 @@ capable_skills:
 - skill-decision-frameworks
 - skill-dev-api-design
 - skill-tech-writing
+- skill-delivery-performance
+- skill-engineering-management
 preferred_implants:
 - implant-premortem
 - implant-second-order-thinking

@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - src/artifacts/**
+      - src/cooperation/**
       - src/local_inference/**
       - src/runtime_paths.py
       - src/schemas/artifacts.py
@@ -15,6 +16,7 @@ on:
       - src/daemon/autoupdate.py
       - rules/subagents/**
       - tests/test_artifact*.py
+      - tests/test_cooperation*.py
       - tests/test_subagent*.py
       - tests/test_local_inference*.py
       - tests/local_inference_fake.py
@@ -29,6 +31,7 @@ on:
     branches: [main, dev]
     paths:
       - src/artifacts/**
+      - src/cooperation/**
       - src/local_inference/**
       - src/runtime_paths.py
       - src/schemas/artifacts.py
@@ -40,6 +43,7 @@ on:
       - src/daemon/autoupdate.py
       - rules/subagents/**
       - tests/test_artifact*.py
+      - tests/test_cooperation*.py
       - tests/test_subagent*.py
       - tests/test_local_inference*.py
       - tests/local_inference_fake.py
@@ -85,6 +89,8 @@ jobs:
         run: python -m pip install -r requirements.txt
       - name: Persistent artifacts and scoped worker contracts
         run: python -B -m pytest tests/test_artifact_store.py tests/test_artifact_service.py tests/test_artifact_mcp.py tests/test_subagent_artifacts.py tests/test_optional_inference_disabled.py -q -p no:cacheprovider
+      - name: Cooperation notifications, request states and MCP privacy
+        run: python -B -m pytest tests/test_cooperation_mailbox.py tests/test_cooperation_requests.py tests/test_cooperation_notifications.py tests/test_cooperation_models.py tests/test_cooperation_mcp.py tests/test_cooperation_runtime_integration.py tests/test_cooperation_instructions.py tests/test_subagent_combined_budget.py -q -p no:cacheprovider
       - name: POSIX fake native and Redis boundaries, runtime identity and update admission
         if: runner.os != 'Windows'
         shell: bash

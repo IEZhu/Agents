@@ -20,8 +20,8 @@ monitor's completion per pending run while retaining the required quality gates.
   `git commit --amend --reset-author` so author and committer both change.
 - **Branches.** Use the requested base; otherwise cut from `origin/dev`, the
   integration branch, and open the PR against `dev` (`main` takes release PRs from
-  `dev`: [release procedure](releases.md#procedure)). Use the current `HEAD` for a
-  documentation refresh. When branching from a
+  `dev`: [release procedure](releases.md#procedure)). A documentation refresh uses
+  the requested revision, or `origin/dev` by default for this repository. When branching from a
   remote ref, use `--no-track`
   (`git worktree add --no-track -b codex/task-name <path> origin/dev`), so a GUI client never
   pushes a feature branch to the upstream it was cut from. The repository deletes a

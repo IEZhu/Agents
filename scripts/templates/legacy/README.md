@@ -20,3 +20,5 @@ installations from either branch can migrate:
 - `memory-routing-v12.md` retains the cooperation branch's original `memory-routing-v11.md`, with coordination guidance before MCP mailbox instructions were added.
 - `memory-routing-v13.md` retains the artifact branch's current reminder before the cooperation instructions were merged.
 - `memory-routing-v14.md` retains the cooperation branch's current reminder before the artifact instructions were merged.
+- `memory-routing-v15.md` retains the reminder before the bounded `cooperation_wait` and request-tracking instructions were added.
+- `memory-routing-v16.md` retains the reminder before it told the model to call `Agents-Core` rather than the denied `Agents-Core-Desktop` (#421).

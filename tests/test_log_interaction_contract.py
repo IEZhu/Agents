@@ -277,3 +277,23 @@ async def test_a_symlinked_fallback_directory_is_an_error_not_a_crash(writer, mo
     response = await call(persona=FULL)
     assert response["status"] == "ERROR" and response["instruction"].startswith("Nothing was logged.")
     writer.assert_not_called()
+
+
+def test_server_choice_guidance_is_visible_before_truncation():
+    """#421: a Code-tab session lists Agents-Core and the denied Agents-Core-Desktop; every
+    protocol surface says which to call, and Claude Code's 2048-character window keeps it."""
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    text = server.mcp.instructions
+    for phrase in ("If Agents-Core is listed, make every call there, the first too; retry Desktop denials there.",
+                   # The guidance must not push the delegation directive out of the window.
+                   "call get_subagent_context before spawning with a canonical agent_name, task, "
+                   "acceptance_criteria"):
+        assert phrase in text and text.index(phrase) + len(phrase) < 2048, phrase
+    for name in ("scripts/templates/routing-protocol-core.md", "CLAUDE.md"):
+        flat = " ".join((root / name).read_text(encoding="utf-8").split())
+        assert ("When both `Agents-Core` and `Agents-Core-Desktop` are listed, make every call through "
+                "`Agents-Core`, the first one included.") in flat, name
+        assert "repeat it through `Agents-Core`; never continue without the persona or the log." in flat, name
+    reminder = " ".join((root / "scripts/templates/memory-routing.md").read_text(encoding="utf-8").split())
+    assert "call `Agents-Core` from the first call on" in reminder

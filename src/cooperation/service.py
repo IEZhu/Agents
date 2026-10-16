@@ -54,6 +54,8 @@ class CooperationService:
         self.started = False
         self.enabled = True
         self.epoch = 0
+        from .notifications import MailboxNotifier
+        self.mailbox_notifier = MailboxNotifier()
 
     def start(self):
         if self.started:
@@ -78,6 +80,7 @@ class CooperationService:
 
     def close(self):
         self.started = False
+        self.mailbox_notifier.notify()
         self.lock.close()
 
     def send(self, request, identity):
@@ -91,6 +94,18 @@ class CooperationService:
     def ack(self, request, identity):
         from .mailbox import Mailbox
         return Mailbox(self).ack(request, identity)
+
+    def request_status(self, request, identity):
+        from .mailbox import Mailbox
+        return Mailbox(self).request_status(request, identity)
+
+    def request_update(self, request, identity):
+        from .mailbox import Mailbox
+        return Mailbox(self).request_update(request, identity)
+
+    async def wait(self, request, identity):
+        from .notifications import wait_for_notifications
+        return await wait_for_notifications(self, request, identity)
 
     def _available(self):
         if not self.started:

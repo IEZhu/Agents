@@ -1,0 +1,155 @@
+{
+  "component": "skill-storage-engines",
+  "cases": [
+    {
+      "id": "se-rocksdb-disk-writes-en",
+      "agent": "database_admin",
+      "language": "en",
+      "group": "lsm",
+      "history": [],
+      "user_message": "We run a RocksDB-backed state store with default options (leveled compaction), about 800 GB per instance on NVMe. The application writes roughly 25 MB/s of key-value updates, but iostat shows ~700 MB/s of writes on the drive, and the SSD wear indicator is dropping much faster than the vendor rating predicts. Is something misconfigured? How can we bring disk writes down, and what will it cost us?",
+      "why_in_scope": "A ~28x ratio between disk and logical writes is expected from leveled compaction. The skill makes the model quantify it and weigh tiered (universal) compaction against its read and space costs and its size caveat; a strong model may hunt for a misconfiguration or suggest only compression.",
+      "rubric": [
+        "Computes the ratio (about 28x) and identifies it as write amplification that is normal for leveled compaction, where compaction rewrites data at every level.",
+        "Presents tiered (universal) compaction as the main lever to cut write amplification and states its costs: higher space amplification, including temporary extra space during compactions, and higher read amplification.",
+        "Notes RocksDB's caution about universal compaction for databases or column families above roughly 100 GB, relevant at ~800 GB (for example by sharding into smaller instances).",
+        "Suggests measuring with RocksDB's compaction statistics (rocksdb.stats) and disk counters before and after any change."
+      ]
+    },
+    {
+      "id": "se-rocksdb-stall-ru",
+      "agent": "database_admin",
+      "language": "ru",
+      "group": "lsm",
+      "history": [],
+      "user_message": "Сервис пишет в RocksDB около 40 тыс. записей в секунду. Периодически p99 записи вырастает с 2 мс до 3–5 секунд. В LOG в это время: \"Stalling writes because we have 20 level-0 files\", иногда \"Stopping writes because we have 36 level-0 files\". Коллега предлагает поднять level0_slowdown_writes_trigger и level0_stop_writes_trigger до 1000, чтобы записи никогда не тормозились. Это нормальное решение?",
+      "why_in_scope": "The stall is RocksDB's back-pressure when level-0 compaction falls behind. The skill explains that raising the triggers trades stalls for read amplification and space growth and points at compaction throughput; a strong model may accept the colleague's change or only tune memtables.",
+      "rubric": [
+        "Explains that the stall is deliberate back-pressure because compaction of level-0 files cannot keep up with the write rate.",
+        "Rejects raising the triggers to 1000 as the fix: L0 keeps growing, point lookups must check every L0 file, so read latency and disk usage grow while the compaction backlog remains.",
+        "Proposes raising compaction throughput: more background jobs, checking disk bandwidth, reducing write amplification (for example larger memtables or another compaction style), verified with compaction statistics.",
+        "Answers in Russian."
+      ]
+    },
+    {
+      "id": "se-rocksdb-queue-en",
+      "agent": "database_admin",
+      "language": "en",
+      "group": "lsm",
+      "history": [],
+      "user_message": "We built a job queue on RocksDB: key = <queue_id><seq>, producers Put, the consumer does Seek(<queue_id>) to get the oldest job and Delete()s it after processing. It was fast at first, but after a few days Seek+Next for the oldest job in busy queues takes hundreds of milliseconds, even though each queue holds only a few hundred live jobs. CPU is high inside the iterator. What's going on?",
+      "why_in_scope": "Deleted keys stay as tombstones that the iterator must step over until compaction removes them. The skill points to tombstones and to seeking from the last processed key, bounding the iterator and deletion-triggered compaction; a strong model may blame the block cache or bloom filters.",
+      "rubric": [
+        "Identifies tombstones: deleted entries at the head of each queue remain until compaction drops them, and every Seek from the queue start has to skip them.",
+        "Proposes seeking from the last processed sequence number instead of the queue start, and setting iterate_upper_bound to the end of the queue's key range.",
+        "Mentions compacting tombstone-dense ranges (CompactOnDeletionCollectorFactory or a manual CompactRange) as a complement.",
+        "Does not claim that bloom filters would speed up this scan."
+      ]
+    },
+    {
+      "id": "se-telemetry-store-ru",
+      "agent": "system_architect",
+      "language": "ru",
+      "group": "engine-choice",
+      "history": [],
+      "user_message": "Проектируем хранилище телеметрии: 150 тыс. точек в секунду (device_id, ts, 20 метрик), храним 30 дней, читаем графики по одному устройству за последние 1–24 часа, точечных чтений почти нет. Сейчас PostgreSQL 16 с B-tree индексом (device_id, ts): вставки упираются в диск, индекс не помещается в память. Коллеги предлагают перейти на хранилище на RocksDB. Помоги сравнить подходы и выбрать.",
+      "why_in_scope": "The choice turns on the read/write/space trade-off: an LSM turns random index inserts into sequential writes, but range reads may touch several runs and bloom filters do not help range scans. The skill makes the comparison quantitative; a strong model may give a generic pros-and-cons list.",
+      "rubric": [
+        "Explains why B-tree index inserts degrade once the index exceeds memory (random page I/O per insert) and why an LSM design turns them into sequential writes.",
+        "States the LSM costs for this workload: range reads over recent data may consult several sorted runs, bloom filters do not help range scans, and compaction adds write amplification the disks must absorb.",
+        "Uses the 30-day retention: drops old data by time (time partitions in PostgreSQL, or TTL/FIFO-style removal of whole files in an LSM) instead of deleting rows.",
+        "Gives a recommendation tied to the stated numbers (rate, retention, query shape), in Russian."
+      ]
+    },
+    {
+      "id": "se-pg-bloat-holder-en",
+      "agent": "database_admin",
+      "language": "en",
+      "group": "mvcc",
+      "history": [],
+      "user_message": "PostgreSQL 16. The sessions table has about 2 GB of live rows but takes 140 GB on disk and keeps growing. Autovacuum runs on it constantly. VACUUM (VERBOSE) on it removes almost nothing and reports about 3.9 million tuples as dead but not yet removable. We were about to schedule VACUUM FULL every night. Thoughts?",
+      "why_in_scope": "Dead tuples that are not yet removable mean something holds back the xmin horizon; nightly VACUUM FULL would not fix the cause and takes an ACCESS EXCLUSIVE lock. The skill makes the model look for the holder in pg_stat_activity, pg_prepared_xacts, pg_replication_slots and standbys with hot_standby_feedback; a strong model may jump to autovacuum tuning or VACUUM FULL.",
+      "rubric": [
+        "Explains that the dead rows cannot be removed because some session, prepared transaction or replication slot still holds an old xmin, so more vacuuming or VACUUM FULL will not stop the growth.",
+        "Lists where to look: long-running or idle-in-transaction sessions (backend_xmin in pg_stat_activity), pg_prepared_xacts, pg_replication_slots (xmin and catalog_xmin), and standbys with hot_standby_feedback on.",
+        "Warns that VACUUM FULL rewrites the table under an ACCESS EXCLUSIVE lock that blocks reads and writes, and that plain VACUUM makes space reusable without shrinking the file except for empty pages at its end.",
+        "Gives runnable queries and a safe order: remove the holder, let VACUUM clean up, then reclaim space once if still needed."
+      ]
+    },
+    {
+      "id": "se-pg-hot-updates-ru",
+      "agent": "database_admin",
+      "language": "ru",
+      "group": "mvcc",
+      "history": [],
+      "user_message": "PostgreSQL 15. Таблица counters(id bigint PK, user_id bigint, value bigint, updated_at timestamptz), индексы: PK, (user_id), (updated_at). Около 5 тыс. UPDATE в секунду вида SET value = value + 1, updated_at = now() WHERE id = $1. Таблица небольшая (2 млн строк), но индексы распухают в разы, WAL огромный, autovacuum не успевает. Как снизить нагрузку?",
+      "why_in_scope": "Updating the indexed updated_at column rules out HOT updates, so every update adds entries to all three indexes. The skill points to the HOT conditions, fillfactor and the HOT update ratio; a strong model may suggest only autovacuum tuning or partitioning.",
+      "rubric": [
+        "Explains that because updated_at is indexed, these updates cannot be HOT, so each update inserts new entries into every index, driving index bloat and WAL volume.",
+        "Proposes dropping or rethinking the index on updated_at (or not updating an indexed column on every increment) so updates can be HOT.",
+        "Suggests lowering the table's fillfactor so the new row version fits on the same page, and comparing n_tup_hot_upd with n_tup_upd in pg_stat_user_tables.",
+        "Answers in Russian with concrete SQL."
+      ]
+    },
+    {
+      "id": "se-pg-fsync-off-en",
+      "agent": "database_admin",
+      "language": "en",
+      "group": "durability",
+      "history": [],
+      "user_message": "PostgreSQL 16 primary on a cloud VM with a network-attached SSD volume, plus one async replica. Our order API commits take ~3 ms, mostly waiting on the WAL flush. A colleague wants to set fsync = off on the primary, arguing that the cloud volume is replicated and durable anyway and we have a replica. Some writes (clickstream events) we could afford to lose; orders we cannot. What should we do?",
+      "why_in_scope": "fsync = off risks unrecoverable corruption after a crash, while synchronous_commit = off only loses the latest commits and can be scoped to the clickstream transactions. The skill encodes that distinction; a strong model may accept the durable-volume argument or turn synchronous_commit off globally.",
+      "rubric": [
+        "Rejects fsync = off for this primary: after an OS crash or power loss it can corrupt the database beyond recovery, not just lose recent transactions, and neither a replicated volume nor an async replica makes it safe.",
+        "Proposes synchronous_commit = off only for the loss-tolerant clickstream transactions (per session or SET LOCAL in the transaction), keeping the default for orders, and says it can lose the most recent commits without corrupting the database.",
+        "Notes that the async replica can lose acknowledged commits on failover, so it is no durability guarantee for orders.",
+        "Suggests measuring flush latency (for example with pg_test_fsync) before choosing."
+      ]
+    },
+    {
+      "id": "se-pg-wraparound-ru",
+      "agent": "database_admin",
+      "language": "ru",
+      "group": "mvcc",
+      "history": [],
+      "user_message": "PostgreSQL 14, прод перестал принимать записи: \"ERROR: database is not accepting commands to avoid wraparound data loss in database \\\"app\\\"\". Хотим остановить кластер, запустить postgres в single-user mode и сделать VACUUM FULL самой большой таблицы, чтобы было быстрее. Подскажи порядок действий.",
+      "why_in_scope": "Near wraparound, VACUUM FULL needs a new transaction ID, and recovery starts with removing whatever holds back the oldest XID. The skill gives the documented order; a strong model may follow the user's plan or recommend VACUUM FREEZE.",
+      "rubric": [
+        "Advises against VACUUM FULL here: it needs a transaction ID, so it fails (or, in single-user mode, consumes one and adds risk), and it rewrites the table slowly.",
+        "Starts by finding and resolving what holds back the oldest XID: old prepared transactions (pg_prepared_xacts), long-running sessions (age of backend_xid/backend_xmin in pg_stat_activity) and stale replication slots (pg_replication_slots).",
+        "Then runs plain VACUUM, without FREEZE, as a superuser on the database or the tables with the oldest relfrozenxid, and tracks age(datfrozenxid).",
+        "Says single-user mode is normally unnecessary and riskier, and answers in Russian with concrete queries."
+      ]
+    },
+    {
+      "id": "se-control-not-in-en",
+      "agent": "database_admin",
+      "language": "en",
+      "group": "control",
+      "history": [],
+      "user_message": "Postgres 16. I need customers who have never placed an order. A teammate wrote SELECT * FROM customers WHERE id NOT IN (SELECT customer_id FROM orders); and it sometimes returns nothing at all. Why, and what should we write instead?",
+      "why_in_scope": "Control: SQL NULL semantics, unrelated to storage internals; the skill should not change the answer.",
+      "rubric": [
+        "Explains that if orders.customer_id contains a NULL, NOT IN yields null instead of true for every customer, so no rows are returned.",
+        "Rewrites the query with NOT EXISTS (or a LEFT JOIN ... WHERE o.customer_id IS NULL), which handles NULLs correctly.",
+        "Gives valid PostgreSQL SQL.",
+        "Does not add unrelated advice about storage engines, vacuum or WAL."
+      ]
+    },
+    {
+      "id": "se-control-aggregate-ru",
+      "agent": "database_admin",
+      "language": "ru",
+      "group": "control",
+      "history": [],
+      "user_message": "PostgreSQL 16, таблица purchases(user_id bigint, amount numeric, created_at timestamptz). Нужен запрос: для каждого пользователя дата первой и последней покупки и число покупок за 2025 год.",
+      "why_in_scope": "Control: a plain aggregation query, outside storage internals; the skill should not change the answer.",
+      "rubric": [
+        "Groups by user_id and uses MIN(created_at), MAX(created_at) and COUNT(*).",
+        "Restricts to 2025 with a half-open range (created_at >= '2025-01-01' and < '2026-01-01') or an equivalent that keeps the last day, or states that it reads the request as counting only 2025 purchases and handles that explicitly (e.g. COUNT(*) FILTER).",
+        "Gives valid PostgreSQL SQL.",
+        "Answers in Russian."
+      ]
+    }
+  ]
+}

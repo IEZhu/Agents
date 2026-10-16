@@ -53,6 +53,7 @@ capable_skills:
 - skill-system-design
 - skill-dev-security
 - skill-tech-writing
+- skill-sre-practices
 preferred_implants:
 - implant-regression-first
 ---

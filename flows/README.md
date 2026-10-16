@@ -19,7 +19,7 @@ When a flow is task material for a prepared worker, as [code-review-pass](code-r
 
 | Flow | Purpose | Result |
 |---|---|---|
-| [Shared local inference and KV cache](shared-kv-inference.md) | Implement the prepared Agents-Core local inference service and optional Redis snapshot backend in an authorized worktree | Reviewable implementation, focused tests and a capability/evaluation report |
+| [Shared local inference and KV cache](shared-kv-inference.md) | Reconcile the existing Agents-Core implementation, then implement requested local-inference or Redis snapshot gaps in an authorized worktree | Reviewable implementation, focused tests and a capability/evaluation report |
 | [Environment auto-configuration](environment-autoconfigure.md) | Audit installed AI clients and reconcile their environment with the current RTK, TokenSave and CodeGraph stack | Verified configuration changes, private backups, rollback steps and explicit compatibility limits |
 | [Documentation refresh](documentation-refresh.md) | Check and update documentation for people and AI against the implementation | Reviewed documentation changes on a separate branch, with validation results |
 | [PR/MR review](pr-review.md) | Review the diff, handle bot findings one push per round until they converge, and keep the description current | A merged request or a precise blocker, with a report in the invocation language |
@@ -34,13 +34,17 @@ When a flow is task material for a prepared worker, as [code-review-pass](code-r
 | [Autodev implementation](autodev-implement.md) | Implement the slice, have workers review it until clean, run a pre-mortem and hand the commits over, without pushing | The stage's structured output with the branch, head, checks, reviews and pull request sections |
 | [Code review pass](code-review-pass.md) | Review one commit range against the acceptance criteria, as a delegated worker or directly | A `ReviewPayload` |
 | [Change pre-mortem](change-premortem.md) | Name the three to five likeliest reasons a merged change breaks, as a delegated worker or directly | A `ReviewPayload` with one finding per risk |
+| [Autodev retrospective](autodev-retro.md) | Measure the autodev pipeline from its run records and pull requests (design 12 metrics, lead time, rework, cost), find where runs stall and propose changes, read-only and started by the owner | A report with the metrics, the diagnosis and at most five proposals; one issue only on request |
+| [Open-source tuning](open-source-tuning.md) | Tune a skill, implant or agent, or create one, from free and legally available sources: probe the gap, extract only the delta, verify facts, wire it to its owners and hand probe cases to A/B eval | A tuned component with its `sources`, a probe case set and a pull request against `dev` |
 
 Built-in flows declare their persona: `documentation-refresh` runs as
 `tech_writer`, `issue-plan` as `system_architect`, `issue-implementation` as
 `software_engineer`, `pr-review` as `code_reviewer`, `thread-close` as
 `investigative_analyst`, `ab-eval` as `ai_senior_engineer`, `autodev-select`
 as `product_manager`, `autodev-implement` as `software_engineer`,
-`code-review-pass` as `code_reviewer` and `change-premortem` as `sysadmin`, each
+`code-review-pass` as `code_reviewer`, `change-premortem` as `sysadmin`,
+`autodev-retro` as `engineering_manager` and `open-source-tuning` as
+`agent_builder`, each
 with an exact list of skills and implants (see
 [choosing a flow's agent](#choose-a-flows-agent-and-components)). The
 `issue-agent` and `autodev` dispatchers and the `autodev-gate` rules have none.

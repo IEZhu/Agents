@@ -975,9 +975,10 @@ else
         echo "    • Antigravity:    Install Antigravity, then re-run this script"
     else
         print_success "MCP configured for: ${CONFIGURED_ENVS[*]}"
-        # Claude Desktop (its Code tab included) also reads the Claude Code registry.
+        # Claude Desktop (its Code tab included) also reads the Claude Code registry. Adjacent
+        # names share one space, so the second name has no leading space in its pattern (#421).
         case " ${CONFIGURED_ENVS[*]} " in
-            *" Claude Desktop "*" Claude Code "*|*" Claude Code "*" Claude Desktop "*)
+            *" Claude Desktop "*"Claude Code "*|*" Claude Code "*"Claude Desktop "*)
                 if [ "${DESKTOP_DENIED:-false}" != true ]; then
                     print_warn "Claude Code does not deny Agents-Core-Desktop, so a Code-tab session of the"
                     echo "    desktop app can reach the app's shared server, started outside any project. Add"

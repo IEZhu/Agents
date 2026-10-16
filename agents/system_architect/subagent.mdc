@@ -6,6 +6,8 @@ skills:
 - skill-dev-performance
 - skill-dev-security
 - skill-decision-frameworks
+- skill-data-consistency
+- skill-domain-driven-design
 implants:
 - implant-step-back-prompting
 - implant-premortem

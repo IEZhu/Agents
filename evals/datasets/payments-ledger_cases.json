@@ -1,0 +1,155 @@
+{
+ "component": "skill-payments-ledger",
+ "cases": [
+  {
+   "id": "pay-wallet-balance-column-ru",
+   "agent": "system_architect",
+   "language": "ru",
+   "group": "reasoning",
+   "history": [],
+   "user_message": "Кошелёк в нашем приложении: таблица wallets(user_id, balance double precision). Перевод между пользователями: в коде делаем SELECT баланса отправителя, проверяем, что хватает, потом два UPDATE (минус у отправителя, плюс у получателя) в одной транзакции на READ COMMITTED. За месяц двое пользователей ушли в минус, а финансовый отдел не может объяснить, почему примерно у 40 пользователей баланс на несколько копеек расходится с суммой их пополнений, переводов и выводов. Что менять в первую очередь?",
+   "why_in_scope": "The skill gives the money-specific fixes together: integer minor units instead of float, an append-only double-entry record from which balances are derived, and an atomic check-and-debit so concurrent transfers cannot overdraw. A strong model may fix only the race with SELECT FOR UPDATE and keep a mutable float balance that cannot be explained.",
+   "rubric": [
+    "Identifies double precision as the cause of the kopeck-level drift and replaces it with integer minor units or a fixed-scale numeric type, stored with the currency.",
+    "Identifies the read-check-update race as the cause of negative balances and makes the check and the debit atomic (row lock, conditional update such as UPDATE ... WHERE balance >= amount, or a version check).",
+    "Recommends recording every movement as immutable entries (a debit and a matching credit per transfer) and deriving or verifying balances from them, so every balance can be explained.",
+    "Proposes repairing existing data, for example rebuilding balances from the history of top-ups, transfers and withdrawals and booking differences as explicit adjustment entries."
+   ]
+  },
+  {
+   "id": "pay-psp-timeout-double-charge-en",
+   "agent": "software_engineer",
+   "language": "en",
+   "group": "reasoning",
+   "history": [],
+   "user_message": "Our checkout backend (Node.js) calls the payment provider's create-charge endpoint with a 10 s timeout. On timeout we mark the order payment_failed and show 'Payment failed, try again'; when the user clicks again we call create-charge again. Last week support found 37 customers who were charged twice. What should the flow look like?",
+   "why_in_scope": "The skill treats a timeout as an unknown outcome, creates one key per logical payment before the first attempt, reuses it on every retry and sends it to the provider, and resolves unknowns by asking the provider. A strong model may only lengthen the timeout or add a 'look for a recent charge' heuristic.",
+   "rubric": [
+    "States that a timeout does not mean the charge failed and moves the order to a pending or unknown state instead of payment_failed.",
+    "Generates a unique key per payment attempt (for example a UUID stored with the order before the first call), reuses the same key on every retry and sends it to the provider so a repeated request is not executed twice.",
+    "Resolves the unknown state by querying the provider or waiting for its webhook before allowing another charge, and does not let the user's retry create a new charge under a new key.",
+    "Addresses the 37 existing double charges, for example by finding them in the provider's records and refunding them."
+   ]
+  },
+  {
+   "id": "pay-webhook-order-dup-ru",
+   "agent": "software_engineer",
+   "language": "ru",
+   "group": "reasoning",
+   "history": [],
+   "user_message": "Обработчик вебхуков от платёжного провайдера (Python, Django): на событие payment.succeeded помечаем заказ оплаченным и создаём отгрузку, на payment.failed помечаем заказ отменённым. Обработка идёт синхронно внутри HTTP-запроса и иногда занимает 20–30 секунд. Три проблемы: часть заказов отгружена дважды, некоторые заказы сначала стали оплаченными, а потом отменёнными, и провайдер пишет, что наш endpoint часто не отвечает вовремя. Как это исправить?",
+   "why_in_scope": "The skill teaches that payment webhooks arrive duplicated and out of order: deduplicate by event ID, guard transitions with an explicit state machine or the provider's current status, and acknowledge quickly while processing from a queue. A strong model may fix only the timeout or only the duplicates.",
+   "rubric": [
+    "Explains that the provider redelivers events after timeouts or errors, so one event can arrive several times, and deduplicates by storing processed event IDs (with a unique constraint) before acting.",
+    "Explains that events can arrive out of order and prevents a late failure event from overriding a paid order, through allowed state transitions and/or by reading the payment's current status from the provider's API.",
+    "Returns a 2xx response quickly after verifying and saving the event and moves shipment creation to an asynchronous worker or queue.",
+    "Mentions verifying the webhook signature before processing."
+   ]
+  },
+  {
+   "id": "pay-hotel-hold-en",
+   "agent": "system_architect",
+   "language": "en",
+   "group": "reasoning",
+   "history": [],
+   "user_message": "We run a small hotel booking site. Product wants this: when a guest books, often 3 to 6 weeks before arrival, we block the full stay amount on their card; at checkout we charge the final amount, which can be lower (cancelled nights) or higher (minibar). If they don't show up, we charge the first night. How should we design the payment flow?",
+   "why_in_scope": "The skill knows that card authorizations expire after about a week for online payments, that usually one capture is allowed and a partial capture releases the rest, and how holds map to pending entries. A strong model may design a weeks-long hold that silently lapses.",
+   "rubric": [
+    "Warns that a card authorization placed weeks ahead will expire before checkout (online card authorizations typically last about 7 days, varying by card network), so the plan does not work as stated.",
+    "Proposes a workable alternative: save the card at booking with the guest's consent for later merchant-initiated charges, then authorize near arrival or at check-in, or use a provider's extended authorization where eligible.",
+    "Handles amount changes: capturing less releases the remainder; charging more than authorized needs a separate charge or an overcapture or incremental authorization where the provider and card support it.",
+    "Treats the no-show fee as a separate charge on the saved card under terms the guest accepted at booking."
+   ]
+  },
+  {
+   "id": "pay-multicurrency-exponent-ru",
+   "agent": "software_engineer",
+   "language": "ru",
+   "group": "reasoning",
+   "history": [],
+   "user_message": "Сервис счетов хранит суммы как bigint: amount_cents = round(amount * 100), валюта в отдельной колонке; до сих пор были только RUB, EUR и USD. Теперь выходим в Кувейт и Японию: нужно поддержать KWD и JPY, а ещё делить счёт поровну между несколькими плательщиками. Что нужно поменять в работе с деньгами?",
+   "why_in_scope": "The skill says the minor-unit exponent depends on the currency (JPY 0, KWD 3 in ISO 4217), may differ per provider, and that splits must hand out the remainder so the parts sum to the total. A strong model may keep the hard-coded x100 or suggest decimals without a per-currency exponent.",
+   "rubric": [
+    "States that the number of decimal places differs by currency: JPY has 0 and KWD has 3 under ISO 4217, so a fixed x100 is wrong for both.",
+    "Recommends storing amounts in each currency's minor units with the exponent from a per-currency table (ISO 4217) and converting at API boundaries, checking the format each payment provider expects.",
+    "For equal splits, distributes the remainder of integer division among payers so the parts sum exactly to the total (for example 1000 minor units among 3 payers as 334, 333 and 333).",
+    "Avoids binary floating point in the calculation (round(amount * 100) on a float can misround) and defines an explicit rounding rule."
+   ]
+  },
+  {
+   "id": "pay-payout-2pc-en",
+   "agent": "system_architect",
+   "language": "en",
+   "group": "reasoning",
+   "history": [],
+   "user_message": "Withdrawal flow across microservices: the Wallet service (Postgres) debits the user's balance, the Payout service calls the bank's transfer API, and the Notification service emails the user. Services talk over Kafka. Our architect proposes XA two-phase commit across the wallet DB, Kafka and the payout step so that either everything happens or nothing does. Bank transfers sometimes take hours to confirm and are sometimes rejected the next day. Is 2PC the way to go?",
+   "why_in_scope": "The skill replaces distributed transactions with a ledger write plus an outbox message in one local transaction and a multi-step flow whose compensations are reversing entries, reserving funds first. A strong model may reject 2PC but answer with a vague 'use eventual consistency' without the money-specific steps.",
+   "rubric": [
+    "Rejects 2PC here, noting that the bank's API cannot take part in a two-phase commit and that holding locks for hours or until a next-day rejection is unworkable.",
+    "Proposes a sequence of local transactions: reserve or debit the funds in the wallet as pending and write the outgoing message in the same database transaction (outbox), then the payout call, then finalize on bank confirmation.",
+    "On bank rejection, compensates with a new reversing entry that returns the funds, rather than deleting or editing the original record, and notifies the user.",
+    "Requires idempotent handling of messages and of the bank call, such as deduplication by message ID and a stable reference or key per transfer."
+   ]
+  },
+  {
+   "id": "pay-reconciliation-ru",
+   "agent": "system_architect",
+   "language": "ru",
+   "group": "reasoning",
+   "history": [],
+   "user_message": "Мы маркетплейс, принимаем оплаты через двух эквайеров и каждый день получаем от каждого реестр операций и отчёт о выплатах на наш расчётный счёт. Сейчас бухгалтер раз в месяц сравнивает всё в Excel, расхождения находятся через 3–5 недель и разбираются вручную. Как автоматизировать, чтобы находить расхождения быстро?",
+   "why_in_scope": "The skill makes matching a daily automated two-way process with an exceptions queue, uses in-transit accounts that must return to zero per completed flow, checks completeness, and corrects with new entries. A strong model may describe only matching by amount and date.",
+   "rubric": [
+    "Proposes daily automated matching of internal payment records to each acquirer's register by a shared identifier (such as the provider's payment ID or the order reference), in both directions: internal without external and external without internal.",
+    "Matches payouts to the bank statement, accounting for fees, refunds and chargebacks netted into each payout.",
+    "Uses intermediate in-transit accounts for money between capture and payout that should return to zero once a payment is settled and paid out, and flags non-zero residues as discrepancies.",
+    "Sends unmatched items to an exceptions queue with ageing and fixes discrepancies with new adjusting entries instead of editing past records."
+   ]
+  },
+  {
+   "id": "pay-correct-wrong-amount-en",
+   "agent": "software_engineer",
+   "language": "en",
+   "group": "reasoning",
+   "history": [],
+   "user_message": "Yesterday a support agent recorded a manual transfer between two customer wallets as $54.00 instead of $45.00, and the receiver has already spent part of it. Product asks me to build an admin screen where support can edit the amount on that row in the wallet_transactions table and recalculate both balances. Any objections, and what would you build instead?",
+   "why_in_scope": "The skill forbids editing recorded money movements and prescribes a reversal plus a new entry, or one adjusting entry, linked to the original, so balances stay derivable. A strong model may accept the edit with an audit-log column.",
+   "rubric": [
+    "Objects to editing the recorded transaction in place because it destroys the history needed for audit and leaves balances unexplainable.",
+    "Proposes a correcting transaction instead: either reverse the $54.00 transfer and record a new $45.00 one, or record a single $9.00 adjustment from receiver to sender, linked to the original.",
+    "Deals with the receiver possibly lacking $9.00: decides whether the correction may take the balance negative, needs a hold, or goes to a manual recovery process.",
+    "Adds controls for the admin tool, such as a required reason, a second approver or amount limits, and an audit trail."
+   ]
+  },
+  {
+   "id": "pay-control-image-resize-hpa-en",
+   "agent": "software_engineer",
+   "language": "en",
+   "group": "control",
+   "history": [],
+   "user_message": "Kubernetes 1.29, an image-resizing service in Go, CPU-bound, each request takes about 300 ms of CPU on one core. Pods have requests cpu: 500m and limits cpu: 1. The HPA targets 70% CPU utilization, but under load p99 latency jumps from 400 ms to 3 s before new pods come up. What should I change?",
+   "why_in_scope": "Control: an autoscaling question that payment and ledger knowledge should not affect.",
+   "rubric": [
+    "Notes that HPA CPU utilization is measured against the container's request (500m), so the 70% target corresponds to about 350m per pod, and that the 1-CPU limit can throttle bursts.",
+    "Addresses scale-up lag, for example with a lower target, a higher minimum replica count or pre-scaling, HPA scale-up behavior settings, and faster pod startup.",
+    "Suggests bounding per-pod concurrency or aligning the request with real per-pod load so requests do not queue behind each other.",
+    "Recommends measuring (CPU throttling metrics, a load test) to confirm the cause rather than only guessing."
+   ]
+  },
+  {
+   "id": "pay-control-blog-schema-ru",
+   "agent": "software_engineer",
+   "language": "ru",
+   "group": "control",
+   "history": [],
+   "user_message": "Проектирую схему PostgreSQL для блога: посты, авторы, теги (многие-ко-многим), комментарии с вложенностью любой глубины. Нужны запросы: последние посты по тегу и дерево комментариев поста. Предложи таблицы, ключи и индексы.",
+   "why_in_scope": "Control: a schema design question that payment and ledger knowledge should not affect.",
+   "rubric": [
+    "Defines posts, authors, tags and a post_tags join table with a composite primary key (post_id, tag_id) and foreign keys.",
+    "Models comments with a parent_id self-reference (or a materialized path or closure table) and shows how to fetch a post's comment tree, for example with a recursive CTE.",
+    "Adds indexes serving the stated queries, such as post_tags(tag_id, post_id) together with an index on posts(created_at), and comments(post_id).",
+    "Explains the trade-off of the chosen tree representation (adjacency list versus materialized path or closure table)."
+   ]
+  }
+ ]
+}

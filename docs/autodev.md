@@ -276,7 +276,9 @@ sessions are not counted there. The runner reads the cost from the `total_cost_u
 session's stream-json result; that field name is recalled, not verified, and the first real run
 checks it ([before the first real run](autodev-sequence.md#before-the-first-real-run)). There are
 no measured numbers yet: the plan sets target values after the first ten runs
-([plan 12](autodev-plan.md#12-metrics)).
+([plan 12](autodev-plan.md#12-metrics)), and the
+[autodev retrospective](../flows/autodev-retro.md) computes them from the run
+records and proposes those targets.
 
 ## Limitations and residual risks
 
