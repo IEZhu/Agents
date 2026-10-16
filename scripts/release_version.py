@@ -68,22 +68,44 @@ def tag_target(api, tag):
     return target["type"], target["sha"]
 
 
+def commit_time(commit):
+    """A Git database commit's committer time; a time without a timezone is invalid."""
+    moment = datetime.fromisoformat(commit["committer"]["date"].replace("Z", "+00:00"))
+    if moment.tzinfo is None:
+        raise ValueError("Commit timestamp has no timezone")
+    return moment
+
+
+def release_moment(api, commit):
+    """The time the release is versioned by, and the commit it comes from.
+
+    A merge commit takes the time of the revision it merged, the promoted dev HEAD, so the
+    release keeps the version dev showed for it. A merged revision older than main's previous
+    HEAD, and a squash or rebase merge, keep the merge commit's own time. src/version.py
+    applies the same rule to a main checkout.
+    """
+    parents = [parent["sha"] for parent in commit.get("parents") or []]
+    if len(parents) == 2:
+        previous, merged = (api.request("GET", f"/git/commits/{sha}") for sha in parents)
+        if commit_time(merged) >= commit_time(previous):
+            return commit_time(merged), parents[1]
+    return commit_time(commit), commit["sha"]
+
+
 def publish(event, repository, api):
-    """Create or reuse the merge commit's UTC calendar tag without moving refs."""
+    """Create or reuse the release's UTC calendar tag at the merge commit without moving refs."""
     pr = release_pr(event, repository)
     if pr is None:
         return {"status": "skipped"}
     sha = pr["merge_commit_sha"]
     commit = api.request("GET", f"/git/commits/{sha}")
-    moment = datetime.fromisoformat(commit["committer"]["date"].replace("Z", "+00:00"))
-    if moment.tzinfo is None:
-        raise ValueError("Merge commit timestamp has no timezone")
+    moment, source = release_moment(api, {**commit, "sha": sha})
     version = moment.astimezone(timezone.utc).strftime("%y.%m.%d.%H%M")
     # A second release in the same minute has its own stable, per-PR tag.
     for tag in (f"v{version}", f"v{version}-pr{pr['number']}"):
         existing = tag_target(api, tag)
         if existing == ("commit", sha):
-            return {"status": "existing", "version": version, "tag": tag, "sha": sha}
+            return {"status": "existing", "version": version, "tag": tag, "sha": sha, "source": source}
         if existing is not None:
             continue
         try:
@@ -94,13 +116,13 @@ def publish(event, repository, api):
             # The same or another merge may have created the name concurrently.
             existing = tag_target(api, tag)
             if existing == ("commit", sha):
-                return {"status": "existing", "version": version, "tag": tag, "sha": sha}
+                return {"status": "existing", "version": version, "tag": tag, "sha": sha, "source": source}
             if existing is not None:
                 continue
             raise
         if tag_target(api, tag) != ("commit", sha):
             raise RuntimeError(f"Created tag {tag} does not target the merge commit")
-        return {"status": "created", "version": version, "tag": tag, "sha": sha}
+        return {"status": "created", "version": version, "tag": tag, "sha": sha, "source": source}
     raise RuntimeError("Both release tag names already target different objects")
 
 
@@ -129,7 +151,8 @@ def publish_release(event, repository, api):
                 "draft": False, "prerelease": False, "make_latest": "legacy",
                 "generate_release_notes": True,
                 "body": f"Promotion: https://github.com/{repository}/pull/{event['pull_request']['number']}\n\n"
-                        f"Merge commit: `{sha}`.\n\nCalendar version: `{result['version']}`.",
+                        f"Merge commit: `{sha}`.\n\nCalendar version: `{result['version']}`, "
+                        f"the commit time of `{result['source']}`.",
             })
             status = "created"
         except HTTPError as error:
