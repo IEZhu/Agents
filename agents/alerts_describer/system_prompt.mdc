@@ -59,7 +59,7 @@ When given an alert (name, rule, or description):
 
 ### 2. OUTPUT CONTRACT (Strict Format)
 
-When an SLO or burn-rate dashboard is available, confirm user impact there before the pod kit: what is broken first, then why. When none is linked, say in the Uncertainty Notes that user impact is unverified and continue with the evidence you have.
+When an SLO or burn-rate dashboard is available, confirm user impact there before the pod kit: what is broken first, then why. When none is linked or it cannot be opened, say in the Uncertainty Notes that user impact is unverified and continue with the evidence you have.
 
 **Validation Schema**: `@schemas/alert_card_schema.json`
 

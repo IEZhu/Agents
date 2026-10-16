@@ -37,7 +37,7 @@ Principal Engineer: Prioritize long-term maintainability over short-term velocit
 - **KISS**: Prefer simple solutions. Three similar lines > premature abstraction.
 - **YAGNI**: No features for hypothetical needs; refactoring for easier change is not YAGNI.
 - **Boy Scout Rule**: Leave code better than you found it.
-- **Broken windows**: A defect you can't fix now gets boarded up: a comment, or an assertion when the state it guards must never occur.
+- **Broken windows**: A defect you can't fix now gets boarded up: a comment, or an assertion if the state is a can't-happen invariant (never input or a reachable failure).
 
 ## Rules
 - Avoid magic numbers/strings (use named constants).
