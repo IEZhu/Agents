@@ -1,7 +1,7 @@
 # Agents-Core Memory Subsystem: `describe` + `history.md`
 
 > Specification and step-by-step implementation plan for the per-repo memory mechanism of the Agents-Core MCP server.
-> Status: implemented 2026-04-15. Sections 1–5 carry later corrections, including client-scoped paths (#36), the `write_repo_summary` fallback, persona attribution in `log_interaction`, sidecar locks, the history merged across machines through user library sync (#172) and `read_history` previews within Claude Code's result limit (#212). The implementation and test plans (sections 6–7) mostly keep their original wording; Appendix C records deviations between the plan and the implementation. For current behavior, see [README: Repository Memory](../README.md#-repository-memory), [service memory behavior](shared-mcp-daemon.md#memory-and-errors) and the [routing reference](routing_flow.md#runtime-and-project-boundaries).
+> Status: implemented 2026-04-15. Sections 1–5 carry later corrections, including client-scoped paths (#36), read-only description with explicit `write_repo_summary` persistence, persona attribution and asynchronous `log_interaction` delivery, sidecar locks, the history merged across machines through user library sync (#172) and `read_history` previews within Claude Code's result limit (#212). The implementation and test plans (sections 6–7) mostly keep their original wording; Appendix C records deviations between the plan and the implementation. For current behavior, see [README: Repository Memory](../README.md#-repository-memory), [service memory behavior](shared-mcp-daemon.md#memory-and-errors) and the [routing reference](routing_flow.md#runtime-and-project-boundaries).
 
 > **Update 2026-04-15 (post-implementation):** The standalone `record_history` MCP tool was merged
 > into `log_interaction`. Now `log_interaction(...)` always appends to `history.md` (with optional
@@ -157,7 +157,7 @@ read_history(limit=20, since?, query?, machine?, offset=0, entry_id?)
 
 ### 4.1 `CLAUDE.md` (managed section)
 
-Two marker pairs coexist. The new pair is placed **below** the existing routing-protocol section so that reruns of `init_repo.sh` and `describe_repo` never overlap.
+Two marker pairs coexist. The repository-memory pair is placed **below** the existing routing-protocol section so that `init_repo.sh` and `write_repo_summary` update separate sections.
 
 ```
 # >>> Agents-Core Routing Protocol (managed by init_repo) >>>
@@ -193,6 +193,11 @@ Two marker pairs coexist. The new pair is placed **below** the existing routing-
 
 # <<< Agents-Core Repository Memory (managed by describe_repo) <<<
 ```
+
+The wrapper above retains the generator's literal attribution and refresh hint.
+Refreshing now requires `describe_repo(force_refresh=True)` followed, when its
+instruction permits persistence, by `write_repo_summary`; the description call
+alone changes no file.
 
 **Word budget:** the prompt asks for 800–1500 words to keep `CLAUDE.md` from bloating the context window, and responses report `word_count` and `in_word_budget`. The budget is not enforced and has no upper cap: `write_summary` persists any summary of at least 200 words (`MIN_PERSIST_WORD_COUNT`) that contains a `##`/`###` heading, and rejects anything shorter or without a heading.
 
@@ -238,11 +243,13 @@ async def describe_repo(
     ctx: Context | None = None,
     repo_path: str | None = None,
     force_refresh: bool = False,
+    workspace: str | None = None,
 ) -> str:
-    """One-shot repo bootstrap. When the client supports MCP sampling, generates
-    a structured summary and writes it into the managed Repository Memory
-    section of CLAUDE.md. Without sampling, or when the sampling call fails, it
-    writes nothing and returns needs_summary; write_repo_summary persists it.
+    """Read-only repository context; never samples or writes project files,
+    including with force_refresh=True. A required refresh returns needs_summary
+    with a prompt for the calling model. Follow its instruction before explicitly
+    persisting through write_repo_summary. For protected installation/source
+    roots, keep the overview in the answer or select a separate worktree.
 
     repo_path defaults to the client workspace root. A relative path resolves
     against that root, and the path must be an existing directory inside it;
@@ -250,15 +257,11 @@ async def describe_repo(
     write_repo_summary.
 
     Returns JSON whose fields depend on status:
-      refreshed: {status, action, path, hash, word_count, in_word_budget, summary_preview}
-        (action: created, appended or replaced)
       up-to-date: {status, path, hash, word_count, in_word_budget, summary_preview}
-      rejected, repo changed while sampling: {status, reason}
-      rejected, sampled summary failed the sanity check:
-        {status, reason, word_count, has_heading, summary_preview}
-      needs_summary (no sampling, or sampling failed; nothing written):
+      needs_summary (refresh required; nothing written):
         {status, workspace_id, repo_hash, repo_path, prompt, instruction}
-      error: {status, error}
+      error: {status, error}; stdio workspace errors also include pid,
+        workspace_inputs and, for a server started by Claude Desktop, hint
     """
 
 @mcp.tool()
@@ -268,14 +271,17 @@ async def write_repo_summary(
     repo_path: str | None = None,
     workspace_id: str | None = None,
     ctx: Context | None = None,
+    workspace: str | None = None,
 ) -> str:
-    """Persist the summary after describe_repo returned needs_summary. Pass
-    repo_hash, repo_path and workspace_id back unchanged; a changed repo hash
-    is rejected (call describe_repo again).
+    """Explicitly persist the summary after describe_repo returned needs_summary
+    and its instruction permits writing. Pass repo_hash, repo_path and
+    workspace_id back unchanged; a changed repo hash is rejected (describe again).
+    Refuses the running installation and runtime source root before creating
+    a lock, summary or cache. Separate linked worktrees remain eligible.
 
     Returns JSON whose fields depend on status:
       refreshed: {status, action, path, hash, word_count, in_word_budget, summary_preview}
-      rejected, stale repo_hash: {status, reason}
+      rejected, protected installation/source root or stale repo_hash: {status, reason}
       rejected, summary failed the sanity check:
         {status, reason, word_count, has_heading, summary_preview}
       error: {status, error}
@@ -296,17 +302,22 @@ async def log_interaction(
     persona: PersonaDescriptor | None = None,
     persona_action: Literal["keep", "switch", "refresh", "restore"] | None = None,
     ctx: Context | None = None,
+    workspace: str | None = None,
 ) -> str:
-    """End-of-turn logger. Always appends to history.md (append-only, deduped by
-    content hash) and optionally sends a Langfuse generation trace.
+    """End-of-turn logger. Queues independent history and optional Langfuse writes
+    and returns before either sink completes. History is append-only and deduped.
 
-    Returns JSON: {request_id, langfuse: {status, trace_id?, error?},
-    history: {status, entry_id?, path?, timestamp?, rotated_to?, error?}}.
-    With a persona descriptor, the payload also carries persona, persona_action
-    and attribution: "client-reported", and the entry's Action text ends with
-    "Persona (client-reported): ...". A missing or invalid workspace, a
-    persona whose agent differs from agent_name, or persona_action without
-    persona returns a protocol 2 ERROR response instead.
+    Returns JSON: {request_id, timestamp, langfuse: {status: "queued"},
+    history: {status: "queued"}, workspace, pid, history_last_error?}.
+    While warming up, Langfuse is skipped with reason warming_up. Queued is not
+    proof of persistence; a previous history failure appears in history_last_error.
+    With a valid persona descriptor, the payload also carries persona,
+    persona_action and attribution: "client-reported". Incomplete attribution is
+    queued as unverified with warnings and instruction; do not retry it.
+    Without a resolved project, history uses the installation's fallback journal
+    and reports workspace.source="fallback". Follow its instruction. A request
+    can still return protocol ERROR when workspace retry is required or the
+    fallback journal is unavailable. See the maintained service memory reference.
     """
 
 @mcp.tool()
@@ -318,6 +329,7 @@ async def read_history(
     offset: int = 0,
     entry_id: str | None = None,
     ctx: Context | None = None,
+    workspace: str | None = None,
 ) -> str:
     """Read recent entries (limit/since), run a lazy semantic search (query), or
     read one entry whole (entry_id; the other arguments are then ignored).
@@ -331,9 +343,12 @@ async def read_history(
     ({field: full length}); then shorter previews, then the last entries left
     out, counted in omitted. offset skips entries, so a later call reads them.
 
-    Returns JSON: {entries: [...], total, mode, omitted?, instruction?}.
+    Returns JSON: {entries: [...], total, mode, omitted?, instruction?, workspace,
+    pid, history_last_error?}.
     mode ∈ {"recency", "semantic", "entry"}.
-    A missing or invalid workspace, or any failure, returns {status, error}.
+    Without a project, reads the fallback journal for the claimed directory;
+    query is then a text match. An unavailable workspace or other failure can
+    return {status, error}.
 
     Entry shape depends on mode (machine is null for the checkout's own entries):
     - recency and entry: {id, timestamp, intent, action, outcome, files, tags, metadata, machine}.
@@ -347,7 +362,7 @@ All tools return JSON strings (following the existing pattern in `src/server.py`
 
 ## 5. Describe Prompt (central artifact)
 
-`RepoDescriber` builds this prompt and sends it via `ctx.session.create_message(...)`. The `{{CONTEXT_BUNDLE}}` placeholder is filled deterministically with three parts: the directory tree to depth 3 (skipping `DESCRIBE_EXCLUDED_DIRS`, dot-entries other than `.env.example`, and the contents of symlinked directories); the full text of each root manifest that is a regular file and not a symlink (`pyproject.toml`, `package.json`, `Cargo.toml`, `go.mod`, `pom.xml`, `build.gradle`, `build.gradle.kts`, `requirements.txt`, `Pipfile`, `Gemfile`, `composer.json`); and the first 200 lines of `README.md`.
+`RepoDescriber` builds this prompt and returns it in `needs_summary` for the calling model; it does not send an MCP sampling request. The `{{CONTEXT_BUNDLE}}` placeholder is filled deterministically with three parts: the directory tree to depth 3 (skipping `DESCRIBE_EXCLUDED_DIRS`, dot-entries other than `.env.example`, and the contents of symlinked directories); the full text of each root manifest that is a regular file and not a symlink (`pyproject.toml`, `package.json`, `Cargo.toml`, `go.mod`, `pom.xml`, `build.gradle`, `build.gradle.kts`, `requirements.txt`, `Pipfile`, `Gemfile`, `composer.json`); and the first 200 lines of `README.md`.
 
 > The prompt text is kept in English intentionally — future Claude sessions in any language context will be able to execute it, and the output structure matches the English sections of `CLAUDE.md`.
 

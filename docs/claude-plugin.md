@@ -25,8 +25,9 @@ rejection on that ground, not only the hold below. Every tool in `src/server.py`
 `title` and `readOnlyHint`, plus `destructiveHint` (and `idempotentHint` where it is clear) for
 tools that change something, and `openWorldHint`: true for the tools whose changes user sync can
 push to the private Git remote the user set up (`save_flow`, `delete_flow`, `set_flow_persona`,
-`log_interaction`), false for the rest (`TOOL_HINTS`, checked by `tests/test_tool_annotations.py`,
-which `.github/workflows/uninstall.yml` runs).
+`log_interaction`), and for `subscribe_user_rule` and `refresh_user_rule`, which fetch explicitly
+selected HTTPS rule sources. It is false for the rest (`TOOL_HINTS`, checked by
+`tests/test_tool_annotations.py`, which `.github/workflows/uninstall.yml` runs).
 
 ## Alongside the installer
 

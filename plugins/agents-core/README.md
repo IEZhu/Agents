@@ -115,8 +115,13 @@ the network only for these, each of which you can see in its source:
   `0` to turn them off);
 - Langfuse tracing, only if you put Langfuse keys into `.env`: tool calls and their inputs and
   outputs then go to the Langfuse host you configured;
-- syncing your personal library between your machines, only if you set it up: flows and, after
-  your review, history entries go to the private Git repository you choose.
+- syncing your personal library between your machines, only if you set it up: flows and history
+  shared under your chosen policy go to the private Git repository you choose. In
+  `history share approved` mode, approving a repository's preview covers its listed past entries
+  and future entries. Explicitly choosing `history share all` shares eligible past and future
+  entries without individual review; revoked repositories remain excluded;
+- fetching a user-selected HTTPS rule source when you explicitly subscribe or refresh;
+  configured authorization is sent to that source when enabled.
 
 Prompts and answers themselves are exchanged between you and Claude as usual; the plugin adds no
 other recipient.
