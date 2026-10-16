@@ -130,6 +130,60 @@ def test_one_status_call_reads_branch_and_changes(monkeypatch):
     assert {"--porcelain=v2", "--branch", "--no-ahead-behind", "--untracked-files=no"} <= set(status[0])
 
 
+MAIN, DEV = "e" * 40, "f" * 40  # a release merge commit's parents: main's previous HEAD, the dev HEAD
+
+
+def fake_merge(monkeypatch, branch, parents="2026-10-14T18:07:38+00:00\n2026-10-15T18:14:29+00:00\n", code=0):
+    """HEAD is the merge commit of #415: main's previous HEAD and the dev HEAD it merged."""
+    calls = []
+    def run(args, **kwargs):
+        calls.append(args)
+        if "log" in args:
+            return subprocess.CompletedProcess(args, 0, stdout=f"2026-10-15T19:05:20+00:00 {MAIN} {DEV}\n", stderr="")
+        if "show" in args:
+            return subprocess.CompletedProcess(args, code, stdout=parents, stderr="")
+        return subprocess.CompletedProcess(args, 0, stdout=porcelain(branch), stderr="")
+    monkeypatch.setattr(version.subprocess, "run", run)
+    return calls
+
+
+def test_a_release_on_main_keeps_the_version_of_the_dev_head_it_merged(monkeypatch):
+    calls = fake_merge(monkeypatch, "main")
+    assert version.agents_core_version() == "26.10.15.1814"  # dev showed 26.10.15.1814-dev
+    assert [c[-4:] for c in calls if "show" in c] == [["-s", "--format=%cI", MAIN, DEV]]
+
+
+def test_a_merge_older_than_main_keeps_its_own_time(monkeypatch):
+    fake_merge(monkeypatch, "main", parents="2026-10-15T18:14:29+00:00\n2026-10-14T18:07:38+00:00\n")
+    assert version.agents_core_version() == "26.10.15.1905"
+
+
+@pytest.mark.parametrize("branch", ["dev", "(detached)", "feature/main"])
+def test_merges_elsewhere_keep_their_own_time(monkeypatch, branch):
+    calls = fake_merge(monkeypatch, branch)
+    assert version.agents_core_version().startswith("26.10.15.1905")
+    assert not [c for c in calls if "show" in c]
+
+
+@pytest.mark.parametrize("parents, code", [("", 128), ("2026-10-14T18:07:38+00:00\n", 0)])
+def test_missing_parents_keep_the_merge_time(monkeypatch, parents, code):
+    # A shallow clone has the parents' SHAs but not their commits.
+    fake_merge(monkeypatch, "main", parents, code)
+    assert version.agents_core_version() == "26.10.15.1905"
+
+
+def test_unknown_when_the_merged_times_are_garbage(monkeypatch):
+    fake_merge(monkeypatch, "main", "2026-10-14T18:07:38\n2026-10-15T18:14:29\n")
+    assert version.agents_core_version() == "unknown"
+
+
+def test_release_time_compares_moments_not_text():
+    # 20:14+02:00 is later than 19:00+00:00 although it sorts first as text.
+    assert version.release_time("m", "2026-10-15T17:00:00+00:00", "2026-10-15T19:14:29+02:00") == \
+        "2026-10-15T19:14:29+02:00"
+    assert version.release_time("m", "2026-10-15T18:00:00+00:00", "2026-10-15T19:14:29+02:00") == "m"
+
+
 def _git_version() -> tuple[int, int]:
     out = subprocess.run(["git", "--version"], capture_output=True, text=True).stdout
     found = re.search(r"(\d+)\.(\d+)", out)
@@ -168,6 +222,34 @@ def test_dev_suffix_in_a_real_repository(monkeypatch, tmp_path):
     assert current().endswith("-dev")  # untracked files do not make it dirty
     git("checkout", "-q", "--detach")
     assert "-" not in current()
+
+
+@pytest.mark.skipif(shutil.which("git") is None or _git_version() < (2, 17),
+                    reason="needs git 2.17 or newer (status --no-ahead-behind)")
+def test_release_merge_in_a_real_repository(monkeypatch, tmp_path):
+    repo = tmp_path / "repo"
+    def git(*args, at):
+        env = {**os.environ, "GIT_AUTHOR_DATE": at, "GIT_COMMITTER_DATE": at}
+        subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.com", "-C", str(repo), *args],
+                       check=True, capture_output=True, stdin=subprocess.DEVNULL, env=env)
+    repo.mkdir()
+    git("init", "-q", at="2026-10-14T18:07:38+00:00")
+    git("checkout", "-q", "-b", "main", at="2026-10-14T18:07:38+00:00")
+    git("commit", "-q", "--allow-empty", "-m", "previous release", at="2026-10-14T18:07:38+00:00")
+    git("checkout", "-q", "-b", "dev", at="2026-10-15T18:14:29+00:00")
+    git("commit", "-q", "--allow-empty", "-m", "last dev merge", at="2026-10-15T20:14:29+02:00")
+    git("checkout", "-q", "main", at="2026-10-15T19:05:20+00:00")
+    git("merge", "-q", "--no-ff", "-m", "Merge pull request #415 from IEZhu/dev", "dev",
+        at="2026-10-15T19:05:20+00:00")
+    monkeypatch.setattr(version, "ROOT", repo)
+
+    def current():
+        version.agents_core_version.cache_clear()
+        return version.agents_core_version()
+
+    assert current() == "26.10.15.1814"
+    git("checkout", "-q", "dev", at="2026-10-15T19:05:20+00:00")
+    assert current() == "26.10.15.1814-dev"
 
 
 @pytest.mark.parametrize("failure", [OSError("no git"), subprocess.TimeoutExpired("git", 5)])
