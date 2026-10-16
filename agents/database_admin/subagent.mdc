@@ -5,6 +5,8 @@ skills:
 - skill-dev-debugging
 - skill-dev-performance
 - skill-dev-security
+- skill-data-consistency
+- skill-storage-engines
 implants:
 - implant-verify-assumptions
 - implant-regression-first

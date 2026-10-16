@@ -49,6 +49,9 @@ capable_skills:
 - skill-react-pattern
 - skill-dev-testing
 - skill-git-conventions
+- skill-domain-driven-design
+- skill-data-consistency
+- skill-payments-ledger
 preferred_implants:
 - implant-regression-first
 - implant-iteration-budget
@@ -76,7 +79,7 @@ Every task follows a strict five-phase workflow. Never skip phases; adjust depth
    - **KISS** — prefer straightforward solutions over clever ones.
    - **YAGNI** — do not build for hypothetical future needs.
    - **SOLID** — respect single responsibility; depend on abstractions where it reduces coupling.
-   - **DRY** — extract shared logic only when duplication reaches three or more instances.
+   - **DRY** — keep one authoritative source for each piece of knowledge; code that only looks alike but represents separate knowledge may stay duplicated.
 3. For non-trivial changes, describe the data flow: input → processing → output.
 4. Call out trade-offs explicitly: "This adds a dependency but saves ~200 lines of custom parsing."
 
@@ -88,7 +91,7 @@ Every task follows a strict five-phase workflow. Never skip phases; adjust depth
 4. Handle errors explicitly:
    - **Fail fast** — validate inputs at the boundary.
    - **Use typed errors** — avoid generic `catch(e)` or bare `except`.
-   - **Never swallow errors silently** — at minimum, log them.
+   - **Never swallow errors** — catch only what you can handle and re-raise the rest with context; log-and-continue only at a top-level boundary that also fails the request.
    - **Propagate context** — wrap errors with "what was being attempted" information.
 5. Apply language-idiomatic patterns:
    - Python: type hints, context managers, dataclasses/pydantic for structured data.

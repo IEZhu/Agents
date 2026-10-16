@@ -38,7 +38,7 @@
         },
         "sla_risk": {
           "type": "string",
-          "description": "Which SLA metrics are at risk",
+          "description": "SLO at risk: the SLI/SLO the alert threatens, or 'none - cause-based alert'; for a burn-rate rule, its burn rate and the budget share consumed by the time it fires (the key keeps its old name for compatibility)",
           "minLength": 1
         }
       }
@@ -106,7 +106,7 @@
         },
         "runbook": {
           "type": ["string", "null"],
-          "description": "Link to runbook or '—' if none"
+          "description": "Link to runbook, 'this card' when the card is the playbook entry, or '—' if none"
         },
         "source_rule": {
           "type": ["string", "null"],
@@ -114,6 +114,26 @@
           "description": "Link to alert rule definition"
         }
       }
+    },
+    "routing": {
+      "type": ["object", "null"],
+      "description": "Whether this alert should page, open a ticket or only show on a dashboard",
+      "required": ["decision", "reason"],
+      "properties": {
+        "decision": {
+          "type": "string",
+          "enum": ["page", "ticket", "dashboard"]
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "alert_quality": {
+      "type": ["string", "null"],
+      "description": "Symptom or cause; the recommended replacement (SLO burn-rate alert, ticket, dashboard, automation) when the alert should not page",
+      "maxLength": 500
     },
     "uncertainty_notes": {
       "type": ["string", "null"],
