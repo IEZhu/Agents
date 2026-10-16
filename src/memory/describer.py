@@ -8,7 +8,10 @@ runtime source root are protected from summary writes.
 from __future__ import annotations
 
 import datetime as _dt
+import functools
 import hashlib
+import itertools
+import json
 import logging
 import os
 from dataclasses import dataclass
@@ -34,6 +37,7 @@ from src.memory.config import (
     DESCRIBE_WORD_MAX,
     DESCRIBE_WORD_MIN,
 )
+from src.result_size import shown_size
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +72,27 @@ _FENCE_OPEN = "```\n"
 _FENCE_CLOSE = "\n```"
 _ELLIPSIS = "…"
 
+# Bundle sizes are shown units (#434): what a text adds to the describe_repo
+# response as Claude Code counts it (src.result_size.shown_size). The response
+# JSON-encodes the prompt and Claude Code escapes it once more, in UTF-16 code
+# units, so a quote or backslash costs 4, a newline or tab 3, another control
+# character 7, an astral character 2 and any other character 1. Escaping goes
+# character by character, so the cost of joined texts is the sum of their costs.
+_EMPTY_SHOWN_SIZE = shown_size("")
+
+
+def _cost(text: str) -> int:
+    """Shown units ``text`` adds to the describe_repo response; at least ``len(text)``."""
+    return shown_size(json.dumps(text, ensure_ascii=False)[1:-1]) - _EMPTY_SHOWN_SIZE
+
+
+@functools.lru_cache(maxsize=1024)
+def _char_cost(char: str) -> int:
+    return _cost(char)
+
+
+_NEWLINE_COST = _cost("\n")
+
 
 def _count(number: int, singular: str, plural: str) -> str:
     return f"{number} {singular if number == 1 else plural}"
@@ -79,56 +104,67 @@ def _fenced(heading: str, body: str) -> str:
 
 
 def _body_room(heading: str, max_chars: int) -> int:
-    """Characters left for a fenced body once its heading and fences are counted."""
-    return max_chars - len(_fenced(heading, ""))
+    """Shown units left for a fenced body once its heading and fences are counted."""
+    return max_chars - _cost(_fenced(heading, ""))
 
 
 def _shorten_line(line: str, max_chars: int) -> str:
-    """Return ``line`` within ``max_chars``, ending in an ellipsis when shortened.
+    """Return ``line`` within ``max_chars`` shown units, ending in an ellipsis when shortened.
 
-    Python strings index code points, so a cut never splits a UTF-8 or UTF-16
-    sequence of a non-ASCII character.
+    Python strings index code points, so a cut never splits the UTF-8 or UTF-16
+    sequence of a character.
     """
-    if len(line) <= max_chars:
+    if _cost(line) <= max_chars:
         return line
-    if max_chars < len(_ELLIPSIS):
+    room = max_chars - _cost(_ELLIPSIS)
+    if room < 0:
         return ""
-    return line[:max_chars - len(_ELLIPSIS)] + _ELLIPSIS
+    # The whole line costs more than room, so some prefix runs over it.
+    end = next(end for end, size in enumerate(itertools.accumulate(map(_char_cost, line))) if size > room)
+    return line[:end] + _ELLIPSIS
 
 
-def _more_lines_note(number: int) -> str:
-    return f"{_ELLIPSIS} {_count(number, 'more line', 'more lines')}"
+def _more_lines_note(number: int, tail: str = "") -> str:
+    return f"{_ELLIPSIS} {_count(number, 'more line', 'more lines')}{tail}"
 
 
-def _fit_lines(lines: list[str], max_chars: int) -> str:
-    """Join ``lines`` within ``max_chars``, cutting at a line boundary.
+def _fit_lines(lines: list[str], max_chars: int, note_tail: str = "") -> str:
+    """Join ``lines`` within ``max_chars`` shown units, cutting at a line boundary.
 
-    Lines over ``DESCRIBE_LINE_MAX_CHARS`` are shortened first. A cut ends with a
-    "… N more lines" note; when not even the first line fits beside that note,
-    that single line is shortened into the room left, so the section keeps some
-    content.
+    Lines that fit are returned unchanged. Otherwise lines over
+    ``DESCRIBE_LINE_MAX_CHARS`` are shortened first, and a cut ends with a
+    "… N more lines" note followed by ``note_tail``; when not even the first
+    line fits beside that note, that single line is shortened into the room
+    left, so the section keeps some content.
     """
+    text = "\n".join(lines)
+    if _cost(text) <= max_chars:
+        return text
     lines = [_shorten_line(line, DESCRIBE_LINE_MAX_CHARS) for line in lines]
     text = "\n".join(lines)
-    if len(text) <= max_chars:
+    if _cost(text) <= max_chars:
         return text
+
+    def note(number: int) -> str:
+        return _more_lines_note(number, note_tail)
+
     kept: list[str] = []
-    size = 0  # len of the kept lines, each followed by its newline
+    size = 0  # cost of the kept lines, each followed by its newline
     for index, line in enumerate(lines):
         # The whole text does not fit, so a note always follows a kept line.
-        if size + len(line) + 1 + len(_more_lines_note(len(lines) - index - 1)) > max_chars:
+        if size + _cost(line) + _NEWLINE_COST + _cost(note(len(lines) - index - 1)) > max_chars:
             break
         kept.append(line)
-        size += len(line) + 1
+        size += _cost(line) + _NEWLINE_COST
     left = len(lines) - len(kept)
     if not kept:
         after = left - 1
-        room = max_chars - (len(_more_lines_note(after)) + 1 if after else 0)
-        if room > len(_ELLIPSIS):
+        room = max_chars - (_cost(note(after)) + _NEWLINE_COST if after else 0)
+        if room > _cost(_ELLIPSIS):
             kept.append(_shorten_line(lines[0], room))
             left = after
-    result = "\n".join(kept + ([_more_lines_note(left)] if left else []))
-    return result if len(result) <= max_chars else _shorten_line(_more_lines_note(left), max_chars)
+    result = "\n".join(kept + ([note(left)] if left else []))
+    return result if _cost(result) <= max_chars else _shorten_line(note(left), max_chars)
 
 
 @dataclass(frozen=True)
@@ -146,32 +182,57 @@ def _tree_note(dropped: dict[int, int]) -> str:
     )
     return (
         f"{_ELLIPSIS} {_count(total, 'more entry', 'more entries')} ({by_depth}; "
-        "the deepest lines were cut first, from the end of the listing)"
+        "the deepest lines were cut first, evenly across directories)"
     )
 
 
-def _fit_tree(lines: list[_TreeLine], max_chars: int) -> str:
-    """Join tree lines within ``max_chars``, dropping the deepest lines first.
+def _sibling_ranks(lines: list[_TreeLine]) -> list[tuple[int, ...]]:
+    """Each line's position among its siblings, then its parent's among theirs, up to the top.
 
-    Lines go from the end of the listing at the deepest depth, then at the
-    next depth up, so the top levels stay complete; a final note counts the
-    entries left out at each depth.
+    The tree walk lists a directory's entries right after its own line, so a
+    line is at most one level deeper than the line before it.
     """
-    size = sum(len(line.text) + 1 for line in lines)  # each line with its newline
-    if size - 1 <= max_chars:
+    branch: list[int] = []  # positions along the current branch, the top level first
+    ranks: list[tuple[int, ...]] = []
+    for line in lines:
+        del branch[line.depth:]
+        if len(branch) == line.depth:
+            branch[-1] += 1
+        else:
+            branch.append(0)
+        ranks.append(tuple(reversed(branch)))
+    return ranks
+
+
+def _fit_tree(lines: list[_TreeLine], max_chars: int) -> str:
+    """Join tree lines within ``max_chars`` shown units, dropping the deepest lines first.
+
+    At each depth, from the deepest up, the directories give up their last
+    entries in turn: a line goes before every line that stands earlier in its
+    own directory, and among lines that stand equally far down their
+    directories, the one under a later parent goes first. So each directory
+    keeps as many of its first entries as any other, give or take one, and
+    the top levels stay complete while the room allows; a final note counts
+    the entries left out at each depth.
+    """
+    sizes = [_cost(line.text) + _NEWLINE_COST for line in lines]  # each line with its newline
+    size = sum(sizes)
+    if size - _NEWLINE_COST <= max_chars:
         return "\n".join(line.text for line in lines)
+    ranks = _sibling_ranks(lines)
+    order = sorted(range(len(lines)), key=lambda i: (-lines[i].depth, tuple(-rank for rank in ranks[i])))
     kept = [True] * len(lines)
     dropped: dict[int, int] = {}
-    for index in sorted(range(len(lines)), key=lambda i: (-lines[i].depth, -i)):
-        if dropped and size + len(_tree_note(dropped)) <= max_chars:
+    for index in order:
+        if dropped and size + _cost(_tree_note(dropped)) <= max_chars:
             break
         line = lines[index]
         kept[index] = False
-        size -= len(line.text) + 1
+        size -= sizes[index]
         dropped[line.depth] = dropped.get(line.depth, 0) + line.entries
     note = _tree_note(dropped)
     result = "\n".join([line.text for line, keep in zip(lines, kept) if keep] + [note])
-    return result if len(result) <= max_chars else _shorten_line(note, max_chars)
+    return result if _cost(result) <= max_chars else _shorten_line(note, max_chars)
 
 
 DESCRIBE_PROMPT_TEMPLATE = """\
@@ -384,8 +445,10 @@ class RepoDescriber:
         """Render the deterministic ``{CONTEXT_BUNDLE}`` block.
 
         The tree, the manifests and the README head each stay within their own
-        cap, so the bundle never exceeds ``DESCRIBE_BUNDLE_MAX_CHARS``. A cut
-        happens at a line boundary and leaves a note of what it left out.
+        cap in shown units, so the bundle never exceeds
+        ``DESCRIBE_BUNDLE_MAX_CHARS``. A part that fits its cap is rendered
+        whole; a cut happens at a line boundary and leaves a note of what it
+        left out.
         """
         repo = Path(self.repo_path)
 
@@ -401,9 +464,12 @@ class RepoDescriber:
             try:
                 with readme.open("r", encoding="utf-8", errors="replace") as f:
                     head = "".join(f.readline() for _ in range(DESCRIBE_README_HEAD_LINES))
+                    continues = bool(f.read(1))
                 heading = "### README.md (head)"
-                room = _body_room(heading, DESCRIBE_README_MAX_CHARS - len(_SECTION_SEPARATOR))
-                sections.append(_fenced(heading, _fit_lines(head.rstrip().split("\n"), room)))
+                room = _body_room(heading, DESCRIBE_README_MAX_CHARS - _cost(_SECTION_SEPARATOR))
+                # A cut note counts the lines left out of the head, so it says when the file goes on.
+                tail = f" of the first {DESCRIBE_README_HEAD_LINES}; README.md continues" if continues else ""
+                sections.append(_fenced(heading, _fit_lines(head.rstrip().split("\n"), room, tail)))
             except OSError:
                 pass
 
@@ -427,26 +493,34 @@ class RepoDescriber:
                     continue
         rendered: dict[str, str] = {}
         budget = DESCRIBE_MANIFESTS_MAX_CHARS
-        by_size = sorted(manifests, key=lambda item: len(item[1]))
+        by_size = sorted(manifests, key=lambda item: _cost(item[1]))
         for position, (manifest, text) in enumerate(by_size):
             share = min(DESCRIBE_MANIFEST_MAX_CHARS, budget // (len(by_size) - position))
             heading = f"### {manifest}"
-            room = _body_room(heading, share - len(_SECTION_SEPARATOR))
+            room = _body_room(heading, share - _cost(_SECTION_SEPARATOR))
             rendered[manifest] = _fenced(heading, _fit_lines(text.split("\n"), room))
-            budget -= len(rendered[manifest]) + len(_SECTION_SEPARATOR)
+            budget -= _cost(rendered[manifest]) + _cost(_SECTION_SEPARATOR)
         return [rendered[manifest] for manifest, _text in manifests]
 
     def _render_tree(self, root: Path, max_chars: int) -> str:
-        """Indented directory listing, depth-bounded, vendor-pruned, within ``max_chars``.
+        """Indented directory listing, depth-bounded, vendor-pruned, within ``max_chars`` shown units.
 
-        A directory lists at most ``DESCRIBE_TREE_MAX_ENTRIES_PER_DIR`` entries
-        and notes how many more it has; ``_fit_tree`` then drops the deepest
-        lines if the listing is still too long.
+        The full listing is returned unchanged when it fits. Otherwise a
+        directory lists at most ``DESCRIBE_TREE_MAX_ENTRIES_PER_DIR`` entries
+        and notes how many more it has, an overlong line is shortened, and
+        ``_fit_tree`` drops the deepest lines if the listing is still too long.
+        Once the full listing has grown too long, the walk skips the entries
+        past a directory's cap.
         """
-        lines: list[_TreeLine] = []
+        full: Optional[list[str]] = []  # the listing without caps, while it may still fit
+        full_size = -_NEWLINE_COST  # cost of the full listing joined by newlines
+        capped: list[_TreeLine] = []
         max_depth = DESCRIBE_TREE_MAX_DEPTH
+        per_dir = DESCRIBE_TREE_MAX_ENTRIES_PER_DIR
 
-        def walk(path: Path, depth: int) -> None:
+        def walk(path: Path, depth: int, listed: bool) -> None:
+            """List ``path``'s entries; ``listed`` says whether ``path`` is in the capped listing."""
+            nonlocal full, full_size
             if depth > max_depth:
                 return
             try:
@@ -459,20 +533,31 @@ class RepoDescriber:
                 and not (child.name.startswith(".") and child.name not in (".env.example",))
             ]
             indent = "  " * (depth - 1)
-            for child in children[:DESCRIBE_TREE_MAX_ENTRIES_PER_DIR]:
+            for position, child in enumerate(children):
+                within = listed and position < per_dir
+                if not within and full is None:
+                    break  # the rest of this directory is past the cap
                 marker = "/" if child.is_dir() else ""
-                text = _shorten_line(f"{indent}{child.name}{marker}", DESCRIBE_LINE_MAX_CHARS)
-                lines.append(_TreeLine(text, depth))
+                text = f"{indent}{child.name}{marker}"
+                if full is not None:
+                    full.append(text)
+                    full_size += _cost(text) + _NEWLINE_COST
+                    if full_size > max_chars:
+                        full = None
+                if within:
+                    capped.append(_TreeLine(_shorten_line(text, DESCRIBE_LINE_MAX_CHARS), depth))
                 if child.is_dir() and not child.is_symlink():
-                    walk(child, depth + 1)
-            more = len(children) - DESCRIBE_TREE_MAX_ENTRIES_PER_DIR
-            if more > 0:
-                lines.append(_TreeLine(
+                    walk(child, depth + 1, within)
+            more = len(children) - per_dir
+            if listed and more > 0:
+                capped.append(_TreeLine(
                     f"{indent}{_ELLIPSIS} {_count(more, 'more entry', 'more entries')}", depth, more,
                 ))
 
-        walk(root, 1)
-        return _fit_tree(lines, max_chars)
+        walk(root, 1, True)
+        if full is not None:
+            return "\n".join(full)
+        return _fit_tree(capped, max_chars)
 
     def build_prompt(self) -> str:
         bundle = self.build_context_bundle()
