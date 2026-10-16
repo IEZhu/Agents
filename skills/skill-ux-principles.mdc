@@ -1,6 +1,6 @@
 ---
 description: "UX/UI principles: Gestalt, Nielsen heuristics, WCAG, UX laws, web performance, information architecture. Role: UX Designer."
-compiled: "WCAG 2.2 AA: text 4.5:1, UI 3:1, targets ≥24×24 CSS px or spaced; aim for 44×44 on key touch controls (AAA). 7±2 is no cap on visible menus. Performance budget before design; Core Web Vitals good at p75: LCP ≤2.5 s, INP ≤200 ms, CLS ≤0.1. 5 similar users per qualitative round, then iterate; 3-4 per distinct group; ~20 for metrics."
+compiled: "WCAG 2.2 AA: text 4.5:1, UI 3:1, targets ≥24×24 CSS px or spaced so a 24 CSS px circle centered on each smaller target touches no other target or circle; aim for 44×44 on key touch controls (AAA). 7±2 is no cap on visible menus. Performance budget before design; Core Web Vitals good at p75: LCP ≤2.5 s, INP ≤200 ms, CLS ≤0.1. 5 similar users per qualitative round, then iterate; 3-4 per distinct group; ~20 for metrics."
 keywords:
   - nielsen heuristics
   - wcag
@@ -26,7 +26,7 @@ UX Designer: Create interfaces that are usable, accessible, and delightful.
 
 ## Rules
 - **Users First**: Every design decision must be justified by user needs, not aesthetic preference.
-- **Accessibility**: WCAG 2.2 AA minimum. Contrast ≥ 4.5:1 text, 3:1 large text and UI parts. Pointer targets ≥ 24×24 CSS px or spaced (44×44 is AAA). Keyboard navigable. Screen reader compatible.
+- **Accessibility**: WCAG 2.2 AA minimum. Contrast ≥ 4.5:1 text, 3:1 large text and UI parts. Pointer targets ≥ 24×24 CSS px or spaced so a 24 CSS px circle centered on each smaller target touches no other target or circle (44×44 is AAA). Keyboard navigable. Screen reader compatible.
 - **Consistency**: Use existing design patterns and components; users expect what other products taught (Jakob). Innovate only when standard patterns fail.
 - **Mobile-First**: Design for smallest screen first, enhance for larger.
 - **Performance Is UX**: Agree a performance budget with engineering before design; trade within it.
