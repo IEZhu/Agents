@@ -1,11 +1,13 @@
 """Agents-Core version: the UTC commit time of the installation's HEAD.
 
 The version has the form ``YY.MM.DD.HHMM`` (for example ``26.10.01.1001``). On
-``main`` HEAD is the last release (a merged release pull request from ``dev``); on
-``dev``, the last merged pull request. ``-dev`` marks an installation on the
-integration branch ``dev``, ``-dirty`` uncommitted changes to tracked files
-(``26.10.01.1001-dev-dirty`` has both); ``unknown`` means there is no readable
-git metadata.
+``dev`` HEAD is the last merged pull request. On ``main`` HEAD is the last release,
+the merge commit of a release pull request from ``dev``: a merge commit on ``main``
+takes the time of the revision it merged (``release_time``), so a release keeps the
+version its ``dev`` HEAD showed, as its tag does (``scripts/release_version.py``).
+``-dev`` marks an installation on the integration branch ``dev``, ``-dirty``
+uncommitted changes to tracked files (``26.10.01.1001-dev-dirty`` has both);
+``unknown`` means there is no readable git metadata.
 The value is computed once per process, which is correct because an applied
 update always starts a new process.
 """
@@ -18,6 +20,7 @@ from src import executables
 
 UNKNOWN = "unknown"
 DEV_BRANCH = "dev"  # the integration branch; main takes its release pull requests
+RELEASE_BRANCH = "main"
 ROOT = Path(__file__).resolve().parents[1]
 _TIMEOUT = 5
 _BRANCH_HEADER = "# branch.head "
@@ -39,6 +42,18 @@ def _git(*args: str) -> str | None:
     return result.stdout if result.returncode == 0 else None
 
 
+def release_time(merge: str, previous: str, merged: str) -> str:
+    """The commit time a merge into ``main`` is versioned by: that of the revision it merged.
+
+    A merged revision older than main's previous HEAD (a stale hotfix branch) keeps the merge's
+    own time, so main's version never goes back. ``scripts/release_version.py`` applies the same rule.
+    """
+    moments = [datetime.fromisoformat(value.strip()) for value in (previous, merged)]
+    if any(moment.tzinfo is None for moment in moments):
+        raise ValueError("commit time without a timezone")
+    return merged if moments[1] >= moments[0] else merge
+
+
 def format_version(commit_time: str, dirty: bool = False, branch: str | None = None) -> str:
     moment = datetime.fromisoformat(commit_time.strip()).astimezone(timezone.utc)
     suffix = ("-dev" if branch == DEV_BRANCH else "") + ("-dirty" if dirty else "")
@@ -57,9 +72,10 @@ def _branch(status: str) -> str | None:
 def agents_core_version() -> str:
     if not (ROOT / ".git").exists():  # never read the version of an enclosing repository
         return UNKNOWN
-    commit_time = _git("log", "-1", "--format=%cI")
-    if not commit_time or not commit_time.strip():
+    head = _git("log", "-1", "--format=%cI %P")
+    if not head or not head.strip():
         return UNKNOWN
+    commit_time, *parents = head.split()
     try:
         # One call for both: the branch header and the changed tracked files. Without the
         # ahead/behind count, which would walk history for nothing.
@@ -71,7 +87,13 @@ def agents_core_version() -> str:
         if status is None:
             return UNKNOWN
         dirty = any(line.strip() and not line.startswith("#") for line in status.splitlines())
-        return format_version(commit_time, dirty, _branch(status))
+        branch = _branch(status)
+        if branch == RELEASE_BRANCH and len(parents) == 2:
+            # A shallow clone lacks the parents: the merge then keeps its own time.
+            times = (_git("show", "-s", "--format=%cI", *parents) or "").split()
+            if len(times) == 2:
+                commit_time = release_time(commit_time, *times)
+        return format_version(commit_time, dirty, branch)
     except ValueError:
         return UNKNOWN
 

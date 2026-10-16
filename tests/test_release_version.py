@@ -15,6 +15,7 @@ spec.loader.exec_module(release)
 REPO = "IEZhu/Agents"
 SHA = "a" * 40
 OTHER = "b" * 40
+MAIN, DEV = "e" * 40, "f" * 40  # a release merge commit's parents: main's previous HEAD, the dev HEAD
 
 
 def promotion():
@@ -31,15 +32,18 @@ def http_error(code):
 
 class API:
     def __init__(self, date="2026-10-14T14:00:59+02:00", tags=None, failure=None, race=None,
-                 tag_objects=None):
+                 tag_objects=None, parents=None):
         self.date, self.tags = date, dict(tags or {})
+        self.parents = dict(parents or {})  # parent SHA -> committer date; empty: a squash merge
         self.failure, self.race, self.calls = failure, race, []
         self.tag_objects = dict(tag_objects or {})
 
     def request(self, method, path, data=None):
         self.calls.append((method, path, data))
         if path == f"/git/commits/{SHA}":
-            return {"committer": {"date": self.date}}
+            return {"committer": {"date": self.date}, "parents": [{"sha": sha} for sha in self.parents]}
+        if path.startswith("/git/commits/"):
+            return {"committer": {"date": self.parents[path.removeprefix("/git/commits/")]}}
         if method == "GET" and path.startswith("/git/tags/"):
             return {"object": self.tag_objects[path.removeprefix("/git/tags/")]}
         if method == "GET":
@@ -63,9 +67,38 @@ def test_publishes_exact_merge_calendar_version_and_not_current_main():
     api = API()
     result = release.publish(promotion(), REPO, api)
     assert result == {"status": "created", "version": "26.10.14.1200",
-                      "tag": "v26.10.14.1200", "sha": SHA}
+                      "tag": "v26.10.14.1200", "sha": SHA, "source": SHA}
     assert api.tags == {"v26.10.14.1200": SHA}
     assert api.calls[0] == ("GET", f"/git/commits/{SHA}", None)
+
+
+def test_merge_commit_is_versioned_by_the_dev_head_it_merged():
+    # #415: dev showed 26.10.15.1814-dev; its merge into main at 19:05 was tagged v26.10.15.1905.
+    api = API(date="2026-10-15T21:05:20+02:00",
+              parents={MAIN: "2026-10-14T20:07:38+02:00", DEV: "2026-10-15T20:14:29+02:00"})
+    result = release.publish(promotion(), REPO, api)
+    assert result == {"status": "created", "version": "26.10.15.1814",
+                      "tag": "v26.10.15.1814", "sha": SHA, "source": DEV}
+    assert api.tags == {"v26.10.15.1814": SHA}  # the tag still marks the merge commit on main
+    assert api.calls[:3] == [("GET", f"/git/commits/{sha}", None) for sha in (SHA, MAIN, DEV)]
+
+
+def test_merged_revision_older_than_main_keeps_the_merge_time():
+    # A dev HEAD older than main's previous HEAD (an unmerged-back hotfix) must not move the version back.
+    api = API(parents={MAIN: "2026-10-14T11:00:00+00:00", DEV: "2026-10-14T10:00:00+00:00"})
+    result = release.publish(promotion(), REPO, api)
+    assert (result["version"], result["source"]) == ("26.10.14.1200", SHA)
+
+
+@pytest.mark.parametrize("parents", [
+    {MAIN: "2026-10-14T11:00:00", DEV: "2026-10-14T11:30:00+00:00"},
+    {MAIN: "2026-10-14T11:00:00+00:00", DEV: "invalid"},
+])
+def test_invalid_or_naive_parent_time_fails(parents):
+    api = API(parents=parents)
+    with pytest.raises(ValueError):
+        release.publish(promotion(), REPO, api)
+    assert not api.tags
 
 
 @pytest.mark.parametrize("mutation", [
@@ -118,7 +151,7 @@ def test_matching_annotated_release_tag_is_reused_without_writes(tag, nested):
         objects[inner] = {"type": "commit", "sha": SHA}
     api = API(tags=tags, tag_objects=objects)
     assert release.publish(promotion(), REPO, api) == {
-        "status": "existing", "version": "26.10.14.1200", "tag": tag, "sha": SHA,
+        "status": "existing", "version": "26.10.14.1200", "tag": tag, "sha": SHA, "source": SHA,
     }
     assert api.tags == tags
     assert all(method == "GET" for method, _, _ in api.calls)
@@ -241,7 +274,7 @@ def test_promotion_publishes_a_github_release_after_verifying_its_tag():
     api = ReleaseAPI()
     result = release.publish_release(promotion(), REPO, api)
     assert result == {"status": "created", "version": "26.10.14.1200",
-                      "tag": "v26.10.14.1200", "sha": SHA, "github_release": "created",
+                      "tag": "v26.10.14.1200", "sha": SHA, "source": SHA, "github_release": "created",
                       "release_url": "https://github.com/IEZhu/Agents/releases/tag/v26.10.14.1200"}
     write = next(call for call in api.calls if call[:2] == ("POST", "/releases"))
     assert write[2] == {
@@ -249,11 +282,20 @@ def test_promotion_publishes_a_github_release_after_verifying_its_tag():
         "draft": False, "prerelease": False, "make_latest": "legacy",
         "generate_release_notes": True,
         "body": f"Promotion: https://github.com/{REPO}/pull/381\n\n"
-                f"Merge commit: `{SHA}`.\n\nCalendar version: `26.10.14.1200`.",
+                f"Merge commit: `{SHA}`.\n\nCalendar version: `26.10.14.1200`, the commit time of `{SHA}`.",
     }
     assert api.tags[result["tag"]] == SHA
     assert api.calls[-2:] == [("GET", f"/releases/tags/{result['tag']}", None),
                              ("GET", f"/git/ref/tags/{result['tag']}", None)]
+
+
+def test_release_notes_name_the_dev_head_the_version_comes_from():
+    api = ReleaseAPI(date="2026-10-15T21:05:20+02:00",
+                     parents={MAIN: "2026-10-14T20:07:38+02:00", DEV: "2026-10-15T20:14:29+02:00"})
+    result = release.publish_release(promotion(), REPO, api)
+    assert result["tag"] == api.release["tag_name"] == "v26.10.15.1814"
+    assert api.release["body"].endswith(f"Calendar version: `26.10.15.1814`, the commit time of `{DEV}`.")
+    assert api.release["target_commitish"] == SHA
 
 
 def test_published_release_rerun_preserves_existing_notes_and_makes_no_writes():
