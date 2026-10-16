@@ -20,6 +20,32 @@ This is the one description of the release procedure; the README links it.
 - `dev` is never rebased or force-pushed: installations that follow it only
   fast-forward.
 
+## Prepare a promotion
+
+1. Fetch `origin` and record the full `origin/dev` and `origin/main` SHAs. Inspect
+   `git log --left-right --no-merges --oneline origin/main...origin/dev` for changes
+   unique to either branch. Merge any unreleased `main` hotfix back into `dev`
+   through the normal review process before preparing the promotion.
+2. Run the [documentation refresh](../flows/documentation-refresh.md) against
+   current `origin/dev` in a separate worktree. Submit corrections to `dev`, and
+   include their reviewed result before freezing the release head. Keep the live
+   installation on its configured update channel with a clean working tree.
+3. Validate the changed areas from that worktree using the [test guide](../tests/README.md).
+   Include `tests/test_release_version.py`, `tests/test_version.py` and
+   `tests/test_workflow_permissions.py` for the publication and displayed-version
+   contract. Record actual results, skipped checks and environment limitations;
+   a passing workflow for an older head is not a current-head check.
+4. Open one `dev` into `main` PR, or update the existing promotion PR. Describe
+   the complete range since the last release, its validation, and the issue
+   closing references required above. If documentation or another prerequisite
+   is still awaiting review in `dev`, keep the promotion as a draft and link the
+   dependency. Re-read both remote SHAs whenever `dev` advances and update the
+   release scope and affected checks.
+5. Complete the [PR review flow](../flows/pr-review.md), satisfy the active
+   repository protections and obtain the owner's release decision. Merge with
+   a merge commit only after those gates pass. Then verify the exact merge SHA,
+   tag and published GitHub Release; check Glama separately as described below.
+
 ## Release pipeline
 
 The [Release version workflow](../.github/workflows/release-version.yml) publishes

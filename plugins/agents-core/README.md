@@ -116,7 +116,9 @@ the network only for these, each of which you can see in its source:
 - Langfuse tracing, only if you put Langfuse keys into `.env`: tool calls and their inputs and
   outputs then go to the Langfuse host you configured;
 - syncing your personal library between your machines, only if you set it up: flows and, after
-  your review, history entries go to the private Git repository you choose.
+  your review, history entries go to the private Git repository you choose;
+- fetching a user-selected HTTPS rule source when you explicitly subscribe or refresh;
+  configured authorization is sent to that source when enabled.
 
 Prompts and answers themselves are exchanged between you and Claude as usual; the plugin adds no
 other recipient.
