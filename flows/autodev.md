@@ -167,6 +167,15 @@ With the owner present, in a checkout of Agents-Core:
    interactively with [pr-review in autodev mode](pr-review.md#autodev-mode)
    until the owner merges or closes it.
 
+## Review the pipeline
+
+After every ten or so runs, the owner runs [autodev-retro](autodev-retro.md):
+a read-only retrospective that computes the metrics of
+[design 12](../docs/autodev-plan.md#12-metrics) from the run records and the
+pull requests, shows where runs stall and what they cost, and proposes changes
+to limits, profiles, roles and flows. The first one with ten real runs proposes
+the target values. It changes nothing itself.
+
 ## Done
 
 The run ended at one of: the gate's `wait`; the selection's `none` or a
