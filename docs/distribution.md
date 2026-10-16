@@ -2,6 +2,14 @@
 
 Agents-Core has two distribution artifacts: a local MCP server installed from this repository and a Claude plugin in `plugins/agents-core` that launches that installation. The plugin does not bundle Python dependencies or the embedding model. Describe that prerequisite in every listing.
 
+## Agent discovery entry points
+
+The root [llms.txt](../llms.txt) is a compact Markdown index following the [llms.txt proposal](https://llmstxt.org/). It links directly to public Markdown on `main`. The [agent guide](agent-guide.md) maps user needs to tools, gives first-call examples and explains requirements and limits; [llms-install.md](../llms-install.md) covers client setup. The README links all three so an assistant arriving through GitHub can find them.
+
+When releasing a change to public tool behavior or installation requirements, update the relevant guide and keep the index links current. Before publishing a listing, check that its linked files exist on the published branch; new files added on `dev` become available at these URLs after release to `main`. Keep task descriptions concrete and verify example arguments against the exposed MCP schemas. Avoid duplicating entire references into the index.
+
+These files help an assistant understand and navigate the project when it reads them. They do not register the server in a catalog, guarantee crawling or establish increased tool selection. Evaluate changes with representative discovery tasks: find the installation prerequisite, select the tool for a PR procedure, complete a persona selection example, distinguish `needs_execution` from completed work, and identify the workspace required for repository history. Record actual results and directory evidence separately from traffic or adoption claims.
+
 ## Own Claude Code marketplace
 
 The root [`.claude-plugin/marketplace.json`](../.claude-plugin/marketplace.json) defines the `agents-core` marketplace with one plugin, also named `agents-core`, from `./plugins/agents-core`. Once published on `main`, Claude Code users on macOS or Linux can run:
