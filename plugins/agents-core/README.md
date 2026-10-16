@@ -119,7 +119,9 @@ the network only for these, each of which you can see in its source:
   shared under your chosen policy go to the private Git repository you choose. In
   `history share approved` mode, approving a repository's preview covers its listed past entries
   and future entries. Explicitly choosing `history share all` shares eligible past and future
-  entries without individual review; revoked repositories remain excluded;
+  entries without individual review. Repositories revoked while share-all mode is active stay
+  excluded until reapproved. Revocations made in approved mode do not carry over when share-all
+  is enabled;
 - fetching a user-selected HTTPS rule source when you explicitly subscribe or refresh;
   configured authorization is sent to that source when enabled.
 
