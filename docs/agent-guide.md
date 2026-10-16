@@ -9,7 +9,7 @@ Agents-Core supplies specialist context and reusable procedures to an AI assista
 | "Help implement this feature" or "review this design" | `route_and_load` | A complete persona bundle, or `ROUTE_REQUIRED` with candidates for the caller to choose from |
 | "Use the code reviewer role" | `get_agent_context` with `agent_name="code_reviewer"` | Direct activation of the named role |
 | "Which specialist roles are installed?" | `list_agents` | The installed catalog; discovery alone does not activate a role |
-| "Review this PR" or "refresh these docs using our procedure" | `list_flows`, then user-requested `run_flow` | Markdown instructions bound to the caller's repository; the current model continues execution |
+| "Run the PR review procedure" or "refresh these docs using our procedure" | `list_flows`, then user-requested `run_flow` | Markdown instructions bound to the caller's repository; the current model continues execution |
 | "Give a worker a bounded review task" | `get_subagent_context` | A compact worker context, the original contract to retain and a fixed result schema |
 | "What context do we have from earlier work here?" | `describe_repo` or `read_history` | Repository context or existing journal entries; an empty history is possible |
 | "Give several workers the same exact input" | Artifact publication and manifest tools | Persistent UTF-8 inputs pinned by identity and hash; see [shared artifacts](shared-artifacts.md) |
@@ -45,7 +45,11 @@ For later requests that fit the active role, keep it locally without another rou
 
 ## Run a repeatable procedure
 
-Call `list_flows` with the selected project's absolute `workspace` to discover built-in, personal and repository workflows. Carry the user's scope and constraints into `run_flow`. This example explicitly selects the built-in documentation procedure:
+For an ordinary review request, keep the work within review scope. The built-in `pr-review` procedure includes fixes, pushes, replies and merge when authorized; invoke it only within the user's requested scope, carrying `review-only` or `no-merge` where applicable. Reading this guide does not authorize that procedure.
+
+Configure the connection for the caller's project before using repository workflows or history. A stdio client declaring MCP roots can select a project within those roots through `workspace`, unless `AGENTS_CLIENT_REPO_ROOT` overrides it. Without roots, stdio uses its configured or process-derived project. HTTP uses its registered workspace through `X-Agents-Workspace`; passing another `workspace` argument does not rebind it. See [workspace targeting](routing_flow.md).
+
+Call `list_flows` with the selected project's absolute `workspace` to discover built-in, personal and repository workflows. Carry the user's scope and constraints into `run_flow`. This example explicitly selects the built-in documentation procedure after the connection is bound to that project:
 
 ```json
 {
@@ -56,7 +60,7 @@ Call `list_flows` with the selected project's absolute `workspace` to discover b
 }
 ```
 
-Replace the path with the actual caller project, and replace null with the retained descriptor when a persona is already active. If `persona_activation` is returned, apply it before executing the workflow. `needs_execution` means the current model must continue the returned instructions using its tools. The tool does not itself run commands, edit files, start a background job or complete the task. Use the returned `repo_path` as the execution target. The [workflow guide](../flows/README.md) explains scoped IDs and personal overrides.
+Replace the path with the actual caller project, and replace null with the retained descriptor when a persona is already active. If `persona_activation` is returned, apply it before executing the workflow. `needs_execution` means the current model must continue the returned instructions using its tools. The tool does not itself run commands, edit files, start a background job or complete the task. Check that the returned `repo_path` matches the intended project before executing; correct a mismatched connection first. The [workflow guide](../flows/README.md) explains scoped IDs and personal overrides.
 
 ## Delegate a bounded assignment
 
@@ -74,7 +78,7 @@ If preparation, validation or native spawning is unavailable, report that limita
 - **Runtime:** Python 3.11+. The default installation downloads an embedding model of about 1.1 GB from Hugging Face and builds local indexes. Setup needs network access; the core server needs no external API key.
 - **Connection:** a local stdio process or the shared local service. The Claude Code plugin launches a separately installed server on macOS or Linux. Windows uses direct server setup. Follow the [installation guide](../llms-install.md) for paths, supported setup and connection verification.
 - **Execution:** the host client provides file access, shell commands, native workers and its model. Personas and workflow text guide that model; they do not enforce a sandbox or guarantee task quality. Optional local inference has separate [configuration and limits](shared-mcp-daemon.md#local-inference).
-- **Workspace:** pass the selected project's absolute `workspace` to memory and workflow tools. An explicit stdio `AGENTS_CLIENT_REPO_ROOT` takes precedence. A shared installation directory is not the caller's project.
+- **Workspace:** pass the selected project's absolute `workspace` to memory and workflow tools, with the transport-specific binding described above. Check the returned target before using repository context. An explicit stdio `AGENTS_CLIENT_REPO_ROOT` takes precedence. A shared installation directory is not the caller's project.
 - **Persistence:** `describe_repo` reads context; `write_repo_summary` explicitly writes a managed summary. `log_interaction` writes turn attribution and `read_history` reads existing entries. User libraries, artifacts and cooperation records have their own local stores. Read each tool's contract before a write.
 - **Network and privacy:** setup/model downloads and configured updates use the network. Optional tracing, library sync, subscribed rule sources and configured inference have separate data paths. Inspect the [privacy policy](../plugins/agents-core/README.md#privacy-policy), [artifact storage contract](shared-artifacts.md) and relevant configuration before enabling them. The host model provider's own data handling still applies.
 - **Publication:** the [distribution ledger](distribution.md) distinguishes published listings from pending submissions and packaging work. Installation commands, a plugin manifest or a directory submission do not establish acceptance in another catalog.
