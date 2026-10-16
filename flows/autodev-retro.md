@@ -65,10 +65,10 @@ record contents into anything public.
    with its UTC start time (`20261016T143000Z-...`). Each record holds a `report`
    (see [records](../docs/autodev-sequence.md#records)) and the top-level fields
    it is built from; a killed run may have no `report`.
-4. Window: find the previous retrospective with
-   `read_history(query="autodev retrospective")` (its entry carries the tag
-   `autodev-retro`) and take the runs started after it, unless the request names
-   a window.
+4. Window: list the history without a query (`read_history`, newest first;
+   page with `offset` when needed) and take the newest entry tagged
+   `autodev-retro`; use the runs started after it, unless the request names a
+   window.
 5. List the autodev pull requests and issues:
 
    ```bash
@@ -78,11 +78,12 @@ record contents into anything public.
    gh issue list --repo <repo> --label autodev:in-progress --state open --limit 500 --json number,createdAt
    ```
 
-   For each pull request read its state comment (`<!-- autodev:state {JSON} -->`:
-   rounds, review status, findings, `head`), applying the gate's rules: use a
-   state comment only when its comment ID appears in a run record's `comments`
+   For each pull request read its state comment, applying the gate's rules
+   (`src/schedules/gate.py`): the body starts with `<!-- autodev -->` and the next
+   line is `<!-- autodev:state {JSON} -->` (rounds, review status, findings,
+   `head`); use it only when its comment ID appears in a run record's `comments`
    (a copy is ignored), and count bot findings only from the allowlisted bots
-   matched by login and numeric ID (`TRUSTED_BOTS` in `src/schedules/gate.py`).
+   matched by login and numeric ID (`TRUSTED_BOTS` in the same file).
    Then read its commits: commits after the
    last head the run recorded were made outside the run, normally the owner's
    edits before merge.
@@ -119,8 +120,9 @@ and label each as a proxy:
 - **Instability**: pull requests merged after owner edits (rework), and merged
   pull requests that a later commit or pull request had to fix or revert within
   two weeks (search for references to the pull request and for `Revert`).
-- **Stuck work**: pull requests open longer than the slowest merged one, issues
-  left in `autodev:in-progress` or `autodev:blocked`.
+- **Stuck work**: pull requests open longer than the slowest merged one, open issues
+  left in `autodev:in-progress` or `autodev:blocked` (closed ones count only as
+  history).
 
 ## 4. Diagnose
 
