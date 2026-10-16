@@ -46,6 +46,26 @@ DESCRIBE_TREE_MAX_DEPTH = 3
 # Top of README sampled into the describe context bundle.
 DESCRIBE_README_HEAD_LINES = 200
 
+# Size budget of the describe context bundle (#434). Sizes are characters as
+# len() counts them (Python code points), the unit the prompt is assembled in.
+# describe_repo returns the bundle inside its prompt, JSON-encoded; Claude Code
+# counts that result with src.result_size.shown_size, which escapes it once
+# more, and saves a result over INLINE_LIMIT (50,000) to a file. 24,000
+# characters leave room for the prompt template, the instruction and typical
+# escaping.
+DESCRIBE_BUNDLE_MAX_CHARS = 24_000
+# Section caps cover a section's heading, its code fence and the blank line
+# before it, so tree + manifests + README never exceed the total above.
+DESCRIBE_TREE_MAX_CHARS = 10_000
+# All manifests share one cap; each takes at most DESCRIBE_MANIFEST_MAX_CHARS.
+DESCRIBE_MANIFESTS_MAX_CHARS = 6_000
+DESCRIBE_MANIFEST_MAX_CHARS = 3_000
+DESCRIBE_README_MAX_CHARS = 8_000
+# Entries listed per directory before a "… N more entries" note.
+DESCRIBE_TREE_MAX_ENTRIES_PER_DIR = 40
+# Longer lines are shortened with an ellipsis.
+DESCRIBE_LINE_MAX_CHARS = 1_000
+
 # Directories excluded from the describe tree walk and the repo hash.
 DESCRIBE_EXCLUDED_DIRS = frozenset({
     ".git",

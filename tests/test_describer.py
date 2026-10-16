@@ -10,7 +10,7 @@ import pytest
 
 from src.memory import managed_section
 from src.memory import describer as describer_module
-from src.memory.config import DESCRIBE_MARKER_BEGIN, DESCRIBE_MARKER_END
+from src.memory.config import DESCRIBE_BUNDLE_MAX_CHARS, DESCRIBE_MARKER_BEGIN, DESCRIBE_MARKER_END
 from src.memory.describer import (
     DESCRIBE_PROMPT_TEMPLATE,
     DescribeDecision,
@@ -386,3 +386,241 @@ class TestPathOverrideSafety:
         d = RepoDescriber(repo_path=str(tmp_path))
         assert d.claude_md_path.startswith(str(tmp_path))
         assert d.hash_file.startswith(str(tmp_path))
+
+
+# --------------------------------------------------------------------- bundle budget (#434)
+
+# build_context_bundle output for _seed_small_repo before the size budget
+# existed; a repository whose parts fit their caps must still produce it.
+_SMALL_BUNDLE = (
+    "### Directory Tree (depth ≤ 3)\n\n```\n"
+    "src/\n  pkg/\n    deep/\n    __init__.py\n  main.py\n"
+    "tests/\n  test_main.py\n"
+    ".env.example\nREADME.md\npackage.json\npyproject.toml\nrequirements.txt\n```\n\n"
+    "### pyproject.toml\n\n```\n[project]\nname = \"demo\"\nversion = \"0.1.0\"\n```\n\n"
+    "### package.json\n\n```\n{\n  \"name\": \"demo\",\n  \"scripts\": {\"test\": \"pytest\"}\n}\n```\n\n"
+    "### requirements.txt\n\n```\npydantic>=2.0\nрусский-пакет==1.0  # комментарий 🚀\n```\n\n"
+    "### README.md (head)\n\n```\n# Demo\n\nA tiny demo repo for tests.  \n" + "line\n" * 10 + "```"
+)
+
+
+def _seed_small_repo(root: Path) -> None:
+    """A small repo that exercises depth, exclusions, braces, non-ASCII and stripping."""
+    _seed_repo(root)
+    (root / "src" / "pkg" / "deep" / "deeper").mkdir(parents=True)
+    (root / "src" / "pkg" / "deep" / "deeper" / "hidden.py").write_text("x\n")
+    (root / "src" / "pkg" / "deep" / "leaf.py").write_text("x\n")
+    (root / "src" / "pkg" / "__init__.py").write_text("")
+    (root / ".env.example").write_text("A=1\n")
+    (root / ".hidden").mkdir()
+    (root / "node_modules").mkdir()
+    (root / "package.json").write_text('{\n  "name": "demo",\n  "scripts": {"test": "pytest"}\n}\n\n')
+    (root / "requirements.txt").write_text(
+        "\n\npydantic>=2.0\nрусский-пакет==1.0  # комментарий 🚀\n", encoding="utf-8"
+    )
+    (root / "README.md").write_text("# Demo\n\nA tiny demo repo for tests.  \n" + "line\n" * 10 + "\n\n")
+
+
+def _seed_large_repo(root: Path) -> None:
+    """A repo whose tree, manifests and README all exceed their caps."""
+    for top in range(5):
+        for sub in range(50):
+            directory = root / f"pkg_{top}" / f"module_{sub:02}"
+            directory.mkdir(parents=True)
+            for leaf in range(4):
+                (directory / f"file_{leaf}.py").write_text("")
+    for index in range(50):
+        (root / f"top_{index:02}.txt").write_text("")
+    for manifest in describer_module._KEY_MANIFEST_FILES:
+        (root / manifest).write_text("".join(f'"dependency-{i}": "^1.{i}.0",\n' for i in range(400)))
+    readme = [f"Line {i}: " + "documentation text " * 6 for i in range(300)]
+    readme[3] = "Длинная строка 🚀 " * 400
+    (root / "README.md").write_text("\n".join(readme) + "\n", encoding="utf-8")
+
+
+def _sections(bundle: str) -> dict[str, str]:
+    """Split a bundle by section heading; the synthetic content holds no headings."""
+    parts = bundle.split("\n\n### ")
+    texts = [parts[0]] + ["### " + part for part in parts[1:]]
+    return {text.split("\n", 1)[0]: text for text in texts}
+
+
+def _body(section: str) -> list[str]:
+    body = section.split("\n\n```\n", 1)[1]
+    assert body.endswith("\n```")
+    return body[:-len("\n```")].split("\n")
+
+
+def _depth(line: str) -> int:
+    return (len(line) - len(line.lstrip(" "))) // 2 + 1
+
+
+_TREE = "### Directory Tree (depth ≤ 3)"
+_README = "### README.md (head)"
+
+
+class TestContextBundleBudget:
+    def test_small_repository_bundle_is_unchanged(self, tmp_path):
+        _seed_small_repo(tmp_path)
+        assert RepoDescriber(repo_path=str(tmp_path)).build_context_bundle() == _SMALL_BUNDLE
+
+    def test_section_caps_fit_the_total(self):
+        caps = (
+            describer_module.DESCRIBE_TREE_MAX_CHARS
+            + describer_module.DESCRIBE_MANIFESTS_MAX_CHARS
+            + describer_module.DESCRIBE_README_MAX_CHARS
+        )
+        assert caps <= DESCRIBE_BUNDLE_MAX_CHARS
+        assert describer_module.DESCRIBE_MANIFEST_MAX_CHARS <= describer_module.DESCRIBE_MANIFESTS_MAX_CHARS
+
+    def test_large_repository_bundle_stays_within_the_total(self, tmp_path):
+        _seed_large_repo(tmp_path)
+        bundle = RepoDescriber(repo_path=str(tmp_path)).build_context_bundle()
+        assert len(bundle) <= DESCRIBE_BUNDLE_MAX_CHARS
+        sections = _sections(bundle)
+        assert len(sections[_TREE]) <= describer_module.DESCRIBE_TREE_MAX_CHARS
+        assert len(sections[_README]) + 2 <= describer_module.DESCRIBE_README_MAX_CHARS
+        manifests = [sections[f"### {name}"] for name in describer_module._KEY_MANIFEST_FILES]
+        assert sum(len(text) + 2 for text in manifests) <= describer_module.DESCRIBE_MANIFESTS_MAX_CHARS
+        # Every section still ends with its closing fence.
+        assert all(text.endswith("\n```") for text in sections.values())
+
+    def test_directory_entries_are_capped_with_a_note(self, tmp_path):
+        cap = describer_module.DESCRIBE_TREE_MAX_ENTRIES_PER_DIR
+        (tmp_path / "many").mkdir()
+        for index in range(cap + 25):
+            (tmp_path / "many" / f"file_{index:03}.txt").write_text("")
+        lines = _body(_sections(RepoDescriber(repo_path=str(tmp_path)).build_context_bundle())[_TREE])
+        assert lines == ["many/"] + [f"  file_{i:03}.txt" for i in range(cap)] + ["  … 25 more entries"]
+
+    def test_single_extra_entry_uses_the_singular(self, tmp_path):
+        cap = describer_module.DESCRIBE_TREE_MAX_ENTRIES_PER_DIR
+        for index in range(cap + 1):
+            (tmp_path / f"file_{index:03}.txt").write_text("")
+        lines = _body(_sections(RepoDescriber(repo_path=str(tmp_path)).build_context_bundle())[_TREE])
+        assert lines[-1] == "… 1 more entry"
+        assert len(lines) == cap + 1
+
+    def test_tree_drops_the_deepest_lines_first(self, tmp_path):
+        for top in range(20):
+            for sub in range(20):
+                directory = tmp_path / f"dir_{top:02}" / f"sub_{sub:02}"
+                directory.mkdir(parents=True)
+                for leaf in range(5):
+                    (directory / f"file_{leaf}.txt").write_text("")
+        full = [f"dir_{t:02}/" for t in range(20)]
+        lines = _body(_sections(RepoDescriber(repo_path=str(tmp_path)).build_context_bundle())[_TREE])
+        note = lines.pop()
+        assert len("\n".join(lines + [note])) <= describer_module.DESCRIBE_TREE_MAX_CHARS
+        # Depths 1 and 2 stay complete; depth 3 keeps a prefix of the listing.
+        assert [line for line in lines if _depth(line) == 1] == full
+        assert len([line for line in lines if _depth(line) == 2]) == 400
+        expected_leaves = [
+            f"    file_{leaf}.txt" for _top in range(20) for _sub in range(20) for leaf in range(5)
+        ]
+        kept_leaves = [line for line in lines if _depth(line) == 3]
+        assert 0 < len(kept_leaves) < len(expected_leaves)
+        assert kept_leaves == expected_leaves[:len(kept_leaves)]
+        dropped = len(expected_leaves) - len(kept_leaves)
+        assert note.startswith(f"… {dropped} more entries ({dropped} at depth 3;")
+
+    def test_tree_cuts_depth_two_after_depth_three(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(describer_module, "DESCRIBE_TREE_MAX_CHARS", 1_500)
+        for top in range(20):
+            for sub in range(20):
+                directory = tmp_path / f"dir_{top:02}" / f"sub_{sub:02}"
+                directory.mkdir(parents=True)
+                (directory / "leaf.txt").write_text("")
+        section = _sections(RepoDescriber(repo_path=str(tmp_path)).build_context_bundle())[_TREE]
+        assert len(section) <= 1_500
+        lines = _body(section)
+        note = lines.pop()
+        assert [line for line in lines if _depth(line) == 1] == [f"dir_{t:02}/" for t in range(20)]
+        assert not [line for line in lines if _depth(line) == 3]
+        dropped_two = 400 - len([line for line in lines if _depth(line) == 2])
+        assert dropped_two > 0
+        assert note.startswith(f"… {400 + dropped_two} more entries (400 at depth 3, {dropped_two} at depth 2;")
+
+    def test_long_readme_is_cut_at_a_line_boundary(self, tmp_path):
+        lines = [f"Line {i:03}: " + "x" * 80 for i in range(500)]
+        (tmp_path / "README.md").write_text("\n".join(lines) + "\n")
+        section = _sections(RepoDescriber(repo_path=str(tmp_path)).build_context_bundle())[_README]
+        assert len(section) + 2 <= describer_module.DESCRIBE_README_MAX_CHARS
+        body = _body(section)
+        note = body.pop()
+        assert body == lines[:len(body)]
+        # Only the README head is sampled, so the note counts the head's lines.
+        assert note == f"… {describer_module.DESCRIBE_README_HEAD_LINES - len(body)} more lines"
+
+    def test_many_large_manifests_share_their_cap(self, tmp_path):
+        names = describer_module._KEY_MANIFEST_FILES
+        for name in names:
+            (tmp_path / name).write_text("".join(f"key_{i} = \"value\"\n" for i in range(1_000)))
+        bundle = RepoDescriber(repo_path=str(tmp_path)).build_context_bundle()
+        sections = _sections(bundle)
+        assert [heading for heading in sections if heading not in (_TREE, _README)] == [f"### {n}" for n in names]
+        total = 0
+        for name in names:
+            text = sections[f"### {name}"]
+            assert len(text) + 2 <= describer_module.DESCRIBE_MANIFEST_MAX_CHARS
+            body = _body(text)
+            assert body[-1].startswith("… ") and body[-1].endswith(" more lines")
+            assert body[:-1] == [f"key_{i} = \"value\"" for i in range(len(body) - 1)]
+            total += len(text) + 2
+        assert total <= describer_module.DESCRIBE_MANIFESTS_MAX_CHARS
+
+    def test_small_manifests_stay_whole_beside_a_large_one(self, tmp_path):
+        (tmp_path / "go.mod").write_text("module example.com/demo\n\ngo 1.22\n")
+        (tmp_path / "package.json").write_text("".join(f'  "dep-{i}": "^1.0.0",\n' for i in range(2_000)))
+        sections = _sections(RepoDescriber(repo_path=str(tmp_path)).build_context_bundle())
+        assert _body(sections["### go.mod"]) == ["module example.com/demo", "", "go 1.22"]
+        package = sections["### package.json"]
+        # The large manifest takes its full own cap, not an equal split.
+        assert len(package) + 2 <= describer_module.DESCRIBE_MANIFEST_MAX_CHARS
+        assert len(package) + 2 > describer_module.DESCRIBE_MANIFEST_MAX_CHARS - 40
+        assert _body(package)[-1].endswith(" more lines")
+
+    def test_overlong_lines_are_shortened_with_an_ellipsis(self, tmp_path):
+        line_cap = describer_module.DESCRIBE_LINE_MAX_CHARS
+        (tmp_path / "README.md").write_text("intro\n" + "a" * (line_cap * 3) + "\noutro\n")
+        (tmp_path / "package.json").write_text('{"name": "' + "b" * 50_000 + '"}')
+        sections = _sections(RepoDescriber(repo_path=str(tmp_path)).build_context_bundle())
+        assert _body(sections[_README]) == ["intro", "a" * (line_cap - 1) + "…", "outro"]
+        # A single line longer than its section keeps its head and needs no note.
+        (package_line,) = _body(sections["### package.json"])
+        assert package_line.startswith('{"name": "bbb') and package_line.endswith("b…")
+
+    def test_single_overlong_line_fills_the_room_beside_its_note(self):
+        text = describer_module._fit_lines(["c" * 500, "next", "last"], 100)
+        first, note = text.split("\n")
+        assert note == "… 2 more lines"
+        assert first == "c" * (100 - len(note) - 2) + "…"
+        assert len(text) == 100
+
+    @pytest.mark.parametrize("max_chars", range(0, 40))
+    def test_fit_lines_never_exceeds_its_cap(self, max_chars):
+        lines = ["alpha", "", "β" * 30, "gamma 🚀🚀", "δ"]
+        text = describer_module._fit_lines(lines, max_chars)
+        assert len(text) <= max_chars
+        kept = text.split("\n") if text else []
+        for line in kept:
+            assert line in lines or line.startswith("…") or line.endswith("…")
+
+    def test_non_ascii_is_never_split_inside_a_character(self, tmp_path):
+        line_cap = describer_module.DESCRIBE_LINE_MAX_CHARS
+        long_line = "Привет, мир! 🚀👩‍💻 Ünïcödé " * 200
+        (tmp_path / "README.md").write_text(
+            "\n".join([long_line] + ["Строка с эмодзи 🎉 " * 4] * 600) + "\n", encoding="utf-8"
+        )
+        (tmp_path / "каталог").mkdir()
+        (tmp_path / "каталог" / "файл_🚀.md").write_text("")
+        bundle = RepoDescriber(repo_path=str(tmp_path)).build_context_bundle()
+        # Strict encoding fails on a lone surrogate or any other broken character.
+        assert bundle.encode("utf-8").decode("utf-8") == bundle
+        bundle.encode("utf-16-le")
+        sections = _sections(bundle)
+        assert _body(sections[_TREE]) == ["каталог/", "  файл_🚀.md", "README.md"]
+        body = _body(sections[_README])
+        assert len(body[0]) == line_cap and body[0].endswith("…")
+        assert long_line.startswith(body[0][:-1])
+        assert body[-1].startswith("… ") and body[-1].endswith(" more lines")

@@ -24,7 +24,8 @@ from src.memory import managed_section
 from src.memory import describer as describer_module
 from src.memory.config import DESCRIBE_MARKER_BEGIN, DESCRIBE_MARKER_END
 from src.memory.describer import RepoDescriber
-from tests.test_describer import _seed_repo, _valid_summary
+from src.result_size import INLINE_LIMIT, shown_size
+from tests.test_describer import _seed_large_repo, _seed_repo, _valid_summary
 
 
 NEEDS_SUMMARY_KEYS = {"status", "workspace_id", "repo_hash", "repo_path", "prompt", "instruction"}
@@ -77,6 +78,17 @@ async def test_needs_summary_shape_without_sampling(repo):
     assert "write_repo_summary(" in needs["instruction"]
     assert f'repo_hash="{needs["repo_hash"]}"' in needs["instruction"]
     assert f"repo_path={json.dumps(needs['repo_path'])}" in needs["instruction"]
+
+
+@pytest.mark.asyncio
+async def test_large_repo_description_stays_inline(repo):
+    """A large repository's needs_summary response fits Claude Code's inline result size."""
+    _seed_large_repo(repo)
+    text = await server.describe_repo(force_refresh=True)
+    needs = json.loads(text)
+    assert needs["status"] == "needs_summary"
+    assert shown_size(text) <= INLINE_LIMIT
+    assert "more entries" in needs["prompt"] and "more lines" in needs["prompt"]
 
 
 @pytest.mark.asyncio
