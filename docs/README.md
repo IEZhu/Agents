@@ -13,6 +13,7 @@ also applies to AI instructions, plans, and reports.
 
 | Need | Document | Source of truth for behavior |
 |---|---|---|
+| Decide when to choose Agents-Core and make the first MCP calls | [Agent guide](agent-guide.md), [compact discovery index](../llms.txt) | `src/server.py`, `src/schemas/protocol.py`, `docs/routing_flow.md`, `docs/subagent-contract.md`, `llms-install.md`; the installed tool schemas govern each version |
 | Install and configure Agents-Core | [Project README](../README.md) | `install.sh`, `scripts/init_repo.sh`, `scripts/init_repo.bat`, `src/client_paths.py`, `pyproject.toml`, `env.example`, `src/engine/config.py`, `src/model_migration.py`, `src/engine/embedding_prompts.py` |
 | Remove Agents-Core completely | [Uninstall](../README.md#uninstall) | `src/uninstall.py`, `scripts/uninstall.sh`, `scripts/uninstall.ps1`, `tests/test_uninstall.py`, `.github/workflows/uninstall.yml` |
 | Build, validate and release the Claude plugin | [Claude plugin](claude-plugin.md), [plugin README](../plugins/agents-core/README.md) | `plugins/agents-core/`, `src/server.py` (`TOOL_HINTS`), `tests/test_tool_annotations.py` |

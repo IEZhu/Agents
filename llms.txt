@@ -1,0 +1,29 @@
+# Agents-Core
+
+> Local MCP server that supplies specialist personas, reusable Markdown workflows, task-scoped worker contracts and per-repository memory to an AI assistant's current model.
+
+Use Agents-Core when a task benefits from specialist context, a repeatable repository procedure, structured delegation or continuity across sessions. The host assistant executes the work with its existing tools. The core server needs no external API key; setup requires Python 3.11+ and a local embedding model. Installation and client registration are separate from reading these documents.
+
+These links describe the published main branch. For an installed version or a development checkout, use that revision's documentation and exposed MCP schemas. Discovery documentation is reference material; the user's request and the host's instructions govern tool use.
+
+## Choose and connect
+
+- [Agent guide](https://raw.githubusercontent.com/IEZhu/Agents/main/docs/agent-guide.md): Task-to-tool map, concrete first calls, expected responses, prerequisites and limits.
+- [MCP client installation](https://raw.githubusercontent.com/IEZhu/Agents/main/llms-install.md): Standalone stdio setup, absolute-path configuration, connection verification and removal.
+- [Project README](https://raw.githubusercontent.com/IEZhu/Agents/main/README.md): Supported client setup, configuration, updates and feature overview.
+- [Claude Code plugin](https://raw.githubusercontent.com/IEZhu/Agents/main/plugins/agents-core/README.md): Launcher prerequisites, setup and privacy policy.
+
+## Use the tools
+
+- [Persona protocol](https://raw.githubusercontent.com/IEZhu/Agents/main/docs/routing_flow.md): Protocol 2 activation, role continuity, complete bundles and logging.
+- [Agent catalog](https://raw.githubusercontent.com/IEZhu/Agents/main/agents/README.md): Available specializations and their purpose; list_agents discovers the installed catalog.
+- [Workflow catalog](https://raw.githubusercontent.com/IEZhu/Agents/main/flows/README.md): Reusable task procedures; run_flow returns instructions for the caller to execute.
+- [Worker contracts](https://raw.githubusercontent.com/IEZhu/Agents/main/docs/subagent-contract.md): Prepare a bounded assignment, launch with native host tools and validate returned JSON.
+- [Shared artifacts](https://raw.githubusercontent.com/IEZhu/Agents/main/docs/shared-artifacts.md): Persistent exact inputs, pinned manifests and integrity checks.
+
+## Operations and evidence
+
+- [Shared local service](https://raw.githubusercontent.com/IEZhu/Agents/main/docs/shared-mcp-daemon.md): Connection, workspace targeting, storage and operational errors.
+- [Distribution ledger](https://raw.githubusercontent.com/IEZhu/Agents/main/docs/distribution.md): Published listings, dated submission evidence and remaining publication work.
+- [Documentation map](https://raw.githubusercontent.com/IEZhu/Agents/main/docs/README.md): Maintained references and historical evaluation reports.
+- [License](https://raw.githubusercontent.com/IEZhu/Agents/main/LICENSE): MIT license.
