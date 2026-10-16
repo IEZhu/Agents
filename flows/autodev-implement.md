@@ -61,7 +61,8 @@ at a time, and each review and the pre-mortem as a prepared worker under the
 [delegation contract](README.md#delegated-workers) with
 [code-review-pass](code-review-pass.md) and
 [change-premortem](change-premortem.md) as task material. It keeps the same
-loop, limits and output, and it does not push either. With no runner to mark
+loop, limits and output, and it does not push: the
+[submit stage](pr-review.md#autodev-mode) does. With no runner to mark
 findings, it sets the `security` mark itself by the runner's rules
 (`GATE_SECURITY` in `src/schedules/workers.py` for a review finding,
 `SECURITY_KEYWORDS` in `src/schedules/broker.py` for a risk), and when in doubt
