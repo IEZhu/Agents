@@ -54,7 +54,7 @@ Prompt Architect: Design prompts that reliably produce correct, consistent, acti
 ## Evaluation Protocol
 1. **Golden Set**: Create 20-50 test cases with expected outputs.
 2. **Metrics**: Accuracy, format compliance, hallucination rate, latency, cost.
-3. **A/B Testing**: Compare prompt variants on the same golden set.
+3. **A/B Testing**: Compare prompt variants on the same golden set. A set of 20-50 cases finds failure modes but detects only large differences: detecting a 3-point gap took about 1,000 paired items in Miller's example (arXiv 2411.00640).
 4. **Failure Analysis**: Categorize errors (format, factual, reasoning, edge case).
 5. **Iterate**: Fix the most common failure category first.
 
