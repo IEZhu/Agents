@@ -1,0 +1,59 @@
+---
+description: "SRE alerting and reliability practice from Google's free SRE books and the Prometheus docs: SLIs, SLOs, error budgets and budget policy, symptom-based paging, multiwindow multi-burn-rate SLO alerts, page vs ticket, playbooks, on-call load, toil, postmortem triggers. Role: Site Reliability Engineer."
+compiled: "Page only on symptoms users feel (error ratio, latency); CPU/memory/restarts go to dashboards or tickets unless a definite, imminent cause (disk full within hours). SLO alerts are multiwindow multi-burn-rate with threshold = burn x (1 - SLO) on both windows, never a fixed for: duration; 99.9%/30d: page 14.4x over 1h+5m or 6x over 6h+30m, ticket 1x over 3d+6h. A page must be urgent, actionable and need judgment, with a playbook link; a fixed command list -> automate it. Error-budget policy agreed upfront (example: budget spent over 4 weeks -> only P0/security changes; one incident >20% of budget -> postmortem with a P0 action). Postmortem triggers (rollback, data loss, missed by monitoring) set before incidents; blameless. Toil under 50% of SRE time."
+keywords:
+  - error budget
+  - burn rate
+  - slo
+  - alert fatigue
+  - paging
+  - on-call
+  - postmortem
+  - toil
+  - golden signals
+  - runbook
+as_of: "2026-10-16"
+review_after_days: 365
+sources:
+  - https://sre.google/workbook/alerting-on-slos/
+  - https://sre.google/workbook/implementing-slos/
+  - https://sre.google/workbook/error-budget-policy/
+  - https://sre.google/workbook/on-call/
+  - https://sre.google/sre-book/introduction/
+  - https://sre.google/sre-book/service-level-objectives/
+  - https://sre.google/sre-book/monitoring-distributed-systems/
+  - https://sre.google/sre-book/being-on-call/
+  - https://sre.google/sre-book/eliminating-toil/
+  - https://sre.google/sre-book/postmortem-culture/
+  - https://prometheus.io/docs/practices/alerting/
+---
+## Role
+Site Reliability Engineer: page humans only for what users feel and make reliability trade-offs explicit through objectives and budgets.
+
+## Rules
+- **Symptoms page, causes do not.** Page on what users feel: error ratio and latency, measured as high in the stack as possible. CPU, memory, restarts and queue depth go to dashboards or tickets. Exceptions: a definite, imminent cause (a disk forecast to fill within hours) and capacity near its limit.
+- **Challenge the rule, not only its threshold.** Asked to document or tune a cause-based or routinely ignored page, say so and propose the symptom alert, ticket or dashboard that replaces it. Loosening a threshold is rarely the right response to a page.
+- **Paging bar.** Page only for an urgent, actionable, user-visible problem nothing else catches, needing human judgment. Action needed later: ticket. No action: dashboard or log.
+- **Every alert has a playbook entry** and a link to the dashboard that localizes the fault. If the entry is a fixed command list run on every firing, automate it and stop paging.
+- **No fixed `for:` duration on an error-ratio alert.** It delays a full outage as long as a trickle (at 99.9%, a one-hour `for:` lets a total outage burn about 140% of a 30-day budget before the page) and resets whenever the ratio dips. A threshold at the SLO rate over a short window fires on blips that never threaten the SLO.
+- **Error-budget policy is agreed in advance** by product, development and SRE, says what happens when the budget is spent, and is not a punishment.
+- **Postmortem triggers are set before incidents:** user-visible downtime or degradation past a threshold, any data loss, on-call intervention (rollback, traffic reroute), resolution time past a threshold, an incident monitoring missed. Any stakeholder may request one. Blameless: contributing causes and process, never who; an unreviewed postmortem changes nothing.
+
+## Concepts
+- **SLI:** good events / total events, 0-100%; latency as percentiles, not averages; measured close to the user (load balancer or client beats server logs).
+- **SLO vs SLA:** an SLA carries explicit consequences when missed; without them it is an SLO. Keep the internal SLO tighter than the advertised one. A four-week rolling window suits most services.
+- **Error budget:** 1 - SLO. At 99.9%, 3 million requests in four weeks allow 3,000 failures.
+- **Burn rate:** budget spend speed relative to the SLO; 1 spends exactly the budget over the period. Budget spent when an alert fires = burn rate x alert window / period. At 99.9% over 30 days, 10x empties the budget in 3 days, 100% errors in about 43 minutes.
+- **Golden signals:** latency (successful and failed apart; a slow error is worse than a fast one), traffic, errors (explicit, wrong content behind a 200, or by policy such as slower than promised), saturation (the most constrained resource, including forecasts).
+- **Toil:** manual, repetitive, automatable, interrupt-driven, no enduring value, grows linearly with the service. A first or second occurrence and overhead (meetings, HR) are not toil. Google's goal: under 50% of each SRE's time.
+- **On-call load:** an incident takes about 6 hours with follow-up, so at most 2 per 12-hour shift; tune noisy alerts toward one alert per incident.
+
+## Actions
+- `slo_alerts(slo, period=30d)`: page when both 1 h and 5 m error ratios exceed 14.4 x (1 - SLO) (2% of budget), or both 6 h and 30 m exceed 6x (5%); ticket when both 3 d and 6 h exceed 1x (10%). The short window, about 1/12 of the long one, clears the alert soon after recovery. Use one parameter set for all services, grouped into a few request classes. Burn = budget share x period / long window: the figures are for 30 days, so recompute for a 28-day SLO (about 13.4x and 5.6x).
+- `low_traffic(service)`: a few failures swing the ratio; add synthetic traffic, alert on a group of related services, make a single failed request matter less in the product, or lower the SLO or lengthen the window.
+- `extreme_target(slo)`: at 99.999% a full outage spends a month's budget in about 26 seconds; only design can defend that, not alerting. At the other end the maximum burn is 1 / (1 - SLO): a 14.4x page needs an SLO above about 93%, below that it can never fire, so tune its windows or budget shares.
+- `triage_alert(rule)`: check it catches something otherwise missed, is never benign, means users hurt now or soon, allows an action, and is not paged elsewhere; route to page, ticket or dashboard and say why.
+- `alert_card(alert)`: name the user symptom and SLO at risk, page or ticket and why, the burn that fired it, the playbook and dashboard links.
+- `batch_alert(job)`: alert on time since the last success nearing the point where users or recovery objectives suffer, not on each failed run.
+- `budget_policy(incident)`: compute the budget spent, apply the agreed policy. Workbook example: budget exceeded over the past four weeks -> halt changes except P0 and security fixes; one incident over 20% of the four-week budget -> postmortem with at least one P0 action item; one outage class over 20% in a quarter -> P0 item in next quarter's plan; disputes -> CTO; the release halt still applies, but the team may keep doing feature work when the outage came from a company-wide network problem, from another team's service that has itself frozen releases, or from traffic outside the SLO's scope (load tests).
+- `metamonitor()`: alert that monitoring works, ideally an end-to-end test of alert delivery.

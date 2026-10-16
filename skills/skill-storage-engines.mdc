@@ -1,0 +1,56 @@
+---
+description: "Storage engine internals behind tuning and engine choice: B-tree vs LSM-tree, read/write/space amplification and the RUM trade-off, compaction strategies and write stalls, tombstones, WAL and fsync durability, full-page writes, PostgreSQL MVCC bloat, HOT updates and XID wraparound. Role: Storage Engineer."
+compiled: "Measure write amplification (disk write rate / logical write rate) and space amplification before choosing or tuning; no engine minimizes read, write and space cost at once. Leveled compaction: ~1.1x space, write amp up to fanout per level; tiered/universal: less write amp, more read and space amp, transient 2x space. Bloom filters help point (and prefix-bounded) reads, not general range scans. A write stall means flush or compaction lags: add throughput; raising triggers only trades stalls for read and space amplification. synchronous_commit=off loses only recent commits; fsync=off risks corruption. Stuck PostgreSQL bloat: find the xmin holder (long or idle transaction, prepared xact, replication slot, hot_standby_feedback); plain VACUUM rarely shrinks files; updating an indexed column disables HOT."
+keywords:
+  - write amplification
+  - compaction
+  - lsm tree
+  - write stall
+  - table bloat
+  - dead tuples
+  - transaction id wraparound
+  - fsync
+  - fillfactor
+  - wal volume
+as_of: "2026-10-16"
+review_after_days: 365
+sources:
+  - https://openproceedings.org/2016/conf/edbt/paper-12.pdf
+  - https://www.cs.umb.edu/~poneil/lsmtree.pdf
+  - https://github.com/facebook/rocksdb/wiki/Compaction
+  - https://github.com/facebook/rocksdb/wiki/RocksDB-Tuning-Guide
+  - https://raw.githubusercontent.com/wiki/facebook/rocksdb/Write-Stalls.md
+  - https://raw.githubusercontent.com/wiki/facebook/rocksdb/Implement-Queue-Service-Using-RocksDB.md
+  - https://www.postgresql.org/docs/current/wal-reliability.html
+  - https://www.postgresql.org/docs/current/runtime-config-wal.html
+  - https://www.postgresql.org/docs/current/runtime-config-error-handling.html
+  - https://www.postgresql.org/docs/current/routine-vacuuming.html
+  - https://www.postgresql.org/docs/current/runtime-config-vacuum.html
+  - https://www.postgresql.org/docs/current/storage-hot.html
+  - https://www.postgresql.org/docs/current/runtime-config-replication.html
+  - https://www.postgresql.org/docs/current/monitoring-stats.html
+---
+## Role
+Storage Engineer: predicts what an engine does on disk for each logical read and write, and chooses or tunes engines from measured amplification, not folklore.
+
+## Rules
+- **Quantify before choosing.** Get write amplification from disk write bandwidth (iostat) divided by the database's write rate, and space amplification from on-disk size over live data. Name which of read, write or space cost the workload can afford.
+- **B-tree vs LSM.** B-trees update pages in place and favor reads; at high insert rates each insert into a large index can cost random page I/O. LSM-trees buffer writes in memory and merge sorted runs in the background, so writes become sequential but a lookup may probe several runs. Bloom filters skip runs for point lookups (prefix blooms also for prefix-bounded scans); a general range scan still touches every L0 file plus one run per non-empty level.
+- **Compaction is the main knob.** Leveled: lowest space amplification (about 1.1x in RocksDB's example) but write amplification up to the fanout per level (about 33 in the guide's five-level, fanout-10 example). Tiered (RocksDB 'universal'): far lower write amplification, higher read and space amplification, and a compaction may temporarily double disk use; RocksDB urges care with it above roughly 100 GB per DB or column family. FIFO fits TTL or cache data.
+- **Write stalls are back-pressure.** RocksDB slows, then stops, writes when memtables wait for flush, L0 files reach `level0_slowdown_writes_trigger`/`level0_stop_writes_trigger`, or pending compaction bytes cross their soft/hard limits; one column family stalls the whole DB. Raising the triggers trades stalls for read and space blow-up: add background jobs, enlarge memtables, cut write amplification, check disk bandwidth.
+- **Deletes are writes.** LSM deletes leave tombstones that scans step over until compaction drops them, so delete-from-the-head queues slow down. Bound iterators (`iterate_upper_bound`), seek from the last processed key, enable deletion-triggered compaction (`CompactOnDeletionCollectorFactory`).
+- **Durability is a chain.** A commit is durable only once its WAL reaches non-volatile media; write-back caches without battery backup, and SSDs that ignore flush commands, break it (verify with `diskchecker.pl`; `pg_test_fsync` measures sync rates). PostgreSQL `fsync=off` can corrupt the cluster beyond recovery: only for data you can recreate. `synchronous_commit=off` loses at most the last commits (up to three `wal_writer_delay`) without corruption and can be set per transaction. When flushing data files fails, PostgreSQL PANICs by default (`data_sync_retry=off`), because the kernel may have forgotten the unwritten pages; recovery replays WAL.
+- **Full-page writes.** The first change to each page after a checkpoint logs the whole page, guarding against torn writes, so WAL volume peaks right after checkpoints. Space checkpoints further apart or set `wal_compression`; turn `full_page_writes` off only on file systems that prevent partial page writes, such as ZFS.
+- **PostgreSQL bloat has a holder.** VACUUM removes a dead row version only once no snapshot can see it. When dead tuples persist, find the oldest xmin: `pg_stat_activity.backend_xmin` (long or idle-in-transaction sessions), `pg_prepared_xacts`, `pg_replication_slots` (`xmin` holds back all tables; `catalog_xmin` only system catalogs, though it still blocks wraparound protection), standbys with `hot_standby_feedback`. Plain VACUUM makes space reusable but returns it to the OS only from empty pages at the end; VACUUM FULL, CLUSTER and rewriting ALTER TABLE hold ACCESS EXCLUSIVE.
+- **HOT updates.** An update skips index maintenance only if it changes no indexed column (BRIN aside) and the new version fits on the same page. Do not index columns updated on every write; lower `fillfactor` on update-heavy tables; compare `n_tup_hot_upd` with `n_tup_upd`.
+- **Autovacuum and wraparound.** The default trigger is 50 changed rows + 20% of the table; PostgreSQL 18 caps it with `autovacuum_vacuum_max_threshold` (100,000,000), on older versions set per-table thresholds for huge tables. Near XID wraparound PostgreSQL warns at 40 million remaining and refuses new XIDs below 3 million. Then clear the xmin holders and run plain VACUUM as superuser, not VACUUM FULL (it needs an XID) or FREEZE; single-user mode is rarely needed. Lock conflicts do not cancel an anti-wraparound autovacuum.
+
+## Concepts
+- **Amplification**: write = bytes written to storage per byte written by the user; read = storage reads per query; space = on-disk size per byte of data.
+- **RUM conjecture**: an access method that bounds two of read, update and memory overhead faces a hard floor on the third.
+
+## Actions
+- `amplification_budget(workload)`: write rate x write amp vs disk bandwidth and endurance; data x space amp vs capacity.
+- `diagnose_stall(log)`: map the stall message to its flush, L0 or pending-compaction cause.
+- `find_xmin_holder()`: query the four holders, then end the session, resolve the prepared transaction or drop the slot before vacuuming.
+- `durability_review()`: walk commit ack, WAL flush, caches, replica ack.

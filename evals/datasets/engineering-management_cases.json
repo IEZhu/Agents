@@ -1,0 +1,155 @@
+{
+  "component": "skill-engineering-management",
+  "cases": [
+    {
+      "id": "em-one-on-one-agenda-ru",
+      "agent": "engineering_manager",
+      "language": "ru",
+      "group": "management",
+      "history": [],
+      "user_message": "Месяц назад стал тимлидом, в команде 6 бэкендеров. Хочу ввести еженедельные встречи один на один по 30 минут. Набросай шаблон повестки: я думаю так — 10 минут пройтись по статусу его задач в Jira, 10 минут блокеры, в конце 10 минут мой фидбек ему. Повестку буду готовить сам, чтобы не тратить их время.",
+      "why_in_scope": "The skill says the 1:1 is the report's meeting: the report brings most agenda items, status belongs in the tracker, and the slot is protected. A strong model may simply polish the manager-driven status template the user proposed.",
+      "rubric": [
+        "Pushes back on the manager-owned agenda: the meeting should be mainly the report's, with most items coming from them.",
+        "Recommends moving task-status review out of the 1:1 (Jira, standup or async updates) and using the time for what concerns the person.",
+        "Gives concrete practices such as a shared private running agenda doc, not cancelling or moving the slot for other work, and letting the report do most of the talking.",
+        "The answer is in Russian and offers a usable 30-minute structure."
+      ]
+    },
+    {
+      "id": "em-public-interrupter-feedback-en",
+      "agent": "engineering_manager",
+      "language": "en",
+      "group": "management",
+      "history": [],
+      "user_message": "One of my senior devs, Mark, keeps steamrolling sprint planning. Yesterday he interrupted Priya three times while she presented her estimate and called her approach 'naive' in front of everyone. He's honestly our strongest engineer and I really don't want to demotivate him. My plan: bring it up at his performance review in two months, and open with all the great stuff he did on the Postgres migration so it lands softer. Thoughts?",
+      "why_in_scope": "The skill says feedback goes out within days, criticism in private, never sandwiched in praise, and framed as observed behaviour, its impact and a question or request. A strong model may accept the two-month delay or endorse softening with praise because Mark is valuable.",
+      "rubric": [
+        "Recommends raising it soon (within days), privately, rather than waiting two months for the review.",
+        "Advises against wrapping the criticism in praise about the migration; recognizes that praise separately.",
+        "Drafts or describes feedback that names the observable behaviour (three interruptions, calling the approach 'naive'), its impact on Priya or the team's planning, and ends with a question or a concrete request, without character labels like 'rude' or 'toxic'.",
+        "Does not treat Mark's strength as a reason to soften or skip the conversation."
+      ]
+    },
+    {
+      "id": "em-career-flight-risk-ru",
+      "agent": "engineering_manager",
+      "language": "ru",
+      "group": "management",
+      "history": [],
+      "user_message": "Мой сильный мидл Дима на встрече сказал, что «не видит роста» и подумывает уйти. Я сразу предложил ему повышение до сеньора через полгода, если закроет квартальные цели. Он вежливо кивнул, но явно не обрадовался. Как мне нормально поговорить с ним про карьеру, чтобы он остался?",
+      "why_in_scope": "The skill teaches career conversations that first learn what drives the person and their long-term aspirations, then co-create a plan with owners and timelines, plus sponsorship. A strong model may jump straight to promotion criteria and a skills matrix.",
+      "rubric": [
+        "Recommends first understanding what motivates Dima and what he wants long term before proposing a plan, instead of leading with a title offer.",
+        "Proposes co-creating a concrete development plan with specific actions, owners and dates, revisited regularly.",
+        "Suggests giving him visible opportunities or advocating for him (for example leading a project or presenting his work to a wider audience), not only advice.",
+        "The answer is in Russian and treats the retention risk as urgent enough to act on soon."
+      ]
+    },
+    {
+      "id": "em-staff-eng-new-domain-en",
+      "agent": "engineering_manager",
+      "language": "en",
+      "group": "management",
+      "history": [],
+      "user_message": "I'm handing our payments-service migration to Kafka to Sam, a staff engineer with 12 years of experience. He's superb on our frontend platform but has never touched the payments backend or Kafka. Plan: give him the epic, tell him he fully owns it, and check in at the end of the quarter so I don't micromanage a staff engineer. Good plan?",
+      "why_in_scope": "The skill says supervision follows experience with the specific task, not seniority, and that delegation without follow-through is abandonment. A strong model may endorse hands-off ownership because of Sam's title.",
+      "rubric": [
+        "Points out that Sam's experience with this specific work (payments backend, Kafka) is low despite his seniority, so closer involvement is warranted at the start.",
+        "Recommends explicit expectations (outcome, constraints, what done means) and check-ins or milestones well before the end of the quarter, loosening as he shows competence.",
+        "Distinguishes following progress and being available from dictating how he does the work.",
+        "Notes a payments-specific risk to review early, such as the cutover, data consistency or rollback plan."
+      ]
+    },
+    {
+      "id": "em-missed-deadlines-plan-ru",
+      "agent": "engineering_manager",
+      "language": "ru",
+      "group": "management",
+      "history": [],
+      "user_message": "У меня разработчик Игорь последние два месяца срывает почти каждый дедлайн, на код-ревью к нему куча замечаний. До этого полтора года работал отлично. HR говорит, что надо оформлять план улучшения. Я хочу на следующей неделе сразу вручить ему такой план на 30 дней. Мы с ним об этом толком не разговаривали. Помоги составить план.",
+      "why_in_scope": "The skill puts a direct conversation, cause diagnosis (skill, will or personal circumstances) and a shared written record before any formal plan, with HR involved and no legal advice. A strong model may just write the 30-day plan as asked.",
+      "rubric": [
+        "Recommends talking to Igor first with specific examples and hearing his side before any formal plan, since he has not been told clearly.",
+        "Points to diagnosing the cause given the sudden change after a good track record (skill gap, motivation, or personal or health circumstances).",
+        "Recommends brief written notes of the conversations shared with Igor, clear measurable expectations with a timeframe, and regular (for example weekly) check-ins.",
+        "Leaves formal and legal requirements to HR and local rules rather than giving legal advice; the answer is in Russian."
+      ]
+    },
+    {
+      "id": "em-blame-postmortem-silence-en",
+      "agent": "engineering_manager",
+      "language": "en",
+      "group": "management",
+      "history": [],
+      "user_message": "After last month's outage, my director opened the postmortem with 'who pushed this config?' and the engineer got grilled for 20 minutes. Since then nobody on my team raises risks in planning and incidents get reported late. My director's take is that we need to hire stronger senior engineers. I'm the EM. What should I actually do?",
+      "why_in_scope": "The skill says how a team works, with psychological safety first, matters more than who is on it, and gives concrete manager moves while keeping standards. A strong model may partly accept the hiring fix or stay at generic 'blameless culture' advice.",
+      "rubric": [
+        "Diagnoses that the blaming response made speaking up feel risky and links the silence and late incident reports to it.",
+        "Pushes back on hiring stronger seniors as the fix, explaining that team dynamics matter more than individual talent (Google's team-effectiveness research found team composition and individual performance were not significant).",
+        "Gives concrete manager behaviours: admitting own mistakes, asking questions and inviting risks, framing work as learning, and running postmortems that focus on systems rather than individuals.",
+        "Keeps accountability and standards rather than presenting safety as the absence of consequences, and suggests how to raise it with the director."
+      ]
+    },
+    {
+      "id": "em-gut-feel-hiring-ru",
+      "agent": "engineering_manager",
+      "language": "ru",
+      "group": "management",
+      "history": [],
+      "user_message": "Нанимаю двух бэкендеров на Go. Сейчас у нас 4 интервьюера, каждый спрашивает что хочет, потом созваниваемся и решаем по ощущениям. Двоих последних нанятых пришлось уволить на испытательном. Как перестроить собеседования, чтобы такого не было?",
+      "why_in_scope": "The skill gives the structured-interview method: role attributes first, the same questions for every candidate, rubrics with defined levels, notes and calibration. A strong model may suggest adding a take-home or another round without fixing consistency and scoring.",
+      "rubric": [
+        "Recommends defining the attributes needed for the role before interviewing and assigning each interviewer what to assess.",
+        "Recommends asking all candidates for the role the same questions and scoring answers against a written rubric with described levels (for example poor, borderline, solid, outstanding).",
+        "Mentions combining questions about past behaviour with job-related hypothetical or practical tasks, detailed notes, and interviewer training or calibration.",
+        "The hiring decision rests on rubric evidence instead of overall impressions; the answer is in Russian."
+      ]
+    },
+    {
+      "id": "em-coding-manager-bottleneck-en",
+      "agent": "engineering_manager",
+      "language": "en",
+      "group": "management",
+      "history": [],
+      "user_message": "I've been EM of a 7-person team for 3 months. I still take about 40% of each sprint's tickets, including the critical-path ones because I'm fastest, and my meetings are scattered across the day so I code at night. Velocity is flat and two people told me they're blocked waiting on my reviews. My director says I should code less, but I think staying hands-on keeps me credible. Who's right?",
+      "why_in_scope": "The skill says a manager's output is the team's output, the manager must not hold critical-path work or slow reviews, and meetings should be clustered to protect focus blocks. A strong model may split the difference without naming the bottleneck.",
+      "rubric": [
+        "States that the EM's output is the team's output, so personal ticket throughput is not the goal.",
+        "Identifies holding critical-path tickets and slow reviews as a bottleneck and recommends handing off critical-path work (keeping non-blocking coding if desired).",
+        "Addresses the calendar: cluster meetings and protect focus blocks instead of scattered meetings and night coding.",
+        "Takes a clear position (the director is largely right) while acknowledging the value of technical credibility."
+      ]
+    },
+    {
+      "id": "em-control-release-delay-email-ru",
+      "agent": "engineering_manager",
+      "language": "ru",
+      "group": "control",
+      "history": [],
+      "user_message": "Помоги написать короткое письмо команде поддержки и продакту: релиз 3.4 переносим с 15 на 22 ноября, потому что нашли баг в миграции базы, который может потерять часть истории заказов. Тон спокойный, без паники, 5–7 предложений.",
+      "why_in_scope": "Control case: a plain status email with no people-management decision, so the skill should not change the answer.",
+      "rubric": [
+        "States the new date (22 November instead of 15 November) and that release 3.4 is affected.",
+        "Explains the reason (a database migration bug that could lose part of the order history) without inventing extra details such as names or causes.",
+        "Keeps a calm tone and stays within about 5–7 sentences.",
+        "The email is in Russian."
+      ]
+    },
+    {
+      "id": "em-control-sprint-capacity-en",
+      "agent": "engineering_manager",
+      "language": "en",
+      "group": "control",
+      "history": [],
+      "user_message": "Quick capacity math: 3 engineers, each averages 12 story points per 2-week sprint. Backlog for the feature is 180 points and we expect about 20% scope growth. How many sprints and weeks should I plan for? Show the arithmetic.",
+      "why_in_scope": "Control case: arithmetic capacity planning that no people-management technique should change.",
+      "rubric": [
+        "Computes team capacity as 36 points per sprint (3 × 12).",
+        "Computes total scope as 216 points (180 × 1.2).",
+        "Concludes 6 sprints, which is 12 weeks.",
+        "Shows the arithmetic steps clearly."
+      ]
+    }
+  ]
+}

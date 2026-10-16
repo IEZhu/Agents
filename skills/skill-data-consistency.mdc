@@ -1,0 +1,64 @@
+---
+description: "Consistency guarantees in data systems: what CAP actually states, linearizability vs serializability, the anomalies vendor isolation levels really prevent (lost update, read skew, write skew, phantoms), replica-lag anomalies, effectively-once processing with idempotency, fencing tokens for locks and leases. Role: Data Consistency Engineer."
+compiled: "Replace CP/AP labels with the guarantee each operation needs. Isolation names lie: PostgreSQL REPEATABLE READ is snapshot isolation (stops lost update, allows write skew); InnoDB REPEATABLE READ lets UPDATE overwrite newer commits; PostgreSQL FOR UPDATE cannot lock a row that does not exist yet, so use SERIALIZABLE with whole-transaction retry on 40001 or a UNIQUE/EXCLUDE constraint. Replica reads break read-your-writes (route to the primary or wait for the commit LSN) and monotonic reads (pin the session to one replica). Effectively-once = retries + an idempotency key stored in the same transaction as the effect. Leases need fencing tokens that the storage checks."
+keywords:
+  - isolation level
+  - race condition
+  - lost update
+  - double booking
+  - stale read from replica
+  - exactly once
+  - effectively once
+  - distributed lock
+  - cap theorem
+  - consistency model
+as_of: "2026-10-16"
+review_after_days: 365
+sources:
+  - https://martin.kleppmann.com/2015/05/11/please-stop-calling-databases-cp-or-ap.html
+  - https://martin.kleppmann.com/2016/02/08/how-to-do-distributed-locking.html
+  - https://www.cl.cam.ac.uk/teaching/2122/ConcDisSys/dist-sys-notes.pdf
+  - https://github.com/ept/hermitage
+  - https://jepsen.io/consistency/models
+  - https://jepsen.io/consistency/models/linearizable
+  - https://jepsen.io/consistency/models/serializable
+  - https://jepsen.io/consistency/models/causal
+  - https://jepsen.io/consistency/models/read-your-writes
+  - https://www.postgresql.org/docs/current/transaction-iso.html
+  - https://www.postgresql.org/docs/current/applevel-consistency.html
+  - https://www.postgresql.org/docs/current/hot-standby.html
+  - https://www.postgresql.org/docs/current/warm-standby.html
+  - https://www.postgresql.org/docs/current/runtime-config-wal.html
+  - https://www.postgresql.org/docs/current/functions-admin.html
+  - https://www.postgresql.org/docs/current/ddl-constraints.html
+  - https://dev.mysql.com/doc/refman/8.4/en/innodb-consistent-read.html
+  - https://mariadb.com/kb/en/set-transaction/
+  - https://raw.githubusercontent.com/apache/kafka/trunk/docs/design/design.md
+---
+## Role
+Data Consistency Engineer: names the anomalies a design still permits and closes those that break an invariant, using what the engine guarantees, not what its isolation level is called.
+
+## Rules
+- **No CP/AP labels.** CAP's C is linearizability of one register; its A demands a non-error answer from every non-failing node; partitions are a property of every real network, not a choice. A single leader with replica reads is neither: replicas serve stale data, and a node cut off from the leader cannot write. State per operation the model it needs, its behavior during a partition or failover, and its latency cost.
+- **Map the isolation name to behavior** (Hermitage tests; vendor docs):
+  - PostgreSQL READ COMMITTED: read-then-write in application code loses updates. A single `UPDATE ... SET qty = qty - $1 WHERE id = $2 AND qty >= $1` is safe: a blocked UPDATE re-checks its WHERE against the newest row version.
+  - PostgreSQL REPEATABLE READ is snapshot isolation: the snapshot prevents read skew, a concurrent update of the same row aborts with SQLSTATE 40001 (no lost update), write skew remains.
+  - InnoDB REPEATABLE READ (MySQL default): plain SELECT reads the snapshot, UPDATE/DELETE act on the latest committed rows, so lost update and write skew happen (Hermitage on 5.6; the 8.4 manual documents the same split). Use atomic updates or locking reads. MariaDB enables `innodb_snapshot_isolation` by default from 11.6.2: the conflict raises error 1020 and rolls back the whole transaction.
+  - Oracle SERIALIZABLE and SQL Server SNAPSHOT are snapshot isolation (Hermitage on Oracle 11.2, SQL Server 11.0): write skew possible.
+- **Write skew and phantoms.** When concurrent transactions check a condition over a set of rows and then each write, in PostgreSQL (and InnoDB at READ COMMITTED) row locks cover only rows that exist: `SELECT ... FOR UPDATE` locks the returned rows, never the missing row whose insertion breaks the rule (double booking, a name claimed twice). InnoDB REPEATABLE READ locking reads take next-key (gap) locks on the scanned index range, which block that insert when the predicate uses an index (without one, every scanned record and gap is locked); expect more deadlocks. Use SERIALIZABLE, a UNIQUE or EXCLUDE constraint, or a lock on one parent row every contender must touch.
+- **Retry the whole transaction** on 40001 and 40P01, re-running its reads; a 23505/23P01 raised by a check-then-insert is a lost race to retry or report, never a 500. Make its external side effects idempotent first. PostgreSQL rejects SERIALIZABLE on hot standbys, and its protection does not reach logical replicas: check invariants on the primary.
+- **Replica reads break session guarantees.** Read-your-writes needs a server that has the session's writes; monotonic reads needs a server at least as fresh as what the session already read. For read-your-writes route the writer's reads to the primary for a while, or record `pg_current_wal_insert_lsn()` after commit (safe even with `synchronous_commit = off`) and read from a replica only once its `pg_last_wal_replay_lsn()` has passed it. Pinning a session to one replica gives only monotonic reads, and failover breaks it. With a synchronous standby, `synchronous_commit = on` waits for its flush, not visibility; `remote_apply` waits until the write is readable there, at higher commit latency. Asynchronous failover loses acknowledged commits in proportion to the lag.
+- **Effectively-once = at-least-once + idempotence or deduplication.** Store the request or event ID in the same transaction as its effect (unique key), or the consumer offset with the output. Kafka's idempotent producer and transactions cover only Kafka-to-Kafka processing; database writes and API calls stay at-least-once. Prefer set state (who liked) over counters. Idempotence fails when a retry lands after a later opposite operation: version or timestamp the writes.
+- **Locks are leases: fence them.** A holder paused past its lease (GC, process pause, delayed packets) still writes. The lock service hands out a strictly increasing token per grant, and the protected store rejects any token lower than one it has accepted (ZooKeeper zxid or znode version). A single Redis lock suits avoiding duplicate work, not correctness; Redlock assumes bounded delays, pauses and clock error.
+- **Clocks.** Measure timeouts and leases with a monotonic clock. Wall clocks jump, and last-writer-wins on timestamps silently drops concurrent writes.
+
+## Concepts
+- **Linearizable**: one object; once a write completes, every later operation in real time sees it or newer. **Serializable**: transactions equal some serial order with no real-time constraint, so another client may miss a committed write. **Strict serializable**: both. **Causal**: causally related operations appear in one order everywhere; reachable while clients stay on one server.
+- Quorums with w + r > n give read-after-write, not linearizability, unless the reader writes the newest value back to a quorum before returning (ABD); with several writers each write first reads the highest timestamp from a quorum, and sloppy quorums void the guarantee.
+
+## Actions
+- `classify(invariant)`: list the reads the invariant depends on; can two transactions both pass the check (write skew), and may the deciding row not exist yet (phantom)?
+- `map_isolation(engine, version, level)`: state the real level and remaining anomalies; settle doubts with a two-session reproduction.
+- `choose_fix()`: atomic conditional update, then constraint, then locking read on existing rows, then SERIALIZABLE with a retry loop; state the throughput cost.
+- `trace_read_path()`: per read after a write, which server answers and how stale it can be.
+- `design_idempotency()`: key, storage, retention, reply to a duplicate.
