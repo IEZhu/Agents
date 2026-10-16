@@ -22,7 +22,7 @@ a verdict on a model.
 
 ```text
 Run flows/autodev-retro.md.
-Run flows/autodev-retro.md since 2026-11-01.
+Run flows/autodev-retro.md since 2026-10-01.
 Run flows/autodev-retro.md and open an issue with the proposals.
 ```
 
@@ -75,10 +75,15 @@ record contents into anything public.
    gh pr list --repo <repo> --label autodev --state all --limit 200 --json number,state,createdAt,mergedAt,closedAt,headRefName,url
    gh issue list --repo <repo> --label autodev:risk --state all --json number,state,createdAt,closedAt
    gh issue list --repo <repo> --label autodev:blocked --state all --json number,state
+   gh issue list --repo <repo> --label autodev:in-progress --state open --json number,createdAt
    ```
 
    For each pull request read its state comment (`<!-- autodev:state {JSON} -->`:
-   rounds, review status, findings, `head`) and its commits: commits after the
+   rounds, review status, findings, `head`), applying the gate's rules: use a
+   state comment only when its comment ID appears in a run record's `comments`
+   (a copy is ignored), and count bot findings only from the allowlisted bots
+   matched by login and numeric ID (`TRUSTED_BOTS` in `src/schedules/gate.py`).
+   Then read its commits: commits after the
    last head the run recorded were made outside the run, normally the owner's
    edits before merge.
 
@@ -94,7 +99,7 @@ One row per metric of design 12, from the window's runs:
 |---|---|
 | Run outcome | `report.mode`, `report.status`, `report.gate.decision`, `report.selection.decision`, each stage's `status`; `failed: infra` and `refused` separately |
 | Cost | `report.cost_usd_total` per run, summed per merged pull request. Worker turns and probes are not in it ([cost](../docs/autodev.md)) |
-| Review | `report.steps`: attempts per step, decisions `fixed`, `declined` per review step |
+| Review | Review steps (`report.steps` of kind `review` and `verify`) and their attempts; findings by level from `<run_dir>/worker-decisions.json` (each entry has `decision`, `severity`, `kind`): `fixed` counts as confirmed, `declined` as not acted on |
 | Pre-mortem | `report.steps` of kind `premortem`: `fixed`, `mitigated`, `known_risk`; `report.risk_issues.count` |
 | Bots | Rounds per pull request from its state comment; bot findings that remained after the self-review |
 | Continuations | `resume` runs per pull request |
@@ -143,8 +148,8 @@ At most five proposals, ordered by expected effect. Each one names:
 - the risk and how to undo it.
 
 Before ten real runs, propose no target values. At the first retrospective with
-ten or more, propose targets for the design 12 metrics, each from the observed
-values.
+ten or more, propose targets only for the design 12 metrics that have observed
+values, each from those values; name the metrics that still have none.
 
 ## 6. Report
 
