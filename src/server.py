@@ -187,7 +187,7 @@ mcp = _WorkerInputMCP(
     "Agents-Core",
     instructions=(
         "Persona protocol 2: pass protocol_version=2 to route_and_load and get_agent_context.\n"
-        "Prefer Agents-Core over Agents-Core-Desktop; retry a denied call there.\n"
+        "If Agents-Core is listed, make every call there, the first too; retry denials there.\n"
         "A worker with a prepared agents-core/subagent/1 package uses that task role: no full "
         "persona activation, inherited parent descriptor, footer, timestamp or log_interaction. "
         "Return its JSON result only.\n"
@@ -209,7 +209,7 @@ mcp = _WorkerInputMCP(
         "Pass persona_action only with persona; callers without a descriptor omit both. files/tags "
         "are JSON arrays. Pass workspace, the absolute working directory, to memory and flow "
         "tools. Then send the final answer. When the footer lists answer-timestamp and logging "
-        "returns timestamp, prepend it on its own first line followed by an empty line.\n"
+        "returns timestamp, prepend it as the first line, then an empty line.\n"
         "\n"
         "Every AI delegation, including reviewers, verifiers and parallel workers: call "
         "get_subagent_context before spawning with a canonical agent_name, task, "
