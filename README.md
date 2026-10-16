@@ -1,13 +1,28 @@
-# 🤖 Agents Framework
+# 🤖 Agents-Core
 
-**Universal MCP Server for AI Agent Roles, Skills & Cognitive Implants**
+**Specialist context, reusable workflows and repository memory for AI assistants.**
 
-A local MCP server that loads specialized agent personas, domain skills, shared rules, and cognitive reasoning implants. Clients can connect through standalone stdio processes or a shared macOS HTTP service. Protocol 2 keeps a fitting persona in the conversation and routes only when selection is needed.
+Agents-Core is a local Model Context Protocol (MCP) server for assistants that need a specialist role, a repeatable task procedure or context from earlier work in a repository. It supplies personas, domain skills, shared rules and optional reasoning patterns called cognitive implants. Your current model uses that context and executes the task with its existing tools.
 
+- [Start here as an agent](docs/agent-guide.md): task-to-tool guide, first-call examples and operating limits.
+- [Compact documentation index](llms.txt): direct Markdown links for agents discovering the project.
+- [Install in an MCP client](llms-install.md): manual stdio configuration, including Cline.
 - [Documentation map](docs/README.md): current guides, reference material, and evaluation reports.
 - [AI contributor instructions](AGENTS.md) and [Claude instructions](CLAUDE.md).
 - [Model workflows](flows/README.md): reusable Markdown instructions, including
   the [documentation refresh process](flows/documentation-refresh.md).
+
+## When to use Agents-Core
+
+| Your task needs | Agents-Core provides | Entry point |
+|---|---|---|
+| A specialist approach to implementation, review, architecture or writing | A task-relevant persona with selected skills and rules | `route_and_load` or `get_agent_context` |
+| A repeatable PR review, documentation refresh or other repository procedure | Markdown workflows for your current model to execute | `list_flows`, then `run_flow` |
+| A bounded assignment for a reviewer or parallel worker | A compact role, acceptance criteria and a structured result contract | `get_subagent_context`, then `validate_subagent_result` |
+| Context from earlier work on the same project | Repository description and interaction history | `describe_repo` and `read_history` |
+| Shared exact inputs across workers | Persistent artifacts and pinned manifests | [Shared artifacts](docs/shared-artifacts.md) |
+
+The core server needs no external API key. Setup requires Python 3.11+ and downloads a local embedding model (about 1.1 GB with the default configuration). Clients connect through standalone stdio or the shared local service; the Claude Code plugin launches a separately installed server. Native worker execution, file edits and shell commands remain the host client's responsibility. See the [agent guide](docs/agent-guide.md) for selection examples, data handling and limits.
 
 ---
 
