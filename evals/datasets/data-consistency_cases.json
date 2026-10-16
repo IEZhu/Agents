@@ -1,0 +1,155 @@
+{
+  "component": "skill-data-consistency",
+  "cases": [
+    {
+      "id": "dc-oncall-shift-ru",
+      "agent": "database_admin",
+      "language": "ru",
+      "group": "isolation",
+      "history": [],
+      "user_message": "PostgreSQL 15. Таблица doctors(id, shift_id, on_call boolean). Правило: в каждой смене должен оставаться хотя бы один дежурный врач. Снятие с дежурства — одна транзакция на уровне REPEATABLE READ:\nSELECT count(*) FROM doctors WHERE shift_id = $1 AND on_call;\n-- если count >= 2:\nUPDATE doctors SET on_call = false WHERE id = $2;\nCOMMIT;\nВчера два врача одной смены нажали «снять дежурство» почти одновременно, и смена осталась без дежурных. Ошибок в логах нет. Как так вышло на repeatable read и как это исправить?",
+      "why_in_scope": "Both transactions read the same snapshot, see a count of 2 and update different rows, so PostgreSQL REPEATABLE READ (snapshot isolation) commits both without a serialization error. The skill names this anomaly and offers fixes that close it; a strong model may claim REPEATABLE READ should have prevented it or lock only the doctor's own row.",
+      "rubric": [
+        "Explains that each transaction saw a count of 2 in its own snapshot and updated a different row, and that PostgreSQL REPEATABLE READ (snapshot isolation) does not detect this, so no error was raised.",
+        "Proposes a fix that closes the race: SERIALIZABLE, or SELECT ... FOR UPDATE on all on-call rows of the shift (not only the doctor's own row), or locking a row all contenders share such as the shift.",
+        "If it proposes SERIALIZABLE, it says the application must retry the whole transaction on a serialization failure (SQLSTATE 40001).",
+        "The SQL shown is valid PostgreSQL and the answer is in Russian."
+      ]
+    },
+    {
+      "id": "dc-room-booking-en",
+      "agent": "database_admin",
+      "language": "en",
+      "group": "isolation",
+      "history": [],
+      "user_message": "Postgres 16, room booking service. bookings(id, room_id int, starts_at timestamptz, ends_at timestamptz). Our booking endpoint runs this in one READ COMMITTED transaction:\nSELECT id FROM bookings WHERE room_id = $1 AND starts_at < $3 AND ends_at > $2 FOR UPDATE;\n-- if no rows:\nINSERT INTO bookings(room_id, starts_at, ends_at) VALUES ($1, $2, $3);\nWe added FOR UPDATE after the first double booking, but we still get overlapping bookings for the same room a few times a week under load. Why doesn't the lock help, and what is the robust fix?",
+      "why_in_scope": "The check depends on the absence of a conflicting row, so FOR UPDATE has nothing to lock and two transactions both insert. The skill teaches that row locks cover only existing rows and points to a constraint, SERIALIZABLE or a lock on a parent row; a strong model may suggest raising the level to REPEATABLE READ, which in PostgreSQL does not stop this.",
+      "rubric": [
+        "Explains that FOR UPDATE locks only the rows the SELECT returns; when no overlapping booking exists yet nothing is locked, so two concurrent requests both see zero rows and both insert.",
+        "Proposes a database-enforced fix: an exclusion constraint over room and time range, SERIALIZABLE with a retry on serialization failure, or locking a per-room row before the check.",
+        "Does not present switching to REPEATABLE READ alone as a fix.",
+        "Says how the application should handle the resulting constraint violation or serialization failure (retry or a clear conflict response to the client)."
+      ]
+    },
+    {
+      "id": "dc-innodb-balance-ru",
+      "agent": "database_admin",
+      "language": "ru",
+      "group": "isolation",
+      "history": [],
+      "user_message": "MySQL 8.0, InnoDB, уровень изоляции по умолчанию. Списание баланса в сервисе на Java:\nSTART TRANSACTION;\nSELECT balance FROM accounts WHERE id = 42;\n-- в коде: newBalance = balance - amount, проверяем, что >= 0\nUPDATE accounts SET balance = :newBalance WHERE id = 42;\nCOMMIT;\nПри параллельных списаниях с одного счёта итоговый баланс иногда больше, чем должен быть: часть списаний «теряется». Мы думали, что REPEATABLE READ от этого защищает. Что не так?",
+      "why_in_scope": "In InnoDB REPEATABLE READ the plain SELECT reads a snapshot while the UPDATE writes over the latest committed row, so concurrent read-modify-write cycles overwrite each other. The skill corrects the belief that this level prevents it and gives atomic or locking alternatives; a strong model may assume MySQL aborts one transaction the way PostgreSQL snapshot isolation does.",
+      "rubric": [
+        "States that InnoDB REPEATABLE READ does not prevent this: the plain SELECT reads a snapshot and the UPDATE overwrites the row as last committed, so one deduction overwrites another.",
+        "Gives at least one working fix: a single atomic UPDATE (balance = balance - amount with a balance >= amount condition and a check of affected rows), SELECT ... FOR UPDATE before computing, or a version column checked in the UPDATE.",
+        "Does not claim that MySQL 8.0 REPEATABLE READ aborts the second transaction with a serialization error.",
+        "The SQL shown is valid MySQL and the answer is in Russian."
+      ]
+    },
+    {
+      "id": "dc-replica-reads-en",
+      "agent": "database_admin",
+      "language": "en",
+      "group": "replication",
+      "history": [],
+      "user_message": "We run PostgreSQL 16 with one primary and two async streaming replicas. The app sends all SELECTs to a random replica and all writes to the primary. Support tickets: a user edits their profile, the page reloads and shows the old name; another user saw the new name appear and then, on the next refresh, the old one came back. Replication lag in monitoring is usually under 200 ms. We'd like to keep reads on the replicas. What are our options?",
+      "why_in_scope": "There are two session anomalies: the writer not seeing its own write, and reads going backwards when consecutive requests hit replicas with different lag. The skill gives primary routing or WAL-position tracking, replica pinning and the remote_apply caveat; a strong model may only suggest reducing lag or claim that synchronous replication at the default commit level makes replica reads fresh.",
+      "rubric": [
+        "Identifies both problems: the user's own write not yet replayed on the replica it reads from, and values going backwards because successive reads hit replicas with different lag.",
+        "Proposes routing a user's reads to the primary for a short window after their write, or recording the WAL position after commit (pg_current_wal_lsn on the primary) and reading only from a replica whose pg_last_wal_replay_lsn has reached it.",
+        "Proposes keeping a user's session on one replica (sticky routing) so values do not go backwards.",
+        "If it mentions synchronous replication, it does not claim synchronous_commit = on makes the write visible on the standby; only remote_apply waits until it is applied."
+      ]
+    },
+    {
+      "id": "dc-cap-adr-ru",
+      "agent": "system_architect",
+      "language": "ru",
+      "group": "cap",
+      "history": [],
+      "user_message": "Пишем ADR на выбор БД для сервиса заказов. Архитектор предлагает формулировку: «PostgreSQL — CP-система по теореме CAP, поэтому данные у нас всегда консистентны; для разгрузки мастера читаем с двух асинхронных реплик, при падении мастера Patroni переключит на реплику». Помоги отредактировать этот раздел ADR, чтобы он был технически корректным.",
+      "why_in_scope": "The ADR claims CP while the design reads from asynchronous replicas and fails over to them, which is neither CAP-consistent nor CAP-available. The skill makes the model drop the label and state per-operation guarantees, stale reads and failover data loss; a strong model may polish the CP wording instead.",
+      "rubric": [
+        "Points out that the CP label does not fit this design: reads from asynchronous replicas can be stale, so the claim that data is always consistent does not hold.",
+        "States that with asynchronous replication a failover can lose transactions already acknowledged to clients.",
+        "Replaces the CAP label with concrete guarantees per operation (which reads must go to the primary, which may be stale and by how much) and the behavior during failover.",
+        "Produces revised ADR text in Russian that the user can paste."
+      ]
+    },
+    {
+      "id": "dc-kafka-ledger-en",
+      "agent": "system_architect",
+      "language": "en",
+      "group": "idempotency",
+      "history": [],
+      "user_message": "Our payments consumer reads PaymentSucceeded events from Kafka, inserts a row into a Postgres ledger table and calls the billing provider's HTTP API to issue an invoice. We turned on Kafka transactions and exactly-once settings in the consumer and producer config, yet we still see duplicate ledger rows and duplicate invoices after consumer rebalances and deploys. How do we make each event take effect exactly once?",
+      "why_in_scope": "Kafka's exactly-once covers Kafka-to-Kafka processing; the Postgres insert and the external API call stay at-least-once. The skill teaches storing the event ID (or offset) in the same database transaction as the effect and passing a stable key downstream; a strong model may keep tuning Kafka settings.",
+      "rubric": [
+        "Explains that Kafka's transactional exactly-once applies to reading and writing Kafka topics, not to the Postgres insert or the HTTP call, which stay at-least-once across rebalances and restarts.",
+        "Proposes deduplication in Postgres: store the event ID (or the consumed offset) in the same transaction as the ledger insert, backed by a unique constraint, and skip events already recorded.",
+        "For the billing API, proposes a stable key derived from the event (the provider's idempotency key if it offers one) or recording the invoice request before the call so a retry can be detected.",
+        "Addresses the crash window between the external call and the database commit, since the call cannot be part of the database transaction."
+      ]
+    },
+    {
+      "id": "dc-redis-lock-ru",
+      "agent": "system_architect",
+      "language": "ru",
+      "group": "locking",
+      "history": [],
+      "user_message": "Несколько воркеров на Java пересчитывают агрегаты клиента и перезаписывают его строку в таблице client_stats (PostgreSQL). Чтобы считал только один, берём лок в Redis: SET lock:client:{id} <uuid> NX PX 30000, в конце удаляем ключ, если значение наше. Вчера у одного воркера была GC-пауза секунд на 45: лок истёк, его взял второй воркер и записал свежие данные, а потом проснулся первый и перезаписал их устаревшими. Хотим перейти на Redlock с пятью Redis. Это решит проблему?",
+      "why_in_scope": "A lease cannot stop a paused holder from writing after it expires, and Redlock relies on the same timing assumptions. The skill teaches a token checked by the store (here a conditional UPDATE in PostgreSQL); a strong model may endorse Redlock or suggest a longer TTL or lease renewal.",
+      "rubric": [
+        "Says Redlock does not solve this: any lease-based lock can expire while its holder is paused, and the paused worker does not know it lost the lock.",
+        "Proposes a monotonically increasing token issued with each lock acquisition and checked by the database on write (for example UPDATE client_stats ... WHERE client_id = ... AND last_token < :token), so the stale writer's update is rejected.",
+        "Notes that a longer TTL or lease renewal only narrows the window and does not close it.",
+        "Mentions that PostgreSQL itself can serialize the writers instead (a row lock or a version check in the same transaction as the write), and answers in Russian."
+      ]
+    },
+    {
+      "id": "dc-like-retries-en",
+      "agent": "database_admin",
+      "language": "en",
+      "group": "idempotency",
+      "history": [],
+      "user_message": "Our mobile app calls POST /posts/{id}/like. The backend runs UPDATE posts SET like_count = like_count + 1 WHERE id = $1 in Postgres 16, and unlike runs like_count - 1. On flaky networks the client times out and retries (we added exponential backoff with 3 retries), and now like counts are visibly higher than the number of users who liked. How should we fix this at the database level?",
+      "why_in_scope": "Retries turn a non-idempotent increment into duplicate effects. The skill steers toward set-like state with a unique key and a derived count, or a request ID stored with the effect; a strong model may only suggest fewer retries or client-side debouncing.",
+      "rubric": [
+        "Explains that the client cannot know whether a timed-out request was applied, so retries apply the increment more than once.",
+        "Proposes storing likes as rows keyed by (user_id, post_id) with a primary key or unique constraint (INSERT ... ON CONFLICT DO NOTHING; DELETE for unlike) and deriving the count from them.",
+        "If it keeps a cached counter, it changes it only when the insert or delete actually affected a row, in the same transaction.",
+        "The SQL shown is valid PostgreSQL."
+      ]
+    },
+    {
+      "id": "dc-control-topn-en",
+      "agent": "database_admin",
+      "language": "en",
+      "group": "control",
+      "history": [],
+      "user_message": "Postgres 15: table sales(region text, product_id int, revenue numeric, sold_at date). I need the top 3 products by total revenue in each region for 2025. Write the query.",
+      "why_in_scope": "Control: a plain query-writing task with no concurrency, replication or delivery concern; the skill should not change the answer.",
+      "rubric": [
+        "Aggregates revenue per region and product for 2025 (sold_at from 2025-01-01 up to but not including 2026-01-01) before ranking.",
+        "Ranks within each region with a window function (ROW_NUMBER, RANK or DENSE_RANK) ordered by total revenue descending and keeps the top 3, or uses an equivalent LATERAL subquery with LIMIT 3.",
+        "Says how ties are handled by the chosen ranking function.",
+        "Does not add unrelated advice about isolation levels, replication or locking."
+      ]
+    },
+    {
+      "id": "dc-control-index-ru",
+      "agent": "database_admin",
+      "language": "ru",
+      "group": "control",
+      "history": [],
+      "user_message": "PostgreSQL 16, таблица events на 80 млн строк, запрос: SELECT * FROM events WHERE user_id = $1 ORDER BY created_at DESC LIMIT 20; Сейчас есть индекс только на user_id, запрос иногда идёт 300 мс. Какой индекс лучше создать и как сделать это на проде без простоя?",
+      "why_in_scope": "Control: indexing and online DDL, outside consistency guarantees; the skill should not change the answer.",
+      "rubric": [
+        "Recommends a composite B-tree index on (user_id, created_at DESC) or (user_id, created_at), which serves both the filter and the ordering with LIMIT.",
+        "Uses CREATE INDEX CONCURRENTLY and notes that it cannot run inside a transaction block and that a failed build leaves an invalid index to drop.",
+        "Suggests checking the plan with EXPLAIN (ANALYZE) before and after, and considering dropping the now-redundant index on user_id alone.",
+        "Answers in Russian."
+      ]
+    }
+  ]
+}

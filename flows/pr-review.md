@@ -493,9 +493,11 @@ thread replies and resolutions of item 6, never `gh pr merge`, and
 `python "$AGENTS_CORE_ROOT/scripts/dev/pr_threads.py" N --mode autodev` to list
 threads and every review body on the head, the owner's included, each marked
 `TRUSTED` or `untrusted` by the rule of item 3. It differs in two ways only: it
-replies inside each thread (item 6), which the broker cannot, and it never
-pushes with the owner's `gh`, because that push would skip every broker check:
-it hands the reviewed head to the owner, who pushes it
+replies inside each thread (item 6), which the broker cannot, and it pushes
+the run's own branch itself with the owner's credentials. That push skips the
+broker, so before every push the session runs the broker's checks itself and
+reports them, and it pushes only a head that a validated independent review
+covered (item 1). Merging, closing and deleting stay with the owner
 ([autodev, run it interactively](autodev.md#run-it-interactively)).
 
 1. **Every push needs a validated review of exactly that head.**

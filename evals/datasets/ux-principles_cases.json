@@ -1,0 +1,153 @@
+{
+ "component": "skill-ux-principles",
+ "cases": [
+  {
+   "id": "ru-menu-seven-items",
+   "agent": "ux_designer",
+   "language": "ru",
+   "group": "ux-laws",
+   "history": [],
+   "user_message": "Арт-директор требует сократить главное меню интернет-магазина электроники с 11 пунктов до 7: говорит, что больше семи пунктов человек всё равно не удержит в голове, это научно доказано. Сейчас пункты такие: Смартфоны, Ноутбуки, ТВ, Аудио, Фото, Игры, Бытовая техника, Умный дом, Аксессуары, Акции, Сервис. Он прав? Что делать с меню?",
+   "why_in_scope": "The skill says the working-memory span is no cap on visible menus, because visible items are recognized rather than recalled. A strong model often accepts the popular 'seven items' rule as settled science and merges categories to hit the number.",
+   "rubric": [
+    "Gives a clear answer that the argument does not hold: the memory-span finding concerns holding items in memory, while visible menu items are recognized on screen rather than recalled, so it does not cap the menu at seven.",
+    "Does not merge categories just to reach seven; bases the structure on users' tasks and vocabulary and suggests checking it with card sorting, tree testing or analytics.",
+    "Offers concrete improvements for scanning the existing items, for example separating Акции and Сервис from product categories, grouping or ordering by demand.",
+    "The reply is in Russian."
+   ]
+  },
+  {
+   "id": "ru-target-size-wcag",
+   "agent": "ux_designer",
+   "language": "ru",
+   "group": "accessibility",
+   "history": [],
+   "user_message": "Мобильная версия CRM: в каждой строке списка клиентов справа две иконки — «редактировать» и «удалить», каждая 16×16 px, расстояние между ними 4 px. Заказчик требует соответствия WCAG 2.1 AA, наш тестировщик говорит, что по размеру кнопок там всё ок. Так ли это и надо ли что-то менять?",
+   "why_in_scope": "The skill states the current WCAG 2.2 AA target minimum (24x24 CSS px or enough spacing) and that 44x44 is AAA. A strong model often claims 44x44 is required at AA, or misses that 2.1 AA has no target-size criterion while 2.2 AA does.",
+   "rubric": [
+    "States correctly that in WCAG 2.1 the target size criterion (2.5.5, 44 by 44 CSS px) is Level AAA, so 2.1 AA alone sets no target-size requirement and the tester is formally right for 2.1 AA.",
+    "Notes that the current WCAG 2.2 adds a Level AA criterion (2.5.8) of at least 24 by 24 CSS px or sufficient spacing, which 16 px icons 4 px apart do not meet, and recommends meeting it.",
+    "Addresses the risk of a destructive action placed next to a frequent one: more separation, and a confirmation or undo for delete.",
+    "Suggests enlarging the tappable area (for example with padding) rather than only redrawing the icon."
+   ]
+  },
+  {
+   "id": "ru-long-report-wait",
+   "agent": "ux_designer",
+   "language": "ru",
+   "group": "performance",
+   "history": [],
+   "user_message": "В B2B-кабинете отчёт формируется от 3 до 40 секунд. Сейчас после нажатия «Сформировать» кнопка просто становится серой, и всё. Пользователи пишут, что «всё зависло», жмут F5 и запускают отчёт заново. Бэкенд в этом квартале ускорять не будут. Что поменять в интерфейсе?",
+   "why_in_scope": "The skill gives response-time rules: respond within a fraction of a second to keep flow and, past about 10 seconds, show percent-done progress with a way to cancel. A strong model may suggest only a generic spinner for all waits.",
+   "rubric": [
+    "Gives an immediate visible acknowledgment of the click (a state change or indicator right away) instead of a silently disabled button.",
+    "For the long waits (well past 10 seconds) recommends a determinate progress indicator (percent or steps) with a way to cancel, or running the report in the background with a notification when it is ready.",
+    "Handles the reload problem: the job's status survives a page reload or return, or duplicate launches are prevented.",
+    "Stays with interface changes and does not depend on a backend speed-up."
+   ]
+  },
+  {
+   "id": "ru-mortgage-worst-step",
+   "agent": "ux_designer",
+   "language": "ru",
+   "group": "ux-laws",
+   "history": [],
+   "user_message": "Мобильное приложение банка, заявка на ипотеку: 9 экранов. По аналитике больше всего людей уходит на 6-м экране, где надо вручную ввести данные работодателя: ИНН, ОГРН, юридический адрес, телефон отдела кадров. Последний экран — просто текст «Заявка отправлена». На доработку есть одна итерация. Что менять в первую очередь?",
+   "why_in_scope": "The skill tells the designer to fix the most painful step and design the ending, and to move irreducible complexity to the system instead of the user. A strong model may spread one iteration over generic polish of all nine screens.",
+   "rubric": [
+    "Prioritizes the employer-details screen with the largest drop-off over polishing all screens.",
+    "Moves the effort from the user to the system, for example looking up the employer by name or INN and filling the other details automatically, reusing data the bank already has, or allowing save and resume.",
+    "Improves the final screen with what happens next, the expected timing and how to track the application.",
+    "Fits the plan to one iteration with a clear order of priority."
+   ]
+  },
+  {
+   "id": "ru-control-password-error",
+   "agent": "ux_designer",
+   "language": "ru",
+   "group": "control",
+   "history": [],
+   "user_message": "Напиши текст ошибки для поля пароля при регистрации, если пароль короче 8 символов. Нужно коротко, это мобильное приложение.",
+   "why_in_scope": "Control case: error-message wording was already covered by the unchanged heuristics, and the new laws and performance rules should not change this answer.",
+   "rubric": [
+    "States both the problem and the fix, namely that the password needs at least 8 characters.",
+    "Is short enough for a field-level message on a phone, without blame or technical jargon.",
+    "The text is in Russian."
+   ]
+  },
+  {
+   "id": "en-speed-metrics-slide",
+   "agent": "ux_designer",
+   "language": "en",
+   "group": "performance",
+   "history": [],
+   "user_message": "I'm putting together our quarterly UX health slide. Our perf dashboard (set up back in 2022) shows First Input Delay 80 ms, Largest Contentful Paint 3.1 s and Cumulative Layout Shift 0.05, from a nightly Lighthouse run in CI on a desktop profile. The slide currently says \"All three of Google's speed metrics: green\". Can you sanity-check it before it goes to the VP?",
+   "why_in_scope": "The skill carries the current Core Web Vitals set and thresholds as checked on web.dev. A strong model may still treat First Input Delay as current or misremember how the thresholds are assessed.",
+   "rubric": [
+    "Says First Input Delay is no longer one of the three metrics: Interaction to Next Paint replaced it in 2024, with good at 200 ms or less.",
+    "Classifies LCP 3.1 s as not good (good is 2.5 s or less) and CLS 0.05 as good (0.1 or less), so the slide's claim is wrong.",
+    "Notes that the bar is judged at the 75th percentile of users' page loads, separately for mobile and desktop, so a nightly desktop lab run does not establish it.",
+    "Proposes a corrected slide statement or the data needed to make one."
+   ]
+  },
+  {
+   "id": "en-five-users-plan",
+   "agent": "ux_designer",
+   "language": "en",
+   "group": "testing",
+   "history": [],
+   "user_message": "We have budget for exactly one round of usability testing before launch, 5 participants: 2 first-time online shoppers, 2 B2B purchasing managers and 1 warehouse clerk who uses the admin app. Afterwards we want to tell the board \"task success rate is X%\" and that the test caught most of the usability problems. Does this plan hold up?",
+   "why_in_scope": "The skill qualifies the five-user rule: it holds per round for similar users, distinct groups need about 3-4 each, and quantitative metrics need about 20. A strong model may repeat the five-user rule without those conditions.",
+   "rubric": [
+    "Points out that five participants split across three distinct user groups is too few per group to find most problems for any of them; guidance is about three per group when testing three or more groups.",
+    "States that a success rate reported to the board is a quantitative measure that needs a much larger sample (on the order of 20 users) or must be reported with its uncertainty; five users suit qualitative problem-finding.",
+    "Recommends iterative rounds (test, fix, retest) or narrowing to the most important group if only one round is possible.",
+    "Gives a concrete revised plan within the stated budget."
+   ]
+  },
+  {
+   "id": "en-heavy-hero-budget",
+   "agent": "ux_designer",
+   "language": "en",
+   "group": "performance",
+   "history": [],
+   "user_message": "Marketing wants our new landing page to open with a full-screen autoplay background video and a 3D product configurator above the fold. Our front-end lead says it'll be \"way too heavy\" but can't say how heavy is too heavy. I'm the designer and we start high-fidelity mockups next week. How should I handle this?",
+   "why_in_scope": "The skill tells the designer to agree a performance budget with engineering before visual design and trade within it. A strong model may jump to compression tips or side with one camp instead of setting explicit limits first.",
+   "rubric": [
+    "Proposes agreeing explicit performance limits with engineering and marketing before high-fidelity mockups, such as a loading-time target or page-weight cap, and judging the design options against them.",
+    "Offers trade-offs that keep the intent, such as a lightweight poster image shown first and the video or 3D loaded later or on interaction.",
+    "Any metric thresholds it cites are correct (for example LCP good at 2.5 s or less at the 75th percentile, CLS 0.1 or less) and it considers mobile users.",
+    "Flags autoplaying background motion as an accessibility concern and recommends a pause control or honoring the reduced-motion preference."
+   ]
+  },
+  {
+   "id": "en-polished-prototype-ratings",
+   "agent": "ux_designer",
+   "language": "en",
+   "group": "testing",
+   "history": [],
+   "user_message": "We tested our new, very polished banking app prototype with 6 participants. Average ease-of-use rating was 6.3 out of 7 and everyone said it looks great. But 3 of the 6 couldn't find how to download a statement, and 2 needed a hint to set up a recurring transfer. Our PM says the ratings prove it's usable and we should ship. How do I respond?",
+   "why_in_scope": "The skill warns that visual polish makes test participants forgive and under-report flaws, so observed task success should outweigh ratings. A strong model may treat the ratings and the failures as equally weighted evidence.",
+   "rubric": [
+    "Says the observed task failures outweigh the ratings: half the participants failing a core task is a serious problem whatever they rated.",
+    "Explains that attractive visual design tends to raise perceived usability and make participants forgive or under-report problems, so the ratings are weak evidence here.",
+    "Proposes concrete fixes for the failed tasks and a short retest before shipping.",
+    "Does not claim statistical certainty from six participants in either direction."
+   ]
+  },
+  {
+   "id": "en-control-empty-state",
+   "agent": "ux_designer",
+   "language": "en",
+   "group": "control",
+   "history": [],
+   "user_message": "New users land on an empty Projects page right after signup. What should this empty state show? Keep it brief.",
+   "why_in_scope": "Control case: empty-state guidance relies on unchanged heuristics, and the new laws and performance rules should not change this answer.",
+   "rubric": [
+    "Explains what the page is for or what will appear there once projects exist.",
+    "Offers one clear primary action to create the first project, optionally with a template, sample or import.",
+    "Stays brief, as requested."
+   ]
+  }
+ ]
+}

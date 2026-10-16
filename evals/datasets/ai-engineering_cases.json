@@ -1,0 +1,155 @@
+{
+  "component": "skill-ai-engineering",
+  "cases": [
+    {
+      "id": "judge-pairwise-length-ru",
+      "agent": "ai_senior_engineer",
+      "language": "ru",
+      "group": "judge",
+      "history": [],
+      "user_message": "Сравниваем текущего саппорт-бота с новой версией: в новой другой системный промпт и другая модель — та же, что у нас стоит судьёй. Судье показываем ответ A (текущий бот) и ответ B (новая версия) и спрашиваем, какой лучше. B выиграл 124 сравнения из 200, то есть 62%. Ответы B в среднем на 40% длиннее. Хочу завтра выкатить B на всех — норм?",
+      "why_in_scope": "The skill makes the model check order, length and self-preference effects in a pairwise LLM judge before trusting a win rate. A strong model may focus on sample size alone, or read 62% as a clear win without asking whether B wins because it is longer, always shown second, or written by the judge's own model.",
+      "rubric": [
+        "Recommends judging every pair in both orders (A/B and B/A) and counting a win only when the verdict holds in both orders (inconsistent pairs as ties), or at least randomizing which answer is shown first.",
+        "Flags that answers 40% longer may be winning on length rather than quality and proposes a concrete control (a length-matched comparison, a rubric instruction checked on samples, or human review of a sample).",
+        "Flags that the judge is the same model that generates B and may favour its own outputs, and recommends a different judge model or validating the judge against human labels.",
+        "Does not approve the full rollout on the 62% figure as it stands and gives a concrete re-check plan; any statistical statement is correct (124 of 200 is above 50% beyond simple sampling noise if the comparisons are independent, so the main concern is judge bias, not sample size)."
+      ]
+    },
+    {
+      "id": "judge-rare-failures-en",
+      "agent": "ai_senior_engineer",
+      "language": "en",
+      "group": "judge",
+      "history": [],
+      "user_message": "We built an LLM grader that flags hallucinated case citations in our legal-summary bot. On 300 summaries our in-house lawyer labeled, the grader agrees with her 94% of the time, so next week it becomes the release gate: any build whose grader pass rate drops gets blocked. About 5% of the summaries in that set actually contain a bad citation. Anything I'm missing before we switch it on?",
+      "why_in_scope": "The skill makes the model judge a grader by its hit rate on true failures and true passes separately and pin the grader before gating on it. At a 5% failure rate, 94% raw agreement is below what an always-pass grader would score, which a strong model may not notice.",
+      "rubric": [
+        "Points out that raw agreement is misleading at a 5% failure rate: a grader that never flags anything would agree about 95% of the time, so 94% says little about whether it catches bad citations.",
+        "Asks for the grader's detection rate on the roughly 15 summaries with bad citations and its rate on the good ones as separate numbers (true positive and true negative rates, or precision and recall).",
+        "Notes that about 15 failure examples are too few for a reliable estimate and recommends labeling more failure cases (for example by adding known-bad summaries) in a held-out set.",
+        "Recommends fixing the grader's model version and prompt for the gate and re-validating it whenever either changes."
+      ]
+    },
+    {
+      "id": "noise-small-set-ru",
+      "agent": "prompt_engineer",
+      "language": "ru",
+      "group": "noise",
+      "history": [],
+      "user_message": "Прогнали новый системный промпт на нашем тестовом наборе из 50 вопросов: старый даёт 72% правильных, новый 78%. Каждый вариант прогоняли один раз, temperature 0.7, оценка — точное совпадение с эталоном. Команда хочет мержить, мол +6 пунктов. Это реальное улучшение или нет?",
+      "why_in_scope": "The skill makes the model treat a single-run 6-point gap on 50 items as unproven and propose a paired comparison, repeated sampling and a sample-size check. A strong model may accept the gain, or only say 'add more data' without the paired analysis and with temperature 0 offered as the fix for noise.",
+      "rubric": [
+        "Explains that a 6-point gap on 50 items from one run each is within sampling noise (the standard error of a single accuracy near 75% on 50 items is about 6 points) and does not call it a confirmed improvement.",
+        "Recommends a paired, per-question comparison on the same 50 items (for example counting questions that flipped from wrong to right and from right to wrong) rather than comparing two totals.",
+        "Recommends several runs per question (or averaging over samples) to reduce sampling variance, and does not present setting temperature to 0 as what makes the comparison valid.",
+        "Recommends estimating how many questions are needed to detect a gap of this size, or enlarging the set, before deciding."
+      ]
+    },
+    {
+      "id": "adapt-stale-facts-en",
+      "agent": "ai_senior_engineer",
+      "language": "en",
+      "group": "adaptation",
+      "history": [],
+      "user_message": "Our support bot keeps quoting last quarter's prices and knows nothing about the three plans we launched in September. Product docs live in Confluence and change every month. My lead wants to fine-tune Llama 3.1 8B on a Confluence export so the model 'learns our products'. Is that the right call, and how would we know it worked?",
+      "why_in_scope": "The skill makes the model diagnose a missing-facts problem as a retrieval problem rather than a finetuning one, and set up an eval before choosing. A strong model may endorse finetuning, or suggest both, without explaining that finetuning injects new facts poorly and would go stale with monthly changes.",
+      "rubric": [
+        "Recommends retrieval over the current docs (RAG) as the primary fix for missing or outdated facts, rather than fine-tuning on an export.",
+        "Explains that fine-tuning is a weak way to teach new facts and that a monthly-changing knowledge base would need repeated retraining, while fine-tuning suits format, tone or behaviour problems.",
+        "Proposes a concrete eval set first, for example questions about current prices and the new plans with expected answers, to compare the current bot with the proposed change.",
+        "Suggests checking retrieval separately from the final answer (whether the right doc passage is retrieved for each question) once retrieval is in place."
+      ]
+    },
+    {
+      "id": "rag-retrieval-first-ru",
+      "agent": "ai_senior_engineer",
+      "language": "ru",
+      "group": "rag",
+      "history": [],
+      "user_message": "У нас RAG по внутренней базе знаний: около 8 тысяч страниц, чанки по 512 токенов, top-5 из векторного поиска. На тестовом наборе из 200 вопросов 22% ответов неверные. Я уже третью неделю переписываю системный промпт генератора — прирост около нуля. Куда копать дальше?",
+      "why_in_scope": "The skill makes the model split RAG failures into retrieval misses and generation errors and measure the retriever on its own before more prompt work. A strong model may suggest more prompt tweaks or a bigger model without first checking whether the needed passage is retrieved at all.",
+      "rubric": [
+        "Recommends checking, for the failed questions, whether the passage needed for the correct answer appears in the retrieved top-5 (retrieval recall against a reference) before further prompt changes.",
+        "Proposes classifying the failures into retrieval misses versus wrong answers despite correct context, and working on the dominant class.",
+        "For retrieval misses, suggests concrete retriever-side changes (chunking, hybrid or keyword search, a reranker, a larger k, query rewriting) instead of generator prompt edits.",
+        "For wrong answers with correct context, suggests checking whether the answer's claims are supported by the retrieved text (faithfulness) and adjusting the generation step."
+      ]
+    },
+    {
+      "id": "latency-phases-en",
+      "agent": "ai_senior_engineer",
+      "language": "en",
+      "group": "latency",
+      "history": [],
+      "user_message": "Users say our chat assistant feels slow. Median end-to-end time is about 9 seconds, and we only show the reply once it's complete. Every request carries ~12k tokens of retrieved context and replies average ~400 tokens. We're thinking of switching to a smaller model to speed things up. Where should we look first?",
+      "why_in_scope": "The skill makes the model split latency into time to first token and per-token decode time and measure each stage before swapping models. A strong model may jump to the smaller model or generic caching advice without noting that waiting for the full reply hides streaming gains and that 12k input tokens drive the first-token time.",
+      "rubric": [
+        "Breaks latency into time to first token and time per output token (total roughly first-token time plus per-token time times output length) and asks to measure these, plus retrieval and any other pipeline steps, separately.",
+        "Recommends streaming the reply so the perceived wait drops to about the time to first token.",
+        "Identifies the ~12k-token input as a driver of time to first token (prefill) and suggests reducing or reranking the retrieved context, or prompt caching for a shared prefix.",
+        "Says a smaller model should be adopted only after it passes the same quality eval as the current one."
+      ]
+    },
+    {
+      "id": "model-pick-leaderboard-ru",
+      "agent": "ai_senior_engineer",
+      "language": "ru",
+      "group": "selection",
+      "history": [],
+      "user_message": "Выбираем модель для извлечения полей из сканов мексиканских счетов (CFDI): RFC, сумма, дата, UUID. По лидербордам модель X обходит Y на 4 пункта на MMLU и на 2 пункта на DocVQA, при этом X вдвое дороже. Берём X?",
+      "why_in_scope": "The skill makes the model treat public benchmark gaps as a coarse screen (contamination, setup differences, task mismatch) and choose on a private eval built from the user's own documents. A strong model may reason from the leaderboard numbers directly.",
+      "rubric": [
+        "Says that small gaps on public benchmarks do not justify the choice: benchmark items may have leaked into training data, scores depend on the evaluation setup, and MMLU does not measure field extraction from scanned documents.",
+        "Recommends a private eval set built from the user's own CFDI scans with labelled fields and a field-level metric (for example exact match per field).",
+        "Includes cost (X costs twice as much) and, where relevant, latency in the decision, for example cost per correctly extracted document.",
+        "Suggests automatic format checks on extracted fields (for example RFC and UUID patterns, parseable dates and amounts) as part of the evaluation or as output validation."
+      ]
+    },
+    {
+      "id": "judge-drift-prod-en",
+      "agent": "ai_senior_engineer",
+      "language": "en",
+      "group": "production",
+      "history": [],
+      "user_message": "Three months after launch, the average 'helpfulness' score our LLM judge gives the assistant went from 4.1 to 4.4, but CSAT fell and the thumbs-up rate dropped from 71% to 63%. In between we switched the judge to a newer model and edited its rubric twice. Leadership is asking which number to believe. What do I tell them?",
+      "why_in_scope": "The skill makes the model treat scores from a changed judge model or rubric as a new series and resolve the conflict with human review rather than picking a number. A strong model may reason about the user signals only and miss that the judge trend itself is not comparable across versions.",
+      "rubric": [
+        "Explains that after the judge model and rubric changed, the 4.1 and 4.4 scores are not comparable, so the judge's rise is not evidence of improvement.",
+        "Recommends re-scoring one fixed sample of conversations with a single pinned judge version (or with both versions) to get a comparable trend.",
+        "Recommends human review of a sample of recent conversations to check the judge against people, and treats the falling user signals as the more trustworthy evidence until the judge is re-validated.",
+        "Recommends pinning and versioning the judge model and rubric from now on, and turning confirmed failures from the review into eval cases."
+      ]
+    },
+    {
+      "id": "control-json-extract-ru",
+      "agent": "prompt_engineer",
+      "language": "ru",
+      "group": "control",
+      "history": [],
+      "user_message": "Перепиши промпт, чтобы модель возвращала строго JSON с полями name, email, phone и больше ничего, даже если в письме нет телефона. Сейчас промпт такой: «Извлеки контакты отправителя из письма ниже». Модель иногда пишет «Вот ваш JSON:» перед ответом.",
+      "why_in_scope": "Control: a prompt-format request that the AI engineering skill should not change; it measures the noise floor.",
+      "rubric": [
+        "Gives a rewritten prompt that specifies the exact JSON object with the keys name, email and phone and forbids any text before or after it.",
+        "Says what to output for a missing field (for example null or an empty string), so a missing phone does not break the format.",
+        "Separates the email text from the instructions with clear delimiters.",
+        "Briefly explains in Russian why the changes stop the preamble; mentioning an API-level JSON or structured-output mode is fine but not required."
+      ]
+    },
+    {
+      "id": "control-onboarding-flow-en",
+      "agent": "ai_senior_engineer",
+      "language": "en",
+      "group": "control",
+      "history": [],
+      "user_message": "Sketch the conversation flow for an onboarding assistant that collects a small business's legal name, tax ID and payout bank account, lets the user go back and change any earlier answer, and never submits anything without an explicit final confirmation. Keep it to states and transitions; we'll write the prompts later.",
+      "why_in_scope": "Control: an interaction-design request that the AI engineering skill should not change; it measures the noise floor.",
+      "rubric": [
+        "Defines distinct states for each collected field plus a review or confirmation state and a submitted state.",
+        "Includes transitions that let the user return to and edit any earlier field, and then return to review.",
+        "Submission happens only from the confirmation state after an explicit yes; any other answer leads back to editing or to cancel.",
+        "Includes handling for invalid input (for example a malformed tax ID) and for abandoning or cancelling midway."
+      ]
+    }
+  ]
+}

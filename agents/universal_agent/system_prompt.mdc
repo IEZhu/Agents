@@ -31,6 +31,7 @@ capable_skills:
 - skill-product-frameworks
 - skill-tech-writing
 - skill-report-formats
+- skill-engineering-management
 preferred_implants:
 - implant-self-discover
 - implant-step-back-prompting

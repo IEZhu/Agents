@@ -1,0 +1,153 @@
+{
+ "component": "skill-dev-clean-code",
+ "cases": [
+  {
+   "id": "ru-same-body-different-rules",
+   "agent": "code_reviewer",
+   "language": "ru",
+   "group": "probe",
+   "history": [],
+   "user_message": "Ревью на мой PR в сервис биллинга. Есть две функции:\n\n```python\ndef validate_discount_percent(value: Decimal) -> None:\n    if not (Decimal(0) <= value <= Decimal(100)):\n        raise ValueError(f\"discount out of range: {value}\")\n\ndef validate_vat_rate(value: Decimal) -> None:\n    if not (Decimal(0) <= value <= Decimal(100)):\n        raise ValueError(f\"vat rate out of range: {value}\")\n```\n\nСкидки задаёт отдел маркетинга в админке, ставку НДС мы берём из налогового справочника. Ревьюер пишет: «тела одинаковые, сделай одну validate_percent и вызывай её в обоих местах». Стоит ли соглашаться?",
+   "why_in_scope": "The skill says identical code that encodes different rules is coincidence, not duplicated knowledge, and may stay separate. A strong model often agrees by reflex to merge identical bodies; the expert keeps two named validators because the rules have different owners and change independently.",
+   "rubric": [
+    "Advises keeping two separately named validators (or two thin domain-named wrappers), because the discount limit and the VAT limit are different business rules with different owners that can change independently.",
+    "Gives a concrete way the rules could diverge (for example, a discount cap below 100% or a VAT rule that is not a plain 0-100 range) and explains that one shared function would then need flags or would break one caller.",
+    "If it suggests sharing anything, limits it to a neutral low-level helper such as a range check that stays behind the two domain-named functions.",
+    "Gives a clear recommendation the author can act on in the PR (push back on the merge, with a short reason to post)."
+   ]
+  },
+  {
+   "id": "en-status-in-four-places",
+   "agent": "software_engineer",
+   "language": "en",
+   "group": "probe",
+   "history": [],
+   "user_message": "We need a new order status `on_hold`. Right now the statuses live in: `backend/models.py` (`class OrderStatus(str, Enum)` with NEW = \"new\", PAID = \"paid\", SHIPPED = \"shipped\", CANCELLED = \"cancelled\"), the frontend `src/types/order.ts` (`export type OrderStatus = 'new' | 'paid' | 'shipped' | 'cancelled'`), a Postgres constraint `orders_status_check CHECK (status IN ('new','paid','shipped','cancelled'))`, and the table in `docs/orders.md`. Last time someone added `refunded` they forgot the CHECK constraint and inserts failed in prod for a day. Please give me the changes for `on_hold`.",
+   "why_in_scope": "The skill defines DRY as one authoritative source per piece of knowledge and says to consolidate or generate the copies when one change edits several places or formats. A strong model will usually just patch the four places; the expert also names the status list as one fact kept in four copies and proposes a single source or an automated consistency check.",
+   "rubric": [
+    "Provides the change in all four places, including a migration that replaces the CHECK constraint (drop and re-add, or an equivalent) so that it accepts 'on_hold'.",
+    "Points out that the status list is one piece of knowledge maintained by hand in four places, and that this is what caused the `refunded` incident.",
+    "Proposes a concrete single source for the list, such as generating the TypeScript type and/or the constraint from the backend enum or an API schema, or at minimum an automated test that fails when the copies disagree.",
+    "Keeps the immediate change shippable: the restructuring is offered as a follow-up and does not block adding `on_hold`."
+   ]
+  },
+  {
+   "id": "ru-notify-flag-pile",
+   "agent": "software_engineer",
+   "language": "ru",
+   "group": "probe",
+   "history": [],
+   "user_message": "Нужно добавить срочные уведомления: уходят сразу, минуя очередь и тихие часы. Вот наш общий хелпер, его вызывают из 6 мест:\n\n```python\ndef send_notification(user, event, *, sms=False, skip_template=False,\n                      legacy_format=False, for_admin=False):\n    text = event.text if skip_template else render(event)\n    if legacy_format:\n        text = to_legacy(text)\n    if for_admin:\n        user = get_admin(user.org_id)\n        sms = False\n    if sms and not legacy_format:\n        queue.put(SmsJob(user.phone, text))\n    elif sms:\n        queue.put(LegacySmsJob(user.phone, text))\n    else:\n        if not for_admin and in_quiet_hours(user):\n            return\n        queue.put(EmailJob(user.email, text))\n```\n\nКаждый флаг когда-то добавляли под конкретного вызывающего. Добавь, пожалуйста, параметр urgent=True, который отправляет сразу и игнорирует тихие часы.",
+   "why_in_scope": "The skill says a shared helper that keeps sprouting per-caller flags is the wrong abstraction: inline it back into the callers and re-extract what is truly shared. A strong model is likely to add a fifth boolean as asked; the expert names the pattern and offers a path that does not deepen it.",
+   "rubric": [
+    "Identifies that the helper has become a set of per-caller boolean flags and branches, and that adding `urgent` as another flag makes it harder to understand and change.",
+    "Proposes restructuring instead of, or before, another flag: inlining the helper into its callers or splitting it into a few focused functions, then re-extracting only the genuinely shared steps such as rendering and sending.",
+    "Still shows a concrete way to send urgent notifications immediately and outside quiet hours, so the request is served.",
+    "Recommends doing the restructuring in small, test-covered steps that keep the six existing callers' behavior unchanged."
+   ]
+  },
+  {
+   "id": "en-tax-rules-refactor-blocked",
+   "agent": "software_engineer",
+   "language": "en",
+   "group": "probe",
+   "history": [],
+   "user_message": "Our VAT logic for 3 EU countries is spread across `cart.py`, `invoice.py`, `checkout_api.py`, `pdf_renderer.py`, `refunds.py` and `reports.py`, each with its own `if country == 'DE': ...` blocks and hard-coded rates. Rates or rounding rules change roughly every quarter, and each change takes a dev two days plus a hotfix or two. I want to pull it into one tax module. My lead rejected it: \"no feature needs it, we don't do work for the future. And if you do it anyway, don't build a plugin system for countries we don't sell to.\" Who's right, and what exactly should I propose?",
+   "why_in_scope": "The skill says to pick the design that is easier to change and that refactoring for easier change is not the rule against building for hypothetical needs, which bars speculative features only. A strong model may side fully with one party; the expert supports the consolidation on known change costs and agrees with the lead about the plugin system.",
+   "rubric": [
+    "Argues that consolidating the existing VAT rules is justified by a known, recurring change cost (quarterly changes touching six files, hotfixes), not by hypothetical future needs.",
+    "Agrees with the lead's second point: no plugin or extension framework for countries the company does not sell to; the module covers the three current countries.",
+    "Proposes a concrete incremental plan, such as characterization tests that pin current tax outputs, then moving one call site at a time behind a single tax function or rate table.",
+    "Helps the user make the case to the lead with the cost data they already have (time per change, hotfix count)."
+   ]
+  },
+  {
+   "id": "en-zero-tax-silent-default",
+   "agent": "code_reviewer",
+   "language": "en",
+   "group": "probe",
+   "history": [],
+   "user_message": "Postmortem help. Yesterday about 1,800 invoices went out with 0% tax over roughly 6 hours. Relevant code:\n\n```python\ndef load_tax_rates(path=\"/etc/billing/tax_rates.json\"):\n    try:\n        with open(path) as f:\n            return json.load(f)\n    except Exception as e:\n        log.warning(\"could not load tax rates: %s\", e)\n        return {}\n\nRATES = load_tax_rates()\n\ndef tax_for(order):\n    rate = RATES.get(order.region, 0)\n    return (order.subtotal * Decimal(str(rate))).quantize(Decimal(\"0.01\"))\n```\n\nA deploy shipped a tax_rates.json with a trailing comma. What should we change so this can't happen silently again?",
+   "why_in_scope": "The skill says to stop at an impossible state so the crash stays near its cause, and that logging alone is not handling. The code logs the parse error and carries on with an empty dict; a strong model may only tighten the log level, while the expert makes startup fail on an unreadable rates file and treats an unknown region as an error instead of a 0% rate.",
+   "rubric": [
+    "Explains the causal chain: the JSON parse error was caught and downgraded to a warning, an empty dict was returned, and `.get(order.region, 0)` turned every lookup into a 0% rate.",
+    "Recommends failing loudly at load time (the process refuses to start or the deploy fails) instead of returning an empty dict, plus validating the file before or during deploy.",
+    "Recommends that an unknown or missing region raise an error or block invoicing instead of defaulting to a 0 rate.",
+    "Suggests a regression test or deploy check that feeds a malformed or incomplete rates file and expects the failure."
+   ]
+  },
+  {
+   "id": "ru-hackathon-to-prod",
+   "agent": "software_engineer",
+   "language": "ru",
+   "group": "probe",
+   "history": [],
+   "user_message": "На хакатоне за два дня собрали прогноз спроса: Jupyter-ноутбук превратили в Streamlit-приложение, данные читаются из CSV-выгрузки, которую кто-то кладёт в папку руками, модель на Prophet, всё в одном app.py на 900 строк, тестов нет. Менеджеру понравилось, он хочет, чтобы через три недели этим пользовались 40 закупщиков на живых данных из нашей PostgreSQL. Как мне довести app.py до продакшена?",
+   "why_in_scope": "The skill separates a prototype, which answers one question and is discarded, from a tracer slice, a thin end-to-end path that is kept and grown. A strong model tends to give a hardening checklist for app.py; the expert treats the hackathon code as a finished experiment, keeps its lessons and builds a thin production path end to end.",
+   "rubric": [
+    "Advises against hardening the 900-line hackathon file in place, treating it as a prototype whose value is the validated idea and modeling choices rather than the code.",
+    "Proposes first building a thin end-to-end production path (data from PostgreSQL, forecast, result shown to users) and then growing it feature by feature.",
+    "Names what to carry over from the prototype (model choice and parameters, feature preparation, sample data for tests) and what to rebuild (data access, structure, tests, deployment).",
+    "Gives a realistic plan for the three weeks and says what to tell the manager about scope and risk."
+   ]
+  },
+  {
+   "id": "en-report-order-changed",
+   "agent": "software_engineer",
+   "language": "en",
+   "group": "probe",
+   "history": [],
+   "user_message": "Our monthly payout report has listed rows in insertion order for two years. The query is `SELECT * FROM payouts WHERE month = $1 LIMIT 500 OFFSET $2` and the CSV is built page by page. After we moved to a new Postgres 16 instance and ran a big batch of UPDATEs, rows come out shuffled, and some payouts appear on two pages while others are missing. Is this a Postgres bug? Should we report it?",
+   "why_in_scope": "The skill says to rely only on guaranteed behavior and to know why code works. The report depended on a row order Postgres never promised; the expert says so instead of chasing a database bug, fixes the query and looks for the same assumption elsewhere.",
+   "rubric": [
+    "States that without ORDER BY neither SQL nor PostgreSQL guarantees row order, so this is not a Postgres bug; the old order was an accident of physical storage.",
+    "Explains that the migration and the UPDATEs (which write new row versions) can change physical order, which is why LIMIT/OFFSET pages now overlap and skip rows.",
+    "Fixes the query with an explicit ORDER BY on a unique key or with a unique tiebreaker, and may suggest keyset pagination or reading all pages in one consistent snapshot.",
+    "Recommends checking other queries that rely on implicit order, especially those using LIMIT/OFFSET."
+   ]
+  },
+  {
+   "id": "ru-month-end-bug-no-time",
+   "agent": "software_engineer",
+   "language": "ru",
+   "group": "probe",
+   "history": [],
+   "user_message": "Делаю задачу по экспорту отчётов в XLSX, дедлайн завтра. По ходу заметил, что next_billing_date() в модуле подписок для подписок, оформленных 29–31 числа, в коротких месяцах уезжает в следующий месяц: 31 января → 3 марта. Модуль не мой, им владеет команда Payments, чинить сейчас некогда. Как правильно поступить — промолчать и вернуться к своей задаче?",
+   "why_in_scope": "The skill says a defect you cannot fix now should be marked visibly, with a comment plus an assertion or a loud failure, instead of being left silent. A strong model usually stops at 'file a ticket'; the expert also makes the known-bad path visible in code or tests so nobody keeps trusting it.",
+   "rubric": [
+    "Advises against staying silent: tell the owning team and file a ticket with the reproduction (subscription on the 31st, January 31 goes to March 3).",
+    "Recommends making the defect visible without fixing it now, for example a failing or expected-failure test that documents it, or a comment with the ticket link plus a log or alert for days 29-31, agreed with the owning team since the module is theirs.",
+    "Keeps the user's own deadline in view: the marking step is small and does not turn into fixing another team's module today.",
+    "If it suggests a fix direction, it is clamping to the last day of the shorter month (January 31 to February 28 or 29), presented as a business decision for the owning team."
+   ]
+  },
+  {
+   "id": "ru-control-csv-chunks",
+   "agent": "software_engineer",
+   "language": "ru",
+   "group": "control",
+   "history": [],
+   "user_message": "Есть CSV на 12 ГБ (около 90 млн строк), колонки: date, store_id, sku, qty, price. На машине 16 ГБ RAM. Нужно на pandas посчитать выручку (qty*price) по store_id за 2024 год. pd.read_csv падает по памяти. Как сделать?",
+   "why_in_scope": "Control: a data-processing task where the skill's changes (knowledge-level duplication, wrong abstractions, crash near the cause, prototype versus tracer) should not change the answer.",
+   "rubric": [
+    "Reads the file in chunks with `pd.read_csv(..., chunksize=...)` or an equivalent streaming approach, and aggregates revenue per store_id across chunks, combining the partial results at the end.",
+    "Limits memory per chunk, for example `usecols` with only the needed columns and/or compact dtypes, and keeps only 2024 rows by parsing or filtering the date.",
+    "The code is correct: revenue is computed as qty*price per row before summing, and partial per-store results are combined with a sum, not an average."
+   ]
+  },
+  {
+   "id": "en-control-average-nan",
+   "agent": "code_reviewer",
+   "language": "en",
+   "group": "control",
+   "history": [],
+   "user_message": "Quick review please, this returns NaN in prod for some users:\n\n```js\nfunction average(values) {\n  let sum = 0;\n  for (let i = 0; i <= values.length; i++) {\n    sum += values[i];\n  }\n  return sum / values.length;\n}\n```",
+   "why_in_scope": "Control: a plain bug review where the skill's changes should not affect the answer.",
+   "rubric": [
+    "Identifies the off-by-one: `i <= values.length` reads `values[values.length]`, which is `undefined`, and adding `undefined` makes the sum `NaN`.",
+    "Notes that an empty array gives `0 / 0`, which is `NaN`, and proposes explicit handling (return null or 0, or throw, per the caller's contract).",
+    "Provides corrected code, such as `i < values.length` or `values.reduce((a, b) => a + b, 0)`, with the empty case handled."
+   ]
+  }
+ ]
+}

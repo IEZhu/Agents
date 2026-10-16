@@ -777,6 +777,8 @@ def test_old_journal_migration_never_guesses_unused_registration(h):
     h.service.close()
     with sqlite3.connect(h.service.store.path) as db:
         db.execute("DROP TABLE participant_activity")
+        db.execute("DROP TABLE mailbox_notifications")
+        db.execute("DROP TABLE mailbox_requests")
         db.execute("DROP TABLE message_receipts")
         db.execute("DROP TABLE messages")
         db.execute("PRAGMA user_version=1")
@@ -785,5 +787,5 @@ def test_old_journal_migration_never_guesses_unused_registration(h):
     h.service.collect_terminal()
     assert h.read()["participants"][0]["status"] == "suspect"
     with h.service.store.transaction(write=False) as db:
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 3
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 4
         assert db.execute("SELECT participant_id FROM participant_activity").fetchone()[0] == actor["participant_id"]

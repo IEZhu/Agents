@@ -127,15 +127,56 @@ With the owner present, in a checkout of Agents-Core:
    | Runner session | Interactive session |
    |---|---|
    | `{worker_cmd}` | A prepared worker per the [delegation contract](README.md#delegated-workers), with [code-review-pass](code-review-pass.md) or [change-premortem](change-premortem.md) as task material, and the decisions in the session's notes |
-   | `{gh_cmd}` | The owner's `gh`, limited to the broker's operations other than the push ([pr-review, autodev mode](pr-review.md#autodev-mode)); `gh api` only with `--method GET`, except for the thread replies and resolutions there |
+   | `{gh_cmd}` | The owner's `gh`, limited to the broker's operations ([pr-review, autodev mode](pr-review.md#autodev-mode)); `gh api` only with `--method GET`, except for the thread replies and resolutions there |
    | `{heavy_cmd}` | Heavy checks one at a time, with no other test or reindexing process running |
    | `{state_copy}`, `{exchange_dir}` | The session's own notes; no handover |
-   | `{gh_cmd} push` | None: the session never pushes with the owner's `gh`, because that push would skip every broker check. It stops at the reviewed local head and hands it to the owner with the broker's checks done by hand: the lists `.github/autodev-protected-paths` and `.github/autodev-control-paths` at `origin/main` against `git diff --name-only --no-renames origin/main...<branch>` (protected paths only with `autodev:next`, control paths never), no secret in the diff or the commit messages, closing keywords that name only the run's issue, and a validated independent review of exactly that head. The owner pushes |
+   | `{gh_cmd} push` | `git push` with the owner's credentials, only to the run's own branch and with the remote and the destination named (`git push <remote> <head>:refs/heads/<branch>`, `<remote>` being a remote whose fetch URL and every push URL, as `git remote -v` lists them, are `https://github.com/<repository>.git` or `git@github.com:<repository>.git` for the run's repository, `repository` in `autodev.json` and the pull request's `headRepository` once it exists, with git's certificate and host-key checks left on (no `http.sslVerify=false`); otherwise stop before pushing), never `--force` (after a rebase only `--force-with-lease`, as in [pr-review](pr-review.md#keep-the-branch-current-and-git-healthy)). This push skips the broker, so before every push the session runs the broker's checks itself, as described below the table, and reports them; a refusal or a failed check stops the push. The session then opens or updates the pull request itself; merging, closing and deleting stay with the owner |
 
-   Its comments are not in the runner's records, so the gate ignores its state
-   comment and waits while its pull request is open: continue that pull request
+   **Checks before an interactive push.** `<pinned>` is the run's base as a full
+   SHA: the `origin/main` commit the branch was cut from, or the one it was last
+   rebased onto. From the installation's checkout, with its virtual
+   environment's interpreter, run the broker's own change check,
+   `check_changes` in `src/schedules/paths.py`, on every commit of
+   `<pinned>..<head>` in the session's checkout, with the path lists read at
+   `<pinned>` and the issue's labels. The installation's code runs the check,
+   never the branch's:
+
+   ```bash
+   .venv/bin/python - <checkout> <pinned> <head> <label>... <<'PY'
+   import sys
+   from src.schedules import paths
+   repo, base, head, *labels = sys.argv[1:]
+   check = paths.check_changes(repo, base, head, labels, paths.load_path_classes(repo, base))
+   for refusal in check.refusals:
+       print(refusal.commit, refusal.path or "-", refusal.reason)
+   sys.exit(0 if check.allowed else 1)
+   PY
+   ```
+
+   It refuses what the broker refuses: a head that does not descend from
+   `<pinned>`, a merge or root commit, and in any commit a control path, a
+   protected path without `autodev:next`, a symlink, a submodule or another
+   unknown mode, a `.git` path component or a case-only name collision. A
+   branch whose base moved is therefore kept current by a rebase, not a merge.
+   Then check by hand: no secret in any commit's diff or message
+   (`git log -p <pinned>..<head>`), closing keywords that name only the run's
+   issue, and a validated independent review of exactly that head.
+
+   The interactive session's comments are not in the runner's records, so the
+   gate ignores its state comment and waits while its pull request is open: continue that pull request
    interactively with [pr-review in autodev mode](pr-review.md#autodev-mode)
    until the owner merges or closes it.
+
+## Review the pipeline
+
+After every ten or so runs, the owner runs [autodev-retro](autodev-retro.md):
+a read-only retrospective that computes the metrics of
+[design 12](../docs/autodev-plan.md#12-metrics) from the run records and the
+pull requests, shows where runs stall and what they cost, and proposes changes
+to limits, profiles, roles and flows. The first one with ten real runs proposes
+the target values. It changes no settings, existing labels or pull requests and
+starts no runs; at the owner's request, and after the owner confirms its text, it
+opens one issue with the proposals and labels only that issue.
 
 ## Done
 

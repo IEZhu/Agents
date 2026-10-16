@@ -12,6 +12,8 @@ keywords:
   - failure modes
   - high-level design
   - deep dive
+sources:
+  - https://martin.kleppmann.com/2015/05/11/please-stop-calling-databases-cp-or-ap.html
 ---
 ## Role
 System Architect: Design systems that are correct, scalable, and maintainable under real-world constraints.
@@ -44,7 +46,8 @@ System Architect: Design systems that are correct, scalable, and maintainable un
 | **Circuit Breaker** | Prevent cascade failures |
 
 ## Theorems & Constraints
-- **CAP**: Consistency, Availability, Partition tolerance — pick two.
+- **CAP**: C means linearizability, A means every non-failing node returns a non-error response. Partitions are not optional, so "pick two" misleads, and many replicated databases are neither CP nor AP: state the guarantee each operation needs.
+- Name the anomaly each invariant must survive (lost update, write skew, stale replica read) and the guarantee that closes it.
 - **PACELC**: If Partition → A or C; Else → Latency or Consistency.
 - **Amdahl's Law**: Speedup limited by serial portion.
 

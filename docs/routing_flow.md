@@ -146,7 +146,9 @@ metadata `scope`, and the loaded component lists: `skills_loaded` (skill file ID
 `implants_loaded` (each implant's `short_name`, or its file ID when none is
 declared) and `rules_loaded` (rule names). The footer shows these lists, then a
 plain Markdown segment `Agents-Core <version>`. The version is the UTC commit
-time of the installation's `HEAD` as `YY.MM.DD.HHMM` (`-dev` when the installation
+time of the installation's `HEAD` as `YY.MM.DD.HHMM` (on `main`, a release merge
+commit takes the time of the `dev` HEAD it merged, as its tag does:
+[calendar releases](releases.md#release-pipeline); `-dev` when the installation
 is on the integration branch `dev`, `-dirty` when tracked files have uncommitted
 changes, both as in `26.10.14.1146-dev-dirty`; `unknown` without git metadata), computed once per
 process by `src/version.py`. Under the shared daemon the version text is a link,
@@ -354,7 +356,8 @@ for standalone stdio, add the `[mcp_servers."Agents-Core"]` entry from
 Client connections for Google Antigravity (`~/.gemini/config/mcp_config.json`), Cursor
 (`~/.cursor/mcp.json`) and Claude Desktop (`claude_desktop_config.json`) are configured
 during setup (`scripts/init_repo.sh` or `scripts\init_repo.bat`) or migrated to the shared daemon (see
-[shared daemon client migration](shared-mcp-daemon.md#client-configuration-and-alternate-profiles)).
+[shared daemon client migration](shared-mcp-daemon.md#installation-and-client-migration)
+and [alternate client configurations](shared-mcp-daemon.md#alternate-client-configurations)).
 Standalone setup reserves a unique `<file>.backup.<unique-suffix>` snapshot before
 updating an existing client file, so repeated runs never overwrite a prior backup.
 A failed backup prevents the affected file's update. Both installers preserve an

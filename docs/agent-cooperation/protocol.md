@@ -126,7 +126,7 @@ Represent dependencies as a directed acyclic graph of task attempts/artifact acc
 
 ## 7. API and data contract
 
-The implementation exposes six MCP tools with strict internal schemas and client-compatible input declarations. The original three coordination tools were absent at the recorded research baseline; the mailbox extends that implementation. The service is disabled by default (`AGENTS_COOPERATION_ENABLED=0`). The installed daemon is the only service authority. Direct HTTP and the existing `bridge/stdio.mjs` reach that authority; standalone stdio without forwarding returns `store_unavailable`.
+The implementation exposes nine MCP tools with strict internal schemas and client-compatible input declarations. The original three coordination tools were absent at the recorded research baseline; the mailbox, notification waits and request tracking extend that implementation. The service is disabled by default (`AGENTS_COOPERATION_ENABLED=0`). The installed daemon is the only service authority. Direct HTTP and the existing `bridge/stdio.mjs` reach that authority; standalone stdio without forwarding returns `store_unavailable`.
 
 | Tool | Request | Result |
 |---|---|---|
@@ -136,6 +136,9 @@ The implementation exposes six MCP tools with strict internal schemas and client
 | `cooperation_send` | Verified workspace, participant capability, `operation_id`, recipient, kind, body, optional reply/correlation references and child subject | Persisted private message or a typed error |
 | `cooperation_receive` | Verified workspace, participant capability, optional child subject, inbox cursor/limit and acknowledged filter | Non-destructive inbox page, next cursor and more-results flag |
 | `cooperation_ack` | Verified workspace, participant capability, `operation_id`, optional child subject and unique inbox message IDs | Durable delivery acknowledgement or a typed error |
+| `cooperation_wait` | Mailbox authentication, notification cursor, limit and timeout of 0–30 seconds | Durable private event page, next cursor, more-results/timeout flags and service epoch |
+| `cooperation_request_status` | Mailbox authentication and request message ID | Current delivery and processing record for either authorized party |
+| `cooperation_request_update` | Mailbox authentication, operation ID, request message ID, current request revision and explicit processing state | Atomically recorded outcome and private notifications, or a typed error |
 
 Actions are a closed discriminated union: `declare_intent`, `propose`, `acknowledge`, `reject`, `acquire`, `heartbeat`, `checkpoint`, `release`, `handoff`, `accept_artifact`, `cancel`, `recover`. Each action has a dedicated schema; no arbitrary dictionaries that mutate database fields. `declare_intent` records task dependencies and requested priority, with authority/provenance checks. `propose` creates or supersedes a proposal, with an explicit prior proposal reference.
 
@@ -162,6 +165,8 @@ Message bodies and private receipts must not appear in public snapshots or event
 Mailbox delivery acknowledgement is distinct from `cooperation_apply` agreement acknowledgement and artifact acceptance. It grants no permissions or resource claims and does not validate a worker result. Mailbox calls do not require revision/generation fields, renew heartbeats, clear suspicion/quarantine or admit work. Successful polling records registration usage to prevent unused-record retirement, without asserting execution liveness. Suspect participants can communicate to reconcile; cancelled participants with still-valid capabilities may receive and acknowledge but may not send new messages. New sends to cancelled recipients are refused. Bound polling and use useful checkpoints: there is no push wakeup or guaranteed autonomous response.
 
 A useful message contains: what changed; which task/resource/artifact it affects; exact revision or digest; evidence and limitations; the requested response; and the next checkpoint. Send only meaningful state changes. No periodic “still working” narrative when nothing changed. Heartbeats are service metadata, not user notifications.
+
+The [runtime request-tracking contract](runtime.md#request-tracking-and-event-waits) specifies private durable events, request states, deadlines and allowed transitions. Optional request `expires_at` is a future Unix timestamp. Processing updates require a per-request revision, independently of public-journal revisions. Delivery acknowledgement, declared processing completion and validated work acceptance remain distinct. `cooperation_wait` completes an active asynchronous call; a host adapter is still required to wake an idle model. Schema version 4 preserves legacy send/ack operation fingerprints and backfills historical requests conservatively without inventing completion or historical notifications.
 
 Artifacts contain an ID, producer task/attempt, repository and base/head revision, relative path or approved URI, digest, media/type, summary, checks with actual outcomes, limitations and acceptance conditions. A reference is not fetched automatically. The consumer checks accessibility and revision/hash before acceptance; mismatches block only dependent work. Never transmit credentials, full private transcripts, hidden reasoning, environment dumps or unrelated user information.
 

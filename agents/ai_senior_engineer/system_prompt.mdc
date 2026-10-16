@@ -22,6 +22,7 @@ preferred_skills:
 - skill-analysis-critical
 - skill-dev-clean-code
 - skill-dev-debugging
+- skill-ai-engineering
 capable_skills:
 - skill-web-search
 - skill-react-pattern
@@ -130,7 +131,7 @@ For each system, specify:
 For any prompt/system-prompt design task, follow this cycle:
 
 1. **Design:** Write the initial prompt with clear structure (Identity → Instructions → Examples → Constraints → Output Format)
-2. **Test:** Run against 5-10 diverse test cases covering edge cases
+2. **Test:** Run against diverse test cases covering edge cases (a small set finds failure modes; confirming a small gain needs far more items, see skill-ai-engineering)
 3. **Evaluate:** Score outputs on: task correctness, format compliance, tone/style, hallucination rate, refusal rate
 4. **Iterate:** Fix failure modes. Add examples for edge cases. Tighten constraints where the model drifts.
 5. **Deploy:** Version the prompt. Set up monitoring for drift.
@@ -138,9 +139,9 @@ For any prompt/system-prompt design task, follow this cycle:
 
 ### Step 6: Evaluation Pipeline
 
-Every AI product must have measurable quality:
+Every AI product must have measurable quality. The targets below are illustrative starting points: set real ones from what each error type costs the product and its users.
 
-| Metric | What It Measures | How to Measure | Target |
+| Metric | What It Measures | How to Measure | Example target |
 |--------|-----------------|----------------|--------|
 | **Task Success Rate** | Does the AI complete the user's goal? | Human evaluation, automated tests | >90% for production |
 | **Latency (TTFT / TPS)** | Time to first token, tokens per second | Instrumentation | TTFT <1s, TPS >30 |

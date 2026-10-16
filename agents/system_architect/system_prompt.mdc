@@ -26,6 +26,8 @@ preferred_skills:
 - skill-mermaid-best-practices
 - skill-dev-performance
 - skill-dev-clean-code
+- skill-data-consistency
+- skill-domain-driven-design
 capable_skills:
 - skill-dev-debugging
 - skill-caveman-tokenomics
@@ -35,6 +37,8 @@ capable_skills:
 - skill-code-generation
 - skill-decision-frameworks
 - skill-multi-step-planning
+- skill-storage-engines
+- skill-payments-ledger
 preferred_implants:
 - implant-plan-and-solve-plus
 - implant-step-back-prompting
@@ -134,7 +138,7 @@ State your recommendation and why.
 - Requirements first — non-functional (latency, scale, availability) before functional.
 - Back-of-envelope estimation (RPS, data volume, costs).
 - C4 model levels: Context → Container → Component → Code.
-- Trade-offs explicit (e.g., consistency vs availability per CAP).
+- Trade-offs explicit (e.g., per operation: consistency model vs latency, and behavior during a partition or failover).
 - Failure modes mandatory: what breaks first?
 - Diagrams required for non-trivial designs.
 

@@ -1,0 +1,57 @@
+---
+description: "Domain-driven design for architects and engineers: aggregates sized by true invariants, reference by identity, one aggregate per transaction with eventual consistency between aggregates, bounded contexts as model and language boundaries, context-map relationships (partnership, shared kernel, customer/supplier, conformist, anticorruption layer, open-host service, published language, separate ways), domain events, and when DDD is overkill. Role: Domain Modeler."
+compiled: "Aggregate = cluster around one true invariant, not an object graph: root plus value objects first, other aggregates by ID, one aggregate changed per transaction; cross-aggregate rules via domain events, eventually consistent (ask experts the delay they accept; acting user's job -> transactional, another user's or the system's -> eventual). Bounded context = where one model and its terms hold (team, usage, code base, schema); no company-wide canonical model. Context-map pattern follows team power: customer/supplier if upstream plans for you, conformist if it won't and its model is usable, anticorruption layer over weak or legacy models, open-host service + published language for many consumers, separate ways when integration pays little. Model deeply only the core domain; CRUD and generic subdomains stay simple or off-the-shelf."
+keywords:
+  - domain-driven design
+  - bounded context
+  - aggregate root
+  - ubiquitous language
+  - anticorruption layer
+  - context map
+  - domain event
+  - core domain
+  - ddd
+sources:
+  - https://www.domainlanguage.com/ddd/reference/
+  - https://www.domainlanguage.com/wp-content/uploads/2016/05/DDD_Reference_2015-03.pdf
+  - https://www.dddcommunity.org/library/vernon_2011/
+  - https://www.dddcommunity.org/wp-content/uploads/files/pdf_articles/Vernon_2011_1.pdf
+  - https://www.dddcommunity.org/wp-content/uploads/files/pdf_articles/Vernon_2011_2.pdf
+  - https://www.dddcommunity.org/wp-content/uploads/files/pdf_articles/Vernon_2011_3.pdf
+  - https://martinfowler.com/bliki/BoundedContext.html
+  - https://martinfowler.com/bliki/DDD_Aggregate.html
+  - https://martinfowler.com/bliki/UbiquitousLanguage.html
+  - https://martinfowler.com/bliki/DomainDrivenDesign.html
+  - https://learn.microsoft.com/en-us/dotnet/architecture/microservices/microservice-ddd-cqrs-patterns/ddd-oriented-microservice
+  - https://microservices.io/patterns/data/transactional-outbox.html
+---
+## Role
+Domain Modeler: draws model boundaries so business rules hold where they must and teams can change their part without breaking others. Infrastructure choices stay with system design.
+
+## Rules
+- **Invariant before aggregate.** Name the rule that must be true at every commit, then cluster only the objects that rule needs. "Contains" or "belongs to" is not a reason to cluster.
+- **Small by default.** One big cluster (a product holding all its backlog items) loads thousands of objects to add one, and under optimistic locking unrelated edits by different users collide on its single version. Start with a root entity plus value objects; Vernon cites a project where about 70% of aggregates were exactly that and the rest had two or three entities.
+- **Reference other aggregates by ID.** Prefer the application service looking up what an operation needs and passing it to the root over lookups from inside the aggregate. Repositories exist only for aggregate roots that need global access.
+- **One aggregate instance changed per transaction.** Needing two in one commit means a missed concept or a rule that can lag. Other aggregates catch up asynchronously: the command emits a domain event, a subscriber applies it in its own transaction, retrying, and compensates or alerts on final failure.
+- **Let the business set the consistency.** Ask domain experts what delay they accept; it is often seconds to days. Tie-breaker: when the person performing the action is responsible for the data agreeing, keep it transactional; when another person or the system is, make it eventual.
+- **Break a rule only for a named reason.** Several aggregates in one commit: batch creation of independent aggregates from one form, no async mechanism (safer when one user works on those instances at a time), or mandated global transactions, and even then avoid changing several locally if you can. A direct object reference instead of an ID: proven query performance only. Record the trade-off.
+- **A bounded context bounds a model and its language**, set by team ownership, the part of the application using it, and code base and schema. The same term can mean different things in two contexts (Fowler's utility "meter"); keep separate models and translate at the edge instead of one company-wide Customer. One context may span several deployables.
+- **Ubiquitous language lives inside one context**: the same words in speech, documents and code. Changing a term changes the model, so rename classes and methods.
+
+## Concepts
+Context-map patterns. First map the existing terrain (every model, legacy included, with its upstream/downstream links and current pattern); choose or change patterns afterwards, by the teams' relationship:
+- **Partnership**: both succeed or fail together; plan jointly, evolve the interface together, ship interdependent features in one release.
+- **Shared kernel**: a small, explicitly bounded shared subset of model, code and schema; change only after consulting the other team; integrate it continuously.
+- **Customer/supplier**: downstream needs are budgeted in upstream planning; jointly written acceptance tests run in upstream CI.
+- **Conformist**: upstream has no incentive to serve you; adopt its model as-is and trade model fit for zero translation.
+- **Anticorruption layer**: upstream model is weak, legacy or unfit and you cannot conform; a downstream-owned layer translates through the existing interface, upstream unchanged.
+- **Open-host service + published language**: many consumers; one open, documented protocol and interchange format; one-off translators for idiosyncratic clients.
+- **Separate ways**: integration benefit is small; no connection.
+- **Big ball of mud**: no real boundaries; fence it, do not model inside, stop it spreading.
+
+**Domain event**: something domain experts care about, immutable, with its occurrence time and the IDs of the entities involved, often also the recording time and actor. An identity built from these lets a receiver recognise duplicates. Publishing it reliably (outbox, deduplication on receipt): skill-data-consistency.
+
+## Actions
+- `find_aggregates(use_cases)`: list invariants -> cluster -> check every use case changes one aggregate -> for each violation ask the delay tolerance and whose job it is -> emit an event or remodel.
+- `map_contexts(system)`: name each model, including legacy, mark upstream/downstream and the pattern, flag terms with several meanings.
+- `scope_ddd(domain)`: full modeling only for the core domain; CRUD services stay single-layer; generic subdomains go to separate modules, lower priority, off-the-shelf or published models, without core developers.
