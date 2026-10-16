@@ -1,12 +1,15 @@
 # Instruction signing: instructions, system files and unsigned-change review
 
-Status: draft for review, amended 2026-10-15. Not implemented.
+Status: draft implementation contract, amended 2026-10-15. Pure verification
+primitives are implemented for #235; runtime enforcement and audit remain planned.
 Profile identifier: `agent-instructions/v1`; OMS v1.0 envelope unchanged.
 Tracks [#234](https://github.com/IEZhu/Agents/issues/234), part of
 [#233](https://github.com/IEZhu/Agents/issues/233).
 
 This is an implementation contract, including the proposed files, interfaces and
-commands below, not a description of shipped protection. The interoperability
+commands below. The [core API](instruction-signing-core.md) describes the bounded
+OMS and inventory primitives currently available; this is not shipped runtime
+protection. The interoperability
 observation from 2026-10-07 remains historical; it does not validate this amendment.
 
 ## 1. Purpose
@@ -139,8 +142,11 @@ Checked on 2026-10-07: a seal built as above covered a subset of a directory and
 carried the extension, then at the top level of the predicate. It passed
 `model_signing verify key <root> --signature <seal> --public_key <pem> --ignore_unsigned_files`,
 and the same command failed after one byte of a covered file changed. The check is
-to be repeated with the extension on the resource descriptor before the first
-release seal ships.
+repeated by the pinned tests in `tests/test_instruction_signing_interop.py` with
+the extension on the first resource descriptor, including reference-generated
+profile signatures. The stock reference CLI also verifies our profile seals, and
+its plain OMS seals verify in generic OMS mode. Generic mode supplies no profile
+or release authority. These checks do not validate runtime enforcement.
 
 ## 5. What is sealed
 
@@ -538,7 +544,8 @@ approval.
 
 ## 13. Implementation ownership and shared contracts
 
-All names below are proposed implementation responsibilities, not shipped APIs.
+The [core API](instruction-signing-core.md) implements the #235 OMS and inventory
+primitives. Other names below remain proposed implementation responsibilities.
 Keep OMS operations in `src/instruction_signing/oms.py`, key/trust/policy logic in
 the same package, instruction acquisition in `reader.py`, and a shared
 snapshot/audit/report service with an independently trusted launcher. The final

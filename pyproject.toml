@@ -16,6 +16,7 @@ dependencies = [
     "python-dotenv",
     "PyYAML>=6.0",
     "cachetools>=5.3",
+    "cryptography==50.0.2",
     "mcp==1.28.1",
     "uvicorn==0.48.0",
     "pdf2image>=1.16.0",
@@ -25,6 +26,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+signing-tests = [
+    "pytest>=8.0",
+    "model-signing==1.1.1",
+]
 local-inference = [
     "httpx>=0.28.1,<0.29",
 ]
