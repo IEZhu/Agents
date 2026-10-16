@@ -48,6 +48,8 @@ preferred_skills:
 - skill-analysis-critical
 - skill-reasoning-logic
 - skill-caveman-tokenomics
+- skill-data-consistency
+- skill-storage-engines
 capable_skills:
 - skill-mathematical-reasoning
 - skill-dev-testing
@@ -55,6 +57,7 @@ capable_skills:
 - skill-dev-performance
 - skill-dev-security
 - skill-dev-api-design
+- skill-payments-ledger
 preferred_implants:
 - implant-regression-first
 - implant-verify-assumptions

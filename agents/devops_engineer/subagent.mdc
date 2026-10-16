@@ -5,6 +5,7 @@ skills:
 - skill-dev-security
 - skill-dev-debugging
 - skill-error-recovery
+- skill-sre-practices
 implants:
 - implant-regression-first
 ---
