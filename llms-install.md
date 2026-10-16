@@ -2,6 +2,8 @@
 
 Agents-Core is a local MCP server for specialist personas, reusable Markdown workflows and repository memory. The core server needs no external API key. Its source is [IEZhu/Agents](https://github.com/IEZhu/Agents); the license is MIT.
 
+Before installing, use the [agent guide](docs/agent-guide.md) to match a task to the available tools, inspect first-call examples and check operating limits. [llms.txt](llms.txt) provides a compact documentation index.
+
 These instructions cover standalone stdio setup for Cline and other clients that accept `mcpServers` JSON. The installer registers supported clients it detects, but does not configure Cline. The [project README](README.md) covers other clients, the shared service and Windows.
 
 ## 1. Install the local server
