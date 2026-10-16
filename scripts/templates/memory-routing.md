@@ -5,6 +5,7 @@ type: feedback
 ---
 
 Follow the Agents-Core Persona Protocol in the managed CLAUDE.md section.
+When both `Agents-Core` and `Agents-Core-Desktop` are listed, call `Agents-Core` from the first call on, and repeat a call refused for `Agents-Core-Desktop` through `Agents-Core`.
 Persona and prepared-worker tools return instructions/contracts, not the conversation's answer. Optional owner-enabled `local_*` HTTP inference tools run a separate bounded completion; they do not replace activation, native worker spawning or the prepare/validate exchange.
 Every AI delegation, including reviewers, verifiers and parallel workers, requires `get_subagent_context` before spawning. Supply a canonical role, one task, acceptance criteria, relevant context, scope/non-goals and result type. Default to `max_skills=3`, `max_implants=0` and `max_context_chars=16000`. Require `status: prepared`, retain the original contract in the parent, and forward `worker_context` unchanged with only necessary task materials. It contains the compact persona and mandatory worker rules. Use a fresh native worker without inherited history when supported (Codex: `fork_turns="none"`); never substitute a full persona, parent bundle or chat transcript.
 
