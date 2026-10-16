@@ -1,0 +1,61 @@
+---
+description: "Payment systems and digital wallets: money as integer minor units with per-currency exponents, double-entry append-only ledger with balances derived from entries, pending/posted/available balances and atomic spend checks, idempotency keys across retries and providers, explicit payment state machine, webhook handling, authorization holds vs capture, outbox and sagas instead of distributed transactions, reconciliation with providers. Role: Payments Engineer."
+compiled: "Money = integer minor units + currency; exponent per ISO 4217 (JPY 0, KWD/BHD 3, CLF 4) and per provider, never float; allocate remainders on splits. Ledger: double-entry, debits = credits per transaction and currency, append-only; balances derived from entries; fix by reversal or adjusting entry, never edit. Spend against available balance with an atomic conditional write or account version check. One client-generated idempotency key per payment, reused on every retry and passed to the provider; a timeout is unknown, not failed: query or reconcile before acting. Webhooks are duplicated and unordered: dedupe, guard state transitions."
+keywords:
+  - payment system
+  - digital wallet
+  - ledger
+  - double charge
+  - authorization and capture
+  - payment webhook
+  - reconciliation
+  - minor units
+  - wallet balance
+as_of: "2026-10-16"
+review_after_days: 180
+sources:
+  - https://www.moderntreasury.com/journal/accounting-for-developers-part-i
+  - https://www.moderntreasury.com/journal/accounting-for-developers-part-ii
+  - https://moderntreasury.com/journal/enforcing-immutability-in-your-double-entry-ledger
+  - https://www.moderntreasury.com/journal/how-to-think-about-ledger-balances
+  - https://docs.moderntreasury.com/docs/transaction-status-and-balances
+  - https://docs.moderntreasury.com/ledgers/docs/lock-on-account-balance-or-version
+  - https://moderntreasury.com/journal/designing-ledgers-with-optimistic-locking
+  - https://moderntreasury.com/journal/how-to-scale-a-ledger-part-v
+  - https://moderntreasury.com/journal/how-to-scale-a-ledger-part-vi
+  - https://stripe.com/blog/idempotency
+  - https://docs.stripe.com/api/idempotent_requests
+  - https://brandur.org/idempotency-keys
+  - https://docs.stripe.com/payments/paymentintents/lifecycle?locale=en-US
+  - https://docs.stripe.com/webhooks?locale=en-US
+  - https://docs.stripe.com/payments/place-a-hold-on-a-payment-method
+  - https://docs.stripe.com/currencies?locale=en-US
+  - https://www.six-group.com/dam/download/financial-information/data-center/iso-currrency/lists/list-one.xml
+  - https://docs.python.org/3/library/decimal.html
+  - https://martinfowler.com/eaaCatalog/money.html
+  - https://microservices.io/patterns/data/transactional-outbox.html
+  - https://microservices.io/patterns/data/saga.html
+  - https://stripe.dev/blog/ledger-stripe-system-for-tracking-and-validating-money-movement
+---
+## Role
+Payments Engineer: moves money so none is created, lost or moved twice and every balance is explainable from records. General consistency theory lives in the data-consistency skill.
+
+## Rules
+- **Money type.** Store integer minor units plus the currency code, or a decimal with fixed scale; never binary float. The exponent is per currency, not always 2: ISO 4217 lists 0 for JPY, KRW, CLP, VND; 3 for BHD, IQD, JOD, KWD, LYD, OMR, TND; 4 for CLF and UYW. Providers can differ (Stripe takes ISK and UGX as two-decimal amounts ending in 00), so map exponents per provider at the boundary. Fix rounding mode and rounding points explicitly; split amounts with an allocate step that hands out the remainder so the parts sum to the total.
+- **Double-entry, append-only ledger as source of truth.** Every transaction has at least two entries and its debits equal its credits per currency. Customer wallet balances are liabilities of the operator (credit-normal); cash held is an asset (debit-normal). Balances are derived from entries; a cached balance is a projection that must be re-derivable and checked for drift.
+- **Never edit a posted entry.** Correct with a reversal plus a new entry, or one adjusting entry for the difference, linked to the same business object. Pending entries may change until posted; failed ones are archived, not deleted.
+- **Three balances.** Posted = settled entries; pending = posted plus pending; available = posted minus pending outflows, ignoring pending inflows. Approve spending against available.
+- **Check and append atomically per account.** Two concurrent debits that each read "enough" overdraw. Write the entry with a condition (reject if available would fall below the limit) or with the account version read earlier; on conflict, re-read and retry.
+- **One idempotency key per logical payment.** The client generates a random key (for example UUID v4), stores it before the first attempt, reuses it on every retry and passes it, or a key derived from it, to the provider. The server stores key, request fingerprint and response: a retry gets the stored response (Stripe v1 replays even a 500), the same key with different parameters is rejected, and a request that failed validation or collided with an in-flight duplicate is not stored and may be retried. Keep keys longer than any retry window (Stripe v1 may prune them at 24 hours). Retry with exponential backoff and jitter.
+- **A timeout is unknown, not failed.** Commit local state and a recovery point before the external call; resolve unknowns by querying the provider or a background completer, never by charging again with a new key.
+- **Explicit, persisted state machine** with allowed transitions only. Stripe's, for example: requires_payment_method -> requires_confirmation (most integrations skip it) -> requires_action (only when the customer must authenticate) -> processing (asynchronous methods, up to a few days) or requires_capture (manual capture; capturing then moves to processing or succeeded) -> succeeded. A declined attempt returns to requires_payment_method; cancellation is allowed only before processing or succeeded (some bank debits also while processing). Map an unknown status to a holding state instead of rejecting it. Fulfil only after the server sees success; a client redirect proves nothing.
+- **Webhooks arrive duplicated and out of order.** Verify the signature over the raw body, dedupe by event ID rather than timestamp (Stripe can emit two distinct events for one occurrence, so also key side effects by object ID and event type, or by the resulting state transition), fetch the current object when order matters, acknowledge with 2xx quickly and process from a queue. Stripe retries live deliveries for up to three days.
+
+## Concepts
+- **Hold vs capture**: authorization reserves funds, capture moves them. Ledger: pending debit at authorization, posted at capture, archived at expiry or cancel. Stripe card-not-present authorizations last 7 days for most brands, Visa merchant-initiated 5 days (effectively 4 days 18 hours); in person, Mastercard, Amex and Discover 2 days, Visa 5 days. Longer holds need extended authorization where eligible; otherwise authorize near fulfilment or save the payment method, and read the charge's capture deadline instead of hard-coding windows. Usually one capture per authorization; a partial capture releases the rest.
+- **No distributed transaction across database, broker and provider.** Write ledger entries and an outbox row in one local transaction; a relay publishes; consumers dedupe by message ID because the relay can publish twice. Multi-service flows are sagas of local transactions with compensations; in a ledger a compensation is a reversing entry. Sagas lack isolation, so reserve funds as pending before calling out.
+- **Reconciliation**: match internal records to provider and bank settlement data in both directions on every settlement cycle; unmatched items go to an exceptions queue. Route flows through clearing accounts that must net to zero when a flow completes; a residue flags a missing or wrong event. Also check completeness (every upstream record has entries) and timeliness. Fix by revert-and-reprocess, never by editing.
+
+## Actions
+- `design_wallet()`: accounts and normality -> entries per flow (top-up, transfer, fee, withdrawal) -> available-balance check -> idempotency -> outbox -> reconciliation.
+- `review_payment_flow()`: flag float money, mutable balances, timeouts treated as failures, unkeyed retries, order-dependent webhook logic, 2PC across services.

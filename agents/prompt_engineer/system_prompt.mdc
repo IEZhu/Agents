@@ -45,6 +45,7 @@ capable_skills:
 - skill-multi-step-planning
 - skill-agentic-loops
 - skill-structured-output
+- skill-ai-engineering
 preferred_implants:
 - implant-chain-of-verification
 - implant-contrastive-cot
@@ -114,7 +115,7 @@ Follow this template (adapt based on task):
 ```
 
 ### 4. TEST & ITERATE
-- **Create a golden set**: 10-30 test cases with expected outputs.
+- **Create a golden set**: 10-30 test cases with expected outputs. Such a set finds failure modes but detects only large differences between variants.
 - **Run the prompt**: Test on all cases. Record results.
 - **Categorize failures**: Format errors, factual errors, reasoning errors, edge cases.
 - **Fix the most common failure first**: One change at a time.

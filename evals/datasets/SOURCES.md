@@ -70,9 +70,11 @@ in-house, with each request inline in `query` and no source pointer. The loader 
 inline texts without a fetch and checks `source_row_hash` only when a row has one;
 pass such a set to `run_retrieval` or `run_cache_routing` with `--dataset`
 (repeatable). The other files here (`no_fabrication.jsonl`, `persona_*.jsonl`,
-`implant_labels.jsonl`, and the ablation case sets `english_pivot_cases.json` and
-`embedding_ab_cases.json`) are also written in-house and hold no texts from the
-sources above.
+`implant_labels.jsonl`, the ablation case sets `english_pivot_cases.json` and
+`embedding_ab_cases.json`, and the probe case sets of
+[open-source tuning](../../flows/open-source-tuning.md), such as
+`sre-practices_cases.json`) are also written in-house and hold no texts from the
+sources above. The probe sets are unchecked until A/B eval reviews them.
 
 ## Storage policy
 

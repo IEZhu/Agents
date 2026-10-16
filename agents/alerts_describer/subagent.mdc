@@ -1,6 +1,7 @@
 ---
 agent: alerts_describer
 skills:
+- skill-sre-practices
 - skill-tech-writing
 - skill-error-recovery
 - skill-structured-output

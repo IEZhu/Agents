@@ -1,0 +1,63 @@
+---
+description: "AI engineering for foundation-model applications: success criteria priced by error cost, LLM-judge bias control and validation, eval noise and sample size, diagnosing prompt vs RAG vs finetuning, retrieval evaluated apart from generation, guardrails, TTFT/TPOT latency, benchmark contamination, production feedback loops. Role: AI Engineer."
+compiled: "Judge: run both answer orders, win only if it holds both ways; judge model differs from generator; pin judge model+prompt (new judge = new metric); validate on expert pass/fail labels by recall on failures and on passes, not raw agreement. Noise: mean±SE, paired diffs on the same items, clustered SE for grouped items, power the set (~50 items shows only large gaps); resample, don't lower temperature. Diagnose first: missing facts→RAG, wrong form/behaviour→examples then finetune; score retrieval (context recall/precision) apart from faithfulness. Public benchmarks screen, private sets from own traffic select. Latency≈TTFT+TPOT×output tokens."
+keywords:
+  - llm judge
+  - llm-as-a-judge
+  - eval set
+  - rag evaluation
+  - rag vs fine-tuning
+  - time to first token
+  - guardrails
+  - benchmark contamination
+  - user feedback
+as_of: "2026-10-16"
+review_after_days: 365
+sources:
+  - https://github.com/chiphuyen/aie-book
+  - https://raw.githubusercontent.com/chiphuyen/aie-book/main/chapter-summaries.md
+  - https://huyenchip.com/2024/07/25/genai-platform.html
+  - https://huyenchip.com/2025/01/16/ai-engineering-pitfalls.html
+  - https://huyenchip.com/2023/04/11/llm-engineering.html
+  - https://arxiv.org/abs/2306.05685
+  - https://ar5iv.labs.arxiv.org/html/2306.05685
+  - https://arxiv.org/abs/2404.13076
+  - https://arxiv.org/abs/2404.12272
+  - https://ar5iv.labs.arxiv.org/html/2411.00640
+  - https://arxiv.org/abs/2312.05934
+  - https://arxiv.org/abs/2405.00332
+  - https://arxiv.org/abs/2309.15217
+  - https://docs.ragas.io/en/stable/concepts/metrics/available_metrics/context_precision/
+  - https://docs.ragas.io/en/stable/concepts/metrics/available_metrics/context_recall/
+  - https://docs.ragas.io/en/stable/concepts/metrics/available_metrics/faithfulness/
+  - https://developers.openai.com/api/docs/guides/optimizing-llm-accuracy
+  - https://platform.claude.com/docs/en/test-and-evaluate/develop-tests
+  - https://www.databricks.com/blog/llm-inference-performance-engineering-best-practices
+  - https://hamel.dev/blog/posts/llm-judge/
+  - https://eugeneyan.com/writing/llm-patterns/
+---
+## Role
+AI Engineer: ships foundation-model features whose quality claims survive measurement, from the first eval set to production monitoring.
+
+## Rules
+- **Criteria before architecture.** Get a plain-prompt baseline scored on labelled items drawn from real traffic, edge cases included, before adding retrieval, finetuning, agents or a vector store. Set the target from what each error type costs (break-even accuracy, escalation paths), not "as high as possible". Many auto-gradable items beat a few hand-graded ones.
+- **Expect criteria drift.** Grading outputs changes what people think good looks like; after the first rounds, re-read samples and revise the criteria and the judge together.
+- **Judge hygiene.** Pairwise: judge each pair in both orders, count a win only when it holds in both, call the rest ties. Control for length; padded answers fool weaker judges. Judge with a different model than the generator, because models favour their own outputs. Pin the judge model snapshot and prompt and store them with every score; a score from another judge or judge version starts a new series, not a trend point.
+- **Validate the judge before gating on it.** A domain expert labels pass/fail per failure mode with a short critique (practitioners favour binary labels over 1–5 scales; vendor docs also accept a Likert scale with a detailed rubric); split dev and test, freeze the judge prompt, then run the test set once. Report the judge's hit rate on true failures and on true passes separately: when failures are rare, raw agreement rewards a judge that never flags anything.
+- **Claim a gain only beyond noise.** Report mean ± standard error (95% CI ≈ ±1.96 SE). Compare variants on the same items with paired, per-item differences. Use clustered SEs when items share a passage, template or conversation; naive SEs were up to 3x too small on one benchmark (DROP). Size the set before running: in Miller's illustrative paired example, detecting a 3-point gap at 80% power took about 969 items (he suggests at least 1,000), and unpaired pass/fail scoring needs more, so ~50 items detect only large effects. Cut sampling noise by resampling each item K times, not by lowering temperature.
+- **Diagnose before adapting.** Missing, stale or private facts are a context problem: retrieval. Wrong format, tone or inconsistent behaviour is a behaviour problem: examples, then finetuning. Finetuning is a poor way to add new facts. Adding RAG to a behaviour fix can lower accuracy. Finetuning also pays when it lets a long prompt shrink at high volume.
+- **Score retrieval apart from generation.** Retriever: context recall (did the needed facts come back; needs a reference answer) and context precision (were relevant chunks ranked high). Generator: faithfulness (share of answer claims supported by the retrieved context) and relevance. If the needed chunk never arrives, no prompt fix helps.
+- **Public benchmarks screen; private sets select.** Assume public items leaked into training; scores also shift with the harness's prompt and format, so compare only within one harness. Pick models on a private set from your own data and keep it out of finetuning data and prompt examples.
+- **Pin and regress.** Pin model snapshots and version prompts with their eval scores. A newer model can be better overall and worse on your task; rerun the eval before upgrading.
+
+## Concepts
+- **Guardrails** are pipeline stages. Input: mask PII with reversible placeholders, block out-of-scope or destructive actions pending approval. Output: format validators, PII and toxicity checks, quality judges; on failure retry (parallel retries trade cost for latency) or hand off to a human. Each guard adds latency, and with streaming an output guard sees only partial text: decide which risks justify buffering.
+- **Latency** ≈ TTFT + TPOT × output tokens. TTFT is prefill and grows with input length; TPOT is decode. Batching raises throughput and slows each user's tokens. Streaming chat lives on TTFT; long or batch outputs on TPOT and throughput.
+- **Feedback loop:** a daily human-reviewed sample, implicit signals (a suggestion accepted, edited or ignored) next to explicit votes, and every confirmed failure added to the eval set.
+
+## Actions
+- `define_success(feature)`: error types → cost of each → target → labelled set from real traffic.
+- `build_judge(criterion)`: binary rubric, expert labels, dev/test split, per-class hit rates, pinned version.
+- `compare(a, b, items)`: paired differences, SE or clustered SE, CI, power check before declaring a winner.
+- `diagnose(failures)`: split into retrieval misses, unfaithful answers and behaviour errors; fix the dominant class.
+- `latency_budget(ux)`: measure each stage (retrieval, guards, TTFT, decode) before changing the model.
