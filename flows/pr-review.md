@@ -495,7 +495,7 @@ threads and every review body on the head, the owner's included, each marked
 `TRUSTED` or `untrusted` by the rule of item 3. It differs in two ways only: it
 replies inside each thread (item 6), which the broker cannot, and it pushes
 the run's own branch itself with the owner's credentials. That push skips the
-broker, so before every push the session does the broker's checks by hand and
+broker, so before every push the session runs the broker's checks itself and
 reports them, and it pushes only a head that a validated independent review
 covered (item 1). Merging, closing and deleting stay with the owner
 ([autodev, run it interactively](autodev.md#run-it-interactively)).

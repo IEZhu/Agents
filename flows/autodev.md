@@ -130,10 +130,40 @@ With the owner present, in a checkout of Agents-Core:
    | `{gh_cmd}` | The owner's `gh`, limited to the broker's operations ([pr-review, autodev mode](pr-review.md#autodev-mode)); `gh api` only with `--method GET`, except for the thread replies and resolutions there |
    | `{heavy_cmd}` | Heavy checks one at a time, with no other test or reindexing process running |
    | `{state_copy}`, `{exchange_dir}` | The session's own notes; no handover |
-   | `{gh_cmd} push` | `git push` with the owner's credentials, only to the run's own branch and with the destination named (`git push origin <head>:refs/heads/<branch>`), never `--force` (after a rebase only `--force-with-lease`, as in [pr-review](pr-review.md#keep-the-branch-current-and-git-healthy)). This push skips the broker, so before every push the session does the broker's checks by hand and reports them, for every commit the push publishes (`git rev-list --reverse <head> --not --remotes=origin` after a fetch), not only for the net diff, because a later commit can revert what an earlier one published: the paths each commit changes (`git diff-tree --no-commit-id -r --no-renames --name-only <commit>`; for a merge commit, with `--cc`, the paths it does not take unchanged from a parent) against `.github/autodev-protected-paths` and `.github/autodev-control-paths` at `origin/main` (protected paths only with `autodev:next`, control paths never) and the other refusals of `check_changes` in `src/schedules/paths.py` (a symlink, a submodule or another unknown mode, a `.git` path component, a case-only name collision); no secret in any of those commits' diffs or messages (`git log -p`); closing keywords that name only the run's issue; and a validated independent review of exactly that head. A failed check stops the push. The session then opens or updates the pull request itself; merging, closing and deleting stay with the owner |
+   | `{gh_cmd} push` | `git push` with the owner's credentials, only to the run's own branch and with the destination named (`git push origin <head>:refs/heads/<branch>`), never `--force` (after a rebase only `--force-with-lease`, as in [pr-review](pr-review.md#keep-the-branch-current-and-git-healthy)). This push skips the broker, so before every push the session runs the broker's checks itself, as described below the table, and reports them; a refusal or a failed check stops the push. The session then opens or updates the pull request itself; merging, closing and deleting stay with the owner |
 
-   Its comments are not in the runner's records, so the gate ignores its state
-   comment and waits while its pull request is open: continue that pull request
+   **Checks before an interactive push.** `<pinned>` is the run's base as a full
+   SHA: the `origin/main` commit the branch was cut from, or the one it was last
+   rebased onto. From the installation's checkout, with its virtual
+   environment's interpreter, run the broker's own change check,
+   `check_changes` in `src/schedules/paths.py`, on every commit of
+   `<pinned>..<head>` in the session's checkout, with the path lists read at
+   `<pinned>` and the issue's labels. The installation's code runs the check,
+   never the branch's:
+
+   ```bash
+   .venv/bin/python - <checkout> <pinned> <head> <label>... <<'PY'
+   import sys
+   from src.schedules import paths
+   repo, base, head, *labels = sys.argv[1:]
+   check = paths.check_changes(repo, base, head, labels, paths.load_path_classes(repo, base))
+   for refusal in check.refusals:
+       print(refusal.commit, refusal.path or "-", refusal.reason)
+   sys.exit(0 if check.allowed else 1)
+   PY
+   ```
+
+   It refuses what the broker refuses: a head that does not descend from
+   `<pinned>`, a merge or root commit, and in any commit a control path, a
+   protected path without `autodev:next`, a symlink, a submodule or another
+   unknown mode, a `.git` path component or a case-only name collision. A
+   branch whose base moved is therefore kept current by a rebase, not a merge.
+   Then check by hand: no secret in any commit's diff or message
+   (`git log -p <pinned>..<head>`), closing keywords that name only the run's
+   issue, and a validated independent review of exactly that head.
+
+   The interactive session's comments are not in the runner's records, so the
+   gate ignores its state comment and waits while its pull request is open: continue that pull request
    interactively with [pr-review in autodev mode](pr-review.md#autodev-mode)
    until the owner merges or closes it.
 
