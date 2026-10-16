@@ -1,0 +1,155 @@
+{
+ "component": "skill-domain-driven-design",
+ "cases": [
+  {
+   "id": "ddd-big-cluster-lock-conflicts-ru",
+   "agent": "system_architect",
+   "language": "ru",
+   "group": "reasoning",
+   "history": [],
+   "user_message": "Java 17, Spring Data JPA, Postgres. У нас сущность Project, внутри неё @OneToMany-коллекции задач (Task), спринтов и релизов, всё сохраняется через projectRepository.save(project), на Project стоит @Version. В больших проектах по 6–8 тысяч задач. Проблемы: когда несколько человек одновременно двигают разные задачи в одном проекте, сыплется OptimisticLockException, а добавление одной задачи в старый проект занимает несколько секунд. Как это правильно перестроить?",
+   "why_in_scope": "The skill draws consistency boundaries around true invariants rather than containment: small units with their own version, referencing the project by ID, one changed per transaction. A strong model may only tune lazy loading, batch sizes or retry-on-conflict and keep the giant cluster that causes the collisions.",
+   "rubric": [
+    "Explains that the conflicts come from one version guarding the whole project, so edits to unrelated tasks collide, and that loading the project with its collections is what makes adding one task slow.",
+    "Proposes making Task (and likely Sprint and Release) separately loaded and saved units with their own version that hold the project's ID instead of living in a collection inside Project.",
+    "Asks or determines which business rules really must hold atomically across tasks and the project (for example a limit per sprint) and keeps only those together, instead of keeping or splitting everything by default.",
+    "Handles project-level derived data (counters, statuses) by query or asynchronous update rather than updating Project in the same transaction as every task change."
+   ]
+  },
+  {
+   "id": "ddd-order-points-inventory-one-tx-en",
+   "agent": "system_architect",
+   "language": "en",
+   "group": "reasoning",
+   "history": [],
+   "user_message": "Modular monolith, one Postgres database. When a customer places an order, the PlaceOrder handler does all of this in one transaction: insert the order, decrement stock for each SKU in the inventory module, add loyalty points to the customer, and update the customer's lifetime spend. Under Black Friday load we get deadlocks and long lock waits on customer and stock rows. The team's proposed fix is to take explicit row locks in a fixed order. Is that the right direction, or should we restructure?",
+   "why_in_scope": "The skill makes the model ask which rules must hold in the same commit and move the rest to asynchronous follow-up driven by events, using the acceptable delay and whose job the consistency is as the test. A strong model may stop at lock ordering, which reduces deadlocks but keeps one transaction contending on unrelated consistency needs.",
+   "rubric": [
+    "Separates rules that need same-commit consistency (for example not selling stock that is not there, if the business requires that at order time) from data that can lag, such as loyalty points and lifetime spend.",
+    "Recommends committing the order (with at most the rule that truly must be atomic with it) on its own and updating the other data in separate transactions triggered by an event or message, with retries and a compensation or alert path on failure.",
+    "Treats the acceptable delay as a business decision to confirm with the product owner or domain experts, or applies the test of whose responsibility keeping that data consistent is.",
+    "Acknowledges that a fixed lock order can reduce deadlocks but does not remove contention on hot customer and stock rows."
+   ]
+  },
+  {
+   "id": "ddd-shared-client-model-ru",
+   "agent": "system_architect",
+   "language": "ru",
+   "group": "reasoning",
+   "history": [],
+   "user_message": "У нас три команды: продажи, биллинг и поддержка. Архитектор хочет сделать единый сервис «Клиент» с одной таблицей customers примерно на 120 полей, которой будут пользоваться все три команды, чтобы «была одна правда о клиенте». Уже спорим: для продаж «активный клиент» — тот, с кем была сделка за последние 90 дней, для биллинга — тот, у кого есть действующая подписка, для поддержки — тот, у кого открыт тикет. Каждое изменение схемы требует согласования трёх команд. Стоит ли продолжать в этом направлении?",
+   "why_in_scope": "The skill teaches that one term can legitimately mean different things in different parts of the business, so each team keeps its own model and translates at the edges, sharing little more than identity. A strong model may try to rescue the single model with more status fields or governance instead of questioning it.",
+   "rubric": [
+    "Argues against one shared 120-field customer model and recommends that sales, billing and support each own a customer model and data shaped for their own work.",
+    "Treats the three meanings of 'active' as valid, separately named concepts of each area rather than a conflict to settle into one definition.",
+    "Proposes sharing only what is truly common, such as a customer identifier and a few reference attributes, with explicit translation, APIs or events between the models.",
+    "States a cost of the recommendation, such as duplicated data or the need to keep shared attributes in sync."
+   ]
+  },
+  {
+   "id": "ddd-legacy-erp-integration-en",
+   "agent": "software_engineer",
+   "language": "en",
+   "group": "reasoning",
+   "history": [],
+   "user_message": "We're building a new order-fulfilment service in Kotlin that needs data from our 20-year-old ERP. The ERP exposes SOAP endpoints with fields like ZZ_ST_CD and KUNNR_ALT, booleans encoded as 'X' or empty string, and two-letter status codes that mean different things depending on the document type. The ERP team is frozen: no changes for at least a year. A teammate suggests we generate classes from the WSDL and use them throughout our service so we don't waste time on mapping. Thoughts?",
+   "why_in_scope": "The skill tells a downstream team facing a weak upstream model it cannot change to build its own isolating translation layer: the ERP's interface outside, its own model inside. A strong model may accept WSDL-generated types everywhere or suggest only a thin DTO mapper without isolating the model.",
+   "rubric": [
+    "Recommends against using the WSDL-generated ERP types throughout the service and proposes an isolating translation layer owned by the new service.",
+    "Says the layer converts ERP codes and flags, including the document-type-dependent statuses, into the new service's own domain types, so ERP concepts do not leak past it.",
+    "Notes that the layer uses the existing SOAP interface and needs no change on the ERP side.",
+    "Acknowledges the cost (extra mapping code and tests) and justifies it by the ERP model's poor fit and long remaining life."
+   ]
+  },
+  {
+   "id": "ddd-upstream-wont-help-ru",
+   "agent": "system_architect",
+   "language": "ru",
+   "group": "reasoning",
+   "history": [],
+   "user_message": "Мы маленькая команда из трёх человек, делаем внутренний сервис отчётности. Данные берём из платёжной платформы, которую делает большая команда; у них свой roadmap на год вперёд, наши запросы они вежливо принимают, но за полгода ничего не сделали. Их API и модель данных вполне нормальные и задокументированы. При этом у нас в бэклоге висят фичи, которые «ждут платформу», а вокруг их API мы построили собственную модель с ручным маппингом каждого поля, и он ломается почти на каждом их релизе. Как нам выстроить отношения с этой командой и интеграцию?",
+   "why_in_scope": "The skill maps team power to an integration pattern: when the upstream has no incentive to serve you and its model is usable, adopting that model removes translation cost, and plans should stop depending on upstream promises. A strong model may push for a heavier translation layer or an SLA negotiation without considering this option.",
+   "rubric": [
+    "Recognises that the platform team will not prioritise their needs and advises removing backlog dependencies on promised platform features or replanning around what exists.",
+    "Recommends adopting the platform's model and terms as-is, or nearly so, for reporting, since that model is adequate, to remove the per-field mapping that breaks on each release.",
+    "States the trade-off: the adopted model fits reporting less well, and a separate translation layer would be justified only if the platform's model were unfit.",
+    "Suggests a concrete way to catch breaking changes early, such as contract tests against the platform API or tracking its versioned schema."
+   ]
+  },
+  {
+   "id": "ddd-many-consumers-en",
+   "agent": "system_architect",
+   "language": "en",
+   "group": "reasoning",
+   "history": [],
+   "user_message": "I own the Pricing service. Twelve internal teams consume it and each keeps asking for its own endpoint: /prices-for-checkout, /prices-for-search, /prices-for-partner-feed-v3 and so on. We now have 31 endpoints, each mapped from our internal model slightly differently, and every change to our model means touching most of them. One team, tax compliance, needs a very specific historical breakdown nobody else uses. How should I restructure what we expose?",
+   "why_in_scope": "The skill points a provider integrated by many teams to one open, documented protocol and interchange format, with one-off translators kept outside it for idiosyncratic clients. A strong model may suggest GraphQL or a backend-for-frontend per team without separating a documented exchange format from the internal model or isolating the outlier.",
+   "rubric": [
+    "Recommends replacing per-team endpoints with one general, documented API that all consumers use and that grows for needs shared by several consumers.",
+    "Recommends a documented, versioned exchange schema decoupled from the service's internal model, so internal changes do not ripple to consumers.",
+    "Serves the tax-compliance need with a separate one-off adapter or dedicated translation instead of adding its specifics to the shared API.",
+    "Includes a migration path for the existing 31 endpoints, such as deprecation with a transition period or versioning."
+   ]
+  },
+  {
+   "id": "ddd-overkill-reference-data-ru",
+   "agent": "software_engineer",
+   "language": "ru",
+   "group": "reasoning",
+   "history": [],
+   "user_message": "Делаем админку справочников: страны, валюты, коды банков, единицы измерения — по сути CRUD плюс проверка уникальности кодов и импорт из CSV. Тимлид требует сделать «по-взрослому»: четыре слоя (API, application, domain, infrastructure), классы-сущности с поведением и инвариантами, событие в Kafka на каждое изменение и отдельную модель для чтения. Команда четыре человека, срок три недели. Я сомневаюсь. Кто прав?",
+   "why_in_scope": "The skill says deep domain modeling pays off only in the complex core domain; CRUD reference data is a generic area best kept simple or taken from standard sources. A strong model may defer to the lead's layering or answer 'it depends' without a recommendation.",
+   "rubric": [
+    "Recommends a simple CRUD design for the reference-data admin (for example one thin layer over the database with validation and CSV import), not the four-layer design with events and a separate read model.",
+    "Justifies this by the low business-rule complexity of the data, the team size and the deadline, noting that layered domain modeling pays off where complex rules live.",
+    "Considers loading these sets from existing standards or ready-made sources (for example ISO 4217 for currencies, ISO 3166 for countries) instead of maintaining them by hand.",
+    "Keeps the guarantees that matter: code uniqueness enforced by database constraints and a safe CSV import (validation plus a transaction or preview)."
+   ]
+  },
+  {
+   "id": "ddd-events-lost-duplicated-en",
+   "agent": "software_engineer",
+   "language": "en",
+   "group": "reasoning",
+   "history": [],
+   "user_message": "Spring Boot service, Postgres, Kafka. After orderRepository.save(order) and the @Transactional method commits, we call kafkaTemplate.send(\"orders\", new OrderUpdated(order)), where OrderUpdated is the whole order entity serialized. Consumers (shipping, invoicing, analytics) complain: sometimes an event never arrives after a pod restart, sometimes they get the same event twice, and from an OrderUpdated they can't tell whether the order was paid, cancelled or just had its address changed. How do we fix this properly?",
+   "why_in_scope": "The skill models events as named business occurrences carrying the time they happened and the entity IDs, saved atomically with the state change and deduplicated by the receiver. A strong model may only add producer retries or Kafka's idempotent producer, which do not close the gap between the database commit and the send.",
+   "rubric": [
+    "Identifies the gap between the database commit and the Kafka send (a crash in between loses the event) and closes it by writing the event to an outbox table in the same transaction, published by a relay or change data capture.",
+    "States that publishing can still produce duplicates, so consumers must deduplicate, for example by recording processed event IDs under a unique constraint.",
+    "Replaces the generic OrderUpdated with specific business events (such as order paid, order cancelled, shipping address changed) that carry what changed, when it happened and the order ID.",
+    "Notes that Kafka's idempotent producer alone does not make the database write and the publish atomic."
+   ]
+  },
+  {
+   "id": "ddd-control-notification-capacity-en",
+   "agent": "system_architect",
+   "language": "en",
+   "group": "control",
+   "history": [],
+   "user_message": "We need to send push notifications to 40M monthly active users. The peak is a marketing blast to all of them within 15 minutes, plus about 2,000 transactional notifications per second at normal load. Each notification payload is about 1 KB and we keep 30 days of delivery logs. Give me a back-of-envelope estimate of throughput and storage and the main components.",
+   "why_in_scope": "Control: a capacity and component estimate where domain modeling guidance should not change the answer.",
+   "rubric": [
+    "Computes the blast rate as roughly 40,000,000 / 900 s, about 44,000 notifications per second (equivalent arithmetic accepted).",
+    "Estimates 30-day log storage from the stated rates and payload size with explicit assumptions, for example about 2,000/s x 86,400 s, roughly 173 million transactional notifications per day, plus blasts.",
+    "Proposes queue-based fan-out with workers that send to the push providers (APNs, FCM), with rate limiting or batching for the blast.",
+    "States assumptions where the prompt leaves gaps, such as log record size or blast frequency."
+   ]
+  },
+  {
+   "id": "ddd-control-feed-pagination-ru",
+   "agent": "software_engineer",
+   "language": "ru",
+   "group": "control",
+   "history": [],
+   "user_message": "PostgreSQL 15, таблица posts(id bigserial, author_id bigint, created_at timestamptz, body text), лента сортируется по created_at по убыванию. Сейчас пагинация через OFFSET/LIMIT: при подгрузке следующей страницы пользователи видят дубли, когда появляются новые посты, а на глубоких страницах запрос тормозит. Как переделать?",
+   "why_in_scope": "Control: a pagination and indexing question that domain modeling guidance should not affect.",
+   "rubric": [
+    "Recommends keyset (cursor) pagination on the last seen (created_at, id) pair instead of OFFSET.",
+    "Uses id as a tie-breaker because created_at values can repeat, with a row comparison such as (created_at, id) < (:ts, :id) or an equivalent condition.",
+    "Proposes a matching index such as (created_at DESC, id DESC), or the same columns ascending, which PostgreSQL can scan backwards.",
+    "Explains why OFFSET shows duplicates when new rows arrive and why it slows down on deep pages."
+   ]
+  }
+ ]
+}

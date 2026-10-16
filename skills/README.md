@@ -92,7 +92,7 @@ omitted). Re-check the figures against `sources`, then update `as_of`.
 
 | Skill | Description |
 |-------|-------------|
-| `skill-dev-clean-code` | SOLID, DRY, KISS, YAGNI principles |
+| `skill-dev-clean-code` | SOLID, DRY as one source of knowledge, KISS, YAGNI, orthogonality, crash early |
 | `skill-dev-debugging` | Scientific debugging, root cause analysis, binary search |
 | `skill-dev-security` | Secure coding, OWASP, input validation |
 | `skill-mcp-development` | MCP server development best practices |
@@ -104,7 +104,13 @@ omitted). Re-check the figures against `sources`, then update `as_of`.
 | `skill-dev-performance` | Profiling, bottleneck identification, optimization patterns, benchmarking |
 | `skill-dev-testing` | Unit, integration, E2E and property-based testing; TDD/BDD workflow |
 | `skill-system-design` | Distributed systems, scalability patterns, trade-offs, C4 model, capacity planning |
-| `skill-ux-principles` | Gestalt laws, Nielsen heuristics, WCAG accessibility, design tokens, information architecture |
+| `skill-data-consistency` | Consistency models, isolation anomalies, replication lag, idempotency, fencing tokens; why "CAP: pick two" misleads |
+| `skill-storage-engines` | B-tree vs LSM, read/write/space amplification, compaction, WAL durability, MVCC bloat |
+| `skill-domain-driven-design` | Ubiquitous language, bounded contexts and context maps, aggregates as consistency boundaries, domain events |
+| `skill-payments-ledger` | Payment systems and wallets: double-entry ledger, money representation, idempotency keys, reconciliation, outbox and sagas |
+| `skill-sre-practices` | SLOs and error budgets, symptom-based and burn-rate alerting, golden signals, toil, blameless postmortems |
+| `skill-delivery-performance` | DORA software delivery metrics and capabilities, the Three Ways, small batches, trunk-based development |
+| `skill-ux-principles` | Gestalt laws, Nielsen heuristics, Laws of UX, WCAG accessibility, Core Web Vitals and performance budgets |
 
 ### Analysis & Research
 
@@ -180,6 +186,7 @@ All nine jurisdiction skills sit in the `lawyer` agent's `capable_skills` pool â
 | `skill-3d-platforms` | 3D printing platforms knowledge |
 | `skill-3d-print-search` | 3D model search strategies |
 | `skill-fitness-programming` | Exercise programming, periodization, spine-safe biomechanics |
+| `skill-engineering-management` | 1:1s, feedback, delegation by task-relevant maturity, underperformance, psychological safety, structured hiring |
 
 ### Prompt Engineering & System
 
@@ -194,6 +201,7 @@ All nine jurisdiction skills sit in the `lawyer` agent's `capable_skills` pool â
 | `skill-agentic-loops` | Checkpoints, convergence criteria, budgets and error recovery for long-running agent loops |
 | `skill-multi-step-planning` | Decompose goals into steps with dependencies, checkpoints and exit criteria |
 | `skill-react-pattern` | Thought-Action-Observation loops for tool-using agents |
+| `skill-ai-engineering` | Evaluation-driven development of LLM applications, AI-as-judge pitfalls, prompt â†’ RAG â†’ finetune, guardrails, latency and cost metrics |
 
 ## Loading Methods (3-Tier Per-Agent Model)
 
