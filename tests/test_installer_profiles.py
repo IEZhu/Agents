@@ -47,7 +47,7 @@ def profile_installer(request, tmp_path):
     for name in ("routing-protocol-core.md", "memory-routing.md",
                  "legacy/memory-routing-v1.md", "legacy/memory-routing-v2.md",
                  "legacy/memory-routing-v3.md", "legacy/memory-routing-v4.md",
-                 "legacy/memory-routing-v5.md", "legacy/memory-routing-v6.md", "legacy/memory-routing-v7.md", "legacy/memory-routing-v8.md", "legacy/memory-routing-v9.md", "legacy/memory-routing-v10.md", "legacy/memory-routing-v11.md", "legacy/memory-routing-v12.md", "legacy/memory-routing-v13.md", "legacy/memory-routing-v14.md", "legacy/memory-routing-v15.md"):
+                 "legacy/memory-routing-v5.md", "legacy/memory-routing-v6.md", "legacy/memory-routing-v7.md", "legacy/memory-routing-v8.md", "legacy/memory-routing-v9.md", "legacy/memory-routing-v10.md", "legacy/memory-routing-v11.md", "legacy/memory-routing-v12.md", "legacy/memory-routing-v13.md", "legacy/memory-routing-v14.md", "legacy/memory-routing-v15.md", "legacy/memory-routing-v16.md"):
         shutil.copyfile(ROOT / "scripts/templates" / name, templates / name)
     home = tmp_path / "isolated home"
     home.mkdir()
@@ -209,6 +209,43 @@ def test_a_desktop_only_installation_configures_claude_code_for_the_code_tab(pro
     assert registry["Agents-Core"]["args"] == [str(checkout / "src/server.py")]
     assert set(json.loads((home / ".claude/settings.json").read_text())["permissions"]["deny"]) == {
         "mcp__Agents-Core-Desktop__*", "mcp__Agents_Core_Desktop__*"}
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="the Unix installer's step; Windows runs the cmd installer")
+@pytest.mark.parametrize("order", [("Claude Desktop", "Claude Code"), ("Claude Code", "Claude Desktop")],
+                         ids=["installer-order", "reversed"])
+@pytest.mark.parametrize("before,denied,printed", [
+    ({"permissions": {"deny": ["Bash(rm *)"]}}, True,
+     ["+ Agents-Core-Desktop denied in Claude Code", "> Claude Desktop runs Agents-Core-Desktop for its chats"]),
+    ({"permissions": []}, False,
+     ["x Failed to deny Agents-Core-Desktop", "! Claude Code does not deny Agents-Core-Desktop"]),
+], ids=["denied", "unreadable-settings"])
+def test_bash_desktop_summary_prints_for_either_order(tmp_path, order, before, denied, printed):
+    """#421: names joined by single spaces matched neither summary pattern, so the note never printed."""
+    source = (ROOT / "scripts/init_repo.sh").read_text()
+    step = between(source, "            # The desktop app's entry stays out", "            # 2. Replace the managed")
+    note = between(source, '        case " ${CONFIGURED_ENVS[*]} " in', "        esac") + "        esac\n"
+    settings = tmp_path / "claude profile" / "settings.json"
+    settings.parent.mkdir()
+    settings.write_text(json.dumps(before))
+    script = tmp_path / "summary.sh"
+    script.write_text("set -e\n"
+                      "print_success() { printf '+ %s\\n' \"$*\"; }\nprint_error() { printf 'x %s\\n' \"$*\"; }\n"
+                      "print_warn() { printf '! %s\\n' \"$*\"; }\nprint_step() { printf '> %s\\n' \"$*\"; }\n"
+                      "backup_mcp_config() { :; }\nresolve_client_path() { printf '%s\\n' \"$SETTINGS\"; }\n"
+                      "CLAUDE_DESKTOP_DETECTED=true\n"
+                      f'CONFIGURED_ENVS=("Cursor" "{order[0]}" "{order[1]}")\n' + step + note)
+    environment = dict(os.environ, PYTHON_ABS=sys.executable, REPO_ROOT=str(ROOT), SETTINGS=str(settings))
+
+    result = subprocess.run([shutil.which("bash"), str(script)], env=environment, capture_output=True,
+                            text=True, timeout=20)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    deny = json.loads(settings.read_text())["permissions"]
+    assert (deny == {"deny": ["Bash(rm *)", "mcp__Agents-Core-Desktop__*", "mcp__Agents_Core_Desktop__*"]}
+            if denied else deny == [])
+    for text in printed:
+        assert text in result.stdout, result.stdout
 
 
 def install_agents_core_plugin(home, *, enabled=True, scope="user"):
