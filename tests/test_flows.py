@@ -202,3 +202,24 @@ def test_protocol_runs_a_named_flow_before_improvising():
     import src.server as server
     assert ("call list_flows and then run_flow before taking its steps; do not improvise a procedure an "
             "installed flow covers.") in server.mcp.instructions
+
+
+@pytest.mark.asyncio
+async def test_thread_close_audits_every_installed_tool_and_catalogues_every_server_tool():
+    """The audit covers all installed tools; its Agents-Core catalogue names each tool the server registers."""
+    import re
+
+    import src.server as server
+
+    text = FlowCatalog().load("thread-close").content
+    audit = " ".join(text.split("## 4. Audit tool usage", 1)[1].split("\n## ", 1)[0].split())
+    for phrase in ("Installed tools are everything the client exposed to the thread",
+                   "A tool that no instruction names is `no-rule`",
+                   "Write one patch for each `missed`, `misused` and `uncatalogued` finding",
+                   "**Managed blocks.**", "**One list, one yes.**"):
+        assert phrase in audit, phrase
+    table = text.split("**Catalogue.**", 1)[1].split("\n## ", 1)[0]
+    cells = [line.split("|")[2] for line in table.splitlines() if line.startswith("| `")]
+    catalogued = {re.sub(r"\(.*", "", name) for cell in cells for name in re.findall(r"`([^`]+)`", cell)}
+    registered = {tool.name for tool in await server.mcp.list_tools()}
+    assert sorted(registered - catalogued) == [] and sorted(catalogued - registered) == []
