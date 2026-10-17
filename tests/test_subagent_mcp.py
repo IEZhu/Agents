@@ -25,7 +25,8 @@ async def test_registered_input_and_output_schemas(worker_tree):
     types = {"agent_name": "string", "task": "string", "acceptance_criteria": "array",
              "task_id": "string", "attempt_id": "string", "context": "array", "scope": "array",
              "non_goals": "array", "result_type": "string", "max_skills": "integer",
-             "max_implants": "integer", "max_context_chars": "integer"}
+             "max_implants": "integer", "max_context_chars": "integer", "complexity": "string",
+             "client": "string"}
     for name, field_type in types.items():
         schema = context_tool.inputSchema["properties"][name]
         assert schema["type"] == field_type and schema["description"]
@@ -137,7 +138,7 @@ async def test_mcp_rejects_unknown_worker_arguments(worker_tree, name, monkeypat
     def unexpected(*args, **kwargs):
         pytest.fail("Unknown arguments reached the worker tool body")
     monkeypatch.setattr(server, "prepare_subagent", unexpected)
-    monkeypatch.setattr(server, "validate_result", unexpected)
+    monkeypatch.setattr(server, "assess_result", unexpected)
     # Exercise the handler installed for real MCP requests, including output validation.
     response = (await server.mcp._mcp_server.request_handlers[CallToolRequest](
         CallToolRequest(params=CallToolRequestParams(name=name, arguments=arguments))
