@@ -277,7 +277,10 @@ client's own tools. Calls from this close's own `run_flow` on are not audited.
    Level each `missed` and `misused` finding on the scale above: V2 when a
    script over the transcript shows the trigger and the absent or broken call,
    V1 when you read both in the transcript, V0 when only the compacted
-   conversation supports it.
+   conversation supports it. An absent call needs a complete transcript from the
+   trigger on: when the inventory's `unreadable_lines` or `skipped_entries` may
+   fall in that window, a `missed` finding is `?`, and a `?` never becomes a
+   memory lesson.
 6. **Cause.** Name the likeliest cause of each `missed` or `misused` finding,
    with its evidence:
    - `not-in-context`: no instruction loaded at that point required the call
