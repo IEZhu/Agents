@@ -200,8 +200,12 @@ def test_protocol_runs_a_named_flow_before_improvising():
                        "Do not improvise a procedure that an installed flow covers."):
             assert phrase in section, (name, phrase)
     import src.server as server
-    assert ("call list_flows and then run_flow before taking its steps; do not improvise a procedure an "
-            "installed flow covers.") in server.mcp.instructions
+    instructions = " ".join(server.mcp.instructions.split())
+    for phrase in ("When the user names a flow, workflow or ritual, or asks for work by one, in any language",
+                   "call list_flows and then run_flow for a matching flow before taking its steps.",
+                   "If no flow matches, say so and continue without one.",
+                   "Do not improvise a procedure an installed flow covers."):
+        assert phrase in instructions, phrase
 
 
 @pytest.mark.asyncio
@@ -215,6 +219,7 @@ async def test_thread_close_audits_every_installed_tool_and_catalogues_every_ser
     audit = " ".join(text.split("## 4. Audit tool usage", 1)[1].split("\n## ", 1)[0].split())
     for phrase in ("Installed tools are everything the client exposed to the thread",
                    "A tool that no instruction names is `no-rule`",
+                   "a `missed` finding is `?`, and a `?` never becomes a memory lesson",
                    "Write one patch for each `missed`, `misused` and `uncatalogued` finding",
                    "**Managed blocks.**", "**One list, one yes.**"):
         assert phrase in audit, phrase
