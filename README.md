@@ -688,8 +688,8 @@ The server exposes MCP tools that any compatible client can call:
 | `route_and_load(query, chat_history?, protocol_version=2, current_persona?)` | Semantic routing when selection is requested; returns a loaded role or candidates for the client to choose |
 | `get_agent_context(agent_name, query, reasoning?, chat_history?, protocol_version=2, current_persona?, force_reload=False)` | Direct agent loading when the target is already known; the active agent returns `NO_CHANGE` unless `force_reload=True` restores lost instructions |
 | `refresh_persona_context(query, current_persona, chat_history?)` | Refresh skills/implants for the active role without reselecting it |
-| `get_subagent_context(agent_name, task, acceptance_criteria, ...)` | Prepare a compact task-scoped worker role, bounded components and a versioned result contract; [worker guide](docs/subagent-contract.md) |
-| `validate_subagent_result(contract, result)` | Check the worker result against the parent-retained contract; structural validation only, without opening references |
+| `get_subagent_context(agent_name, task, acceptance_criteria, ..., complexity?, client?)` | Prepare a compact task-scoped worker role, bounded components and a versioned result contract; with `complexity`, also the model to launch it on; [worker guide](docs/subagent-contract.md) |
+| `validate_subagent_result(contract, result)` | Check the worker result against the parent-retained contract; structural validation only, without opening references; names the next model tier when a tiered worker fell short |
 | `cooperation_register(...)` | Register bounded work in the optional local cooperation journal; does not spawn workers or grant repository access |
 | `cooperation_read(...)` | Read a bounded repository snapshot and ordered cooperation events through the verified workspace |
 | `cooperation_apply(...)` | Apply an authenticated, revision-checked cooperation action; journal claims coordinate participating agents, not arbitrary filesystem writes |
@@ -819,6 +819,17 @@ budget. The parent then checks the evidence and acceptance criteria. The tools
 do not launch a model or enforce its runtime permissions or token budget. A valid
 worker package supplies the role without another full activation, chat footer or
 per-result interaction log; ordinary conversation attribution remains unchanged.
+
+[Model tiers](docs/subagent-model-tiers.md) cut flagship tokens on simpler
+assignments. The parent rates each one `complexity: low | standard | high`; the
+package's `execution.spawn` then launches the worker on the newest lighter model
+the client offers: Claude Code `haiku` or `sonnet`, Codex's newest `*-luna` or
+`*-sol` at medium effort, Cursor Auto or its newest Composer. `high` keeps the
+parent's model. Risky or large assignments are raised to a higher tier, and a
+worker that fails, stays partial or fails a check gets an `escalation` to the next
+tier. `AGENTS_SUBAGENT_MODEL_<CLIENT>_<TIER>` overrides a model,
+`AGENTS_SUBAGENT_TIERING=0` turns tiering off, and `AGENTS_SUBAGENT_LEDGER=1`
+records outcomes for `scripts/subagent_tiers_report.py`.
 
 With MCP available, a new ordinary conversation activates a persona before its first final
 answer, even for a greeting or project-status question. `ROUTE_REQUIRED` must be
