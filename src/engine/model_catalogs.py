@@ -18,8 +18,6 @@ import threading
 import time
 from typing import Callable
 
-from src.client_paths import client_home
-
 logger = logging.getLogger(__name__)
 
 CACHE_SECONDS = 600
@@ -70,9 +68,15 @@ def _bounded_text(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
+def codex_home() -> Path:
+    # The rule of src/client_paths.client_home("codex"), not imported: the autodev runner
+    # imports this module, and its import closure must stay within its control paths.
+    return Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex").expanduser()
+
+
 def codex_models(path: Path | str | None = None) -> list[str]:
     """Slugs Codex lists in its model picker (``visibility: "list"``)."""
-    path = Path(path) if path is not None else client_home("codex") / "models_cache.json"
+    path = Path(path) if path is not None else codex_home() / "models_cache.json"
 
     def load() -> list[str]:
         data = json.loads(_bounded_text(path))
