@@ -1318,8 +1318,8 @@ async def validate_subagent_result(
     and at most 20 diagnostics. Reads no paths/URLs, reruns no checks, writes no
     memory and never establishes truth, authorization or issue completion.
     For a contract prepared with complexity, escalation names the next tier when the result
-    failed, is partial, has a failed check, or stays invalid after one correction: prepare a
-    new attempt with that complexity and a new attempt_id.
+    is invalid, failed, partial or has a failed check. Prepare a new attempt with that
+    complexity and a new attempt_id; for an invalid result, only after one correction failed.
     """
     response, outcome = assess_result(contract, result)
     await asyncio.to_thread(subagent_ledger.record_validation, outcome)
