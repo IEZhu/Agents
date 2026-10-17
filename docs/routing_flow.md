@@ -43,7 +43,7 @@ does not select a persona protocol.
 
 The separate [subagent API](subagent-contract.md) uses
 `agents-core/subagent/1`; it does not replace conversation persona protocol 2.
-Every AI delegation, including a reviewer, verifier or parallel worker, requires `get_subagent_context` before the host's spawning tool. Supply the canonical role, task, acceptance criteria, relevant context, scope/non-goals and result type; require `status: prepared`. Retain its original `contract` and forward `worker_context` unchanged with only necessary task materials. Use a fresh worker without inherited history when supported (Codex collaboration: `fork_turns="none"`). Do not substitute a full persona or parent transcript. Preparation does not mutate the parent's descriptor or routing cache.
+Every AI delegation, including a reviewer, verifier or parallel worker, requires `get_subagent_context` before the host's spawning tool. Supply the canonical role, task, acceptance criteria, relevant context, scope/non-goals and result type; require `status: prepared`. Retain its original `contract` and forward `worker_context` unchanged with only necessary task materials. Use a fresh worker without inherited history when supported (Codex collaboration: `fork_turns="none"`). Do not substitute a full persona or parent transcript. Preparation does not mutate the parent's descriptor or routing cache. The parent rates the assignment with `complexity` and launches the worker with the package's `execution.spawn` arguments; a returned `escalation` names the complexity for a new attempt ([model tiers](subagent-model-tiers.md)).
 
 The prepared package supplies the worker's task role. That worker returns the
 specified JSON envelope without a second full activation, inherited parent

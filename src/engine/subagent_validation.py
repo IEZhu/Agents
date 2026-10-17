@@ -1,6 +1,7 @@
 """Bounded structural validation. References are data and are never dereferenced."""
 from __future__ import annotations
 
+from dataclasses import dataclass
 import hashlib
 import json
 import math
@@ -8,9 +9,10 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from src.schemas.subagent import (Diagnostic, MAX_ERRORS, MAX_JSON_DEPTH, MAX_JSON_NODES,
-                                  MAX_RESULT_CHARS, RESULT_MODELS, TaskContract,
-                                  ValidationResponse)
+from src.engine import model_tiers
+from src.schemas.subagent import (ContractExecution, Diagnostic, Escalation, MAX_ERRORS,
+                                  MAX_JSON_DEPTH, MAX_JSON_NODES, MAX_RESULT_CHARS, RESULT_MODELS,
+                                  TaskContract, ValidationResponse)
 
 
 class ContractError(ValueError):
@@ -118,8 +120,25 @@ def bounded_object(value: Any, *, max_chars: int, allow_json: bool = False) -> d
     return value
 
 
+@dataclass(frozen=True)
+class Outcome:
+    """What a validation of a tiered contract observed, for the tier ledger."""
+    task_id: str
+    attempt_id: str
+    execution: ContractExecution
+    valid: bool
+    status: str | None
+    failed_checks: int
+    escalation: Escalation | None
+
+
 def validate_result(contract: Any, result: Any) -> ValidationResponse:
     """The parent must supply its retained contract, never a worker replacement."""
+    return assess_result(contract, result)[0]
+
+
+def assess_result(contract: Any, result: Any) -> tuple[ValidationResponse, Outcome | None]:
+    """Validate like `validate_result`; also return the observed outcome of a tiered contract."""
     try:
         source = bounded_object(contract, max_chars=64000)
         expected = TaskContract.model_validate(source)
@@ -127,12 +146,23 @@ def validate_result(contract: Any, result: Any) -> ValidationResponse:
             raise ContractError("contract_revision_mismatch", "Contract fingerprint does not match.",
                                 "$.contract_revision")
     except (ContractError, ValidationError) as error:
-        return ValidationResponse(valid=False, errors=diagnostics(error, "$.contract"))
+        return ValidationResponse(valid=False, errors=diagnostics(error, "$.contract")), None
+
+    def finish(errors: list, status: str | None = None, failed_checks: int = 0):
+        valid = not errors
+        if expected.execution is None:
+            return ValidationResponse(valid=valid, errors=errors), None
+        escalation = model_tiers.escalation(expected.execution, valid=valid, status=status,
+                                            failed_checks=failed_checks)
+        outcome = Outcome(expected.task_id, expected.attempt_id, expected.execution, valid, status,
+                          failed_checks, escalation)
+        return ValidationResponse(valid=valid, errors=errors, escalation=escalation), outcome
+
     try:
         value = bounded_object(result, max_chars=MAX_RESULT_CHARS, allow_json=True)
         report = RESULT_MODELS[expected.result_type].model_validate(value)
     except (ContractError, ValidationError) as error:
-        return ValidationResponse(valid=False, errors=diagnostics(error, "$.result"))
+        return finish(diagnostics(error, "$.result"))
 
     errors = []
 
@@ -166,4 +196,4 @@ def validate_result(contract: Any, result: Any) -> ValidationResponse:
             reject(path, "duplicate_evidence_reference", "Evidence references must be unique.")
         if any(evidence_id not in known for evidence_id in ids):
             reject(path, "unknown_evidence_id", "Evidence reference does not identify an evidence item.")
-    return ValidationResponse(valid=not errors, errors=errors)
+    return finish(errors, report.status, sum(check.status == "failed" for check in report.checks))

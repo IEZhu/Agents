@@ -279,6 +279,18 @@ def _roots_session(ctx):
     return session if declared is True else None
 
 
+def calling_app(ctx=None):
+    """The app behind an MCP request: ``X-Agents-Client`` over HTTP, else MCP ``clientInfo.name``."""
+    request = _http_request(ctx)
+    context = getattr(getattr(request, "state", None), "client_context", None)
+    if getattr(context, "client", None):
+        return context.client
+    try:
+        return ctx.session.client_params.clientInfo.name
+    except (AttributeError, ValueError):
+        return None
+
+
 def workspace_inputs(ctx=None):
     """What a stdio workspace is resolved from, reported with workspace errors; None over HTTP."""
     if _http_request(ctx) is not None or os.environ.get("AGENTS_TRANSPORT") == "http":
