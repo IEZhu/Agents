@@ -186,3 +186,16 @@ def test_readme_catalog_lists_every_builtin_flow():
     readme = (catalog.directory / "README.md").read_text(encoding="utf-8")
     table = readme.split("## Available flows", 1)[1].split("\n## ", 1)[0]
     assert [flow_id for flow_id in catalog.ids() if f"]({flow_id}.md)" not in table] == []
+
+
+def test_protocol_runs_a_named_flow_before_improvising():
+    """A flow the user asked for by name was improvised; the protocol now names that trigger."""
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    for name in ("scripts/templates/routing-protocol-core.md", "CLAUDE.md"):
+        flat = " ".join((root / name).read_text(encoding="utf-8").split())
+        section = flat.split("## Run a named flow", 1)[1].split(" ## ", 1)[0]
+        for phrase in ("call `list_flows` and then `run_flow` for the matching flow before taking any of its steps",
+                       '"флоу"', '"по флоу X"', "apply a returned `persona_activation` as a `switch`",
+                       "Do not improvise a procedure that an installed flow covers."):
+            assert phrase in section, (name, phrase)
