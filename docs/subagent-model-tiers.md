@@ -1,7 +1,6 @@
 # Model tiers for delegated workers
 
-Status: design approved 2026-10-17; implementation in progress on
-`claude/subagent-model-tiers`. Extends the
+Status: implemented 2026-10-17. Extends the
 [task-scoped subagent contract](subagent-contract.md).
 
 ## Problem and goal
@@ -96,9 +95,11 @@ opened with SQLite `mode=ro` and a short timeout.
 
 The client comes from the `client` argument when given, otherwise from the request:
 the shared daemon's `X-Agents-Client` header (`claude-code`, `codex`, `cursor`),
-or over stdio the MCP `clientInfo.name` (matched by `claude`, `codex`, `cursor`
-substrings). Any other client (the Claude desktop chat, Antigravity, unknown) gets
-the tier and `inherit` resolution with `client: null`: the host keeps its model.
+or over stdio the MCP `clientInfo.name`. A name containing `codex` or `cursor`
+names that client; `claude-code` (or `claude`) names Claude Code. Any other client
+(the Claude desktop chat, Antigravity, unknown) gets tier `inherit` with
+`client: null` and no `spawn`: no lighter model can be launched there, so the host
+keeps its model and nothing escalates; `requested_tier` still reports the rating.
 
 ### Configuration
 
@@ -169,15 +170,19 @@ unchanged.
 
 ## Ledger
 
-To measure whether light workers hold up, the server appends one JSON line per
-prepared package with `execution` and per validation of a contract with
-`execution` to `data/subagent-tiers/ledger.jsonl` in the
-installation (private file mode, size-capped at 5 MiB with one rotated copy). A
-line holds a timestamp, event, task and attempt IDs, client, complexity, tier,
-model, effort, source and floor reason codes, plus `valid`, result status, failed
-check count and the escalation tier for validations. It never holds task text,
-context, paths, results or workspace names. A write failure is logged and never
-fails the tool call.
+To measure whether light workers hold up, set `AGENTS_SUBAGENT_LEDGER=1`. The
+server then appends one JSON line per prepared package with `execution` and per
+validation of a contract with `execution` to `data/subagent-tiers/ledger.jsonl` in
+the installation (directory mode 0700, file mode 0600, size-capped at 5 MiB with
+one rotated copy). A line holds a timestamp, event, the task ID's SHA-256 prefix,
+the attempt ID, client, complexity, tier, model, effort, source and floor reason
+codes, plus `valid`, result status, failed check count and the escalation tier and
+reason for validations. It never holds task text, context, paths, results or
+workspace names. A write failure is logged and never fails the tool call.
+
+The ledger is off by default, like the `AGENTS_DEBUG` logs: both worker tools keep
+their read-only tool annotations, which clients such as Codex use to decide whether
+a call needs approval.
 
 `scripts/subagent_tiers_report.py` summarizes the ledger per client, tier and
 model: prepared packages, validations, the share accepted without escalation, and
@@ -210,8 +215,8 @@ delegate do not pay for them.
   with the tier; client detection from the header, `clientInfo` and the argument.
 - Validation: escalation for each trigger, `null` when acceptable and at
   `inherit`, contracts without `execution` unchanged.
-- Ledger: line content without task text, rotation, failure isolation; report
-  aggregation.
+- Ledger: off by default, line content without task text, rotation, failure
+  isolation; report aggregation.
 - MCP schemas: the new arguments and response fields.
 
 ## Non-goals
