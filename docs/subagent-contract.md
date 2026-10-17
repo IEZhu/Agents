@@ -55,6 +55,8 @@ text. Preserve the repository's client-compatible schema conventions.
 | `max_skills` | Default 3, range 0..5 |
 | `max_implants` | Default 0, range 0..2 |
 | `max_context_chars` | Default 16000, range 2000..64000; complete worker-context character budget |
+| `complexity` | Optional `low`, `standard` or `high`; returns `execution` with the worker's model tier ([model tiers](subagent-model-tiers.md)) |
+| `client` | Optional `claude`, `codex` or `cursor`; detected from the request when omitted |
 
 Empty required text, unknown roles or types, invalid bounds and oversized input
 return a structured error, never a partial usable bundle. Bound individual input
@@ -90,6 +92,17 @@ this package without activating a full conversation persona. Parent descriptors
 visible in inherited history are references, not the worker's activation.
 
 Every AI delegation, including reviewers, verifiers and parallel workers, requires `get_subagent_context` and `status: prepared` before native spawning. The parent forwards `worker_context` unchanged with only necessary task materials into a fresh worker without inherited history when supported (Codex: `fork_turns="none"`). It keeps its original contract and descriptor and validates every returned or revised output unchanged against that contract. A worker must not replace the authoritative contract. `valid: true` is required before acceptance or integration, followed by independent evidence and acceptance-criteria checks.
+
+## Model tiers
+
+With `complexity`, preparation resolves a model tier for the launching client and
+records it in the contract as `execution`, covered by `contract_revision`. The
+package's `execution.spawn` holds the arguments for the host's launching tool
+(`Agent`, `spawn_agent` or `Task`), and validation of such a contract returns
+`escalation`, the next tier, when a result fell short. Without `complexity` the
+package, contract and validation response keep the shape described here. Tiers,
+floors, model resolution and the opt-in ledger are specified in
+[Model tiers for delegated workers](subagent-model-tiers.md).
 
 ## Authored compact personas and component selection
 
