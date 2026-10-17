@@ -149,11 +149,12 @@ At `inherit` the arguments carry no model or effort (Codex keeps
 
 ### Escalation
 
-For a contract with `execution`, `validate_subagent_result` adds `escalation`:
+For a contract with `execution`, `validate_subagent_result` may add `escalation`:
 
-- `null` when the result is acceptable structurally and needs no climb: `valid`,
+- absent when the result is acceptable structurally and needs no climb: `valid`,
   status `completed` or `input_required`, and no check `failed`; also always at
-  tier `inherit`, which has nothing above it.
+  tier `inherit`, which has nothing above it. Such a response has the same shape
+  as one for a contract without `execution`.
 - `{"complexity": ..., "tier": ..., "reason": ...}` naming the next tier when the
   result is `failed` or `partial`, when any check `failed`, or when `valid` is
   false. For `valid: false` the parent first returns the diagnostics for one
