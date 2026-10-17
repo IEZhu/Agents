@@ -199,3 +199,6 @@ def test_protocol_runs_a_named_flow_before_improvising():
                        '"флоу"', '"по флоу X"', "apply a returned `persona_activation` as a `switch`",
                        "Do not improvise a procedure that an installed flow covers."):
             assert phrase in section, (name, phrase)
+    import src.server as server
+    assert ("call list_flows and then run_flow before taking its steps; do not improvise a procedure an "
+            "installed flow covers.") in server.mcp.instructions
