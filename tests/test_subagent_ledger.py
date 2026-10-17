@@ -24,7 +24,14 @@ def catalogs(monkeypatch):
 def ledger(tmp_path, monkeypatch):
     path = tmp_path / "data/subagent-tiers/ledger.jsonl"
     monkeypatch.setattr(subagent_ledger, "ledger_path", lambda: path)
+    monkeypatch.setenv("AGENTS_SUBAGENT_LEDGER", "1")
     return path
+
+
+def test_disabled_by_default(worker_tree, ledger, monkeypatch):
+    monkeypatch.delenv("AGENTS_SUBAGENT_LEDGER")
+    subagent_ledger.record_prepared(prepared(complexity="low", client="codex"))
+    assert not ledger.exists()
 
 
 def lines(path):
@@ -72,6 +79,7 @@ def test_rotation_keeps_one_previous_file(ledger, monkeypatch):
 
 
 def test_write_failures_never_raise(tmp_path, monkeypatch, caplog):
+    monkeypatch.setenv("AGENTS_SUBAGENT_LEDGER", "1")
     blocker = tmp_path / "file"
     blocker.write_text("not a directory")
     monkeypatch.setattr(subagent_ledger, "ledger_path", lambda: blocker / "ledger.jsonl")

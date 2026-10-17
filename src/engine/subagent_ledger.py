@@ -1,8 +1,10 @@
 """Private ledger of tiered worker outcomes: routing facts only, never task text.
 
-One JSON line per prepared package with an execution and per validation of such a contract,
-in the installation's ``data/subagent-tiers/ledger.jsonl``. Task IDs are stored hashed. A
-write failure is logged and never fails the tool call. ``summarize`` shows per client, tier
+Opt-in with ``AGENTS_SUBAGENT_LEDGER=1``, like the ``AGENTS_DEBUG`` logs: the preparation and
+validation tools stay read-only by default. One JSON line per prepared package with an
+execution and per validation of such a contract, in the installation's
+``data/subagent-tiers/ledger.jsonl``. Task IDs are stored hashed. A write failure is logged
+and never fails the tool call. ``summarize`` shows per client, tier
 and model how often light workers were accepted without escalation.
 """
 from __future__ import annotations
@@ -37,8 +39,14 @@ def _execution(execution) -> dict:
             "model": execution.model, "reasoning_effort": execution.reasoning_effort}
 
 
+def enabled() -> bool:
+    return os.environ.get("AGENTS_SUBAGENT_LEDGER", "").strip().lower() in ("1", "true", "on", "yes")
+
+
 def append(entry: dict) -> None:
-    """Append one line, rotating to ``ledger.jsonl.1`` past the size cap."""
+    """Append one line when the ledger is enabled, rotating to ``ledger.jsonl.1`` past the size cap."""
+    if not enabled():
+        return
     path = ledger_path()
     line = json.dumps({"at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"), **entry},
                       ensure_ascii=False, sort_keys=True) + "\n"
