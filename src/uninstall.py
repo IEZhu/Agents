@@ -66,6 +66,7 @@ SERVER_NAMES = (SERVER, DESKTOP_SERVER)
 READINESS_SERVER = "Agents-Readiness"  # scripts/install_session_readiness.py
 READINESS_SCRIPT = "agents-core-session-readiness.py"
 READINESS_MATCHER = "^(startup|clear)$"
+READINESS_COMPACT_MATCHER = "^compact$"  # the persona-restore group
 # scripts/_helpers/inject_claude_md.py
 MARKERS = (
     (b"# >>> Agents-Core Routing Protocol (managed by init_repo) >>>",
@@ -1134,7 +1135,8 @@ def remove_readiness(content: bytes, client: str, script: Path, installation: Pa
                 item = items[index]
                 if client in ("claude", "codex"):
                     if (not isinstance(item, dict) or set(item) != {"matcher", "hooks"}
-                            or item["matcher"] != READINESS_MATCHER or not isinstance(item["hooks"], list)):
+                            or item["matcher"] not in (READINESS_MATCHER, READINESS_COMPACT_MATCHER)
+                            or not isinstance(item["hooks"], list)):
                         continue
                     owned = [i for i, handler in enumerate(item["hooks"])
                              if _readiness_handler(handler, client, script, installation, windows=windows)]

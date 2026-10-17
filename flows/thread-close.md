@@ -15,8 +15,9 @@ This is an executable instruction for an AI at the end of a conversation (a
 thread): before `/clear`, before switching to an unrelated task, or when the user
 asks to close it. It inventories what the thread produced, checks each result
 against the current state and gives it an evidence-based verification level. It
-audits the thread for its own mistakes, secures unsaved work and records one
-report.
+audits the thread for its own mistakes and for how it used every installed tool,
+writes a patch for each tool it missed or misused, secures unsaved work and
+records one report.
 
 The thread's own account is a lead, never proof. A long, expensive thread can
 still be wrong. Its summary may predate later changes, and a compacted context
@@ -24,7 +25,7 @@ may have dropped what actually happened.
 
 The persona contributes fact-checking discipline. Its own investigation phases and
 "Verdict"/credibility output format do not apply: this flow's steps and its report
-in step 8 do.
+in step 9 do.
 
 ## How to invoke
 
@@ -44,7 +45,7 @@ thread only from the transcript and the live state, and its report must say so.
   - `draft` (default) reads, checks and reports. Its only write is the usual
     per-turn log the client makes anyway.
   - `apply` also writes memory items at level V2 or above, curates the closing
-    history entry, and does the cleanup that step 7 verifies as safe.
+    history entry, and does the cleanup that step 8 verifies as safe.
 - **Thread.**
   - **Claude Code.** Read the session's transcript with the inventory helper
     [`scripts/dev/thread_inventory.py`](../scripts/dev/thread_inventory.py) from
@@ -74,9 +75,12 @@ thread only from the transcript and the live state, and its report must say so.
   - commits and pushes;
   - creating or closing issues and pull requests;
   - stopping background work in `draft` mode;
-  - deleting anything that step 7 does not verify as safe;
+  - deleting anything that step 8 does not verify as safe;
   - writing to external systems (trackers, chat, schedulers);
-  - memory below V2.
+  - memory below V2;
+  - the patches that step 4 lists (flows, flow personas, user rules, client
+    instructions and hooks, Agents-Core configuration, other tools'
+    instructions), except a V2 memory lesson in `apply` mode.
 
   Never merge, force-push or rewrite history as part of closing.
 
@@ -218,7 +222,134 @@ Assign the level with its evidence. Mark an item ⚠ when the evidence predates 
 later change. Note changes the thread did not make, such as a pull request the
 owner merged. In `draft` mode, run only reads and checks without side effects.
 
-## 4. Audit the thread itself
+## 4. Audit tool usage
+
+Find which installed tools the thread used, used wrongly or skipped where an
+instruction required them, why, and the patch that makes the next thread use them.
+Installed tools are everything the client exposed to the thread: Agents-Core's
+tools, other MCP servers' tools, skills, plugins and slash commands, and the
+client's own tools. Calls from this close's own `run_flow` on are not audited.
+
+1. **What was installed.** Take it from the session, not from a list:
+   - every tool the client exposed, with the server or plugin it belongs to
+     (`mcp__<server>__<tool>` in Claude Code; other clients name them
+     differently), including tools whose schemas the client defers until a tool
+     search loads them, and every skill and slash command it offered;
+   - the servers that failed to connect, which the client reports at session
+     start;
+   - Agents-Core's read-only state calls `local_inference_status()`,
+     `list_flows()` and `list_user_rules()`.
+
+   A tool that was absent, disabled, not ready or on a failed server cannot be
+   missed: it is `unavailable`. Without Agents-Core MCP in the session, say so,
+   skip the catalogue below and audit the other tools.
+2. **Usage rules.** For every installed tool, find the instructions that say when
+   to use it:
+   - **Agents-Core tools:** the catalogue below. An exposed Agents-Core tool that
+     no row names is `uncatalogued`, a finding against the catalogue. The built-in
+     catalogue names every tool its server registers, so this means a newer
+     server or an outdated personal copy of this flow.
+   - **Every other tool:** each loaded instruction that names a trigger for it:
+     the client's instruction files (`CLAUDE.md`, `AGENTS.md`, rules files), the
+     MCP server's own instructions, a skill's or plugin's description ("use
+     when…"), the active persona bundle, and the user's explicit requests in the
+     thread. Each becomes a row in the catalogue's form, with the slug
+     `<server-or-skill>:<rule>` and the instruction's source.
+   - A tool that no instruction names is `no-rule`. List it with its call count;
+     it is never a finding.
+3. **What was called.** List every call of an installed tool with its turn, time,
+   tool and status, and for Agents-Core calls the persona descriptor. Use the
+   inventory helper's tool entries when it reports them, otherwise a short script
+   over the transcript; do not reprint the transcript. Count final answers apart
+   from progress messages, and note each context compaction.
+4. **Where it applied.** Match the thread against every row: the catalogue and the
+   rules from item 2. Every finding names its trigger: the turn, command or tool
+   call where the tool applied. "It might have helped" without a trigger is not a
+   finding.
+5. **Status and level.** Give each row one status:
+   - `used`: called where its trigger occurred, following its protocol;
+   - `misused`: called, but its protocol broken, such as a worker result used
+     without `valid: true`, or an error result the thread did not handle;
+   - `missed`: a trigger occurred, the tool was available, and no call followed;
+   - `unavailable`: a trigger occurred, but the tool was not available;
+   - `n/a`: no trigger.
+
+   Level each `missed` and `misused` finding on the scale above: V2 when a
+   script over the transcript shows the trigger and the absent or broken call,
+   V1 when you read both in the transcript, V0 when only the compacted
+   conversation supports it. An absent call needs a complete transcript from the
+   trigger on: when the inventory's `unreadable_lines` or `skipped_entries` may
+   fall in that window, a `missed` finding is `?`, and a `?` never becomes a
+   memory lesson.
+6. **Cause.** Name the likeliest cause of each `missed` or `misused` finding,
+   with its evidence:
+   - `not-in-context`: no instruction loaded at that point required the call
+     (no persona active, compaction dropped the bundle, the flow step is silent);
+   - `ignored`: a loaded instruction required it and the thread did not follow
+     it;
+   - `not-loaded`: the client defers tool schemas and the tool was never loaded;
+   - `no-trigger`: no instruction anywhere names this situation;
+   - `failed`: the call returned an error that the thread neither handled nor
+     reported.
+7. **Patch every finding.** Write one patch for each `missed`, `misused` and
+   `uncatalogued` finding, whichever tool it concerns, at the layer of its cause:
+   the exact diff with its file, or the exact call. Prefer a patch that fires by
+   itself (a hook, a flow step, a flow persona, a standing instruction) over one
+   that relies on the model remembering (memory, a preference).
+
+   | Cause | Layer | Patch |
+   |---|---|---|
+   | `not-in-context`, after compaction | client hooks and instructions | the session readiness compact hook ([docs/session-readiness.md](../docs/session-readiness.md#persona-restore-after-compaction)), and a standing instruction to call `get_agent_context(force_reload=true)` after compaction |
+   | `not-in-context`, inside a flow | the flow | a step naming the call, through `save_flow`, with `override=true` for a built-in |
+   | `not-in-context`, wrong or thin persona | the flow persona | `set_flow_persona` with the missing skills or implants |
+   | `ignored` | the instruction | move the requirement to the start or end of the block that carries it, or into a flow step; a memory lesson when the finding is V2 |
+   | `not-loaded` | client configuration | load the tools at session start, or a client instruction to search for them before the first answer |
+   | `no-trigger`, an Agents-Core tool | Agents-Core | a pull request or issue for the rule, persona or catalogue row that should name the trigger |
+   | `no-trigger`, another tool | the instruction's owner | a diff to the user's own instruction file or skill; for a third-party server or plugin, an issue for its owner and a client instruction meanwhile |
+   | `uncatalogued` | this flow | the missing catalogue row: a pull request for the built-in, `save_flow` for a personal copy |
+   | `failed` | the failing component | an issue with the error and the call that produced it |
+   | `unavailable`, though it would have helped | configuration | enable the capability or reconnect the server, such as local inference or the cooperation daemon |
+   | a procedure repeated with no flow | the flow library | a new flow through `save_flow` |
+
+   **Managed blocks.** The block between the `init_repo` markers in `CLAUDE.md`
+   or `AGENTS.md` is regenerated from Agents-Core's
+   `scripts/templates/routing-protocol-core.md`; a hand edit there is
+   overwritten. Patch that template through an Agents-Core pull request, and put
+   rules of the user's own outside the markers.
+
+   **Repeats escalate.** Search `read_history` for earlier closes tagged
+   `#ac-missed-<slug>` or `#tool-missed-<slug>`, or naming that slug in their tool
+   usage table. A repeat after an applied patch means the patch did not hold:
+   write the next layer toward automatic (memory lesson, then client
+   instruction, then hook, flow step or flow persona, then Agents-Core itself),
+   and name the earlier close's time.
+8. **One list, one yes.** Collect every patch into one numbered list. Apply them
+   only after the user's yes, which may approve the whole list or name items; a
+   V2 memory lesson in `apply` mode needs none. Verify each applied patch (the
+   diff in place, the call's result) and report which were applied.
+
+**Catalogue.** The slug names the row in the report and in tags. The rows name
+every tool the Agents-Core server registers; a test keeps them complete.
+
+| Slug | Tools | Trigger | `missed` or `misused` when |
+|---|---|---|---|
+| `routing` | `route_and_load`, `get_agent_context`, `list_agents` | the first substantive request; a change of domain; the user asks which agents exist | an answer before any `SUCCESS` or `NO_CHANGE`; a new domain handled by the old persona; the agent catalogue described from memory |
+| `persona-restore` | `get_agent_context(force_reload=true)` | a context compaction; answers that lost the footer or the rules | no reload after the compaction, and later answers break the bundle or a `log_interaction` is stored `unverified` |
+| `persona-enrichment` | `refresh_persona_context`, `load_implants` | the task needed a skill or reasoning pattern the bundle lacked | the method was improvised while a matching skill or implant existed |
+| `session-cache` | `clear_session_cache` | the owner asks to reset the server's shared caches | called to switch personas, which needs no reset and affects other sessions |
+| `log` | `log_interaction` | every final answer | final answers outnumber calls; a `history_last_error` or workspace error went unmentioned |
+| `history` | `read_history` | the user refers to earlier work | earlier work reconstructed from memory or asked for again |
+| `flows` | `list_flows`, `run_flow` | the user names a flow, or asks for a task that an existing flow covers | the task done ad hoc while the flow existed |
+| `new-flow` | `save_flow` | the same multi-step procedure done twice, or one the user wants to reuse | no flow proposed |
+| `flow-library` | `get_flow`, `delete_flow`, `set_flow_persona` | the user asks to inspect, restore or delete a flow, or to change a flow's persona | flow files or personas changed by hand instead of through the tools |
+| `delegation` | `get_subagent_context`, `validate_subagent_result` | any subagent, reviewer, verifier or parallel worker | a worker started without `status: prepared`, or its output used without `valid: true` |
+| `artifacts` | `artifact_publish`, `artifact_manifest_create`, `artifact_manifest_get`, `artifact_read`, `artifact_manifest_verify`, `artifact_manifest_release` | several workers need the same large input, or input exceeds a worker's `max_context_chars` | large data pasted into worker prompts; a pinned artifact read incompletely; artifact-backed output accepted unverified; a manifest left active after its last consumer |
+| `cooperation` | `cooperation_register`, `cooperation_send`, `cooperation_receive`, `cooperation_ack`, `cooperation_read`, `cooperation_apply`, `cooperation_wait`, `cooperation_request_status`, `cooperation_request_update` | another session or worker on the same checkout, such as sessions in the helper's `notes`; a peer's request or agreement awaiting a reply | intersecting edits with no registration or agreement; a delivery left unacknowledged; a request's processing state never reported |
+| `local-inference` | `local_inference_status`, `local_context_create`, `local_context_grant`, `local_context_revoke`, `local_context_release`, `local_generate`, `local_generation_result`, `local_generation_cancel` | bulk routine completions: classification, extraction, short summaries | done by the main model while local inference was enabled and the task fit its limits; a context or grant left open after its last completion |
+| `repo-context` | `describe_repo`, `write_repo_summary` | the thread's first work in a repository | the repository explored ad hoc; `needs_summary` not followed by a summary where a write was allowed |
+| `user-rules` | `list_user_rules`, `get_user_rule`, `subscribe_user_rule`, `refresh_user_rule`, `rollback_user_rule`, `set_user_rule_enabled`, `delete_user_rule` | a subscribed rule applied, one with a refresh error, or the user asks to add, change, pause or remove a rule | a failing or outdated rule went unmentioned; a rule changed by editing files instead of through the tools |
+
+## 5. Audit the thread itself
 
 1. **Claims.** List the load-bearing claims the thread made to the user: facts,
    numbers, statuses, causes and recommendations, mainly from its final answers.
@@ -226,7 +357,7 @@ owner merged. In `draft` mode, run only reads and checks without side effects.
    - Read the helper's `corrections`: they are candidates, not conclusions.
    - Find decisions the thread reversed and statements contradicted by later turns.
    - The claims they invalidate become ✗, with the later evidence.
-3. **Fresh-context verifier.** Call `get_subagent_context` for a suitable canonical role with `result_type="research"`, the claim list, source references, a read-only scope and criteria covering every claim. Require `status: prepared`, retain the original contract, and launch a fresh native worker with `worker_context` unchanged and the sources, without the conversation. Ask it to classify each claim as confirmed, refuted with counter-evidence, or unconfirmed with the blocker, within the prescribed JSON payload. Call `validate_subagent_result` with its unchanged output and the retained contract; require `valid: true` and check the evidence before using its conclusions. Follow the [delegation contract](README.md#delegated-workers) for invalid or unavailable results.
+3. **Fresh-context verifier.** Add the `missed` and `misused` findings of step 4 to the claim list, with their transcript references. Call `get_subagent_context` for a suitable canonical role with `result_type="research"`, the claim list, source references, a read-only scope and criteria covering every claim. Require `status: prepared`, retain the original contract, and launch a fresh native worker with `worker_context` unchanged and the sources, without the conversation. Ask it to classify each claim as confirmed, refuted with counter-evidence, or unconfirmed with the blocker, within the prescribed JSON payload. Call `validate_subagent_result` with its unchanged output and the retained contract; require `valid: true` and check the evidence before using its conclusions. Follow the [delegation contract](README.md#delegated-workers) for invalid or unavailable results.
    - Refuted claims become ✗.
    - Unconfirmed claims keep their level, or become `?`.
    - A claim reaches V3 only if the verifier actually checked its sources.
@@ -234,7 +365,7 @@ owner merged. In `draft` mode, run only reads and checks without side effects.
 4. **What the thread got wrong.** List each error, its effect, whether it was
    fixed, and the lesson.
 
-## 5. Secure the work
+## 6. Secure the work
 
 - **Uncommitted or unpushed changes.** For each, propose a commit and push to the
   right branch under the repository's rules, or an explicit drop. Never decide
@@ -249,7 +380,7 @@ owner merged. In `draft` mode, run only reads and checks without side effects.
   tracker item (on a yes), a follow-up command, or an explicit "dropped".
 - **No new stores.** Use the existing ones.
 
-## 6. Persist durable knowledge (`apply`)
+## 7. Persist durable knowledge (`apply`)
 
 - **Memory.** Only durable items at V2 or above, as defined above: preferences,
   lessons, and project facts the repository does not already record.
@@ -258,6 +389,10 @@ owner merged. In `draft` mode, run only reads and checks without side effects.
   - Items below V2 go to a "to verify" list, each with the check that would
     verify it.
   - If the client has no durable memory, say so.
+- **Tool-usage patches.** A `missed` or `misused` finding at V2 may become a
+  memory lesson, phrased as its trigger and the call it requires. The other
+  patches from step 4 wait for the user's yes; a patch to Agents-Core itself
+  goes out as a pull request or issue.
 - **Issues, tracker items and documentation.** Propose follow-up issues and
   tracker items, and create them only on a yes. Propose repository knowledge as a
   documentation change through the repository's pull request flow.
@@ -265,7 +400,7 @@ owner merged. In `draft` mode, run only reads and checks without side effects.
   secrets with references and leave out medical, financial and other personal
   details. The report is logged in both modes, so this applies to the report too.
 
-## 7. Clean up (`apply`)
+## 8. Clean up (`apply`)
 
 Remove a worktree only when all of these hold:
 
@@ -281,7 +416,7 @@ Remove a worktree only when all of these hold:
 Delete a local branch only under the same branch condition. When any condition is
 uncertain, list the item instead of removing it.
 
-## 8. Report and close the turn
+## 9. Report and close the turn
 
 Compose the report in the user's language:
 
@@ -289,13 +424,17 @@ Compose the report in the user's language:
    supported overall.
 2. **Artifacts:** a table of artifact, location, made by, level and evidence.
 3. **What this thread got wrong.**
-4. **Unsaved work and decisions needed**, each with a proposed action.
-5. **Open loops**, each with owner and trigger.
-6. **Persisted** (`apply`) or **would persist** (`draft`): memory changes and
+4. **Tool usage:** a table of slug, status, trigger, cause, level and patch for
+   every row that is not `n/a`, catalogue rows and other tools' rules alike; then
+   the `uncatalogued`, `no-rule` and `unavailable` tools, the earlier closes with
+   the same finding, and the numbered patch list awaiting a yes.
+5. **Unsaved work and decisions needed**, each with a proposed action.
+6. **Open loops**, each with owner and trigger.
+7. **Persisted** (`apply`) or **would persist** (`draft`): memory changes and
    cleanup.
-7. **Provenance**, labelled as such: models, responses, tokens (main session and
+8. **Provenance**, labelled as such: models, responses, tokens (main session and
    subagents), session, time span, transcript source.
-8. **How to resume:** session id or link, branch, next command.
+9. **How to resume:** session id or link, branch, next command.
 
 Then make this turn's single `log_interaction` call, as the client protocol
 requires for every answer. Do not make a second call:
@@ -315,7 +454,9 @@ In `apply` mode, also curate the call:
 - no `outcome`: the history entry then keeps the whole report from
   `response_content`, with its artifacts, errors, open loops and how to resume;
 - `files`: the artifact paths;
-- `tags`: `#thread-close` and `#session-<id>`.
+- `tags`: `#thread-close`, `#session-<id>`, and for each `missed` or `misused`
+  finding at V1 or above `#ac-missed-<slug>` (a catalogue row) or
+  `#tool-missed-<slug>` (another tool's rule).
 
 `history.md` is append-only. Before closing a thread again, look for its earlier
 close with `read_history`, which returns recent or similar entries without a
@@ -331,6 +472,10 @@ flow can match this work instead of recording it twice.
 ## Done when
 
 - Every artifact has a level with evidence, or is marked unverified.
+- Every installed tool is covered by a catalogue row or another tool's rule, or
+  reported as `uncatalogued`, `no-rule` or `unavailable`; every row has a status;
+  every `missed`, `misused` or `uncatalogued` finding has a trigger, a cause, a
+  level and a patch in the list.
 - The audit ran with an independent verifier, or the report says why not.
 - No unsaved work is left without a decision.
 - Background work is stopped or its continuation is justified.

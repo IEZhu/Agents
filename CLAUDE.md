@@ -170,6 +170,17 @@ when available and apply the same replacement rules. Omitting the descriptor let
 the explicit command set the role sequentially for the current conversation; do
 not run competing activations in the background.
 
+## Run a named flow
+
+When the user names a flow, workflow or ritual, or asks for work "by the flow"
+("flow", "workflow", "флоу", "по флоу X", "ритуал", or a flow ID such as
+`pr-review`), call `list_flows` and then `run_flow` for the matching flow before
+taking any of its steps. Pass the user's scope and constraints in `request`, plus
+`current_persona` and `workspace`; apply a returned `persona_activation` as a
+`switch`, then execute the returned instructions. Do not improvise a procedure
+that an installed flow covers. If no flow matches, say so and continue without
+one.
+
 ## Finish each answer
 
 Except for the explicit unavailable-MCP fallback below, compose the complete final
