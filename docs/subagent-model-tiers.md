@@ -214,7 +214,7 @@ delegate do not pay for them.
 - Preparation: no `complexity` keeps the package and contract byte-identical in
   shape to before; `execution` in the contract and the package; revision changes
   with the tier; client detection from the header, `clientInfo` and the argument.
-- Validation: escalation for each trigger, `null` when acceptable and at
+- Validation: escalation for each trigger, absent when acceptable and at
   `inherit`, contracts without `execution` unchanged.
 - Ledger: off by default, line content without task text, rotation, failure
   isolation; report aggregation.
