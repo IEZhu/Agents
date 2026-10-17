@@ -64,7 +64,7 @@ from src.memory.history import ENTRY_ID, HistoryReader, HistoryWriter
 from src.memory.history_results import listing, to_json
 from src.result_size import RESULT_SIZE_CEILING
 from src.daemon.workspaces import (resolve_client_context, workspace_inputs, desktop_started_hint,
-                                   WorkspaceError, HistoryStores)
+                                   WorkspaceError, HistoryStores, calling_app)
 from src import flow_persona
 from src.flows import MAX_FLOW_BYTES, FlowCatalog, FlowError, execution_bundle
 from src.user_flows import FlowLibrary
@@ -80,10 +80,11 @@ from src.local_inference import tools as local_inference_tools
 from src.artifacts import tools as artifact_tools
 from src.artifacts.store import ArtifactError
 from src.engine import readiness
+from src.engine import model_tiers, subagent_ledger
 from src.engine.subagent import prepare_subagent
-from src.engine.subagent_validation import ContractError, bounded_object, diagnostics, validate_result
+from src.engine.subagent_validation import ContractError, assess_result, bounded_object, diagnostics
 from src.schemas.subagent import (MAX_REQUEST_CHARS, PreparationError, PreparationRequest,
-                                 PreparationResponse, ValidationResponse)
+                                 PreparationResponse, PreparedPackage, ValidationResponse)
 from src.cooperation.models import (RegisterResponse, ReadResponse, ApplyResponse,
                                     SendResponse, ReceiveResponse, AckResponse,
                                     RequestStatusResponse, WaitResponse)
@@ -219,11 +220,16 @@ mcp = _WorkerInputMCP(
         "worker_context unchanged with only necessary task materials. Use a fresh native "
         "worker without inherited history when supported (Codex: fork_turns=\"none\"); do not "
         "substitute a full persona, parent bundle or transcript. Keep the parent persona unchanged. "
+        "Rate complexity (low: mechanical, checkable; standard: bounded; high: ambiguous, risky or "
+        "hard to verify) and launch with the package's execution.spawn arguments: the user's "
+        "explicit instruction to set the worker's model and reasoning_effort. "
         "Call validate_subagent_result with the parent-retained contract and every returned or "
         "revised output, unchanged. Require valid: true before accepting, integrating or marking "
         "the delegated work complete; then check evidence and acceptance criteria. Structural "
         "validity is not correctness. Invalid output requires correction and revalidation. "
-        "A new execution attempt needs a new attempt_id and prepared contract; never edit "
+        "A new execution attempt needs a new attempt_id and prepared contract; a returned "
+        "escalation names its complexity after a still-invalid correction or a failed, partial or "
+        "failed-check result. Never edit "
         "identities or the contract to make a result pass. If either endpoint or native spawning "
         "is unavailable, report the limitation and work in the parent when practical. No "
         "unprepared/full-persona worker or unvalidated result is an automatic fallback. MCP "
@@ -1258,6 +1264,8 @@ async def get_subagent_context(
     max_implants: ta.unparsed_arg("integer", "Maximum full-body implants, integer 0..2; default 0.") = 0,
     max_context_chars: ta.unparsed_arg("integer", "Complete worker-context character budget, integer 2000..64000; default 16000.") = 16000,
     artifact_manifest: ta.unparsed_arg("object", "Optional exact active task manifest returned by artifact_manifest_create. Pins hashes in the contract and adds automatic artifact_read instructions; contents are not inlined. Requires a valid workspace and the matching task ID.") = None,
+    complexity: ta.unparsed_arg("string", "Optional low, standard or high: your rating of the assignment. low = mechanical, fully specified and checkable; standard = bounded work in one module with clear criteria; high = ambiguous, cross-cutting, risky or hard to verify. Returns execution with the model to launch the worker on; omit to keep your model.") = None,
+    client: ta.unparsed_arg("string", "Optional claude, codex or cursor: the client that launches the worker; detected from the request when omitted.") = None,
     ctx: Context | None = None,
 ) -> PreparationResponse:
     """Prepare a stateless task-scoped worker package without switching your persona.
@@ -1273,18 +1281,27 @@ async def get_subagent_context(
     evidence/acceptance criteria yourself. Endpoint failure does not authorize an
     unprepared worker or unvalidated result. Missing compact sources or an
     insufficient mandatory-context budget return an error with no partial package.
+    With complexity, the package carries execution: the tier after floors, the newest model
+    of that tier for the client, and spawn, the arguments for the host's launching tool
+    (Agent, spawn_agent or Task). Floors may raise a tier, never lower it.
     """
+    if complexity is not None and client is None:
+        client = model_tiers.client_from_app(calling_app(ctx))
     arguments = dict(agent_name=agent_name, task=task, acceptance_criteria=acceptance_criteria,
                      task_id=task_id, attempt_id=attempt_id, context=context, scope=scope,
                      non_goals=non_goals, result_type=result_type, max_skills=max_skills,
-                     max_implants=max_implants, max_context_chars=max_context_chars)
+                     max_implants=max_implants, max_context_chars=max_context_chars,
+                     complexity=complexity, client=client)
     if artifact_manifest is not None:
         try:
             arguments["artifact_manifest"] = await artifact_tools.verify_preparation(ctx, artifact_manifest)
         except ArtifactError as error:
             return PreparationResponse(PreparationError(errors=diagnostics(
                 ContractError(error.code, error.message, "$.artifact_manifest"))))
-    return PreparationResponse(await asyncio.to_thread(prepare_subagent, arguments))
+    result = await asyncio.to_thread(prepare_subagent, arguments)
+    if isinstance(result, PreparedPackage):
+        await asyncio.to_thread(subagent_ledger.record_prepared, result)
+    return PreparationResponse(result)
 
 
 @mcp.tool(**TOOL_HINTS["validate_subagent_result"])
@@ -1302,8 +1319,13 @@ async def validate_subagent_result(
     100 items per result array (50 for text lists), strings 4000 characters,
     and at most 20 diagnostics. Reads no paths/URLs, reruns no checks, writes no
     memory and never establishes truth, authorization or issue completion.
+    For a contract prepared with complexity, escalation names the next tier when the result
+    is invalid, failed, partial or has a failed check. Prepare a new attempt with that
+    complexity and a new attempt_id; for an invalid result, only after one correction failed.
     """
-    return validate_result(contract, result)
+    response, outcome = assess_result(contract, result)
+    await asyncio.to_thread(subagent_ledger.record_validation, outcome)
+    return response
 
 
 @mcp.tool(**TOOL_HINTS["route_and_load"])
