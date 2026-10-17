@@ -101,10 +101,12 @@ replace initial activation. The optional
 [session readiness hook](session-readiness.md#persona-restore-after-compaction)
 reminds Claude Code and Codex to restore right after a compaction.
 
-When the user names a flow or asks for work by one ("flow", "флоу", "по флоу X",
-a flow ID), the client calls `list_flows` and then `run_flow` before taking any
-of its steps, and applies a returned `persona_activation` as a switch. It does
-not improvise a procedure that an installed flow covers.
+When the user names a flow, workflow or ritual, or asks for work by one ("flow",
+"workflow", "флоу", "по флоу X", "ритуал", a flow ID), the client calls
+`list_flows` and then `run_flow` for the matching flow before taking any of its
+steps, and applies a returned `persona_activation` as a switch. If no flow
+matches, it says so and continues without one. It does not improvise a
+procedure that an installed flow covers.
 
 See the complete [client protocol](../scripts/templates/routing-protocol-core.md).
 The installers switched to version 2 on 2026-09-26, and protocol 1 was removed on
