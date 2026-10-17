@@ -31,6 +31,12 @@ AgentName = Annotated[str, StringConstraints(strict=True, max_length=80,
 Revision = Annotated[str, StringConstraints(strict=True, pattern=r"^[a-f0-9]{64}$")]
 TextList = Annotated[list[Text], Field(max_length=50)]
 ResultType = Literal["generic", "review", "implementation", "research"]
+Complexity = Literal["low", "standard", "high"]
+Tier = Literal["light", "standard", "inherit"]
+Client = Literal["claude", "codex", "cursor"]
+# A model name as both CLIs take it on the command line (src/flow_execution.py MODEL_NAME).
+ModelName = Annotated[str, StringConstraints(strict=True, pattern=r"^[A-Za-z0-9][A-Za-z0-9._\[\]-]{0,63}$")]
+Effort = Annotated[str, StringConstraints(strict=True, pattern=r"^[a-z]{1,16}$")]
 
 
 class StrictModel(BaseModel):
@@ -60,6 +66,8 @@ class PreparationRequest(Budgets):
     non_goals: TextList = Field(default_factory=list)
     result_type: ResultType = "generic"
     artifact_manifest: ArtifactManifest | None = None
+    complexity: Complexity | None = None
+    client: Client | None = None
 
     @model_validator(mode="after")
     def artifact_task_matches(self) -> PreparationRequest:
@@ -72,6 +80,46 @@ class PreparationRequest(Budgets):
 class Criterion(StrictModel):
     id: Identifier
     description: Text
+
+
+class ContractExecution(StrictModel):
+    """The model tier a worker was prepared for; part of the hashed contract."""
+    complexity: Complexity
+    tier: Tier
+    client: Client | None
+    model: ModelName | None
+    reasoning_effort: Effort | None
+
+
+class Spawn(StrictModel):
+    """Arguments for the host's own worker-launching tool."""
+    tool: Literal["Agent", "spawn_agent", "Task"]
+    arguments: dict[str, str]
+
+
+class ExecutionPlan(ContractExecution):
+    requested_tier: Tier
+    floor_reasons: Annotated[list[str], Field(max_length=50)]
+    source: Literal["alias", "catalog", "pinned", "override", "inherit", "disabled"]
+    spawn: Spawn | None
+
+    def contract_part(self) -> dict:
+        return ContractExecution.model_validate(
+            self.model_dump(include=set(ContractExecution.model_fields))).model_dump()
+
+
+class Escalation(StrictModel):
+    """The next tier for a new attempt after a light or standard worker fell short."""
+    complexity: Complexity
+    tier: Tier
+    reason: Literal["invalid_result", "status_failed", "status_partial", "check_failed"]
+
+
+def _omit_none(data: dict, *keys: str) -> dict:
+    for key in keys:
+        if data.get(key) is None:
+            data.pop(key, None)
+    return data
 
 
 class TaskContract(StrictModel):
@@ -89,6 +137,7 @@ class TaskContract(StrictModel):
     result_type: ResultType
     budgets: ContractBudgets
     artifact_manifest: ArtifactManifest | None = None
+    execution: ContractExecution | None = None
 
     @model_validator(mode="after")
     def artifact_task_matches(self) -> TaskContract:
@@ -97,11 +146,8 @@ class TaskContract(StrictModel):
         return self
 
     @model_serializer(mode="wrap")
-    def omit_absent_manifest(self, handler):
-        data = handler(self)
-        if data.get("artifact_manifest") is None:
-            data.pop("artifact_manifest", None)
-        return data
+    def omit_absent_optionals(self, handler):
+        return _omit_none(handler(self), "artifact_manifest", "execution")
 
 
 class Evidence(StrictModel):
@@ -207,6 +253,11 @@ class ValidationResponse(StrictModel):
     valid: bool
     errors: Annotated[list[Diagnostic], Field(max_length=MAX_ERRORS)]
     verification: Literal["structural_only"] = "structural_only"
+    escalation: Escalation | None = None
+
+    @model_serializer(mode="wrap")
+    def omit_absent_escalation(self, handler):
+        return _omit_none(handler(self), "escalation")
 
 
 class WorkerDescriptor(StrictModel):
@@ -237,6 +288,11 @@ class PreparedPackage(StrictModel):
     result_schema: dict[str, Any]
     context_chars: int
     selection: list[SelectionDecision]
+    execution: ExecutionPlan | None = None
+
+    @model_serializer(mode="wrap")
+    def omit_absent_execution(self, handler):
+        return _omit_none(handler(self), "execution")
 
 
 class PreparationError(StrictModel):
