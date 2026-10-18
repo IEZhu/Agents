@@ -2,6 +2,7 @@
 
 import copy
 import json
+from pathlib import Path
 import shutil
 import subprocess
 from types import SimpleNamespace
@@ -253,13 +254,14 @@ def test_native_transport_uses_fixed_script_and_data_arguments(monkeypatch):
     assert transport.summarize(snapshot())["status"] == "submitted"
     command, options = calls[0]
     assert command[:3] == ["/usr/bin/osascript", "-l", "JavaScript"]
-    assert command[3].endswith("/context_compaction/cursor_ui.js")
+    assert Path(command[3]).parts[-2:] == ("context_compaction", "cursor_ui.js")
     assert command[4] == "summarize"
     assert json.loads(command[5]) == {"binding": binding, "expected": snapshot()}
     assert options == {"capture_output": True, "text": True, "check": False, "timeout": 5}
 
 
-@pytest.mark.parametrize("stdout,returncode", [("not-json", 0), ("[]", 0), ("{}", 1), ("x" * 32769, 0)])
+@pytest.mark.parametrize("stdout,returncode", [("not-json", 0), ("[]", 0), ("{}", 1), ("x" * 32769, 0)],
+                         ids=["malformed-json", "non-object", "failed-process", "oversized-output"])
 def test_native_transport_invalid_output_is_unavailable(monkeypatch, stdout, returncode):
     monkeypatch.setattr(cursor.subprocess, "run", lambda *a, **kw: SimpleNamespace(
         returncode=returncode, stdout=stdout,
@@ -483,7 +485,9 @@ process.stdout.write(JSON.stringify({outcome, keys, reads, equalCalls, timeoutCa
 
 
 def run_fake_ax(scenario):
-    node = shutil.which("node")
+    # The fixture emulates darwin for the adapter on every host. On Windows
+    # that suppresses shutil.which's implicit PATHEXT lookup; try the real exe.
+    node = shutil.which("node") or shutil.which("node.exe")
     if node is None:
         pytest.skip("Node.js is needed only for the offline fake AX driver tests")
     request = {"binding": settings()["cursor_bindings"][0], "expected": snapshot()}
