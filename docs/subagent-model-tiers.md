@@ -6,10 +6,10 @@ Status: implemented 2026-10-17. Extends the
 ## Problem and goal
 
 A prepared worker runs on whatever model its host chooses, which is the parent's
-model unless the parent asks otherwise. Flagship models do mechanical and well
-specified assignments no better than the latest smaller models, at a much higher
-token cost. The goal is fewer flagship tokens per delegated task with a comparable
-accepted result.
+model unless the parent asks otherwise. Tiering lets the parent request a smaller
+model for mechanical or well specified assignments. The goal is fewer flagship
+tokens per delegated task with a comparable accepted result; this implementation
+does not establish equivalent model quality or measured token savings.
 
 The parent rates each assignment, Agents-Core resolves a model tier to the latest
 model of that tier for the calling client, the host launches the worker on that
@@ -68,9 +68,11 @@ context, scope, non-goals and acceptance criteria:
   more than 12000 characters of task and context, or an artifact manifest with more
   than 5 entries or more than 65536 bytes.
 
-Every applied floor is reported in `floor_reasons`, as is `client:unknown` when an
-unidentified client forces `inherit`. False positives cost tokens,
-not quality, so the lists lean wide.
+`floor_reasons` reports floors above the originally requested tier. A size floor
+does not appear when `standard` or `inherit` was already requested. An unknown
+client adds `client:unknown` only when it raises a requested `light` or `standard`
+tier to `inherit`. Floors are conservative lexical checks, not a guarantee that
+the selected model can complete the assignment.
 
 ## Model resolution
 

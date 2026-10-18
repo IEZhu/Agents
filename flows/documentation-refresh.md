@@ -53,7 +53,7 @@ Optionally specify the scope, starting revision, or branch:
 
 ```text
 Run flows/documentation-refresh.md for routing documentation and AI instructions.
-Use main as the base and codex/docs-routing-refresh as the branch.
+Use origin/dev as the base and codex/docs-routing-refresh as the branch.
 ```
 
 This instruction runs in the current AI session. No separate installation or
@@ -72,12 +72,24 @@ and reference links, while all inspection, edits and validation use the target.
    priority.
 2. Check `git status --short --branch`, `git worktree list`, and the current
    `HEAD`. Record the base revision for the final comparison.
+   Determine the target's integration branch from its contributor instructions;
+   do not assume `main`. For the live Agents-Core installation, inspect only:
+   create a linked worktree with `--no-track` from `origin/dev`, never edit or
+   switch the installation checkout, and never put unpushed work in a temporary
+   directory. Fetch the base when available; record an unavailable fetch rather
+   than presenting an old remote-tracking ref as freshly verified.
 3. If no scope is specified, review all maintained documents in the target: user
    guides, component READMEs, AI instructions, any workflows or generated
    instruction templates, and the test guide. Check plans and reports for clear
    status labels, links, and compliance with the documentation language policy.
-   If no index exists, inventory the tracked documents before making changes.
-   Preserve their historical results.
+   Inventory tracked documents even when an index exists: an index can omit new
+   pages or whole features. Use `git ls-files` and include component READMEs,
+   discovery files such as `llms.txt`, CLI help and public schemas where present.
+   Separate maintained guidance, executable AI instructions, historical records,
+   generated material and local state. Preserve historical results; label their
+   revision/status and link to current guidance instead of silently changing
+   recorded outcomes. Do not rewrite immutable legacy template bytes that
+   migration code recognizes by exact match.
 4. Use the separate branch requested by the user. Otherwise follow the target's
    branch naming rules; if none exist, create `codex/docs-refresh-<YYYYMMDD>`
    from the current `HEAD`. Add a suffix if that
@@ -96,8 +108,31 @@ and branch, then continue working.
 ## 2. Verify facts against the implementation
 
 For each material discrepancy, record the document, claim, supporting source or
-test, and required correction. A working table in your notes is sufficient; a
-separate report in the repository is optional.
+test, and required correction. For a broad refresh, retain a dated coverage
+record with the inspected revision, subsystem/public surface, reader task,
+maintained reference, source/test evidence, disposition and validation result.
+Use explicit dispositions: verified unchanged, corrected, added, historical,
+out of scope or unverified with a reason. A focused refresh may keep this in the
+final report. File counts or a resolving link alone do not establish coverage.
+
+Inspect in both directions:
+
+1. **Source to documentation:** enumerate public tools, CLI commands,
+   configuration/defaults, transports and shipped subsystems from their actual
+   registrations and entry points. Find a maintained reference for each reader
+   task. A symbol name mentioned in prose does not prove its behavior is covered.
+2. **Documentation to source:** verify each material claim and example against
+   current implementation and tests. Inspect recent changes since a recorded
+   documentation revision when available, but do not treat an incremental diff
+   as a complete audit of older guidance.
+
+Use the repository's configured code intelligence first when available. Check
+its revision, branch and freshness; use current source when an index falls back
+to another branch. Do not initialize indexes or scan unrelated repositories.
+Batch independent reads. Delegate disjoint areas only through the
+[prepared worker contract](README.md#delegated-workers), with one integrator;
+validate returned results and independently assess evidence before accepting
+their coverage claims.
 
 Build a source-to-document map from the target's actual structure, manifests,
 entry points, configuration and tests. The following table applies to Agents-Core;
@@ -110,6 +145,8 @@ assume it uses Python, MCP, routing templates or the Agents-Core test commands.
 | Environment variables and defaults | `env.example`, `src/engine/config.py`; also `src/daemon/` for daemon settings, `src/client_paths.py` for `CLAUDE_CONFIG_DIR` and `CODEX_HOME`, `src/model_migration.py` for the default embedding model and `EMBEDDING_MODEL_GENERATION`, `src/engine/embedding_prompts.py` for `EMBEDDING_PROMPTS`, and `src/user_flows.py` and `src/component_toggles.py` for `AGENTS_USER_FLOWS_DIR` |
 | MCP tools, parameters, statuses, and slash prompts | `src/server.py`, `src/schemas/protocol.py`, `src/schemas/tool_args.py`, `src/engine/readiness.py` (`warming_up`), `tests/test_readiness.py`, `tests/test_startup_handshake.py`, `tests/test_log_interaction_contract.py`, `tests/test_log_interaction_async.py` |
 | Protocol 2 and bundle assembly | `src/engine/persona.py`, `src/engine/persona_bundle.py`, `src/version.py` (footer version), `tests/test_persona_protocol.py`, `tests/test_persona_bundle.py`, `tests/test_version.py` |
+| Prepared workers, model tiers and structural result validation | `src/engine/subagent.py`, `src/engine/subagent_validation.py`, `src/engine/model_tiers.py`, `src/engine/model_catalogs.py`, `src/engine/subagent_ledger.py`, `src/schemas/subagent.py`, `agents/*/subagent.mdc`, `rules/subagents/`, `tests/test_subagent*.py` |
+| Exact shared artifacts and pinned task manifests | `src/artifacts/`, `src/schemas/artifacts.py`, `src/engine/subagent.py`, `src/local_inference/service.py`, `tests/test_artifact*.py`, `tests/test_subagent_artifacts.py` |
 | Routing, skills, implants, and rules | `src/engine/router.py`, `src/engine/enrichment.py`, `src/engine/skills.py`, `src/engine/implants.py`, `src/engine/rules.py`, `src/component_toggles.py` (web UI switches), `tests/test_component_toggles.py` |
 | Embedding model, its prompts and the switch on update | `src/engine/embedder.py`, `src/engine/embedding_prompts.py`, `src/engine/fingerprint.py`, `src/model_migration.py`, `src/startup.py`, `tests/test_embedder.py`, `tests/test_embedding_prompts.py`, `tests/test_model_migration.py` |
 | Agent catalog and metadata | `agents/*/system_prompt.mdc`, `agents/common/agent-schema.json`, `scripts/validate_agents.py` |
@@ -121,6 +158,12 @@ assume it uses Python, MCP, routing templates or the Agents-Core test commands.
 | Cloud issue agent bridge | `scripts/templates/issue-agent-bridge.yml`, `.github/workflows/issue-agent-bridge.yml`, `tests/test_issue_agent_bridge.py` |
 | Claude Code cloud environment | `scripts/setup_cloud_env.sh`, `tests/test_setup_cloud_env.py` |
 | Updates and the Node stdio bridge | `src/self_update.py`, `src/startup.py`, `src/model_migration.py`, `src/daemon/autoupdate.py`, `src/daemon/update.py`, `bridge/`, `tests/test_self_update.py`, `tests/test_startup.py`, `tests/test_model_migration.py`, `tests/test_daemon_autoupdate.py`, `tests/test_daemon_update.py` |
+| Update channels and release promotion | `VERSION`, `src/calendar_version.py`, `src/version.py`, `pyproject.toml`, `uv.lock`, `src/update_channel.py`, `src/env_file.py`, `src/daemon/updates_ui.py`, `scripts/bump_plugin_version.py`, `scripts/release_version.py`, `plugins/agents-core/.claude-plugin/plugin.json`, `.github/workflows/release-version.yml`, `tests/test_bump_plugin_version.py`, `tests/test_version.py`, `tests/test_update_channel.py`, `tests/test_env_file.py`, `tests/test_updates_ui.py`, `tests/test_release_version.py` |
+| URL rules and personal library synchronization | `src/user_rules.py`, `src/rule_sources.py`, `src/user_sync/`, `src/user_library.py`, `src/user_flows.py`, `tests/test_user_rules.py`, `tests/test_rule_sources.py`, `tests/test_user_sync*.py` |
+| Optional local inference, native backends and Redis snapshots | `src/local_inference/`, `src/daemon/app.py`, `src/server.py`, `tests/test_local_inference_*.py`, `tests/test_optional_inference_disabled.py`; distinguish deterministic fake-adapter checks from authorized native/live acceptance |
+| Autodev scheduling, stages, brokers and sandboxed workers | `src/schedules/`, `src/flow_execution.py`, `src/daemon/autodev_ui.py`, `flows/autodev*.md`, `flows/code-review-pass.md`, `flows/change-premortem.md`, `flows/pr-review.md`, `tests/test_schedules_*.py`, `tests/test_flow_execution.py`; distinguish implemented phases, pending owner acceptance and future plans |
+| Readiness hooks and compaction recovery | `scripts/session_readiness.py`, `scripts/session_readiness_mcp.py`, `scripts/install_session_readiness.py`, `tests/test_session_readiness.py` |
+| Distribution, plugin metadata, optional servers and evaluation entry points | `plugins/agents-core/`, `.claude-plugin/`, `glama.json`, `src/mcp_servers/`, `scripts/eval.sh`, `evals/`, `docs/distribution.md`; external listing acceptance needs independent current evidence |
 | Generated instructions and Codex discovery | `scripts/install_instructions.py`, `scripts/templates/`, `scripts/_helpers/install_codex_instructions.py`, `scripts/_helpers/inject_claude_md.py`, `scripts/_helpers/migrate_routing_memory.py`, `tests/test_install_instructions.py`, `tests/test_installer_instructions.py`, `tests/test_codex_instructions.py`, `tests/test_protocol_migration.py` |
 | Validation commands | `pyproject.toml`, `requirements.txt`, `tests/conftest.py`, `scripts/run_tests.sh`, `.github/workflows/*.yml`, `tests/test_*.py` |
 
@@ -203,6 +246,27 @@ function signatures and CLI options. Check that documentation prose is English
 and each passage in another language is necessary under the language policy;
 translate any passage that does not qualify.
 
+For Agents-Core, run the offline navigation and public-tool index check from the
+worktree root using the project environment:
+
+```bash
+.venv/bin/python scripts/check_docs.py
+```
+
+The helper uses `markdown-it-py` from the project environment. Its default file
+set is tracked Markdown; pass newly created paths explicitly before staging,
+then run the default check again once they are tracked. It checks Markdown
+links/images, local heading/HTML anchors and the
+[public MCP tool index](../docs/mcp-tools.md) against source registrations. It
+does not fetch external URLs, check arbitrary HTML navigation or prove that the
+linked prose accurately covers an interface. Review those separately and record
+external claims that could not be confirmed.
+The [quality guide](../docs/quality-checks.md) defines the README badges. After
+adding/removing a main-server tool or correcting its index coverage, explicitly
+regenerate its source-derived SVG with `--update-badge` and review that diff.
+The default checker and documentation CI fail on stale badge data and never
+rewrite it automatically.
+
 Execute safe validation commands. Verify installation, migration, update, and
 restart commands against source and tests without running them on the live
 installation.
@@ -216,6 +280,7 @@ contributor guide or CI. These commands apply to Agents-Core:
 | Agent catalog or metadata | `.venv/bin/python scripts/validate_agents.py`; compare catalog rows with `identity` and `routing` metadata |
 | Protocol or bundle assembly documentation | `LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/test_persona_protocol.py tests/test_persona_bundle.py -q` |
 | Another single area, such as installers, flows, the issue agent bridge, the Node bridge or updates | The focused checks in [Choose tests by change](../tests/README.md#choose-tests-by-change) |
+| Documentation checker or workflow changes | `.venv/bin/python -m pytest tests/test_check_docs.py tests/test_flows.py -q`; retain safe import isolation when reusing an environment |
 | Behavior changes or several related subsystems | The regular suite described in `tests/README.md` |
 
 For editorial changes, checking links, examples, language, and the diff is enough.
@@ -232,6 +297,9 @@ The workflow is complete when:
 
 - Human documentation and AI instructions agree with verified sources in the
   selected scope.
+- The coverage record accounts for every public surface/subsystem inventoried
+  in scope, including verified unchanged areas and explicit unresolved gaps.
+  A working link or a completed worker alone is not evidence of semantic coverage.
 - Documentation in scope is in English, with other languages retained only in
   necessary passages covered by the language policy.
 - New pages are reachable through the documentation map and relevant entry points.
@@ -241,6 +309,11 @@ The workflow is complete when:
 
 In the final response, state the branch and worktree path, main corrections, a
 link to this file for future runs, validation results, and remaining issues.
+For a broad refresh, link the dated coverage record and identify the inspected
+base revision. Distinguish mechanical checks, source review and executed behavior
+tests; never infer native/live acceptance from deterministic fixtures. If this
+flow itself changed, execute its updated steps and review the final instructions
+as well as the documentation they produced.
 Commit, push, and create a PR when those actions are included in the user's
 request. Before committing, review the staged diff and follow the target's commit
 convention. In Agents-Core, use a Conventional Commit with type `docs` for

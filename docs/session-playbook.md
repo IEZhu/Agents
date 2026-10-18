@@ -73,6 +73,16 @@ monitor's completion per pending run while retaining the required quality gates.
 
 Before every AI delegation, follow the [shared worker contract](routing_flow.md#delegated-workers): `get_subagent_context` must return `status: prepared` before native spawning, and `validate_subagent_result` must return `valid: true` for the original retained contract before the result is accepted. Forward the compact persona and rules in `worker_context` unchanged, without the parent transcript; use `fork_turns="none"` with Codex collaboration. Independently verify evidence after structural validation. Correct and revalidate invalid output, and report unavailable preparation or validation instead of using an unprepared worker or unvalidated report. An unmet independent-review requirement still blocks the relevant workflow.
 
+Pass the assignment's `complexity` (`low`, `standard` or `high`) and the parent's
+`client` (`claude`, `codex` or `cursor`) when preparing it. Use the returned
+`execution.spawn` arguments when present; do not infer a model from the persona
+name. If validation returns an escalation after a corrected result is still
+invalid, or for a partial/failed result or failed check, prepare a new attempt
+with a new `attempt_id` and the returned complexity. Keep each attempt's original
+contract with its own result. [Model tiers](subagent-model-tiers.md) explains
+resolution, conservative floors and the distinction between model selection and
+verified result quality.
+
 ## PR review loop
 
 Execute [flows/pr-review.md](../flows/pr-review.md) for the review and merge

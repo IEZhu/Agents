@@ -149,7 +149,8 @@ plugin:
 The root [`.claude-plugin/marketplace.json`](../.claude-plugin/marketplace.json) lists
 `agents-core` from `./plugins/agents-core`. Its marketplace name is also `agents-core`, so the
 install id is `agents-core@agents-core`. The relative source resolves from the repository root.
-The plugin manifest remains the source for its version; the marketplace does not duplicate it.
+The plugin manifest carries the version consumed by Claude Code; it mirrors the root
+[`VERSION`](../VERSION), and the marketplace does not duplicate it.
 
 After the marketplace file reaches `main`, users can run `/plugin marketplace add IEZhu/Agents`
 and `/plugin install agents-core@agents-core` in Claude Code. This distribution path needs no
@@ -163,9 +164,34 @@ The [distribution guide](distribution.md) records third-party routes and submiss
 The directory follows a tracked branch or tag of `IEZhu/Agents` and scans each new commit it
 picks up, so a release is a push:
 
-1. Change the plugin, and raise `version` in `.claude-plugin/plugin.json` for every release.
+1. Prepare the plugin version in a contribution worktree before promoting `dev`
+   to `main`, following [the version preparation step](releases.md#prepare-a-promotion).
 2. Run the checks above.
 3. Merge to the tracked branch (or push the tracked tag).
+
+The root [`VERSION`](../VERSION) is the canonical `YY.MM.DD.HHMM` calendar
+version, shared by the server, plugin manifest and `vVERSION` release tag. The
+[manifest reference](https://code.claude.com/docs/en/plugins/manifest-reference#version)
+accepts a version string without enforcing SemVer. For Git/repository marketplace
+installs, an explicit manifest version controls updates: a new commit or Git tag
+with the same version does not refresh the installed copy. This pinning rule does
+not apply to marketplaces hosted on claude.ai; the repository's manifest still
+receives each prepared version.
+
+`python3 scripts/bump_plugin_version.py --base origin/main` prepares the UTC
+calendar number and synchronizes the manifest. It chooses at least one minute
+above the published baseline, preserves an already newer `VERSION`, and does
+not bump again when repeated against that baseline. Review both file changes and
+merge them through a PR into `dev`. The read-only promotion check
+(`python3 scripts/bump_plugin_version.py --check --base origin/main`) requires
+`VERSION` to exceed the pinned `main` base version and the manifest to match it.
+The publication job reads those files at the exact merge SHA and does not rewrite
+them after merge. See [calendar releases](releases.md#prepare-a-promotion) for
+baseline fallback and validation details.
+
+The directory's next scan and review/publication settings still determine when
+that version becomes visible there; see
+[updating a published plugin](https://claude.com/docs/plugins/submit#update-a-published-plugin).
 
 ## What the owner submits
 

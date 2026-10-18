@@ -1,5 +1,6 @@
 """Release event, immutable tag, retry and calendar-version regressions."""
 from copy import deepcopy
+import base64
 from pathlib import Path
 from urllib.error import HTTPError
 import importlib.util
@@ -32,14 +33,22 @@ def http_error(code):
 
 class API:
     def __init__(self, date="2026-10-14T14:00:59+02:00", tags=None, failure=None, race=None,
-                 tag_objects=None, parents=None):
+                 tag_objects=None, parents=None, files=None):
         self.date, self.tags = date, dict(tags or {})
         self.parents = dict(parents or {})  # parent SHA -> committer date; empty: a squash merge
         self.failure, self.race, self.calls = failure, race, []
         self.tag_objects = dict(tag_objects or {})
+        self.files = dict(files or {})
 
     def request(self, method, path, data=None):
         self.calls.append((method, path, data))
+        if method == "GET" and path.startswith("/contents/"):
+            name, ref = path.removeprefix("/contents/").split("?ref=")
+            assert ref == SHA  # never read the moving main branch during publication
+            if name not in self.files:
+                raise http_error(404)
+            return {"type": "file", "encoding": "base64",
+                    "content": base64.b64encode(self.files[name].encode()).decode()}
         if path == f"/git/commits/{SHA}":
             return {"committer": {"date": self.date}, "parents": [{"sha": sha} for sha in self.parents]}
         if path.startswith("/git/commits/"):
@@ -80,7 +89,8 @@ def test_merge_commit_is_versioned_by_the_dev_head_it_merged():
     assert result == {"status": "created", "version": "26.10.15.1814",
                       "tag": "v26.10.15.1814", "sha": SHA, "source": DEV}
     assert api.tags == {"v26.10.15.1814": SHA}  # the tag still marks the merge commit on main
-    assert api.calls[:3] == [("GET", f"/git/commits/{sha}", None) for sha in (SHA, MAIN, DEV)]
+    assert [call for call in api.calls if call[1].startswith("/git/commits/")] == [
+        ("GET", f"/git/commits/{sha}", None) for sha in (SHA, MAIN, DEV)]
 
 
 def test_merged_revision_older_than_main_keeps_the_merge_time():
@@ -431,3 +441,89 @@ def test_workflow_runs_only_after_main_merge_with_job_write_permission():
     checkout = job["steps"][0]
     assert checkout["with"]["ref"] == "${{ github.event.pull_request.merge_commit_sha }}"
     assert checkout["with"]["persist-credentials"] == "false"
+
+
+def test_promotion_checks_require_one_new_calendar_version():
+    """A promotion must advance VERSION and synchronize the plugin cache version."""
+    workflow = yaml.load((ROOT / ".github/workflows/release-version.yml").read_text(),
+                         Loader=yaml.BaseLoader)
+    steps = workflow["jobs"]["check"]["steps"]
+    version_check = next((step for step in steps
+                          if "bump_plugin_version.py --check" in step.get("run", "")), None)
+    assert version_check is not None, "Promotion must verify the unified calendar version"
+    assert "base.ref == 'main'" in version_check["if"]
+    assert "head.ref == 'dev'" in version_check["if"]
+    assert version_check["env"]["PLUGIN_BASE_SHA"] == "${{ github.event.pull_request.base.sha }}"
+    assert '--base "$PLUGIN_BASE_SHA"' in version_check["run"]
+    assert steps[0]["with"]["fetch-depth"] == "0"
+
+
+def canonical_files(version="26.10.18.0805", plugin_version=None):
+    return {"VERSION": version + "\n",
+            "plugins/agents-core/.claude-plugin/plugin.json": json.dumps({
+                "name": "agents-core", "version": plugin_version or version})}
+
+
+def test_canonical_number_is_shared_by_server_plugin_and_exact_merge_tag(tmp_path, monkeypatch):
+    from src import version as runtime
+    files = canonical_files()
+    (tmp_path / "VERSION").write_text(files["VERSION"], encoding="utf-8")
+    monkeypatch.setattr(runtime, "ROOT", tmp_path)
+    runtime.agents_core_version.cache_clear()
+    try:
+        api = ReleaseAPI(files=files, date="2026-10-20T09:00:00Z")
+        result = release.publish_release(promotion(), REPO, api)
+        assert result["version"] == runtime.agents_core_version() == "26.10.18.0805"
+        assert result["tag"] == api.release["tag_name"] == "v26.10.18.0805"
+        assert api.tags == {result["tag"]: SHA}
+        assert result["version_file"] == "VERSION"
+        assert f"from VERSION at `{SHA}`" in api.release["body"]
+        writes = sum(method == "POST" for method, _, _ in api.calls)
+        assert release.publish_release(promotion(), REPO, api)["status"] == "existing"
+        assert sum(method == "POST" for method, _, _ in api.calls) == writes
+    finally:
+        runtime.agents_core_version.cache_clear()
+
+
+@pytest.mark.parametrize("version,plugin", [("0.1.3", None), ("26.02.30.0805", None),
+                                          ("26.10.18.0805", "0.1.3")])
+def test_invalid_or_mismatched_canonical_version_fails_before_publication(version, plugin):
+    api = API(files=canonical_files(version, plugin))
+    with pytest.raises(ValueError):
+        release.publish(promotion(), REPO, api)
+    assert all(method == "GET" for method, _, _ in api.calls)
+
+
+def test_canonical_version_requires_a_plugin_manifest():
+    api = API(files={"VERSION": "26.10.18.0805\n"})
+    with pytest.raises(ValueError, match="no plugin manifest"):
+        release.publish(promotion(), REPO, api)
+    assert not api.tags
+
+
+@pytest.mark.parametrize("code", [401, 403, 500])
+def test_canonical_file_read_failure_never_falls_back_to_commit_time(code):
+    class Unreadable(API):
+        def request(self, method, path, data=None):
+            if path.startswith("/contents/"):
+                raise http_error(code)
+            return super().request(method, path, data)
+    api = Unreadable()
+    with pytest.raises(HTTPError):
+        release.publish(promotion(), REPO, api)
+    assert not api.tags
+
+
+@pytest.mark.parametrize("racing", [False, True])
+def test_canonical_tag_conflict_preserves_refs_and_never_adds_another_number(racing):
+    api = API(files=canonical_files(), **({"race": OTHER} if racing else
+                                        {"tags": {"v26.10.18.0805": OTHER}}))
+    with pytest.raises(RuntimeError, match="Canonical release tag"):
+        release.publish(promotion(), REPO, api)
+    assert api.tags == {"v26.10.18.0805": OTHER}
+
+
+def test_canonical_concurrent_publication_reuses_matching_tag():
+    api = API(files=canonical_files(), race=SHA)
+    assert release.publish(promotion(), REPO, api)["status"] == "existing"
+    assert api.tags == {"v26.10.18.0805": SHA}

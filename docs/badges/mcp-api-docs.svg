@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="142" height="20" role="img" aria-label="MCP API docs: 48/48">
+  <title>MCP API references: 48 of 48 registered tools</title>
+  <clipPath id="round"><rect width="142" height="20" rx="3"/></clipPath>
+  <g clip-path="url(#round)">
+    <path fill="#555" d="M0 0h92v20H0z"/>
+    <path fill="#4c1" d="M92 0h50v20H92z"/>
+  </g>
+  <g fill="#fff" text-anchor="middle" font-family="Verdana,DejaVu Sans,sans-serif" font-size="11">
+    <text x="46" y="14">MCP API docs</text>
+    <text x="117" y="14">48/48</text>
+  </g>
+</svg>

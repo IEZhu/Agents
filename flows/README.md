@@ -21,7 +21,7 @@ When a flow is task material for a prepared worker, as [code-review-pass](code-r
 |---|---|---|
 | [Shared local inference and KV cache](shared-kv-inference.md) | Reconcile the existing Agents-Core implementation, then implement requested local-inference or Redis snapshot gaps in an authorized worktree | Reviewable implementation, focused tests and a capability/evaluation report |
 | [Environment auto-configuration](environment-autoconfigure.md) | Audit installed AI clients and reconcile their environment with the current RTK, TokenSave and CodeGraph stack | Verified configuration changes, private backups, rollback steps and explicit compatibility limits |
-| [Documentation refresh](documentation-refresh.md) | Check and update documentation for people and AI against the implementation | Reviewed documentation changes on a separate branch, with validation results |
+| [Documentation refresh](documentation-refresh.md) | Inventory public surfaces and review documentation for people and AI against current source | Reviewed changes on a separate branch, a coverage record, navigation/tool-index checks and explicit validation limits |
 | [PR/MR review](pr-review.md) | Review the diff, handle bot findings one push per round until they converge, and keep the description current | A merged request or a precise blocker, with a report in the invocation language |
 | [Issue agent](issue-agent.md) | Verify an owner's `/agent` comment, keep trusted state in the issue, and dispatch; bot reviews never trigger a session | The command's result and an updated state comment |
 | [Issue plan](issue-plan.md) | `/agent plan` / `replan`: validate requirements, ask questions, write a versioned plan with a pre-mortem | A Markdown plan comment or open questions |
@@ -78,7 +78,7 @@ Add optional scope, a starting revision, or a branch when needed:
 
 ```text
 Run flows/documentation-refresh.md for routing documentation and AI instructions.
-Use main as the base and codex/docs-routing-refresh as the branch.
+Use origin/dev as the base and codex/docs-routing-refresh as the branch.
 ```
 
 Use an absolute file path and identify the target repository when the file is in

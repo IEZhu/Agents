@@ -14,7 +14,10 @@ repeating them. The phase 1a acceptance runs are in [autodev-acceptance.md](auto
 `run-now` and watches them. Scheduled real runs are the [automatic mode](#automatic-mode-run-on-the-schedule)
 (#350): the schedule runs them only while `autodev ready` passes and the owner's acceptance of the
 residual risks is current; until then it runs dry-runs. None of the live checks on this page had
-run when it was written (2026-10-14).
+run when it was written (2026-10-14). The [acceptance results](autodev-acceptance.md#results)
+still record the owner checks as `not run`; implemented automatic mode does not establish live
+acceptance. Later phases of [the plan](autodev-plan.md#14-implementation-plan) describe proposed
+general flow pipelines and schedules, beyond this autodev-specific runner.
 
 **Public records.** The repository is public. When you note the results of live checks in the
 acceptance table, the plan or the open items of these pages, write only pass or fail, run IDs
@@ -58,6 +61,11 @@ note ([plan 5.8](autodev-plan.md#58-public-visibility)).
   (default `~/.local/share/agents-autodev/IEZhu-Agents`) and creates it on first use. It must lie
   outside `~/Documents` and the installation. The session directories go into `sessions/` beside
   it ([trusted repository](autodev-runner.md#trusted-repository-one-off-repositories-and-bundles)).
+- **The branch boundary.** Autodev fetches and checks against `main` and opens its PRs against
+  `main`. The installation's update channel (`AGENTS_AUTO_UPDATE_BRANCH`) does not change this.
+  An installation following `dev` can fail the runner's content drift check; an autodev PR also
+  needs an owner decision under this repository's contribution policy, which sends ordinary
+  changes to `dev` ([update channels and autodev](autodev-runner.md#update-channels-and-autodev)).
 
 ### GitHub
 
@@ -120,7 +128,9 @@ requests only. The `gh` token is never used.
 ### Codex (optional)
 
 By default `delegates.code-review-pass` asks for Codex (`gpt-6.1-sol`, effort `high`); every
-stage and the pre-mortem ask for Claude.
+stage and the pre-mortem ask for Claude. These are autodev's explicit profiles in
+`autodev.json`; the general prepared-worker model tiers do not choose them
+([worker profiles](autodev-workers.md#profiles-and-model-tiers)).
 
 - **What Codex needs.** The `codex` CLI and an API key of a separate OpenAI project with a
   spending limit, never your own account's key. Store it so that it never appears on a command

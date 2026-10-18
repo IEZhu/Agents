@@ -1,8 +1,8 @@
 # Task-scoped subagent context and exchange contract
 
 Status: implemented; mandatory delegation guidance updated 2026-10-11.
-Tracking: [Issue #291](https://github.com/IEZhu/Agents/issues/291). This specification describes
-the new worker API; the ordinary persona protocol remains version 2.
+Tracking: [Issue #291](https://github.com/IEZhu/Agents/issues/291). This reference describes
+the implemented worker API; the ordinary persona protocol remains version 2.
 
 ## Problem and goals
 
@@ -18,14 +18,21 @@ instruction, test description, issue and implementation document is English.
 
 ## Scope and architecture
 
-Two MCP tools are introduced:
+The two worker MCP tools are:
 
 - `get_subagent_context`: prepare instructions and an immutable task contract.
 - `validate_subagent_result`: validate a result against the original contract
   retained by the parent.
 
-These tools do not launch models, manage execution sessions, read task reference
-contents, follow artifact URLs, install instructions or restart the daemon.
+These tools do not launch models, manage execution sessions, follow arbitrary
+task references or artifact URLs, install instructions or restart the daemon.
+When `artifact_manifest` is supplied, the MCP preparation endpoint verifies its
+active workspace binding and all selected stored bytes before preparing the
+package. It does not inline those bytes; the native worker reads them through
+`artifact_read`. Without a manifest, preparation does not resolve artifact storage.
+The pure builder and result validator perform no artifact I/O. See
+[shared artifacts](shared-artifacts.md) for publication, required reads and the
+parent's separate integrity check before acceptance.
 The host supplies its native spawning, cancellation, permissions and execution
 budget controls. The contract is inspired by A2A's task/message/artifact model;
 this release does not implement an A2A network transport or claim wire compatibility.
@@ -52,6 +59,7 @@ text. Preserve the repository's client-compatible schema conventions.
 | `scope` | Explicit area/actions to work within, default empty |
 | `non_goals` | Explicit excluded work, default empty |
 | `result_type` | `generic`, `review`, `implementation`, or `research`; default `generic` |
+| `artifact_manifest` | Optional complete active manifest (`data` from `artifact_manifest_create` or `artifact_manifest_get`); pins exact inputs and adds required read instructions. Requires a valid workspace; omit `task_id` to inherit the manifest task or supply the same ID. |
 | `max_skills` | Default 3, range 0..5 |
 | `max_implants` | Default 0, range 0..2 |
 | `max_context_chars` | Default 16000, range 2000..64000; complete worker-context character budget |
@@ -73,6 +81,8 @@ A successful response has `protocol: agents-core/subagent/1` and
   `bundle_revision` (SHA-256 of the delivered reusable instructions and schemas).
 - The original task `contract`, including task text, context, scope, non-goals,
   acceptance criteria with stable generated IDs, result type and budgets.
+  When supplied, it also retains the complete `artifact_manifest`; model-tier
+  fields are retained as `execution` when `complexity` is supplied.
 - `contract_revision`: SHA-256 of canonical JSON for the contract, including
   its protocol/version and task/attempt IDs. This is a consistency fingerprint,
   not authentication or a signature.
@@ -140,7 +150,13 @@ presentation; language requirements can be stated in the assignment. The output
 is the data contract, not a chat answer with a footer.
 Universal `agent-cooperation` is also omitted, with selection reason
 `worker_equivalent`; mandatory `worker-cooperation` supplies its scoped equivalent.
-All five worker rules remain mandatory when conversation rules are disabled.
+All five base worker rules remain mandatory when conversation rules are disabled.
+An artifact-backed assignment also requires `worker-artifacts`, regardless of
+component switches. Its manifest and complete read instructions count toward the
+same context budget; preparation fails if they cannot fit. It tells the worker
+to follow `next_offset` through `eof` for every required entry and return
+`input_required` or `partial` if required input cannot be read. See
+[the artifact workflow](shared-artifacts.md#native-worker-workflow).
 
 Add a dedicated `rules/subagents/` collection, loaded only by the worker builder;
 do not add unsupported applicability metadata to existing universal rules.
@@ -268,7 +284,8 @@ The retained contract is limited to 64,000 canonical JSON characters.
 Raw JSON strings are supported for `result`; `contract` must be an object.
 These limits count Unicode characters, not tokens or UTF-8 bytes.
 
-For a focused review, call `get_subagent_context` with these arguments:
+For a focused review, call `get_subagent_context` with these arguments. This
+example uses Codex; set `client` to the actual launching host.
 
 ```json
 {
@@ -283,7 +300,9 @@ For a focused review, call `get_subagent_context` with these arguments:
   "scope": ["Read-only review of the supplied diff and relevant callers."],
   "non_goals": ["Do not edit files or undertake unrelated refactoring."],
   "context": ["The parent will attach the diff and relevant source files."],
-  "result_type": "review"
+  "result_type": "review",
+  "complexity": "high",
+  "client": "codex"
 }
 ```
 
@@ -324,6 +343,11 @@ partial bundle. Examples include `unknown_agent`, `compact_profile_missing`,
 `worker_rules_missing`, `context_budget_exceeded` and `invalid_source`, plus
 strict field-validation diagnostics. Invalid JSON or result identity failures
 instead return `valid: false` from the validation tool.
+Artifact-backed preparation can also fail with `worker_artifact_rule_missing`,
+workspace errors, `artifact_unavailable` or `integrity_error`; it returns no
+usable partial package. A later release or expiry does not make an otherwise
+matching result envelope structurally invalid, so the parent's separate
+`artifact_manifest_verify` remains required.
 
 See the [recorded validation and size comparison](subagent-validation-results.md)
 for measured coverage and limits. Compact profiles do not guarantee a smaller

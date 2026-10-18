@@ -26,6 +26,48 @@ Repository and checkout handles use verified canonical filesystem identity and i
 
 A participant capability is opaque and returned once. Only its verifier is stored; snapshots, events and receipts omit capabilities. Keep it in an authorized host/session channel, never in prompts shared with peers or artifact text. A parent creates a separate limited child capability or relays under its own capability with `subject_id`; every relay is recorded as such. Public IDs, contract hashes, persona names and the daemon bearer token do not substitute for participant authority.
 
+## Registration and responses
+
+After owner registration grants the physical checkout and the enabled daemon is
+connected, an independent root can call `cooperation_register` with the following
+MCP arguments. Replace the absolute checkout path, task IDs and scope with the
+authorized task; this example reserves no file claim by itself.
+
+```json
+{
+  "request": {
+    "protocol": "agents-core/cooperation/1",
+    "checkout_path": "/absolute/path/to/project",
+    "root_task_id": "docs-refresh",
+    "task_id": "docs-refresh",
+    "attempt_id": "1",
+    "scope": [
+      {"resource_type": "physical_file", "resource_key": "README.md", "access": "write"}
+    ],
+    "execution_mode": "independent"
+  },
+  "workspace": "/absolute/path/to/project"
+}
+```
+
+Keep the returned `repository_id`, `participant_id`, `generation`, `revision`
+and `service_epoch`, plus the private capability. Child registration additionally
+uses the parent's ID/capability, the same `root_task_id` and the child's original
+prepared `contract_revision`; it must remain inside the parent's scope. An
+already-bound task/attempt cannot be registered again. If its one-time capability
+was lost, prepare/register a fresh attempt as described above.
+
+Cooperation success responses have top-level `protocol` and `status="ok"`;
+there is no `data` wrapper. Errors have `status="error"`, a string `error` code
+and `message`, with bounded revision/claim diagnostics where relevant. For
+`stale_revision` or `stale_generation`, read current state and reconcile before
+constructing a new operation. After an ambiguous write, retry the exact original
+operation and payload to retrieve its receipt. `idempotency_conflict` means that
+ID was reused for different content. `scope_denied` or `unauthorized_actor`
+requires correcting the workspace, task binding or authenticated actor;
+discovering an ID does not grant access. `store_unavailable` can mean coordination
+is disabled or the connection is standalone stdio, rather than a transient retry.
+
 ## Mailbox workflow
 
 Register each execution instance and retain its own returned capability privately. Registration defaults to `communication_mode="mcp"`; `native`, `parent_relay` and `checkpoint` remain supported declarations. Discover participant IDs with `cooperation_read`, then exchange only messages authorized by the task and host. Discoverability alone is not permission to contact an unrelated chat.
@@ -47,7 +89,7 @@ Mailbox calls do not require a journal revision or participant generation and do
 
 Every new `kind="request"` message starts with processing `state="pending"` and request `revision=1`. An optional `expires_at` is an absolute future Unix timestamp in seconds, accepted only for requests. `cooperation_request_status` takes the usual mailbox authentication and `message_id`; only the effective sender or recipient can inspect it. It returns the processing record, its revision, timestamps, deadline, reason and response reference, plus independent `delivery` (`stored` or `acknowledged`) and `acknowledged_at`. A delivery acknowledgement never changes processing state. Reading a request or its notifications does not acknowledge the inbox message.
 
-`cooperation_request_update` adds a stable `operation_id`, current `expected_revision`, and `state`. Only the recipient can report `accepted`, `input_required`, `completed`, `declined` or `failed`; only the sender can report `cancelled`. The existing direct-child parent relay rules apply to all three new tools. A cancelled participant can inspect retained status and events but cannot make a fresh processing update; its original successful operation receipt remains replayable.
+`cooperation_request_update` adds a stable `operation_id`, current `expected_revision`, and `state`. Only the recipient can report `accepted`, `input_required`, `completed`, `declined` or `failed`; only the sender can report `cancelled`. The direct-child parent relay rules also apply to request status, updates and waits. A cancelled participant can inspect retained status and events but cannot make a fresh processing update; its original successful operation receipt remains replayable.
 
 | Current state | Allowed explicit next states |
 |---|---|

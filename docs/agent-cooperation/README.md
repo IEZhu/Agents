@@ -1,6 +1,6 @@
 # Agent cooperation
 
-Status: **implemented in source, disabled by default; not installed by this task**. The implementation was cut from `origin/dev` at `d7e34eb10cb2ab9f593ebf782a4538f677484493`; all 19 original source fingerprints matched before editing. See [validation results](validation-results.md) for actual checks and remaining rollout limits.
+Status: **implemented in source, disabled by default**. These references describe the source contract, not the current state of an installation. See [validation results](validation-results.md) for the implementation's recorded checks and remaining rollout limits.
 
 The optional local coordinator lets workers of one parent and independent sessions discover overlapping work, negotiate a bounded agreement, order artifact dependencies, and exchange messages through a durable MCP mailbox. Different AI clients and model providers can use the same protocol when they connect to the same enabled installed daemon, directly over HTTP or through its existing stdio bridge. It serves one trusted local OS user, one installation and one machine. Linked worktrees share their Git common-directory domain; independent clones and submodules do not.
 
@@ -22,6 +22,8 @@ The service reserves metadata and stores addressed messages for authenticated re
 | `agents-core://cooperation/schema` | Read-only MCP resource containing the exact closed request, action, event and response JSON Schemas |
 
 Every tool accepts `request` (an object or raw JSON string) and optional `workspace`. Read the schema resource before constructing actions; [schemas.json](schemas.json) is its reproducible source export. Raw JSON rejects duplicate keys, nonfinite values and unknown fields. Inputs/events are limited to 32 KiB, text fields to 4,000 characters, scope/dependency/evidence lists to 50 and agreements to eight parties.
+
+Successful responses expose their fields at the top level with `protocol` and `status="ok"`; failures use `status="error"`, a string `error` code and `message`. They do not use the artifact API's `data` envelope. The [registration example and error guidance](runtime.md#registration-and-responses) show the outer MCP arguments and how to retain returned identifiers.
 
 The typical sequence is registration, intent/discovery, message exchange, proposal, explicit agreement acknowledgement by every party, complete-set claim acquisition, checkpoint/artifact exchange, consumer acceptance, and release. Each agreement acknowledgement names the exact proposal revision and terms digest. A mailbox acknowledgement confirms delivery only. A parent relay records the actual parent actor and child subject; it cannot impersonate an independent root. A scope change requires a newly prepared worker attempt.
 

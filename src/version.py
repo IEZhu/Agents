@@ -1,13 +1,9 @@
-"""Agents-Core version: the UTC commit time of the installation's HEAD.
+"""Agents-Core version from the canonical root VERSION file (YY.MM.DD.HHMM).
 
-The version has the form ``YY.MM.DD.HHMM`` (for example ``26.10.01.1001``). On
-``dev`` HEAD is the last merged pull request. On ``main`` HEAD is the last release,
-the merge commit of a release pull request from ``dev``: a merge commit on ``main``
-takes the time of the revision it merged (``release_time``), so a release keeps the
-version its ``dev`` HEAD showed, as its tag does (``scripts/release_version.py``).
+Legacy checkouts without VERSION retain the commit-time calculation below.
 ``-dev`` marks an installation on the integration branch ``dev``, ``-dirty``
 uncommitted changes to tracked files (``26.10.01.1001-dev-dirty`` has both);
-``unknown`` means there is no readable git metadata.
+``unknown`` means the version or required checkout metadata could not be read.
 The value is computed once per process, which is correct because an applied
 update always starts a new process.
 """
@@ -16,7 +12,7 @@ from functools import lru_cache
 from pathlib import Path
 import subprocess
 
-from src import executables
+from src import calendar_version, executables
 
 UNKNOWN = "unknown"
 DEV_BRANCH = "dev"  # the integration branch; main takes its release pull requests
@@ -70,12 +66,15 @@ def _branch(status: str) -> str | None:
 
 @lru_cache(maxsize=1)
 def agents_core_version() -> str:
+    try:
+        stored = calendar_version.read(ROOT)
+    except (OSError, ValueError):
+        return UNKNOWN
     if not (ROOT / ".git").exists():  # never read the version of an enclosing repository
-        return UNKNOWN
+        return stored or UNKNOWN
     head = _git("log", "-1", "--format=%cI %P")
-    if not head or not head.strip():
+    if (not head or not head.strip()) and stored is None:
         return UNKNOWN
-    commit_time, *parents = head.split()
     try:
         # One call for both: the branch header and the changed tracked files. Without the
         # ahead/behind count, which would walk history for nothing.
@@ -88,6 +87,9 @@ def agents_core_version() -> str:
             return UNKNOWN
         dirty = any(line.strip() and not line.startswith("#") for line in status.splitlines())
         branch = _branch(status)
+        if stored is not None:
+            return stored + ("-dev" if branch == DEV_BRANCH else "") + ("-dirty" if dirty else "")
+        commit_time, *parents = head.split()
         if branch == RELEASE_BRANCH and len(parents) == 2:
             # A shallow clone lacks the parents: the merge then keeps its own time.
             times = (_git("show", "-s", "--format=%cI", *parents) or "").split()

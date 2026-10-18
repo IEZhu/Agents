@@ -1,11 +1,16 @@
 """Publish a calendar tag and GitHub Release for a same-repository dev -> main PR."""
+import base64
 from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
 import re
+import sys
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from src import calendar_version
 
 
 class GitHub:
@@ -77,7 +82,7 @@ def commit_time(commit):
 
 
 def release_moment(api, commit):
-    """The time the release is versioned by, and the commit it comes from.
+    """Legacy version time and source for revisions without a VERSION file.
 
     A merge commit takes the time of the revision it merged, the promoted dev HEAD, so the
     release keeps the version dev showed for it. A merged revision older than main's previous
@@ -92,6 +97,35 @@ def release_moment(api, commit):
     return commit_time(commit), commit["sha"]
 
 
+def repository_text(api, sha, path):
+    """Read a UTF-8 file at an immutable commit; only a 404 means absent."""
+    try:
+        blob = api.request("GET", f"/contents/{path}?ref={sha}")
+    except HTTPError as error:
+        if error.code == 404:
+            return None
+        raise
+    if blob.get("type") != "file" or blob.get("encoding") != "base64":
+        raise ValueError(f"Expected a base64 file at {path}")
+    return base64.b64decode("".join(blob["content"].split()), validate=True).decode("utf-8")
+
+
+def canonical_version(api, sha):
+    """Verify the single release number against the plugin at the exact merge SHA."""
+    text = repository_text(api, sha, "VERSION")
+    if text is None:
+        return None
+    version = text.strip()
+    calendar_version.parse(version)
+    manifest = repository_text(api, sha, "plugins/agents-core/.claude-plugin/plugin.json")
+    if manifest is None:
+        raise ValueError("Release has VERSION but no plugin manifest")
+    plugin = json.loads(manifest)
+    if not isinstance(plugin, dict) or plugin.get("name") != "agents-core" or plugin.get("version") != version:
+        raise ValueError("Plugin version must match the canonical VERSION file")
+    return version
+
+
 def publish(event, repository, api):
     """Create or reuse the release's UTC calendar tag at the merge commit without moving refs."""
     pr = release_pr(event, repository)
@@ -99,13 +133,18 @@ def publish(event, repository, api):
         return {"status": "skipped"}
     sha = pr["merge_commit_sha"]
     commit = api.request("GET", f"/git/commits/{sha}")
-    moment, source = release_moment(api, {**commit, "sha": sha})
-    version = moment.astimezone(timezone.utc).strftime("%y.%m.%d.%H%M")
-    # A second release in the same minute has its own stable, per-PR tag.
-    for tag in (f"v{version}", f"v{version}-pr{pr['number']}"):
+    version = canonical_version(api, sha)
+    metadata = {"version_file": "VERSION"} if version is not None else {}
+    source = sha
+    if version is None:
+        moment, source = release_moment(api, {**commit, "sha": sha})
+        version = moment.astimezone(timezone.utc).strftime(calendar_version.FORMAT)
+    # Preserve historical retry names. New releases have exactly one canonical tag.
+    tags = (f"v{version}",) if metadata else (f"v{version}", f"v{version}-pr{pr['number']}")
+    for tag in tags:
         existing = tag_target(api, tag)
         if existing == ("commit", sha):
-            return {"status": "existing", "version": version, "tag": tag, "sha": sha, "source": source}
+            return {"status": "existing", "version": version, "tag": tag, "sha": sha, "source": source, **metadata}
         if existing is not None:
             continue
         try:
@@ -116,13 +155,15 @@ def publish(event, repository, api):
             # The same or another merge may have created the name concurrently.
             existing = tag_target(api, tag)
             if existing == ("commit", sha):
-                return {"status": "existing", "version": version, "tag": tag, "sha": sha, "source": source}
+                return {"status": "existing", "version": version, "tag": tag, "sha": sha, "source": source, **metadata}
             if existing is not None:
                 continue
             raise
         if tag_target(api, tag) != ("commit", sha):
             raise RuntimeError(f"Created tag {tag} does not target the merge commit")
-        return {"status": "created", "version": version, "tag": tag, "sha": sha, "source": source}
+        return {"status": "created", "version": version, "tag": tag, "sha": sha, "source": source, **metadata}
+    if metadata:
+        raise RuntimeError("Canonical release tag already targets another object; prepare a new VERSION through dev")
     raise RuntimeError("Both release tag names already target different objects")
 
 
@@ -145,6 +186,8 @@ def publish_release(event, repository, api):
     existing = published_release(api, tag)
     status = "existing"
     if existing is None:
+        origin = (f"from VERSION at `{sha}`" if result.get("version_file")
+                  else f"the commit time of `{result['source']}`")
         try:
             api.request("POST", "/releases", {
                 "tag_name": tag, "target_commitish": sha, "name": tag,
@@ -152,7 +195,7 @@ def publish_release(event, repository, api):
                 "generate_release_notes": True,
                 "body": f"Promotion: https://github.com/{repository}/pull/{event['pull_request']['number']}\n\n"
                         f"Merge commit: `{sha}`.\n\nCalendar version: `{result['version']}`, "
-                        f"the commit time of `{result['source']}`.",
+                        f"{origin}.",
             })
             status = "created"
         except HTTPError as error:

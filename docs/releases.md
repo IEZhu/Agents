@@ -30,8 +30,32 @@ This is the one description of the release procedure; the README links it.
    current `origin/dev` in a separate worktree. Submit corrections to `dev`, and
    include their reviewed result before freezing the release head. Keep the live
    installation on its configured update channel with a clean working tree.
+   Prepare the next calendar version in that contribution worktree, after
+   fetching `origin/main`:
+
+   ```bash
+   python3 scripts/bump_plugin_version.py --base origin/main
+   python3 scripts/bump_plugin_version.py --check --base origin/main
+   ```
+
+   The helper writes the same `YY.MM.DD.HHMM` value to the root [`VERSION`](../VERSION)
+   file and the [plugin manifest](../plugins/agents-core/.claude-plugin/plugin.json).
+   Python package metadata reads `VERSION` directly through `pyproject.toml`;
+   `uv.lock` records the editable root package as dynamic, so later bumps need
+   no lock-file rewrite or dependency resolution. Python metadata normalizes leading
+   zeros in numeric components, so `26.10.18.0805` appears as `26.10.18.805` there.
+   It resolves the fetched baseline to an exact commit. When `VERSION` is absent
+   or equals that baseline, it chooses the current UTC minute or the baseline
+   plus one minute, whichever is later. This gives distinct versions for successive
+   promotions prepared in the same minute. An already newer `VERSION` is
+   preserved, so retries against the same baseline do not bump again; the
+   manifest is synchronized to it. A malformed `VERSION`, or one behind the
+   baseline, fails. A baseline without `VERSION` uses the historical commit-time
+   calculation described below. Submit both version files through a reviewed PR into
+   `dev` before freezing the promotion head. The helper does not commit, push,
+   fetch, create tags or publish anything. `--check` only validates the files.
 3. Validate the changed areas from that worktree using the [test guide](../tests/README.md).
-   Include `tests/test_release_version.py`, `tests/test_version.py` and
+   Include `tests/test_release_version.py`, `tests/test_bump_plugin_version.py`, `tests/test_version.py` and
    `tests/test_workflow_permissions.py` for the publication and displayed-version
    contract. Record actual results, skipped checks and environment limitations;
    a passing workflow for an older head is not a current-head check.
@@ -56,36 +80,49 @@ not merge PRs or change protection settings. It also handles a squash or rebase 
 above does not use. An ordinary close,
 a feature merge into `dev`, or a fork with a branch named `dev` publishes nothing.
 
-A release keeps the version of the `dev` HEAD it promotes. The displayed
-Agents-Core version is `YY.MM.DD.HHMM`, the UTC committer time of the
-installation's HEAD ([src/version.py](../src/version.py)); an installation on
-`dev` adds `-dev`, and tracked uncommitted changes add `-dirty`. On `main`, a
-merge commit takes the committer time of the revision it merged, its second
-parent: the release that merged a `dev` showing `26.10.15.1814-dev` is
-`26.10.15.1814` on `main` and in its tag, not the minute of the merge. A merged
-revision older than main's previous HEAD (a hotfix on `main` not yet merged back
-into `dev`) and a squash or rebase merge keep the merge commit's own time, so the
-version on `main` never goes back; so does a shallow clone that lacks the parents.
-The tag normally has the form `v26.10.14.1200` and marks the merge commit on
-`main`. If another release already owns that minute, the new release gets
-`v26.10.14.1200-pr381`, with its PR number. The date portion retains the
-displayed version; the suffix distinguishes releases within one minute. Python
-package and Claude plugin manifest versions have their own release procedures and
-are not changed by this workflow. Releases up to `v26.10.15.1905` were named by
-the merge commit's own time; their tags stay as they are.
+Before merge, its `check` job requires a same-repository `dev → main` promotion's
+`VERSION` to exceed the version at the event's pinned `main` base SHA, and the
+plugin manifest's `version` to equal `VERSION`. The checkout fetches history for
+that exact comparison; CI uses `--check` and writes no files. It also checks
+the Python package's version source and dynamic root package in `uv.lock`. A reused version
+or manifest mismatch fails visibly even when only server code changed. Ordinary
+feature PRs still run the focused regressions without requiring another version
+bump on every commit. If `main` advances, refresh the promotion's base/current-head
+checks before merging.
 
-Publication uses the merged PR's SHA and the commit times of it and its parents,
-so later changes to `main` and later workflow reruns do not select a different
-revision or date.
-An existing lightweight or annotated tag resolving to that commit is reused.
-Annotated tag objects are dereferenced before their targets are compared.
-Existing tags are never moved or deleted. A conflicting fallback name, missing
-commit, denied access, or API failure fails the job visibly. Retry a failed run
-through GitHub Actions after resolving its reported error.
+The root `VERSION` is the canonical base number for the runtime, Claude plugin
+manifest and release tag. Its `YY.MM.DD.HHMM` value records the UTC release
+preparation minute, advanced when necessary to exceed the published baseline;
+it does not change with each later commit. For example, `26.10.18.0805` appears
+as `26.10.18.0805-dev` on `dev` and as `26.10.18.0805` on `main`. Tracked
+uncommitted changes add `-dirty`. These runtime labels are not written to the
+manifest or tag ([src/version.py](../src/version.py)). Python package metadata
+reads the same base number, using its standard numeric normalization.
+
+Publication reads `VERSION` and the plugin manifest at the PR's exact merge SHA,
+requires their versions to match, and creates `vVERSION` there, for example
+`v26.10.18.0805`. Later commits and workflow reruns cannot select a different
+revision or version. An existing lightweight or annotated tag resolving to that
+merge commit is reused; annotated tag objects are dereferenced before comparison.
+If the canonical tag targets another object, publication fails: prepare a higher
+`VERSION` through `dev` and a new reviewed promotion. It never adds a `-prN`
+suffix to a canonical release, moves a tag, or deletes one. Missing commits,
+denied access and API failures also fail visibly. Retry a failed Actions run
+after resolving its reported error.
+
+Legacy checkouts and release commits without `VERSION` retain the historical
+commit-time calculation. It uses the UTC committer time of HEAD; a two-parent
+merge on `main` uses the promoted second parent's time when it is not older than
+the previous `main` parent. Otherwise it keeps the merge commit's time, as do
+squash/rebase merges and runtime shallow clones that lack the parents. Historical
+publication can reuse its `-prN` collision fallback. Existing release tags and
+published releases retain their names and content; releases through
+`v26.10.15.1905` used the merge commit's own time.
 
 The same job then creates a non-draft, non-prerelease GitHub Release for the
 verified tag, with a link to the promotion PR, the exact merge SHA, the calendar
-version with the commit it was taken from, and GitHub-generated release notes. GitHub's `legacy` policy selects
+version and its source (`VERSION` at that SHA, or the legacy commit time), and
+GitHub-generated release notes. GitHub's `legacy` policy selects
 the Latest release rather than explicitly promoting an old retry as Latest.
 An already published stable release for that tag is reused without changing its
 notes, assets, or publication time. Drafts, prereleases, and inconsistent API
@@ -101,17 +138,24 @@ deny creation and must permit the release names. Different promotions publish
 independently; concurrent attempts to create the same name verify the resulting
 ref before succeeding.
 
+An already published calendar tag is not repaired by moving it or editing its
+release commit. If a previous promotion retained an old plugin version, prepare
+a higher canonical version and matching manifest in `dev`, then make a new
+reviewed promotion.
+
 The workflow change must first reach `main` through the release process. It does
 not backfill historical merges or publish packages, plugin updates, or binaries. On a checkout that
-has advanced beyond a release tag, the footer continues to identify that checkout's
-HEAD; a tag records the released revision.
+has advanced beyond a release tag, its footer retains the prepared base number
+until `VERSION` changes; a tag records the exact released revision.
 
-Validation: `tests/test_release_version.py` covers event guards, invalid merge
-identity, UTC conversion, the version of the merged `dev` HEAD and its
-never-backwards fallback, same-minute releases, reruns, concurrent creation,
-annotated tag reuse and conflicts, GitHub Release publication and partial-failure
-recovery, preservation of existing releases, and API errors with a fake API.
-`tests/test_workflow_permissions.py` checks workflow permission boundaries. No test writes to GitHub.
+Validation: `tests/test_bump_plugin_version.py` covers preparation, monotonic
+versions, idempotency and the promotion gate in temporary Git repositories.
+`tests/test_version.py` covers the stored runtime version, its labels and legacy
+fallback. `tests/test_release_version.py` covers canonical version/manifest
+validation at the merge SHA, strict tag collisions, legacy behavior, tag reuse,
+GitHub Release publication and partial-failure recovery with a fake API.
+`tests/test_workflow_permissions.py` checks workflow permission boundaries.
+These checks do not publish to GitHub.
 
 ## Glama Auto-Release
 
@@ -139,7 +183,7 @@ publication job proves that the tag and GitHub Release exist, not that Glama
 has finished. Check Glama's build/startup result and public version before
 announcing the container update. The listing currently uses SemVer
 `26.10.14+1807` for calendar version `26.10.14.1807`; verify the next automatic
-version too, including a same-minute `-prN` tag. These provider mappings and
+version too. These provider mappings and
 delivery of a `GITHUB_TOKEN`-created release to Auto-Release have not yet been
 confirmed by an end-to-end automatic release in this repository.
 
