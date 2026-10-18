@@ -12,6 +12,13 @@ const path = process.argv[2];
 // (src/daemon/acl.py), which the controller sets and checks when it writes the config.
 if (!path || (process.platform !== 'win32' && (statSync(path).mode & 0o077))) throw new Error('Private config (0600) required');
 const config = JSON.parse(readFileSync(path, 'utf8'));
+// Optional compatibility view for clients that cached a former direct server.
+// This filters/names tools only; daemon app/revision consent remains authoritative.
+const alias = config.alias;
+if (alias !== undefined && (typeof alias !== 'string' || !/^[a-z0-9][a-z0-9_-]{0,11}$/.test(alias) || alias.includes('__'))) {
+  throw new Error('Invalid proxy alias');
+}
+const prefix = alias === undefined ? undefined : alias + '__';
 const endpoint = new URL(config.url);
 if (endpoint.protocol !== 'http:' || endpoint.hostname !== '127.0.0.1' || endpoint.pathname !== '/mcp') {
   throw new Error('Only the local Agents-Core endpoint is supported');
@@ -164,6 +171,17 @@ function claimedWorkspace(message) {
 }
 async function forward(message) {
   const hasId = Object.hasOwn(message, 'id');
+  if (prefix && message.method === 'tools/call') {
+    if (typeof message.params?.name !== 'string') {
+      if (hasId) await send({ jsonrpc: '2.0', id: message.id, error: { code: -32602, message: 'Tool name required' } });
+      return;
+    }
+    message.params.name = prefix + message.params.name;
+  }
+  if (prefix && /^(prompts|resources)\//.test(message.method)) {
+    if (hasId) await send({ jsonrpc: '2.0', id: message.id, error: { code: -32601, message: 'This proxy view exposes tools only' } });
+    return;
+  }
   if (message.method === 'initialize') clientRoots = Boolean(message.params?.capabilities?.roots);
   if (message.method === 'notifications/roots/list_changed') named.clear();
   const tool = message.method === 'tools/call' ? message.params?.name : undefined;
@@ -203,6 +221,15 @@ async function forward(message) {
     if (hasId) {
       if (result.id !== message.id) throw new Error('Mismatched response ID');
       if (message.method === 'initialize' && result.result?.protocolVersion) protocolVersion = result.result.protocolVersion;
+      if (prefix && message.method === 'initialize' && result.result) {
+        result.result.serverInfo = { ...result.result.serverInfo, name: alias };
+        result.result.capabilities = { tools: result.result.capabilities?.tools || {} };
+        result.result.instructions = `Tools for ${alias} through the shared Agents-Core daemon. Do not start another upstream server.`;
+      }
+      if (prefix && message.method === 'tools/list' && Array.isArray(result.result?.tools)) {
+        result.result.tools = result.result.tools.filter(tool => tool.name?.startsWith(prefix))
+          .map(tool => ({ ...tool, name: tool.name.slice(prefix.length) }));
+      }
       await send(result);
     }
   } catch (error) {
