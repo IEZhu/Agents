@@ -203,6 +203,10 @@ call returns a `timestamp`, prepend it to the answer as its first line, followed
 an empty line. Otherwise add no time line.
 After logging, deliver the composed answer. This order matters: clients may end
 the tool loop as soon as the final answer is sent.
+A client may close the turn with its own call after which no text is shown,
+such as the next-step box of the Claude desktop app (`wrap_up`). Call
+`log_interaction` before that call, with the box's text and the footer as
+`response_content`: the closing call does not replace the log.
 
 Logging is permitted on `keep`; routing and enrichment are not. The log records
 declared attribution, not proof of the model's compliance. If a requested change
