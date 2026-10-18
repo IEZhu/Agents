@@ -214,6 +214,9 @@ def test_installer_dry_run_creates_nothing_and_never_runs_claude(tmp_path):
     result = installer.install(path=tmp_path / "settings.json", cursor_home=tmp_path / "cursor",
                                dry_run=True, runner=lambda *a, **k: pytest.fail("dry run invoked CLI"))
     assert result["enabled"] is False
+    assert result["clients"] == ["claude"]
+    assert result["files"] == []
+    assert result["capabilities"] == {"claude": {"status": "available"}}
     assert not list(tmp_path.iterdir())
     assert result["claude_command"][1:4] == ["plugin", "install", "agents-core-context-compaction"]
 
@@ -227,6 +230,10 @@ def test_installer_preserves_other_hooks_is_idempotent_and_installed_runtime_is_
     target.write_text(json.dumps(original))
     path = tmp_path / "settings.json"
     result = installer.install(clients=("cursor",), path=path, cursor_home=home)
+    assert result["capabilities"] == {
+        "cursor": {"status": "unsupported", "reason": "native_compaction_unavailable"},
+    }
+    assert not (home / "hooks" / "agents_core_context_compaction" / "cursor_ui.js").exists()
     assert len(result["backups"]) == 1
     assert json.loads(Path(result["backups"][0]).read_text()) == original
     first = target.read_bytes()
@@ -242,6 +249,25 @@ def test_installer_preserves_other_hooks_is_idempotent_and_installed_runtime_is_
     assert run.returncode == 0 and json.loads(run.stdout) == {} and run.stderr == ""
     assert not (tmp_path / "context-compaction-state").exists()
     assert config.load(path)[0]["enabled"] is False
+
+
+def test_default_cli_selects_only_claude_and_dry_run_writes_nothing(tmp_path, capsys):
+    assert installer.main(["--dry-run", "--config", str(tmp_path / "settings.json")]) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["clients"] == ["claude"] and result["files"] == []
+    assert not list(tmp_path.iterdir())
+
+
+def test_enabled_cursor_hook_consumes_an_unsupported_attempt_without_native_activity(settings, monkeypatch):
+    path, _ = settings
+    monkeypatch.setattr(subprocess, "run", lambda *a, **kw: pytest.fail("native process invoked"))
+    assert runtime.handle(event("1"), path=path, now=100)["reason"] == "turn_threshold"
+    assert runtime.handle(event("2"), path=path, now=100) == {
+        "status": "unsupported", "reason": "native_compaction_unavailable",
+    }
+    assert runtime.handle(event("2"), path=path, now=100)["reason"] == "duplicate_turn"
+    assert runtime.handle(event("3"), path=path, now=100)["reason"] == "turn_threshold"
+    assert runtime.handle(event("4"), path=path, now=100)["reason"] == "cooldown"
 
 
 def test_failed_claude_install_never_enables_switch(tmp_path):
