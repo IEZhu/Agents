@@ -230,7 +230,8 @@ def test_cli_format_is_explicitly_not_an_applied_write():
     assert json.loads(result.stdout) == {"title": "🏁 Task", "applied": False}
 
 
-@pytest.mark.parametrize("raw", [b"not json", b"\xff", b"x" * 65537])
+@pytest.mark.parametrize("raw", [b"not json", b"\xff", b"x" * 65537],
+                         ids=["invalid-json", "invalid-utf8", "oversized-event"])
 def test_bad_hook_input_fails_open_without_leaking_input(raw):
     result = subprocess.run([sys.executable, str(ROOT / "scripts/thread_status.py"), "--client", "codex"],
                             input=raw, capture_output=True, check=True)
