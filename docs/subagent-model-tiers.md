@@ -109,9 +109,12 @@ Claude Code. The fallback misses two kinds of Claude Code session:
   `X-Agents-Workspace`, and in its project that pin takes precedence over the user
   entry. The upkeep also leaves Git-tracked files, entries the user adapted, and
   profiles that use the agents-core Claude Code plugin as they are.
-- Sessions through the agents-core plugin, or any other stdio server of a service
-  installation. They reach the service through `bridges/stdio-auto.json`, which
-  names the app `stdio`; that names no client.
+- Sessions that a stdio server of a service installation hands to the bridge, such
+  as agents-core plugin sessions. They reach the service through
+  `bridges/stdio-auto.json`, which names the app `stdio`; that names no client.
+  The service writes that file only where Node is available; a stdio server that
+  serves standalone (no Node, or `AGENTS_STDIO_STANDALONE=1`) reads the client from
+  `clientInfo`.
 
 Over stateless HTTP, `clientInfo` arrives only with `initialize`, not with tool
 calls. On 2026-10-17 one installation's Claude Code project pins sent no client
