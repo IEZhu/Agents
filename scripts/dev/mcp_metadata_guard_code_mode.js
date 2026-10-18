@@ -107,10 +107,13 @@ function redactCredentials(text, secrets = []) {
       secrets.some(secret => typeof secret !== 'string' || secret.length === 0)) {
     throw new MetadataGuardError('invalid_redaction_options');
   }
+  // Suppress the whole selected string: quoted values and authentication
+  // schemes do not have a safe first-whitespace boundary.
+  if (/(?:\b(?:Bearer|Basic)\s+|(?:token|password|secret|capability|authorization|credential)[\w-]*["']?\s*[:=])/iu.test(text)) {
+    return '[redacted]';
+  }
   for (const secret of secrets) text = text.split(secret).join('[redacted]');
-  return text.replace(/\bBearer\s+[^\s"',;}]+/giu, 'Bearer [redacted]')
-    .replace(/((?:token|password|secret|capability|authorization|credential)[\w-]*["']?\s*[:=]\s*["']?)[^\s"',;}]+/giu,
-      '$1[redacted]');
+  return text;
 }
 
 /** Metadata only: never copies message text, previews, reasoning or tool input.

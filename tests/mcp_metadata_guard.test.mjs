@@ -118,4 +118,15 @@ for (const [runtime, api] of [['module', moduleApi], ['code-mode', new Function(
     await assert.rejects(api.guardThreadMetadata(raw, huge.options), {code: 'output_budget_exceeded'});
     assert.equal(huge.emitted.length, 0);
   });
+  test(`${runtime}: quoted credentials and authentication schemes suppress the complete string`, async () => {
+    for (const status of ['password="PREFIX_SENTINEL SUFFIX_SENTINEL"',
+      "password='PREFIX_SENTINEL SUFFIX_SENTINEL'", 'Authorization: Basic BASIC_PAYLOAD_SENTINEL',
+      'Bearer AUTH_SENTINEL with suffix SUFFIX_SENTINEL', 'secret: "PREFIX_SENTINEL\\nSUFFIX_SENTINEL"']) {
+      const h = host();
+      await api.guardMetadata({status, entries: []}, h.options);
+      assert.equal(JSON.parse(h.emitted[0]).metadata.status, '[redacted]');
+      assert.ok(!h.emitted[0].includes('SENTINEL'));
+      assert.equal(h.sources.get('source:1').status, status);
+    }
+  });
 }
