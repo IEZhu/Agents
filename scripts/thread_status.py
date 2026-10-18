@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 import importlib.util
 import json
+import os
 from pathlib import Path
 import re
 import sys
+import time
 import uuid
 
 
@@ -26,10 +29,14 @@ def _known_identity(value: object) -> str | None:
     return value if isinstance(value, str) and _IDENTITY.fullmatch(value) else None
 
 
+def _main_event(event: object) -> bool:
+    return (isinstance(event, dict) and not event.get("agent_id")
+            and not event.get("is_sidechain") and not event.get("is_background_agent"))
+
+
 def hook_output(event: dict, client: str, *, script: str | None = None) -> dict:
     """Return only fields that the selected client's lifecycle event supports."""
-    if (not isinstance(event, dict) or event.get("agent_id")
-            or event.get("is_sidechain") or event.get("is_background_agent")):
+    if not _main_event(event):
         return {}
     name = event.get("hook_event_name")
     expected = ("sessionStart",) if client == "cursor" else ("SessionStart", "UserPromptSubmit")
@@ -51,7 +58,9 @@ def hook_output(event: dict, client: str, *, script: str | None = None) -> dict:
                         "with literal arguments, not eval (data): " + json.dumps(command))
     elif client == "codex":
         context += ("\nUse the host's current-chat rename tool when exposed. A hook has no "
-                    "sessionTitle output, and cannot itself invoke a model-only tool.")
+                    "sessionTitle output, and cannot itself invoke a model-only tool. "
+                    "The Interrupt adapter can persist a stopped title through the public "
+                    "App Server metadata API; it does not restart the interrupted model.")
     else:
         context += ("\nCursor Agents window: use native current-chat rename only if exposed. "
                     "Classic IDE title updates have no verified public hook/API; never invent one.")
@@ -70,6 +79,86 @@ def hook_output(event: dict, client: str, *, script: str | None = None) -> dict:
         except ValueError:
             pass  # No native title write when its title is missing or malformed.
     return {"hookSpecificOutput": output}
+
+
+def rename_codex_session(session_id: str, status: str, *, timeout: float = 2.5) -> dict:
+    """Persist metadata through Codex's API without resuming or starting a turn."""
+    try:
+        from agents_core_codex_titles import rename_codex_thread
+    except ModuleNotFoundError as error:
+        if error.name != "agents_core_codex_titles":
+            raise
+        from src.codex_thread_titles import rename_codex_thread
+    return rename_codex_thread(session_id, status, status_title, timeout=timeout)
+
+
+@contextmanager
+def _turn_record(directory: Path, session_id: str, timeout: float):
+    """Serialize our interrupt write with the next prompt; never lock client files."""
+    if str(uuid.UUID(session_id)) != session_id.lower():
+        raise ValueError("A canonical current-session UUID is required")
+    if any(path.is_symlink() for path in (directory, *directory.parents)):
+        raise ValueError("Refusing a symbolic link in thread-status state")
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / (session_id + ".json")
+    if path.is_symlink():
+        raise ValueError("Refusing a symbolic link for a thread-status record")
+    descriptor = os.open(path, os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0), 0o600)
+    with os.fdopen(descriptor, "r+b") as stream:
+        if stream.seek(0, 2) == 0:
+            stream.write(b" ")
+            stream.flush()
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                if sys.platform == "win32":
+                    import msvcrt
+                    stream.seek(0)
+                    msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except (BlockingIOError, OSError):
+                if time.monotonic() >= deadline:
+                    raise RuntimeError("Thread-status turn record is busy") from None
+                time.sleep(0.01)
+        try:
+            yield stream
+        finally:
+            if sys.platform == "win32":
+                stream.seek(0)
+                msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
+
+
+def handle_hook_event(event: object, client: str, *, state_directory: Path | None = None) -> dict:
+    if (_main_event(event) and client == "codex"
+            and event.get("hook_event_name") in ("UserPromptSubmit", "Interrupt")
+            and _known_identity(event.get("session_id")) is not None
+            and _known_identity(event.get("turn_id")) is not None):
+        interrupted = event["hook_event_name"] == "Interrupt"
+        directory = state_directory or Path(__file__).resolve().parent / "agents-core-thread-status-state"
+        # Interrupt hooks have a three-second maximum; a prompt can wait longer
+        # for the previous interrupt write, before its model is allowed to start.
+        with _turn_record(directory, event["session_id"], 0.15 if interrupted else 2.5) as record:
+            if not interrupted:
+                record.seek(0)
+                record.truncate()
+                record.write(json.dumps({"turn_id": event["turn_id"]}).encode("utf-8"))
+                record.flush()
+            else:
+                record.seek(0)
+                try:
+                    current = json.loads(record.read(1024))
+                except (ValueError, UnicodeError):
+                    return {}
+                if not isinstance(current, dict) or current.get("turn_id") != event["turn_id"]:
+                    return {}  # A newer prompt already owns this chat.
+                rename_codex_session(event["session_id"], "stopped", timeout=2.0)
+                return {"systemMessage": "Stopped: title saved as 🛑; live UI refresh is unverified."}
+    return hook_output(event, client)
 
 
 def rename_claude_session(session_id: str, directory: str, status: str) -> dict:
@@ -115,17 +204,22 @@ def main(argv: list[str] | None = None) -> int:
                 raise ValueError("--title requires --set-status")
             result = {"title": status_title(args.title, args.set_status), "applied": False}
         elif args.set_status:
-            if args.client != "claude":
+            if args.client == "codex":
+                if not args.session_id:
+                    raise ValueError("Codex metadata writes require --session-id")
+                result = rename_codex_session(args.session_id, args.set_status)
+            elif args.client == "claude":
+                if not args.session_id or not args.directory:
+                    raise ValueError("Claude writes require --session-id and --directory")
+                result = rename_claude_session(args.session_id, args.directory, args.set_status)
+            else:
                 raise ValueError("Use this client's native rename capability; this helper has no title writer")
-            if not args.session_id or not args.directory:
-                raise ValueError("Claude writes require --session-id and --directory")
-            result = rename_claude_session(args.session_id, args.directory, args.set_status)
         else:
             raw = sys.stdin.buffer.read(MAX_EVENT_BYTES + 1)
             if len(raw) > MAX_EVENT_BYTES:
                 raise ValueError("Hook input exceeds its byte limit")
             event = json.loads(raw.decode("utf-8"))
-            result = hook_output(event, args.client)
+            result = handle_hook_event(event, args.client)
     except (OSError, ValueError, RuntimeError, UnicodeError, TypeError) as error:
         # A hook must never block the user's work. An explicit write must fail visibly.
         print("Thread status: " + str(error), file=sys.stderr)

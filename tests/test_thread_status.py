@@ -5,6 +5,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import threading
 from types import SimpleNamespace
 
 import pytest
@@ -65,7 +66,7 @@ def test_claude_prompt_adds_native_title_without_reading_transcript(tmp_path):
     assert "must/not/be/read" not in json.dumps(out)
 
 
-@pytest.mark.parametrize("title", ["⏸️ Paused", "✅ Closed", "🏁 Finished", "🙋 Need answer", "👀 Review", "⏳ CI", "🚧 Blocked"])
+@pytest.mark.parametrize("title", ["⏸️ Paused", "🛑 Stopped", "✅ Closed", "🏁 Finished", "🙋 Need answer", "👀 Review", "⏳ CI", "🚧 Blocked"])
 def test_lifecycle_alone_does_not_reopen_task(title):
     output = runtime.hook_output(event(session_title=title), "claude")
     assert "sessionTitle" not in output["hookSpecificOutput"]
@@ -94,6 +95,78 @@ def test_worker_events_cannot_rename_parent(extra):
 @pytest.mark.parametrize("bad", [{}, [], None, event("Stop"), event("SessionEnd"), event(session_id="../other")])
 def test_unknown_or_missing_identity_and_stop_are_inert(bad):
     assert runtime.hook_output(bad, "claude") == {}
+
+
+def test_confirmed_current_turn_interrupt_persists_stopped_only(monkeypatch, tmp_path):
+    writes = []
+    monkeypatch.setattr(runtime, "rename_codex_session", lambda *args, **kw: writes.append((args, kw)))
+    runtime.handle_hook_event(event(turn_id="turn-1"), "codex", state_directory=tmp_path)
+    receipt = runtime.handle_hook_event(event("Interrupt", turn_id="turn-1"), "codex", state_directory=tmp_path)
+    assert writes == [((SESSION, "stopped"), {"timeout": 2.0})]
+    assert "Stopped" in receipt["systemMessage"]
+    assert "unverified" in receipt["systemMessage"]
+
+
+def test_stale_interrupt_and_normal_completion_do_not_overwrite_new_work(monkeypatch, tmp_path):
+    def unexpected(*a, **kw):
+        pytest.fail("Stale/completed event must not write a stopped title")
+    monkeypatch.setattr(runtime, "rename_codex_session", unexpected)
+    runtime.handle_hook_event(event(turn_id="new-turn"), "codex", state_directory=tmp_path)
+    for stale in [event("Interrupt", turn_id="old-turn"), event("Interrupt"), event("Stop", turn_id="new-turn")]:
+        assert runtime.handle_hook_event(stale, "codex", state_directory=tmp_path) == {}
+    assert runtime.handle_hook_event(event("Interrupt", turn_id="new-turn", agent_id="child"),
+                                     "codex", state_directory=tmp_path) == {}
+
+
+def test_new_prompt_waits_for_our_older_interrupt_write(monkeypatch, tmp_path):
+    started, release, prompt_finished = threading.Event(), threading.Event(), threading.Event()
+    def writer(*a, **kw):
+        started.set()
+        assert release.wait(1)
+    monkeypatch.setattr(runtime, "rename_codex_session", writer)
+    runtime.handle_hook_event(event(turn_id="old-turn"), "codex", state_directory=tmp_path)
+    errors = []
+    def run(payload, done=None):
+        try:
+            runtime.handle_hook_event(payload, "codex", state_directory=tmp_path)
+        except Exception as error:
+            errors.append(error)
+        finally:
+            if done:
+                done.set()
+    interrupt = threading.Thread(target=run, args=(event("Interrupt", turn_id="old-turn"),))
+    interrupt.start()
+    assert started.wait(1)
+    prompt = threading.Thread(target=run, args=(event(turn_id="new-turn"), prompt_finished))
+    prompt.start()
+    try:
+        assert not prompt_finished.wait(0.05)
+    finally:
+        release.set()
+        interrupt.join(2)
+        prompt.join(2)
+    assert not interrupt.is_alive() and not prompt.is_alive() and not errors
+    assert json.loads((tmp_path / (SESSION + ".json")).read_text())["turn_id"] == "new-turn"
+
+
+def test_interrupt_writer_failure_is_not_reported_as_saved(monkeypatch, tmp_path):
+    def failure(*a, **kw):
+        raise RuntimeError("write failed")
+    monkeypatch.setattr(runtime, "rename_codex_session", failure)
+    runtime.handle_hook_event(event(turn_id="turn-1"), "codex", state_directory=tmp_path)
+    with pytest.raises(RuntimeError, match="write failed"):
+        runtime.handle_hook_event(event("Interrupt", turn_id="turn-1"), "codex", state_directory=tmp_path)
+
+
+def test_turn_state_never_follows_links_into_client_files(monkeypatch, tmp_path):
+    victim = tmp_path / "client.json"
+    victim.write_text("preserve")
+    state = tmp_path / "state"
+    state.mkdir()
+    (state / (SESSION + ".json")).symlink_to(victim)
+    with pytest.raises(ValueError, match="symbolic link"):
+        runtime.handle_hook_event(event(turn_id="turn-1"), "codex", state_directory=state)
+    assert victim.read_text() == "preserve"
 
 
 @pytest.fixture

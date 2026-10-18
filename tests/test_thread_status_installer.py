@@ -18,7 +18,8 @@ spec.loader.exec_module(installer)
 def installation(tmp_path, monkeypatch):
     source = tmp_path / "source"
     for name, content in (("scripts/thread_status.py", b"# runtime\n"),
-                          ("src/thread_status.py", b"# formatter\n")):
+                          ("src/thread_status.py", b"# formatter\n"),
+                          ("src/codex_thread_titles.py", b"# Codex API adapter\n")):
         path = source / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(content)
@@ -44,17 +45,20 @@ def test_formats_preservation_copy_and_idempotence(installation, client):
     assert document["permissions"] == original["permissions"]
     assert document["hooks"]["Stop"] == original["hooks"]["Stop"]
     assert document["hooks"][event][0] == unrelated
-    events = (event,) if client == "cursor" else (event, "UserPromptSubmit")
+    events = ((event,) if client == "cursor" else (event, "UserPromptSubmit", "Interrupt")
+              if client == "codex" else (event, "UserPromptSubmit"))
     assert set(document["hooks"]) == {*events, "Stop"}
     for name in events:
         entry = document["hooks"][name][-1]
         handler = entry if client == "cursor" else entry["hooks"][0]
         assert shlex.split(handler["command"])[1:] == [str(script), "--client", client]
+        assert handler["timeout"] == (3 if name == "Interrupt" else 5)
     if client == "cursor":
         assert document["version"] == 1
     assert script.read_bytes() == (source / "scripts/thread_status.py").read_bytes()
     assert script.with_name(installer.CORE_NAME).read_bytes() == (source / "src/thread_status.py").read_bytes()
-    before = {path: (path.read_bytes(), path.stat().st_mtime_ns) for path in (target, script, script.with_name(installer.CORE_NAME))}
+    assert script.with_name(installer.CODEX_NAME).read_bytes() == (source / "src/codex_thread_titles.py").read_bytes()
+    before = {path: (path.read_bytes(), path.stat().st_mtime_ns) for path in (target, script, script.with_name(installer.CORE_NAME), script.with_name(installer.CODEX_NAME))}
     assert not installer.install(client)["changed"]
     assert {path: (path.read_bytes(), path.stat().st_mtime_ns) for path in before} == before
 
@@ -125,7 +129,7 @@ def test_backups_are_unique_and_failure_precedes_writes(installation, monkeypatc
     assert (target.read_bytes(), script.read_bytes()) == before
 
 
-@pytest.mark.parametrize("kind", ["config", "runtime", "core", "hooks-directory", "profile-directory"])
+@pytest.mark.parametrize("kind", ["config", "runtime", "core", "codex", "hooks-directory", "profile-directory"])
 def test_symlinks_are_refused_before_writes(installation, tmp_path, kind):
     target, script, _ = installation
     external = tmp_path / "external"
@@ -138,7 +142,8 @@ def test_symlinks_are_refused_before_writes(installation, tmp_path, kind):
     else:
         victim = external / "victim"
         victim.write_text("original")
-        link = {"config": target, "runtime": script, "core": script.with_name(installer.CORE_NAME)}[kind]
+        link = {"config": target, "runtime": script, "core": script.with_name(installer.CORE_NAME),
+                "codex": script.with_name(installer.CODEX_NAME)}[kind]
         link.parent.mkdir(parents=True, exist_ok=True)
         link.symlink_to(victim)
     before = {path: path.read_bytes() for path in external.rglob("*") if path.is_file()}

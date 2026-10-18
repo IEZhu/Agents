@@ -20,6 +20,7 @@ from scripts import install_session_readiness as helpers  # noqa: E402
 CLIENTS = ("claude", "codex", "cursor")
 SCRIPT_NAME = "agents-core-thread-status.py"
 CORE_NAME = "agents_core_thread_titles.py"
+CODEX_NAME = "agents_core_codex_titles.py"
 command_for = helpers.command_for
 atomic_write = helpers.atomic_write
 
@@ -84,12 +85,15 @@ def configure(document: dict, client: str, script: Path) -> None:
         version = document.setdefault("version", 1)
         if type(version) is not int or version != 1:
             raise ValueError("Only Cursor hooks version 1 is supported")
-    events = ("sessionStart",) if client == "cursor" else ("SessionStart", "UserPromptSubmit")
+    events = (("sessionStart",) if client == "cursor" else
+              ("SessionStart", "UserPromptSubmit", "Interrupt") if client == "codex" else
+              ("SessionStart", "UserPromptSubmit"))
     for event in events:
         items = hooks.setdefault(event, [])
         if not isinstance(items, list) or any(not isinstance(item, dict) for item in items):
             raise ValueError(f"Expected hook objects at hooks.{event}")
-        handler = {"command": command_for(script, "--client", client), "timeout": 5}
+        handler = {"command": command_for(script, "--client", client),
+                   "timeout": 3 if event == "Interrupt" else 5}
         if client == "cursor":
             helpers.upsert(items, handler, lambda item: owns_handler(item, script))
             continue
@@ -125,7 +129,8 @@ def refuse_symlinks(path: Path) -> None:
 def install(client: str, *, dry_run: bool = False) -> dict:
     target, script = client_paths(client)
     core = script.with_name(CORE_NAME)
-    for path in (target, script, core):
+    codex = script.with_name(CODEX_NAME)
+    for path in (target, script, core, codex):
         refuse_symlinks(path)
     original = target.read_bytes() if target.exists() else None
     document = json.loads(original) if original is not None else {}
@@ -133,7 +138,8 @@ def install(client: str, *, dry_run: bool = False) -> dict:
         raise ValueError(f"Expected a JSON object in {target}")
     configure(document, client, script)
     runtimes = {script: (ROOT / "scripts/thread_status.py").read_bytes(),
-                core: (ROOT / "src/thread_status.py").read_bytes()}
+                core: (ROOT / "src/thread_status.py").read_bytes(),
+                codex: (ROOT / "src/codex_thread_titles.py").read_bytes()}
     changes = {path: content for path, content in runtimes.items()
                if not path.exists() or path.read_bytes() != content}
     if document != (json.loads(original) if original is not None else {}):
