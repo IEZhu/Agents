@@ -105,9 +105,11 @@ in the task worktree, with no PR or merge performed.
 
 ## Parallel feature integration
 
-At the owner's request, this documentation PR also includes guides from two
-neighboring implementation PRs. This is a pinned snapshot of 2026-10-18, not a
-claim that either feature is present in this branch or released on `main`.
+At the owner's request, the initial documentation follow-up at `f6aeb253984d`
+included guides from two neighboring implementation PRs. Neither implementation
+was present in that revision. The initial pinned snapshot is recorded below;
+the integration update after it distinguishes current branch behavior from
+the still-pending proxy implementation. No `main` publication is claimed.
 
 | Feature | Source inspected | Documentation and release boundaries |
 |---|---|---|
@@ -132,11 +134,36 @@ unchanged 48/48 native-tool index. Diff whitespace validation passed.
 
 Before the planned `dev → main` promotion:
 
-1. Complete review of [this documentation/version PR #451](https://github.com/IEZhu/Agents/pull/451), #449 and #452, and include their accepted implementation in `dev`. Recording a dependency is not merging or approving it.
+1. Complete review of [this documentation/version PR #451](https://github.com/IEZhu/Agents/pull/451) and #449, and include their accepted implementation in `dev`. PR #452 is already integrated as recorded below. Recording a dependency is not merging or approving it.
 2. Re-fetch the implementation heads and compare them with the pinned sources above. Reconcile the overlapping README, documentation index, proxy plan, daemon/sync guides and optional dependency metadata. Keep the canonical dynamic `VERSION` source and include any resulting lock-file changes.
-3. Verify the final integrated CLI/help, status vocabulary, client support and sync allowlist against source/tests. Move the pending guides into the maintained-reference table and replace their pending banners with current integrated source evidence. A copied guide alone does not enable the feature.
+3. Verify the final integrated CLI/help, status vocabulary, client support and sync allowlist against source/tests. When #449 is integrated, move the remaining pending proxy guide into the maintained-reference table and replace its pending banner with current integrated source evidence. A copied guide alone does not enable the feature.
 4. Run the integrated documentation, release-version and affected status/proxy/sync checks. Record platform/live-client limitations and any owner acceptance still required. Do not reuse an older feature PR's CI result as a check of the final release SHA.
 5. Prepare or validate one canonical version against fetched `origin/main` after integration, then follow the [release procedure](releases.md#prepare-a-promotion), including the owner's decision and verification of the resulting tag and release. This documentation work does not publish or merge a release.
+
+### Integration update after PR #452
+
+PR #452 merged into `dev` at
+[`195156ad1dd0`](https://github.com/IEZhu/Agents/commit/195156ad1dd0f95857173e82f3cc6af9aa7e371f)
+on 2026-10-18. This branch incorporates that target update and preserves its
+final thread-status guide, including native Windows Codex launcher handling,
+the precise prompt-start preservation rule and the three-platform test workflow.
+Thread status is now a maintained reference rather than a pending feature.
+The proxy implementation remains outside this branch and its pending notice
+continues to apply. The optional Claude SDK dependency is reconciled with this
+PR's dynamic canonical version metadata: regenerating `uv.lock` adds the
+`thread-status` extra and its pinned `claude-agent-sdk==0.2.168` package without
+changing existing dependency versions or restoring a static root version.
+
+The focused integration selection passed 539 tests with 9 skips. It covers
+documentation, flows, registrations and permissions, calendar preparation and
+publication, status/installer/metadata adapters, rules and prepared workers.
+The offline documentation check passed for 133 Markdown files and the unchanged
+48/48 native-tool index. `uv lock --check --offline`, canonical version
+`--check --base origin/main` and whitespace validation passed. An additional
+prepared independent review of the pinned integration inputs identified the
+missing SDK lock metadata and status-guide reconciliation above; its unchanged
+result passed the original contract validator. These checks do not establish
+live client rendering or release publication.
 
 ## Quality badge follow-up — 2026-10-18
 

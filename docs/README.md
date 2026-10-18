@@ -24,6 +24,7 @@ also applies to AI instructions, plans, and reports.
 | Keep a standalone installation updated | [Standalone stdio auto-update](../README.md#standalone-stdio-auto-update), [model switch on update](../README.md#model-switch-on-update) | `src/self_update.py`, `src/startup.py`, `src/model_migration.py`, `src/reindex.py`, `src/engine/config.py` |
 | Install or refresh global client instructions | [Instruction installation and updates](../README.md#codex-instruction-installation) | `scripts/install_instructions.py`, `scripts/_helpers/install_codex_instructions.py`, `scripts/_helpers/inject_claude_md.py`, `scripts/_helpers/migrate_routing_memory.py`, `src/client_paths.py`, `scripts/templates/` |
 | Show local operational information through native startup/`/clear` hooks in Claude/Codex, session-start first-response delivery in Cursor/Antigravity, or the MCP first-response fallback in Claude Desktop Chat; ask Claude/Codex to restore the Agents-Core persona after a compaction | [Session readiness](session-readiness.md) | `scripts/session_readiness.py`, `scripts/session_readiness_mcp.py`, `scripts/install_session_readiness.py`, `tests/test_session_readiness.py` |
+| Maintain emoji prefixes in current chat titles, including final handoffs and user interruption, with client capability limits | [Thread status](thread-status.md) | `src/thread_status.py`, `src/codex_thread_titles.py`, `scripts/thread_status.py`, `scripts/install_thread_status.py`, `rules/rule-thread-status.mdc`, `tests/test_thread_status*.py`, `tests/test_codex_thread_titles.py`, `.github/workflows/thread-status.yml` |
 | Prepare the shared calendar version and promote dev to main | [Calendar releases](releases.md) | `VERSION`, `src/calendar_version.py`, `src/version.py`, `scripts/bump_plugin_version.py`, `.github/workflows/release-version.yml`, `scripts/release_version.py`, `tests/test_bump_plugin_version.py`, `tests/test_release_version.py`, `tests/test_version.py` |
 | Understand persona continuity and routing | [Routing](routing_flow.md) | `src/server.py`, `src/engine/persona.py`, `src/engine/persona_bundle.py`, `src/engine/router.py`, `src/schemas/protocol.py` |
 | Delegate a bounded task and validate its result | [Subagent contract and API](subagent-contract.md) | `src/engine/subagent.py`, `src/engine/subagent_validation.py`, `src/schemas/subagent.py`, `src/server.py`, `agents/*/subagent.mdc`, `rules/subagents/` |
@@ -64,14 +65,13 @@ also applies to AI instructions, plans, and reports.
 
 ## Pending feature integration
 
-These guides were checked against the pinned neighboring PRs on 2026-10-18.
-Their implementations are absent from this documentation branch. Follow the
+The proxy guide was checked against its pinned neighboring PR on 2026-10-18.
+Its implementation is absent from this documentation branch. Follow the
 [integration checklist](documentation-audit-2026-10-18.md#parallel-feature-integration)
-before promoting them to released behavior or running their commands.
+before promoting it to released behavior or running its commands.
 
 | Reader task | Guide | Pinned implementation and evidence |
 |---|---|---|
-| Interpret title status, install client hooks and distinguish interruption from completion | [Emoji thread status](thread-status.md) | [PR #452 at 8efc4e0cf39e](https://github.com/IEZhu/Agents/tree/8efc4e0cf39ecca8daad0d7aace75a4f12cf9e2b): `src/thread_status.py`, `src/codex_thread_titles.py`, `scripts/thread_status.py`, `scripts/install_thread_status.py`, focused formatter/installer/metadata tests |
 | Connect HTTP MCP upstreams, confirm revisions, store credentials and sync host inventory | [HTTP MCP proxy](mcp-proxy.md) | [PR #449 at d067c315caf3](https://github.com/IEZhu/Agents/tree/d067c315caf3c9877896315b96e68d4bb4a25c11): `src/mcp_registry.py`, `src/mcp_secrets.py`, `src/daemon/mcp_proxy/`, `src/daemon/mcp_cli.py`, `src/daemon/mcp_ui.py`, MCP and sync tests |
 
 ## AI instruction sources

@@ -1,7 +1,5 @@
 # Emoji thread status
 
-> **Pending integration — 2026-10-18.** This guide describes [PR #452](https://github.com/IEZhu/Agents/pull/452) at [`8efc4e0cf39e`](https://github.com/IEZhu/Agents/tree/8efc4e0cf39ecca8daad0d7aace75a4f12cf9e2b). Its implementation is not included in this documentation branch. Use the commands only with a revision containing that implementation; the [integration checklist](documentation-audit-2026-10-18.md#parallel-feature-integration) records release prerequisites.
-
 One leading emoji in a conversation title describes the task's current state.
 The remaining title stays intact. Runtime `active`, `idle`, unread flags and age
 are not evidence that the user's task is complete.
@@ -49,9 +47,10 @@ from closure. A new work request resumes `working`.
 | Cursor Agents window | `sessionStart` supplies policy and conversation identity | Model-driven native rename, only when the surface exposes it |
 | Cursor classic IDE sidebar | Context policy only | No verified public title-write API; report unavailable instead of writing its database |
 
-Claude's native hook does not reopen an already marked paused, waiting, review
-or stopped/finished task merely because a prompt arrived. The model decides whether the
-new request actually resumes work. Session startup, resume and compaction only
+Claude's native prompt hook sets a working prefix only for unmarked, `unknown`
+or `working` titles. It preserves `needs_user`, `waiting`, `blocked`, `review`,
+`paused`, `stopped`, `ready_to_close` and `closed` until the model decides whether
+the new request actually resumes work. Session startup, resume and compaction only
 deliver context, without claiming work has started. Ordinary response-end hooks
 are deliberately absent: the end of a response does not establish task completion. Subagent and
 background events cannot rename the parent chat.
@@ -139,6 +138,12 @@ bounded and never calls `thread/resume` or `turn/start`. Native host tools remai
 preferred for model-driven transitions. A hook cannot invoke a model-only tool
 just because it is installed.
 
+On Windows the metadata adapter launches the native `codex.exe` directly. It
+resolves supported npm shim/package layouts without executing their `.cmd`,
+PowerShell or Node wrappers, so terminating the owned process cannot leave an
+npm wrapper's server running after the turn-record lock is released. Unsupported
+launcher layouts fail visibly; lifecycle hooks still deliver policy context.
+
 To remove the opt-in hooks, remove only commands referencing
 `agents-core-thread-status.py` from Claude/Codex `SessionStart` and
 `UserPromptSubmit`, Codex `Interrupt`, or Cursor `sessionStart`. Preserve other handlers, then delete
@@ -156,7 +161,9 @@ PYTHONDONTWRITEBYTECODE=1 LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pyt
 Tests use temporary profiles and fake SDKs; they check preservation, idempotence,
 event/output compatibility, stale-interrupt races, bounded transport, failure
 readback and worker exclusion.
-They do not establish live rendering, client trust or Windows execution.
+The `Thread status` workflow runs these adapter, hook and installer tests on
+Linux, macOS and Windows. They do not establish live client rendering, client
+trust or a real PowerShell/client integration.
 
 Primary contracts: [Claude hooks](https://code.claude.com/docs/en/hooks),
 [Claude SDK metadata](https://code.claude.com/docs/en/agent-sdk/python#rename_session),

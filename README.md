@@ -15,7 +15,7 @@ Agents-Core is a local Model Context Protocol (MCP) server for assistants that n
 - [Compact documentation index](llms.txt): direct Markdown links for agents discovering the project.
 - [Install in an MCP client](llms-install.md): manual stdio configuration, including Cline.
 - [Documentation map](docs/README.md): current guides, reference material, and evaluation reports.
-- [Next-release integration](docs/documentation-audit-2026-10-18.md#parallel-feature-integration): pending thread-status and HTTP MCP proxy guides, pinned to their implementation PRs.
+- [Next-release integration](docs/documentation-audit-2026-10-18.md#parallel-feature-integration): HTTP MCP proxy dependency and release prerequisites; thread status is already integrated in `dev`.
 - [AI contributor instructions](AGENTS.md) and [Claude instructions](CLAUDE.md).
 - [Model workflows](flows/README.md): reusable Markdown instructions, including
   the [documentation refresh process](flows/documentation-refresh.md).
@@ -800,6 +800,10 @@ Install it separately using the [commands for your platform](docs/session-readin
 Codex requires reviewing and trusting the new hook in `/hooks`. Cursor and
 Antigravity request display in the first response; ordinary Claude Desktop Chat
 uses an MCP first-response fallback because it has no native lifecycle hook.
+
+For automatic emoji prefixes on task conversations in Claude Code, Codex and supported
+Cursor surfaces, see [Thread status](docs/thread-status.md). Its separate opt-in installer
+preserves the readiness hooks and documents each client's title-update limits.
 
 Before each request, the model silently checks whether its active role fits the
 task. If it does, it keeps that role without routing, candidate selection or
