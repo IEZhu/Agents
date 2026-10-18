@@ -69,7 +69,7 @@ Use `get_subagent_context` with a canonical role, one task, concrete `acceptance
 1. Require `status: prepared` and retain the original `contract`.
 2. Forward `worker_context` unchanged, plus only necessary task materials, to a fresh native worker. When the package has `execution.spawn`, launch the worker with exactly those arguments. The host launches it and enforces permissions and runtime limits. Keep the parent's persona unchanged.
 3. Pass every returned or revised output unchanged to `validate_subagent_result` with the retained contract.
-4. Require `valid: true`, then independently assess source evidence, reported checks and acceptance criteria. Structural validity alone does not verify correctness. A returned `escalation` names the `complexity` for a new attempt with a new `attempt_id`.
+4. Require `valid: true`, then independently assess source evidence, reported checks and acceptance criteria. Structural validity alone does not verify correctness. `validate_subagent_result` may return `escalation`: for `valid: false`, first return the diagnostics for one correction and escalate only if the corrected output is still invalid; for a `failed` or `partial` status or a failed check, prepare a new attempt with a new `attempt_id` at the escalation's `complexity`.
 
 If preparation, validation or native spawning is unavailable, report that limitation and do practical work in the parent. The [worker contract](subagent-contract.md) covers result statuses and retries. Pinned [artifact manifests](shared-artifacts.md) support shared exact input without copying it into every assignment.
 
