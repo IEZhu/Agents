@@ -10,7 +10,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from src.thread_status import STATUSES, managed_status, status_title
+from src.thread_status import STATUSES, STATUS_GUIDANCE, managed_status, status_title
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("status_runtime", ROOT / "scripts/thread_status.py")
@@ -33,6 +33,14 @@ def test_prefix_requires_boundary_and_preserves_unrelated_emoji():
     assert managed_status("🤖 Build") is None
 
 
+def test_finishing_is_recognized_and_replaced_without_changing_title_body():
+    assert STATUSES["finishing"] == "🧹"
+    assert managed_status("🧹 Проверить API — #42") == "finishing"
+    assert status_title("🏁 🧹 🧪 Проверить API — #42", "finishing") == "🧹 🧪 Проверить API — #42"
+    assert status_title("🧹 🧪 Проверить API — #42", "working") == "🔄 🧪 Проверить API — #42"
+    assert status_title("🧹Decorative title", "working") == "🔄 🧹Decorative title"
+
+
 @pytest.mark.parametrize("length", [997, 998, 999, 1000])
 @pytest.mark.parametrize("first", STATUSES)
 def test_longest_accepted_bodies_survive_every_status_transition(length, first):
@@ -44,7 +52,7 @@ def test_longest_accepted_bodies_survive_every_status_transition(length, first):
         assert status_title(title, status) == title
 
 
-@pytest.mark.parametrize("title", ["", " ", "🔄", "🔄 👀", "line\nbreak", "\x1b[31mTitle", "x" * 1001, None, 12])
+@pytest.mark.parametrize("title", ["", " ", "🔄", "🔄 👀", "🧹", "🧹 🏁", "line\nbreak", "\x1b[31mTitle", "x" * 1001, None, 12])
 def test_invalid_or_missing_title_never_becomes_invented_title(title):
     with pytest.raises(ValueError):
         status_title(title, "working")
@@ -66,7 +74,7 @@ def test_claude_prompt_adds_native_title_without_reading_transcript(tmp_path):
     assert "must/not/be/read" not in json.dumps(out)
 
 
-@pytest.mark.parametrize("title", ["⏸️ Paused", "🛑 Stopped", "✅ Closed", "🏁 Finished", "🙋 Need answer", "👀 Review", "⏳ CI", "🚧 Blocked"])
+@pytest.mark.parametrize("title", ["⏸️ Paused", "🛑 Stopped", "🧹 Remaining obligations", "✅ Closed", "🏁 Finished", "🙋 Need answer", "👀 Review", "⏳ CI", "🚧 Blocked"])
 def test_lifecycle_alone_does_not_reopen_task(title):
     output = runtime.hook_output(event(session_title=title), "claude")
     assert "sessionTitle" not in output["hookSpecificOutput"]
@@ -77,6 +85,24 @@ def test_session_start_gives_policy_without_claiming_work_started(client):
     fields = runtime.hook_output(event("SessionStart", source="resume", session_title="✅ Task"), client)["hookSpecificOutput"]
     assert "sessionTitle" not in fields
     assert "ready_to_close=🏁" in fields["additionalContext"]
+
+
+@pytest.mark.parametrize("client,event_name", [("claude", "SessionStart"), ("claude", "UserPromptSubmit"),
+                                              ("codex", "SessionStart"), ("codex", "UserPromptSubmit"),
+                                              ("cursor", "sessionStart")])
+def test_all_clients_receive_finishing_and_final_handoff_policy(client, event_name):
+    output = runtime.hook_output(event(event_name, conversation_id=SESSION), client)
+    context = (output["additional_context"] if client == "cursor"
+               else output["hookSpecificOutput"]["additionalContext"])
+    assert context.startswith(STATUS_GUIDANCE)
+    for phrase in ("finishing=🧹", "required work remains from a closure audit; task is unfinished",
+                   "Use needs_user, review or ready_to_close only at the final handoff",
+                   "a tool, CI or a subagent is working/waiting, never human review",
+                   "At a closure-audit handoff, use finishing when required obligations remain",
+                   "unless essential input or required human approval calls for needs_user/review",
+                   "finish or explicitly resolve each before ready_to_close",
+                   "Resume implementation as working", "a new work request after closed is also working"):
+        assert phrase in context
 
 
 def test_no_unsupported_title_fields_in_codex_or_cursor():
@@ -183,13 +209,14 @@ def sdk(monkeypatch):
     return state, module
 
 
-def test_sdk_uses_explicit_session_reads_back_and_avoids_duplicate_writes(sdk, tmp_path):
+@pytest.mark.parametrize("status,prefix", [("ready_to_close", "🏁"), ("finishing", "🧹")])
+def test_sdk_uses_explicit_session_reads_back_and_avoids_duplicate_writes(sdk, tmp_path, status, prefix):
     state, _ = sdk
-    result = runtime.rename_claude_session(SESSION, str(tmp_path), "ready_to_close")
-    assert result["title"] == "🏁 Test task" and result["persisted"] is True
+    result = runtime.rename_claude_session(SESSION, str(tmp_path), status)
+    assert result["title"] == prefix + " Test task" and result["persisted"] is True
     assert result["live_ui_refresh_verified"] is False
     assert len(state["writes"]) == 1
-    assert runtime.rename_claude_session(SESSION, str(tmp_path), "ready_to_close")["changed"] is False
+    assert runtime.rename_claude_session(SESSION, str(tmp_path), status)["changed"] is False
     assert len(state["writes"]) == 1
 
 
@@ -211,23 +238,34 @@ def test_sdk_rejects_unknown_session_scope_before_access(sdk, session, directory
     assert sdk[0]["writes"] == []
 
 
-def test_installed_runtime_runs_outside_checkout_with_sibling_core(tmp_path):
+@pytest.mark.parametrize("client,event_name", [("claude", "UserPromptSubmit"), ("codex", "SessionStart"),
+                                              ("cursor", "sessionStart")])
+def test_installed_runtime_runs_outside_checkout_with_sibling_core(tmp_path, client, event_name):
     hook = tmp_path / "hooks/agents-core-thread-status.py"
     hook.parent.mkdir()
     shutil.copyfile(ROOT / "scripts/thread_status.py", hook)
     shutil.copyfile(ROOT / "src/thread_status.py", hook.with_name("agents_core_thread_titles.py"))
-    result = subprocess.run([sys.executable, str(hook), "--client", "claude"], cwd=tmp_path,
-                            input=json.dumps(event(session_title="Task")), capture_output=True, text=True, check=True)
-    assert json.loads(result.stdout)["hookSpecificOutput"]["sessionTitle"] == "🔄 Task"
+    result = subprocess.run([sys.executable, str(hook), "--client", client], cwd=tmp_path,
+                            input=json.dumps(event(event_name, session_title="Task", conversation_id=SESSION)),
+                            capture_output=True, text=True, check=True)
+    output = json.loads(result.stdout)
+    if client == "claude":
+        assert output["hookSpecificOutput"]["sessionTitle"] == "🔄 Task"
+    context = (output["additional_context"] if client == "cursor"
+               else output["hookSpecificOutput"]["additionalContext"])
+    assert context.startswith(STATUS_GUIDANCE)
+    assert "finishing=🧹" in context
     # JSON remains ASCII safe even under legacy terminal encodings.
     assert result.stdout.isascii()
 
 
-def test_cli_format_is_explicitly_not_an_applied_write():
-    result = subprocess.run([sys.executable, str(ROOT / "scripts/thread_status.py"), "--client", "cursor",
-                             "--title", "Task", "--set-status", "ready_to_close"],
+@pytest.mark.parametrize("client", ["claude", "codex", "cursor"])
+@pytest.mark.parametrize("status,prefix", [("ready_to_close", "🏁"), ("finishing", "🧹")])
+def test_cli_format_is_explicitly_not_an_applied_write(client, status, prefix):
+    result = subprocess.run([sys.executable, str(ROOT / "scripts/thread_status.py"), "--client", client,
+                             "--title", "Task", "--set-status", status],
                             capture_output=True, text=True, check=True)
-    assert json.loads(result.stdout) == {"title": "🏁 Task", "applied": False}
+    assert json.loads(result.stdout) == {"title": prefix + " Task", "applied": False}
 
 
 @pytest.mark.parametrize("raw", [b"not json", b"\xff", b"x" * 65537],

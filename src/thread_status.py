@@ -16,6 +16,7 @@ STATUSES = {
     "review": "👀",
     "paused": "⏸️",
     "stopped": "🛑",
+    "finishing": "🧹",
     "ready_to_close": "🏁",
     "closed": "✅",
     "unknown": "❔",
@@ -31,7 +32,8 @@ STATUS_GUIDANCE = (
     "working=🔄, needs_user=🙋 (required user input/decision), waiting=⏳ (an external "
     "event already underway), blocked=🚧 (an obstacle needs action), review=👀 "
     "(required human review/acceptance), paused=⏸️ (explicit pause), stopped=🛑 "
-    "(confirmed user interruption; unfinished work), ready_to_close=🏁 "
+    "(confirmed user interruption; unfinished work), finishing=🧹 "
+    "(required work remains from a closure audit; task is unfinished), ready_to_close=🏁 "
     "(requested work and required checks complete, no required steps remain), "
     "closed=✅ (explicitly closed or confirmed archived), unknown=❔. "
     "Keep working while implementing, testing, doing internal AI review, integrating "
@@ -42,7 +44,11 @@ STATUS_GUIDANCE = (
     "settled, and the next necessary step belongs to the user. If essential input "
     "blocks the task, finish independent work first, then hand off as needs_user; "
     "the whole task may still be unfinished. Do not request attention and then "
-    "continue autonomous work. Update when work starts/resumes, before required "
+    "continue autonomous work. At a closure-audit handoff, use finishing when required obligations remain, "
+    "unless essential input or required human approval calls for needs_user/review. "
+    "Never describe those obligations as complete; finish or explicitly resolve each before ready_to_close. "
+    "Resume implementation as working; a new work request after closed is also working. "
+    "Update when work starts/resumes, before required "
     "input at that handoff and immediately before the final log_interaction. "
     "A finished response, idle, session exit or old age "
     "does not mean ready_to_close or closed. Preserve an explicit pause until work "
