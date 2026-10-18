@@ -105,6 +105,13 @@ class Service:
         self.requests = set()
         self.usage = Usage(self)  # answer counts and the apps that use the daemon (#187)
         self.overview = Overview(self)  # the landing page's facts about the installation (#188)
+        from src.mcp_registry import Registry
+        from src.mcp_secrets import Secrets
+        from .mcp_proxy.upstreams import Supervisor
+        library = Path(os.environ.get("AGENTS_USER_FLOWS_DIR") or installation_root() / "flows" / ".user")
+        self.mcp_registry = Registry(library, self.directory)
+        self.mcp_secrets = Secrets(self.directory)
+        self.mcp_proxy = Supervisor(self.mcp_registry, self.mcp_secrets, self.directory)
         self.flows_ui = FlowsUI(self)
         # Only the service's entry point hands the library over from the OS scheduler (#168).
         self.user_sync = UserSync(self, hand_off_schedule=hand_off_schedule)
@@ -133,7 +140,7 @@ class Service:
                 "loop_lag_max_seconds": round(self.loop_lag_max, 6),
                 "startup_loop_lag_max_seconds": round(self.startup_loop_lag_max, 6),
                 "inference_pending": inference.pending if inference else 0,
-                "user_sync": self.user_sync.summary(), **self.local_inference.health()}
+                "user_sync": self.user_sync.summary(), "mcp": self.mcp_proxy.health(), **self.local_inference.health()}
 
     async def start_runtime(self):
         maintenance = None
@@ -239,6 +246,7 @@ class Service:
             self.state = "draining"
             self.close_streams()
             self.user_sync.drain()
+            self.mcp_proxy.begin_drain()
             self.local_inference.begin_drain()
             # Detached generation is fenced before any generic executor shutdown.
             try:
@@ -249,6 +257,7 @@ class Service:
             deadline = time.monotonic() + 60
             while (self.inflight or self.io.inflight or self.user_sync.pending) and time.monotonic() < deadline:
                 await asyncio.sleep(.05)
+            await self.mcp_proxy.close()
             self.stop.set()
             self.user_sync.wake()
             await runtime
@@ -272,6 +281,18 @@ class Service:
         if not hmac.compare_digest(supplied.encode(), ("Bearer " + self.token).encode()):
             return await JSONResponse({"error": "unauthorized"}, 401)(scope, receive, send)
         path = scope["path"]
+        if path == "/admin/mcp":
+            if self.state != "ready":
+                return await JSONResponse({"error": self.state}, 503)(scope, receive, send)
+            if self.inflight >= MAX_INFLIGHT:
+                return await JSONResponse({"error": "busy"}, 503)(scope, receive, send)
+            from .mcp_ui import handle
+            self.inflight += 1
+            try:
+                response = await handle(self, request)
+                return await response(scope, receive, send)
+            finally:
+                self.inflight -= 1
         if path == "/health":
             return await JSONResponse(self.health(), 200 if self.state == "ready" else 503)(scope, receive, send)
         if path == "/admin/drain" and request.method == "POST":
@@ -281,6 +302,7 @@ class Service:
             self.close_streams()
             # Sync pushes what is left; io_pending covers it until it ends or is abandoned.
             self.user_sync.drain()
+            self.mcp_proxy.begin_drain()
             self.local_inference.begin_drain()
             return await JSONResponse(self.health())(scope, receive, send)
         if path == "/admin/exit" and request.method == "POST":
@@ -293,6 +315,7 @@ class Service:
             if self.transport is not None:
                 self.state = "ready"
                 self.user_sync.resume()
+                self.mcp_proxy.resume()
                 self.local_inference.resume()
             return await JSONResponse(self.health())(scope, receive, send)
         if path.startswith("/admin/user-sync/"):
@@ -418,6 +441,7 @@ class Service:
         scope.setdefault("state", {})["client_context"] = context
         scope["state"]["local_inference_service"] = self.local_inference
         scope["state"]["artifact_service"] = self.artifacts
+        scope["state"]["mcp_proxy"] = self.mcp_proxy
         scope["state"]["cooperation_service"] = self.cooperation
         scope["state"]["cooperation_authority"] = self.directory / "cooperation"
         if request.method == "POST":

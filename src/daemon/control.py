@@ -464,10 +464,27 @@ def main(argv=None):
     sync_setup.add_argument("--trust-host-key", metavar="SHA256:…", help="confirm the host key fingerprint")
     sync_setup.add_argument("--confirm-private", action="store_true", default=None,
                             help="confirm the repository is private when the host cannot be checked")
+    mcp = commands.add_parser("mcp", help="manage HTTP MCP proxy connections")
+    mcp_commands = mcp.add_subparsers(dest="mcp_command", required=True)
+    mcp_commands.add_parser("list")
+    mcp_add = mcp_commands.add_parser("add")
+    mcp_add.add_argument("alias"); mcp_add.add_argument("--url", required=True)
+    mcp_add.add_argument("--bearer", action="store_true", help="read bearer token from stdin")
+    mcp_add.add_argument("--apps", required=True, help="comma-separated apps to enable")
+    for name in ("connect", "disable"):
+        child = mcp_commands.add_parser(name); child.add_argument("alias")
     args = parser.parse_args(argv)
     controller = Controller(args.state)
     overrides = []
     claude_code_skipped = None
+    if args.command == "mcp":
+        from .mcp_cli import run
+        try:
+            result = run(controller, args)
+        except (OSError, ValueError, RuntimeError, URLError):
+            result = {"error": "MCP management failed; check the running service and connection status"}
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return int("error" in result)
     if args.command in ("audit", "migrate"):
         from src.client_paths import parse_client_configs, CLIENTS
         try:

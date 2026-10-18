@@ -681,6 +681,8 @@ With serving processes stopped, run a manual rebuild using `python -m src.reinde
 
 ## 🎯 How It Works
 
+The shared daemon can also proxy manually configured HTTP MCP servers through the existing Agents-Core entry. Open **MCP** in the web UI, store credentials in the native OS secret store and select allowed apps. Tools appear as `<alias>__<tool>` after reconnecting MCP in open chats. See [HTTP MCP proxy](docs/mcp-proxy.md) for setup and the initial scope.
+
 The server exposes MCP tools that any compatible client can call:
 
 | Tool | Purpose |
