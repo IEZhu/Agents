@@ -2,6 +2,8 @@
 
 Date: 2026-10-12. Status: proposal. Nothing of it is implemented; the task breakdown is at the end.
 
+Implementation update, 2026-10-18: the [manual HTTP proxy slice](mcp-proxy.md) now implements native secret storage, local revision/app consent, lazy HTTP sessions, cached tool exposure and UI/CLI management. The remaining design below is a proposal; the complete epic is still open.
+
 ## Summary
 
 The shared daemon becomes an MCP client of the user's other MCP servers and exposes their tools through the one `Agents-Core` entry every AI app already has. A server is added once, in the web UI (from a catalog, by import from an AI app's configuration, or by hand), and from then on:
