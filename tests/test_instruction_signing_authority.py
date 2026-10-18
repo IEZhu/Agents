@@ -424,6 +424,33 @@ def test_cli_init_refuses_a_retargeted_canonical_root_before_creating_authority(
     assert not (state / "signing").exists()
 
 
+@pytest.mark.skipif(os.name == "nt", reason="Native symlink privileges differ")
+def test_cli_init_rechecks_confirmed_binding_in_the_backend_before_creating_state(tmp_path, monkeypatch, capsys):
+    from src.instruction_signing import authority
+
+    base = tmp_path.resolve()
+    installation, approved, substituted = (base / name for name in ("installation", "approved", "substituted"))
+    for path in (installation, approved, substituted):
+        path.mkdir()
+    original_root = authority._root
+
+    def change_before_backend_resolution(path):
+        if os.fspath(path) == str(approved):
+            approved.rename(base / "moved-library")
+            approved.symlink_to(substituted, target_is_directory=True)
+        return original_root(path)
+
+    monkeypatch.setattr(authority, "_root", change_before_backend_resolution)
+    monkeypatch.setattr("builtins.input", lambda _: "yes")
+    state = base / "state"
+    assert main(["--state-dir", str(state), "--installation", str(installation),
+                 "init", "--label", "owner", "--library", str(approved)]) == 2
+    shown = capsys.readouterr()
+    assert f"Library: {approved}\n" in shown.out
+    assert "Library root changed after confirmation" in shown.err
+    assert not (state / "signing").exists()
+
+
 def test_cli_add_prints_canonical_fingerprint_and_scope_decline_does_not_mutate(enrolled, tmp_path, monkeypatch, capsys):
     store, installation, library, snapshot = enrolled
     key = ec.generate_private_key(ec.SECP256R1())
