@@ -56,7 +56,7 @@ text. Preserve the repository's client-compatible schema conventions.
 | `max_implants` | Default 0, range 0..2 |
 | `max_context_chars` | Default 16000, range 2000..64000; complete worker-context character budget |
 | `complexity` | Optional `low`, `standard` or `high`; returns `execution` with the worker's model tier ([model tiers](subagent-model-tiers.md)) |
-| `client` | Optional `claude`, `codex` or `cursor`; detected from the request when omitted |
+| `client` | Optional `claude`, `codex` or `cursor`, the parent's host; pass it with `complexity`, otherwise the server falls back to the `X-Agents-Client` header or, over stdio, MCP `clientInfo` |
 
 Empty required text, unknown roles or types, invalid bounds and oversized input
 return a structured error, never a partial usable bundle. Bound individual input

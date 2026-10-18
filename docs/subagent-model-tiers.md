@@ -68,7 +68,8 @@ context, scope, non-goals and acceptance criteria:
   more than 12000 characters of task and context, or an artifact manifest with more
   than 5 entries or more than 65536 bytes.
 
-Every applied floor is reported in `floor_reasons`. False positives cost tokens,
+Every applied floor is reported in `floor_reasons`, as is `client:unknown` when an
+unidentified client forces `inherit`. False positives cost tokens,
 not quality, so the lists lean wide.
 
 ## Model resolution
@@ -93,13 +94,19 @@ opened with SQLite `mode=ro` and a short timeout.
 
 ### Client detection
 
-The client comes from the `client` argument when given, otherwise from the request:
-the shared daemon's `X-Agents-Client` header (`claude-code`, `codex`, `cursor`),
-or over stdio the MCP `clientInfo.name`. A name containing `codex` or `cursor`
-names that client; `claude-code` (or `claude`) names Claude Code. Any other client
-(the Claude desktop chat, Antigravity, unknown) gets tier `inherit` with
-`client: null` and no `spawn`: no lighter model can be launched there, so the host
-keeps its model and nothing escalates; `requested_tier` still reports the rating.
+The parent passes `client`, the host it runs in, as the protocol asks: a model
+knows whether it runs in Claude Code, Codex or Cursor. Without the argument the
+server falls back to the request: the shared daemon's `X-Agents-Client` header
+(`claude-code`, `codex`, `cursor`), or over stdio the MCP `clientInfo.name`. A name
+containing `codex` or `cursor` names that client; `claude-code` (or `claude`) names
+Claude Code. The fallback often finds nothing: registrations written before the
+header existed (#187) do not send it, and over stateless HTTP `clientInfo` arrives
+only with `initialize`, not with tool calls (seen on 2026-10-17, when no
+registration of one installation sent the header). An unidentified client (also the
+Claude desktop chat or Antigravity) gets tier `inherit` with `client: null`, no
+`spawn` and the reason `client:unknown` in `floor_reasons`: no lighter model can be
+launched for it, so the host keeps its model and nothing escalates;
+`requested_tier` still reports the rating.
 
 ### Configuration
 
@@ -124,7 +131,7 @@ warning and the default applies.
 | Argument | Contract |
 |---|---|
 | `complexity` | `low`, `standard` or `high`; omitted = no tiering |
-| `client` | `claude`, `codex` or `cursor`; omitted = detected |
+| `client` | `claude`, `codex` or `cursor`, the parent's host; pass it with `complexity`, otherwise the server falls back to the `X-Agents-Client` header or, over stdio, MCP `clientInfo` ([client detection](#client-detection)) |
 
 With `complexity`, the contract gains `execution`, covered by
 `contract_revision` like every other field:
