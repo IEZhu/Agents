@@ -1088,19 +1088,40 @@ def test_uninstall_preserves_modified_or_foreign_readiness(tmp_path, monkeypatch
     ctx, paths, runtimes, _ = readiness_profiles(tmp_path, monkeypatch, "linux")
     target, _ = paths[client]
     document = json.loads(target.read_bytes())
-    entry = readiness_entry(document, client)
-    if change == "modified":
-        if client == "desktop":
-            entry["env"] = {"MY_SETTING": "keep"}
+    entries = [readiness_entry(document, client)]
+    if client in ("claude", "codex"):  # the startup/clear group and the compact group
+        entries = [group["hooks"][0] for group in document["hooks"]["SessionStart"]]
+        assert len(entries) == 2
+    for entry in entries:
+        if change == "modified":
+            if client == "desktop":
+                entry["env"] = {"MY_SETTING": "keep"}
+            else:
+                entry["timeout"] = 7
         else:
-            entry["timeout"] = 7
-    else:
-        entry["command"] = entry["command"].replace(str(ctx.home / ".agents-core"), str(ctx.home / "other-installation"))
+            entry["command"] = entry["command"].replace(str(ctx.home / ".agents-core"),
+                                                        str(ctx.home / "other-installation"))
     raw = (json.dumps(document, indent=2) + "\n").encode()
     target.write_bytes(raw)
     contents = {path: path.read_bytes() for path in runtimes[client]}
     assert main(["--yes"], ctx=ctx, interactive=False) == 0
     assert target.read_bytes() == raw
+    assert all(path.read_bytes() == content for path, content in contents.items())
+
+
+@pytest.mark.parametrize("client", ["claude", "codex"])
+def test_uninstall_removes_the_compact_group_beside_a_modified_startup_group(tmp_path, monkeypatch, client):
+    """The unchanged compact group goes; the modified startup group keeps the runtime it references."""
+    ctx, paths, runtimes, _ = readiness_profiles(tmp_path, monkeypatch, "linux")
+    target, _ = paths[client]
+    document = json.loads(target.read_bytes())
+    startup, compact = document["hooks"]["SessionStart"]
+    assert compact["matcher"] == readiness_installer.COMPACT_MATCHER
+    startup["hooks"][0]["timeout"] = 7
+    target.write_text(json.dumps(document), encoding="utf-8")
+    contents = {path: path.read_bytes() for path in runtimes[client]}
+    assert main(["--yes"], ctx=ctx, interactive=False) == 0
+    assert json.loads(target.read_bytes())["hooks"]["SessionStart"] == [startup]
     assert all(path.read_bytes() == content for path, content in contents.items())
 
 

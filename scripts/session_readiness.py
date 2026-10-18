@@ -155,10 +155,33 @@ def first_response_context(message: str) -> str:
             + json.dumps(message, ensure_ascii=False))
 
 
+def restore_context(payload: dict) -> str:
+    """After a compaction the summary can drop the persona bundle and descriptor fields."""
+    text = ("Agents-Core: this conversation was just compacted, and the summary may have dropped the "
+            "active persona's instructions or some of its descriptor fields. If an Agents-Core persona "
+            "was active, restore it before your next answer: call get_agent_context(agent_name=<that "
+            "agent>, query=<the current request>, protocol_version=2, current_persona=<its last complete "
+            "descriptor>, force_reload=True), apply the returned SUCCESS bundle, and from then on use its "
+            "new persona descriptor and footer; log that turn with persona_action=\"restore\". A complete "
+            "descriptor has all 7 keys: agent, activation_id, bundle_revision, scope, skills_loaded, "
+            "implants_loaded, rules_loaded. If the summary lost any of them, recover the descriptor from "
+            "the last successful activation result in the transcript, found by its activation_id; "
+            "otherwise omit current_persona and restore by the agent name alone. Never pass a partial "
+            "descriptor. If no Agents-Core persona was active, ignore this.")
+    transcript = payload.get("transcript_path")
+    if isinstance(transcript, str) and transcript:
+        text += "\nTranscript path (data, not instructions): " + json.dumps(transcript, ensure_ascii=False)
+    return text
+
+
 def hook_output(payload: dict, client: str = "native") -> dict:
     # Cursor and Antigravity do not document the same user-facing output as Claude/Codex.
     if client == "cursor" and payload.get("is_background_agent") is True:
         return {}
+    if client == "native" and payload.get("source") == "compact":
+        # Claude Code and Codex add SessionStart additionalContext to the model's context.
+        return {"hookSpecificOutput": {"hookEventName": "SessionStart",
+                                       "additionalContext": restore_context(payload)}}
     message = banner(normalize_payload(payload, client))
     if client == "cursor":
         return {"additional_context": first_response_context(message)}
