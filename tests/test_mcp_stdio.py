@@ -142,6 +142,7 @@ async def test_idle_child_exits_before_lazy_replacement(tmp_path):
 def test_cli_stdio_options_preserve_top_level_dispatch(monkeypatch, capsys):
     bodies = []
     class FakeController:
+        config = {"port": 8765}
         def __init__(self, state): pass
         def request(self, path, **kwargs):
             body = kwargs["body"]
