@@ -187,6 +187,14 @@ subdirectory) before exploring it ad hoc. On `needs_summary`, follow its
 `instruction`; call `write_repo_summary` only where that instruction allows a
 write.
 
+## Work that another session owns
+
+A branch, worktree or pull request that another session or agent created belongs
+to it. Before pushing to it, merging into it or rebasing it, message that session
+through the client's session messaging (for example Claude Code `SendMessage`) or
+Agents-Core `cooperation_send`, and wait for its answer. If it does not answer,
+ask the user: silence is not consent.
+
 ## Finish each answer
 
 Except for the explicit unavailable-MCP fallback below, compose the complete final
