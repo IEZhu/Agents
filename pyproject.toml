@@ -26,6 +26,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+thread-status = [
+    "claude-agent-sdk==0.2.168",
+]
 signing-tests = [
     "pytest>=8.0",
     "model-signing==1.1.1",

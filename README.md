@@ -787,6 +787,10 @@ Codex requires reviewing and trusting the new hook in `/hooks`. Cursor and
 Antigravity request display in the first response; ordinary Claude Desktop Chat
 uses an MCP first-response fallback because it has no native lifecycle hook.
 
+For automatic emoji prefixes on task conversations in Claude Code, Codex and supported
+Cursor surfaces, see [Thread status](docs/thread-status.md). Its separate opt-in installer
+preserves the readiness hooks and documents each client's title-update limits.
+
 Before each request, the model silently checks whether its active role fits the
 task. If it does, it keeps that role without routing, candidate selection or
 enrichment calls. A needed specialization change triggers routing; a known
