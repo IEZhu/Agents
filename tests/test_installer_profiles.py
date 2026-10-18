@@ -47,7 +47,7 @@ def profile_installer(request, tmp_path):
     for name in ("routing-protocol-core.md", "memory-routing.md",
                  "legacy/memory-routing-v1.md", "legacy/memory-routing-v2.md",
                  "legacy/memory-routing-v3.md", "legacy/memory-routing-v4.md",
-                 "legacy/memory-routing-v5.md", "legacy/memory-routing-v6.md", "legacy/memory-routing-v7.md", "legacy/memory-routing-v8.md", "legacy/memory-routing-v9.md", "legacy/memory-routing-v10.md", "legacy/memory-routing-v11.md", "legacy/memory-routing-v12.md", "legacy/memory-routing-v13.md", "legacy/memory-routing-v14.md", "legacy/memory-routing-v15.md", "legacy/memory-routing-v16.md", "legacy/memory-routing-v17.md"):
+                 "legacy/memory-routing-v5.md", "legacy/memory-routing-v6.md", "legacy/memory-routing-v7.md", "legacy/memory-routing-v8.md", "legacy/memory-routing-v9.md", "legacy/memory-routing-v10.md", "legacy/memory-routing-v11.md", "legacy/memory-routing-v12.md", "legacy/memory-routing-v13.md", "legacy/memory-routing-v14.md", "legacy/memory-routing-v15.md", "legacy/memory-routing-v16.md", "legacy/memory-routing-v17.md", "legacy/memory-routing-v18.md"):
         shutil.copyfile(ROOT / "scripts/templates" / name, templates / name)
     home = tmp_path / "isolated home"
     home.mkdir()

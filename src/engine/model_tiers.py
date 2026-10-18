@@ -179,6 +179,8 @@ def plan(request: PreparationRequest, client: str | None,
     tier = max([requested, *(level for level, _ in triggered)], key=_rank)
     if client is None:
         tier = "inherit"  # no lighter model can be launched for an unknown host
+        if requested != "inherit":
+            reasons.append("client:unknown")  # tells the parent to pass client
     if _disabled(environ):
         tier, resolution = "inherit", Resolution(None, None, "disabled")
     else:

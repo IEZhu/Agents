@@ -56,6 +56,7 @@ async def test_the_client_is_detected_when_omitted(worker_tree, monkeypatch, app
     monkeypatch.setattr(server, "calling_app", lambda ctx=None: app)
     package = await call("get_subagent_context", request(complexity="low"))
     assert (package["execution"]["client"], package["execution"]["model"]) == (client, model)
+    assert ("client:unknown" in package["execution"]["floor_reasons"]) is (client is None)
 
 
 @pytest.mark.asyncio

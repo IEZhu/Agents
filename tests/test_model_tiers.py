@@ -140,7 +140,8 @@ def test_artifact_floor_counts_entries_and_bytes():
 def test_unknown_client_keeps_the_host_model():
     plan = model_tiers.plan(req("low"), None)
     assert (plan.tier, plan.client, plan.model, plan.source, plan.spawn) == ("inherit", None, None, "inherit", None)
-    assert plan.requested_tier == "light"
+    assert plan.requested_tier == "light" and plan.floor_reasons == ["client:unknown"]
+    assert model_tiers.plan(req("high"), None).floor_reasons == []
 
 
 def test_disabled_tiering_inherits(monkeypatch):
