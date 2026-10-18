@@ -131,6 +131,8 @@ def test_non_goals_never_raise_the_tier():
                                                  "Deploying to production"]), "claude")
     assert (plan.tier, plan.floor_reasons) == ("light", [])
     assert model_tiers.plan(req("low", task="Rotate the deploy secret"), "claude").tier == "inherit"
+    criteria = ["The migration loses no rows"]
+    assert model_tiers.plan(req("low", acceptance_criteria=criteria), "claude").tier == "inherit"
 
 
 def test_ordinary_words_do_not_trigger_floors():
