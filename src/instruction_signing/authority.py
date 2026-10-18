@@ -112,10 +112,12 @@ class AuthorityStore:
         root = installation_root() if installation is None else installation
         return cls(state_dir(root), root)
 
-    def initialize(self, *, label: str, library_root) -> AuthoritySnapshot:
+    def initialize(self, *, label: str, library_root, expected_library_root=None) -> AuthoritySnapshot:
         """Trusted first-start enrollment; never repair/re-enroll existing state."""
         text(label, maximum=256)
         library = _root(library_root)
+        if expected_library_root is not None and library != os.path.normcase(os.fspath(expected_library_root)):
+            raise AuthorityError("Library root changed after confirmation; repeat enrollment")
         if (library == self.installation or Path(self.installation).is_relative_to(library) or
                 self.directory.resolve().is_relative_to(library)):
             raise AuthorityError("Library scope overlaps the trust base or installation root")

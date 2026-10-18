@@ -26,7 +26,9 @@ installation or selected library is refused.
 
 init resolves the library root before confirmation and enrolls the displayed
 canonical path, even if the original input symlink is retargeted during the
-prompt. A changed canonical binding is refused before enrollment. It creates
+prompt. The backend compares its resolved enrollment value with that confirmed
+path before creating state and persists the checked value; a changed binding
+is refused. It creates
 one P-256 machine.key and derived machine.pub. Its label is required and never
 taken from the hostname. Installers
 and first startup will explicitly call initialize with the owner label and
@@ -50,7 +52,9 @@ wrong-root keys are untrusted; no approval receipt is another seal kind.
 
 AuthorityStore(state_directory, installation) exposes initialize, snapshot,
 add_key, remove_key, verify, machine_key, preview_policy, set_policy and policy.
-Only trusted owner controls may call mutations. These Python methods do not
+initialize accepts expected_library_root to bind enrollment to the canonical
+root a trusted control displayed before asking for confirmation. Only trusted
+owner controls may call mutations. These Python methods do not
 themselves prove human intent, and no MCP endpoint exposes them. The later UI
 must provide its own authenticated owner-action boundary. A same-user auto-login
 is not proof of consent to repository instructions.
