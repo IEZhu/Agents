@@ -97,8 +97,9 @@ def publication(events: list[dict], rules: scope.Rules, *, generation: str | Non
                 if origin is None:
                     return None
                 data = json.dumps({"origin": origin}, indent=2).encode() + b"\n"
-            pattern, digest = scope.scan(data), scope.content_hash(data)
-            if len(data) > scope.MAX_FILE_BYTES or (pattern and digest not in rules.scopes.allow):
+            pattern, digest = scope.scan(data, path=path), scope.content_hash(data)
+            if len(data) > scope.MAX_FILE_BYTES or (pattern and
+                    (pattern == "invalid_mcp_record" or digest not in rules.scopes.allow)):
                 result.blocked.append({"path": path, "version": source, "sha256": digest,
                                        "pattern": pattern or "size"})
                 return None

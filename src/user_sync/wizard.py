@@ -205,12 +205,10 @@ def describe_preview(preview: dict) -> list[str]:
         lines += _listed(title, [_entry(item) for item in preview.get(key, [])])
     lines += _listed("Conflicts: the repository's version stays, this machine's is kept in history",
                      [f"{_entry(item)}: {item.get('kind')}" for item in preview.get("conflicts", [])])
-    lines += _listed("Not uploaded, possible credentials (allow one with scope --allow-secret)",
-                     [f"{item['path']} ({item.get('pattern')})" for item in preview.get("blocked", [])])
+    lines += describe_blocked(preview.get("blocked", []), "Not uploaded")
     if preview.get("history_versions") is not None:
         lines.append(f"Flow versions to upload: {preview['history_versions']}")
-    lines += _listed("Flow versions not uploaded, possible credentials (allow one with scope --allow-secret)",
-                     [f"{item['path']} ({item.get('pattern')})" for item in preview.get("history_blocked", [])])
+    lines += describe_blocked(preview.get("history_blocked", []), "Flow versions not uploaded", history=True)
     lines += _listed("Waiting for approval on this machine",
                      list(preview.get("pending_groups", [])) + list(preview.get("pending_files", [])))
     lines += _listed("Repository groups", [
@@ -219,6 +217,22 @@ def describe_preview(preview: dict) -> list[str]:
     if preview.get("upload_bytes"):
         lines.append(f"Upload size: {preview['upload_bytes']} bytes")
     return lines
+
+
+def describe_blocked(items: list[dict], title: str, *, history: bool = False) -> list[str]:
+    """Give scanner overrides only to ordinary hits; malformed MCP records need repair."""
+    invalid = [item for item in items if item.get("pattern") == "invalid_mcp_record"]
+    credentials = [item for item in items if item.get("pattern") != "invalid_mcp_record"]
+
+    def entry(item):
+        return f"{item['path']} ({item.get('pattern')})"
+
+    remedy = "fix or re-save the record in MCP settings; secret-hash overrides do not apply"
+    if history:
+        remedy += "; invalid saved versions stay local"
+    return [*_listed(f"{title}, possible credentials (allow one with scope --allow-secret)",
+                     [entry(item) for item in credentials]),
+            *_listed(f"{title}, invalid MCP records ({remedy})", [entry(item) for item in invalid])]
 
 
 def _listed(title: str, items: list[str]) -> list[str]:

@@ -1,5 +1,7 @@
 # Shared MCP daemon operations
 
+For manually configured Streamable HTTP and stdio upstreams, use the [MCP proxy](mcp-proxy.md). Its UI is `/ui/mcp`; CLI management uses `python -m src.daemon mcp`. Cached tools are exposed as `<alias>__<tool>` through the existing authenticated endpoint. Reconnect MCP in open chats after catalog or scope changes.
+
 A macOS LaunchAgent, or on Windows a Task Scheduler task (see
 [Windows](#windows-task-scheduler)), serves local MCP clients at
 `http://127.0.0.1:8765/mcp`.
