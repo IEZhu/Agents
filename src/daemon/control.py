@@ -485,6 +485,8 @@ def main(argv=None):
     if args.command == "mcp":
         from .mcp_cli import run
         try:
+            if not controller.config.get("port"):
+                raise RuntimeError("service_not_installed")
             result = run(controller, args)
         except (ValueError, RuntimeError) as error:
             result = {"error": str(error) or "invalid_request"}
