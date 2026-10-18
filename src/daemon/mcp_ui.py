@@ -1,4 +1,4 @@
-"""Shared authenticated UI/admin operations for manual HTTP MCP connections."""
+"""Shared authenticated UI/admin operations for manual MCP connections."""
 import asyncio
 import json
 

@@ -1,4 +1,4 @@
-"""Portable HTTP MCP definitions and machine-local, exact-revision consent.
+"""Portable MCP definitions and machine-local, exact-revision consent.
 
 Definitions live in ``<library>/mcp/servers``. Enabled apps and confirmations
 are authoritative only in ``<state>/mcp/registry.json``. Sanitized snapshots in
@@ -10,7 +10,7 @@ from contextlib import contextmanager
 import hashlib
 import ipaddress
 import json
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 import re
 import secrets
 import stat
@@ -124,9 +124,36 @@ def validate_definition(definition: dict, *, stored=False) -> dict:
     if source.get("kind") not in ("manual", "catalog", "import"):
         _invalid("Unsupported definition source.")
     transport = _object(data.get("transport"), "transport")
-    if transport.get("type") != "http" or set(transport) - {"type", "url", "headers"}:
-        _invalid("This release supports HTTP transport with url and headers only.")
-    url = _text(transport.get("url"), "transport.url", 8192)
+    transport_type = transport.get("type")
+    if transport_type == "stdio":
+        if set(transport) - {"type", "command", "args", "env"}:
+            _invalid("Stdio transport accepts command, args and nonsecret env only.")
+        command = _text(transport.get("command"), "transport.command")
+        if not (PurePosixPath(command).is_absolute() or PureWindowsPath(command).is_absolute()) or any(ord(c) < 32 for c in command):
+            _invalid("Stdio command must be an absolute executable path.")
+        args = transport.setdefault("args", [])
+        if not isinstance(args, list) or len(args) > 128:
+            _invalid("Stdio args must be a list of at most 128 nonsecret arguments.")
+        for arg in args:
+            _text(arg, "stdio argument")
+            if "\x00" in arg or _CREDENTIAL.search(arg):
+                _invalid("Credentials must not appear in stdio arguments.")
+        env = _object(transport.setdefault("env", {}), "transport.env")
+        if len(env) > 64:
+            _invalid("Stdio env accepts at most 64 nonsecret variables.")
+        for name, value in env.items():
+            if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name) or _CREDENTIAL.search(name):
+                _invalid("Stdio env names must be nonsecret environment variable names.")
+            _text(value, "stdio environment value")
+            if "\x00" in value:
+                _invalid("Stdio environment values cannot contain NUL.")
+        # Validate the common HTTP-only fields below against an empty endpoint;
+        # stdio credentials are owned by the executable's local credential store.
+        if data.get("secrets") or _object(data.get("auth", {}), "auth").get("type", "none") != "none":
+            _invalid("Stdio credentials must stay in the executable's local credential store.")
+    elif transport_type != "http" or set(transport) - {"type", "url", "headers"}:
+        _invalid("Transport must be HTTP with url/headers or stdio with command/args/env.")
+    url = _text(transport.get("url") if transport_type == "http" else "http://localhost", "transport.url", 8192)
     try:
         parsed = urlsplit(url)
         valid = parsed.scheme in ("http", "https") and parsed.hostname and parsed.port != 0
@@ -136,7 +163,7 @@ def validate_definition(definition: dict, *, stored=False) -> dict:
         _invalid("Use an HTTP or HTTPS URL without user information, whitespace or fragments.")
     if any(_CREDENTIAL.search(name) for name, _ in parse_qsl(parsed.query)) or re.search(r"(?i)(?:bearer|basic)\s", unquote(url)):
         _invalid("URL credentials must be supplied through the OS secret store.")
-    headers = _object(transport.setdefault("headers", {}), "transport.headers")
+    headers = _object(transport.setdefault("headers", {}) if transport_type == "http" else {}, "transport.headers")
     seen = set()
     for name, value in headers.items():
         validate_header(name)
