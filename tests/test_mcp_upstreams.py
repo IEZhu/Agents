@@ -236,6 +236,99 @@ async def test_idle_close_reopens_only_on_call_using_saved_catalog(runtime):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("outcome", ["complete", "cancel", "deny", "drain"])
+async def test_idle_timeout_does_not_close_session_during_call_revalidation(runtime, monkeypatch, outcome):
+    supervisor, registry, _, endpoints, clients, _ = runtime
+    await supervisor.connect("one")
+    owner = supervisor._owners["one"]
+    # Force the timeout boundary after owner acquisition, without relying on a
+    # thread finishing inside a short wall-clock idle interval.
+    checked, release = threading.Event(), threading.Event()
+    original = supervisor._definition
+    count = 0
+
+    def definition(*args):
+        nonlocal count
+        count += 1
+        if count == 2:
+            checked.set()
+            assert release.wait(3)
+        return original(*args)
+
+    monkeypatch.setattr(supervisor, "_definition", definition)
+    # Retire the old session, then cross a short idle interval while the final
+    # consent read remains blocked. Public definitions require whole seconds.
+    owner.drain()
+    await owner.task
+    supervisor.registry.definitions["one"]["limits"]["idle_seconds"] = .01
+    call = asyncio.create_task(supervisor.call("one", "echo", {}, "codex"))
+    try:
+        assert await asyncio.to_thread(checked.wait, 3)
+        await asyncio.sleep(.04)
+        assert not clients[-1].is_closed
+        current = supervisor._owners["one"]
+        if outcome == "cancel":
+            call.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await call
+        elif outcome == "deny":
+            registry.confirmed.pop("one")
+            release.set()
+            with pytest.raises(UpstreamError, match="not_enabled"):
+                await call
+        elif outcome == "drain":
+            supervisor.begin_drain()
+            await asyncio.wait_for(supervisor.close(), 3)
+            release.set()
+            with pytest.raises(UpstreamError, match="disconnected"):
+                await call
+        else:
+            release.set()
+            assert (await call).isError is False
+        assert current.idle_holds == 0
+        await asyncio.wait_for(current.task, 3)
+        assert clients[-1].is_closed
+        assert endpoints["one"].started.is_set() is (outcome == "complete")
+        assert endpoints["one"].active == 0
+    finally:
+        release.set()
+        await asyncio.gather(call, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_cancelled_lazy_initialization_releases_idle_hold(runtime, monkeypatch):
+    supervisor, registry, _, endpoints, clients, _ = runtime
+    await supervisor.connect("one")
+    supervisor._owners["one"].drain()
+    await supervisor._owners["one"].task
+    registry.definitions["one"]["limits"]["idle_seconds"] = .02
+    entered, release = asyncio.Event(), asyncio.Event()
+    original = endpoints["one"].handle
+
+    async def handle(request):
+        if request.method == "POST" and json.loads(request.content).get("method") == "initialize":
+            entered.set()
+            await release.wait()
+        return await original(request)
+
+    monkeypatch.setattr(endpoints["one"], "handle", handle)
+    call = asyncio.create_task(supervisor.call("one", "echo", {}, "codex"))
+    try:
+        await asyncio.wait_for(entered.wait(), 3)
+        owner = supervisor._owners["one"]
+        call.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await call
+        assert owner.idle_holds == 0
+        release.set()
+        await asyncio.wait_for(owner.task, 3)
+        assert clients[-1].is_closed and not endpoints["one"].started.is_set()
+    finally:
+        release.set()
+        await asyncio.gather(call, return_exceptions=True)
+
+
+@pytest.mark.asyncio
 async def test_timeout_backoff_and_alias_isolation(runtime):
     supervisor, registry, secrets, endpoints, clients, _ = runtime
     registry.definitions["one"]["limits"]["call_timeout_seconds"] = .05
@@ -347,8 +440,8 @@ async def test_off_loop_paths_recheck_revision_and_app_approval(runtime, monkeyp
         await supervisor.connect("one")
     original = supervisor._owner
 
-    async def changed(definition):
-        result = await original(definition)
+    async def changed(definition, **kwargs):
+        result = await original(definition, **kwargs)
         if change == "revision":
             registry.definitions["one"]["revision"] = registry.confirmed["one"] = "rev-2"
         else:
