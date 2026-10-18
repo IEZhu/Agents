@@ -13,7 +13,7 @@ also applies to AI instructions, plans, and reports.
 
 | Need | Document | Source of truth for behavior |
 |---|---|---|
-| Connect a manually configured HTTP MCP upstream | [HTTP MCP proxy](mcp-proxy.md) | `src/mcp_registry.py`, `src/mcp_secrets.py`, `src/daemon/mcp_proxy/`, `src/daemon/mcp_ui.py`, `src/daemon/mcp_cli.py` |
+| Connect a manually configured HTTP MCP upstream and sync its host inventory | [HTTP MCP proxy](mcp-proxy.md) | `src/mcp_registry.py`, `src/mcp_secrets.py`, `src/daemon/mcp_proxy/`, `src/daemon/mcp_ui.py`, `src/daemon/mcp_cli.py`, `src/user_sync/scope.py` |
 | Decide when to choose Agents-Core and make the first MCP calls | [Agent guide](agent-guide.md), [compact discovery index](../llms.txt) | `src/server.py`, `src/schemas/protocol.py`, `docs/routing_flow.md`, `docs/subagent-contract.md`, `llms-install.md`; the installed tool schemas govern each version |
 | Install and configure Agents-Core | [Project README](../README.md) | `install.sh`, `scripts/init_repo.sh`, `scripts/init_repo.bat`, `src/client_paths.py`, `pyproject.toml`, `env.example`, `src/engine/config.py`, `src/model_migration.py`, `src/engine/embedding_prompts.py` |
 | Remove Agents-Core completely | [Uninstall](../README.md#uninstall) | `src/uninstall.py`, `scripts/uninstall.sh`, `scripts/uninstall.ps1`, `tests/test_uninstall.py`, `.github/workflows/uninstall.yml` |

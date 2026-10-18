@@ -3284,7 +3284,7 @@ async function finishReplacement() {
 // --- what syncs: groups, the "ask first" setting and uploads that need a confirmation --------
 
 const GROUP_NAMES = { common: "Personal flows", personas: "Persona choices", history: "Saved versions (history)",
-  components: "Component switches" };
+  components: "Component switches", mcp: "MCP connections and hosts" };
 
 function renderScopeList(host) {
   Promise.resolve().then(keepFocus(host, $("sync-title")));

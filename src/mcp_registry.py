@@ -1,7 +1,8 @@
 """Portable HTTP MCP definitions and machine-local, exact-revision consent.
 
 Definitions live in ``<library>/mcp/servers``. Enabled apps and confirmations
-live only in ``<state>/mcp/registry.json``. Reading never enables a definition.
+are authoritative only in ``<state>/mcp/registry.json``. Sanitized snapshots in
+``<library>/mcp/machines`` describe hosts without granting consent on this one.
 """
 from __future__ import annotations
 
@@ -11,7 +12,9 @@ import ipaddress
 import json
 from pathlib import Path
 import re
+import secrets
 import stat
+import sys
 from urllib.parse import parse_qsl, unquote, urlsplit
 
 from src import user_library
@@ -25,6 +28,8 @@ _ALIAS = re.compile(r"[a-z0-9][a-z0-9_-]{0,11}")
 _HEADER = re.compile(r"[!#$%&'*+.^_`|~0-9A-Za-z-]+")
 _TOOL = re.compile(r"[A-Za-z0-9_.-]{1,128}")
 _REVISION = re.compile(r"[0-9a-f]{64}")
+_MACHINE_ID = re.compile(r"[0-9a-f]{32}")
+_MACHINE_LABEL = re.compile(r"[a-z0-9][a-z0-9-]{0,31}")
 _CREDENTIAL = re.compile(r"authorization|authentication|cookie|token|secret|password|passwd|(?:^|[-_])(?:api[-_]?)?key(?:$|[-_])", re.I)
 _HOP_HEADERS = {"host", "connection", "content-length", "transfer-encoding", "te", "trailer", "upgrade", "proxy-authorization", "proxy-authenticate"}
 
@@ -221,6 +226,43 @@ def _read_json(path: Path) -> dict:
         _invalid("MCP record is malformed JSON.")
 
 
+def _machine_label(value) -> bool:
+    """Use the sync label grammar without copying any other sync settings."""
+    return (isinstance(value, str) and bool(_MACHINE_LABEL.fullmatch(value)) and value != "local"
+            and not any(pattern.search(value.encode("ascii")) for _, pattern in SECRET_PATTERNS))
+
+
+def validate_machine(data: dict, machine_id: str, *, strict=True) -> dict:
+    """Validate public host metadata, rejecting extensions before sync by default.
+
+    Informational reads use ``strict=False`` to isolate bad server entries and
+    expose only the known fields, even when a foreign record contains extras.
+    """
+    if (not isinstance(machine_id, str) or not _MACHINE_ID.fullmatch(machine_id)
+            or not isinstance(data, dict) or type(data.get("format")) is not int or data["format"] != 1
+            or data.get("id") != machine_id or not _machine_label(data.get("label"))
+            or not isinstance(data.get("servers"), dict)
+            or (strict and set(data) - {"format", "id", "label", "servers"})):
+        _invalid("MCP machine metadata is invalid.")
+    servers = {}
+    for alias, record in data["servers"].items():
+        try:
+            validate_alias(alias)
+            if (not isinstance(record, dict) or type(record.get("enabled")) is not bool
+                    or not isinstance(record.get("apps"), list)
+                    or any(not isinstance(app, str) or app not in APPS for app in record["apps"])
+                    or not isinstance(record.get("revision"), str) or not _REVISION.fullmatch(record["revision"])
+                    or (strict and set(record) - {"enabled", "apps", "revision"})):
+                _invalid("MCP machine server metadata is invalid.")
+            servers[alias] = {"enabled": record["enabled"], "apps": sorted(set(record["apps"])),
+                              "revision": record["revision"]}
+        except RegistryError:
+            if strict:
+                raise
+            continue
+    return {"format": 1, "id": machine_id, "label": data["label"], "servers": servers}
+
+
 class Registry:
     def __init__(self, library_root: str | Path, state_dir: str | Path):
         self.library_root = Path(library_root).expanduser().resolve()
@@ -261,6 +303,86 @@ class Registry:
     def _write_local(self, state: dict):
         user_library.atomic_write(_safe_path(self.state_dir, "mcp/registry.json"), _json({"format": 1, "servers": state}) + b"\n")
 
+    def _machine_identity(self, *, create=False) -> dict | None:
+        """Read an opaque private identity; creation requires the local state lock."""
+        path = _safe_path(self.state_dir, "mcp/machine.json")
+        try:
+            data = _read_json(path)
+        except FileNotFoundError:
+            if not create:
+                return None
+        else:
+            if (not isinstance(data, dict) or type(data.get("format")) is not int or data["format"] != 1
+                    or not isinstance(data.get("id"), str) or not _MACHINE_ID.fullmatch(data["id"])
+                    or not _machine_label(data.get("label"))):
+                _invalid("Machine-local MCP identity is invalid.")
+            return {"format": 1, "id": data["id"], "label": data["label"]}
+        # Sync labels are explicitly configured for publication. Refuse unsafe
+        # paths/values and fall back to platform + randomness, never hostname.
+        label = None
+        try:
+            settings = _read_json(_safe_path(self.state_dir, "user-sync/user-sync.json"))
+            if isinstance(settings, dict) and _machine_label(settings.get("label")):
+                label = settings["label"]
+        except (OSError, RegistryError):
+            pass
+        if label is None:
+            platform = {"darwin": "mac", "win32": "windows"}.get(sys.platform, "linux")
+            label = f"{platform}-{secrets.token_hex(2)}"
+        identity = {"format": 1, "id": secrets.token_hex(16), "label": label}
+        user_library.atomic_write(path, _json(identity) + b"\n")
+        return identity
+
+    def _publish_machine(self, state: dict, changed: list[str]) -> dict:
+        """Publish this host only, under library then local-state locks."""
+        identity = self._machine_identity(create=True)
+        data = validate_machine({**identity, "servers": state}, identity["id"], strict=False)
+        relative = f"mcp/machines/{identity['id']}.json"
+        path = _safe_path(self.library_root, relative)
+        payload = _json(data) + b"\n"
+        if len(payload) > MAX_BYTES:
+            _invalid("MCP machine metadata exceeds 64 KiB.")
+        if not path.exists() or path.read_bytes() != payload:
+            user_library.atomic_write(path, payload)
+            changed.append(relative)
+        changed += user_library.ensure_root_files(self.library_root)
+        return data
+
+    def publish_machine(self) -> dict:
+        """Migrate existing local confirmations into an idempotent public snapshot."""
+        changed = []
+        try:
+            with self._library_lock():
+                with file_lock(_safe_path(self.state_dir, "mcp/.lock")):
+                    return self._publish_machine(self._local(), changed)
+        except OSError:
+            raise RegistryError("storage", "MCP machine metadata could not be saved.") from None
+        finally:
+            user_library.notify(self.library_root, changed)
+
+    def machines(self) -> list[dict]:
+        """List sanitized informational host snapshots without creating local state."""
+        try:
+            identity = self._machine_identity()
+        except (OSError, RegistryError):
+            identity = None
+        try:
+            directory = _safe_path(self.library_root, "mcp/machines")
+        except RegistryError:
+            return []
+        records = []
+        for path in directory.glob("*.json"):
+            ident = path.stem
+            if not _MACHINE_ID.fullmatch(ident):
+                continue
+            try:
+                data = validate_machine(_read_json(_safe_path(self.library_root, f"mcp/machines/{ident}.json")), ident,
+                                        strict=False)
+                records.append({**data, "current": identity is not None and ident == identity["id"]})
+            except (OSError, RegistryError):
+                continue
+        return sorted(records, key=lambda record: (record["label"], record["id"]))
+
     @contextmanager
     def _library_lock(self):
         history = LibraryHistory(self.library_root)
@@ -289,6 +411,7 @@ class Registry:
                     previous = state.get(data["alias"], {"enabled": False, "apps": []})
                     state[data["alias"]] = {**previous, "revision": data["revision"]}
                     self._write_local(state)
+                    self._publish_machine(state, changed)
         except OSError:
             raise RegistryError("storage", "MCP definition or machine-local confirmation could not be saved.") from None
         finally:
@@ -316,6 +439,7 @@ class Registry:
         validate_alias(alias)
         if not isinstance(apps, list) or any(not isinstance(app, str) or app not in APPS for app in apps):
             _invalid("apps must be a list of supported local MCP clients.")
+        changed = []
         try:
             with self._library_lock():
                 data = self.get(alias)
@@ -325,8 +449,11 @@ class Registry:
                     state = self._local()
                     state[alias] = {"enabled": bool(apps), "apps": sorted(set(apps)), "revision": revision}
                     self._write_local(state)
+                    self._publish_machine(state, changed)
         except OSError:
             raise RegistryError("storage", "Machine-local MCP consent could not be saved.") from None
+        finally:
+            user_library.notify(self.library_root, changed)
         return next(record for record in self.list() if record["alias"] == alias)
 
     def resolved(self, app: str) -> list[dict]:

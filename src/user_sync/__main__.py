@@ -105,7 +105,7 @@ def _parser() -> argparse.ArgumentParser:
     resolve.add_argument("action", choices=("keep", "mine", "dismiss"))
     scopes = command("scope", "show or change what syncs")
     for option, help_text in (("--exclude", "stop syncing a group (common, personas, history, "
-                                            "components or repos/<key>)"),
+                                            "components, mcp or repos/<key>)"),
                               ("--include", "sync a group again"), ("--exclude-file", "stop syncing a file"),
                               ("--include-file", "sync a file again"),
                               ("--allow-secret", "upload this file although the scanner flagged it"),
