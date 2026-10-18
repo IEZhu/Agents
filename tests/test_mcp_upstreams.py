@@ -3,6 +3,7 @@ import asyncio
 from contextlib import asynccontextmanager
 from copy import deepcopy
 import json
+import threading
 
 import httpx
 import pytest
@@ -54,6 +55,7 @@ class Endpoint:
         self.is_error = False
         self.output_schema = None
         self.forbid_catalog = False
+        self.catalog_error = None
         self.echo = None
         self.block = False
         self.started, self.release = asyncio.Event(), asyncio.Event()
@@ -82,6 +84,9 @@ class Endpoint:
             result = {"protocolVersion": "2025-06-18", "capabilities": {"tools": {}}, "serverInfo": {"name": "fake", "version": "1"}}
         elif method == "tools/list":
             assert not self.forbid_catalog, "implicit tools/list is forbidden"
+            if self.catalog_error is not None:
+                return httpx.Response(200, headers=headers, json={
+                    "jsonrpc": "2.0", "id": message["id"], "error": self.catalog_error})
             self.catalogs += 1
             tool = {"name": "echo", "description": self.echo or "Echo input", "inputSchema": {"type": "object"}}
             if self.output_schema is not None:
@@ -95,6 +100,11 @@ class Endpoint:
             try:
                 if self.block:
                     await self.release.wait()
+                arguments = message["params"].get("arguments", {})
+                if "rpc_error" in arguments:
+                    return httpx.Response(200, headers=headers, json={
+                        "jsonrpc": "2.0", "id": message["id"], "error": {
+                            "code": arguments["rpc_error"], "message": "private-upstream-error"}})
                 result = {"content": [
                     {"type": "text", "text": "answer"},
                     {"type": "image", "data": "AAAA", "mimeType": "image/png"},
@@ -102,6 +112,8 @@ class Endpoint:
                     {"type": "resource_link", "uri": "file:///fake.txt", "name": "fake"},
                     {"type": "resource", "resource": {"uri": "file:///inline.txt", "text": "inline"}},
                 ], "structuredContent": {"value": [1, 2]}, "isError": self.is_error, "_meta": {"origin": "test"}}
+                if arguments.get("invalid_output"):
+                    result["structuredContent"] = {"value": "private-invalid-output"}
             finally:
                 self.active -= 1
         else:
@@ -237,6 +249,209 @@ async def test_timeout_backoff_and_alias_isolation(runtime):
     await supervisor.connect("two")
     assert (await supervisor.call("two", "echo", {}, "codex")).structuredContent == {"value": [1, 2]}
     assert supervisor.status()[0]["error"] == "timeout"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("arguments", [{"rpc_error": -32602}, {"invalid_output": True}])
+async def test_call_sdk_errors_preserve_session_and_queued_work(runtime, arguments):
+    supervisor, _, _, endpoints, clients, _ = runtime
+    endpoint = endpoints["one"]
+    endpoint.output_schema = {"type": "object", "properties": {"value": {"type": "array"}}}
+    await supervisor.connect("one")
+    owner = supervisor._owners["one"]
+    endpoint.forbid_catalog = endpoint.block = True
+    first = asyncio.create_task(supervisor.call("one", "echo", arguments, "codex"))
+    await endpoint.started.wait()
+    second = asyncio.create_task(supervisor.call("one", "echo", {}, "codex"))
+    async with asyncio.timeout(1):
+        while not owner.queue.qsize():
+            await asyncio.sleep(0)
+    endpoint.release.set()
+    error, result = await asyncio.gather(first, second, return_exceptions=True)
+    assert isinstance(error, UpstreamError) and error.code == "upstream_error"
+    assert "private-" not in str(error)
+    assert result.structuredContent == {"value": [1, 2]} and result.isError is False
+    assert [item.type for item in result.content] == ["text", "image", "audio", "resource_link", "resource"]
+    assert result.meta == {"origin": "test"}
+    assert supervisor._owners["one"] is owner and owner.state == "connected" and not owner.active
+    assert supervisor.health()["failed"] == 0 and supervisor.status()[0]["error"] is None
+    assert (await supervisor.call("one", "echo", {}, "codex")).isError is False
+    assert len(clients) == 1 and not clients[0].is_closed and endpoint.catalogs == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("code, category", [(-32000, "unavailable"), (408, "timeout")])
+async def test_sdk_connection_and_timeout_errors_still_retire_session(runtime, code, category):
+    supervisor, _, _, endpoints, clients, _ = runtime
+    await supervisor.connect("one")
+    endpoint, owner = endpoints["one"], supervisor._owners["one"]
+    endpoint.block = True
+    first = asyncio.create_task(supervisor.call("one", "echo", {"rpc_error": code}, "codex"))
+    await endpoint.started.wait()
+    second = asyncio.create_task(supervisor.call("one", "echo", {}, "codex"))
+    async with asyncio.timeout(1):
+        while not owner.queue.qsize():
+            await asyncio.sleep(0)
+    endpoint.release.set()
+    results = await asyncio.gather(first, second, return_exceptions=True)
+    assert all(isinstance(result, UpstreamError) and result.code == category for result in results)
+    assert clients[0].is_closed and owner.state == "closed"
+    with pytest.raises(UpstreamError, match="backoff"):
+        await supervisor.call("one", "echo", {}, "codex")
+
+
+@pytest.mark.asyncio
+async def test_catalog_rpc_error_still_closes_session_and_backs_off(runtime):
+    supervisor, _, _, endpoints, clients, _ = runtime
+    endpoints["one"].catalog_error = {"code": -32602, "message": "private-catalog-error"}
+    with pytest.raises(UpstreamError, match="unavailable"):
+        await supervisor.connect("one")
+    assert clients[0].is_closed and supervisor.health()["failed"] == 1
+    assert not supervisor.catalog_path.exists()
+    with pytest.raises(UpstreamError, match="backoff"):
+        await supervisor.connect("one")
+
+
+@pytest.mark.asyncio
+async def test_async_paths_read_registry_and_persist_catalogs_off_loop(runtime, monkeypatch):
+    supervisor, registry, _, _, _, _ = runtime
+    loop_thread, calls = threading.get_ident(), []
+
+    def checked(name, function):
+        def wrapper(*args, **kwargs):
+            assert threading.get_ident() != loop_thread, name
+            calls.append(name)
+            return function(*args, **kwargs)
+        return wrapper
+
+    for name in ("get", "list", "resolved"):
+        monkeypatch.setattr(registry, name, checked(name, getattr(registry, name)))
+    for name in ("_definition", "cached"):
+        monkeypatch.setattr(supervisor, name, checked(name, getattr(supervisor, name)))
+    for name in ("private_dir", "write_json"):
+        monkeypatch.setattr(upstreams, name, checked(name, getattr(upstreams, name)))
+    await supervisor.connect("one")
+    await supervisor.connect("two", "codex")
+    assert (await supervisor.call("one", "echo", {}, "codex")).isError is False
+    assert calls.count("_definition") == 6 and calls.count("cached") == 1
+    assert calls.count("private_dir") == calls.count("write_json") == 2
+    assert {"get", "list", "resolved"} <= set(calls)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["connect", "call"])
+@pytest.mark.parametrize("change, category", [("revision", "revision_changed"), ("approval", "not_enabled")])
+async def test_off_loop_paths_recheck_revision_and_app_approval(runtime, monkeypatch, operation, change, category):
+    supervisor, registry, _, endpoints, _, _ = runtime
+    if operation == "call":
+        await supervisor.connect("one")
+    original = supervisor._owner
+
+    async def changed(definition):
+        result = await original(definition)
+        if change == "revision":
+            registry.definitions["one"]["revision"] = registry.confirmed["one"] = "rev-2"
+        else:
+            registry.confirmed.pop("one")
+        return result
+
+    monkeypatch.setattr(supervisor, "_owner", changed)
+    with pytest.raises(UpstreamError, match=category):
+        if operation == "connect":
+            await supervisor.connect("one", "codex")
+        else:
+            await supervisor.call("one", "echo", {}, "codex")
+    assert not any(json.loads(request.content).get("method") == "tools/call"
+                   for request in endpoints["one"].requests if request.method == "POST")
+    assert supervisor.cached("codex") == []
+
+
+@pytest.mark.asyncio
+async def test_catalog_write_failure_preserves_confirmed_cache(runtime, monkeypatch):
+    supervisor, _, _, _, _, _ = runtime
+    await supervisor.connect("one")
+    previous, stored = deepcopy(supervisor._catalogs), supervisor.catalog_path.read_bytes()
+
+    def failed_write(*args):
+        raise OSError("private-write-error")
+
+    monkeypatch.setattr(upstreams, "write_json", failed_write)
+    for alias in ("one", "two"):
+        with pytest.raises(UpstreamError, match="catalog_write_failed"):
+            await supervisor.connect(alias)
+        assert supervisor._catalogs == previous and supervisor.catalog_path.read_bytes() == stored
+        assert not supervisor._owners[alias].accepting
+
+
+@pytest.mark.asyncio
+async def test_cancelled_catalog_writer_stays_serial_and_drain_waits_for_it(runtime, monkeypatch):
+    supervisor, _, _, _, _, _ = runtime
+    started, release = asyncio.Event(), threading.Event()
+    loop, original_write = asyncio.get_running_loop(), upstreams.write_json
+    snapshots = []
+
+    def blocked_write(path, value):
+        snapshots.append(set(value["catalogs"]))
+        if len(snapshots) == 1:
+            loop.call_soon_threadsafe(started.set)
+            assert release.wait(2), "test did not release background catalog writer"
+        original_write(path, value)
+
+    monkeypatch.setattr(upstreams, "write_json", blocked_write)
+    first = asyncio.create_task(supervisor.connect("one"))
+    second = close = None
+    try:
+        await asyncio.wait_for(started.wait(), 1)
+        first.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await first
+        second = asyncio.create_task(supervisor.connect("two"))
+        async with asyncio.timeout(1):
+            while len(supervisor._catalog_writes) < 2:
+                await asyncio.sleep(0)
+        assert supervisor._catalogs == {} and snapshots == [{"one"}]
+        close = asyncio.create_task(supervisor.close())
+        await asyncio.sleep(0)
+        assert not close.done()
+    finally:
+        release.set()
+        await asyncio.gather(first, *(task for task in (second, close) if task is not None), return_exceptions=True)
+    assert snapshots == [{"one"}, {"one", "two"}]
+    assert set(supervisor._catalogs) == {"one", "two"}
+    assert set(json.loads(supervisor.catalog_path.read_text())["catalogs"]) == {"one", "two"}
+
+
+@pytest.mark.asyncio
+async def test_drain_waits_for_catalog_confirmation_still_reading_registry(runtime, monkeypatch):
+    supervisor, _, _, _, clients, _ = runtime
+    started, release = asyncio.Event(), threading.Event()
+    loop, original = asyncio.get_running_loop(), supervisor._definition
+    reads = 0
+
+    def blocked_definition(*args):
+        nonlocal reads
+        result = original(*args)
+        reads += 1
+        if reads == 2:
+            loop.call_soon_threadsafe(started.set)
+            assert release.wait(2), "test did not release background registry read"
+        return result
+
+    monkeypatch.setattr(supervisor, "_definition", blocked_definition)
+    connect = asyncio.create_task(supervisor.connect("one"))
+    close = None
+    try:
+        await asyncio.wait_for(started.wait(), 1)
+        close = asyncio.create_task(supervisor.close())
+        async with asyncio.timeout(1):
+            while not clients[0].is_closed:
+                await asyncio.sleep(0)
+        assert not close.done() and not supervisor.catalog_path.exists()
+    finally:
+        release.set()
+        results = await asyncio.gather(connect, *([close] if close else []), return_exceptions=True)
+    assert not any(isinstance(result, BaseException) for result in results)
+    assert set(json.loads(supervisor.catalog_path.read_text())["catalogs"]) == {"one"}
 
 
 @pytest.mark.asyncio
