@@ -61,11 +61,13 @@ the prepare/validate exchange.
 If preparation fails, either endpoint is unavailable, or the host cannot spawn a worker, do the work in the parent when practical and report the delegation limitation. Do not silently fall back to a full-persona worker, launch an unprepared worker, or accept an unvalidated result. MCP prepares and validates the exchange; native host tools launch workers and enforce actual permissions and runtime limits.
 
 A worker given a valid `agents-core/subagent/1` prepared package already has its
-task-scoped role. Use that package instead of the conversation activation and
-finish steps below: do not call `route_and_load` or `get_agent_context`, inherit
-the parent's activation, add a footer/timestamp, or call `log_interaction` for the
-worker result. Return only the specified JSON envelope. Stay within the task and
-its allowed actions; no role changes or further delegation unless assigned.
+task-scoped role. Use that package instead of the conversation activation, the
+first-work repository description and the finish steps below: do not call
+`route_and_load` or `get_agent_context`, inherit the parent's activation, add a
+footer/timestamp, or call `log_interaction` for the worker result or for any
+message that ends its turn. Return only the specified JSON envelope. Stay within
+the task and its allowed actions; no role changes or further delegation unless
+assigned.
 
 If a worker is explicitly allowed to delegate further, it must follow the same preparation and validation exchange for its own children. The conversation activation and unavailable-MCP fallback below apply to ordinary conversations; they do not waive this delegation contract.
 
