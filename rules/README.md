@@ -20,6 +20,7 @@ In load order:
 | 20 | `honest-uncertainty` | [rule-honest-uncertainty.mdc](rule-honest-uncertainty.mdc) | Calibrate confidence on judgment calls. |
 | 30 | `anti-sycophancy` | [rule-anti-sycophancy.mdc](rule-anti-sycophancy.mdc) | Don't agree to agree. Push back on errors. |
 | 40 | `agent-cooperation` | [rule-agent-cooperation.mdc](rule-agent-cooperation.mdc) | Coordinate intersecting agent work within existing authorization. |
+| 45 | `thread-status` | [rule-thread-status.mdc](rule-thread-status.mdc) | Keep the current chat's emoji title aligned with task state where supported. |
 | 90 | `language-match` | [rule-language-match.mdc](rule-language-match.mdc) | Match the language of the last message. |
 | 95 | `answer-timestamp` | [rule-answer-timestamp.mdc](rule-answer-timestamp.mdc) | Start the final answer with the time returned by `log_interaction`. |
 
@@ -64,7 +65,7 @@ load these files. They define assignment scope, permitted action mode, missing
 input, completion and effort limits, and the exact JSON result contract.
 
 Worker preparation keeps installation-enabled non-presentation universal rules
-but excludes `answer-timestamp` and `language-match`; assignment language and the
+but excludes `answer-timestamp`, `language-match` and `thread-status`; assignment language and the
 result schema control worker output. It also excludes `agent-cooperation` with
 the selection reason `worker_equivalent`: the mandatory `worker-cooperation`
 rule supplies its task-scoped equivalent, even when conversation rules are off.
@@ -79,6 +80,11 @@ is disabled by default; the rule grants no permissions, requires no messaging to
 unrelated chats and preserves independent work when coordination is unavailable.
 New activations and explicit refreshes receive changed rules; an existing `keep`
 retains its applied bundle. Exact flow rule selections remain exact.
+
+`thread-status` updates the current chat through a supported client rename capability.
+The optional [thread-status hooks](../docs/thread-status.md) deliver the policy and
+current identity even without a new persona activation. They do not add a title API
+to a client surface that has none. Compact workers cannot rename their parent's chat.
 
 Edit the worker collection and its focused validation checks when changing the
 worker contract. Do not add worker names to the universal `_EXPECTED_RULE_NAMES`

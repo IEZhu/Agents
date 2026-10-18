@@ -23,7 +23,7 @@ from src.utils.prompt_loader import process_imports, read_mdc, resolve_path
 WORKER_RULE_IDS = frozenset({"worker-scope", "worker-input", "worker-completion", "worker-result",
                             "worker-cooperation"})
 ARTIFACT_WORKER_RULE_ID = "worker-artifacts"
-PRESENTATION_RULE_IDS = frozenset({"answer-timestamp", "language-match"})
+PRESENTATION_RULE_IDS = frozenset({"answer-timestamp", "language-match", "thread-status"})
 WORKER_EQUIVALENT_RULE_IDS = frozenset({"agent-cooperation"})
 WORKER_GUIDANCE = """# Task-scoped worker
 The assignment contract and fixed result schema below define this worker exchange.
