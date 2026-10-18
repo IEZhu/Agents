@@ -23,6 +23,16 @@ The thread's own account is a lead, never proof. A long, expensive thread can
 still be wrong. Its summary may predate later changes, and a compacted context
 may have dropped what actually happened.
 
+Before any transcript inspection, extract only the needed metadata with a
+script and redact credentials before any model-visible tool output, not just
+before persistence or the final report. Never print raw transcript records,
+user messages or compacted retained context. Client/MCP responses such as
+`read_thread` can include the original prompt in a preview: parse the response
+inside the extraction process and emit only allowlisted metadata and necessary
+redacted quotations, rather than the complete payload. Apply this boundary to
+inventory helpers and delegated auditors as well; give workers sanitized
+evidence or explicit instructions to extract and redact before emitting it.
+
 The persona contributes fact-checking discipline. Its own investigation phases and
 "Verdict"/credibility output format do not apply: this flow's steps and its report
 in step 9 do.
@@ -56,6 +66,8 @@ thread only from the transcript and the live state, and its report must say so.
       confirm the right one before using it.
     - The helper also reads the transcripts of the session's subagents and
       workflow agents and marks their items with `by`.
+    - Its `prompts` list contains timestamps only, without user message text or
+      previews; use the sanitized primary-evidence procedure above when text is needed.
   - **Finding the helper from another repository.** Derive `AGENTS_CORE_ROOT` as
     the [pr-review helpers](pr-review.md#optional-github-helpers-from-the-agents-core-installation)
     describe:
