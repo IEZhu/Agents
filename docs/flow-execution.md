@@ -26,6 +26,13 @@ not approve a merge, prove publication or verify installed bytes.
 
 ## Batch reads and keep raw evidence out of the conversation
 
+Use the [executable metadata guard and code-mode adapter](mcp-tool-safety.md)
+before returning large tool metadata. Retain the original, decode its shape,
+allowlist fields, redact selected sensitive values, and check the complete
+serialized envelope before emission. Load the trusted adapter before the first
+large call; native history reads need its closed item projection because output
+options do not remove tool arguments or previews.
+
 - Batch independent reads and checks in one orchestration call. Keep edits,
   dependent checks, approvals and adaptive follow-ups sequential.
 - Save raw API pages, native output, receipts and full logs in the existing
