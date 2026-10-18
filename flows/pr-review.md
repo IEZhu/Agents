@@ -10,7 +10,7 @@ Follow [bounded execution and evidence reuse](../docs/flow-execution.md): one
 working record, grouped fixes, compact output and one monitor per pending run.
 All exact-head review, CI, authorization and merge conditions below still apply.
 
-### Mandatory bounded-return gate
+## Mandatory bounded-return gate
 
 Before each tool call that can return a catalogue, protocol, context bundle or
 large status object, choose the output field allowlist and retain the complete
