@@ -192,10 +192,14 @@ write.
 ## Work that another session owns
 
 A branch, worktree or pull request that another session or agent created belongs
-to it. Before pushing to it, merging into it or rebasing it, message that session
+to it, and so does a host or service that another session is working on. Before
+pushing to it, merging into it, rebasing it or changing it, message that session
 through the client's session messaging (for example Claude Code `SendMessage`) or
 Agents-Core `cooperation_send`, and wait for its answer. If it does not answer,
-ask the user: silence is not consent.
+ask the user: silence is not consent. A Claude Code session receives another
+session's reply only after its own turn ends: send the message, end the turn
+saying what you will do, and act on the reply. The Agents-Core mailbox can wait
+within the turn with `cooperation_wait`.
 
 ## Finish each answer
 
