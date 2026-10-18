@@ -56,12 +56,18 @@ are deliberately absent: the end of a response does not establish task completio
 background events cannot rename the parent chat.
 
 Codex's `Interrupt` hook runs outside the cancelled model turn. It requires the
-same session and turn IDs previously observed by `UserPromptSubmit`, reads the
-existing title, applies `stopped`, and verifies the saved name. A small per-session
+session and interrupted turn IDs, verifies that the public `thread/turns/list`
+metadata still names that turn as the latest, reads the existing title, applies
+`stopped`, and verifies the saved name. Turn lookup uses `itemsView: notLoaded`
+and does not load conversation items. This also covers an early Stop before
+`UserPromptSubmit` has recorded the turn. A small per-session
 record under the adapter's own `hooks/agents-core-thread-status-state/` directory
-tracks only the current turn ID. Its lock prevents an older interrupt from
-overwriting a later turn's title. Missing IDs, a stale interrupt or a failed
-metadata operation cannot produce a success message. The helper starts no model
+tracks the prompt turn ID and the last interrupt receipt. Its lock serializes
+the interrupt write with the next prompt, while the public turn check rejects
+an older interruption even when no prompt record exists. The receipt records
+`running`, `persisted`, `skipped`, or `failed`, including a bounded error message
+on failure, and survives the next prompt for diagnosis. Missing IDs, a stale
+interrupt or a failed metadata operation cannot produce a success message. The helper starts no model
 turn. It does not prove that an already open desktop sidebar refreshed.
 
 Claude's documented `Stop` event excludes user interruption, and cancelling a
