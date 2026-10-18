@@ -91,6 +91,7 @@ class _Owner:
         self._output_schemas = deepcopy(output_schemas)
         self.queue = asyncio.Queue(maxsize=32)
         self.accepting, self.active = True, False
+        self.idle_holds = 0
         self.state = "connecting"
         self.ready = asyncio.get_running_loop().create_future()
         # Cancellation of a connect caller must not leave an unobserved exception.
@@ -156,6 +157,9 @@ class _Owner:
                                 async with asyncio.timeout(idle):
                                     current = await self.queue.get()
                             except TimeoutError:
+                                if self.idle_holds or not self.queue.empty():
+                                    continue
+                                self.accepting = False
                                 break
                             if current is None:
                                 break
@@ -255,7 +259,7 @@ class Supervisor:
         failures = self._failures.get(alias, (0, 0, None))[0] + 1
         self._failures[alias] = (failures, time.monotonic() + min(30, 2 ** min(failures - 1, 5)), code)
 
-    async def _owner(self, definition):
+    async def _owner(self, definition, *, hold_idle=False):
         alias = definition["alias"]
         async with self._locks.setdefault(alias, asyncio.Lock()):
             if self._draining:
@@ -293,7 +297,14 @@ class Supervisor:
                 schemas = ({item["name"]: item.get("outputSchema") for item in entry["tools"]}
                            if entry.get("revision") == definition["revision"] else {})
                 owner = self._owners[alias] = _Owner(deepcopy(definition), headers, self._failed, schemas)
-            await asyncio.shield(owner.ready)
+            if hold_idle:
+                owner.idle_holds += 1
+            try:
+                await asyncio.shield(owner.ready)
+            except BaseException:
+                if hold_idle:
+                    owner.idle_holds -= 1
+                raise
             return owner, loaded
 
     async def connect(self, alias, app=None):
@@ -385,12 +396,18 @@ class Supervisor:
         cached = await asyncio.to_thread(self.cached, app)
         if not any(item["alias"] == alias and entry.name == tool for item, entry in cached):
             raise UpstreamError(alias, "tool_not_cataloged")
-        owner, _ = await self._owner(definition)
-        if (await asyncio.to_thread(self._definition, alias, app))["revision"] != definition["revision"]:
-            raise UpstreamError(alias, "revision_changed")
-        result = await owner.submit("call", tool, arguments)
-        self._failures.pop(alias, None)
-        return result
+        # Keep the acquired session alive across the off-loop consent check.
+        # A short idle interval or slow registry must not retire it before the
+        # call can enter its queue. Drain still rejects unsubmitted work.
+        owner, _ = await self._owner(definition, hold_idle=True)
+        try:
+            if (await asyncio.to_thread(self._definition, alias, app))["revision"] != definition["revision"]:
+                raise UpstreamError(alias, "revision_changed")
+            result = await owner.submit("call", tool, arguments)
+            self._failures.pop(alias, None)
+            return result
+        finally:
+            owner.idle_holds -= 1
 
     def health(self):
         """An in-memory service summary, with no registry or secret-store reads."""
