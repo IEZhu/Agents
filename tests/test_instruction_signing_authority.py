@@ -386,7 +386,9 @@ def test_cli_add_prints_canonical_fingerprint_and_scope_decline_does_not_mutate(
     monkeypatch.setattr("builtins.input", lambda _: "no")
     assert main([*argv, "trust", "add", str(pem), "--release", "--label", "release label"]) == 1
     shown = capsys.readouterr().out
-    assert fingerprint(key.public_key()) in shown and str(installation) in shown and "release" in shown
+    assert f"Fingerprint: {fingerprint(key.public_key())}\n" in shown
+    assert f"Root: {snapshot.installation_root}\n" in shown
+    assert "Kind: release\n" in shown
     assert store.snapshot() == snapshot
     monkeypatch.setattr("builtins.input", lambda _: "yes")
     assert main([*argv, "trust", "add", str(pem), "--release", "--label", "release label"]) == 0
