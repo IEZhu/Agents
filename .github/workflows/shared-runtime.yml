@@ -118,7 +118,7 @@ jobs:
       - name: MCP proxy, host inventory and private-library sync
         run: >-
           python -B -m pytest tests/test_mcp_registry.py tests/test_mcp_hosts.py
-          tests/test_mcp_secrets.py tests/test_mcp_upstreams.py tests/test_mcp_exposure.py
+          tests/test_mcp_secrets.py tests/test_mcp_upstreams.py tests/test_mcp_stdio.py tests/test_mcp_exposure.py
           tests/test_mcp_cli.py tests/test_mcp_sync.py tests/test_mcp_ui.py
           tests/test_user_sync_blocked.py tests/test_sync_ui_blocked.py
           tests/test_daemon.py tests/test_history_ui.py -q -p no:cacheprovider

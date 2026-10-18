@@ -43,7 +43,7 @@ class Element {
   replaceChildren(...nodes) { this.children = nodes; }
   set innerHTML(value) { throw Error('Untrusted configuration must render through textContent'); }
 }
-const elements = Object.fromEntries(['servers','machines','message','apps','add'].map(id => [id,new Element(id)]));
+const elements = Object.fromEntries(['servers','machines','message','apps','add','transport','stdio-fields','http-fields','secret-fields','url','command','secret','alias','args','env'].map(id => [id,new Element(id)]));
 elements.apps.value = 'cursor,stdio';
 const document = {getElementById: id => elements[id], createElement: tag => new Element(tag)};
 const changed = {alias:'example',title:'Example',status:'unconfirmed',enabled:true,apps:['codex'],

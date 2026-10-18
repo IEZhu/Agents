@@ -464,11 +464,16 @@ def main(argv=None):
     sync_setup.add_argument("--trust-host-key", metavar="SHA256:…", help="confirm the host key fingerprint")
     sync_setup.add_argument("--confirm-private", action="store_true", default=None,
                             help="confirm the repository is private when the host cannot be checked")
-    mcp = commands.add_parser("mcp", help="manage HTTP MCP proxy connections")
+    mcp = commands.add_parser("mcp", help="manage HTTP and stdio MCP proxy connections")
     mcp_commands = mcp.add_subparsers(dest="mcp_command", required=True)
     mcp_commands.add_parser("list")
     mcp_add = mcp_commands.add_parser("add")
-    mcp_add.add_argument("alias"); mcp_add.add_argument("--url", required=True)
+    mcp_add.add_argument("alias")
+    transport = mcp_add.add_mutually_exclusive_group(required=True)
+    transport.add_argument("--url")
+    transport.add_argument("--command", dest="stdio_command", help="absolute stdio executable path")
+    mcp_add.add_argument("--arg", action="append", default=[], help="one nonsecret stdio argument; repeat as needed")
+    mcp_add.add_argument("--env", action="append", default=[], help="one nonsecret NAME=VALUE stdio setting; repeat as needed")
     mcp_add.add_argument("--bearer", action="store_true", help="read bearer token from stdin")
     mcp_add.add_argument("--apps", required=True, help="comma-separated apps to enable")
     for name in ("connect", "disable"):

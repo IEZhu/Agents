@@ -2,7 +2,7 @@
 
 Date: 2026-10-12. Status: proposal. Nothing of it is implemented; the task breakdown is at the end.
 
-Implementation update, 2026-10-18: the [manual HTTP proxy slice](mcp-proxy.md) now implements native secret storage, local revision/app consent, lazy HTTP sessions, cached tool exposure, UI/CLI management and per-host inventory through personal-library sync. The remaining design below is a proposal; the complete epic is still open.
+Implementation update, 2026-10-18: the [manual HTTP/stdio proxy slice](mcp-proxy.md) now implements native secret storage, local revision/app consent, lazy shared HTTP/stdio sessions, cached tool exposure, UI/CLI management and per-host inventory through personal-library sync. The remaining design below is a proposal; the complete epic is still open.
 
 ## Summary
 

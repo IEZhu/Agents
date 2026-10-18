@@ -1,4 +1,4 @@
-"""Lazy Streamable HTTP sessions with task-owned MCP context lifetimes.
+"""Lazy HTTP/stdio sessions with task-owned MCP context lifetimes.
 
 Only an explicit connect catalogs tools. Listing uses that revision-bound local
 catalog, and a call requires an enabled application and a confirmed catalog.
@@ -7,16 +7,19 @@ from __future__ import annotations
 
 import asyncio
 from copy import deepcopy
+from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 import hashlib
 import json
 import logging
+import os
 from pathlib import Path
 import time
 
 import httpx
-from mcp import ClientSession, types
+from mcp import ClientSession, StdioServerParameters, types
+from mcp.client.stdio import stdio_client
 from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.exceptions import McpError
 
@@ -38,7 +41,7 @@ class _TransportLogFilter(logging.Filter):
 
 # The pinned SDK logs both to its transport/client loggers and directly to root.
 # Context variables restrict this redaction to tasks belonging to this proxy.
-for _logger_name in ("", "mcp.client.streamable_http", "client", "httpx"):
+for _logger_name in ("", "mcp.client.streamable_http", "mcp.client.stdio", "client", "httpx"):
     logging.getLogger(_logger_name).addFilter(_TransportLogFilter())
 
 
@@ -140,56 +143,54 @@ class _Owner:
         current, failure = None, None
         log_context = _proxy_log_context.set(True)
         try:
-            async with httpx.AsyncClient(headers=self._headers, trust_env=False,
-                                         follow_redirects=False, timeout=timeout) as http:
-                async with streamable_http_client(self.definition["transport"]["url"], http_client=http) as streams:
-                    async with ClientSession(streams[0], streams[1]) as session:
-                        async with asyncio.timeout(timeout):
-                            await session.initialize()
-                        # MCP 1.28.1 otherwise calls tools/list after a successful tool
-                        # call when this per-session schema cache is empty. Seed only
-                        # the catalog explicitly confirmed for this definition revision.
-                        session._tool_output_schemas.update(self._output_schemas)
-                        self.state = "connected"
-                        self.ready.set_result(None)
-                        while self.accepting or not self.queue.empty():
+            async with self._transport(timeout) as streams:
+                async with ClientSession(streams[0], streams[1]) as session:
+                    async with asyncio.timeout(timeout):
+                        await session.initialize()
+                    # MCP 1.28.1 otherwise calls tools/list after a successful tool
+                    # call when this per-session schema cache is empty. Seed only
+                    # the catalog explicitly confirmed for this definition revision.
+                    session._tool_output_schemas.update(self._output_schemas)
+                    self.state = "connected"
+                    self.ready.set_result(None)
+                    while self.accepting or not self.queue.empty():
+                        try:
+                            async with asyncio.timeout(idle):
+                                current = await self.queue.get()
+                        except TimeoutError:
+                            if self.idle_holds or not self.queue.empty():
+                                continue
+                            self.accepting = False
+                            break
+                        if current is None:
+                            break
+                        if current.future.cancelled():
+                            current = None
+                            continue
+                        self.active = True
+                        if current.kind == "catalog":
+                            async with asyncio.timeout(timeout):
+                                result = await self._catalog(session)
+                        else:
                             try:
-                                async with asyncio.timeout(idle):
-                                    current = await self.queue.get()
-                            except TimeoutError:
-                                if self.idle_holds or not self.queue.empty():
-                                    continue
-                                self.accepting = False
-                                break
-                            if current is None:
-                                break
-                            if current.future.cancelled():
+                                async with asyncio.timeout(timeout):
+                                    result = await session.call_tool(current.name, current.arguments)
+                            except (McpError, RuntimeError) as error:
+                                # The SDK also reports a closed connection or a
+                                # read timeout as McpError; those still retire
+                                # this session and fail its queued operations.
+                                if isinstance(error, McpError) and error.error.code in (
+                                        types.CONNECTION_CLOSED, httpx.codes.REQUEST_TIMEOUT):
+                                    raise
+                                self.active = False
+                                if not current.future.done():
+                                    current.future.set_exception(UpstreamError(self.alias, "upstream_error"))
                                 current = None
                                 continue
-                            self.active = True
-                            if current.kind == "catalog":
-                                async with asyncio.timeout(timeout):
-                                    result = await self._catalog(session)
-                            else:
-                                try:
-                                    async with asyncio.timeout(timeout):
-                                        result = await session.call_tool(current.name, current.arguments)
-                                except (McpError, RuntimeError) as error:
-                                    # The SDK also reports a closed connection or a
-                                    # read timeout as McpError; those still retire
-                                    # this session and fail its queued operations.
-                                    if isinstance(error, McpError) and error.error.code in (
-                                            types.CONNECTION_CLOSED, httpx.codes.REQUEST_TIMEOUT):
-                                        raise
-                                    self.active = False
-                                    if not current.future.done():
-                                        current.future.set_exception(UpstreamError(self.alias, "upstream_error"))
-                                    current = None
-                                    continue
-                            self.active = False
-                            if not current.future.done():
-                                current.future.set_result(result)
-                            current = None
+                        self.active = False
+                        if not current.future.done():
+                            current.future.set_result(result)
+                        current = None
         except asyncio.CancelledError:
             failure = "disconnected"
             raise
@@ -210,6 +211,22 @@ class _Owner:
                 if pending is not None and not pending.future.done():
                     pending.future.set_exception(error)
             _proxy_log_context.reset(log_context)
+
+    @asynccontextmanager
+    async def _transport(self, timeout):
+        transport = self.definition["transport"]
+        if transport["type"] == "stdio":
+            parameters = StdioServerParameters(command=transport["command"], args=transport.get("args", []),
+                                               env=transport.get("env", {}))
+            # Upstream stderr can contain credentials. Do not put it in daemon logs.
+            with open(os.devnull, "w") as errors:
+                async with stdio_client(parameters, errlog=errors) as streams:
+                    yield streams
+        else:
+            async with httpx.AsyncClient(headers=self._headers, trust_env=False,
+                                         follow_redirects=False, timeout=timeout) as http:
+                async with streamable_http_client(transport["url"], http_client=http) as streams:
+                    yield streams
 
 
 class Supervisor:
@@ -251,7 +268,7 @@ class Supervisor:
             raise
         except Exception:
             raise UpstreamError(alias, "definition_unavailable") from None
-        if definition.get("transport", {}).get("type") != "http":
+        if definition.get("transport", {}).get("type") not in ("http", "stdio"):
             raise UpstreamError(alias, "unsupported_transport")
         return definition
 

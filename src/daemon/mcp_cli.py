@@ -1,4 +1,4 @@
-"""HTTP proxy management through the running daemon; secrets only on stdin."""
+"""Proxy management through the running daemon; HTTP secrets only on stdin."""
 import sys
 
 
@@ -24,11 +24,25 @@ def run(controller, args):
         if not record.get("revision"):
             raise ValueError("invalid_definition")
         return post({"action": "enable", "alias": args.alias, "apps": [], "revision": record["revision"]})
+    # argparse reserves `command` for the top-level subcommand. The executable
+    # has its own destination so `mcp add` cannot overwrite dispatch identity.
+    command = getattr(args, "stdio_command", None)
+    settings, arguments = getattr(args, "env", []), getattr(args, "arg", [])
+    if (command and args.bearer) or (not command and (settings or arguments)):
+        raise ValueError("--bearer requires --url; --arg/--env require --command")
+    env = {}
+    for setting in settings:
+        name, separator, value = setting.partition("=")
+        if not separator or name in env:
+            raise ValueError("--env requires distinct NAME=VALUE settings")
+        env[name] = value
     token = sys.stdin.readline(8193).strip() if args.bearer else None
     if args.bearer and (not token or len(token) > 8192):
         raise ValueError("A bearer token is required on stdin")
     definition = {"format": 1, "alias": args.alias, "title": args.alias, "description": "",
-                  "source": {"kind": "manual"}, "transport": {"type": "http", "url": args.url, "headers": {}},
+                  "source": {"kind": "manual"}, "transport": (
+                      {"type": "stdio", "command": command, "args": arguments, "env": env} if command else
+                      {"type": "http", "url": args.url, "headers": {}}),
                   "auth": {"type": "bearer" if token else "none"},
                   "secrets": [{"name": "Authorization", "target": "header", "required": True}] if token else [],
                   "tools": {"expose": "all", "deny": [], "always_load": []},
