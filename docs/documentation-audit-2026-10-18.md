@@ -103,6 +103,41 @@ regression-tested by the integrator; no second independent review was claimed.
 The live checkout remains clean on `dev`. Changes remain local and uncommitted
 in the task worktree, with no PR or merge performed.
 
+## Parallel feature integration
+
+At the owner's request, this documentation PR also includes guides from two
+neighboring implementation PRs. This is a pinned snapshot of 2026-10-18, not a
+claim that either feature is present in this branch or released on `main`.
+
+| Feature | Source inspected | Documentation and release boundaries |
+|---|---|---|
+| Client-aware emoji status | [PR #452 at 8efc4e0cf39e](https://github.com/IEZhu/Agents/tree/8efc4e0cf39ecca8daad0d7aace75a4f12cf9e2b) | [Thread status](thread-status.md): ten states including confirmed interruption, final human handoff semantics, client support, copied hook installation/removal, Claude SDK metadata and Codex Interrupt adapter. Tests use temporary profiles/fake metadata APIs; persistence does not establish live sidebar refresh, client trust or Windows execution |
+| HTTP MCP proxy and per-host inventory | [PR #449 at d067c315caf3](https://github.com/IEZhu/Agents/tree/d067c315caf3c9877896315b96e68d4bb4a25c11) | [HTTP proxy](mcp-proxy.md): connection UI/CLI, cached app-scoped tools, exact-revision local consent, native-only credential storage, shared definitions and informational host inventory. Library metadata is ordinary private-repository JSON; credentials and execution approval remain local. This is the HTTP slice, not all of epic #306 |
+
+The proxy guide incorporates the implementation originally developed in
+[PR #445](https://github.com/IEZhu/Agents/pull/445); #449 consolidates it, so #445
+is not an additional release prerequisite. The native API-reference badge still
+counts 48 registered tools in this branch; dynamic upstream aliases and title
+hooks are outside that metric. The historical proxy plan now links to the
+narrower implementation instead of asserting that none of it exists.
+
+Two prepared read-only documentation audits checked these pinned feature
+sources and test assertions; both returned envelopes passed their original
+contract validators, followed by the integrator's source assessment. The proxy
+guide now explicitly requires **Connect** after confirming a changed revision
+to refresh its catalog before reconnecting clients. Neighbor implementation
+tests were inspected rather than rerun. The follow-up documentation selection
+passed 59 tests; the offline checker passed for 133 Markdown files and the
+unchanged 48/48 native-tool index. Diff whitespace validation passed.
+
+Before the planned `dev → main` promotion:
+
+1. Complete review of [this documentation/version PR #451](https://github.com/IEZhu/Agents/pull/451), #449 and #452, and include their accepted implementation in `dev`. Recording a dependency is not merging or approving it.
+2. Re-fetch the implementation heads and compare them with the pinned sources above. Reconcile the overlapping README, documentation index, proxy plan, daemon/sync guides and optional dependency metadata. Keep the canonical dynamic `VERSION` source and include any resulting lock-file changes.
+3. Verify the final integrated CLI/help, status vocabulary, client support and sync allowlist against source/tests. Move the pending guides into the maintained-reference table and replace their pending banners with current integrated source evidence. A copied guide alone does not enable the feature.
+4. Run the integrated documentation, release-version and affected status/proxy/sync checks. Record platform/live-client limitations and any owner acceptance still required. Do not reuse an older feature PR's CI result as a check of the final release SHA.
+5. Prepare or validate one canonical version against fetched `origin/main` after integration, then follow the [release procedure](releases.md#prepare-a-promotion), including the owner's decision and verification of the resulting tag and release. This documentation work does not publish or merge a release.
+
 ## Quality badge follow-up — 2026-10-18
 
 At the owner's request, the README header now contains three GitHub workflow

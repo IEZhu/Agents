@@ -15,6 +15,7 @@ Agents-Core is a local Model Context Protocol (MCP) server for assistants that n
 - [Compact documentation index](llms.txt): direct Markdown links for agents discovering the project.
 - [Install in an MCP client](llms-install.md): manual stdio configuration, including Cline.
 - [Documentation map](docs/README.md): current guides, reference material, and evaluation reports.
+- [Next-release integration](docs/documentation-audit-2026-10-18.md#parallel-feature-integration): pending thread-status and HTTP MCP proxy guides, pinned to their implementation PRs.
 - [AI contributor instructions](AGENTS.md) and [Claude instructions](CLAUDE.md).
 - [Model workflows](flows/README.md): reusable Markdown instructions, including
   the [documentation refresh process](flows/documentation-refresh.md).

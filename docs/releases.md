@@ -59,6 +59,14 @@ This is the one description of the release procedure; the README links it.
    `tests/test_workflow_permissions.py` for the publication and displayed-version
    contract. Record actual results, skipped checks and environment limitations;
    a passing workflow for an older head is not a current-head check.
+   If release documentation was prepared from neighboring feature branches,
+   require their reviewed implementations in `dev` and reconcile overlapping
+   pages against that integrated head first. Preserve dynamic `VERSION` package
+   metadata when adding optional dependencies, refresh the lock file through its
+   normal tooling, and rerun the relevant checks. Pending-feature banners and
+   branch-pinned examples must be updated against integrated source before they
+   become released instructions. The dated [parallel-feature checklist](documentation-audit-2026-10-18.md#parallel-feature-integration)
+   records the current documentation submission's dependencies.
 4. Open one `dev` into `main` PR, or update the existing promotion PR. Describe
    the complete range since the last release, its validation, and the issue
    closing references required above. If documentation or another prerequisite

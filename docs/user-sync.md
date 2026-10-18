@@ -1,5 +1,12 @@
 # User library sync
 
+The neighboring [HTTP MCP proxy and host-inventory guide](mcp-proxy.md) describes
+an additional `mcp` sync scope in PR #449. That scope is pending integration in
+this documentation branch. Its server/host JSON can sync, while credentials,
+runtime catalogs and local execution confirmation stay on each host. Upgrade
+all syncing installations before using the new scope; follow the guide's
+integration notice rather than adding it to an older installation's settings.
+
 Status: the engine and its command line (#165), GitHub sign-in through the API (#166), scheduled
 runs, the stdio trigger and the terminal wizard (#168), the sync loop of the macOS daemon (#167),
 the merge of each repository's history across machines (#172,

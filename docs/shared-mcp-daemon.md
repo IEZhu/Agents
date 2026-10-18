@@ -1,5 +1,10 @@
 # Shared MCP daemon operations
 
+For the neighboring HTTP upstream and per-host inventory work, see the
+[pending HTTP MCP proxy guide](mcp-proxy.md). Its `/ui/mcp` page and
+`python -m src.daemon mcp` commands require that implementation; they are not
+provided by this documentation branch alone.
+
 A macOS LaunchAgent, or on Windows a Task Scheduler task (see
 [Windows](#windows-task-scheduler)), serves local MCP clients at
 `http://127.0.0.1:8765/mcp`.

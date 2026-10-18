@@ -62,6 +62,18 @@ also applies to AI instructions, plans, and reports.
 | Close a conversation without losing its work | [Thread close flow](../flows/thread-close.md) | `scripts/dev/thread_inventory.py`, the live repository and GitHub state, `log_interaction` |
 | Improve or add a skill, implant or agent from free sources | [Open-source tuning flow](../flows/open-source-tuning.md) | `skills/README.md`, `implants/README.md`, `agents/README.md`, `agents/common/agent-schema.json`, `evals/ablation/CASES.md`, `tests/test_skill_freshness.py`, `tests/test_subagent.py` |
 
+## Pending feature integration
+
+These guides were checked against the pinned neighboring PRs on 2026-10-18.
+Their implementations are absent from this documentation branch. Follow the
+[integration checklist](documentation-audit-2026-10-18.md#parallel-feature-integration)
+before promoting them to released behavior or running their commands.
+
+| Reader task | Guide | Pinned implementation and evidence |
+|---|---|---|
+| Interpret title status, install client hooks and distinguish interruption from completion | [Emoji thread status](thread-status.md) | [PR #452 at 8efc4e0cf39e](https://github.com/IEZhu/Agents/tree/8efc4e0cf39ecca8daad0d7aace75a4f12cf9e2b): `src/thread_status.py`, `src/codex_thread_titles.py`, `scripts/thread_status.py`, `scripts/install_thread_status.py`, focused formatter/installer/metadata tests |
+| Connect HTTP MCP upstreams, confirm revisions, store credentials and sync host inventory | [HTTP MCP proxy](mcp-proxy.md) | [PR #449 at d067c315caf3](https://github.com/IEZhu/Agents/tree/d067c315caf3c9877896315b96e68d4bb4a25c11): `src/mcp_registry.py`, `src/mcp_secrets.py`, `src/daemon/mcp_proxy/`, `src/daemon/mcp_cli.py`, `src/daemon/mcp_ui.py`, MCP and sync tests |
+
 ## AI instruction sources
 
 | File | Purpose |
@@ -110,7 +122,7 @@ the maintained references above for current commands and behavior.
 | Document | Status / scope |
 |---|---|
 | [Shared local inference and KV cache handoff](shared-kv-mcp/START_HERE.md) | Historical implementation contract and recorded base; the [reconciliation](shared-kv-mcp/reconciliation-report.md) identifies integrated source and evidence limits, while maintained operations are linked above |
-| [MCP proxy plan](mcp-proxy-plan.md) | Proposal of 2026-10-12, not implemented: the daemon as an MCP client of the user's other servers, with definitions synced through the personal library, secrets in the OS secret store, scopes per machine and app, and the tools served through the `Agents-Core` entry; filed as epic #306 with parts #307 to #322, and ends with the task breakdown |
+| [MCP proxy plan](mcp-proxy-plan.md) | Proposal of 2026-10-12 for epic #306. The narrower HTTP/host-inventory slice is documented in the [pending integration guide](mcp-proxy.md); registry/import, OAuth, other upstream transports and the remaining epic scope are not established by that slice |
 | [Subagent validation results](subagent-validation-results.md) | Recorded contract tests, default-budget coverage and controlled context-size measurements; model quality/cost evaluation remains pending |
 | [Subagent implementation plan](subagent-implementation-plan.md) | Issue #291: compact profiles, task-scoped context, worker rules and structural validation; current API is the [subagent contract](subagent-contract.md) |
 | [Autodev plan](autodev-plan.md) | Proposal of 2026-10-12, version 5. Phase 0 is done, and the code of phase 1a (#338 to #348) and phase 1b (#350, the automatic mode) is implemented; their acceptance runs wait for the owner ([acceptance](autodev-acceptance.md)), and phases 2 to 6 are not implemented. The design: a self-development pipeline (selecting a task, implementing it with review until clean and a pre-mortem, then a PR and `pr-review`) driven by a local scheduled Python runner, plus per-flow execution profiles (AI, model, effort), flow contracts and linear pipelines; ends with the checklist plan. The [review appendix](autodev-plan-review.md) records every finding of its three design reviews and the decision on it |

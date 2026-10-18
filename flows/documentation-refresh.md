@@ -101,6 +101,13 @@ and reference links, while all inspection, edits and validation use the target.
 5. If the current checkout is busy or contains unrelated changes, create an
    isolated worktree. Continue in the task's existing dedicated branch when one
    is already available. Do not create another branch on every repeated run.
+6. When the user includes work still in neighboring branches, record each PR's
+   full head SHA and integration status. Verify its guide against that pinned
+   source and tests, label the feature as pending in the documentation branch,
+   and make commands conditional on the implementation being present. Do not
+   merge the implementation merely to document it. Before release, recheck the
+   final integrated source, reconcile overlapping guides and remove pending
+   labels only when the recorded prerequisites are satisfied.
 
 Use these defaults when optional details are missing. State the selected scope
 and branch, then continue working.
@@ -163,6 +170,8 @@ assume it uses Python, MCP, routing templates or the Agents-Core test commands.
 | Optional local inference, native backends and Redis snapshots | `src/local_inference/`, `src/daemon/app.py`, `src/server.py`, `tests/test_local_inference_*.py`, `tests/test_optional_inference_disabled.py`; distinguish deterministic fake-adapter checks from authorized native/live acceptance |
 | Autodev scheduling, stages, brokers and sandboxed workers | `src/schedules/`, `src/flow_execution.py`, `src/daemon/autodev_ui.py`, `flows/autodev*.md`, `flows/code-review-pass.md`, `flows/change-premortem.md`, `flows/pr-review.md`, `tests/test_schedules_*.py`, `tests/test_flow_execution.py`; distinguish implemented phases, pending owner acceptance and future plans |
 | Readiness hooks and compaction recovery | `scripts/session_readiness.py`, `scripts/session_readiness_mcp.py`, `scripts/install_session_readiness.py`, `tests/test_session_readiness.py` |
+| Thread-title status and client lifecycle adapters, when included in the target revision | `src/thread_status.py`, `src/codex_thread_titles.py`, `scripts/thread_status.py`, `scripts/install_thread_status.py`, `rules/rule-thread-status.mdc`, formatter/installer/metadata tests; distinguish native title writes, persisted metadata and verified visible refresh |
+| HTTP MCP proxy and per-host connection inventory, when included in the target revision | `src/mcp_registry.py`, `src/mcp_secrets.py`, `src/daemon/mcp_proxy/`, `src/daemon/mcp_ui.py`, `src/daemon/mcp_cli.py`, `src/user_sync/`, MCP registry/exposure/upstream/host/sync tests; distinguish shared definitions, local consent, host metadata and local-only credentials |
 | Distribution, plugin metadata, optional servers and evaluation entry points | `plugins/agents-core/`, `.claude-plugin/`, `glama.json`, `src/mcp_servers/`, `scripts/eval.sh`, `evals/`, `docs/distribution.md`; external listing acceptance needs independent current evidence |
 | Generated instructions and Codex discovery | `scripts/install_instructions.py`, `scripts/templates/`, `scripts/_helpers/install_codex_instructions.py`, `scripts/_helpers/inject_claude_md.py`, `scripts/_helpers/migrate_routing_memory.py`, `tests/test_install_instructions.py`, `tests/test_installer_instructions.py`, `tests/test_codex_instructions.py`, `tests/test_protocol_migration.py` |
 | Validation commands | `pyproject.toml`, `requirements.txt`, `tests/conftest.py`, `scripts/run_tests.sh`, `.github/workflows/*.yml`, `tests/test_*.py` |

@@ -13,6 +13,13 @@ The registrations live in [server.py](../src/server.py),
 connection and tools. Agent slash commands and `/ask` are MCP prompts rather
 than tools; see [routing](routing_flow.md).
 
+The static index and its badge count native registered tools. The neighboring
+[HTTP MCP proxy](mcp-proxy.md) adds app-scoped aliases from cached upstream
+catalogs, such as `blincho__get_status`; those dynamic names are not part of this
+denominator. Their schemas and availability depend on the confirmed upstream
+revision, the local app selection and an MCP reconnect. See the guide's pending
+integration notice before treating this as installed behavior.
+
 ## Personas and discovery
 
 | Tool | Purpose and boundary | Reference |
