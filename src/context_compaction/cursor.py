@@ -1,20 +1,18 @@
-"""Fail-closed Cursor compaction through its existing, native chat input.
+"""Reserved Cursor policy boundary; native compaction is currently unsupported.
 
 No chat storage, private Cursor service, credentials or debugging port is used.
-The owner binds a hook conversation ID to exact, unique visible window/chat
-labels. The native driver supports only a verifiable sidebar accessibility
-layout and never activates a window, selects a chat, or clears a draft.
+The default adapter performs no UI inspection, keyboard events or dispatch.
+A supported, target-bound native action must be verified before adding a real
+transport. Global keyboard automation and ordinary follow-up prompts are not
+fallbacks for native compaction.
 
-An injected transport implements ``snapshot()`` and ``summarize(snapshot)``.
-The latter must recheck the supplied identity immediately before UI mutation.
+An injected transport implements ``snapshot()`` and ``summarize(snapshot)`` for
+offline policy tests. It must confine native compaction to the supplied identity.
 """
 
 from __future__ import annotations
 
 import copy
-import json
-from pathlib import Path
-import subprocess
 import sys
 from typing import Callable
 
@@ -27,7 +25,6 @@ _IDENTITY_KEYS = (
 )
 _TRUE_PROOFS = ("identity_proven", "selected", "focused", "frontmost", "draft_proven")
 _COUNTS = ("window_count", "chat_count", "input_count")
-_SCRIPT = Path(__file__).with_name("cursor_ui.js")
 _SAFE_REASONS = frozenset({
     "cursor_not_frontmost", "window_unavailable", "window_ambiguous",
     "identity_unreadable", "chat_ambiguous", "input_ambiguous", "input_not_focused",
@@ -104,63 +101,26 @@ def _identity(snapshot: dict) -> dict:
     return {key: snapshot[key] for key in _IDENTITY_KEYS}
 
 
-class MacOSCursorTransport:
-    """Bounded native AX driver; constructing it does not launch anything.
-
-    Snapshot IDs are CFHash fingerprints for cross-process change detection.
-    The action process additionally retains native refs and compares CFEqual
-    immediately before each keyboard operation; hashes never prove equality.
-    """
-
-    def __init__(self, binding: dict):
-        self.binding = copy.deepcopy(binding)
-
-    def _run(self, action: str, expected: dict | None = None) -> dict:
-        # Keep this independent guard even when called outside compact_cursor.
-        if sys.platform != "darwin":
-            return _result("unsupported", "platform_unsupported")
-        request = {"binding": self.binding, "expected": expected}
-        # Arguments are data, never shell or interpolated JavaScript. Neither
-        # stderr nor user draft contents are returned to hook logs.
-        completed = subprocess.run(
-            ["/usr/bin/osascript", "-l", "JavaScript", str(_SCRIPT), action,
-             json.dumps(request, ensure_ascii=True, separators=(",", ":"))],
-            capture_output=True, text=True, check=False, timeout=5,
-        )
-        if completed.returncode != 0 or len(completed.stdout) > 32768:
-            return _result("error", "ui_unavailable")
-        try:
-            value = json.loads(completed.stdout)
-        except (ValueError, TypeError):
-            return _result("error", "ui_unavailable")
-        return value if isinstance(value, dict) else _result("error", "ui_unavailable")
-
-    def snapshot(self) -> dict:
-        return self._run("snapshot")
-
-    def summarize(self, expected_snapshot: dict) -> dict:
-        return self._run("summarize", expected_snapshot)
-
-
 def compact_cursor(payload: dict, settings: dict, *, transport=None,
                    guard: Callable[[], bool] | None = None) -> dict:
-    """Submit native ``/summarize`` only to an explicitly bound, idle chat.
+    """Report unsupported without a verified native transport.
 
-    ``guard`` re-reads the owner switch at the last Python action boundary.
-    The driver then rechecks AX identity immediately before typing. macOS does
-    not offer an atomic compare-and-type operation, so a narrow UI race remains.
-    ``submitted`` means only that the native command was sent; ``completed``
-    additionally requires an explicit completion observation from a transport.
+    Injected offline transports exercise binding, idle and identity policy.
+    ``guard`` re-reads the owner switch at the last action boundary. A reported
+    submission never proves completion. Owner opt-in cannot enable a missing
+    native capability, and this module never substitutes a user message.
     """
     if not isinstance(settings, dict) or settings.get("enabled") is not True:
         return _result("skipped", "disabled")
+    if transport is None:
+        return _result("unsupported", "native_compaction_unavailable")
     # Even an injected transport is never touched on an unsupported platform.
     if sys.platform != "darwin":
         return _result("unsupported", "platform_unsupported")
     binding, reason = _binding(payload, settings)
     if reason:
         return _result("skipped", reason)
-    ui = transport if transport is not None else MacOSCursorTransport(binding)
+    ui = transport
     try:
         first = copy.deepcopy(ui.snapshot())
         reason = _snapshot_reason(first, binding)

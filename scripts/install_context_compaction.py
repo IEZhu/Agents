@@ -23,6 +23,7 @@ SCRIPT_NAME = "agents-core-context-compaction.py"
 
 
 def owns_handler(item: dict, script: Path) -> bool:
+    """Recognize only this installer's exact native or PowerShell hook command."""
     command = item.get("command")
     if not isinstance(command, str):
         return False
@@ -44,6 +45,7 @@ def owns_handler(item: dict, script: Path) -> bool:
 
 
 def cursor_plan(target: Path, settings_path: Path, *, remove=False) -> tuple[dict, dict[Path, bytes]]:
+    """Plan the reserved Cursor hook without enabling native compaction."""
     refuse_links(target)
     with target.open("rb") if target.exists() else io.BytesIO(b"{}") as stream:
         raw = stream.read(1048577)
@@ -73,8 +75,13 @@ def cursor_plan(target: Path, settings_path: Path, *, remove=False) -> tuple[dic
     return document, files
 
 
-def install(*, clients=("claude", "cursor"), path=None, enabled=None, dry_run=False,
+def install(*, clients=("claude",), path=None, enabled=None, dry_run=False,
             cursor_home=None, runner=subprocess.run) -> dict:
+    """Install selected adapters and report Cursor's unavailable native capability.
+
+    Only Claude is selected by default. An explicit Cursor selection installs
+    its reserved hook and policy runtime, which cannot dispatch compaction.
+    """
     target = config_path(path)
     settings, error = load(target)
     if error == "invalid_config":
@@ -91,7 +98,10 @@ def install(*, clients=("claude", "cursor"), path=None, enabled=None, dry_run=Fa
                "--marketplace", str(ROOT), "--config", "configPath=" + str(target), "--json"]
     result = {"config": str(target), "enabled": settings["enabled"] if enabled is None else enabled,
               "clients": list(clients), "dry_run": dry_run, "files": [str(p) for p in outputs],
-              "claude_command": command if "claude" in clients else None, "backups": []}
+              "claude_command": command if "claude" in clients else None, "backups": [],
+              "capabilities": {client: ({"status": "unsupported", "reason": "native_compaction_unavailable"}
+                                       if client == "cursor" else {"status": "available"})
+                               for client in clients}}
     if dry_run:
         return result
     changed = {item: content for item, content in outputs.items()
@@ -121,8 +131,10 @@ def install(*, clients=("claude", "cursor"), path=None, enabled=None, dry_run=Fa
 
 
 def main(argv=None):
+    """Parse explicit client and owner-switch choices, then print the install plan."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--clients", default="claude,cursor", help="claude,cursor (default), claude, or cursor")
+    parser.add_argument("--clients", default="claude",
+                        help="claude (default); cursor installs a reserved, unsupported adapter")
     parser.add_argument("--config")
     parser.add_argument("--dry-run", action="store_true")
     switch = parser.add_mutually_exclusive_group()
