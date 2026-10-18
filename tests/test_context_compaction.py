@@ -56,6 +56,35 @@ def test_config_rejects_ambiguous_bindings(settings):
         config.validate({**document, "cursor_bindings": document["cursor_bindings"] + [duplicate]})
 
 
+@pytest.mark.parametrize("character,count", [("x", 60), ("界", 22)], ids=["ascii", "utf8"])
+def test_config_writer_rejects_oversized_bytes_before_creating_files(tmp_path, character, count):
+    target = tmp_path / "new" / "settings.json"
+    bindings = [{"conversation_id": str(index),
+                 "window_title": str(index) + character * 500,
+                 "chat_title": str(index) + character * 500} for index in range(count)]
+    with pytest.raises(ValueError, match="64 KiB"):
+        config.write(target, {"enabled": True, "cursor_bindings": bindings})
+    assert not target.parent.exists()
+
+
+def test_bind_cursor_size_limit_preserves_readable_settings(settings, capsys):
+    path, document = settings
+    document["cursor_bindings"] = [{"conversation_id": str(index),
+        "window_title": str(index).ljust(512, "w"),
+        "chat_title": str(index).ljust(512, "c")} for index in range(58)]
+    config.write(path, document)
+    before = path.read_bytes()
+    assert config.load(path) == (document, None)
+    with pytest.raises(SystemExit) as error:
+        settings_cli(["--config", str(path), "bind-cursor", "--conversation-id", "59",
+                      "--window-title", "new".ljust(512, "w"),
+                      "--chat-title", "new".ljust(512, "c")])
+    assert error.value.code == 2 and "64 KiB" in capsys.readouterr().err
+    assert path.read_bytes() == before and config.load(path) == (document, None)
+    assert settings_cli(["--config", str(path), "disable"]) == 0
+    assert config.load(path)[0]["enabled"] is False
+
+
 def test_environment_path_precedence_and_invalid_override_disable(settings, monkeypatch):
     path, _ = settings
     other = path.with_name("other.json")
