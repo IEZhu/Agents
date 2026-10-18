@@ -29,6 +29,12 @@ Repeat `--arg=VALUE` for arguments and `--env NAME=VALUE` for nonsecret settings
 
 The daemon owns one serialized stdio session and child per alias, shared across allowed apps. Explicit Connect starts and catalogs it; later calls reuse it. Idle timeout, definition replacement and daemon shutdown close the child before a replacement is launched. Client disconnects do not own the child. Use one alias for a shared executable, retire direct client registrations with a private backup, and reconnect open clients; otherwise those registrations can still launch additional copies. This does not make two separately configured aliases or two independent daemons a global singleton.
 
+## Existing clients with cached direct commands
+
+The private stdio bridge configuration accepts an optional `alias` (for example, `plata`). In this compatibility view, `tools/list` exposes only that upstream and removes its `<alias>__` prefix; `tools/call` adds the prefix back before forwarding. Native tools and other aliases are withheld, and prompts/resources are not forwarded. App selection and exact-revision consent are still enforced by the daemon. The bridge never starts an upstream or falls back to a separate server when the daemon is unavailable.
+
+On a migrated host, remove direct Plata registrations from every active client/profile and keep a private rollback copy. Cached sessions may still try their old executable until reconnecting. A host-local compatibility launcher may route that former stdio entry point through the alias view while the daemon alone uses the preserved native binary at a different path. Keep CLI maintenance commands pointed at that native binary in its separate directory, so self-updates cannot overwrite the compatibility launcher. Do not run another daemon, onboarding or installer that reinstates direct server entries. Reconnect existing clients and verify the actual process tree; editing only future-session configuration does not stop a cached launch.
+
 ## Storage and consent
 
 Definitions live in `<personal-library>/mcp/servers/<alias>.json`. The library is selected by `AGENTS_USER_FLOWS_DIR` or the installation's `flows/.user`. Streamable HTTP and stdio transports are accepted. Credentials cannot be embedded in headers, URL user information, credential query parameters or credential extension fields. Secret declarations name HTTP headers; values are stored separately.
@@ -55,6 +61,6 @@ App selection filters tools for trusted local clients. The calling app label is 
 
 ## Initial scope
 
-This is the functional HTTP slice of [epic #306](https://github.com/IEZhu/Agents/issues/306), with per-host connection inventory and library sync. SSE upstreams, OAuth, registry search, client-configuration import, profiles, workspace scopes, compact mode, prompts/resources and per-upstream endpoints remain in the epic. Large results follow the client's ordinary MCP result handling; no proxy-specific file-pointer conversion is performed.
+This implements Streamable HTTP and shared stdio transports from [epic #306](https://github.com/IEZhu/Agents/issues/306), with per-host connection inventory and library sync. SSE upstreams, OAuth, registry search, client-configuration import, profiles, workspace scopes, compact mode, prompts/resources and per-upstream endpoints remain in the epic. Large results follow the client's ordinary MCP result handling; no proxy-specific file-pointer conversion is performed.
 
-The original [proxy plan](mcp-proxy-plan.md) remains the broader design. Source and tests of the implemented HTTP slice take precedence over proposed features.
+The original [proxy plan](mcp-proxy-plan.md) remains the broader design. Source and tests of the implemented proxy take precedence over proposed features.
