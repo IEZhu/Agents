@@ -1256,7 +1256,7 @@ def _user(entry: dict, message: dict, ts, cwd, sink: dict, actor: str) -> None:
         is_prompt = (isinstance(content, str) or attached) and not CLIENT_TAG.match(stripped)
     prompt = _prompt_text(content).strip()
     if is_prompt and prompt:
-        sink["prompts"].append({"ts": ts, "text": _short(prompt)})
+        sink["prompts"].append({"ts": ts})
         _scan_refs(prompt, sink["refs"], ts)
 
 

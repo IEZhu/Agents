@@ -66,6 +66,8 @@ thread only from the transcript and the live state, and its report must say so.
       confirm the right one before using it.
     - The helper also reads the transcripts of the session's subagents and
       workflow agents and marks their items with `by`.
+    - Its `prompts` list contains timestamps only, without user message text or
+      previews; use the sanitized primary-evidence procedure above when text is needed.
   - **Finding the helper from another repository.** Derive `AGENTS_CORE_ROOT` as
     the [pr-review helpers](pr-review.md#optional-github-helpers-from-the-agents-core-installation)
     describe:
