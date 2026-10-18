@@ -24,8 +24,11 @@ bootstrap must pass its independently enrolled state location; candidate-provide
 environment overrides are not enrollment authority. State inside the candidate
 installation or selected library is refused.
 
-init asks for confirmation and creates one P-256 machine.key and derived
-machine.pub. Its label is required and never taken from the hostname. Installers
+init resolves the library root before confirmation and enrolls the displayed
+canonical path, even if the original input symlink is retargeted during the
+prompt. A changed canonical binding is refused before enrollment. It creates
+one P-256 machine.key and derived machine.pub. Its label is required and never
+taken from the hostname. Installers
 and first startup will explicitly call initialize with the owner label and
 library root; ordinary reads never enroll or repair. The machine is enrolled
 for the exact library root only. A separate random authority.key authenticates

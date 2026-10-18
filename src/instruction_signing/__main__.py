@@ -60,10 +60,13 @@ def main(argv=None) -> int:
         installation = args.installation or installation_root()
         store = AuthorityStore(args.state_dir or state_dir(installation), installation)
         if args.command == "init":
-            print(f"Enroll installation: {store.installation}\nLibrary: {Path(args.library).resolve()}\nMachine label: {args.label}")
+            library = Path(args.library).resolve(strict=True)
+            print(f"Enroll installation: {store.installation}\nLibrary: {library}\nMachine label: {args.label}")
             if not _confirm("Create local signing authority?"):
                 return 1
-            snapshot = store.initialize(label=args.label, library_root=args.library)
+            if library.resolve(strict=True) != library:
+                raise AuthorityError("Library root changed after confirmation; repeat enrollment")
+            snapshot = store.initialize(label=args.label, library_root=library)
             print(f"Machine fingerprint: {snapshot.entries[0].fingerprint}")
             return 0
         snapshot = store.snapshot()
