@@ -88,6 +88,21 @@ collection. `test_ci_shard.py` checks complete, disjoint and stable coverage.
 
 ### Checks outside pytest
 
+The optional native context compaction adapters have offline policy, installer
+and fake-UI checks. They never send a real slash command, read credentials or
+start a model:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/test_context_compaction*.py -q -p no:cacheprovider
+node --test plugins/agents-core-context-compaction/tests/compaction.test.js
+claude plugin validate plugins/agents-core-context-compaction
+```
+
+Claude's static mod validation requires a current Claude Code installation;
+Python and Node tests need no client login. A live UI/native compaction smoke
+check is separate and consumes the signed-in client's normal usage. See
+[supported surfaces and live verification](../docs/context-compaction.md#verification).
+
 Agent metadata and the Node bridge have their own checks:
 
 ```bash
