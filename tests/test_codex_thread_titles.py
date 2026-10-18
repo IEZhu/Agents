@@ -1,7 +1,9 @@
 """Metadata-only Codex stdio protocol and bounded child-process cleanup."""
 import importlib.util
 import json
+import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import time
@@ -84,6 +86,7 @@ def server(tmp_path, monkeypatch):
         return process
 
     monkeypatch.setattr(adapter.subprocess, "Popen", popen)
+    monkeypatch.setattr(adapter, "_resolve_executable", lambda executable: executable)
 
     def messages():
         return [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines()] if log_path.exists() else []
@@ -221,3 +224,168 @@ def test_module_can_load_as_installed_standalone_sibling(tmp_path):
     spec.loader.exec_module(module)
     assert module.rename_codex_thread.__defaults__ is None
     assert module.rename_codex_thread.__kwdefaults__ == {"timeout": 2.5, "executable": "codex"}
+
+
+@pytest.mark.parametrize("architecture,package,triple", [
+    ("AMD64", "codex-win32-x64", "x86_64-pc-windows-msvc"),
+    ("ARM64", "codex-win32-arm64", "aarch64-pc-windows-msvc"),
+])
+@pytest.mark.parametrize("layout", ["hoisted", "nested", "vendor"])
+@pytest.mark.parametrize("installation", ["global", "local"])
+@pytest.mark.parametrize("suffix", [".cmd", ".ps1"])
+def test_windows_npm_shims_resolve_native_without_executing_wrapper(
+        tmp_path, monkeypatch, architecture, package, triple, layout, installation, suffix):
+    prefix = tmp_path / "npm with spaces"
+    modules = prefix / "node_modules"
+    shim = (prefix if installation == "global" else modules / ".bin") / ("codex" + suffix)
+    shim.parent.mkdir(parents=True)
+    # Deliberately invalid shell text: resolution must not parse or evaluate it.
+    shim.write_text("WRAPPER MUST NEVER RUN & exit 99", encoding="utf-8")
+    package_root = modules / "@openai" / "codex"
+    (package_root / "bin").mkdir(parents=True)
+    (package_root / "bin" / "codex.js").write_text("throw 'launcher must not run';", encoding="utf-8")
+    if layout == "vendor":
+        vendor = package_root / "vendor"
+    else:
+        dependency_modules = package_root / "node_modules" if layout == "nested" else modules
+        vendor = dependency_modules / "@openai" / package / "vendor"
+    native = vendor / triple / "bin" / "codex.exe"
+    native.parent.mkdir(parents=True)
+    native.write_bytes(b"native executable placeholder")
+    monkeypatch.setattr(adapter.platform, "machine", lambda: architecture)
+    monkeypatch.setattr(adapter.shutil, "which", lambda *_args, **_kwargs: str(shim))
+    assert adapter._windows_codex_executable("codex") == str(native.resolve())
+
+
+def test_windows_direct_native_executable_is_resolved_to_absolute_path(tmp_path, monkeypatch):
+    native = tmp_path / "Codex Native" / "codex.exe"
+    native.parent.mkdir()
+    native.write_bytes(b"native executable placeholder")
+    monkeypatch.setattr(adapter.shutil, "which", lambda executable: str(native))
+    assert adapter._windows_codex_executable("codex") == str(native.resolve())
+
+
+@pytest.mark.parametrize("command", ["codex", "codex.ps1", "explicit-path"])
+def test_windows_powershell_only_shim_is_discovered_without_pathext(tmp_path, monkeypatch, command):
+    shim = tmp_path / "codex.ps1"
+    shim.touch()
+    package_root = tmp_path / "node_modules" / "@openai" / "codex"
+    (package_root / "bin").mkdir(parents=True)
+    (package_root / "bin" / "codex.js").touch()
+    native = package_root / "vendor" / "x86_64-pc-windows-msvc" / "bin" / "codex.exe"
+    native.parent.mkdir(parents=True)
+    native.touch()
+    calls = []
+
+    def which(executable):
+        calls.append(executable)
+        return None
+
+    monkeypatch.setattr(adapter.shutil, "which", which)
+    monkeypatch.setattr(adapter.platform, "machine", lambda: "AMD64")
+    monkeypatch.setenv("PATH", str(tmp_path))
+    if command == "explicit-path":
+        command = str(shim)
+    assert adapter._windows_codex_executable(command) == str(native.resolve())
+    assert calls == [command]
+
+
+@pytest.mark.parametrize("suffix", [".cmd", ".ps1", ".bat", ".js", ""])
+def test_windows_unsupported_wrapper_layout_fails_before_process_creation(tmp_path, monkeypatch, suffix):
+    shim = tmp_path / ("codex" + suffix)
+    shim.write_text("must never run", encoding="utf-8")
+    monkeypatch.setattr(adapter.shutil, "which", lambda *_args, **_kwargs: str(shim))
+    monkeypatch.setattr(adapter.platform, "machine", lambda: "AMD64")
+    monkeypatch.setattr(adapter, "_resolve_executable", adapter._windows_codex_executable)
+    monkeypatch.setattr(adapter.subprocess, "Popen", lambda *_args, **_kwargs: pytest.fail("wrapper was started"))
+    with pytest.raises(RuntimeError, match="native codex.exe"):
+        adapter.rename_codex_thread(SESSION, "stopped", format_stopped)
+
+
+def test_windows_missing_command_fails_clearly(tmp_path, monkeypatch):
+    monkeypatch.setattr(adapter.shutil, "which", lambda *_args, **_kwargs: None)
+    monkeypatch.setenv("PATH", str(tmp_path))
+    with pytest.raises(RuntimeError, match="not found"):
+        adapter._windows_codex_executable("codex")
+
+
+def test_windows_unsupported_architecture_fails_clearly(tmp_path, monkeypatch):
+    shim = tmp_path / "codex.cmd"
+    shim.touch()
+    monkeypatch.setattr(adapter.shutil, "which", lambda *_args, **_kwargs: str(shim))
+    monkeypatch.setattr(adapter.platform, "machine", lambda: "unknown-architecture")
+    with pytest.raises(RuntimeError, match="architecture"):
+        adapter._windows_codex_executable("codex")
+
+
+def test_command_resolution_consumes_the_overall_deadline(monkeypatch):
+    clock = [0.0]
+
+    def resolve(executable):
+        clock[0] = 1.0
+        return executable
+
+    monkeypatch.setattr(adapter.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(adapter, "_resolve_executable", resolve)
+    monkeypatch.setattr(adapter.subprocess, "Popen", lambda *_args, **_kwargs: pytest.fail("deadline expired before launch"))
+    with pytest.raises(RuntimeError, match="timed out"):
+        adapter.rename_codex_thread(SESSION, "stopped", format_stopped, timeout=0.4)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Requires Windows PATH and CreateProcess semantics")
+@pytest.mark.parametrize("installation", ["native", "global_cmd", "global_ps1", "local_cmd"])
+@pytest.mark.parametrize("hang", [False, True])
+def test_windows_path_launches_and_reaps_native_server(tmp_path, monkeypatch, installation, hang):
+    prefix = tmp_path / "npm with spaces"
+    prefix.mkdir()
+    if installation == "native":
+        native = prefix / "codex.exe"
+        path_directory = prefix
+    else:
+        modules = prefix / "node_modules"
+        path_directory = modules / ".bin" if installation == "local_cmd" else prefix
+        path_directory.mkdir(parents=True, exist_ok=True)
+        suffix = ".ps1" if installation == "global_ps1" else ".cmd"
+        marker = tmp_path / "wrapper-ran"
+        (path_directory / ("codex" + suffix)).write_text(
+            f'echo wrapper > "{marker}"', encoding="utf-8")
+        architecture = adapter.platform.machine().lower()
+        triples = {"amd64": "x86_64-pc-windows-msvc", "x86_64": "x86_64-pc-windows-msvc",
+                   "arm64": "aarch64-pc-windows-msvc", "aarch64": "aarch64-pc-windows-msvc"}
+        package_root = modules / "@openai" / "codex"
+        (package_root / "bin").mkdir(parents=True)
+        (package_root / "bin" / "codex.js").write_text("throw 'launcher must not run';", encoding="utf-8")
+        native = package_root / "vendor" / triples[architecture] / "bin" / "codex.exe"
+        native.parent.mkdir(parents=True)
+    shutil.copyfile(sys.executable, native)
+    script, config, log = (tmp_path / name for name in ("server.py", "config.json", "messages.jsonl"))
+    script.write_text(_SERVER, encoding="utf-8")
+    config.write_text(json.dumps({"hang_at": "initialize"} if hang else {}), encoding="utf-8")
+    monkeypatch.setenv("PATH", str(path_directory) + os.pathsep + sys.base_prefix)
+    monkeypatch.setenv("PATHEXT", ".EXE;.CMD")
+    monkeypatch.setenv("PYTHONHOME", sys.base_prefix)
+    processes = []
+    real_popen = subprocess.Popen
+
+    def popen(argv, **options):
+        assert argv == [str(native.resolve()), "app-server", "--listen", "stdio://"]
+        assert options.get("shell", False) is False
+        process = real_popen([argv[0], "-B", "-u", str(script), str(config), str(log), *argv[1:]], **options)
+        processes.append(process)
+        return process
+
+    monkeypatch.setattr(adapter.subprocess, "Popen", popen)
+    try:
+        if hang:
+            with pytest.raises(RuntimeError, match="timed out"):
+                adapter.rename_codex_thread(SESSION, "stopped", format_stopped, timeout=1.5)
+        else:
+            assert adapter.rename_codex_thread(SESSION, "stopped", format_stopped)["persisted"] is True
+        assert len(processes) == 1 and processes[0].poll() is not None
+        assert processes[0].stdin.closed and processes[0].stdout.closed
+        assert not (tmp_path / "wrapper-ran").exists()
+    finally:
+        for process in processes:
+            if process.poll() is None:
+                process.kill()
+                process.wait(timeout=2)

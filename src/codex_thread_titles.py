@@ -8,7 +8,10 @@ from __future__ import annotations
 import json
 import math
 import os
+from pathlib import Path
+import platform
 import queue
+import shutil
 import signal
 import subprocess
 import threading
@@ -19,6 +22,62 @@ from typing import Callable
 
 _MAX_MESSAGE_BYTES = 65536
 _MAX_TITLE_CHARS = 1024
+
+
+def _windows_codex_executable(executable: str) -> str:
+    """Resolve native Codex without starting an npm shell/Node wrapper.
+
+    Windows cannot discover npm's codex.cmd through CreateProcess's bare-name
+    search, and killing a wrapper does not also kill its native App Server.
+    Support npm's global and local .bin shims by resolving their package's
+    platform dependency (or bundled vendor fallback), like bin/codex.js does.
+    """
+    resolved = shutil.which(executable)
+    suffix = Path(executable).suffix.lower()
+    if resolved is None and suffix in {"", ".ps1"}:
+        # PowerShell scripts are normally absent from PATHEXT. Python 3.11's
+        # which() still requires PATHEXT even with mode=F_OK, so check files.
+        script = executable + ".ps1" if not suffix else executable
+        directories = ("",) if os.path.dirname(script) else os.get_exec_path()
+        resolved = next((str(Path(directory) / script) for directory in directories
+                         if (Path(directory) / script).is_file()), None)
+    if resolved is None:
+        raise RuntimeError("Codex executable was not found on Windows PATH")
+    command = Path(resolved).resolve()
+    if command.suffix.lower() == ".exe":
+        return str(command)
+    if command.suffix.lower() not in {".cmd", ".ps1"}:
+        raise RuntimeError("Windows title updates require a native codex.exe or a supported npm shim")
+    targets = {
+        "amd64": ("codex-win32-x64", "x86_64-pc-windows-msvc"),
+        "x86_64": ("codex-win32-x64", "x86_64-pc-windows-msvc"),
+        "arm64": ("codex-win32-arm64", "aarch64-pc-windows-msvc"),
+        "aarch64": ("codex-win32-arm64", "aarch64-pc-windows-msvc"),
+    }
+    target = targets.get(platform.machine().lower())
+    if target is None:
+        raise RuntimeError("Unsupported Windows architecture for native codex.exe resolution")
+    package, triple = target
+    modules = command.parent / "node_modules"
+    if command.parent.name.lower() == ".bin" and command.parent.parent.name.lower() == "node_modules":
+        modules = command.parent.parent
+    package_root = (modules / "@openai" / "codex").resolve()
+    if not (package_root / "bin" / "codex.js").is_file():
+        raise RuntimeError("Cannot resolve native codex.exe from this Windows npm shim; use a native executable path")
+    # Follow Node's ancestor node_modules search so nested and hoisted optional
+    # dependencies also work when the main package itself is a symlink.
+    for ancestor in (package_root, *package_root.parents):
+        native = ancestor / "node_modules" / "@openai" / package / "vendor" / triple / "bin" / "codex.exe"
+        if native.is_file():
+            return str(native.resolve())
+    native = package_root / "vendor" / triple / "bin" / "codex.exe"
+    if native.is_file():
+        return str(native.resolve())
+    raise RuntimeError("Cannot resolve native codex.exe from this Windows npm shim; use a native executable path")
+
+
+def _resolve_executable(executable: str) -> str:
+    return _windows_codex_executable(executable) if os.name == "nt" else executable
 
 
 def _remaining(deadline: float) -> float:
@@ -160,7 +219,10 @@ def rename_codex_thread(session_id: str, status: str, formatter: Callable[[str, 
     options = {"start_new_session": True} if os.name == "posix" else {
         "creationflags": subprocess.CREATE_NO_WINDOW,
     }
-    process = subprocess.Popen([executable, "app-server", "--listen", "stdio://"],
+    command = _resolve_executable(executable)
+    if not _remaining(exchange_deadline):
+        raise RuntimeError("Codex title update timed out")
+    process = subprocess.Popen([command, "app-server", "--listen", "stdio://"],
                                stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                stderr=subprocess.DEVNULL, bufsize=0, close_fds=True, **options)
     outcome = queue.Queue(maxsize=1)

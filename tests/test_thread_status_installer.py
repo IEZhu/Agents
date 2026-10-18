@@ -51,7 +51,13 @@ def test_formats_preservation_copy_and_idempotence(installation, client):
     for name in events:
         entry = document["hooks"][name][-1]
         handler = entry if client == "cursor" else entry["hooks"][0]
-        assert shlex.split(handler["command"])[1:] == [str(script), "--client", client]
+        if installer.helpers.WINDOWS_HOOKS:
+            arguments = shlex.split(handler["command"])
+            assert arguments[:4] == ["powershell.exe", "-NoProfile", "-NonInteractive", "-EncodedCommand"]
+            payload = base64.b64decode(arguments[4]).decode("utf-16-le")
+            assert payload == installer.helpers.powershell_payload([installer.sys.executable, str(script), "--client", client])
+        else:
+            assert shlex.split(handler["command"])[1:] == [str(script), "--client", client]
         assert handler["timeout"] == (3 if name == "Interrupt" else 5)
     if client == "cursor":
         assert document["version"] == 1
