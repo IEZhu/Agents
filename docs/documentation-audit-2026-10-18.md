@@ -147,3 +147,10 @@ preparation and publication regressions. The checker passes for **131 Markdown
 files** and all **48 main-server tools**. These are local, offline checks; they
 do not publish a release or establish provider delivery. Final remote CI and
 bot-review results belong to the pull request's current head.
+
+The first remote Documentation run exposed a cached-model dependency in the
+existing explicit flow-bundle test. It initialized vector retrievers merely to
+format declared components. The test now keeps the real source validation and
+formatters without constructing retrievers, and fails if an embedding model is
+initialized. The guard reproduced the original failure locally before the fix;
+the focused workflow selection passes without a model cache.

@@ -83,7 +83,9 @@ the offline documentation checker and `test_check_docs.py`, `test_flows.py` and
 `test_workflow_permissions.py` for every pull request and pushes to `main`/`dev`.
 It checks the source-derived README badge as well as navigation and public tool
 references. It installs the runtime test dependencies for the registration and
-flow checks, but starts no model. See [badge scope](../docs/quality-checks.md).
+flow checks, but starts no model. Declared flow bundles use real source components
+and formatters, with a guard rejecting embedding-model initialization. See
+[badge scope](../docs/quality-checks.md).
 
 The [User sync workflow](../.github/workflows/user-sync.yml) runs its selected
 library-history and user-sync files intact on Linux and macOS and splits that
