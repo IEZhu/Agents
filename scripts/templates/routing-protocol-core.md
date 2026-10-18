@@ -179,6 +179,14 @@ taking any of its steps. Pass the user's scope and constraints in `request`, plu
 that an installed flow covers. If no flow matches, say so and continue without
 one.
 
+## Describe a repository on first work
+
+The first time a conversation works in a repository (reads, searches or changes
+its files), call `describe_repo` with `workspace` (and `repo_path` for a
+subdirectory) before exploring it ad hoc. On `needs_summary`, follow its
+`instruction`; call `write_repo_summary` only where that instruction allows a
+write.
+
 ## Finish each answer
 
 Except for the explicit unavailable-MCP fallback below, compose the complete final
@@ -207,6 +215,9 @@ A client may close the turn with its own call after which no text is shown,
 such as the next-step box of the Claude desktop app (`wrap_up`). Call
 `log_interaction` before that call, with the box's text and the footer as
 `response_content`: the closing call does not replace the log.
+A message that ends the turn is a final answer even when it only reports
+progress, for example while a background worker, a timer or another session is
+still running: log it and end it with the footer like any other answer.
 
 Logging is permitted on `keep`; routing and enrichment are not. The log records
 declared attribution, not proof of the model's compliance. If a requested change
