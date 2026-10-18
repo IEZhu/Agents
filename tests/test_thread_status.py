@@ -102,7 +102,7 @@ def test_confirmed_current_turn_interrupt_persists_stopped_only(monkeypatch, tmp
     monkeypatch.setattr(runtime, "rename_codex_session", lambda *args, **kw: writes.append((args, kw)) or {"persisted": True})
     runtime.handle_hook_event(event(turn_id="turn-1"), "codex", state_directory=tmp_path)
     receipt = runtime.handle_hook_event(event("Interrupt", turn_id="turn-1"), "codex", state_directory=tmp_path)
-    assert writes == [((SESSION, "stopped"), {"timeout": 2.0, "expected_turn_id": "turn-1"})]
+    assert writes == [((SESSION, "stopped"), {"timeout": 2.0, "expected_turn_id": "turn-1", "recorded_turn_id": "turn-1"})]
     assert "Stopped" in receipt["systemMessage"]
     assert "unverified" in receipt["systemMessage"]
     saved = json.loads((tmp_path / (SESSION + ".json")).read_text())["last_interrupt"]
@@ -117,7 +117,7 @@ def test_early_interrupt_uses_public_turn_check_before_prompt_hook(monkeypatch, 
     monkeypatch.setattr(runtime, "rename_codex_session", lambda *a, **kw: calls.append(kw) or {"persisted": True})
     assert "Stopped" in runtime.handle_hook_event(event("Interrupt", turn_id="early-turn"),
                                                  "codex", state_directory=tmp_path)["systemMessage"]
-    assert calls == [{"timeout": 2.0, "expected_turn_id": "early-turn"}]
+    assert calls == [{"timeout": 2.0, "expected_turn_id": "early-turn", "recorded_turn_id": previous_turn}]
     runtime.handle_hook_event(event(turn_id="resumed-turn"), "codex", state_directory=tmp_path)
     saved = json.loads((tmp_path / (SESSION + ".json")).read_text())
     assert saved["turn_id"] == "resumed-turn"
@@ -135,7 +135,7 @@ def test_stale_interrupt_and_normal_completion_do_not_overwrite_new_work(monkeyp
         assert runtime.handle_hook_event(stale, "codex", state_directory=tmp_path) == {}
     assert runtime.handle_hook_event(event("Interrupt", turn_id="new-turn", agent_id="child"),
                                      "codex", state_directory=tmp_path) == {}
-    assert calls == [{"timeout": 2.0, "expected_turn_id": "old-turn"}]
+    assert calls == [{"timeout": 2.0, "expected_turn_id": "old-turn", "recorded_turn_id": "new-turn"}]
     saved = json.loads((tmp_path / (SESSION + ".json")).read_text())
     assert saved["turn_id"] == "new-turn" and saved["last_interrupt"]["outcome"] == "skipped"
 

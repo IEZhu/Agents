@@ -138,7 +138,48 @@ def test_interrupt_checks_latest_turn_without_loading_items_before_writing(serve
     sent = server[2]()
     assert [message["method"] for message in sent] == [
         "initialize", "initialized", "thread/read", "thread/turns/list", "thread/name/set", "thread/read"]
-    assert sent[3]["params"] == {"threadId": SESSION, "limit": 1, "itemsView": "notLoaded"}
+    assert sent[3]["params"] == {
+        "threadId": SESSION, "limit": 1, "itemsView": "notLoaded", "sortDirection": "desc"}
+
+
+@pytest.mark.parametrize("recorded_is_older", [False, True])
+def test_interrupt_reconciles_prompt_record_with_lagging_public_metadata(server, monkeypatch,
+                                                                        tmp_path, recorded_is_older):
+    from scripts import thread_status as runtime
+    recorded = "01a14e91-da9f-75f0-b282-911dfe1f8bbf"
+    # UUID ordering is deliberately irrelevant: only the API's order is proof.
+    server[0]["turns"] = [{"id": TURN}] + ([{"id": SESSION}, {"id": recorded}] if recorded_is_older else [])
+    monkeypatch.setattr(runtime, "rename_codex_session", lambda session, status, **kwargs:
+                        adapter.rename_codex_thread(session, status, runtime.status_title,
+                                                    executable="fake-codex", **kwargs))
+    payload = {"session_id": SESSION, "hook_event_name": "UserPromptSubmit", "turn_id": recorded}
+    runtime.handle_hook_event(payload, "codex", state_directory=tmp_path / "state")
+    result = runtime.handle_hook_event({**payload, "hook_event_name": "Interrupt", "turn_id": TURN},
+                                       "codex", state_directory=tmp_path / "state")
+    saved = json.loads((tmp_path / "state" / (SESSION + ".json")).read_text())["last_interrupt"]
+    methods = [message["method"] for message in server[2]()]
+    if recorded_is_older:
+        assert "Stopped" in result["systemMessage"]
+        assert saved["persisted"] is True and "thread/name/set" in methods
+    else:
+        assert result == {}
+        assert saved["outcome"] == "skipped" and saved["reason"] == "unconfirmed_prompt_order"
+        assert "thread/name/set" not in methods
+    assert server[2]()[3]["params"] == {
+        "threadId": SESSION, "limit": 32, "itemsView": "notLoaded", "sortDirection": "desc"}
+
+
+@pytest.mark.parametrize("recorded", ["invalid", "", 123, SESSION.upper()])
+def test_invalid_recorded_turn_is_rejected_before_launch(server, recorded):
+    with pytest.raises(ValueError, match="recorded-turn UUID"):
+        rename(expected_turn_id=TURN, recorded_turn_id=recorded)
+    assert server[1] == []
+
+
+def test_recorded_turn_requires_an_interrupted_turn(server):
+    with pytest.raises(ValueError, match="requires an interrupted turn"):
+        rename(recorded_turn_id=TURN)
+    assert server[1] == []
 
 
 @pytest.mark.parametrize("turns", [[], [{"id": SESSION}], [None]])
@@ -273,7 +314,7 @@ def test_module_can_load_as_installed_standalone_sibling(tmp_path):
     spec.loader.exec_module(module)
     assert module.rename_codex_thread.__defaults__ is None
     assert module.rename_codex_thread.__kwdefaults__ == {
-        "timeout": 2.5, "executable": "codex", "expected_turn_id": None}
+        "timeout": 2.5, "executable": "codex", "expected_turn_id": None, "recorded_turn_id": None}
 
 
 @pytest.mark.parametrize("architecture,package,triple", [

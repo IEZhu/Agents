@@ -64,7 +64,11 @@ and does not load conversation items. This also covers an early Stop before
 record under the adapter's own `hooks/agents-core-thread-status-state/` directory
 tracks the prompt turn ID and the last interrupt receipt. Its lock serializes
 the interrupt write with the next prompt, while the public turn check rejects
-an older interruption even when no prompt record exists. The receipt records
+an older interruption even when no prompt record exists. When the prompt record
+differs, the adapter also requires that record to appear after the interrupted
+turn in the newest-first metadata page (at most 32 turns). Missing or lagging
+metadata cannot authorize a write over a locally observed newer prompt; an
+unconfirmed order is skipped. The receipt records
 `running`, `persisted`, `skipped`, or `failed`, including a bounded error message
 on failure, and survives the next prompt for diagnosis. Missing IDs, a stale
 interrupt or a failed metadata operation cannot produce a success message. The helper starts no model

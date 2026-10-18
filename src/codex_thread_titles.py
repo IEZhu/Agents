@@ -22,6 +22,7 @@ from typing import Callable
 
 _MAX_MESSAGE_BYTES = 65536
 _MAX_TITLE_CHARS = 1024
+_TURN_ORDER_LIMIT = 32
 
 
 def _windows_codex_executable(executable: str) -> str:
@@ -127,7 +128,7 @@ def _thread_name(result: dict, session_id: str) -> str:
 
 
 def _exchange(process, session_id: str, status: str, formatter, deadline: float,
-              expected_turn_id: str | None = None) -> dict:
+              expected_turn_id: str | None = None, recorded_turn_id: str | None = None) -> dict:
     _request(process, 0, "initialize", {
         "clientInfo": {"name": "agents_core_thread_titles", "version": "1.0"},
     }, deadline)
@@ -137,14 +138,24 @@ def _exchange(process, session_id: str, status: str, formatter, deadline: float,
     current = _thread_name(_request(process, 1, "thread/read", params, deadline), session_id)
     next_id = 2
     if expected_turn_id is not None:
+        check_order = recorded_turn_id is not None and recorded_turn_id != expected_turn_id
         turns = _request(process, next_id, "thread/turns/list", {
-            "threadId": session_id, "limit": 1, "itemsView": "notLoaded",
+            "threadId": session_id, "limit": _TURN_ORDER_LIMIT if check_order else 1,
+            "itemsView": "notLoaded", "sortDirection": "desc",
         }, deadline).get("data")
         if not isinstance(turns, list):
             raise RuntimeError("Codex turn metadata did not confirm the interrupted turn")
         if not turns or not isinstance(turns[0], dict) or turns[0].get("id") != expected_turn_id:
             return {"client": "codex", "session_id": session_id, "status": status,
                     "persisted": False, "reason": "stale_interrupt",
+                    "live_ui_refresh_verified": False}
+        # A separate App Server can lag behind a locally observed newer prompt.
+        # Accept a differing record only when metadata proves it is older. Do not
+        # infer order from UUIDs or treat absence from this bounded page as proof.
+        if check_order and not any(isinstance(turn, dict) and turn.get("id") == recorded_turn_id
+                                   for turn in turns[1:]):
+            return {"client": "codex", "session_id": session_id, "status": status,
+                    "persisted": False, "reason": "unconfirmed_prompt_order",
                     "live_ui_refresh_verified": False}
         next_id += 1
     title = formatter(current, status)
@@ -208,7 +219,7 @@ def _stop(process, deadline: float, *, completed: bool) -> None:
 
 def rename_codex_thread(session_id: str, status: str, formatter: Callable[[str, str], str], *,
                         timeout: float = 2.5, executable: str = "codex",
-                        expected_turn_id: str | None = None) -> dict:
+                        expected_turn_id: str | None = None, recorded_turn_id: str | None = None) -> dict:
     """Read, format, persist and confirm the current thread title via stdio.
 
     The total deadline starts before process creation and includes initialization
@@ -229,6 +240,13 @@ def rename_codex_thread(session_id: str, status: str, formatter: Callable[[str, 
             raise ValueError("A canonical interrupted-turn UUID is required") from error
         if canonical_turn != expected_turn_id:
             raise ValueError("A canonical interrupted-turn UUID is required")
+    if recorded_turn_id is not None:
+        try:
+            canonical_record = str(uuid.UUID(recorded_turn_id))
+        except (ValueError, AttributeError, TypeError) as error:
+            raise ValueError("A canonical recorded-turn UUID is required") from error
+        if canonical_record != recorded_turn_id or expected_turn_id is None:
+            raise ValueError("A canonical recorded-turn UUID requires an interrupted turn")
     if not isinstance(status, str) or not status or not callable(formatter):
         raise ValueError("A status and title formatter are required")
     if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not math.isfinite(timeout) or timeout <= 0:
@@ -251,7 +269,7 @@ def rename_codex_thread(session_id: str, status: str, formatter: Callable[[str, 
     def exchange() -> None:
         try:
             outcome.put((True, _exchange(process, session_id, status, formatter, exchange_deadline,
-                                        expected_turn_id)))
+                                        expected_turn_id, recorded_turn_id)))
         except Exception as error:
             outcome.put((False, error))
 
