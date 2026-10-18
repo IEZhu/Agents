@@ -103,7 +103,8 @@ def artifact_floor(*, entries: int, size_bytes: int) -> list[str]:
 
 def floors(request: PreparationRequest) -> list[tuple[str, str]]:
     """Each floor the assignment triggers, as ``(minimum tier, reason)``."""
-    texts = [request.task, *request.context, *request.scope, *request.non_goals, *request.acceptance_criteria]
+    # Non-goals name work the worker must not do ("never print secrets"), not the work's risk.
+    texts = [request.task, *request.context, *request.scope, *request.acceptance_criteria]
     folded = "\n".join(texts).casefold()
     found = [("inherit", f"risk:{name}") for name, pattern in RISKS.items() if pattern.search(folded)]
     if len(request.acceptance_criteria) > MAX_LIGHT_CRITERIA:
