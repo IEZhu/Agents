@@ -14,7 +14,8 @@ async def handle(service, request):
         if request.method == "GET":
             records = await asyncio.to_thread(service.mcp_registry.list)
             states = await asyncio.to_thread(service.mcp_proxy.status)
-            return JSONResponse({"servers": records, "runtime": states}, headers=headers)
+            machines = await asyncio.to_thread(service.mcp_registry.machines)
+            return JSONResponse({"servers": records, "runtime": states, "machines": machines}, headers=headers)
         if request.method != "POST":
             return JSONResponse({"error": "method_not_allowed"}, 405, headers=headers)
         raw = bytearray()

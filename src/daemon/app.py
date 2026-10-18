@@ -235,6 +235,13 @@ class Service:
         await asyncio.to_thread(agents_core_version)
         await asyncio.to_thread(agents_core_branch)
         asyncio.get_running_loop().set_default_executor(self.io)
+        # Migrate existing installations into the portable host inventory.
+        # Imported inventories never become execution consent on this machine.
+        if (self.directory / "mcp" / "registry.json").is_file():
+            try:
+                await asyncio.to_thread(self.mcp_registry.publish_machine)
+            except (OSError, ValueError):
+                logger.warning("MCP host inventory could not be published")
         runtime = asyncio.create_task(self.start_runtime())
         diagnostics = asyncio.create_task(self.retain_diagnostics())
         loop_monitor = asyncio.create_task(self.monitor_loop())
