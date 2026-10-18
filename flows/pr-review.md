@@ -150,8 +150,11 @@ then assign one observer to that run and attempt. Use the bounded
 equivalent script as described in [bounded execution](../docs/flow-execution.md#let-a-monitor-wait).
 Consume that observer's result; do not alternate model sleeps, clock reads and
 fresh remote status fetches for the same unchanged run, or start a second
-observer alongside it. When a bounded wait expires, retain its pending state
-and resume the same observation. Failed, skipped, cancelled, missing or
+observer alongside it. When the helper returns exit code 3, retain its pending
+state. After that invocation exits, continue the same logical observation by
+invoking the helper again with the same repository, full source SHA, run ID,
+attempt and evidence directory. Do not start another invocation while the
+previous one is still running. Failed, skipped, cancelled, missing or
 inconsistent results and changed identities never establish success; assess
 optional skips explicitly under the project's rules.
 
