@@ -64,12 +64,12 @@ Replace the path with the actual caller project, and replace null with the retai
 
 ## Delegate a bounded assignment
 
-Use `get_subagent_context` with a canonical role, one task, concrete `acceptance_criteria`, relevant `context`, explicit `scope` and `non_goals`, and the required `result_type`.
+Use `get_subagent_context` with a canonical role, one task, concrete `acceptance_criteria`, relevant `context`, explicit `scope` and `non_goals`, and the required `result_type`. Rate the assignment with `complexity` (`low`, `standard` or `high`) and pass `client`, the host you run in (`claude`, `codex` or `cursor`), so the package names a lighter model for simpler work ([model tiers](subagent-model-tiers.md)); omit `complexity` to keep your own model.
 
 1. Require `status: prepared` and retain the original `contract`.
-2. Forward `worker_context` unchanged, plus only necessary task materials, to a fresh native worker. The host launches it and enforces permissions and runtime limits. Keep the parent's persona unchanged.
+2. Forward `worker_context` unchanged, plus only necessary task materials, to a fresh native worker. When the package has `execution.spawn`, launch the worker with exactly those arguments. The host launches it and enforces permissions and runtime limits. Keep the parent's persona unchanged.
 3. Pass every returned or revised output unchanged to `validate_subagent_result` with the retained contract.
-4. Require `valid: true`, then independently assess source evidence, reported checks and acceptance criteria. Structural validity alone does not verify correctness.
+4. Require `valid: true`, then independently assess source evidence, reported checks and acceptance criteria. Structural validity alone does not verify correctness. A returned `escalation` names the `complexity` for a new attempt with a new `attempt_id`.
 
 If preparation, validation or native spawning is unavailable, report that limitation and do practical work in the parent. The [worker contract](subagent-contract.md) covers result statuses and retries. Pinned [artifact manifests](shared-artifacts.md) support shared exact input without copying it into every assignment.
 
