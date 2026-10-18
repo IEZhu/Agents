@@ -82,7 +82,7 @@ def hook_output(event: dict, client: str, *, script: str | None = None) -> dict:
 
 
 def rename_codex_session(session_id: str, status: str, *, timeout: float = 2.5,
-                         expected_turn_id: str | None = None) -> dict:
+                         expected_turn_id: str | None = None, recorded_turn_id: str | None = None) -> dict:
     """Persist metadata through Codex's API without resuming or starting a turn."""
     try:
         from agents_core_codex_titles import rename_codex_thread
@@ -91,7 +91,7 @@ def rename_codex_session(session_id: str, status: str, *, timeout: float = 2.5,
             raise
         from src.codex_thread_titles import rename_codex_thread
     return rename_codex_thread(session_id, status, status_title, timeout=timeout,
-                               expected_turn_id=expected_turn_id)
+                               expected_turn_id=expected_turn_id, recorded_turn_id=recorded_turn_id)
 
 
 @contextmanager
@@ -176,7 +176,8 @@ def handle_hook_event(event: object, client: str, *, state_directory: Path | Non
                 _write_record(record, current)
                 try:
                     result = rename_codex_session(event["session_id"], "stopped", timeout=2.0,
-                                                  expected_turn_id=event["turn_id"])
+                                                  expected_turn_id=event["turn_id"],
+                                                  recorded_turn_id=current.get("turn_id"))
                     if result.get("persisted") is not True:
                         receipt.update(outcome="skipped", reason=result.get("reason", "unconfirmed"))
                         _write_record(record, current)
