@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 import hashlib
+import ipaddress
 import json
 from pathlib import Path
 import re
@@ -159,6 +160,13 @@ def validate_definition(definition: dict, *, stored=False) -> dict:
         declaration.setdefault("required", True)
         if "description" in declaration:
             _text(declaration["description"], "secret description")
+    if parsed.scheme == "http" and declarations:
+        try:
+            loopback = ipaddress.ip_address(parsed.hostname).is_loopback
+        except ValueError:
+            loopback = parsed.hostname == "localhost"
+        if not loopback:
+            _invalid("Credentialed servers require HTTPS unless they listen on loopback.")
     required = {entry["name"].lower() for entry in declarations if entry["required"]}
     if auth["type"] == "bearer" and "authorization" not in required:
         _invalid("Bearer authentication requires a required Authorization header secret containing the complete Bearer header.")
