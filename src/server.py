@@ -1264,7 +1264,7 @@ async def get_subagent_context(
     max_context_chars: ta.unparsed_arg("integer", "Complete worker-context character budget, integer 2000..64000; default 16000.") = 16000,
     artifact_manifest: ta.unparsed_arg("object", "Optional exact active task manifest returned by artifact_manifest_create. Pins hashes in the contract and adds automatic artifact_read instructions; contents are not inlined. Requires a valid workspace and the matching task ID.") = None,
     complexity: ta.unparsed_arg("string", "Optional low, standard or high: your rating of the assignment. low = mechanical, fully specified and checkable; standard = bounded work in one module with clear criteria; high = ambiguous, cross-cutting, risky or hard to verify. Returns execution with the model to launch the worker on; omit to keep your model.") = None,
-    client: ta.unparsed_arg("string", "Optional claude (Claude Code), codex or cursor: the host you run in, which launches the worker. Pass it with complexity: the request identifies the host only when its registration sends X-Agents-Client.") = None,
+    client: ta.unparsed_arg("string", "Optional claude (Claude Code), codex or cursor: the host you run in, which launches the worker. Pass it with complexity: otherwise the server falls back to the X-Agents-Client header or, over stdio, MCP clientInfo, which often identify nothing.") = None,
     ctx: Context | None = None,
 ) -> PreparationResponse:
     """Prepare a stateless task-scoped worker package without switching your persona.

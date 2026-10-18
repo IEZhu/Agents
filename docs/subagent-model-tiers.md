@@ -131,7 +131,7 @@ warning and the default applies.
 | Argument | Contract |
 |---|---|
 | `complexity` | `low`, `standard` or `high`; omitted = no tiering |
-| `client` | `claude`, `codex` or `cursor`, the parent's host; pass it with `complexity`, otherwise the request header decides ([client detection](#client-detection)) |
+| `client` | `claude`, `codex` or `cursor`, the parent's host; pass it with `complexity`, otherwise the server falls back to the `X-Agents-Client` header or, over stdio, MCP `clientInfo` ([client detection](#client-detection)) |
 
 With `complexity`, the contract gains `execution`, covered by
 `contract_revision` like every other field:
