@@ -69,6 +69,8 @@ def test_claude_prompt_adds_native_title_without_reading_transcript(tmp_path):
 def test_claude_prompt_reminds_to_mark_a_new_phase(tmp_path):
     prompt = runtime.hook_output(event(cwd=str(tmp_path)), "claude")["hookSpecificOutput"]
     assert "mark_chapter" in prompt["additionalContext"]
+    assert "If the client exposes a chapter tool" in prompt["additionalContext"]
+    assert "this request moves the work to a meaningfully different phase of the session" in prompt["additionalContext"]
     assert "first message" in prompt["additionalContext"]
     start = runtime.hook_output(event("SessionStart", cwd=str(tmp_path)), "claude")["hookSpecificOutput"]
     assert "mark_chapter" not in start["additionalContext"]
