@@ -80,13 +80,15 @@ def load(path: str | Path | None = None) -> tuple[dict, str | None]:
 def write(path: str | Path, document: dict) -> None:
     target = config_path(path)
     validated = validate(document)
+    content = (json.dumps(validated, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
+    if len(content) > MAX_CONFIG_BYTES:
+        raise ValueError("compaction settings exceed 64 KiB")
     refuse_links(target)
     target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     fd, temporary = tempfile.mkstemp(prefix=target.name + ".", dir=target.parent)
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as stream:
-            json.dump(validated, stream, indent=2, ensure_ascii=False)
-            stream.write("\n")
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(content)
             stream.flush()
             os.fsync(stream.fileno())
         refuse_links(target)
