@@ -66,6 +66,18 @@ def test_claude_prompt_adds_native_title_without_reading_transcript(tmp_path):
     assert "must/not/be/read" not in json.dumps(out)
 
 
+def test_claude_prompt_reminds_to_mark_a_new_phase(tmp_path):
+    prompt = runtime.hook_output(event(cwd=str(tmp_path)), "claude")["hookSpecificOutput"]
+    assert "mark_chapter" in prompt["additionalContext"]
+    assert "first message" in prompt["additionalContext"]
+    start = runtime.hook_output(event("SessionStart", cwd=str(tmp_path)), "claude")["hookSpecificOutput"]
+    assert "mark_chapter" not in start["additionalContext"]
+    codex = runtime.hook_output(event(), "codex")["hookSpecificOutput"]
+    assert "mark_chapter" not in codex["additionalContext"]
+    # Like the rest of the hook's context, the reminder needs a known chat identity.
+    assert runtime.hook_output(event(session_id=None, cwd=str(tmp_path)), "claude") == {}
+
+
 @pytest.mark.parametrize("title", ["⏸️ Paused", "🛑 Stopped", "✅ Closed", "🏁 Finished", "🙋 Need answer", "👀 Review", "⏳ CI", "🚧 Blocked"])
 def test_lifecycle_alone_does_not_reopen_task(title):
     output = runtime.hook_output(event(session_title=title), "claude")
