@@ -134,7 +134,10 @@ def _persona_not_ready(problem: str) -> str:
 # from a content fingerprint.
 _history_stores = HistoryStores()
 
-class _WorkerInputMCP(FastMCP):
+from src.daemon.mcp_proxy.exposure import ProxyToolsMixin
+
+
+class _WorkerInputMCP(ProxyToolsMixin, FastMCP):
     """Preserve strict worker/local inference inputs before FastMCP conversion."""
 
     async def call_tool(self, name: str, arguments: dict):

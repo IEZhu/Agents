@@ -177,9 +177,10 @@ class FlowsUI:
         path = scope["path"]
         if request.headers.get("host", "") not in self.hosts():
             return await self._json({"error": "host_not_allowed"}, 403)(scope, receive, send)
-        if path == "/ui" and request.method == "GET":
+        if path in ("/ui", "/ui/mcp") and request.method == "GET":
             nonce = secrets.token_urlsafe(16)
-            page = PAGE.read_text(encoding="utf-8").replace("{{NONCE}}", nonce).replace(
+            page_path = PAGE.with_name("mcp_ui.html") if path == "/ui/mcp" else PAGE
+            page = page_path.read_text(encoding="utf-8").replace("{{NONCE}}", nonce).replace(
                 "{{VERSION}}", html.escape(agents_core_version()))
             headers = {
                 "Content-Security-Policy": (
@@ -197,7 +198,7 @@ class FlowsUI:
             return await self._json({"error": "origin_not_allowed"}, 403)(scope, receive, send)
         syncing = is_sync_path(path)
         page_only = (syncing or path in PAGE_READS or is_history_path(path) or is_autodev_path(path)
-                     or is_updates_path(path))
+                     or is_updates_path(path) or path == "/ui/api/mcp")
         if page_only and request.method == "GET" and not self._page_request(request):
             return await self._json({"error": "origin_not_allowed"}, 403)(scope, receive, send)
         if path == "/ui/api/session" and request.method == "POST":
@@ -312,6 +313,9 @@ class FlowsUI:
         return result
 
     async def _api(self, request: Request, path: str):
+        if path == "/ui/api/mcp":
+            from .mcp_ui import handle
+            return await handle(self.service, request)
         if is_sync_path(path):
             return await self.sync.handle(request, path)
         if is_history_path(path):
