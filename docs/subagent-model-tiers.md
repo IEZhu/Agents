@@ -57,7 +57,9 @@ contract change.
 ### Floors
 
 The server may raise a tier and never lowers one. It scans the casefolded task,
-context, scope, non-goals and acceptance criteria:
+context, scope and acceptance criteria. Non-goals are left out: they name work the
+worker must not do, such as "never print secrets", which says nothing about the
+risk of the work itself.
 
 - `inherit` floor: security or vulnerability work, authentication, authorization,
   credentials or secrets, encryption, data migrations or schema changes, deleting

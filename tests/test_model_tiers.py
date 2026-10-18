@@ -126,6 +126,15 @@ def test_floors_never_lower_and_report_only_raises():
     assert (plan.tier, plan.floor_reasons) == ("inherit", [])
 
 
+def test_non_goals_never_raise_the_tier():
+    plan = model_tiers.plan(req("low", non_goals=["Printing tokens, Authorization headers or secret values",
+                                                 "Deploying to production"]), "claude")
+    assert (plan.tier, plan.floor_reasons) == ("light", [])
+    assert model_tiers.plan(req("low", task="Rotate the deploy secret"), "claude").tier == "inherit"
+    criteria = ["The migration loses no rows"]
+    assert model_tiers.plan(req("low", acceptance_criteria=criteria), "claude").tier == "inherit"
+
+
 def test_ordinary_words_do_not_trigger_floors():
     text = "Rename the function signature, update the token count in the docs and the release notes table"
     assert model_tiers.plan(req("low", task=text), "claude").tier == "light"
