@@ -23,6 +23,8 @@ Definitions live in `<personal-library>/mcp/servers/<alias>.json`. The library i
 
 Machine-local app enablement confirms the exact definition revision. Saving through the UI or CLI confirms the new revision while preserving the existing app selection; stored credentials apply to the saved URL. Changes outside Agents-Core, such as hand edits or sync, remain unconfirmed until enabled again. Credentialed remote servers require HTTPS; HTTP is allowed for loopback hosts. A missing or unknown calling app sees only native Agents-Core tools; standalone stdio also exposes no proxy tools. Existing managed bridges carry the required app identity.
 
+The MCP page displays each server's endpoint and expandable configuration. After a synced change, inspect that configuration and choose **Confirm this revision** to retain the existing local app selection. **Disable** remains available if the change should not be accepted. Confirmation does not add other apps selected in the add-server form.
+
 Each installation publishes its app selections and definition revisions to `<personal-library>/mcp/machines/<id>.json`. Its opaque random ID and neutral label are kept in private daemon state; the default label contains no hostname. A configured sync machine label is reused when creating the identity. Only that installation writes its host file. Existing local connections are published on the next daemon start. The MCP page lists saved hosts; other hosts are read-only inventory. These files describe saved selections, not live upstream availability.
 
 The existing private [library sync](user-sync.md) carries server definitions and host records in the `mcp` scope group. Excluding `mcp` keeps them local. Other files under `mcp`, including credentials and runtime caches, are never synced. Concurrent definition edits use the normal JSON conflict policy: keep the remote version and retain the local content in a conflict record. A received host record never grants local execution consent, even when its ID matches this installation; only private local confirmation can do that. After restoring a library onto a new computer, review and enable the desired servers and provide their tokens in that computer's native secret store.
@@ -31,9 +33,13 @@ Repository metadata is ordinary JSON in the private personal library, including 
 
 Server aliases name shared definitions: using different URLs on different hosts requires separate aliases. Host records preserve app selections, without transport overrides. Upgrade every syncing installation before using the new `mcp` scope exclusion; older versions reject an unknown scope group. MCP JSON is validated again before publication, including hand edits; invalid records and credential-bearing definitions remain blocked even if their content hash was approved in the generic secret scanner.
 
+Sync previews distinguish invalid MCP records from ordinary secret-scanner hits. Fix the invalid record or re-save its settings in Agents-Core; `scope --allow-secret` cannot authorize it. Invalid historical versions remain local even after the current record is repaired.
+
 The runtime catalogs tools only on an explicit **Connect** operation. Ordinary `tools/list` reads the cached catalog and never connects upstream. Calls lazily open or reuse a session; idle sessions close after the configured timeout. Calls recheck app scope, revision and tool selection, including direct calls to guessed hidden names. Names containing unsupported characters or exceeding 32 characters are shortened deterministically; colliding exposed names are withheld.
 
 The upstream receives only its own configured headers and declared secret headers. Downstream bearer credentials and workspace headers are not forwarded. Redirects and environment proxy settings are disabled. An upstream failure does not disable native tools. Upstream `CallToolResult` objects pass through with content, structured content, metadata and error flags intact. Unknown or hidden proxy names return an execution error, matching the installed SDK's normal tool-error handling.
+
+App selection filters tools for trusted local clients. The calling app label is caller-supplied and does not isolate clients that hold the shared daemon credential. Disabling a server prevents new calls; already accepted work may finish.
 
 ## Initial scope
 

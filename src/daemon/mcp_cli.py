@@ -14,7 +14,10 @@ def run(controller, args):
     if args.mcp_command == "connect":
         return post({"action": "connect", "alias": args.alias})
     if args.mcp_command == "disable":
-        records = controller.request("/admin/mcp")["servers"]
+        listing = controller.request("/admin/mcp")
+        if "error" in listing:
+            raise RuntimeError(listing["error"])
+        records = listing["servers"]
         record = next((item for item in records if item["alias"] == args.alias), None)
         if record is None:
             raise ValueError("not_found")
