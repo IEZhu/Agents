@@ -69,8 +69,9 @@ def hook_output(event: dict, client: str, *, script: str | None = None) -> dict:
         if client == "claude":
             # Instruction files load once per session; a per-turn line keeps phase chapters in view.
             context += ("\nIf the client exposes a chapter tool (the Claude desktop app's mark_chapter) "
-                        "and this request starts a new phase of work, such as a new task, an incident, "
-                        "a cleanup or a new question, mark the chapter first.")
+                        "and this request moves the work to a meaningfully different phase of the "
+                        "session, such as from implementation to an incident or a cleanup, mark the "
+                        "chapter first. Never mark one for the session's first message.")
     if client == "cursor":
         return {"additional_context": context}
     output = {"hookEventName": name, "additionalContext": context}
