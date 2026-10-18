@@ -15,7 +15,11 @@ def run(controller, args):
         return post({"action": "connect", "alias": args.alias})
     if args.mcp_command == "disable":
         records = controller.request("/admin/mcp")["servers"]
-        record = next(item for item in records if item["alias"] == args.alias)
+        record = next((item for item in records if item["alias"] == args.alias), None)
+        if record is None:
+            raise ValueError("not_found")
+        if not record.get("revision"):
+            raise ValueError("invalid_definition")
         return post({"action": "enable", "alias": args.alias, "apps": [], "revision": record["revision"]})
     token = sys.stdin.readline(8193).strip() if args.bearer else None
     if args.bearer and (not token or len(token) > 8192):

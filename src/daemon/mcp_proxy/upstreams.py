@@ -18,6 +18,7 @@ import time
 import httpx
 from mcp import ClientSession, types
 from mcp.client.streamable_http import streamable_http_client
+from mcp.shared.exceptions import McpError
 
 from ..state import private_dir, read_json, write_json
 
@@ -51,6 +52,8 @@ class UpstreamError(RuntimeError):
 
 def _failure_code(error):
     if isinstance(error, (TimeoutError, httpx.TimeoutException)):
+        return "timeout"
+    if isinstance(error, McpError) and error.error.code == httpx.codes.REQUEST_TIMEOUT:
         return "timeout"
     if isinstance(error, httpx.HTTPStatusError) and error.response.status_code in (401, 403):
         return "authentication_failed"
@@ -160,9 +163,25 @@ class _Owner:
                                 current = None
                                 continue
                             self.active = True
-                            async with asyncio.timeout(timeout):
-                                result = (await self._catalog(session) if current.kind == "catalog" else
-                                          await session.call_tool(current.name, current.arguments))
+                            if current.kind == "catalog":
+                                async with asyncio.timeout(timeout):
+                                    result = await self._catalog(session)
+                            else:
+                                try:
+                                    async with asyncio.timeout(timeout):
+                                        result = await session.call_tool(current.name, current.arguments)
+                                except (McpError, RuntimeError) as error:
+                                    # The SDK also reports a closed connection or a
+                                    # read timeout as McpError; those still retire
+                                    # this session and fail its queued operations.
+                                    if isinstance(error, McpError) and error.error.code in (
+                                            types.CONNECTION_CLOSED, httpx.codes.REQUEST_TIMEOUT):
+                                        raise
+                                    self.active = False
+                                    if not current.future.done():
+                                        current.future.set_exception(UpstreamError(self.alias, "upstream_error"))
+                                    current = None
+                                    continue
                             self.active = False
                             if not current.future.done():
                                 current.future.set_result(result)
@@ -197,6 +216,8 @@ class Supervisor:
         self.state_dir = Path(state_dir)
         self.catalog_path = self.state_dir / "mcp-proxy-catalogs.json"
         self._owners, self._locks, self._failures = {}, {}, {}
+        self._catalog_lock = asyncio.Lock()
+        self._catalog_writes = set()
         self._draining = False
         try:
             stored = read_json(self.catalog_path, {})
@@ -279,10 +300,21 @@ class Supervisor:
         """Explicitly initialize, fetch and persist a catalog for this exact revision."""
         if self._draining:
             raise UpstreamError(alias, "draining")
-        definition = self._definition(alias, app)
+        definition = await asyncio.to_thread(self._definition, alias, app)
         owner, credentials = await self._owner(definition)
         tools = await owner.submit("catalog")
-        if self._definition(alias, app)["revision"] != definition["revision"]:
+        # Track confirmation before its next off-loop read: drain must also
+        # wait for accepted catalogs still rechecking their registry revision.
+        write = asyncio.create_task(self._confirm_catalog(definition, app, owner, credentials, tools))
+        self._catalog_writes.add(write)
+        write.add_done_callback(self._catalog_write_done)
+        await asyncio.shield(write)
+        self._failures.pop(alias, None)
+        return [tool.model_copy(deep=True) for tool in tools]
+
+    async def _confirm_catalog(self, definition, app, owner, credentials, tools):
+        alias = definition["alias"]
+        if (await asyncio.to_thread(self._definition, alias, app))["revision"] != definition["revision"]:
             raise UpstreamError(alias, "revision_changed")
         serialized = [tool.model_dump(mode="json", by_alias=True, exclude_none=True) for tool in tools]
         content = json.dumps(serialized, ensure_ascii=False)
@@ -303,20 +335,29 @@ class Supervisor:
             owner.drain()
             raise UpstreamError(alias, "catalog_too_large")
         entry = {"revision": definition["revision"], "tools": serialized}
-        previous = self._catalogs.get(alias)
-        self._catalogs[alias] = entry
-        try:
-            private_dir(self.state_dir)
-            write_json(self.catalog_path, {"version": 1, "catalogs": self._catalogs})
-        except (OSError, ValueError):
-            owner.drain()
-            if previous is None:
-                self._catalogs.pop(alias, None)
-            else:
-                self._catalogs[alias] = previous
-            raise UpstreamError(alias, "catalog_write_failed") from None
-        self._failures.pop(alias, None)
-        return [tool.model_copy(deep=True) for tool in tools]
+        # The tracked, shielded task holds this lock until its background write
+        # finishes, even when the connect caller is cancelled.
+        await self._store_catalog(alias, entry, owner)
+
+    def _write_catalogs(self, catalogs):
+        private_dir(self.state_dir)
+        write_json(self.catalog_path, {"version": 1, "catalogs": catalogs})
+
+    async def _store_catalog(self, alias, entry, owner):
+        async with self._catalog_lock:
+            catalogs = {**self._catalogs, alias: entry}
+            try:
+                await asyncio.to_thread(self._write_catalogs, catalogs)
+            except (OSError, ValueError):
+                owner.drain()
+                raise UpstreamError(alias, "catalog_write_failed") from None
+            self._catalogs = catalogs
+
+    def _catalog_write_done(self, write):
+        self._catalog_writes.discard(write)
+        # A cancelled connect caller no longer observes a writer's exception.
+        if not write.cancelled():
+            write.exception()
 
     def cached(self, app):
         """Return only enabled and revision-confirmed tools, without connecting."""
@@ -340,11 +381,12 @@ class Supervisor:
             raise UpstreamError(alias, "draining")
         if app is None:
             raise UpstreamError(alias, "app_required")
-        definition = self._definition(alias, app)
-        if not any(item["alias"] == alias and cached.name == tool for item, cached in self.cached(app)):
+        definition = await asyncio.to_thread(self._definition, alias, app)
+        cached = await asyncio.to_thread(self.cached, app)
+        if not any(item["alias"] == alias and entry.name == tool for item, entry in cached):
             raise UpstreamError(alias, "tool_not_cataloged")
         owner, _ = await self._owner(definition)
-        if self._definition(alias, app)["revision"] != definition["revision"]:
+        if (await asyncio.to_thread(self._definition, alias, app))["revision"] != definition["revision"]:
             raise UpstreamError(alias, "revision_changed")
         result = await owner.submit("call", tool, arguments)
         self._failures.pop(alias, None)
@@ -388,3 +430,5 @@ class Supervisor:
         self.begin_drain()
         if self._owners:
             await asyncio.shield(asyncio.gather(*(owner.task for owner in self._owners.values()), return_exceptions=True))
+        if self._catalog_writes:
+            await asyncio.shield(asyncio.gather(*self._catalog_writes, return_exceptions=True))

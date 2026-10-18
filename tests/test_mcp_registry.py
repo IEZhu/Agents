@@ -13,6 +13,25 @@ def definition(alias="example"):
             "auth": {"type": "bearer"}, "secrets": [{"name": "Authorization", "target": "header", "required": True}]}
 
 
+@pytest.mark.parametrize("host", ["example.test", "192.168.1.12", "localhost.example.test"])
+def test_credentialed_remote_http_is_refused(host):
+    draft = definition()
+    draft["transport"]["url"] = f"http://{host}/mcp"
+    with pytest.raises(RegistryError, match="require HTTPS"):
+        validate_definition(draft)
+
+
+@pytest.mark.parametrize("host", ["127.0.0.1", "127.1.2.3", "localhost", "[::1]"])
+def test_credentialed_loopback_http_is_allowed(host):
+    draft = definition()
+    draft["transport"]["url"] = f"http://{host}/mcp"
+    assert validate_definition(draft)["transport"]["url"] == draft["transport"]["url"]
+
+
+def test_public_remote_http_still_allowed():
+    assert validate_definition({"alias": "public", "transport": {"type": "http", "url": "http://example.test/mcp"}})
+
+
 @pytest.fixture
 def registry(tmp_path):
     return Registry(tmp_path / "library", tmp_path / "state")

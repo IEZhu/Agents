@@ -481,7 +481,9 @@ def main(argv=None):
         from .mcp_cli import run
         try:
             result = run(controller, args)
-        except (OSError, ValueError, RuntimeError, URLError):
+        except (ValueError, RuntimeError) as error:
+            result = {"error": str(error) or "invalid_request"}
+        except (OSError, URLError):
             result = {"error": "MCP management failed; check the running service and connection status"}
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return int("error" in result)
