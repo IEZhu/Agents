@@ -3338,7 +3338,11 @@ class Syncer:
                 target = self._safe_target(path) if isinstance(path, str) else None
                 if target is None or not target.is_file():
                     raise SyncError("invalid", f"{path} is not a library file")
-                allow.add(scope.content_hash(target.read_bytes()))
+                data = target.read_bytes()
+                if scope.scan(data, path=path) == "invalid_mcp_record":
+                    raise SyncError("invalid_mcp_record", f"Fix or re-save {path} in MCP settings before syncing; "
+                                    "invalid MCP records cannot be allowed with a secret-hash override")
+                allow.add(scope.content_hash(data))
             updated = Scopes(frozenset((current.exclude | set(exclude)) - set(include)),
                              frozenset((current.exclude_files | set(exclude_files)) - set(include_files)),
                              frozenset(allow))

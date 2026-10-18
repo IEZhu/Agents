@@ -181,7 +181,7 @@ async def test_the_source_is_the_file_as_it_is(daemon, tmp_path):
     http, ids = daemon
     await login(http)
     source = (await http.get(f"/ui/api/history/source?workspace={ids['project']}&file=2026-09", headers=UI)).json()
-    assert source["text"] == (tmp_path / "project" / "history" / "2026-09.md").read_text(encoding="utf-8")
+    assert source["text"] == (tmp_path / "project" / "history" / "2026-09.md").read_bytes().decode("utf-8")
 
 
 @pytest.mark.asyncio

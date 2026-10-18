@@ -131,6 +131,43 @@ const call = (id, workspace, workspace_signature = undefined) => ({
   },
 });
 
+test('alias compatibility view filters tools and maps calls without exposing native tools', async () => {
+  const seen = [];
+  const server = createServer(async (request, response) => {
+    let body = '';
+    for await (const chunk of request) body += chunk;
+    const message = JSON.parse(body); seen.push(message);
+    let result = {};
+    if (message.method === 'initialize') result = {
+      protocolVersion: '2025-11-25', serverInfo: { name: 'Agents-Core', version: 'test' },
+      capabilities: { tools: {}, prompts: {}, resources: {} }, instructions: 'native instructions',
+    };
+    if (message.method === 'tools/list') result = { tools: [
+      { name: 'log_interaction', inputSchema: { type: 'object' } },
+      { name: 'other__identity', inputSchema: { type: 'object' } },
+      { name: 'plata__code_execute_readonly', inputSchema: { type: 'object' } },
+    ] };
+    if (message.method === 'tools/call') result = { content: [{ type: 'text', text: 'answer' }], isError: false };
+    response.writeHead(200, { 'content-type': 'application/json' });
+    response.end(JSON.stringify({ jsonrpc: '2.0', id: message.id, result }));
+  });
+  server.listen(0, '127.0.0.1'); await once(server, 'listening');
+  const daemon = { server, url: `http://127.0.0.1:${server.address().port}/mcp`, calls: [] };
+  const { responses } = await session(daemon, { alias: 'plata' }, [
+    { id: 1, method: 'tools/list' },
+    { id: 2, method: 'tools/call', params: { name: 'code_execute_readonly', arguments: { script: 'return 4' } } },
+    { id: 3, method: 'prompts/list' },
+  ]);
+  assert.equal(responses.get('init').result.serverInfo.name, 'plata');
+  assert.deepEqual(Object.keys(responses.get('init').result.capabilities), ['tools']);
+  assert.equal(responses.get('init').result.instructions.includes('native instructions'), false);
+  assert.deepEqual(responses.get(1).result.tools.map(tool => tool.name), ['code_execute_readonly']);
+  assert.equal(seen.find(message => message.method === 'tools/call').params.name, 'plata__code_execute_readonly');
+  assert.equal(responses.get(2).result.content[0].text, 'answer');
+  assert.equal(responses.get(3).error.code, -32601);
+  assert.equal(seen.some(message => message.method === 'prompts/list'), false);
+});
+
 test('auto workspace: the session directory names every request, retried while the daemon is not up', async () => {
   const daemon = await fakeDaemon((message, count) => {
     if (count === 1) return [503, {}]; // the daemon is still starting

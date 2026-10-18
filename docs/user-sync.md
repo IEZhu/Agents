@@ -375,10 +375,11 @@ waiting for the deploy key is not an error.
 | Synced by default | Never synced |
 |---|---|
 | `common/**` (personal flows), `personas/**`, `components.json`, permitted Git flow versions | `.lock`, `.tmp-*`, `__pycache__`, `*.pyc`, `.DS_Store` and other file-manager junk |
+| `mcp/servers/<alias>.json`, `mcp/machines/<id>.json` ([MCP connections](mcp-proxy.md)) | MCP credentials, private confirmation state, runtime catalogs and other files under `mcp/` |
 | `repos/<key>/**` for keys derived from an `origin`, with their personas, flow history and [repository history](#repository-history) | repository groups without an `origin` (machine-local), `**/.repo.local.json` |
 | `.agents-library.json`, `.gitignore`, `.gitattributes`, `.agents-sync/**` | symlinks, files over 5 MiB, names some platform cannot store, anything else at the root |
 
-Scope groups are `common`, `personas`, `history`, `components` and `repos/<key>`; a repository's
+Scope groups are `common`, `personas`, `history`, `components`, `mcp` and `repos/<key>`; a repository's
 shared history segments (`repos/<key>/history/**`) belong to both `history` and `repos/<key>`.
 These segments and flow-version metadata are neither named in commit messages nor counted by
 the mass-deletion guard. Exclusions live

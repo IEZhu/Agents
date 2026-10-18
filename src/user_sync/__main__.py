@@ -105,10 +105,10 @@ def _parser() -> argparse.ArgumentParser:
     resolve.add_argument("action", choices=("keep", "mine", "dismiss"))
     scopes = command("scope", "show or change what syncs")
     for option, help_text in (("--exclude", "stop syncing a group (common, personas, history, "
-                                            "components or repos/<key>)"),
+                                            "components, mcp or repos/<key>)"),
                               ("--include", "sync a group again"), ("--exclude-file", "stop syncing a file"),
                               ("--include-file", "sync a file again"),
-                              ("--allow-secret", "upload this file although the scanner flagged it"),
+                              ("--allow-secret", "upload a scanner-flagged file (invalid MCP records must be fixed)"),
                               ("--approve", "upload a held group on this machine (repos/<key>, history…)"),
                               ("--approve-file", "upload a held file on this machine")):
         scopes.add_argument(option, action="append", default=[], metavar="VALUE", help=help_text)
@@ -374,19 +374,20 @@ def _print(result, command: str) -> None:
         print(f"  public key: {result['public_key']}")
     for fingerprint in result.get("fingerprints", []):
         print(f"  host key: {fingerprint}")
-    for key in ("upload", "download", "remove_from_remote", "delete_local", "conflicts", "blocked", "held",
+    for key in ("upload", "download", "remove_from_remote", "delete_local", "conflicts", "held",
                 "pending_groups", "pending_files", "sent", "received"):
         items = result.get(key)
         if isinstance(items, list) and items:
             print(f"  {key}:")
             for item in items:
                 print(f"    {item.get('flow') or item.get('path') if isinstance(item, dict) else item}")
+    from src.user_sync.wizard import describe_blocked
+    for line in describe_blocked(result.get("blocked", []), "not uploaded"):
+        print(f"  {line}")
     if result.get("history_versions") is not None:
         print(f"  flow versions: {result['history_versions']}")
-    if result.get("history_blocked"):
-        print("  flow versions not uploaded, possible credentials (allow one with scope --allow-secret):")
-        for item in result["history_blocked"]:
-            print(f"    {item['path']} ({item.get('pattern')})")
+    for line in describe_blocked(result.get("history_blocked", []), "flow versions not uploaded", history=True):
+        print(f"  {line}")
     for group in result.get("repository_groups", []):
         marker = " (new)" if group.get("new") else ""
         print(f"  repository {group['group']}: {group.get('origin')}, {group['files']} files{marker}")
