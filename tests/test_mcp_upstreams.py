@@ -590,7 +590,8 @@ async def test_success_after_backoff_clears_failure_state(runtime, monkeypatch):
     supervisor, registry, _, endpoints, clients, _ = runtime
     clock = [100.0]
     monkeypatch.setattr(upstreams, "time", SimpleNamespace(monotonic=lambda: clock[0]))
-    registry.definitions["one"]["limits"]["call_timeout_seconds"] = .03
+    # Keep the ordinary session-start budget: this test exercises recovery,
+    # and Windows scheduling can exceed 30 ms even for the in-memory server.
     await supervisor.connect("one")
     endpoints["one"].block = True
     with pytest.raises(UpstreamError, match="timeout"):
