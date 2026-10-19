@@ -1,11 +1,12 @@
 """Private local authority files. No library, sync or MCP configuration imports."""
 from __future__ import annotations
 
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 import os
 from pathlib import Path
 import stat
 import tempfile
+import time
 
 from src.file_lock import file_lock
 
@@ -101,12 +102,23 @@ def write(path: Path, data: bytes):
 
 
 @contextmanager
-def locked(path: Path, *, create=False):
+def locked(path: Path, *, create=False, shared=False, timeout=5.0):
+    """Wait a bounded time for an OS lease; never retry the protected operation."""
     directory(path, create=create)
     lock = path / ".lock"
     if os.path.lexists(lock):
         _check(lock)
-    with file_lock(lock, blocking=False) as fd:
+    with ExitStack() as leases:
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                fd = leases.enter_context(file_lock(lock, blocking=False, shared=shared))
+                break
+            except BlockingIOError:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise
+                time.sleep(min(0.02, remaining))
         if fd is None:
             raise AuthorityError("Authority storage requires an OS file lock")
         _check(lock)
