@@ -1,6 +1,7 @@
 """Register Agents-Core in a detected Codex profile (Python 3.11+)."""
 import argparse
 import copy
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -56,6 +57,9 @@ def configure(home: Path, python: Path, server: Path, *, ld_library_path: str = 
             assert_service_safe(directory)
             migration = ClientMigration(directory)
             change = migration.prepare("codex", config_path=target)
+            initial_hash = hashlib.sha256(original).hexdigest() if exists else None
+            if migration.expected_versions[str(change[0])] != initial_hash:
+                raise ConfigurationError("Codex config changed during setup; rerun the installer")
             updated = tomllib.loads(change[1])
             expected = copy.deepcopy(document)
             expected.setdefault("mcp_servers", {})[SERVER] = updated["mcp_servers"][SERVER]
