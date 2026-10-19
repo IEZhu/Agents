@@ -11,7 +11,7 @@ import pytest
 
 from src.daemon import autoupdate
 from src.daemon.state import read_json, write_json
-from tests.test_daemon_update import git, installation  # noqa: F401  (fixture)
+from tests.test_daemon_update import git, installation, publish_pyproject_update  # noqa: F401  (fixture)
 
 
 @pytest.fixture
@@ -73,6 +73,18 @@ def test_check_target_classifies_without_touching_the_service(scheduled):
     git(root, "commit", "--quiet", "--allow-empty", "-m", "local only")
     assert autoupdate.check_target(controller, "origin", "main")["reason"] == "not a fast-forward"
     assert controller.stops == 0
+
+
+def test_pinned_runtime_is_skipped_before_fetch_or_stop(scheduled, monkeypatch, tmp_path):
+    controller, root, old, _ = scheduled
+    source = str(tmp_path / "pinned-source")
+    controller.config["runtime_root"] = source
+    write_json(controller.directory / "service.json", controller.config)
+    monkeypatch.setattr(autoupdate, "_git", lambda *args, **kwargs: pytest.fail("pinned source must not fetch"))
+    result = autoupdate.run(controller)
+    assert result["state"] == "skipped" and "explicit owner-controlled runtime migration" in result["reason"]
+    assert git(root, "rev-parse", "HEAD") == old and controller.stops == controller.builds == 0
+    assert read_json(controller.directory / "service.json")["runtime_root"] == source
 
 
 def test_idle_service_is_updated_through_the_transaction(scheduled):
@@ -164,6 +176,27 @@ def test_dependency_change_is_refused_before_draining_and_logged_once(scheduled)
     assert git(root, "rev-parse", "HEAD") == old and controller.stops == 0
     log = (controller.directory / "auto-update.log").read_text().splitlines()
     assert len(log) == 1
+
+
+def test_scheduled_update_accepts_metadata_and_new_extra(scheduled):
+    from tests.test_daemon_update_dependencies import MANIFEST
+    controller, root, _, target = scheduled
+    after = MANIFEST.replace('version = "1.0"', 'version = "2.0"')
+    after += 'thread-status = ["claude-agent-sdk==0.2.168"]\n'
+    base, changed = publish_pyproject_update(root, target, MANIFEST, after)
+    assert autoupdate.check_target(controller) == {"state": "available", "head": base, "target": changed}
+    result = autoupdate.run(controller)
+    assert result["state"] == "UPDATED" and result["target"] == changed
+    assert git(root, "rev-parse", "HEAD") == changed and controller.stops == 1
+
+
+def test_scheduled_update_refuses_existing_extra_changes(scheduled):
+    from tests.test_daemon_update_dependencies import MANIFEST
+    controller, root, _, target = scheduled
+    base, changed = publish_pyproject_update(root, target, MANIFEST, MANIFEST.replace("httpx>=0.28,<0.29", "httpx>=1"))
+    result = autoupdate.run(controller)
+    assert result["state"] == "skipped" and result["target"] == changed and "existing extra" in result["reason"]
+    assert git(root, "rev-parse", "HEAD") == base and controller.stops == controller.builds == 0
 
 
 def test_branch_moving_after_the_check_applies_nothing(scheduled, monkeypatch):
