@@ -448,6 +448,16 @@ Compose the report in the user's language:
    subagents), session, time span, transcript source.
 9. **How to resume:** session id or link, branch, next command.
 
+At the final handoff, use `finishing` (🧹) when required obligations remain,
+unless essential user input or required human approval calls for `needs_user`/`review`.
+Finish any independently authorized work before that handoff. Resume implementation as `working`;
+AI review, CI and subagents use `working`/`waiting`.
+Verify or explicitly resolve every required task before `ready_to_close`;
+an owner, tracker item or proposed follow-up alone does not resolve it. A completed
+audit report does not mean the audited work is complete, and optional suggestions
+alone do not require `finishing`. `closed` requires explicit closure or confirmed archival.
+The status grants no additional authority; follow **Inputs and authority** for each action.
+
 Then make this turn's single `log_interaction` call, as the client protocol
 requires for every answer. Do not make a second call:
 
