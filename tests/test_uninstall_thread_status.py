@@ -294,3 +294,23 @@ def test_linked_profiles_and_runtime_copies_are_not_changed(tmp_path, monkeypatc
     assert all(path.exists() for path in runtimes["claude"])
     if linked != "runtime":
         assert target.read_bytes() == original
+
+
+@pytest.mark.parametrize("platform", ["darwin", "linux", "win32"])
+def test_owned_hooks_are_removed_beneath_linked_home_ancestor(tmp_path, monkeypatch, platform):
+    alias = tmp_path / "system-home-alias"
+    alias.mkdir()
+    ctx, paths, runtimes, originals = profiles(alias, monkeypatch, platform)
+    real = tmp_path / "real-home-layout"
+    alias.rename(real)
+    try:
+        alias.symlink_to(real, target_is_directory=True)
+    except OSError:
+        pytest.skip("symbolic links are unavailable")
+    report = uninstall.execute(uninstall.thread_status_items(ctx, uninstall.Backups(ctx), ctx.source_root),
+                               credentials=False)
+    assert not report["failed"]
+    for client, (target, _) in paths.items():
+        assert json.loads(target.read_bytes()) == originals[client]
+        assert all(not path.exists() for path in runtimes[client])
+    assert alias.is_symlink() and real.is_dir()
