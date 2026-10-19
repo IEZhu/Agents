@@ -100,7 +100,9 @@ old conversation. Unsupported clients do not get a false success indicator.
 
 ## Install
 
-Use a stable Python 3.11+ interpreter. The standalone hook needs only the standard
+Normal setup offers emoji thread-status hooks for detected Claude Code, Codex and Cursor profiles. `install.sh` uses `--yes`, which accepts both this option and session readiness; interactive `init_repo` asks for each separately. Use `--skip-thread-status`, `--skip-hooks` or `--skip-mcp` to opt out. Setup installs the pinned Claude title SDK in its persistent virtual environment when Claude's status option is selected. Existing hooks and other settings are preserved; absent clients are skipped.
+
+To install or refresh this feature separately, use a stable Python 3.11+ interpreter. The standalone hook needs only the standard
 library. Claude's later SDK writes additionally need `claude-agent-sdk==0.2.168`
 in that same interpreter. The optional `thread-status` package extra supplies it.
 Prefer a separate persistent environment when the Agents-Core checkout is a live
@@ -170,8 +172,7 @@ To remove the opt-in hooks, remove only commands referencing
 `UserPromptSubmit`, Codex `Interrupt`, or Cursor `sessionStart`. Preserve other handlers, then delete
 the copied runtime, `agents_core_thread_titles.py`, `agents_core_codex_titles.py`
 and its own turn-record directory after checking no hook still references them.
-The main uninstaller currently inventories readiness adapters,
-not this separate opt-in feature; remove these adapters before a full uninstall.
+The main uninstaller removes unchanged registrations and copied runtimes belonging to the selected installation, preserving modified or shared adapters and reporting retained turn state. A separate hook environment belongs to that environment and is preserved.
 
 ## Verification and sources
 

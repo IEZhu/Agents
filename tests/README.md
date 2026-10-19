@@ -199,6 +199,9 @@ sentinel that exits with code 77. This checks the reuse gate; it does not comple
 dependency installation, download a model, or change MCP client settings.
 
 The same workflow runs Codex discovery, MCP registration and managed-instruction migration checks.
+`test_install_client_hooks.py` covers detected-client lifecycle selection, independent
+prompts, explicit skips, SDK setup failure and preservation in temporary profiles.
+The native installer hook harness verifies both real setup entrypoints.
 `test_codex_mcp.py` covers isolated TOML profiles, transport preservation, repeat
 setup, malformed input and failed writes or backups. The instruction hook harness
 checks that real setup writes both instructions and MCP, and that `--skip-mcp`

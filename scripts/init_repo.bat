@@ -68,6 +68,9 @@ REM ============== Parse Arguments ==============
 set "SKIP_ENV=false"
 set "SKIP_INDEX=false"
 set "SKIP_MCP=false"
+set "SKIP_HOOKS=false"
+set "SKIP_READINESS=false"
+set "SKIP_THREAD_STATUS=false"
 REM As in init_repo.sh: AGENTS_ASSUME_YES=1, true or yes counts as --yes.
 set "ASSUME_YES=false"
 if "!AGENTS_ASSUME_YES!"=="1" set "ASSUME_YES=true"
@@ -80,6 +83,9 @@ if "%~1"=="" goto :args_done
 if /I "%~1"=="--skip-env"    set "SKIP_ENV=true"
 if /I "%~1"=="--skip-index"  set "SKIP_INDEX=true"
 if /I "%~1"=="--skip-mcp"    set "SKIP_MCP=true"
+if /I "%~1"=="--skip-hooks" set "SKIP_HOOKS=true"
+if /I "%~1"=="--skip-readiness" set "SKIP_READINESS=true"
+if /I "%~1"=="--skip-thread-status" set "SKIP_THREAD_STATUS=true"
 REM The plugin check (scripts\_helpers\claude_code_plugin.py) reads the variable.
 if /I "%~1"=="--force-claude-code-mcp" set "AGENTS_FORCE_CLAUDE_CODE_MCP=1"
 if /I "%~1"=="--yes"         set "ASSUME_YES=true"
@@ -99,11 +105,13 @@ echo   py -3 scripts\install_instructions.py [--clients codex,claude]
 echo     Update only client instructions, without running MCP or dependency setup.
 echo(
 echo Flags:
-echo   --yes, -y      Do not ask whether to set up sync between machines
+echo   --yes, -y      Accept both lifecycle hook options; do not ask about sync
 echo                  (also AGENTS_ASSUME_YES=1); the other prompts still ask
 echo   --skip-env     Skip .env file creation
 echo   --skip-index   Skip embedding model download and index pre-build
-echo   --skip-mcp     Skip MCP configuration and also the client instruction updates
+echo   --skip-mcp     Skip MCP, client instructions and lifecycle hooks
+echo   --skip-hooks   Skip both lifecycle hook options
+echo   --skip-readiness / --skip-thread-status  Skip one hook option
 echo   --force-claude-code-mcp
 echo                  Register Agents-Core for Claude Code even when the agents-core
 echo                  plugin is installed and enabled (AGENTS_FORCE_CLAUDE_CODE_MCP=1)
@@ -757,6 +765,17 @@ if not errorlevel 1 (
 if "!_BOTH_CLIENTS!"=="true" call :note_desktop_registration
 
 :mcp_done
+
+REM ============== Client Lifecycle Hooks ==============
+if "!SKIP_MCP!"=="true" goto :hooks_done
+if "!SKIP_HOOKS!"=="true" goto :hooks_done
+set "_HOOK_FLAGS="
+if "!ASSUME_YES!"=="true" set "_HOOK_FLAGS=!_HOOK_FLAGS! --yes"
+if "!SKIP_READINESS!"=="true" set "_HOOK_FLAGS=!_HOOK_FLAGS! --skip-readiness"
+if "!SKIP_THREAD_STATUS!"=="true" set "_HOOK_FLAGS=!_HOOK_FLAGS! --skip-thread-status"
+"%PYTHON_ABS%" "%REPO_ROOT%\scripts\install_client_hooks.py" !_HOOK_FLAGS!
+if errorlevel 1 exit /b 1
+:hooks_done
 
 REM ============== Sync Between Machines ==============
 REM The personal library gets local Git version history on every installation,
