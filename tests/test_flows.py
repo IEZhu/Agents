@@ -224,7 +224,10 @@ async def test_thread_close_audits_every_installed_tool_and_catalogues_every_ser
                    "**Managed blocks.**", "**One list, one yes.**"):
         assert phrase in audit, phrase
     table = text.split("**Catalogue.**", 1)[1].split("\n## ", 1)[0]
-    cells = [line.split("|")[2] for line in table.splitlines() if line.startswith("| `")]
+    # These two optional upstream rows depend on the request's app and connection state.
+    proxy_rows = {"`proxy-read`", "`proxy-state`"}
+    cells = [line.split("|")[2] for line in table.splitlines()
+             if line.startswith("| `") and line.split("|")[1].strip() not in proxy_rows]
     catalogued = {re.sub(r"\(.*", "", name) for cell in cells for name in re.findall(r"`([^`]+)`", cell)}
     registered = {tool.name for tool in await server.mcp.list_tools()}
     assert sorted(registered - catalogued) == [] and sorted(catalogued - registered) == []
