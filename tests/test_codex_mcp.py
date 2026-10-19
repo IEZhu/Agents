@@ -291,3 +291,40 @@ def test_shared_migration_refuses_toml_that_would_lose_other_settings(shared_cod
     target.write_bytes(content)
     assert helper.main(args) == 1
     assert target.read_bytes() == content
+
+
+@pytest.mark.parametrize('entry', ['url = "http://localhost:5432/personal"',
+                                  'command = "node"\nargs = ["/personal/bridge/stdio.mjs", "config"]'])
+@pytest.mark.parametrize('initial', ['standalone', 'absent', 'empty'])
+@pytest.mark.parametrize('dotdot', [False, True])
+def test_shared_migration_preserves_transport_changed_since_initial_read(shared_codex, monkeypatch, entry, initial, dotdot):
+    helper, home, args, _, _ = shared_codex
+    if dotdot:
+        (home / 'nested').mkdir()
+        monkeypatch.setenv('CODEX_HOME', str(home / 'nested/..'))
+    target = home / 'config.toml'
+    if initial == 'standalone':
+        target.write_text('[mcp_servers."Agents-Core"]\ncommand = "old"\nargs = ["old.py"]\n')
+    elif initial == 'empty':
+        target.write_bytes(b'')
+    concurrent = ('[mcp_servers."Agents-Core"]\n' + entry + '\n').encode()
+    migration_type = helper.ClientMigration
+    class ConcurrentMigration(migration_type):
+        def prepare(self, *args, **kwargs):
+            target.write_bytes(concurrent)
+            return super().prepare(*args, **kwargs)
+    monkeypatch.setattr(helper, 'ClientMigration', ConcurrentMigration)
+    assert helper.main(args) == 1
+    assert target.read_bytes() == concurrent
+
+
+@pytest.mark.parametrize('initial', [None, b'', b'model = "keep"\n'])
+def test_unchanged_non_normalized_profile_can_migrate(shared_codex, monkeypatch, initial):
+    helper, home, args, _, _ = shared_codex
+    (home / 'nested').mkdir()
+    monkeypatch.setenv('CODEX_HOME', str(home / 'nested/..'))
+    target = home / 'config.toml'
+    if initial is not None:
+        target.write_bytes(initial)
+    assert helper.main(args) == 0
+    assert tomllib.loads(target.read_text())['mcp_servers']['Agents-Core']['url'] == 'http://127.0.0.1:8187/mcp'
