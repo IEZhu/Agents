@@ -1438,7 +1438,8 @@ def thread_status_items(ctx: Context, backups: Backups, installation: Path) -> l
                                       "unchanged thread-status hooks using this installation; a backup first", unregister))
                 if _thread_status_referenced(remaining[target], target, [script], windows=ctx.windows):
                     items.append(Item("registration", str(target), "keep", source,
-                                      "thread-status hook is modified, shared, or belongs to another installation"))
+                                      "thread-status hook is modified, shared, or belongs to another installation; "
+                                      "if it uses this installation interpreter, migrate or remove it before uninstall"))
         files = [(script.with_name(name), installation / template) for name, template in THREAD_STATUS_RUNTIMES]
         candidates.append((target, changed, files))
         state = script.parent / "agents-core-thread-status-state"

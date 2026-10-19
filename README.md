@@ -59,6 +59,14 @@ download it, read it, then run `bash install.sh`. Pass `init_repo.sh` flags with
 instructions unchanged, and `--force-claude-code-mcp` registers Claude Code's own
 entry even when the [Claude plugin](#claude-plugin) serves it.
 
+To install merged development changes before a release, fetch the development bootstrap and select `--dev`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/IEZhu/Agents/dev/install.sh | bash -s -- --dev
+```
+
+`--dev` selects `dev` before clone/update, overrides `AGENTS_BRANCH`, and is consumed by the bootstrap. Without it, installation keeps the normal stable/default-branch behavior. A fresh `.env` follows the selected branch; an existing explicit update-channel setting is preserved with the existing warning. The flag does not include unmerged pull requests. A bootstrap downloaded from an older `main` may not yet recognize a new flag; the `dev/install.sh` URL above avoids that version mismatch. On Windows, clone/check out `dev` before running `scripts\init_repo.bat`; the batch initializer does not switch the checkout.
+
 | Variable | Default | Purpose |
 |---|---|---|
 | `AGENTS_HOME` | `~/.agents-core` | Install directory |

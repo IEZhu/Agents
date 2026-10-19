@@ -33,6 +33,7 @@ on:
       - src/env_file.py
       - scripts/templates/**/*.md
       - tests/test_installer_windows.py
+      - tests/test_hook_config_concurrency.py
       - tests/test_install_client_hooks.py
       - tests/test_uninstall_thread_status.py
       - tests/test_installer_instructions.py
@@ -81,6 +82,7 @@ on:
       - src/env_file.py
       - scripts/templates/**/*.md
       - tests/test_installer_windows.py
+      - tests/test_hook_config_concurrency.py
       - tests/test_install_client_hooks.py
       - tests/test_uninstall_thread_status.py
       - tests/test_installer_instructions.py
@@ -127,7 +129,7 @@ jobs:
           python -m pytest tests/test_installer_windows.py
           tests/test_installer_instructions.py tests/test_codex_instructions.py tests/test_codex_mcp.py
           tests/test_install_instructions.py tests/test_installer_profiles.py
-          tests/test_backup_file.py tests/test_install_client_hooks.py tests/test_uninstall_thread_status.py
+          tests/test_backup_file.py tests/test_install_client_hooks.py tests/test_hook_config_concurrency.py tests/test_uninstall_thread_status.py
           tests/test_installer_sync.py tests/test_protocol_migration.py
           tests/test_daemon_peer.py tests/test_file_lock.py tests/test_env_file.py -v
       - name: Recognize a same-user connection as a standard (non-administrator) user
