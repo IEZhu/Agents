@@ -979,11 +979,11 @@ instructions and register Agents-Core in `config.toml` when `CODEX_HOME` is non-
 the `codex` command is available. `CODEX_HOME` selects the target directory when
 non-empty; otherwise the target is `~/.codex`. There is no additional Codex prompt.
 `--skip-mcp` skips both instructions and MCP registration. Discovery does not require
-the CLI when the profile directory exists. Setup writes absolute interpreter and
-server paths, preserves other settings and servers, and retains an existing
+the CLI when the profile directory exists. Standalone setup writes absolute interpreter and
+server paths. Both paths preserve other settings and servers and retain an existing
 Agents-Core HTTP or stdio bridge connection. Repeated setup is a no-op for an
-unchanged entry. Before changing an existing TOML file it creates a unique
-`config.toml.backup.*` snapshot and replaces the file atomically. Invalid TOML or
+unchanged entry. Standalone setup creates a unique
+`config.toml.backup.*` snapshot before changing an existing TOML file and replaces it atomically; shared-service migration uses its private restorable backup journal. Invalid TOML or
 an unsupported inline MCP layout is left unchanged and setup reports an error;
 convert inline MCP definitions to table syntax before retrying. A symlinked
 `config.toml` is also refused; use a regular file before retrying. On NixOS,
@@ -991,8 +991,8 @@ setup includes the same per-process native library path as for other clients.
 
 Registration does not test live connectivity. Existing HTTP/bridge entries remain
 unchanged even if their service is unavailable: repair the shared service with
-its migration command below. To switch deliberately to standalone mode, remove
-only the Agents-Core transport entry from `config.toml`, then rerun setup.
+its migration command below.
+If this installation already has a shared-service marker, a new Codex registration uses the service's existing migration under its control lock and recovery checks, selecting its Node bridge or authenticated HTTP. Unusable shared state stops registration without falling back to standalone; the service may be stopped while its client configuration is prepared. Existing HTTP/bridge entries still remain unchanged. Without a marker, setup uses standalone stdio.
 After moving a standalone installation or its virtual environment, rerun setup
 to refresh its absolute paths.
 
