@@ -724,10 +724,18 @@ if !errorlevel! equ 0 (
 :skip_antigravity
 
 REM --- Configure Codex instructions ---
-REM MCP registration is separate from these global persona instructions.
+REM Instructions and MCP use the same detected Codex profile.
 echo   %GREEN%^>%NC% Checking Codex global instructions...
 "%PYTHON_ABS%" "%HELPERS%\install_codex_instructions.py" "%ROUTING_TEMPLATE%"
 if !errorlevel! neq 0 echo   %RED%x%NC% Failed to configure Codex instructions - inspect the reported path
+
+"%PYTHON_ABS%" "%HELPERS%\install_codex_mcp.py" "%PYTHON_ABS%" "%SERVER_ABS%"
+set "CODEX_MCP_STATUS=!errorlevel!"
+if "!CODEX_MCP_STATUS!"=="0" set "CONFIGURED_ENVS=!CONFIGURED_ENVS! Codex"
+if not "!CODEX_MCP_STATUS!"=="0" if not "!CODEX_MCP_STATUS!"=="2" (
+    echo   %RED%x%NC% Failed to configure Codex MCP
+    exit /b 1
+)
 
 REM --- MCP Summary ---
 echo(

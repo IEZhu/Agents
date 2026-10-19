@@ -30,7 +30,7 @@ Run focused files while iterating:
 
 ```bash
 LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/test_language.py -q
-LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/test_install_instructions.py tests/test_installer_instructions.py tests/test_codex_instructions.py tests/test_protocol_migration.py -q
+LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/test_install_instructions.py tests/test_installer_instructions.py tests/test_codex_instructions.py tests/test_codex_mcp.py tests/test_protocol_migration.py -q
 ```
 
 The default local-inference selection uses deterministic fake native HTTP/process
@@ -198,7 +198,11 @@ environment, and exit before activation. A supported venv reaches an activation
 sentinel that exits with code 77. This checks the reuse gate; it does not complete
 dependency installation, download a model, or change MCP client settings.
 
-The same workflow runs Codex discovery and managed-instruction migration checks.
+The same workflow runs Codex discovery, MCP registration and managed-instruction migration checks.
+`test_codex_mcp.py` covers isolated TOML profiles, transport preservation, repeat
+setup, malformed input and failed writes or backups. The instruction hook harness
+checks that real setup writes both instructions and MCP, and that `--skip-mcp`
+writes neither.
 `test_installer_profiles.py` also runs the actual MCP setup hooks against default
 and alternate client profiles, using native `cmd.exe` on Windows and Bash on Unix.
 It checks exact configuration targets, preserved inactive profiles, and paths with
@@ -234,7 +238,7 @@ To reproduce the workflow job locally in PowerShell with Python 3.11+ selected:
 ```powershell
 python -m pip install pytest python-dotenv
 $env:AGENTS_TEST_PYTHON310 = 'C:\absolute\path\to\Python310\python.exe'
-python -m pytest tests/test_installer_windows.py tests/test_installer_instructions.py tests/test_codex_instructions.py tests/test_install_instructions.py tests/test_installer_profiles.py tests/test_installer_sync.py tests/test_protocol_migration.py tests/test_daemon_peer.py -v
+python -m pytest tests/test_installer_windows.py tests/test_installer_instructions.py tests/test_codex_instructions.py tests/test_codex_mcp.py tests/test_install_instructions.py tests/test_installer_profiles.py tests/test_installer_sync.py tests/test_protocol_migration.py tests/test_daemon_peer.py -v
 ```
 
 The workflow sets `core.autocrlf false` before checkout so the byte-exact
