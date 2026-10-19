@@ -24,3 +24,5 @@ installations from either branch can migrate:
 - `memory-routing-v16.md` retains the reminder before it told the model to call `Agents-Core` rather than the denied `Agents-Core-Desktop` (#421).
 - `memory-routing-v17.md` retains the reminder before it told the model to rate `complexity`, launch with `execution.spawn` and follow `escalation` (model tiers for delegated workers).
 - `memory-routing-v18.md` retains the reminder before it told the model to pass `client` with `complexity`.
+
+- `memory-routing-v19.md` retains the reminder before first-work repository bootstrap and turn-ending progress attribution were added.
