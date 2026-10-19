@@ -152,7 +152,7 @@ PYTHONDONTWRITEBYTECODE=1 LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pyt
 
 | Area | Starting points |
 |---|---|
-| OMS/profile, exact verified bytes and protected inventory | `test_instruction_signing.py`, `test_instruction_inventory.py`; `test_instruction_signing_interop.py` uses the optional `signing-tests` extra with pinned model-signing 1.1.1; [API and commands](../docs/instruction-signing-core.md) |
+| OMS/profile, exact verified bytes, protected inventory and local authority | `test_instruction_signing.py`, `test_instruction_inventory.py`, `test_instruction_signing_authority.py` (scoped trust, private storage, accepted policy, revocation, corruption, fault/concurrency checks and native Windows ACL refusal); `test_instruction_signing_interop.py` uses the optional `signing-tests` extra with pinned model-signing 1.1.1; [API and commands](../docs/instruction-signing-core.md) |
 | Routing and intent | `test_routing.py`, `test_intent.py` |
 | Protocol 2, fresh bundles and the footer version | `test_persona_protocol.py`, `test_persona_bundle.py`, `test_version.py` |
 | Compact worker profiles, bounded preparation and result validation | `test_subagent.py`, `test_subagent_mcp.py`; include `test_persona_protocol.py`, `test_log_interaction_contract.py` and installer/migration checks when shared instructions change |

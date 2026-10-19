@@ -580,6 +580,12 @@ seconds. Network calls time out after 60 s and local git calls after 10 s. A net
 retries after 1, 2, 5, 10 and then every 30 minutes; access and safety failures stop with a reason
 until the owner acts.
 
+Git commands that receive input bytes read them from a private temporary file, closed after
+the command completes or fails. This lets batch commands emit output before consuming their
+input without blocking the caller in a pipe write and preventing its timeout from running.
+Commands without input receive EOF; none inherit the MCP server's stdin. A timed-out child
+is terminated and reaped before the error reaches the caller and its library lock is released.
+
 Commits carry the configured identity and messages such as
 `sync(laptop): update user:release-notes, persona builtin:pr-review` with the trailer
 `Agents-Sync-Machine: laptop`.
