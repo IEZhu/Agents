@@ -132,11 +132,11 @@ powershell -ExecutionPolicy Bypass -File scripts\uninstall.ps1 --dry-run   # Win
   `~/.claude/settings.json`), Claude Desktop, Codex, Cursor and Antigravity (with its
   `agents-core` plugin), and in the `.mcp.json`, `.codex/config.toml` and `.cursor/mcp.json` of
   every workspace the service registered. Other servers and settings stay byte for byte.
-  Optional session readiness hooks and Desktop's `Agents-Readiness` entry are removed only
+  Readiness and thread-status hooks, and Desktop's `Agents-Readiness` entry, are removed only
   when their generated settings still match and their interpreter belongs to this installation's
   `.venv`. Their copied runtimes are removed only when unchanged and no remaining handler
   references them. Modified entries, files and adapters from another installation are listed
-  as kept so you can remove them manually.
+  as kept so you can remove them manually. Thread-status turn records are retained and reported.
 - **Instructions**: only the section between the routing-protocol markers in
   `~/.claude/CLAUDE.md` and Codex's `AGENTS.md`, and the generated routing reminder in Claude's
   memory. A file left empty is deleted.
@@ -244,6 +244,7 @@ The interactive script:
   configuration. When Codex is detected, it installs the same protocol in Codex's
   global instructions and registers its MCP connection without asking (see
   [Codex instruction installation](#codex-instruction-installation));
+- offers readiness/persona-restore hooks and emoji thread-status hooks separately for detected supported clients; `--yes` accepts both, with `--skip-hooks`, `--skip-readiness` and `--skip-thread-status` available to opt out;
 - targets another profile when `CLAUDE_CONFIG_DIR` (Claude Code),
   `AGENTS_CURSOR_MCP_CONFIG`, `AGENTS_CLAUDE_DESKTOP_CONFIG` or
   `AGENTS_ANTIGRAVITY_MCP_CONFIG` is exported in the shell that runs setup. Setup
@@ -782,16 +783,9 @@ skills and implants and switches each one on or off for the installation.
 
 ### Persona continuity
 
-For optional session readiness in every supported client (Claude Code, Codex,
-Cursor, Antigravity and Claude Desktop), see [Session readiness](docs/session-readiness.md).
-Install it separately using the [commands for your platform](docs/session-readiness.md#install);
-Codex requires reviewing and trusting the new hook in `/hooks`. Cursor and
-Antigravity request display in the first response; ordinary Claude Desktop Chat
-uses an MCP first-response fallback because it has no native lifecycle hook.
+Normal setup offers two independent lifecycle options for detected clients: session readiness (including persona restoration after compaction), and emoji thread status. `--yes` / `-y`, including the one-command installer, accepts both. Use `--skip-hooks` to skip both, or `--skip-readiness` / `--skip-thread-status` to skip one. `--skip-mcp` also skips these client writes. Repeated setup preserves unrelated hooks and updates the owned handlers without duplicates. No profiles are created for absent clients. An alternate Cursor/Antigravity MCP file outside the native profile does not select a hook profile; those hooks are skipped with an explanation rather than modifying the inactive default profile.
 
-For automatic emoji prefixes on task conversations in Claude Code, Codex and supported
-Cursor surfaces, see [Thread status](docs/thread-status.md). Its separate opt-in installer
-preserves the readiness hooks and documents each client's title-update limits.
+See [Session readiness](docs/session-readiness.md) and [Thread status](docs/thread-status.md) for standalone update commands and client limits. Codex requires a fresh session and reviewing/trusting the definitions in `/hooks`; setup cannot grant that trust. Codex interrupt title persistence additionally needs its CLI on PATH, while lifecycle policy and native current-chat renaming do not require it. Claude's title SDK is installed in the hook interpreter when that option is selected. Cursor and Antigravity request the readiness banner in the first model response; ordinary Claude Desktop Chat uses the separate read-only `Agents-Readiness` MCP helper. Installing hooks does not verify live UI rendering. [Automatic native compaction](docs/context-compaction.md) remains a separate opt-in feature; persona restoration does not enable it.
 
 For optional automatic compaction between turns in Claude Code, see
 [Native context compaction](docs/context-compaction.md). Its

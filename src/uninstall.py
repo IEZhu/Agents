@@ -13,6 +13,8 @@ create, prints it grouped by kind, asks once, and then:
   byte for byte;
 * removes unchanged session readiness adapters using this installation's interpreter and their
   unchanged copied runtimes; modified adapters and runtimes are reported and kept;
+* removes unchanged thread-status hooks and their unused copied runtimes; modified or shared
+  copies and the per-chat turn records are reported and kept;
 * removes the state, data, cache and log directories, the one-command installation directory
   (``~/.agents-core``), the autodev trusted clone and the autodev sandbox decoys (fake secrets in
   the home directory and the opt-in decoy keychain item);
@@ -67,6 +69,12 @@ READINESS_SERVER = "Agents-Readiness"  # scripts/install_session_readiness.py
 READINESS_SCRIPT = "agents-core-session-readiness.py"
 READINESS_MATCHER = "^(startup|clear)$"
 READINESS_COMPACT_MATCHER = "^compact$"  # the persona-restore group
+THREAD_STATUS_SCRIPT = "agents-core-thread-status.py"
+THREAD_STATUS_RUNTIMES = (
+    (THREAD_STATUS_SCRIPT, "scripts/thread_status.py"),
+    ("agents_core_thread_titles.py", "src/thread_status.py"),
+    ("agents_core_codex_titles.py", "src/codex_thread_titles.py"),
+)
 # scripts/_helpers/inject_claude_md.py
 MARKERS = (
     (b"# >>> Agents-Core Routing Protocol (managed by init_repo) >>>",
@@ -1274,6 +1282,230 @@ def readiness_items(ctx: Context, backups: Backups, installation: Path) -> list[
     return items
 
 
+# --- thread-status lifecycle hooks -------------------------------------------------------------
+
+def _thread_status_handler(handler, client: str, event: str, script: Path,
+                           installation: Path, *, windows: bool) -> bool:
+    """Recognize the complete generated handler, including its client and event timeout."""
+    if not isinstance(handler, dict):
+        return False
+    expected = {"command": handler.get("command"), "timeout": 3 if event == "Interrupt" else 5}
+    if client != "cursor":
+        expected["type"] = "command"
+    if handler != expected or type(handler.get("timeout")) is not int:
+        return False
+    arguments = _readiness_arguments(handler.get("command"), windows=windows)
+    if windows and arguments is not None:
+        # shlex's non-POSIX mode retains the enclosing quotes in native Windows commands.
+        arguments = [value[1:-1] if value.startswith('"') and value.endswith('"') else value
+                     for value in arguments]
+    return (arguments is not None and len(arguments) == 4
+            and _readiness_python(arguments[0], installation)
+            and arguments[1] == str(script) and arguments[2:] == ["--client", client])
+
+
+def remove_thread_status(content: bytes, client: str, script: Path, installation: Path,
+                         *, windows: bool) -> bytes | None:
+    """Remove exact installed handlers without reserializing unrelated client settings."""
+    document = json.loads(content.decode("utf-8-sig"))
+    if not isinstance(document, dict):
+        raise ValueError("the file's root is not a JSON object; edit it yourself")
+    if client == "cursor" and (type(document.get("version")) is not int or document["version"] != 1):
+        return content  # ownership of a different Cursor hooks format is unverified
+    hooks = document.get("hooks")
+    if not isinstance(hooks, dict):
+        return content
+    events = (("sessionStart",) if client == "cursor" else
+              ("SessionStart", "UserPromptSubmit", "Interrupt") if client == "codex" else
+              ("SessionStart", "UserPromptSubmit"))
+    removals, empty = [], []
+    for event in events:
+        prefix = ("hooks", event)
+        entries = hooks.get(event)
+        if not isinstance(entries, list):
+            continue
+        before = len(removals)
+        for index in range(len(entries) - 1, -1, -1):
+            entry = entries[index]
+            if client == "cursor":
+                if _thread_status_handler(entry, client, event, script, installation, windows=windows):
+                    removals.append(((*prefix, index), None))
+                continue
+            # Generated groups have no matcher or other options. A customized group stays.
+            if not isinstance(entry, dict) or set(entry) != {"hooks"} or not isinstance(entry["hooks"], list):
+                continue
+            owned = [i for i, handler in enumerate(entry["hooks"])
+                     if _thread_status_handler(handler, client, event, script, installation, windows=windows)]
+            if owned and len(owned) == len(entry["hooks"]):
+                removals.append(((*prefix, index), None))
+            else:
+                removals += [((*prefix, index, "hooks", i), None) for i in reversed(owned)]
+        if len(removals) != before:
+            empty.append(prefix)
+    return remove_json_members(content, removals, drop_if_empty=[*empty, ("hooks",)], delete_when=[{}])
+
+
+def _thread_status_linked(path: Path) -> bool:
+    """Never edit or remove a hook through a linked profile directory."""
+    return any(_is_link(candidate) for candidate in (path, *path.parents))
+
+
+def _thread_status_referenced(content: bytes | None, configuration: Path,
+                              references: Sequence[Path], *, windows: bool) -> bool:
+    """Check JSON/TOML registrations, including encoded commands and Windows path spelling."""
+    if content is None:
+        return False
+    try:
+        document = (tomllib.loads(content.decode("utf-8-sig")) if configuration.suffix == ".toml"
+                    else json.loads(content.decode("utf-8-sig")))
+        if not isinstance(document, dict):
+            return True
+        serialized = json.dumps(document).encode("utf-8")
+    except (ValueError, UnicodeError, TypeError):
+        return True
+    if any(_readiness_referenced(serialized, path) for path in references):
+        return True
+
+    def normalized(value: str) -> str:
+        return value.replace("\\", "/").casefold() if windows else value
+
+    names = [normalized(str(path)) for path in references]
+
+    def refers(value, *, command=False) -> bool:
+        if isinstance(value, dict):
+            return any(refers(child, command=key == "command") for key, child in value.items())
+        if isinstance(value, list):
+            return any(refers(child, command=command) for child in value)
+        if isinstance(value, str):
+            values = [value]
+            if command:
+                encoded = re.search(r"-EncodedCommand\b", value, re.IGNORECASE) is not None
+                arguments = _readiness_arguments(value, windows=windows or encoded)
+                if arguments is None:
+                    return True
+                values += arguments
+            return any(name in normalized(text) for name in names for text in values)
+        return False
+    return refers(document)
+
+
+def thread_status_items(ctx: Context, backups: Backups, installation: Path) -> list[Item]:
+    """Unregister this installation's exact lifecycle handlers, then remove unused copied bundles."""
+    source = "scripts/install_thread_status.py"
+    profiles = [("claude", ctx.env_path("CLAUDE_CONFIG_DIR") or ctx.home / ".claude", "settings.json"),
+                ("codex", ctx.env_path("CODEX_HOME") or ctx.home / ".codex", "hooks.json"),
+                ("cursor", ctx.home / ".cursor", "hooks.json")]
+    targets = [(client, directory / name, directory / "hooks" / THREAD_STATUS_SCRIPT)
+               for client, directory, name in profiles]
+    # Another supported client's custom hook or MCP registration may share one of these copies.
+    configurations = list(dict.fromkeys([target for _, target, _ in targets]
+                                        + [ctx.home / ".gemini/config/hooks.json"]
+                                        + [path for _, path in client_files(ctx)]))
+    remaining, candidates, items = {}, [], []
+    uncertain = False
+    for configuration in configurations:
+        if _thread_status_linked(configuration):
+            uncertain = True
+        try:
+            remaining[configuration] = configuration.read_bytes()
+        except FileNotFoundError:
+            uncertain |= os.path.lexists(configuration)
+            remaining[configuration] = None
+        except OSError:
+            uncertain = True
+            remaining[configuration] = None
+
+    for client, target, script in targets:
+        original = remaining[target]
+        changed = False
+        if original is not None:
+            transform = lambda content, client=client, script=script: remove_thread_status(
+                content, client, script, installation, windows=ctx.windows)
+            try:
+                updated = transform(original)
+            except (ValueError, TypeError, UnicodeError):
+                uncertain = True
+            else:
+                if not _thread_status_linked(target):
+                    remaining[target] = updated
+                    changed = updated != original
+                if changed:
+                    def unregister(target=target, transform=transform):
+                        if _thread_status_linked(target):
+                            raise Refused("thread-status configuration became a symbolic link; edit it yourself")
+                        return edit_file(ctx, backups, target, transform)
+                    items.append(Item("registration", str(target), "edit", source,
+                                      "unchanged thread-status hooks using this installation; a backup first", unregister))
+                if _thread_status_referenced(remaining[target], target, [script], windows=ctx.windows):
+                    items.append(Item("registration", str(target), "keep", source,
+                                      "thread-status hook is modified, shared, or belongs to another installation"))
+        files = [(script.with_name(name), installation / template) for name, template in THREAD_STATUS_RUNTIMES]
+        candidates.append((target, changed, files))
+        state = script.parent / "agents-core-thread-status-state"
+        if os.path.lexists(state):
+            items.append(Item("data", str(state), "keep", source,
+                              "per-chat thread-status turn records; remove them yourself if no longer needed"))
+
+    for target, changed, files in candidates:
+        present = [runtime for runtime, _ in files if os.path.lexists(runtime)]
+        if not present:
+            continue
+        references = [runtime for runtime, _ in files]
+        bundle = {}
+        try:
+            # The launcher imports both siblings. Keep the whole bundle when any copy is changed.
+            for runtime, template in files:
+                if _thread_status_linked(runtime) or _thread_status_linked(template):
+                    raise ValueError("a thread-status runtime or template is linked")
+                expected = template.read_bytes()
+                actual = runtime.read_bytes() if os.path.lexists(runtime) else None
+                if actual is not None and actual != expected:
+                    raise ValueError("a thread-status runtime is modified")
+                bundle[runtime] = actual
+            owned = (changed and not uncertain and not any(
+                _thread_status_referenced(content, configuration, references, windows=ctx.windows)
+                for configuration, content in remaining.items()))
+        except (OSError, ValueError):
+            owned = False
+        if not owned:
+            items += [Item("data", str(runtime), "keep", source,
+                           "thread-status bundle is modified, still referenced, or its ownership is unverified")
+                      for runtime in present]
+            continue
+        for runtime in present:
+            def remove_runtime(runtime=runtime, bundle=bundle, references=references):
+                """Recheck every dependency and configuration before removing another copied file."""
+                check_removable(ctx, runtime)
+                for dependency, expected in bundle.items():
+                    if _thread_status_linked(dependency):
+                        raise Refused("thread-status runtime became a symbolic link; remove the bundle yourself")
+                    try:
+                        actual = dependency.read_bytes() if os.path.lexists(dependency) else None
+                    except OSError as error:
+                        raise Refused("thread-status bundle cannot be read; remove it yourself") from error
+                    if actual != expected:
+                        raise Refused("thread-status bundle changed; remove it yourself")
+                for configuration in configurations:
+                    if _thread_status_linked(configuration):
+                        raise Refused("thread-status configuration became a symbolic link; remove the bundle yourself")
+                    try:
+                        current = configuration.read_bytes()
+                    except FileNotFoundError:
+                        if not os.path.lexists(configuration):
+                            continue
+                        raise Refused("thread-status configuration cannot be read; remove the bundle yourself")
+                    except OSError as error:
+                        raise Refused("thread-status configuration cannot be read; remove the bundle yourself") from error
+                    if _thread_status_referenced(current, configuration, references, windows=ctx.windows):
+                        raise Refused("thread-status bundle is still referenced or its use is uncertain; remove it yourself")
+                note = remove_path(ctx, runtime)
+                bundle[runtime] = None
+                return note
+            items.append(Item("data", str(runtime), "remove", source,
+                              "unchanged unused copied thread-status runtime", remove_runtime))
+    return items
+
+
 def _is_decoy(path: Path, marker: str) -> bool:
     """A small regular file, never a link, that holds its registered decoy marker."""
     try:
@@ -1447,6 +1679,7 @@ def build_plan(ctx: Context, *, keep_data: bool = False) -> list[Item]:
                           "only the Agents-Core entries; a backup first",
                           lambda path=path, transform=transform: edit_file(ctx, backups, path, transform)))
     items += readiness_items(ctx, backups, installation)
+    items += thread_status_items(ctx, backups, installation)
     plugin = ctx.home / ".gemini/config/plugins/agents-core"
     if plugin.exists() or _is_link(plugin):
         items.append(Item("registration", str(plugin), "remove",

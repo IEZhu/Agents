@@ -86,7 +86,7 @@ main() {
     echo "  Directory  : $action $home_dir"
     echo "  Then runs  : scripts/init_repo.sh --yes"
     echo "               (Python venv, the default embedding model,"
-    echo "                MCP registration and routing instructions for detected clients)"
+    echo "                MCP registration, routing instructions and lifecycle hooks for detected clients)"
 
     if [ "$assume_yes" = false ]; then
         local reply=""

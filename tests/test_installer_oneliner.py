@@ -19,7 +19,7 @@ def hermetic_environment(**overrides) -> dict:
     an Agents-Core variable of the developer's (AGENTS_USER_FLOWS_DIR would point the real sync
     step at their library), GIT_* and PYTHON*. ``overrides`` come last."""
     environment = {key: value for key, value in os.environ.items()
-                   if not key.startswith(("AGENTS_", "GIT_", "PYTHON")) and key != "VIRTUAL_ENV"}
+                   if not key.startswith(("AGENTS_", "GIT_", "PYTHON")) and key not in {"VIRTUAL_ENV", "CODEX_HOME", "CLAUDE_CONFIG_DIR", "XDG_CONFIG_HOME", "APPDATA", "LOCALAPPDATA"}}
     return {**environment, **overrides}
 
 
@@ -481,3 +481,51 @@ def test_a_rerun_without_agents_branch_keeps_a_dev_checkout_on_dev(tmp_path, cha
     assert (checkout / "later.txt").exists()  # fast-forwarded on its own branch
     assert (checkout / "ran.txt").read_text().strip() == "branch:unset"
     assert env_values(checkout / ".env")["AGENTS_AUTO_UPDATE_BRANCH"] == "dev"
+
+
+@pytest.mark.parametrize("flags,has_status,has_readiness", [([], True, True), (["--skip-thread-status"], False, True), (["--skip-hooks"], False, False)])
+def test_oneliner_reaches_real_lifecycle_hook_setup(tmp_path, upstream, flags, has_status, has_readiness, monkeypatch):
+    """Real oneliner, argument parser and hook stage; only dependency/model stages omitted."""
+    import shlex
+    source = (ROOT / "scripts/init_repo.sh").read_text()
+    parse_start = source.index("# ============== Parse Arguments ==============")
+    parse = source[parse_start:source.index("# ============== Helper Functions ==============", parse_start)]
+    start = source.index("# ============== Client Lifecycle Hooks ==============")
+    hooks = source[start:source.index("# ============== Sync Between Machines ==============", start)]
+    for name in ("install_client_hooks.py", "install_session_readiness.py", "install_thread_status.py", "thread_status.py", "session_readiness.py", "session_readiness_mcp.py"):
+        shutil.copyfile(ROOT / "scripts" / name, upstream / "scripts" / name)
+    for name in ("install_codex_instructions.py", "inject_claude_md.py", "backup_file.py"):
+        target = upstream / "scripts/_helpers" / name
+        target.parent.mkdir(exist_ok=True)
+        shutil.copyfile(ROOT / "scripts/_helpers" / name, target)
+    for name in ("__init__.py", "client_paths.py", "thread_status.py", "codex_thread_titles.py"):
+        target = upstream / "src" / name
+        target.parent.mkdir(exist_ok=True)
+        shutil.copyfile(ROOT / "src" / name, target)
+    init = upstream / "scripts/init_repo.sh"
+    init.write_text('#!/usr/bin/env bash\nset -e\nREPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"\n'
+                    + 'PYTHON_ABS=' + shlex.quote(sys.executable) + '\nprint_step() { echo "$*"; }\n' + parse + hooks)
+    git("add", "-A", cwd=upstream)
+    git("commit", "-q", "-m", "real hook stage", cwd=upstream)
+    profile = tmp_path / "home/.codex"
+    profile.mkdir(parents=True)
+    binaries = tmp_path / "isolated-bin"
+    binaries.mkdir()
+    for command in ("git", "bash", "dirname"):
+        (binaries / command).symlink_to(shutil.which(command))
+    inactive = tmp_path / "inactive codex profile"
+    inactive.mkdir()
+    marker = inactive / "hooks.json"
+    marker.write_bytes(b'{"hooks":{},"personal":"keep"}')
+    monkeypatch.setenv("CODEX_HOME", str(inactive))
+    result = run_install(tmp_path, upstream, *flags, path=str(binaries))
+    assert marker.read_bytes() == b'{"hooks":{},"personal":"keep"}'
+    assert not (inactive / "hooks").exists()
+    assert result.returncode == 0, result.stdout + result.stderr
+    target = profile / "hooks.json"
+    assert target.exists() == (has_status or has_readiness)
+    if target.exists():
+        hooks = json.loads(target.read_text())["hooks"]
+        assert ("Interrupt" in hooks) == has_status
+        assert len(hooks["SessionStart"]) == int(has_status) + 2 * int(has_readiness)
+    assert not (tmp_path / "home/.claude").exists()
