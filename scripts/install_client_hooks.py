@@ -98,7 +98,9 @@ def main(argv=None) -> int:
             try:
                 ensure_claude_title_sdk()
             except (OSError, ValueError, subprocess.SubprocessError) as error:
-                print(f'ERROR: Claude title dependency setup failed ({type(error).__name__}).', file=sys.stderr)
+                print(f'ERROR: Claude title dependency setup failed ({type(error).__name__}). '
+                      'Earlier setup steps may already be configured. Restore package access and rerun, '
+                      'or use --skip-thread-status for an offline setup.', file=sys.stderr)
                 failed = True
                 # Other clients do not depend on this optional SDK.
                 selected.remove('claude')

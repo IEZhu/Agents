@@ -529,3 +529,22 @@ def test_oneliner_reaches_real_lifecycle_hook_setup(tmp_path, upstream, flags, h
         assert ("Interrupt" in hooks) == has_status
         assert len(hooks["SessionStart"]) == int(has_status) + 2 * int(has_readiness)
     assert not (tmp_path / "home/.claude").exists()
+
+
+@pytest.mark.parametrize('existing', [False, True])
+def test_dev_flag_selects_development_before_clone_or_update(tmp_path, upstream, existing):
+    git('switch', '-q', '-c', 'dev', cwd=upstream)
+    (upstream / 'dev-only').write_text('development')
+    init = upstream / 'scripts/init_repo.sh'
+    init.write_text(init.read_text() + 'echo "$AGENTS_BRANCH" > "$(dirname "$0")/../selected-branch.txt"\n')
+    git('add', '-A', cwd=upstream)
+    git('commit', '-q', '-m', 'development branch', cwd=upstream)
+    git('switch', '-q', 'main', cwd=upstream)
+    if existing:
+        assert run_install(tmp_path, upstream).returncode == 0
+    result = run_install(tmp_path, upstream, '--dev', '--skip-index', extra_env={'AGENTS_BRANCH': 'main'})
+    assert result.returncode == 0, result.stdout + result.stderr
+    checkout = tmp_path / 'home/.agents-core'
+    assert (checkout / 'dev-only').read_text() == 'development'
+    assert (checkout / 'selected-branch.txt').read_text().strip() == 'dev'
+    assert (checkout / 'ran.txt').read_text().strip() == 'init:--yes --skip-index'
