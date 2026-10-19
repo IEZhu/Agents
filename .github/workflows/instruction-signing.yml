@@ -56,4 +56,4 @@ jobs:
       - name: Install runtime and pinned reference test dependencies
         run: python -m pip install -r requirements.txt -e ".[signing-tests]"
       - name: OMS interoperability and adversarial protected-set checks
-        run: python -B -m pytest tests/test_instruction_signing.py tests/test_instruction_signing_interop.py tests/test_instruction_inventory.py -q -p no:cacheprovider
+        run: python -B -m pytest tests/test_instruction_signing.py tests/test_instruction_signing_authority.py tests/test_instruction_signing_interop.py tests/test_instruction_inventory.py -q -p no:cacheprovider
