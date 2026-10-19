@@ -286,6 +286,10 @@ A verifier of this profile rejects a seal in any of these cases:
 
 ## 7. Keys and trust
 
+The #236 local backend and owner CLI are documented in
+[Local signing authority](instruction-signing-authority.md). Its controls require
+an already trusted runtime; the #237 startup integration remains separate.
+
 Machine key material and the trust store live in the daemon state directory
 (`~/Library/Application Support/Agents-Core/<id>/signing/`, mode `0700`). They never
 go into the library or sync. Private release keys remain outside the installation
