@@ -205,7 +205,8 @@ def shared_codex(codex_mcp):
 
 
 @pytest.mark.parametrize('with_node', [False, True], ids=['http', 'bridge'])
-def test_new_codex_uses_installed_shared_service(shared_codex, with_node, capsys):
+@pytest.mark.parametrize('line_ending', [b'\n', b'\r\n'], ids=['lf', 'crlf'])
+def test_new_codex_uses_installed_shared_service(shared_codex, with_node, line_ending, capsys):
     helper, home, args, installation, directory = shared_codex
     if with_node:
         config = json.loads((directory / 'service.json').read_text())
@@ -213,7 +214,8 @@ def test_new_codex_uses_installed_shared_service(shared_codex, with_node, capsys
         (directory / 'service.json').write_text(json.dumps(config))
     target = home / 'config.toml'
     original = '# Personal setting\nmodel = "keep"\n[mcp_servers.other]\ncommand = "other"\n[mcp_servers."Agents-Core"]\ncommand = "old"\nargs = ["old.py"]\nstartup_timeout_sec = 90\n'
-    target.write_text(original)
+    target.write_bytes(original.encode().replace(b'\n', line_ending))
+    original_bytes = target.read_bytes()
     assert helper.main(args) == 0
     document = tomllib.loads(target.read_text())
     entry = document['mcp_servers']['Agents-Core']
@@ -232,7 +234,7 @@ def test_new_codex_uses_installed_shared_service(shared_codex, with_node, capsys
     records = json.loads((directory / 'client-configs.json').read_text())['configs']
     assert any(record['client'] == 'codex' and record['path'] == str(target) for record in records)
     journal = json.loads(next((directory / 'backups').glob('*/changes.json')).read_text())
-    assert any(record['path'] == str(target) and base64.b64decode(record['before']).decode() == original for record in journal)
+    assert any(record['path'] == str(target) and base64.b64decode(record['before']) == original_bytes for record in journal)
     assert 'test-only-token' not in capsys.readouterr().out
 
 
