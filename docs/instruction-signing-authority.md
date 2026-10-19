@@ -105,8 +105,21 @@ chain and accepted head. A crash between these publications, an edited record,
 missing record, or rolled-back head grants no trust and preserves evidence. The
 store blocks at 4,096 revisions, 2 MiB per record or 64 MiB of retained records;
 it never drops revocations/history automatically. Trusted maintenance/recovery
-must preserve the accepted boundary. snapshot returns no entries and a diagnostic
-on corruption; mutations refuse it. This design detects rollback of the accepted
+must preserve the accepted boundary. Authority also becomes unavailable when
+its remaining capacity cannot accommodate another record of the current state:
+that conservative bound guarantees room for a one-key revocation while trust is
+usable. It covers revision count, record size and retained bytes. At that boundary,
+including stores already at a limit, snapshots grant no entries or token,
+verification is untrusted, and signing handoff, policy use and further owner
+transitions are refused. An accepted final transition can itself reach this
+boundary and return an unavailable snapshot; no earlier trust remains usable.
+The authenticated history and accepted head stay intact, and reads never write a
+disable flag, discard history or reset enrollment. Trusted maintenance is needed
+to restore availability. Within a usable store, identical explicit policy
+acceptances still advance the generation, and explicit re-enrollment of the same
+release fingerprint can restore the previously accepted policy.
+snapshot also returns no entries and a diagnostic on corruption; mutations refuse
+it. This design detects rollback of the accepted
 head against retained records, not coordinated replacement of the entire local
 boundary. Same-OS-user processes can read both keys and patch state/verifier;
 permissions and local MACs do not provide a stronger isolation boundary.
