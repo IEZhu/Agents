@@ -793,6 +793,12 @@ For automatic emoji prefixes on task conversations in Claude Code, Codex and sup
 Cursor surfaces, see [Thread status](docs/thread-status.md). Its separate opt-in installer
 preserves the readiness hooks and documents each client's title-update limits.
 
+For optional automatic compaction between turns in Claude Code, see
+[Native context compaction](docs/context-compaction.md). Its
+separate owner switch defaults to **off**. It uses the signed-in client's native
+compaction, with no separate model API key. Cursor automation is deferred: its
+reserved adapter explicitly reports `unsupported` and sends no keyboard events.
+
 Before each request, the model silently checks whether its active role fits the
 task. If it does, it keeps that role without routing, candidate selection or
 enrichment calls. A needed specialization change triggers routing; a known
