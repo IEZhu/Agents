@@ -28,6 +28,7 @@ from .storage import AuthorityError
 
 _SCHEMA = "agents-core/instruction-authority/1"
 _MAX_REVISIONS = 4096
+_MAX_RECORD_BYTES = 2 * 1024 * 1024
 _MAX_HISTORY_BYTES = 64 * 1024 * 1024
 
 
@@ -56,6 +57,22 @@ def _public(pem: bytes):
 
 def _stamp() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _capacity_problem(record) -> str | None:
+    """Grant no authority without bounded room for a subsequent revocation.
+
+    The authenticated current state is an upper bound for any one-key removal.
+    Reuse its fixed-width MAC only to measure the next canonical record; this
+    neither authenticates a new record nor changes retained evidence.
+    """
+    following = {field: record[field] for field in ("revision", "previous", "state", "policy_digest", "mac")}
+    following.update(revision=record["revision"] + 1, previous=record["digest"])
+    size = len(_json(following))
+    if (following["revision"] >= _MAX_REVISIONS or size > _MAX_RECORD_BYTES or
+            record["history_bytes"] + size > _MAX_HISTORY_BYTES):
+        return "Authority capacity cannot preserve revocation; all trust is unavailable until trusted maintenance"
+    return None
 
 
 @dataclass(frozen=True)
@@ -203,11 +220,11 @@ class AuthorityStore:
         total = 0
         record = None
         for revision, name in enumerate(names):
-            raw = storage.read(self.directory / "revisions" / name)
+            raw = storage.read(self.directory / "revisions" / name, _MAX_RECORD_BYTES)
             total += len(raw)
             if total > _MAX_HISTORY_BYTES:
                 raise AuthorityError("Authority history exceeds its byte bound")
-            record = load_json(raw, 2 * 1024 * 1024)
+            record = load_json(raw, _MAX_RECORD_BYTES)
             if (type(record) is not dict or set(record) != {"revision", "previous", "state", "policy_digest", "mac"}
                     or type(record["revision"]) is not int or record["revision"] != revision
                     or record["previous"] != previous
@@ -236,7 +253,7 @@ class AuthorityStore:
                   "policy_digest": _digest(_json(state["policy"]))}
         record["mac"] = hmac.digest(secret, b"agents-core/authority/1\0" + _json(record), "sha256").hex()
         raw = _json(record)
-        if len(raw) > 2 * 1024 * 1024 or len(raw) + (previous["history_bytes"] if previous else 0) > _MAX_HISTORY_BYTES:
+        if len(raw) > _MAX_RECORD_BYTES or len(raw) + (previous["history_bytes"] if previous else 0) > _MAX_HISTORY_BYTES:
             raise AuthorityError("Authority history capacity exceeded; no transition committed")
         # Publish the durable record first. A crash before the head replacement
         # blocks use; it never silently authorizes either an older or new state.
@@ -245,6 +262,8 @@ class AuthorityStore:
 
     @staticmethod
     def _snapshot(record):
+        if problem := _capacity_problem(record):
+            return AuthoritySnapshot(False, diagnostic=problem)
         state = record["state"]
         entries = tuple(TrustEntry(e["fingerprint"], e["public_key"].encode("ascii"), e["kind"],
                                   tuple(e["roots"]), e["label"], e["added_at"], e["source"])
@@ -267,6 +286,8 @@ class AuthorityStore:
     def _expect(record, expected_token):
         if expected_token != (record["revision"], record["digest"]):
             raise AuthorityError("Authority changed; repeat the local owner decision")
+        if problem := _capacity_problem(record):
+            raise AuthorityError(problem)
 
     def add_key(self, pem: bytes, *, kind: str, label: str, expected_token,
                 source="cli") -> AuthoritySnapshot:

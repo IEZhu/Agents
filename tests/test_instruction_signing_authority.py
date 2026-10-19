@@ -398,10 +398,72 @@ def test_policy_preview_authenticates_inputs_and_records_exact_prior_and_new_dig
 def test_history_capacity_refusal_changes_no_accepted_state(enrolled, monkeypatch):
     from src.instruction_signing import authority
     store, _, _, snapshot = enrolled
+    public = public_key_pem(ec.generate_private_key(ec.SECP256R1()).public_key())
+    accepted = (store.directory / "accepted.json").read_bytes()
+    records = {p.name: p.read_bytes() for p in (store.directory / "revisions").iterdir()}
     monkeypatch.setattr(authority, "_MAX_REVISIONS", 1)
     with pytest.raises(AuthorityError, match="capacity"):
-        _add(store)
-    assert store.snapshot() == snapshot
+        store.add_key(public, kind="release", label="owner label", expected_token=snapshot.token)
+    assert not store.snapshot().valid
+    assert (store.directory / "accepted.json").read_bytes() == accepted
+    assert {p.name: p.read_bytes() for p in (store.directory / "revisions").iterdir()} == records
+
+
+@pytest.mark.parametrize("bound", ["revisions", "bytes", "revocation_room"])
+def test_capacity_quarantine_denies_all_trust_without_rewriting_history(enrolled, monkeypatch, bound):
+    from src.instruction_signing import authority
+    store, _, library, initial = enrolled
+    sealed = _seal(store.machine_key(expected_token=initial.token))
+    accepted = (store.directory / "accepted.json").read_bytes()
+    records = {p.name: p.read_bytes() for p in (store.directory / "revisions").iterdir()}
+    if bound == "revisions":
+        monkeypatch.setattr(authority, "_MAX_REVISIONS", 1)
+    else:
+        total = sum(map(len, records.values()))
+        following = json.loads(next(iter(records.values())))
+        following.update(revision=initial.revision + 1, previous=initial.digest)
+        room = 0 if bound == "bytes" else len(authority._json(following)) - 1
+        monkeypatch.setattr(authority, "_MAX_HISTORY_BYTES", total + room)
+    unavailable = store.snapshot()
+    assert not unavailable.valid and unavailable.entries == () and unavailable.token is None
+    assert "capacity" in unavailable.diagnostic
+    assert store.verify(sealed, kind="library", root=library).status == Status.UNTRUSTED
+    with pytest.raises(AuthorityError, match="capacity"):
+        store.machine_key(expected_token=initial.token)
+    with pytest.raises(AuthorityError, match="capacity"):
+        store.remove_key(initial.entries[0].fingerprint, expected_token=initial.token)
+    with pytest.raises(AuthorityError, match="unavailable"):
+        store.policy()
+    assert (store.directory / "accepted.json").read_bytes() == accepted
+    assert {p.name: p.read_bytes() for p in (store.directory / "revisions").iterdir()} == records
+
+
+def test_last_accepted_boundary_quarantines_authority_immediately(enrolled, monkeypatch):
+    from src.instruction_signing import authority
+    store, _, library, initial = enrolled
+    sealed = _seal(store.machine_key(expected_token=initial.token))
+    monkeypatch.setattr(authority, "_MAX_REVISIONS", 2)
+    public = public_key_pem(ec.generate_private_key(ec.SECP256R1()).public_key())
+    result = store.add_key(public, kind="release", label="last transition", expected_token=initial.token)
+    assert not result.valid and not store.snapshot().valid
+    assert store.verify(sealed, kind="library", root=library).status == Status.UNTRUSTED
+    accepted = json.loads((store.directory / "accepted.json").read_bytes())
+    assert accepted["revision"] == initial.revision + 1
+    assert len(list((store.directory / "revisions").iterdir())) == 2
+    with pytest.raises(AuthorityError, match="capacity"):
+        store.machine_key(expected_token=(accepted["revision"], accepted["digest"]))
+
+
+def test_capacity_check_never_masks_record_authentication_failure(enrolled, monkeypatch):
+    from src.instruction_signing import authority
+    store, _, _, _ = enrolled
+    path = store.directory / "revisions/00000000.json"
+    record = json.loads(path.read_bytes())
+    record["mac"] = "0" * 64
+    path.write_bytes(authority._json(record))
+    monkeypatch.setattr(authority, "_MAX_REVISIONS", 1)
+    unavailable = store.snapshot()
+    assert not unavailable.valid and "authentication failed" in unavailable.diagnostic
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX file mode contract")
