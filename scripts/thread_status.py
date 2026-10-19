@@ -81,7 +81,8 @@ def hook_output(event: dict, client: str, *, script: str | None = None) -> dict:
     return {"hookSpecificOutput": output}
 
 
-def rename_codex_session(session_id: str, status: str, *, timeout: float = 2.5) -> dict:
+def rename_codex_session(session_id: str, status: str, *, timeout: float = 2.5,
+                         expected_turn_id: str | None = None, recorded_turn_id: str | None = None) -> dict:
     """Persist metadata through Codex's API without resuming or starting a turn."""
     try:
         from agents_core_codex_titles import rename_codex_thread
@@ -89,7 +90,8 @@ def rename_codex_session(session_id: str, status: str, *, timeout: float = 2.5) 
         if error.name != "agents_core_codex_titles":
             raise
         from src.codex_thread_titles import rename_codex_thread
-    return rename_codex_thread(session_id, status, status_title, timeout=timeout)
+    return rename_codex_thread(session_id, status, status_title, timeout=timeout,
+                               expected_turn_id=expected_turn_id, recorded_turn_id=recorded_turn_id)
 
 
 @contextmanager
@@ -133,6 +135,22 @@ def _turn_record(directory: Path, session_id: str, timeout: float):
                 fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
 
 
+def _read_record(record) -> dict:
+    record.seek(0)
+    try:
+        current = json.loads(record.read(4096))
+    except (ValueError, UnicodeError):
+        return {}
+    return current if isinstance(current, dict) else {}
+
+
+def _write_record(record, current: dict) -> None:
+    record.seek(0)
+    record.truncate()
+    record.write(json.dumps(current).encode("utf-8"))
+    record.flush()
+
+
 def handle_hook_event(event: object, client: str, *, state_directory: Path | None = None) -> dict:
     if (_main_event(event) and client == "codex"
             and event.get("hook_event_name") in ("UserPromptSubmit", "Interrupt")
@@ -143,20 +161,33 @@ def handle_hook_event(event: object, client: str, *, state_directory: Path | Non
         # Interrupt hooks have a three-second maximum; a prompt can wait longer
         # for the previous interrupt write, before its model is allowed to start.
         with _turn_record(directory, event["session_id"], 0.15 if interrupted else 2.5) as record:
+            current = _read_record(record)
             if not interrupted:
-                record.seek(0)
-                record.truncate()
-                record.write(json.dumps({"turn_id": event["turn_id"]}).encode("utf-8"))
-                record.flush()
+                # Keep the last receipt available after the user resumes work.
+                current["turn_id"] = event["turn_id"]
+                _write_record(record, current)
             else:
-                record.seek(0)
+                # Stop can precede UserPromptSubmit during context setup. The
+                # public turn metadata, rather than this optional prompt record,
+                # must establish whether the interrupted turn still owns the title.
+                receipt = {"turn_id": event["turn_id"], "received_at": time.time(),
+                           "outcome": "running", "persisted": False}
+                current["last_interrupt"] = receipt
+                _write_record(record, current)
                 try:
-                    current = json.loads(record.read(1024))
-                except (ValueError, UnicodeError):
-                    return {}
-                if not isinstance(current, dict) or current.get("turn_id") != event["turn_id"]:
-                    return {}  # A newer prompt already owns this chat.
-                rename_codex_session(event["session_id"], "stopped", timeout=2.0)
+                    result = rename_codex_session(event["session_id"], "stopped", timeout=2.0,
+                                                  expected_turn_id=event["turn_id"],
+                                                  recorded_turn_id=current.get("turn_id"))
+                    if result.get("persisted") is not True:
+                        receipt.update(outcome="skipped", reason=result.get("reason", "unconfirmed"))
+                        _write_record(record, current)
+                        return {}
+                except (OSError, ValueError, RuntimeError, UnicodeError, TypeError) as error:
+                    receipt.update(outcome="failed", error_type=type(error).__name__, error=str(error)[:240])
+                    _write_record(record, current)
+                    raise
+                receipt.update(outcome="persisted", persisted=True, live_ui_refresh_verified=False)
+                _write_record(record, current)
                 return {"systemMessage": "Stopped: title saved as 🛑; live UI refresh is unverified."}
     return hook_output(event, client)
 
