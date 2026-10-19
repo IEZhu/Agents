@@ -38,16 +38,17 @@ def installer_hook(request, tmp_path):
     templates = checkout / "scripts" / "templates"
     helpers.mkdir(parents=True)
     templates.mkdir()
-    for name in ("install_codex_instructions.py", "inject_claude_md.py"):
+    for name in ("install_codex_instructions.py", "install_codex_mcp.py", "inject_claude_md.py", "backup_file.py"):
         shutil.copyfile(ROOT / "scripts" / "_helpers" / name, helpers / name)
     shutil.copyfile(ROOT / "scripts" / "templates" / "routing-protocol-core.md",
                     templates / "routing-protocol-core.md")
+    shutil.copytree(ROOT / "src", checkout / "src", ignore=shutil.ignore_patterns("__pycache__"))
     codex_home = tmp_path / "custom codex home"
     profile = tmp_path / "isolated profile"
     profile.mkdir()
     env = dict(os.environ, HOME=str(profile), USERPROFILE=str(profile),
                CODEX_HOME=str(codex_home), REPO_ROOT=str(checkout),
-               PYTHON_ABS=sys.executable, HELPERS=str(helpers),
+               PYTHON_ABS=sys.executable, HELPERS=str(helpers), SERVER_ABS=str(checkout / "src/server.py"),
                RED="", GREEN="", YELLOW="", BLUE="", CYAN="", NC="",
                PYTHONUTF8="1")
     for name in ("PYTHONHOME", "PYTHONPATH", "VIRTUAL_ENV", "__PYVENV_LAUNCHER__"):
@@ -100,6 +101,9 @@ def test_installer_hook_installs_core_template(installer_hook, protocol_env):
     assert result.returncode == 0, result.stdout + result.stderr
     target = codex_home / "AGENTS.md"
     assert (templates / "routing-protocol-core.md").read_bytes().strip() in target.read_bytes()
+    import tomllib
+    config = tomllib.loads((codex_home / "config.toml").read_text())
+    assert Path(config["mcp_servers"]["Agents-Core"]["args"][0]).is_absolute()
     assert target.read_bytes().count(BEGIN) == 1
     assert str(target) in result.stdout and "configured" in result.stdout
     assert "fresh Codex session" in result.stdout
@@ -155,6 +159,7 @@ def test_installer_skip_mcp_guard_prevents_instruction_updates(installer_hook):
     result = run(skip_mcp=True)
     assert result.returncode == 0, result.stdout + result.stderr
     assert "Skipping MCP configuration" in result.stdout
+    assert not (codex_home / "config.toml").exists()
     assert "Checking Codex global instructions" not in result.stdout
     assert target.read_bytes() == b"Personal rules"
     assert not list(codex_home.glob("*.backup.*"))
@@ -179,3 +184,16 @@ def test_installer_hook_reports_failures_without_rewriting(installer_hook, failu
     assert "Codex global instructions configured:" not in output
     assert target.read_bytes() == original
     assert not list(codex_home.glob("*.backup.*"))
+
+
+def test_installer_refuses_malformed_toml_and_does_not_claim_mcp_success(installer_hook):
+    run, codex_home, _ = installer_hook
+    codex_home.mkdir()
+    config = codex_home / "config.toml"
+    config.write_bytes(b"invalid = [")
+    result = run()
+    assert result.returncode == 1
+    assert config.read_bytes() == b"invalid = ["
+    assert "Could not configure Codex MCP" in result.stderr
+    assert "MCP configured for:" not in result.stdout
+    assert not list(codex_home.glob("config.toml.backup.*"))

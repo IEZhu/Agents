@@ -242,7 +242,7 @@ The interactive script:
   or restore a backup before retrying;
 - asks before installing protocol 2 instructions in the global Claude
   configuration. When Codex is detected, it installs the same protocol in Codex's
-  global instructions without asking; this does not connect Codex to MCP (see
+  global instructions and registers its MCP connection without asking (see
   [Codex instruction installation](#codex-instruction-installation));
 - targets another profile when `CLAUDE_CONFIG_DIR` (Claude Code),
   `AGENTS_CURSOR_MCP_CONFIG`, `AGENTS_CLAUDE_DESKTOP_CONFIG` or
@@ -973,10 +973,26 @@ Agents/
 ### Codex instruction installation
 
 During the client setup stage, both installers automatically update Codex's global
-instructions when `CODEX_HOME` is non-empty, the default `~/.codex` directory exists, or
+instructions and register Agents-Core in `config.toml` when `CODEX_HOME` is non-empty, the default `~/.codex` directory exists, or
 the `codex` command is available. `CODEX_HOME` selects the target directory when
 non-empty; otherwise the target is `~/.codex`. There is no additional Codex prompt.
-`--skip-mcp` skips this instruction update along with client configuration.
+`--skip-mcp` skips both instructions and MCP registration. Discovery does not require
+the CLI when the profile directory exists. Setup writes absolute interpreter and
+server paths, preserves other settings and servers, and retains an existing
+Agents-Core HTTP or stdio bridge connection. Repeated setup is a no-op for an
+unchanged entry. Before changing an existing TOML file it creates a unique
+`config.toml.backup.*` snapshot and replaces the file atomically. Invalid TOML or
+an unsupported inline MCP layout is left unchanged and setup reports an error;
+convert inline MCP definitions to table syntax before retrying. A symlinked
+`config.toml` is also refused; use a regular file before retrying. On NixOS,
+setup includes the same per-process native library path as for other clients.
+
+Registration does not test live connectivity. Existing HTTP/bridge entries remain
+unchanged even if their service is unavailable: repair the shared service with
+its migration command below. To switch deliberately to standalone mode, remove
+only the Agents-Core transport entry from `config.toml`, then rerun setup.
+After moving a standalone installation or its virtual environment, rerun setup
+to refresh its absolute paths.
 
 The installer updates a non-empty `AGENTS.override.md` when present; otherwise it
 updates `AGENTS.md`. This matches Codex's global instruction precedence. Personal
@@ -1136,8 +1152,8 @@ and flow tools ([rules](#-repository-memory)).
 
 ### Codex (`config.toml`)
 
-Setup installs Codex instructions but does not register this server; without an
-entry, Codex follows the instructions' MCP-unavailable fallback. Add to
+Setup installs Codex instructions and registers this server automatically. For a
+manual standalone registration, add to
 `~/.codex/config.toml` (or `$CODEX_HOME/config.toml`):
 
 ```toml

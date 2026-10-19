@@ -956,10 +956,20 @@ else
     fi
 
     # --- Configure Codex instructions ---
-    # Registration is separate: Codex's TOML configuration is not a JSON MCP file.
+    # Instructions and the MCP connection use the same detected Codex profile.
     print_step "Checking Codex global instructions..."
     if ! "$PYTHON_ABS" "$REPO_ROOT/scripts/_helpers/install_codex_instructions.py" "$ROUTING_TEMPLATE"; then
         print_error "Failed to configure Codex instructions — inspect the reported path"
+    fi
+
+    if "$PYTHON_ABS" "$REPO_ROOT/scripts/_helpers/install_codex_mcp.py" "$PYTHON_ABS" "$SERVER_ABS" --ld-library-path "${NIX_LD_LIB_PATH:-}"; then
+        CONFIGURED_ENVS+=("Codex")
+    else
+        CODEX_MCP_STATUS=$?
+        if [ "$CODEX_MCP_STATUS" -ne 2 ]; then
+            print_error "Failed to configure Codex MCP; setup cannot report a working registration"
+            exit 1
+        fi
     fi
 
     # --- Summary ---
