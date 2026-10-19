@@ -44,6 +44,11 @@ whisper_models/
 !.git/
 !/.claude-plugin/
 !/.claude-plugin/marketplace.json
+!/plugins/agents-core-context-compaction/.claude-plugin/
+!/plugins/agents-core-context-compaction/.claude-plugin/plugin.json
+!/.github/
+!/.github/workflows/
+!/.github/workflows/context-compaction.yml
 !/.coderabbit.yaml
 # Generated benchmark reports
 evals/reports/*
