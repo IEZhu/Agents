@@ -11,11 +11,11 @@ import subprocess
 from src import executables
 from src.file_lock import file_lock
 from .state import read_json, write_json, private_dir, atomic_private
+from .update_dependencies import DEPENDENCIES, dependency_change_reason
 
 
 INDEX_FILES = ("skills_store.npz", "skills_store.json", ".skills_hash",
                "implants_store.npz", "implants_store.json", ".implants_hash")
-DEPENDENCIES = ("pyproject.toml", "requirements.txt", "uv.lock", "bridge/package.json", "bridge/package-lock.json")
 # A console child of the windowless controller (Task Scheduler's pythonw) would open a window.
 NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
@@ -25,12 +25,25 @@ def phase(controller, journal, name):
     write_json(controller.directory / "transaction.json", journal)
 
 
-def probation(controller, journal):
+def probation(controller, journal, *, expected_commit=None, allow_legacy=False):
     nonce = secrets.token_urlsafe(32)
     write_json(controller.directory / "probation.json", {"nonce": nonce})
     phase(controller, journal, "probation")
     controller._start(probation=nonce)
     ready = controller.wait_ready()
+    if expected_commit:
+        actual = ready.get("agents_core_commit")
+        if actual != expected_commit:
+            # Only rollback may recover a version predating commit health. A
+            # candidate without identity must never count as an applied update.
+            if allow_legacy and "agents_core_commit" not in ready:
+                ready = {**ready, "commit_verified": False,
+                         "commit_verification": "legacy health has no agents_core_commit"}
+            else:
+                raise RuntimeError(f"Ready service reports source commit {actual or 'unknown'}, expected "
+                                   f"{expected_commit}; inspect the service launcher/runtime_root")
+        else:
+            ready = {**ready, "commit_verified": True}
     # Rewrite future admission without restarting the verified PID. launchd
     # retains the original argv until bootout, a running task its command line;
     # the nonce is accepted only while maintenance exists. Normal post-commit
@@ -194,7 +207,8 @@ def rollback(controller, journal):
         from src import self_update
         with self_update._inherit_lock(session_fd), self_update._inherit_lock(updater_fd):
             restore_files(controller, journal)
-    ready = probation(controller, journal)
+    ready = probation(controller, journal, expected_commit=journal.get("old_sha") or journal.get("runtime_sha"),
+                      allow_legacy=True)
     cleanup(controller)
     return {"state": "rolled_back", "health": ready}
 
@@ -210,6 +224,19 @@ def channel_settings(controller):
     """
     from src import update_channel
     return update_channel.read(controller.config["installation"])
+
+
+def runtime_source_refusal(config):
+    """A Git content update cannot replace an explicitly pinned runtime source."""
+    source = config.get("runtime_root")
+    if source is None:
+        return None
+    if isinstance(source, str) and source.strip() and Path(source).is_absolute() and \
+            Path(source).resolve() == Path(config["installation"]).resolve():
+        return None
+    return (f"Service runtime_root {source!r} differs from installation {config['installation']!r}; "
+            "Git updates cannot switch this pinned source. Complete an explicit owner-controlled runtime "
+            "migration and verify the launcher before updating; the override has been retained")
 
 
 def prepare(controller, expected_target=None, channel=None):
@@ -238,11 +265,12 @@ def prepare(controller, expected_target=None, channel=None):
         # Auto-update checked one commit before preparing; build only that one.
         if expected_target and target != expected_target:
             raise TargetMoved(f"branch moved from checked {expected_target[:12]} to {target[:12]}")
-        changed = subprocess.run([executables.path("git"), "diff", "--name-only", old, target, "--", *DEPENDENCIES],
-                                 cwd=root, capture_output=True, text=True, check=True, stdin=subprocess.DEVNULL,
-                                 env=executables.git_environment(root), creationflags=NO_WINDOW)
-        if changed.stdout.strip():
-            raise RuntimeError("Dependency manifests changed; update the environment in explicit maintenance")
+        def git(*args, check=True):
+            return subprocess.run([executables.path("git"), *args], cwd=root, capture_output=True, text=True,
+                                  check=check, stdin=subprocess.DEVNULL, env=executables.git_environment(root),
+                                  creationflags=NO_WINDOW)
+        if reason := dependency_change_reason(git, old, target):
+            raise RuntimeError(reason)
 
     with file_lock(root / "data/.update.lock", blocking=False) as updater_fd, self_update._inherit_lock(updater_fd):
         inputs = embedding_inputs(config)
@@ -292,7 +320,7 @@ def activate(controller, journal, channel=None):
 # update, they leave a pending model switch for the next run.
 PREPARE_FAILED = ("PREPARE_WORKTREE_FAILED", "PREPARE_REINDEX_FAILED", "PREPARE_STAGE_INCONSISTENT")
 # service.json settings a build used; a change during the build makes it stale.
-BUILD_CONFIG = ("installation", "python", "git", "path", "model", "model_cache", "model_artifact", "model_path")
+BUILD_CONFIG = ("installation", "runtime_root", "python", "git", "path", "model", "model_cache", "model_artifact", "model_path")
 
 
 def load_service(controller):
@@ -366,6 +394,8 @@ def _offline_update(controller, expected_target, precheck, notes):
         # Under the lock, so `uninstall` or another controller command cannot change
         # service.json while the model downloads; the service keeps serving meanwhile.
         load_service(controller)
+        if reason := runtime_source_refusal(controller.config):
+            raise RuntimeError(reason)
         # Before the controller takes the service's environment: an exported value
         # overrides .env for this one command (#381).
         channel = channel_settings(controller)
@@ -396,6 +426,8 @@ def _offline_update(controller, expected_target, precheck, notes):
     built = controller.config
     with file_lock(controller.directory / "control.lock", blocking=False):
         load_service(controller)
+        if reason := runtime_source_refusal(controller.config):
+            raise RuntimeError(reason)
         if any(controller.config.get(key) != built.get(key) for key in BUILD_CONFIG):
             # The next run rebuilds for the new configuration.
             return {"state": "deferred", "reason": "service configuration changed during the build"}
@@ -417,6 +449,9 @@ def _offline_update(controller, expected_target, precheck, notes):
         prior = controller.status()
         journal = {"phase": "draining", "was_running": prior.get("state") in ("ready", "starting", "draining"),
                    "autostart": controller.config["autostart"]}
+        journal["runtime_sha"] = subprocess.run(
+            [executables.path("git"), "rev-parse", "HEAD"], cwd=root, check=True, capture_output=True, text=True,
+            stdin=subprocess.DEVNULL, env=executables.git_environment(root), creationflags=NO_WINDOW).stdout.strip()
         write_json(controller.directory / "maintenance.json", {"operation": "update"})
         phase(controller, journal, "draining")
         mutated = False
@@ -460,11 +495,14 @@ def _offline_update(controller, expected_target, precheck, notes):
             if not mutated:
                 # Skip/up-to-date still verifies the existing runtime before
                 # restoring admission after maintenance.
-                ready = probation(controller, journal) if journal["was_running"] else None
+                ready = probation(controller, journal, expected_commit=journal["runtime_sha"],
+                                  allow_legacy=True) if journal["was_running"] else None
                 cleanup(controller)
                 return {"state": result, "health": ready}
             try:
-                ready = probation(controller, journal)
+                ready = probation(controller, journal, expected_commit=(
+                    journal.get("target_sha") if result == self_update.UpdateStatus.UPDATED else journal["runtime_sha"]),
+                    allow_legacy=result != self_update.UpdateStatus.UPDATED)
             except BaseException:
                 rollback_attempted = True
                 return rollback(controller, journal)
@@ -484,7 +522,7 @@ def _offline_update(controller, expected_target, precheck, notes):
                     rollback(controller, journal)
             else:
                 if journal["was_running"]:
-                    probation(controller, journal)
+                    probation(controller, journal, expected_commit=journal.get("runtime_sha"), allow_legacy=True)
                 cleanup(controller)
             raise
 
@@ -500,6 +538,6 @@ def recover(controller):
             return rollback(controller, journal)
         if journal.get("was_running"):
             controller._stop()
-            probation(controller, journal)
+            probation(controller, journal, expected_commit=journal.get("runtime_sha"), allow_legacy=True)
         cleanup(controller)
         return {"state": "recovered_before_mutation"}

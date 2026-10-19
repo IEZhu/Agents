@@ -57,7 +57,8 @@ class FakeController:
         if self.fail_ready:
             self.fail_ready -= 1
             raise RuntimeError("candidate warmup failed")
-        return {"state": "ready", "pid": 123}
+        return {"state": "ready", "pid": 123,
+                "agents_core_commit": git(Path(self.config["installation"]), "rev-parse", "HEAD")}
     def write_plist(self): pass
 
 
@@ -120,6 +121,74 @@ def test_update_probes_after_writer_lease_released(installation):
     assert git(root, "rev-parse", "HEAD") == target
     assert controller.probes == 1
     assert not (controller.directory / "transaction.json").exists()
+
+
+def test_pinned_runtime_source_refuses_before_build_or_stop(installation, tmp_path):
+    controller, root, old, _ = installation
+    source = str(tmp_path / "pinned-source")
+    controller.config["runtime_root"] = source
+    write_json(controller.directory / "service.json", controller.config)
+    with pytest.raises(RuntimeError, match="explicit owner-controlled runtime migration"):
+        offline_update(controller)
+    assert git(root, "rev-parse", "HEAD") == old
+    assert controller.running and controller.stops == controller.builds == 0
+    assert read_json(controller.directory / "service.json")["runtime_root"] == source
+    assert not (controller.directory / "maintenance.json").exists()
+
+
+def test_runtime_source_changed_during_build_refuses_before_stop(installation, monkeypatch, tmp_path):
+    from src.daemon import update
+    controller, root, old, _ = installation
+    build = update.prepare_reindex
+
+    def build_and_pin(current, staging_dir):
+        result = build(current, staging_dir)
+        write_json(controller.directory / "service.json", {**controller.config, "runtime_root": str(tmp_path)})
+        return result
+    monkeypatch.setattr(update, "prepare_reindex", build_and_pin)
+    with pytest.raises(RuntimeError, match="runtime_root"):
+        offline_update(controller)
+    assert git(root, "rev-parse", "HEAD") == old and controller.stops == 0
+    assert controller.running and controller.builds == 1
+
+
+def test_ready_service_with_the_wrong_commit_rolls_back(installation):
+    controller, root, old, _ = installation
+    # An old launcher can start successfully while still executing its pinned source.
+    controller.wait_ready = lambda: {"state": "ready", "pid": 123, "agents_core_commit": old}
+    result = offline_update(controller)
+    assert result["state"] == "rolled_back" and result["health"]["commit_verified"]
+    assert git(root, "rev-parse", "HEAD") == old
+    assert (root / "data/skills_store.npz").read_text() == "old-index"
+    assert controller.running and controller.stops == controller.probes == 2
+    assert not (controller.directory / "maintenance.json").exists()
+
+
+def test_candidate_without_commit_identity_rolls_back_to_legacy_health(installation):
+    controller, root, old, _ = installation
+    controller.wait_ready = lambda: {"state": "ready", "pid": 123}
+    result = offline_update(controller)
+    assert result["state"] == "rolled_back"
+    assert result["health"]["commit_verified"] is False
+    assert result["health"]["commit_verification"] == "legacy health has no agents_core_commit"
+    assert git(root, "rev-parse", "HEAD") == old and controller.running
+
+
+def test_candidate_with_unknown_identity_is_not_a_legacy_rollback(installation):
+    controller, root, old, _ = installation
+    controller.wait_ready = lambda: {"state": "ready", "agents_core_commit": None}
+    with pytest.raises(RuntimeError, match="source commit unknown"):
+        offline_update(controller)
+    assert git(root, "rev-parse", "HEAD") == old
+    assert (controller.directory / "maintenance.json").exists()
+
+
+def test_runtime_root_equal_to_installation_can_update(installation):
+    controller, root, _, target = installation
+    controller.config["runtime_root"] = str(root)
+    write_json(controller.directory / "service.json", controller.config)
+    result = offline_update(controller)
+    assert result["state"] == "UPDATED" and result["health"]["agents_core_commit"] == target
 
 
 def test_update_is_built_while_serving_and_the_stop_only_activates_it(installation):
@@ -535,6 +604,42 @@ def test_dependency_changes_rejected_before_merge(installation):
         offline_update(controller)
     assert git(root, "rev-parse", "HEAD") == old
     assert controller.running and controller.stops == 0 and controller.builds == 0
+
+
+def publish_pyproject_update(root, target, before, after):
+    """Put a manifest on the installed base and publish an exact target change."""
+    git(root, "reset", "--hard", target)
+    (root / "pyproject.toml").write_text(before)
+    git(root, "add", "pyproject.toml")
+    git(root, "commit", "-qm", "installed manifest")
+    base = git(root, "rev-parse", "HEAD")
+    (root / "pyproject.toml").write_text(after)
+    git(root, "commit", "-qam", "target manifest")
+    changed = git(root, "rev-parse", "HEAD")
+    git(root, "push", "origin", "main")
+    git(root, "reset", "--hard", base)
+    return base, changed
+
+
+def test_metadata_and_new_extra_can_activate_without_environment_maintenance(installation):
+    from tests.test_daemon_update_dependencies import MANIFEST
+    controller, root, _, target = installation
+    after = MANIFEST.replace('version = "1.0"', 'version = "2.0"')
+    after += 'thread-status = ["claude-agent-sdk==0.2.168"]\n'
+    after += '\n[tool.setuptools.package-data]\n"src.context_compaction" = ["cursor_ui.js"]\n'
+    _, changed = publish_pyproject_update(root, target, MANIFEST, after)
+    result = offline_update(controller)
+    assert result["state"] == "UPDATED" and result["health"]["agents_core_commit"] == changed
+    assert git(root, "rev-parse", "HEAD") == changed and controller.stops == 1
+
+
+def test_existing_extra_change_refuses_before_build_or_stop(installation):
+    from tests.test_daemon_update_dependencies import MANIFEST
+    controller, root, _, target = installation
+    base, _ = publish_pyproject_update(root, target, MANIFEST, MANIFEST.replace("httpx>=0.28,<0.29", "httpx>=1"))
+    with pytest.raises(RuntimeError, match="existing extra"):
+        offline_update(controller)
+    assert git(root, "rev-parse", "HEAD") == base and controller.stops == controller.builds == 0
 
 
 @pytest.fixture
