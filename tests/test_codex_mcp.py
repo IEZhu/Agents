@@ -1,5 +1,8 @@
 """Codex registration in isolated profiles; never launch a server or client."""
+from contextlib import nullcontext
+import base64
 import importlib
+import json
 from pathlib import Path
 import sys
 import tomllib
@@ -186,3 +189,105 @@ def test_missing_server_is_refused_without_creating_config(codex_mcp):
     Path(args[1]).unlink()
     assert helper.main(args) == 1
     assert not (home / 'config.toml').exists()
+
+
+@pytest.fixture
+def shared_codex(codex_mcp):
+    helper, home, args = codex_mcp
+    installation = Path(args[1]).parents[1]
+    directory = installation.parent / 'shared service'
+    directory.mkdir()
+    (installation / 'data').mkdir()
+    (installation / 'data/.shared-service.json').write_text(json.dumps({'directory': str(directory)}))
+    (directory / 'service.json').write_text(json.dumps({'installation': str(installation), 'port': 8187}))
+    (directory / 'token').write_text('test-only-token')
+    return helper, home, args, installation, directory
+
+
+@pytest.mark.parametrize('with_node', [False, True], ids=['http', 'bridge'])
+def test_new_codex_uses_installed_shared_service(shared_codex, with_node, capsys):
+    helper, home, args, installation, directory = shared_codex
+    if with_node:
+        config = json.loads((directory / 'service.json').read_text())
+        config['node'] = sys.executable  # Only checked for existence; never executed.
+        (directory / 'service.json').write_text(json.dumps(config))
+    target = home / 'config.toml'
+    original = '# Personal setting\nmodel = "keep"\n[mcp_servers.other]\ncommand = "other"\n[mcp_servers."Agents-Core"]\ncommand = "old"\nargs = ["old.py"]\nstartup_timeout_sec = 90\n'
+    target.write_text(original)
+    assert helper.main(args) == 0
+    document = tomllib.loads(target.read_text())
+    entry = document['mcp_servers']['Agents-Core']
+    assert document['model'] == 'keep'
+    assert document['mcp_servers']['other'] == {'command': 'other'}
+    assert entry['startup_timeout_sec'] == 90
+    if with_node:
+        assert entry['command'] == sys.executable and entry['args'][0] == str(installation / 'bridge/stdio.mjs')
+        bridge = json.loads(Path(entry['args'][1]).read_text())
+        assert bridge['workspace'] == 'auto' and bridge['headers']['X-Agents-Client'] == 'codex'
+        assert 'url' not in entry
+    else:
+        assert entry['url'] == 'http://127.0.0.1:8187/mcp'
+        assert entry['http_headers']['X-Agents-Client'] == 'codex'
+        assert 'command' not in entry and 'args' not in entry
+    records = json.loads((directory / 'client-configs.json').read_text())['configs']
+    assert any(record['client'] == 'codex' and record['path'] == str(target) for record in records)
+    journal = json.loads(next((directory / 'backups').glob('*/changes.json')).read_text())
+    assert any(record['path'] == str(target) and base64.b64decode(record['before']).decode() == original for record in journal)
+    assert 'test-only-token' not in capsys.readouterr().out
+
+
+@pytest.mark.parametrize('barrier', ['control.lock', 'maintenance.json', 'transaction.json'])
+def test_shared_codex_checks_admission_before_reading_service_state(shared_codex, monkeypatch, barrier):
+    helper, home, args, _, directory = shared_codex
+    target = home / 'config.toml'
+    target.write_bytes(b'model = "keep"\n')
+    if barrier != 'control.lock':
+        (directory / barrier).write_text('{"operation":"busy"}')
+    def unexpected_migration(*unused):
+        pytest.fail('Shared service state read before admission')
+    monkeypatch.setattr(helper, 'ClientMigration', unexpected_migration)
+    lease = helper.file_lock(directory / barrier, blocking=False) if barrier == 'control.lock' else nullcontext()
+    with lease:
+        assert helper.main(args) == 1
+    assert target.read_bytes() == b'model = "keep"\n'
+    assert not (directory / 'backups').exists()
+
+
+@pytest.mark.parametrize('broken', ['marker-json', 'marker-directory', 'service', 'token', 'service-shape'])
+def test_unusable_shared_state_never_falls_back_to_standalone(shared_codex, broken, capsys):
+    helper, home, args, installation, directory = shared_codex
+    target = home / 'config.toml'
+    target.write_bytes(b'model = "keep"\n')
+    marker = installation / 'data/.shared-service.json'
+    if broken == 'marker-json':
+        marker.write_text('private-value = invalid json')
+    elif broken == 'marker-directory':
+        marker.write_text('{"directory":"relative-private-value"}')
+    elif broken == 'service-shape':
+        (directory / 'service.json').write_text('{"installation":"private-value"}')
+    else:
+        (directory / ('service.json' if broken == 'service' else 'token')).unlink()
+    assert helper.main(args) == 1
+    assert target.read_bytes() == b'model = "keep"\n'
+    assert 'private-value' not in capsys.readouterr().err
+
+
+@pytest.mark.parametrize('entry', ['url = "http://localhost:8765/mcp"',
+                                  'command = "node"\nargs = ["/old/bridge/stdio.mjs", "config"]'])
+def test_existing_transport_preserved_even_when_shared_state_unavailable(shared_codex, entry):
+    helper, home, args, installation, _ = shared_codex
+    (installation / 'data/.shared-service.json').write_text('invalid')
+    target = home / 'config.toml'
+    content = ('[mcp_servers."Agents-Core"]\n' + entry + '\n').encode()
+    target.write_bytes(content)
+    assert helper.main(args) == 0
+    assert target.read_bytes() == content
+
+
+def test_shared_migration_refuses_toml_that_would_lose_other_settings(shared_codex):
+    helper, home, args, _, _ = shared_codex
+    target = home / 'config.toml'
+    content = b'''[mcp_servers.other]\nnote = """\n[mcp_servers.'Agents-Core']\nprivate-looking text\n"""\n'''
+    target.write_bytes(content)
+    assert helper.main(args) == 1
+    assert target.read_bytes() == content

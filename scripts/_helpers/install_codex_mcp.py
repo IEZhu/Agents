@@ -1,6 +1,7 @@
-"""Register standalone Agents-Core in a detected Codex profile (Python 3.11+)."""
+"""Register Agents-Core in a detected Codex profile (Python 3.11+)."""
 import argparse
 import copy
+import json
 import os
 from pathlib import Path
 import stat
@@ -12,7 +13,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from scripts._helpers.backup_file import backup_file
 from scripts._helpers.install_codex_instructions import detect_codex_home
-from src.daemon.clients import replace_toml_server
+from src.daemon.clients import ClientMigration, replace_toml_server
+from src.daemon.bootstrap import assert_service_safe
+from src.file_lock import file_lock
 
 SERVER = "Agents-Core"
 
@@ -43,6 +46,23 @@ def configure(home: Path, python: Path, server: Path, *, ld_library_path: str = 
     python, server = python.expanduser().absolute(), server.expanduser().absolute()
     if not python.is_file() or not server.is_file():
         raise ConfigurationError("The interpreter or server file is missing; check installation paths")
+    marker = server.resolve().parents[1] / "data/.shared-service.json"
+    if marker.exists():
+        service = json.loads(marker.read_text())
+        directory = service.get("directory") if isinstance(service, dict) else None
+        if not isinstance(directory, str) or not Path(directory).is_absolute():
+            raise ConfigurationError("Invalid shared-service marker; recover the service before retrying")
+        with file_lock(Path(directory) / "control.lock", blocking=False):
+            assert_service_safe(directory)
+            migration = ClientMigration(directory)
+            change = migration.prepare("codex", config_path=target)
+            updated = tomllib.loads(change[1])
+            expected = copy.deepcopy(document)
+            expected.setdefault("mcp_servers", {})[SERVER] = updated["mcp_servers"][SERVER]
+            if updated != expected:
+                raise ConfigurationError("Cannot safely preserve this TOML layout; use table syntax")
+            migration.apply([change])
+        return f"Codex MCP configured for shared daemon: {target}"
     entry = {**old, "command": str(python),
              "args": [str(server)]}
     if ld_library_path:
@@ -93,7 +113,7 @@ def main(argv=None) -> int:
             print("Codex not detected; MCP registration skipped.")
             return 2  # Installers must not count an absent client as configured.
         print(configure(home, args.python, args.server, ld_library_path=args.ld_library_path))
-    except (OSError, ValueError, TypeError) as error:
+    except (OSError, ValueError, TypeError, RuntimeError, KeyError, AttributeError) as error:
         # TOML parser errors can contain user values; report no configuration content.
         detail = str(error) if isinstance(error, ConfigurationError) else "Check config.toml syntax, table layout, paths and permissions"
         print(f"ERROR: Could not configure Codex MCP ({type(error).__name__}). "
