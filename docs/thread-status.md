@@ -13,15 +13,16 @@ are not evidence that the user's task is complete.
 | `review` | 👀 | Required human review or acceptance |
 | `paused` | ⏸️ | Work was explicitly put on hold |
 | `stopped` | 🛑 | Confirmed user interruption; requested work remains unfinished |
+| `finishing` | 🧹 | Required work remains from a closure audit; the task is unfinished |
 | `ready_to_close` | 🏁 | Requested work and required checks are complete; no required steps remain |
 | `closed` | ✅ | Explicitly closed or confirmed archived |
 | `unknown` | ❔ | Insufficient evidence |
 
-The usual finishing path is `working → review → ready_to_close → closed`.
+The usual completion path is `working → review → ready_to_close → closed`.
 Skip review when no acceptance step is required. An optional suggestion after a
 complete result does not create unfinished work. A new work request reopens the
-task; a status question does not. Changing the prefix does not itself archive a
-conversation or authorize another action.
+task as `working`, including after `closed`; a status question does not. Changing
+the prefix does not itself archive a conversation or authorize another action.
 
 The attention statuses `needs_user`, `review` and `ready_to_close` are final
 handoffs. First finish all currently possible autonomous work; no AI-owned check,
@@ -32,6 +33,16 @@ input prevents further progress, finish independent work before handing off as
 `needs_user`. The whole task need not be complete for that input handoff.
 An optional question during ongoing work does not establish a handoff. Never
 set an attention status and then continue autonomous work.
+
+At a closure-audit handoff, use `finishing` when required obligations remain,
+unless essential input or required human approval calls for `needs_user`/`review`.
+This means the remaining required work needs to be finished; the task is still
+unfinished. Resume implementation as `working`, and use `working`/`waiting` for
+AI review, CI and subagents. Verify or explicitly resolve each required task
+before `ready_to_close`; an owner or a proposed follow-up alone does not resolve
+it. `closed` still requires explicit closure or confirmed archival. A completed
+audit report does not establish that the audited work is complete, and optional
+suggestions alone do not require `finishing`.
 
 `stopped` records an actual user interruption, not an idle session, a failed
 tool, or the ordinary end of a response. It differs from an explicit pause and
@@ -49,8 +60,8 @@ from closure. A new work request resumes `working`.
 
 Claude's native prompt hook sets a working prefix only for unmarked, `unknown`
 or `working` titles. It preserves `needs_user`, `waiting`, `blocked`, `review`,
-`paused`, `stopped`, `ready_to_close` and `closed` until the model decides whether
-the new request actually resumes work. Session startup, resume and compaction only
+`paused`, `stopped`, `finishing`, `ready_to_close` and `closed` until the model
+decides whether the new request actually resumes work. Session startup, resume and compaction only
 deliver context, without claiming work has started. Ordinary response-end hooks
 are deliberately absent: the end of a response does not establish task completion. Subagent and
 background events cannot rename the parent chat.
