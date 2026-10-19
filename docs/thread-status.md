@@ -172,7 +172,7 @@ To remove the opt-in hooks, remove only commands referencing
 `UserPromptSubmit`, Codex `Interrupt`, or Cursor `sessionStart`. Preserve other handlers, then delete
 the copied runtime, `agents_core_thread_titles.py`, `agents_core_codex_titles.py`
 and its own turn-record directory after checking no hook still references them.
-The main uninstaller removes unchanged registrations and copied runtimes belonging to the selected installation, preserving modified or shared adapters and reporting retained turn state. A separate hook environment belongs to that environment and is preserved.
+The main uninstaller removes unchanged registrations and copied runtimes belonging to the selected installation, preserving modified or shared adapters and reporting retained turn state. A separate hook environment belongs to that environment and is preserved. Cleanup trusts the selected home directory and its system ancestors, so a linked home layout does not prevent removing owned hooks. Linked profile directories and runtime files below home are retained.
 
 ## Verification and sources
 

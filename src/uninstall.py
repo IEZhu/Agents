@@ -1345,9 +1345,11 @@ def remove_thread_status(content: bytes, client: str, script: Path, installation
     return remove_json_members(content, removals, drop_if_empty=[*empty, ("hooks",)], delete_when=[{}])
 
 
-def _thread_status_linked(path: Path) -> bool:
-    """Never edit or remove a hook through a linked profile directory."""
-    return any(_is_link(candidate) for candidate in (path, *path.parents))
+def _thread_status_linked(path: Path, home: Path) -> bool:
+    """Refuse linked profiles, while trusting the selected home's filesystem layout."""
+    trusted = {os.path.normcase(os.path.abspath(parent)) for parent in (home, *home.parents)}
+    return any(_is_link(candidate) for candidate in (path, *path.parents)
+               if os.path.normcase(os.path.abspath(candidate)) not in trusted)
 
 
 def _thread_status_referenced(content: bytes | None, configuration: Path,
@@ -1404,7 +1406,7 @@ def thread_status_items(ctx: Context, backups: Backups, installation: Path) -> l
     remaining, candidates, items = {}, [], []
     uncertain = False
     for configuration in configurations:
-        if _thread_status_linked(configuration):
+        if _thread_status_linked(configuration, ctx.home):
             uncertain = True
         try:
             remaining[configuration] = configuration.read_bytes()
@@ -1426,12 +1428,12 @@ def thread_status_items(ctx: Context, backups: Backups, installation: Path) -> l
             except (ValueError, TypeError, UnicodeError):
                 uncertain = True
             else:
-                if not _thread_status_linked(target):
+                if not _thread_status_linked(target, ctx.home):
                     remaining[target] = updated
                     changed = updated != original
                 if changed:
                     def unregister(target=target, transform=transform):
-                        if _thread_status_linked(target):
+                        if _thread_status_linked(target, ctx.home):
                             raise Refused("thread-status configuration became a symbolic link; edit it yourself")
                         return edit_file(ctx, backups, target, transform)
                     items.append(Item("registration", str(target), "edit", source,
@@ -1456,7 +1458,7 @@ def thread_status_items(ctx: Context, backups: Backups, installation: Path) -> l
         try:
             # The launcher imports both siblings. Keep the whole bundle when any copy is changed.
             for runtime, template in files:
-                if _thread_status_linked(runtime) or _thread_status_linked(template):
+                if _thread_status_linked(runtime, ctx.home) or _thread_status_linked(template, ctx.home):
                     raise ValueError("a thread-status runtime or template is linked")
                 expected = template.read_bytes()
                 actual = runtime.read_bytes() if os.path.lexists(runtime) else None
@@ -1478,7 +1480,7 @@ def thread_status_items(ctx: Context, backups: Backups, installation: Path) -> l
                 """Recheck every dependency and configuration before removing another copied file."""
                 check_removable(ctx, runtime)
                 for dependency, expected in bundle.items():
-                    if _thread_status_linked(dependency):
+                    if _thread_status_linked(dependency, ctx.home):
                         raise Refused("thread-status runtime became a symbolic link; remove the bundle yourself")
                     try:
                         actual = dependency.read_bytes() if os.path.lexists(dependency) else None
@@ -1487,7 +1489,7 @@ def thread_status_items(ctx: Context, backups: Backups, installation: Path) -> l
                     if actual != expected:
                         raise Refused("thread-status bundle changed; remove it yourself")
                 for configuration in configurations:
-                    if _thread_status_linked(configuration):
+                    if _thread_status_linked(configuration, ctx.home):
                         raise Refused("thread-status configuration became a symbolic link; remove the bundle yourself")
                     try:
                         current = configuration.read_bytes()
