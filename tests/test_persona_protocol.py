@@ -557,3 +557,24 @@ def test_mcp_initialization_requires_activation_and_attribution_on_the_first_ans
     assert "intermediate result" in route_required and "not an activated persona" in route_required
     assert "Append the exact footer returned with the active bundle" in instructions
     assert instructions.index("call log_interaction") < instructions.index("Then send the final answer")
+
+
+def test_first_work_bootstrap_reaches_mcp_only_clients():
+    # A client may receive only initialization or the application instruction,
+    # never the installed CLAUDE.md. Exercise both actual delivery values.
+    from src.engine.persona import APPLY_INSTRUCTION
+
+    deliveries = {
+        "initialization": server.mcp._mcp_server.create_initialization_options().instructions,
+        "application": APPLY_INSTRUCTION,
+    }
+    for surface, instructions in deliveries.items():
+        worker, ordinary = instructions.split("For ordinary conversations", 1)
+        assert "prepared agents-core/subagent/1" in worker, surface
+        assert "first-work repository description" in worker, surface
+        assert "per-turn log_interaction" in worker, surface
+        assert "first time you read, search or change repository files" in ordinary, surface
+        assert "call describe_repo with workspace and the target repo_path" in ordinary, surface
+        assert "On needs_summary, follow its instruction" in ordinary, surface
+        assert "call write_repo_summary only where that instruction allows a write" in ordinary, surface
+        assert "ends the turn" in ordinary and "only reports progress" in ordinary, surface
