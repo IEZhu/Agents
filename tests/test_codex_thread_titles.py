@@ -11,6 +11,7 @@ import time
 import pytest
 
 from src import codex_thread_titles as adapter
+from src.thread_status import status_title
 
 
 SESSION = "550e8400-e29b-41d4-a716-446655440000"
@@ -218,6 +219,17 @@ def test_turn_lookup_shares_the_interrupt_deadline_and_reaps_child(server):
         rename(expected_turn_id=TURN, timeout=0.4)
     assert time.monotonic() - started < 0.55
     assert server[1][0].poll() is not None
+
+
+@pytest.mark.parametrize("current,status,prefix", [("🏁", "finishing", "🧹"), ("🧹", "working", "🔄")])
+def test_shared_finishing_status_preserves_body_through_metadata_adapter(server, current, status, prefix):
+    config, _, messages = server
+    config["title"] = current + " 🧪 Проверить API — #42"
+    result = adapter.rename_codex_thread(SESSION, status, status_title, executable="fake-codex")
+    assert result["title"] == prefix + " 🧪 Проверить API — #42"
+    assert result["status"] == status and result["persisted"] is True
+    assert next(message["params"]["name"] for message in messages()
+                if message["method"] == "thread/name/set") == result["title"]
 
 
 @pytest.mark.parametrize("session", ["../other", "", None, "550E8400-E29B-41D4-A716-446655440000", SESSION.replace("-", ""), "{" + SESSION + "}"])
