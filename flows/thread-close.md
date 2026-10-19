@@ -340,8 +340,16 @@ client's own tools. Calls from this close's own `run_flow` on are not audited.
    V2 memory lesson in `apply` mode needs none. Verify each applied patch (the
    diff in place, the call's result) and report which were applied.
 
-**Catalogue.** The slug names the row in the report and in tags. The rows name
-every tool the Agents-Core server registers; a test keeps them complete.
+**Catalogue.** The slug names the row in the report and in tags. The native
+rows name every tool the Agents-Core server registers; a test keeps them complete.
+The shared-proxy rows use the upstream Blincho and Plata tool names. Match the
+suffix after the configured `<alias>__` prefix, such as `blincho__get_status` or
+`plata__code_search`; a compatibility view may expose the suffix alone. Apply
+these rows only to enabled, available upstream tools. A disabled or disconnected
+upstream is `unavailable`, not `missed`; a catalogue entry grants no authority.
+Use the daemon-owned shared proxy, never start a separate upstream as a fallback,
+and preserve `ENABLE_WRITE_TOOLS=false` unless the user explicitly authorizes a
+policy change. Listing a write-capable tool does not authorize its calls or writes.
 
 | Slug | Tools | Trigger | `missed` or `misused` when |
 |---|---|---|---|
@@ -360,6 +368,8 @@ every tool the Agents-Core server registers; a test keeps them complete.
 | `local-inference` | `local_inference_status`, `local_context_create`, `local_context_grant`, `local_context_revoke`, `local_context_release`, `local_generate`, `local_generation_result`, `local_generation_cancel` | bulk routine completions: classification, extraction, short summaries | done by the main model while local inference was enabled and the task fit its limits; a context or grant left open after its last completion |
 | `repo-context` | `describe_repo`, `write_repo_summary` | the thread's first work in a repository | the repository explored ad hoc; `needs_summary` not followed by a summary where a write was allowed |
 | `user-rules` | `list_user_rules`, `get_user_rule`, `subscribe_user_rule`, `refresh_user_rule`, `rollback_user_rule`, `set_user_rule_enabled`, `delete_user_rule` | a subscribed rule applied, one with a refresh error, or the user asks to add, change, pause or remove a rule | a failing or outdated rule went unmentioned; a rule changed by editing files instead of through the tools |
+| `proxy-read` | `get_data_range`, `get_settings`, `get_stats`, `get_status`, `get_today_stats`, `code_search`, `code_execute_readonly` | the user requests timer state, settings, statistics or service information within an enabled upstream's scope; follow its own usage rules | an applicable authorized read was missed; a read needlessly used write-capable execution; an unavailable upstream was bypassed by starting another server |
+| `proxy-state` | `pause_timer`, `resume_timer`, `skip_break`, `start_break`, `code_execute` | the user explicitly authorizes a timer/break change or write-capable service execution within the upstream's enabled policy | a state change lacked authorization; queued timer work was reported completed; writes were enabled against the retained policy; a separate upstream was started |
 
 ## 5. Audit the thread itself
 
