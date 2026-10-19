@@ -125,9 +125,10 @@ PYTHONDONTWRITEBYTECODE=1 LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pyt
 ```
 
 The [Shared runtime workflow](../.github/workflows/shared-runtime.yml) runs
-persistent storage, service/MCP, prepared-artifact and portable disabled-inference
-checks on Linux, macOS and Windows. Its POSIX jobs also run fake native/Redis,
-runtime-identity and update-admission checks. It downloads no model and starts
+persistent storage, service/MCP, prepared-artifact, portable disabled-inference,
+daemon update transaction, dependency-compatibility and version checks on Linux,
+macOS and Windows. Its POSIX jobs also run fake native/Redis, runtime-identity and
+update-admission checks. It downloads no model and starts
 no real Redis; native Windows inference remains unsupported in version 1.
 
 These files cover durable identity and first-descriptor retention, workspace and
