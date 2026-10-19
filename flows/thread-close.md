@@ -341,7 +341,12 @@ client's own tools. Calls from this close's own `run_flow` on are not audited.
    diff in place, the call's result) and report which were applied.
 
 **Catalogue.** The slug names the row in the report and in tags. The rows name
-every tool the Agents-Core server registers; a test keeps them complete.
+every native tool the Agents-Core server registers and the documented Blincho
+and Plata proxy tools; a test keeps them complete. Proxy rows apply only when
+the client exposes those tools. A saved proxy definition or cached catalogue
+does not prove a live connection, and a catalogue entry grants no permission or
+task trigger by itself. Audit other exposed proxy aliases by their own loaded
+instructions, as described above.
 
 | Slug | Tools | Trigger | `missed` or `misused` when |
 |---|---|---|---|
@@ -360,6 +365,8 @@ every tool the Agents-Core server registers; a test keeps them complete.
 | `local-inference` | `local_inference_status`, `local_context_create`, `local_context_grant`, `local_context_revoke`, `local_context_release`, `local_generate`, `local_generation_result`, `local_generation_cancel` | bulk routine completions: classification, extraction, short summaries | done by the main model while local inference was enabled and the task fit its limits; a context or grant left open after its last completion |
 | `repo-context` | `describe_repo`, `write_repo_summary` | the thread's first work in a repository | the repository explored ad hoc; `needs_summary` not followed by a summary where a write was allowed |
 | `user-rules` | `list_user_rules`, `get_user_rule`, `subscribe_user_rule`, `refresh_user_rule`, `rollback_user_rule`, `set_user_rule_enabled`, `delete_user_rule` | a subscribed rule applied, one with a refresh error, or the user asks to add, change, pause or remove a rule | a failing or outdated rule went unmentioned; a rule changed by editing files instead of through the tools |
+| `blincho-proxy` | `blincho__get_data_range`, `blincho__get_settings`, `blincho__get_stats`, `blincho__get_status`, `blincho__get_today_stats`, `blincho__pause_timer`, `blincho__resume_timer`, `blincho__skip_break`, `blincho__start_break` | the user's task authorizes Blincho local MCP inspection or a specific timer action, through an enabled proxy connection | access claimed without checking connection and app state; timer action outside user scope; a queued action reported completed without checking resulting state; an unfinished strict break bypassed; detailed activity spans, call history or names, event IDs, journal answers or camera frames exposed instead of public settings, status or aggregate statistics |
+| `plata-proxy` | `plata__code_search`, `plata__code_execute_readonly`, `plata__code_execute` | an authorized Plata infrastructure task: discover an unknown tool with `code_search`, execute inspection with `code_execute_readonly`, or use write-capable execution only within explicit user authorization and the enabled write policy | bypassing the shared Agents-Core proxy with another native server; attempting writes while `ENABLE_WRITE_TOOLS=false` or outside authorized scope; using `code_execute` where inspection requires read-only execution; exposing credentials or treating a cached catalogue as a checked connection |
 
 ## 5. Audit the thread itself
 

@@ -210,7 +210,7 @@ def test_protocol_runs_a_named_flow_before_improvising():
 
 @pytest.mark.asyncio
 async def test_thread_close_audits_every_installed_tool_and_catalogues_every_server_tool():
-    """The audit covers all installed tools; its Agents-Core catalogue names each tool the server registers."""
+    """Catalogue all native tools and the documented optional proxy tools without connecting upstream."""
     import re
 
     import src.server as server
@@ -227,7 +227,42 @@ async def test_thread_close_audits_every_installed_tool_and_catalogues_every_ser
     cells = [line.split("|")[2] for line in table.splitlines() if line.startswith("| `")]
     catalogued = {re.sub(r"\(.*", "", name) for cell in cells for name in re.findall(r"`([^`]+)`", cell)}
     registered = {tool.name for tool in await server.mcp.list_tools()}
-    assert sorted(registered - catalogued) == [] and sorted(catalogued - registered) == []
+    optional_proxies = {
+        "blincho__get_data_range", "blincho__get_settings", "blincho__get_stats",
+        "blincho__get_status", "blincho__get_today_stats", "blincho__pause_timer",
+        "blincho__resume_timer", "blincho__skip_break", "blincho__start_break",
+        "plata__code_search", "plata__code_execute_readonly", "plata__code_execute",
+    }
+    assert {name for name in catalogued if "__" in name} == optional_proxies
+    assert sorted(registered - catalogued) == []
+    assert sorted(catalogued - registered - optional_proxies) == []
+    for phrase in ("Proxy rows apply only when the client exposes those tools",
+                   "a catalogue entry grants no permission or task trigger by itself",
+                   "a queued action reported completed without checking resulting state",
+                   "detailed activity spans, call history or names, event IDs, journal answers or camera frames",
+                   "attempting writes while `ENABLE_WRITE_TOOLS=false` or outside authorized scope"):
+        assert phrase in " ".join(table.split()), phrase
+
+
+def test_flow_execution_uses_valid_default_tokensave_selector_and_current_ax_targets():
+    """Shared guidance preserves selector validity and the observation/action dependency."""
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    execution = " ".join((root / "docs/flow-execution.md").read_text(encoding="utf-8").split())
+    safety = " ".join((root / "docs/mcp-tool-safety.md").read_text(encoding="utf-8").split())
+    for phrase in ("await tools.mcp__tokensave__tokensave_status({});",
+                   "Omit `graph_root` for that default project",
+                   "explicitly different, already initialized project",
+                   "Do not initialize indexing, add a tracked branch",
+                   "verify relevant output against the current file or a pinned Git object"):
+        assert phrase in execution, phrase
+    for phrase in ("First obtain the latest AX state and inspect its returned tree",
+                   "Only then derive the element index from that tree",
+                   "Never batch `getAXState({emit:false, disableDiffing:true})` with a `click(index)` chosen from an earlier observation",
+                   "After every action, verify the observed state",
+                   "These helpers are opt-in orchestration boundaries; they do not intercept other tool calls"):
+        assert phrase in safety, phrase
 
 
 def test_thread_close_handoff_keeps_required_obligations_unfinished():

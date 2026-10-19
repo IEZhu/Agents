@@ -26,6 +26,13 @@ not approve a merge, prove publication or verify installed bytes.
 
 ## Batch reads and keep raw evidence out of the conversation
 
+Use the [executable metadata guard and code-mode adapter](mcp-tool-safety.md)
+before returning large tool metadata. Retain the original, decode its shape,
+allowlist fields, redact selected sensitive values, and check the complete
+serialized envelope before emission. Load the trusted adapter before the first
+large call; native history reads need its closed item projection because output
+options do not remove tool arguments or previews.
+
 - Batch independent reads and checks in one orchestration call. Keep edits,
   dependent checks, approvals and adaptive follow-ups sequential.
 - Save raw API pages, native output, receipts and full logs in the existing
@@ -40,6 +47,31 @@ not approve a merge, prove publication or verify installed bytes.
   independent review; avoid parallel reviewers repeating the same role and
   source range unless a distinct risk warrants them. Validate every returned
   result and assess its evidence as the delegation contract requires.
+
+## Select an indexed project explicitly
+
+Start code exploration with `tokensave_context` and check freshness with
+`tokensave_status({})` for the default served project. In Codex code mode:
+
+```javascript
+await tools.mcp__tokensave__tokensave_status({});
+```
+
+Omit `graph_root` for that default project. Use `graph_root` only when deliberately
+querying an explicitly different, already initialized project supported by the
+server; use `graph_branch` only for one of that project's tracked branches. A
+target repository or worktree path is not automatically a valid selector. Do not
+initialize indexing, add a tracked branch or run a potentially initializing CLI
+status command to make a lookup succeed without the owner's request.
+
+Inspect the selected root, branch, fallback warnings and freshness before using
+the result. When the current branch is untracked or the index is stale, verify
+relevant output against the current file or a pinned Git object. Follow the
+repository's CodeGraph-first rule for architecture when its index exists.
+
+For UI work, follow [fresh accessibility observations](mcp-tool-safety.md#derive-ui-indices-from-the-latest-observation).
+An accessibility observation and the action derived from it are dependent steps;
+do not hide a refresh inside an otherwise independent read batch.
 
 ## Let a monitor wait
 

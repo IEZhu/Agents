@@ -12,6 +12,11 @@ All exact-head review, CI, authorization and merge conditions below still apply.
 
 ## Mandatory bounded-return gate
 
+Use the [executable guard and supported code-mode recipe](../docs/mcp-tool-safety.md)
+for this gate. Load the trusted local adapter before the first large call,
+including flow discovery; a gate returned inside a flow cannot protect its own
+initial delivery. Native thread metadata uses the closed item/field projection.
+
 Before each tool call that can return a catalogue, protocol, context bundle or
 large status object, choose the output field allowlist and retain the complete
 source in the task's existing evidence area. Parse JSON strings before selecting
