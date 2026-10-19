@@ -92,7 +92,11 @@ signing/ and its revision directory are 0700 on POSIX; files, including private
 keys, are 0600. Windows uses verified current-user-only DACLs, including inherited
 child access. Existing loose modes/ACLs, symlinks/reparse components and file hard
 links are refused without silently repairing them. A stable OS lock serializes
-writers; a process-local locking fallback is refused.
+writers and permits simultaneous read-only snapshots through shared leases.
+Acquisition retries contention for at most five seconds, then refuses; only
+acquisition is retried, never the protected operation. Owner transitions recheck
+their expected revision token after acquiring the exclusive lease. A
+process-local locking fallback is refused.
 
 State is a bounded chain of full JSON revisions authenticated by HMAC-SHA256,
 each including its prior record digest and new policy digest. A revision record

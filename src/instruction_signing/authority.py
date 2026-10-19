@@ -258,7 +258,7 @@ class AuthorityStore:
     def snapshot(self) -> AuthoritySnapshot:
         """Read-only and nonthrowing for expected storage/input corruption."""
         try:
-            with storage.locked(self.directory):
+            with storage.locked(self.directory, shared=True):
                 return self._snapshot(self._load()[0])
         except (OSError, ValueError, TypeError, KeyError, UnicodeError, AttributeError, RecursionError, UnsupportedAlgorithm) as error:
             return AuthoritySnapshot(False, diagnostic=f"Authority unavailable: {error}")

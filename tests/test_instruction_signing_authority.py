@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import stat
+from types import SimpleNamespace
 
 from cryptography.hazmat.primitives.asymmetric import ec
 import pytest
@@ -247,6 +248,100 @@ def test_concurrent_owners_cannot_both_commit_the_same_prior_token(enrolled):
         results = list(pool.map(mutate, range(2)))
     assert sorted(results) == [False, True]
     assert store.snapshot().revision == snapshot.revision + 1
+
+
+@pytest.fixture
+def lock_clock(monkeypatch):
+    now, sleeps = [0.0], []
+
+    def sleep(seconds):
+        sleeps.append(seconds)
+        now[0] += seconds
+
+    monkeypatch.setattr(storage, "time", SimpleNamespace(monotonic=lambda: now[0], sleep=sleep),
+                        raising=False)
+    return now, sleeps
+
+
+def test_overlapping_snapshots_share_the_os_lock(enrolled):
+    store, _, _, initial = enrolled
+    with storage.file_lock(store.directory / ".lock", blocking=False, shared=True) as fd:
+        assert fd is not None
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            snapshots = list(pool.map(lambda _: store.snapshot(), range(2)))
+        assert snapshots == [initial, initial]
+
+
+def test_transient_lock_contention_allows_one_owner_transition(enrolled, monkeypatch, lock_clock):
+    store, _, _, initial = enrolled
+    real_lock, attempts = storage.file_lock, []
+
+    @contextmanager
+    def busy_then_free(*args, **kwargs):
+        attempts.append(True)
+        if len(attempts) < 3:
+            raise BlockingIOError("injected contention")
+        with real_lock(*args, **kwargs) as fd:
+            yield fd
+
+    monkeypatch.setattr(storage, "file_lock", busy_then_free)
+    _add_with_token(store, initial.token)
+    assert store.snapshot().revision == initial.revision + 1
+    assert lock_clock[1]
+
+
+def test_contended_lock_deadline_preserves_authority_state(enrolled, monkeypatch, lock_clock):
+    store, _, _, initial = enrolled
+    before = {p.relative_to(store.directory): p.read_bytes()
+              for p in store.directory.rglob("*") if p.is_file()}
+    attempts, bodies = [], []
+
+    @contextmanager
+    def busy(*args, **kwargs):
+        attempts.append(True)
+        raise BlockingIOError("injected contention")
+        yield  # pragma: no cover
+
+    with monkeypatch.context() as patch:
+        patch.setattr(storage, "file_lock", busy)
+        with pytest.raises(BlockingIOError, match="injected contention"):
+            with storage.locked(store.directory, timeout=0.05):
+                bodies.append(True)
+    assert len(attempts) > 1 and not bodies
+    assert lock_clock[0][0] == pytest.approx(0.05)
+    assert before == {p.relative_to(store.directory): p.read_bytes()
+                      for p in store.directory.rglob("*") if p.is_file()}
+    assert store.snapshot() == initial
+
+
+def test_protected_body_contention_is_never_replayed_and_releases_lock(enrolled):
+    store, _, _, initial = enrolled
+    bodies = []
+    with pytest.raises(BlockingIOError, match="body failure"):
+        with storage.locked(store.directory):
+            bodies.append(True)
+            raise BlockingIOError("body failure")
+    assert bodies == [True]
+    assert store.snapshot() == initial
+    with storage.file_lock(store.directory / ".lock", blocking=False) as fd:
+        assert fd is not None
+
+
+def test_lock_permission_failure_is_not_retried(enrolled, monkeypatch, lock_clock):
+    store, _, _, _ = enrolled
+    attempts = []
+
+    @contextmanager
+    def denied(*args, **kwargs):
+        attempts.append(True)
+        raise PermissionError("injected access refusal")
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(storage, "file_lock", denied)
+    with pytest.raises(PermissionError, match="injected access refusal"):
+        with storage.locked(store.directory):
+            pytest.fail("A refused lease must not enter the body")
+    assert attempts == [True] and not lock_clock[1]
 
 
 def test_no_cross_process_lock_fallback_is_accepted(enrolled, monkeypatch):
