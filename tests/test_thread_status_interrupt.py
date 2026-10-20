@@ -215,7 +215,8 @@ def test_linked_state_directory_is_refused(transcript, tmp_path):
 @pytest.mark.parametrize("arguments,stdin", [
     (["--watch", "extra"], b"{}"), (["--unknown"], b"{}"), ([], b"{}"),
     (["--watch"], b"not json"), (["--done"], b"\xff"), (["--watch"], b"x" * 65537),
-])
+# Short IDs: Windows rejects PYTEST_CURRENT_TEST longer than 32767 characters.
+], ids=["extra-argument", "unknown-mode", "no-mode", "invalid-json", "invalid-utf8", "oversized-event"])
 def test_cli_failures_exit_zero_never_the_wake_code(tmp_path, arguments, stdin):
     script = tmp_path / "hooks" / "agents-core-thread-status-interrupt.py"
     script.parent.mkdir()
