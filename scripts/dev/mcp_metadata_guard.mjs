@@ -110,8 +110,26 @@ export function redactCredentials(text, secrets = []) {
   if (/(?:\b(?:Bearer|Basic)\s+|(?:token|password|secret|capability|authorization|credential)[\w-]*["']?\s*[:=])/iu.test(text)) {
     return '[redacted]';
   }
-  for (const secret of secrets) text = text.split(secret).join('[redacted]');
-  return text;
+  // Match against the original text: replacing one value first can hide a
+  // nested or partially overlapping value and leave its suffix visible.
+  const spans = [];
+  for (const secret of secrets) {
+    for (let start = text.indexOf(secret); start !== -1; start = text.indexOf(secret, start + 1)) {
+      spans.push([start, start + secret.length]);
+    }
+  }
+  spans.sort((a, b) => a[0] - b[0] || b[1] - a[1]);
+  let redacted = '', cursor = 0;
+  for (let index = 0; index < spans.length; index++) {
+    const start = spans[index][0];
+    let end = spans[index][1];
+    while (index + 1 < spans.length && spans[index + 1][0] <= end) {
+      end = Math.max(end, spans[++index][1]);
+    }
+    redacted += text.slice(cursor, start) + '[redacted]';
+    cursor = end;
+  }
+  return redacted + text.slice(cursor);
 }
 
 /** Metadata only: never copies message text, previews, reasoning or tool input.
@@ -119,7 +137,7 @@ export function redactCredentials(text, secrets = []) {
  */
 export function summarizeThread(value) {
   const thread = object(own(value, 'thread'));
-  const turns = own(value, 'turns');
+  const turns = Object.hasOwn(value, 'turns') ? own(value, 'turns') : own(thread, 'turns');
   if (!Array.isArray(turns)) throw new MetadataGuardError('expected_thread_turns');
   const items = [];
   let omittedItems = 0;

@@ -129,4 +129,51 @@ for (const [runtime, api] of [['module', moduleApi], ['code-mode', new Function(
       assert.equal(h.sources.get('source:1').status, status);
     }
   });
+
+  test(`${runtime}: known sensitive values redact the union of all overlapping occurrences`, async () => {
+    for (const [status, secrets, expected] of [
+      ['abcdef', ['abc', 'abcdef'], '[redacted]'],
+      ['abcdef', ['abcdef', 'abc'], '[redacted]'],
+      ['abcdef', ['abcd', 'cdef'], '[redacted]'],
+      ['ababa', ['aba'], '[redacted]'],
+      ['abcXabcdef', ['abc', 'abcdef'], '[redacted]X[redacted]'],
+      ['axb a.b', ['a.b'], 'axb [redacted]'],
+    ]) {
+      const h = host({secrets});
+      await api.guardMetadata({status, entries: []}, h.options);
+      assert.equal(JSON.parse(h.emitted[0]).metadata.status, expected);
+      assert.equal(h.sources.get('source:1').status, status);
+    }
+  });
+  test(`${runtime}: nested thread turns are supported only when the top-level own property is absent`, async () => {
+    const raw = {thread: {id: '01a15116-6fb4-7e10-9144-0c9450edd574', turns: [
+      {items: [{type: 'agentMessage', phase: 'final', text: 'FORBIDDEN'}, {type: 'userMessage', text: 'FORBIDDEN'}]},
+    ]}};
+    const nested = host();
+    await api.guardThreadMetadata(raw, nested.options);
+    assert.deepEqual(JSON.parse(nested.emitted[0]).metadata, {threadId: raw.thread.id,
+      turnCount: 1, items: [{type: 'agentMessage', phase: 'final'}], omittedItems: 1});
+    assert.ok(!nested.emitted[0].includes('FORBIDDEN'));
+    const top = host();
+    await api.guardThreadMetadata({...raw, turns: []}, top.options);
+    assert.equal(JSON.parse(top.emitted[0]).metadata.turnCount, 0);
+  });
+  test(`${runtime}: malformed explicit top-level turns and getters never fall back or execute`, async () => {
+    const nested = {id: '01a15116-6fb4-7e10-9144-0c9450edd574', turns: []};
+    for (const turns of [undefined, null, {}, 'FORBIDDEN']) {
+      const h = host();
+      await assert.rejects(api.guardThreadMetadata({thread: nested, turns}, h.options), {code: 'expected_thread_turns'});
+      assert.equal(h.emitted.length, 0);
+    }
+    let invoked = 0;
+    for (const raw of [
+      {thread: nested, get turns() {invoked++; return [];}},
+      {thread: {id: nested.id, get turns() {invoked++; return [];}}},
+    ]) {
+      const h = host();
+      await assert.rejects(api.guardThreadMetadata(raw, h.options), {code: 'accessor_not_allowed'});
+      assert.equal(h.emitted.length, 0);
+    }
+    assert.equal(invoked, 0);
+  });
 }

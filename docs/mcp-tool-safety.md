@@ -84,6 +84,8 @@ complete; compare the assembled bytes with the retained source. Never apply a
 truncated activation or count a summary as having read the flow. This helper
 does not grant extra access to a referenced source.
 
+Known sensitive values are matched against the original selected string. All overlapping match spans are suppressed, including partial overlaps and repeated self-overlaps.
+
 ## Native thread metadata
 
 Use `guardThreadMetadata(raw, options)` for a native `read_thread` response,
@@ -119,6 +121,8 @@ selector is for an explicitly different initialized project. Follow the
 [project selection and freshness checks](flow-execution.md#select-an-indexed-project-explicitly)
 without initializing an index to repair a lookup.
 
+Native thread summaries accept top-level `turns` or nested `thread.turns`. An explicitly present top-level property always wins. Malformed values and accessors are refused rather than replaced with nested data.
+
 ## Regenerate and check the adapter
 
 The code-mode file is generated from the ESM source, not maintained separately.
@@ -127,13 +131,13 @@ From the source checkout, regenerate it after editing the module:
 ```bash
 python3 - <<'PY'
 from pathlib import Path
-source = Path('scripts/dev/mcp_metadata_guard.mjs').read_text()
+source = Path('scripts/dev/mcp_metadata_guard.mjs').read_text(encoding='utf-8')
 body = '\n'.join(line.removeprefix('export ') for line in source.splitlines())
 exports = 'DEFAULT_MAX_CHARACTERS, MetadataGuardError, decodeObject, decodeMcpObject, projectMetadata, redactCredentials, summarizeThread, guardMetadata, guardThreadMetadata'
 Path('scripts/dev/mcp_metadata_guard_code_mode.js').write_text(
     '// Generated from mcp_metadata_guard.mjs; see docs/mcp-tool-safety.md.\n'
     + 'return (function () {\n' + body
-    + '\nreturn Object.freeze({' + exports + '});\n})()\n')
+    + '\nreturn Object.freeze({' + exports + '});\n})()\n', encoding='utf-8', newline='\n')
 PY
 node --test tests/mcp_metadata_guard.test.mjs
 ```
