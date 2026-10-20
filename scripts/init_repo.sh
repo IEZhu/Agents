@@ -1024,6 +1024,7 @@ else
 fi
 
 # ============== Client Lifecycle Hooks ==============
+SETUP_OPTIONS_FAILED=false
 if [ "$SKIP_MCP" = true ]; then
     print_step "Skipping lifecycle hooks, shared daemon and cooperation (--skip-mcp)"
 else
@@ -1035,7 +1036,10 @@ else
     if [ "$SKIP_DAEMON" = true ]; then HOOK_FLAGS+=(--skip-daemon); fi
     if [ "$SKIP_COOPERATION" = true ]; then HOOK_FLAGS+=(--skip-cooperation); fi
     if [ "$FORCE_CLAUDE_CODE_MCP" = true ]; then HOOK_FLAGS+=(--force-claude-code-mcp); fi
-    "$PYTHON_ABS" "$REPO_ROOT/scripts/install_setup_options.py" "${HOOK_FLAGS[@]}" || exit 1
+    if ! "$PYTHON_ABS" "$REPO_ROOT/scripts/install_setup_options.py" "${HOOK_FLAGS[@]}"; then
+        SETUP_OPTIONS_FAILED=true
+        print_warn "Some setup options failed; continuing to sync, summary and health checks."
+    fi
 fi
 
 # ============== Sync Between Machines ==============
@@ -1056,7 +1060,11 @@ if [ "$ASSUME_YES" = true ]; then SYNC_FLAG="--yes"; fi
 
 # ============== Final Summary ==============
 
-print_header "✅ Initialization Complete!"
+if [ "$SETUP_OPTIONS_FAILED" = true ]; then
+    print_header "Initialization finished with setup warnings"
+else
+    print_header "✅ Initialization Complete!"
+fi
 
 echo ""
 echo -e "  ${GREEN}What was configured:${NC}"
@@ -1122,9 +1130,9 @@ if [ -f "$ENV_FILE" ]; then
 fi
 
 STEP=$((STEP + 1))
-echo "  $STEP. To enable repository memory & history in a project:"
-echo -e "     Run ${CYAN}describe_repo()${NC} in your first Claude session inside that repo."
-echo "     It writes a compressed overview into the repo's own CLAUDE.md"
+echo "  $STEP. Project memory and history are linked automatically from the client folder:"
+echo -e "     Empty folders are supported. For an optional overview, call ${CYAN}describe_repo()${NC}."
+echo "     It loads an existing overview or asks the model to prepare one for the repo's CLAUDE.md"
 echo "     (managed section — not the global ~/.claude/CLAUDE.md)."
 echo -e "     If MCP sampling is unavailable it returns ${CYAN}status=\"needs_summary\"${NC}"
 echo -e "     and you finalize the write with ${CYAN}write_repo_summary(...)${NC}."
@@ -1158,6 +1166,13 @@ if [ "${CLAUDE_MD_CONFIGURED:-false}" != "true" ] && [ -f "$TEMPLATE_FILE" ]; th
     echo "$MARKER_END"
     echo -e "${CYAN}────────────────────────────────────────────────────────────${NC}"
     echo ""
+fi
+
+
+# ============== Setup Option Result ==============
+if [ "${SETUP_OPTIONS_FAILED:-false}" = true ]; then
+    print_warn "Setup finished with failed options. Completed steps were retained; fix the reported problem and rerun."
+    exit 1
 fi
 
 echo -e "${GREEN}Happy coding! 🚀${NC}"
