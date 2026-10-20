@@ -24,6 +24,7 @@ if config.get("ignore_terminate") and os.name == "posix":
     signal.signal(signal.SIGTERM, signal.SIG_IGN)
 title = config.get("title", "🔄 Проверить API — #42")
 reads = 0
+started = time.monotonic()
 with open(sys.argv[2], "a", encoding="utf-8") as log:
     for line in sys.stdin:
         message = json.loads(line)
@@ -51,6 +52,8 @@ with open(sys.argv[2], "a", encoding="utf-8") as log:
             response["id"] = 999
         if method == "thread/read":
             read_title = config.get("readback_title", title) if reads == 2 else title
+            if time.monotonic() - started < config.get("title_ready_after", 0):
+                read_title = None
             response["result"] = {"thread": {"id": config.get("thread_id", message["params"]["threadId"]), "name": read_title}}
         elif method == "thread/name/set":
             title = message["params"]["name"]
@@ -141,6 +144,59 @@ def test_interrupt_checks_latest_turn_without_loading_items_before_writing(serve
         "initialize", "initialized", "thread/read", "thread/turns/list", "thread/name/set", "thread/read"]
     assert sent[3]["params"] == {
         "threadId": SESSION, "limit": 1, "itemsView": "notLoaded", "sortDirection": "desc"}
+
+
+def test_early_interrupt_waits_for_actual_generated_title_before_checking_turn(server):
+    server[0]["title_ready_after"] = 1.8
+    result = rename(expected_turn_id=TURN, timeout=2.4)
+    assert result["persisted"] is True
+    assert result["title"] == "🛑 Проверить API — #42"
+    sent = server[2]()
+    methods = [message["method"] for message in sent]
+    assert methods.count("thread/read") > 2
+    assert methods[-3:] == ["thread/turns/list", "thread/name/set", "thread/read"]
+    assert all(message["params"]["includeTurns"] is False for message in sent
+               if message["method"] == "thread/read")
+    assert server[1][0].poll() is not None
+
+
+def test_newer_turn_during_title_generation_prevents_old_interrupt_write(server):
+    server[0].update(title_ready_after=0.12, turns=[{"id": SESSION}])
+    result = rename(expected_turn_id=TURN, timeout=0.8)
+    assert result["persisted"] is False and result["reason"] == "stale_interrupt"
+    assert "thread/name/set" not in [message["method"] for message in server[2]()]
+
+
+def test_unnamed_interrupt_expires_without_inventing_body_or_leaking_child(server):
+    server[0]["title_ready_after"] = 30
+    started = time.monotonic()
+    with pytest.raises(RuntimeError, match="timed out"):
+        rename(expected_turn_id=TURN, timeout=0.3)
+    assert time.monotonic() - started < 0.55
+    assert "thread/name/set" not in [message["method"] for message in server[2]()]
+    assert server[1][0].poll() is not None
+
+
+def test_interrupt_stdin_records_saved_title_after_initial_missing_name(server, monkeypatch,
+                                                                        tmp_path, capsys):
+    import io
+    from types import SimpleNamespace
+    from scripts import thread_status as runtime
+
+    server[0]["title_ready_after"] = 0.12
+    monkeypatch.setattr(runtime, "__file__", str(tmp_path / "agents-core-thread-status.py"))
+    monkeypatch.setattr(runtime, "rename_codex_session", lambda session, status, **kwargs:
+                        adapter.rename_codex_thread(session, status, runtime.status_title,
+                                                    executable="fake-codex", **kwargs))
+    payload = {"session_id": SESSION, "hook_event_name": "Interrupt", "turn_id": TURN}
+    monkeypatch.setattr(runtime.sys, "stdin", SimpleNamespace(buffer=io.BytesIO(json.dumps(payload).encode())))
+    assert runtime.main(["--client", "codex"]) == 0
+    assert "Stopped" in json.loads(capsys.readouterr().out)["systemMessage"]
+    receipt = json.loads((tmp_path / "agents-core-thread-status-state" / (SESSION + ".json")).read_text())
+    assert receipt["last_interrupt"]["outcome"] == "persisted"
+    assert receipt["last_interrupt"]["turn_id"] == TURN
+    assert receipt["last_interrupt"]["persisted"] is True
+    assert server[1][0].poll() is not None
 
 
 @pytest.mark.parametrize("recorded_is_older", [False, True])

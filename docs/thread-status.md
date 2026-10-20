@@ -81,8 +81,13 @@ Codex's `Interrupt` hook runs outside the cancelled model turn. It requires the
 session and interrupted turn IDs, verifies that the public `thread/turns/list`
 metadata still names that turn as the latest, reads the existing title, applies
 `stopped`, and verifies the saved name. Turn lookup uses `itemsView: notLoaded`
-and does not load conversation items. This also covers an early Stop before
-`UserPromptSubmit` has recorded the turn. A small per-session
+and does not load conversation items. For a new chat interrupted before its title
+is generated, it waits for the real `thread.name` within the same bounded deadline;
+it never substitutes a placeholder or prompt text. The latest-turn check runs
+after this wait, so a resumed turn still prevents a stale interrupt write. If the
+name remains unavailable, the receipt records the timeout instead of claiming a
+saved title. This also covers an early Stop before `UserPromptSubmit` has recorded
+the turn. A small per-session
 record under the adapter's own `hooks/agents-core-thread-status-state/` directory
 tracks the prompt turn ID and the last interrupt receipt. Its lock serializes
 the interrupt write with the next prompt, while the public turn check rejects
