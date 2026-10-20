@@ -44,7 +44,8 @@ from src.file_lock import file_lock
 from src.schedules import lease as run_lease
 from . import service
 from .state import atomic_private, read_json, write_json
-from .update import DEPENDENCIES, NO_WINDOW
+from .update import NO_WINDOW, runtime_source_refusal
+from .update_dependencies import dependency_change_reason
 
 DEFAULT_INTERVAL = 900
 DEFAULT_IDLE_SECONDS = 120
@@ -212,6 +213,8 @@ def check_target(controller, remote=None, branch=None):
     """
     from src.self_update import _is_safe_arg
     from src.update_channel import drops_commits, in_use_reason, plausible_branch, worktree_on
+    if reason := runtime_source_refusal(controller.config):
+        return {"state": "skipped", "reason": reason}
     configured = channel(controller)
     remote, branch = remote or configured.remote, branch or configured.branch
     if not (_is_safe_arg(remote) and _is_safe_arg(branch)):
@@ -256,9 +259,8 @@ def check_target(controller, remote=None, branch=None):
             return {**found, "state": "skipped", "reason": f"local branch {branch} has commits {remote}/{branch} lacks"}
     elif _git(controller, "merge-base", "--is-ancestor", head, target, check=False).returncode:
         return {**found, "state": "skipped", "reason": "not a fast-forward"}
-    changed = _git(controller, "diff", "--name-only", head, target, "--", *DEPENDENCIES).stdout.split()
-    if changed:
-        return {**found, "state": "skipped", "reason": "dependency manifests changed: " + ", ".join(changed)}
+    if reason := dependency_change_reason(lambda *args, **kwargs: _git(controller, *args, **kwargs), head, target):
+        return {**found, "state": "skipped", "reason": reason}
     return {**found, "state": "available"}
 
 
