@@ -16,6 +16,7 @@ import tomllib
 from src import executables
 from .state import atomic_private, read_json, write_json, private_dir
 from .workspaces import WorkspaceRegistry
+from .bridge import bridge_command
 from src.client_paths import DESKTOP_DENY_RULES, DESKTOP_SERVER, absolute_path, client_config_path, desktop_config_paths
 from scripts._helpers.inject_claude_md import render as render_routing_section
 
@@ -123,11 +124,11 @@ def replace_toml_server(original, name, entry):
 
 
 class ClientMigration:
-    def __init__(self, directory):
+    def __init__(self, directory, *, config=None, token=None):
         self.directory = Path(directory)
-        self.config = read_json(self.directory / "service.json")
+        self.config = config if config is not None else read_json(self.directory / "service.json")
         if not self.config: raise ValueError("Service is not installed")
-        self.token = (self.directory / "token").read_text().strip()
+        self.token = token if token is not None else (self.directory / "token").read_text().strip()
         self.registry = WorkspaceRegistry(directory)
         self.expected_versions = {}
         self.config_targets = {}
@@ -153,12 +154,11 @@ class ClientMigration:
     def bridge(self, identity=None, app=None, *, auto_workspace=False):
         """A stdio bridge entry. With auto_workspace, the bridge registers the project its
         client starts it in, once per session (#253), instead of carrying a fixed identity."""
-        node = self.config.get("node")
-        if not node or not Path(node).is_file(): raise ValueError("An absolute Node executable is required")
+        command, script = bridge_command(self.config)
         private, settings = self._bridge_file(identity, app, auto_workspace=auto_workspace)
         private_dir(private.parent)
         write_json(private, settings)
-        return {"command": node, "args": [str(Path(self.config["installation"]) / "bridge/stdio.mjs"), str(private)]}
+        return {"command": command, "args": [str(script), str(private)]}
 
     def _bridge_file(self, identity=None, app=None, *, auto_workspace=False):
         # One file per app and workspace: the headers name the app.
@@ -172,10 +172,8 @@ class ClientMigration:
 
         `src.startup` runs `bridge/stdio.mjs` with `bridges/stdio-auto.json` in place of a
         second engine; `token rotate` rewrites it with every other bridge configuration. It is
-        written only when it changed. None without Node: stdio servers then serve standalone.
+        written only when it changed. Python supplies the bridge when Node is absent.
         """
-        if not self.has_node():
-            return None
         private, settings = self._bridge_file(app=STDIO_APP, auto_workspace=True)
         try:
             current = read_json(private)
@@ -187,16 +185,14 @@ class ClientMigration:
 
     def provision_antigravity_plugin(self, *, home=None, bridge_config=None, registry_document=None):
         """Prepares the plugin's startup protocol, workspace hook and enabled registration."""
-        node = self.config.get("node")
-        if not node or not Path(node).is_file():
-            return []
+        command, _ = bridge_command(self.config)
         home = absolute_path(home or Path.home())
         config_dir = home / ".gemini" / "config"
         plugin_dir = config_dir / "plugins" / "agents-core"
         installation = Path(self.config.get("installation", Path(__file__).resolve().parents[2]))
-        hook_script = installation / "bridge" / "antigravity_hook.mjs"
+        hook_script = installation / "bridge" / ("antigravity_hook.mjs" if self.has_node() else "antigravity_hook.py")
         bridge_path = str(bridge_config) if bridge_config else str(self.directory / "bridges" / "antigravity-auto.json")
-        cmd = shlex.join([str(node), str(hook_script), bridge_path])
+        cmd = shlex.join([command, str(hook_script), bridge_path])
 
         registry_json = config_dir / "config.json"
         try:
@@ -268,7 +264,7 @@ class ClientMigration:
 
     def has_node(self):
         node = self.config.get("node")
-        return bool(node) and Path(node).is_file()
+        return bool(node) and Path(node).is_absolute() and Path(node).is_file()
 
     def layer_transport(self, client, root=None, *, home=None, requested=None):
         """``bridge`` or ``http`` for a Codex or Cursor layer (#292).
@@ -293,7 +289,7 @@ class ClientMigration:
                 entry = None
             if isinstance(entry, dict) and set(entry) & TRANSPORT_KEYS:
                 return "http" if "url" in entry else "bridge"
-        return "bridge" if self.has_node() else "http"
+        return "bridge"
 
     @property
     def url(self): return f"http://127.0.0.1:{self.config['port']}/mcp"
@@ -324,8 +320,9 @@ class ClientMigration:
                 # HTTP like the layer it is merged with, and the token stays out of the file:
                 # the helper reads a private bridge config.
                 bridge = self.bridge(identity, app)
+                helper = Path(bridge["args"][0]).with_name("headers" + Path(bridge["args"][0]).suffix)
                 entry = transport_entry(old_entry, {"url": self.url, "http_headers_helper": shlex.join(
-                    [bridge["command"], str(Path(self.config["installation"]) / "bridge/headers.mjs"), bridge["args"][1]])})
+                    [bridge["command"], str(helper), bridge["args"][1]])})
                 return path, replace_toml_server(original, SERVER, entry), False
             entry = transport_entry(old_entry, {"url": self.url, "http_headers": headers})
             return path, replace_toml_server(original, SERVER, entry), True
@@ -333,7 +330,7 @@ class ClientMigration:
             document = self.read_config(path)
             scope = document.setdefault("projects", {}).setdefault(str(root), {}) if root else document
             servers = scope.setdefault("mcpServers", {})
-            if root is None and self.has_node():
+            if root is None:
                 # The user scope serves every project: a bridge per session names its own (#253).
                 entry = self.bridge(None, app, auto_workspace=True)
             else:
@@ -366,7 +363,7 @@ class ClientMigration:
             previous = servers.pop(SERVER, servers.get(DESKTOP_SERVER, {}))
             servers[DESKTOP_SERVER] = transport_entry(previous, self.bridge(identity, app))
         elif client == "antigravity":
-            manage_plugin = root is None and self.has_node()
+            manage_plugin = root is None
             if manage_plugin:
                 target = path.parent.resolve() / path.name
                 plugin_dir = home / ".gemini/config/plugins/agents-core"

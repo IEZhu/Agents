@@ -7,6 +7,13 @@ on:
       - src/codex_thread_titles.py
       - scripts/thread_status.py
       - scripts/install_thread_status.py
+      - scripts/install_client_hooks.py
+      - scripts/install_setup_options.py
+      - scripts/init_repo.sh
+      - scripts/init_repo.bat
+      - tests/test_install_setup_options.py
+      - tests/test_hook_config_concurrency.py
+      - tests/test_install_client_hooks.py
       - scripts/install_session_readiness.py
       - scripts/_helpers/backup_file.py
       - src/client_paths.py
@@ -22,6 +29,13 @@ on:
       - src/codex_thread_titles.py
       - scripts/thread_status.py
       - scripts/install_thread_status.py
+      - scripts/install_client_hooks.py
+      - scripts/install_setup_options.py
+      - scripts/init_repo.sh
+      - scripts/init_repo.bat
+      - tests/test_install_setup_options.py
+      - tests/test_hook_config_concurrency.py
+      - tests/test_install_client_hooks.py
       - scripts/install_session_readiness.py
       - scripts/_helpers/backup_file.py
       - src/client_paths.py
@@ -64,4 +78,4 @@ jobs:
       - name: Install runtime and test dependencies
         run: python -m pip install -r requirements.txt
       - name: Formatter, native hook events, installation and metadata transport
-        run: python -B -m pytest tests/test_thread_status.py tests/test_thread_status_installer.py tests/test_codex_thread_titles.py -q -p no:cacheprovider
+        run: python -B -m pytest tests/test_thread_status.py tests/test_thread_status_installer.py tests/test_codex_thread_titles.py tests/test_install_client_hooks.py tests/test_install_setup_options.py tests/test_hook_config_concurrency.py -q -p no:cacheprovider
