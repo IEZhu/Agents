@@ -180,6 +180,8 @@ def test_candidate_with_unknown_identity_is_not_a_legacy_rollback(installation):
     with pytest.raises(RuntimeError, match="source commit unknown"):
         offline_update(controller)
     assert git(root, "rev-parse", "HEAD") == old
+    assert not controller.running
+    assert (controller.directory / "transaction.json").exists()
     assert (controller.directory / "maintenance.json").exists()
 
 
@@ -564,6 +566,176 @@ def test_failed_rollback_is_not_retried_and_keeps_recovery_barriers(installation
     assert (controller.directory / "transaction.json").exists()
     assert (controller.directory / "maintenance.json").exists()
     assert not controller.running
+
+
+@pytest.mark.parametrize("failure_kind", ["wrong_commit", "warmup", "interrupt"])
+def test_failed_restored_probation_stops_service_and_retains_recovery(installation, monkeypatch, failure_kind):
+    from src.daemon import update
+    controller, root, old, target = installation
+    controller.fail_ready = 1
+    wait_ready = controller.wait_ready
+    failure = KeyboardInterrupt("restored warmup interrupted") if failure_kind == "interrupt" else RuntimeError("restored warmup failed")
+    restores = []
+    restore_files = update.restore_files
+
+    def restore_once(*args):
+        restores.append(1)
+        return restore_files(*args)
+
+    def restored_ready():
+        if controller.probes == 1:
+            return wait_ready()
+        if failure_kind == "wrong_commit":
+            return {"state": "ready", "agents_core_commit": target}
+        raise failure
+
+    monkeypatch.setattr(update, "restore_files", restore_once)
+    controller.wait_ready = restored_ready
+    with pytest.raises(KeyboardInterrupt if failure_kind == "interrupt" else RuntimeError) as caught:
+        offline_update(controller)
+
+    if failure_kind != "wrong_commit":
+        assert caught.value is failure
+    assert git(root, "rev-parse", "HEAD") == old
+    assert (root / "data/skills_store.npz").read_text() == "old-index"
+    assert restores == [1]
+    assert not controller.running and controller.probes == 2 and controller.stops == 3
+    journal = read_json(controller.directory / "transaction.json")
+    assert journal["old_sha"] == old and journal["target_sha"] == target and journal["phase"] == "probation"
+    assert (controller.directory / "maintenance.json").exists()
+    # Startup consumes the single-use nonce before health verification.
+    assert not (controller.directory / "probation.json").exists()
+    with pytest.raises(RuntimeError, match="maintenance"):
+        assert_service_safe(controller.directory)
+
+
+def test_failed_restored_probation_preserves_primary_error_when_stop_fails(installation):
+    controller, root, old, _ = installation
+    controller.fail_ready = 1
+    wait_ready, stop = controller.wait_ready, controller._stop
+    failure = RuntimeError("restored health verification failed")
+    stop_attempts = []
+
+    def restored_ready():
+        if controller.probes == 1:
+            return wait_ready()
+        raise failure
+
+    def fail_restored_stop():
+        stop_attempts.append(controller.probes)
+        if controller.probes == 2:
+            raise TimeoutError("restored drain timed out")
+        stop()
+
+    controller.wait_ready, controller._stop = restored_ready, fail_restored_stop
+    with pytest.raises(RuntimeError) as caught:
+        offline_update(controller)
+
+    assert caught.value is failure
+    assert any("TimeoutError" in note and "recovery barriers retained" in note for note in failure.__notes__)
+    assert stop_attempts == [0, 1, 2] and controller.probes == 2
+    assert controller.running  # Failed stopping cannot establish process quiescence.
+    assert git(root, "rev-parse", "HEAD") == old
+    assert (root / "data/skills_store.npz").read_text() == "old-index"
+    assert (controller.directory / "transaction.json").exists()
+    assert (controller.directory / "maintenance.json").exists()
+    with pytest.raises(RuntimeError, match="maintenance"):
+        assert_service_safe(controller.directory)
+
+
+def test_failed_rollback_recovery_retains_barriers_until_verified(installation):
+    controller, root, old, _ = installation
+    wait_ready = controller.wait_ready
+    controller.wait_ready = lambda: {"state": "ready", "agents_core_commit": None}
+    with pytest.raises(RuntimeError, match="source commit unknown"):
+        offline_update(controller)
+    with pytest.raises(RuntimeError, match="source commit unknown"):
+        recover(controller)
+
+    assert not controller.running and controller.probes == 3 and controller.stops == 5
+    assert git(root, "rev-parse", "HEAD") == old
+    assert (root / "data/skills_store.npz").read_text() == "old-index"
+    assert read_json(controller.directory / "transaction.json")["old_sha"] == old
+    assert (controller.directory / "maintenance.json").exists()
+    with pytest.raises(RuntimeError, match="maintenance"):
+        assert_service_safe(controller.directory)
+
+    controller.wait_ready = wait_ready
+    result = recover(controller)
+    assert result["state"] == "rolled_back" and result["health"]["commit_verified"]
+    assert controller.running and controller.probes == 4 and controller.stops == 6
+    assert not any((controller.directory / name).exists()
+                   for name in ("transaction.json", "maintenance.json", "probation.json"))
+
+
+@pytest.mark.parametrize("failure_kind", ["wrong_commit", "unknown_commit", "warmup", "interrupt"])
+def test_failed_recovery_before_mutation_stops_unverified_runtime(installation, failure_kind):
+    controller, root, old, target = installation
+    wait_ready = controller.wait_ready
+    failure = KeyboardInterrupt("recovery interrupted") if failure_kind == "interrupt" else RuntimeError("recovery warmup failed")
+    write_json(controller.directory / "transaction.json",
+               {"was_running": True, "phase": "draining", "runtime_sha": old})
+    write_json(controller.directory / "maintenance.json", {"operation": "update"})
+
+    def failed_ready():
+        if failure_kind in ("wrong_commit", "unknown_commit"):
+            return {"state": "ready", "agents_core_commit": target if failure_kind == "wrong_commit" else None}
+        raise failure
+
+    controller.wait_ready = failed_ready
+    with pytest.raises(KeyboardInterrupt if failure_kind == "interrupt" else RuntimeError) as caught:
+        recover(controller)
+
+    if failure_kind in ("warmup", "interrupt"):
+        assert caught.value is failure
+    assert not controller.running and controller.stops == 2 and controller.probes == 1
+    assert git(root, "rev-parse", "HEAD") == old
+    assert (root / "data/skills_store.npz").read_text() == "old-index"
+    assert read_json(controller.directory / "transaction.json")["runtime_sha"] == old
+    assert (controller.directory / "maintenance.json").exists()
+    with pytest.raises(RuntimeError, match="maintenance"):
+        assert_service_safe(controller.directory)
+
+    controller.wait_ready = wait_ready
+    assert recover(controller)["state"] == "recovered_before_mutation"
+    assert controller.running and controller.stops == 3 and controller.probes == 2
+    assert not any((controller.directory / name).exists()
+                   for name in ("transaction.json", "maintenance.json", "probation.json"))
+
+
+def test_recovery_before_mutation_accepts_legacy_health(installation):
+    controller, _, old, _ = installation
+    write_json(controller.directory / "transaction.json",
+               {"was_running": True, "phase": "draining", "runtime_sha": old})
+    write_json(controller.directory / "maintenance.json", {"operation": "update"})
+    controller.wait_ready = lambda: {"state": "ready"}
+    assert recover(controller)["state"] == "recovered_before_mutation"
+    assert controller.running and controller.stops == 1 and controller.probes == 1
+    assert not (controller.directory / "transaction.json").exists()
+    assert not (controller.directory / "maintenance.json").exists()
+
+
+def test_failed_pre_mutation_restoration_stops_unverified_runtime(installation):
+    controller, root, old, _ = installation
+    wait_ready = controller.wait_ready
+    controller.wait_ready = lambda: {"state": "ready", "agents_core_commit": None}
+    # A normal stdio reader makes activation's writer lease fail after the stop.
+    with file_lock(root / "data/.sessions.lock", shared=True):
+        with pytest.raises(RuntimeError, match="source commit unknown"):
+            offline_update(controller)
+
+    assert not controller.running and controller.stops == 2 and controller.probes == 1
+    assert git(root, "rev-parse", "HEAD") == old
+    assert (root / "data/skills_store.npz").read_text() == "old-index"
+    journal = read_json(controller.directory / "transaction.json")
+    assert journal["runtime_sha"] == old and "old_sha" not in journal
+    assert (controller.directory / "maintenance.json").exists()
+    with pytest.raises(RuntimeError, match="maintenance"):
+        assert_service_safe(controller.directory)
+
+    controller.wait_ready = wait_ready
+    assert recover(controller)["state"] == "recovered_before_mutation"
+    assert controller.running and not (controller.directory / "maintenance.json").exists()
 
 
 def test_stdio_reader_defers_update_and_restores_runtime(installation):
