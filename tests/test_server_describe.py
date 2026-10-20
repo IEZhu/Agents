@@ -302,11 +302,10 @@ async def test_slash_prompt_directs_the_needs_summary_fallback():
 
 
 @pytest.mark.asyncio
-async def test_memory_tools_refuse_markerless_cwd(tmp_path, monkeypatch):
-    """A cwd without .git or CLAUDE.md is no project: nothing is read or written."""
-    monkeypatch.delenv("AGENTS_CLIENT_REPO_ROOT", raising=False)
-    monkeypatch.delenv("CLAUDE_PROJECT_DIR", raising=False)
-    monkeypatch.delenv("AGENTS_TRANSPORT", raising=False)
+async def test_memory_tools_use_an_empty_session_folder(tmp_path, monkeypatch):
+    """History and repository memory work without a marker or manual registration."""
+    for name in ("AGENTS_CLIENT_REPO_ROOT", "CLAUDE_PROJECT_DIR", "AGENTS_TRANSPORT"):
+        monkeypatch.delenv(name, raising=False)
     monkeypatch.setattr(engine_config, "_CLIENT_ROOT_MARKERS", ("no-such-marker",))
     plain = tmp_path / "plain"
     plain.mkdir()
@@ -314,27 +313,18 @@ async def test_memory_tools_refuse_markerless_cwd(tmp_path, monkeypatch):
     engine_config._reset_client_repo_root_cache()
     try:
         logged = json.loads(await server.log_interaction("software_engineer", "q", "r"))
+        assert logged["timestamp"] and logged["workspace"]["root"] == str(plain.resolve())
+        assert logged["workspace"]["source"] != "fallback"
+        assert server.drain_pending_logs(5)
         history = json.loads(await server.read_history())
-        described = json.loads(await server.describe_repo())
-        written = json.loads(await server.write_repo_summary(
-            summary=_valid_summary(), workspace_id=None, repo_hash="x", repo_path=str(plain),
-        ))
+        assert [entry["intent"] for entry in history["entries"]] == ["q"]
+        assert (plain / "history.md").is_file()
+        described = await _describe()
+        assert described["status"] == "needs_summary"
+        assert described["repo_path"] == str(plain.resolve())
+        written = await _write(described, _valid_summary())
+        assert written["status"] in ("written", "refreshed")
+        assert _section(plain) is not None
+        assert not (plain / ".git").exists()
     finally:
         engine_config._reset_client_repo_root_cache()
-    # #292: the turn goes to the fallback journal with the directory named, which stays untouched.
-    assert logged["timestamp"] and logged["workspace"]["source"] == "fallback"
-    assert logged["workspace"]["claimed"] == str(plain) and logged["workspace"]["reason"] == "workspace_required"
-    assert history["workspace"]["source"] == "fallback"
-    for result in (described, written):
-        assert result["status"] == "error", result
-        assert "workspace_required" in result["error"] and "migrate --workspace" in result["remedy"]
-        # Which process refused and what it saw (#231).
-        assert result["pid"] == os.getpid() and result["workspace_inputs"]["cwd"] == os.getcwd()
-    assert server.drain_pending_logs(5)
-    try:
-        kept = json.loads(await server.read_history())
-    finally:
-        engine_config._reset_client_repo_root_cache()
-    assert [entry["intent"] for entry in kept["entries"]] == ["q"]
-    assert kept["entries"][0]["metadata"]["claimed_workspace"] == str(plain)
-    assert list(plain.iterdir()) == []

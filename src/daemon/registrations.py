@@ -17,11 +17,12 @@ from dataclasses import dataclass
 import datetime
 import json
 import logging
+import os
 from pathlib import Path
 import time
 import tomllib
 
-from src.client_paths import absolute_path, client_config_path
+from src.client_paths import DESKTOP_SERVER, absolute_path, client_config_path, desktop_config_paths
 from src.file_lock import file_lock
 from .audit import registered_configs
 from .clients import SERVER, TRANSPORT_KEYS, ClientMigration, ConfigChanged, claude_code_plugin_skip, tracked
@@ -33,7 +34,7 @@ logger = logging.getLogger(__name__)
 STATE_FILE = "registrations.json"
 # Claude Code profiles whose Agents-Core entry is kept beside the agents-core plugin (#367).
 FORCED_KEY = "claude_code_forced"
-CLIENTS = ("claude", "codex", "cursor")
+CLIENTS = ("claude", "codex", "cursor", "desktop", "antigravity")
 # Clients whose project layers are kept current with their user layer.
 LAYERED = ("codex", "cursor")
 MANAGED_HEADERS = {"Authorization", "X-Agents-Workspace", "X-Agents-Client"}
@@ -91,7 +92,10 @@ def find_layers(directory, home=None):
         found[client].append(Layer(client, path, workspace))
 
     for client in CLIENTS:
-        add(client, client_config_path(client, home=home, environ={}))
+        paths = desktop_config_paths(home=home, environ={}) if client == "desktop" and os.name == "nt" else [client_config_path(client, home=home, environ={})]
+        for path in paths:
+            if path is not None:
+                add(client, path)
     for record in records:
         if record["client"] not in CLIENTS:
             continue
@@ -164,6 +168,10 @@ def read_entry(client, text):
         servers = document.get("mcpServers", {})
     if not isinstance(servers, dict):
         raise ValueError("its server table is not a mapping")
+    if client == "desktop":
+        if SERVER in servers and DESKTOP_SERVER in servers:
+            raise ValueError("multiple Agents-Core entries require explicit migration")
+        return servers.get(DESKTOP_SERVER, servers.get(SERVER))
     return servers.get(SERVER)
 
 
@@ -175,7 +183,8 @@ def _headers(entry):
 def _is_bridge(migration, entry):
     args = entry.get("args")
     return (isinstance(args, list) and len(args) == 2 and "url" not in entry
-            and Path(str(args[0])) == Path(migration.config["installation"]) / "bridge/stdio.mjs")
+            and Path(str(args[0])) in {Path(migration.config["installation"]) / "bridge" / name
+                                      for name in ("stdio.mjs", "stdio.py")})
 
 
 def _pinned(migration, entry):
@@ -206,7 +215,8 @@ def managed(migration, entry, workspace=None):
         if entry["url"] != migration.url or headers is None:
             return False
         if helper is not None:
-            if not (isinstance(helper, str) and str(installation / "bridge/headers.mjs") in helper and not headers):
+            if not (isinstance(helper, str) and not headers and any(
+                    str(installation / "bridge" / name) in helper for name in ("headers.mjs", "headers.py"))):
                 return False
         elif not (set(headers) <= MANAGED_HEADERS and headers.get("Authorization") == "Bearer " + migration.token):
             return False
@@ -239,6 +249,8 @@ def plan_client(migration, client, layers, home=None, *, transport, automatic=Fa
     """
     current = []
     for layer in layers:
+        if automatic and client == "antigravity" and layer.path.parent.resolve() != (absolute_path(home or Path.home()) / ".gemini/config").resolve():
+            raise Blocked("skipped", f"{layer.path}: external profile has no known active workspace-hook location")
         if layer.path.is_symlink():
             raise Blocked("failed", f"{layer.path} is a symbolic link, which migrate does not write through")
         try:
@@ -260,7 +272,9 @@ def plan_client(migration, client, layers, home=None, *, transport, automatic=Fa
                                        transport=transport)
         except (OSError, ValueError) as error:
             raise Blocked("failed", f"{layer.path}: {error}") from None
-        if read_entry(client, change[1]) == entry:
+        staged = migration.staged_changes.get(str(change[0]), [])
+        same_assets = all(path.is_file() and path.read_bytes() == content.encode("utf-8") for path, content, _ in staged)
+        if read_entry(client, change[1]) == entry and same_assets:
             continue
         if automatic and tracked(layer.path):
             command = f"migrate --workspace {layer.workspace} --clients {client}" if layer.workspace \
@@ -305,7 +319,7 @@ def _upgrade_client(directory, client, layers, home, lock):
 
 def _upgrade_layers(directory, client, layers, home, lock):
     migration = ClientMigration(directory)
-    transport = "bridge" if migration.has_node() else "http"
+    transport = "bridge"
     try:
         changes, files = plan_client(migration, client, layers, home, transport=transport, automatic=True)
     except Blocked as blocked:

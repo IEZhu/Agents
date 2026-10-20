@@ -146,12 +146,16 @@ def install(client: str, *, dry_run: bool = False) -> dict:
         changes[target] = (json.dumps(document, ensure_ascii=False, indent=2) + "\n").encode()
     backups = {}
     if not dry_run:
+        helpers.require_unchanged(target, original)
         # Reserve every backup before changing runtime or config bytes.
         for path in changes:
             if path.exists():
                 backups[str(path)] = str(backup_file(path))
+        helpers.require_unchanged(target, original)
         for path, content in changes.items():
             refuse_symlinks(path)
+            if path == target:
+                helpers.require_unchanged(target, original)
             atomic_write(path, content)
     return {"client": client, "config": str(target), "script": str(script),
             "scripts": [str(path) for path in runtimes], "changed": bool(changes),

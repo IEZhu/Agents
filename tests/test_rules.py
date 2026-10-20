@@ -107,6 +107,18 @@ def test_get_rules_contains_v1_set():
     assert _EXPECTED_RULE_NAMES <= names
 
 
+def test_thread_status_distinguishes_finishing_from_completion_and_human_attention():
+    rule = next(rule for rule in rules_module.get_rules() if rule.name == "thread-status")
+    text = " ".join(rule.body.split())
+    for phrase in ("🧹 finishing (required work remains from a closure audit; task is unfinished)",
+                   "Use attention statuses 🙋, 👀 and 🏁 only at the final handoff",
+                   "At a closure-audit handoff, use 🧹 when required obligations remain",
+                   "unless essential input or required human approval calls for 🙋/👀",
+                   "finish or explicitly resolve each before 🏁",
+                   "Resume implementation as 🔄", "a new work request after ✅ is also 🔄"):
+        assert phrase in text
+
+
 def test_get_rules_disabled_returns_empty(monkeypatch):
     monkeypatch.setattr(rules_module, "RULES_ENABLED", False)
     rules_module.invalidate_cache()

@@ -1,0 +1,17 @@
+{
+  "name": "agents-core-context-compaction",
+  "displayName": "Agents-Core Context Compaction",
+  "version": "0.1.0",
+  "description": "Opt-in native context compaction after successful main conversation turns.",
+  "author": { "name": "WonderMr", "url": "https://github.com/IEZhu" },
+  "repository": "https://github.com/IEZhu/Agents",
+  "license": "MIT",
+  "userConfig": {
+    "configPath": {
+      "type": "string",
+      "title": "Shared compaction configuration",
+      "description": "Optional absolute path to context-compaction.json; empty uses the Agents-Core shared default.",
+      "default": ""
+    }
+  }
+}
