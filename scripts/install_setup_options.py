@@ -84,7 +84,7 @@ def refresh_registrations(controller, *, force_claude_code=False):
 
 
 def install_daemon(controller):
-    # Match setup's already downloaded model without exporting unrelated .env
+    # Select the daemon's model settings without exporting unrelated .env
     # bindings (notably sync credentials) to service-management children.
     settings = dotenv_values(ROOT / '.env')
     model = os.environ.get('EMBEDDING_MODEL', settings.get('EMBEDDING_MODEL')) or None
