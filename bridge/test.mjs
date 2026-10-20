@@ -374,7 +374,7 @@ test('signed workspace replaces a refused auto cwd and follows authenticated wor
     { id: 'second-list', method: 'tools/list' }, call('second-unsigned'),
   ], { CLAUDE_PROJECT_DIR: undefined }, '/', {});
   assert.deepEqual(daemon.registrations, [
-    { path: '/' },
+    { path: resolve('/') },
     { path: '/project/first', origin: 'hook' },
     { path: '/project/second', origin: 'hook' },
   ]);
@@ -399,7 +399,7 @@ test('concurrent signed workspace switches retain the newer authenticated reques
       call('second', '/project/second', signature('/project/second'))],
     { id: 'list', method: 'tools/list' }, call('unsigned'),
   ], { CLAUDE_PROJECT_DIR: undefined }, '/', {});
-  assert.deepEqual(daemon.registrations.map(request => request.path).sort(), ['/', '/project/first', '/project/second']);
+  assert.deepEqual(daemon.registrations.map(request => request.path).sort(), [resolve('/'), '/project/first', '/project/second'].sort());
   assert.equal(header('init'), undefined);
   assert.equal(header('first'), '/project/first');
   for (const id of ['second', 'list', 'unsigned']) {
