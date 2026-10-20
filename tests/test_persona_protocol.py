@@ -315,11 +315,12 @@ async def test_sessions_sharing_one_server_log_to_their_own_projects(system32_cw
 
 @pytest.mark.asyncio
 async def test_logging_without_workspace_asks_for_it(system32_cwd, tmp_path):
-    project = tmp_path / "project"
-    (project / ".git").mkdir(parents=True)
-    [response] = await _log_over_mcp(None, roots=[project])
+    project, other = tmp_path / "project", tmp_path / "other"
+    for root in (project, other):
+        (root / ".git").mkdir(parents=True)
+    [response] = await _log_over_mcp(None, roots=[project, other])
     assert response["status"] == "ERROR" and "timestamp" not in response
-    assert response["message"].startswith("workspace_unsafe: refusing")
+    assert response["message"].startswith("workspace_required:")
     assert "pass workspace" in response["message"]
     assert "retry once with workspace" in response["instruction"]
     assert response["pid"] == os.getpid()
@@ -330,6 +331,20 @@ async def test_logging_without_workspace_asks_for_it(system32_cwd, tmp_path):
     # The desktop app started this server: the refusal says so and names its configuration (#231).
     assert "claude_desktop_config.json" in response["hint"] and "Agents-Core-Desktop" in response["hint"]
     assert not (project / "history.md").exists()
+    assert not (other / "history.md").exists()
+    assert sorted(path.name for path in system32_cwd.rglob("*")) == ["CLAUDE.md", "System32"]
+
+
+@pytest.mark.asyncio
+async def test_logging_without_workspace_uses_the_unique_mcp_root(system32_cwd, tmp_path):
+    project = tmp_path / "project"
+    (project / ".git").mkdir(parents=True)
+    [response] = await _log_over_mcp(None, roots=[project])
+    assert response["workspace"] == {"root": str(project.resolve()), "source": "workspace"}
+    assert re.fullmatch(r"\d{4}\.\d{2}\.\d{2} \d{2}:\d{2}:\d{2}", response["timestamp"])
+    assert server.drain_pending_logs(5)
+    assert "answer 0" in (project / "history.md").read_text(encoding="utf-8")
+    assert sorted(path.name for path in system32_cwd.rglob("*")) == ["CLAUDE.md", "System32"]
 
 
 @pytest.mark.asyncio
