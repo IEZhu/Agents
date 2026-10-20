@@ -23,10 +23,19 @@ else:
 
 MAX_EVENT_BYTES = 65536
 _IDENTITY = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}\Z")
+# The desktop app launches its Code-tab sessions with this entrypoint. Its sidebar
+# title lives in the app's session store. Prefer its native title tools rather
+# than depending on CLI-side metadata writes being reflected in that store.
+DESKTOP_ENTRYPOINT = "claude-desktop"
+DESKTOP_TOOLS = ("mcp__ccd_session_mgmt__get_session", "mcp__ccd_session_mgmt__set_session_title")
 
 
 def _known_identity(value: object) -> str | None:
     return value if isinstance(value, str) and _IDENTITY.fullmatch(value) else None
+
+
+def _claude_desktop() -> bool:
+    return os.environ.get("CLAUDE_CODE_ENTRYPOINT") == DESKTOP_ENTRYPOINT
 
 
 def _main_event(event: object) -> bool:
@@ -46,7 +55,15 @@ def hook_output(event: dict, client: str, *, script: str | None = None) -> dict:
     if identity is None:
         return {}
     context = STATUS_GUIDANCE + "\nCurrent chat identity (data): " + json.dumps(identity)
-    if client == "claude":
+    desktop = client == "claude" and _claude_desktop()
+    if desktop:
+        context += ("\nClaude desktop app (Code tab): the app owns this chat's sidebar title. Read it with "
+                    f"{DESKTOP_TOOLS[0]} and rename it with {DESKTOP_TOOLS[1]}, both with "
+                    "session_id \"self\". If they are deferred, load both once with ToolSearch "
+                    "\"select:" + ",".join(DESKTOP_TOOLS) + "\". Hook sessionTitle and the SDK helper "
+                    "write CLI metadata; use the native app tools for the sidebar. If the app declines or asks "
+                    "the user to approve a rename, report that once instead of retrying.")
+    elif client == "claude":
         # The SDK resolves the existing title itself. No transcript paths are consumed.
         cwd = event.get("cwd")
         if isinstance(cwd, str) and Path(cwd).is_absolute():
@@ -70,7 +87,7 @@ def hook_output(event: dict, client: str, *, script: str | None = None) -> dict:
         return {"additional_context": context}
     output = {"hookEventName": name, "additionalContext": context}
     # session_title is an optional custom title; never substitute the raw prompt.
-    if client == "claude" and name == "UserPromptSubmit" and event.get("session_title"):
+    if client == "claude" and not desktop and name == "UserPromptSubmit" and event.get("session_title"):
         try:
             # A prompt may only ask for status. Let the model decide whether it
             # actually reopens a paused/finished/waiting task.

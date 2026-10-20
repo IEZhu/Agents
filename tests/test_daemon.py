@@ -235,10 +235,10 @@ async def test_bridges_register_their_projects_without_migrate(tmp_path, monkeyp
             monkeypatch.setenv("HOME", str(fake_home)); monkeypatch.setenv("USERPROFILE", str(fake_home))
             home = await http.post("/workspaces", json={"path": str(fake_home), "origin": "CLAUDE_PROJECT_DIR"}, headers=headers)
             assert (home.status_code, home.json()["error"]) == (400, "workspace_unsafe")
-            # A bare launch directory counts only inside a project; one the client named, as named.
+            # Empty session folders register automatically without creating a marker.
             plain = projects / "plain"; plain.mkdir()
             launch = await http.post("/workspaces", json={"path": str(plain)}, headers=headers)
-            assert (launch.status_code, launch.json()["error"]) == (400, "workspace_required")
+            assert launch.status_code == 200 and launch.json()["root"] == str(plain.resolve())
             named = await http.post("/workspaces", json={"path": str(plain), "origin": "CLAUDE_PROJECT_DIR"}, headers=headers)
             assert named.status_code == 200 and named.json()["root"] == str(plain.resolve())
             # A bridge verified the local hook's HMAC before naming this markerless folder.

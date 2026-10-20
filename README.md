@@ -8,6 +8,7 @@ Agents-Core is a local Model Context Protocol (MCP) server for assistants that n
 - [Compact documentation index](llms.txt): direct Markdown links for agents discovering the project.
 - [Install in an MCP client](llms-install.md): manual stdio configuration, including Cline.
 - [Documentation map](docs/README.md): current guides, reference material, and evaluation reports.
+- [Instruction signing](docs/instruction-signing-core.md): local key/trust controls and accepted coverage policy; runtime enforcement is still planned.
 - [AI contributor instructions](AGENTS.md) and [Claude instructions](CLAUDE.md).
 - [Model workflows](flows/README.md): reusable Markdown instructions, including
   the [documentation refresh process](flows/documentation-refresh.md).
@@ -58,6 +59,14 @@ download it, read it, then run `bash install.sh`. Pass `init_repo.sh` flags with
 `... | bash -s -- --skip-index`; `--skip-mcp` leaves client configurations and
 instructions unchanged, and `--force-claude-code-mcp` registers Claude Code's own
 entry even when the [Claude plugin](#claude-plugin) serves it.
+
+To install merged development changes before a release, fetch the development bootstrap and select `--dev`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/IEZhu/Agents/dev/install.sh | bash -s -- --dev
+```
+
+`--dev` selects `dev` before clone/update, overrides `AGENTS_BRANCH`, and is consumed by the bootstrap. Without it, installation keeps the normal stable/default-branch behavior. A fresh `.env` follows the selected branch; an existing explicit update-channel setting is preserved with the existing warning. The flag does not include unmerged pull requests. A bootstrap downloaded from an older `main` may not yet recognize a new flag; the `dev/install.sh` URL above avoids that version mismatch. On Windows, clone/check out `dev` before running `scripts\init_repo.bat`; the batch initializer does not switch the checkout.
 
 | Variable | Default | Purpose |
 |---|---|---|
@@ -132,11 +141,11 @@ powershell -ExecutionPolicy Bypass -File scripts\uninstall.ps1 --dry-run   # Win
   `~/.claude/settings.json`), Claude Desktop, Codex, Cursor and Antigravity (with its
   `agents-core` plugin), and in the `.mcp.json`, `.codex/config.toml` and `.cursor/mcp.json` of
   every workspace the service registered. Other servers and settings stay byte for byte.
-  Optional session readiness hooks and Desktop's `Agents-Readiness` entry are removed only
+  Readiness and thread-status hooks, and Desktop's `Agents-Readiness` entry, are removed only
   when their generated settings still match and their interpreter belongs to this installation's
   `.venv`. Their copied runtimes are removed only when unchanged and no remaining handler
   references them. Modified entries, files and adapters from another installation are listed
-  as kept so you can remove them manually.
+  as kept so you can remove them manually. Thread-status turn records are retained and reported.
 - **Instructions**: only the section between the routing-protocol markers in
   `~/.claude/CLAUDE.md` and Codex's `AGENTS.md`, and the generated routing reminder in Claude's
   memory. A file left empty is deleted.
@@ -242,8 +251,10 @@ The interactive script:
   or restore a backup before retrying;
 - asks before installing protocol 2 instructions in the global Claude
   configuration. When Codex is detected, it installs the same protocol in Codex's
-  global instructions without asking; this does not connect Codex to MCP (see
+  global instructions and registers its MCP connection without asking (see
   [Codex instruction installation](#codex-instruction-installation));
+- offers readiness/persona-restore hooks and emoji thread-status hooks separately for detected supported clients; `--yes` accepts both, with `--skip-hooks`, `--skip-readiness` and `--skip-thread-status` available to opt out;
+- offers the shared daemon and cross-client agent cooperation separately on macOS and Windows; `--yes` accepts both, while `--skip-daemon` and `--skip-cooperation` opt out independently;
 - targets another profile when `CLAUDE_CONFIG_DIR` (Claude Code),
   `AGENTS_CURSOR_MCP_CONFIG`, `AGENTS_CLAUDE_DESKTOP_CONFIG` or
   `AGENTS_ANTIGRAVITY_MCP_CONFIG` is exported in the shell that runs setup. Setup
@@ -331,7 +342,7 @@ server sessions stopped, run
 `.venv/bin/python -m src.reindex`. An `.env` without
 `EMBEDDING_MODEL_GENERATION=2`, such as one copied by hand from `env.example`,
 needs that line too; otherwise the next start switches it to the default
-([model switch](#model-switch-on-update)). The [shared macOS service](#shared-macos-service)
+([model switch](#model-switch-on-update)). The [shared macOS and Windows service](#shared-macos-and-windows-service)
 pins its model in its own configuration.
 
 #### Model switch on update
@@ -358,9 +369,9 @@ The shared service switches in its update transaction instead
 | `EMBEDDING_PROMPTS` | `on` | Model-specific query and passage prompts ([embedding_prompts.py](src/engine/embedding_prompts.py)); `off` embeds text as given |
 | `EMBEDDING_BATCH_SIZE` | `4` | Documents per embedding batch (1–256) when history, skill or implant indexes are built. Memory grows with batch size, by up to about 68 MB per 512-token document with `intfloat/multilingual-e5-large` (a full harrier-270m index build peaked at about 2.8 GB with the default in the [recorded run](docs/embedding-models-eval-results.md)); larger values may be faster on machines with spare memory. Inputs are also capped at 2048 tokens |
 | `FASTEMBED_CACHE_DIR` | `~/.cache/fastembed` | Persistent model cache; the shared service's `install` reads it only from the shell ([daemon guide](docs/shared-mcp-daemon.md)) |
-| `AGENTS_CLIENT_REPO_ROOT` | Unset: a tool call's `workspace` inside the client's MCP roots, else the nearest `.git` or `CLAUDE.md` at or above `CLAUDE_PROJECT_DIR` or the working directory ([rules](#-repository-memory)) | Explicit stdio memory and workflow target. Refused with `workspace_unsafe` when it is a system, program or home directory. Set it in a per-project MCP entry's `env`, never in the installation `.env`, a shared registration or the Desktop entry |
+| `AGENTS_CLIENT_REPO_ROOT` | Unset: a verified `workspace` or sole current MCP root; without roots, the nearest `.git`, `CLAUDE.md` or `AGENTS.md` at or above the session directory, else that safe existing directory ([rules](#-repository-memory)) | Explicit stdio memory and workflow target. Refused with `workspace_unsafe` when it is a system, program or home directory. Set it in a per-project MCP entry's `env`, never in the installation `.env`, a shared registration or the Desktop entry |
 | `RULES_ENABLED` | `1` | Include [shared rules](rules/README.md) in loaded context |
-| `AGENTS_COOPERATION_ENABLED` | `0` | Opt the installed daemon into the local [agent cooperation service and mailbox](docs/agent-cooperation/README.md); HTTP and existing stdio-bridge clients share it; standalone stdio returns `store_unavailable` |
+| `AGENTS_COOPERATION_ENABLED` | `0` | Opt the installed daemon into the local [agent cooperation service and mailbox](docs/agent-cooperation/README.md); HTTP and existing stdio-bridge clients share it; standalone stdio returns `store_unavailable`; accepting the setup option or `--yes` sets this to `1` |
 | `AGENTS_COOPERATION_RETENTION_DAYS` | `30` | Owner retention window for terminal cooperation receipts/events (integer, minimum 30); invalid values leave coordination unavailable; see [maintenance and recovery](docs/agent-cooperation/runtime.md) |
 | `AGENTS_USER_RULES_DIR` | `data/user-rules` in the installation | Machine-local cache for [URL-subscribed user rules](docs/user-rules.md), separate from flow sync |
 | `AGENTS_RULE_AUTH_HOSTS` | Unset | JSON map from a Bearer-token environment variable name to its exact permitted source hostname, required when `auth_env` is used for a user rule |
@@ -782,16 +793,9 @@ skills and implants and switches each one on or off for the installation.
 
 ### Persona continuity
 
-For optional session readiness in every supported client (Claude Code, Codex,
-Cursor, Antigravity and Claude Desktop), see [Session readiness](docs/session-readiness.md).
-Install it separately using the [commands for your platform](docs/session-readiness.md#install);
-Codex requires reviewing and trusting the new hook in `/hooks`. Cursor and
-Antigravity request display in the first response; ordinary Claude Desktop Chat
-uses an MCP first-response fallback because it has no native lifecycle hook.
+Normal setup offers two independent lifecycle options for detected clients: session readiness (including persona restoration after compaction), and emoji thread status. `--yes` / `-y`, including the one-command installer, accepts both. Use `--skip-hooks` to skip both, or `--skip-readiness` / `--skip-thread-status` to skip one. `--skip-hooks` leaves the daemon/cooperation choices available. `--skip-mcp` skips client writes and both shared-runtime choices. Repeated setup preserves unrelated hooks and updates the owned handlers without duplicates. No profiles are created for absent clients. An alternate Cursor/Antigravity MCP file outside the native profile does not select a hook profile; those hooks are skipped with an explanation rather than modifying the inactive default profile.
 
-For automatic emoji prefixes on task conversations in Claude Code, Codex and supported
-Cursor surfaces, see [Thread status](docs/thread-status.md). Its separate opt-in installer
-preserves the readiness hooks and documents each client's title-update limits.
+See [Session readiness](docs/session-readiness.md) and [Thread status](docs/thread-status.md) for standalone update commands and client limits. Codex requires a fresh session and reviewing/trusting the definitions in `/hooks`; setup cannot grant that trust. Codex interrupt title persistence additionally needs its CLI on PATH, while lifecycle policy and native current-chat renaming do not require it. Setup attempts to install Claude's title SDK in the hook interpreter when that option is selected. If the optional dependency fails, it still installs the stdlib hook and continues setup, with a warning that SDK-based CLI title writes need a later retry. Claude Desktop Code tabs use the app's own title tools. Cursor and Antigravity request the readiness banner in the first model response; ordinary Claude Desktop Chat uses the separate read-only `Agents-Readiness` MCP helper. Installing hooks does not verify live UI rendering. [Automatic native compaction](docs/context-compaction.md) remains a separate opt-in feature; persona restoration does not enable it.
 
 For optional automatic compaction between turns in Claude Code, see
 [Native context compaction](docs/context-compaction.md). Its
@@ -973,10 +977,28 @@ Agents/
 ### Codex instruction installation
 
 During the client setup stage, both installers automatically update Codex's global
-instructions when `CODEX_HOME` is non-empty, the default `~/.codex` directory exists, or
+instructions and register Agents-Core in `config.toml` when `CODEX_HOME` is non-empty, the default `~/.codex` directory exists, or
 the `codex` command is available. `CODEX_HOME` selects the target directory when
 non-empty; otherwise the target is `~/.codex`. There is no additional Codex prompt.
-`--skip-mcp` skips this instruction update along with client configuration.
+`--skip-mcp` skips both instructions and MCP registration. Discovery does not require
+the CLI when the profile directory exists. Standalone setup writes absolute interpreter and
+server paths. The registration step preserves other settings and servers and
+retains an existing Agents-Core HTTP or stdio bridge connection. Managed service
+upkeep can then upgrade compatible owned entries as described below. Repeating
+setup leaves an already current entry unchanged. Standalone setup creates a unique
+`config.toml.backup.*` snapshot before changing an existing TOML file and replaces it atomically; shared-service migration uses its private restorable backup journal. Invalid TOML or
+an unsupported inline MCP layout is left unchanged and setup reports an error;
+convert inline MCP definitions to table syntax before retrying. A symlinked
+`config.toml` is also refused; use a regular file before retrying. On NixOS,
+setup includes the same per-process native library path as for other clients.
+
+Registration does not test live connectivity. Standalone registration preserves
+an existing HTTP/bridge entry even if its service is unavailable; repair the
+shared service with its migration command below. Managed service upkeep refreshes
+only compatible entries as described next.
+If this installation already has a shared-service marker, a new Codex registration uses the service's existing migration under its control lock and recovery checks, selecting its stdio bridge (Node when available, otherwise Python). Unusable shared state stops registration without falling back to standalone; the service may be stopped while its client configuration is prepared. The subsequent managed-registration refresh upgrades compatible entries and their known layers together; owner overrides remain intact. Without a marker, setup uses standalone stdio.
+After moving a standalone installation or its virtual environment, rerun setup
+to refresh its absolute paths.
 
 The installer updates a non-empty `AGENTS.override.md` when present; otherwise it
 updates `AGENTS.md`. This matches Codex's global instruction precedence. Personal
@@ -1006,9 +1028,9 @@ service configuration. The shared daemon migration below configures Codex's MCP
 connection on macOS; without the service, add the [standalone Codex entry](#codex-configtoml).
 Refreshing client instruction files alone does not require restarting the daemon. Start fresh client sessions to load them. Cursor and standalone Claude Desktop receive the shared contract through MCP initialization; this instruction-only command does not manage a global rules file for them. After updating server-side initialization instructions, restart or reconnect the server and reconnect those clients to receive the new initialization response. Existing project-level rules can override global guidance, so update their managed sections with the same template when they restate an older contract.
 
-### Shared macOS service
+### Shared macOS and Windows service
 
-On macOS, one shared daemon can serve Codex, Claude Code, Cursor and Claude Desktop.
+On macOS and Windows, one shared daemon can serve Codex, Claude Code, Cursor and Claude Desktop.
 Before `install`, capture a baseline and stop this installation's stdio servers,
 either by disabling Agents-Core in open clients or by ending those sessions;
 `install` fails while any of them holds the installation lease. See
@@ -1019,7 +1041,13 @@ The service pins the plain-file copy of `microsoft/harrier-oss-v1-270m`, which
 stdio sessions stopped. `install --model intfloat/multilingual-e5-large` pins a
 cached e5-large snapshot instead. Export a custom `FASTEMBED_CACHE_DIR` in the shell before `install`,
 which does not read it from `.env`. Desktop and tracked project configurations use
-the Node 22+ bridge. See the [prerequisites](docs/shared-mcp-daemon.md).
+a stdio bridge: Node 22+ when recorded and available, otherwise the standard-library
+Python bridge. See the [prerequisites](docs/shared-mcp-daemon.md).
+
+Normal setup offers the shared daemon and cross-client cooperation as independent options on macOS and Windows. The one-command installer passes `--yes`, accepting both; interactive `init_repo` asks separately. `--skip-daemon` skips installation and managed-client migration, while `--skip-cooperation` preserves the existing cooperation setting. Cooperation requires a shared daemon; it can be enabled on an existing service even when new daemon installation is skipped. `--skip-mcp` skips both choices, and `--skip-hooks` affects only lifecycle hooks. Linux keeps standalone MCP setup because this service manager supports macOS and Windows.
+
+Accepting cooperation persists only `AGENTS_COOPERATION_ENABLED=1` in `.env`, including under `--skip-env`, and starts or gracefully restarts the selected service when necessary. Already-current setup preserves the service's port, model, token and running process. Daemon installation uses the model/cache settings supplied by setup or saved in `.env`, without exporting unrelated `.env` keys. The existing launchers select the pre-index model themselves; a shell model override is not a uniform cross-platform setup option. The daemon requires an already cached embedding model; `--skip-index` does not waive that prerequisite. Managed registrations are brought to the shared bridge without replacing custom, foreign or absent profiles, and an existing `registrations disable` setting is respected. If an accepted setup option fails, setup reports it, still runs Sync, summary and health checks, retains completed steps and exits nonzero at the end. Reconnect open client sessions after migration. `/health` reports cooperation as `ready`, `disabled` or `unavailable`, separately from ordinary daemon readiness.
+
 Run controller commands from the installation checkout (`~/.agents-core`, or
 `AGENTS_HOME`, for the one-command installer).
 
@@ -1037,12 +1065,16 @@ about one that only a directory the user can write holds. The service starts the
 tools by those paths and runs with system directories in its `PATH`, not the
 installing shell's (see [tools and PATH](docs/shared-mcp-daemon.md#tools-and-path)).
 
-Global registrations provide routing. With Node recorded, the user entries of
-Claude Code, Codex and Cursor register each session's project themselves, and the
-service keeps the registrations it wrote up to date at every start
-([details](docs/shared-mcp-daemon.md#registrations-kept-current)). Without Node,
-project memory requires a registered workspace: register each clone or worktree
-with `migrate --workspace`.
+Global registrations provide routing and automatic project binding. The user entries
+of Claude Code, Codex and Cursor register each safe session directory themselves,
+including an empty folder without repository markers. Node is optional: the bridge
+uses the recorded Python when Node is unavailable. The service keeps compatible
+managed registrations and their known client layers consistent at every start,
+and setup refreshes them after MCP configuration while automatic upkeep is enabled
+([details](docs/shared-mcp-daemon.md#registrations-kept-current)). Ordinary empty
+session folders need no per-project migration. Use `migrate --workspace` for an
+intentional project pin, or when the client provides no usable session directory,
+MCP root or trusted workspace hook.
 Migration manages private bearer headers and backups. Reconnect MCP in open
 clients after migration. See [service operations](docs/shared-mcp-daemon.md) for
 scope audits, updates, token rotation and rollback. A client that still starts
@@ -1115,8 +1147,9 @@ then uses Claude Code's own `Agents-Core` for its project, while the app's chats
 calls to the denied tools are refused. The desktop app reads the profile its own
 environment selects: when setup runs with `CLAUDE_CONFIG_DIR`, the app must see the
 same value. While the shared service is installed, setup keeps the entries `migrate`
-wrote. The shared desktop server still needs the `workspace` argument for its memory
-and flow tools ([rules](#-repository-memory)).
+wrote. The shared desktop server selects a sole current MCP root automatically;
+with several roots its memory and flow tools need the caller's root-verified
+`workspace` argument ([rules](#-repository-memory)).
 
 ### Cursor (`.cursor/mcp.json` in the client project)
 
@@ -1136,8 +1169,8 @@ and flow tools ([rules](#-repository-memory)).
 
 ### Codex (`config.toml`)
 
-Setup installs Codex instructions but does not register this server; without an
-entry, Codex follows the instructions' MCP-unavailable fallback. Add to
+Setup installs Codex instructions and registers this server automatically. For a
+manual standalone registration, add to
 `~/.codex/config.toml` (or `$CODEX_HOME/config.toml`):
 
 ```toml
@@ -1231,37 +1264,48 @@ including case variants and macOS volume aliases of the protected checkout.
 - **`log_interaction`** — end-of-turn logger. Appends `intent / action / outcome` entries (with optional files and tags) to `history.md` at the repo root; deduplicated by content hash; rotated to `history/YYYY-MM.md` when the file exceeds 512 KB. Also sends a Langfuse generation trace if keys are configured. A partial, malformed or mismatching `persona`, or `persona_action` without `persona`, never drops the turn: the entry is written with an `unverified`/`mismatch` persona line and the response carries `warnings`; a turn whose project does not resolve goes to the installation's fallback journal (see below) instead of being dropped (sinks stay best-effort: a full queue or a sink failure can still lose a write; a failed history write is reported as `history_last_error`, see below). It returns at once with a local `timestamp` (`YYYY.MM.DD HH:MM:SS`), which the final answer shows as its first line when the footer lists the `answer-timestamp` rule; both writes happen in the background and are drained on shutdown.
 - **`read_history`** — returns recent entries by recency/`since` filter, or runs a lazy semantic search backed by the same `NumpyVectorStore` used for routing. A listing stays under the 50,000 characters above which Claude Code saves a tool result to a file. `outcome` comes as a preview of up to 600 characters, `intent` and `action` of up to 300, `files` and `tags` keep up to 20 items, and a shortened entry gives each cut field's full length in `truncated` (characters, or items for a list). When that is still too much, the previews get shorter, and then the last entries are left out, counted in `omitted`; `offset` skips that many entries, and the `instruction` gives the `offset` and `limit` that read them; entries logged between two calls shift those pages. Semantic results carry `intent`, `action` and `outcome` like recent ones, without `files` and `metadata`. `read_history(entry_id=...)` returns one entry whole, also one that rotation moved to `history/YYYY-MM.md`. With [user library sync](docs/user-sync.md#repository-history) set up, a repository's top-level checkout (with an `origin`) reads its `history.md` and `history/*.md` merged with the entries the user's machines shared for that repository, including this machine's other checkouts: one per entry hash, the checkout's own copy first, ordered by time and read newest month first. Each entry carries `machine` (null for the checkout's own entries, else the label of the machine that wrote it); `machine=<label>` keeps that machine's entries and `machine=local` this checkout's own. `history.md` itself stays the checkout's journal. A machine shares a repository's entries only after its owner reviewed them with `python -m src.user_sync history export`: approval covers the repository's later entries on that machine and exactly the past entries listed, so another checkout that joins later waits for its own review. `python -m src.user_sync history share all` shares every repository's entries from that machine without a review instead, except repositories `history revoke` leaves out.
 
-Over stdio, the project is `AGENTS_CLIENT_REPO_ROOT` when set; otherwise the
-nearest `.git` or `CLAUDE.md` at or above the start directory. The start directory
-is `CLAUDE_PROJECT_DIR`, which Claude Code exports to the servers it starts, or else
-the launch directory. A `CLAUDE_PROJECT_DIR` without a marker is used as named. A
-launch directory without a marker is refused with `workspace_required`: it says
-nothing about the project. A root (including the override) that is a filesystem
-root, the home directory, or a system or program directory is refused with
-`workspace_unsafe`: on Windows the Windows directory, `%ProgramFiles%`,
+Over stdio, a non-empty `AGENTS_CLIENT_REPO_ROOT` selects the project as named
+and remains authoritative. Without it, a client declaring MCP roots supplies the
+current roots on each request. A sole distinct local root is selected automatically;
+with several roots, pass the caller's absolute `workspace`, which must lie inside
+a declared root. With no usable root, a model path alone cannot enable memory. No first or last root becomes a global process binding.
+The verified directory resolves to the nearest `.git`, `CLAUDE.md` or `AGENTS.md`
+at or above it, or to the directory itself when no marker exists; a git worktree
+normalizes to its main checkout. This per-request selection reports `source` as
+`workspace` and outranks the process's launch directory.
+
+Antigravity's native workspace hook supplies an authenticated per-request path even
+when standalone MCP starts from `/` without roots. Setup provisions the hook and
+startup rules in the active native profile, with a private installation-bound
+signing key; the MCP registration contains only its path. Both standalone and
+shared-service transports verify the proof before repository tools run.
+
+When the client does not declare MCP roots or supply a verified native hint, the start directory is an existing `CLAUDE_PROJECT_DIR`, or else
+the launch directory. The nearest `.git`, `CLAUDE.md` or `AGENTS.md` at or above it owns
+memory; without a marker, the safe existing session directory itself owns memory.
+An ordinary empty folder therefore needs no marker creation, git initialization or
+per-project migration. A model's unverified `workspace` argument cannot redirect a
+process without roots. Set `AGENTS_CLIENT_REPO_ROOT` only on a per-project
+registration, never on a shared or Desktop one.
+
+A filesystem root, the home directory, or a system or program directory is refused
+with `workspace_unsafe`: on Windows the Windows directory, `%ProgramFiles%`,
 `%ProgramFiles(x86)%`, `%ProgramData%` and `C:\Users` itself; on POSIX `/usr`,
 `/var`, `/home`, `/Users` and similar, plus `/etc`, `/bin`, `/usr/bin` and the other
 system subtrees (`/usr/local`, `/private/tmp` and macOS temporary directories stay
-allowed). If the launch directory no longer exists, memory falls back to the
-installation and workflows return an error.
+allowed). Automatic launch-directory inference also refuses the Agents-Core
+installation and runtime source tree, application bundles and editor extension
+runtimes. If cwd is unavailable, resolution reports `workspace_required` instead
+of selecting the installation. A missing or invalid directory is refused; memory
+never silently falls back to a project in the installation.
 
-One stdio process can also serve several sessions. The Claude desktop app starts the
-servers in `claude_desktop_config.json` once, in `C:\Windows\System32` without
-`CLAUDE_PROJECT_DIR`, and injects them into its Code-tab sessions; setup and `migrate`
-deny that entry in Claude Code (see above), so those sessions use their own server.
-Its `roots/list` answer lists the folders of every open session,
-so neither the process nor its roots tell which project a call belongs to. The memory
-and flow tools therefore take `workspace`, the absolute path of the caller's working
-directory, which the routing instructions tell the model to pass. When the client
-declares the MCP roots capability, `workspace` is checked on every call: it must lie
-inside one of the client's roots, resolves like `CLAUDE_PROJECT_DIR` (a git worktree
-to its main checkout, as Claude Code does for a worktree session) and is refused when
-unsafe; `source` is then `workspace`. It takes precedence over `CLAUDE_PROJECT_DIR`
-and the launch directory, never over `AGENTS_CLIENT_REPO_ROOT`, and is never pinned
-for the process. A client without roots cannot vouch for the path, so the process
-root applies and a refusal names `AGENTS_CLIENT_REPO_ROOT`. Set
-`AGENTS_CLIENT_REPO_ROOT` only on a per-project registration, never on a shared or
-Desktop one.
+One stdio process can serve several sessions. The Claude desktop app starts the
+servers in `claude_desktop_config.json` once, outside a project, and can report
+folders from every open session through `roots/list`. A single current root is
+sufficient; multiple roots are ambiguous until the caller names a verified
+`workspace`. Setup and `migrate` deny the Desktop entry in Claude Code (see above),
+so Code-tab sessions use their own server. These rules depend on signals supplied
+by the native client; they do not establish that every client UI supplies them.
 
 `log_interaction` and `read_history` results carry `workspace` (`root`, `source`) and
 `pid`, and, after a failed history write, `history_last_error`
@@ -1271,12 +1315,13 @@ the flow tools, carry `pid` and `workspace_inputs` (`cwd`,
 `claude_project_dir`, `agents_client_repo_root`, `client`, `roots`), and, in a server the
 Claude desktop app started (client `local-agent-mode-<server>`), a `hint` that names its
 `claude_desktop_config.json` and how its Code tab gets its own server; when the client
-declares roots and `workspace` was omitted, the refusal asks for it and
-`log_interaction` tells the model to retry once with it.
+declares roots without a unique root and `workspace` was omitted, the refusal
+asks for it and `log_interaction` tells the model to retry once with it.
 Over HTTP, memory requires the registered `X-Agents-Workspace` header;
 the daemon does not infer a project from its working directory. The user-scope
 entries of Claude Code, Codex and Cursor are a bridge per session that registers the
-session's project and sends that header itself ([details](docs/shared-mcp-daemon.md#installation-and-client-migration)).
+session's project and sends that header itself; a fixed registered HTTP identity
+is never replaced by an unverified tool argument ([details](docs/shared-mcp-daemon.md#installation-and-client-migration)).
 When no project resolves, `log_interaction` keeps the turn in the installation's
 fallback journal (`unresolved/history.md` next to user sync's private state) with the
 directory the client named as unverified metadata, and `read_history` reads the

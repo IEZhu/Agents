@@ -35,6 +35,12 @@ def writer(tmp_path, history_path):
 # --- Writer ------------------------------------------------------------------
 
 class TestAppend:
+    def test_explicit_history_path_keeps_archive_in_the_same_workspace(self, tmp_path):
+        history_path = str(tmp_path / "history.md")
+        writer = HistoryWriter(history_path=history_path)
+        assert Path(writer.archive_dir) == tmp_path / "history"
+        assert writer.append_entry("q", "a", "r")["status"] == "recorded"
+
     def test_creates_file_with_header(self, writer, history_path):
         result = writer.append_entry("intent A", "did A", "ok A")
         assert result["status"] == "recorded"

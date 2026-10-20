@@ -19,6 +19,12 @@ spec.loader.exec_module(runtime)
 SESSION = "550e8400-e29b-41d4-a716-446655440000"
 
 
+@pytest.fixture(autouse=True)
+def terminal_claude(monkeypatch):
+    # Tests may run inside a desktop Code-tab session; subprocesses inherit this too.
+    monkeypatch.delenv("CLAUDE_CODE_ENTRYPOINT", raising=False)
+
+
 @pytest.mark.parametrize("status", STATUSES)
 def test_status_roundtrip_is_idempotent_and_keeps_body(status):
     title = status_title("👀 🔄 🧪 Проверить API — #42", status)
@@ -74,6 +80,28 @@ def test_claude_prompt_adds_native_title_without_reading_transcript(tmp_path):
     assert "must/not/be/read" not in json.dumps(out)
 
 
+@pytest.mark.parametrize("event_name", ["SessionStart", "UserPromptSubmit"])
+def test_claude_desktop_points_to_app_title_tools_instead_of_cli_title(monkeypatch, tmp_path, event_name):
+    monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", runtime.DESKTOP_ENTRYPOINT)
+    fields = runtime.hook_output(event(event_name, session_title="Task", cwd=str(tmp_path)),
+                                 "claude")["hookSpecificOutput"]
+    assert "sessionTitle" not in fields
+    context = fields["additionalContext"]
+    assert context.startswith(STATUS_GUIDANCE)
+    assert 'session_id "self"' in context
+    assert '"select:mcp__ccd_session_mgmt__get_session,mcp__ccd_session_mgmt__set_session_title"' in context
+    # The SDK helper writes only the CLI title, so the desktop context must not offer it.
+    assert "--set-status" not in context
+
+
+def test_other_claude_entrypoints_keep_cli_title_and_sdk_helper(monkeypatch, tmp_path):
+    monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", "cli")
+    fields = runtime.hook_output(event(session_title="Task", cwd=str(tmp_path)), "claude")["hookSpecificOutput"]
+    assert fields["sessionTitle"] == "🔄 Task"
+    assert "--set-status" in fields["additionalContext"]
+    assert "mcp__ccd_session_mgmt" not in fields["additionalContext"]
+
+
 @pytest.mark.parametrize("title", ["⏸️ Paused", "🛑 Stopped", "🧹 Remaining obligations", "✅ Closed", "🏁 Finished", "🙋 Need answer", "👀 Review", "⏳ CI", "🚧 Blocked"])
 def test_lifecycle_alone_does_not_reopen_task(title):
     output = runtime.hook_output(event(session_title=title), "claude")
@@ -105,9 +133,12 @@ def test_all_clients_receive_finishing_and_final_handoff_policy(client, event_na
         assert phrase in context
 
 
-def test_no_unsupported_title_fields_in_codex_or_cursor():
+def test_no_unsupported_title_fields_in_codex_or_cursor(monkeypatch):
+    # A desktop entrypoint applies only to Claude events.
+    monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", runtime.DESKTOP_ENTRYPOINT)
     codex = runtime.hook_output(event(session_title="Task"), "codex")
     assert "sessionTitle" not in codex["hookSpecificOutput"]
+    assert "mcp__ccd_session_mgmt" not in codex["hookSpecificOutput"]["additionalContext"]
     cursor = runtime.hook_output({"hook_event_name": "sessionStart", "conversation_id": SESSION}, "cursor")
     assert set(cursor) == {"additional_context"}
     assert "Classic IDE" in cursor["additional_context"]

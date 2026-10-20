@@ -331,11 +331,12 @@ async def test_cancelled_lazy_initialization_releases_idle_hold(runtime, monkeyp
 @pytest.mark.asyncio
 async def test_timeout_backoff_and_alias_isolation(runtime):
     supervisor, registry, secrets, endpoints, clients, _ = runtime
-    registry.definitions["one"]["limits"]["call_timeout_seconds"] = .05
+    # Keep the fixture's setup budget; the deliberately blocked call must time out.
     await supervisor.connect("one")
     endpoints["one"].block = True
     with pytest.raises(UpstreamError, match="timeout"):
-        await supervisor.call("one", "echo", {}, "codex")
+        await asyncio.wait_for(supervisor.call("one", "echo", {}, "codex"), 10)
+    assert endpoints["one"].started.is_set()
     with pytest.raises(UpstreamError, match="backoff"):
         await supervisor.call("one", "echo", {}, "codex")
     assert clients[0].is_closed
