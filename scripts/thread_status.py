@@ -192,7 +192,7 @@ def handle_hook_event(event: object, client: str, *, state_directory: Path | Non
                 current["last_interrupt"] = receipt
                 _write_record(record, current)
                 try:
-                    result = rename_codex_session(event["session_id"], "stopped", timeout=2.0,
+                    result = rename_codex_session(event["session_id"], "stopped", timeout=2.4,
                                                   expected_turn_id=event["turn_id"],
                                                   recorded_turn_id=current.get("turn_id"))
                     if result.get("persisted") is not True:
