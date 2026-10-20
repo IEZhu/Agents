@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import pytest
 
@@ -57,23 +58,49 @@ def test_repeated_rotation_updates_token_and_managed_client(installation, tmp_pa
         assert not (controller.directory / "maintenance.json").exists()
 
 
-def test_custom_profile_rotation_survives_removed_environment(installation, tmp_path, monkeypatch):
+@pytest.mark.parametrize("project_scoped", [False, True])
+def test_custom_profile_rotation_survives_removed_environment(installation, tmp_path, monkeypatch, project_scoped):
     controller, _, _, _ = installation
     controller.config["port"] = 8765
     write_json(controller.directory / "service.json", controller.config)
     atomic_private(controller.directory / "token", "original-profile-token")
     profile = tmp_path / "alternate-claude"
+    project = tmp_path / "repo" if project_scoped else None
+    if project:
+        project.mkdir()
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(profile))
     migration = ClientMigration(controller.directory)
-    migration.apply([migration.prepare("claude")])
+    migration.apply([migration.prepare("claude", project)])
+    config_path = profile / ".claude.json"
+
+    def profile_entry():
+        document = json.loads(config_path.read_text())
+        scope = document["projects"][str(project.resolve())] if project else document
+        return scope["mcpServers"]["Agents-Core"]
+
+    before = profile_entry()
+    bridge_path = Path(before["args"][1]) if project is None else None
     monkeypatch.delenv("CLAUDE_CONFIG_DIR")
 
     assert rotate_token(controller)["state"] == "rotated"
 
     token = (controller.directory / "token").read_text().strip()
-    entry = json.loads((profile / ".claude.json").read_text())["mcpServers"]["Agents-Core"]
-    assert entry["headers"]["Authorization"] == "Bearer " + token
+    entry = profile_entry()
     assert token != "original-profile-token"
+    if project:
+        assert entry["headers"]["Authorization"] == "Bearer " + token
+        assert entry["headers"]["X-Agents-Workspace"] == before["headers"]["X-Agents-Workspace"]
+        assert entry["url"] == before["url"]
+    else:
+        assert entry == before
+        assert "headers" not in entry and "url" not in entry
+        assert token not in config_path.read_text()
+        settings = json.loads(bridge_path.read_text())
+        assert settings["headers"]["Authorization"] == "Bearer " + token
+        assert settings["workspace"] == "auto"
+        assert settings["url"] == "http://127.0.0.1:8765/mcp"
+        assert settings["headers"]["X-Agents-Client"] == "claude-code"
+        assert "X-Agents-Workspace" not in settings["headers"]
 
 
 def test_rotation_rewrites_the_stdio_bridge_configuration(installation):
