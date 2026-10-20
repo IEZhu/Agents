@@ -48,6 +48,7 @@ def test_default_paths_remain_source_derived():
                       "agents": str(ROOT / "agents"), "flows": str(ROOT / "flows")}
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Imports the POSIX-only schedule runner entrypoints")
 def test_matching_runtime_reads_canonical_components_and_personal_flows(tmp_path):
     canonical = tmp_path / "installation"
     agent = canonical / "agents" / "canonical" / "system_prompt.mdc"
@@ -273,7 +274,7 @@ def test_original_raw_stdio_entry_still_bridges_the_canonical_installation(tmp_p
     (source / "daemon/__init__.py").touch()
     shutil.copyfile(ROOT / "src/daemon/bridge.py", source / "daemon/bridge.py")
     shutil.copyfile(ROOT / "src/windows_job.py", source / "windows_job.py")
-    prefix = (ROOT / "src/server.py").read_text().split("import atexit", 1)[0]
+    prefix = (ROOT / "src/server.py").read_text(encoding="utf-8").split("import atexit", 1)[0]
     server = source / "server.py"
     server.write_text(prefix + "raise AssertionError('a second engine would start')\n")
     bridge = canonical / "bridge" / "stdio.mjs"

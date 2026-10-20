@@ -206,7 +206,8 @@ class PythonStdioBridgeTests(unittest.TestCase):
             with self.session(settings={"workspace": "auto"}, cwd=cwd, capabilities={}) as (daemon, client):
                 response = client.request(call(1))
                 self.assertNotIn("error", response)
-                self.assertEqual(daemon.registrations, [{"path": str(Path(cwd).resolve())}])
+                self.assertEqual(len(daemon.registrations), 1)
+                self.assertEqual(Path(daemon.registrations[0]["path"]).resolve(), Path(cwd).resolve())
                 self.assertIsNotNone(daemon.event(1)["workspace"])
                 self.assertEqual(client.roots_asked, 0)
                 self.assertEqual(daemon.event("init")["message"]["params"]["capabilities"], {})

@@ -1,6 +1,8 @@
 """Registrations this installation wrote are kept in the form migrate writes now (#292)."""
 import json
+import os
 from pathlib import Path
+import shutil
 import sys
 import tomllib
 
@@ -16,13 +18,16 @@ URL = "http://127.0.0.1:8765/mcp"
 
 @pytest.fixture
 def setup(tmp_path):
+    from src import executables
+    executables.reset()
     state = tmp_path / "service"; state.mkdir(mode=0o700)
     home = tmp_path / "home"; home.mkdir()
     # Any existing absolute file stands in for Node: the bridge entry only names it.
     write_json(state / "service.json", {"installation": str(tmp_path / "install"), "port": 8765,
-                                        "node": sys.executable})
+                                        "node": sys.executable, "git": shutil.which("git"), "path": os.environ.get("PATH", "")})
     atomic_private(state / "token", TOKEN)
-    return state, home
+    yield state, home
+    executables.reset()
 
 
 def project(tmp_path, state, name):
@@ -478,9 +483,10 @@ def test_a_tracked_layer_is_left_for_migrate(setup, tmp_path):
     root, identity = project(tmp_path, state, "tracked")
     subprocess.run(["git", "init", "-q", str(root)], check=True)
     (root / ".codex").mkdir()
+    helper = f"node {tmp_path / 'install/bridge/headers.mjs'} {state / 'bridges' / ('codex-' + identity + '.json')}"
     (root / ".codex/config.toml").write_text(
         f'[mcp_servers."Agents-Core"]\nurl = "{URL}"\n'
-        f'http_headers_helper = "node {tmp_path}/install/bridge/headers.mjs {state}/bridges/codex-{identity}.json"\n')
+        f'http_headers_helper = {json.dumps(helper)}\n')
     subprocess.run(["git", "-C", str(root), "add", ".codex/config.toml"], check=True)
     before = [(home / ".codex/config.toml").read_bytes(), (root / ".codex/config.toml").read_bytes()]
 
