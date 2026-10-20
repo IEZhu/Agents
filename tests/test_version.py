@@ -21,8 +21,10 @@ def fresh(tmp_path, monkeypatch):
     monkeypatch.setattr(version.executables, "_installed_git_version", lambda: (2, 45))
     monkeypatch.setattr(version.executables, "_line_endings", lambda repository: [])
     version.agents_core_version.cache_clear()
+    version.agents_core_commit.cache_clear()
     yield
     version.agents_core_version.cache_clear()
+    version.agents_core_commit.cache_clear()
     persona.configure_ui_port(None)
 
 
@@ -75,6 +77,38 @@ def test_unknown_without_own_git_metadata(monkeypatch, tmp_path):
     monkeypatch.setattr(version, "ROOT", tmp_path / "missing")
     fake_git(monkeypatch, "2026-10-01T08:01:00+00:00")
     assert version.agents_core_version() == "unknown"
+
+
+def test_commit_is_frozen_from_the_running_source_tree(monkeypatch):
+    calls = []
+    commits = iter(["a" * 40, "b" * 40])
+
+    def git(*args):
+        calls.append(args)
+        return next(commits) + "\n"
+    monkeypatch.setattr(version, "_git", git)
+    assert version.agents_core_commit() == "a" * 40
+    assert version.agents_core_commit() == "a" * 40
+    assert calls == [("rev-parse", "--verify", "HEAD^{commit}")]
+
+
+def test_source_archive_does_not_claim_the_content_installations_commit(monkeypatch, tmp_path):
+    from src import runtime_paths
+    canonical = tmp_path / "canonical"
+    (canonical / ".git").mkdir(parents=True)
+    monkeypatch.setattr(runtime_paths, "_installation_root", canonical)
+    source = tmp_path / "source-archive"
+    source.mkdir()
+    monkeypatch.setattr(version, "ROOT", source)
+    monkeypatch.setattr(version, "_git", lambda *args: pytest.fail("must not use canonical Git metadata"))
+    assert version.agents_core_commit() is None
+    assert version.agents_core_version() == "unknown"
+
+
+@pytest.mark.parametrize("output", [None, "unknown", "a" * 39, "a" * 40 + "\nextra"])
+def test_unreadable_or_malformed_commit_identity_stays_unknown(monkeypatch, output):
+    monkeypatch.setattr(version, "_git", lambda *args: output)
+    assert version.agents_core_commit() is None
 
 
 def test_unknown_when_status_fails(monkeypatch):

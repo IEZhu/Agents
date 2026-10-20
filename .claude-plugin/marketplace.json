@@ -12,6 +12,13 @@
       "description": "Specialist personas, workflows and repository memory through a separately installed local MCP server. Requires macOS or Linux and Python 3.11+.",
       "category": "productivity",
       "tags": ["personas", "agents", "workflows", "repository-memory", "mcp"]
+    },
+    {
+      "name": "agents-core-context-compaction",
+      "source": "./plugins/agents-core-context-compaction",
+      "description": "Optional native Claude Code compaction between successful main turns, controlled by a separate owner setting that defaults to off. No separate API key.",
+      "category": "productivity",
+      "tags": ["context", "compaction", "mods"]
     }
   ]
 }
