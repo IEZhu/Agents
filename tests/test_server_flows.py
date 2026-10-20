@@ -94,8 +94,8 @@ async def test_no_install_fallback_when_stdio_cwd_is_lost(environment, monkeypat
     def missing_cwd():
         raise FileNotFoundError("cwd unavailable")
     monkeypatch.setattr(config.os, "getcwd", missing_cwd)
-    # A previous legacy lookup may legitimately have cached its fallback.
-    assert config.get_client_repo_root() == config.INSTALL_ROOT
+    with pytest.raises(config.ClientRootError, match="cwd unavailable"):
+        config.get_client_repo_root()
     result = json.loads(await server.run_flow("check"))
     assert result["status"] == "error"
     assert "cwd unavailable" in result["error"]
@@ -293,7 +293,7 @@ async def test_run_flow_persona_waits_for_readiness(environment, tmp_path, monke
 
 
 @pytest.mark.asyncio
-async def test_stdio_markerless_cwd_and_program_files_never_become_repo_path(environment, tmp_path, monkeypatch):
+async def test_stdio_empty_cwd_works_but_program_files_are_refused(environment, tmp_path, monkeypatch):
     monkeypatch.delenv("AGENTS_CLIENT_REPO_ROOT")
     monkeypatch.setattr(config, "_CLIENT_ROOT_MARKERS", ("no-such-marker",))
     plain = tmp_path / "plain"
@@ -301,8 +301,7 @@ async def test_stdio_markerless_cwd_and_program_files_never_become_repo_path(env
     monkeypatch.chdir(plain)
     config._reset_client_repo_root_cache()
     result = json.loads(await server.run_flow("check"))
-    assert result["status"] == "error" and result["error"].startswith("workspace_required: refusing")
-    assert "repo_path" not in result
+    assert result["status"] == "needs_execution" and result["repo_path"] == str(plain.resolve())
 
     programs = tmp_path / "Program Files"
     (programs / "tool").mkdir(parents=True)

@@ -68,6 +68,11 @@ REM ============== Parse Arguments ==============
 set "SKIP_ENV=false"
 set "SKIP_INDEX=false"
 set "SKIP_MCP=false"
+set "SKIP_HOOKS=false"
+set "SKIP_READINESS=false"
+set "SKIP_THREAD_STATUS=false"
+set "SKIP_DAEMON=false"
+set "SKIP_COOPERATION=false"
 REM As in init_repo.sh: AGENTS_ASSUME_YES=1, true or yes counts as --yes.
 set "ASSUME_YES=false"
 if "!AGENTS_ASSUME_YES!"=="1" set "ASSUME_YES=true"
@@ -80,6 +85,11 @@ if "%~1"=="" goto :args_done
 if /I "%~1"=="--skip-env"    set "SKIP_ENV=true"
 if /I "%~1"=="--skip-index"  set "SKIP_INDEX=true"
 if /I "%~1"=="--skip-mcp"    set "SKIP_MCP=true"
+if /I "%~1"=="--skip-hooks" set "SKIP_HOOKS=true"
+if /I "%~1"=="--skip-readiness" set "SKIP_READINESS=true"
+if /I "%~1"=="--skip-thread-status" set "SKIP_THREAD_STATUS=true"
+if /I "%~1"=="--skip-daemon" set "SKIP_DAEMON=true"
+if /I "%~1"=="--skip-cooperation" set "SKIP_COOPERATION=true"
 REM The plugin check (scripts\_helpers\claude_code_plugin.py) reads the variable.
 if /I "%~1"=="--force-claude-code-mcp" set "AGENTS_FORCE_CLAUDE_CODE_MCP=1"
 if /I "%~1"=="--yes"         set "ASSUME_YES=true"
@@ -99,11 +109,14 @@ echo   py -3 scripts\install_instructions.py [--clients codex,claude]
 echo     Update only client instructions, without running MCP or dependency setup.
 echo(
 echo Flags:
-echo   --yes, -y      Do not ask whether to set up sync between machines
+echo   --yes, -y      Accept hooks, shared daemon and cooperation; do not ask about sync
 echo                  (also AGENTS_ASSUME_YES=1); the other prompts still ask
 echo   --skip-env     Skip .env file creation
 echo   --skip-index   Skip embedding model download and index pre-build
-echo   --skip-mcp     Skip MCP configuration and also the client instruction updates
+echo   --skip-mcp     Skip MCP, instructions, hooks, daemon and cooperation
+echo   --skip-hooks   Skip hooks; keep daemon and cooperation choices
+echo   --skip-readiness / --skip-thread-status  Skip one hook option
+echo   --skip-daemon / --skip-cooperation  Skip one shared-runtime option
 echo   --force-claude-code-mcp
 echo                  Register Agents-Core for Claude Code even when the agents-core
 echo                  plugin is installed and enabled (AGENTS_FORCE_CLAUDE_CODE_MCP=1)
@@ -716,6 +729,8 @@ if exist "!ANTIGRAVITY_CONFIG!" (
 )
 "%PYTHON_ABS%" "%HELPERS%\inject_mcp.py" "!ANTIGRAVITY_CONFIG!" "%PYTHON_ABS%" "%SERVER_ABS%"
 if !errorlevel! equ 0 (
+    "%PYTHON_ABS%" "%HELPERS%\install_antigravity_workspace.py" "%PYTHON_ABS%" "%SERVER_ABS%" "!ANTIGRAVITY_CONFIG!"
+    if !errorlevel! neq 0 exit /b 1
     echo   %GREEN%+%NC% Agents-Core added to Antigravity config
     set "CONFIGURED_ENVS=!CONFIGURED_ENVS! Antigravity"
 ) else (
@@ -724,10 +739,21 @@ if !errorlevel! equ 0 (
 :skip_antigravity
 
 REM --- Configure Codex instructions ---
-REM MCP registration is separate from these global persona instructions.
+REM Instructions and MCP use the same detected Codex profile.
 echo   %GREEN%^>%NC% Checking Codex global instructions...
 "%PYTHON_ABS%" "%HELPERS%\install_codex_instructions.py" "%ROUTING_TEMPLATE%"
 if !errorlevel! neq 0 echo   %RED%x%NC% Failed to configure Codex instructions - inspect the reported path
+
+"%PYTHON_ABS%" "%HELPERS%\install_codex_mcp.py" "%PYTHON_ABS%" "%SERVER_ABS%"
+set "CODEX_MCP_STATUS=!errorlevel!"
+if "!CODEX_MCP_STATUS!"=="0" set "CONFIGURED_ENVS=!CONFIGURED_ENVS! Codex"
+if not "!CODEX_MCP_STATUS!"=="0" if not "!CODEX_MCP_STATUS!"=="2" (
+    echo   %RED%x%NC% Failed to configure Codex MCP
+    exit /b 1
+)
+
+"%PYTHON_ABS%" "%HELPERS%\ensure_workspace_bindings.py" "%SERVER_ABS%"
+if !errorlevel! neq 0 exit /b 1
 
 REM --- MCP Summary ---
 echo(
@@ -749,6 +775,24 @@ if not errorlevel 1 (
 if "!_BOTH_CLIENTS!"=="true" call :note_desktop_registration
 
 :mcp_done
+
+REM ============== Client Lifecycle Hooks ==============
+set "SETUP_OPTIONS_FAILED=false"
+if "!SKIP_MCP!"=="true" goto :hooks_done
+set "_HOOK_FLAGS="
+if "!ASSUME_YES!"=="true" set "_HOOK_FLAGS=!_HOOK_FLAGS! --yes"
+if "!SKIP_HOOKS!"=="true" set "_HOOK_FLAGS=!_HOOK_FLAGS! --skip-hooks"
+if "!SKIP_DAEMON!"=="true" set "_HOOK_FLAGS=!_HOOK_FLAGS! --skip-daemon"
+if "!SKIP_COOPERATION!"=="true" set "_HOOK_FLAGS=!_HOOK_FLAGS! --skip-cooperation"
+if "!AGENTS_FORCE_CLAUDE_CODE_MCP!"=="1" set "_HOOK_FLAGS=!_HOOK_FLAGS! --force-claude-code-mcp"
+if "!SKIP_READINESS!"=="true" set "_HOOK_FLAGS=!_HOOK_FLAGS! --skip-readiness"
+if "!SKIP_THREAD_STATUS!"=="true" set "_HOOK_FLAGS=!_HOOK_FLAGS! --skip-thread-status"
+"%PYTHON_ABS%" "%REPO_ROOT%\scripts\install_setup_options.py" !_HOOK_FLAGS!
+if errorlevel 1 (
+    set "SETUP_OPTIONS_FAILED=true"
+    echo   %YELLOW%WARNING:%NC% Some setup options failed; continuing to sync, summary and health checks.
+)
+:hooks_done
 
 REM ============== Sync Between Machines ==============
 REM The personal library gets local Git version history on every installation,
@@ -776,7 +820,11 @@ REM ============== Final Summary ==============
 
 echo(
 echo %CYAN%===============================%NC%
-echo %BLUE%  Initialization Complete%NC%
+if "!SETUP_OPTIONS_FAILED!"=="true" (
+    echo %YELLOW%  Initialization finished with setup warnings%NC%
+) else (
+    echo %BLUE%  Initialization Complete%NC%
+)
 echo %CYAN%===============================%NC%
 echo(
 echo   %GREEN%Next steps:%NC%
@@ -813,9 +861,9 @@ if exist "%ENV_FILE%" (
 )
 if "!_API_KEY_OK!"=="false" echo   %YELLOW%WARNING:%NC% ANTHROPIC_API_KEY not configured - document OCR will be unavailable
 
-echo   To enable repository memory ^& history in a project:
-echo      Run %CYAN%describe_repo()%NC% in your first Claude session inside that repo.
-echo      It writes a compressed overview into the repo's own CLAUDE.md
+echo   Project memory and history are linked automatically from the client folder:
+echo      Empty folders are supported. For an optional overview, call %CYAN%describe_repo()%NC%.
+echo      It loads an existing overview or asks the model to prepare one for the repo's CLAUDE.md
 echo      (managed section -- not the global %%USERPROFILE%%\.claude\CLAUDE.md^).
 echo      If MCP sampling is unavailable it returns %CYAN%status="needs_summary"%NC%
 echo      and you finalize the write with %CYAN%write_repo_summary(...)%NC%.
@@ -853,6 +901,11 @@ if not "!CLAUDE_MD_CONFIGURED!"=="true" if exist "%TEMPLATE_FILE%" (
     echo(
 )
 
+REM ============== Setup Option Result ==============
+if "!SETUP_OPTIONS_FAILED!"=="true" (
+    echo   %YELLOW%WARNING:%NC% Setup finished with failed options. Completed steps were retained; fix the reported problem and rerun.
+    exit /b 1
+)
 echo %GREEN%Happy coding%NC%
 echo(
 exit /b 0
