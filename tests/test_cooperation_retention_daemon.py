@@ -85,6 +85,7 @@ async def test_retention_repeats_off_loop_and_retries_failure(tmp_path, coordina
         await until(lambda: coordinator.instances and len(coordinator.instances[0].calls) >= 2)
         owner = coordinator.instances[0]
         assert service.state == "ready" and not task.done()
+        assert service.health()["cooperation"] == "ready"
         assert owner.retention_days == 45
         assert all(worker != threading.get_ident() for worker in owner.calls)
         assert owner.times[1] - owner.times[0] >= daemon.COOPERATION_RETENTION_INTERVAL
@@ -111,6 +112,7 @@ async def test_disabled_runtime_adds_no_cooperation_maintenance(tmp_path, coordi
         await asyncio.sleep(.05)
         assert not coordinator.instances
         assert service.cooperation is None
+        assert service.health()["cooperation"] == "disabled"
         assert not (tmp_path / "cooperation").exists()
     finally:
         service.stop.set()
@@ -168,3 +170,21 @@ async def test_retention_counts_as_io_and_pauses_during_drain(tmp_path, coordina
         service.state = "ready"
         await until(lambda: len(owner.calls) >= 2)
     assert owner.closed and not owner.collecting
+
+
+@pytest.mark.asyncio
+async def test_health_exposes_cooperation_startup_failure(tmp_path, coordinator, monkeypatch, caplog):
+    def fail_start(self):
+        raise RuntimeError("PRIVATE_COORDINATOR_ERROR")
+    monkeypatch.setattr(coordinator, "start", fail_start)
+    service = daemon.Service(tmp_path, "token", runtime_loader=runtime())
+    task = asyncio.create_task(service.start_runtime())
+    try:
+        await until(lambda: service.state == "ready")
+        assert service.health()["cooperation"] == "unavailable"
+        assert service.cooperation is None
+        assert coordinator.instances[0].closed
+        assert "PRIVATE_COORDINATOR_ERROR" not in caplog.text
+    finally:
+        service.stop.set()
+        await asyncio.wait_for(task, 2)

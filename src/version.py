@@ -14,6 +14,7 @@ update always starts a new process.
 from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
+import re
 import subprocess
 
 from src import executables
@@ -108,3 +109,17 @@ def agents_core_branch() -> str | None:
         return None
     found = _git("symbolic-ref", "--quiet", "--short", "HEAD")
     return found.strip() or None if found else None
+
+
+@lru_cache(maxsize=1)
+def agents_core_commit() -> str | None:
+    """The running source tree's HEAD, frozen during daemon startup.
+
+    A source archive without its own Git metadata has no verified commit. Never
+    substitute the canonical content installation's HEAD for its source identity.
+    """
+    if not (ROOT / ".git").exists():
+        return None
+    found = _git("rev-parse", "--verify", "HEAD^{commit}")
+    commit = found.strip() if found else ""
+    return commit if re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", commit) else None
