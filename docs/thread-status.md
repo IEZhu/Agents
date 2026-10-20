@@ -53,7 +53,7 @@ from closure. A new work request resumes `working`.
 | Surface | Start of work | Later semantic transitions |
 |---|---|---|
 | Claude Code terminal and IDE sessions | `UserPromptSubmit` can set `hookSpecificOutput.sessionTitle` when an existing title is supplied | Model uses its native rename capability, or the installed helper calls the public Claude Agent SDK metadata API |
-| Claude desktop app Code tab | Hook supplies identity and policy; the model sets the title with the app's `set_session_title` tool | Same app tool with `session_id: "self"`; no hook `sessionTitle` or SDK helper |
+| Claude desktop app Code tab | Hook supplies identity and policy; the model sets the title with the app's `set_session_title` tool | Same app tool with `session_id: "self"`; no hook `sessionTitle` or SDK helper. After the user presses stop, an `asyncRewake` watcher wakes the model once to set `stopped` |
 | Codex desktop | Hook supplies identity and policy; the model uses the host's native current-chat rename tool | Native tool when exposed; `Interrupt` can persist `stopped` through the public App Server metadata API |
 | Codex CLI/IDE | Hook supplies identity and policy | Native tool when exposed, or the metadata helper with a known current session ID |
 | Cursor Agents window | `sessionStart` supplies policy and conversation identity | Model-driven native rename, only when the surface exposes it |
@@ -63,8 +63,9 @@ Claude's native prompt hook sets a working prefix only for unmarked, `unknown`
 or `working` titles. It preserves `needs_user`, `waiting`, `blocked`, `review`,
 `paused`, `stopped`, `finishing`, `ready_to_close` and `closed` until the model
 decides whether the new request actually resumes work. Session startup, resume and compaction only
-deliver context, without claiming work has started. Ordinary response-end hooks
-are deliberately absent: the end of a response does not establish task completion. Subagent and
+deliver context, without claiming work has started. Response-end hooks that set a status
+are deliberately absent: the end of a response does not establish task completion. The
+interrupt watcher's `Stop` handler only records that a turn ended normally and changes no title. Subagent and
 background events cannot rename the parent chat.
 
 The desktop app starts Code-tab sessions with `CLAUDE_CODE_ENTRYPOINT=claude-desktop`.
@@ -97,10 +98,38 @@ interrupt or a failed metadata operation cannot produce a success message. The h
 turn. It does not prove that an already open desktop sidebar refreshed.
 
 Claude's documented `Stop` event excludes user interruption, and cancelling a
-running tool does not fire `PostToolUseFailure`. Cursor documents an aborted
-stop status, but no verified general title-write API. These clients therefore
-have no automatic button-stop adapter here; do not infer interruption from
-ordinary tool failures or claim unsupported title changes.
+running tool does not fire `PostToolUseFailure`. In the desktop Code tab, where
+only the model can rename the chat, the Claude profile therefore gets a separate
+interrupt watcher, `hooks/agents-core-thread-status-interrupt.py`. Its
+`UserPromptSubmit` handler runs with `asyncRewake: true` and a six-hour timeout
+and follows the turn's `transcript_path`. When the user stops a turn, Claude Code
+writes its own interrupt record: a `user` record bound to the turn's `promptId`
+whose content is one text block starting with `[Request interrupted by user`. The
+watcher matches only that record for its own prompt, including one written just
+before it started. It then waits one second so that a prompt typed right after
+stop can supersede it, and exits with code 2. That exit wakes Claude for one silent
+turn: the reminder asks for exactly one `set_session_title` call with the `stopped`
+prefix and no reply text. The `Stop` handler marks a normal end, which ends the
+watcher without output; a newer prompt also ends an older watcher. Every other path
+exits 0, including usage errors, malformed input and unsupported environments,
+because exit 2 is the wake-up signal. A separate runtime file keeps an older
+installer that replaces the main runtime from leaving these handlers calling a
+mode it lacks. The watcher acts only with `CLAUDE_CODE_ENTRYPOINT=claude-desktop`
+and a bundled CLI path naming Claude Code 2.1.287 or later, the release that stops
+a missing `asyncRewake` script from waking Claude repeatedly, and it ignores
+subagent and sidechain events. Per-session prompt and end markers live in
+`hooks/agents-core-thread-status-interrupt-state/`.
+
+This is the one case where a thread-status hook starts a model turn: each stop
+costs a short model call over the conversation, and the woken turn appears in the
+chat. The transcript record is Claude Code's internal format rather than a
+documented contract. If it changes, the watcher stops matching and no title
+changes, instead of a false `stopped`. Turns longer than six hours, turns that no
+`UserPromptSubmit` starts, terminal and IDE sessions, and a model that disregards
+the reminder keep the previous title. Cursor documents an aborted stop status, but
+no verified general title-write API, so Cursor has no automatic button-stop
+adapter. Do not infer interruption from ordinary tool failures or claim
+unsupported title changes.
 
 The always-on `thread-status` rule reaches new persona activations and explicit
 refreshes, unless rules are disabled or an exact flow selection omits it.
@@ -141,6 +170,12 @@ a trust decision. Managed policy or an older client can prevent hooks from
 running. Existing idle sessions are not woken or renamed in bulk. No daemon
 restart or live installation source edit is required to use the copied hooks.
 
+For Claude the installer also copies `agents-core-thread-status-interrupt.py` and
+adds the watcher's `UserPromptSubmit` (`asyncRewake`) and `Stop` handlers, each in
+its own group. If the profile's existing `Stop` entries are not standard hook
+groups, it leaves the watcher out and reports `interrupt_watcher: false`; the
+other thread-status hooks still install.
+
 ## Explicit helper and limits
 
 The hook context gives Claude an argument array for its current session. Its
@@ -180,20 +215,25 @@ launcher layouts fail visibly; lifecycle hooks still deliver policy context.
 
 To remove the opt-in hooks, remove only commands referencing
 `agents-core-thread-status.py` from Claude/Codex `SessionStart` and
-`UserPromptSubmit`, Codex `Interrupt`, or Cursor `sessionStart`. Preserve other handlers, then delete
-the copied runtime, `agents_core_thread_titles.py`, `agents_core_codex_titles.py`
-and its own turn-record directory after checking no hook still references them.
+`UserPromptSubmit`, Codex `Interrupt`, or Cursor `sessionStart`, and commands
+referencing `agents-core-thread-status-interrupt.py` from Claude `UserPromptSubmit`
+and `Stop`. Preserve other handlers, then delete
+the copied runtimes, `agents_core_thread_titles.py`, `agents_core_codex_titles.py`
+and their own turn-record directories after checking no hook still references them.
 The main uninstaller removes unchanged registrations and copied runtimes belonging to the selected installation, preserving modified or shared adapters and reporting retained turn state. A separate hook environment belongs to that environment and is preserved. Cleanup trusts the selected home directory and its system ancestors, so a linked home layout does not prevent removing owned hooks. Linked profile directories and runtime files below home are retained.
 
 ## Verification and sources
 
 ```bash
-PYTHONDONTWRITEBYTECODE=1 LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/test_thread_status.py tests/test_thread_status_installer.py tests/test_codex_thread_titles.py tests/test_rules.py tests/test_subagent.py -q -p no:cacheprovider
+PYTHONDONTWRITEBYTECODE=1 LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/test_thread_status.py tests/test_thread_status_interrupt.py tests/test_thread_status_installer.py tests/test_codex_thread_titles.py tests/test_rules.py tests/test_subagent.py -q -p no:cacheprovider
 ```
 
 Tests use temporary profiles and fake SDKs; they check preservation, idempotence,
 event/output compatibility, stale-interrupt races, bounded transport, failure
-readback and worker exclusion.
+readback and worker exclusion. The interrupt watcher tests cover record matching,
+supersession, a prompt typed within the settle window, an interrupt written before
+the watcher started, version and entrypoint gating, and exit code 0 for every
+failure path.
 The `Thread status` workflow runs these adapter, hook and installer tests on
 Linux, macOS and Windows. They do not establish live client rendering, client
 trust or a real PowerShell/client integration.
