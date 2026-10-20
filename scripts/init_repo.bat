@@ -777,6 +777,7 @@ if "!_BOTH_CLIENTS!"=="true" call :note_desktop_registration
 :mcp_done
 
 REM ============== Client Lifecycle Hooks ==============
+set "SETUP_OPTIONS_FAILED=false"
 if "!SKIP_MCP!"=="true" goto :hooks_done
 set "_HOOK_FLAGS="
 if "!ASSUME_YES!"=="true" set "_HOOK_FLAGS=!_HOOK_FLAGS! --yes"
@@ -787,7 +788,10 @@ if "!AGENTS_FORCE_CLAUDE_CODE_MCP!"=="1" set "_HOOK_FLAGS=!_HOOK_FLAGS! --force-
 if "!SKIP_READINESS!"=="true" set "_HOOK_FLAGS=!_HOOK_FLAGS! --skip-readiness"
 if "!SKIP_THREAD_STATUS!"=="true" set "_HOOK_FLAGS=!_HOOK_FLAGS! --skip-thread-status"
 "%PYTHON_ABS%" "%REPO_ROOT%\scripts\install_setup_options.py" !_HOOK_FLAGS!
-if errorlevel 1 exit /b 1
+if errorlevel 1 (
+    set "SETUP_OPTIONS_FAILED=true"
+    echo   %YELLOW%WARNING:%NC% Some setup options failed; continuing to sync, summary and health checks.
+)
 :hooks_done
 
 REM ============== Sync Between Machines ==============
@@ -816,7 +820,11 @@ REM ============== Final Summary ==============
 
 echo(
 echo %CYAN%===============================%NC%
-echo %BLUE%  Initialization Complete%NC%
+if "!SETUP_OPTIONS_FAILED!"=="true" (
+    echo %YELLOW%  Initialization finished with setup warnings%NC%
+) else (
+    echo %BLUE%  Initialization Complete%NC%
+)
 echo %CYAN%===============================%NC%
 echo(
 echo   %GREEN%Next steps:%NC%
@@ -853,9 +861,9 @@ if exist "%ENV_FILE%" (
 )
 if "!_API_KEY_OK!"=="false" echo   %YELLOW%WARNING:%NC% ANTHROPIC_API_KEY not configured - document OCR will be unavailable
 
-echo   To enable repository memory ^& history in a project:
-echo      Run %CYAN%describe_repo()%NC% in your first Claude session inside that repo.
-echo      It writes a compressed overview into the repo's own CLAUDE.md
+echo   Project memory and history are linked automatically from the client folder:
+echo      Empty folders are supported. For an optional overview, call %CYAN%describe_repo()%NC%.
+echo      It loads an existing overview or asks the model to prepare one for the repo's CLAUDE.md
 echo      (managed section -- not the global %%USERPROFILE%%\.claude\CLAUDE.md^).
 echo      If MCP sampling is unavailable it returns %CYAN%status="needs_summary"%NC%
 echo      and you finalize the write with %CYAN%write_repo_summary(...)%NC%.
@@ -893,6 +901,11 @@ if not "!CLAUDE_MD_CONFIGURED!"=="true" if exist "%TEMPLATE_FILE%" (
     echo(
 )
 
+REM ============== Setup Option Result ==============
+if "!SETUP_OPTIONS_FAILED!"=="true" (
+    echo   %YELLOW%WARNING:%NC% Setup finished with failed options. Completed steps were retained; fix the reported problem and rerun.
+    exit /b 1
+)
 echo %GREEN%Happy coding%NC%
 echo(
 exit /b 0

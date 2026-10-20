@@ -7,6 +7,8 @@ import subprocess
 import sys
 import time
 
+from dotenv import dotenv_values
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
@@ -61,13 +63,16 @@ def refresh_registrations(controller, *, force_claude_code=False):
     # Startup upkeep may briefly own control.lock. Retry only an explicit busy result.
     for attempt in range(3):
         try:
-            report = registrations.run(controller.directory, force=True,
+            report = registrations.run(controller.directory, force=False,
                                        force_claude_code=force_claude_code)
             break
         except BlockingIOError:
             if attempt == 2:
                 raise
             time.sleep(.2)
+    if report.get('auto') is False:
+        print('Managed registration upkeep is disabled; existing registrations preserved.')
+        return False
     failed = False
     for client, result in report.get('clients', {}).items():
         status = result.get('status')
@@ -75,6 +80,23 @@ def refresh_registrations(controller, *, force_claude_code=False):
         failed |= status == 'failed'
     if failed:
         raise RuntimeError('Some managed client registrations could not be migrated')
+    return True
+
+
+def install_daemon(controller):
+    # Match setup's already downloaded model without exporting unrelated .env
+    # bindings (notably sync credentials) to service-management children.
+    settings = dotenv_values(ROOT / '.env')
+    model = os.environ.get('EMBEDDING_MODEL', settings.get('EMBEDDING_MODEL')) or None
+    cache = settings.get('FASTEMBED_CACHE_DIR')
+    temporary_cache = 'FASTEMBED_CACHE_DIR' not in os.environ and bool(cache)
+    if temporary_cache:
+        os.environ['FASTEMBED_CACHE_DIR'] = cache
+    try:
+        controller.install(python=sys.executable, model=model)
+    finally:
+        if temporary_cache:
+            os.environ.pop('FASTEMBED_CACHE_DIR', None)
 
 
 def setup_shared(args):
@@ -94,7 +116,7 @@ def setup_shared(args):
     if not selected and not cooperation:
         return
     if not controller.config:
-        controller.install(python=sys.executable, model=os.environ.get('EMBEDDING_MODEL') or None)
+        install_daemon(controller)
     with file_lock(controller.directory / 'control.lock', blocking=False):
         assert_service_safe(controller.directory)
         status = controller.status()
@@ -109,13 +131,18 @@ def setup_shared(args):
         raise RuntimeError('Shared daemon readiness could not be verified')
     # ClientMigration's managed-entry discovery preserves absent, custom, pinned
     # and foreign registrations; it never creates unrelated client profiles.
-    if selected:
-        refresh_registrations(controller, force_claude_code=args.force_claude_code_mcp)
-        print('Shared daemon ready; reconnect clients to use the shared runtime.')
+    print('Shared daemon ready.')
+    cooperation_ready = status.get('cooperation') == 'ready'
     if cooperation:
-        if status.get('cooperation') != 'ready':
-            raise RuntimeError('Cooperation is configured but its coordinator is unavailable; inspect service.log')
-        print('Cross-client agent cooperation ready.')
+        if cooperation_ready:
+            print('Cross-client agent cooperation ready.')
+        else:
+            print('WARNING: cooperation is configured but its coordinator is unavailable; inspect service.log.',
+                  file=sys.stderr)
+    if selected and refresh_registrations(controller, force_claude_code=args.force_claude_code_mcp):
+        print('Reconnect clients to use the shared runtime.')
+    if cooperation and not cooperation_ready:
+        raise RuntimeError('Cooperation is not ready')
 
 
 def main(argv=None):
@@ -135,6 +162,11 @@ def main(argv=None):
         failed = bool(hooks.main(options))
     try:
         setup_shared(args)
+    except BlockingIOError:
+        print('ERROR: a service/setup lock is busy. Retry after the other operation ends. '
+              'For first daemon installation, close standalone Agents-Core sessions, then retry; '
+              'or use --skip-daemon --skip-cooperation to keep standalone setup.', file=sys.stderr)
+        failed = True
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
         print(f'ERROR: shared daemon/cooperation setup failed ({type(error).__name__}). '
               'Earlier completed steps are retained. Check the cached model, service.log and '

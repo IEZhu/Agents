@@ -233,7 +233,8 @@ def test_hook_failure_does_not_skip_independent_daemon_setup(profile, monkeypatc
 
 @pytest.mark.parametrize('kind', ['bash', 'cmd'])
 @pytest.mark.parametrize('skip_mcp', [False, True])
-def test_native_launchers_forward_all_independent_options(tmp_path, kind, skip_mcp):
+@pytest.mark.parametrize('failure', [False, True])
+def test_native_launchers_forward_all_independent_options(tmp_path, kind, skip_mcp, failure):
     import os
     import shutil
     import subprocess
@@ -250,7 +251,11 @@ def test_native_launchers_forward_all_independent_options(tmp_path, kind, skip_m
     capture = tmp_path / 'captured.json'
     (root / 'scripts/install_setup_options.py').write_text(
         'import json, os, sys\nfrom pathlib import Path\n'
-        'Path(os.environ["SETUP_CAPTURE"]).write_text(json.dumps(sys.argv[1:]))\n')
+        'Path(os.environ["SETUP_CAPTURE"]).write_text(json.dumps(sys.argv[1:]))\n'
+        'raise SystemExit(int(os.environ["SETUP_FAIL"]))\n')
+    continued = tmp_path / 'continued.txt'
+    (root / 'scripts/continue.py').write_text(
+        'import os\nfrom pathlib import Path\nPath(os.environ["SETUP_CONTINUED"]).write_text("sync-summary-health")\n')
     def section(source, begin, end):
         start = source.index(begin)
         return source[start:source.index(end, start)]
@@ -259,27 +264,123 @@ def test_native_launchers_forward_all_independent_options(tmp_path, kind, skip_m
         arguments = section(source, '# ============== Parse Arguments', '# ============== Helper Functions')
         options = section(source, '# ============== Client Lifecycle Hooks', '# ============== Sync Between Machines')
         script = root / 'setup.sh'
-        script.write_text('set -e\nprint_step() { :; }\n' + arguments + options)
+        final_result = source[source.index('# ============== Setup Option Result'): ]
+        script.write_text('set -e\nprint_step() { :; }\nprint_warn() { :; }\n' + arguments + options
+                          + '\n"$PYTHON_ABS" "$REPO_ROOT/scripts/continue.py"\n' + final_result)
         invocation = [command, str(script)]
     else:
         source = (repository / 'scripts/init_repo.bat').read_text(encoding='utf-8')
         arguments = section(source, 'REM ============== Parse Arguments', '\n:args_done\n') + '\n:args_done\n'
         options = section(source, 'REM ============== Client Lifecycle Hooks', 'REM ============== Sync Between Machines')
         script = root / 'setup.bat'
+        final_result = section(source, 'REM ============== Setup Option Result', 'REM ============== Fatal Error Handler')
         script.write_bytes(('@echo off\nsetlocal EnableDelayedExpansion\n' + arguments + options
-                            + '\nexit /b 0\n').replace('\n', '\r\n').encode())
+                            + '\n"%PYTHON_ABS%" "%REPO_ROOT%\\scripts\\continue.py"\n' + final_result)
+                           .replace('\n', '\r\n').encode())
         invocation = [command, '/d', '/c', str(script)]
     flags = ['--yes', '--skip-hooks', '--skip-daemon', '--skip-cooperation',
              '--skip-readiness', '--skip-thread-status', '--force-claude-code-mcp']
     if skip_mcp:
         flags.append('--skip-mcp')
     environment = {**os.environ, 'REPO_ROOT': str(root), 'PYTHON_ABS': sys.executable,
-                   'SETUP_CAPTURE': str(capture)}
+                   'SETUP_CAPTURE': str(capture), 'SETUP_CONTINUED': str(continued),
+                   'SETUP_FAIL': '1' if failure else '0'}
     environment.pop('AGENTS_ASSUME_YES', None)
     environment.pop('AGENTS_FORCE_CLAUDE_CODE_MCP', None)
     result = subprocess.run(invocation + flags, env=environment, capture_output=True, text=True, timeout=15)
-    assert result.returncode == 0, result.stderr + result.stdout
+    assert result.returncode == int(failure and not skip_mcp), result.stderr + result.stdout
+    assert continued.read_text() == 'sync-summary-health'
     if skip_mcp:
         assert not capture.exists()
     else:
         assert set(json.loads(capture.read_text())) == set(flags)
+
+
+def test_fresh_daemon_uses_persisted_model_cache_without_exporting_secrets(profile, monkeypatch):
+    root, controller, events = profile
+    monkeypatch.delenv('EMBEDDING_MODEL', raising=False)
+    monkeypatch.delenv('FASTEMBED_CACHE_DIR', raising=False)
+    monkeypatch.delenv('INSTALL_TEST_PRIVATE_KEY', raising=False)
+    (root / '.env').write_text('EMBEDDING_MODEL=intfloat/multilingual-e5-large\n'
+                             'FASTEMBED_CACHE_DIR=/custom/cached-models\n'
+                             'INSTALL_TEST_PRIVATE_KEY=never-export\n')
+    calls = []
+    original = controller.install
+    def install(**kwargs):
+        calls.append({**kwargs, 'cache': setup.os.environ.get('FASTEMBED_CACHE_DIR'),
+                      'private': setup.os.environ.get('INSTALL_TEST_PRIVATE_KEY')})
+        original(**kwargs)
+    monkeypatch.setattr(controller, 'install', install)
+    assert setup.main(['--yes']) == 0
+    assert calls[0]['model'] == 'intfloat/multilingual-e5-large'
+    assert calls[0]['cache'] == '/custom/cached-models'
+    assert calls[0]['private'] is None
+    assert 'FASTEMBED_CACHE_DIR' not in setup.os.environ
+    assert 'INSTALL_TEST_PRIVATE_KEY' not in setup.os.environ
+
+
+@pytest.mark.parametrize('failure', [False, True])
+def test_shell_model_cache_override_persisted_settings_and_survive_failure(profile, monkeypatch, failure):
+    root, controller, _ = profile
+    (root / '.env').write_text('EMBEDDING_MODEL=persisted-model\nFASTEMBED_CACHE_DIR=/persisted/cache\n')
+    monkeypatch.setenv('EMBEDDING_MODEL', 'shell-model')
+    monkeypatch.setenv('FASTEMBED_CACHE_DIR', '/shell/cache')
+    def install(**kwargs):
+        assert kwargs['model'] == 'shell-model'
+        assert setup.os.environ['FASTEMBED_CACHE_DIR'] == '/shell/cache'
+        if failure:
+            raise RuntimeError('install failed')
+    monkeypatch.setattr(controller, 'install', install)
+    if failure:
+        with pytest.raises(RuntimeError):
+            setup.install_daemon(controller)
+    else:
+        setup.install_daemon(controller)
+    assert setup.os.environ['FASTEMBED_CACHE_DIR'] == '/shell/cache'
+
+
+def test_persisted_cache_environment_is_restored_after_install_failure(profile, monkeypatch):
+    root, controller, _ = profile
+    (root / '.env').write_text('FASTEMBED_CACHE_DIR=/persisted/cache\n')
+    monkeypatch.delenv('FASTEMBED_CACHE_DIR', raising=False)
+    def fail(**kwargs):
+        assert setup.os.environ['FASTEMBED_CACHE_DIR'] == '/persisted/cache'
+        raise RuntimeError('failed')
+    monkeypatch.setattr(controller, 'install', fail)
+    with pytest.raises(RuntimeError):
+        setup.install_daemon(controller)
+    assert 'FASTEMBED_CACHE_DIR' not in setup.os.environ
+
+
+
+def test_disabled_upkeep_is_preserved_and_stale_failure_reports_are_ignored(profile, monkeypatch, capsys):
+    calls = []
+    def refresh(*args, **kwargs):
+        calls.append(kwargs)
+        return {'auto': False, 'clients': {'codex': {'status': 'failed', 'reason': 'stale'}}}
+    monkeypatch.setattr(setup.registrations, 'run', refresh)
+    assert setup.main(['--yes']) == 0
+    assert calls[0]['force'] is False
+    output = capsys.readouterr()
+    assert 'upkeep is disabled' in output.out
+    assert 'codex failed' not in output.out and 'Reconnect clients' not in output.out
+
+
+def test_busy_first_install_explains_standalone_session_remedy(profile, monkeypatch, capsys):
+    def busy(**kwargs):
+        raise BlockingIOError('PRIVATE_LOCK_CONTENT')
+    monkeypatch.setattr(profile[1], 'install', busy)
+    assert setup.main(['--yes']) == 1
+    output = capsys.readouterr()
+    assert 'close standalone Agents-Core sessions' in output.err
+    assert 'PRIVATE_LOCK_CONTENT' not in output.err
+
+
+def test_registration_failure_keeps_successful_cooperation_outcome_visible(profile, monkeypatch, capsys):
+    monkeypatch.setattr(setup.registrations, 'run', lambda *args, **kwargs:
+                        {'clients': {'codex': {'status': 'failed'}}})
+    assert setup.main(['--yes']) == 1
+    output = capsys.readouterr()
+    assert 'Shared daemon ready.' in output.out
+    assert 'Cross-client agent cooperation ready.' in output.out
+    assert 'ERROR:' in output.err

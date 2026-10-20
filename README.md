@@ -342,7 +342,7 @@ server sessions stopped, run
 `.venv/bin/python -m src.reindex`. An `.env` without
 `EMBEDDING_MODEL_GENERATION=2`, such as one copied by hand from `env.example`,
 needs that line too; otherwise the next start switches it to the default
-([model switch](#model-switch-on-update)). The [shared macOS service](#shared-macos-service)
+([model switch](#model-switch-on-update)). The [shared macOS and Windows service](#shared-macos-and-windows-service)
 pins its model in its own configuration.
 
 #### Model switch on update
@@ -1046,7 +1046,7 @@ Python bridge. See the [prerequisites](docs/shared-mcp-daemon.md).
 
 Normal setup offers the shared daemon and cross-client cooperation as independent options on macOS and Windows. The one-command installer passes `--yes`, accepting both; interactive `init_repo` asks separately. `--skip-daemon` skips installation and managed-client migration, while `--skip-cooperation` preserves the existing cooperation setting. Cooperation requires a shared daemon; it can be enabled on an existing service even when new daemon installation is skipped. `--skip-mcp` skips both choices, and `--skip-hooks` affects only lifecycle hooks. Linux keeps standalone MCP setup because this service manager supports macOS and Windows.
 
-Accepting cooperation persists only `AGENTS_COOPERATION_ENABLED=1` in `.env`, including under `--skip-env`, and starts or gracefully restarts the selected service when necessary. Already-current setup preserves the service's port, model, token and running process. The daemon requires an already cached embedding model; `--skip-index` does not waive that prerequisite. Managed registrations are brought to the shared bridge without replacing custom, foreign or absent profiles; failures are reported while completed steps are retained. Reconnect open client sessions after migration. `/health` reports cooperation as `ready`, `disabled` or `unavailable`, separately from ordinary daemon readiness.
+Accepting cooperation persists only `AGENTS_COOPERATION_ENABLED=1` in `.env`, including under `--skip-env`, and starts or gracefully restarts the selected service when necessary. Already-current setup preserves the service's port, model, token and running process. Normal setup passes the selected `EMBEDDING_MODEL` and `FASTEMBED_CACHE_DIR` from the shell or `.env` to daemon installation, with shell values taking precedence and without exporting unrelated `.env` keys. The daemon requires an already cached embedding model; `--skip-index` does not waive that prerequisite. Managed registrations are brought to the shared bridge without replacing custom, foreign or absent profiles, and an existing `registrations disable` setting is respected. If an accepted setup option fails, setup reports it, still runs Sync, summary and health checks, retains completed steps and exits nonzero at the end. Reconnect open client sessions after migration. `/health` reports cooperation as `ready`, `disabled` or `unavailable`, separately from ordinary daemon readiness.
 
 Run controller commands from the installation checkout (`~/.agents-core`, or
 `AGENTS_HOME`, for the one-command installer).
