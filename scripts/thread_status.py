@@ -108,12 +108,19 @@ def hook_output(event: dict, client: str, *, script: str | None = None) -> dict:
 def rename_codex_session(session_id: str, status: str, *, timeout: float = 2.5,
                          expected_turn_id: str | None = None, recorded_turn_id: str | None = None) -> dict:
     """Persist metadata through Codex's API without resuming or starting a turn."""
+    if (isinstance(timeout, bool) or not isinstance(timeout, (int, float))
+            or not 0 < timeout < float("inf")):
+        raise ValueError("The Codex title timeout must be finite and positive")
+    deadline = time.monotonic() + timeout
     try:
         from agents_core_codex_titles import rename_codex_thread
     except ModuleNotFoundError as error:
         if error.name != "agents_core_codex_titles":
             raise
         from src.codex_thread_titles import rename_codex_thread
+    timeout = deadline - time.monotonic()
+    if timeout <= 0:
+        raise RuntimeError("Codex title deadline exhausted while loading adapter")
     return rename_codex_thread(session_id, status, status_title, timeout=timeout,
                                expected_turn_id=expected_turn_id, recorded_turn_id=recorded_turn_id)
 
@@ -186,7 +193,7 @@ def handle_hook_event(event: object, client: str, *, state_directory: Path | Non
         directory = state_directory or Path(__file__).resolve().parent / "agents-core-thread-status-state"
         # Interrupt hooks have a three-second maximum; a prompt can wait longer
         # for the previous interrupt write, before its model is allowed to start.
-        with _turn_record(directory, event["session_id"], 0.15 if interrupted else 2.5) as record:
+        with _turn_record(directory, event["session_id"], 0.15 if interrupted else _INTERRUPT_LIMIT) as record:
             current = _read_record(record)
             if not interrupted:
                 # Keep the last receipt available after the user resumes work.

@@ -197,11 +197,12 @@ def test_stale_interrupt_and_normal_completion_do_not_overwrite_new_work(monkeyp
     assert saved["turn_id"] == "new-turn" and saved["last_interrupt"]["outcome"] == "skipped"
 
 
-def test_new_prompt_waits_for_our_older_interrupt_write(monkeypatch, tmp_path):
+@pytest.mark.parametrize("hold_seconds", [0.05, 2.6])
+def test_new_prompt_waits_for_our_older_interrupt_write(monkeypatch, tmp_path, hold_seconds):
     started, release, prompt_finished = threading.Event(), threading.Event(), threading.Event()
     def writer(*a, **kw):
         started.set()
-        assert release.wait(1)
+        assert release.wait(4)
         return {"persisted": True}
     monkeypatch.setattr(runtime, "rename_codex_session", writer)
     runtime.handle_hook_event(event(turn_id="old-turn"), "codex", state_directory=tmp_path)
@@ -220,13 +221,39 @@ def test_new_prompt_waits_for_our_older_interrupt_write(monkeypatch, tmp_path):
     prompt = threading.Thread(target=run, args=(event(turn_id="new-turn"), prompt_finished))
     prompt.start()
     try:
-        assert not prompt_finished.wait(0.05)
+        assert not prompt_finished.wait(hold_seconds)
     finally:
         release.set()
         interrupt.join(2)
         prompt.join(2)
     assert not interrupt.is_alive() and not prompt.is_alive() and not errors
     assert json.loads((tmp_path / (SESSION + ".json")).read_text())["turn_id"] == "new-turn"
+
+
+@pytest.mark.parametrize("import_elapsed", [0.45, 2.5])
+def test_codex_adapter_import_consumes_writer_deadline(monkeypatch, import_elapsed):
+    import builtins
+
+    clock, calls = [100.0], []
+    real_import = builtins.__import__
+    adapter = SimpleNamespace(rename_codex_thread=lambda *a, **kw:
+                              calls.append(kw) or {"persisted": True})
+
+    def import_adapter(name, *args, **kwargs):
+        if name == "agents_core_codex_titles":
+            clock[0] += import_elapsed
+            return adapter
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(runtime.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(builtins, "__import__", import_adapter)
+    if import_elapsed < 2.4:
+        assert runtime.rename_codex_session(SESSION, "stopped", timeout=2.4)["persisted"] is True
+        assert calls[0]["timeout"] == pytest.approx(2.4 - import_elapsed)
+    else:
+        with pytest.raises(RuntimeError, match="deadline"):
+            runtime.rename_codex_session(SESSION, "stopped", timeout=2.4)
+        assert calls == []
 
 
 @pytest.mark.parametrize("elapsed,expected_timeout", [(1.1, 1.6), (2.8, None)])
