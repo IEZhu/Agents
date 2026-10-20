@@ -14,6 +14,9 @@ on:
       - src/daemon/app.py
       - src/daemon/control.py
       - src/daemon/autoupdate.py
+      - src/daemon/update.py
+      - src/daemon/update_dependencies.py
+      - src/version.py
       - src/daemon/mcp_proxy/**
       - src/daemon/mcp_ui.py
       - src/daemon/mcp_ui.html
@@ -36,6 +39,9 @@ on:
       - tests/test_optional_inference_disabled.py
       - tests/test_daemon_runtime_override.py
       - tests/test_daemon_autoupdate.py
+      - tests/test_daemon_update.py
+      - tests/test_daemon_update_dependencies.py
+      - tests/test_version.py
       - tests/conftest.py
       - requirements.txt
       - pyproject.toml
@@ -54,6 +60,9 @@ on:
       - src/daemon/app.py
       - src/daemon/control.py
       - src/daemon/autoupdate.py
+      - src/daemon/update.py
+      - src/daemon/update_dependencies.py
+      - src/version.py
       - src/daemon/mcp_proxy/**
       - src/daemon/mcp_ui.py
       - src/daemon/mcp_ui.html
@@ -76,6 +85,9 @@ on:
       - tests/test_optional_inference_disabled.py
       - tests/test_daemon_runtime_override.py
       - tests/test_daemon_autoupdate.py
+      - tests/test_daemon_update.py
+      - tests/test_daemon_update_dependencies.py
+      - tests/test_version.py
       - tests/conftest.py
       - requirements.txt
       - pyproject.toml
@@ -121,7 +133,9 @@ jobs:
           tests/test_mcp_secrets.py tests/test_mcp_upstreams.py tests/test_mcp_stdio.py tests/test_mcp_exposure.py
           tests/test_mcp_cli.py tests/test_mcp_sync.py tests/test_mcp_ui.py
           tests/test_user_sync_blocked.py tests/test_sync_ui_blocked.py
-          tests/test_daemon.py tests/test_history_ui.py -q -p no:cacheprovider
+          tests/test_daemon.py tests/test_history_ui.py
+          tests/test_daemon_update.py tests/test_daemon_update_dependencies.py tests/test_version.py
+          -q -p no:cacheprovider
       - name: Cooperation notifications, request states and MCP privacy
         run: python -B -m pytest tests/test_cooperation_mailbox.py tests/test_cooperation_requests.py tests/test_cooperation_notifications.py tests/test_cooperation_models.py tests/test_cooperation_mcp.py tests/test_cooperation_runtime_integration.py tests/test_cooperation_instructions.py tests/test_subagent_combined_budget.py -q -p no:cacheprovider
       - name: POSIX fake native and Redis boundaries, runtime identity and update admission
