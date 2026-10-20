@@ -11,9 +11,11 @@ import time
 import pytest
 
 from src import codex_thread_titles as adapter
+from src.thread_status import status_title
 
 
 SESSION = "550e8400-e29b-41d4-a716-446655440000"
+TURN = "01a14e91-da9f-75f0-b282-911dfe1f8bbe"
 _SERVER = r'''
 import json, os, signal, sys, time
 from pathlib import Path
@@ -52,6 +54,8 @@ with open(sys.argv[2], "a", encoding="utf-8") as log:
             response["result"] = {"thread": {"id": config.get("thread_id", message["params"]["threadId"]), "name": read_title}}
         elif method == "thread/name/set":
             title = message["params"]["name"]
+        elif method == "thread/turns/list":
+            response["result"] = {"data": config["turns"]}
         elif method != "initialize":
             raise AssertionError("forbidden method: " + method)
         if config.get("error_at") == stage:
@@ -80,7 +84,7 @@ def server(tmp_path, monkeypatch):
         assert options.get("shell", False) is False
         assert options["stdin"] == options["stdout"] == subprocess.PIPE
         assert options["stderr"] == subprocess.DEVNULL
-        config_path.write_text(json.dumps(config), encoding="utf-8")
+        config_path.write_text(json.dumps({"turns": [{"id": TURN}], **config}), encoding="utf-8")
         process = real_popen([sys.executable, "-B", "-u", str(script), str(config_path), str(log_path)], **options)
         processes.append(process)
         return process
@@ -128,6 +132,104 @@ def test_already_prefixed_title_skips_write_but_still_reads_back(server):
     result = rename()
     assert result["changed"] is False and result["persisted"] is True
     assert [message["method"] for message in messages()] == ["initialize", "initialized", "thread/read", "thread/read"]
+
+
+def test_interrupt_checks_latest_turn_without_loading_items_before_writing(server):
+    assert rename(expected_turn_id=TURN)["persisted"] is True
+    sent = server[2]()
+    assert [message["method"] for message in sent] == [
+        "initialize", "initialized", "thread/read", "thread/turns/list", "thread/name/set", "thread/read"]
+    assert sent[3]["params"] == {
+        "threadId": SESSION, "limit": 1, "itemsView": "notLoaded", "sortDirection": "desc"}
+
+
+@pytest.mark.parametrize("recorded_is_older", [False, True])
+def test_interrupt_reconciles_prompt_record_with_lagging_public_metadata(server, monkeypatch,
+                                                                        tmp_path, recorded_is_older):
+    from scripts import thread_status as runtime
+    recorded = "01a14e91-da9f-75f0-b282-911dfe1f8bbf"
+    # UUID ordering is deliberately irrelevant: only the API's order is proof.
+    server[0]["turns"] = [{"id": TURN}] + ([{"id": SESSION}, {"id": recorded}] if recorded_is_older else [])
+    monkeypatch.setattr(runtime, "rename_codex_session", lambda session, status, **kwargs:
+                        adapter.rename_codex_thread(session, status, runtime.status_title,
+                                                    executable="fake-codex", **kwargs))
+    payload = {"session_id": SESSION, "hook_event_name": "UserPromptSubmit", "turn_id": recorded}
+    runtime.handle_hook_event(payload, "codex", state_directory=tmp_path / "state")
+    result = runtime.handle_hook_event({**payload, "hook_event_name": "Interrupt", "turn_id": TURN},
+                                       "codex", state_directory=tmp_path / "state")
+    saved = json.loads((tmp_path / "state" / (SESSION + ".json")).read_text())["last_interrupt"]
+    methods = [message["method"] for message in server[2]()]
+    if recorded_is_older:
+        assert "Stopped" in result["systemMessage"]
+        assert saved["persisted"] is True and "thread/name/set" in methods
+    else:
+        assert result == {}
+        assert saved["outcome"] == "skipped" and saved["reason"] == "unconfirmed_prompt_order"
+        assert "thread/name/set" not in methods
+    assert server[2]()[3]["params"] == {
+        "threadId": SESSION, "limit": 32, "itemsView": "notLoaded", "sortDirection": "desc"}
+
+
+@pytest.mark.parametrize("recorded", ["invalid", "", 123, SESSION.upper()])
+def test_invalid_recorded_turn_is_rejected_before_launch(server, recorded):
+    with pytest.raises(ValueError, match="recorded-turn UUID"):
+        rename(expected_turn_id=TURN, recorded_turn_id=recorded)
+    assert server[1] == []
+
+
+def test_recorded_turn_requires_an_interrupted_turn(server):
+    with pytest.raises(ValueError, match="requires an interrupted turn"):
+        rename(recorded_turn_id=TURN)
+    assert server[1] == []
+
+
+@pytest.mark.parametrize("turns", [[], [{"id": SESSION}], [None]])
+def test_old_interrupt_cannot_overwrite_new_turn_even_without_prompt_record(server, turns):
+    server[0]["turns"] = turns
+    result = rename(expected_turn_id=TURN)
+    assert result["persisted"] is False and result["reason"] == "stale_interrupt"
+    assert "thread/name/set" not in [message["method"] for message in server[2]()]
+
+
+def test_invalid_turn_metadata_never_writes(server):
+    server[0]["turns"] = "invalid"
+    with pytest.raises(RuntimeError, match="turn metadata"):
+        rename(expected_turn_id=TURN)
+    assert "thread/name/set" not in [message["method"] for message in server[2]()]
+
+
+def test_unsupported_turn_lookup_never_falls_back_to_unchecked_write(server):
+    server[0]["error_at"] = "thread/turns/list"
+    with pytest.raises(RuntimeError, match="failed"):
+        rename(expected_turn_id=TURN)
+    assert "thread/name/set" not in [message["method"] for message in server[2]()]
+
+
+@pytest.mark.parametrize("turn", ["unknown", "", 123])
+def test_invalid_expected_turn_is_rejected_before_launch(server, turn):
+    with pytest.raises(ValueError, match="interrupted-turn UUID"):
+        rename(expected_turn_id=turn)
+    assert server[1] == []
+
+
+def test_turn_lookup_shares_the_interrupt_deadline_and_reaps_child(server):
+    server[0]["hang_at"] = "thread/turns/list"
+    started = time.monotonic()
+    with pytest.raises(RuntimeError, match="timed out"):
+        rename(expected_turn_id=TURN, timeout=0.4)
+    assert time.monotonic() - started < 0.55
+    assert server[1][0].poll() is not None
+
+
+@pytest.mark.parametrize("current,status,prefix", [("🏁", "finishing", "🧹"), ("🧹", "working", "🔄")])
+def test_shared_finishing_status_preserves_body_through_metadata_adapter(server, current, status, prefix):
+    config, _, messages = server
+    config["title"] = current + " 🧪 Проверить API — #42"
+    result = adapter.rename_codex_thread(SESSION, status, status_title, executable="fake-codex")
+    assert result["title"] == prefix + " 🧪 Проверить API — #42"
+    assert result["status"] == status and result["persisted"] is True
+    assert next(message["params"]["name"] for message in messages()
+                if message["method"] == "thread/name/set") == result["title"]
 
 
 @pytest.mark.parametrize("session", ["../other", "", None, "550E8400-E29B-41D4-A716-446655440000", SESSION.replace("-", ""), "{" + SESSION + "}"])
@@ -223,7 +325,8 @@ def test_module_can_load_as_installed_standalone_sibling(tmp_path):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     assert module.rename_codex_thread.__defaults__ is None
-    assert module.rename_codex_thread.__kwdefaults__ == {"timeout": 2.5, "executable": "codex"}
+    assert module.rename_codex_thread.__kwdefaults__ == {
+        "timeout": 2.5, "executable": "codex", "expected_turn_id": None, "recorded_turn_id": None}
 
 
 @pytest.mark.parametrize("architecture,package,triple", [

@@ -8,6 +8,10 @@
 # scripts/init_repo.sh after a single confirmation. Extra arguments are passed to
 # init_repo.sh: `... | bash -s -- --skip-index`. Windows: use init_repo.bat.
 #
+# --dev selects the development branch (overrides AGENTS_BRANCH) before clone/update.
+# Other flags are passed to init_repo.sh. Setup accepts lifecycle hooks and, on
+# macOS, shared daemon/cooperation; use --skip-daemon or --skip-cooperation to opt out.
+#
 # Environment:
 #   AGENTS_HOME       install directory (default: ~/.agents-core)
 #   AGENTS_REPO_URL   repository URL (default: https://github.com/IEZhu/Agents.git)
@@ -41,6 +45,13 @@ main() {
     # clone gets main.
     local branch="${AGENTS_BRANCH:-}"
     local chosen_branch="${AGENTS_BRANCH:-}"
+    local arg
+    for arg in "$@"; do
+        if [ "$arg" = --dev ]; then
+            branch=dev
+            chosen_branch=dev
+        fi
+    done
 
     if ! command -v git >/dev/null 2>&1; then
         echo "install.sh: git is required but was not found in PATH." >&2
@@ -55,7 +66,6 @@ main() {
 
     local assume_yes=false
     case "${AGENTS_ASSUME_YES:-}" in 1|true|yes) assume_yes=true ;; esac
-    local arg
     for arg in "$@"; do
         case "$arg" in --yes|-y) assume_yes=true ;; esac
     done
@@ -86,7 +96,7 @@ main() {
     echo "  Directory  : $action $home_dir"
     echo "  Then runs  : scripts/init_repo.sh --yes"
     echo "               (Python venv, the default embedding model,"
-    echo "                MCP registration and routing instructions for detected clients)"
+    echo "                MCP registration, routing instructions and lifecycle hooks for detected clients)"
 
     if [ "$assume_yes" = false ]; then
         local reply=""
@@ -120,7 +130,7 @@ main() {
 
     local init_args=("--yes")
     for arg in "$@"; do
-        case "$arg" in --yes|-y) ;; *) init_args+=("$arg") ;; esac
+        case "$arg" in --yes|-y|--dev) ;; *) init_args+=("$arg") ;; esac
     done
     if [ "$have_tty" = true ] && [ ! -t 0 ]; then
         AGENTS_GITHUB_TOKEN="$sync_github_token" AGENTS_BRANCH="$chosen_branch" exec "$home_dir/scripts/init_repo.sh" "${init_args[@]}" </dev/tty

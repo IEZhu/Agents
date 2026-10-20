@@ -141,7 +141,7 @@ class TestResolutionOrder:
         monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(tmp_path / "deleted"))
         assert engine_config.get_client_repo_root() == str(tmp_path.resolve())
 
-    def test_cwd_unavailable_falls_back_to_install_root(self, monkeypatch, caplog):
+    def test_cwd_unavailable_never_selects_install_root(self, monkeypatch, caplog):
         """os.getcwd() raises FileNotFoundError when the cwd was deleted.
 
         Long-running daemons started from ephemeral dirs hit this; without
@@ -153,12 +153,11 @@ class TestResolutionOrder:
             raise FileNotFoundError(2, "No such file or directory")
 
         monkeypatch.setattr(engine_config.os, "getcwd", _raise_cwd)
-        with caplog.at_level("WARNING", logger=engine_config.__name__):
-            resolved = engine_config.get_client_repo_root()
-        assert resolved == engine_config.INSTALL_ROOT
-        assert any("cwd unavailable" in rec.message for rec in caplog.records)
+        with pytest.raises(engine_config.ClientRootError, match="cwd unavailable") as error:
+            engine_config.get_client_repo_root()
+        assert error.value.code == "workspace_required"
 
-    def test_markerless_cwd_is_refused(self, tmp_path, monkeypatch):
+    def test_markerless_cwd_is_a_session_workspace(self, tmp_path, monkeypatch):
         monkeypatch.delenv("AGENTS_CLIENT_REPO_ROOT", raising=False)
         monkeypatch.delenv("CLAUDE_PROJECT_DIR", raising=False)
         # No ancestor of the start directory may carry a marker.
@@ -166,9 +165,7 @@ class TestResolutionOrder:
         isolated = tmp_path / "no_markers_here"
         isolated.mkdir()
         monkeypatch.chdir(isolated)
-        with pytest.raises(engine_config.ClientRootError, match="no .git or CLAUDE.md") as info:
-            engine_config.get_client_repo_root()
-        assert info.value.code == "workspace_required"
+        assert engine_config.get_client_repo_root() == str(isolated.resolve())
 
     def test_markerless_claude_project_dir_is_accepted(self, tmp_path, monkeypatch):
         # The client named this directory as the project.
@@ -409,7 +406,6 @@ class TestWorkspaceArgument:
     @pytest.mark.parametrize("directory,launch,code", [
         ("relative", False, "workspace_invalid"),
         (None, False, "workspace_unsafe"),  # named by the client, but a system directory
-        ("plain", True, "workspace_required"),  # a bare launch directory outside any project
     ])
     def test_session_directory_refuses_relative_unsafe_and_unmarked(self, desktop, tmp_path, directory, launch, code):
         if directory == "plain":
@@ -460,12 +456,11 @@ class TestResolveClientContext:
             engine_config.get_client_repo_root()
 
     @pytest.mark.asyncio
-    async def test_without_workspace_the_error_says_to_pass_one(self, desktop, tmp_path):
+    async def test_without_workspace_the_unique_client_root_is_used(self, desktop, tmp_path):
         session = FakeSession([_project(tmp_path / "project").as_uri()])
         context = await resolve_client_context(SimpleNamespace(session=session))
-        with pytest.raises(WorkspaceError, match="^workspace_unsafe: refusing .* pass workspace"):
-            context.require_root()
-        assert session.asked == 0
+        assert context.require_root() == (tmp_path / "project").resolve()
+        assert session.asked == 1
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("ctx", [None, SimpleNamespace(), SimpleNamespace(session=FakeSession(declared=False))])
