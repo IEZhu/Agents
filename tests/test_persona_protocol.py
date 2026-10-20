@@ -594,3 +594,10 @@ def test_first_work_bootstrap_reaches_mcp_only_clients():
         assert "On needs_summary, follow its instruction" in ordinary, surface
         assert "call write_repo_summary only where that instruction allows a write" in ordinary, surface
         assert "ends the turn" in ordinary and "only reports progress" in ordinary, surface
+        assert "when describe_repo is available" in ordinary, surface
+        assert "When describe_repo is unavailable" in ordinary, surface
+        assert "documented manual role fallback" in ordinary, surface
+        assert "Before changing another session\'s branch, worktree, pull request, host or service" in ordinary, surface
+        assert "message the owning session and wait for its answer" in ordinary, surface
+        assert "If it does not answer, ask the user" in ordinary, surface
+        assert "Explicit user authorization remains authoritative" in ordinary, surface

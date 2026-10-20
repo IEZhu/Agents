@@ -66,7 +66,8 @@ def test_source_symlink_must_stay_in_catalog(catalog, tmp_path):
 
 @pytest.mark.parametrize(("raw", "error"), [(b"", "flow_invalid"),
     (b" \n", "flow_invalid"), (b"\xff", "flow_unreadable"),
-    (b"a" * (256 * 1024 + 1), "flow_invalid")])
+    (b"a" * (256 * 1024 + 1), "flow_invalid")],
+    ids=["empty", "whitespace", "invalid-utf8", "oversized"])
 def test_invalid_content(catalog, raw, error):
     (catalog.directory / "docs.md").write_bytes(raw)
     with pytest.raises(FlowError, match=error):

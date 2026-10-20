@@ -26,3 +26,4 @@ installations from either branch can migrate:
 - `memory-routing-v18.md` retains the reminder before it told the model to pass `client` with `complexity`.
 
 - `memory-routing-v19.md` retains the reminder before first-work repository bootstrap and turn-ending progress attribution were added.
+- `memory-routing-v20.md` retains the reminder before MCP-unavailable first-work fallback and explicit ownership-consent delivery were aligned.

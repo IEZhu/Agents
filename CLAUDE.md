@@ -186,10 +186,12 @@ one.
 ## Describe a repository on first work
 
 The first time a conversation works in a repository (reads, searches or changes
-its files), call `describe_repo` with `workspace` (and `repo_path` for a
-subdirectory) before exploring it ad hoc. On `needs_summary`, follow its
-`instruction`; call `write_repo_summary` only where that instruction allows a
-write.
+its files), call `describe_repo` when that tool is available, with `workspace`
+(and `repo_path` for a subdirectory) before exploring it ad hoc. On
+`needs_summary`, follow its `instruction`; call `write_repo_summary` only where
+that instruction allows a write. If the tool is unavailable, report that
+limitation and use the documented manual role fallback without claiming a
+loaded repository description.
 
 ## Work that another session owns
 
@@ -204,7 +206,7 @@ or start a later turn. Sending a message or receiving a delivery acknowledgement
 is not the required answer. While waiting, stop the conflicting action, release
 its claims and continue independent work where possible. The Agents-Core mailbox
 can wait within the turn with bounded `cooperation_wait`; waiting does not wake
-an idle model.
+an idle model. Explicit user authorization remains authoritative.
 
 ## Finish each answer
 
