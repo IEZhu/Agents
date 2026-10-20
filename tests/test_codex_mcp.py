@@ -204,7 +204,7 @@ def shared_codex(codex_mcp):
     return helper, home, args, installation, directory
 
 
-@pytest.mark.parametrize('with_node', [False, True], ids=['http', 'bridge'])
+@pytest.mark.parametrize('with_node', [False, True], ids=['python-bridge', 'node-bridge'])
 @pytest.mark.parametrize('line_ending', [b'\n', b'\r\n'], ids=['lf', 'crlf'])
 def test_new_codex_uses_installed_shared_service(shared_codex, with_node, line_ending, capsys):
     helper, home, args, installation, directory = shared_codex
@@ -222,15 +222,11 @@ def test_new_codex_uses_installed_shared_service(shared_codex, with_node, line_e
     assert document['model'] == 'keep'
     assert document['mcp_servers']['other'] == {'command': 'other'}
     assert entry['startup_timeout_sec'] == 90
-    if with_node:
-        assert entry['command'] == sys.executable and entry['args'][0] == str(installation / 'bridge/stdio.mjs')
-        bridge = json.loads(Path(entry['args'][1]).read_text())
-        assert bridge['workspace'] == 'auto' and bridge['headers']['X-Agents-Client'] == 'codex'
-        assert 'url' not in entry
-    else:
-        assert entry['url'] == 'http://127.0.0.1:8187/mcp'
-        assert entry['http_headers']['X-Agents-Client'] == 'codex'
-        assert 'command' not in entry and 'args' not in entry
+    assert entry['command'] == sys.executable
+    assert entry['args'][0] == str(installation / 'bridge' / ('stdio.mjs' if with_node else 'stdio.py'))
+    bridge = json.loads(Path(entry['args'][1]).read_text())
+    assert bridge['workspace'] == 'auto' and bridge['headers']['X-Agents-Client'] == 'codex'
+    assert 'url' not in entry
     records = json.loads((directory / 'client-configs.json').read_text())['configs']
     assert any(record['client'] == 'codex' and record['path'] == str(target) for record in records)
     journal = json.loads(next((directory / 'backups').glob('*/changes.json')).read_text())
@@ -329,4 +325,4 @@ def test_unchanged_non_normalized_profile_can_migrate(shared_codex, monkeypatch,
     if initial is not None:
         target.write_bytes(initial)
     assert helper.main(args) == 0
-    assert tomllib.loads(target.read_text())['mcp_servers']['Agents-Core']['url'] == 'http://127.0.0.1:8187/mcp'
+    assert Path(tomllib.loads(target.read_text())['mcp_servers']['Agents-Core']['args'][0]).name == 'stdio.py'

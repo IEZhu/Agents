@@ -38,7 +38,8 @@ def installer_hook(request, tmp_path):
     templates = checkout / "scripts" / "templates"
     helpers.mkdir(parents=True)
     templates.mkdir()
-    for name in ("install_codex_instructions.py", "install_codex_mcp.py", "inject_claude_md.py", "backup_file.py"):
+    for name in ("install_codex_instructions.py", "install_codex_mcp.py", "inject_claude_md.py", "backup_file.py",
+                 "ensure_workspace_bindings.py"):
         shutil.copyfile(ROOT / "scripts" / "_helpers" / name, helpers / name)
     shutil.copyfile(ROOT / "scripts" / "templates" / "routing-protocol-core.md",
                     templates / "routing-protocol-core.md")

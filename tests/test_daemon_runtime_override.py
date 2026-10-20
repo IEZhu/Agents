@@ -269,6 +269,9 @@ def test_original_raw_stdio_entry_still_bridges_the_canonical_installation(tmp_p
     source.mkdir(parents=True)
     (source / "__init__.py").touch()
     shutil.copyfile(ROOT / "src/startup.py", source / "startup.py")
+    (source / "daemon").mkdir()
+    (source / "daemon/__init__.py").touch()
+    shutil.copyfile(ROOT / "src/daemon/bridge.py", source / "daemon/bridge.py")
     shutil.copyfile(ROOT / "src/windows_job.py", source / "windows_job.py")
     prefix = (ROOT / "src/server.py").read_text().split("import atexit", 1)[0]
     server = source / "server.py"

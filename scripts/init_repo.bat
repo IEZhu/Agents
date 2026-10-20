@@ -724,6 +724,8 @@ if exist "!ANTIGRAVITY_CONFIG!" (
 )
 "%PYTHON_ABS%" "%HELPERS%\inject_mcp.py" "!ANTIGRAVITY_CONFIG!" "%PYTHON_ABS%" "%SERVER_ABS%"
 if !errorlevel! equ 0 (
+    "%PYTHON_ABS%" "%HELPERS%\install_antigravity_workspace.py" "%PYTHON_ABS%" "%SERVER_ABS%" "!ANTIGRAVITY_CONFIG!"
+    if !errorlevel! neq 0 exit /b 1
     echo   %GREEN%+%NC% Agents-Core added to Antigravity config
     set "CONFIGURED_ENVS=!CONFIGURED_ENVS! Antigravity"
 ) else (
@@ -744,6 +746,9 @@ if not "!CODEX_MCP_STATUS!"=="0" if not "!CODEX_MCP_STATUS!"=="2" (
     echo   %RED%x%NC% Failed to configure Codex MCP
     exit /b 1
 )
+
+"%PYTHON_ABS%" "%HELPERS%\ensure_workspace_bindings.py" "%SERVER_ABS%"
+if !errorlevel! neq 0 exit /b 1
 
 REM --- MCP Summary ---
 echo(
