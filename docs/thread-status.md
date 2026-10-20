@@ -52,7 +52,8 @@ from closure. A new work request resumes `working`.
 
 | Surface | Start of work | Later semantic transitions |
 |---|---|---|
-| Claude Code and its local Code sessions | `UserPromptSubmit` can set `hookSpecificOutput.sessionTitle` when an existing title is supplied | Model uses its native rename capability, or the installed helper calls the public Claude Agent SDK metadata API |
+| Claude Code terminal and IDE sessions | `UserPromptSubmit` can set `hookSpecificOutput.sessionTitle` when an existing title is supplied | Model uses its native rename capability, or the installed helper calls the public Claude Agent SDK metadata API |
+| Claude desktop app Code tab | Hook supplies identity and policy; the model sets the title with the app's `set_session_title` tool | Same app tool with `session_id: "self"`; no hook `sessionTitle` or SDK helper |
 | Codex desktop | Hook supplies identity and policy; the model uses the host's native current-chat rename tool | Native tool when exposed; `Interrupt` can persist `stopped` through the public App Server metadata API |
 | Codex CLI/IDE | Hook supplies identity and policy | Native tool when exposed, or the metadata helper with a known current session ID |
 | Cursor Agents window | `sessionStart` supplies policy and conversation identity | Model-driven native rename, only when the surface exposes it |
@@ -65,6 +66,16 @@ decides whether the new request actually resumes work. Session startup, resume a
 deliver context, without claiming work has started. Ordinary response-end hooks
 are deliberately absent: the end of a response does not establish task completion. Subagent and
 background events cannot rename the parent chat.
+
+The desktop app starts Code-tab sessions with `CLAUDE_CODE_ENTRYPOINT=claude-desktop`.
+Their sidebar title lives in the app's own session record. The app copies that title
+into the CLI session as its custom title. A CLI-side write therefore does not
+change the app's own record. In that environment the hook omits `sessionTitle`
+and the SDK command. It names the app's
+`mcp__ccd_session_mgmt__get_session` and `mcp__ccd_session_mgmt__set_session_title`
+tools with `session_id: "self"`, plus the ToolSearch query that loads them while
+deferred. The app may ask the user to approve renaming a title the user set
+manually. Titles it generated are replaced without asking.
 
 Codex's `Interrupt` hook runs outside the cancelled model turn. It requires the
 session and interrupted turn IDs, verifies that the public `thread/turns/list`
