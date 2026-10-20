@@ -1474,9 +1474,14 @@ without commit health triggers rollback, as does failed warmup. Rollback checks
 the restored commit too. For a previous version whose health predates this field,
 only recovery or an unchanged-code restart may accept readiness without a commit;
 the returned health explicitly records `commit_verified: false`. A present but
-wrong or null commit never receives that compatibility exception. The controller
-journal remains until probation completes; use
-`recover` after interruption. Do not delete journals manually.
+wrong or null commit never receives that compatibility exception. If a restored
+service fails probation during rollback, recovery or restoration after an update
+fails before mutation, the controller attempts to stop it and retains the recovery
+journal and maintenance barrier. If that stop also fails, the original probation
+error is raised with a note about the stop failure; the service may still be
+running and recovery is still required. The controller journal remains until
+probation completes; use `recover` after interruption. Do not delete journals
+manually.
 
 A manual `update` with nothing to apply and no model switch pending leaves the
 service running. When it applies a commit or switches the embedding model, it

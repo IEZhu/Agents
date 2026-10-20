@@ -52,6 +52,20 @@ def probation(controller, journal, *, expected_commit=None, allow_legacy=False):
     return ready
 
 
+def restored_probation(controller, journal, *, expected_commit):
+    """Verify a terminal restoration and stop it on failure, retaining recovery state."""
+    try:
+        return probation(controller, journal, expected_commit=expected_commit, allow_legacy=True)
+    except BaseException as failure:
+        # Keep the primary verification error even if stopping also fails.
+        try:
+            controller._stop()
+        except BaseException as stop_failure:
+            failure.add_note("Stopping the restored service also failed (" + type(stop_failure).__name__ +
+                             "); recovery barriers retained")
+        raise
+
+
 def cleanup(controller):
     for name in ("transaction.json", "maintenance.json", "probation.json"):
         (controller.directory / name).unlink(missing_ok=True)
@@ -207,8 +221,7 @@ def rollback(controller, journal):
         from src import self_update
         with self_update._inherit_lock(session_fd), self_update._inherit_lock(updater_fd):
             restore_files(controller, journal)
-    ready = probation(controller, journal, expected_commit=journal.get("old_sha") or journal.get("runtime_sha"),
-                      allow_legacy=True)
+    ready = restored_probation(controller, journal, expected_commit=journal.get("old_sha") or journal.get("runtime_sha"))
     cleanup(controller)
     return {"state": "rolled_back", "health": ready}
 
@@ -522,7 +535,7 @@ def _offline_update(controller, expected_target, precheck, notes):
                     rollback(controller, journal)
             else:
                 if journal["was_running"]:
-                    probation(controller, journal, expected_commit=journal.get("runtime_sha"), allow_legacy=True)
+                    restored_probation(controller, journal, expected_commit=journal.get("runtime_sha"))
                 cleanup(controller)
             raise
 
@@ -538,6 +551,6 @@ def recover(controller):
             return rollback(controller, journal)
         if journal.get("was_running"):
             controller._stop()
-            probation(controller, journal, expected_commit=journal.get("runtime_sha"), allow_legacy=True)
+            restored_probation(controller, journal, expected_commit=journal.get("runtime_sha"))
         cleanup(controller)
         return {"state": "recovered_before_mutation"}
