@@ -70,7 +70,9 @@ def profile_installer(request, tmp_path):
     if kind == "cmd":
         # Client detection must not pick up applications installed on the test host.
         system32 = Path(os.environ["SystemRoot"]) / "System32"
-        env["PATH"] = os.pathsep.join(map(str, (system32, system32 / "WindowsPowerShell/v1.0")))
+        git = shutil.which("git")
+        assert git, "Git is required to check private signing-state targets"
+        env["PATH"] = os.pathsep.join(map(str, (system32, system32 / "WindowsPowerShell/v1.0", Path(git).parent)))
 
     if kind == "bash":
         source = (ROOT / "scripts/init_repo.sh").read_text()
@@ -357,7 +359,9 @@ def test_windows_antigravity_on_path_creates_default_config(profile_installer):
     # WHERE discovers this stub. Setup must not actually launch the client.
     (binaries / "agy.cmd").write_bytes(b"@exit /b 99\r\n")
     system32 = Path(os.environ["SystemRoot"]) / "System32"
-    path = os.pathsep.join(map(str, (binaries, system32, system32 / "WindowsPowerShell/v1.0")))
+    git = shutil.which("git")
+    assert git, "Git is required to check private signing-state targets"
+    path = os.pathsep.join(map(str, (binaries, system32, system32 / "WindowsPowerShell/v1.0", Path(git).parent)))
 
     result = run({"PATH": path})
 
