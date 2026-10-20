@@ -27,7 +27,7 @@ def service_managed(entry):
     if not isinstance(entry, dict):
         return False
     arguments = entry.get("args")
-    bridge = isinstance(arguments, list) and arguments and str(arguments[0]).replace("\\", "/").endswith("bridge/stdio.mjs")
+    bridge = isinstance(arguments, list) and arguments and str(arguments[0]).replace("\\", "/").endswith(("bridge/stdio.mjs", "bridge/stdio.py"))
     return bool(entry.get("url") or bridge)
 
 

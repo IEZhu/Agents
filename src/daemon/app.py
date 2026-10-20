@@ -14,7 +14,7 @@ from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from src.version import agents_core_branch, agents_core_version
+from src.version import agents_core_branch, agents_core_commit, agents_core_version
 from src.runtime_paths import installation_root, runtime_root
 from .execution import TrackedExecutor, request_jobs, finish_jobs
 from .flows_ui import FlowsUI
@@ -128,11 +128,14 @@ class Service:
         return {"state": self.state, "service": "Agents-Core", "boot_id": self.boot_id,
                 "pid": os.getpid(), "version": importlib.metadata.version("mcp"),
                 "agents_core_version": agents_core_version(),
+                "agents_core_commit": agents_core_commit(),
                 # The checked-out branch; `channel show` names the configured one (#381).
                 "agents_core_branch": agents_core_branch(),
                 "install_root": str(installation_root()), "runtime_root": str(runtime_root()),
                 "uptime_seconds": round(time.monotonic() - self.started, 3),
                 "model_ready": self.transport is not None,
+                "cooperation": ("ready" if self.cooperation is not None else
+                                "unavailable" if os.environ.get("AGENTS_COOPERATION_ENABLED") == "1" else "disabled"),
                 "inflight": self.inflight, "streams": self.streams,
                 "idle_seconds": 0.0 if self.inflight else round(time.monotonic() - self.last_activity, 1),
                 # User sync's engine calls run in their own threads (sync_loop.py) and count here too.
@@ -234,6 +237,7 @@ class Service:
         # Fix the version before the first request can compute it on the event loop.
         await asyncio.to_thread(agents_core_version)
         await asyncio.to_thread(agents_core_branch)
+        await asyncio.to_thread(agents_core_commit)
         asyncio.get_running_loop().set_default_executor(self.io)
         # Migrate existing installations into the portable host inventory.
         # Imported inventories never become execution consent on this machine.

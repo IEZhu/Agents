@@ -14,6 +14,7 @@ on:
       - scripts/_helpers/migrate_routing_memory.py
       - scripts/templates/**/*.md
       - tests/test_uninstall.py
+      - tests/test_uninstall_thread_status.py
       - tests/conftest.py
       - .github/workflows/uninstall.yml
   push:
@@ -30,6 +31,7 @@ on:
       - scripts/_helpers/migrate_routing_memory.py
       - scripts/templates/**/*.md
       - tests/test_uninstall.py
+      - tests/test_uninstall_thread_status.py
       - tests/conftest.py
       - .github/workflows/uninstall.yml
   workflow_dispatch:
@@ -59,7 +61,7 @@ jobs:
       # Every test runs on a temporary home with a fake runner; the platform branches
       # (macOS, Linux, Windows) are injected, so each runner exercises all three.
       - name: Uninstall on a temporary home
-        run: python -m pytest tests/test_uninstall.py -v
+        run: python -m pytest tests/test_uninstall.py tests/test_uninstall_thread_status.py -v
       - name: The entry point starts with the system Python (POSIX)
         if: runner.os != 'Windows'
         run: scripts/uninstall.sh --help

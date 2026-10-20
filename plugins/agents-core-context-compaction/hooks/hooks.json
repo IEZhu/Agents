@@ -1,0 +1,4 @@
+{
+  "description": "Optional native compaction after successful main turns",
+  "modules": ["./register.js"]
+}

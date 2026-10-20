@@ -1,6 +1,6 @@
 # Session readiness banner
 
-The optional installer covers all five Agents-Core client families. Their native
+Normal setup offers readiness independently from emoji thread status, for detected clients. The readiness installer covers all five Agents-Core client families. Their native
 lifecycle and display contracts differ, so it installs a matching adapter rather
 than treating every client as Claude Code.
 
@@ -75,7 +75,7 @@ hooks, permissions, models and Claude's custom status line remain in place. Chan
 configuration files receive an exclusively created adjacent `.backup.<unique-suffix>`
 copy through the shared backup helper; existing snapshots are never overwritten.
 A failed backup stops before runtime or configuration changes.
-The main Agents-Core installers do not enable this optional hook automatically.
+The main Agents-Core installers offer this option, and `--yes` (including the one-command install) accepts it. Use `--skip-readiness` to skip only readiness, or `--skip-hooks` / `--skip-mcp` to skip both lifecycle options. The standalone command above still supports an explicit client selection.
 
 Start a fresh client session after installation. In Codex, open `/hooks` and review
 and trust the new hook before it can run; the installer does not manufacture a
