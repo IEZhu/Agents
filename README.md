@@ -254,6 +254,7 @@ The interactive script:
   global instructions and registers its MCP connection without asking (see
   [Codex instruction installation](#codex-instruction-installation));
 - offers readiness/persona-restore hooks and emoji thread-status hooks separately for detected supported clients; `--yes` accepts both, with `--skip-hooks`, `--skip-readiness` and `--skip-thread-status` available to opt out;
+- offers the shared daemon and cross-client agent cooperation separately on macOS and Windows; `--yes` accepts both, while `--skip-daemon` and `--skip-cooperation` opt out independently;
 - targets another profile when `CLAUDE_CONFIG_DIR` (Claude Code),
   `AGENTS_CURSOR_MCP_CONFIG`, `AGENTS_CLAUDE_DESKTOP_CONFIG` or
   `AGENTS_ANTIGRAVITY_MCP_CONFIG` is exported in the shell that runs setup. Setup
@@ -370,7 +371,7 @@ The shared service switches in its update transaction instead
 | `FASTEMBED_CACHE_DIR` | `~/.cache/fastembed` | Persistent model cache; the shared service's `install` reads it only from the shell ([daemon guide](docs/shared-mcp-daemon.md)) |
 | `AGENTS_CLIENT_REPO_ROOT` | Unset: a verified `workspace` or sole current MCP root; without roots, the nearest `.git`, `CLAUDE.md` or `AGENTS.md` at or above the session directory, else that safe existing directory ([rules](#-repository-memory)) | Explicit stdio memory and workflow target. Refused with `workspace_unsafe` when it is a system, program or home directory. Set it in a per-project MCP entry's `env`, never in the installation `.env`, a shared registration or the Desktop entry |
 | `RULES_ENABLED` | `1` | Include [shared rules](rules/README.md) in loaded context |
-| `AGENTS_COOPERATION_ENABLED` | `0` | Opt the installed daemon into the local [agent cooperation service and mailbox](docs/agent-cooperation/README.md); HTTP and existing stdio-bridge clients share it; standalone stdio returns `store_unavailable` |
+| `AGENTS_COOPERATION_ENABLED` | `0` | Opt the installed daemon into the local [agent cooperation service and mailbox](docs/agent-cooperation/README.md); HTTP and existing stdio-bridge clients share it; standalone stdio returns `store_unavailable`; accepting the setup option or `--yes` sets this to `1` |
 | `AGENTS_COOPERATION_RETENTION_DAYS` | `30` | Owner retention window for terminal cooperation receipts/events (integer, minimum 30); invalid values leave coordination unavailable; see [maintenance and recovery](docs/agent-cooperation/runtime.md) |
 | `AGENTS_USER_RULES_DIR` | `data/user-rules` in the installation | Machine-local cache for [URL-subscribed user rules](docs/user-rules.md), separate from flow sync |
 | `AGENTS_RULE_AUTH_HOSTS` | Unset | JSON map from a Bearer-token environment variable name to its exact permitted source hostname, required when `auth_env` is used for a user rule |
@@ -792,9 +793,9 @@ skills and implants and switches each one on or off for the installation.
 
 ### Persona continuity
 
-Normal setup offers two independent lifecycle options for detected clients: session readiness (including persona restoration after compaction), and emoji thread status. `--yes` / `-y`, including the one-command installer, accepts both. Use `--skip-hooks` to skip both, or `--skip-readiness` / `--skip-thread-status` to skip one. `--skip-mcp` also skips these client writes. Repeated setup preserves unrelated hooks and updates the owned handlers without duplicates. No profiles are created for absent clients. An alternate Cursor/Antigravity MCP file outside the native profile does not select a hook profile; those hooks are skipped with an explanation rather than modifying the inactive default profile.
+Normal setup offers two independent lifecycle options for detected clients: session readiness (including persona restoration after compaction), and emoji thread status. `--yes` / `-y`, including the one-command installer, accepts both. Use `--skip-hooks` to skip both, or `--skip-readiness` / `--skip-thread-status` to skip one. `--skip-hooks` leaves the daemon/cooperation choices available. `--skip-mcp` skips client writes and both shared-runtime choices. Repeated setup preserves unrelated hooks and updates the owned handlers without duplicates. No profiles are created for absent clients. An alternate Cursor/Antigravity MCP file outside the native profile does not select a hook profile; those hooks are skipped with an explanation rather than modifying the inactive default profile.
 
-See [Session readiness](docs/session-readiness.md) and [Thread status](docs/thread-status.md) for standalone update commands and client limits. Codex requires a fresh session and reviewing/trusting the definitions in `/hooks`; setup cannot grant that trust. Codex interrupt title persistence additionally needs its CLI on PATH, while lifecycle policy and native current-chat renaming do not require it. Claude's title SDK is installed in the hook interpreter when that option is selected. Cursor and Antigravity request the readiness banner in the first model response; ordinary Claude Desktop Chat uses the separate read-only `Agents-Readiness` MCP helper. Installing hooks does not verify live UI rendering. [Automatic native compaction](docs/context-compaction.md) remains a separate opt-in feature; persona restoration does not enable it.
+See [Session readiness](docs/session-readiness.md) and [Thread status](docs/thread-status.md) for standalone update commands and client limits. Codex requires a fresh session and reviewing/trusting the definitions in `/hooks`; setup cannot grant that trust. Codex interrupt title persistence additionally needs its CLI on PATH, while lifecycle policy and native current-chat renaming do not require it. Setup attempts to install Claude's title SDK in the hook interpreter when that option is selected. If the optional dependency fails, it still installs the stdlib hook and continues setup, with a warning that SDK-based CLI title writes need a later retry. Claude Desktop Code tabs use the app's own title tools. Cursor and Antigravity request the readiness banner in the first model response; ordinary Claude Desktop Chat uses the separate read-only `Agents-Readiness` MCP helper. Installing hooks does not verify live UI rendering. [Automatic native compaction](docs/context-compaction.md) remains a separate opt-in feature; persona restoration does not enable it.
 
 For optional automatic compaction between turns in Claude Code, see
 [Native context compaction](docs/context-compaction.md). Its
@@ -1027,9 +1028,9 @@ service configuration. The shared daemon migration below configures Codex's MCP
 connection on macOS; without the service, add the [standalone Codex entry](#codex-configtoml).
 Refreshing client instruction files alone does not require restarting the daemon. Start fresh client sessions to load them. Cursor and standalone Claude Desktop receive the shared contract through MCP initialization; this instruction-only command does not manage a global rules file for them. After updating server-side initialization instructions, restart or reconnect the server and reconnect those clients to receive the new initialization response. Existing project-level rules can override global guidance, so update their managed sections with the same template when they restate an older contract.
 
-### Shared macOS service
+### Shared macOS and Windows service
 
-On macOS, one shared daemon can serve Codex, Claude Code, Cursor and Claude Desktop.
+On macOS and Windows, one shared daemon can serve Codex, Claude Code, Cursor and Claude Desktop.
 Before `install`, capture a baseline and stop this installation's stdio servers,
 either by disabling Agents-Core in open clients or by ending those sessions;
 `install` fails while any of them holds the installation lease. See
@@ -1042,6 +1043,11 @@ cached e5-large snapshot instead. Export a custom `FASTEMBED_CACHE_DIR` in the s
 which does not read it from `.env`. Desktop and tracked project configurations use
 a stdio bridge: Node 22+ when recorded and available, otherwise the standard-library
 Python bridge. See the [prerequisites](docs/shared-mcp-daemon.md).
+
+Normal setup offers the shared daemon and cross-client cooperation as independent options on macOS and Windows. The one-command installer passes `--yes`, accepting both; interactive `init_repo` asks separately. `--skip-daemon` skips installation and managed-client migration, while `--skip-cooperation` preserves the existing cooperation setting. Cooperation requires a shared daemon; it can be enabled on an existing service even when new daemon installation is skipped. `--skip-mcp` skips both choices, and `--skip-hooks` affects only lifecycle hooks. Linux keeps standalone MCP setup because this service manager supports macOS and Windows.
+
+Accepting cooperation persists only `AGENTS_COOPERATION_ENABLED=1` in `.env`, including under `--skip-env`, and starts or gracefully restarts the selected service when necessary. Already-current setup preserves the service's port, model, token and running process. The daemon requires an already cached embedding model; `--skip-index` does not waive that prerequisite. Managed registrations are brought to the shared bridge without replacing custom, foreign or absent profiles; failures are reported while completed steps are retained. Reconnect open client sessions after migration. `/health` reports cooperation as `ready`, `disabled` or `unavailable`, separately from ordinary daemon readiness.
+
 Run controller commands from the installation checkout (`~/.agents-core`, or
 `AGENTS_HOME`, for the one-command installer).
 

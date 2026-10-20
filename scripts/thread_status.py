@@ -24,8 +24,8 @@ else:
 MAX_EVENT_BYTES = 65536
 _IDENTITY = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}\Z")
 # The desktop app launches its Code-tab sessions with this entrypoint. Its sidebar
-# title lives in the app's own session store, which mirrors into the CLI title, not
-# the reverse, so CLI-side writes (hook sessionTitle, SDK rename) are not its source.
+# title lives in the app's session store. Prefer its native title tools rather
+# than depending on CLI-side metadata writes being reflected in that store.
 DESKTOP_ENTRYPOINT = "claude-desktop"
 DESKTOP_TOOLS = ("mcp__ccd_session_mgmt__get_session", "mcp__ccd_session_mgmt__set_session_title")
 
@@ -61,7 +61,7 @@ def hook_output(event: dict, client: str, *, script: str | None = None) -> dict:
                     f"{DESKTOP_TOOLS[0]} and rename it with {DESKTOP_TOOLS[1]}, both with "
                     "session_id \"self\". If they are deferred, load both once with ToolSearch "
                     "\"select:" + ",".join(DESKTOP_TOOLS) + "\". Hook sessionTitle and the SDK helper "
-                    "change only the CLI title, not the app's title. If the app declines or asks "
+                    "write CLI metadata; use the native app tools for the sidebar. If the app declines or asks "
                     "the user to approve a rename, report that once instead of retrying.")
     elif client == "claude":
         # The SDK resolves the existing title itself. No transcript paths are consumed.

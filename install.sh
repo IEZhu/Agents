@@ -9,7 +9,8 @@
 # init_repo.sh: `... | bash -s -- --skip-index`. Windows: use init_repo.bat.
 #
 # --dev selects the development branch (overrides AGENTS_BRANCH) before clone/update.
-# Other flags are passed to init_repo.sh.
+# Other flags are passed to init_repo.sh. Setup accepts lifecycle hooks and, on
+# macOS, shared daemon/cooperation; use --skip-daemon or --skip-cooperation to opt out.
 #
 # Environment:
 #   AGENTS_HOME       install directory (default: ~/.agents-core)

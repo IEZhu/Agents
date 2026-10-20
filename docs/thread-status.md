@@ -69,8 +69,8 @@ background events cannot rename the parent chat.
 
 The desktop app starts Code-tab sessions with `CLAUDE_CODE_ENTRYPOINT=claude-desktop`.
 Their sidebar title lives in the app's own session record. The app copies that title
-into the CLI session as its custom title. A CLI-side write therefore does not
-change the app's own record. In that environment the hook omits `sessionTitle`
+into the CLI session as its custom title. The adapter uses the app's title API
+instead of depending on CLI-side metadata writes being mirrored back. In that environment the hook omits `sessionTitle`
 and the SDK command. It names the app's
 `mcp__ccd_session_mgmt__get_session` and `mcp__ccd_session_mgmt__set_session_title`
 tools with `session_id: "self"`, plus the ToolSearch query that loads them while
@@ -111,7 +111,7 @@ old conversation. Unsupported clients do not get a false success indicator.
 
 ## Install
 
-Normal setup offers emoji thread-status hooks for detected Claude Code, Codex and Cursor profiles. `install.sh` uses `--yes`, which accepts both this option and session readiness; interactive `init_repo` asks for each separately. Use `--skip-thread-status`, `--skip-hooks` or `--skip-mcp` to opt out. Setup installs the pinned Claude title SDK in its persistent virtual environment when Claude's status option is selected. Existing hooks and other settings are preserved; absent clients are skipped.
+Normal setup offers emoji thread-status hooks for detected Claude Code, Codex and Cursor profiles. `install.sh` uses `--yes`, which accepts both this option and session readiness; interactive `init_repo` asks for each separately. Use `--skip-thread-status`, `--skip-hooks` or `--skip-mcp` to opt out. Setup installs the pinned Claude title SDK in its persistent virtual environment when Claude's status option is selected. If that optional SDK installation fails, setup warns and still installs the stdlib hook; SDK-based CLI title writes remain unavailable until retry succeeds. Claude Desktop Code tabs use the app's own title tools. Existing hooks and other settings are preserved; absent clients are skipped.
 
 To install or refresh this feature separately, use a stable Python 3.11+ interpreter. The standalone hook needs only the standard
 library. Claude's later SDK writes additionally need `claude-agent-sdk==0.2.168`
