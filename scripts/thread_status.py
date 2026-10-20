@@ -2,6 +2,14 @@
 """Lifecycle context and supported Claude SDK writes for emoji thread titles."""
 from __future__ import annotations
 
+import time
+
+# Start before other imports and stdin parsing so they consume the hook budget.
+_HOOK_STARTED_AT = time.monotonic()
+_INTERRUPT_LIMIT = 3.0
+_INTERRUPT_EXIT_MARGIN = 0.3
+_INTERRUPT_WRITER_CAP = 2.4
+
 import argparse
 from contextlib import contextmanager
 import importlib.util
@@ -10,7 +18,6 @@ import os
 from pathlib import Path
 import re
 import sys
-import time
 import uuid
 
 
@@ -168,7 +175,9 @@ def _write_record(record, current: dict) -> None:
     record.flush()
 
 
-def handle_hook_event(event: object, client: str, *, state_directory: Path | None = None) -> dict:
+def handle_hook_event(event: object, client: str, *, state_directory: Path | None = None,
+                      started_at: float | None = None) -> dict:
+    started_at = time.monotonic() if started_at is None else started_at
     if (_main_event(event) and client == "codex"
             and event.get("hook_event_name") in ("UserPromptSubmit", "Interrupt")
             and _known_identity(event.get("session_id")) is not None
@@ -192,7 +201,11 @@ def handle_hook_event(event: object, client: str, *, state_directory: Path | Non
                 current["last_interrupt"] = receipt
                 _write_record(record, current)
                 try:
-                    result = rename_codex_session(event["session_id"], "stopped", timeout=2.4,
+                    timeout = min(_INTERRUPT_WRITER_CAP,
+                                  _INTERRUPT_LIMIT - _INTERRUPT_EXIT_MARGIN - (time.monotonic() - started_at))
+                    if timeout <= 0:
+                        raise RuntimeError("Codex Interrupt deadline exhausted before title update")
+                    result = rename_codex_session(event["session_id"], "stopped", timeout=timeout,
                                                   expected_turn_id=event["turn_id"],
                                                   recorded_turn_id=current.get("turn_id"))
                     if result.get("persisted") is not True:
@@ -267,7 +280,7 @@ def main(argv: list[str] | None = None) -> int:
             if len(raw) > MAX_EVENT_BYTES:
                 raise ValueError("Hook input exceeds its byte limit")
             event = json.loads(raw.decode("utf-8"))
-            result = handle_hook_event(event, args.client)
+            result = handle_hook_event(event, args.client, started_at=_HOOK_STARTED_AT)
     except (OSError, ValueError, RuntimeError, UnicodeError, TypeError) as error:
         # A hook must never block the user's work. An explicit write must fail visibly.
         print("Thread status: " + str(error), file=sys.stderr)

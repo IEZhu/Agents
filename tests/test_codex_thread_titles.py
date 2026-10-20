@@ -147,7 +147,7 @@ def test_interrupt_checks_latest_turn_without_loading_items_before_writing(serve
 
 
 def test_early_interrupt_waits_for_actual_generated_title_before_checking_turn(server):
-    server[0]["title_ready_after"] = 1.8
+    server[0]["title_ready_after"] = 0.6
     result = rename(expected_turn_id=TURN, timeout=2.4)
     assert result["persisted"] is True
     assert result["title"] == "🛑 Проверить API — #42"
@@ -184,6 +184,7 @@ def test_interrupt_stdin_records_saved_title_after_initial_missing_name(server, 
     from scripts import thread_status as runtime
 
     server[0]["title_ready_after"] = 0.12
+    monkeypatch.setattr(runtime, "_HOOK_STARTED_AT", time.monotonic())
     monkeypatch.setattr(runtime, "__file__", str(tmp_path / "agents-core-thread-status.py"))
     monkeypatch.setattr(runtime, "rename_codex_session", lambda session, status, **kwargs:
                         adapter.rename_codex_thread(session, status, runtime.status_title,

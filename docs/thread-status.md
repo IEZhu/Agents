@@ -86,7 +86,9 @@ is generated, it waits for the real `thread.name` within the same bounded deadli
 it never substitutes a placeholder or prompt text. The latest-turn check runs
 after this wait, so a resumed turn still prevents a stale interrupt write. If the
 name remains unavailable, the receipt records the timeout instead of claiming a
-saved title. This also covers an early Stop before `UserPromptSubmit` has recorded
+saved title. A monotonic timestamp before the script's other imports lets parsing,
+lock waiting and receipt preparation consume the same budget; the writer keeps
+an exit margin for its receipt and hook shutdown. This also covers an early Stop before `UserPromptSubmit` has recorded
 the turn. A small per-session
 record under the adapter's own `hooks/agents-core-thread-status-state/` directory
 tracks the prompt turn ID and the last interrupt receipt. Its lock serializes

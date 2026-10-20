@@ -229,6 +229,31 @@ def test_new_prompt_waits_for_our_older_interrupt_write(monkeypatch, tmp_path):
     assert json.loads((tmp_path / (SESSION + ".json")).read_text())["turn_id"] == "new-turn"
 
 
+@pytest.mark.parametrize("elapsed,expected_timeout", [(1.1, 1.6), (2.8, None)])
+def test_interrupt_main_accounts_for_startup_before_writer(monkeypatch, tmp_path, capsys,
+                                                          elapsed, expected_timeout):
+    import io
+
+    monkeypatch.setattr(runtime, "_HOOK_STARTED_AT", 100.0 - elapsed, raising=False)
+    monkeypatch.setattr(runtime.time, "monotonic", lambda: 100.0)
+    monkeypatch.setattr(runtime, "__file__", str(tmp_path / "hook.py"))
+    payload = event("Interrupt", turn_id="01a14e91-da9f-75f0-b282-911dfe1f8bbe")
+    monkeypatch.setattr(runtime.sys, "stdin", SimpleNamespace(buffer=io.BytesIO(json.dumps(payload).encode())))
+    calls = []
+    monkeypatch.setattr(runtime, "rename_codex_session", lambda *args, **kwargs:
+                        calls.append(kwargs) or {"persisted": True})
+    assert runtime.main(["--client", "codex"]) == 0
+    output = json.loads(capsys.readouterr().out)
+    receipt = json.loads((tmp_path / "agents-core-thread-status-state" / (SESSION + ".json")).read_text())["last_interrupt"]
+    if expected_timeout is None:
+        assert calls == [] and output == {}
+        assert receipt["outcome"] == "failed" and receipt["persisted"] is False
+        assert "deadline" in receipt["error"]
+    else:
+        assert calls[0]["timeout"] == pytest.approx(expected_timeout)
+        assert "Stopped" in output["systemMessage"] and receipt["persisted"] is True
+
+
 def test_interrupt_writer_failure_is_not_reported_as_saved(monkeypatch, tmp_path):
     def failure(*a, **kw):
         raise RuntimeError("write failed")
