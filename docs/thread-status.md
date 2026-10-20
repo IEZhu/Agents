@@ -13,15 +13,16 @@ are not evidence that the user's task is complete.
 | `review` | 👀 | Required human review or acceptance |
 | `paused` | ⏸️ | Work was explicitly put on hold |
 | `stopped` | 🛑 | Confirmed user interruption; requested work remains unfinished |
+| `finishing` | 🧹 | Required work remains from a closure audit; the task is unfinished |
 | `ready_to_close` | 🏁 | Requested work and required checks are complete; no required steps remain |
 | `closed` | ✅ | Explicitly closed or confirmed archived |
 | `unknown` | ❔ | Insufficient evidence |
 
-The usual finishing path is `working → review → ready_to_close → closed`.
+The usual completion path is `working → review → ready_to_close → closed`.
 Skip review when no acceptance step is required. An optional suggestion after a
 complete result does not create unfinished work. A new work request reopens the
-task; a status question does not. Changing the prefix does not itself archive a
-conversation or authorize another action.
+task as `working`, including after `closed`; a status question does not. Changing
+the prefix does not itself archive a conversation or authorize another action.
 
 The attention statuses `needs_user`, `review` and `ready_to_close` are final
 handoffs. First finish all currently possible autonomous work; no AI-owned check,
@@ -33,6 +34,16 @@ input prevents further progress, finish independent work before handing off as
 An optional question during ongoing work does not establish a handoff. Never
 set an attention status and then continue autonomous work.
 
+At a closure-audit handoff, use `finishing` when required obligations remain,
+unless essential input or required human approval calls for `needs_user`/`review`.
+This means the remaining required work needs to be finished; the task is still
+unfinished. Resume implementation as `working`, and use `working`/`waiting` for
+AI review, CI and subagents. Verify or explicitly resolve each required task
+before `ready_to_close`; an owner or a proposed follow-up alone does not resolve
+it. `closed` still requires explicit closure or confirmed archival. A completed
+audit report does not establish that the audited work is complete, and optional
+suggestions alone do not require `finishing`.
+
 `stopped` records an actual user interruption, not an idle session, a failed
 tool, or the ordinary end of a response. It differs from an explicit pause and
 from closure. A new work request resumes `working`.
@@ -41,7 +52,8 @@ from closure. A new work request resumes `working`.
 
 | Surface | Start of work | Later semantic transitions |
 |---|---|---|
-| Claude Code and its local Code sessions | `UserPromptSubmit` can set `hookSpecificOutput.sessionTitle` when an existing title is supplied | Model uses its native rename capability, or the installed helper calls the public Claude Agent SDK metadata API |
+| Claude Code terminal and IDE sessions | `UserPromptSubmit` can set `hookSpecificOutput.sessionTitle` when an existing title is supplied | Model uses its native rename capability, or the installed helper calls the public Claude Agent SDK metadata API |
+| Claude desktop app Code tab | Hook supplies identity and policy; the model sets the title with the app's `set_session_title` tool | Same app tool with `session_id: "self"`; no hook `sessionTitle` or SDK helper |
 | Codex desktop | Hook supplies identity and policy; the model uses the host's native current-chat rename tool | Native tool when exposed; `Interrupt` can persist `stopped` through the public App Server metadata API |
 | Codex CLI/IDE | Hook supplies identity and policy | Native tool when exposed, or the metadata helper with a known current session ID |
 | Cursor Agents window | `sessionStart` supplies policy and conversation identity | Model-driven native rename, only when the surface exposes it |
@@ -49,8 +61,8 @@ from closure. A new work request resumes `working`.
 
 Claude's native prompt hook sets a working prefix only for unmarked, `unknown`
 or `working` titles. It preserves `needs_user`, `waiting`, `blocked`, `review`,
-`paused`, `stopped`, `ready_to_close` and `closed` until the model decides whether
-the new request actually resumes work. Session startup, resume and compaction only
+`paused`, `stopped`, `finishing`, `ready_to_close` and `closed` until the model
+decides whether the new request actually resumes work. Session startup, resume and compaction only
 deliver context, without claiming work has started. Ordinary response-end hooks
 are deliberately absent: the end of a response does not establish task completion. Subagent and
 background events cannot rename the parent chat.
@@ -62,13 +74,33 @@ different phase of the session and the client exposes a chapter tool, such as
 chapter. Instruction files load once per session, so a rule there is easy to lose in
 a long session; the per-turn line is not.
 
+The desktop app starts Code-tab sessions with `CLAUDE_CODE_ENTRYPOINT=claude-desktop`.
+Their sidebar title lives in the app's own session record. The app copies that title
+into the CLI session as its custom title. The adapter uses the app's title API
+instead of depending on CLI-side metadata writes being mirrored back. In that environment the hook omits `sessionTitle`
+and the SDK command. It names the app's
+`mcp__ccd_session_mgmt__get_session` and `mcp__ccd_session_mgmt__set_session_title`
+tools with `session_id: "self"`, plus the ToolSearch query that loads them while
+deferred. The app may ask the user to approve renaming a title the user set
+manually. Titles it generated are replaced without asking.
+
 Codex's `Interrupt` hook runs outside the cancelled model turn. It requires the
-same session and turn IDs previously observed by `UserPromptSubmit`, reads the
-existing title, applies `stopped`, and verifies the saved name. A small per-session
+session and interrupted turn IDs, verifies that the public `thread/turns/list`
+metadata still names that turn as the latest, reads the existing title, applies
+`stopped`, and verifies the saved name. Turn lookup uses `itemsView: notLoaded`
+and does not load conversation items. This also covers an early Stop before
+`UserPromptSubmit` has recorded the turn. A small per-session
 record under the adapter's own `hooks/agents-core-thread-status-state/` directory
-tracks only the current turn ID. Its lock prevents an older interrupt from
-overwriting a later turn's title. Missing IDs, a stale interrupt or a failed
-metadata operation cannot produce a success message. The helper starts no model
+tracks the prompt turn ID and the last interrupt receipt. Its lock serializes
+the interrupt write with the next prompt, while the public turn check rejects
+an older interruption even when no prompt record exists. When the prompt record
+differs, the adapter also requires that record to appear after the interrupted
+turn in the newest-first metadata page (at most 32 turns). Missing or lagging
+metadata cannot authorize a write over a locally observed newer prompt; an
+unconfirmed order is skipped. The receipt records
+`running`, `persisted`, `skipped`, or `failed`, including a bounded error message
+on failure, and survives the next prompt for diagnosis. Missing IDs, a stale
+interrupt or a failed metadata operation cannot produce a success message. The helper starts no model
 turn. It does not prove that an already open desktop sidebar refreshed.
 
 Claude's documented `Stop` event excludes user interruption, and cancelling a
@@ -86,7 +118,9 @@ old conversation. Unsupported clients do not get a false success indicator.
 
 ## Install
 
-Use a stable Python 3.11+ interpreter. The standalone hook needs only the standard
+Normal setup offers emoji thread-status hooks for detected Claude Code, Codex and Cursor profiles. `install.sh` uses `--yes`, which accepts both this option and session readiness; interactive `init_repo` asks for each separately. Use `--skip-thread-status`, `--skip-hooks` or `--skip-mcp` to opt out. Setup installs the pinned Claude title SDK in its persistent virtual environment when Claude's status option is selected. If that optional SDK installation fails, setup warns and still installs the stdlib hook; SDK-based CLI title writes remain unavailable until retry succeeds. Claude Desktop Code tabs use the app's own title tools. Existing hooks and other settings are preserved; absent clients are skipped.
+
+To install or refresh this feature separately, use a stable Python 3.11+ interpreter. The standalone hook needs only the standard
 library. Claude's later SDK writes additionally need `claude-agent-sdk==0.2.168`
 in that same interpreter. The optional `thread-status` package extra supplies it.
 Prefer a separate persistent environment when the Agents-Core checkout is a live
@@ -156,8 +190,7 @@ To remove the opt-in hooks, remove only commands referencing
 `UserPromptSubmit`, Codex `Interrupt`, or Cursor `sessionStart`. Preserve other handlers, then delete
 the copied runtime, `agents_core_thread_titles.py`, `agents_core_codex_titles.py`
 and its own turn-record directory after checking no hook still references them.
-The main uninstaller currently inventories readiness adapters,
-not this separate opt-in feature; remove these adapters before a full uninstall.
+The main uninstaller removes unchanged registrations and copied runtimes belonging to the selected installation, preserving modified or shared adapters and reporting retained turn state. A separate hook environment belongs to that environment and is preserved. Cleanup trusts the selected home directory and its system ancestors, so a linked home layout does not prevent removing owned hooks. Linked profile directories and runtime files below home are retained.
 
 ## Verification and sources
 
