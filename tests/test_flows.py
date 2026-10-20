@@ -66,7 +66,8 @@ def test_source_symlink_must_stay_in_catalog(catalog, tmp_path):
 
 @pytest.mark.parametrize(("raw", "error"), [(b"", "flow_invalid"),
     (b" \n", "flow_invalid"), (b"\xff", "flow_unreadable"),
-    (b"a" * (256 * 1024 + 1), "flow_invalid")])
+    (b"a" * (256 * 1024 + 1), "flow_invalid")],
+    ids=["empty", "whitespace", "invalid-utf8", "oversized"])
 def test_invalid_content(catalog, raw, error):
     (catalog.directory / "docs.md").write_bytes(raw)
     with pytest.raises(FlowError, match=error):
@@ -130,8 +131,21 @@ async def test_builtin_flow_personas_build_complete_bundles(monkeypatch):
     from src import flow_persona
     from src.engine import enrichment
     from src.engine.persona_bundle import build_persona_bundle
+    from src.engine.skills import SkillRetriever
+    from src.engine.implants import ImplantRetriever
+    from types import SimpleNamespace
 
     monkeypatch.setattr(enrichment, "resolve_profile", lambda query: None)
+    # Exact component selections still use the real formatters, but do not need
+    # retriever construction, indexes or an embedding model on a clean runner.
+    monkeypatch.setattr(enrichment, "_skill_retriever", SimpleNamespace(
+        format_skills_for_prompt=lambda items, **kwargs:
+            SkillRetriever.format_skills_for_prompt(None, items, **kwargs),
+    ))
+    monkeypatch.setattr(enrichment, "_implant_retriever", SimpleNamespace(
+        format_implants_for_prompt=lambda items:
+            ImplantRetriever.format_implants_for_prompt(None, items),
+    ))
     catalog = FlowCatalog()
     declared = {flow_id: flow_persona.declared(catalog.load(flow_id).content)
                 for flow_id in catalog.ids()}

@@ -5,6 +5,9 @@ on:
     paths:
       - CLAUDE.md
       - scripts/templates/**
+      - scripts/_helpers/migrate_routing_memory.py
+      - scripts/install_instructions.py
+      - src/flows.py
       - src/engine/persona.py
       - src/server.py
       - flows/**
@@ -22,6 +25,9 @@ on:
     paths:
       - CLAUDE.md
       - scripts/templates/**
+      - scripts/_helpers/migrate_routing_memory.py
+      - scripts/install_instructions.py
+      - src/flows.py
       - src/engine/persona.py
       - src/server.py
       - flows/**
