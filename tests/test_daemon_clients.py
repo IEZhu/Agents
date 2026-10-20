@@ -5,6 +5,7 @@ import shutil
 import subprocess
 import sys
 import tomllib
+import shlex
 
 import pytest
 
@@ -91,6 +92,29 @@ def test_tracked_codex_gets_a_pinned_bridge_without_secret(migration, tmp_path):
     assert migration.token not in text and not secret
 
 
+def test_tracked_codex_http_without_node_uses_executable_python_headers(migration, tmp_path):
+    migration.config["node"] = None
+    migration.config["installation"] = str(ROOT)
+    home = tmp_path / "home"
+    (home / ".codex").mkdir(parents=True)
+    (home / ".codex/config.toml").write_text('[mcp_servers."Agents-Core"]\nurl="http://127.0.0.1:8765/mcp"\n')
+    project = tmp_path / "project"
+    (project / ".codex").mkdir(parents=True)
+    path = project / ".codex/config.toml"
+    path.write_text('[mcp_servers."Agents-Core"]\nurl="http://127.0.0.1:8765/mcp"\n')
+    subprocess.run(["git", "init", str(project)], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(project), "add", ".codex/config.toml"], check=True)
+    _, text, secret = migration.prepare("codex", project, home=home)
+    entry = tomllib.loads(text)["mcp_servers"]["Agents-Core"]
+    command = shlex.split(entry["http_headers_helper"])
+    assert Path(command[1]).name == "headers.py"
+    result = subprocess.run(command, check=True, text=True, capture_output=True)
+    headers = json.loads(result.stdout)
+    assert headers["Authorization"] == "Bearer " + migration.token
+    assert migration.registry.resolve(headers["X-Agents-Workspace"]) == project.resolve()
+    assert not secret and migration.token not in text
+
+
 def codex_merge(user, project):
     """The entry Codex runs: it merges a server's table field by field across its layers,
     a project's .codex/config.toml over the user's."""
@@ -107,14 +131,11 @@ def test_codex_layers_merge_into_one_transport(migration, tmp_path):
         user = tomllib.loads(migration.prepare("codex", home=home)[1])["mcp_servers"]["Agents-Core"]
         pinned = tomllib.loads(migration.prepare("codex", project, home=home)[1])["mcp_servers"]["Agents-Core"]
         merged = codex_merge(user, pinned)
-        if node == sys.executable:
-            assert {"command", "args"} <= set(merged)
-            assert not {"url", "http_headers", "http_headers_helper"} & set(merged)
-            settings = json.loads(Path(merged["args"][1]).read_text())
-            assert settings["headers"]["X-Agents-Workspace"] and "workspace" not in settings
-        else:  # without Node every layer stays HTTP
-            assert merged["url"].endswith("/mcp") and "command" not in merged
-            assert merged["http_headers"]["X-Agents-Workspace"]
+        assert {"command", "args"} <= set(merged)
+        assert not {"url", "http_headers", "http_headers_helper"} & set(merged)
+        settings = json.loads(Path(merged["args"][1]).read_text())
+        assert settings["headers"]["X-Agents-Workspace"] and "workspace" not in settings
+        assert merged["args"][0].endswith("stdio.mjs" if node == sys.executable else "stdio.py")
 
 
 def test_a_codex_project_layer_takes_the_transport_of_the_user_layer(migration, tmp_path):
@@ -145,7 +166,7 @@ def test_cursor_layers_get_bridges(migration, tmp_path):
     assert not secret and migration.token not in text
     migration.config["node"] = str(tmp_path / "missing-node")
     user = json.loads(migration.prepare("cursor", home=home)[1])["mcpServers"]["Agents-Core"]
-    assert user["url"].endswith("/mcp") and "command" not in user
+    assert user["command"] == sys.executable and Path(user["args"][0]).name == "stdio.py"
 
 
 def test_each_client_names_its_app_in_its_headers_and_bridge(migration, tmp_path):
@@ -176,7 +197,7 @@ def test_stdio_servers_get_their_bridge_configuration_where_startup_looks(migrat
     from src.daemon.state import read_json
     path = migration.directory / "bridges" / "stdio-auto.json"
     migration.config["node"] = str(tmp_path / "missing-node")
-    assert migration.stdio_bridge() is None and not path.exists()  # stdio servers serve standalone
+    assert migration.stdio_bridge() == path  # Python keeps the same shared engine without Node.
     migration.config["node"] = sys.executable
     assert migration.stdio_bridge() == path
     assert read_json(path) == {"url": "http://127.0.0.1:8765/mcp", "workspace": "auto",
@@ -211,15 +232,17 @@ def test_user_scope_claude_gets_a_bridge_that_names_each_session_project(migrati
     assert pinned["type"] == "http" and pinned["headers"]["X-Agents-Workspace"]
 
 
-def test_user_scope_claude_without_node_stays_http(migration, tmp_path):
+def test_user_scope_clients_without_node_use_auto_python_bridge(migration, tmp_path):
     home = tmp_path / "home"; home.mkdir()
     migration.config["node"] = str(tmp_path / "missing-node")
     _, text, _ = migration.prepare("claude", home=home)
     entry = json.loads(text)["mcpServers"]["Agents-Core"]
-    assert entry["type"] == "http" and "X-Agents-Workspace" not in entry["headers"]
+    assert entry["command"] == sys.executable and Path(entry["args"][0]).name == "stdio.py"
+    assert json.loads(Path(entry["args"][1]).read_text())["workspace"] == "auto"
     _, text, _ = migration.prepare("codex", home=home)
     entry = tomllib.loads(text)["mcp_servers"]["Agents-Core"]
-    assert entry["url"].endswith("/mcp") and "X-Agents-Workspace" not in entry["http_headers"]
+    assert entry["command"] == sys.executable and Path(entry["args"][0]).name == "stdio.py"
+    assert json.loads(Path(entry["args"][1]).read_text())["workspace"] == "auto"
 
 
 def test_user_scope_codex_gets_the_same_bridge(migration, tmp_path):
@@ -401,11 +424,11 @@ def test_provision_antigravity_plugin_merges_and_preserves_customizations(migrat
     assert "agents-core-workspace" not in restored_hooks
     assert registry_file.read_bytes() == original_registry_bytes
 
-    # When node is not a valid file, it returns empty changes and does nothing
+    # Python supplies the same authenticated hook when Node is unavailable.
     empty_home = tmp_path / "empty_home"
     migration.config["node"] = str(tmp_path / "nonexistent-node")
     changes = migration.provision_antigravity_plugin(home=empty_home)
-    assert changes == []
+    assert any("antigravity_hook.py" in content for _, content, _ in changes)
     assert not (empty_home / ".gemini").exists()
 
     # Invalid JSON or non-object values raise ValueError naming the file

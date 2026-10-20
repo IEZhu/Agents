@@ -41,7 +41,7 @@ def configure(home: Path, python: Path, server: Path, *, ld_library_path: str = 
         raise ValueError("Agents-Core must be a table")
     arguments = old.get("args", [])
     bridge = (isinstance(arguments, list) and arguments
-              and str(arguments[0]).replace("\\", "/").endswith("bridge/stdio.mjs"))
+              and str(arguments[0]).replace("\\", "/").endswith(("bridge/stdio.mjs", "bridge/stdio.py")))
     if old.get("url") or bridge:
         return f"Codex MCP existing HTTP/bridge connection preserved: {target}"
     python, server = python.expanduser().absolute(), server.expanduser().absolute()

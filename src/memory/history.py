@@ -489,7 +489,9 @@ class HistoryWriter:
         # Resolve defaults lazily via module attribute access so PEP 562 picks
         # up the current client repo root each time (see src/memory/config.py).
         self.history_path = history_path or _memory_config.HISTORY_FILE
-        self.archive_dir = archive_dir or _memory_config.HISTORY_ARCHIVE_DIR
+        self.archive_dir = archive_dir or (
+            os.path.join(os.path.dirname(history_path), "history") if history_path else _memory_config.HISTORY_ARCHIVE_DIR
+        )
         self.rotation_kb = rotation_kb
         self.dedup_tail = dedup_tail
 

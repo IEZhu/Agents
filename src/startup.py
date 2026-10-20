@@ -267,7 +267,13 @@ def _serve_through_service(repo_root, directory):
     except (OSError, ValueError):
         service = {}
     config = os.path.join(directory, "bridges", "stdio-auto.json")
-    bridge = os.path.join(repo_root, "bridge", "stdio.mjs")
+    from src.daemon.bridge import bridge_command
+    try:
+        command, script = bridge_command(service, installation=repo_root)
+    except ValueError as error:
+        sys.stderr.write(f"Agents-Core: {error}; serving standalone.\n")
+        return
+    bridge = str(script)
     problem = _bridge_problem(repo_root, service, config, bridge)
     if problem:
         sys.stderr.write(f"Agents-Core: the shared service is installed, but {problem}; serving standalone.\n")
@@ -277,7 +283,7 @@ def _serve_through_service(repo_root, directory):
         sys.stderr.write(f"Agents-Core: the shared service does not answer on port {service.get('port')}: start "
                          "it with `python -m src.daemon start`, or set AGENTS_STDIO_STANDALONE=1 to serve "
                          "standalone.\n")
-    argv = [service["node"], bridge, config]
+    argv = [command, bridge, config]
     try:
         if os.name != "nt":
             os.execv(argv[0], argv)
@@ -297,9 +303,11 @@ def _bridge_problem(repo_root, service, config, bridge):
     others may read on POSIX, and an installation copied with its `data/` would
     otherwise serve through the other installation's service.
     """
-    node = service.get("node")
-    if not node or not os.path.isabs(node) or not os.path.isfile(node):
-        return "it records no Node executable"
+    from src.daemon.bridge import bridge_command
+    try:
+        bridge_command(service, installation=repo_root)
+    except ValueError:
+        return "it records no usable bridge interpreter"
     installation = service.get("installation")
     if not installation or os.path.normcase(os.path.realpath(installation)) != os.path.normcase(
             os.path.realpath(repo_root)):

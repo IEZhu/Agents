@@ -72,7 +72,7 @@ def test_every_codex_layer_moves_to_the_bridge_together(setup, tmp_path):
 
     assert report["codex"]["status"] == "upgraded" and len(report["codex"]["files"]) == 3
     user = entry(home / ".codex/config.toml")
-    assert user["args"][0].endswith("bridge/stdio.mjs") and "url" not in user
+    assert Path(user["args"][0]).name == "stdio.mjs" and "url" not in user
     assert user["tools"] == {"log_interaction": {"approval_mode": "approve"}}  # kept
     assert tomllib.loads((home / ".codex/config.toml").read_text())["mcp_servers"]["other"] == {"command": "safe"}
     for root, identity in roots:
@@ -164,7 +164,7 @@ def test_cursor_layers_move_together(setup, tmp_path):
     assert json.loads(Path(pinned["args"][1]).read_text())["headers"]["X-Agents-Workspace"] == identity
 
 
-def test_without_node_nothing_changes(setup, tmp_path):
+def test_without_node_owned_http_uses_python_bridge(setup, tmp_path):
     state, home = setup
     config = json.loads((state / "service.json").read_text())
     write_json(state / "service.json", {**config, "node": str(tmp_path / "missing-node")})
@@ -174,8 +174,103 @@ def test_without_node_nothing_changes(setup, tmp_path):
 
     report = registrations.upgrade(state, home)
 
-    assert report["codex"]["status"] == "current"
-    assert (home / ".codex/config.toml").read_bytes() == before and backups(state) == []
+    assert report["codex"]["status"] == "upgraded"
+    configured = entry(home / ".codex/config.toml")
+    assert configured["command"] == sys.executable
+    assert Path(configured["args"][0]).name == "stdio.py"
+    assert backups(state)
+
+
+def test_installer_refreshes_owned_http_layers_without_manual_migration(setup, tmp_path):
+    from scripts._helpers.ensure_workspace_bindings import refresh
+    state, home = setup
+    config = json.loads((state / "service.json").read_text())
+    install = Path(config["installation"])
+    server = install / "src/server.py"
+    server.parent.mkdir(parents=True)
+    server.touch()
+    (install / "data").mkdir()
+    write_json(install / "data/.shared-service.json", {"directory": str(state)})
+    write_json(state / "service.json", {**config, "node": None})
+    (home / ".codex").mkdir()
+    (home / ".codex/config.toml").write_text(http_codex())
+    root, identity = project(tmp_path, state, "empty")
+    (root / ".codex").mkdir()
+    (root / ".codex/config.toml").write_text(http_codex(identity))
+    report = refresh(server, home=home)
+    assert report["codex"]["status"] == "upgraded"
+    user = entry(home / ".codex/config.toml")
+    pinned = entry(root / ".codex/config.toml")
+    assert Path(user["args"][0]).name == "stdio.py"
+    assert json.loads(Path(user["args"][1]).read_text())["workspace"] == "auto"
+    assert json.loads(Path(pinned["args"][1]).read_text())["headers"]["X-Agents-Workspace"] == identity
+    assert refresh(server, home=home)["codex"]["status"] == "current"
+
+
+def test_installer_rejects_copied_service_marker_before_writes(setup, tmp_path):
+    from scripts._helpers.ensure_workspace_bindings import refresh
+    state, home = setup
+    (home / ".codex").mkdir()
+    path = home / ".codex/config.toml"
+    path.write_text(http_codex())
+    before = path.read_bytes()
+    copied = tmp_path / "copied"
+    server = copied / "src/server.py"
+    server.parent.mkdir(parents=True)
+    server.touch()
+    (copied / "data").mkdir()
+    write_json(copied / "data/.shared-service.json", {"directory": str(state)})
+    with pytest.raises(ValueError, match="another installation"):
+        refresh(server, home=home)
+    assert path.read_bytes() == before
+    assert not (state / "bridges").exists()
+    assert backups(state) == []
+
+
+def test_installer_repairs_no_node_shared_antigravity_and_desktop(setup, tmp_path):
+    from scripts._helpers.ensure_workspace_bindings import refresh
+    from src.client_paths import DESKTOP_SERVER, client_config_path
+    state, home = setup
+    service = json.loads((state / "service.json").read_text())
+    install = Path(service["installation"])
+    server = install / "src/server.py"
+    server.parent.mkdir(parents=True)
+    server.touch()
+    template = install / "scripts/templates/routing-protocol-core.md"
+    template.parent.mkdir(parents=True)
+    template.write_bytes((Path(__file__).resolve().parents[1] / "scripts/templates/routing-protocol-core.md").read_bytes())
+    write_json(install / "data/.shared-service.json", {"directory": str(state)})
+    write_json(state / "service.json", {**service, "node": None, "python": sys.executable})
+    native = home / ".gemini/config/mcp_config.json"
+    desktop = client_config_path("desktop", home=home, environ={})
+    raw = {"command": sys.executable, "args": [str(server)], "timeout": 70}
+    write_json(native, {"settings": "keep", "mcpServers": {"Agents-Core": raw}})
+    write_json(desktop, {"mcpServers": {DESKTOP_SERVER: raw}})
+    report = refresh(server, home=home)
+    assert report["antigravity"]["status"] == report["desktop"]["status"] == "upgraded"
+    assert Path(entry(native, "antigravity")["args"][0]).name == "stdio.py"
+    assert entry(native, "antigravity")["timeout"] == 70
+    hooks = native.parent / "plugins/agents-core/hooks.json"
+    assert "antigravity_hook.py" in hooks.read_text()
+    assert json.loads((native.parent / "config.json").read_text())["plugins"]["agents-core"]["enabled"]
+    configured = json.loads(desktop.read_text())["mcpServers"][DESKTOP_SERVER]
+    assert Path(configured["args"][0]).name == "stdio.py"
+    assert refresh(server, home=home)["antigravity"]["status"] == "current"
+    hooks.unlink()
+    assert refresh(server, home=home)["antigravity"]["status"] == "upgraded"
+    assert hooks.is_file()
+
+
+def test_automatic_antigravity_upkeep_preserves_external_profile(setup, tmp_path):
+    state, home = setup
+    external = tmp_path / "inactive/mcp.json"
+    write_json(external, {"mcpServers": {"Agents-Core": http_json()}})
+    write_json(state / "client-configs.json", {"version": 1, "configs": [{"client": "antigravity", "path": str(external), "workspace": None}]})
+    before = external.read_bytes()
+    report = registrations.upgrade(state, home)
+    assert report["antigravity"]["status"] == "skipped"
+    assert external.read_bytes() == before
+    assert not (home / ".gemini/config/plugins").exists()
 
 
 def test_a_concurrent_edit_is_retried(setup, tmp_path, monkeypatch):
@@ -433,7 +528,7 @@ def test_a_pin_to_another_workspace_is_not_touched(setup, tmp_path):
     assert entry(root / ".codex/config.toml")["http_headers"]["X-Agents-Workspace"] == elsewhere
 
 
-def test_a_missing_node_is_reported_not_acted_on(setup, tmp_path):
+def test_a_missing_node_switches_owned_bridges_to_python(setup, tmp_path):
     """Turning every bridge back into HTTP would write the token into every project."""
     state, home = setup
     (home / ".codex").mkdir()
@@ -445,8 +540,10 @@ def test_a_missing_node_is_reported_not_acted_on(setup, tmp_path):
 
     report = registrations.upgrade(state, home)
 
-    assert report["codex"]["status"] == "failed" and "Node" in report["codex"]["reason"]
-    assert (home / ".codex/config.toml").read_bytes() == bridged
+    assert report["codex"]["status"] == "upgraded"
+    current = entry(home / ".codex/config.toml")
+    assert Path(current["args"][0]).name == "stdio.py"
+    assert "url" not in current and "http_headers" not in current
 
 
 def test_a_damaged_state_file_reads_as_the_default(setup):

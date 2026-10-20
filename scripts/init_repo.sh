@@ -378,7 +378,7 @@ name = 'Agents-Core-Desktop' if os.environ['MCP_CLIENT'] == 'desktop' else 'Agen
 # stays: setup writes standalone stdio registrations again only after uninstall.
 current = servers.get(name)
 arguments = current.get('args') if isinstance(current, dict) else None
-bridge = isinstance(arguments, list) and arguments and str(arguments[0]).replace(chr(92), '/').endswith('bridge/stdio.mjs')
+bridge = isinstance(arguments, list) and arguments and str(arguments[0]).replace(chr(92), '/').endswith(('bridge/stdio.mjs', 'bridge/stdio.py'))
 if marker.exists() and isinstance(current, dict) and (current.get('url') or bridge):
     if name != 'Agents-Core':
         servers.pop('Agents-Core', None)
@@ -962,6 +962,7 @@ else
         backup_mcp_config "$ANTIGRAVITY_CONFIG" || exit 1
 
         inject_mcp_config "$ANTIGRAVITY_CONFIG" "$ANTIGRAVITY_CONFIG" antigravity || exit 1
+        "$PYTHON_ABS" "$REPO_ROOT/scripts/_helpers/install_antigravity_workspace.py" "$PYTHON_ABS" "$SERVER_ABS" "$ANTIGRAVITY_CONFIG" || exit 1
         CONFIGURED_ENVS+=("Antigravity")
     fi
 
@@ -981,6 +982,8 @@ else
             exit 1
         fi
     fi
+
+    "$PYTHON_ABS" "$REPO_ROOT/scripts/_helpers/ensure_workspace_bindings.py" "$SERVER_ABS" || exit 1
 
     # --- Summary ---
     echo ""
