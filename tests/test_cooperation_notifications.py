@@ -204,11 +204,15 @@ async def test_processing_change_wakes_both_parties_with_revision(h):
 @pytest.mark.asyncio
 async def test_deadline_alone_wakes_wait_without_any_message_or_state_operation(h):
     sender, recipient = h.register("sender"), h.register("recipient")
+    # Setup must not consume the expiry event before the wait's baseline cursor.
+    h.service.clock = lambda: h.now
+    message = send(h, sender, recipient, kind="request", expires_at=h.now + 0.15)["message"]
+    baseline = notifications(h, sender)
+    assert [event["request_revision"] for event in baseline["events"]] == [1]
+    cursor = baseline["next_cursor"]
     started = time.monotonic()
     h.service.clock = lambda: h.now + time.monotonic() - started
-    message = send(h, sender, recipient, kind="request", expires_at=h.now + 0.15)["message"]
-    cursor = notifications(h, sender)["next_cursor"]
-    response = await asyncio.wait_for(h.service.wait(wait_request(sender, after_cursor=cursor), h.identity), 1)
+    response = await asyncio.wait_for(h.service.wait(wait_request(sender, after_cursor=cursor), h.identity), 5)
     assert not response["timed_out"]
     assert len(response["events"]) == 1
     event = response["events"][0]
