@@ -492,16 +492,16 @@ def test_oneliner_reaches_real_lifecycle_hook_setup(tmp_path, upstream, flags, h
     parse = source[parse_start:source.index("# ============== Helper Functions ==============", parse_start)]
     start = source.index("# ============== Client Lifecycle Hooks ==============")
     hooks = source[start:source.index("# ============== Sync Between Machines ==============", start)]
-    for name in ("install_client_hooks.py", "install_session_readiness.py", "install_thread_status.py", "thread_status.py", "session_readiness.py", "session_readiness_mcp.py"):
+    for name in ("install_setup_options.py", "install_client_hooks.py", "install_session_readiness.py", "install_thread_status.py", "thread_status.py", "session_readiness.py", "session_readiness_mcp.py"):
         shutil.copyfile(ROOT / "scripts" / name, upstream / "scripts" / name)
     for name in ("install_codex_instructions.py", "inject_claude_md.py", "backup_file.py"):
         target = upstream / "scripts/_helpers" / name
         target.parent.mkdir(exist_ok=True)
         shutil.copyfile(ROOT / "scripts/_helpers" / name, target)
-    for name in ("__init__.py", "client_paths.py", "thread_status.py", "codex_thread_titles.py"):
-        target = upstream / "src" / name
-        target.parent.mkdir(exist_ok=True)
-        shutil.copyfile(ROOT / "src" / name, target)
+    # The unified setup helper imports the shared-service controller; service/model
+    # operations remain explicitly skipped in this lifecycle-only fixture.
+    shutil.copytree(ROOT / "src", upstream / "src", dirs_exist_ok=True,
+                    ignore=shutil.ignore_patterns("__pycache__"))
     init = upstream / "scripts/init_repo.sh"
     init.write_text('#!/usr/bin/env bash\nset -e\nREPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"\n'
                     + 'PYTHON_ABS=' + shlex.quote(sys.executable) + '\nprint_step() { echo "$*"; }\n' + parse + hooks)
@@ -518,7 +518,7 @@ def test_oneliner_reaches_real_lifecycle_hook_setup(tmp_path, upstream, flags, h
     marker = inactive / "hooks.json"
     marker.write_bytes(b'{"hooks":{},"personal":"keep"}')
     monkeypatch.setenv("CODEX_HOME", str(inactive))
-    result = run_install(tmp_path, upstream, *flags, path=str(binaries))
+    result = run_install(tmp_path, upstream, *flags, "--skip-daemon", "--skip-cooperation", path=str(binaries))
     assert marker.read_bytes() == b'{"hooks":{},"personal":"keep"}'
     assert not (inactive / "hooks").exists()
     assert result.returncode == 0, result.stdout + result.stderr

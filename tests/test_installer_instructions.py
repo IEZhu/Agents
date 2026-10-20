@@ -44,7 +44,7 @@ def installer_hook(request, tmp_path):
     shutil.copyfile(ROOT / "scripts" / "templates" / "routing-protocol-core.md",
                     templates / "routing-protocol-core.md")
     shutil.copytree(ROOT / "src", checkout / "src", ignore=shutil.ignore_patterns("__pycache__"))
-    for name in ("install_client_hooks.py", "install_session_readiness.py", "install_thread_status.py",
+    for name in ("install_setup_options.py", "install_client_hooks.py", "install_session_readiness.py", "install_thread_status.py",
                  "thread_status.py", "session_readiness.py", "session_readiness_mcp.py"):
         shutil.copyfile(ROOT / "scripts" / name, checkout / "scripts" / name)
     codex_home = tmp_path / "custom codex home"
@@ -59,7 +59,7 @@ def installer_hook(request, tmp_path):
                PYTHON_ABS=sys.executable, HELPERS=str(helpers), SERVER_ABS=str(checkout / "src/server.py"),
                RED="", GREEN="", YELLOW="", BLUE="", CYAN="", NC="",
                PYTHONUTF8="1", PATH="", ASSUME_YES="true", SKIP_HOOKS="false",
-               SKIP_READINESS="false", SKIP_THREAD_STATUS="false")
+               SKIP_READINESS="false", SKIP_THREAD_STATUS="false", SKIP_DAEMON="true", SKIP_COOPERATION="true")
     for name in ("PYTHONHOME", "PYTHONPATH", "VIRTUAL_ENV", "__PYVENV_LAUNCHER__"):
         env.pop(name, None)
 

@@ -255,15 +255,15 @@ def test_native_launchers_forward_all_independent_options(tmp_path, kind, skip_m
         start = source.index(begin)
         return source[start:source.index(end, start)]
     if kind == 'bash':
-        source = (repository / 'scripts/init_repo.sh').read_text()
+        source = (repository / 'scripts/init_repo.sh').read_text(encoding='utf-8')
         arguments = section(source, '# ============== Parse Arguments', '# ============== Helper Functions')
         options = section(source, '# ============== Client Lifecycle Hooks', '# ============== Sync Between Machines')
         script = root / 'setup.sh'
         script.write_text('set -e\nprint_step() { :; }\n' + arguments + options)
         invocation = [command, str(script)]
     else:
-        source = (repository / 'scripts/init_repo.bat').read_text()
-        arguments = section(source, 'REM ============== Parse Arguments', ':args_done\n') + ':args_done\n'
+        source = (repository / 'scripts/init_repo.bat').read_text(encoding='utf-8')
+        arguments = section(source, 'REM ============== Parse Arguments', '\n:args_done\n') + '\n:args_done\n'
         options = section(source, 'REM ============== Client Lifecycle Hooks', 'REM ============== Sync Between Machines')
         script = root / 'setup.bat'
         script.write_bytes(('@echo off\nsetlocal EnableDelayedExpansion\n' + arguments + options
