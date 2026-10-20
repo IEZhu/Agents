@@ -57,11 +57,12 @@ def test_profile_override_preserves_user_hooks_and_repeat(profile, monkeypatch, 
     assert hooks['SessionStart'][0] == custom['hooks']['SessionStart'][0]
     original, stamp = target.read_bytes(), target.stat().st_mtime_ns
     backups = sorted(selected.glob('*.backup.*'))
+    assert 'review/trust' in capsys.readouterr().out
     assert installer.main(['--yes']) == 0
     assert target.read_bytes() == original and target.stat().st_mtime_ns == stamp
     assert sorted(selected.glob('*.backup.*')) == backups
     assert not (profile / '.codex').exists()
-    assert 'review/trust' in capsys.readouterr().out
+    assert 'review/trust' not in capsys.readouterr().out
 
 
 def test_interactive_choices_are_independent(profile, monkeypatch):
@@ -93,14 +94,18 @@ def test_bad_hook_json_fails_without_success_or_secret_output(profile, capsys):
     assert target.read_bytes() == content
 
 
-def test_sdk_dependency_failure_does_not_claim_claude_status_success(profile, monkeypatch, capsys):
+def test_sdk_dependency_failure_still_installs_stdlib_claude_hook(profile, monkeypatch, capsys):
     (profile / '.claude').mkdir()
     def fail():
         raise subprocess.CalledProcessError(1, ['fake-pip'])
     monkeypatch.setattr(installer, 'ensure_claude_title_sdk', fail)
-    assert installer.main(['--yes', '--skip-readiness']) == 1
-    assert not (profile / '.claude/settings.json').exists()
-    assert 'dependency setup failed' in capsys.readouterr().err
+    assert installer.main(['--yes', '--skip-readiness']) == 0
+    settings = json.loads((profile / '.claude/settings.json').read_text())
+    assert 'UserPromptSubmit' in settings['hooks']
+    assert (profile / '.claude/hooks/agents-core-thread-status.py').is_file()
+    output = capsys.readouterr()
+    assert 'WARNING:' in output.err and 'CLI title writes' in output.err
+    assert 'claude configured' in output.out
 
 
 def test_sdk_uses_pinned_extra_and_hook_interpreter(monkeypatch):

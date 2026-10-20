@@ -71,6 +71,8 @@ set "SKIP_MCP=false"
 set "SKIP_HOOKS=false"
 set "SKIP_READINESS=false"
 set "SKIP_THREAD_STATUS=false"
+set "SKIP_DAEMON=false"
+set "SKIP_COOPERATION=false"
 REM As in init_repo.sh: AGENTS_ASSUME_YES=1, true or yes counts as --yes.
 set "ASSUME_YES=false"
 if "!AGENTS_ASSUME_YES!"=="1" set "ASSUME_YES=true"
@@ -86,6 +88,8 @@ if /I "%~1"=="--skip-mcp"    set "SKIP_MCP=true"
 if /I "%~1"=="--skip-hooks" set "SKIP_HOOKS=true"
 if /I "%~1"=="--skip-readiness" set "SKIP_READINESS=true"
 if /I "%~1"=="--skip-thread-status" set "SKIP_THREAD_STATUS=true"
+if /I "%~1"=="--skip-daemon" set "SKIP_DAEMON=true"
+if /I "%~1"=="--skip-cooperation" set "SKIP_COOPERATION=true"
 REM The plugin check (scripts\_helpers\claude_code_plugin.py) reads the variable.
 if /I "%~1"=="--force-claude-code-mcp" set "AGENTS_FORCE_CLAUDE_CODE_MCP=1"
 if /I "%~1"=="--yes"         set "ASSUME_YES=true"
@@ -105,13 +109,14 @@ echo   py -3 scripts\install_instructions.py [--clients codex,claude]
 echo     Update only client instructions, without running MCP or dependency setup.
 echo(
 echo Flags:
-echo   --yes, -y      Accept both lifecycle hook options; do not ask about sync
+echo   --yes, -y      Accept hooks, shared daemon and cooperation; do not ask about sync
 echo                  (also AGENTS_ASSUME_YES=1); the other prompts still ask
 echo   --skip-env     Skip .env file creation
 echo   --skip-index   Skip embedding model download and index pre-build
-echo   --skip-mcp     Skip MCP, client instructions and lifecycle hooks
-echo   --skip-hooks   Skip both lifecycle hook options
+echo   --skip-mcp     Skip MCP, instructions, hooks, daemon and cooperation
+echo   --skip-hooks   Skip hooks; keep daemon and cooperation choices
 echo   --skip-readiness / --skip-thread-status  Skip one hook option
+echo   --skip-daemon / --skip-cooperation  Skip one shared-runtime option
 echo   --force-claude-code-mcp
 echo                  Register Agents-Core for Claude Code even when the agents-core
 echo                  plugin is installed and enabled (AGENTS_FORCE_CLAUDE_CODE_MCP=1)
@@ -773,12 +778,15 @@ if "!_BOTH_CLIENTS!"=="true" call :note_desktop_registration
 
 REM ============== Client Lifecycle Hooks ==============
 if "!SKIP_MCP!"=="true" goto :hooks_done
-if "!SKIP_HOOKS!"=="true" goto :hooks_done
 set "_HOOK_FLAGS="
 if "!ASSUME_YES!"=="true" set "_HOOK_FLAGS=!_HOOK_FLAGS! --yes"
+if "!SKIP_HOOKS!"=="true" set "_HOOK_FLAGS=!_HOOK_FLAGS! --skip-hooks"
+if "!SKIP_DAEMON!"=="true" set "_HOOK_FLAGS=!_HOOK_FLAGS! --skip-daemon"
+if "!SKIP_COOPERATION!"=="true" set "_HOOK_FLAGS=!_HOOK_FLAGS! --skip-cooperation"
+if "!AGENTS_FORCE_CLAUDE_CODE_MCP!"=="1" set "_HOOK_FLAGS=!_HOOK_FLAGS! --force-claude-code-mcp"
 if "!SKIP_READINESS!"=="true" set "_HOOK_FLAGS=!_HOOK_FLAGS! --skip-readiness"
 if "!SKIP_THREAD_STATUS!"=="true" set "_HOOK_FLAGS=!_HOOK_FLAGS! --skip-thread-status"
-"%PYTHON_ABS%" "%REPO_ROOT%\scripts\install_client_hooks.py" !_HOOK_FLAGS!
+"%PYTHON_ABS%" "%REPO_ROOT%\scripts\install_setup_options.py" !_HOOK_FLAGS!
 if errorlevel 1 exit /b 1
 :hooks_done
 

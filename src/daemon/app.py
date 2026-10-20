@@ -133,6 +133,8 @@ class Service:
                 "install_root": str(installation_root()), "runtime_root": str(runtime_root()),
                 "uptime_seconds": round(time.monotonic() - self.started, 3),
                 "model_ready": self.transport is not None,
+                "cooperation": ("ready" if self.cooperation is not None else
+                                "unavailable" if os.environ.get("AGENTS_COOPERATION_ENABLED") == "1" else "disabled"),
                 "inflight": self.inflight, "streams": self.streams,
                 "idle_seconds": 0.0 if self.inflight else round(time.monotonic() - self.last_activity, 1),
                 # User sync's engine calls run in their own threads (sync_loop.py) and count here too.

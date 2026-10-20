@@ -16,7 +16,7 @@
 #                  (recreating it if its Python version is unknown or older
 #                  than 3.11), accepts the Claude instruction and
 #                  routing-reminder prompts (Codex instructions never ask),
-#                  accepts both lifecycle hook options, and does not ask
+#                  accepts lifecycle hooks, shared daemon and cooperation, and does not ask
 #                  about sync between machines.
 #   --skip-env     Skip creating .env from env.example, or adding missing keys
 #                  to an existing one (useful if already configured). The
@@ -25,12 +25,14 @@
 #                  writing the default model to .env when none is set. The
 #                  one-time switch of an .env from an earlier model generation
 #                  to the default still runs.
-#   --skip-mcp     Skip MCP, client instruction updates and lifecycle hooks
+#   --skip-mcp     Skip MCP, client instructions, lifecycle hooks, daemon and cooperation
 #                  (the routing section in Claude Code's CLAUDE.md, the Codex
 #                  AGENTS.md and the routing memory). A user of the agents-core
 #                  Claude Code plugin does not need it: with the plugin installed
 #                  and enabled, setup skips only Claude Code's Agents-Core entry.
-#   --skip-hooks   Skip both lifecycle hook options
+#   --skip-daemon / --skip-cooperation
+#                  Skip the named shared-runtime option; --yes accepts both on macOS/Windows
+#   --skip-hooks   Skip both lifecycle hook options (keeps daemon/cooperation choices)
 #   --skip-readiness / --skip-thread-status
 #                  Skip only the named hook option; --yes accepts both otherwise
 #   --force-claude-code-mcp
@@ -110,6 +112,8 @@ SKIP_MCP=false
 SKIP_HOOKS=false
 SKIP_READINESS=false
 SKIP_THREAD_STATUS=false
+SKIP_DAEMON=false
+SKIP_COOPERATION=false
 FORCE_CLAUDE_CODE_MCP=false
 case "${AGENTS_ASSUME_YES:-}" in
     1|true|yes) ASSUME_YES=true ;;
@@ -133,6 +137,8 @@ for arg in "$@"; do
         --skip-hooks) SKIP_HOOKS=true; shift ;;
         --skip-readiness) SKIP_READINESS=true; shift ;;
         --skip-thread-status) SKIP_THREAD_STATUS=true; shift ;;
+        --skip-daemon) SKIP_DAEMON=true; shift ;;
+        --skip-cooperation) SKIP_COOPERATION=true; shift ;;
         --force-claude-code-mcp)
             FORCE_CLAUDE_CODE_MCP=true
             shift
@@ -1018,14 +1024,18 @@ else
 fi
 
 # ============== Client Lifecycle Hooks ==============
-if [ "$SKIP_MCP" = true ] || [ "$SKIP_HOOKS" = true ]; then
-    print_step "Skipping lifecycle hooks (--skip-mcp or --skip-hooks)"
+if [ "$SKIP_MCP" = true ]; then
+    print_step "Skipping lifecycle hooks, shared daemon and cooperation (--skip-mcp)"
 else
     HOOK_FLAGS=()
     if [ "$ASSUME_YES" = true ]; then HOOK_FLAGS+=(--yes); fi
+    if [ "$SKIP_HOOKS" = true ]; then HOOK_FLAGS+=(--skip-hooks); fi
     if [ "$SKIP_READINESS" = true ]; then HOOK_FLAGS+=(--skip-readiness); fi
     if [ "$SKIP_THREAD_STATUS" = true ]; then HOOK_FLAGS+=(--skip-thread-status); fi
-    "$PYTHON_ABS" "$REPO_ROOT/scripts/install_client_hooks.py" "${HOOK_FLAGS[@]}" || exit 1
+    if [ "$SKIP_DAEMON" = true ]; then HOOK_FLAGS+=(--skip-daemon); fi
+    if [ "$SKIP_COOPERATION" = true ]; then HOOK_FLAGS+=(--skip-cooperation); fi
+    if [ "$FORCE_CLAUDE_CODE_MCP" = true ]; then HOOK_FLAGS+=(--force-claude-code-mcp); fi
+    "$PYTHON_ABS" "$REPO_ROOT/scripts/install_setup_options.py" "${HOOK_FLAGS[@]}" || exit 1
 fi
 
 # ============== Sync Between Machines ==============

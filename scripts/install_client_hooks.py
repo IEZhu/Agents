@@ -98,18 +98,16 @@ def main(argv=None) -> int:
             try:
                 ensure_claude_title_sdk()
             except (OSError, ValueError, subprocess.SubprocessError) as error:
-                print(f'ERROR: Claude title dependency setup failed ({type(error).__name__}). '
-                      'Earlier setup steps may already be configured. Restore package access and rerun, '
-                      'or use --skip-thread-status for an offline setup.', file=sys.stderr)
-                failed = True
-                # Other clients do not depend on this optional SDK.
-                selected.remove('claude')
+                print(f'WARNING: Claude title dependency setup failed ({type(error).__name__}). '
+                      'Installing the stdlib hook anyway. CLI title writes through the SDK remain unavailable; '
+                      'restore package access and rerun setup to enable them. Desktop app title tools '
+                      'do not require this dependency.', file=sys.stderr)
         for client in selected:
             try:
                 result = installer(client)
                 state = 'configured' if result['changed'] else 'already current'
                 print(f'{label}: {client} {state}: {result["config"]}')
-                codex_changed |= client == 'codex'
+                codex_changed |= client == 'codex' and result['changed']
                 if installer is readiness.install:
                     readiness_clients.add(client)
             except (OSError, ValueError, TypeError) as error:
