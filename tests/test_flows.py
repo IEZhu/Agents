@@ -130,8 +130,21 @@ async def test_builtin_flow_personas_build_complete_bundles(monkeypatch):
     from src import flow_persona
     from src.engine import enrichment
     from src.engine.persona_bundle import build_persona_bundle
+    from src.engine.skills import SkillRetriever
+    from src.engine.implants import ImplantRetriever
+    from types import SimpleNamespace
 
     monkeypatch.setattr(enrichment, "resolve_profile", lambda query: None)
+    # Exact component selections still use the real formatters, but do not need
+    # retriever construction, indexes or an embedding model on a clean runner.
+    monkeypatch.setattr(enrichment, "_skill_retriever", SimpleNamespace(
+        format_skills_for_prompt=lambda items, **kwargs:
+            SkillRetriever.format_skills_for_prompt(None, items, **kwargs),
+    ))
+    monkeypatch.setattr(enrichment, "_implant_retriever", SimpleNamespace(
+        format_implants_for_prompt=lambda items:
+            ImplantRetriever.format_implants_for_prompt(None, items),
+    ))
     catalog = FlowCatalog()
     declared = {flow_id: flow_persona.declared(catalog.load(flow_id).content)
                 for flow_id in catalog.ids()}
