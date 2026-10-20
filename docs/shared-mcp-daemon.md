@@ -117,6 +117,11 @@ flows, indexes, scheduler/user-sync identity and the installation lease; health
 reports both roots. This preserves the original stdio bridge's installation
 check. Both trees remain excluded from trusted runner locations.
 
+When `runtime_root` differs from `installation`, both manual and scheduled Git
+updates refuse before building or stopping the service. They retain the override
+and explain that the owner must explicitly migrate the runtime and verify its
+launcher first: updating the content checkout cannot replace pinned source code.
+
 This field does not select an interpreter, copy dependencies, switch a running
 service or protect a mutable source tree. A source override requires a persistent
 owner-managed launcher/interpreter, verified source manifest, compatible existing
@@ -656,7 +661,12 @@ summary with the sync engine; a `transaction` that remains while no controller
 command is running requires `recover`. `/health` requires a
 bearer token and, besides the MCP SDK `version`, returns `agents_core_version`
 (the Agents-Core version shown in the footer, see
-[routing reference](routing_flow.md)). Readiness means the model and indexes have warmed successfully.
+[routing reference](routing_flow.md)) and `agents_core_commit`, the full Git commit
+of the source tree actually executing the service. Both are cached during process
+startup; changing the checkout cannot change the identity of an already running
+process. A source archive without its own Git metadata reports an unknown version
+and a null commit, even when the canonical content installation has Git metadata.
+Readiness means the model and indexes have warmed successfully.
 Admission is bounded at 32 work requests, plus up to 32 open notification streams
 counted separately, with eight I/O workers and one inference worker. Capacity
 exhaustion returns busy. Cancelling an HTTP waiter retains the quota for its
@@ -1442,16 +1452,25 @@ retain source history.
 .venv/bin/python -m src.daemon recover
 ```
 
-Updates require a clean target branch, a fast-forward, and unchanged dependency
-manifests. Clients may stay connected (see [Drain and connected
+Updates require a clean target branch, a fast-forward, and compatibility with the
+existing dependency environment. Clients may stay connected (see [Drain and connected
 clients](#drain-and-connected-clients)).
+
+The manual and scheduled controllers use the same dependency gate. A
+`pyproject.toml` change may update metadata or package data and declare a new
+optional extra while keeping runtime dependencies, `requires-python`, all
+previously declared extras and the build-system contract unchanged. Requirement
+ordering is ignored; changed requirement strings remain a maintenance boundary.
+Missing or malformed manifests and dynamic dependency declarations fail closed.
+Changes to `requirements.txt`, `uv.lock`, `bridge/package.json` or
+`bridge/package-lock.json` always require explicit environment maintenance.
 
 The update is built while the service keeps serving. Holding the updater lock,
 the controller checks out the target in a worktree under `data/.prepared/<sha>`.
 It copies the live skill and implant indexes there and runs the reindex in a
 separate process with the service's interpreter and model. The reindex re-embeds
 only an index whose sources changed. While it re-embeds, a second model process
-runs next to the service. A target that moved or changes dependency manifests is
+runs next to the service. A target that moved or changes environment requirements is
 refused before anything is built. The reindex gets the installation's `.env`
 under the controller's own settings, as the service does. The build records
 the settings that shape the embeddings (`EMBEDDING_*`, `AGENTS_MODEL_*` and
@@ -1496,9 +1515,20 @@ startup with `Shared service is in maintenance; use the controller to recover`.
 
 After the file transaction, writer leases are released and the same LaunchAgent
 receives a single-use probation admission. The update succeeds only after
-readiness. A failed warmup restores code and indexes and checks readiness of the
-restored runtime. The controller journal remains until readiness completes; use
-`recover` after interruption. Do not delete journals manually.
+readiness and an exact match between `agents_core_commit` and the activated
+target. A ready service running a stale source, an unknown commit or a version
+without commit health triggers rollback, as does failed warmup. Rollback checks
+the restored commit too. For a previous version whose health predates this field,
+only recovery or an unchanged-code restart may accept readiness without a commit;
+the returned health explicitly records `commit_verified: false`. A present but
+wrong or null commit never receives that compatibility exception. If a restored
+service fails probation during rollback, recovery or restoration after an update
+fails before mutation, the controller attempts to stop it and retains the recovery
+journal and maintenance barrier. If that stop also fails, the original probation
+error is raised with a note about the stop failure; the service may still be
+running and recovery is still required. The controller journal remains until
+probation completes; use `recover` after interruption. Do not delete journals
+manually.
 
 A manual `update` with nothing to apply and no model switch pending leaves the
 service running. When it applies a commit or switches the embedding model, it
@@ -1508,8 +1538,8 @@ probation and leaves it running; `auto-update` leaves a stopped service alone.
 While the service runs, update the installation only with `update` or
 `auto-update`: `install.sh`, `git pull` or `scripts/init_repo.sh` in the checkout
 change code, dependencies or indexes without drain, maintenance, index backup,
-probation or rollback. `update` refuses a target that changes dependency
-manifests. For such a target, `stop` the service and close this installation's
+probation or rollback. `update` refuses a target that changes the dependency
+environment. For such a target, `stop` the service and close this installation's
 stdio servers, fast-forward the checkout (`git pull --ff-only`), install the
 dependencies as setup does (`.venv/bin/python -m pip install -r requirements.txt`),
 then `start` the service; its warmup rebuilds changed skill and implant indexes.
@@ -1568,7 +1598,9 @@ A run skips a target without touching the service when the checked-out branch is
 neither the configured branch nor the previous setting, or a switch would be needed
 to a branch exported over `.env`, the target branch is checked out in another
 worktree, tracked files have local changes, the target is not a fast-forward (or, for a switch, an
-unconfirmed downgrade), or dependency manifests changed; each skip is logged once per target. Otherwise it waits until the service is ready, has no
+unconfirmed downgrade), dependency environment requirements changed, or a
+different `runtime_root` pins the service to another source. Each skip is logged
+once per target. Otherwise it waits until the service is ready, has no
 work in flight, and has been idle for `--idle-seconds` (default 120), and then
 runs the same transaction as `update`. It also waits while any stdio server of
 this installation is running, since `update` would stop the service only to find
