@@ -1,10 +1,11 @@
-# Instruction-signing verification core
+# Instruction-signing core and local authority
 
 The package in [src/instruction_signing](../src/instruction_signing/) implements
 the bounded byte and protected-inventory primitives for
-[#235](https://github.com/IEZhu/Agents/issues/235). It performs no filesystem
-acquisition, startup enforcement, trust-store mutation, security review or
-activation. Those remain assigned to subsequent issues in the
+[#235](https://github.com/IEZhu/Agents/issues/235), and the local key, trust and
+policy backend for [#236](https://github.com/IEZhu/Agents/issues/236). It performs
+no protected-file acquisition, startup enforcement, security review or activation.
+Those remain assigned to subsequent issues in the
 [specification](instruction-signing-spec.md#13-implementation-ownership-and-shared-contracts).
 
 ## OMS and exact-byte API
@@ -55,9 +56,9 @@ keys and invalid input/signatures. Verified fingerprint and claimed seal kind
 are available separately. The signer label and timestamp are display metadata.
 
 A valid result establishes the cryptographic and supplied-content checks only.
-The public-key mapping recognizes identities; #236 must separately authorize
-each identity for the requested seal kind and root and apply current revocation
-and protected-policy state. Every result starts with authorization_checked=False.
+The public-key mapping recognizes identities; AuthorityStore.verify separately
+authorizes each identity for the requested seal kind and enrolled root with
+current revocation state. Primitive results start with authorization_checked=False.
 An attacker-controlled key must never be added just because its signature
 verifies. This layer does not enroll keys or persist an authorization result.
 
@@ -106,6 +107,9 @@ an owner approval or signing/activation authority.
 
 ## Bounds and interoperability checks
 
+The local authority API and its trusted-runtime precondition are documented in
+[Local signing authority](instruction-signing-authority.md).
+
 Default limits are 8 MiB per seal, 4 MiB per statement/inventory JSON, 64 MiB per
 file, 256 MiB aggregate file bytes, 20,000 resources/observations and 1,024 UTF-8
 bytes per path. Positive custom Limits values may reduce or increase these
@@ -117,7 +121,7 @@ Install the optional reference tests in a development environment:
 
 ~~~bash
 python -m pip install -r requirements.txt -e ".[signing-tests]"
-LANGFUSE_TRACING_ENABLED=false python -B -m pytest tests/test_instruction_signing.py tests/test_instruction_signing_interop.py tests/test_instruction_inventory.py -q -p no:cacheprovider
+LANGFUSE_TRACING_ENABLED=false python -B -m pytest tests/test_instruction_signing.py tests/test_instruction_signing_authority.py tests/test_instruction_signing_interop.py tests/test_instruction_inventory.py -q -p no:cacheprovider
 uv lock --check
 ~~~
 
@@ -132,4 +136,7 @@ use keyless signing, network verification or real owner keys.
 The [Instruction signing workflow](../.github/workflows/instruction-signing.yml)
 runs the focused tests on Linux, macOS and Windows. Passing them does not enable
 protection of the daemon, updater, library or system files; implementation of
-#236 through #243 remains necessary.
+#237 through #243 remains necessary. Authority tests use temporary local state,
+real ephemeral P-256 keys, fault injection and competing owners. Native Windows
+jobs verify both private DACL creation and refusal of Everyone/NULL DACLs;
+POSIX jobs verify modes and link refusal. No test enrolls the owner's live state.

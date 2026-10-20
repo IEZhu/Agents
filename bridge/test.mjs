@@ -5,9 +5,11 @@ import { mkdtemp, writeFile, rm, realpath } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawn } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { once } from 'node:events';
 import { createHmac } from 'node:crypto';
+
+const ROOT_URI = pathToFileURL(resolve('/roots/a')).href;
 
 test('stdio forwards concurrent IDs and notifications, suppresses callbacks, never retries', async () => {
   const seen = [];
@@ -77,7 +79,7 @@ async function fakeDaemon(answer, onCall = undefined) {
 }
 
 // A client that declares roots and answers roots/list; nested message arrays run concurrently.
-async function session(daemon, settings, messages, env = {}, cwd = undefined, capabilities = { roots: { listChanged: true } }) {
+async function session(daemon, settings, messages, env = {}, cwd = undefined, capabilities = { roots: { listChanged: true } }, roots = [{ uri: ROOT_URI }]) {
   const dir = await mkdtemp(join(tmpdir(), 'agents-bridge-'));
   try {
     const config = join(dir, 'config.json');
@@ -94,7 +96,7 @@ async function session(daemon, settings, messages, env = {}, cwd = undefined, ca
         const message = JSON.parse(buffer.slice(0, end));
         if (message.method === 'roots/list') {
           rootsAsked++;
-          child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: message.id, result: { roots: [{ uri: 'file:///roots/a' }] } }) + '\n');
+          child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: message.id, result: { roots: typeof roots === 'function' ? roots() : roots } }) + '\n');
         } else {
           responses.set(message.id, message);
           waiters.get(message.id)?.();
@@ -129,6 +131,28 @@ const call = (id, workspace, workspace_signature = undefined) => ({
     name: 'log_interaction',
     arguments: { ...(workspace ? { workspace } : {}), ...(workspace_signature ? { workspace_signature } : {}) },
   },
+});
+
+test('forwarded standalone hooks retain installation-scoped native authentication', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'agents-native-key-'));
+  const config = join(dir, 'native.json');
+  const workspace = await realpath(dir);
+  const proof = createHmac('sha256', 'native-test-secret').update('workspace:' + workspace).digest('hex');
+  try {
+    const installation = await realpath(fileURLToPath(new URL('../', import.meta.url)));
+    for (const [root, accepted] of [[installation, true], [dir, false]]) {
+      await writeFile(config, JSON.stringify({ transport: 'stdio', installation: root,
+        headers: { Authorization: 'Bearer native-test-secret' } }), { mode: 0o600 });
+      const daemon = await fakeDaemon(async () => [200, { workspace_id: 'native-workspace' }]);
+      await session(daemon, { workspace: 'auto' }, [call('signed', workspace, proof)],
+        { AGENTS_WORKSPACE_AUTH_CONFIG: config }, dir, {});
+      assert.equal(daemon.registrations.some(item => item.origin === 'hook'), accepted);
+      assert.equal(Object.hasOwn(daemon.calls.find(item => item.message.id === 'signed').message.params.arguments, 'workspace_signature'), false);
+      assert.equal(Object.hasOwn(daemon.calls.find(item => item.message.id === 'signed').message.params.arguments, 'workspace'), !accepted);
+    }
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 test('alias compatibility view filters tools and maps calls without exposing native tools', async () => {
@@ -179,7 +203,7 @@ test('auto workspace: the session directory names every request, retried while t
     { CLAUDE_PROJECT_DIR: '/session' });
   const named = { path: '/session', origin: 'CLAUDE_PROJECT_DIR' };
   assert.deepEqual(daemon.registrations, [named, named,
-    { path: '/named', roots: ['file:///roots/a'] }, { path: '/outside', roots: ['file:///roots/a'] }]);
+    { path: '/named', roots: [ROOT_URI] }, { path: '/outside', roots: [ROOT_URI] }]);
   assert.equal(rootsAsked, 2);
   assert.equal(header('init'), undefined);
   assert.equal(header('list'), 'session-id');
@@ -204,7 +228,7 @@ test('a shared bridge refuses a call whose workspace lies outside the roots', as
   assert.match(responses.get('outside').error.message, /workspace_invalid: outside the roots/);
 });
 
-test('history calls without a workspace reach the daemon with the directory they name (#292)', async () => {
+test('history uses a unique client root automatically and retains refused claims (#292)', async () => {
   // The daemon keeps such a turn in its fallback journal; the claim is metadata, never a target.
   const daemon = await fakeDaemon(message => message.path === '/outside'
     ? [400, { error: 'workspace_invalid', message: 'outside the roots' }]
@@ -220,9 +244,11 @@ test('history calls without a workspace reach the daemon with the directory they
   assert.equal(decodeURIComponent(claimed('outside')), '/outside');
   assert.equal(refused('outside'), 'workspace_invalid'); // why, for the turn's metadata
   // Without a workspace argument, the session's directory; percent-encoded, as a header must be ASCII.
-  assert.equal(claimed('plain'), encodeURIComponent('/projects/ünicode dir'));
+  assert.equal(header('plain'), 'named-id');
+  assert.equal(claimed('plain'), undefined);
   assert.equal(refused('plain'), undefined);
-  assert.equal(claimed('read'), encodeURIComponent('/projects/ünicode dir'));
+  assert.equal(header('read'), 'named-id');
+  assert.equal(claimed('read'), undefined);
   // Only history calls carry a claim; one too long for any directory is left out, the call goes on.
   assert.equal(claimed('describe'), undefined);
   assert.equal(claimed('long'), undefined);
@@ -230,6 +256,42 @@ test('history calls without a workspace reach the daemon with the directory they
   assert.equal(claimed('list'), undefined);
   assert.equal(header('named'), 'named-id');
   assert.equal(claimed('named'), undefined); // a resolved workspace claims nothing
+});
+
+test('shared bridge follows unique roots per call and never pins an ambiguous root set', async () => {
+  const daemon = await fakeDaemon(message => [200, { workspace_id: message.path, root: message.path }]);
+  const sets = [['/empty/a'], ['/empty/a', '/empty/b'], ['/empty/b']].map(paths => paths.map(path => pathToFileURL(resolve(path)).href));
+  const { header, responses, rootsAsked } = await session(daemon, {},
+    [describe('a'), describe('ambiguous'), describe('b')], {}, undefined,
+    { roots: { listChanged: true } }, () => sets.shift().map(uri => ({ uri })));
+  assert.equal(header('a'), resolve('/empty/a'));
+  assert.equal(header('ambiguous'), undefined);
+  assert.ok(!responses.get('ambiguous').error); // repository enforcement stays with the daemon
+  assert.equal(header('b'), resolve('/empty/b'));
+  assert.equal(rootsAsked, 3);
+});
+
+test('persona tools still route when several client roots are open', async () => {
+  const daemon = await fakeDaemon(message => [200, { workspace_id: message.path }]);
+  const { responses, header } = await session(daemon, {}, [{ id: 'route', method: 'tools/call',
+    params: { name: 'route_and_load', arguments: { query: 'hello', protocol_version: 2 } } }],
+    {}, undefined, { roots: {} }, [{ uri: ROOT_URI }, { uri: pathToFileURL(resolve('/roots/b')).href }]);
+  assert.ok(!responses.get('route').error);
+  assert.equal(header('route'), undefined);
+  assert.equal(daemon.registrations.length, 0);
+});
+
+test('a signed hook registration cannot authorize a later unsigned call outside MCP roots', async () => {
+  const daemon = await fakeDaemon(message => message.roots
+    ? [400, { error: 'workspace_invalid', message: 'outside roots' }]
+    : [200, { workspace_id: 'signed-id', root: message.path }]);
+  const workspace = '/outside';
+  const signature = createHmac('sha256', 'test').update('workspace:' + workspace).digest('hex');
+  const { header, responses } = await session(daemon, {},
+    [call('signed', workspace, signature), describe('unsigned', workspace)]);
+  assert.equal(header('signed'), 'signed-id');
+  assert.equal(header('unsigned'), undefined);
+  assert.equal(responses.get('unsigned').error.code, -32602);
 });
 
 test('a pinned bridge never sends a claim', async () => {
@@ -294,9 +356,9 @@ test('signed workspace: a tool call with valid workspace_signature registers wit
   assert.deepEqual(daemon.registrations[0], { path: '/signed/project', origin: 'hook' });
   assert.equal(header('tool-1'), 'signed-id');
   assert.ok(!responses.get('tool-1').error);
-  // Verify workspace_signature was stripped before forwarding to daemon
+  // Both authenticated hint fields are consumed before strict tool validation.
   const forwardedCall = daemon.calls.find(c => c.message.id === 'tool-1');
-  assert.equal(forwardedCall.message.params.arguments.workspace, '/signed/project');
+  assert.equal(forwardedCall.message.params.arguments.workspace, undefined);
   assert.equal(forwardedCall.message.params.arguments.workspace_signature, undefined);
 });
 
@@ -312,7 +374,7 @@ test('signed workspace replaces a refused auto cwd and follows authenticated wor
     { id: 'second-list', method: 'tools/list' }, call('second-unsigned'),
   ], { CLAUDE_PROJECT_DIR: undefined }, '/', {});
   assert.deepEqual(daemon.registrations, [
-    { path: '/' },
+    { path: resolve('/') },
     { path: '/project/first', origin: 'hook' },
     { path: '/project/second', origin: 'hook' },
   ]);
@@ -337,7 +399,7 @@ test('concurrent signed workspace switches retain the newer authenticated reques
       call('second', '/project/second', signature('/project/second'))],
     { id: 'list', method: 'tools/list' }, call('unsigned'),
   ], { CLAUDE_PROJECT_DIR: undefined }, '/', {});
-  assert.deepEqual(daemon.registrations.map(request => request.path).sort(), ['/', '/project/first', '/project/second']);
+  assert.deepEqual(daemon.registrations.map(request => request.path).sort(), [resolve('/'), '/project/first', '/project/second'].sort());
   assert.equal(header('init'), undefined);
   assert.equal(header('first'), '/project/first');
   for (const id of ['second', 'list', 'unsigned']) {

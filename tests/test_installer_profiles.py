@@ -35,10 +35,12 @@ def profile_installer(request, tmp_path):
     helpers.mkdir(parents=True)
     (templates / "legacy").mkdir(parents=True)
     (checkout / "src").mkdir()
-    for name in ("__init__.py", "client_paths.py", "claude_plugin.py"):
+    for name in ("__init__.py", "client_paths.py", "claude_plugin.py", "executables.py", "file_lock.py", "runtime_paths.py", "stdio_workspace.py"):
         shutil.copyfile(ROOT / "src" / name, checkout / "src" / name)
+    shutil.copytree(ROOT / "src/daemon", checkout / "src/daemon", ignore=shutil.ignore_patterns("__pycache__"))
+    (checkout / "src/server.py").write_text("# Installer fixture; never executed\n")
     for name in ("inject_mcp.py", "inject_claude_md.py", "migrate_routing_memory.py", "client_config_paths.py",
-                 "deny_desktop_mcp.py", "claude_code_plugin.py"):
+                 "deny_desktop_mcp.py", "claude_code_plugin.py", "install_antigravity_workspace.py"):
         shutil.copyfile(ROOT / "scripts/_helpers" / name, helpers / name)
     # The pre-fix collision regression must run before this helper exists.
     backup_helper = ROOT / "scripts/_helpers/backup_file.py"
@@ -68,7 +70,9 @@ def profile_installer(request, tmp_path):
     if kind == "cmd":
         # Client detection must not pick up applications installed on the test host.
         system32 = Path(os.environ["SystemRoot"]) / "System32"
-        env["PATH"] = os.pathsep.join(map(str, (system32, system32 / "WindowsPowerShell/v1.0")))
+        git = shutil.which("git")
+        assert git, "Git is required to check private signing-state targets"
+        env["PATH"] = os.pathsep.join(map(str, (system32, system32 / "WindowsPowerShell/v1.0", Path(git).parent)))
 
     if kind == "bash":
         source = (ROOT / "scripts/init_repo.sh").read_text()
@@ -323,7 +327,8 @@ def test_antigravity_existing_directory_creates_config_and_reinstalls(profile_in
 
     assert first.returncode == 0, first.stdout + first.stderr
     expected = {"mcpServers": {"Agents-Core": {"command": sys.executable,
-                                             "args": [str(checkout / "src/server.py")]}}}
+                                             "args": [str(checkout / "src/server.py")],
+                                             "env": {"AGENTS_WORKSPACE_AUTH_CONFIG": str(checkout / "data/native-workspace/antigravity.json")}}}}
     assert json.loads(config.read_text()) == expected
     configured = config.read_bytes()
 
@@ -354,7 +359,9 @@ def test_windows_antigravity_on_path_creates_default_config(profile_installer):
     # WHERE discovers this stub. Setup must not actually launch the client.
     (binaries / "agy.cmd").write_bytes(b"@exit /b 99\r\n")
     system32 = Path(os.environ["SystemRoot"]) / "System32"
-    path = os.pathsep.join(map(str, (binaries, system32, system32 / "WindowsPowerShell/v1.0")))
+    git = shutil.which("git")
+    assert git, "Git is required to check private signing-state targets"
+    path = os.pathsep.join(map(str, (binaries, system32, system32 / "WindowsPowerShell/v1.0", Path(git).parent)))
 
     result = run({"PATH": path})
 

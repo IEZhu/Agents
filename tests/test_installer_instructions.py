@@ -38,18 +38,28 @@ def installer_hook(request, tmp_path):
     templates = checkout / "scripts" / "templates"
     helpers.mkdir(parents=True)
     templates.mkdir()
-    for name in ("install_codex_instructions.py", "inject_claude_md.py"):
+    for name in ("install_codex_instructions.py", "install_codex_mcp.py", "inject_claude_md.py", "backup_file.py",
+                 "ensure_workspace_bindings.py"):
         shutil.copyfile(ROOT / "scripts" / "_helpers" / name, helpers / name)
     shutil.copyfile(ROOT / "scripts" / "templates" / "routing-protocol-core.md",
                     templates / "routing-protocol-core.md")
+    shutil.copytree(ROOT / "src", checkout / "src", ignore=shutil.ignore_patterns("__pycache__"))
+    for name in ("install_setup_options.py", "install_client_hooks.py", "install_session_readiness.py", "install_thread_status.py",
+                 "thread_status.py", "session_readiness.py", "session_readiness_mcp.py"):
+        shutil.copyfile(ROOT / "scripts" / name, checkout / "scripts" / name)
     codex_home = tmp_path / "custom codex home"
     profile = tmp_path / "isolated profile"
     profile.mkdir()
-    env = dict(os.environ, HOME=str(profile), USERPROFILE=str(profile),
-               CODEX_HOME=str(codex_home), REPO_ROOT=str(checkout),
-               PYTHON_ABS=sys.executable, HELPERS=str(helpers),
+    inherited = {key: value for key, value in os.environ.items()
+                 if not key.startswith("AGENTS_") and key not in {
+                     "CODEX_HOME", "CLAUDE_CONFIG_DIR", "XDG_CONFIG_HOME", "APPDATA", "LOCALAPPDATA"}}
+    env = dict(inherited, HOME=str(profile), USERPROFILE=str(profile),
+               CODEX_HOME=str(codex_home), APPDATA=str(profile / "AppData/Roaming"),
+               LOCALAPPDATA=str(profile / "AppData/Local"), REPO_ROOT=str(checkout),
+               PYTHON_ABS=sys.executable, HELPERS=str(helpers), SERVER_ABS=str(checkout / "src/server.py"),
                RED="", GREEN="", YELLOW="", BLUE="", CYAN="", NC="",
-               PYTHONUTF8="1")
+               PYTHONUTF8="1", PATH="", ASSUME_YES="true", SKIP_HOOKS="false",
+               SKIP_READINESS="false", SKIP_THREAD_STATUS="false", SKIP_DAEMON="true", SKIP_COOPERATION="true")
     for name in ("PYTHONHOME", "PYTHONPATH", "VIRTUAL_ENV", "__PYVENV_LAUNCHER__"):
         env.pop(name, None)
 
@@ -80,8 +90,9 @@ def installer_hook(request, tmp_path):
                             + closing + "exit /b 0\n").replace("\n", "\r\n").encode("utf-8"))
         command = [interpreter, "/d", "/c", script.name]
 
-    def run(protocol_env=None, skip_mcp=False):
+    def run(protocol_env=None, skip_mcp=False, hook_flags=None):
         process_env = dict(env, SKIP_MCP="true" if skip_mcp else "false")
+        process_env.update(hook_flags or {})
         if protocol_env is None:
             process_env.pop("AGENTS_PERSONA_PROTOCOL", None)
         else:
@@ -100,10 +111,19 @@ def test_installer_hook_installs_core_template(installer_hook, protocol_env):
     assert result.returncode == 0, result.stdout + result.stderr
     target = codex_home / "AGENTS.md"
     assert (templates / "routing-protocol-core.md").read_bytes().strip() in target.read_bytes()
+    import tomllib
+    config = tomllib.loads((codex_home / "config.toml").read_text())
+    assert Path(config["mcp_servers"]["Agents-Core"]["args"][0]).is_absolute()
     assert target.read_bytes().count(BEGIN) == 1
     assert str(target) in result.stdout and "configured" in result.stdout
     assert "fresh Codex session" in result.stdout
-    assert not list(codex_home.glob("*.backup.*"))
+    import json
+    hooks = json.loads((codex_home / "hooks.json").read_text())["hooks"]
+    assert {"SessionStart", "UserPromptSubmit", "Interrupt"} <= hooks.keys()
+    assert len(hooks["SessionStart"]) == 3  # readiness, persona restore and status
+    assert "review/trust" in result.stdout
+    assert not list(codex_home.glob("AGENTS.md.backup.*"))
+    assert not list(codex_home.glob("config.toml.backup.*"))
 
 
 def test_installer_hook_migrates_preserves_and_repeats_without_backup_growth(installer_hook):
@@ -155,9 +175,11 @@ def test_installer_skip_mcp_guard_prevents_instruction_updates(installer_hook):
     result = run(skip_mcp=True)
     assert result.returncode == 0, result.stdout + result.stderr
     assert "Skipping MCP configuration" in result.stdout
+    assert not (codex_home / "config.toml").exists()
     assert "Checking Codex global instructions" not in result.stdout
     assert target.read_bytes() == b"Personal rules"
-    assert not list(codex_home.glob("*.backup.*"))
+    assert not list(codex_home.glob("AGENTS.md.backup.*"))
+    assert not list(codex_home.glob("config.toml.backup.*"))
 
 
 @pytest.mark.parametrize("failure", ["missing_template", "invalid_markers"])
@@ -178,4 +200,34 @@ def test_installer_hook_reports_failures_without_rewriting(installer_hook, failu
     assert "Failed to configure Codex instructions" in output
     assert "Codex global instructions configured:" not in output
     assert target.read_bytes() == original
-    assert not list(codex_home.glob("*.backup.*"))
+    assert not list(codex_home.glob("AGENTS.md.backup.*"))
+    assert not list(codex_home.glob("config.toml.backup.*"))
+
+
+def test_installer_refuses_malformed_toml_and_does_not_claim_mcp_success(installer_hook):
+    run, codex_home, _ = installer_hook
+    codex_home.mkdir()
+    config = codex_home / "config.toml"
+    config.write_bytes(b"invalid = [")
+    result = run()
+    assert result.returncode == 1
+    assert config.read_bytes() == b"invalid = ["
+    assert "Could not configure Codex MCP" in result.stderr
+    assert "MCP configured for:" not in result.stdout
+    assert not list(codex_home.glob("config.toml.backup.*"))
+
+
+@pytest.mark.parametrize("flag,missing", [("SKIP_HOOKS", "both"), ("SKIP_READINESS", "readiness"), ("SKIP_THREAD_STATUS", "status")])
+def test_normal_setup_respects_individual_hook_choices(installer_hook, flag, missing):
+    import json
+    run, codex_home, _ = installer_hook
+    result = run(hook_flags={flag: "true"})
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert (codex_home / "config.toml").exists()
+    target = codex_home / "hooks.json"
+    if missing == "both":
+        assert not target.exists()
+    else:
+        hooks = json.loads(target.read_text())["hooks"]
+        assert ("Interrupt" not in hooks) == (missing == "status")
+        assert len(hooks["SessionStart"]) == (1 if missing == "readiness" else 2)
