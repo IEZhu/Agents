@@ -102,6 +102,22 @@ def test_other_claude_entrypoints_keep_cli_title_and_sdk_helper(monkeypatch, tmp
     assert "mcp__ccd_session_mgmt" not in fields["additionalContext"]
 
 
+@pytest.mark.parametrize("entrypoint", ["cli", "claude-desktop"])
+def test_claude_prompt_reminds_to_mark_a_new_phase(monkeypatch, tmp_path, entrypoint):
+    monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", entrypoint)
+    prompt = runtime.hook_output(event(cwd=str(tmp_path)), "claude")["hookSpecificOutput"]
+    assert "mark_chapter" in prompt["additionalContext"]
+    assert "If the client exposes a chapter tool" in prompt["additionalContext"]
+    assert "this request moves the work to a meaningfully different phase of the session" in prompt["additionalContext"]
+    assert "first message" in prompt["additionalContext"]
+    start = runtime.hook_output(event("SessionStart", cwd=str(tmp_path)), "claude")["hookSpecificOutput"]
+    assert "mark_chapter" not in start["additionalContext"]
+    codex = runtime.hook_output(event(), "codex")["hookSpecificOutput"]
+    assert "mark_chapter" not in codex["additionalContext"]
+    # Like the rest of the hook's context, the reminder needs a known chat identity.
+    assert runtime.hook_output(event(session_id=None, cwd=str(tmp_path)), "claude") == {}
+
+
 @pytest.mark.parametrize("title", ["⏸️ Paused", "🛑 Stopped", "🧹 Remaining obligations", "✅ Closed", "🏁 Finished", "🙋 Need answer", "👀 Review", "⏳ CI", "🚧 Blocked"])
 def test_lifecycle_alone_does_not_reopen_task(title):
     output = runtime.hook_output(event(session_title=title), "claude")
