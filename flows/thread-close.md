@@ -102,6 +102,43 @@ thread only from the transcript and the live state, and its report must say so.
 
   Never merge, force-push or rewrite history as part of closing.
 
+## Confidentiality and destination visibility
+
+Before external lookup, drafting a proposal or choosing a patch destination,
+classify the source information and the destination's actual visibility and
+audience. Internal or unknown information stays private unless the user has
+explicitly authorized disclosure of those specific details to that destination.
+Read-only searches and API queries also transfer their query text to the
+receiving service; check this boundary before making the call.
+
+Internal information includes nonsecret service and tool names, proxy aliases,
+domains, endpoints, repository paths, API contracts, deployment configuration,
+architecture and incident details. Removing credentials alone does not make
+this material public. Existing public mentions do not authorize further
+disclosure. Access to a private repository does not authorize publication to a
+public repository, including another repository owned by the same user.
+
+For an upstream/public improvement, describe only the general mechanism and use
+synthetic examples that do not identify the organization or its systems. Keep
+company-specific registrations, tool inventories and examples in an authorized
+private repository, private flow or local configuration. Never propose putting
+them in a public catalogue merely because the framework or catalogue lives
+there. Public proposals and drafts must already be safe before asking approval.
+
+Search for existing issues/PRs only inside an authorized destination and with
+query terms safe for that destination. Do not send internal names or identifiers
+to a public issue/code search to discover whether someone has already published
+them. Use an authorized private tracker or a generic sanitized public query
+instead. If visibility or safe disclosure cannot be established, stop only that
+external operation, keep the finding private and report the verification gap.
+
+Apply this boundary to reports, logs, memory, links, attachments, worker inputs
+and delegated searches as well. A worker receives no broader disclosure
+permission than the parent. A generic instruction to run/apply this flow,
+check issues, fix a workflow or "go ahead" is not permission to publish internal
+details. Follow an explicit user authorization for a specified disclosure;
+otherwise continue with the private or sanitized alternative.
+
 ## Verification levels
 
 | Level | Meaning | Typical evidence |
@@ -267,7 +304,9 @@ client's own tools. Calls from this close's own `run_flow` on are not audited.
      no row names is `uncatalogued`, a finding against the catalogue. The built-in
      catalogue names every statically registered tool and the dynamic proxy
      family. A missing row means a newer server or an outdated personal copy of
-     this flow; a runtime proxy name belongs to `mcp-proxy` below.
+     this flow; a runtime proxy name belongs to `mcp-proxy` below. Concrete
+     private aliases need not appear in an upstream/public catalogue; their
+     absence alone is not a catalogue defect.
    - **Every other tool:** each loaded instruction that names a trigger for it:
      the client's instruction files (`CLAUDE.md`, `AGENTS.md`, rules files), the
      MCP server's own instructions, a skill's or plugin's description ("use
@@ -342,7 +381,12 @@ client's own tools. Calls from this close's own `run_flow` on are not audited.
    write the next layer toward automatic (memory lesson, then client
    instruction, then hook, flow step or flow persona, then Agents-Core itself),
    and name the earlier close's time.
-8. **One list, one yes.** Collect every patch into one numbered list. Apply them
+8. **One list, one yes.** Check existing tracking within the confidentiality
+   boundary before adding a patch. For each proposal, name its destination,
+   verified visibility and whether its content is generic or private. Public
+   improvements describe the mechanism; keep concrete private inventories in
+   authorized private context. Never require public enumeration of private
+   tools as a completion condition. Collect every patch into one numbered list. Apply them
    only after the user's yes, which may approve the whole list or name items; a
    V2 memory lesson in `apply` mode needs none. Verify each applied patch (the
    diff in place, the call's result) and report which were applied.
@@ -373,8 +417,10 @@ from the client's actual tool exposure.
 
 Inventory dynamic proxy tools under their upstream connection as well as their
 transport. Their runtime names are not `uncatalogued` solely because they are
-absent from the static registration catalogue. Read and apply the upstream's
-own usage and authorization rules. Inventorying a tool does not authorize
+absent from the static registration catalogue. Inventory concrete private names
+only in authorized private context; a generic upstream rule can cover private
+aliases without publishing them. Read and apply the upstream's own usage and
+authorization rules. Inventorying a tool does not authorize
 calling it: a `missed` call requires demonstrated availability and an applicable
 operation trigger, not just exposure to the client.
 
@@ -425,9 +471,14 @@ operation trigger, not just exposure to the client.
 - **Issues, tracker items and documentation.** Propose follow-up issues and
   tracker items, and create them only on a yes. Propose repository knowledge as a
   documentation change through the repository's pull request flow.
-- **Secrets and personal data.** Scan everything you persist or report: replace
-  secrets with references and leave out medical, financial and other personal
-  details. The report is logged in both modes, so this applies to the report too.
+- **Confidential information, secrets and personal data.** Check the authorized
+  audience of every destination, including the closing log and any synced
+  memory. Scan everything persisted or reported and replace secrets with safe
+  references, including in private memory and closing logs. Keep internal
+  identifiers, topology and nonsecret configuration out of public/shared output
+  unless specifically authorized. Sanitize references and link labels as well
+  as prose; leave out medical, financial and other personal details. The report
+  is logged in both modes.
 
 ## 8. Clean up (`apply`)
 
@@ -520,6 +571,8 @@ flow can match this work instead of recording it twice.
 - Background work is stopped or its continuation is justified.
 - In `apply` mode, every memory change is V2 or above and the closing log entry
   is curated.
+- Every external lookup and proposed patch destination respects the
+  confidentiality boundary; no public enumeration of private tools is required.
 - The report is delivered.
 
 The flow does not prove a thread right. It records how well each result is
