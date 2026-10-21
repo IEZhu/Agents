@@ -108,8 +108,9 @@ in the task worktree, with no PR or merge performed.
 At the owner's request, the initial documentation follow-up at `f6aeb253984d`
 included guides from two neighboring implementation PRs. Neither implementation
 was present in that revision. The initial pinned snapshot is recorded below;
-the integration update after it distinguishes current branch behavior from
-the still-pending proxy implementation. No `main` publication is claimed.
+the integration updates below distinguish those historical snapshots from
+current branch behavior. Both feature implementations are now integrated in
+`dev`; no `main` publication is claimed.
 
 | Feature | Source inspected | Documentation and release boundaries |
 |---|---|---|
@@ -118,10 +119,10 @@ the still-pending proxy implementation. No `main` publication is claimed.
 
 The proxy guide incorporates the implementation originally developed in
 [PR #445](https://github.com/IEZhu/Agents/pull/445); #449 consolidates it, so #445
-is not an additional release prerequisite. The native API-reference badge still
-counts 48 registered tools in this branch; dynamic upstream aliases and title
-hooks are outside that metric. The historical proxy plan now links to the
-narrower implementation instead of asserting that none of it exists.
+is not an additional release prerequisite. At that pinned snapshot, the native
+API-reference badge counted 48 registered tools; dynamic upstream aliases and
+title hooks are outside that metric. The historical proxy plan links to the
+implemented slice while preserving the remaining proposal.
 
 Two prepared read-only documentation audits checked these pinned feature
 sources and test assertions; both returned envelopes passed their original
@@ -134,9 +135,9 @@ unchanged 48/48 native-tool index. Diff whitespace validation passed.
 
 Before the planned `dev → main` promotion:
 
-1. Complete review of [this documentation/version PR #451](https://github.com/IEZhu/Agents/pull/451) and #449, and include their accepted implementation in `dev`. PR #452 is already integrated as recorded below. Recording a dependency is not merging or approving it.
-2. Re-fetch the implementation heads and compare them with the pinned sources above. Reconcile the overlapping README, documentation index, proxy plan, daemon/sync guides and optional dependency metadata. Keep the canonical dynamic `VERSION` source and include any resulting lock-file changes.
-3. Verify the final integrated CLI/help, status vocabulary, client support and sync allowlist against source/tests. When #449 is integrated, move the remaining pending proxy guide into the maintained-reference table and replace its pending banner with current integrated source evidence. A copied guide alone does not enable the feature.
+1. Complete review of [this documentation/version PR #451](https://github.com/IEZhu/Agents/pull/451) and include its accepted changes in `dev`. PRs #449 and #452 are integrated as recorded below; the documentation PR remains open for owner approval.
+2. Re-fetch the target branch and compare any newer source with the integrated revisions below. Reconcile overlapping README, documentation index, proxy plan, daemon/sync guides and optional dependency metadata. Keep the canonical dynamic `VERSION` source and include any resulting lock-file changes.
+3. Verify the final integrated CLI/help, status vocabulary, client support and sync allowlist against source/tests. The proxy guide is now a maintained reference and its pending banner has been removed against integrated source. A copied guide alone does not establish live-client acceptance.
 4. Run the integrated documentation, release-version and affected status/proxy/sync checks. Record platform/live-client limitations and any owner acceptance still required. Do not reuse an older feature PR's CI result as a check of the final release SHA.
 5. Prepare or validate one canonical version against fetched `origin/main` after integration, then follow the [release procedure](releases.md#prepare-a-promotion), including the owner's decision and verification of the resulting tag and release. This documentation work does not publish or merge a release.
 
@@ -148,8 +149,9 @@ on 2026-10-18. This branch incorporates that target update and preserves its
 final thread-status guide, including native Windows Codex launcher handling,
 the precise prompt-start preservation rule and the three-platform test workflow.
 Thread status is now a maintained reference rather than a pending feature.
-The proxy implementation remains outside this branch and its pending notice
-continues to apply. The optional Claude SDK dependency is reconciled with this
+The proxy implementation was still outside this branch at that integration
+snapshot; the subsequent #449 update below supersedes its pending notice.
+The optional Claude SDK dependency is reconciled with this
 PR's dynamic canonical version metadata: regenerating `uv.lock` adds the
 `thread-status` extra and its pinned `claude-agent-sdk==0.2.168` package without
 changing existing dependency versions or restoring a static root version.
@@ -216,3 +218,38 @@ format declared components. The test now keeps the real source validation and
 formatters without constructing retrievers, and fails if an embedding model is
 initialized. The guard reproduced the original failure locally before the fix;
 the focused workflow selection passes without a model cache.
+
+
+### Integration update after PR #449
+
+The final documentation preparation combines preserved candidate
+[`d1d1cefb273d`](https://github.com/IEZhu/Agents/commit/d1d1cefb273d893fc2e8478cf32dd2833ab90a09)
+with `origin/dev` at
+[`8a789eb79d96`](https://github.com/IEZhu/Agents/commit/8a789eb79d964d1013008e3801907e6a7a7ae480).
+That target contains the #449 merge
+[`d963b3dbac4d`](https://github.com/IEZhu/Agents/commit/d963b3dbac4d955a3511d4f204fb9cd91d09addd).
+The [proxy guide](mcp-proxy.md) now describes the integrated Streamable HTTP and
+shared stdio implementation. Discovery links, daemon/sync guidance and the
+historical plan no longer present #449 as pending. This update preserves the
+calendar-version implementation and both sides' bounded worker/model-tier guidance.
+
+The current source checks are `src/mcp_registry.py`,
+`src/daemon/mcp_cli.py`, `src/daemon/mcp_proxy/upstreams.py` and
+`src/daemon/mcp_proxy/exposure.py`. They establish absolute stdio executable
+paths, nonsecret arguments/environment metadata, exact-revision app consent,
+explicit catalog refresh and reused serialized sessions. The daemon owns shared
+upstreams; the Plata compatibility entry is a forwarding bridge and must not
+launch a second native server. Credentials remain in their existing local store,
+and `ENABLE_WRITE_TOOLS=false` remains the documented default. No client
+configuration, service or credential migration was executed for this refresh.
+
+Recomputing the AST inventory against this integrated tree still finds **48
+native registered tools and 48 indexed references**, with no missing or unknown
+rows. Explicit badge regeneration produces the same **48/48** SVG; dynamic
+HTTP/stdio aliases remain excluded. The offline navigation checker passes for
+**133 Markdown files**, with zero navigation/tool-index errors. These are fresh
+static results for the combined tree, not reuse of the earlier counts above.
+
+The full regular suite, affected behavior suites, final-head remote CI and
+substantive bot reviews remain the coordinator's subsequent checks. This
+preparation does not push, request bot reviews, merge a PR or publish a release.

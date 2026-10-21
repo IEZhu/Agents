@@ -66,7 +66,8 @@ def test_source_symlink_must_stay_in_catalog(catalog, tmp_path):
 
 @pytest.mark.parametrize(("raw", "error"), [(b"", "flow_invalid"),
     (b" \n", "flow_invalid"), (b"\xff", "flow_unreadable"),
-    (b"a" * (256 * 1024 + 1), "flow_invalid")])
+    (b"a" * (256 * 1024 + 1), "flow_invalid")],
+    ids=["empty", "whitespace", "invalid-utf8", "oversized"])
 def test_invalid_content(catalog, raw, error):
     (catalog.directory / "docs.md").write_bytes(raw)
     with pytest.raises(FlowError, match=error):
@@ -237,3 +238,14 @@ async def test_thread_close_audits_every_installed_tool_and_catalogues_every_ser
     catalogued = {re.sub(r"\(.*", "", name) for cell in cells for name in re.findall(r"`([^`]+)`", cell)}
     registered = {tool.name for tool in await server.mcp.list_tools()}
     assert sorted(registered - catalogued) == [] and sorted(catalogued - registered) == []
+
+
+def test_thread_close_handoff_keeps_required_obligations_unfinished():
+    text = " ".join(FlowCatalog().load("thread-close").content.split())
+    for phrase in ("use `finishing` (🧹) when required obligations remain",
+                   "unless essential user input or required human approval calls for `needs_user`/`review`",
+                   "Resume implementation as `working`",
+                   "Verify or explicitly resolve every required task before `ready_to_close`",
+                   "`closed` requires explicit closure or confirmed archival",
+                   "The status grants no additional authority"):
+        assert phrase in text

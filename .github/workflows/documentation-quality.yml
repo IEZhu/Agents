@@ -33,5 +33,5 @@ jobs:
         run: python -m pip install -r requirements.txt 'markdown-it-py>=3,<5'
       - name: Check local navigation, public tool references and badge freshness
         run: python -B scripts/check_docs.py
-      - name: Check parser, registrations, flow contracts and workflow permissions
-        run: python -B -m pytest tests/test_check_docs.py tests/test_flows.py tests/test_workflow_permissions.py -q -p no:cacheprovider
+      - name: Check parser, registrations, flow contracts, runtime version and workflow permissions
+        run: python -B -m pytest tests/test_check_docs.py tests/test_flows.py tests/test_version.py tests/test_workflow_permissions.py -q -p no:cacheprovider

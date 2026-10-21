@@ -145,9 +145,10 @@ result contract must fit the budget together. If they do not fit, return a
 ## Worker rules
 
 Keep the installation-enabled non-presentation universal rules (including honesty
-and uncertainty). Omit `answer-timestamp` and `language-match` from worker output
-presentation; language requirements can be stated in the assignment. The output
-is the data contract, not a chat answer with a footer.
+and uncertainty). Omit `answer-timestamp`, `language-match` and `thread-status`: they
+govern conversation presentation and chat titles, rather than the task worker.
+Language requirements can be stated in the assignment. The output is the data
+contract, not a chat answer with a footer.
 Universal `agent-cooperation` is also omitted, with selection reason
 `worker_equivalent`; mandatory `worker-cooperation` supplies its scoped equivalent.
 All five base worker rules remain mandatory when conversation rules are disabled.

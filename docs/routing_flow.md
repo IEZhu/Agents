@@ -271,18 +271,29 @@ data. The bounded enriched-prompt cache is process-local. Over stdio,
 `.venv/bin/python -m src.daemon clear-cache`. Neither clears the routing cache.
 Cache clearing is an administrative action and is not required for persona changes.
 
-HTTP repository memory requires `X-Agents-Workspace` with a registered workspace
-UUID. Global connections can route and load personas without that header, but
-`describe_repo`, `write_repo_summary`, `read_history`, and `log_interaction` need
-a valid workspace. Over stdio, the workspace is the client root from
-`AGENTS_CLIENT_REPO_ROOT`, else the call's `workspace` argument when it lies inside
-the client's MCP roots (checked per call, `workspace.source` = `workspace`; one stdio
-process, such as the one the Claude desktop app starts, can serve several sessions),
-else one inferred from `CLAUDE_PROJECT_DIR` or the working
-directory. A launch directory without `.git` or `CLAUDE.md` is refused with
-`workspace_required`; a filesystem root, the home directory or a system or program
-directory (also as `AGENTS_CLIENT_REPO_ROOT`) with `workspace_unsafe` (resolution
-order: [Repository Memory](../README.md#-repository-memory)). The results of
+HTTP repository memory uses `X-Agents-Workspace` with a registered workspace
+UUID. Global connections can route and load personas without that header; memory
+without a resolved project uses the fallback behavior below. A tool's `workspace`
+argument cannot replace a registered HTTP identity. Managed user-scope stdio
+bridges register the session's safe existing directory automatically, including an
+empty folder, and attach the header. They use Node when available and the
+standard-library Python bridge otherwise.
+
+Over stdio, non-empty `AGENTS_CLIENT_REPO_ROOT` decides alone. Otherwise a client
+with MCP roots is checked per request: a sole distinct local root is selected
+when `workspace` is omitted; several roots require an explicit `workspace` inside
+a current declared root. With no usable root, an unverified model path cannot
+enable memory. This selection reports `workspace.source` as
+`workspace` and is never pinned as the process's first or last project. When the client does not declare
+roots, use an existing `CLAUDE_PROJECT_DIR` or the launch directory; an unverified
+model path cannot rebind that process. Directory resolution finds the nearest
+`.git`, `CLAUDE.md` or `AGENTS.md`, or uses the safe existing directory itself.
+Ordinary empty session folders need no per-project migration. Filesystem roots,
+home and system/program directories are refused with `workspace_unsafe`;
+automatic launch inference also rejects installation, runtime, application and
+editor-extension directories. An unavailable cwd reports `workspace_required`
+without selecting the installation (full resolution order:
+[Repository Memory](../README.md#-repository-memory)). The results of
 `log_interaction` and `read_history` report `workspace` and `pid`, and
 `history_last_error` after a failed history write. A `read_history` listing shows
 long texts as previews and stays under Claude Code's 50,000-character limit; a
@@ -390,8 +401,13 @@ and refuse its registration update. Unix setup stops
 with a nonzero exit status when a client registration fails; it does not print
 the successful initialization summary. Repair the file or restore a backup
 before rerunning setup. A missing file can still be created.
-Standalone Antigravity setup registers the MCP connection; its native plugin,
-startup rules and workspace hook are provisioned by shared-daemon migration.
+Standalone Antigravity setup also installs the native plugin, startup rules and
+workspace hook in the active native profile. A stable owner-private signing key
+lives at `data/native-workspace/antigravity.json` in the installation; only its
+absolute path is added as `AGENTS_WORKSPACE_AUTH_CONFIG` to the MCP entry.
+Custom transports, external profiles and existing shared-service connections are
+preserved. The hook, registry, rules, key and registration use one backed-up,
+journaled update. Repeat setup reuses the signing key.
 For Antigravity, user-scope migration provisions a stdio bridge
 (`bridges/antigravity-auto.json`) and an Antigravity plugin
 (`~/.gemini/config/plugins/agents-core`) with a `PreToolUse` lifecycle hook.
@@ -411,12 +427,23 @@ server tests verify delivered instructions, not guaranteed compliance by every m
 Because Antigravity launches stdio MCP servers from `/` without project
 environment variables or MCP roots, the lifecycle hook authenticates the active
 workspace path (`workspacePaths[0]`) using an HMAC-SHA256 signature keyed by the
-daemon bearer token (`workspace_signature`). The hook returns `decision: "ask"`
+daemon bearer token, or the standalone installation key (`workspace_signature`).
+Standalone consumes this metadata before strict tool argument validation and
+binds the verified directory to that one request, resetting it on completion or
+error. It never pins a shared process to a previous standalone request. If a
+former standalone entry later forwards through the shared service, the bridge
+also verifies its installation-bound native key while keeping the daemon's
+separate HTTP credentials. The hook returns `decision: "ask"`
 to preserve Antigravity's approval policy, including the user's **Always Allow**
 choice. Unless a non-empty `AGENTS_CLIENT_REPO_ROOT` overrides the auto session,
-`bridge/stdio.mjs` verifies the signature and registers the workspace
-with `origin: "hook"`: a safe existing folder needs no `.git` or `CLAUDE.md`
-marker, but the filesystem root and the user's home directory are refused.
+the stdio bridge verifies the signature and registers the workspace
+with `origin: "hook"`: a safe existing folder needs no `.git`, `CLAUDE.md` or
+`AGENTS.md` marker; unsafe system, program, filesystem-root and home directories
+are refused. The signature authenticates the local hook's client-supplied path;
+an unsigned model claim grants no workspace authority. The supplied bridge and
+lifecycle hook use Node when available and standard-library Python otherwise.
+A rootless client launched from `/` needs that trusted hook or an explicit project
+binding; Python fallback does not infer a project from `/`.
 After successful verification and registration, the auto bridge binds the
 session to that workspace and attaches `X-Agents-Workspace` to tool requests.
 Later authenticated workspace switches update the binding, so calls without a

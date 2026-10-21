@@ -1,17 +1,15 @@
 # Shared MCP daemon operations
 
-For the neighboring HTTP upstream and per-host inventory work, see the
-[pending HTTP MCP proxy guide](mcp-proxy.md). Its `/ui/mcp` page and
-`python -m src.daemon mcp` commands require that implementation; they are not
-provided by this documentation branch alone.
+For manually configured Streamable HTTP and stdio upstreams, use the [MCP proxy](mcp-proxy.md). Its UI is `/ui/mcp`; CLI management uses `python -m src.daemon mcp`. Cached tools are exposed as `<alias>__<tool>` through the existing authenticated endpoint. Reconnect MCP in open chats after catalog or scope changes.
 
 A macOS LaunchAgent, or on Windows a Task Scheduler task (see
 [Windows](#windows-task-scheduler)), serves local MCP clients at
 `http://127.0.0.1:8765/mcp`.
 One Python process holds the embedding model (`microsoft/harrier-oss-v1-270m` by
 default), the router, and shared
-indexes. Desktop Chat connects through `bridge/stdio.mjs` (Node 22+, no npm
-dependencies). MCP SDK 1.28.1 is pinned in `pyproject.toml`, `requirements.txt`,
+indexes. Desktop Chat connects through a stdio bridge: `bridge/stdio.mjs`
+(Node 22+, no npm dependencies) when Node is available, otherwise
+`bridge/stdio.py` (Python standard library, no extra package). MCP SDK 1.28.1 is pinned in `pyproject.toml`, `requirements.txt`,
 and `uv.lock`. The port above is the default; `install --port` can change it.
 Installation requires the default model's plain-file copy under
 `FASTEMBED_CACHE_DIR` (default `~/.cache/fastembed`, then
@@ -136,6 +134,11 @@ flows, indexes, scheduler/user-sync identity and the installation lease; health
 reports both roots. This preserves the original stdio bridge's installation
 check. Both trees remain excluded from trusted runner locations.
 
+When `runtime_root` differs from `installation`, both manual and scheduled Git
+updates refuse before building or stopping the service. They retain the override
+and explain that the owner must explicitly migrate the runtime and verify its
+launcher first: updating the content checkout cannot replace pinned source code.
+
 This field does not select an interpreter, copy dependencies, switch a running
 service or protect a mutable source tree. A source override requires a persistent
 owner-managed launcher/interpreter, verified source manifest, compatible existing
@@ -176,24 +179,29 @@ Installation records absolute Python, Node, `git`, `ssh-keygen`, `ssh-keyscan` a
 does not terminate another process occupying the port. Use `install --port NUMBER`
 to select another port. `install --python PATH` and `install --node PATH` override
 the recorded interpreters (by default, the Python running `install` and the first
-`node` on PATH). Without a recorded Node, Desktop and tracked-configuration
-migrations fail with `An absolute Node executable is required`.
+`node` on PATH). Node is optional: an absent or unavailable recorded Node selects
+`bridge/stdio.py` with the recorded absolute Python interpreter, including for
+Desktop and tracked configurations. The Antigravity lifecycle hook also has a
+standard-library Python fallback (`bridge/antigravity_hook.py`), so its automatic
+workspace binding does not require Node.
 
-Registering the same realpath again returns its existing UUID. With a recorded
-Node, `migrate --clients claude`, `migrate --clients codex` and `migrate --clients antigravity`
-write the user-scope entry as a stdio bridge (`bridge/stdio.mjs`, `workspace: "auto"` in its private
+Registering the same realpath again returns its existing UUID.
+`migrate --clients claude`, `migrate --clients codex` and `migrate --clients antigravity`
+write the user-scope entry as a stdio bridge (Node or Python, `workspace: "auto"` in its private
 `bridges/claude-code-auto.json`, `bridges/codex-auto.json` or `bridges/antigravity-auto.json`). Claude Code starts
 one bridge per session in the session's directory and names it in
 `CLAUDE_PROJECT_DIR`. The Codex CLI starts a stdio server without `cwd` in the
 session's working directory, so the Codex entry carries no `cwd`. Like a stdio
-server's cwd, a bridge's launch directory counts only with a `.git` or `CLAUDE.md`
-at or above it. The Codex VS Code extension starts servers in its installation
-directory ([openai/codex#9989](https://github.com/openai/codex/issues/9989)), so its
-sessions get no workspace there instead of a wrong one. Antigravity starts MCP servers
-from `/` without project environment variables or MCP roots; for it, user-scope migration
-also provisions an Antigravity plugin (`~/.gemini/config/plugins/agents-core`) with a
-`PreToolUse` lifecycle hook (`bridge/antigravity_hook.mjs`) and registers it as
-`plugins.agents-core.enabled: true` in `~/.gemini/config/config.json`. Other
+server's cwd, a bridge's launch directory resolves to the nearest `.git`,
+`CLAUDE.md` or `AGENTS.md` at or above it, or to the safe existing session folder itself.
+An empty folder needs no per-project migration. Automatic cwd inference rejects
+installation and runtime trees, application bundles and editor extensions, so a
+client launched inside its extension runtime must supply a usable MCP root or
+trusted project signal. Antigravity starts MCP servers from `/` without project
+environment variables or MCP roots; user-scope migration also provisions an
+Antigravity plugin (`~/.gemini/config/plugins/agents-core`) with a
+`PreToolUse` lifecycle hook (`bridge/antigravity_hook.mjs` or the Python fallback)
+and registers it as `plugins.agents-core.enabled: true` in `~/.gemini/config/config.json`. Other
 plugins, user settings and custom fields are preserved. The registry is backed
 up and restored with the manifest, hooks and `rules/AGENTS.md`. The rules file
 contains the canonical managed persona protocol and is loaded by Antigravity
@@ -212,9 +220,10 @@ Antigravity's approval policy, including the user's **Always Allow** choice.
 Unless a non-empty `AGENTS_CLIENT_REPO_ROOT` overrides the auto session,
 the bridge verifies the signature and registers that project through
 `POST /workspaces` with `origin: "hook"`. This origin accepts a safe existing
-folder without a `.git` or `CLAUDE.md` marker, but refuses the filesystem root
-and the user's home directory. After successful verification and registration,
-an auto bridge binds the session to that workspace and sends its
+folder without a `.git`, `CLAUDE.md` or `AGENTS.md` marker, but refuses unsafe
+system, program, filesystem-root and home directories. The HMAC authenticates the
+local hook's path; an unsigned model claim cannot establish that trust. After
+successful verification and registration, an auto bridge binds the session to that workspace and sends its
 `X-Agents-Workspace` on later requests. A subsequent authenticated workspace
 switch updates the binding, including for calls without a `workspace` argument.
 A non-empty `AGENTS_CLIENT_REPO_ROOT` remains authoritative for an auto bridge:
@@ -228,13 +237,16 @@ when the daemon refuses it, a session's bridge keeps using the session's project
 while the daemon was unreachable registers on its next request. An existing
 installation gets the bridge without a command: the service brings the registrations
 it wrote up to date at every start (see [Registrations kept current](#registrations-kept-current)).
-Without a recorded Node these entries stay HTTP. Cursor's user entry is the same
-session bridge; where Cursor starts it outside a project (reported for some hosts,
-not checked), memory, repository (`repo:`) flows and `run_flow` still need project
-configuration: after creating a clone or worktree, run
-`migrate --workspace /absolute/worktree` before connecting. `migrate --workspace`
-also pins a Claude Code or Codex project to one registration. Do not copy an MCP
-configuration containing another project's UUID.
+Node is optional for these bridges; Python provides the same workspace binding
+when Node is unavailable, including the Antigravity lifecycle hook. A client
+launched from `/` without roots or a trusted hook needs an explicit project binding.
+Cursor's user entry is the same session bridge. For every client, a sole current
+MCP root also selects the workspace automatically; several roots require an
+explicit `workspace` inside one of them. Native-client launch and roots behavior
+must be checked in that client. `migrate --workspace /absolute/worktree` remains
+available for clients without a usable signal and for intentional fixed project
+registrations. It also pins a Claude Code or Codex project to one registration.
+Do not copy an MCP configuration containing another project's UUID.
 
 Codex reads project `.codex/config.toml` in a trusted project; Claude Code uses
 local scope in its selected user configuration; Cursor uses project
@@ -242,9 +254,9 @@ local scope in its selected user configuration; Cursor uses project
 Codex merges a server's fields across `~/.codex/config.toml` and a project's
 `.codex/config.toml`, so all layers of a client take the same transport: a stdio
 user layer merged with an HTTP project layer is an entry Codex refuses (`url is not
-supported for stdio`), and the threads of that project stop resuming. With Node,
-a Codex or Cursor project layer is therefore the bridge with the project's fixed
-identity; without Node every layer is HTTP. Claude Code takes an entry whole from
+supported for stdio`), and the threads of that project stop resuming. A managed
+Codex or Cursor project layer therefore uses the bridge with the project's fixed
+identity, using Node or Python as available. Claude Code takes an entry whole from
 one scope, so its local and project pins stay HTTP. `migrate --clients codex` (or
 `cursor`) moves that client's project layers to the user layer's new transport in
 the same transaction, and refuses, changing nothing, when one of them has to stay
@@ -278,21 +290,26 @@ when multiple installations or a smoke-test daemon are present.
 
 While the service is installed, setup (`scripts/init_repo.sh`, also run by
 `install.sh`) keeps Cursor, Claude Code and Claude Desktop on the service:
-instead of writing stdio entries, it applies the same user-scope migration with a
-private backup, and it fails during maintenance or while another controller
+instead of writing standalone entries, it applies the same user-scope migration
+with a private backup and refreshes compatible managed registrations after MCP
+setup while automatic upkeep is enabled. It fails during maintenance or while another controller
 command holds the lock. Do not rerun setup while the service runs (see
 [Updates and recovery](#updates-and-recovery)); use `restore-clients` and
 `uninstall` to return to stdio.
 
 ### Registrations kept current
 
-At every start, and so after every update, the service brings the client
-registrations it wrote to the form `migrate` writes now (`src/daemon/registrations.py`).
+With automatic upkeep enabled, at every start and so after every update, the
+service brings the client registrations it wrote to the form `migrate` writes now (`src/daemon/registrations.py`).
 It runs in the background; during an update's probation it waits until the
 controller releases `control.lock`. It covers the user entries of Claude Code
 (`~/.claude.json` and every Claude registry `client-configs.json` records), Codex
-and Cursor, and the Codex and Cursor project files of every registered or recorded
+and Cursor, owned Claude Desktop entries and native-profile Antigravity entries,
+and the Codex and Cursor project files of every registered or recorded
 workspace. Claude Code's local and project pins stay as they are.
+Antigravity's native workspace plugin is repaired even when its MCP transport
+is already current. External Antigravity profiles are preserved because their
+active hook location is unknown.
 
 - It changes only entries this installation wrote: its endpoint with no headers
   other than `Authorization`, `X-Agents-Workspace` and `X-Agents-Client` and its
@@ -306,9 +323,10 @@ workspace. Claude Code's local and project pins stay as they are.
   installation did not write, an unreadable file, a symbolic link (which migrate
   never writes through) or a Git-tracked file that would change leaves all of that
   client's files as they are, with the reason in the report; for a tracked file the
-  reason names the `migrate` command that changes it on purpose. With the recorded
-  Node missing, bridges are reported, not turned into HTTP entries that would put
-  the token into every project. A client that writes its file meanwhile (Claude
+  reason names the `migrate` command that changes it on purpose. Managed HTTP
+  registrations upgrade to the automatic bridge, with Node or the Python fallback,
+  and compatible known project layers change in that same transaction; fixed
+  project UUIDs are retained. A client that writes its file meanwhile (Claude
   Code writes `~/.claude.json` often) is prepared again. `control.lock` is held only
   while files are written.
 - Open sessions keep the registration they started with: reconnect MCP there
@@ -425,7 +443,7 @@ puts its own `usr/bin` first in that shell.
 A client that still starts this installation's `src/server.py` over stdio, one that
 was never migrated or was added later by hand, is served by the service too, so the
 installation runs one engine (#266). Such a stdio server loads no engine: it hands
-its session to the bridge that migrated clients run (`bridge/stdio.mjs`), with the
+its session to the bridge that migrated clients run (Node or Python), with the
 configuration the service keeps for it, `bridges/stdio-auto.json`
 (`X-Agents-Client: stdio`, `workspace: "auto"`). The service writes that file at
 `install` and at every start, and `token rotate` rewrites it with the other bridge
@@ -435,12 +453,16 @@ it with the server.
 
 The session's workspace comes from `AGENTS_CLIENT_REPO_ROOT` when the client's
 configuration sets it, which then decides alone, as it does for a stdio server; else
-from `CLAUDE_PROJECT_DIR` or the launch directory, as for a migrated client's bridge,
-and a tool call may name its workspace inside the client's MCP roots. Such a server
-holds no installation lease, so it does not hold up `update` or `auto-update`. While
+from the current sole MCP root, or an explicit `workspace` inside the current
+roots when several are available. Without roots it uses `CLAUDE_PROJECT_DIR` or
+the safe launch directory, including an empty folder, as for a migrated client's
+bridge. No first or last root is pinned across calls. The server
+also retains a standalone Antigravity hook's installation-bound signing config
+when forwarding; the bridge verifies that native proof separately from its HTTP
+credentials. It holds no installation lease, so it does not hold up `update` or `auto-update`. While
 the service is stopped its requests fail, as a migrated client's do; during
-maintenance it exits at startup, as before. Without a recorded Node or that
-configuration file, the stdio server serves standalone and says so on stderr.
+maintenance it exits at startup, as before. Without a usable bridge interpreter
+or that configuration file, the stdio server serves standalone and says so on stderr.
 `AGENTS_STDIO_STANDALONE=1` in the client's environment keeps it standalone, for
 debugging the server itself. Through the service the session runs on the
 service's configuration: other settings in the client's environment, such as
@@ -656,7 +678,13 @@ summary with the sync engine; a `transaction` that remains while no controller
 command is running requires `recover`. `/health` requires a
 bearer token and, besides the MCP SDK `version`, returns `agents_core_version`
 (the Agents-Core version shown in the footer, see
-[routing reference](routing_flow.md)). Readiness means the model and indexes have warmed successfully.
+[routing reference](routing_flow.md)) and `agents_core_commit`, the full Git commit
+of the source tree actually executing the service. Both are cached during process
+startup; changing the checkout cannot change the identity of an already running
+process. A source archive with a valid canonical `VERSION` reports that version and
+a null commit; without `VERSION`, its version is unknown. Git metadata in the
+canonical content installation does not supply an archive's own source commit.
+Readiness means the model and indexes have warmed successfully.
 Admission is bounded at 32 work requests, plus up to 32 open notification streams
 counted separately, with eight I/O workers and one inference worker. Capacity
 exhaustion returns busy. Cancelling an HTTP waiter retains the quota for its
@@ -1312,18 +1340,44 @@ service does not answer, `status` reads that summary with the engine.
 
 ## Memory and errors
 
-HTTP never selects a project from cwd, environment variables, or client roots.
-`X-Agents-Workspace` carries a UUID from the private registry. A bridge obtains
-one from `POST /workspaces` (bearer token; not an MCP tool, so a model cannot call
-it). `{path}` is the directory the client started the bridge in, and needs a `.git`
-or `CLAUDE.md` at or above it (`workspace_required` otherwise).
-`{path, origin: "CLAUDE_PROJECT_DIR"}` is a directory the client named, and is used
-as named. Both resolve to the nearest marked directory, a git worktree to its main
-checkout, and system and home directories are refused. `{path, roots}` is a tool
-call's workspace, which must also lie inside one of those roots. The answer is
-`{workspace_id, root}`, or `{error, message}` with status 400. Errors
-`workspace_required` and `workspace_invalid` mean project memory is unavailable:
-routing can continue, and logging must not be retried in a loop.
+HTTP never selects a project from its own cwd, environment variables or client
+roots. `X-Agents-Workspace` carries a UUID from the private registry. A bridge
+obtains one from `POST /workspaces` (bearer token; not an MCP tool, so a model
+cannot call it). `{path}` is the safe existing directory the client started the
+bridge in: resolve the nearest `.git`, `CLAUDE.md` or `AGENTS.md` at or above it, else
+use that directory itself. `{path, origin: "CLAUDE_PROJECT_DIR"}` uses the same
+marker discovery for a directory named by the client. A git worktree normalizes
+to its main checkout. Home, system, program and filesystem-root directories are
+refused; automatic launch-directory inference additionally refuses installation,
+runtime, application and editor-extension trees. An unavailable cwd never falls
+back to the installation as a project.
+
+`{path, roots}` is a root-verified selection. On each request a client declaring
+MCP roots can supply an explicit `workspace` inside a current root; when omitted,
+a sole distinct local root is selected automatically. Multiple roots require the
+caller to identify its workspace. Roots are reread rather than pinning the first
+or last project globally. With no usable current root, a model path alone cannot establish a verified
+selection. A client that does not declare roots cannot use an unverified model
+path to replace its process-derived identity. A non-empty
+`AGENTS_CLIENT_REPO_ROOT` on an auto bridge and a fixed private
+`X-Agents-Workspace` identity remain authoritative. Trusted signed hooks can
+update an auto session's binding; unsigned claims cannot.
+
+Standalone Antigravity setup provisions the same native workspace hook without
+requiring a daemon. Its private `data/native-workspace/antigravity.json` holds a
+stable installation-bound key; the MCP entry receives only the absolute config
+path through `AGENTS_WORKSPACE_AUTH_CONFIG`. The standalone dispatcher verifies
+the signature before schema validation and binds it only for that request,
+including tools using synchronous workspace resolution. HTTP identities and
+explicit project overrides remain authoritative. Setup preserves custom
+transports and external profiles whose active hook location is unknown.
+
+The registration answer is `{workspace_id, root}`, or `{error, message}` with
+status 400. `workspace_required`, `workspace_unsafe` and `workspace_invalid` mean
+project memory is unavailable: routing can continue, and logging must not be
+retried in a loop. No per-project migration is needed for ordinary safe empty
+session folders; clients without a usable cwd, roots or trusted hook still need
+an explicit project binding.
 
 A turn whose project does not resolve is not dropped: `log_interaction` appends it
 to the installation's fallback journal, `unresolved/history.md` next to user
@@ -1340,8 +1394,9 @@ characters up to 4096 characters counts; it is recorded as `claimed_workspace`
 with the entry and never written to. A history call whose named workspace the
 daemon refuses goes on without it, with the refusal's code in
 `X-Agents-Workspace-Refused`, so the shared Desktop bridge keeps such a turn too;
-other tools still fail with the reason. A stdio client with MCP roots that named
-no workspace is still asked to retry once with it, which resolves its project.
+other tools still fail with the reason. A stdio client with no unique current
+MCP root and no explicit workspace is asked to retry once with a path inside a
+current root.
 `read_history` without a project lists the fallback entries of the same claimed
 directory (all of them when nothing was claimed), `query` as a text match, with the
 fallback entries other machines shared merged in as for a repository.
@@ -1415,16 +1470,25 @@ retain source history.
 .venv/bin/python -m src.daemon recover
 ```
 
-Updates require a clean target branch, a fast-forward, and unchanged dependency
-manifests. Clients may stay connected (see [Drain and connected
+Updates require a clean target branch, a fast-forward, and compatibility with the
+existing dependency environment. Clients may stay connected (see [Drain and connected
 clients](#drain-and-connected-clients)).
+
+The manual and scheduled controllers use the same dependency gate. A
+`pyproject.toml` change may update metadata or package data and declare a new
+optional extra while keeping runtime dependencies, `requires-python`, all
+previously declared extras and the build-system contract unchanged. Requirement
+ordering is ignored; changed requirement strings remain a maintenance boundary.
+Missing or malformed manifests and dynamic dependency declarations fail closed.
+Changes to `requirements.txt`, `uv.lock`, `bridge/package.json` or
+`bridge/package-lock.json` always require explicit environment maintenance.
 
 The update is built while the service keeps serving. Holding the updater lock,
 the controller checks out the target in a worktree under `data/.prepared/<sha>`.
 It copies the live skill and implant indexes there and runs the reindex in a
 separate process with the service's interpreter and model. The reindex re-embeds
 only an index whose sources changed. While it re-embeds, a second model process
-runs next to the service. A target that moved or changes dependency manifests is
+runs next to the service. A target that moved or changes environment requirements is
 refused before anything is built. The reindex gets the installation's `.env`
 under the controller's own settings, as the service does. The build records
 the settings that shape the embeddings (`EMBEDDING_*`, `AGENTS_MODEL_*` and
@@ -1469,9 +1533,20 @@ startup with `Shared service is in maintenance; use the controller to recover`.
 
 After the file transaction, writer leases are released and the same LaunchAgent
 receives a single-use probation admission. The update succeeds only after
-readiness. A failed warmup restores code and indexes and checks readiness of the
-restored runtime. The controller journal remains until readiness completes; use
-`recover` after interruption. Do not delete journals manually.
+readiness and an exact match between `agents_core_commit` and the activated
+target. A ready service running a stale source, an unknown commit or a version
+without commit health triggers rollback, as does failed warmup. Rollback checks
+the restored commit too. For a previous version whose health predates this field,
+only recovery or an unchanged-code restart may accept readiness without a commit;
+the returned health explicitly records `commit_verified: false`. A present but
+wrong or null commit never receives that compatibility exception. If a restored
+service fails probation during rollback, recovery or restoration after an update
+fails before mutation, the controller attempts to stop it and retains the recovery
+journal and maintenance barrier. If that stop also fails, the original probation
+error is raised with a note about the stop failure; the service may still be
+running and recovery is still required. The controller journal remains until
+probation completes; use `recover` after interruption. Do not delete journals
+manually.
 
 A manual `update` with nothing to apply and no model switch pending leaves the
 service running. When it applies a commit or switches the embedding model, it
@@ -1481,8 +1556,8 @@ probation and leaves it running; `auto-update` leaves a stopped service alone.
 While the service runs, update the installation only with `update` or
 `auto-update`: `install.sh`, `git pull` or `scripts/init_repo.sh` in the checkout
 change code, dependencies or indexes without drain, maintenance, index backup,
-probation or rollback. `update` refuses a target that changes dependency
-manifests. For such a target, `stop` the service and close this installation's
+probation or rollback. `update` refuses a target that changes the dependency
+environment. For such a target, `stop` the service and close this installation's
 stdio servers, fast-forward the checkout (`git pull --ff-only`), install the
 dependencies as setup does (`.venv/bin/python -m pip install -r requirements.txt`),
 then `start` the service; its warmup rebuilds changed skill and implant indexes.
@@ -1541,7 +1616,9 @@ A run skips a target without touching the service when the checked-out branch is
 neither the configured branch nor the previous setting, or a switch would be needed
 to a branch exported over `.env`, the target branch is checked out in another
 worktree, tracked files have local changes, the target is not a fast-forward (or, for a switch, an
-unconfirmed downgrade), or dependency manifests changed; each skip is logged once per target. Otherwise it waits until the service is ready, has no
+unconfirmed downgrade), dependency environment requirements changed, or a
+different `runtime_root` pins the service to another source. Each skip is logged
+once per target. Otherwise it waits until the service is ready, has no
 work in flight, and has been idle for `--idle-seconds` (default 120), and then
 runs the same transaction as `update`. It also waits while any stdio server of
 this installation is running, since `update` would stop the service only to find

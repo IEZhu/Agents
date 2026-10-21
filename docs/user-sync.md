@@ -1,11 +1,6 @@
 # User library sync
 
-The neighboring [HTTP MCP proxy and host-inventory guide](mcp-proxy.md) describes
-an additional `mcp` sync scope in PR #449. That scope is pending integration in
-this documentation branch. Its server/host JSON can sync, while credentials,
-runtime catalogs and local execution confirmation stay on each host. Upgrade
-all syncing installations before using the new scope; follow the guide's
-integration notice rather than adding it to an older installation's settings.
+The [MCP proxy and host-inventory guide](mcp-proxy.md) describes the `mcp` sync scope for shared HTTP/stdio definitions and host selections. Server/host JSON can sync, while credentials, runtime catalogs and local execution confirmation stay on each host. Upgrade all syncing installations before using the scope; older versions reject an unknown scope group. A received host record never grants local execution consent.
 
 Status: the engine and its command line (#165), GitHub sign-in through the API (#166), scheduled
 runs, the stdio trigger and the terminal wizard (#168), the sync loop of the macOS daemon (#167),
@@ -388,10 +383,11 @@ waiting for the deploy key is not an error.
 | Synced by default | Never synced |
 |---|---|
 | `common/**` (personal flows), `personas/**`, `components.json`, permitted Git flow versions | `.lock`, `.tmp-*`, `__pycache__`, `*.pyc`, `.DS_Store` and other file-manager junk |
+| `mcp/servers/<alias>.json`, `mcp/machines/<id>.json` ([MCP connections](mcp-proxy.md)) | MCP credentials, private confirmation state, runtime catalogs and other files under `mcp/` |
 | `repos/<key>/**` for keys derived from an `origin`, with their personas, flow history and [repository history](#repository-history) | repository groups without an `origin` (machine-local), `**/.repo.local.json` |
 | `.agents-library.json`, `.gitignore`, `.gitattributes`, `.agents-sync/**` | symlinks, files over 5 MiB, names some platform cannot store, anything else at the root |
 
-Scope groups are `common`, `personas`, `history`, `components` and `repos/<key>`; a repository's
+Scope groups are `common`, `personas`, `history`, `components`, `mcp` and `repos/<key>`; a repository's
 shared history segments (`repos/<key>/history/**`) belong to both `history` and `repos/<key>`.
 These segments and flow-version metadata are neither named in commit messages nor counted by
 the mass-deletion guard. Exclusions live
@@ -591,6 +587,12 @@ runner reports `lock_held`. Git lock files that a killed run left behind are rem
 seconds. Network calls time out after 60 s and local git calls after 10 s. A network failure
 retries after 1, 2, 5, 10 and then every 30 minutes; access and safety failures stop with a reason
 until the owner acts.
+
+Git commands that receive input bytes read them from a private temporary file, closed after
+the command completes or fails. This lets batch commands emit output before consuming their
+input without blocking the caller in a pipe write and preventing its timeout from running.
+Commands without input receive EOF; none inherit the MCP server's stdin. A timed-out child
+is terminated and reaped before the error reaches the caller and its library lock is released.
 
 Commits carry the configured identity and messages such as
 `sync(laptop): update user:release-notes, persona builtin:pr-review` with the trailer

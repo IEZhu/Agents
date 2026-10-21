@@ -1,6 +1,8 @@
 # MCP proxy: connect a server once, sync it through the library, scope it per machine and serve it to every AI app
 
-Date: 2026-10-12. Status: historical proposal; the task breakdown is at the end. The original design below is preserved. As of 2026-10-18, [PR #449](https://github.com/IEZhu/Agents/pull/449) implements a narrower HTTP proxy and host-inventory slice on a neighboring branch; see its [pending integration guide](mcp-proxy.md). That implementation does not establish completion of the remaining epic.
+Date: 2026-10-12. Status: historical proposal; the task breakdown is at the end. The original design below is preserved.
+
+Implementation update, 2026-10-18: [PR #449](https://github.com/IEZhu/Agents/pull/449) merged into `dev` at [`d963b3dbac4d`](https://github.com/IEZhu/Agents/commit/d963b3dbac4d955a3511d4f204fb9cd91d09addd). The [manual HTTP/stdio proxy slice](mcp-proxy.md) implements native secret storage, local revision/app consent, lazy shared HTTP/stdio sessions, cached tool exposure, UI/CLI management and per-host inventory through personal-library sync. The remaining design below is a proposal; the complete epic is still open. Current implementation and tests take precedence over this original design.
 
 ## Summary
 

@@ -1,17 +1,50 @@
 // Zero-dependency bridge. One HTTP attempt per JSON-RPC message; never replay writes.
-import { readFileSync, statSync } from 'node:fs';
+import { readFileSync, statSync, lstatSync, realpathSync, openSync, fstatSync, readSync, closeSync, constants } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline';
 import { once } from 'node:events';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { Buffer } from 'node:buffer';
 import { homedir } from 'node:os';
-import { resolve } from 'node:path';
+import { resolve, dirname } from 'node:path';
 
 const path = process.argv[2];
 // Windows has no mode bits: there the config inherits the owner-only ACL of the service directory
 // (src/daemon/acl.py), which the controller sets and checks when it writes the config.
 if (!path || (process.platform !== 'win32' && (statSync(path).mode & 0o077))) throw new Error('Private config (0600) required');
 const config = JSON.parse(readFileSync(path, 'utf8'));
+// A former standalone entry can be forwarded here after the shared service is
+// enabled. Its native hook keeps a separate private key, scoped to this install.
+function nativeWorkspaceToken() {
+  const path = process.env.AGENTS_WORKSPACE_AUTH_CONFIG;
+  let descriptor;
+  try {
+    if (!path || lstatSync(path).isSymbolicLink()) return undefined;
+    descriptor = openSync(path, constants.O_RDONLY | (constants.O_NONBLOCK || 0) | (constants.O_NOFOLLOW || 0));
+    const info = fstatSync(descriptor);
+    if (!info.isFile() || (process.platform !== 'win32' && (info.mode & 0o077))) return undefined;
+    const buffer = Buffer.alloc(16_385);
+    const bytes = readSync(descriptor, buffer, 0, buffer.length, null);
+    if (bytes > 16_384) return undefined;
+    const native = JSON.parse(buffer.subarray(0, bytes).toString('utf8'));
+    const installation = realpathSync(resolve(dirname(fileURLToPath(import.meta.url)), '..'));
+    if (native.transport !== 'stdio' || typeof native.installation !== 'string' || realpathSync(native.installation) !== installation) return undefined;
+    return typeof native.headers?.Authorization === 'string'
+      ? native.headers.Authorization.replace(/^Bearer\s+/i, '').trim() : undefined;
+  } catch {
+    return undefined;
+  } finally {
+    if (descriptor !== undefined) closeSync(descriptor);
+  }
+}
+const nativeToken = nativeWorkspaceToken();
+// Optional compatibility view for clients that cached a former direct server.
+// This filters/names tools only; daemon app/revision consent remains authoritative.
+const alias = config.alias;
+if (alias !== undefined && (typeof alias !== 'string' || !/^[a-z0-9][a-z0-9_-]{0,11}$/.test(alias) || alias.includes('__'))) {
+  throw new Error('Invalid proxy alias');
+}
+const prefix = alias === undefined ? undefined : alias + '__';
 const endpoint = new URL(config.url);
 if (endpoint.protocol !== 'http:' || endpoint.hostname !== '127.0.0.1' || endpoint.pathname !== '/mcp') {
   throw new Error('Only the local Agents-Core endpoint is supported');
@@ -21,6 +54,7 @@ const registration = new URL('/workspaces', endpoint);
 const pending = new Set();
 const answers = new Map(); // this bridge's own requests to its client, by id
 const named = new Map(); // a tool call's workspace -> its UUID; cleared when the client's roots change
+const signed = new Map(); // authenticated hooks never authorize unsigned roots-based calls
 let protocolVersion = '2025-11-25';
 let clientRoots = false;
 let session; // the session's workspace UUID (workspace "auto"), or null
@@ -49,7 +83,7 @@ async function register(request) {
 }
 // Workspace "auto": the client starts this bridge once per session, in the session's directory,
 // and Claude Code also names it in CLAUDE_PROJECT_DIR; that is what a stdio server trusts too.
-// A bare cwd counts only inside a project (.git or CLAUDE.md): some hosts start servers elsewhere.
+// The daemon accepts empty session folders and refuses installation/app/system launch directories.
 // AGENTS_CLIENT_REPO_ROOT, the override a stdio client's configuration may set, outranks both and,
 // as in a stdio server, decides alone (#266: `src/server.py` hands its session to this bridge).
 // A relative value counts from this bridge's directory, as from a stdio server's: the daemon runs elsewhere.
@@ -97,22 +131,29 @@ async function workspaceFor(message) {
   const args = message.method === 'tools/call' ? message.params?.arguments : undefined;
   const workspace = typeof args?.workspace === 'string' && args.workspace.trim() ? args.workspace.trim() : undefined;
   const signature = typeof args?.workspace_signature === 'string' && args.workspace_signature.trim() ? args.workspace_signature.trim() : undefined;
+  const token = (config.headers?.Authorization || '').replace(/^Bearer\s+/i, '').trim();
+  const authenticated = workspace && (verifySignature(token, workspace, signature) || verifySignature(nativeToken, workspace, signature));
+  if (args) delete args.workspace_signature;
+  if (authenticated) delete args.workspace; // Authenticated hint is transport metadata.
+  if (config.headers?.['X-Agents-Workspace']) {
+    if (signature) delete message.params.arguments.workspace_signature;
+    return config.headers['X-Agents-Workspace'];
+  }
   if (override) {
     if (signature) delete message.params.arguments.workspace_signature;
     return sessionWorkspace();
   }
   if (signature) {
     delete message.params.arguments.workspace_signature;
-    const token = (config.headers?.Authorization || '').replace(/^Bearer\s+/i, '').trim();
-    if (workspace && verifySignature(token, workspace, signature)) {
+    if (authenticated) {
       const request = ++signedRequest;
-      if (!named.has(workspace)) {
+      if (!signed.has(workspace)) {
         const identity = register({ path: workspace, origin: 'hook' });
-        named.set(workspace, identity);
-        identity.catch(() => named.delete(workspace));
+        signed.set(workspace, identity);
+        identity.catch(() => signed.delete(workspace));
       }
       try {
-        const identity = await named.get(workspace);
+        const identity = await signed.get(workspace);
         // Initialization from / may have cached a refused launch directory.
         // The authenticated client workspace replaces that result and follows
         // later signed workspace switches for calls without a workspace argument.
@@ -130,18 +171,39 @@ async function workspaceFor(message) {
       process.stderr.write('Agents-Core bridge: invalid workspace signature; ignored.\n');
     }
   }
-  if (!workspace || !clientRoots) return sessionWorkspace();
-  if (!named.has(workspace)) {
-    const identity = ask('roots/list').then(answer => register({ path: workspace, roots: (answer?.roots ?? []).map(root => root.uri) }));
-    named.set(workspace, identity);
-    identity.catch(() => named.delete(workspace)); // a refusal is checked again on the next call
-  }
+  if (!clientRoots || message.method !== 'tools/call' || (prefix && !workspace)) return sessionWorkspace();
+  let key;
   try {
-    return await named.get(workspace);
+    const answer = await ask('roots/list');
+    const roots = (answer?.roots ?? []).map(root => root.uri);
+    let selected = workspace;
+    if (!selected) {
+      const paths = new Set(roots.flatMap(uri => {
+        try {
+          const path = fileURLToPath(uri);
+          try { return [realpathSync(path)]; } catch { return [resolve(path)]; }
+        } catch { return []; }
+      }));
+      if (paths.size !== 1) throw new Error('workspace_required: the client has no unique workspace; pass workspace');
+      selected = [...paths][0];
+    }
+    key = JSON.stringify([selected, roots]);
+    if (!named.has(key)) {
+      const identity = register({ path: selected, roots });
+      named.set(key, identity);
+      identity.catch(() => named.delete(key));
+    }
+    return await named.get(key);
   } catch (error) {
+    if (!workspace) {
+      // Persona/catalog tools need no repository. Repository tools enforce the
+      // missing identity themselves; never pick an arbitrary shared root here.
+      process.stderr.write(`Agents-Core bridge: no unique workspace (${error.message}).\n`);
+      return null;
+    }
     // A bridge started for one session still knows that session's project; only a bridge
     // shared by several sessions has nothing better and refuses the call.
-    const own = await sessionWorkspace();
+    const own = workspace ? await sessionWorkspace() : null;
     if (!own) throw error;
     process.stderr.write(`Agents-Core bridge: workspace refused (${error.message}); using this session's project.\n`);
     return own;
@@ -164,6 +226,17 @@ function claimedWorkspace(message) {
 }
 async function forward(message) {
   const hasId = Object.hasOwn(message, 'id');
+  if (prefix && message.method === 'tools/call') {
+    if (typeof message.params?.name !== 'string') {
+      if (hasId) await send({ jsonrpc: '2.0', id: message.id, error: { code: -32602, message: 'Tool name required' } });
+      return;
+    }
+    message.params.name = prefix + message.params.name;
+  }
+  if (prefix && /^(prompts|resources)\//.test(message.method)) {
+    if (hasId) await send({ jsonrpc: '2.0', id: message.id, error: { code: -32601, message: 'This proxy view exposes tools only' } });
+    return;
+  }
   if (message.method === 'initialize') clientRoots = Boolean(message.params?.capabilities?.roots);
   if (message.method === 'notifications/roots/list_changed') named.clear();
   const tool = message.method === 'tools/call' ? message.params?.name : undefined;
@@ -203,6 +276,15 @@ async function forward(message) {
     if (hasId) {
       if (result.id !== message.id) throw new Error('Mismatched response ID');
       if (message.method === 'initialize' && result.result?.protocolVersion) protocolVersion = result.result.protocolVersion;
+      if (prefix && message.method === 'initialize' && result.result) {
+        result.result.serverInfo = { ...result.result.serverInfo, name: alias };
+        result.result.capabilities = { tools: result.result.capabilities?.tools || {} };
+        result.result.instructions = `Tools for ${alias} through the shared Agents-Core daemon. Do not start another upstream server.`;
+      }
+      if (prefix && message.method === 'tools/list' && Array.isArray(result.result?.tools)) {
+        result.result.tools = result.result.tools.filter(tool => tool.name?.startsWith(prefix))
+          .map(tool => ({ ...tool, name: tool.name.slice(prefix.length) }));
+      }
       await send(result);
     }
   } catch (error) {

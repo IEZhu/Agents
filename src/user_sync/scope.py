@@ -7,8 +7,8 @@ exclusions and conflict records). Never synced: machine-local repository groups,
 ``.tmp-*``, caches, file-manager junk, symlinks, files over 5 MiB, names that some platform cannot
 store, and anything else at the library root.
 
-Each path belongs to one or two scope groups: ``common``, ``personas``, ``history`` or
-``components``, and for per-repository data (``repos/<key>/``, ``personas/repos/<key>/``,
+Each path belongs to one or two scope groups: ``common``, ``personas``, ``history``,
+``components`` or ``mcp``, and for per-repository data (``repos/<key>/``, ``personas/repos/<key>/``,
 legacy ``.history/repos/<key>/``) also ``repos/<key>``. The history group
 also governs Git revision events, whose prior bytes follow the owning file's
 exclusions and repository portability. Excluding any of its groups keeps a path out of
@@ -40,7 +40,7 @@ SCOPES_PATH = f"{SYNC_DIR}/scopes.json"
 CONFLICTS_DIR = f"{SYNC_DIR}/conflicts"
 LIBRARY_FILES = frozenset({MARKER, ".gitignore", ".gitattributes"})
 COMPONENTS = "components.json"
-KIND_GROUPS = ("common", "personas", "history", "components")
+KIND_GROUPS = ("common", "personas", "history", "components", "mcp")
 
 _JUNK_NAMES = frozenset({".lock", ".DS_Store", "Thumbs.db", "desktop.ini", "__pycache__", REPO_LOCAL})
 _WINDOWS_RESERVED = re.compile(r"(?:con|prn|aux|nul|com[0-9]|lpt[0-9])(?:\..*)?", re.I)
@@ -173,6 +173,16 @@ def groups(path: str) -> tuple[str, ...] | None:
         return ()
     if top == "common":
         return ("common",)
+    if top == "mcp":
+        # Only registry records are portable; credentials, caches and arbitrary
+        # files placed beside them never enter the personal repository.
+        if len(parts) == 3 and parts[2].endswith(".json"):
+            name = parts[2][:-5]
+            if parts[1] == "servers" and re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,11}", name) and "__" not in name:
+                return ("mcp",)
+            if parts[1] == "machines" and re.fullmatch(r"[0-9a-f]{32}", name):
+                return ("mcp",)
+        return None
     if top == "repos":
         if len(parts) < 3 or not _REPO_KEY.fullmatch(parts[1]):
             return None
@@ -272,8 +282,34 @@ class Rules:
         return self.reason(path) is None
 
 
-def scan(data: bytes) -> str | None:
+def scan(data: bytes, *, path: str | None = None) -> str | None:
     """The name of the first credential pattern found in ``data``."""
+    if path is not None and path.startswith("mcp/"):
+        # Hand edits bypass registry writers. Validate the whole record before
+        # publishing, including headers containing an otherwise unknown token.
+        from src.mcp_registry import MAX_BYTES, validate_definition, validate_machine
+
+        def unique(pairs):
+            value = {}
+            for key, item in pairs:
+                if key in value:
+                    raise ValueError("Duplicate key")
+                value[key] = item
+            return value
+
+        try:
+            if len(data) > MAX_BYTES:
+                return "invalid_mcp_record"
+            record = json.loads(data.decode("utf-8"), object_pairs_hook=unique)
+            if path.startswith("mcp/servers/"):
+                if validate_definition(record, stored=True)["alias"] != Path(path).stem:
+                    return "invalid_mcp_record"
+            elif path.startswith("mcp/machines/"):
+                validate_machine(record, Path(path).stem)
+            else:
+                return "invalid_mcp_record"
+        except (ValueError, TypeError, RecursionError):
+            return "invalid_mcp_record"
     for name, pattern in SECRET_PATTERNS:
         if pattern.search(data):
             return name
@@ -418,9 +454,9 @@ def snapshot(root: Path, scopes: Scopes, *, held_groups: frozenset[str] = frozen
         if reason is not None:
             result.outside[relative] = {"blob": blob, "reason": reason}
             continue
-        pattern = scan(data)
+        pattern = scan(data, path=relative)
         digest = content_hash(data)
-        if pattern and digest not in scopes.allow:
+        if pattern and (pattern == "invalid_mcp_record" or digest not in scopes.allow):
             result.blocked[relative] = {"blob": blob, "sha256": digest, "pattern": pattern}
             continue
         result.files[relative] = blob

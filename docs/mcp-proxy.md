@@ -1,8 +1,6 @@
-# HTTP MCP proxy
+# MCP proxy
 
-> **Pending integration — 2026-10-18.** This guide describes [PR #449](https://github.com/IEZhu/Agents/pull/449) at [`d067c315caf3`](https://github.com/IEZhu/Agents/tree/d067c315caf3c9877896315b96e68d4bb4a25c11). Its implementation is not included in this documentation branch. Use the commands only with a revision containing that implementation; the [integration checklist](documentation-audit-2026-10-18.md#parallel-feature-integration) records release prerequisites.
-
-Agents-Core exposes manually configured Streamable HTTP MCP servers through its existing daemon endpoint. Tool names use `<alias>__<tool>`, for example `blincho__get_status`. Reconnect MCP in open chats after connecting a server or changing its catalog.
+Agents-Core exposes manually configured Streamable HTTP and stdio MCP servers through its existing daemon endpoint. Tool names use `<alias>__<tool>`, for example `blincho__get_status`. Reconnect MCP in open chats after connecting a server or changing its catalog.
 
 ## Connect a server
 
@@ -19,9 +17,27 @@ The CLI uses the running daemon and supports `list`, `add`, `connect` and `disab
 
 With `--bearer`, the command reads one line from standard input. Supply it through a private pipe or terminal input; do not put a credential in command arguments or shell history. The native-store adapter accepts at most 1024 bytes of base64-encoded compact JSON for all secret headers of one server. Oversized records fail explicitly.
 
+## Shared stdio servers
+
+Choose **Stdio** in the MCP form or pass an absolute executable path to the CLI:
+
+```bash
+.venv/bin/python -m src.daemon mcp add plata --command /absolute/path/to/plata-mcp --env ENABLE_WRITE_TOOLS=false --env KUBERNETES_ENABLED=true --apps codex,claude-code,cursor,claude-desktop
+```
+
+Repeat `--arg=VALUE` for arguments and `--env NAME=VALUE` for nonsecret settings. These values are portable library metadata, not a secret store. Stdio credentials must stay in the executable’s own local credential store; inline credential arguments, secret environment variables and HTTP authentication fields are rejected. The child inherits only the MCP SDK’s small platform environment allowlist plus the declared settings, not the daemon’s complete environment. Its stderr is discarded because upstream diagnostics may contain credentials.
+
+The daemon owns one serialized stdio session and child per alias, shared across allowed apps. Explicit Connect starts and catalogs it; later calls reuse it. Idle timeout, definition replacement and daemon shutdown close the child before a replacement is launched. Client disconnects do not own the child. Use one alias for a shared executable, retire direct client registrations with a private backup, and reconnect open clients; otherwise those registrations can still launch additional copies. This does not make two separately configured aliases or two independent daemons a global singleton.
+
+## Existing clients with cached direct commands
+
+The private stdio bridge configuration accepts an optional `alias` (for example, `plata`). In this compatibility view, `tools/list` exposes only that upstream and removes its `<alias>__` prefix; `tools/call` adds the prefix back before forwarding. Native tools and other aliases are withheld, and prompts/resources are not forwarded. App selection and exact-revision consent are still enforced by the daemon. The bridge never starts an upstream or falls back to a separate server when the daemon is unavailable.
+
+On a migrated host, remove direct Plata registrations from every active client/profile and keep a private rollback copy. Cached sessions may still try their old executable until reconnecting. A host-local compatibility launcher may route that former stdio entry point through the alias view while the daemon alone uses the preserved native binary at a different path. Keep CLI maintenance commands pointed at that native binary in its separate directory, so self-updates cannot overwrite the compatibility launcher. Do not run another daemon, onboarding or installer that reinstates direct server entries. Reconnect existing clients and verify the actual process tree; editing only future-session configuration does not stop a cached launch.
+
 ## Storage and consent
 
-Definitions live in `<personal-library>/mcp/servers/<alias>.json`. The library is selected by `AGENTS_USER_FLOWS_DIR` or the installation's `flows/.user`. Only Streamable HTTP is accepted. Credentials cannot be embedded in headers, URL user information, credential query parameters or credential extension fields. Secret declarations name HTTP headers; values are stored separately.
+Definitions live in `<personal-library>/mcp/servers/<alias>.json`. The library is selected by `AGENTS_USER_FLOWS_DIR` or the installation's `flows/.user`. Streamable HTTP and stdio transports are accepted. Credentials cannot be embedded in headers, URL user information, credential query parameters or credential extension fields. Secret declarations name HTTP headers; values are stored separately.
 
 Machine-local app enablement confirms the exact definition revision. Saving through the UI or CLI confirms the new revision while preserving the existing app selection; stored credentials apply to the saved URL. Changes outside Agents-Core, such as hand edits or sync, remain unconfirmed until enabled again. Credentialed remote servers require HTTPS; HTTP is allowed for loopback hosts. A missing or unknown calling app sees only native Agents-Core tools; standalone stdio also exposes no proxy tools. Existing managed bridges carry the required app identity.
 
@@ -45,6 +61,6 @@ App selection filters tools for trusted local clients. The calling app label is 
 
 ## Initial scope
 
-This is the functional HTTP slice of [epic #306](https://github.com/IEZhu/Agents/issues/306), with per-host connection inventory and library sync. Stdio/SSE upstreams, OAuth, registry search, client-configuration import, profiles, workspace scopes, compact mode, prompts/resources and per-upstream endpoints remain in the epic. Large results follow the client's ordinary MCP result handling; no proxy-specific file-pointer conversion is performed.
+This implements Streamable HTTP and shared stdio transports from [epic #306](https://github.com/IEZhu/Agents/issues/306), with per-host connection inventory and library sync. SSE upstreams, OAuth, registry search, client-configuration import, profiles, workspace scopes, compact mode, prompts/resources and per-upstream endpoints remain in the epic. Large results follow the client's ordinary MCP result handling; no proxy-specific file-pointer conversion is performed.
 
-The original [proxy plan](mcp-proxy-plan.md) remains the broader design. Source and tests of the implemented HTTP slice take precedence over proposed features.
+The original [proxy plan](mcp-proxy-plan.md) remains the broader design. Source and tests of the implemented proxy take precedence over proposed features.

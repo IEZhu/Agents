@@ -17,6 +17,7 @@ Only plumbing commands are used, and the working tree is written by the engine, 
 """
 from __future__ import annotations
 
+from contextlib import ExitStack
 from dataclasses import dataclass
 import os
 from pathlib import Path
@@ -24,6 +25,7 @@ import re
 import shlex
 import subprocess
 import sys
+import tempfile
 
 from src import executables
 
@@ -245,13 +247,19 @@ class Git:
         arguments += list(args)
         extra = {"GIT_INDEX_FILE": str(index)} if index else None
         timeout = NETWORK_TIMEOUT if network else LOCAL_TIMEOUT
-        # Never the server's stdin: the stdio trigger runs inside the MCP server (see src/version.py).
-        stdin = {"input": input} if input is not None else {"stdin": subprocess.DEVNULL}
         try:
-            # The lookup is inside: a missing git is a GitError like one that cannot start.
-            result = subprocess.run([self.executable or executables.path("git"), *arguments], capture_output=True,
-                                    timeout=timeout, env=self.environment(extra),
-                                    cwd=self.work_tree if self.work_tree.is_dir() else None, **stdin, **no_window())
+            with ExitStack() as stack:
+                # Never inherit MCP stdin. A file also removes the bidirectional pipe cycle:
+                # cat-file --batch may fill stdout before consuming all of its input (#476).
+                stdin = subprocess.DEVNULL
+                if input is not None:
+                    stdin = stack.enter_context(tempfile.TemporaryFile())
+                    stdin.write(input)
+                    stdin.seek(0)
+                # The lookup is inside: a missing git is a GitError like one that cannot start.
+                result = subprocess.run([self.executable or executables.path("git"), *arguments], capture_output=True,
+                                        timeout=timeout, env=self.environment(extra), stdin=stdin,
+                                        cwd=self.work_tree if self.work_tree.is_dir() else None, **no_window())
         except subprocess.TimeoutExpired:
             raise GitError(args[0], "timeout" if network else "local", f"timed out after {timeout} s") from None
         except OSError as error:

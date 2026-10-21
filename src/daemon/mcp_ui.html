@@ -1,0 +1,50 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MCP connections · Agents-Core</title>
+<style nonce="{{NONCE}}">
+:root{color-scheme:light dark;font:16px system-ui}body{max-width:900px;margin:3rem auto;padding:0 1rem}label{display:block;margin:1rem 0}input,select,textarea{display:block;box-sizing:border-box;width:100%;padding:.7rem;margin-top:.3rem}button{padding:.6rem 1rem;margin:.3rem .3rem .3rem 0;cursor:pointer}article{border:1px solid #8886;border-radius:12px;padding:1rem;margin:1rem 0}#message{white-space:pre-wrap}small{display:block}pre{white-space:pre-wrap;overflow-wrap:anywhere}a{color:inherit}
+</style>
+<a href="/ui">← Agents-Core</a><h1>MCP connections</h1>
+<p>Add an HTTP or stdio server once and expose its tools through Agents-Core. Reconnect MCP in open chats after connecting.</p>
+<p id="message" role="status" aria-live="polite"></p>
+<form id="add"><label>Alias (up to 12 letters, digits, hyphens or underscores)<input id="alias" required pattern="[a-z0-9][a-z0-9_-]{0,11}" maxlength="12"></label>
+<label>Transport<select id="transport"><option value="http">HTTP</option><option value="stdio">Stdio (one shared process)</option></select></label>
+<label id="http-fields">Server URL<input id="url" type="url" placeholder="http://127.0.0.1:47831/mcp" required></label>
+<div id="stdio-fields" hidden><label>Executable (absolute path)<input id="command" placeholder="/absolute/path/to/server"></label><label>Arguments (JSON array, no credentials)<textarea id="args">[]</textarea></label><label>Environment (JSON object, nonsecret settings only)<textarea id="env">{}</textarea></label><p>Credentials stay in the executable’s local credential store. These settings are saved in your library.</p></div>
+<label id="secret-fields">Bearer token (optional)<input id="secret" type="password" autocomplete="off"></label>
+<label>Allowed apps, separated by commas<input id="apps" value="codex,claude-code,cursor,claude-desktop,antigravity,stdio" required></label>
+<button>Add and connect</button></form><h2>Servers on this host</h2><div id="servers"></div>
+<h2>Saved hosts</h2><p>Connection settings are saved in your personal library. Tokens stay in each host's OS secret store. Settings from another host require local confirmation before use.</p><div id="machines"></div>
+<script nonce="{{NONCE}}">
+const $=id=>document.getElementById(id);let busy=false;
+async function api(body){const response=await fetch('/ui/api/mcp',{method:body?'POST':'GET',headers:{'X-Agents-UI':'1','Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});const result=await response.json();if(!response.ok)throw Error(result.message||result.error||'Request failed');return result;}
+async function refresh(){
+  const data=await api();showMachines(data.machines||[]);$('servers').replaceChildren();
+  for(const item of data.servers){
+    const row=document.createElement('article'),title=document.createElement('strong'),info=document.createElement('small');
+    title.textContent=item.title||item.alias;
+    const runtime=data.runtime.find(x=>x.alias===item.alias);
+    info.textContent=item.alias+' · '+item.status+' · '+(runtime?runtime.state+(runtime.error?' ('+runtime.error+')':'')+' · '+runtime.tools+' tools':'')+' · '+(item.apps||[]).join(', ');
+    row.append(title,info);
+    if(item.status!=='invalid'){
+      const endpoint=document.createElement('small');endpoint.textContent=(item.transport.type==='stdio'?'Command: '+item.transport.command:'Endpoint: '+item.transport.url);row.append(endpoint);
+      const details=document.createElement('details'),summary=document.createElement('summary'),configuration=document.createElement('pre');
+      summary.textContent='Review configuration';configuration.textContent=JSON.stringify(item,null,2);details.append(summary,configuration);row.append(details);
+      if(item.status==='unconfirmed'){
+        const confirm=document.createElement('button');confirm.textContent='Confirm this revision';
+        confirm.onclick=()=>run(()=>api({action:'enable',alias:item.alias,apps:item.apps,revision:item.revision}));row.append(confirm);
+      }
+      const connect=document.createElement('button');connect.textContent='Connect';
+      connect.onclick=()=>run(async()=>{await api({action:'connect',alias:item.alias});$('message').textContent='Connected. Reconnect MCP in open chats.';});
+      const toggle=document.createElement('button');toggle.textContent=item.enabled?'Disable':'Enable for selected apps';
+      toggle.onclick=()=>run(()=>api({action:'enable',alias:item.alias,apps:item.enabled?[]:apps(),revision:item.revision}));row.append(connect,toggle);
+    }
+    $('servers').append(row);
+  }
+}
+function showMachines(items){$('machines').replaceChildren();for(const item of items){const row=document.createElement('article'),title=document.createElement('strong');title.textContent=item.label+(item.current?' (this host)':'');row.append(title);for(const [alias,server] of Object.entries(item.servers)){const info=document.createElement('small');info.textContent=alias+' · '+(server.enabled?'enabled for '+server.apps.join(', '):'disabled');row.append(info);}$('machines').append(row);}if(!items.length)$('machines').textContent='No saved hosts yet.';}
+function apps(){return $('apps').value.split(',').map(x=>x.trim()).filter(Boolean);}
+async function run(fn){if(busy)return;busy=true;$('message').textContent='Working…';try{await fn();await refresh();if($('message').textContent==='Working…')$('message').textContent='Saved. Reconnect MCP in open chats.';}catch(e){$('message').textContent=e.message;}finally{busy=false;}}
+$('transport').onchange=()=>{const stdio=$('transport').value==='stdio';$('stdio-fields').hidden=!stdio;$('http-fields').hidden=stdio;$('secret-fields').hidden=stdio;$('url').required=!stdio;$('url').disabled=stdio;$('command').required=stdio;if(stdio)$('secret').value='';};
+$('add').onsubmit=event=>{event.preventDefault();run(async()=>{const alias=$('alias').value,isStdio=$('transport').value==='stdio',token=isStdio?'':$('secret').value;$('secret').value='';const definition={format:1,alias,title:alias,description:'',source:{kind:'manual'},transport:isStdio?{type:'stdio',command:$('command').value,args:JSON.parse($('args').value),env:JSON.parse($('env').value)}:{type:'http',url:$('url').value,headers:{}},auth:{type:token?'bearer':'none'},secrets:token?[{name:'Authorization',target:'header',required:true}]:[],tools:{expose:'all',deny:[],always_load:[]},limits:{call_timeout_seconds:60,idle_seconds:600},instructions:''};const saved=await api({action:'save',definition});if(token)await api({action:'secret',alias,name:'Authorization',value:'Bearer '+token});await api({action:'enable',alias,apps:apps(),revision:saved.result.revision});await api({action:'connect',alias});$('message').textContent='Connected. Reconnect MCP in open chats.';});};
+(async()=>{try{await refresh();return;}catch(first){}try{const response=await fetch('/ui/api/session',{method:'POST',headers:{'X-Agents-UI':'1','Content-Type':'application/json'},body:'{}'});if(!response.ok)throw Error('Open Agents-Core and sign in, then return to MCP connections.');await refresh();}catch(e){$('message').textContent=e.message;}})();
+</script></html>

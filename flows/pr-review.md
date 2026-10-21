@@ -10,6 +10,20 @@ Follow [bounded execution and evidence reuse](../docs/flow-execution.md): one
 working record, grouped fixes, compact output and one monitor per pending run.
 All exact-head review, CI, authorization and merge conditions below still apply.
 
+## Mandatory bounded-return gate
+
+Before each tool call that can return a catalogue, protocol, context bundle or
+large status object, choose the output field allowlist and retain the complete
+source in the task's existing evidence area. Parse JSON strings before selecting
+fields. Never forward an unfiltered result or catalogue to the model.
+
+Before emitting the selected fields, serialize them and enforce an 8,000-character
+return budget. If the budget is exceeded, return only the source reference,
+identity, status and counts. Read required instructions or evidence separately
+in bounded ranges until complete; truncation never counts as a completed read.
+Keep persona descriptors and footers intact, and read each required persona
+block separately rather than combining it with a long flow or catalogue.
+
 The `code_reviewer` persona contributes review judgment for checking findings.
 This flow still fixes, commits, replies and merges: the persona's "flag, don't
 fix", its positive findings and its Output Format do not apply here, and an
@@ -143,6 +157,20 @@ Remove obsolete claims and abandoned approaches. A wording update does not
 substitute for reviewing the new commit.
 
 ## 3. Obtain reviews for the current head
+
+Before waiting for pending CI, record the full source SHA, run ID and attempt,
+then assign one observer to that run and attempt. Use the bounded
+[`watch_github_run.py`](../scripts/dev/watch_github_run.py) helper or an
+equivalent script as described in [bounded execution](../docs/flow-execution.md#let-a-monitor-wait).
+Consume that observer's result; do not alternate model sleeps, clock reads and
+fresh remote status fetches for the same unchanged run, or start a second
+observer alongside it. When the helper returns exit code 3, retain its pending
+state. After that invocation exits, continue the same logical observation by
+invoking the helper again with the same repository, full source SHA, run ID,
+attempt and evidence directory. Do not start another invocation while the
+previous one is still running. Failed, skipped, cancelled, missing or
+inconsistent results and changed identities never establish success; assess
+optional skips explicitly under the project's rules.
 
 Review the diff yourself first, as a reviewer would: correctness, edge cases,
 error handling, concurrency and platform differences (a lock that only works on

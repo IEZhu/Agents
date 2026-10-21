@@ -55,6 +55,9 @@ version = {file = ["VERSION"]}
 where = ["."]
 include = ["src*", "evals*", "scripts._helpers*"]
 
+[tool.setuptools.package-data]
+"src.context_compaction" = ["cursor_ui.js"]
+
 [tool.pytest.ini_options]
 addopts = ["-m", "not slow"]
 markers = [

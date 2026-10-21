@@ -57,7 +57,9 @@ contract change.
 ### Floors
 
 The server may raise a tier and never lowers one. It scans the casefolded task,
-context, scope, non-goals and acceptance criteria:
+context, scope and acceptance criteria. Non-goals are left out: they name work the
+worker must not do, such as "never print secrets", which says nothing about the
+risk of the work itself.
 
 - `inherit` floor: security or vulnerability work, authentication, authorization,
   credentials or secrets, encryption, data migrations or schema changes, deleting
@@ -101,10 +103,27 @@ knows whether it runs in Claude Code, Codex or Cursor. Without the argument the
 server falls back to the request: the shared daemon's `X-Agents-Client` header
 (`claude-code`, `codex`, `cursor`), or over stdio the MCP `clientInfo.name`. A name
 containing `codex` or `cursor` names that client; `claude-code` (or `claude`) names
-Claude Code. The fallback often finds nothing: registrations written before the
-header existed (#187) do not send it, and over stateless HTTP `clientInfo` arrives
-only with `initialize`, not with tool calls (seen on 2026-10-17, when no
-registration of one installation sent the header). An unidentified client (also the
+Claude Code. The fallback misses two kinds of Claude Code session:
+
+- Projects pinned before the header existed (#187). The service keeps the
+  user-scope entries of Claude Code and Cursor, their project layers where it
+  manages them, and the Codex header helper in their current form, and those send
+  the header. A Claude Code project pin keeps the form `migrate --workspace` wrote
+  (`src/daemon/registrations.py`), so an old pin sends only `Authorization` and
+  `X-Agents-Workspace`, and in its project that pin takes precedence over the user
+  entry. The upkeep also leaves Git-tracked files, entries the user adapted, and
+  profiles that use the agents-core Claude Code plugin as they are.
+- Sessions that a stdio server of a service installation hands to the bridge, such
+  as agents-core plugin sessions. They reach the service through
+  `bridges/stdio-auto.json`, which names the app `stdio`; that names no client.
+  The service writes that file only where Node is available; a stdio server that
+  serves standalone (no Node, or `AGENTS_STDIO_STANDALONE=1`) reads the client from
+  `clientInfo`.
+
+Over stateless HTTP, `clientInfo` arrives only with `initialize`, not with tool
+calls. On 2026-10-17 one installation's Claude Code project pins sent no client
+header while its Codex and Cursor registrations did. #447 tracks closing these
+gaps. An unidentified client (also the
 Claude desktop chat or Antigravity) gets tier `inherit` with `client: null`, no
 `spawn` and the reason `client:unknown` in `floor_reasons`: no lighter model can be
 launched for it, so the host keeps its model and nothing escalates;

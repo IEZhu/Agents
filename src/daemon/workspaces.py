@@ -207,6 +207,9 @@ def client_context(ctx=None, *, allow_install_fallback=True):
     if os.environ.get("AGENTS_TRANSPORT") == "http":
         # Prompts/tools must forward their MCP context explicitly.
         raise WorkspaceError("workspace_required")
+    native = _stdio_hook_context()
+    if native is not None:
+        return native
     from src.engine.config import ClientRootError, get_client_repo_root_info
     try:
         root, source = get_client_repo_root_info(allow_install_fallback=allow_install_fallback)
@@ -215,6 +218,17 @@ def client_context(ctx=None, *, allow_install_fallback=True):
         # and repository flows fail, routing continues.
         return ClientContext(str(uuid.uuid4()), "stdio", error=f"{error.code}: {error}", claimed=_start_directory())
     return ClientContext(str(uuid.uuid4()), "stdio", root=Path(root).resolve(), source=source)
+
+
+def _stdio_hook_context():
+    """A verified native proof belongs to this call, never the server process."""
+    if os.environ.get("AGENTS_CLIENT_REPO_ROOT"):
+        return None
+    from src.stdio_workspace import request_workspace
+    native = request_workspace.get()
+    if native is None:
+        return None
+    return ClientContext(str(uuid.uuid4()), "stdio", root=native.root, error=native.error, source="hook")
 
 
 def _start_directory():
@@ -237,9 +251,12 @@ async def resolve_client_context(ctx=None, workspace=None, *, allow_install_fall
     """
     workspace = workspace.strip() if isinstance(workspace, str) and workspace.strip() else None
     stdio = _http_request(ctx) is None and os.environ.get("AGENTS_TRANSPORT") != "http"
+    native = _stdio_hook_context() if stdio else None
+    if native is not None:
+        return native
     # An override, even a refused one, decides alone; the argument would change nothing.
     session = _roots_session(ctx) if stdio and not os.environ.get("AGENTS_CLIENT_REPO_ROOT") else None
-    if workspace is not None and session is not None:
+    if session is not None:
         context = await _workspace_context(session, workspace)
         return replace(context, claimed=workspace) if context.error else context
     context = client_context(ctx, allow_install_fallback=allow_install_fallback)
@@ -253,12 +270,19 @@ async def resolve_client_context(ctx=None, workspace=None, *, allow_install_fall
     return context
 
 
-async def _workspace_context(session, workspace):
+async def _workspace_context(session, workspace=None):
     from src.engine import config
     request_id = str(uuid.uuid4())
     try:
         answer = await asyncio.wait_for(session.list_roots(), MCP_ROOTS_TIMEOUT_SECONDS)
-        root = config.client_root_from_workspace(workspace, (str(item.uri) for item in answer.roots))
+        uris = [str(item.uri) for item in answer.roots]
+        if workspace is None:
+            paths = {path.resolve() for path in map(config._root_uri_path, uris) if path is not None}
+            if len(paths) != 1:
+                return ClientContext(request_id, "stdio", error=(
+                    "workspace_required: the client has no unique workspace; " + WORKSPACE_HINT))
+            workspace = str(paths.pop())
+        root = config.client_root_from_workspace(workspace, uris)
     except config.ClientRootError as error:
         return ClientContext(request_id, "stdio", error=f"{error.code}: {error}")
     except Exception as error:  # a failed or malformed answer from the client

@@ -28,6 +28,9 @@ def leased_install(tmp_path):
     source.mkdir()
     (source / "__init__.py").touch()
     shutil.copy(ROOT / "src/startup.py", source / "startup.py")
+    (source / "daemon").mkdir()
+    (source / "daemon/__init__.py").touch()
+    shutil.copy(ROOT / "src/daemon/bridge.py", source / "daemon/bridge.py")
     # Execute the actual production entry guard, with a tiny server body that
     # avoids loading embeddings. No .env/network work in the activation stub.
     server_source = (ROOT / "src/server.py").read_text(encoding="utf-8")

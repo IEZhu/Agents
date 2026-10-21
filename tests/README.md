@@ -30,7 +30,7 @@ Run focused files while iterating:
 
 ```bash
 LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/test_language.py -q
-LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/test_install_instructions.py tests/test_installer_instructions.py tests/test_codex_instructions.py tests/test_protocol_migration.py -q
+LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/test_install_instructions.py tests/test_installer_instructions.py tests/test_codex_instructions.py tests/test_codex_mcp.py tests/test_protocol_migration.py -q
 ```
 
 The default local-inference selection uses deterministic fake native HTTP/process
@@ -79,8 +79,8 @@ The wrapper runs the whole selected suite, not only language detection tests.
 Use the direct Python command when you need to select specific test files.
 
 The [Documentation workflow](../.github/workflows/documentation-quality.yml) runs
-the offline documentation checker and `test_check_docs.py`, `test_flows.py` and
-`test_workflow_permissions.py` for every pull request and pushes to `main`/`dev`.
+the offline documentation checker and `test_check_docs.py`, `test_flows.py`,
+`test_version.py` and `test_workflow_permissions.py` for every pull request and pushes to `main`/`dev`.
 It checks the source-derived README badge as well as navigation and public tool
 references. It installs the runtime test dependencies for the registration and
 flow checks, but starts no model. Declared flow bundles use real source components
@@ -115,11 +115,28 @@ using AST reads. It does not fetch external URLs. `--skip-tool-index` selects
 navigation only. `tests/test_check_docs.py` checks the parser, path boundaries,
 anchors and tool additions/removals against temporary fixtures.
 
-Agent metadata and the Node bridge have their own checks:
+The optional native context compaction adapters have offline policy, installer
+and fake-UI checks. They never send a real slash command, read credentials or
+start a model:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/test_context_compaction*.py -q -p no:cacheprovider
+node --test plugins/agents-core-context-compaction/tests/compaction.test.js
+claude plugin validate plugins/agents-core-context-compaction
+```
+
+Claude's static mod validation requires a current Claude Code installation;
+Python and Node tests need no client login. A live UI/native compaction smoke
+check is separate and consumes the signed-in client's normal usage. See
+[supported surfaces and live verification](../docs/context-compaction.md#verification).
+
+Agent metadata and workspace transport have focused checks. Run these commands
+for changes in those areas; listing them here does not claim a live-client pass:
 
 ```bash
 .venv/bin/python scripts/validate_agents.py  # agent frontmatter and metadata
-node --test bridge/test.mjs                  # bridge/ changes; Node 22+, no npm install
+node --test bridge/test.mjs                  # Node bridge; Node 22+, no npm install
+LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/test_workspace_auto.py tests/test_config_client_root.py tests/test_python_stdio_bridge.py tests/test_python_workspace_hook.py tests/test_standalone_workspace.py tests/test_standalone_workspace_mcp.py tests/test_daemon_clients.py tests/test_daemon_registrations.py -q
 ```
 
 For the shared calendar version, preparation helper and release gate, run
@@ -127,6 +144,17 @@ For the shared calendar version, preparation helper and release gate, run
 These checks cover the canonical `VERSION`, matching plugin manifest, monotonic
 preparation, runtime labels, strict tag collisions and the legacy no-`VERSION`
 fallback. They use temporary Git repositories and fake APIs, never a live release.
+
+The workspace checks use isolated temporary directories, fake MCP roots and local
+HTTP fixtures. They cover empty sessions, marker discovery, unsafe and removed
+launch directories, root ambiguity and changes, override/fixed-identity precedence,
+Python fallback, standalone signed hints before schema validation, request-local
+reset and concurrent isolation, and compatible managed-layer upgrades. They do not establish
+which cwd or roots a native client UI supplies, hook approval behavior in that UI,
+or successful resumption of a real chat. Check those separately in the intended
+client, including multiple open workspaces, and reconnect after managed entry
+changes. The supplied Antigravity hook has Node and standard-library Python
+implementations; test their signing and approval-preserving output separately.
 
 The daemon smoke and soak tests (`scripts/daemon_smoke.py`) need the default
 model's plain-file copy (`microsoft/harrier-oss-v1-270m`) and start a temporary daemon. Run them alone in a dedicated checkout, as
@@ -143,9 +171,10 @@ PYTHONDONTWRITEBYTECODE=1 LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pyt
 ```
 
 The [Shared runtime workflow](../.github/workflows/shared-runtime.yml) runs
-persistent storage, service/MCP, prepared-artifact and portable disabled-inference
-checks on Linux, macOS and Windows. Its POSIX jobs also run fake native/Redis,
-runtime-identity and update-admission checks. It downloads no model and starts
+persistent storage, service/MCP, prepared-artifact, portable disabled-inference,
+daemon update transaction, dependency-compatibility and version checks on Linux,
+macOS and Windows. Its POSIX jobs also run fake native/Redis, runtime-identity and
+update-admission checks. It downloads no model and starts
 no real Redis; native Windows inference remains unsupported in version 1.
 
 These files cover durable identity and first-descriptor retention, workspace and
@@ -170,7 +199,7 @@ PYTHONDONTWRITEBYTECODE=1 LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pyt
 
 | Area | Starting points |
 |---|---|
-| OMS/profile, exact verified bytes and protected inventory | `test_instruction_signing.py`, `test_instruction_inventory.py`; `test_instruction_signing_interop.py` uses the optional `signing-tests` extra with pinned model-signing 1.1.1; [API and commands](../docs/instruction-signing-core.md) |
+| OMS/profile, exact verified bytes, protected inventory and local authority | `test_instruction_signing.py`, `test_instruction_inventory.py`, `test_instruction_signing_authority.py` (scoped trust, private storage, accepted policy, revocation, corruption, fault/concurrency checks and native Windows ACL refusal); `test_instruction_signing_interop.py` uses the optional `signing-tests` extra with pinned model-signing 1.1.1; [API and commands](../docs/instruction-signing-core.md) |
 | Routing and intent | `test_routing.py`, `test_intent.py` |
 | Protocol 2, fresh bundles and the footer version | `test_persona_protocol.py`, `test_persona_bundle.py`, `test_version.py` |
 | Compact worker profiles, bounded preparation and result validation | `test_subagent.py`, `test_subagent_mcp.py`; include `test_persona_protocol.py`, `test_log_interaction_contract.py` and installer/migration checks when shared instructions change |
@@ -182,7 +211,7 @@ PYTHONDONTWRITEBYTECODE=1 LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pyt
 | Embedding model, its prompts, batching and the one-time model switch | `test_embedder.py`, `test_embedding_prompts.py`, `test_model_migration.py` (no model is loaded); the service's switch is in `test_daemon_update.py` |
 | Installers: one-command install, version checks, client profiles, instructions, migration and the sync step | `test_installer_oneliner.py` (`install.sh` and `init_repo.sh --yes`; an update from a terminal that runs the real sync step and leaves the library's `.git` byte for byte; the GitHub token reaching `init_repo.sh` and never git; `AGENTS_BRANCH` becoming the update branch of a new `.env`; Unix only), `test_setup_cloud_env.py` (`scripts/setup_cloud_env.sh`; Unix only), `test_installer_python.py`, `test_installer_windows.py`, `test_installer_profiles.py`, `test_install_instructions.py`, `test_installer_instructions.py`, `test_codex_instructions.py`, `test_protocol_migration.py`, `test_inject_mcp.py`, `test_installer_sync.py` (both installers' sync section around a stub, the GitHub token only for the step; a pseudo-terminal on Unix, `cmd.exe` on Windows) |
 | Agent frontmatter and metadata | `scripts/validate_agents.py` |
-| Node bridge (`bridge/`) | `node --test bridge/test.mjs` |
+| Stdio bridges and automatic workspace binding | `node --test bridge/test.mjs`, `test_python_stdio_bridge.py`, `test_python_workspace_hook.py`, `test_workspace_auto.py`, `test_config_client_root.py`, `test_daemon_clients.py`, `test_daemon_registrations.py` (isolated fixtures; native client UI checks remain separate) |
 | Repository memory and `log_interaction` | `test_describer.py`, `test_managed_section.py` (the repository-memory section editor), `test_server_describe.py`, `test_server_sandbox.py`, `test_history.py`, `test_read_history_size.py` (`read_history` listings under Claude Code's result limit, an entry read whole by its id), `test_per_repo_memory.py`, `test_log_interaction_async.py`, `test_log_interaction_contract.py` |
 | Installed workflows and caller targeting | `test_flows.py`, `test_server_flows.py`, `test_flow_result_size.py` (the result size `run_flow` and `get_flow` declare), `test_config_client_root.py`, `test_daemon.py`, `test_thread_inventory.py` (the `thread-close` helper), `test_pr_threads.py` (the `pr-review` thread helper with a faked `gh`: the default mode and the autodev mode, which refuses `--resolve-mine`, shows the owner's reviews and marks each thread and review as a trusted bot source or not) |
 | Cloud issue-agent dispatch, startup acknowledgement and its deletion, reactions and receipt collapse | `test_issue_agent_bridge.py` (template and installed workflow, mocked APIs; no live sessions) |
@@ -199,7 +228,7 @@ PYTHONDONTWRITEBYTECODE=1 LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pyt
 | The update channel (#381): the branch an installation follows | `test_update_channel.py` (the `.env` key read without the rest of `.env`, an exported override, `set_branch`'s refusals and records, `channel` and `python -m src.update_channel`), `test_self_update.py`, `test_daemon_update.py` and `test_daemon_autoupdate.py` (switching inside the update transactions: only from the previous setting, never for an exported branch, a release merge commit is no downgrade, a target branch in another worktree, a channel saved during the build, the activation gates and the rollback of the target branch's upstream), `test_env_file.py` (the `.env` bindings both writers change, checked against python-dotenv's parser, and the installers' branch helper; also run by the Windows installer job), `test_updates_ui.py` (`/ui/api/updates`: access checks, the channel without secrets, a save of `dev`, a stale revision, unsafe, unoffered and missing branches, a downgrade only with its confirmation, a busy `control.lock`, `set_branch` off the event loop), `test_flows_ui_page.py` (the overview's Updates section: a save, a confirmed and a declined downgrade, a conflict), `test_installer_oneliner.py` (`AGENTS_BRANCH` through `install.sh` and the real `.env` step of `init_repo.sh`, and `scripts/_helpers/env_branch.py`, which `init_repo.bat` calls too). Temporary git repositories and a local bare remote; nothing is updated |
 | Updates, startup and readiness | `test_self_update.py`, `test_startup.py`, `test_readiness.py`, `test_startup_handshake.py` (slow; a fake `fastembed`, no model), `test_langfuse_compat.py` |
 | Optional session readiness hooks and compaction reminders | `test_session_readiness.py` covers generated adapters, event/output shapes, copied runtimes, backups, uninstall and a real stdio helper handshake. It calls no model and does not establish interactive client rendering; [installation and limits](../docs/session-readiness.md) |
-| Calendar versions and release publication | `test_release_version.py`, `test_version.py`, `test_workflow_permissions.py`; temporary Git histories and fake APIs cover displayed versions, immutable tags, retries and publication permissions, without writing to GitHub; [release procedure](../docs/releases.md) |
+| Calendar versions and release publication | `test_bump_plugin_version.py`, `test_release_version.py`, `test_version.py`, `test_workflow_permissions.py`; temporary Git histories and fake APIs cover displayed versions, immutable tags, retries and publication permissions, without writing to GitHub; [release procedure](../docs/releases.md) |
 | Data isolation and storage | `test_data_isolation.py`, `test_vector_store.py`, `test_file_lock.py` |
 | Language detection | `test_language.py` |
 | Evaluation runners and providers (`evals/runners/`) | `test_persona_dialogue*.py`, `test_bench.py`, `test_local_provider.py`, `test_openrouter_provider.py`, `test_eval_cache_routing.py`, `test_eval_retrieval.py` |
@@ -220,7 +249,14 @@ environment, and exit before activation. A supported venv reaches an activation
 sentinel that exits with code 77. This checks the reuse gate; it does not complete
 dependency installation, download a model, or change MCP client settings.
 
-The same workflow runs Codex discovery and managed-instruction migration checks.
+The same workflow runs Codex discovery, MCP registration and managed-instruction migration checks.
+`test_install_client_hooks.py` covers detected-client lifecycle selection, independent
+prompts, explicit skips, SDK setup failure and preservation in temporary profiles.
+The native installer hook harness verifies both real setup entrypoints.
+`test_codex_mcp.py` covers isolated TOML profiles, transport preservation, repeat
+setup, malformed input and failed writes or backups. The instruction hook harness
+checks that real setup writes both instructions and MCP, and that `--skip-mcp`
+writes neither.
 `test_installer_profiles.py` also runs the actual MCP setup hooks against default
 and alternate client profiles, using native `cmd.exe` on Windows and Bash on Unix.
 It checks exact configuration targets, preserved inactive profiles, and paths with
@@ -256,7 +292,7 @@ To reproduce the workflow job locally in PowerShell with Python 3.11+ selected:
 ```powershell
 python -m pip install pytest python-dotenv
 $env:AGENTS_TEST_PYTHON310 = 'C:\absolute\path\to\Python310\python.exe'
-python -m pytest tests/test_installer_windows.py tests/test_installer_instructions.py tests/test_codex_instructions.py tests/test_install_instructions.py tests/test_installer_profiles.py tests/test_installer_sync.py tests/test_protocol_migration.py tests/test_daemon_peer.py -v
+python -m pytest tests/test_installer_windows.py tests/test_installer_instructions.py tests/test_codex_instructions.py tests/test_codex_mcp.py tests/test_install_instructions.py tests/test_installer_profiles.py tests/test_installer_sync.py tests/test_protocol_migration.py tests/test_daemon_peer.py -v
 ```
 
 The workflow sets `core.autocrlf false` before checkout so the byte-exact

@@ -134,10 +134,20 @@ def _persona_not_ready(problem: str) -> str:
 # from a content fingerprint.
 _history_stores = HistoryStores()
 
-class _WorkerInputMCP(FastMCP):
+from src.daemon.mcp_proxy.exposure import ProxyToolsMixin
+
+
+class _WorkerInputMCP(ProxyToolsMixin, FastMCP):
     """Preserve strict worker/local inference inputs before FastMCP conversion."""
 
     async def call_tool(self, name: str, arguments: dict):
+        from src import stdio_workspace
+        from src.daemon.workspaces import _http_request
+        enabled = os.environ.get("AGENTS_TRANSPORT") != "http" and _http_request(self.get_context()) is None
+        with stdio_workspace.bind(arguments, enabled=enabled) as sanitized:
+            return await self._call_tool_bound(name, sanitized)
+
+    async def _call_tool_bound(self, name: str, arguments: dict):
         if name in artifact_tools.TOOL_NAMES:
             artifact_tools.validate_arguments(name, arguments)
             return await super().call_tool(name, arguments)

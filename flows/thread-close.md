@@ -23,6 +23,16 @@ The thread's own account is a lead, never proof. A long, expensive thread can
 still be wrong. Its summary may predate later changes, and a compacted context
 may have dropped what actually happened.
 
+Before any transcript inspection, extract only the needed metadata with a
+script and redact credentials before any model-visible tool output, not just
+before persistence or the final report. Never print raw transcript records,
+user messages or compacted retained context. Client/MCP responses such as
+`read_thread` can include the original prompt in a preview: parse the response
+inside the extraction process and emit only allowlisted metadata and necessary
+redacted quotations, rather than the complete payload. Apply this boundary to
+inventory helpers and delegated auditors as well; give workers sanitized
+evidence or explicit instructions to extract and redact before emitting it.
+
 The persona contributes fact-checking discipline. Its own investigation phases and
 "Verdict"/credibility output format do not apply: this flow's steps and its report
 in step 9 do.
@@ -56,6 +66,8 @@ thread only from the transcript and the live state, and its report must say so.
       confirm the right one before using it.
     - The helper also reads the transcripts of the session's subagents and
       workflow agents and marks their items with `by`.
+    - Its `prompts` list contains timestamps only, without user message text or
+      previews; use the sanitized primary-evidence procedure above when text is needed.
   - **Finding the helper from another repository.** Derive `AGENTS_CORE_ROOT` as
     the [pr-review helpers](pr-review.md#optional-github-helpers-from-the-agents-core-installation)
     describe:
@@ -435,6 +447,16 @@ Compose the report in the user's language:
 8. **Provenance**, labelled as such: models, responses, tokens (main session and
    subagents), session, time span, transcript source.
 9. **How to resume:** session id or link, branch, next command.
+
+At the final handoff, use `finishing` (🧹) when required obligations remain,
+unless essential user input or required human approval calls for `needs_user`/`review`.
+Finish any independently authorized work before that handoff. Resume implementation as `working`;
+AI review, CI and subagents use `working`/`waiting`.
+Verify or explicitly resolve every required task before `ready_to_close`;
+an owner, tracker item or proposed follow-up alone does not resolve it. A completed
+audit report does not mean the audited work is complete, and optional suggestions
+alone do not require `finishing`. `closed` requires explicit closure or confirmed archival.
+The status grants no additional authority; follow **Inputs and authority** for each action.
 
 Then make this turn's single `log_interaction` call, as the client protocol
 requires for every answer. Do not make a second call:

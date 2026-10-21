@@ -68,6 +68,18 @@ def atomic_write(path: Path, content: bytes) -> None:
             os.unlink(temporary)
 
 
+def require_unchanged(path: Path, expected: bytes | None) -> None:
+    """Refuse to replace a configuration another client changed during setup."""
+    if path.is_symlink():
+        raise ValueError("Hook configuration became a symbolic link; inspect it before retrying")
+    try:
+        current = path.read_bytes()
+    except FileNotFoundError:
+        current = None
+    if current != expected:
+        raise ValueError("Hook configuration changed during setup; rerun the installer")
+
+
 def owns_handler(handler: dict, script: Path) -> bool:
     command = handler.get("command")
     if handler.get("type", "command") != "command" or not isinstance(command, str):
@@ -199,13 +211,16 @@ def install(client: str, *, dry_run: bool = False) -> dict:
     script_changed = any(not path.exists() or path.read_bytes() != runtime for path, runtime in scripts.items())
     backup = None
     if not dry_run:
+        require_unchanged(target, original)
         # Back up before changing even an existing runtime; failure preserves the installation.
         if config_changed and original is not None:
             backup = backup_file(target)
+        require_unchanged(target, original)
         for path, runtime in scripts.items():
             if not path.exists() or path.read_bytes() != runtime:
                 atomic_write(path, runtime)
         if config_changed:
+            require_unchanged(target, original)
             atomic_write(target, content)
     return {"client": client, "config": str(target), "script": str(next(iter(scripts))),
             "scripts": [str(path) for path in scripts], "delivery": mode,

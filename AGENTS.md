@@ -10,6 +10,12 @@ still take precedence.
 
 ## Find the right source
 
+- Before the first repository exploration or edit, call `describe_repo` with the
+  target checkout's `repo_path` and the caller's authorized `workspace`. Read its
+  summary preview or context bundle. On `needs_summary`, follow the returned
+  persistence instructions only within the authorized scope; preserve
+  `workspace_id`, `repo_path` and `repo_hash` unchanged when writing. Never
+  persist a summary into the live installation or deployed runtime source.
 - [README.md](README.md): installation, configuration and user-facing behavior.
 - [Documentation map](docs/README.md): maintained references and historical plans.
 - [Model workflows](flows/README.md): reusable task instructions to execute on request.
@@ -83,6 +89,13 @@ their recorded revision; they do not override the current implementation.
 - Run checks appropriate to the changed contract and report their actual result.
   Run only one heavy test or embedding process at a time.
 - In GitHub issue and PR descriptions, keep each prose paragraph and list item on one physical line. Do not hard-wrap text to a fixed width; preserve meaningful paragraph, list, table and code-block boundaries.
+- Before the first PR/MR submission or review action, call `list_flows`, then
+  `run_flow(flow="builtin:pr-review", ...)` with the target worktree's
+  `repo_path`, authorized `workspace`, retained `current_persona` and the user's
+  constraints, including `no-merge` when only submission is requested. Apply its
+  `persona_activation` through the shared routing contract. If that flow is
+  already running for this target, continue it. Reading the Markdown alone does
+  not activate the flow.
 - For PR/MR submission and review, follow [flows/pr-review.md](flows/pr-review.md):
   keep the English description aligned with every commit, handle review threads,
   and obtain fresh bot reviews before merging under its completion conditions.

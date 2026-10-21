@@ -101,7 +101,7 @@ def test_inventory_counts_each_response_once(entries):
 
 def test_inventory_lists_prompts_refs_files_and_writes(entries):
     inv = thread_inventory.inventory(entries)
-    assert [p["text"] for p in inv["prompts"]] == ["Сделай флоу закрытия треда"]
+    assert inv["prompts"] == [{"ts": "2026-10-02T08:00:01Z"}]
     assert inv["title"] == "Thread close" and inv["bridge_sessions"] == ["cse_ABC"]
     refs = [(r["kind"], r["number"]) for r in inv["github_refs"]]
     assert ("issues", 3) in refs and ("pull", 7) in refs
@@ -174,12 +174,21 @@ def test_prompt_sources():
         human("close https://github.com/Owner/Repo/issues/62 please", "t7"),
     ]
     inv = thread_inventory.inventory(entries)
-    assert [p["text"] for p in inv["prompts"]] == [
-        "[image] what is on the screenshot?", "<pasted_content id=x>log text</pasted_content> explain",
-        "close https://github.com/Owner/Repo/issues/62 please"]
+    assert inv["prompts"] == [{"ts": ts} for ts in ("t2", "t3", "t7")]
     assert inv["user_commands"][0]["command"].startswith("cd /work/repo && git push")
     assert inv["git_mutations"] == [{"ts": "t6", "command": "git push origin eval/x", "by": "user"}]
     assert ("issues", 62) in [(r["kind"], r["number"]) for r in inv["github_refs"]]
+
+
+def test_inventory_output_omits_plain_user_prompt_text(tmp_path, capsys):
+    prompt = "Private launch discussion with no credential-shaped text."
+    transcript = tmp_path / f"{SESSION}.jsonl"
+    transcript.write_text(json.dumps(human(prompt, "t1")) + "\n", encoding="utf-8")
+    assert thread_inventory.main(["--transcript", str(transcript)]) == 0
+    output = capsys.readouterr().out
+    assert json.loads(output)["prompts"] == [{"ts": "t1"}]
+    assert prompt not in output
+    assert "Private launch" not in output
 
 
 def test_github_refs_from_gh_commands_keep_the_first_sighting():
@@ -410,7 +419,7 @@ def test_unexpected_entries_are_skipped_not_fatal():
     ]
     inv = thread_inventory.inventory(entries)
     assert inv["skipped_entries"] == 5 and inv["github_refs"] == []
-    assert [p["text"] for p in inv["prompts"]] == ["hi"] and inv["files_written"] == []
+    assert inv["prompts"] == [{"ts": None}] and inv["files_written"] == []
 
 
 def test_nesting_past_the_limit_is_not_read():
@@ -508,7 +517,7 @@ def test_json_values_that_are_not_objects_are_skipped(tmp_path):
                           encoding="utf-8")
     out = thread_inventory.collect([transcript])
     assert (out["skipped_entries"], out["unreadable_lines"]) == (3, 1)
-    assert [p["text"] for p in out["prompts"]] == ["hi"]
+    assert out["prompts"] == [{"ts": "t1"}]
 
 
 def test_time_span_follows_time_not_file_order(tmp_path):
@@ -618,7 +627,7 @@ def test_structured_mcp_references():
     assert refs == [("Owner/Repo", "issues", 9), ("Owner/Repo", "pull", 153)]
 
 
-def test_image_blocks_are_marked_in_prompts():
+def test_image_prompts_retain_only_timestamp_metadata():
     inv = thread_inventory.inventory([
         human([{"type": "image", "source": {}}], "t1"),
         human([{"type": "image", "source": {}}, {"type": "text", "text": "what is this?"}], "t2"),
@@ -627,8 +636,7 @@ def test_image_blocks_are_marked_in_prompts():
         user([{"type": "text", "text": "[Request interrupted by user]"}], "t5"),  # written by the client
         user("<pasted_content id=1>log</pasted_content> why?", "t6"), user("<local-command-stdout>x", "t7"),
     ])
-    assert [p["text"] for p in inv["prompts"]] == [
-        "[image]", "[image] what is this?", "[image] and this?", "<pasted_content id=1>log</pasted_content> why?"]
+    assert inv["prompts"] == [{"ts": ts} for ts in ("t1", "t2", "t3", "t6")]
 
 
 def test_every_writer_of_a_file_is_kept(tmp_path):
