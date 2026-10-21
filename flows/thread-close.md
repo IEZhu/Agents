@@ -132,6 +132,13 @@ them. Use an authorized private tracker or a generic sanitized public query
 instead. If visibility or safe disclosure cannot be established, stop only that
 external operation, keep the finding private and report the verification gap.
 
+Immediately before every external write, including a push or submission of an
+approved patch, recheck the destination's actual visibility and audience and
+reclassify the payload. If any differs from the approved scope or is unknown,
+stop only that operation, keep the finding private and report the verification
+gap. Revalidate the disclosure and its authorization before continuing; an
+earlier proposal check or approval is not a substitute for this write-time check.
+
 Apply this boundary to reports, logs, memory, links, attachments, worker inputs
 and delegated searches as well. A worker receives no broader disclosure
 permission than the parent. A generic instruction to run/apply this flow,
@@ -386,10 +393,14 @@ client's own tools. Calls from this close's own `run_flow` on are not audited.
    verified visibility and whether its content is generic or private. Public
    improvements describe the mechanism; keep concrete private inventories in
    authorized private context. Never require public enumeration of private
-   tools as a completion condition. Collect every patch into one numbered list. Apply them
-   only after the user's yes, which may approve the whole list or name items; a
-   V2 memory lesson in `apply` mode needs none. Verify each applied patch (the
-   diff in place, the call's result) and report which were applied.
+   tools as a completion condition. Collect every patch into one numbered list.
+   Apply them only after the user's yes, which may approve the whole list or
+   name items; a V2 memory lesson in `apply` mode needs none. Immediately before
+   each external write, recheck visibility, audience and payload classification
+   as required above, including for an approved push or submission. Stop only
+   that operation when the scope changed or is unknown, keep the finding private
+   and report the gap. Verify each applied patch (the diff in place, the call's
+   result) and report which were applied.
 
 **Catalogue.** The slug names the row in the report and in tags. The rows name
 every statically registered Agents-Core tool; a test keeps those names complete.
