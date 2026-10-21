@@ -117,12 +117,14 @@ def _request(process, request_id: int, method: str, params: dict, deadline: floa
     raise RuntimeError("Codex title update timed out")
 
 
-def _thread_name(result: dict, session_id: str) -> str:
+def _thread_name(result: dict, session_id: str) -> str | None:
     thread = result.get("thread")
     if not isinstance(thread, dict) or thread.get("id") != session_id:
         raise RuntimeError("Codex thread/read did not confirm the requested thread identity")
     name = thread.get("name")
-    if not isinstance(name, str) or not name.strip():
+    if name is None or isinstance(name, str) and not name.strip():
+        return None
+    if not isinstance(name, str):
         raise RuntimeError("Codex thread/read returned no known nonempty thread.name")
     return name
 
@@ -135,8 +137,20 @@ def _exchange(process, session_id: str, status: str, formatter, deadline: float,
     process.stdin.write(b'{"method":"initialized","params":{}}\n')
     process.stdin.flush()
     params = {"threadId": session_id, "includeTurns": False}
-    current = _thread_name(_request(process, 1, "thread/read", params, deadline), session_id)
-    next_id = 2
+    next_id = 1
+    while True:
+        current = _thread_name(_request(process, next_id, "thread/read", params, deadline), session_id)
+        next_id += 1
+        if current is not None:
+            break
+        if expected_turn_id is None:
+            raise RuntimeError("Codex thread/read returned no known nonempty thread.name")
+        # A new desktop chat can be interrupted before its asynchronous title
+        # generation finishes. Wait only for its real name, under this same
+        # deadline; never invent a body or use the user's prompt as a title.
+        if _remaining(deadline) <= 0.05:
+            raise RuntimeError("Codex title update timed out waiting for known nonempty thread.name")
+        time.sleep(0.05)
     if expected_turn_id is not None:
         check_order = recorded_turn_id is not None and recorded_turn_id != expected_turn_id
         turns = _request(process, next_id, "thread/turns/list", {
