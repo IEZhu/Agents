@@ -66,7 +66,7 @@ Replace the path with the actual caller project, and replace null with the retai
 
 ## Delegate a bounded assignment
 
-Use `get_subagent_context` with a canonical role, one task, concrete `acceptance_criteria`, relevant `context`, explicit `scope` and `non_goals`, and the required `result_type`.
+Use `get_subagent_context` with a canonical role, one task, concrete `acceptance_criteria`, relevant `context`, explicit `scope` and `non_goals`, and an explicit `result_type` for the desired result schema. The API defaults to `generic` when this argument is omitted; this delegation workflow requires an explicit choice.
 Rate `complexity` as `low` for mechanical, fully specified work, `standard` for bounded work in one module, or `high` for ambiguous, cross-cutting or risky work. Pass the launching host as `client` (`claude`, `codex` or `cursor`). The server may raise the requested tier; see [model tiers](subagent-model-tiers.md). Omitting `complexity` leaves model selection to the host.
 
 1. Require `status: prepared` and retain the package's `contract`. A correction keeps that contract; a new attempt has its own package and contract.

@@ -156,7 +156,7 @@ An artifact-backed assignment also requires `worker-artifacts`, regardless of
 component switches. Its manifest and complete read instructions count toward the
 same context budget; preparation fails if they cannot fit. It tells the worker
 to follow `next_offset` through `eof` for every required entry and return
-`input_required` or `partial` if required input cannot be read. See
+`input_required` or `partial` if the worker cannot read input required for completion. See
 [the artifact workflow](shared-artifacts.md#native-worker-workflow).
 
 Add a dedicated `rules/subagents/` collection, loaded only by the worker builder;

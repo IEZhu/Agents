@@ -7,7 +7,7 @@ Status: implemented 2026-10-17. Extends the
 
 A prepared worker runs on whatever model its host chooses, which is the parent's
 model unless the parent asks otherwise. Tiering lets the parent request a smaller
-model for mechanical or well specified assignments. The goal is fewer flagship
+model for mechanical or well-specified assignments. The goal is fewer flagship
 tokens per delegated task with a comparable accepted result; this implementation
 does not establish equivalent model quality or measured token savings.
 

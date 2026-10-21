@@ -52,7 +52,8 @@ their separate purpose; they are not duplicate flow-version stores.
 
 Every runner uses `src/user_sync/`. Run the commands from the installation root
 with its Python environment (`.venv/bin/python` on macOS/Linux,
-`.venv\Scripts\python.exe` on Windows). Where the shared daemon runs, on macOS or
+`.venv\Scripts\python.exe` on Windows). Activate that environment before using any bare
+`python` example below, including the daemon commands. Where the shared daemon runs, on macOS or
 Windows, it syncs by itself; use `python -m src.daemon user-sync …`, described in
 [User library sync](shared-mcp-daemon.md#user-library-sync). Without the daemon:
 
@@ -258,8 +259,8 @@ logged on), a systemd user timer on Linux or one crontab line where `systemctl -
 a user manager, and a LaunchAgent on macOS. On macOS and Windows, an installed daemon runs its
 own loop and refuses a separate scheduled sync job, even while the daemon is stopped. Starting
 the service removes this installation's old scheduled sync job. After that handoff, stopping
-the service stops its background sync loop too; start it again or uninstall it before enabling
-a standalone schedule.
+the service stops its background sync loop too. Start the daemon again to resume daemon-owned
+sync. To enable a standalone schedule, first uninstall the daemon.
 Enabling again replaces the interval; `disable` removes the job. Paths a scheduler would misread
 are refused rather than quoted wrongly. A scheduler that fails or hangs is reported with the
 reason `schedule`.
