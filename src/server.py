@@ -23,6 +23,9 @@ import threading
 import time
 import dotenv
 from src.runtime_paths import installation_root
+from src import personal_runtime
+# Keep the existing Python helper available to direct callers.
+from src.personal_runtime import install_history_sync
 
 # Load env vars before any src.engine.config import reads them (e.g. WARMUP_WAIT_SECONDS).
 env_path = str(installation_root() / ".env")
@@ -1620,19 +1623,6 @@ def _fallback_instruction(unresolved: "fallback.Unresolved", *, reading: bool = 
             "conversation and do not retry. " + fallback.REMEDY)
 
 
-def install_history_sync() -> None:
-    """Share each repository's history with the user's other machines through user library sync.
-
-    Called when a server starts, not on import, so tools that tests call
-    directly never reach this machine's sync settings or library.
-    """
-    try:
-        from src.user_sync import history as history_sync
-        history_sync.install()
-    except Exception:
-        logger.warning("History sync between machines is unavailable", exc_info=True)
-
-
 def _short_action(value: str) -> str:
     text = " ".join(str(value).split())
     return text if len(text) <= 64 else text[:64] + "…"
@@ -2296,26 +2286,7 @@ if __name__ == "__main__":
     # embedding model and rules load in one daemon thread (src/engine/readiness.py).
     logger.info("Starting pid=%d cwd=%s", os.getpid(), os.getcwd())
     readiness.start()
-    install_history_sync()
-    # Background self-update (Phase B): in a daemon thread WITHOUT blocking startup,
-    # prepare the next update — fetch + build the new version's indexes in an
-    # isolated git worktree and write a marker — so the next idle start activates
-    # it via a fast move under startup.py's exclusive lease. Legacy mode already
-    # ran synchronously there and starts no background thread. No-op unless on
-    # the target branch. Started after the readiness thread so reindex
-    # does not contend with it before the model load. See src/self_update.py.
-    from src.self_update import log_last_update, start_background_update
-    log_last_update()
-    readiness.when_done(start_background_update)
-    # Library sync (#168): a save in this server reaches the user's other machines about ten
-    # seconds later when sync is set up; started after the warmup, like the update.
-    def _start_library_sync():
-        try:
-            from src.user_sync.trigger import start_for_stdio
-            start_for_stdio()
-        except Exception:
-            logger.exception("Library sync trigger did not start")
-    readiness.when_done(_start_library_sync)
+    personal_runtime.start_stdio(readiness)
     try:
         mcp.run()
     finally:
