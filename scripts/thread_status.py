@@ -83,6 +83,12 @@ def hook_output(event: dict, client: str, *, script: str | None = None) -> dict:
                     "Classic IDE title updates have no verified public hook/API; never invent one.")
     if name == "UserPromptSubmit":
         context += "\nA user turn is beginning: set working when this turn starts/resumes work."
+        if client == "claude":
+            # Instruction files load once per session; a per-turn line keeps phase chapters in view.
+            context += ("\nIf the client exposes a chapter tool (the Claude desktop app's mark_chapter) "
+                        "and this request moves the work to a meaningfully different phase of the "
+                        "session, such as from implementation to an incident or a cleanup, mark the "
+                        "chapter first. Never mark one for the session's first message.")
     if client == "cursor":
         return {"additional_context": context}
     output = {"hookEventName": name, "additionalContext": context}

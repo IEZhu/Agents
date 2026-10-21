@@ -67,6 +67,13 @@ deliver context, without claiming work has started. Ordinary response-end hooks
 are deliberately absent: the end of a response does not establish task completion. Subagent and
 background events cannot rename the parent chat.
 
+When the chat identity is known, Claude's prompt hook also reminds the model, once
+per user turn, to mark a chapter when the request moves the work to a meaningfully
+different phase of the session and the client exposes a chapter tool, such as
+`mark_chapter` in the Claude desktop app. The session's first message gets no
+chapter. Instruction files load once per session, so a rule there is easy to lose in
+a long session; the per-turn line is not.
+
 The desktop app starts Code-tab sessions with `CLAUDE_CODE_ENTRYPOINT=claude-desktop`.
 Their sidebar title lives in the app's own session record. The app copies that title
 into the CLI session as its custom title. The adapter uses the app's title API
