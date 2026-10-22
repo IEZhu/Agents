@@ -2285,12 +2285,6 @@ if __name__ == "__main__":
     # Answer the handshake right after the cheap setup above; stores, the
     # embedding model and rules load in one daemon thread (src/engine/readiness.py).
     logger.info("Starting pid=%d cwd=%s", os.getpid(), os.getcwd())
-    readiness.start()
-    personal_runtime.start_stdio(readiness)
-    try:
-        mcp.run()
-    finally:
-        # The startup leases are released when this returns: let the worker
-        # finish its store and model work first, within a bounded wait.
-        readiness.join(READINESS_SHUTDOWN_WAIT_SECONDS)
-        drain_pending_logs()
+    from src.stdio_runtime import run_stdio
+    run_stdio(mcp, readiness, startup=personal_runtime.start_stdio,
+              drain_logs=drain_pending_logs, shutdown_wait=READINESS_SHUTDOWN_WAIT_SECONDS)

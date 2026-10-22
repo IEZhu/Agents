@@ -22,17 +22,17 @@ def install_history_sync() -> None:
         logger.warning("History sync between machines is unavailable", exc_info=True)
 
 
-def configure_daemon(service, *, hand_off_schedule=False) -> None:
-    """Attach the existing Personal editor and sync task without starting them.
+def daemon_components(service, *, hand_off_schedule=False):
+    """Create the existing Personal editor and sync task without starting them.
 
     Keep the service attributes used by the UI, health and admin routes. Only
     the daemon's real entry point opts into handing off the OS sync scheduler.
     """
     from src.daemon.flows_ui import FlowsUI
+    from src.daemon.runtime import DaemonComponents
     from src.daemon.sync_loop import UserSync
 
-    service.flows_ui = FlowsUI(service)
-    service.user_sync = UserSync(service, hand_off_schedule=hand_off_schedule)
+    return DaemonComponents(FlowsUI(service), UserSync(service, hand_off_schedule=hand_off_schedule))
 
 
 def _start_library_sync() -> None:
