@@ -1,11 +1,11 @@
-"""Lightweight embedding engine based on FastEmbed (ONNX Runtime).
+"""Lightweight embedding engine based on direct ONNX Runtime inference.
 
 Replaces sentence-transformers + PyTorch with a much lighter dependency
 footprint (~100 MB installed vs ~2 GB for torch + transformers).
 Model is selected via EMBEDDING_MODEL env var (set during setup).
 
 Queries go through query_embed() and documents through passage_embed(), after
-the model's prompt template from src/engine/embedding_prompts.py: fastembed itself
+the model's prompt template from src/engine/embedding_prompts.py: the dense adapter itself
 adds no "query: " / "passage: " prefix or task instruction for these models.
 """
 
@@ -34,7 +34,7 @@ _model_fingerprint = None
 
 
 def clear_model_cache(model_name: str) -> None:
-    """Remove fastembed's cached files and the plain-file copy of *model_name* so the next load re-downloads."""
+    """Remove the embedding runtime's cached files and the plain-file copy of *model_name* so the next load re-downloads."""
     if not os.path.isdir(FASTEMBED_CACHE_DIR):
         return
     suffix = model_name.split("/")[-1]
@@ -61,7 +61,7 @@ def _get_model():
     if _model is None:
         with _lock:
             if _model is None:
-                from fastembed import TextEmbedding
+                from src.engine.onnx_embedding import TextEmbedding
 
                 os.makedirs(FASTEMBED_CACHE_DIR, exist_ok=True)
                 register_custom(EMBEDDING_MODEL)
@@ -105,9 +105,9 @@ def _get_model():
 def _loaded_fingerprint(model) -> str:
     """Fingerprint of the snapshot *model* was loaded from.
 
-    fastembed picks the Hugging Face snapshot when the load starts, and another
+    The dense adapter picks the Hugging Face snapshot when the load starts, and another
     process can move the cache's refs/main before it ends, so the revision is
-    taken from the directory fastembed opened (``<cache dir>:<commit>``, which
+    taken from the directory the dense adapter opened (``<cache dir>:<commit>``, which
     equals what ``fingerprint()`` reads from refs when one cache directory
     matches the model). A plain-file copy, which is no snapshot directory, gets
     its pinned revision in ``compute_fingerprint``; other directories fall back to
@@ -117,7 +117,7 @@ def _loaded_fingerprint(model) -> str:
     revision = None
     model_dir = getattr(getattr(model, "model", None), "_model_dir", None)
     if model_dir is None:
-        logger.warning("fastembed exposes no model directory; the history index "
+        logger.warning("The dense adapter exposes no model directory; the history index "
                        "fingerprint falls back to the model cache refs")
     elif isinstance(model_dir, (str, os.PathLike)):
         path = Path(model_dir)

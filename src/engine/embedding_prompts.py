@@ -237,16 +237,16 @@ def _cap_max_length(path: str, limit: int) -> None:
 
 
 def register_custom(model: str) -> None:
-    """Register a model from CUSTOM_MODELS with fastembed once; other models are left alone.
+    """Register a model from CUSTOM_MODELS with the dense adapter once; other models are left alone.
 
-    The model registers under its CUSTOM_MODELS name; fastembed finds it by any case.
+    The model registers under its CUSTOM_MODELS name; the dense adapter finds it by any case.
     """
     entry = _entry(CUSTOM_MODELS, model)
     if entry is None:
         return
     model, spec = entry
-    from fastembed import TextEmbedding
-    from fastembed.common.model_description import ModelSource, PoolingType
+    from src.engine.onnx_embedding import TextEmbedding
+    from src.engine.onnx_embedding import ModelSource, PoolingType
 
     if any(listed["model"].lower() == model.lower() for listed in TextEmbedding.list_supported_models()):
         return

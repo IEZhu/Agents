@@ -325,7 +325,7 @@ placeholders `pk-lf-...` and `sk-lf-...`, which an `.env` copied from an older
 [document OCR server](src/mcp_servers/document_ocr/README.md) needs a real
 `ANTHROPIC_API_KEY`.
 
-Embeddings run locally through FastEmbed (ONNX Runtime); the initial model download
+Embeddings run locally through ONNX Runtime, Hugging Face Tokenizers and Hub; the initial model download
 requires network access. The default model is `microsoft/harrier-oss-v1-270m`
 (MIT, multilingual, about 1.1 GB to download and 0.85 GB loaded): on the project's
 retrieval sets it ranks implants and skills better than the earlier defaults
@@ -336,7 +336,7 @@ once downloaded. Setup no longer asks: harrier-270m is the one model for every
 machine, replacing the earlier Full, Balanced and Light choices. Setup writes it
 to `EMBEDDING_MODEL` in `.env`, together with `EMBEDDING_MODEL_GENERATION`. When
 `EMBEDDING_MODEL` is unset, for example after `--skip-index`, standalone stdio
-uses it as well. Any FastEmbed model stays selectable,
+uses it as well. All 37 dense models from the FastEmbed 0.8.1 catalog stay selectable,
 `intfloat/multilingual-e5-large` included: edit `EMBEDDING_MODEL` and, with
 server sessions stopped, run
 `.venv/bin/python -m src.reindex`. An `.env` without
@@ -344,6 +344,15 @@ server sessions stopped, run
 needs that line too; otherwise the next start switches it to the default
 ([model switch](#model-switch-on-update)). The [shared macOS and Windows service](#shared-macos-and-windows-service)
 pins its model in its own configuration.
+
+The dense adapter in `src/engine/onnx_embedding.py` retains the catalog, model
+files, pooling, dimensions and cache locations from FastEmbed 0.8.1 while using
+the maintained inference and tokenizer packages directly. OCR uses Pillow 13 or
+newer independently. The explicit embedding contract and ONNX Runtime version
+now enter the derived-index fingerprint, so the first start rebuilds vector
+indexes once; source history and cached model weights are retained. Changes to
+the adapter's numerical conventions must bump its `EMBEDDING_CONTRACT`. Model
+licenses remain in the catalog and `THIRD_PARTY_NOTICES`.
 
 #### Model switch on update
 
@@ -929,7 +938,7 @@ Agents/
 │   │   ├── implants.py   # Implant retrieval (vector search)
 │   │   ├── rules.py      # Shared rule loading
 │   │   ├── config.py     # Centralized configuration
-│   │   ├── embedder.py   # FastEmbed wrapper (ONNX Runtime)
+│   │   ├── embedder.py   # Dense ONNX embedding wrapper
 │   │   ├── embedding_prompts.py # Model prompts and extra model registrations
 │   │   ├── vector_store.py # NumPy-based vector store
 │   │   ├── enrichment.py # Tier-based context enrichment

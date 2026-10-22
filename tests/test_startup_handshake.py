@@ -1,7 +1,7 @@
 """The stdio handshake must not wait for the embedding model (readiness gate).
 
 Spawns ``src/server.py`` from a temporary copy of the installation with a fake
-``fastembed`` whose ``TextEmbedding()`` takes 20 s to load (sleeping, or holding
+embedding adapter whose ``TextEmbedding()`` takes 20 s to load (sleeping, or holding
 the GIL) and asserts that ``initialize`` and ``tools/list`` still answer at once
 and that a gated tool returns ``warming_up`` within its cap.
 """
@@ -16,10 +16,11 @@ import pytest
 pytestmark = [pytest.mark.slow, pytest.mark.asyncio]
 
 ROOT = Path(__file__).resolve().parents[1]
-FAKE_FASTEMBED = '''
+FAKE_EMBEDDING = '''
 import os, time
 import numpy as np
 
+EMBEDDING_CONTRACT = "fake-v1"
 
 class TextEmbedding:
     def __init__(self, *args, **kwargs):
@@ -50,12 +51,7 @@ def installation(tmp_path_factory):
     root = tmp_path_factory.mktemp("install")
     for folder in ("src", "agents", "skills", "implants", "rules", "flows"):
         shutil.copytree(ROOT / folder, root / folder, ignore=shutil.ignore_patterns("__pycache__"))
-    fake = root / "fake"
-    (fake / "fastembed").mkdir(parents=True)
-    (fake / "fastembed" / "__init__.py").write_text(FAKE_FASTEMBED)
-    (fake / "fastembed-0.0.0.dist-info").mkdir()
-    (fake / "fastembed-0.0.0.dist-info" / "METADATA").write_text(
-        "Metadata-Version: 2.1\nName: fastembed\nVersion: 0.0.0\n")
+    (root / "src" / "engine" / "onnx_embedding.py").write_text(FAKE_EMBEDDING)
     return root
 
 
@@ -66,7 +62,7 @@ async def _session(installation, *, load_seconds, hold_gil=False, cap=2):
 
     env = {
         **os.environ,
-        "PYTHONPATH": str(installation / "fake"),
+        "PYTHONPATH": str(installation),
         "FAKE_LOAD_SECONDS": str(load_seconds),
         "FAKE_HOLD_GIL": "1" if hold_gil else "0",
         "WARMUP_WAIT_SECONDS": str(cap),

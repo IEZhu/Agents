@@ -90,7 +90,7 @@ def model_cache(tmp_path, monkeypatch):
     monkeypatch.delenv("AGENTS_MODEL_PATH", raising=False)
     monkeypatch.setattr(embedder, "register_custom", lambda model: None)
     monkeypatch.setattr(embedder, "materialize", lambda model, cache_dir: None)
-    monkeypatch.setitem(sys.modules, "fastembed", types.SimpleNamespace(TextEmbedding=FakeTextEmbedding))
+    monkeypatch.setattr("src.engine.onnx_embedding.TextEmbedding", FakeTextEmbedding)
     monkeypatch.setattr(FakeTextEmbedding, "during_load", None)
     monkeypatch.setattr(embedder, "_model", None)
     monkeypatch.setattr(embedder, "_model_fingerprint", None)
@@ -199,7 +199,7 @@ def test_a_plain_file_copy_that_fails_to_load_is_removed_on_the_last_attempt(mod
         def __init__(self, model_name, cache_dir, **options):
             raise RuntimeError("corrupt weights")
 
-    monkeypatch.setitem(sys.modules, "fastembed", types.SimpleNamespace(TextEmbedding=BrokenTextEmbedding))
+    monkeypatch.setattr("src.engine.onnx_embedding.TextEmbedding", BrokenTextEmbedding)
     monkeypatch.setattr(embedder, "materialize", lambda model, cache_dir: str(copy))
     monkeypatch.setattr(embedder, "register_custom", lambda model: None)
     monkeypatch.setattr(embedder, "_MAX_LOAD_RETRIES", 1)  # the daemon's single attempt

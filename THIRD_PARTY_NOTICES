@@ -1,0 +1,13 @@
+The dense text model catalog (src/engine/embedding_catalog.json) and numerical
+conventions in src/engine/onnx_embedding.py are derived from FastEmbed 0.8.1:
+https://github.com/qdrant/fastembed/tree/v0.8.1
+
+Copyright 2024 Qdrant. Licensed under the Apache License, Version 2.0.
+The full license and original NOTICE are retained in
+src/engine/FASTEMBED_LICENSE and src/engine/FASTEMBED_NOTICE.
+
+Agents-Core replaces FastEmbed's package with direct ONNX Runtime, Hugging Face
+Tokenizers and Hub calls. The text adapter, download handling and regression
+tests are maintained here. Original model names, sources, files, dimensions and
+model-specific numerical conventions are retained. Models remain subject to
+the licenses recorded in their catalog entries; no model weights are bundled.
