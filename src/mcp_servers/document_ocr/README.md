@@ -40,7 +40,7 @@ The Agents-Core `.venv` already includes them (`requirements.txt`). A separate
 environment needs:
 
 ```bash
-pip install 'mcp==1.28.1' python-dotenv pdf2image Pillow anthropic
+pip install 'mcp==1.30.0' python-dotenv pdf2image Pillow anthropic
 ```
 
 ## Configuration
