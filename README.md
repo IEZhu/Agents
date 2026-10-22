@@ -1391,6 +1391,23 @@ workflow. Installations choose their branch with `python -m src.daemon channel s
 main|dev` or the web UI's Updates section ([update channel](#update-channel)). The
 `push` triggers of the CI workflows cover `main` and `dev`.
 
+### Vulnerability gate
+
+`Vulnerability scan` audits the complete committed `uv.lock` on every pull request,
+merge queue, push to `dev`/`main`, manual run and daily schedule. Trivy 0.76.1 includes
+development dependencies and every severity, including unknown and unfixed issues.
+uv 0.11.25 first rejects drift between dependency declarations (including every
+optional extra) and the lock, with source builds disabled. Missing or unparsed
+lockfiles and scanner/database errors fail the job. No repository
+ignore policy is loaded. Release publication scans the exact merged release commit
+again and depends on that scan succeeding.
+
+Require the `Vulnerability scan` check in the protection rules for `dev` and `main`
+after this workflow lands; a failing workflow alone does not prevent an unprotected
+branch from being merged. Fix dependencies rather than adding an automatic exception
+for a vulnerability without an available fix. Revert the workflow change to roll back
+this policy, updating any required-check rule at the same time.
+
 ### Validation
 
 Run these commands from the checkout root in the test environment described in
