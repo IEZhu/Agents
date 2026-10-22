@@ -1,0 +1,32 @@
+name: security
+
+# Fails on HIGH/CRITICAL vulnerabilities that already have a fixed version,
+# in dependency manifests.
+# The daily run re-checks the same code against the fresh vulnerability
+# database; GitHub emails a failed scheduled run.
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+  schedule:
+    - cron: '23 5 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # Pinned by digest: Trivy images 0.69.4-0.69.6 were compromised
+  # in March 2026 (CVE-2026-33634)
+  TRIVY_IMAGE: aquasec/trivy:0.75.0@sha256:af6acf9a6b85dfe389a1941505c0ce9efef52a4719635e1a962f022a3d855daa
+  TRIVY_ARGS: --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 --no-progress
+
+jobs:
+  dependencies:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Trivy - dependency manifests
+        run: docker run --rm -v "$PWD:/src:ro" "$TRIVY_IMAGE" fs $TRIVY_ARGS /src
