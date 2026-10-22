@@ -11,6 +11,8 @@ on:
       - src/schemas/subagent.py
       - src/engine/subagent.py
       - src/server.py
+      - tests/test_log_interaction_async.py
+      - tests/test_log_worker_startup.py
       - src/daemon/app.py
       - src/daemon/control.py
       - src/daemon/autoupdate.py
@@ -57,6 +59,8 @@ on:
       - src/schemas/subagent.py
       - src/engine/subagent.py
       - src/server.py
+      - tests/test_log_interaction_async.py
+      - tests/test_log_worker_startup.py
       - src/daemon/app.py
       - src/daemon/control.py
       - src/daemon/autoupdate.py
@@ -138,6 +142,8 @@ jobs:
           -q -p no:cacheprovider
       - name: Cooperation notifications, request states and MCP privacy
         run: python -B -m pytest tests/test_cooperation_mailbox.py tests/test_cooperation_requests.py tests/test_cooperation_notifications.py tests/test_cooperation_service.py tests/test_cooperation_models.py tests/test_cooperation_mcp.py tests/test_cooperation_runtime_integration.py tests/test_cooperation_instructions.py tests/test_subagent_combined_budget.py -q -p no:cacheprovider
+      - name: Lazy log worker startup and async writes
+        run: python -B -m pytest tests/test_log_interaction_async.py tests/test_log_worker_startup.py -q -p no:cacheprovider
       - name: POSIX fake native and Redis boundaries, runtime identity and update admission
         if: runner.os != 'Windows'
         shell: bash
