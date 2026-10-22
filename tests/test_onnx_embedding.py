@@ -1,10 +1,12 @@
 """Dense ONNX boundary regressions without model downloads or inference."""
 import io
+from http.client import IncompleteRead
 import json
 from pathlib import Path
 import tarfile
 from types import SimpleNamespace
 import weakref
+import zlib
 
 import numpy as np
 import pytest
@@ -178,7 +180,11 @@ def test_existing_archive_cache_can_be_used_offline(tmp_path):
     assert runtime._archive_model(spec, tmp_path, True) == target
 
 
-def test_online_sources_retry_after_transient_archive_failure(tmp_path, monkeypatch):
+@pytest.mark.parametrize("failure", [
+    OSError("503 service unavailable"), EOFError("truncated gzip"),
+    zlib.error("corrupt gzip stream"), IncompleteRead(b"partial", 100),
+])
+def test_online_sources_retry_after_transient_archive_failure(tmp_path, monkeypatch, failure):
     import huggingface_hub
     spec = runtime.TextEmbedding._spec("BAAI/bge-base-en")
     hub_calls, archive_calls, sleeps = [], [], []
@@ -188,7 +194,7 @@ def test_online_sources_retry_after_transient_archive_failure(tmp_path, monkeypa
     def archive(spec, cache, offline):
         archive_calls.append(offline)
         if len(archive_calls) == 1:
-            raise OSError("503 service unavailable")
+            raise failure
         return tmp_path / "complete"
     monkeypatch.setattr(huggingface_hub, "snapshot_download", hub)
     monkeypatch.setattr(runtime, "_archive_model", archive)

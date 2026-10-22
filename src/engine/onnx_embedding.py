@@ -9,6 +9,7 @@ from copy import deepcopy
 from dataclasses import asdict, dataclass
 from enum import Enum
 from importlib.resources import files
+from http.client import HTTPException
 from itertools import islice
 import json
 import os
@@ -20,6 +21,7 @@ import tempfile
 import time
 from types import SimpleNamespace
 import urllib.request
+import zlib
 
 import numpy as np
 
@@ -178,7 +180,7 @@ def _model_directory(spec, cache_dir, offline):
         if source.get("url"):
             try:
                 return _archive_model(spec, cache_dir, False)
-            except (OSError, ValueError, tarfile.TarError) as error:
+            except (OSError, ValueError, tarfile.TarError, EOFError, zlib.error, HTTPException) as error:
                 last_error = error
         if attempt < 2:
             time.sleep(3 * 3**attempt)
