@@ -48,6 +48,13 @@ evals = [
     "anthropic>=0.40",
 ]
 
+[tool.uv]
+# fastembed (0.8.1 and 0.9.0) caps pillow<13.0, but Pillow 13.0.0 is the first
+# release that fixes CVE-2026-112393, CVE-2026-112403, CVE-2026-112900 and other
+# HIGH image-decoding issues. The override applies to uv.lock only; pip installs
+# from requirements.txt still follow fastembed's cap.
+override-dependencies = ["pillow>=13.0.0"]
+
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["src*", "evals*", "scripts._helpers*"]
