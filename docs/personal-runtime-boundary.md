@@ -44,7 +44,9 @@ Without an override, `personal_runtime.daemon_components` constructs the same
 Personal objects. With an override, the service does not also construct the
 default editor or another sync owner. The supplied objects must support the
 existing editor and sync lifecycle APIs, including health, admin routes and
-bounded shutdown. `DaemonEditor` and `SyncLifecycle` describe the operations the
+bounded shutdown. A replacement sync owner for the Personal library must perform
+the scheduler handoff when `hand_off_schedule` is true; a factory that cannot do
+so must reject that composition. `DaemonEditor` and `SyncLifecycle` describe the operations the
 daemon calls. Reusing the Personal editor also requires the separate
 `PersonalEditorSync` contract: `perform`, `offload`, `engine` and `status_view`.
 The editor and sync object must therefore be supplied as a compatible pair.
@@ -74,7 +76,7 @@ Storage/access isolation and an actual second server composition remain later
 work. The factory alone does not provide a Git-free or tenant-safe Teams server.
 
 `tests/test_runtime_composition.py` checks that an injected daemon composition
-reaches its UI and health routes without constructing the Personal default,
-and lifecycle, and that stdio joins and drains on both startup and transport
+reaches its UI, health and admin routes through the full lifecycle without
+constructing the Personal default, and that stdio joins and drains on startup and transport
 failures. Hook tests also check transport configuration and exception propagation. The
 existing Personal characterization and sync suites cover the default lifecycle.
