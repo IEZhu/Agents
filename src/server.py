@@ -1702,7 +1702,7 @@ async def log_interaction(
     (``YYYY.MM.DD HH:MM:SS``); the final answer starts with it on its own line,
     and it is not part of ``response_content``. The sinks are written in the
     background with that timestamp and do not prevent each other; a full queue
-    can also drop a write. A failed history write is logged once per path and
+    or failed worker start can drop a write. A failed history write is logged once per path and
     errno (WARNING, ``code=history_unwritable``) and reported on the next result
     as ``history_last_error``; Langfuse failures are only logged. When no project
     resolves, the turn goes to the installation's fallback journal (#292):
