@@ -10,6 +10,7 @@ on:
       - src/flows.py
       - src/engine/persona.py
       - src/server.py
+      - src/daemon/workspaces.py
       - flows/**
       - tests/test_persona_protocol.py
       - tests/test_flows.py
@@ -30,6 +31,7 @@ on:
       - src/flows.py
       - src/engine/persona.py
       - src/server.py
+      - src/daemon/workspaces.py
       - flows/**
       - tests/test_persona_protocol.py
       - tests/test_flows.py
