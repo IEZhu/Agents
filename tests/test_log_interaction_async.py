@@ -131,8 +131,10 @@ async def test_persona_action_without_persona_is_written_with_warning(monkeypatc
 
 
 def test_sink_workers_are_daemon_threads():
-    assert server._history_worker._thread.daemon
-    assert server._langfuse_worker._thread.daemon
+    for worker in (server._history_worker, server._langfuse_worker):
+        assert worker.submit(lambda: None)
+        assert worker._thread.daemon
+        assert worker.drain(time.monotonic() + 5)
 
 
 def test_full_queue_drops_writes_and_logs(monkeypatch, caplog):
