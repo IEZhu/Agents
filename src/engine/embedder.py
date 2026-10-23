@@ -45,25 +45,27 @@ def clear_model_cache(model_name: str) -> None:
         return
     from src.engine.onnx_embedding import TextEmbedding
 
-    try:
-        spec = TextEmbedding._spec(model_name)
-    except ValueError:
-        return  # An unregistered name cannot identify a managed model cache.
-    source = spec["sources"]
+    # A pinned plain copy can exist before register_custom has run.
     stale = []
-    if source.get("hf"):
-        name = "models--" + source["hf"].replace("/", "--")
-        path = cache / name
-        if path.parent == cache:
-            stale.append(path)
-    if source.get("url"):
-        name = ("fast-" if source.get("_deprecated_tar_struct") else "") + spec["model"].split("/")[-1]
-        path = cache / name
-        if name not in {"", ".", ".."} and path.parent == cache:
-            stale.append(path)
     copy = local_copy(model_name, str(cache))
     if copy:
         stale.append(Path(copy))
+    try:
+        spec = TextEmbedding._spec(model_name)
+    except ValueError:
+        spec = None  # Unknown registration cannot identify a Hub/archive cache.
+    if spec is not None:
+        source = spec["sources"]
+        if source.get("hf"):
+            name = "models--" + source["hf"].replace("/", "--")
+            path = cache / name
+            if path.parent == cache:
+                stale.append(path)
+        if source.get("url"):
+            name = ("fast-" if source.get("_deprecated_tar_struct") else "") + spec["model"].split("/")[-1]
+            path = cache / name
+            if name not in {"", ".", ".."} and path.parent == cache:
+                stale.append(path)
     root = cache.resolve()
     for path in stale:
         if path.is_symlink() or not path.is_dir():
