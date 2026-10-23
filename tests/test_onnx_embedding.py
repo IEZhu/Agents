@@ -162,6 +162,8 @@ def test_offline_cache_uses_exact_hub_snapshot_without_network(monkeypatch, tmp_
     snapshot = tmp_path / "snapshot"
     snapshot.mkdir()
     (snapshot / spec["model_file"]).write_bytes(b"model")
+    (snapshot / "tokenizer.json").write_text("{}")
+    (snapshot / "tokenizer_config.json").write_text("{}")
     calls = []
     def download(**kwargs):
         calls.append(kwargs)
@@ -177,6 +179,8 @@ def test_existing_archive_cache_can_be_used_offline(tmp_path):
     target = tmp_path / "fast-bge-base-en"
     target.mkdir()
     (target / spec["model_file"]).write_bytes(b"model")
+    (target / "tokenizer.json").write_text("{}")
+    (target / "tokenizer_config.json").write_text("{}")
     assert runtime._archive_model(spec, tmp_path, True) == target
 
 
@@ -226,16 +230,21 @@ def test_online_retry_budget_is_bounded_and_keeps_final_cause(tmp_path, monkeypa
     assert sleeps == [3, 9]
 
 
-def test_partial_archive_target_is_replaced_with_complete_model_and_weights(tmp_path, monkeypatch):
+@pytest.mark.parametrize("missing_file", ["model.onnx_data", "tokenizer.json", "tokenizer_config.json"])
+def test_partial_archive_target_is_replaced_with_complete_model_and_weights(tmp_path, monkeypatch, missing_file):
+    """No weights-only or tokenizer-incomplete archive cache counts as usable."""
     spec = runtime.TextEmbedding._spec("BAAI/bge-base-en")
     spec["additional_files"] = ["model.onnx_data"]
     name = "fast-bge-base-en"
     target = tmp_path / name
     target.mkdir()
-    (target / spec["model_file"]).write_bytes(b"old partial model")
+    for filename in [spec["model_file"], "model.onnx_data", "tokenizer.json", "tokenizer_config.json"]:
+        if filename != missing_file:
+            (target / filename).write_bytes(b"old partial model")
     archive = io.BytesIO()
     with tarfile.open(fileobj=archive, mode="w:gz") as tar:
-        for filename, data in [(spec["model_file"], b"new model"), ("model.onnx_data", b"weights")]:
+        for filename, data in [(spec["model_file"], b"new model"), ("model.onnx_data", b"weights"),
+                               ("tokenizer.json", b"{}"), ("tokenizer_config.json", b"{}")]:
             member = tarfile.TarInfo(name + "/" + filename)
             member.size = len(data)
             tar.addfile(member, io.BytesIO(data))
@@ -243,6 +252,8 @@ def test_partial_archive_target_is_replaced_with_complete_model_and_weights(tmp_
     assert runtime._archive_model(spec, tmp_path, False) == target
     assert (target / spec["model_file"]).read_bytes() == b"new model"
     assert (target / "model.onnx_data").read_bytes() == b"weights"
+    assert (target / "tokenizer.json").read_bytes() == b"{}"
+    assert (target / "tokenizer_config.json").read_bytes() == b"{}"
     assert not list((tmp_path / "tmp").iterdir())
 
 
@@ -254,7 +265,7 @@ def test_archive_publication_failure_restores_partial_cache(tmp_path, monkeypatc
     (target / spec["model_file"]).write_bytes(b"original")
     archive = io.BytesIO()
     with tarfile.open(fileobj=archive, mode="w:gz") as tar:
-        for filename in [spec["model_file"], "model.onnx_data"]:
+        for filename in [spec["model_file"], "model.onnx_data", "tokenizer.json", "tokenizer_config.json"]:
             member = tarfile.TarInfo(target.name + "/" + filename)
             member.size = 1
             tar.addfile(member, io.BytesIO(b"x"))
@@ -285,6 +296,8 @@ def test_legacy_python_extractall_receives_no_filter_keyword(tmp_path, monkeypat
             target = path / "fast-bge-base-en"
             target.mkdir()
             (target / spec["model_file"]).write_bytes(b"model")
+            (target / "tokenizer.json").write_text("{}")
+            (target / "tokenizer_config.json").write_text("{}")
     monkeypatch.delattr(tarfile, "data_filter", raising=False)
     monkeypatch.setattr(tarfile, "open", lambda *args, **kwargs: LegacyTar())
     monkeypatch.setattr(runtime.urllib.request, "urlopen", lambda *args, **kwargs: io.BytesIO())
@@ -326,3 +339,42 @@ def test_archive_download_rejects_escapes_and_links(tmp_path, monkeypatch, membe
         runtime._archive_model(runtime.TextEmbedding._spec("BAAI/bge-base-en"), tmp_path, False)
     assert not (tmp_path.parent / "escape").exists()
     assert not list((tmp_path / "tmp").iterdir())
+
+
+@pytest.mark.parametrize("missing_file", ["tokenizer.json", "tokenizer_config.json"])
+def test_offline_archive_cache_rejects_missing_tokenizer_without_network(tmp_path, monkeypatch, missing_file):
+    """Offline lookup must reject partial caches without attempting a download."""
+    spec = runtime.TextEmbedding._spec("BAAI/bge-base-en")
+    target = tmp_path / "fast-bge-base-en"
+    target.mkdir()
+    for filename in [spec["model_file"], "tokenizer.json", "tokenizer_config.json"]:
+        if filename != missing_file:
+            (target / filename).write_bytes(b"cached")
+    def forbidden(*args, **kwargs):
+        pytest.fail("offline mode attempted a network request")
+    monkeypatch.setattr(runtime.urllib.request, "urlopen", forbidden)
+    with pytest.raises(ValueError, match="Could not find model"):
+        runtime._archive_model(spec, tmp_path, True)
+
+
+def test_offline_partial_hub_snapshot_uses_complete_archive_cache(tmp_path, monkeypatch):
+    """A weights-only Hub snapshot cannot mask a usable offline archive."""
+    import huggingface_hub
+    spec = runtime.TextEmbedding._spec("BAAI/bge-base-en")
+    snapshot = tmp_path / "snapshot"
+    snapshot.mkdir()
+    (snapshot / spec["model_file"]).write_bytes(b"model")
+    archive = tmp_path / "fast-bge-base-en"
+    archive.mkdir()
+    for filename in [spec["model_file"], "tokenizer.json", "tokenizer_config.json"]:
+        (archive / filename).write_bytes(b"cached")
+    calls = []
+    def download(**kwargs):
+        calls.append(kwargs)
+        return str(snapshot)
+    def forbidden(*args, **kwargs):
+        pytest.fail("offline mode attempted a network request")
+    monkeypatch.setattr(huggingface_hub, "snapshot_download", download)
+    monkeypatch.setattr(runtime.urllib.request, "urlopen", forbidden)
+    assert runtime._model_directory(spec, tmp_path, True) == archive
+    assert len(calls) == 1 and calls[0]["local_files_only"] is True

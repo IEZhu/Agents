@@ -84,13 +84,19 @@ def _load_tokenizer(model_dir):
     return tokenizer
 
 
+def _model_files_complete(path, spec):
+    """Require weights and the tokenizer files that initialization always opens."""
+    required = [spec["model_file"], *spec["additional_files"], "tokenizer.json", "tokenizer_config.json"]
+    return all((path / name).is_file() for name in required)
+
+
 def _archive_model(spec, cache_dir, offline):
     """Retain the official GCS fallback and its existing cache directory names."""
     source = spec["sources"]
     name = ("fast-" if source.get("_deprecated_tar_struct") else "") + spec["model"].split("/")[-1]
     target = cache_dir / name
     def complete(path):
-        return all((path / f).is_file() for f in [spec["model_file"], *spec["additional_files"]])
+        return _model_files_complete(path, spec)
 
     if complete(target):
         return target
@@ -156,7 +162,7 @@ def _model_directory(spec, cache_dir, offline):
     def hub(local_only):
         path = Path(snapshot_download(repo_id=source["hf"], cache_dir=str(cache_dir),
                                       allow_patterns=patterns, local_files_only=local_only))
-        if not all((path / f).is_file() for f in [spec["model_file"], *spec["additional_files"]]):
+        if not _model_files_complete(path, spec):
             raise ValueError("Downloaded Hub snapshot is incomplete")
         return path
 

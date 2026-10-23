@@ -9,7 +9,6 @@ the model's prompt template from src/engine/embedding_prompts.py: the dense adap
 adds no "query: " / "passage: " prefix or task instruction for these models.
 """
 
-import glob
 import logging
 import os
 import shutil
@@ -34,17 +33,46 @@ _model_fingerprint = None
 
 
 def clear_model_cache(model_name: str) -> None:
-    """Remove the embedding runtime's cached files and the plain-file copy of *model_name* so the next load re-downloads."""
-    if not os.path.isdir(FASTEMBED_CACHE_DIR):
+    """Remove only this model's managed Hub, archive and plain-file caches.
+
+    Explicit model directories belong to the caller. Never remove them, follow
+    cache-directory symlinks, or match unrelated repositories by a name suffix.
+    """
+    if os.environ.get("AGENTS_MODEL_PATH"):
         return
-    suffix = model_name.split("/")[-1]
-    stale = glob.glob(os.path.join(FASTEMBED_CACHE_DIR, f"models--*{suffix}*"))
-    copy = local_copy(model_name, FASTEMBED_CACHE_DIR)
-    if copy and os.path.isdir(copy):
-        stale.append(copy)
-    for d in stale:
-        logger.warning("Removing corrupted model cache: %s", d)
-        shutil.rmtree(d, ignore_errors=True)
+    cache = Path(FASTEMBED_CACHE_DIR).expanduser()
+    if not cache.is_dir():
+        return
+    from src.engine.onnx_embedding import TextEmbedding
+
+    try:
+        spec = TextEmbedding._spec(model_name)
+    except ValueError:
+        return  # An unregistered name cannot identify a managed model cache.
+    source = spec["sources"]
+    stale = []
+    if source.get("hf"):
+        name = "models--" + source["hf"].replace("/", "--")
+        path = cache / name
+        if path.parent == cache:
+            stale.append(path)
+    if source.get("url"):
+        name = ("fast-" if source.get("_deprecated_tar_struct") else "") + spec["model"].split("/")[-1]
+        path = cache / name
+        if name not in {"", ".", ".."} and path.parent == cache:
+            stale.append(path)
+    copy = local_copy(model_name, str(cache))
+    if copy:
+        stale.append(Path(copy))
+    root = cache.resolve()
+    for path in stale:
+        if path.is_symlink() or not path.is_dir():
+            continue
+        resolved = path.resolve()
+        if resolved == root or root not in resolved.parents:
+            continue
+        logger.warning("Removing corrupted model cache: %s", path)
+        shutil.rmtree(path, ignore_errors=True)
 
 
 _MAX_LOAD_RETRIES = 1 if os.environ.get("AGENTS_TRANSPORT") == "http" else 2
@@ -53,9 +81,9 @@ _MAX_LOAD_RETRIES = 1 if os.environ.get("AGENTS_TRANSPORT") == "http" else 2
 def _get_model():
     """Lazy-init singleton TextEmbedding instance.
 
-    On first failure (e.g. corrupted/incomplete cache) the model cache is
-    cleared and one retry is attempted, so the server can self-heal without
-    manual intervention.
+    Failed managed caches are removed even on a transport's last attempt, so
+    a later load can recover. Transports that allow a retry try once more in
+    this call. Explicit AGENTS_MODEL_PATH directories are never removed.
     """
     global _model, _model_fingerprint
     if _model is None:
@@ -83,18 +111,13 @@ def _get_model():
                         logger.info("Embedding model loaded")
                         break
                     except Exception:
+                        clear_model_cache(EMBEDDING_MODEL)
                         if attempt < _MAX_LOAD_RETRIES - 1:
                             logger.warning(
-                                "Model load failed, clearing cache and retrying",
+                                "Model load failed, cleared managed caches and retrying",
                                 exc_info=True,
                             )
-                            clear_model_cache(EMBEDDING_MODEL)
                         else:
-                            if local and not os.environ.get("AGENTS_MODEL_PATH"):
-                                # Single-attempt transports (the daemon) would reuse a broken
-                                # plain-file copy on every later load; the next one downloads it again.
-                                logger.warning("Removing the plain-file copy that failed to load: %s", local)
-                                shutil.rmtree(local, ignore_errors=True)
                             raise
                 # Set before the model is published.
                 _model_fingerprint = _loaded_fingerprint(model)
