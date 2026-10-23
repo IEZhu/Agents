@@ -248,12 +248,14 @@ class Service:
                 await asyncio.to_thread(self.mcp_registry.publish_machine)
             except (OSError, ValueError):
                 logger.warning("MCP host inventory could not be published")
-        runtime = asyncio.create_task(self.start_runtime())
-        diagnostics = asyncio.create_task(self.retain_diagnostics())
-        loop_monitor = asyncio.create_task(self.monitor_loop())
-        # Automatic sync begins once the service is ready; admin operations work from the start.
-        self.user_sync.start()
+        runtime = diagnostics = loop_monitor = None
         try:
+            # A supplied sync owner can fail while starting. Keep that failure
+            # inside the owned cleanup boundary and do not start daemon work.
+            self.user_sync.start()
+            runtime = asyncio.create_task(self.start_runtime())
+            diagnostics = asyncio.create_task(self.retain_diagnostics())
+            loop_monitor = asyncio.create_task(self.monitor_loop())
             yield
         finally:
             self.state = "draining"
@@ -273,9 +275,12 @@ class Service:
             await self.mcp_proxy.close()
             self.stop.set()
             self.user_sync.wake()
-            await runtime
-            await diagnostics
-            await loop_monitor
+            if runtime is not None:
+                await runtime
+            if diagnostics is not None:
+                await diagnostics
+            if loop_monitor is not None:
+                await loop_monitor
             await self.user_sync.finish()
             # Queued log_interaction writes run on their own executor; flush them
             # before the process can exit.

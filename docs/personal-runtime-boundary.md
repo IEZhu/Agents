@@ -53,6 +53,14 @@ The editor and sync object must therefore be supplied as a compatible pair.
 The factory runs before `service.artifacts` and `service.local_inference` are
 assigned and must not access those attributes during construction or start work.
 
+A supplied sync owner's state inspection, `drain`, `wake` and `finish` operations
+must be valid from construction, including after a failed or partially completed
+`start`. It owns reconciliation of its partial work in `finish`; its cleanup
+operations must not raise. The daemon creates its runtime, diagnostics and monitor
+tasks only after `start` succeeds. A failed start still takes the enclosing
+service's cleanup path and propagates its original exception when cleanup
+satisfies this contract. These are contracts for trusted composition dependencies.
+
 `load_runtime` separately accepts a `history_sync_installer` hook, called only
 after strict readiness and transport configuration. Its default is the existing
 Personal history integration. A composition can supply a loader bound to its own
