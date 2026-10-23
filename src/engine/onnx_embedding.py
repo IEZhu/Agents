@@ -72,6 +72,7 @@ def _json(path, default=None):
 
 
 def _load_tokenizer(model_dir):
+    """Keep tokenizer artifact faults distinct from native or resource failures."""
     from tokenizers import AddedToken, Tokenizer
 
     config = _json(model_dir / "config.json", {})
@@ -82,11 +83,18 @@ def _load_tokenizer(model_dir):
               if type(v) is int and v > 0]
     if not limits:
         raise InvalidModelCache(model_dir, "Could not determine the maximum context length")
-    # Tokenizers exposes a generic Python exception for multiple Rust errors.
-    # Establish JSON corruption ourselves; never guess from its error message.
-    if _json(model_dir / "tokenizer.json") is None:
+    tokenizer_path = model_dir / "tokenizer.json"
+    if not tokenizer_path.is_file():
         raise InvalidModelCache(model_dir, "Could not find tokenizer.json")
-    tokenizer = Tokenizer.from_file(str(model_dir / "tokenizer.json"))
+    try:
+        tokenizer = Tokenizer.from_file(str(tokenizer_path))
+    except (OSError, MemoryError):
+        raise
+    except Exception:
+        # Rust errors have a generic Python type. Probe JSON only on failure,
+        # without a second vocabulary parse on the successful loading path.
+        _json(tokenizer_path)
+        raise
     # Huge positive limits are the tokenizer's unbounded sentinel. Leave those
     # to cap_tokens rather than passing an overflowing length to Tokenizers.
     if min(limits) <= sys.maxsize:

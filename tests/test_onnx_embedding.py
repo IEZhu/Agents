@@ -543,3 +543,81 @@ def test_explicit_model_path_with_a_sentinel_is_capped_without_rewriting(session
     assert model._model_dir == model_dir
     assert model.tokenizer.truncation["max_length"] == MAX_INPUT_TOKENS
     assert config.read_bytes() == original
+
+
+def test_successful_tokenizer_load_does_not_parse_vocabulary_in_python(model_dir, monkeypatch):
+    """A successful native load must not build a second Python vocabulary graph."""
+    vocabulary = model_dir / "tokenizer.json"
+    read_text = Path.read_text
+
+    def metadata_only(path, *args, **kwargs):
+        if path == vocabulary:
+            pytest.fail("successful native load parsed the vocabulary again")
+        return read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", metadata_only)
+    tokenizer = runtime._load_tokenizer(model_dir)
+    assert tokenizer.token_to_id("hello") == 2
+    assert tokenizer.truncation["max_length"] == 8
+    assert tokenizer.padding["pad_id"] == 1
+
+
+def test_native_tokenizer_failure_with_valid_json_preserves_the_error(model_dir, monkeypatch):
+    """A valid JSON vocabulary does not turn an unknown native error into corruption."""
+    import tokenizers
+
+    vocabulary = model_dir / "tokenizer.json"
+    original = vocabulary.read_bytes()
+    error = RuntimeError("temporary native tokenizer failure")
+
+    def broken(filename):
+        raise error
+
+    monkeypatch.setattr(tokenizers, "Tokenizer", SimpleNamespace(from_file=broken))
+    with pytest.raises(RuntimeError) as raised:
+        runtime._load_tokenizer(model_dir)
+    assert raised.value is error
+    assert vocabulary.read_bytes() == original
+
+
+@pytest.mark.parametrize("failure", [OSError, PermissionError, MemoryError])
+def test_typed_tokenizer_resource_failures_do_not_probe_vocabulary(model_dir, monkeypatch, failure):
+    """Known resource failures propagate without another large artifact read."""
+    import tokenizers
+
+    vocabulary = model_dir / "tokenizer.json"
+    original = vocabulary.read_bytes()
+    read_text = Path.read_text
+    error = failure("temporary tokenizer resource failure")
+
+    def broken(filename):
+        raise error
+
+    def metadata_only(path, *args, **kwargs):
+        if path == vocabulary:
+            pytest.fail("resource failure triggered a vocabulary probe")
+        return read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(tokenizers, "Tokenizer", SimpleNamespace(from_file=broken))
+    monkeypatch.setattr(Path, "read_text", metadata_only)
+    with pytest.raises(failure) as raised:
+        runtime._load_tokenizer(model_dir)
+    assert raised.value is error
+    assert vocabulary.read_bytes() == original
+
+
+def test_missing_tokenizer_vocabulary_is_classified_before_native_loading(model_dir, monkeypatch):
+    """An absent vocabulary remains a positive artifact fault without native loading."""
+    import tokenizers
+
+    vocabulary = model_dir / "tokenizer.json"
+    vocabulary.unlink()
+
+    def forbidden(filename):
+        pytest.fail("missing vocabulary reached native loading")
+
+    monkeypatch.setattr(tokenizers, "Tokenizer", SimpleNamespace(from_file=forbidden))
+    with pytest.raises(runtime.InvalidModelCache, match="Could not find tokenizer.json") as raised:
+        runtime._load_tokenizer(model_dir)
+    assert raised.value.model_dir == model_dir
+    assert not vocabulary.exists()
