@@ -1407,9 +1407,14 @@ merge queue, push to `dev`/`main`, manual run and daily schedule. Trivy 0.76.1 i
 development dependencies and every severity, including unknown and unfixed issues.
 uv 0.11.25 first rejects drift between dependency declarations (including every
 optional extra) and the lock, with source builds disabled. Missing or unparsed
-lockfiles and scanner/database errors fail the job. No repository
-ignore policy is loaded. Release publication scans the exact merged release commit
-again and depends on that scan succeeding.
+lockfiles and scanner/database errors fail the job. The independent `requirements.txt`
+installation input is also resolved universally for Python 3.11 and later, without
+source builds or Python downloads, and its complete pinned dependency list is scanned
+alongside `uv.lock`. The report must include every expected package name and version
+from both inventories, including conditional versions. This audit resolves the
+requirements at scan time; it does not turn independent pip installs into locked installs.
+No repository ignore policy is loaded. Release publication scans the exact merged
+release commit again and depends on both inventories passing.
 
 Require the `Vulnerability scan` check in the protection rules for `dev` and `main`
 after this workflow lands; a failing workflow alone does not prevent an unprotected

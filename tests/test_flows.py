@@ -241,6 +241,10 @@ async def test_thread_close_audits_every_installed_tool_and_catalogues_every_ser
     rows = {line.split("|")[1].strip(" `"): line.split("|")[2]
             for line in table.splitlines() if line.startswith("| `")}
     assert "`<alias>__<tool>`" in rows.pop("mcp-proxy")
+    proxy_read = rows.pop('proxy-read')
+    assert set(re.findall(r"`([^`]+)`", proxy_read)) == {'code_execute_readonly', 'get_status', 'get_stats', 'get_data_range', 'get_today_stats', 'code_search', 'get_settings'}
+    proxy_state = rows.pop('proxy-state')
+    assert set(re.findall(r"`([^`]+)`", proxy_state)) == {'skip_break', 'pause_timer', 'start_break', 'resume_timer', 'code_execute'}
     cells = rows.values()
     catalogued = {re.sub(r"\(.*", "", name) for cell in cells for name in re.findall(r"`([^`]+)`", cell)}
     registered = {tool.name for tool in await server.mcp.list_tools()}
