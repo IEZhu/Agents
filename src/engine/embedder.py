@@ -14,6 +14,7 @@ import os
 import shutil
 import stat
 import threading
+import time
 import warnings
 from pathlib import Path
 from typing import List
@@ -31,6 +32,7 @@ _lock = threading.Lock()
 _model = None
 # Embedding fingerprint of the files _model was loaded from (see model_fingerprint).
 _model_fingerprint = None
+_HUB_BLOB_LOCK_BUDGET_SECONDS = 0.25
 
 
 def _hub_blob_targets(directory: Path, blobs: Path) -> set[Path] | None:
@@ -58,8 +60,26 @@ def _hub_blob_targets(directory: Path, blobs: Path) -> set[Path] | None:
     return targets
 
 
+def _hub_blob_lock_path(repository: Path, blob: Path) -> Path | None:
+    """Use Hub's canonical blob lock without following aliased lock paths."""
+    cache = repository.parent
+    lock_root = cache / ".locks"
+    lock_directory = lock_root / repository.name
+    lock_path = lock_directory / (blob.name + ".lock")
+    try:
+        root = cache.resolve(strict=True)
+        if blob.parent != repository.resolve(strict=True) / "blobs":
+            return None
+        for entry in (lock_root, lock_directory, lock_path):
+            if entry.is_symlink() or entry.resolve(strict=False) != root / entry.relative_to(cache):
+                return None
+    except (OSError, RuntimeError, ValueError):
+        return None
+    return lock_path
+
+
 def _remove_corrupt_hub_snapshot(snapshot: Path, repository: Path) -> None:
-    """Delete the failed snapshot and only its unreferenced repository blobs."""
+    """Coordinate unreferenced blob removal with the Hub publication protocol."""
     blobs = repository / "blobs"
     try:
         expected = repository.resolve(strict=True) / "blobs"
@@ -78,17 +98,37 @@ def _remove_corrupt_hub_snapshot(snapshot: Path, repository: Path) -> None:
         return
     else:
         return  # The snapshot or an alias survived the attempted removal.
-    references = _hub_blob_targets(repository / "snapshots", expected)
-    if references is None:
-        return
-    for target in targets - references:
+    from huggingface_hub.utils import WeakFileLock
+
+    remaining = _HUB_BLOB_LOCK_BUDGET_SECONDS
+    for target in sorted(targets):
+        lock_path = _hub_blob_lock_path(repository, target)
+        if lock_path is None:
+            return
         try:
-            # Recheck the directory boundary after scanning remaining snapshots.
-            if blobs.is_symlink() or blobs.resolve(strict=True) != expected:
+            lock_path.parent.mkdir(parents=True, exist_ok=True)
+            if _hub_blob_lock_path(repository, target) != lock_path:
                 return
-            target.unlink(missing_ok=True)
-        except OSError:
-            logger.warning("Could not remove the damaged unreferenced blob: %s", target, exc_info=True)
+            if remaining <= 0:
+                return
+            # Hub's own existing-blob pointer creation holds this same lock.
+            # Re-scan under it so a publisher cannot add a link after the scan.
+            started = time.monotonic()
+            with WeakFileLock(lock_path, timeout=remaining):
+                remaining -= max(0.0, time.monotonic() - started)
+                if (_hub_blob_lock_path(repository, target) != lock_path
+                        or blobs.is_symlink() or blobs.resolve(strict=True) != expected):
+                    return
+                references = _hub_blob_targets(repository / "snapshots", expected)
+                if references is None:
+                    return
+                if target not in references:
+                    target.unlink(missing_ok=True)
+        except Exception:
+            # Cleanup is optional: lock contention or any unknown maintenance
+            # failure preserves blobs and leaves the original load error visible.
+            logger.warning("Could not coordinate damaged blob cleanup: %s", target, exc_info=True)
+            return
 
 
 def clear_model_cache(model_name: str, *, failed_model_dir=None) -> None:

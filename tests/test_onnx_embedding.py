@@ -521,3 +521,25 @@ def test_hub_transport_errors_preserve_archive_fallback(tmp_path, monkeypatch, o
     assert runtime._model_directory(spec, tmp_path, offline) == tmp_path / "usable-archive"
     assert hub_calls == ([True] if offline else [True, False])
     assert archive_calls == [offline]
+
+
+def test_explicit_model_path_with_a_sentinel_is_capped_without_rewriting(session, model_dir, monkeypatch):
+    """AGENTS_MODEL_PATH bypasses downloads while retaining the normal input cap."""
+    from src.engine import embedder
+    from src.engine.embedding_prompts import MAX_INPUT_TOKENS
+
+    config = model_dir / "tokenizer_config.json"
+    config.write_text(json.dumps({"model_max_length": 10**30, "pad_token": "[PAD]"}))
+    original = config.read_bytes()
+    monkeypatch.setenv("AGENTS_MODEL_PATH", str(model_dir))
+    monkeypatch.setattr(embedder, "EMBEDDING_MODEL", "BAAI/bge-small-en-v1.5")
+    monkeypatch.setattr(embedder, "FASTEMBED_CACHE_DIR", str(model_dir / "cache"))
+    monkeypatch.setattr(embedder, "_model", None)
+    monkeypatch.setattr(embedder, "_model_fingerprint", None)
+    monkeypatch.setattr(embedder, "register_custom", lambda name: None)
+    monkeypatch.setattr(embedder, "_loaded_fingerprint", lambda model: "explicit-test")
+    monkeypatch.setattr(runtime, "_model_directory", lambda *a, **k: pytest.fail("unexpected download"))
+    model = embedder._get_model()
+    assert model._model_dir == model_dir
+    assert model.tokenizer.truncation["max_length"] == MAX_INPUT_TOKENS
+    assert config.read_bytes() == original

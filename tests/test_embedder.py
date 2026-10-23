@@ -475,3 +475,96 @@ def test_failed_snapshot_never_collects_through_an_aliased_blobs_directory(hub_b
     assert not snapshot.exists()
     assert external.read_bytes() == b"external weights"
     assert (repository / "preserved-blobs" / blob.name).read_bytes() == b"corrupt weights"
+
+
+
+def test_hub_blob_cleanup_rescans_after_acquiring_the_publication_lock(hub_blob_snapshot, monkeypatch):
+    """A snapshot published at lock handoff keeps its blob-backed file intact."""
+    from contextlib import contextmanager
+    import huggingface_hub.utils as hub_utils
+
+    repository, snapshot, blob = hub_blob_snapshot
+    real_lock = hub_utils.WeakFileLock
+    calls = []
+    healthy = repository / "snapshots" / "published-at-handoff"
+
+    @contextmanager
+    def publication_handoff(lock_path, **options):
+        calls.append(Path(lock_path))
+        with real_lock(lock_path, **options):
+            healthy.mkdir()
+            (healthy / "model.onnx").symlink_to(blob)
+            yield
+
+    monkeypatch.setattr(hub_utils, "WeakFileLock", publication_handoff)
+    embedder.clear_model_cache("intfloat/multilingual-e5-large", failed_model_dir=snapshot)
+    assert not snapshot.exists()
+    assert calls == [repository.parent / ".locks" / repository.name / (blob.name + ".lock")]
+    assert (healthy / "model.onnx").read_bytes() == b"corrupt weights"
+    assert blob.read_bytes() == b"corrupt weights"
+
+
+def test_hub_blob_cleanup_preserves_a_busy_upstream_blob(hub_blob_snapshot):
+    """A current Hub publisher wins over optional automatic blob collection."""
+    from huggingface_hub.utils import WeakFileLock
+
+    repository, snapshot, blob = hub_blob_snapshot
+    lock_path = repository.parent / ".locks" / repository.name / (blob.name + ".lock")
+    lock_path.parent.mkdir(parents=True)
+    with WeakFileLock(lock_path, timeout=1):
+        embedder.clear_model_cache("intfloat/multilingual-e5-large", failed_model_dir=snapshot)
+    assert not snapshot.exists()
+    assert blob.read_bytes() == b"corrupt weights"
+
+
+def test_hub_blob_cleanup_never_follows_an_aliased_lock_directory(hub_blob_snapshot):
+    """Unknown lock ownership cannot authorize a write through a cache alias."""
+    repository, snapshot, blob = hub_blob_snapshot
+    outside = repository.parent / "outside-lock-directory"
+    outside.mkdir()
+    lock_root = repository.parent / ".locks"
+    lock_root.mkdir()
+    try:
+        (lock_root / repository.name).symlink_to(outside, target_is_directory=True)
+    except (OSError, NotImplementedError) as error:
+        pytest.skip(f"Directory symlinks are unavailable: {error}")
+    embedder.clear_model_cache("intfloat/multilingual-e5-large", failed_model_dir=snapshot)
+    assert not snapshot.exists()
+    assert blob.read_bytes() == b"corrupt weights"
+    assert list(outside.iterdir()) == []
+
+
+
+def test_hub_blob_lock_wait_budget_excludes_reference_scan_work(hub_blob_snapshot, monkeypatch):
+    """Slow metadata scans cannot consume the budget before a second free lock."""
+    from contextlib import contextmanager
+    import huggingface_hub.utils as hub_utils
+
+    repository, snapshot, blob = hub_blob_snapshot
+    other = repository / "blobs" / "tokenizer-content"
+    other.write_bytes(b"{}")
+    (snapshot / "tokenizer.json").symlink_to(other)
+    clock = [0.0]
+    real_scan = embedder._hub_blob_targets
+    locks = []
+
+    def slow_scan(*args):
+        result = real_scan(*args)
+        clock[0] += 1.0
+        return result
+
+    @contextmanager
+    def available_lock(path, *, timeout):
+        assert timeout > 0
+        locks.append(Path(path))
+        clock[0] += 0.01
+        yield
+
+    monkeypatch.setattr(embedder, "time", types.SimpleNamespace(monotonic=lambda: clock[0]))
+    monkeypatch.setattr(embedder, "_hub_blob_targets", slow_scan)
+    monkeypatch.setattr(hub_utils, "WeakFileLock", available_lock)
+    embedder.clear_model_cache("intfloat/multilingual-e5-large", failed_model_dir=snapshot)
+    assert not snapshot.exists()
+    assert len(locks) == 2
+    assert not blob.exists()
+    assert not other.exists()

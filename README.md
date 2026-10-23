@@ -380,15 +380,20 @@ the adapter's numerical conventions must bump its `EMBEDDING_CONTRACT`. Model
 licenses remain in the catalog and `THIRD_PARTY_NOTICES`.
 
 Automatic model-load recovery removes only a managed model directory with an
-identified JSON/metadata or ONNX protobuf fault. For a failed Hub snapshot, it
-also removes that snapshot's blob targets only inside the same repository and
-only when a complete scan finds no other snapshot references. Shared blobs and
-uncertain or aliased cache trees are preserved. Temporary resource, provider or
+identified UTF-8, JSON/metadata or ONNX protobuf fault. A failed Hub snapshot
+also removes its blob targets only inside the same repository and only when a
+complete re-scan under Hub's own per-blob publication lock finds no other
+snapshot references. Shared blobs, uncertain or aliased cache/lock paths, busy
+publishers and exhausted lock-wait budgets preserve the blob files. This
+cooperates with upstream Hub publishers; it does not add a lifetime protocol
+for unrelated clients that bypass those locks. Temporary resource, provider or
 other unclassified initialization failures keep cached snapshots and fallback
 sources available for later offline loads. Hub transport failures retain the
 bounded source retries and archive fallback. Caller-owned `AGENTS_MODEL_PATH`
-directories are never removed. Unknown tokenizer/schema errors remain visible
-rather than being guessed from exception text.
+directories are never removed or rewritten. Positive sentinel-only tokenizer
+limits are accepted and then bounded by the normal input cap. SigLIP's fixed
+padding still requires a finite tokenizer context. Unknown tokenizer/schema
+errors remain visible rather than being guessed from exception text.
 
 #### Model switch on update
 
