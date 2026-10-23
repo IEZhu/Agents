@@ -59,12 +59,12 @@ class InvalidModelCache(ValueError):
 
 
 def _json(path, default=None):
-    """Read model metadata, classifying only malformed JSON/object structure."""
+    """Read model metadata, classifying malformed UTF-8, JSON or object structure."""
     if not path.is_file():
         return default
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as error:
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
         raise InvalidModelCache(path.parent, f"Malformed {path.name}") from error
     if not isinstance(value, dict):
         raise InvalidModelCache(path.parent, f"Expected a JSON object in {path.name}")
@@ -79,7 +79,7 @@ def _load_tokenizer(model_dir):
     if tokenizer_config is None:
         raise InvalidModelCache(model_dir, "Could not find tokenizer_config.json")
     limits = [v for v in (tokenizer_config.get("model_max_length"), tokenizer_config.get("max_length"))
-              if type(v) is int and 0 < v <= sys.maxsize]
+              if type(v) is int and v > 0]
     if not limits:
         raise InvalidModelCache(model_dir, "Could not determine the maximum context length")
     # Tokenizers exposes a generic Python exception for multiple Rust errors.
@@ -87,7 +87,10 @@ def _load_tokenizer(model_dir):
     if _json(model_dir / "tokenizer.json") is None:
         raise InvalidModelCache(model_dir, "Could not find tokenizer.json")
     tokenizer = Tokenizer.from_file(str(model_dir / "tokenizer.json"))
-    tokenizer.enable_truncation(max_length=min(limits))
+    # Huge positive limits are the tokenizer's unbounded sentinel. Leave those
+    # to cap_tokens rather than passing an overflowing length to Tokenizers.
+    if min(limits) <= sys.maxsize:
+        tokenizer.enable_truncation(max_length=min(limits))
     for value in _json(model_dir / "special_tokens_map.json", {}).values():
         for token in value if isinstance(value, list) else [value]:
             tokenizer.add_special_tokens([AddedToken(**token) if isinstance(token, dict) else token])
@@ -292,6 +295,8 @@ class TextEmbedding:
             self.pooling, self.normalization = PoolingType.DISABLED, False
             self.output_index = 1 if kind == "BuiltinSentenceEmbedding" else 0
         elif kind == "SiglipOnnxTextEmbedding":
+            if self.tokenizer.truncation is None:
+                raise InvalidModelCache(self._model_dir, "SigLIP requires a finite maximum context length")
             self.output_names = ["pooler_output"]
             padding = self.tokenizer.padding
             self.tokenizer.enable_padding(**{k: v for k, v in padding.items() if k != "length"},

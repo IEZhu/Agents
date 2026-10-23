@@ -63,11 +63,40 @@ def test_tokenizer_adds_special_tokens_before_resolving_pad_id(model_dir):
     assert tokenizer.padding["length"] is None
 
 
-@pytest.mark.parametrize("limit", [0, None, True, 10**30])
+@pytest.mark.parametrize("limit", [0, None, True, -1, 1.5, "8", {}, []])
 def test_tokenizer_rejects_unknown_context(model_dir, limit):
     (model_dir / "tokenizer_config.json").write_text(json.dumps({"model_max_length": limit, "pad_token": "[PAD]"}))
     with pytest.raises(ValueError, match="maximum context"):
         runtime._load_tokenizer(model_dir)
+
+
+@pytest.mark.parametrize("missing_config", [False, True])
+def test_tokenizer_still_requires_context_metadata(model_dir, missing_config):
+    path = model_dir / "tokenizer_config.json"
+    if missing_config:
+        path.unlink()
+    else:
+        path.write_text(json.dumps({"pad_token": "[PAD]"}))
+    with pytest.raises(runtime.InvalidModelCache):
+        runtime._load_tokenizer(model_dir)
+
+
+@pytest.mark.parametrize("config", [
+    {"model_max_length": 8, "max_length": 4},
+    {"model_max_length": 10**30, "max_length": 4},
+    {"max_length": 4},
+])
+def test_tokenizer_uses_the_smallest_finite_limit_and_preserves_caps(model_dir, config):
+    from src.engine.embedding_prompts import cap_tokens
+
+    (model_dir / "tokenizer_config.json").write_text(json.dumps({**config, "pad_token": "[PAD]"}))
+    tokenizer = runtime._load_tokenizer(model_dir)
+    model = SimpleNamespace(model=SimpleNamespace(tokenizer=tokenizer))
+    assert tokenizer.truncation["max_length"] == 4
+    cap_tokens(model, limit=6)
+    assert tokenizer.truncation["max_length"] == 4
+    cap_tokens(model, limit=3)
+    assert tokenizer.truncation["max_length"] == 3
 
 
 @pytest.fixture
@@ -92,6 +121,19 @@ def session(monkeypatch, model_dir):
     return calls
 
 
+@pytest.mark.parametrize("key", ["model_max_length", "max_length"])
+def test_explicit_model_path_accepts_sentinel_context_before_input_cap(session, model_dir, key):
+    from src.engine.embedding_prompts import cap_tokens
+
+    (model_dir / "tokenizer_config.json").write_text(json.dumps({key: 10**30, "pad_token": "[PAD]"}))
+    model = runtime.TextEmbedding(specific_model_path=str(model_dir), cache_dir=str(model_dir / "cache"),
+                                  local_files_only=True)
+    assert model.tokenizer.truncation is None
+    cap_tokens(model, limit=6)
+    assert model.tokenizer.truncation["max_length"] == 6
+    assert (model_dir / "tokenizer_config.json").read_text() == json.dumps({key: 10**30, "pad_token": "[PAD]"})
+
+
 def test_jina_query_and_passage_use_different_task_ids(session, model_dir):
     model = runtime.TextEmbedding("jinaai/jina-embeddings-v3", specific_model_path=str(model_dir))
     assert list(model.query_embed("hello"))[0].shape == (1024,)
@@ -109,6 +151,16 @@ def test_siglip_keeps_fixed_padding_and_named_output(session, model_dir):
     model = runtime.TextEmbedding("google/siglip2-base-patch16-224", specific_model_path=str(model_dir))
     assert model.tokenizer.padding["length"] == 8
     assert model.output_names == ["pooler_output"]
+
+
+@pytest.mark.parametrize("key", ["model_max_length", "max_length"])
+def test_siglip_requires_a_finite_context_for_fixed_padding(session, model_dir, key):
+    (model_dir / "tokenizer_config.json").write_text(json.dumps({key: 10**30, "pad_token": "[PAD]"}))
+    with pytest.raises(runtime.InvalidModelCache, match="finite maximum context length") as error:
+        runtime.TextEmbedding("google/siglip2-base-patch16-224", specific_model_path=str(model_dir),
+                              cache_dir=str(model_dir / "cache"), local_files_only=True)
+    assert error.value.model_dir == model_dir
+    assert session == []
 
 
 def test_gemma_uses_the_sentence_embedding_output(session, model_dir):
@@ -328,6 +380,34 @@ def test_malformed_cached_tokenizer_fails_clearly(session, model_dir):
         runtime.TextEmbedding(specific_model_path=str(model_dir), local_files_only=True)
     assert isinstance(error.value.__cause__, json.JSONDecodeError)
     assert error.value.model_dir == model_dir
+
+
+@pytest.mark.parametrize("filename", ["config.json", "tokenizer_config.json", "tokenizer.json", "special_tokens_map.json"])
+def test_non_utf8_metadata_is_a_narrowly_classified_cache_fault(model_dir, filename):
+    path = model_dir / filename
+    path.write_bytes(b"\xff")
+    with pytest.raises(runtime.InvalidModelCache, match=f"Malformed {filename}") as error:
+        runtime._load_tokenizer(model_dir)
+    assert isinstance(error.value.__cause__, UnicodeDecodeError)
+    assert error.value.model_dir == model_dir
+    assert path.read_bytes() == b"\xff"
+
+
+@pytest.mark.parametrize("failure", [PermissionError, OSError, MemoryError])
+def test_metadata_read_failures_are_not_misclassified_as_corrupt_cache(model_dir, monkeypatch, failure):
+    path = model_dir / "tokenizer_config.json"
+    original = path.read_bytes()
+    error = failure("temporary metadata read failure")
+    read_text = Path.read_text
+    def broken(candidate, *args, **kwargs):
+        if candidate == path:
+            raise error
+        return read_text(candidate, *args, **kwargs)
+    monkeypatch.setattr(Path, "read_text", broken)
+    with pytest.raises(failure) as raised:
+        runtime._load_tokenizer(model_dir)
+    assert raised.value is error
+    assert path.read_bytes() == original
 
 
 @pytest.mark.parametrize("member_name,is_link", [("../escape", False), ("C:/escape", False), ("link", True)])
