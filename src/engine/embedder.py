@@ -32,15 +32,16 @@ _model = None
 _model_fingerprint = None
 
 
-def clear_model_cache(model_name: str) -> None:
-    """Remove only this model's managed Hub, archive and plain-file caches.
+def clear_model_cache(model_name: str, *, failed_model_dir=None) -> None:
+    """Remove selected managed caches, or only a proven-corrupt model directory.
 
-    Explicit model directories belong to the caller. Never remove them, follow
-    cache-directory symlinks, or match unrelated repositories by a name suffix.
+    Automatic recovery supplies failed_model_dir and preserves other snapshots
+    and fallback sources. An explicit call without it retains the manual reset
+    behavior. Caller-owned directories and symlink paths are never removed.
     """
     if os.environ.get("AGENTS_MODEL_PATH"):
         return
-    cache = Path(FASTEMBED_CACHE_DIR).expanduser()
+    cache = Path(FASTEMBED_CACHE_DIR).expanduser().absolute()
     if not cache.is_dir():
         return
     from src.engine.onnx_embedding import TextEmbedding
@@ -67,8 +68,24 @@ def clear_model_cache(model_name: str) -> None:
             if name not in {"", ".", ".."} and path.parent == cache:
                 stale.append(path)
     root = cache.resolve()
-    for path in stale:
-        if path.is_symlink() or not path.is_dir():
+    for managed in stale:
+        path = managed
+        if failed_model_dir is not None:
+            path = Path(failed_model_dir).expanduser().absolute()
+            try:
+                path.relative_to(managed)
+            except ValueError:
+                continue
+        try:
+            relative = path.relative_to(cache)
+        except ValueError:
+            continue
+        if not relative.parts or ".." in relative.parts:
+            continue
+        if any(cache.joinpath(*relative.parts[:i]).is_symlink()
+               for i in range(1, len(relative.parts) + 1)):
+            continue
+        if not path.is_dir():
             continue
         resolved = path.resolve()
         if resolved == root or root not in resolved.parents:
@@ -83,15 +100,16 @@ _MAX_LOAD_RETRIES = 1 if os.environ.get("AGENTS_TRANSPORT") == "http" else 2
 def _get_model():
     """Lazy-init singleton TextEmbedding instance.
 
-    Failed managed caches are removed even on a transport's last attempt, so
-    a later load can recover. Transports that allow a retry try once more in
-    this call. Explicit AGENTS_MODEL_PATH directories are never removed.
+    Only positively identified corruption removes the affected managed model
+    directory, including on the last attempt. Resource, configuration and unknown
+    failures preserve offline caches. Retries remain bounded per transport, and
+    explicit AGENTS_MODEL_PATH directories are never removed.
     """
     global _model, _model_fingerprint
     if _model is None:
         with _lock:
             if _model is None:
-                from src.engine.onnx_embedding import TextEmbedding
+                from src.engine.onnx_embedding import InvalidModelCache, TextEmbedding
 
                 os.makedirs(FASTEMBED_CACHE_DIR, exist_ok=True)
                 register_custom(EMBEDDING_MODEL)
@@ -112,11 +130,15 @@ def _get_model():
                             cap_tokens(model)
                         logger.info("Embedding model loaded")
                         break
-                    except Exception:
-                        clear_model_cache(EMBEDDING_MODEL)
+                    except Exception as error:
+                        if isinstance(error, InvalidModelCache):
+                            try:
+                                clear_model_cache(EMBEDDING_MODEL, failed_model_dir=error.model_dir)
+                            except OSError:
+                                logger.warning("Could not remove the damaged model directory", exc_info=True)
                         if attempt < _MAX_LOAD_RETRIES - 1:
                             logger.warning(
-                                "Model load failed, cleared managed caches and retrying",
+                                "Model load failed, retrying within the transport budget",
                                 exc_info=True,
                             )
                         else:

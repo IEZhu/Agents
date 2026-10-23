@@ -321,8 +321,10 @@ def test_offline_missing_snapshot_cannot_download_an_archive(tmp_path, monkeypat
 
 def test_malformed_cached_tokenizer_fails_clearly(session, model_dir):
     (model_dir / "tokenizer_config.json").write_text("{")
-    with pytest.raises(json.JSONDecodeError):
+    with pytest.raises(runtime.InvalidModelCache, match="Malformed tokenizer_config.json") as error:
         runtime.TextEmbedding(specific_model_path=str(model_dir), local_files_only=True)
+    assert isinstance(error.value.__cause__, json.JSONDecodeError)
+    assert error.value.model_dir == model_dir
 
 
 @pytest.mark.parametrize("member_name,is_link", [("../escape", False), ("C:/escape", False), ("link", True)])
@@ -378,3 +380,38 @@ def test_offline_partial_hub_snapshot_uses_complete_archive_cache(tmp_path, monk
     monkeypatch.setattr(runtime.urllib.request, "urlopen", forbidden)
     assert runtime._model_directory(spec, tmp_path, True) == archive
     assert len(calls) == 1 and calls[0]["local_files_only"] is True
+
+
+@pytest.mark.parametrize("payload", ["{", "[]", "null"])
+def test_malformed_tokenizer_json_is_a_narrowly_classified_cache_fault(session, model_dir, payload):
+    """Only established JSON/object faults get the cache-recovery exception."""
+    (model_dir / "tokenizer.json").write_text(payload)
+    with pytest.raises(runtime.InvalidModelCache) as error:
+        runtime.TextEmbedding(specific_model_path=str(model_dir), local_files_only=True)
+    assert error.value.model_dir == model_dir
+    assert (model_dir / "tokenizer.json").read_text() == payload
+
+
+def test_invalid_onnx_protobuf_identifies_only_its_model_directory(session, model_dir, monkeypatch):
+    """The dedicated ORT parse exception preserves its original cause."""
+    import onnxruntime
+    from onnxruntime.capi.onnxruntime_pybind11_state import InvalidProtobuf
+    def broken(*args, **kwargs):
+        raise InvalidProtobuf("invalid serialized model")
+    monkeypatch.setattr(onnxruntime, "InferenceSession", broken)
+    with pytest.raises(runtime.InvalidModelCache, match="Invalid ONNX protobuf") as error:
+        runtime.TextEmbedding(specific_model_path=str(model_dir))
+    assert error.value.model_dir == model_dir
+    assert isinstance(error.value.__cause__, InvalidProtobuf)
+
+
+@pytest.mark.parametrize("failure", [MemoryError, RuntimeError, OSError])
+def test_session_resource_failure_is_not_misclassified_as_corrupt_cache(session, model_dir, monkeypatch, failure):
+    """Unknown execution failures preserve the cache and their exception type."""
+    import onnxruntime
+    def broken(*args, **kwargs):
+        raise failure("temporary session initialization failure")
+    monkeypatch.setattr(onnxruntime, "InferenceSession", broken)
+    with pytest.raises(failure, match="temporary session"):
+        runtime.TextEmbedding(specific_model_path=str(model_dir))
+    assert (model_dir / "tokenizer.json").is_file()

@@ -49,8 +49,26 @@ _CATALOG = json.loads(files("src.engine").joinpath("embedding_catalog.json").rea
 EMBEDDING_CONTRACT = "onnx-dense-v1"
 
 
+class InvalidModelCache(ValueError):
+    """A positively identified artifact fault, distinct from execution failure."""
+
+    def __init__(self, model_dir, detail):
+        """Retain the affected directory for narrowly scoped recovery."""
+        self.model_dir = Path(model_dir)
+        super().__init__(f"{detail} in {self.model_dir}")
+
+
 def _json(path, default=None):
-    return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else default
+    """Read model metadata, classifying only malformed JSON/object structure."""
+    if not path.is_file():
+        return default
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as error:
+        raise InvalidModelCache(path.parent, f"Malformed {path.name}") from error
+    if not isinstance(value, dict):
+        raise InvalidModelCache(path.parent, f"Expected a JSON object in {path.name}")
+    return value
 
 
 def _load_tokenizer(model_dir):
@@ -59,11 +77,15 @@ def _load_tokenizer(model_dir):
     config = _json(model_dir / "config.json", {})
     tokenizer_config = _json(model_dir / "tokenizer_config.json")
     if tokenizer_config is None:
-        raise ValueError(f"Could not find tokenizer_config.json in {model_dir}")
+        raise InvalidModelCache(model_dir, "Could not find tokenizer_config.json")
     limits = [v for v in (tokenizer_config.get("model_max_length"), tokenizer_config.get("max_length"))
               if type(v) is int and 0 < v <= sys.maxsize]
     if not limits:
-        raise ValueError(f"Could not determine the maximum context length for {model_dir}")
+        raise InvalidModelCache(model_dir, "Could not determine the maximum context length")
+    # Tokenizers exposes a generic Python exception for multiple Rust errors.
+    # Establish JSON corruption ourselves; never guess from its error message.
+    if _json(model_dir / "tokenizer.json") is None:
+        raise InvalidModelCache(model_dir, "Could not find tokenizer.json")
     tokenizer = Tokenizer.from_file(str(model_dir / "tokenizer.json"))
     tokenizer.enable_truncation(max_length=min(limits))
     for value in _json(model_dir / "special_tokens_map.json", {}).values():
@@ -72,12 +94,12 @@ def _load_tokenizer(model_dir):
     padding = tokenizer.padding or {}
     pad_token = padding.get("pad_token") or tokenizer_config.get("pad_token")
     if pad_token is None:
-        raise ValueError(f"Could not find a pad token for {model_dir}")
+        raise InvalidModelCache(model_dir, "Could not find a pad token")
     pad_id = padding.get("pad_id", config.get("pad_token_id"))
     if pad_id is None:
         pad_id = tokenizer.token_to_id(pad_token)
     if pad_id is None:
-        raise ValueError(f"Could not resolve an id for pad token {pad_token!r} in {model_dir}")
+        raise InvalidModelCache(model_dir, f"Could not resolve an id for pad token {pad_token!r}")
     tokenizer.enable_padding(direction=padding.get("direction", "right"), pad_id=pad_id,
                              pad_type_id=padding.get("pad_type_id", 0), pad_token=pad_token,
                              pad_to_multiple_of=padding.get("pad_to_multiple_of"), length=None)
@@ -244,6 +266,7 @@ class TextEmbedding:
     def __init__(self, model_name="BAAI/bge-small-en-v1.5", cache_dir=None, threads=None, providers=None,
                  specific_model_path=None, local_files_only=False):
         import onnxruntime as ort
+        from onnxruntime.capi.onnxruntime_pybind11_state import InvalidProtobuf
 
         self.model_name = model_name
         self.spec = self._spec(model_name)
@@ -285,8 +308,11 @@ class TextEmbedding:
             name = provider if isinstance(provider, str) else provider[0]
             if name not in available:
                 raise ValueError(f"Provider {name} is not available. Available providers: {available}")
-        self._session = ort.InferenceSession(str(self._model_dir / self.spec["model_file"]),
-                                             providers=providers, sess_options=options)
+        try:
+            self._session = ort.InferenceSession(str(self._model_dir / self.spec["model_file"]),
+                                                 providers=providers, sess_options=options)
+        except InvalidProtobuf as error:
+            raise InvalidModelCache(self._model_dir, "Invalid ONNX protobuf") from error
         self._input_names = {node.name for node in self._session.get_inputs()}
 
     def embed(self, documents, batch_size=256, *, task_id=1):

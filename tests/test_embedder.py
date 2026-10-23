@@ -197,20 +197,20 @@ def test_a_plain_file_copy_that_fails_to_load_is_removed_on_the_last_attempt(mod
     copy = tmp_path / "local" / "copy"
     copy.mkdir(parents=True)
 
-    from src.engine.onnx_embedding import TextEmbedding
+    from src.engine.onnx_embedding import InvalidModelCache, TextEmbedding
 
     class BrokenTextEmbedding:
         _spec = TextEmbedding._spec
 
         def __init__(self, model_name, cache_dir, **options):
-            raise RuntimeError("corrupt weights")
+            raise InvalidModelCache(copy, "corrupt weights")
 
     monkeypatch.setattr("src.engine.onnx_embedding.TextEmbedding", BrokenTextEmbedding)
     monkeypatch.setattr(embedder, "materialize", lambda model, cache_dir: str(copy))
     monkeypatch.setattr(embedder, "local_copy", lambda model, cache_dir: str(copy))
     monkeypatch.setattr(embedder, "register_custom", lambda model: None)
     monkeypatch.setattr(embedder, "_MAX_LOAD_RETRIES", 1)  # the daemon's single attempt
-    with pytest.raises(RuntimeError):
+    with pytest.raises(InvalidModelCache, match="corrupt weights"):
         embedder._get_model()
     assert not copy.exists()
 
@@ -218,7 +218,8 @@ def test_a_plain_file_copy_that_fails_to_load_is_removed_on_the_last_attempt(mod
 @pytest.mark.parametrize("attempts", [1, 2])
 @pytest.mark.parametrize("legacy", [True, False])
 def test_failed_archive_initialization_clears_managed_cache_even_on_last_attempt(model_cache, monkeypatch, attempts, legacy):
-    """A malformed cached tokenizer must not poison every subsequent load."""
+    """A positively identified bad archive is removed, even on the last attempt."""
+    from src.engine.onnx_embedding import InvalidModelCache
     model_name = "BAAI/bge-base-en"
     monkeypatch.setattr(embedder, "EMBEDDING_MODEL", model_name)
     monkeypatch.setattr(embedder, "_MAX_LOAD_RETRIES", attempts)
@@ -233,9 +234,9 @@ def test_failed_archive_initialization_clears_managed_cache_even_on_last_attempt
             return {"model": model_name, "sources": {"hf": "BAAI/bge-base-en", "url": "https://example.invalid/model", "_deprecated_tar_struct": legacy}}
         def __init__(self, **options):
             calls.append(archive.exists())
-            raise RuntimeError("malformed cached tokenizer")
+            raise InvalidModelCache(archive, "malformed cached tokenizer")
     monkeypatch.setattr("src.engine.onnx_embedding.TextEmbedding", BrokenTextEmbedding)
-    with pytest.raises(RuntimeError, match="malformed cached tokenizer"):
+    with pytest.raises(InvalidModelCache, match="malformed cached tokenizer"):
         embedder._get_model()
     assert calls == ([True] if attempts == 1 else [True, False])
     assert not archive.exists()
@@ -277,7 +278,8 @@ def test_cache_cleanup_never_follows_model_directory_symlinks(model_cache, monke
 
 
 def test_explicit_model_path_is_never_deleted_after_failed_initialization(model_cache, monkeypatch):
-    """Even an explicit directory inside a managed cache remains caller-owned."""
+    """Even a proven-corrupt explicit directory remains caller-owned."""
+    from src.engine.onnx_embedding import InvalidModelCache
     directory = Path(embedder.FASTEMBED_CACHE_DIR) / "models--qdrant--multilingual-e5-large-onnx"
     directory.mkdir()
     marker = directory / "tokenizer_config.json"
@@ -288,9 +290,78 @@ def test_explicit_model_path_is_never_deleted_after_failed_initialization(model_
         def __init__(self, **options):
             assert options["specific_model_path"] == str(directory)
             assert options["local_files_only"] is True
-            raise RuntimeError("caller-owned invalid tokenizer")
+            raise InvalidModelCache(directory, "caller-owned invalid tokenizer")
     monkeypatch.setattr("src.engine.onnx_embedding.TextEmbedding", BrokenTextEmbedding)
-    with pytest.raises(RuntimeError, match="caller-owned invalid tokenizer"):
+    with pytest.raises(InvalidModelCache, match="caller-owned invalid tokenizer"):
         embedder._get_model()
     assert marker.read_text() == "{"
     assert embedder._model is None and embedder._model_fingerprint is None
+
+
+@pytest.mark.parametrize("failure", [MemoryError, RuntimeError, ValueError, OSError])
+@pytest.mark.parametrize("attempts", [1, 2])
+def test_temporary_load_failure_preserves_offline_snapshots_archive_and_plain_copy(model_cache, monkeypatch, failure, attempts):
+    """A failed execution attempt must not erase any usable recovery input."""
+    cache = Path(embedder.FASTEMBED_CACHE_DIR)
+    snapshot = cache / "models--qdrant--multilingual-e5-large-onnx" / "snapshots" / "cached"
+    archive = cache / "fast-multilingual-e5-large"
+    copy = cache / "local" / "pinned-copy"
+    for path in (snapshot, archive, copy):
+        path.mkdir(parents=True)
+        (path / "model").write_text("preserved")
+    monkeypatch.setattr(embedder, "materialize", lambda *args: str(copy))
+    monkeypatch.setattr(embedder, "local_copy", lambda *args: str(copy))
+    monkeypatch.setattr(embedder, "_MAX_LOAD_RETRIES", attempts)
+    calls = []
+    class FailingTextEmbedding:
+        def __init__(self, **options):
+            calls.append(options["specific_model_path"])
+            raise failure("temporary resource or configuration failure")
+    monkeypatch.setattr("src.engine.onnx_embedding.TextEmbedding", FailingTextEmbedding)
+    with pytest.raises(failure, match="temporary resource"):
+        embedder._get_model()
+    assert calls == [str(copy)] * attempts
+    assert all((path / "model").read_text() == "preserved" for path in (snapshot, archive, copy))
+    assert embedder._model is None and embedder._model_fingerprint is None
+
+
+def test_corrupt_snapshot_recovery_preserves_other_snapshots_archive_and_plain_copy(model_cache, monkeypatch):
+    """Proven corruption invalidates only the selected managed model directory."""
+    from src.engine.onnx_embedding import InvalidModelCache, TextEmbedding
+    cache = Path(embedder.FASTEMBED_CACHE_DIR)
+    snapshots = cache / "models--qdrant--multilingual-e5-large-onnx" / "snapshots"
+    corrupt, healthy = snapshots / "bad", snapshots / "good"
+    archive = cache / "fast-multilingual-e5-large"
+    copy = cache / "local" / "pinned-copy"
+    for path in (corrupt, healthy, archive, copy):
+        path.mkdir(parents=True)
+        (path / "model").write_text("preserved")
+    monkeypatch.setattr(embedder, "local_copy", lambda *args: str(copy))
+    monkeypatch.setattr(embedder, "_MAX_LOAD_RETRIES", 1)
+    class CorruptTextEmbedding:
+        _spec = TextEmbedding._spec
+        def __init__(self, **options):
+            raise InvalidModelCache(corrupt, "invalid serialized model")
+    monkeypatch.setattr("src.engine.onnx_embedding.TextEmbedding", CorruptTextEmbedding)
+    with pytest.raises(InvalidModelCache):
+        embedder._get_model()
+    assert not corrupt.exists()
+    assert all((path / "model").read_text() == "preserved" for path in (healthy, archive, copy))
+
+
+def test_targeted_cleanup_rejects_intermediate_symlink_to_an_unrelated_cache(model_cache, monkeypatch, tmp_path):
+    """A symlink inside the cache root cannot alias another model's directory."""
+    cache = tmp_path / "managed"
+    cache.mkdir()
+    monkeypatch.setattr(embedder, "FASTEMBED_CACHE_DIR", str(cache))
+    victim = cache / "unrelated" / "revision"
+    victim.mkdir(parents=True)
+    link = cache / "local"
+    try:
+        link.symlink_to(victim.parent, target_is_directory=True)
+    except (OSError, NotImplementedError) as error:
+        pytest.skip(f"Directory symlinks are unavailable: {error}")
+    candidate = link / "revision"
+    monkeypatch.setattr(embedder, "local_copy", lambda *args: str(candidate))
+    embedder.clear_model_cache("intfloat/multilingual-e5-large", failed_model_dir=candidate)
+    assert victim.is_dir() and link.is_symlink()

@@ -354,6 +354,13 @@ indexes once; source history and cached model weights are retained. Changes to
 the adapter's numerical conventions must bump its `EMBEDDING_CONTRACT`. Model
 licenses remain in the catalog and `THIRD_PARTY_NOTICES`.
 
+Automatic model-load recovery removes only a managed model directory with an
+identified JSON/metadata or ONNX protobuf fault. Temporary resource, provider or
+other unclassified initialization failures keep cached snapshots and fallback
+sources available for later offline loads. Caller-owned `AGENTS_MODEL_PATH`
+directories are never removed. Unknown tokenizer/schema errors remain visible
+rather than being guessed from exception text and used to delete cached files.
+
 #### Model switch on update
 
 Earlier setups pinned the model chosen then (Full e5-large, Balanced multilingual
