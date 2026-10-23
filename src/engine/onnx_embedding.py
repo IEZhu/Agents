@@ -175,6 +175,7 @@ def _archive_model(spec, cache_dir, offline):
 
 
 def _model_directory(spec, cache_dir, offline):
+    from httpx import TransportError
     from huggingface_hub import snapshot_download
     from huggingface_hub.utils import HfHubHTTPError
 
@@ -191,7 +192,7 @@ def _model_directory(spec, cache_dir, offline):
     if source.get("hf"):
         try:
             return hub(True)
-        except (OSError, ValueError, HfHubHTTPError):
+        except (OSError, ValueError, HfHubHTTPError, TransportError):
             pass
     if offline:
         return _archive_model(spec, cache_dir, True)
@@ -203,7 +204,7 @@ def _model_directory(spec, cache_dir, offline):
         if source.get("hf"):
             try:
                 return hub(False)
-            except (OSError, ValueError, HfHubHTTPError) as error:
+            except (OSError, ValueError, HfHubHTTPError, TransportError) as error:
                 last_error = error
         if source.get("url"):
             try:

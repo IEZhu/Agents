@@ -22,6 +22,9 @@ import numpy as np
 
 EMBEDDING_CONTRACT = "fake-v1"
 
+class InvalidModelCache(ValueError):
+    """Expose the adapter exception imported by the real warm-up boundary."""
+
 class TextEmbedding:
     def __init__(self, *args, **kwargs):
         end = time.monotonic() + float(os.environ["FAKE_LOAD_SECONDS"])

@@ -12,6 +12,7 @@ adds no "query: " / "passage: " prefix or task instruction for these models.
 import logging
 import os
 import shutil
+import stat
 import threading
 import warnings
 from pathlib import Path
@@ -30,6 +31,64 @@ _lock = threading.Lock()
 _model = None
 # Embedding fingerprint of the files _model was loaded from (see model_fingerprint).
 _model_fingerprint = None
+
+
+def _hub_blob_targets(directory: Path, blobs: Path) -> set[Path] | None:
+    """Read every snapshot link; ambiguous traversal preserves all blob files."""
+    def scan_error(error):
+        raise error
+
+    targets = set()
+    try:
+        root = directory.resolve(strict=True)
+        for parent, folders, filenames in os.walk(directory, onerror=scan_error, followlinks=False):
+            parent = Path(parent)
+            for name in folders:
+                folder = parent / name
+                if folder.is_symlink() or folder.resolve(strict=True) != root / folder.relative_to(directory):
+                    return None  # Includes directory junctions and cache aliases.
+            for name in filenames:
+                entry = parent / name
+                if stat.S_ISLNK(entry.lstat().st_mode):
+                    target = entry.resolve(strict=True)
+                    if target.parent == blobs and stat.S_ISREG(target.stat().st_mode):
+                        targets.add(target)
+    except (OSError, RuntimeError):
+        return None
+    return targets
+
+
+def _remove_corrupt_hub_snapshot(snapshot: Path, repository: Path) -> None:
+    """Delete the failed snapshot and only its unreferenced repository blobs."""
+    blobs = repository / "blobs"
+    try:
+        expected = repository.resolve(strict=True) / "blobs"
+        targets = (_hub_blob_targets(snapshot, expected)
+                   if blobs.resolve(strict=True) == expected and not blobs.is_symlink() else None)
+    except (OSError, RuntimeError):
+        targets = None
+    shutil.rmtree(snapshot, ignore_errors=True)
+    if targets is None:
+        return
+    try:
+        snapshot.lstat()
+    except FileNotFoundError:
+        pass
+    except OSError:
+        return
+    else:
+        return  # The snapshot or an alias survived the attempted removal.
+    references = _hub_blob_targets(repository / "snapshots", expected)
+    if references is None:
+        return
+    for target in targets - references:
+        try:
+            # Recheck the directory boundary after scanning remaining snapshots.
+            if blobs.is_symlink() or blobs.resolve(strict=True) != expected:
+                return
+            target.unlink(missing_ok=True)
+        except OSError:
+            logger.warning("Could not remove the damaged unreferenced blob: %s", target, exc_info=True)
 
 
 def clear_model_cache(model_name: str, *, failed_model_dir=None) -> None:
@@ -91,7 +150,11 @@ def clear_model_cache(model_name: str, *, failed_model_dir=None) -> None:
         if resolved == root or root not in resolved.parents:
             continue
         logger.warning("Removing corrupted model cache: %s", path)
-        shutil.rmtree(path, ignore_errors=True)
+        if (failed_model_dir is not None and managed.name.startswith("models--")
+                and path.parent == managed / "snapshots"):
+            _remove_corrupt_hub_snapshot(path, managed)
+        else:
+            shutil.rmtree(path, ignore_errors=True)
 
 
 _MAX_LOAD_RETRIES = 1 if os.environ.get("AGENTS_TRANSPORT") == "http" else 2

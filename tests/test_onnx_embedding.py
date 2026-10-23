@@ -209,13 +209,16 @@ def test_online_sources_retry_after_transient_archive_failure(tmp_path, monkeypa
     assert sleeps == [3]
 
 
-def test_online_retry_budget_is_bounded_and_keeps_final_cause(tmp_path, monkeypatch):
+@pytest.mark.parametrize("hub_failure", ["os", "read", "timeout"])
+def test_online_retry_budget_is_bounded_and_keeps_final_cause(tmp_path, monkeypatch, hub_failure):
+    import httpx
     import huggingface_hub
     spec = runtime.TextEmbedding._spec("BAAI/bge-base-en")
     hub_calls, archive_calls, sleeps = [], [], []
     def hub(**kwargs):
         hub_calls.append(kwargs["local_files_only"])
-        raise OSError("Hub unavailable")
+        failure = {"os": OSError, "read": httpx.ReadError, "timeout": httpx.ReadTimeout}[hub_failure]
+        raise failure("Hub unavailable")
     def archive(*args):
         archive_calls.append(args[-1])
         raise OSError("archive unavailable")
@@ -415,3 +418,26 @@ def test_session_resource_failure_is_not_misclassified_as_corrupt_cache(session,
     with pytest.raises(failure, match="temporary session"):
         runtime.TextEmbedding(specific_model_path=str(model_dir))
     assert (model_dir / "tokenizer.json").is_file()
+
+
+@pytest.mark.parametrize("offline", [False, True])
+@pytest.mark.parametrize("failure_name", ["read", "timeout"])
+def test_hub_transport_errors_preserve_archive_fallback(tmp_path, monkeypatch, offline, failure_name):
+    """Transport failures in either Hub lookup preserve the archive source."""
+    import httpx
+    import huggingface_hub
+    spec = runtime.TextEmbedding._spec("BAAI/bge-base-en")
+    failure = {"read": httpx.ReadError, "timeout": httpx.ReadTimeout}[failure_name]
+    hub_calls, archive_calls = [], []
+    def hub(**options):
+        hub_calls.append(options["local_files_only"])
+        raise failure("Hub stream failed")
+    def archive(spec, cache, local_only):
+        archive_calls.append(local_only)
+        return tmp_path / "usable-archive"
+    monkeypatch.setattr(huggingface_hub, "snapshot_download", hub)
+    monkeypatch.setattr(runtime, "_archive_model", archive)
+
+    assert runtime._model_directory(spec, tmp_path, offline) == tmp_path / "usable-archive"
+    assert hub_calls == ([True] if offline else [True, False])
+    assert archive_calls == [offline]

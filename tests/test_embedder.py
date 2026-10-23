@@ -365,3 +365,113 @@ def test_targeted_cleanup_rejects_intermediate_symlink_to_an_unrelated_cache(mod
     monkeypatch.setattr(embedder, "local_copy", lambda *args: str(candidate))
     embedder.clear_model_cache("intfloat/multilingual-e5-large", failed_model_dir=candidate)
     assert victim.is_dir() and link.is_symlink()
+
+
+@pytest.fixture
+def hub_blob_snapshot(model_cache):
+    """A failed snapshot linking to a managed Hub blob in a temporary cache."""
+    repository = Path(embedder.FASTEMBED_CACHE_DIR) / "models--qdrant--multilingual-e5-large-onnx"
+    snapshot = repository / "snapshots" / "bad"
+    snapshot.mkdir(parents=True)
+    blob = repository / "blobs" / "model-content"
+    blob.parent.mkdir()
+    blob.write_bytes(b"corrupt weights")
+    try:
+        (snapshot / "model.onnx").symlink_to(blob)
+    except (OSError, NotImplementedError) as error:
+        pytest.skip(f"File symlinks are unavailable: {error}")
+    return repository, snapshot, blob
+
+
+@pytest.mark.parametrize("shared", [False, True])
+def test_failed_hub_snapshot_removes_only_unreferenced_blobs(hub_blob_snapshot, shared):
+    """Other snapshots retain their links and data while orphan corruption goes."""
+    repository, snapshot, blob = hub_blob_snapshot
+    healthy = repository / "snapshots" / "good"
+    healthy.mkdir()
+    other = repository / "blobs" / "other-content"
+    other.write_bytes(b"healthy weights")
+    (healthy / "model.onnx").symlink_to(blob if shared else other)
+    unrelated = repository.parent / "models--unrelated" / "blobs" / "keep"
+    unrelated.parent.mkdir(parents=True)
+    unrelated.write_bytes(b"unrelated weights")
+
+    embedder.clear_model_cache("intfloat/multilingual-e5-large", failed_model_dir=snapshot)
+
+    assert not snapshot.exists()
+    assert blob.exists() == shared
+    assert (healthy / "model.onnx").read_bytes() == (b"corrupt weights" if shared else b"healthy weights")
+    assert other.read_bytes() == b"healthy weights"
+    assert unrelated.read_bytes() == b"unrelated weights"
+
+
+def test_failed_snapshot_never_deletes_an_outside_blob_target(hub_blob_snapshot):
+    """A file link escaping the repository cannot turn cleanup into data loss."""
+    repository, snapshot, blob = hub_blob_snapshot
+    outside = repository.parent / "caller-owned-weights"
+    outside.write_bytes(b"caller-owned")
+    link = snapshot / "model.onnx"
+    link.unlink()
+    link.symlink_to(outside)
+
+    embedder.clear_model_cache("intfloat/multilingual-e5-large", failed_model_dir=snapshot)
+
+    assert not snapshot.exists()
+    assert outside.read_bytes() == b"caller-owned"
+    assert blob.read_bytes() == b"corrupt weights"
+
+
+def test_failed_snapshot_preserves_blobs_when_other_snapshot_is_aliased(hub_blob_snapshot, tmp_path):
+    """Unknown references behind a directory link prevent blob collection."""
+    repository, snapshot, blob = hub_blob_snapshot
+    outside = tmp_path / "external-snapshot"
+    outside.mkdir()
+    (outside / "model.onnx").symlink_to(blob)
+    alias = repository / "snapshots" / "alias"
+    try:
+        alias.symlink_to(outside, target_is_directory=True)
+    except (OSError, NotImplementedError) as error:
+        pytest.skip(f"Directory symlinks are unavailable: {error}")
+
+    embedder.clear_model_cache("intfloat/multilingual-e5-large", failed_model_dir=snapshot)
+
+    assert not snapshot.exists()
+    assert blob.read_bytes() == b"corrupt weights"
+    assert alias.is_symlink() and (outside / "model.onnx").is_file()
+
+
+def test_failed_snapshot_preserves_blobs_when_reference_scan_fails(hub_blob_snapshot, monkeypatch):
+    """An unreadable snapshot tree is unknown, not proof of no references."""
+    repository, snapshot, blob = hub_blob_snapshot
+    walk = os.walk
+    def unreadable(directory, *args, **kwargs):
+        if Path(directory) == repository / "snapshots":
+            raise PermissionError("snapshot tree is unreadable")
+        return walk(directory, *args, **kwargs)
+    monkeypatch.setattr(os, "walk", unreadable)
+
+    embedder.clear_model_cache("intfloat/multilingual-e5-large", failed_model_dir=snapshot)
+
+    assert not snapshot.exists()
+    assert blob.read_bytes() == b"corrupt weights"
+
+
+def test_failed_snapshot_never_collects_through_an_aliased_blobs_directory(hub_blob_snapshot, tmp_path):
+    """Replacing the blobs directory with an alias preserves its external files."""
+    repository, snapshot, blob = hub_blob_snapshot
+    blobs = repository / "blobs"
+    blobs.rename(repository / "preserved-blobs")
+    outside = tmp_path / "external-blobs"
+    outside.mkdir()
+    external = outside / blob.name
+    external.write_bytes(b"external weights")
+    try:
+        blobs.symlink_to(outside, target_is_directory=True)
+    except (OSError, NotImplementedError) as error:
+        pytest.skip(f"Directory symlinks are unavailable: {error}")
+
+    embedder.clear_model_cache("intfloat/multilingual-e5-large", failed_model_dir=snapshot)
+
+    assert not snapshot.exists()
+    assert external.read_bytes() == b"external weights"
+    assert (repository / "preserved-blobs" / blob.name).read_bytes() == b"corrupt weights"
