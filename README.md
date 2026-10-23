@@ -1,5 +1,9 @@
 # 🤖 Agents-Core
 
+[![Shared runtime (dev)](https://github.com/IEZhu/Agents/actions/workflows/shared-runtime.yml/badge.svg?branch=dev&event=push)](https://github.com/IEZhu/Agents/actions/workflows/shared-runtime.yml?query=branch%3Adev+event%3Apush)
+[![User sync (dev)](https://github.com/IEZhu/Agents/actions/workflows/user-sync.yml/badge.svg?branch=dev&event=push)](https://github.com/IEZhu/Agents/actions/workflows/user-sync.yml?query=branch%3Adev+event%3Apush)
+[![Vulnerability scan (dev)](https://github.com/IEZhu/Agents/actions/workflows/vulnerability-scan.yml/badge.svg?branch=dev&event=push)](https://github.com/IEZhu/Agents/actions/workflows/vulnerability-scan.yml?query=branch%3Adev+event%3Apush)
+
 **Specialist context, reusable workflows and repository memory for AI assistants.**
 
 Agents-Core is a local Model Context Protocol (MCP) server for assistants that need a specialist role, a repeatable task procedure or context from earlier work in a repository. It supplies personas, domain skills, shared rules and optional reasoning patterns called cognitive implants. Your current model uses that context and executes the task with its existing tools.
@@ -12,6 +16,27 @@ Agents-Core is a local Model Context Protocol (MCP) server for assistants that n
 - [AI contributor instructions](AGENTS.md) and [Claude instructions](CLAUDE.md).
 - [Model workflows](flows/README.md): reusable Markdown instructions, including
   the [documentation refresh process](flows/documentation-refresh.md).
+
+## Checks
+
+The badges show the latest matching push runs on the integration branch, `dev`. Shared runtime and User sync use changed-path filters, so their last run can predate a documentation-only commit. Open the links for job logs, and use each pull request's Checks tab for that change's results. Other focused workflows are listed in [GitHub Actions](https://github.com/IEZhu/Agents/actions) and the [test guide](tests/README.md).
+
+| Workflow | Scope |
+|---|---|
+| [Shared runtime](.github/workflows/shared-runtime.yml) | Linux, macOS and Windows checks for persistent artifacts, scoped workers, cooperation, MCP integration, dense adapter contracts and fake startup readiness; POSIX jobs also check fake native/Redis boundaries. |
+| [User sync](.github/workflows/user-sync.yml) | Library history, synchronization and executable discovery on Linux, macOS and Windows, using local bare repositories and fake GitHub APIs. |
+| [Vulnerability scan](.github/workflows/vulnerability-scan.yml) | The complete committed `uv.lock` inventory, including declared extras, plus independently resolved universal `requirements.txt` dependencies. Every severity, unfixed advisory, missing package and scanner/resolver error fails the gate. Findings are printed in the job log. |
+
+The dependency scan runs on pull requests, merge groups, `main`/`dev` pushes, daily on the default branch and on manual dispatch; releases reuse it for their exact source commit. A passing scan describes known dependency advisories within that inventory, not an application security audit. Badges report workflow status; merge enforcement requires the corresponding required checks in repository branch protection or rulesets.
+
+After preparing the environment as described in the [test guide](tests/README.md), run the regular suite locally:
+
+```bash
+LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/ -q
+node --test bridge/test.mjs
+```
+
+Pytest excludes the `slow` marker by default. See the test guide for focused, slow and explicit live checks. These commands do not reproduce the complete hosted platform matrix or the dependency scan, and no coverage percentage is claimed.
 
 ## When to use Agents-Core
 
