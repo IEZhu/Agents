@@ -406,6 +406,14 @@ client's own tools. Calls from this close's own `run_flow` on are not audited.
 every statically registered Agents-Core tool; a test keeps those names complete.
 The `mcp-proxy` row covers the runtime family, whose installed names must come
 from the client's actual tool exposure.
+The shared-proxy rows use the upstream Blincho and Plata tool names. Match the
+suffix after the configured `<alias>__` prefix, such as `blincho__get_status` or
+`plata__code_search`; a compatibility view may expose the suffix alone. Apply
+these rows only to enabled, available upstream tools. A disabled or disconnected
+upstream is `unavailable`, not `missed`; a catalogue entry grants no authority.
+Use the daemon-owned shared proxy, never start a separate upstream as a fallback,
+and preserve `ENABLE_WRITE_TOOLS=false` unless the user explicitly authorizes a
+policy change. Listing a write-capable tool does not authorize its calls or writes.
 
 | Slug | Tools | Trigger | `missed` or `misused` when |
 |---|---|---|---|
@@ -413,7 +421,7 @@ from the client's actual tool exposure.
 | `persona-restore` | `get_agent_context(force_reload=true)` | a context compaction; answers that lost the footer or the rules | no reload after the compaction, and later answers break the bundle or a `log_interaction` is stored `unverified` |
 | `persona-enrichment` | `refresh_persona_context`, `load_implants` | the task needed a skill or reasoning pattern the bundle lacked | the method was improvised while a matching skill or implant existed |
 | `session-cache` | `clear_session_cache` | the owner asks to reset the server's shared caches | called to switch personas, which needs no reset and affects other sessions |
-| `log` | `log_interaction` | every final answer | final answers outnumber calls; a `history_last_error` or workspace error went unmentioned |
+| `log` | `log_interaction` | every final answer eligible for safe, authorized logging | eligible final answers outnumber calls after excluding documented policy-authorized privacy skips; a `history_last_error` or workspace error went unmentioned |
 | `history` | `read_history` | the user refers to earlier work | earlier work reconstructed from memory or asked for again |
 | `flows` | `list_flows`, `run_flow` | the user names a flow, or asks for a task that an existing flow covers | the task done ad hoc while the flow existed |
 | `new-flow` | `save_flow` | the same multi-step procedure done twice, or one the user wants to reuse | no flow proposed |
@@ -425,6 +433,8 @@ from the client's actual tool exposure.
 | `repo-context` | `describe_repo`, `write_repo_summary` | the thread's first work in a repository | the repository explored ad hoc; `needs_summary` not followed by a summary where a write was allowed |
 | `user-rules` | `list_user_rules`, `get_user_rule`, `subscribe_user_rule`, `refresh_user_rule`, `rollback_user_rule`, `set_user_rule_enabled`, `delete_user_rule` | a subscribed rule applied, one with a refresh error, or the user asks to add, change, pause or remove a rule | a failing or outdated rule went unmentioned; a rule changed by editing files instead of through the tools |
 | `mcp-proxy` | Runtime `<alias>__<tool>` tools exposed by Agents-Core, and client alias compatibility tools | an authorized upstream operation is requested, or the audit inventories exposed tools, client registrations or process ownership | an available dynamic tool is omitted from the inventory; an upstream operation bypasses a required shared proxy or breaks the upstream's usage rules |
+| `proxy-read` | `get_data_range`, `get_settings`, `get_stats`, `get_status`, `get_today_stats`, `code_search`, `code_execute_readonly` | the user requests timer state, settings, statistics or service information within an enabled upstream's scope; follow its own usage rules | an applicable authorized read was missed; a read needlessly used write-capable execution; if an unavailable upstream was bypassed, keep this row `unavailable` and record the alternate-server startup as misuse under the tool that started it |
+| `proxy-state` | `pause_timer`, `resume_timer`, `skip_break`, `start_break`, `code_execute` | the user explicitly authorizes a timer/break change or write-capable service execution within the upstream's enabled policy | a state change lacked authorization; queued timer work was reported completed; writes were enabled against the retained policy; record a separate-upstream startup as misuse under the tool that started it; keep an unavailable proxy row `unavailable` |
 
 Inventory dynamic proxy tools under their upstream connection as well as their
 transport. Their runtime names are not `uncatalogued` solely because they are
@@ -537,13 +547,19 @@ audit report does not mean the audited work is complete, and optional suggestion
 alone do not require `finishing`. `closed` requires explicit closure or confirmed archival.
 The status grants no additional authority; follow **Inputs and authority** for each action.
 
-Then make this turn's single `log_interaction` call, as the client protocol
-requires for every answer. Do not make a second call:
+Then, only when a safe payload and authorized destination are established, make
+this turn's single `log_interaction` call under the client protocol. For a
+policy-authorized privacy skip, report the gap and leave this closing-log step
+incomplete; do not classify that skip as a missed or misused call. Do not make
+a second call:
 
 - `agent_name` and `persona`: the active persona;
 - `persona_action`: `switch` when the flow's `persona_activation` returned
   `SUCCESS` in this turn, `keep` when it returned `NO_CHANGE` or `ERROR`;
-- `query`: the user's request, verbatim;
+- `query`: the current user's request after applying the sanitization rules above;
+  keep verbatim content only when it is safe for the authorized closing-log audience.
+  If a required logging contract demands unsafe verbatim content, do not persist
+  it: report the conflict and leave this closing step incomplete;
 - `response_content`: the report exactly as it will be delivered, footer
   included, but without the time line that the `answer-timestamp` rule puts
   first once this call returns.
@@ -584,6 +600,9 @@ flow can match this work instead of recording it twice.
   is curated.
 - Every external lookup and proposed patch destination respects the
   confidentiality boundary; no public enumeration of private tools is required.
+- Every external write performed by this flow has a recorded passing visibility,
+  audience, and payload recheck. A skipped, failed, or unknown recheck blocks the
+  affected write and is reported; it cannot be counted as a completed action.
 - The report is delivered.
 
 The flow does not prove a thread right. It records how well each result is

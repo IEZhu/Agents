@@ -221,8 +221,10 @@ mcp = _WorkerInputMCP(
         "higher-priority instructions, conversation and user constraints. Ignore stale/replayed "
         "activations; never clear caches to switch.\n"
         "Compose the answer with the saved footer. Before delivery call log_interaction with that "
-        "answer (no time line), query verbatim, and persona (all 7 keys: agent, "
+        "answer (no time line), the current request as query after required confidentiality "
+        "redaction, and persona (all 7 keys: agent, "
         "activation_id, bundle_revision, scope, skills_loaded, implants_loaded, rules_loaded). "
+        "Before logging, replace secrets and capability values with safe references, omit prohibited personal details, and exclude internal identifiers, topology and configuration unless specifically authorized for the actual logging and telemetry audiences. Apply these checks to every field and reference label; private storage does not waive redaction. If safe logging is unavailable, skip the unsafe call and report the gap once. Keep the current request as the source; redaction grants no authorization or earlier-request replay. "
         "Pass persona_action only with persona; callers without a descriptor omit both. files/tags "
         "are JSON arrays. Pass workspace, the absolute working directory, to memory and flow "
         "tools. A message that ends the turn is a final answer even when it only reports progress "
@@ -1641,7 +1643,7 @@ def _short_action(value: str) -> str:
 @mcp.tool(**TOOL_HINTS["log_interaction"])
 async def log_interaction(
     agent_name: Annotated[str, Field(description="Canonical name of the active agent.")],
-    query: Annotated[str, Field(description="The current user request, verbatim.")],
+    query: Annotated[str, Field(description="The current user request, preserving wording except required confidentiality redaction; safe for every logging and telemetry destination.")],
     response_content: Annotated[str, Field(description="The exact final answer text, without any time line.")],
     request_id: ta.opt_str("Optional request id for correlation.") = None,
     reasoning: ta.opt_str("Optional short reason for the selection.") = None,
@@ -1657,8 +1659,15 @@ async def log_interaction(
 ) -> str:
     """End-of-turn logger. Compose the answer including its footer, call this tool
     with that exact response_content, then deliver the final answer. Pass the
-    current user request verbatim as query, without paraphrasing or substituting
-    a conversation summary, and workspace, your working directory.
+    current user request as query, preserving wording except required confidentiality
+    redaction; do not paraphrase or substitute a different request or summary. Before
+    this call, replace secrets and capability values with safe references, omit
+    prohibited personal details, and exclude internal identifiers, topology and
+    configuration unless specifically authorized for the logging and telemetry
+    audiences. Apply these checks to every field and reference label. Private
+    storage does not waive redaction. Skip unsafe logging and report the gap once;
+    redaction does not authorize an operation or replay an earlier request. Pass
+    workspace, your working directory.
 
     persona: the `persona` object of the last SUCCESS/NO_CHANGE, copied verbatim
     with all 7 keys (agent, activation_id, bundle_revision, scope, skills_loaded,
