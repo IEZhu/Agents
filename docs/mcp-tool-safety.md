@@ -22,7 +22,8 @@ in bounded ranges until complete; truncation never counts as a completed read.
 Keep persona descriptors and footers intact.
 
 **Orchestrated hosts** (Codex code mode, or a Node orchestrator around tool
-calls) see a tool result before the model does, so the guard applies:
+calls) receive a tool result before the model does. The caller can pass each
+result through the guard, and this gate requires it to:
 
 - Load the trusted adapter before the first large call, as described in
   [code mode before the first large call](#code-mode-before-the-first-large-call),
@@ -60,12 +61,15 @@ JSON shape are validated; `guardMetadata` projects only allowlisted scalars and
 array counts, and `guardThreadMetadata` only its
 [closed item projection](#native-thread-metadata); selected strings are
 redacted; the whole serialized `{sourceRef, metadata}` envelope is checked
-against the budget before `emit`. A refusal after retention carries a fixed code
-and the source reference, and its message names both. A refusal before
-retention (`invalid_guard_options`, `source_retention_failed`,
-`invalid_source_reference`, `sensitive_source_reference`) carries only the code:
-its `sourceRef` is null. No refusal includes the raw input, and there is no raw
-fallback.
+against the budget before `emit`. A refusal once a usable source reference
+exists carries a fixed code and that reference, and its message names both. A
+refusal before a usable reference exists carries only the code, and its
+`sourceRef` is null. Exactly four codes do so: `invalid_guard_options` (a
+malformed `retain`, `emit`, `maxCharacters` or `secrets` option, refused before
+`retain` runs), and `source_retention_failed`, `invalid_source_reference` and
+`sensitive_source_reference`, which come after `retain` was called, so the
+source may already be stored without a reference that can be shown. No refusal
+includes the raw input or a sensitive reference, and there is no raw fallback.
 
 **Opt-in, not enforced:** nothing routes a tool result to the guard. No
 Agents-Core component installs the guard in any client, and the transport is
@@ -89,13 +93,13 @@ decoding, projects explicit field paths to scalar values or array counts, then
 serializes the entire `{sourceRef, metadata}` envelope and checks its size
 before calling `emit`. The limit defaults to 8,000 UTF-16 code units (JavaScript
 `String.length`), including escaped strings and the reference; a positive lower
-limit is allowed. A larger limit, unsafe projection, invalid source reference,
-retention failure or oversized envelope throws before emission. There is no raw
-fallback. Errors have fixed codes and never include parser input or callback
-error messages; the message of a refusal after retention names its source
-reference, so an uncaught refusal still shows where the source is. On refusal,
-use the retained reference and narrower fields or bounded source reads; do not
-print the raw error's inputs or retry a write.
+limit is allowed. A larger limit, malformed `secrets`, unsafe projection, invalid
+source reference, retention failure or oversized envelope throws before
+emission. There is no raw fallback. Errors have fixed codes and never include
+parser input or callback error messages; once a usable source reference exists,
+a refusal's message names it, so an uncaught refusal still shows where the
+source is. On refusal, use the retained reference and narrower fields or bounded
+source reads; do not print the raw error's inputs or retry a write.
 
 `decodeObject` accepts a complete JSON object string or a plain object.
 `decodeMcpObject` explicitly handles MCP CallToolResult envelopes: structured
@@ -109,17 +113,17 @@ resource string with `Object.keys`; decode and validate its shape first.
 
 The allowlist rejects credential-bearing field paths. Selected strings are
 redacted for contextual credential assignments and Bearer values; pass known
-sensitive strings as `secrets` too. This is not a general secret detector:
-unknown opaque values cannot reliably be recognized. Select only public
-metadata, or supply known sensitive values. Source references must be opaque
-identifiers, never derived from credentials, URLs with credentials or payload
-text. Redaction applies before output; audit files must contain only this safe
-projection. Retain sensitive originals only in a task-local in-memory store,
-with an opaque reference; do not write them to evidence files. A durable private
-evidence store is suitable only for sources already established as nonsecret.
-The `retain` callback owns preservation and access control; throwing or returning
-an invalid reference refuses output. Its receipt is not independent proof that
-the host stored the source correctly.
+sensitive strings as `secrets` too, an array of non-empty strings. This is not a
+general secret detector: unknown opaque values cannot reliably be recognized.
+Select only public metadata, or supply known sensitive values. Source references
+must be opaque identifiers, never derived from credentials, URLs with
+credentials or payload text. Redaction applies before output; audit files must
+contain only this safe projection. Retain sensitive originals only in a
+task-local in-memory store, with an opaque reference; do not write them to
+evidence files. A durable private evidence store is suitable only for sources
+already established as nonsecret. The `retain` callback owns preservation and
+access control; throwing or returning an invalid reference refuses output. Its
+receipt is not independent proof that the host stored the source correctly.
 
 ## Code mode before the first large call
 

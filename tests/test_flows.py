@@ -295,9 +295,12 @@ def test_bounded_return_gate_is_stated_once_per_client_class_and_linked():
                    "https://github.com/IEZhu/Agents/issues/506",
                    "The helper does not intercept native-client, terminal or third-party responses",
                    "Otherwise the first discovery call is exempt",
-                   "A refusal before retention", "its `sourceRef` is null"):
+                   "A refusal before a usable reference exists", "its `sourceRef` is null",
+                   "Exactly four codes do so: `invalid_guard_options`",
+                   "The caller can pass each result through the guard, and this gate requires it"):
         assert phrase in safety, phrase
-    for gone in ("any client applies it automatically", "before any adapter could run"):
+    for gone in ("any client applies it automatically", "before any adapter could run",
+                 "A refusal before retention", "so the guard applies"):
         assert gone not in safety, gone
     for name in ("flows/pr-review.md", "docs/flow-execution.md"):
         text = (root / name).read_text(encoding="utf-8")

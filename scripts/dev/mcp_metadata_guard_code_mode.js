@@ -3,13 +3,14 @@ return (function () {
 /** Executable boundary for metadata inspection in a JavaScript tool runtime. */
 const DEFAULT_MAX_CHARACTERS = 8000;
 
-/** The message names the fixed code and, once the source is retained, its validated reference.
- * A refusal before retention has sourceRef null. Neither ever includes source content.
+/** The message names the fixed code and, once a usable reference exists, that validated reference.
+ * A refusal before then has sourceRef null, whether or not `retain` ran. Neither ever
+ * includes source content or a sensitive reference.
  */
 class MetadataGuardError extends Error {
   constructor(code, sourceRef = null) {
     super(sourceRef === null
-      ? `Metadata inspection refused: ${code}. No source was retained; retain it and read it in bounded ranges.`
+      ? `Metadata inspection refused: ${code}. No usable source reference is available; retain the source under a valid reference and read it in bounded ranges.`
       : `Metadata inspection refused: ${code}. Source retained as ${sourceRef}; read it in bounded ranges.`);
     this.name = 'MetadataGuardError';
     this.code = code;
@@ -168,8 +169,11 @@ function summarizeThread(value) {
  */
 async function guardedEmission(raw, {retain, emit, mcp = false, secrets = [],
     maxCharacters = DEFAULT_MAX_CHARACTERS}, select) {
+  // Check every option before `retain` runs; a snapshot keeps the checked secrets fixed.
+  const known = Array.isArray(secrets) ? [...secrets] : null;
   if (!Number.isSafeInteger(maxCharacters) || maxCharacters < 1 || maxCharacters > DEFAULT_MAX_CHARACTERS ||
-      typeof retain !== 'function' || typeof emit !== 'function') {
+      typeof retain !== 'function' || typeof emit !== 'function' ||
+      known === null || known.some(secret => typeof secret !== 'string' || secret.length === 0)) {
     throw new MetadataGuardError('invalid_guard_options');
   }
   let sourceRef;
@@ -178,7 +182,7 @@ async function guardedEmission(raw, {retain, emit, mcp = false, secrets = [],
   if (typeof sourceRef !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_./:#-]{0,255}$/u.test(sourceRef)) {
     throw new MetadataGuardError('invalid_source_reference');
   }
-  if (redactCredentials(sourceRef, secrets) !== sourceRef) throw new MetadataGuardError('sensitive_source_reference');
+  if (redactCredentials(sourceRef, known) !== sourceRef) throw new MetadataGuardError('sensitive_source_reference');
   let text;
   try {
     const value = mcp ? decodeMcpObject(raw) : decodeObject(raw);
@@ -186,7 +190,7 @@ async function guardedEmission(raw, {retain, emit, mcp = false, secrets = [],
     // Redact selected strings before serialization, including strings in a safe
     // adapter's nested projection. Raw data never reaches this serialization.
     text = JSON.stringify({sourceRef, metadata}, (_key, field) =>
-      typeof field === 'string' ? redactCredentials(field, secrets) : field);
+      typeof field === 'string' ? redactCredentials(field, known) : field);
     if (text.length > maxCharacters) throw new MetadataGuardError('output_budget_exceeded');
   } catch (error) {
     throw new MetadataGuardError(error instanceof MetadataGuardError ? error.code : 'invalid_metadata', sourceRef);

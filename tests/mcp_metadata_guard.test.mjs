@@ -52,14 +52,28 @@ for (const [runtime, api] of [['module', moduleApi], ['code-mode', new Function(
     for (const maxCharacters of [0, -1, 0.5, NaN, Infinity, '8000', 8001]) {
       const h = host({maxCharacters});
       await assert.rejects(api.guardMetadata({}, h.options), error => error.code === 'invalid_guard_options' &&
-        error.sourceRef === null && String(error).includes('No source was retained'));
+        error.sourceRef === null && String(error).includes('No usable source reference is available'));
       assert.equal(h.emitted.length, 0);
     }
     for (const retain of [() => {throw new Error('FORBIDDEN');}, () => 'x'.repeat(257), () => ({raw: 'FORBIDDEN'})]) {
       const h = host({retain});
       await assert.rejects(api.guardMetadata({}, h.options), error => error.sourceRef === null &&
-        String(error).includes('No source was retained') && !/FORBIDDEN|xxxx/u.test(`${error} ${error.stack}`));
+        String(error).includes('No usable source reference is available') && !/FORBIDDEN|xxxx/u.test(`${error} ${error.stack}`));
       assert.equal(h.emitted.length, 0);
+    }
+  });
+  test(`${runtime}: malformed secrets refuse as invalid options before retain runs`, async () => {
+    for (const guard of [api.guardMetadata, api.guardThreadMetadata]) {
+      for (const secrets of ['OPAQUE_SENTINEL', null, {0: 'OPAQUE_SENTINEL'}, [''], ['OPAQUE_SENTINEL', 1],
+        [, 'OPAQUE_SENTINEL']]) {
+        let retained = 0;
+        const h = host({secrets, retain: () => { retained++; return 'source:1'; }});
+        await assert.rejects(guard({status: 'ok', entries: []}, h.options), error =>
+          error.code === 'invalid_guard_options' && error.sourceRef === null &&
+          String(error).includes('No usable source reference is available') && !/OPAQUE_SENTINEL/u.test(`${error} ${error.stack}`));
+        assert.equal(retained, 0);
+        assert.equal(h.emitted.length, 0);
+      }
     }
   });
   test(`${runtime}: empty, malformed, truncated and non-object roots never reach projection`, async () => {
@@ -103,7 +117,7 @@ for (const [runtime, api] of [['module', moduleApi], ['code-mode', new Function(
     assert.equal(h.sources.get('source:1').status.includes('OPAQUE_SENTINEL'), true);
     const badRef = host({retain: () => 'source:OPAQUE_SENTINEL', secrets: ['OPAQUE_SENTINEL']});
     await assert.rejects(api.guardMetadata({status: 'ok', entries: []}, badRef.options), error =>
-      error.code === 'sensitive_source_reference' && error.sourceRef === null &&
+      error.code === 'sensitive_source_reference' && error.sourceRef === null && String(error).includes('No usable source reference is available') &&
       !String(error).includes('OPAQUE_SENTINEL') && !String(error.stack).includes('OPAQUE_SENTINEL'));
     assert.equal(badRef.emitted.length, 0);
   });
