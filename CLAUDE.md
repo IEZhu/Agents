@@ -61,11 +61,13 @@ the prepare/validate exchange.
 If preparation fails, either endpoint is unavailable, or the host cannot spawn a worker, do the work in the parent when practical and report the delegation limitation. Do not silently fall back to a full-persona worker, launch an unprepared worker, or accept an unvalidated result. MCP prepares and validates the exchange; native host tools launch workers and enforce actual permissions and runtime limits.
 
 A worker given a valid `agents-core/subagent/1` prepared package already has its
-task-scoped role. Use that package instead of the conversation activation and
-finish steps below: do not call `route_and_load` or `get_agent_context`, inherit
-the parent's activation, add a footer/timestamp, or call `log_interaction` for the
-worker result. Return only the specified JSON envelope. Stay within the task and
-its allowed actions; no role changes or further delegation unless assigned.
+task-scoped role. Use that package instead of the conversation activation, the
+first-work repository description and the finish steps below: do not call
+`route_and_load` or `get_agent_context`, inherit the parent's activation, add a
+footer/timestamp, or call `log_interaction` for the worker result or for any
+message that ends its turn. Return only the specified JSON envelope. Stay within
+the task and its allowed actions; no role changes or further delegation unless
+assigned.
 
 If a worker is explicitly allowed to delegate further, it must follow the same preparation and validation exchange for its own children. The conversation activation and unavailable-MCP fallback below apply to ordinary conversations; they do not waive this delegation contract.
 
@@ -181,6 +183,31 @@ taking any of its steps. Pass the user's scope and constraints in `request`, plu
 that an installed flow covers. If no flow matches, say so and continue without
 one.
 
+## Describe a repository on first work
+
+The first time a conversation works in a repository (reads, searches or changes
+its files), call `describe_repo` when that tool is available, with `workspace`
+(and `repo_path` for a subdirectory) before exploring it ad hoc. On
+`needs_summary`, follow its `instruction`; call `write_repo_summary` only where
+that instruction allows a write. If the tool is unavailable, report that
+limitation and use the documented manual role fallback without claiming a
+loaded repository description.
+
+## Work that another session owns
+
+A branch, worktree or pull request that another session or agent created belongs
+to it, and so does a host or service that another session is working on. Before
+pushing to it, merging into it, rebasing it or changing it, message that session
+through the client's session messaging (for example Claude Code `SendMessage`) or
+Agents-Core `cooperation_send`, and wait for its answer. If it does not answer,
+ask the user: silence is not consent. Follow the host's message delivery and
+processing status: a reply may arrive between tool calls during an active turn
+or start a later turn. Sending a message or receiving a delivery acknowledgement
+is not the required answer. While waiting, stop the conflicting action, release
+its claims and continue independent work where possible. The Agents-Core mailbox
+can wait within the turn with bounded `cooperation_wait`; waiting does not wake
+an idle model. Explicit user authorization remains authoritative.
+
 ## Finish each answer
 
 Except for the explicit unavailable-MCP fallback below, compose the complete final
@@ -209,6 +236,9 @@ A client may close the turn with its own call after which no text is shown,
 such as the next-step box of the Claude desktop app (`wrap_up`). Call
 `log_interaction` before that call, with the box's text and the footer as
 `response_content`: the closing call does not replace the log.
+A message that ends the turn is a final answer even when it only reports
+progress, for example while a background worker, a timer or another session is
+still running: log it and end it with the footer like any other answer.
 
 Logging is permitted on `keep`; routing and enrichment are not. The log records
 declared attribution, not proof of the model's compliance. If a requested change

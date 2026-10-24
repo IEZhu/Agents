@@ -137,11 +137,16 @@ async def test_builtin_flow_personas_build_complete_bundles(monkeypatch):
 
     monkeypatch.setattr(enrichment, "resolve_profile", lambda query: None)
     monkeypatch.setattr(embedder, "_get_model", lambda: pytest.fail("Flow bundle validation must not load an embedding model"))
-    # Keep the real renderers while avoiding constructors that index every component.
+    # Exact component selections still use the real formatters, but do not need
+    # retriever construction, indexes or an embedding model on a clean runner.
     monkeypatch.setattr(enrichment, "_skill_retriever", SimpleNamespace(
-        format_skills_for_prompt=lambda items, **kwargs: SkillRetriever.format_skills_for_prompt(None, items, **kwargs)))
+        format_skills_for_prompt=lambda items, **kwargs:
+            SkillRetriever.format_skills_for_prompt(None, items, **kwargs),
+    ))
     monkeypatch.setattr(enrichment, "_implant_retriever", SimpleNamespace(
-        format_implants_for_prompt=lambda items: ImplantRetriever.format_implants_for_prompt(None, items)))
+        format_implants_for_prompt=lambda items:
+            ImplantRetriever.format_implants_for_prompt(None, items),
+    ))
     catalog = FlowCatalog()
     declared = {flow_id: flow_persona.declared(catalog.load(flow_id).content)
                 for flow_id in catalog.ids()}
@@ -220,7 +225,7 @@ def test_protocol_runs_a_named_flow_before_improvising():
 
 @pytest.mark.asyncio
 async def test_thread_close_audits_every_installed_tool_and_catalogues_every_server_tool():
-    """The audit covers all installed tools; its Agents-Core catalogue names each tool the server registers."""
+    """Static tool names stay complete alongside the runtime proxy family."""
     import re
 
     import src.server as server
@@ -234,7 +239,14 @@ async def test_thread_close_audits_every_installed_tool_and_catalogues_every_ser
                    "**Managed blocks.**", "**One list, one yes.**"):
         assert phrase in audit, phrase
     table = text.split("**Catalogue.**", 1)[1].split("\n## ", 1)[0]
-    cells = [line.split("|")[2] for line in table.splitlines() if line.startswith("| `")]
+    rows = {line.split("|")[1].strip(" `"): line.split("|")[2]
+            for line in table.splitlines() if line.startswith("| `")}
+    assert "`<alias>__<tool>`" in rows.pop("mcp-proxy")
+    proxy_read = rows.pop('proxy-read')
+    assert set(re.findall(r"`([^`]+)`", proxy_read)) == {'code_execute_readonly', 'get_status', 'get_stats', 'get_data_range', 'get_today_stats', 'code_search', 'get_settings'}
+    proxy_state = rows.pop('proxy-state')
+    assert set(re.findall(r"`([^`]+)`", proxy_state)) == {'skip_break', 'pause_timer', 'start_break', 'resume_timer', 'code_execute'}
+    cells = rows.values()
     catalogued = {re.sub(r"\(.*", "", name) for cell in cells for name in re.findall(r"`([^`]+)`", cell)}
     registered = {tool.name for tool in await server.mcp.list_tools()}
     assert sorted(registered - catalogued) == [] and sorted(catalogued - registered) == []

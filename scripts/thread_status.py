@@ -2,6 +2,14 @@
 """Lifecycle context and supported Claude SDK writes for emoji thread titles."""
 from __future__ import annotations
 
+import time
+
+# Start before other imports and stdin parsing so they consume the hook budget.
+_HOOK_STARTED_AT = time.monotonic()
+_INTERRUPT_LIMIT = 3.0
+_INTERRUPT_EXIT_MARGIN = 0.3
+_INTERRUPT_WRITER_CAP = 2.4
+
 import argparse
 from contextlib import contextmanager
 import importlib.util
@@ -10,7 +18,6 @@ import os
 from pathlib import Path
 import re
 import sys
-import time
 import uuid
 
 
@@ -83,6 +90,12 @@ def hook_output(event: dict, client: str, *, script: str | None = None) -> dict:
                     "Classic IDE title updates have no verified public hook/API; never invent one.")
     if name == "UserPromptSubmit":
         context += "\nA user turn is beginning: set working when this turn starts/resumes work."
+        if client == "claude":
+            # Instruction files load once per session; a per-turn line keeps phase chapters in view.
+            context += ("\nIf the client exposes a chapter tool (the Claude desktop app's mark_chapter) "
+                        "and this request moves the work to a meaningfully different phase of the "
+                        "session, such as from implementation to an incident or a cleanup, mark the "
+                        "chapter first. Never mark one for the session's first message.")
     if client == "cursor":
         return {"additional_context": context}
     output = {"hookEventName": name, "additionalContext": context}
@@ -101,12 +114,19 @@ def hook_output(event: dict, client: str, *, script: str | None = None) -> dict:
 def rename_codex_session(session_id: str, status: str, *, timeout: float = 2.5,
                          expected_turn_id: str | None = None, recorded_turn_id: str | None = None) -> dict:
     """Persist metadata through Codex's API without resuming or starting a turn."""
+    if (isinstance(timeout, bool) or not isinstance(timeout, (int, float))
+            or not 0 < timeout < float("inf")):
+        raise ValueError("The Codex title timeout must be finite and positive")
+    deadline = time.monotonic() + timeout
     try:
         from agents_core_codex_titles import rename_codex_thread
     except ModuleNotFoundError as error:
         if error.name != "agents_core_codex_titles":
             raise
         from src.codex_thread_titles import rename_codex_thread
+    timeout = deadline - time.monotonic()
+    if timeout <= 0:
+        raise RuntimeError("Codex title deadline exhausted while loading adapter")
     return rename_codex_thread(session_id, status, status_title, timeout=timeout,
                                expected_turn_id=expected_turn_id, recorded_turn_id=recorded_turn_id)
 
@@ -168,7 +188,9 @@ def _write_record(record, current: dict) -> None:
     record.flush()
 
 
-def handle_hook_event(event: object, client: str, *, state_directory: Path | None = None) -> dict:
+def handle_hook_event(event: object, client: str, *, state_directory: Path | None = None,
+                      started_at: float | None = None) -> dict:
+    started_at = time.monotonic() if started_at is None else started_at
     if (_main_event(event) and client == "codex"
             and event.get("hook_event_name") in ("UserPromptSubmit", "Interrupt")
             and _known_identity(event.get("session_id")) is not None
@@ -177,7 +199,7 @@ def handle_hook_event(event: object, client: str, *, state_directory: Path | Non
         directory = state_directory or Path(__file__).resolve().parent / "agents-core-thread-status-state"
         # Interrupt hooks have a three-second maximum; a prompt can wait longer
         # for the previous interrupt write, before its model is allowed to start.
-        with _turn_record(directory, event["session_id"], 0.15 if interrupted else 2.5) as record:
+        with _turn_record(directory, event["session_id"], 0.15 if interrupted else _INTERRUPT_LIMIT) as record:
             current = _read_record(record)
             if not interrupted:
                 # Keep the last receipt available after the user resumes work.
@@ -192,7 +214,11 @@ def handle_hook_event(event: object, client: str, *, state_directory: Path | Non
                 current["last_interrupt"] = receipt
                 _write_record(record, current)
                 try:
-                    result = rename_codex_session(event["session_id"], "stopped", timeout=2.0,
+                    timeout = min(_INTERRUPT_WRITER_CAP,
+                                  _INTERRUPT_LIMIT - _INTERRUPT_EXIT_MARGIN - (time.monotonic() - started_at))
+                    if timeout <= 0:
+                        raise RuntimeError("Codex Interrupt deadline exhausted before title update")
+                    result = rename_codex_session(event["session_id"], "stopped", timeout=timeout,
                                                   expected_turn_id=event["turn_id"],
                                                   recorded_turn_id=current.get("turn_id"))
                     if result.get("persisted") is not True:
@@ -267,7 +293,7 @@ def main(argv: list[str] | None = None) -> int:
             if len(raw) > MAX_EVENT_BYTES:
                 raise ValueError("Hook input exceeds its byte limit")
             event = json.loads(raw.decode("utf-8"))
-            result = handle_hook_event(event, args.client)
+            result = handle_hook_event(event, args.client, started_at=_HOOK_STARTED_AT)
     except (OSError, ValueError, RuntimeError, UnicodeError, TypeError) as error:
         # A hook must never block the user's work. An explicit write must fail visibly.
         print("Thread status: " + str(error), file=sys.stderr)

@@ -449,16 +449,23 @@ class CooperationService:
                     if receipt[0] != request_digest:
                         raise CooperationError("idempotency_conflict")
                     return json.loads(receipt[1])
-                if actor["status"] == "cancelled" or subject["status"] == "cancelled":
+                action = data["action"]
+                kind = action["kind"]
+                # Terminal owners may close abandoned metadata, never resume execution or relay.
+                terminal_cancel = (actor["status"] == "cancelled" and subject is actor
+                                   and kind == "cancel" and action["agreement_id"] is not None)
+                if (actor["status"] == "cancelled" or subject["status"] == "cancelled") and not terminal_cancel:
                     raise CooperationError("unauthorized_actor")
                 self._reconcile(db, repo, now)
                 actor = self._participant(db, repo, actor["participant_id"])
                 subject = self._participant(db, repo, subject["participant_id"])
-                action = data["action"]
-                kind = action["kind"]
                 if data["expected_generation"] != subject["generation"]:
                     raise CooperationError("stale_generation", generation=subject["generation"])
-                if kind != "recover":
+                if terminal_cancel:
+                    if subject["running"] or any(c["participant_id"] == subject["participant_id"]
+                                                 for c in bodies(db, "claims", repo)):
+                        raise CooperationError("scope_denied", "Terminal agreement cleanup requires no running work or held claims")
+                elif kind != "recover":
                     self._live(actor)
                     self._live(subject)
                 elif subject["participant_id"] != actor["participant_id"]:

@@ -33,8 +33,19 @@ jobs:
         env:
           PYTHONDONTWRITEBYTECODE: "1"
           LANGFUSE_TRACING_ENABLED: "false"
-        run: python3 -m pytest tests/test_release_version.py tests/test_bump_plugin_version.py tests/test_workflow_permissions.py -q
+        run: python3 -m pytest tests/test_release_version.py tests/test_bump_plugin_version.py tests/test_workflow_permissions.py tests/test_vulnerability_gate.py -q
+  vulnerability-scan:
+    if: >-
+      github.event.pull_request.merged == true &&
+      github.event.pull_request.head.ref == 'dev' &&
+      github.event.pull_request.base.ref == 'main' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.base.repo.full_name == github.repository
+    uses: ./.github/workflows/vulnerability-scan.yml
+    with:
+      ref: ${{ github.event.pull_request.merge_commit_sha }}
   publish:
+    needs: vulnerability-scan
     if: >-
       github.event.pull_request.merged == true &&
       github.event.pull_request.head.ref == 'dev' &&

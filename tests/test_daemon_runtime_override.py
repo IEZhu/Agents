@@ -73,7 +73,7 @@ def test_matching_runtime_reads_canonical_components_and_personal_flows(tmp_path
         from src.schedules import config as schedule_config, cli as schedule_cli
         schedule = scheduler(platform='darwin', runner=lambda *args, **kwargs: None,
                              launch_agents_dir=root / 'launch-agents', lock_dir=root / 'locks')
-        assert 'fastembed' not in sys.modules and 'src.server' not in sys.modules
+        assert 'onnxruntime' not in sys.modules and 'tokenizers' not in sys.modules and 'src.server' not in sys.modules
         print(json.dumps({'paths': {name: getattr(config, name) for name in
                           ('INSTALL_ROOT', 'INSTALL_DATA_DIR', 'AGENTS_DIR', 'SKILLS_DIR',
                            'IMPLANTS_DIR', 'RULES_DIR', 'FLOWS_DIR')},
@@ -241,7 +241,7 @@ def test_bootstrap_keeps_content_dotenv_leases_health_and_state_identity(tmp_pat
                           dotenv=os.environ.get('RUNTIME_IDENTITY_TEST_CANONICAL'),
                           source=str(Path(app_module.__file__).resolve().parents[2]),
                           options=options, handoff=service.user_sync.hand_off_schedule)
-            assert 'fastembed' not in sys.modules and 'src.server' not in sys.modules
+            assert 'onnxruntime' not in sys.modules and 'tokenizers' not in sys.modules and 'src.server' not in sys.modules
         uvicorn.run = capture
         try:
             bootstrap.serve(sys.argv[1])

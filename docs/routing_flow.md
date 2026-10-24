@@ -240,7 +240,7 @@ suppression and `IMPLANT_NEED_GATE` apply only to the per-query enrichment path
 (`server._load_and_enrich`) that the evaluation harnesses use, because a bundle
 persists across later requests until a switch, restore, or refresh.
 
-The semantic router uses `NumpyVectorStore`, local FastEmbed embeddings and a
+The semantic router uses `NumpyVectorStore`, local ONNX Runtime embeddings and a
 bounded persistent routing cache. Every `SUCCESS` other than a restore, a refresh
 or a flow's `persona_activation` stores the query and the loaded agent: routed loads, `get_agent_context` calls
 (including selections after `ROUTE_REQUIRED`), agent slash prompts and the meta

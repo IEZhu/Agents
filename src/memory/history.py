@@ -1110,7 +1110,7 @@ class HistoryStore:
 
         ``embed_query`` / ``embed_texts`` are injectable so tests can swap in
         deterministic fakes; production callers leave them None and the
-        FastEmbed-backed defaults are loaded lazily. ``machine`` filters as in
+        ONNX-backed defaults are loaded lazily. ``machine`` filters as in
         ``HistoryReader.read_recent``.
         """
         from src.engine.embedder import model_fingerprint
@@ -1155,7 +1155,7 @@ class HistoryStore:
 
         The fingerprint is sha256(history.md) plus the embedding fingerprint of
         the loaded model (``src.engine.embedder.model_fingerprint``: model,
-        revision, index schema, preprocessing, fastembed version), compared with
+        revision, index schema, preprocessing, embedding contract and ONNX Runtime version), compared with
         ``.history_fingerprint`` in ``data_dir``; a missing index file also
         triggers a rebuild. For a merged history, the first part hashes every
         file of it instead (``HistoryReader.merged_files``).
