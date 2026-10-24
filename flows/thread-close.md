@@ -26,12 +26,18 @@ may have dropped what actually happened.
 Before any transcript inspection, extract only the needed metadata with a
 script and redact credentials before any model-visible tool output, not just
 before persistence or the final report. Never print raw transcript records,
-user messages or compacted retained context. Client/MCP responses such as
-`read_thread` can include the original prompt in a preview: parse the response
-inside the extraction process and emit only allowlisted metadata and necessary
-redacted quotations, rather than the complete payload. Apply this boundary to
-inventory helpers and delegated auditors as well; give workers sanitized
-evidence or explicit instructions to extract and redact before emitting it.
+user messages or compacted retained context. Before emitting any native thread
+or history read, including `read_thread` and `read_history`, project the result
+to an explicit allowlist outside model context. For authorization checks, keep
+only the target thread ID, user-message timestamp and the minimum relevant
+redacted user text. Omit previews, reasoning, tool arguments and command bodies;
+`includeOutputs=false` and output-length options do not redact those fields.
+Never emit the raw result object. Recursively remove credential and capability
+values from the allowed fields before any output or audit persistence. Use
+compact status snapshots when authorization text is not needed. Apply this
+boundary to inventory helpers and delegated auditors as well; give workers
+sanitized evidence or explicit instructions to extract and redact before
+emitting it.
 
 The persona contributes fact-checking discipline. Its own investigation phases and
 "Verdict"/credibility output format do not apply: this flow's steps and its report
@@ -259,8 +265,9 @@ client's own tools. Calls from this close's own `run_flow` on are not audited.
    to use it:
    - **Agents-Core tools:** the catalogue below. An exposed Agents-Core tool that
      no row names is `uncatalogued`, a finding against the catalogue. The built-in
-     catalogue names every tool its server registers, so this means a newer
-     server or an outdated personal copy of this flow.
+     catalogue names every statically registered tool and the dynamic proxy
+     family. A missing row means a newer server or an outdated personal copy of
+     this flow; a runtime proxy name belongs to `mcp-proxy` below.
    - **Every other tool:** each loaded instruction that names a trigger for it:
      the client's instruction files (`CLAUDE.md`, `AGENTS.md`, rules files), the
      MCP server's own instructions, a skill's or plugin's description ("use
@@ -341,7 +348,17 @@ client's own tools. Calls from this close's own `run_flow` on are not audited.
    diff in place, the call's result) and report which were applied.
 
 **Catalogue.** The slug names the row in the report and in tags. The rows name
-every tool the Agents-Core server registers; a test keeps them complete.
+every statically registered Agents-Core tool; a test keeps those names complete.
+The `mcp-proxy` row covers the runtime family, whose installed names must come
+from the client's actual tool exposure.
+The shared-proxy rows use the upstream Blincho and Plata tool names. Match the
+suffix after the configured `<alias>__` prefix, such as `blincho__get_status` or
+`plata__code_search`; a compatibility view may expose the suffix alone. Apply
+these rows only to enabled, available upstream tools. A disabled or disconnected
+upstream is `unavailable`, not `missed`; a catalogue entry grants no authority.
+Use the daemon-owned shared proxy, never start a separate upstream as a fallback,
+and preserve `ENABLE_WRITE_TOOLS=false` unless the user explicitly authorizes a
+policy change. Listing a write-capable tool does not authorize its calls or writes.
 
 | Slug | Tools | Trigger | `missed` or `misused` when |
 |---|---|---|---|
@@ -360,6 +377,16 @@ every tool the Agents-Core server registers; a test keeps them complete.
 | `local-inference` | `local_inference_status`, `local_context_create`, `local_context_grant`, `local_context_revoke`, `local_context_release`, `local_generate`, `local_generation_result`, `local_generation_cancel` | bulk routine completions: classification, extraction, short summaries | done by the main model while local inference was enabled and the task fit its limits; a context or grant left open after its last completion |
 | `repo-context` | `describe_repo`, `write_repo_summary` | the thread's first work in a repository | the repository explored ad hoc; `needs_summary` not followed by a summary where a write was allowed |
 | `user-rules` | `list_user_rules`, `get_user_rule`, `subscribe_user_rule`, `refresh_user_rule`, `rollback_user_rule`, `set_user_rule_enabled`, `delete_user_rule` | a subscribed rule applied, one with a refresh error, or the user asks to add, change, pause or remove a rule | a failing or outdated rule went unmentioned; a rule changed by editing files instead of through the tools |
+| `mcp-proxy` | Runtime `<alias>__<tool>` tools exposed by Agents-Core, and client alias compatibility tools | an authorized upstream operation is requested, or the audit inventories exposed tools, client registrations or process ownership | an available dynamic tool is omitted from the inventory; an upstream operation bypasses a required shared proxy or breaks the upstream's usage rules |
+| `proxy-read` | `get_data_range`, `get_settings`, `get_stats`, `get_status`, `get_today_stats`, `code_search`, `code_execute_readonly` | the user requests timer state, settings, statistics or service information within an enabled upstream's scope; follow its own usage rules | an applicable authorized read was missed; a read needlessly used write-capable execution; if an unavailable upstream was bypassed, keep this row `unavailable` and record the alternate-server startup as misuse under the tool that started it |
+| `proxy-state` | `pause_timer`, `resume_timer`, `skip_break`, `start_break`, `code_execute` | the user explicitly authorizes a timer/break change or write-capable service execution within the upstream's enabled policy | a state change lacked authorization; queued timer work was reported completed; writes were enabled against the retained policy; record a separate-upstream startup as misuse under the tool that started it; keep an unavailable proxy row `unavailable` |
+
+Inventory dynamic proxy tools under their upstream connection as well as their
+transport. Their runtime names are not `uncatalogued` solely because they are
+absent from the static registration catalogue. Read and apply the upstream's
+own usage and authorization rules. Inventorying a tool does not authorize
+calling it: a `missed` call requires demonstrated availability and an applicable
+operation trigger, not just exposure to the client.
 
 ## 5. Audit the thread itself
 

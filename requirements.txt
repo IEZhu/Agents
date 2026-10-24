@@ -1,18 +1,19 @@
 pydantic>=2.0
-fastembed>=0.8.1
-huggingface-hub>=0.23
+onnxruntime>=1.24.4
+huggingface-hub>=0.23,<2.0
+tokenizers>=0.22,<1.0
 numpy>=1.24
 langfuse>=3.0
 python-dotenv
 PyYAML>=6.0
 cachetools>=5.3
 cryptography==50.0.2
-mcp==1.28.1
+mcp==1.30.0
 uvicorn==0.48.0
 # Test dependencies
 pytest>=7.0.0
 pytest-asyncio>=0.21.0
 # Document OCR dependencies
 pdf2image>=1.16.0
-Pillow>=10.0.0
+Pillow>=13.0.0
 anthropic>=0.18.0

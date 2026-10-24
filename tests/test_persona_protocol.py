@@ -315,11 +315,13 @@ async def test_sessions_sharing_one_server_log_to_their_own_projects(system32_cw
 
 @pytest.mark.asyncio
 async def test_logging_without_workspace_asks_for_it(system32_cwd, tmp_path):
-    project = tmp_path / "project"
-    (project / ".git").mkdir(parents=True)
-    [response] = await _log_over_mcp(None, roots=[project])
+    """Multiple shared roots require the caller to choose its workspace."""
+    project, other = tmp_path / "project", tmp_path / "other"
+    for root in (project, other):
+        (root / ".git").mkdir(parents=True)
+    [response] = await _log_over_mcp(None, roots=[project, other])
     assert response["status"] == "ERROR" and "timestamp" not in response
-    assert response["message"].startswith("workspace_unsafe: refusing")
+    assert response["message"].startswith("workspace_required: the client has no unique workspace;")
     assert "pass workspace" in response["message"]
     assert "retry once with workspace" in response["instruction"]
     assert response["pid"] == os.getpid()
@@ -330,6 +332,20 @@ async def test_logging_without_workspace_asks_for_it(system32_cwd, tmp_path):
     # The desktop app started this server: the refusal says so and names its configuration (#231).
     assert "claude_desktop_config.json" in response["hint"] and "Agents-Core-Desktop" in response["hint"]
     assert not (project / "history.md").exists()
+    assert not (other / "history.md").exists()
+
+
+@pytest.mark.asyncio
+async def test_logging_without_workspace_uses_the_only_shared_root(system32_cwd, tmp_path):
+    """A single MCP root is an unambiguous project, even when the server cwd is unsafe."""
+    project = tmp_path / "project"
+    (project / ".git").mkdir(parents=True)
+    [response] = await _log_over_mcp(None, roots=[project])
+    assert response["workspace"] == {"root": str(project.resolve()), "source": "workspace"}
+    assert re.fullmatch(r"\d{4}\.\d{2}\.\d{2} \d{2}:\d{2}:\d{2}", response["timestamp"])
+    assert server.drain_pending_logs(5)
+    assert "answer 0" in (project / "history.md").read_text(encoding="utf-8")
+    assert sorted(path.name for path in system32_cwd.rglob("*")) == ["CLAUDE.md", "System32"]
 
 
 @pytest.mark.asyncio
@@ -557,3 +573,31 @@ def test_mcp_initialization_requires_activation_and_attribution_on_the_first_ans
     assert "intermediate result" in route_required and "not an activated persona" in route_required
     assert "Append the exact footer returned with the active bundle" in instructions
     assert instructions.index("call log_interaction") < instructions.index("Then send the final answer")
+
+
+def test_first_work_bootstrap_reaches_mcp_only_clients():
+    # A client may receive only initialization or the application instruction,
+    # never the installed CLAUDE.md. Exercise both actual delivery values.
+    from src.engine.persona import APPLY_INSTRUCTION
+
+    deliveries = {
+        "initialization": server.mcp._mcp_server.create_initialization_options().instructions,
+        "application": APPLY_INSTRUCTION,
+    }
+    for surface, instructions in deliveries.items():
+        worker, ordinary = instructions.split("For ordinary conversations", 1)
+        assert "prepared agents-core/subagent/1" in worker, surface
+        assert "first-work repository description" in worker, surface
+        assert "per-turn log_interaction" in worker, surface
+        assert "first time you read, search or change repository files" in ordinary, surface
+        assert "call describe_repo with workspace and the target repo_path" in ordinary, surface
+        assert "On needs_summary, follow its instruction" in ordinary, surface
+        assert "call write_repo_summary only where that instruction allows a write" in ordinary, surface
+        assert "ends the turn" in ordinary and "only reports progress" in ordinary, surface
+        assert "when describe_repo is available" in ordinary, surface
+        assert "When describe_repo is unavailable" in ordinary, surface
+        assert "documented manual role fallback" in ordinary, surface
+        assert "Before changing another session\'s branch, worktree, pull request, host or service" in ordinary, surface
+        assert "message the owning session and wait for its answer" in ordinary, surface
+        assert "If it does not answer, ask the user" in ordinary, surface
+        assert "Explicit user authorization remains authoritative" in ordinary, surface
