@@ -11,6 +11,8 @@ on:
       - src/stdio_runtime.py
       - src/daemon/runtime.py
       - src/daemon/sync_ui.py
+      - src/daemon/flows_ui.py
+      - src/daemon/sync_loop.py
       - tests/test_personal_runtime.py
       - tests/test_runtime_composition.py
       - src/schemas/artifacts.py
@@ -72,6 +74,8 @@ on:
       - src/stdio_runtime.py
       - src/daemon/runtime.py
       - src/daemon/sync_ui.py
+      - src/daemon/flows_ui.py
+      - src/daemon/sync_loop.py
       - tests/test_personal_runtime.py
       - tests/test_runtime_composition.py
       - src/schemas/artifacts.py
