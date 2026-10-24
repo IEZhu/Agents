@@ -231,6 +231,22 @@ def test_log_guidance_in_instructions_ends_before_truncation():
     assert "all 7 keys" in text[:end]
 
 
+@pytest.mark.parametrize("phrase", [
+    "If Agents-Core is listed, make every call there, the first too; retry Desktop denials there.",
+    "Return its result only.",
+    "Complete ROUTE_REQUIRED with get_agent_context in the same turn before answering",
+    "A message that ends the turn is a final answer even when it only reports progress",
+    "Then send the final answer.",
+    "call get_subagent_context before spawning with a canonical agent_name, task, acceptance_criteria",
+])
+def test_per_turn_directives_stay_inside_the_instruction_window(phrase):
+    """#508: Claude Code shows the first 2048 characters of the server instructions (#421). The
+    directives every turn depends on stay inside them, so new guidance placed ahead of them fails
+    here instead of silently dropping them from the window."""
+    text = server.mcp.instructions
+    assert phrase in text and text.index(phrase) + len(phrase) < 2048
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("tool,args", [
     ("route_and_load", {"query": "x"}),

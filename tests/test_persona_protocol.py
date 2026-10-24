@@ -586,7 +586,11 @@ def test_first_work_bootstrap_reaches_mcp_only_clients():
         "application": APPLY_INSTRUCTION,
     }
     for surface, instructions in deliveries.items():
-        worker, ordinary = instructions.split("For ordinary conversations", 1)
+        # The worker exemption comes first; the initialization text then puts the per-turn
+        # directives ahead of the first-work guidance to keep them in Claude Code's window (#508).
+        worker_end = instructions.index("per-turn log_interaction") + len("per-turn log_interaction")
+        worker, ordinary = instructions[:worker_end], instructions[worker_end:]
+        assert "For ordinary conversations" in ordinary, surface
         assert "prepared agents-core/subagent/1" in worker, surface
         assert "first-work repository description" in worker, surface
         assert "per-turn log_interaction" in worker, surface
