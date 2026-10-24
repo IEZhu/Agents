@@ -10,6 +10,11 @@ on:
       - src/schemas/artifacts.py
       - src/schemas/subagent.py
       - src/engine/subagent.py
+      - src/engine/onnx_embedding.py
+      - src/engine/embedding_catalog.json
+      - src/engine/embedder.py
+      - src/engine/embedding_prompts.py
+      - src/engine/fingerprint.py
       - src/server.py
       - tests/test_log_interaction_async.py
       - tests/test_log_worker_startup.py
@@ -39,6 +44,10 @@ on:
       - tests/test_local_inference*.py
       - tests/local_inference_fake.py
       - tests/test_optional_inference_disabled.py
+      - tests/test_onnx_embedding.py
+      - tests/test_embedder.py
+      - tests/test_embedding_prompts.py
+      - tests/test_startup_handshake.py
       - tests/test_daemon_runtime_override.py
       - tests/test_daemon_autoupdate.py
       - tests/test_daemon_update.py
@@ -58,6 +67,11 @@ on:
       - src/schemas/artifacts.py
       - src/schemas/subagent.py
       - src/engine/subagent.py
+      - src/engine/onnx_embedding.py
+      - src/engine/embedding_catalog.json
+      - src/engine/embedder.py
+      - src/engine/embedding_prompts.py
+      - src/engine/fingerprint.py
       - src/server.py
       - tests/test_log_interaction_async.py
       - tests/test_log_worker_startup.py
@@ -87,6 +101,10 @@ on:
       - tests/test_local_inference*.py
       - tests/local_inference_fake.py
       - tests/test_optional_inference_disabled.py
+      - tests/test_onnx_embedding.py
+      - tests/test_embedder.py
+      - tests/test_embedding_prompts.py
+      - tests/test_startup_handshake.py
       - tests/test_daemon_runtime_override.py
       - tests/test_daemon_autoupdate.py
       - tests/test_daemon_update.py
@@ -129,6 +147,10 @@ jobs:
           python-version: '3.11'
       - name: Install runtime and test dependencies
         run: python -m pip install -r requirements.txt
+      - name: Dense ONNX catalog, inference contracts and index fingerprints
+        run: python -B -m pytest tests/test_onnx_embedding.py tests/test_embedder.py tests/test_embedding_prompts.py -q -p no:cacheprovider
+      - name: Slow startup readiness with the isolated fake embedding adapter
+        run: python -B -m pytest tests/test_startup_handshake.py -o addopts= -q -p no:cacheprovider
       - name: Persistent artifacts and scoped worker contracts
         run: python -B -m pytest tests/test_artifact_store.py tests/test_artifact_service.py tests/test_artifact_mcp.py tests/test_subagent_artifacts.py tests/test_optional_inference_disabled.py -q -p no:cacheprovider
       - name: MCP proxy, host inventory and private-library sync

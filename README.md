@@ -1,5 +1,9 @@
 # 🤖 Agents-Core
 
+[![Shared runtime (dev)](https://github.com/IEZhu/Agents/actions/workflows/shared-runtime.yml/badge.svg?branch=dev&event=push)](https://github.com/IEZhu/Agents/actions/workflows/shared-runtime.yml?query=branch%3Adev+event%3Apush)
+[![User sync (dev)](https://github.com/IEZhu/Agents/actions/workflows/user-sync.yml/badge.svg?branch=dev&event=push)](https://github.com/IEZhu/Agents/actions/workflows/user-sync.yml?query=branch%3Adev+event%3Apush)
+[![Vulnerability scan (dev)](https://github.com/IEZhu/Agents/actions/workflows/vulnerability-scan.yml/badge.svg?branch=dev&event=push)](https://github.com/IEZhu/Agents/actions/workflows/vulnerability-scan.yml?query=branch%3Adev+event%3Apush)
+
 **Specialist context, reusable workflows and repository memory for AI assistants.**
 
 Agents-Core is a local Model Context Protocol (MCP) server for assistants that need a specialist role, a repeatable task procedure or context from earlier work in a repository. It supplies personas, domain skills, shared rules and optional reasoning patterns called cognitive implants. Your current model uses that context and executes the task with its existing tools.
@@ -12,6 +16,27 @@ Agents-Core is a local Model Context Protocol (MCP) server for assistants that n
 - [AI contributor instructions](AGENTS.md) and [Claude instructions](CLAUDE.md).
 - [Model workflows](flows/README.md): reusable Markdown instructions, including
   the [documentation refresh process](flows/documentation-refresh.md).
+
+## Checks
+
+The badges show the latest matching push runs on the integration branch, `dev`. Shared runtime and User sync use changed-path filters, so their last run can predate a documentation-only commit. Open the links for job logs, and use each pull request's Checks tab for that change's results. Other focused workflows are listed in [GitHub Actions](https://github.com/IEZhu/Agents/actions) and the [test guide](tests/README.md).
+
+| Workflow | Scope |
+|---|---|
+| [Shared runtime](.github/workflows/shared-runtime.yml) | Linux, macOS and Windows checks for persistent artifacts, scoped workers, cooperation, MCP integration, dense adapter contracts and fake startup readiness; POSIX jobs also check fake native/Redis boundaries. |
+| [User sync](.github/workflows/user-sync.yml) | Library history, synchronization and executable discovery on Linux, macOS and Windows, using local bare repositories and fake GitHub APIs. |
+| [Vulnerability scan](.github/workflows/vulnerability-scan.yml) | The complete committed `uv.lock` inventory, including declared extras, plus independently resolved universal `requirements.txt` dependencies. Every severity, unfixed advisory, missing package and scanner/resolver error fails the gate. Findings are printed in the job log. |
+
+The dependency scan runs on pull requests, merge groups, `main`/`dev` pushes, daily on the default branch and on manual dispatch; releases reuse it for their exact source commit. A passing scan describes known dependency advisories within that inventory, not an application security audit. Badges report workflow status; merge enforcement requires the corresponding required checks in repository branch protection or rulesets.
+
+After preparing the environment as described in the [test guide](tests/README.md), run the regular suite locally:
+
+```bash
+LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/ -q
+node --test bridge/test.mjs
+```
+
+Pytest excludes the `slow` marker by default. See the test guide for focused, slow and explicit live checks. These commands do not reproduce the complete hosted platform matrix or the dependency scan, and no coverage percentage is claimed.
 
 ## When to use Agents-Core
 
@@ -325,7 +350,7 @@ placeholders `pk-lf-...` and `sk-lf-...`, which an `.env` copied from an older
 [document OCR server](src/mcp_servers/document_ocr/README.md) needs a real
 `ANTHROPIC_API_KEY`.
 
-Embeddings run locally through FastEmbed (ONNX Runtime); the initial model download
+Embeddings run locally through ONNX Runtime, Hugging Face Tokenizers and Hub; the initial model download
 requires network access. The default model is `microsoft/harrier-oss-v1-270m`
 (MIT, multilingual, about 1.1 GB to download and 0.85 GB loaded): on the project's
 retrieval sets it ranks implants and skills better than the earlier defaults
@@ -336,7 +361,7 @@ once downloaded. Setup no longer asks: harrier-270m is the one model for every
 machine, replacing the earlier Full, Balanced and Light choices. Setup writes it
 to `EMBEDDING_MODEL` in `.env`, together with `EMBEDDING_MODEL_GENERATION`. When
 `EMBEDDING_MODEL` is unset, for example after `--skip-index`, standalone stdio
-uses it as well. Any FastEmbed model stays selectable,
+uses it as well. All 37 dense models from the FastEmbed 0.8.1 catalog stay selectable,
 `intfloat/multilingual-e5-large` included: edit `EMBEDDING_MODEL` and, with
 server sessions stopped, run
 `.venv/bin/python -m src.reindex`. An `.env` without
@@ -344,6 +369,31 @@ server sessions stopped, run
 needs that line too; otherwise the next start switches it to the default
 ([model switch](#model-switch-on-update)). The [shared macOS and Windows service](#shared-macos-and-windows-service)
 pins its model in its own configuration.
+
+The dense adapter in `src/engine/onnx_embedding.py` retains the catalog, model
+files, pooling, dimensions and cache locations from FastEmbed 0.8.1 while using
+the maintained inference and tokenizer packages directly. OCR uses Pillow 13 or
+newer independently. The explicit embedding contract and ONNX Runtime version
+now enter the derived-index fingerprint, so the first start rebuilds vector
+indexes once; source history and cached model weights are retained. Changes to
+the adapter's numerical conventions must bump its `EMBEDDING_CONTRACT`. Model
+licenses remain in the catalog and `THIRD_PARTY_NOTICES`.
+
+Automatic model-load recovery removes only a managed model directory with an
+identified UTF-8, JSON/metadata or ONNX protobuf fault. A failed Hub snapshot
+also removes its blob targets only inside the same repository and only when a
+complete re-scan under Hub's own per-blob publication lock finds no other
+snapshot references. Shared blobs, uncertain or aliased cache/lock paths, busy
+publishers and exhausted lock-wait budgets preserve the blob files. This
+cooperates with upstream Hub publishers; it does not add a lifetime protocol
+for unrelated clients that bypass those locks. Temporary resource, provider or
+other unclassified initialization failures keep cached snapshots and fallback
+sources available for later offline loads. Hub transport failures retain the
+bounded source retries and archive fallback. Caller-owned `AGENTS_MODEL_PATH`
+directories are never removed or rewritten. Positive sentinel-only tokenizer
+limits are accepted and then bounded by the normal input cap. SigLIP's fixed
+padding still requires a finite tokenizer context. Unknown tokenizer/schema
+errors remain visible rather than being guessed from exception text.
 
 #### Model switch on update
 
@@ -929,7 +979,7 @@ Agents/
 │   │   ├── implants.py   # Implant retrieval (vector search)
 │   │   ├── rules.py      # Shared rule loading
 │   │   ├── config.py     # Centralized configuration
-│   │   ├── embedder.py   # FastEmbed wrapper (ONNX Runtime)
+│   │   ├── embedder.py   # Dense ONNX embedding wrapper
 │   │   ├── embedding_prompts.py # Model prompts and extra model registrations
 │   │   ├── vector_store.py # NumPy-based vector store
 │   │   ├── enrichment.py # Tier-based context enrichment
@@ -1390,6 +1440,28 @@ the merge method, closing keywords, hotfixes, the rules for `dev` and the tag
 workflow. Installations choose their branch with `python -m src.daemon channel set
 main|dev` or the web UI's Updates section ([update channel](#update-channel)). The
 `push` triggers of the CI workflows cover `main` and `dev`.
+
+### Vulnerability gate
+
+`Vulnerability scan` audits the complete committed `uv.lock` on every pull request,
+merge queue, push to `dev`/`main`, manual run and daily schedule. Trivy 0.76.1 includes
+development dependencies and every severity, including unknown and unfixed issues.
+uv 0.11.25 first rejects drift between dependency declarations (including every
+optional extra) and the lock, with source builds disabled. Missing or unparsed
+lockfiles and scanner/database errors fail the job. The independent `requirements.txt`
+installation input is also resolved universally for Python 3.11 and later, without
+source builds or Python downloads, and its complete pinned dependency list is scanned
+alongside `uv.lock`. The report must include every expected package name and version
+from both inventories, including conditional versions. This audit resolves the
+requirements at scan time; it does not turn independent pip installs into locked installs.
+No repository ignore policy is loaded. Release publication scans the exact merged
+release commit again and depends on both inventories passing.
+
+Require the `Vulnerability scan` check in the protection rules for `dev` and `main`
+after this workflow lands; a failing workflow alone does not prevent an unprotected
+branch from being merged. Fix dependencies rather than adding an automatic exception
+for a vulnerability without an available fix. Revert the workflow change to roll back
+this policy, updating any required-check rule at the same time.
 
 ### Validation
 
