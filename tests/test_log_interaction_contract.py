@@ -15,6 +15,11 @@ FULL = {
     "scope": "Law", "skills_loaded": ["s"], "implants_loaded": [], "rules_loaded": ["r"],
 }
 TOOLS = ("log_interaction", "route_and_load", "get_agent_context", "refresh_persona_context", "run_flow")
+# Claude Code shows this many characters of a server's instructions: 4,096 since v2.1.296,
+# 2,048 before (#421, #508). Older clients are still in use, so the shorter window holds
+# the directives every turn needs and the longer one the delegation exchange through validation.
+OLDER_CLAUDE_CODE_WINDOW = 2048
+CLAUDE_CODE_WINDOW = 4096
 
 
 @pytest.fixture(autouse=True)
@@ -227,7 +232,7 @@ async def test_advertised_schemas_are_renderable():
 def test_log_guidance_in_instructions_ends_before_truncation():
     text = server.mcp.instructions
     end = text.index("Then send the final answer") + len("Then send the final answer")
-    assert end < 2048
+    assert end < OLDER_CLAUDE_CODE_WINDOW
     assert "all 7 keys" in text[:end]
 
 
@@ -238,13 +243,25 @@ def test_log_guidance_in_instructions_ends_before_truncation():
     "A message that ends the turn is a final answer even when it only reports progress",
     "Then send the final answer.",
     "call get_subagent_context before spawning with a canonical agent_name, task, acceptance_criteria",
+    "Require status: prepared.",
 ])
-def test_per_turn_directives_stay_inside_the_instruction_window(phrase):
-    """#508: Claude Code shows the first 2048 characters of the server instructions (#421). The
-    directives every turn depends on stay inside them, so new guidance placed ahead of them fails
-    here instead of silently dropping them from the window."""
+def test_per_turn_directives_stay_inside_the_older_instruction_window(phrase):
+    """#508: the directives every turn depends on stay inside the 2,048 characters older Claude
+    Code versions show, so new guidance placed ahead of them fails here instead of silently
+    dropping them from the window."""
     text = server.mcp.instructions
-    assert phrase in text and text.index(phrase) + len(phrase) < 2048
+    assert phrase in text and text.index(phrase) + len(phrase) < OLDER_CLAUDE_CODE_WINDOW
+
+
+@pytest.mark.parametrize("phrase", [
+    "Call validate_subagent_result for every returned or revised output",
+    "Require valid: true before accepting",
+])
+def test_delegation_validation_stays_inside_the_current_window(phrase):
+    """#508: current Claude Code shows 4,096 characters, enough for the delegation exchange
+    through its validation rule after the per-turn directives."""
+    text = server.mcp.instructions
+    assert phrase in text and text.index(phrase) + len(phrase) < CLAUDE_CODE_WINDOW
 
 
 @pytest.mark.asyncio
@@ -322,7 +339,7 @@ async def test_logging_guidance_keeps_the_request_verbatim_apart_from_one_redact
 
 def test_server_choice_guidance_is_visible_before_truncation():
     """#421: a Code-tab session lists Agents-Core and the denied Agents-Core-Desktop; every
-    protocol surface says which to call, and Claude Code's 2048-character window keeps it."""
+    protocol surface says which to call, and Claude Code's shorter window keeps it."""
     from pathlib import Path
     root = Path(__file__).resolve().parents[1]
     text = server.mcp.instructions
@@ -330,7 +347,7 @@ def test_server_choice_guidance_is_visible_before_truncation():
                    # The guidance must not push the delegation directive out of the window.
                    "call get_subagent_context before spawning with a canonical agent_name, task, "
                    "acceptance_criteria"):
-        assert phrase in text and text.index(phrase) + len(phrase) < 2048, phrase
+        assert phrase in text and text.index(phrase) + len(phrase) < OLDER_CLAUDE_CODE_WINDOW, phrase
     for name in ("scripts/templates/routing-protocol-core.md", "CLAUDE.md"):
         flat = " ".join((root / name).read_text(encoding="utf-8").split())
         assert ("When both `Agents-Core` and `Agents-Core-Desktop` are listed, make every call through "

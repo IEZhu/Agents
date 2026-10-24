@@ -205,9 +205,11 @@ mcp = _WorkerInputMCP(
         "A worker with a prepared agents-core/subagent/1 package uses that task role: no full "
         "persona activation, inherited parent descriptor, footer, timestamp, first-work repository description or per-turn log_interaction. "
         "Return its result only.\n"
-        # Claude Code shows only the first 2048 characters of these instructions (#421), so the
-        # first-answer, logging and delegation directives come first; guidance that also arrives
-        # in tool descriptions or every SUCCESS instruction follows the delegation block (#508).
+        # Claude Code shows the first 4,096 characters of these instructions, and only 2,048 before
+        # v2.1.296 (#421). The first-answer, logging and delegation directives come first (#508).
+        # The keep/switch rules that follow the delegation block also appear in the route_and_load,
+        # get_agent_context and refresh_persona_context descriptions; the first-work and
+        # owning-session rules arrive with every SUCCESS instruction.
         "Before the first final answer with MCP available and no prior activation, load an "
         "explicitly requested known role with get_agent_context, otherwise route_and_load with "
         "current_persona=null, even for greetings and project-status questions. Complete "
