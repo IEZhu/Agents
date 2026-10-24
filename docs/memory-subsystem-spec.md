@@ -144,7 +144,7 @@ read_history(limit=20, since?, query?, machine?, offset=0, entry_id?)
 | Marker editor for CLAUDE.md (inline Python) | Inline marker editor in `scripts/init_repo.sh` (April 2026) | Ported to `src/memory/managed_section.py`. The installers never imported it: they edit the routing section with `scripts/_helpers/inject_claude_md.py`, a separate implementation that also migrates the legacy routing marker pair. Only `describe_repo`/`write_repo_summary` use `managed_section` |
 | `SkillRetriever._compute_dir_hash` + `_needs_reindex` | `src/engine/skills.py` | `RepoDescriber.compute_repo_hash` + `plan()` |
 | `NumpyVectorStore` (atomic .npz+.json, thread-safe) | `src/engine/vector_store.py` | `HistoryStore` for semantic recall |
-| `embed_texts` / `embed_query` (FastEmbed) | `src/engine/embedder.py` | Vectorization of entries and queries |
+| `embed_texts` / `embed_query` (ONNX Runtime) | `src/engine/embedder.py` | Vectorization of entries and queries |
 | `LanguageDetector` | `src/engine/language.py` | Planned language tagging of entries; not implemented (Appendix C) |
 | `debug_log` | `src/utils/debug_logger.py` | Instrumentation of all tools |
 | `@observe` from `langfuse_compat` | `src/utils/langfuse_compat.py` | Optional observability |

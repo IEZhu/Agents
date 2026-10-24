@@ -82,8 +82,8 @@ def test_a_loaded_snapshot_outranks_the_pinned_copy_in_the_fingerprint(monkeypat
 
 
 def test_custom_models_register_without_extra_pooling(monkeypatch):
-    from fastembed import TextEmbedding
-    from fastembed.common.model_description import PoolingType
+    from src.engine.onnx_embedding import TextEmbedding
+    from src.engine.onnx_embedding import PoolingType
 
     calls = []
     monkeypatch.setattr(TextEmbedding, "list_supported_models", classmethod(lambda cls: []))

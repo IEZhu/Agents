@@ -21,6 +21,7 @@ def compute_fingerprint(model=None, revision=None):
     """
     from src.engine.config import EMBEDDING_MODEL, FASTEMBED_CACHE_DIR
     from src.engine.embedding_prompts import MAX_INPUT_TOKENS, pinned_revision, templates
+    from src.engine.onnx_embedding import EMBEDDING_CONTRACT
     model = model or EMBEDDING_MODEL
     revision = os.environ.get("AGENTS_MODEL_ARTIFACT") or revision or pinned_revision(model)
     if not revision:
@@ -33,7 +34,7 @@ def compute_fingerprint(model=None, revision=None):
         revision = ",".join(refs) or "unresolved"
     payload = {"model": model, "revision": revision, "schema": INDEX_SCHEMA,
                "preprocessing": PREPROCESSING, "prompts": list(templates(model)),
-               "max_input_tokens": MAX_INPUT_TOKENS, "fastembed": version("fastembed")}
+               "max_input_tokens": MAX_INPUT_TOKENS, "embedding_contract": EMBEDDING_CONTRACT, "onnxruntime": version("onnxruntime")}
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
 
 
