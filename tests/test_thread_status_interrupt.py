@@ -92,6 +92,33 @@ def register(state, prompt, size=0):
         value.update(prompt=prompt, size=size, woken=False)
 
 
+def overwrite_record(state, data):
+    """Replace the session record's bytes through a handle holding its lock.
+
+    Every access takes the lock, and on Windows a write into a range another handle has locked
+    fails, so a bare ``write_bytes`` would race the watcher's poll.
+    """
+    path = state / f"{SESSION}.json"
+    flags = os.O_RDWR | getattr(os, "O_BINARY", 0)
+    with os.fdopen(os.open(path, flags), "r+b") as stream:
+        deadline = time.monotonic() + 5
+        while True:
+            try:
+                watcher._lock(stream)
+                break
+            except OSError:
+                if time.monotonic() >= deadline:
+                    raise
+                time.sleep(0.01)
+        try:
+            stream.seek(0)
+            stream.truncate()
+            stream.write(data)
+            stream.flush()
+        finally:
+            watcher._lock(stream, release=True)
+
+
 def wait_started(state, prompt=PROMPT):
     for _ in range(500):
         if record(state).get("prompt") == prompt:
@@ -392,6 +419,28 @@ def test_a_superseded_prompts_record_after_ours_does_not_retire_the_current_watc
     assert new_result["code"] == 2 and capsys.readouterr().err.count("set_session_title") == 1
 
 
+def test_a_woken_prompts_record_before_the_next_prompts_registration_does_not_refuse_it(tmp_path, capsys):
+    transcript = tmp_path / "session.jsonl"
+    transcript.write_text(typed() + interrupt())
+    state = tmp_path / "state"
+    register(state, PROMPT, transcript.stat().st_size)
+    with watcher._locked(state, SESSION) as value:
+        value["woken"] = True  # the stopped prompt woke Claude
+    # The message sent right after stop is carried into the woken turn, which keeps the stopped
+    # prompt's ID: its record (the title call's tool result) lands before the message's watcher
+    # has registered.
+    append(transcript, typed(NEWER, "Then do this") + tool_result())
+    new, new_result = start(transcript, state, NEWER)
+    wait_started(state, NEWER)
+    time.sleep(0.2)
+    assert new.is_alive()
+    current = record(state)
+    assert current["history"] == [PROMPT] and not current["woken"]
+    append(transcript, interrupt(NEWER))
+    new.join(5)
+    assert new_result["code"] == 2 and capsys.readouterr().err.count("set_session_title") == 1
+
+
 def test_two_watchers_of_one_prompt_wake_once(transcript, tmp_path, capsys):
     state = tmp_path / "state"
     first, first_result = start(transcript, state)
@@ -500,7 +549,7 @@ def test_a_corrupt_session_record_ends_the_watcher_quietly_and_a_stop_rewrites_i
     thread, result = start(transcript, state)
     wait_started(state)
     path = state / f"{SESSION}.json"
-    path.write_bytes(corrupt)
+    overwrite_record(state, corrupt)
     append(transcript, interrupt())
     thread.join(5)
     assert result["code"] == 0 and capsys.readouterr().err == ""

@@ -267,9 +267,10 @@ def _stops(record: dict) -> dict[str, int]:
 def _written_before(follower: _Follower, registered: int, size: int) -> bool:
     """Whether the follower's prompt has a user record from before ``registered``.
 
-    The registration scan covers only the transcript's last ``LOOKBACK_BYTES``. When the
-    current prompt registered before that window, the ``LOOKBACK_BYTES`` that end at its
-    registration are read as well: a late watcher's last records usually lie just before
+    The registration scan covers only the transcript's last ``LOOKBACK_BYTES``. When it saw
+    none of the prompt's records, the current prompt registered before the transcript's end
+    and the transcript is longer than ``LOOKBACK_BYTES``, the ``LOOKBACK_BYTES`` that end at
+    the registration are read as well: a late watcher's last records usually lie just before
     it, however long the current turn has run since.
     """
     if follower.own_end is not None:
@@ -277,10 +278,10 @@ def _written_before(follower: _Follower, registered: int, size: int) -> bool:
     end = min(size, registered)
     if end >= size or size <= LOOKBACK_BYTES:
         return False  # the registration scan already covered the window before ``end``
-    earlier = _Follower(follower.path, follower.prompt, max(0, end - LOOKBACK_BYTES), follower.older)
+    earlier = _Follower(follower.path, follower.prompt, max(0, end - LOOKBACK_BYTES))
     while earlier.read(until=end):
         pass
-    return earlier.own_end is not None or earlier.newer
+    return earlier.own_end is not None
 
 
 def _register(record: dict, prompt: str, size: int, follower: _Follower) -> bool:
@@ -357,7 +358,13 @@ def watch(event: object, state_directory: Path, *, environ=os.environ, poll: flo
         # Register against a snapshot of the transcript's end, under the session lock.
         with _locked(state, session) as record:
             size = path.stat().st_size if path.is_file() else 0
-            follower = _Follower(path, prompt, max(0, size - LOOKBACK_BYTES), _history(record))
+            older = _history(record)
+            current = _current(record)[0]
+            if record.get("woken") and current is not None:
+                # The prompt this one replaces woke Claude, and its woken turn keeps that ID:
+                # its records can follow ours before this watcher registers.
+                older.append(current)
+            follower = _Follower(path, prompt, max(0, size - LOOKBACK_BYTES), older)
             if size:
                 follower.read()
             if not _register(record, prompt, size, follower):

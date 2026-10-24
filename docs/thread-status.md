@@ -151,7 +151,8 @@ prompt also ends an older watcher, through its registration or, before its own
 watcher starts, through its first transcript record: Claude Code stamps every
 main-thread user record with the current prompt's ID. Records of a prompt the
 session record already superseded do not count as newer: a stopped prompt's woken
-turn keeps that prompt's ID, so its records can follow the next prompt's own.
+turn keeps that prompt's ID, so its records can follow the next prompt's own,
+even before that prompt's watcher registers.
 
 One record per session in `hooks/agents-core-thread-status-interrupt-state/`,
 locked with `flock` on POSIX and `msvcrt.locking` on Windows, serializes
