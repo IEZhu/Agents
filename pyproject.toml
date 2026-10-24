@@ -58,7 +58,7 @@ include = ["src*", "evals*", "scripts._helpers*"]
 
 [tool.setuptools.package-data]
 "src.context_compaction" = ["cursor_ui.js"]
-"src.engine" = ["embedding_catalog.json", "FASTEMBED_LICENSE", "FASTEMBED_NOTICE"]
+"src.engine" = ["embedding_catalog.json", "FASTEMBED_LICENSE", "FASTEMBED_NOTICE", "protocol/*.md"]
 
 [tool.pytest.ini_options]
 addopts = ["-m", "not slow"]

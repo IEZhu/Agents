@@ -5,8 +5,13 @@ helper compares an installed reminder with these bytes: a match is replaced with
 the current `../memory-routing.md`, anything else is preserved as user-edited.
 Do not edit these files.
 
-Before changing `../memory-routing.md`, copy its current bytes here unchanged as
-`memory-routing-v<N>.md`, using the next unused number. The helper reads only
+`../memory-routing.md` is generated from `src/engine/protocol/`. When
+`python -m src.engine.protocol_text --write` replaces it, the command saves the
+released reminder (the one at the merge base with `origin/dev` or `dev`) here
+unchanged as `memory-routing-v<N>.md`, using the next unused number, and prints its
+name and source; it does so on every run, so a reminder released after the branch
+last changed its own is kept too, and `--check` fails while one is missing. When git
+or a `dev` base is unavailable, it keeps the replaced working-tree reminder instead. The helper reads only
 files matching `memory-routing-*.md`; without that copy, installed reminders of
 the previous version are reported as user-edited and are not migrated. Also add
 the new copy where the tests list the existing ones
@@ -30,3 +35,4 @@ installations from either branch can migrate:
 
 - `memory-routing-v21.md` retains the reminder before secret redaction in logged fields was made explicit.
 - `memory-routing-v22.md` retains the reminder before the compact worker exchange (file receipts, plain-text results, validation by `contract_revision` and `result_ref`).
+- `memory-routing-v23.md` retains the reminder before it was rendered from the protocol source in `src/engine/protocol/` (#431), which unified its delegation, artifact, cooperation and first-work wording with the MCP instructions.
