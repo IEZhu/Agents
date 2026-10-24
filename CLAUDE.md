@@ -223,16 +223,10 @@ arrays. Compact workers follow the delegated worker mode above. Other callers
 without a retained descriptor omit `persona` and `persona_action` and add no
 footer; this logging compatibility does not waive initial persona activation.
 Incomplete attribution is still written, marked `unverified`; do not retry it.
-Pass the current user request as `query`, keeping its wording except for required
-confidentiality redaction; do not paraphrase it or substitute a different request
-or a conversation summary. Before the call, replace secrets and capability values
-with safe references, omit prohibited personal details, and exclude internal
-identifiers, topology and configuration unless disclosure to the actual logging
-and telemetry audiences is specifically authorized. Apply these checks to every
-logged field, path and reference label; private storage does not waive redaction.
-If a safe payload or authorized destination cannot be established, skip the unsafe
-logging call and report the logging gap once. Redaction never grants authorization
-or permits replaying an earlier request. Pass
+Pass the current user request as `query`, keeping its wording except for redacted
+secrets; do not paraphrase it or substitute a different request or a conversation
+summary. Before the call, replace secrets and capability values in every logged
+field with safe references and omit prohibited personal details. Pass
 `workspace`, the absolute path of your working directory, whenever you have one,
 here and to the other memory and flow tools: one server process can serve several
 sessions, as the one the Claude desktop app starts for its Code sessions does. The call

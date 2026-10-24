@@ -56,8 +56,8 @@ Except for the unavailable-MCP fallback below, compose the answer plus saved
 footer. Before delivering it, call
 `log_interaction(agent_name, query, response_content, persona=..., persona_action=..., workspace=...)`:
 use the active specialist's canonical name as `agent_name`, the current user
-request as `query` after required confidentiality redaction, the complete
-composed answer plus footer as
+request as `query` with secrets redacted, the complete composed answer plus
+footer as
 `response_content`, and the absolute path of your working directory as
 `workspace` whenever you have one (also for the other memory and flow tools). Pass the `persona` object of the last SUCCESS/NO_CHANGE verbatim, with all 7 keys (`agent`, `activation_id`, `bundle_revision`, `scope`, `skills_loaded`, `implants_loaded`, `rules_loaded`),
 and the actual keep/switch/refresh/restore action only together with it; `files`/`tags`
@@ -67,13 +67,8 @@ not waive initial activation. Incomplete attribution is still logged as `unverif
 `answer-timestamp` and it returns a `timestamp`, deliver the answer with that
 `timestamp` as its first line followed by an empty line (it is not part of
 `response_content`), otherwise with no time line. A message that ends the turn is a final answer even when it only reports progress while a background worker, timer or another session is still running: log it and include the footer. The final answer may end the tool loop.
-Before logging, replace secrets and capability values with safe references, omit
-prohibited personal details, and exclude internal identifiers, topology and
-configuration unless specifically authorized for the actual logging and telemetry
-audiences. Apply these checks to every field and reference label; private storage
-does not waive redaction. If safe logging is unavailable, skip the unsafe call and
-report the gap once. Keep the current request as the source; redaction grants no
-authorization and does not permit replaying an earlier request.
+Before logging, replace secrets and capability values in every field with safe
+references and omit prohibited personal details.
 
 When a `log_interaction` or `read_history` result carries `history_last_error`, or
 returns `workspace_required`, `workspace_unsafe` or `workspace_invalid`, mention it
