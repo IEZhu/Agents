@@ -68,6 +68,10 @@ def handlers(document, client):
     for event in events:
         entry = document["hooks"][event][0]
         yield entry if client == "cursor" else entry["hooks"][0]
+    if client == "claude":
+        # The interrupt watcher and its Stop marker, in their own generated groups.
+        yield document["hooks"]["UserPromptSubmit"][-1]["hooks"][0]
+        yield document["hooks"]["Stop"][0]["hooks"][0]
 
 
 @pytest.mark.parametrize("platform", ["darwin", "linux", "win32"])
@@ -93,10 +97,16 @@ def test_native_windows_commands_with_quoted_profile_paths_are_removed(tmp_path,
     ctx, paths, runtimes, originals = profiles(tmp_path, monkeypatch, "win32")
     target, script = paths[client]
     document = json.loads(target.read_bytes())
-    command = subprocess.list2cmdline([str(ctx.source_root / ".venv/Scripts/python.exe"),
-                                      str(script), "--client", client])
+    python = str(ctx.source_root / ".venv/Scripts/python.exe")
+    modes = {}
+    if client == "claude":
+        modes = {id(document["hooks"]["UserPromptSubmit"][-1]["hooks"][0]): "--watch",
+                 id(document["hooks"]["Stop"][0]["hooks"][0]): "--done"}
     for handler in handlers(document, client):
-        handler["command"] = command
+        mode = modes.get(id(handler))
+        handler["command"] = subprocess.list2cmdline(
+            [python, str(script.with_name(installer.INTERRUPT_NAME)), mode] if mode
+            else [python, str(script), "--client", client])
     target.write_text(json.dumps(document), encoding="utf-8")
     report = uninstall.execute(uninstall.thread_status_items(ctx, uninstall.Backups(ctx), ctx.source_root),
                                credentials=False)
@@ -314,3 +324,20 @@ def test_owned_hooks_are_removed_beneath_linked_home_ancestor(tmp_path, monkeypa
         assert json.loads(target.read_bytes()) == originals[client]
         assert all(not path.exists() for path in runtimes[client])
     assert alias.is_symlink() and real.is_dir()
+
+
+@pytest.mark.parametrize("platform", ["linux", "win32"])
+def test_claude_interrupt_handlers_go_while_a_foreign_stop_hook_stays(tmp_path, monkeypatch, platform):
+    ctx, paths, runtimes, originals = profiles(tmp_path, monkeypatch, platform)
+    target, script = paths["claude"]
+    assert script.with_name(installer.INTERRUPT_NAME) in runtimes["claude"]
+    document = json.loads(target.read_bytes())
+    foreign = {"hooks": [{"type": "command", "command": "notify-stop"}]}
+    document["hooks"]["Stop"].insert(0, foreign)
+    target.write_text(json.dumps(document), encoding="utf-8")
+    report = uninstall.execute(uninstall.thread_status_items(ctx, uninstall.Backups(ctx), ctx.source_root),
+                               credentials=False)
+    assert not report["failed"] and not report["refused"]
+    assert json.loads(target.read_bytes()) == {**originals["claude"],
+                                               "hooks": {**originals["claude"]["hooks"], "Stop": [foreign]}}
+    assert all(not path.exists() for path in runtimes["claude"])

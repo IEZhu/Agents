@@ -19,7 +19,8 @@ def installation(tmp_path, monkeypatch):
     source = tmp_path / "source"
     for name, content in (("scripts/thread_status.py", b"# runtime\n"),
                           ("src/thread_status.py", b"# formatter\n"),
-                          ("src/codex_thread_titles.py", b"# Codex API adapter\n")):
+                          ("src/codex_thread_titles.py", b"# Codex API adapter\n"),
+                          ("scripts/thread_status_interrupt.py", b"# Claude interrupt watcher\n")):
         path = source / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(content)
@@ -200,3 +201,72 @@ def test_cli_install_and_error_reporting(installation, capsys):
     target.write_text("broken")
     assert installer.main(["--clients", "claude"]) == 1
     assert "ERROR (claude)" in capsys.readouterr().err
+
+
+def test_claude_interrupt_watcher_installs_idempotently_beside_foreign_hooks(installation):
+    target, script, source = installation
+    foreign_stop = {"hooks": [{"type": "command", "command": "notify-stop"}]}
+    foreign_prompt = {"hooks": [{"type": "command", "command": "other-prompt-hook", "async": True}]}
+    target.write_text(json.dumps({"hooks": {"Stop": [foreign_stop], "UserPromptSubmit": [foreign_prompt]}}))
+    result = installer.install("claude")
+    interrupt = script.with_name(installer.INTERRUPT_NAME)
+    assert result["interrupt_watcher"] is True and str(interrupt) in result["scripts"]
+    hooks = json.loads(target.read_text())["hooks"]
+    assert hooks["Stop"][0] == foreign_stop and hooks["UserPromptSubmit"][0] == foreign_prompt
+    watch, done = hooks["UserPromptSubmit"][-1]["hooks"][0], hooks["Stop"][-1]["hooks"][0]
+    assert watch == {"command": installer.command_for(interrupt, "--watch"), "timeout": 6 * 3600,
+                     "asyncRewake": True, "type": "command"}
+    assert done == {"command": installer.command_for(interrupt, "--done"), "timeout": 5, "type": "command"}
+    assert installer.owns_interrupt_handler(watch, script, "--watch")
+    assert installer.owns_interrupt_handler(done, script, "--done")
+    assert not installer.owns_interrupt_handler(watch, script, "--done")
+    assert not installer.owns_handler(watch, script) and not installer.owns_handler(done, script)
+    assert interrupt.read_bytes() == (source / "scripts/thread_status_interrupt.py").read_bytes()
+    before = target.read_bytes(), interrupt.read_bytes()
+    assert not installer.install("claude")["changed"]
+    assert (target.read_bytes(), interrupt.read_bytes()) == before
+
+
+def test_duplicate_interrupt_handlers_collapse_and_custom_variants_stay(installation):
+    target, script, _ = installation
+    interrupt = script.with_name(installer.INTERRUPT_NAME)
+    owned = {"type": "command", "command": installer.command_for(interrupt, "--done"), "timeout": 5}
+    custom = {"type": "command", "command": installer.command_for(interrupt, "--done") + " --verbose"}
+    target.write_text(json.dumps({"hooks": {"Stop": [{"hooks": [owned, custom]}, {"hooks": [owned]}]}}))
+    installer.install("claude")
+    groups = json.loads(target.read_text())["hooks"]["Stop"]
+    assert groups[0] == {"hooks": [custom]}
+    assert sum(installer.owns_interrupt_handler(item, script, "--done")
+               for group in groups for item in group["hooks"]) == 1
+
+
+@pytest.mark.parametrize("client", ["codex", "cursor"])
+def test_other_clients_get_no_interrupt_watcher(installation, client):
+    target, script, _ = installation
+    result = installer.install(client)
+    assert result["interrupt_watcher"] is False
+    assert not script.with_name(installer.INTERRUPT_NAME).exists()
+    assert "Stop" not in json.loads(target.read_text())["hooks"]
+
+
+@pytest.mark.parametrize("stop", [[{"command": "handler-without-group"}], [{"hooks": "bad"}], {"hooks": []}])
+def test_unsupported_stop_layout_keeps_only_the_watcher_out(installation, stop):
+    target, script, _ = installation
+    target.write_text(json.dumps({"hooks": {"Stop": stop}}))
+    result = installer.install("claude")
+    document = json.loads(target.read_text())
+    assert result["interrupt_watcher"] is False and document["hooks"]["Stop"] == stop
+    assert len(document["hooks"]["UserPromptSubmit"]) == 1
+    assert not script.with_name(installer.INTERRUPT_NAME).exists() and script.exists()
+
+
+def test_windows_interrupt_commands_are_encoded_and_owned(tmp_path, monkeypatch):
+    monkeypatch.setattr(installer.helpers, "WINDOWS_HOOKS", True)
+    script = tmp_path / "O'Brien $user %x%!`" / installer.SCRIPT_NAME
+    for mode in ("--watch", "--done"):
+        command = installer.command_for(script.with_name(installer.INTERRUPT_NAME), mode)
+        payload = base64.b64decode(shlex.split(command)[4]).decode("utf-16-le")
+        assert payload == installer.helpers.powershell_payload(
+            [installer.sys.executable, str(script.with_name(installer.INTERRUPT_NAME)), mode])
+        assert installer.owns_interrupt_handler({"command": command}, script, mode)
+        assert not installer.owns_interrupt_handler({"command": command + " extra"}, script, mode)
