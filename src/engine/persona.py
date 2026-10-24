@@ -36,7 +36,7 @@ APPLY_INSTRUCTION = (
     "This is a logical replacement, not deletion of transcript messages. "
     "Save the applied persona descriptor and exact footer. Before sending the final answer, "
     "compose it with that footer and call log_interaction with the complete answer "
-    "(without any time line), the current user request with secrets redacted, "
+    "(without any time line), the current user request verbatim except for the redactions below, "
     "the descriptor and actual "
     "persona_action. "
     "Before logging, replace secrets and capability values in every field with safe "
