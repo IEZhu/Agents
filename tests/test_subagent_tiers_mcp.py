@@ -10,7 +10,7 @@ from src.daemon.workspaces import calling_app
 from src.engine import model_catalogs, subagent_ledger
 from src.schemas.subagent import PreparedPackage
 from tests.test_subagent import report, request, worker_tree  # noqa: F401
-from tests.test_subagent_mcp import call
+from tests.test_subagent_mcp import call, inline
 
 
 @pytest.fixture(autouse=True)
@@ -28,7 +28,10 @@ async def schemas():
 @pytest.mark.asyncio
 async def test_tiered_package_and_escalation_match_the_output_schemas(worker_tree):
     tools = await schemas()
-    package = await call("get_subagent_context", request(complexity="low", client="cursor"))
+    receipt = await call("get_subagent_context", request(complexity="low", client="cursor"))
+    jsonschema.validate(receipt, tools["get_subagent_context"].outputSchema)
+    assert receipt["execution"]["spawn"] == {"tool": "Task", "arguments": {"model": "default"}}
+    package = await call("get_subagent_context", inline(complexity="low", client="cursor"))
     jsonschema.validate(package, tools["get_subagent_context"].outputSchema)
     assert package["execution"]["spawn"] == {"tool": "Task", "arguments": {"model": "default"}}
     assert package["contract"]["execution"]["model"] == "default"
@@ -41,11 +44,13 @@ async def test_tiered_package_and_escalation_match_the_output_schemas(worker_tre
 
 @pytest.mark.asyncio
 async def test_untiered_responses_keep_their_shape(worker_tree):
-    package = await call("get_subagent_context", request())
+    package = await call("get_subagent_context", inline())
     assert "execution" not in package and "execution" not in package["contract"]
+    assert "execution" not in await call("get_subagent_context", request())
     response = await call("validate_subagent_result", {
         "contract": package["contract"], "result": report(PreparedPackage.model_validate(package), "failed")})
-    assert response == {"valid": True, "errors": [], "verification": "structural_only"}
+    assert response == {"valid": True, "errors": [], "verification": "structural_only",
+                        "result_sha256": response["result_sha256"]}
 
 
 @pytest.mark.asyncio
@@ -81,7 +86,7 @@ async def test_the_tools_write_the_ledger_only_when_enabled(worker_tree, tmp_pat
     package = await call("get_subagent_context", request(complexity="low", client="claude"))
     assert not path.exists()
     monkeypatch.setenv("AGENTS_SUBAGENT_LEDGER", "1")
-    package = await call("get_subagent_context", request(complexity="low", client="claude"))
+    package = await call("get_subagent_context", inline(complexity="low", client="claude"))
     await call("validate_subagent_result", {"contract": package["contract"],
                                             "result": report(PreparedPackage.model_validate(package))})
     events = [json.loads(line)["event"] for line in path.read_text(encoding="utf-8").splitlines()]

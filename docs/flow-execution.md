@@ -37,8 +37,8 @@ before returning large tool metadata.
   finding; do not truncate away failures or treat a summary as proof.
 - Read source and unchanged instructions once per relevant revision. Do not
   print a prepared worker package, full transcript, all completed agent results
-  or the entire tool catalog merely to retain it. Forward each prepared
-  `worker_context` unchanged and retain its original contract.
+  or the entire tool catalog merely to retain it. Start each worker with its
+  receipt's `launch` text, keep `contract_revision` and validate by `result_ref`.
 - Group related fixes and checks into one review round. Keep required fresh,
   independent review; avoid parallel reviewers repeating the same role and
   source range unless a distinct risk warrants them. Validate every returned

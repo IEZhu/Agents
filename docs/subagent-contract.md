@@ -101,7 +101,80 @@ for missing input, incomplete work and finishing. It directs the worker to use
 this package without activating a full conversation persona. Parent descriptors
 visible in inherited history are references, not the worker's activation.
 
-Every AI delegation, including reviewers, verifiers and parallel workers, requires `get_subagent_context` and `status: prepared` before native spawning. The parent forwards `worker_context` unchanged with only necessary task materials into a fresh worker without inherited history when supported (Codex: `fork_turns="none"`). It keeps its original contract and descriptor and validates every returned or revised output unchanged against that contract. A worker must not replace the authoritative contract. `valid: true` is required before acceptance or integration, followed by independent evidence and acceptance-criteria checks.
+Every AI delegation, including reviewers, verifiers and parallel workers, requires `get_subagent_context` and `status: prepared` before native spawning. The parent launches a fresh worker without inherited history when supported (Codex: `fork_turns="none"`) with the receipt's `launch` text and only necessary task materials (with inline delivery: the unchanged `worker_context`). It keeps the receipt's `contract_revision` (inline: the original contract) and its descriptor, and validates every returned or revised output unchanged against that contract, by reference where a file holds it ([compact exchange](#compact-exchange)). A worker must not replace the authoritative contract. `valid: true` is required before acceptance or integration, followed by independent evidence and acceptance-criteria checks.
+
+## Compact exchange
+
+The exchange is built so that the parent's context carries as little of it as possible
+and the model never retypes it: JSON in a parent's context is paid again on every later
+request, and a parent that copies a package or result into a tool call pays output tokens
+for it and can alter it (#453).
+
+**File delivery (default).** `get_subagent_context` writes `worker_context` to
+`data/subagent-exchange/<contract_revision>.md` in the installation and the contract to
+`<contract_revision>.contract.json` beside it (0700 directory, 0600 files, removed after
+seven days; they hold task text and stay on this machine). It returns a receipt of under
+2,000 characters instead of the package: `task_id`, `attempt_id`, `contract_revision`,
+`context_path`, `context_chars`, `context_sha256`, `launch`, `descriptor` and, with
+`complexity`, `execution`. The parent starts the worker with `launch` as its prompt (the
+worker reads the package file itself), keeps `contract_revision`, and never holds the
+package or the contract. `delivery="inline"` returns the full package as before, for a
+worker that cannot read the server's files (another machine); the parent then retains
+`contract` and forwards `worker_context` unchanged. The tool is therefore no longer
+read-only: it writes these private files.
+
+**Plain-text format (default).** With `result_format="text"` the package carries the
+assignment as plain text (task, acceptance criteria with their IDs, context, scope,
+non-goals, pinned artifacts, the first 12 characters of the contract revision) and a
+filled-in result template instead of the JSON contract and JSON Schema. On the reference
+fixture the package shrinks from 4,304 to 1,985 characters. The worker answers:
+
+```text
+task: review-42
+attempt: 1
+contract: 3f2a9c01b7de
+status: completed
+
+## summary
+Checked the parser diff and its two callers.
+
+## findings
+- high src/parser.py:88 — An empty token list now raises IndexError.[^e1]
+  fix: Return early when the list is empty.
+
+## checks
+- passed: Ran the parser tests.[^e2]
+
+## evidence
+[^e1]: src/parser.py:88 — tokens[0] without a length check
+[^e2]: pytest tests/test_parser.py -q — 31 passed
+```
+
+The header lines are `task`, `attempt`, `contract` (at least 12 hex characters of the
+revision), `status` and, for `input_required`, `question`. Sections are `summary`, the
+payload (`items`, `conclusions`, `findings` or `changes`), `checks`, `evidence`,
+`artifacts`, `limitations`, `remaining_work` and `question`; empty ones are omitted. A
+list item starts with `- `, continuation lines are indented, two-part items separate
+their parts with ` — `, a finding's recommendation follows on a `fix:` line, and `[^id]`
+cites an evidence entry. `src/engine/subagent_text.py` parses this into the same closed
+result model, filling the protocol, the full contract revision and the bundle revision
+from the contract, so every structural rule below applies unchanged; a text result may
+sit in one code fence. `result_format="json"` keeps the JSON contract, schema and
+envelope for structured-output runners: the autodev launcher passes `result_schema` to
+the CLI's `--json-schema`. The validator accepts both forms for any contract.
+
+**Validation by reference.** `validate_subagent_result` takes the contract as
+`contract_revision` (the stored copy, whose fingerprint is rechecked) or `contract`, and
+the output as `result_ref` or `result`, exactly one of each. `result_ref` is an absolute
+path the server reads: a result file, or the final assistant message of a Claude Code
+agent transcript (`agent-<id>.jsonl` in a Workflow's transcript directory, a background
+agent's `.output` file, including a `SubagentHandback`) or of a Codex `rollout-*.jsonl`.
+A result file must lie under a temporary directory or the exchange directory; a transcript
+(`.jsonl`, `.output`) may also lie in a `~/.claude*` or `~/.codex` home (`CLAUDE_CONFIG_DIR`,
+`CODEX_HOME`), whose settings and credentials stay unreadable. Transcripts are read up to
+64 MiB. These are files the parent could read itself; the server only parses them and never
+echoes their content. A stored contract must carry the revision it is filed under. The response adds `result_sha256`, the SHA-256 of the exact
+text (or canonical JSON of a result object) it checked.
 
 ## Model tiers
 
@@ -240,11 +313,13 @@ does not establish the truth of the completion claim.
 
 ## Result validation
 
-`validate_subagent_result(contract, result)` accepts the original validation
-contract from the prepared response (including expected bundle revision) and
-the parsed result object or a raw JSON string. Raw text must be exactly one JSON
-object; markdown fences, duplicate keys, non-finite numbers, trailing prose and
-oversized payloads are errors. No silent repair or coercion into a valid result.
+`validate_subagent_result` accepts the contract as the receipt's `contract_revision` or the
+original contract object from an inline package (including the expected bundle revision),
+and the output as `result_ref`, the text result, the parsed result object or a raw JSON
+string ([compact exchange](#compact-exchange)). Raw JSON must be exactly one JSON object;
+markdown fences, duplicate keys, non-finite numbers, trailing prose and oversized payloads
+are errors. A text result follows the text format strictly, apart from one optional
+surrounding code fence. No silent repair or coercion into a valid result.
 
 Validate protocol version, contract fingerprint, task and attempt identity,
 expected bundle revision, the closed envelope, selected typed payload, status
@@ -307,13 +382,15 @@ example uses Codex; set `client` to the actual launching host.
 }
 ```
 
-Retain the returned `contract` verbatim. Send `worker_context` with the actual
-diff/source materials to a fresh native worker. The MCP response's context count
+Keep the receipt's `contract_revision` and start a fresh native worker with its `launch`
+text and the actual diff/source materials (inline delivery: retain the returned `contract`
+verbatim and send `worker_context`). The MCP response's context count
 covers `worker_context`; additional host instructions, attachments, tool results
 and generated output are outside that count. Copy only the necessary context.
 
-The worker copies `protocol`, `task_id`, `attempt_id`, `bundle_revision` and
-`contract_revision` from the assignment contract into the envelope. Review
+A text result names `task`, `attempt` and the contract revision prefix; a JSON envelope
+copies `protocol`, `task_id`, `attempt_id`, `bundle_revision` and `contract_revision` from
+the assignment contract. Review
 findings use `severity` (`critical`, `high`, `medium`, `low`, `info`), `location`,
 `explanation`, `recommendation` and `evidence_ids`. Evidence items use `id`,
 `reference` and `description`; checks use `name`, `status` and `evidence_ids`;
@@ -321,15 +398,16 @@ artifacts use `path` and `purpose`. Findings and conclusions, as well as checks,
 must reference supplied evidence IDs. An empty list is allowed and does not
 establish the quality or completeness of the work.
 
-Call `validate_subagent_result` with `contract` set to the parent's retained
-object and `result` set to the worker's object or unmodified raw JSON. The
-following is the success shape, not a claim that the worker's conclusions are true:
+Call `validate_subagent_result` with `contract_revision` and `result_ref` set to the
+worker's transcript or result file (or `result` set to its unmodified output; `contract`
+for an inline package). The following is the success shape, not a claim that the worker's
+conclusions are true:
 
 ```json
-{"valid": true, "errors": [], "verification": "structural_only"}
+{"valid": true, "errors": [], "verification": "structural_only", "result_sha256": "<64 hex>"}
 ```
 
-On `valid: false`, inspect `errors[].path`, `code` and `message`, return concrete diagnostics for correction, and validate the revised output again. A new execution attempt requires a new package with a different `attempt_id` and its matching retained contract. Never rewrite identities or the parent contract to make an invalid result pass. A missing, failed or unavailable validation is not success. Require `valid: true`, then independently verify evidence and acceptance criteria before accepting, integrating, citing as verified, or marking the delegated work complete. No validator operation opens a path or URI.
+On `valid: false`, inspect `errors[].path`, `code` and `message`, return concrete diagnostics for correction, and validate the revised output again. A new execution attempt requires a new package with a different `attempt_id` and its matching receipt or retained contract. Never rewrite identities or the parent contract to make an invalid result pass. A missing, failed or unavailable validation is not success. Require `valid: true`, then independently verify evidence and acceptance criteria before accepting, integrating, citing as verified, or marking the delegated work complete. Validation opens no path or URI except `result_ref`, and never one named inside a result.
 
 Component selection uses lexical overlap between task/criteria/scope/context
 and each eligible component's ID, description and keywords, with profile order

@@ -10,6 +10,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from src.engine import model_tiers
+from src.engine.subagent_text import TextFormatError, is_text_result, parse_result
 from src.schemas.subagent import (ContractExecution, Diagnostic, Escalation, MAX_ERRORS,
                                   MAX_JSON_DEPTH, MAX_JSON_NODES, MAX_RESULT_CHARS, RESULT_MODELS,
                                   TaskContract, ValidationResponse)
@@ -148,18 +149,33 @@ def assess_result(contract: Any, result: Any) -> tuple[ValidationResponse, Outco
     except (ContractError, ValidationError) as error:
         return ValidationResponse(valid=False, errors=diagnostics(error, "$.contract")), None
 
+    digest = None
+
     def finish(errors: list, status: str | None = None, failed_checks: int = 0):
         valid = not errors
         if expected.execution is None:
-            return ValidationResponse(valid=valid, errors=errors), None
+            return ValidationResponse(valid=valid, errors=errors, result_sha256=digest), None
         escalation = model_tiers.escalation(expected.execution, valid=valid, status=status,
                                             failed_checks=failed_checks)
         outcome = Outcome(expected.task_id, expected.attempt_id, expected.execution, valid, status,
                           failed_checks, escalation)
-        return ValidationResponse(valid=valid, errors=errors, escalation=escalation), outcome
+        return ValidationResponse(valid=valid, errors=errors, escalation=escalation,
+                                  result_sha256=digest), outcome
 
     try:
-        value = bounded_object(result, max_chars=MAX_RESULT_CHARS, allow_json=True)
+        if is_text_result(result):
+            if len(result) > MAX_RESULT_CHARS:
+                raise ContractError("payload_too_large", f"Payload exceeds {MAX_RESULT_CHARS} characters.")
+            digest = hashlib.sha256(result.encode("utf-8")).hexdigest()
+            try:
+                value = parse_result(result, expected)
+            except TextFormatError as error:
+                raise ContractError(error.code, str(error), "$" + error.path[len("$.result"):]) from None
+            value = bounded_object(value, max_chars=MAX_RESULT_CHARS)
+        else:
+            value = bounded_object(result, max_chars=MAX_RESULT_CHARS, allow_json=True)
+            digest = hashlib.sha256((result if isinstance(result, str) else canonical_json(value))
+                                    .encode("utf-8")).hexdigest()
         report = RESULT_MODELS[expected.result_type].model_validate(value)
     except (ContractError, ValidationError) as error:
         return finish(diagnostics(error, "$.result"))

@@ -30,8 +30,8 @@ schema. The method below applies where it does not conflict with the package.
 
 A session that delegates this step itself follows the
 [delegation contract](README.md#delegated-workers): `get_subagent_context` with
-`result_type="review"`, the unchanged `worker_context` to a fresh worker, and
-`validate_subagent_result` with the retained contract before the result is
+`result_type="review"`, the receipt's `launch` text to a fresh worker, and
+`validate_subagent_result` by `contract_revision` and `result_ref` before the result is
 used. When the flow is run directly through Agents-Core MCP
 (`run_flow(flow="change-premortem", request=...)`), the caller applies the
 returned `persona_activation` as a switch first.

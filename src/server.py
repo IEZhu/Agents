@@ -83,7 +83,7 @@ from src.local_inference import tools as local_inference_tools
 from src.artifacts import tools as artifact_tools
 from src.artifacts.store import ArtifactError
 from src.engine import readiness
-from src.engine import model_tiers, subagent_ledger
+from src.engine import model_tiers, subagent_exchange, subagent_ledger
 from src.engine.subagent import prepare_subagent
 from src.engine.subagent_validation import ContractError, assess_result, bounded_object, diagnostics
 from src.schemas.subagent import (MAX_REQUEST_CHARS, PreparationError, PreparationRequest,
@@ -182,9 +182,9 @@ class _WorkerInputMCP(ProxyToolsMixin, FastMCP):
         try:
             if name == "get_subagent_context":
                 bounded_object(arguments, max_chars=MAX_REQUEST_CHARS)
-                fields = PreparationRequest.model_fields
+                fields = {*PreparationRequest.model_fields, "delivery"}
             else:
-                fields = ("contract", "result")
+                fields = ("contract", "contract_revision", "result", "result_ref")
             for key in arguments:
                 if key not in fields:
                     raise ContractError("extra_forbidden", "Unknown tool arguments are forbidden.",
@@ -204,7 +204,7 @@ mcp = _WorkerInputMCP(
         "If Agents-Core is listed, make every call there, the first too; retry Desktop denials there.\n"
         "A worker with a prepared agents-core/subagent/1 package uses that task role: no full "
         "persona activation, inherited parent descriptor, footer, timestamp, first-work repository description or per-turn log_interaction. "
-        "Return its JSON result only.\n"
+        "Return its result only.\n"
         "For ordinary conversations, the first time you read, search or change repository files, "
         "when describe_repo is available, call describe_repo with workspace and the target repo_path before ad hoc exploration. "
         "On needs_summary, follow its instruction; call write_repo_summary only where that "
@@ -238,16 +238,22 @@ mcp = _WorkerInputMCP(
         "get_subagent_context before spawning with a canonical agent_name, task, "
         "acceptance_criteria, relevant context, scope, non_goals and result_type. "
         "Default compact budgets are max_skills=3, max_implants=0, max_context_chars=16000. "
-        "Require status: prepared, retain the original contract in the parent, and forward "
-        "worker_context unchanged with only necessary task materials. Use a fresh native "
+        "Require status: prepared. The default receipt names a private package file: launch the "
+        "worker with the receipt's launch text plus only necessary task materials and keep its "
+        "contract_revision; the server keeps the contract. With delivery inline (only when the "
+        "worker cannot read the server's files), retain the contract and forward worker_context "
+        "unchanged. Use a fresh native "
         "worker without inherited history when supported (Codex: fork_turns=\"none\"); do not "
-        "substitute a full persona, parent bundle or transcript. Keep the parent persona unchanged. "
+        "paste the package, a full persona, parent bundle or transcript. Keep the parent persona unchanged. "
         "Rate complexity (low: mechanical, checkable; standard: bounded; high: ambiguous, risky or "
         "hard to verify), pass client (claude, codex or cursor: your host) and launch with the "
-        "package's execution.spawn arguments: the user's "
+        "package's execution.spawn arguments (a Claude Code Workflow agent takes the same model in "
+        "agent() options): the user's "
         "explicit instruction to set the worker's model and reasoning_effort. "
-        "Call validate_subagent_result with the parent-retained contract and every returned or "
-        "revised output, unchanged. Require valid: true before accepting, integrating or marking "
+        "Call validate_subagent_result for every returned or revised output with contract_revision "
+        "and result_ref, the file holding the output (Claude Code agent transcript or .output file, "
+        "Codex rollout, result file); pass result unchanged only when no file holds it, and contract "
+        "for an inline package. Never retype the output. Require valid: true before accepting, integrating or marking "
         "the delegated work complete; then check evidence and acceptance criteria. Structural "
         "validity is not correctness. Invalid output requires correction and revalidation. "
         "A new execution attempt needs a new attempt_id and prepared contract; a returned "
@@ -581,7 +587,9 @@ TOOL_HINTS = {
     "set_flow_persona": tool_hints("Choose a flow's persona", read_only=False, destructive=True, idempotent=True,
                                    open_world=True),
     "clear_session_cache": tool_hints("Clear session caches", read_only=False, destructive=True, idempotent=True),
-    "get_subagent_context": tool_hints("Prepare a subagent package", read_only=True),
+    # Writes the package and contract to the installation's private exchange directory.
+    "get_subagent_context": tool_hints("Prepare a subagent package", read_only=False, destructive=False,
+                                       idempotent=True),
     "validate_subagent_result": tool_hints("Validate a subagent result", read_only=True),
     "cooperation_register": tool_hints("Register cooperation scope", read_only=False, destructive=False,
                                       idempotent=False),
@@ -1299,32 +1307,39 @@ async def get_subagent_context(
     artifact_manifest: ta.unparsed_arg("object", "Optional exact active task manifest returned by artifact_manifest_create. Pins hashes in the contract and adds automatic artifact_read instructions; contents are not inlined. Requires a valid workspace and the matching task ID.") = None,
     complexity: ta.unparsed_arg("string", "Optional low, standard or high: your rating of the assignment. low = mechanical, fully specified and checkable; standard = bounded work in one module with clear criteria; high = ambiguous, cross-cutting, risky or hard to verify. Returns execution with the model to launch the worker on; omit to keep your model.") = None,
     client: ta.unparsed_arg("string", "Optional claude (Claude Code), codex or cursor: the host you run in, which launches the worker. Pass it with complexity: otherwise the server falls back to the X-Agents-Client header or, over stdio, MCP clientInfo, which often identify nothing.") = None,
+    delivery: ta.unparsed_arg("string", "file (default): the server writes the worker package to a private file and keeps the contract, and returns a short receipt with the file's path and the worker's launch text. inline: return the whole package (worker_context, contract, result_schema), only for a worker that cannot read the server's files.") = "file",
+    result_format: ta.unparsed_arg("string", "text (default): plain-text assignment and result. json: JSON contract, result schema and result, for structured-output runners.") = "text",
     ctx: Context | None = None,
 ) -> PreparationResponse:
     """Prepare a stateless task-scoped worker package without switching your persona.
 
     Unknown arguments are rejected. Total original request limit: 48000 canonical
-    JSON characters, including unknown fields. Retain the returned
-    contract and your own persona; forward worker_context to a fresh native worker.
-    This tool does not spawn workers. The worker uses this role without another
-    activation or conversation footer/log, and returns exactly the JSON envelope.
-    Require status: prepared before spawning. For every returned or revised output,
-    call validate_subagent_result with YOUR retained contract and the unchanged
-    output. Require valid: true before accepting or integrating it, then assess
-    evidence/acceptance criteria yourself. Endpoint failure does not authorize an
-    unprepared worker or unvalidated result. Missing compact sources or an
-    insufficient mandatory-context budget return an error with no partial package.
-    With complexity, the package carries execution: the tier after floors, the newest model
-    of that tier for the client, and spawn, the arguments for the host's launching tool
-    (Agent, spawn_agent or Task). Floors may raise a tier, never lower it.
+    JSON characters, including unknown fields. This tool does not spawn workers.
+    Require status: prepared before spawning. By default (delivery file) the result is a
+    receipt: launch a fresh native worker with its launch text (the worker reads the package
+    file itself) and keep contract_revision; the server keeps the contract. With delivery
+    inline, retain the returned contract and forward worker_context unchanged. The worker uses
+    this role without another activation or conversation footer/log and returns only its
+    result in the package's format. For every returned or revised output call
+    validate_subagent_result; require valid: true before accepting or integrating it, then
+    assess evidence/acceptance criteria yourself. Endpoint failure does not authorize an
+    unprepared worker or unvalidated result. Missing compact sources or an insufficient
+    mandatory-context budget return an error with no partial package. With complexity, the
+    package carries execution: the tier after floors, the newest model of that tier for the
+    client, and spawn, the arguments for the host's launching tool (Agent, spawn_agent or
+    Task; a Claude Code Workflow agent takes the same model in agent() options). Floors may
+    raise a tier, never lower it.
     """
+    if delivery not in ("file", "inline"):
+        return PreparationResponse(PreparationError(errors=diagnostics(
+            ContractError("invalid_delivery", "delivery must be file or inline.", "$.delivery"))))
     if complexity is not None and client is None:
         client = model_tiers.client_from_app(calling_app(ctx))
     arguments = dict(agent_name=agent_name, task=task, acceptance_criteria=acceptance_criteria,
                      task_id=task_id, attempt_id=attempt_id, context=context, scope=scope,
                      non_goals=non_goals, result_type=result_type, max_skills=max_skills,
                      max_implants=max_implants, max_context_chars=max_context_chars,
-                     complexity=complexity, client=client)
+                     complexity=complexity, client=client, result_format=result_format)
     if artifact_manifest is not None:
         try:
             arguments["artifact_manifest"] = await artifact_tools.verify_preparation(ctx, artifact_manifest)
@@ -1332,30 +1347,56 @@ async def get_subagent_context(
             return PreparationResponse(PreparationError(errors=diagnostics(
                 ContractError(error.code, error.message, "$.artifact_manifest"))))
     result = await asyncio.to_thread(prepare_subagent, arguments)
-    if isinstance(result, PreparedPackage):
-        await asyncio.to_thread(subagent_ledger.record_prepared, result)
-    return PreparationResponse(result)
+    if not isinstance(result, PreparedPackage):
+        return PreparationResponse(result)
+    await asyncio.to_thread(subagent_ledger.record_prepared, result)
+    try:
+        receipt = await asyncio.to_thread(subagent_exchange.store, result)
+    except (OSError, ContractError) as error:
+        if delivery == "file":
+            return PreparationResponse(PreparationError(errors=diagnostics(ContractError(
+                "exchange_unwritable", f"The package could not be stored ({type(error).__name__}); "
+                "retry with delivery inline.", "$.delivery"))))
+        logger.warning("Subagent exchange store failed; inline package only: %s", error)
+        return PreparationResponse(result)
+    return PreparationResponse(receipt if delivery == "file" else result)
 
 
 @mcp.tool(**TOOL_HINTS["validate_subagent_result"])
 async def validate_subagent_result(
-    contract: ta.unparsed_arg("object", "Original contract object retained by the parent from get_subagent_context, including expected bundle_revision and contract_revision. Never use a worker replacement."),
-    result: ta.unparsed_arg("object", "Worker result object or raw JSON string (at most 128000 characters). Raw text must be exactly one JSON object: no fences, duplicate keys, non-finite numbers or trailing prose."),
+    contract: ta.unparsed_arg("object", "The contract object retained from an inline package. Give this or contract_revision, never a worker replacement.") = None,
+    contract_revision: ta.unparsed_arg("string", "The receipt's contract_revision: the server validates against the contract it stored at preparation. Give this or contract.") = None,
+    result: ta.unparsed_arg("string", "The worker's output, unchanged: its text result, or a JSON result as an object or string (at most 128000 characters). Give this or result_ref.") = None,
+    result_ref: ta.unparsed_arg("string", "Absolute path the server reads the output from instead: a result file, a Claude Code agent transcript (Workflow transcript dir agent-<id>.jsonl, or a background agent's .output file) or a Codex rollout-*.jsonl, whose final assistant message is the result. Give this or result.") = None,
 ) -> ValidationResponse:
-    """Validate worker output structurally against the parent's retained contract.
+    """Validate worker output structurally against the retained or server-stored contract.
 
     Required for every returned or revised worker output before acceptance or
     integration. Require valid: true, then independently assess its evidence.
     Correct and revalidate invalid output; never rewrite its original contract.
-    Rejects unknown tool arguments. Checks fixed built-in payloads, closed shapes,
-    task/attempt/revision identity, statuses and evidence references. Limits: nesting 12, 10000 JSON nodes,
-    100 items per result array (50 for text lists), strings 4000 characters,
-    and at most 20 diagnostics. Reads no paths/URLs, reruns no checks, writes no
-    memory and never establishes truth, authorization or issue completion.
-    For a contract prepared with complexity, escalation names the next tier when the result
-    is invalid, failed, partial or has a failed check. Prepare a new attempt with that
-    complexity and a new attempt_id; for an invalid result, only after one correction failed.
+    Prefer contract_revision and result_ref: nothing is retyped, and the server checks the
+    exact bytes the worker produced; result_sha256 identifies them. Rejects unknown tool
+    arguments. Checks fixed built-in payloads, closed shapes, task/attempt/revision identity,
+    statuses and evidence references. Limits: 128000 characters, nesting 12, 10000 JSON nodes,
+    100 items per result array (50 for text lists), strings 4000 characters, and at most 20
+    diagnostics. Reads only the stored contract and result_ref, reruns no checks, writes no memory and never
+    establishes truth, authorization or issue completion. For a contract prepared with
+    complexity, escalation names the next tier when the result is invalid, failed, partial or
+    has a failed check. Prepare a new attempt with that complexity and a new attempt_id; for
+    an invalid result, only after one correction failed.
     """
+    try:
+        if (contract is None) == (contract_revision is None):
+            raise ContractError("contract_required", "Give exactly one of contract and contract_revision.",
+                                "$.contract")
+        if (result is None) == (result_ref is None):
+            raise ContractError("result_required", "Give exactly one of result and result_ref.", "$.result")
+        if contract_revision is not None:
+            contract = await asyncio.to_thread(subagent_exchange.load_contract, contract_revision)
+        if result_ref is not None:
+            result = await asyncio.to_thread(subagent_exchange.read_result, result_ref)
+    except ContractError as error:
+        return ValidationResponse(valid=False, errors=diagnostics(error))
     response, outcome = assess_result(contract, result)
     await asyncio.to_thread(subagent_ledger.record_validation, outcome)
     return response

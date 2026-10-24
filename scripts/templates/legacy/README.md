@@ -29,3 +29,4 @@ installations from either branch can migrate:
 - `memory-routing-v20.md` retains the reminder before MCP-unavailable first-work fallback and explicit ownership-consent delivery were aligned.
 
 - `memory-routing-v21.md` retains the reminder before secret redaction in logged fields was made explicit.
+- `memory-routing-v22.md` retains the reminder before the compact worker exchange (file receipts, plain-text results, validation by `contract_revision` and `result_ref`).
