@@ -25,7 +25,7 @@ Agents-Core is a local Model Context Protocol (MCP) server for assistants that n
 
 ## Checks
 
-The badges show the latest matching push runs on the integration branch, `dev`. [Quality checks and badge scope](docs/quality-checks.md) is the one table of what each badge covers, its triggers and its limits, including the vulnerability gate that releases wait for. Other focused workflows are listed in [GitHub Actions](https://github.com/IEZhu/Agents/actions) and the [test guide](tests/README.md).
+The workflow badges show the latest matching push runs on the integration branch, `dev`; the MCP API badge is derived from the source. [Quality checks and badge scope](docs/quality-checks.md) is the one table of what each badge covers, its triggers and its limits, including the vulnerability gate that releases wait for. Other focused workflows are listed in [GitHub Actions](https://github.com/IEZhu/Agents/actions) and the [test guide](tests/README.md).
 
 After preparing the environment as described in the [test guide](tests/README.md), run the regular suite locally:
 
