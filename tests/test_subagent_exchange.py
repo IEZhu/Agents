@@ -239,6 +239,31 @@ def test_a_stored_contract_must_carry_its_file_revision(worker_tree):
     assert error.value.code == "contract_revision_mismatch"
 
 
+def test_reference_reads_are_bounded_and_decoded_strictly(worker_tree, tmp_path, monkeypatch):
+    undecodable = tmp_path / "result.md"
+    undecodable.write_bytes(b"task: x\n\xff\xfe")
+    with pytest.raises(subagent_exchange.ContractError) as error:
+        subagent_exchange.read_result(str(undecodable))
+    assert error.value.code == "invalid_text"
+    growing = tmp_path / "growing.md"
+    growing.write_text("x" * 200, encoding="utf-8")
+    monkeypatch.setattr(subagent_exchange, "MAX_RESULT_FILE_BYTES", 128)
+    real_stat = Path.stat
+
+    class Earlier:  # the size seen before the worker appended more
+        def __init__(self, result):
+            self._result = result
+        st_size = 64
+
+        def __getattr__(self, name):
+            return getattr(self._result, name)
+    monkeypatch.setattr(Path, "stat", lambda self, **kwargs: (
+        Earlier(real_stat(self, **kwargs)) if self.name == "growing.md" else real_stat(self, **kwargs)))
+    with pytest.raises(subagent_exchange.ContractError) as error:
+        subagent_exchange.read_result(str(growing))
+    assert error.value.code == "result_ref_too_large"
+
+
 def test_reference_to_an_unfinished_transcript_is_empty(worker_tree, tmp_path):
     transcript = tmp_path / "agent-running.jsonl"
     transcript.write_text(json.dumps({"type": "user", "message": {"content": "start"}}) + "\n", encoding="utf-8")

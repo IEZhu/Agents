@@ -12,6 +12,7 @@ are removed after `RETENTION_SECONDS`. They hold task text, so they stay on this
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -154,30 +155,29 @@ def _codex_text(record: dict) -> str | None:
     return "".join(parts) or None
 
 
-def final_message(path: Path) -> str | None:
-    """The last assistant message of a Claude Code or Codex transcript.
+def final_message(lines) -> str | None:
+    """The last assistant message of a Claude Code or Codex transcript, given its lines.
 
     Claude Code writes one line per content block, so the text blocks of one message id are
     joined; a later message without text leaves the earlier text as the final one.
     """
     final, final_id = None, None
-    with path.open(encoding="utf-8", errors="replace") as handle:
-        for line in handle:
-            try:
-                record = json.loads(line)
-            except ValueError:
-                continue
-            if not isinstance(record, dict):
-                continue
-            message_id, text = _claude_text(record)
-            if text is None:
-                text, message_id = _codex_text(record), None
-            if text is None:
-                continue
-            if message_id is not None and message_id == final_id and final is not None:
-                final += "\n" + text
-            else:
-                final, final_id = text, message_id
+    for line in lines:
+        try:
+            record = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(record, dict):
+            continue
+        message_id, text = _claude_text(record)
+        if text is None:
+            text, message_id = _codex_text(record), None
+        if text is None:
+            continue
+        if message_id is not None and message_id == final_id and final is not None:
+            final += "\n" + text
+        else:
+            final, final_id = text, message_id
     return final.strip() if final and final.strip() else None
 
 
@@ -199,13 +199,24 @@ def read_result(reference) -> str:
                             "home.", "$.result_ref")
     if not path.is_file():
         raise ContractError("result_ref_missing", "result_ref does not name a regular file.", "$.result_ref")
-    if size > (MAX_TRANSCRIPT_BYTES if transcript else MAX_RESULT_FILE_BYTES):
-        raise ContractError("result_ref_too_large", "result_ref is larger than a result can be.", "$.result_ref")
+    limit = MAX_TRANSCRIPT_BYTES if transcript else MAX_RESULT_FILE_BYTES
+    too_large = ContractError("result_ref_too_large", "result_ref is larger than a result can be.", "$.result_ref")
+    if size > limit:
+        raise too_large
     try:
-        text = final_message(path) if transcript else path.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
-        raise ContractError("result_ref_unreadable", "result_ref could not be read as UTF-8 text.",
-                            "$.result_ref") from None
+        with path.open("rb") as handle:  # one bounded read: a worker may still be appending
+            raw = handle.read(limit + 1)
+    except OSError:
+        raise ContractError("result_ref_unreadable", "result_ref could not be read.", "$.result_ref") from None
+    if len(raw) > limit:
+        raise too_large
+    if transcript:  # undecodable bytes in unrelated records are tolerated, as the client wrote them
+        text = final_message(io.StringIO(raw.decode("utf-8", errors="replace")))
+    else:
+        try:
+            text = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            raise ContractError("invalid_text", "The result file is not valid UTF-8 text.", "$.result_ref") from None
     if not text or not text.strip():
         raise ContractError("result_ref_empty", "result_ref holds no result yet: the worker may still be "
                             "running.", "$.result_ref")
