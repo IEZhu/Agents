@@ -134,7 +134,8 @@ def _claude_text(record: dict) -> tuple[str | None, str | None]:
     if record.get("type") != "assistant" or not isinstance(message, dict):
         return None, None
     parts = []
-    for block in message.get("content") or []:
+    content = message.get("content")
+    for block in content if isinstance(content, list) else []:
         if not isinstance(block, dict):
             continue
         if block.get("type") == "text" and isinstance(block.get("text"), str):
@@ -150,7 +151,8 @@ def _codex_text(record: dict) -> str | None:
     if (record.get("type") != "response_item" or not isinstance(payload, dict)
             or payload.get("type") != "message" or payload.get("role") != "assistant"):
         return None
-    parts = [block["text"] for block in payload.get("content") or []
+    content = payload.get("content")
+    parts = [block["text"] for block in (content if isinstance(content, list) else [])
              if isinstance(block, dict) and block.get("type") == "output_text" and isinstance(block.get("text"), str)]
     return "".join(parts) or None
 
@@ -169,9 +171,12 @@ def final_message(lines) -> str | None:
             continue
         if not isinstance(record, dict):
             continue
-        message_id, text = _claude_text(record)
-        if text is None:
-            text, message_id = _codex_text(record), None
+        try:  # a record of any other shape is skipped whole, so a later valid one still counts
+            message_id, text = _claude_text(record)
+            if text is None:
+                text, message_id = _codex_text(record), None
+        except (AttributeError, KeyError, TypeError):
+            continue
         if text is None:
             continue
         if message_id is not None and message_id == final_id and final is not None:

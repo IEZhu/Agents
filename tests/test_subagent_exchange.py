@@ -272,6 +272,9 @@ def test_malformed_transcript_records_are_skipped(worker_tree, tmp_path):
             {"type": "tool_use", "name": "SubagentHandback", "input": "unexpected"}]}},
         {"type": "assistant", "message": "not an object"},
         {"type": "response_item", "payload": {"type": "message", "role": "assistant", "content": "text"}},
+        {"type": "assistant", "message": {"id": "c", "content": 5}},
+        {"type": "response_item", "payload": {"type": "message", "role": "assistant", "content": 7}},
+        {"type": "assistant", "message": {"id": ["unhashable"], "content": [{"type": "text", "text": "odd id"}]}},
         {"type": "assistant", "message": {"id": "b", "content": [{"type": "text", "text": "task: final"}]}},
     ]
     transcript.write_text("\n".join(json.dumps(record) for record in records) + "\n", encoding="utf-8")
