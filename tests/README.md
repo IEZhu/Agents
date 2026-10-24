@@ -188,6 +188,23 @@ KV reports do not establish artifact-layer test or deployment results.
 
 ## Choose tests by change
 
+The executable metadata boundary runs the same behavioral cases through its ESM
+module and generated no-import code-mode adapter. It tests retained sources,
+allowlisted output, exact serialized limits, invalid/truncated MCP envelopes and
+credential redaction without reading real history or client profiles. It also
+runs the documented code-mode recipe verbatim against Agents-Core-shaped results
+in the legacy `structuredContent.result` wrapper, for a success and a refusal:
+
+```bash
+node --test tests/mcp_metadata_guard.test.mjs
+PYTHONDONTWRITEBYTECODE=1 LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/test_flows.py tests/test_mcp_tool_safety.py -q -p no:cacheprovider
+```
+
+The flow checks cover default TokenSave selectors and the AX observation/action
+dependency.
+See [the boundary and code-mode recipe](../docs/mcp-tool-safety.md) for its opt-in
+scope and for the bounded-return gate each client class follows.
+
 The optional bounded GitHub run observer is tested offline with scripted API
 responses and a fake clock. Repeated unchanged states produce no intermediate
 model output; timeout, identity changes, reruns, skipped/failed jobs and partial

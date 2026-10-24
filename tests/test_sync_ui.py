@@ -545,7 +545,7 @@ async def test_including_a_scope_again_needs_the_hash_of_its_upload_list(tmp_pat
     async with ui(tmp_path, syncer) as (call, _):
         groups = (await call("GET", "/ui/api/sync/scopes")).json()
         assert {group["group"]: group["syncs"] for group in groups["groups"]} == {
-            "common": True, "personas": True, "history": True, "components": True}
+            "common": True, "personas": True, "history": True, "components": True, "mcp": True}
         assert groups["ask_new_repositories"] is False
         excluded = (await call("PUT", "/ui/api/sync/scopes", {"exclude": ["history"]})).json()
         assert excluded["status"] == "saved" and {"group": "history", "syncs": False} in excluded["groups"]

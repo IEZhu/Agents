@@ -3,9 +3,11 @@ import asyncio
 import json
 import threading
 import time
+from unittest.mock import AsyncMock
 
 import pytest
 
+from src.daemon.workspaces import ClientContext
 from src.engine import readiness
 
 
@@ -137,8 +139,11 @@ def _tool_results(server):
     ]
 
 
-def test_gated_tools_report_warming_up_past_the_cap(monkeypatch):
+def test_gated_tools_report_warming_up_past_the_cap(monkeypatch, tmp_path):
     import src.server as server
+    # Exercise semantic history readiness with a project, not the ungated fallback journal.
+    monkeypatch.setattr(server, "resolve_client_context", AsyncMock(return_value=ClientContext(
+        "readiness-test", "stdio", root=tmp_path.resolve(), source="test")))
     release = threading.Event()
     monkeypatch.setattr(readiness, "WARMUP_WAIT_SECONDS", 0.05)
     readiness.start([("slow", release.wait)])

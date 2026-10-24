@@ -12,6 +12,8 @@ on:
       - src/server.py
       - src/daemon/workspaces.py
       - flows/**
+      - docs/mcp-tool-safety.md
+      - docs/flow-execution.md
       - tests/test_persona_protocol.py
       - tests/test_flows.py
       - tests/test_install_instructions.py
@@ -33,6 +35,8 @@ on:
       - src/server.py
       - src/daemon/workspaces.py
       - flows/**
+      - docs/mcp-tool-safety.md
+      - docs/flow-execution.md
       - tests/test_persona_protocol.py
       - tests/test_flows.py
       - tests/test_install_instructions.py

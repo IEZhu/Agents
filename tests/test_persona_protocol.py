@@ -333,6 +333,7 @@ async def test_logging_without_workspace_asks_for_it(system32_cwd, tmp_path):
     assert "claude_desktop_config.json" in response["hint"] and "Agents-Core-Desktop" in response["hint"]
     assert not (project / "history.md").exists()
     assert not (other / "history.md").exists()
+    assert sorted(path.name for path in system32_cwd.rglob("*")) == ["CLAUDE.md", "System32"]
 
 
 @pytest.mark.asyncio

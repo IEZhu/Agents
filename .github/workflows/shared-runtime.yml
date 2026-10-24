@@ -43,6 +43,9 @@ on:
       - src/mcp_secrets.py
       - src/user_sync/**
       - tests/test_mcp*.py
+      - tests/*_guard.test.mjs
+      - scripts/dev/mcp_metadata_guard*
+      - docs/mcp-tool-safety.md
       - tests/test_sync_ui_blocked.py
       - tests/test_user_sync_blocked.py
       - tests/test_daemon.py
@@ -110,6 +113,9 @@ on:
       - src/mcp_secrets.py
       - src/user_sync/**
       - tests/test_mcp*.py
+      - tests/*_guard.test.mjs
+      - scripts/dev/mcp_metadata_guard*
+      - docs/mcp-tool-safety.md
       - tests/test_sync_ui_blocked.py
       - tests/test_user_sync_blocked.py
       - tests/test_daemon.py
@@ -175,6 +181,10 @@ jobs:
         run: python -B -m pytest tests/test_personal_runtime.py tests/test_runtime_composition.py -q -p no:cacheprovider
       - name: Persistent artifacts and scoped worker contracts
         run: python -B -m pytest tests/test_artifact_store.py tests/test_artifact_service.py tests/test_artifact_mcp.py tests/test_subagent_artifacts.py tests/test_optional_inference_disabled.py -q -p no:cacheprovider
+      - name: Require Node for executable tool safety checks
+        run: node --version
+      - name: Bounded metadata guard
+        run: python -B -m pytest tests/test_mcp_tool_safety.py -q -p no:cacheprovider
       - name: MCP proxy, host inventory and private-library sync
         run: >-
           python -B -m pytest tests/test_mcp_registry.py tests/test_mcp_hosts.py
