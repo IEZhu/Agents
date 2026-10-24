@@ -7,8 +7,6 @@ on:
       - src/cooperation/**
       - src/local_inference/**
       - src/runtime_paths.py
-      - scripts/dev/mcp_metadata_guard*
-      - tests/*_guard.test.mjs
       - src/schemas/artifacts.py
       - src/schemas/subagent.py
       - src/engine/subagent.py
@@ -33,6 +31,9 @@ on:
       - src/mcp_secrets.py
       - src/user_sync/**
       - tests/test_mcp*.py
+      - tests/*_guard.test.mjs
+      - scripts/dev/mcp_metadata_guard*
+      - docs/mcp-tool-safety.md
       - tests/test_sync_ui_blocked.py
       - tests/test_user_sync_blocked.py
       - tests/test_daemon.py
@@ -64,8 +65,6 @@ on:
       - src/cooperation/**
       - src/local_inference/**
       - src/runtime_paths.py
-      - scripts/dev/mcp_metadata_guard*
-      - tests/*_guard.test.mjs
       - src/schemas/artifacts.py
       - src/schemas/subagent.py
       - src/engine/subagent.py
@@ -90,6 +89,9 @@ on:
       - src/mcp_secrets.py
       - src/user_sync/**
       - tests/test_mcp*.py
+      - tests/*_guard.test.mjs
+      - scripts/dev/mcp_metadata_guard*
+      - docs/mcp-tool-safety.md
       - tests/test_sync_ui_blocked.py
       - tests/test_user_sync_blocked.py
       - tests/test_daemon.py
@@ -151,12 +153,12 @@ jobs:
         run: python -B -m pytest tests/test_onnx_embedding.py tests/test_embedder.py tests/test_embedding_prompts.py -q -p no:cacheprovider
       - name: Slow startup readiness with the isolated fake embedding adapter
         run: python -B -m pytest tests/test_startup_handshake.py -o addopts= -q -p no:cacheprovider
+      - name: Persistent artifacts and scoped worker contracts
+        run: python -B -m pytest tests/test_artifact_store.py tests/test_artifact_service.py tests/test_artifact_mcp.py tests/test_subagent_artifacts.py tests/test_optional_inference_disabled.py -q -p no:cacheprovider
       - name: Require Node for executable tool safety checks
         run: node --version
       - name: Bounded metadata guard
         run: python -B -m pytest tests/test_mcp_tool_safety.py -q -p no:cacheprovider
-      - name: Persistent artifacts and scoped worker contracts
-        run: python -B -m pytest tests/test_artifact_store.py tests/test_artifact_service.py tests/test_artifact_mcp.py tests/test_subagent_artifacts.py tests/test_optional_inference_disabled.py -q -p no:cacheprovider
       - name: MCP proxy, host inventory and private-library sync
         run: >-
           python -B -m pytest tests/test_mcp_registry.py tests/test_mcp_hosts.py
