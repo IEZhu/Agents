@@ -138,23 +138,29 @@ with `CLAUDE_CODE_ENTRYPOINT=claude-desktop` and a bundled CLI path naming Claud
 Code 2.1.287 or later, the release that stops a missing `asyncRewake` script from
 waking Claude repeatedly, and it ignores subagent and sidechain events.
 
-The `Stop` handler only records where the turn stopped, as the transcript size.
-Another `Stop` hook in the profile can block that stop, and Claude Code then
-continues the same prompt with the same `promptId`, so a `Stop` does not end the
-watcher. The watcher ends when no user record of its prompt follows the stop within
-ten minutes. The blocking hook's feedback record or a tool result of the continued
-turn keeps it running, and an interrupt after the stop still wakes Claude; an
-interrupt followed by a normal stop does not. A newer prompt also ends an older
-watcher, through its registration or, before its own watcher starts, through its
-first transcript record: Claude Code stamps every main-thread user record with the
-current prompt's ID.
+The `Stop` handler only records where the turn stopped, as the transcript size. A
+short turn can stop before its watcher registers, even in a session's first
+watched turn; the handler then creates the session record, and the watcher keeps
+that stop when it registers. Another `Stop` hook in the profile can block a stop,
+and Claude Code then continues the same prompt with the same `promptId`, so a
+`Stop` does not end the watcher. The watcher ends when no user record of its
+prompt follows the stop within ten minutes. The blocking hook's feedback record or
+a tool result of the continued turn keeps it running, and an interrupt after the
+stop still wakes Claude; an interrupt followed by a normal stop does not. A newer
+prompt also ends an older watcher, through its registration or, before its own
+watcher starts, through its first transcript record: Claude Code stamps every
+main-thread user record with the current prompt's ID. Records of a prompt the
+session record already superseded do not count as newer: a stopped prompt's woken
+turn keeps that prompt's ID, so its records can follow the next prompt's own.
 
 One record per session in `hooks/agents-core-thread-status-interrupt-state/`,
 locked with `flock` on POSIX and `msvcrt.locking` on Windows, serializes
 registration, `Stop` records and the wake; every access, reads included, takes the
 lock. A watcher that starts late, after a newer prompt registered or after the
 transcript recorded one, neither replaces that prompt nor wakes into its turn, and
-its own prompt cannot become current again. Before exiting with 2, a watcher claims
+its own prompt cannot become current again. It looks for its prompt's records in
+the transcript's last 64 KiB and in the 64 KiB before the newer prompt registered,
+however long that prompt's turn has run since. Before exiting with 2, a watcher claims
 its prompt's single wake in the record. Duplicate watchers of one prompt therefore
 wake Claude once, and the woken turn, which keeps the stopped prompt's ID, starts no
 second wake. In a chat's first turn the hook can start before Claude Code creates
@@ -173,7 +179,13 @@ continued turn when the blocking hook ran for more than ten minutes, or when its
 feedback reached the transcript before the `Stop` handler read the size and the
 continuation then wrote no tool result for ten minutes. A late watcher can still wake when neither the session record nor the
 transcript shows the newer prompt by the end of its one-second settle window, for
-example while that prompt's synchronous hooks are still running. Cursor documents
+example while that prompt's synchronous hooks are still running. A late watcher
+whose prompt's last user record lies more than 64 KiB before the newer prompt's
+registration can still replace that prompt. If a message sent right after stop is
+carried into the woken turn and Claude Code stamps that turn's later records,
+including an interrupt record, with the stopped prompt's ID, a stop during that
+work keeps the previous title, and the message's own watcher can keep polling
+until the next prompt. Cursor documents
 an aborted stop status, but no verified general title-write API, so Cursor has no
 automatic button-stop adapter. Do not infer interruption from ordinary tool
 failures or claim unsupported title changes.
@@ -277,13 +289,17 @@ PYTHONDONTWRITEBYTECODE=1 LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pyt
 
 Tests use temporary profiles and fake SDKs; they check preservation, idempotence,
 event/output compatibility, stale-interrupt races, bounded transport, failure
-readback and worker exclusion. The interrupt watcher tests cover record matching,
-the reminder's contract, supersession by registration or by a newer prompt's
-transcript record, a prompt typed within the settle window, an interrupt written
-before the watcher started, a stop that another hook blocks (with its feedback
-recorded before or after the `Stop` handler), retirement after a normal stop, a
-normal end after an interrupt, a late watcher that must yield to a newer prompt,
-two watchers of one prompt waking once, the session lock, a first-turn transcript
+readback and worker exclusion. The interrupt watcher tests cover record matching
+through the transcript follower, the reminder's contract, supersession by
+registration or by a newer prompt's transcript record, a prompt typed within the
+settle window, an interrupt written before the watcher started, a stop that
+another hook blocks (with its feedback recorded before or after the `Stop`
+handler), retirement after a normal stop, including one recorded before the
+session's first watcher, a normal end after an interrupt, a late watcher that
+must yield to a newer prompt, also when its records precede the lookback, a newer
+prompt after a turn longer than the lookback, a superseded prompt's record after
+the current prompt's own, two watchers of one prompt waking once, the session
+lock, corrupt session records, the history and stop caps, a first-turn transcript
 that appears late or never, version and entrypoint gating, and exit code 0 for
 every failure path.
 The `Thread status` workflow runs these adapter, hook and installer tests on

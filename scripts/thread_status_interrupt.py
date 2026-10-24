@@ -119,25 +119,16 @@ def _interrupted(record: dict) -> bool:
             and str(content[0].get("text", "")).startswith(INTERRUPT_MARKER))
 
 
-def interrupt_record(line: str | bytes, prompt: str) -> bool:
-    """Claude Code's own interrupt record: one text item, bound to the prompt's ID."""
-    try:
-        record = json.loads(line)
-    except ValueError:
-        return False
-    return (isinstance(record, dict) and record.get("type") == "user" and not record.get("isSidechain")
-            and record.get("promptId") == prompt and _interrupted(record))
-
-
 class _Follower:
     """Complete transcript records from a byte offset, and what they say about one prompt.
 
     Claude Code stamps every main-thread user record with the current prompt's ID, so the
     transcript also orders prompts: another prompt's record after ours means a newer one.
+    Prompts in ``older``, which the session record already superseded, never count as newer.
     """
 
-    def __init__(self, path: Path, prompt: str, offset: int = 0):
-        self.path, self.prompt = path, prompt
+    def __init__(self, path: Path, prompt: str, offset: int = 0, older=()):
+        self.path, self.prompt, self.older = path, prompt, frozenset(older)
         self._reset(offset)
 
     def _reset(self, offset: int) -> None:
@@ -147,17 +138,19 @@ class _Follower:
         self.interrupt = None  # end of its latest interrupt record
         self.newer = False    # another prompt's user record followed one of ours
 
-    def read(self) -> bool:
-        """Consume up to ``MAX_READ_BYTES`` of new records; return whether any bytes arrived."""
+    def read(self, until: int | None = None) -> bool:
+        """Consume up to ``MAX_READ_BYTES`` of new records, none past the byte offset ``until``;
+        return whether any bytes arrived."""
         size = self.path.stat().st_size
         if size < self.offset:
             # A rewritten, shorter transcript: rescan it; matches are bound to this prompt.
             self._reset(0)
-        if size == self.offset:
+        end = size if until is None else min(size, until)
+        if end <= self.offset:
             return False
         with self.path.open("rb") as stream:
             stream.seek(self.offset)
-            chunk = stream.read(MAX_READ_BYTES)
+            chunk = stream.read(min(MAX_READ_BYTES, end - self.offset))
         if not chunk:
             return False
         position = self.offset - len(self.partial)
@@ -191,15 +184,14 @@ class _Follower:
                 self.interrupt = end
             else:
                 self.activity = start
-        elif isinstance(prompt, str) and self.own_end is not None:
+        elif isinstance(prompt, str) and prompt not in self.older and self.own_end is not None:
             self.newer = True
 
 
-def _state(directory: Path, *, create: bool = True) -> Path | None:
+def _state(directory: Path) -> Path | None:
     if any(path.is_symlink() for path in (directory, *directory.parents)):
         return None
-    if create:
-        directory.mkdir(mode=0o700, exist_ok=True)
+    directory.mkdir(mode=0o700, exist_ok=True)
     return directory if directory.is_dir() else None
 
 
@@ -272,6 +264,25 @@ def _stops(record: dict) -> dict[str, int]:
     return {key: value for key, value in stops.items() if isinstance(key, str) and type(value) is int}
 
 
+def _written_before(follower: _Follower, registered: int, size: int) -> bool:
+    """Whether the follower's prompt has a user record from before ``registered``.
+
+    The registration scan covers only the transcript's last ``LOOKBACK_BYTES``. When the
+    current prompt registered before that window, the ``LOOKBACK_BYTES`` that end at its
+    registration are read as well: a late watcher's last records usually lie just before
+    it, however long the current turn has run since.
+    """
+    if follower.own_end is not None:
+        return follower.own_end <= registered
+    end = min(size, registered)
+    if end >= size or size <= LOOKBACK_BYTES:
+        return False  # the registration scan already covered the window before ``end``
+    earlier = _Follower(follower.path, follower.prompt, max(0, end - LOOKBACK_BYTES), follower.older)
+    while earlier.read(until=end):
+        pass
+    return earlier.own_end is not None or earlier.newer
+
+
 def _register(record: dict, prompt: str, size: int, follower: _Follower) -> bool:
     """Make the prompt current unless the record or the transcript shows a newer one."""
     current, registered = _current(record)
@@ -282,8 +293,7 @@ def _register(record: dict, prompt: str, size: int, follower: _Follower) -> bool
         return False
     # Our records followed by another prompt's, or written before the current prompt
     # registered: that prompt is newer and this watcher started late.
-    if follower.newer or (current is not None and follower.own_end is not None
-                          and follower.own_end <= registered):
+    if follower.newer or (current is not None and _written_before(follower, registered, size)):
         record["history"] = (history + [prompt])[-HISTORY:]
         return False
     if current is not None:
@@ -312,10 +322,12 @@ def done(event: object, state_directory: Path, *, environ=os.environ) -> int:
         if path is None or not path.is_file():
             return 0
         size = path.stat().st_size
-        state = _state(state_directory, create=False)
+        # A short turn can end before its watcher registers, even the session's first
+        # watched turn, so create the record: the watcher keeps a Stop of its own prompt.
+        state = _state(state_directory)
         if state is None:
-            return 0  # no watcher has run here
-        with _locked(state, session, create=False) as record:
+            return 0
+        with _locked(state, session) as record:
             if prompt not in _history(record):
                 stops = _stops(record)
                 stops.pop(prompt, None)
@@ -345,11 +357,14 @@ def watch(event: object, state_directory: Path, *, environ=os.environ, poll: flo
         # Register against a snapshot of the transcript's end, under the session lock.
         with _locked(state, session) as record:
             size = path.stat().st_size if path.is_file() else 0
-            follower = _Follower(path, prompt, max(0, size - LOOKBACK_BYTES))
+            follower = _Follower(path, prompt, max(0, size - LOOKBACK_BYTES), _history(record))
             if size:
                 follower.read()
             if not _register(record, prompt, size, follower):
                 return 0
+            # The prompt this one replaced is older too. A stopped prompt's woken turn keeps
+            # its ID, so its records can follow ours without any newer prompt.
+            follower.older = frozenset(_history(record))
         settled = noticed = None
         while clock() < started + seconds:
             if not path.is_file():

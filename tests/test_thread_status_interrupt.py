@@ -118,24 +118,54 @@ def test_only_supported_desktop_clients_are_watched(environ, expected):
     assert watcher.supported(environ) is expected
 
 
-@pytest.mark.parametrize("line,expected", [
-    (interrupt(), True),
-    (interrupt().encode(), True),
-    (interrupt(text="[Request interrupted by user for tool use]"), True),
-    (interrupt(prompt="another-prompt"), False),
-    (interrupt(isSidechain=True), False),
-    (json.dumps({"type": "user", "promptId": PROMPT, "message": {"content": "[Request interrupted by user]"}}), False),
-    (json.dumps({"type": "user", "promptId": PROMPT, "message": {"content": [
-        {"type": "tool_result", "content": "[Request interrupted by user]"}]}}), False),
-    (json.dumps({"type": "user", "promptId": PROMPT, "message": {"content": [
-        {"type": "text", "text": "[Request interrupted by user]"}, {"type": "text", "text": "more"}]}}), False),
-    (json.dumps({"type": "assistant", "promptId": PROMPT, "message": {"content": [
-        {"type": "text", "text": "[Request interrupted by user]"}]}}), False),
-    (json.dumps({"type": "user", "promptId": PROMPT, "message": ["not", "an", "object"]}), False),
-    ("not json", False),
-])
-def test_only_claude_codes_own_interrupt_record_for_this_prompt_matches(line, expected):
-    assert watcher.interrupt_record(line, PROMPT) is expected
+def entry(**fields):
+    return json.dumps(fields) + "\n"
+
+
+def compact(text):
+    """The same record as Claude Code writes it, without spaces after separators."""
+    return json.dumps(json.loads(text), separators=(",", ":")) + "\n"
+
+
+MARKER = "[Request interrupted by user]"
+
+
+@pytest.mark.parametrize("text,expected", [
+    (interrupt(), "interrupt"),
+    (compact(interrupt()), "interrupt"),
+    (interrupt(text="[Request interrupted by user for tool use]"), "interrupt"),
+    # This prompt's other user records: a typed prompt is a string, a tool result is no interrupt.
+    (typed(text=MARKER), "own"),
+    (entry(type="user", promptId=PROMPT, message={"content": [{"type": "tool_result", "content": MARKER}]}), "own"),
+    (entry(type="user", promptId=PROMPT, message={"content": [
+        {"type": "text", "text": MARKER}, {"type": "text", "text": "more"}]}), "own"),
+    (entry(type="user", promptId=PROMPT, message=["not", "an", "object"]), "own"),
+    # Another prompt's main-thread user record after ours: a newer prompt.
+    (interrupt(prompt="another-prompt"), "newer"),
+    (compact(typed("another-prompt")), "newer"),
+    # Neither this prompt's record nor a newer prompt's.
+    (interrupt(isSidechain=True), "ignored"),
+    (interrupt(prompt="another-prompt", isSidechain=True), "ignored"),
+    (entry(type="assistant", promptId=PROMPT, message={"content": [{"type": "text", "text": MARKER}]}), "ignored"),
+    (entry(type="assistant", promptId="another-prompt", message={"content": "text"}), "ignored"),
+    (entry(type="user", promptId=None, message={"content": "text"}), "ignored"),
+    (entry(type="user", message={"content": [{"type": "text", "text": MARKER}]}), "ignored"),
+    ("not json\n", "ignored"),
+], ids=["interrupt", "compact-interrupt", "tool-use-interrupt", "typed-marker", "tool-result", "two-blocks",
+        "non-object-message", "other-interrupt", "other-compact", "sidechain", "other-sidechain",
+        "assistant", "other-assistant", "null-prompt", "no-prompt", "not-json"])
+def test_the_follower_matches_only_claude_codes_interrupt_record_for_its_prompt(tmp_path, text, expected):
+    # Production detection runs through _Follower: this prompt's typed record, then the line.
+    transcript = tmp_path / "session.jsonl"
+    first = typed().encode()
+    transcript.write_bytes(first + text.encode())
+    follower = watcher._Follower(transcript, PROMPT)
+    assert follower.read()
+    end = len(first) + len(text.encode())
+    assert follower.interrupt == (end if expected == "interrupt" else None)
+    assert follower.own_end == (end if expected in ("interrupt", "own") else len(first))
+    assert follower.activity == (len(first) if expected == "own" else 0)
+    assert follower.newer is (expected == "newer")
 
 
 def test_interrupt_wakes_claude_once_with_the_stopped_title_reminder(transcript, tmp_path, capsys):
@@ -309,6 +339,59 @@ def test_a_late_watcher_neither_replaces_a_newer_prompt_nor_wakes(tmp_path, caps
         assert newer_result["code"] == 2
 
 
+def test_a_late_watcher_whose_records_precede_the_lookback_does_not_replace_a_newer_prompt(tmp_path, capsys):
+    transcript = tmp_path / "session.jsonl"
+    transcript.write_text(typed() + interrupt())  # this prompt was stopped; its watcher is delayed
+    state = tmp_path / "state"
+    newer, newer_result = start(transcript, state, NEWER)
+    wait_started(state, NEWER)
+    # The newer turn writes more than the registration lookback before the late watcher starts.
+    append(transcript, typed(NEWER) + reply("x" * watcher.LOOKBACK_BYTES))
+    code = watcher.watch(event(transcript), state, environ=DESKTOP, poll=0.01, settle=0.01, seconds=1)
+    assert code == 0 and capsys.readouterr().err == ""
+    current = record(state)
+    assert current["prompt"] == NEWER and current["history"] == [PROMPT] and not current["woken"]
+    assert newer.is_alive()
+    append(transcript, interrupt(NEWER))
+    newer.join(5)
+    assert newer_result["code"] == 2
+
+
+def test_a_newer_prompt_after_a_turn_longer_than_the_lookback_still_supersedes_it(transcript, tmp_path):
+    state = tmp_path / "state"
+    old, old_result = start(transcript, state)
+    wait_started(state)
+    append(transcript, reply("x" * watcher.LOOKBACK_BYTES))
+    # The newer prompt's own record is not written yet when its watcher registers.
+    new, new_result = start(transcript, state, NEWER)
+    old.join(5)
+    assert old_result["code"] == 0
+    assert record(state)["prompt"] == NEWER and record(state)["history"] == [PROMPT]
+    append(transcript, typed(NEWER) + interrupt(NEWER))
+    new.join(5)
+    assert new_result["code"] == 2
+
+
+def test_a_superseded_prompts_record_after_ours_does_not_retire_the_current_watcher(tmp_path, capsys):
+    transcript = tmp_path / "session.jsonl"
+    transcript.write_text(typed() + interrupt())
+    state = tmp_path / "state"
+    register(state, PROMPT, transcript.stat().st_size)
+    with watcher._locked(state, SESSION) as value:
+        value["woken"] = True  # the stopped prompt woke Claude
+    # A message sent right after stop fires its own prompt, then the woken turn, which keeps
+    # the stopped prompt's ID, writes a record after the new prompt's.
+    new, new_result = start(transcript, state, NEWER)
+    wait_started(state, NEWER)
+    append(transcript, typed(NEWER, "Then do this") + tool_result())
+    time.sleep(0.2)
+    assert new.is_alive()
+    assert record(state)["history"] == [PROMPT]
+    append(transcript, interrupt(NEWER))
+    new.join(5)
+    assert new_result["code"] == 2 and capsys.readouterr().err.count("set_session_title") == 1
+
+
 def test_two_watchers_of_one_prompt_wake_once(transcript, tmp_path, capsys):
     state = tmp_path / "state"
     first, first_result = start(transcript, state)
@@ -392,14 +475,58 @@ def test_unsupported_or_untrusted_events_never_wake(transcript, tmp_path, change
     assert not state.exists()
 
 
-def test_stop_without_a_watcher_record_creates_nothing(transcript, tmp_path):
+def test_a_stop_before_the_sessions_first_watcher_is_kept_until_the_linger_retires_it(transcript, tmp_path,
+                                                                                         capsys):
     state = tmp_path / "state"
-    assert stop(transcript, state) == 0
-    assert not state.exists()
-    state.mkdir()
-    assert stop(transcript, state) == 0
     assert watcher.done(event(transcript, hook_event_name="Stop"), state, environ={}) == 0
-    assert not list(state.iterdir())
+    assert not state.exists()  # an unsupported client creates nothing
+    append(transcript, reply())
+    # A short first turn ends before its watcher has started.
+    assert stop(transcript, state) == 0
+    assert record(state) == {"stops": {PROMPT: transcript.stat().st_size}}
+    if os.name != "nt":
+        assert state.stat().st_mode & 0o777 == 0o700
+        assert (state / f"{SESSION}.json").stat().st_mode & 0o777 == 0o600
+    thread, result = start(transcript, state, linger=0.2)
+    thread.join(3)
+    assert not thread.is_alive() and result["code"] == 0 and capsys.readouterr().err == ""
+    assert record(state)["prompt"] == PROMPT and not record(state)["woken"]
+
+
+@pytest.mark.parametrize("corrupt", [b"\x00\xff{not json", b"[]"], ids=["garbage", "array"])
+def test_a_corrupt_session_record_ends_the_watcher_quietly_and_a_stop_rewrites_it(transcript, tmp_path, capsys,
+                                                                                    corrupt):
+    state = tmp_path / "state"
+    thread, result = start(transcript, state)
+    wait_started(state)
+    path = state / f"{SESSION}.json"
+    path.write_bytes(corrupt)
+    append(transcript, interrupt())
+    thread.join(5)
+    assert result["code"] == 0 and capsys.readouterr().err == ""
+    assert path.read_bytes() == corrupt  # the watcher only read it
+    assert stop(transcript, state) == 0
+    assert json.loads(path.read_bytes()) == {"stops": {PROMPT: transcript.stat().st_size}}
+
+
+def test_history_and_stops_keep_only_the_newest_entries(tmp_path):
+    transcript = tmp_path / "session.jsonl"
+    late = [f"late-{index}" for index in range(40)]
+    transcript.write_text("".join(typed(prompt) for prompt in late))
+    state = tmp_path / "state"
+    register(state, NEWER, transcript.stat().st_size)
+    for prompt in late:  # each watcher started after the newer prompt registered
+        assert watcher.watch(event(transcript, prompt), state, environ=DESKTOP, poll=0.01, seconds=1) == 0
+    assert watcher.HISTORY == 32 and record(state)["history"] == late[-32:]
+    assert record(state)["prompt"] == NEWER
+    stopped = [f"stop-{index}" for index in range(10)]
+    for prompt in stopped:
+        assert stop(transcript, state, prompt) == 0
+    assert watcher.STOPS == 8 and list(record(state)["stops"]) == stopped[-8:]
+    append(transcript, reply())
+    assert stop(transcript, state, "stop-2") == 0  # a later Stop of a continued turn is the newest
+    assert list(record(state)["stops"]) == stopped[3:] + ["stop-2"]
+    assert record(state)["stops"]["stop-2"] == transcript.stat().st_size
 
 
 def test_linked_state_directory_is_refused(transcript, tmp_path):
