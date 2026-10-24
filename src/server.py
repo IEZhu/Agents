@@ -377,11 +377,21 @@ class _SinkWorker:
         self._idle = threading.Condition()
         self._unfinished = 0
         self.name = name
-        self._thread = threading.Thread(target=self._run, name=f"log-{name}", daemon=True)
-        self._thread.start()
+        self._thread = None
 
     def submit(self, fn) -> bool:
         with self._idle:
+            # Importing the tool definitions must not start background sinks.
+            # Serialize the first submission so concurrent writers share one
+            # worker, and leave a failed start retryable without pending work.
+            if self._thread is None:
+                try:
+                    thread = threading.Thread(target=self._run, name=f"log-{self.name}", daemon=True)
+                    thread.start()
+                except Exception:
+                    logger.exception("Log worker %s could not start; dropping a write", self.name)
+                    return False
+                self._thread = thread
             self._unfinished += 1
         try:
             self._queue.put_nowait(fn)
@@ -1682,7 +1692,7 @@ async def log_interaction(
     (``YYYY.MM.DD HH:MM:SS``); the final answer starts with it on its own line,
     and it is not part of ``response_content``. The sinks are written in the
     background with that timestamp and do not prevent each other; a full queue
-    can also drop a write. A failed history write is logged once per path and
+    or failed worker start can drop a write. A failed history write is logged once per path and
     errno (WARNING, ``code=history_unwritable``) and reported on the next result
     as ``history_last_error``; Langfuse failures are only logged. When no project
     resolves, the turn goes to the installation's fallback journal (#292):
