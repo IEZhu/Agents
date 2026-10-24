@@ -140,10 +140,10 @@ LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/test_workspace_a
 ```
 
 For the shared calendar version, preparation helper and release gate, run
-`python -m pytest tests/test_bump_plugin_version.py tests/test_release_version.py tests/test_version.py tests/test_workflow_permissions.py -q`.
+`python -m pytest tests/test_bump_plugin_version.py tests/test_release_version.py tests/test_version.py tests/test_workflow_permissions.py tests/test_vulnerability_gate.py -q`.
 These checks cover the canonical `VERSION`, matching plugin manifest, monotonic
-preparation, runtime labels, strict tag collisions and the legacy no-`VERSION`
-fallback. They use temporary Git repositories and fake APIs, never a live release.
+preparation, runtime labels, strict tag collisions, the legacy no-`VERSION`
+fallback and the dependency scan that publication waits for. They use temporary Git repositories and fake APIs, never a live release.
 
 The workspace checks use isolated temporary directories, fake MCP roots and local
 HTTP fixtures. They cover empty sessions, marker discovery, unsafe and removed
@@ -228,7 +228,7 @@ PYTHONDONTWRITEBYTECODE=1 LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pyt
 | The update channel (#381): the branch an installation follows | `test_update_channel.py` (the `.env` key read without the rest of `.env`, an exported override, `set_branch`'s refusals and records, `channel` and `python -m src.update_channel`), `test_self_update.py`, `test_daemon_update.py` and `test_daemon_autoupdate.py` (switching inside the update transactions: only from the previous setting, never for an exported branch, a release merge commit is no downgrade, a target branch in another worktree, a channel saved during the build, the activation gates and the rollback of the target branch's upstream), `test_env_file.py` (the `.env` bindings both writers change, checked against python-dotenv's parser, and the installers' branch helper; also run by the Windows installer job), `test_updates_ui.py` (`/ui/api/updates`: access checks, the channel without secrets, a save of `dev`, a stale revision, unsafe, unoffered and missing branches, a downgrade only with its confirmation, a busy `control.lock`, `set_branch` off the event loop), `test_flows_ui_page.py` (the overview's Updates section: a save, a confirmed and a declined downgrade, a conflict), `test_installer_oneliner.py` (`AGENTS_BRANCH` through `install.sh` and the real `.env` step of `init_repo.sh`, and `scripts/_helpers/env_branch.py`, which `init_repo.bat` calls too). Temporary git repositories and a local bare remote; nothing is updated |
 | Updates, startup and readiness | `test_self_update.py`, `test_startup.py`, `test_readiness.py`, `test_startup_handshake.py` (slow; a fake dense adapter, no model), `test_langfuse_compat.py` |
 | Optional session readiness hooks and compaction reminders | `test_session_readiness.py` covers generated adapters, event/output shapes, copied runtimes, backups, uninstall and a real stdio helper handshake. It calls no model and does not establish interactive client rendering; [installation and limits](../docs/session-readiness.md) |
-| Calendar versions and release publication | `test_bump_plugin_version.py`, `test_release_version.py`, `test_version.py`, `test_workflow_permissions.py`; temporary Git histories and fake APIs cover displayed versions, immutable tags, retries and publication permissions, without writing to GitHub; [release procedure](../docs/releases.md) |
+| Calendar versions and release publication | `test_bump_plugin_version.py`, `test_release_version.py`, `test_version.py`, `test_workflow_permissions.py`, `test_vulnerability_gate.py`; temporary Git histories and fake APIs cover displayed versions, immutable tags, retries and publication permissions, without writing to GitHub; [release procedure](../docs/releases.md) |
 | Data isolation and storage | `test_data_isolation.py`, `test_vector_store.py`, `test_file_lock.py` |
 | Language detection | `test_language.py` |
 | Evaluation runners and providers (`evals/runners/`) | `test_persona_dialogue*.py`, `test_bench.py`, `test_local_provider.py`, `test_openrouter_provider.py`, `test_eval_cache_routing.py`, `test_eval_retrieval.py` |

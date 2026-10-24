@@ -13,7 +13,7 @@ also applies to AI instructions, plans, and reports.
 
 | Need | Document | Source of truth for behavior |
 |---|---|---|
-| Interpret the README quality badges and update their numeric documentation metric | [Quality checks](quality-checks.md) | `.github/workflows/shared-runtime.yml`, `.github/workflows/instruction-signing.yml`, `.github/workflows/documentation-quality.yml`, `scripts/check_docs.py`, `docs/badges/mcp-api-docs.svg` |
+| Interpret the README quality badges and update their numeric documentation metric | [Quality checks](quality-checks.md) | `.github/workflows/shared-runtime.yml`, `.github/workflows/instruction-signing.yml`, `.github/workflows/documentation-quality.yml`, `.github/workflows/user-sync.yml`, `.github/workflows/vulnerability-scan.yml`, `scripts/check_docs.py`, `docs/badges/mcp-api-docs.svg` |
 | Find every public MCP tool and its maintained behavior reference | [MCP tool index](mcp-tools.md) | `src/server.py`, `src/artifacts/tools.py`, `src/artifacts/service.py`, `src/local_inference/tools.py`; `scripts/check_docs.py` checks tool-row coverage and local navigation |
 | Connect a manually configured HTTP and stdio MCP upstream and sync its host inventory | [MCP proxy](mcp-proxy.md) | `src/mcp_registry.py`, `src/mcp_secrets.py`, `src/daemon/mcp_proxy/`, `src/daemon/mcp_ui.py`, `src/daemon/mcp_cli.py`, `src/user_sync/scope.py` |
 | Decide when to choose Agents-Core and make the first MCP calls | [Agent guide](agent-guide.md), [compact discovery index](../llms.txt) | `src/server.py`, `src/schemas/protocol.py`, `docs/routing_flow.md`, `docs/subagent-contract.md`, `llms-install.md`; the installed tool schemas govern each version |

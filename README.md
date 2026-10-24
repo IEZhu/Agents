@@ -1,8 +1,8 @@
 # 🤖 Agents-Core
 
 [![Shared runtime (dev)](https://github.com/IEZhu/Agents/actions/workflows/shared-runtime.yml/badge.svg?branch=dev&event=push)](https://github.com/IEZhu/Agents/actions/workflows/shared-runtime.yml?query=branch%3Adev+event%3Apush)
-[![Instruction signing tests (dev)](https://github.com/IEZhu/Agents/actions/workflows/instruction-signing.yml/badge.svg?branch=dev&event=push)](https://github.com/IEZhu/Agents/actions/workflows/instruction-signing.yml?query=branch%3Adev)
-[![Documentation checks (dev)](https://github.com/IEZhu/Agents/actions/workflows/documentation-quality.yml/badge.svg?branch=dev&event=push)](https://github.com/IEZhu/Agents/actions/workflows/documentation-quality.yml?query=branch%3Adev)
+[![Instruction signing tests (dev)](https://github.com/IEZhu/Agents/actions/workflows/instruction-signing.yml/badge.svg?branch=dev&event=push)](https://github.com/IEZhu/Agents/actions/workflows/instruction-signing.yml?query=branch%3Adev+event%3Apush)
+[![Documentation checks (dev)](https://github.com/IEZhu/Agents/actions/workflows/documentation-quality.yml/badge.svg?branch=dev&event=push)](https://github.com/IEZhu/Agents/actions/workflows/documentation-quality.yml?query=branch%3Adev+event%3Apush)
 [![MCP API reference coverage](docs/badges/mcp-api-docs.svg)](docs/mcp-tools.md)
 [![User sync (dev)](https://github.com/IEZhu/Agents/actions/workflows/user-sync.yml/badge.svg?branch=dev&event=push)](https://github.com/IEZhu/Agents/actions/workflows/user-sync.yml?query=branch%3Adev+event%3Apush)
 [![Vulnerability scan (dev)](https://github.com/IEZhu/Agents/actions/workflows/vulnerability-scan.yml/badge.svg?branch=dev&event=push)](https://github.com/IEZhu/Agents/actions/workflows/vulnerability-scan.yml?query=branch%3Adev+event%3Apush)
@@ -25,15 +25,7 @@ Agents-Core is a local Model Context Protocol (MCP) server for assistants that n
 
 ## Checks
 
-The badges show the latest matching push runs on the integration branch, `dev`. Shared runtime and User sync use changed-path filters, so their last run can predate a documentation-only commit. Open the links for job logs, and use each pull request's Checks tab for that change's results. Other focused workflows are listed in [GitHub Actions](https://github.com/IEZhu/Agents/actions) and the [test guide](tests/README.md).
-
-| Workflow | Scope |
-|---|---|
-| [Shared runtime](.github/workflows/shared-runtime.yml) | Linux, macOS and Windows checks for persistent artifacts, scoped workers, cooperation, MCP integration, dense adapter contracts and fake startup readiness; POSIX jobs also check fake native/Redis boundaries. |
-| [User sync](.github/workflows/user-sync.yml) | Library history, synchronization and executable discovery on Linux, macOS and Windows, using local bare repositories and fake GitHub APIs. |
-| [Vulnerability scan](.github/workflows/vulnerability-scan.yml) | The complete committed `uv.lock` inventory, including declared extras, plus independently resolved universal `requirements.txt` dependencies. Every severity, unfixed advisory, missing package and scanner/resolver error fails the gate. Findings are printed in the job log. |
-
-The dependency scan runs on pull requests, merge groups, `main`/`dev` pushes, daily on the default branch and on manual dispatch; releases reuse it for their exact source commit. A passing scan describes known dependency advisories within that inventory, not an application security audit. Badges report workflow status; merge enforcement requires the corresponding required checks in repository branch protection or rulesets.
+The badges show the latest matching push runs on the integration branch, `dev`. [Quality checks and badge scope](docs/quality-checks.md) is the one table of what each badge covers, its triggers and its limits, including the vulnerability gate that releases wait for. Other focused workflows are listed in [GitHub Actions](https://github.com/IEZhu/Agents/actions) and the [test guide](tests/README.md).
 
 After preparing the environment as described in the [test guide](tests/README.md), run the regular suite locally:
 
@@ -596,7 +588,8 @@ one `YY.MM.DD.HHMM` calendar number for the runtime, Claude plugin manifest and
 release tag. Prepare it in UTC with `python3 scripts/bump_plugin_version.py`
 before promotion; later commits retain that number. The runtime adds `-dev` on
 `dev` and `-dirty` for tracked uncommitted changes. Merged release PRs record
-`vVERSION` with an immutable tag at the exact merge commit. See
+`vVERSION` with an immutable tag at the exact merge commit once the vulnerability
+scan of that commit passes. See
 [Calendar releases](docs/releases.md) for preparation, legacy fallback, collision
 checks and retry behavior.
 

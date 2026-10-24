@@ -49,15 +49,18 @@ This is the one description of the release procedure; the README links it.
    plus one minute, whichever is later. This gives distinct versions for successive
    promotions prepared in the same minute. An already newer `VERSION` is
    preserved, so retries against the same baseline do not bump again; the
-   manifest is synchronized to it. A malformed `VERSION`, or one behind the
-   baseline, fails. A baseline without `VERSION` uses the historical commit-time
-   calculation described below. Submit both version files through a reviewed PR into
+   manifest is synchronized to it. A malformed `VERSION` fails, and so does one
+   behind the baseline's `VERSION` file: merge that `main` back into `dev` first.
+   A baseline without `VERSION` uses the historical commit-time calculation
+   described below; it has no `VERSION` to merge back, so a `VERSION` behind it
+   is advanced like a missing one. Submit both version files through a reviewed PR into
    `dev` before freezing the promotion head. The helper does not commit, push,
    fetch, create tags or publish anything. `--check` only validates the files.
 3. Validate the changed areas from that worktree using the [test guide](../tests/README.md).
-   Include `tests/test_release_version.py`, `tests/test_bump_plugin_version.py`, `tests/test_version.py` and
-   `tests/test_workflow_permissions.py` for the publication and displayed-version
-   contract. Record actual results, skipped checks and environment limitations;
+   Include `tests/test_release_version.py`, `tests/test_bump_plugin_version.py`, `tests/test_version.py`,
+   `tests/test_workflow_permissions.py` and `tests/test_vulnerability_gate.py` for the
+   publication, dependency-gate and displayed-version contract. Record actual
+   results, skipped checks and environment limitations;
    a passing workflow for an older head is not a current-head check.
    If release documentation was prepared from neighboring feature branches,
    require their reviewed implementations in `dev` and reconcile overlapping
@@ -87,6 +90,19 @@ has been merged through the repository's review and check requirements; it does
 not merge PRs or change protection settings. It also handles a squash or rebase merge, which the procedure
 above does not use. An ordinary close,
 a feature merge into `dev`, or a fork with a branch named `dev` publishes nothing.
+
+Publication waits for the [Vulnerability scan](../.github/workflows/vulnerability-scan.yml)
+of the exact merge commit. The workflow's `vulnerability-scan` job runs under the
+same conditions as publication and calls the scan with the PR's merge SHA, and
+the `publish` job declares `needs: vulnerability-scan`. An advisory of any
+severity, an unfixed advisory, a package missing from the scanned inventory or a
+scanner/resolver error fails the scan, and then no tag or GitHub Release is
+created. The same scan runs on the promotion PR, so a finding normally appears
+before the merge; the release run repeats it with the advisory data current at
+publication. Rerunning the failed jobs scans the same commit again. To publish
+with fixed dependencies, merge the fix into `dev` and make a new promotion with
+a higher `VERSION`, because `main` already carries the unpublished one. The
+[quality guide](quality-checks.md) states the scan's inventory and limits.
 
 Before merge, its `check` job requires a same-repository `dev → main` promotion's
 `VERSION` to exceed the version at the event's pinned `main` base SHA, and the
@@ -163,6 +179,8 @@ fallback. `tests/test_release_version.py` covers canonical version/manifest
 validation at the merge SHA, strict tag collisions, legacy behavior, tag reuse,
 GitHub Release publication and partial-failure recovery with a fake API.
 `tests/test_workflow_permissions.py` checks workflow permission boundaries.
+`tests/test_vulnerability_gate.py` covers the scan's inventory gate and that
+publication needs the scan of the published commit.
 These checks do not publish to GitHub.
 
 ## Glama Auto-Release
@@ -171,6 +189,7 @@ The intended distribution chain is:
 
 ```text
 approved dev → main PR merged with a merge commit
+  → Vulnerability scan of that merge commit passes
   → Release version job creates/verifies the calendar tag
   → the same job publishes/verifies the GitHub Release
   → Glama Auto-Release builds and publishes the container after its checks
