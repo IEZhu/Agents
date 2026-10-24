@@ -13,6 +13,8 @@ on:
       - src/daemon/sync_ui.py
       - src/daemon/flows_ui.py
       - src/daemon/sync_loop.py
+      - src/self_update.py
+      - src/engine/readiness.py
       - tests/test_personal_runtime.py
       - tests/test_runtime_composition.py
       - src/schemas/artifacts.py
@@ -76,6 +78,8 @@ on:
       - src/daemon/sync_ui.py
       - src/daemon/flows_ui.py
       - src/daemon/sync_loop.py
+      - src/self_update.py
+      - src/engine/readiness.py
       - tests/test_personal_runtime.py
       - tests/test_runtime_composition.py
       - src/schemas/artifacts.py
