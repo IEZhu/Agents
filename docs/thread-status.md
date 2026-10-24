@@ -65,7 +65,7 @@ or `working` titles. It preserves `needs_user`, `waiting`, `blocked`, `review`,
 decides whether the new request actually resumes work. Session startup, resume and compaction only
 deliver context, without claiming work has started. Response-end hooks that set a status
 are deliberately absent: the end of a response does not establish task completion. The
-interrupt watcher's `Stop` handler only records that a turn ended normally and changes no title. Subagent and
+interrupt watcher's `Stop` handler only records where a turn stopped and changes no title. Subagent and
 background events cannot rename the parent chat.
 
 When the chat identity is known, Claude's prompt hook also reminds the model, once
@@ -126,29 +126,57 @@ writes its own interrupt record: a `user` record bound to the turn's `promptId`
 whose content is one text block starting with `[Request interrupted by user`. The
 watcher matches only that record for its own prompt, including one written just
 before it started. It then waits one second so that a prompt typed right after
-stop can supersede it, and exits with code 2. That exit wakes Claude for one silent
-turn: the reminder asks for exactly one `set_session_title` call with the `stopped`
-prefix and no reply text. The `Stop` handler marks a normal end, which ends the
-watcher without output; a newer prompt also ends an older watcher. Every other path
-exits 0, including usage errors, malformed input and unsupported environments,
-because exit 2 is the wake-up signal. A separate runtime file keeps an older
-installer that replaces the main runtime from leaving these handlers calling a
-mode it lacks. The watcher acts only with `CLAUDE_CODE_ENTRYPOINT=claude-desktop`
-and a bundled CLI path naming Claude Code 2.1.287 or later, the release that stops
-a missing `asyncRewake` script from waking Claude repeatedly, and it ignores
-subagent and sidechain events. Per-session prompt and end markers live in
-`hooks/agents-core-thread-status-interrupt-state/`.
+stop can supersede it, and exits with code 2. That exit wakes Claude for one turn
+whose reminder first asks for exactly one `set_session_title` call with the
+`stopped` prefix. A user message delivered into that turn, such as one sent right
+after stop, is then handled normally, including its own status; without one, the
+turn ends with no reply text. Every other path exits 0, including usage errors,
+malformed input and unsupported environments, because exit 2 is the wake-up
+signal. A separate runtime file keeps an older installer that replaces the main
+runtime from leaving these handlers calling a mode it lacks. The watcher acts only
+with `CLAUDE_CODE_ENTRYPOINT=claude-desktop` and a bundled CLI path naming Claude
+Code 2.1.287 or later, the release that stops a missing `asyncRewake` script from
+waking Claude repeatedly, and it ignores subagent and sidechain events.
+
+The `Stop` handler only records where the turn stopped, as the transcript size.
+Another `Stop` hook in the profile can block that stop, and Claude Code then
+continues the same prompt with the same `promptId`, so a `Stop` does not end the
+watcher. The watcher ends when no user record of its prompt follows the stop within
+ten minutes. The blocking hook's feedback record or a tool result of the continued
+turn keeps it running, and an interrupt after the stop still wakes Claude; an
+interrupt followed by a normal stop does not. A newer prompt also ends an older
+watcher, through its registration or, before its own watcher starts, through its
+first transcript record: Claude Code stamps every main-thread user record with the
+current prompt's ID.
+
+One record per session in `hooks/agents-core-thread-status-interrupt-state/`,
+locked with `flock` on POSIX and `msvcrt.locking` on Windows, serializes
+registration, `Stop` records and the wake; every access, reads included, takes the
+lock. A watcher that starts late, after a newer prompt registered or after the
+transcript recorded one, neither replaces that prompt nor wakes into its turn, and
+its own prompt cannot become current again. Before exiting with 2, a watcher claims
+its prompt's single wake in the record. Duplicate watchers of one prompt therefore
+wake Claude once, and the woken turn, which keeps the stopped prompt's ID, starts no
+second wake. In a chat's first turn the hook can start before Claude Code creates
+the transcript; the watcher then waits up to two minutes for the file and otherwise
+exits quietly.
 
 This is the one case where a thread-status hook starts a model turn: each stop
 costs a short model call over the conversation, and the woken turn appears in the
 chat. The transcript record is Claude Code's internal format rather than a
 documented contract. If it changes, the watcher stops matching and no title
-changes, instead of a false `stopped`. Turns longer than six hours, turns that no
-`UserPromptSubmit` starts, terminal and IDE sessions, and a model that disregards
-the reminder keep the previous title. Cursor documents an aborted stop status, but
-no verified general title-write API, so Cursor has no automatic button-stop
-adapter. Do not infer interruption from ordinary tool failures or claim
-unsupported title changes.
+changes, instead of a false `stopped`. Each watcher also stays alive, polling twice
+a second, for up to ten minutes after every stop. Turns longer than six hours,
+turns that no `UserPromptSubmit` starts, terminal and IDE sessions, and a model
+that disregards the reminder keep the previous title. So does an interrupt in a
+continued turn when the blocking hook ran for more than ten minutes, or when its
+feedback reached the transcript before the `Stop` handler read the size and the
+continuation then wrote no tool result for ten minutes. A late watcher can still wake when neither the session record nor the
+transcript shows the newer prompt by the end of its one-second settle window, for
+example while that prompt's synchronous hooks are still running. Cursor documents
+an aborted stop status, but no verified general title-write API, so Cursor has no
+automatic button-stop adapter. Do not infer interruption from ordinary tool
+failures or claim unsupported title changes.
 
 The always-on `thread-status` rule reaches new persona activations and explicit
 refreshes, unless rules are disabled or an exact flow selection omits it.
@@ -250,9 +278,14 @@ PYTHONDONTWRITEBYTECODE=1 LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pyt
 Tests use temporary profiles and fake SDKs; they check preservation, idempotence,
 event/output compatibility, stale-interrupt races, bounded transport, failure
 readback and worker exclusion. The interrupt watcher tests cover record matching,
-supersession, a prompt typed within the settle window, an interrupt written before
-the watcher started, version and entrypoint gating, and exit code 0 for every
-failure path.
+the reminder's contract, supersession by registration or by a newer prompt's
+transcript record, a prompt typed within the settle window, an interrupt written
+before the watcher started, a stop that another hook blocks (with its feedback
+recorded before or after the `Stop` handler), retirement after a normal stop, a
+normal end after an interrupt, a late watcher that must yield to a newer prompt,
+two watchers of one prompt waking once, the session lock, a first-turn transcript
+that appears late or never, version and entrypoint gating, and exit code 0 for
+every failure path.
 The `Thread status` workflow runs these adapter, hook and installer tests on
 Linux, macOS and Windows. They do not establish live client rendering, client
 trust or a real PowerShell/client integration.
