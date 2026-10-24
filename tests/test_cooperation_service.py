@@ -789,3 +789,152 @@ def test_old_journal_migration_never_guesses_unused_registration(h):
     with h.service.store.transaction(write=False) as db:
         assert db.execute("PRAGMA user_version").fetchone()[0] == 4
         assert db.execute("SELECT participant_id FROM participant_activity").fetchone()[0] == actor["participant_id"]
+
+
+def _cancelled_owner_with_open_agreement(h):
+    owner = h.register("cancelled-owner")
+    resources = [{**r, "owner": owner["participant_id"]} for r in
+                 (resource(), resource("api", "logical_intent"))]
+    agreement = h.apply(owner, h.proposal([owner], resources=resources))["agreement"]
+    assert h.ack(owner, agreement)["agreement"]["state"] == "committed"
+    claims = h.acquire(owner, resource(), resource("api", "logical_intent"),
+                       agreement_id="agreement")["claims"]
+    assert h.checkpoint(owner, agreement_id="agreement",
+                        checks=[{"name": "publication", "status": "failed"}])["status"] == "ok"
+    assert h.apply(owner, {"kind": "release", "claims": [
+        {"claim_id": c["claim_id"], "expected_revision": c["revision"]} for c in claims],
+        "reason": "execution stopped"})["status"] == "ok"
+    assert h.apply(owner, {"kind": "cancel", "reason": "task ended"})["cancelled"]
+    assert h.read()["agreements"][0]["state"] == "checkpointed"
+    return owner
+
+
+def test_cancelled_owner_can_close_failed_agreement_without_reactivation(h):
+    owner = _cancelled_owner_with_open_agreement(h)
+    before = next(p for p in h.read()["participants"] if p["participant_id"] == owner["participant_id"])
+    successor = h.register("successor")
+    resources = [{**r, "owner": successor["participant_id"]} for r in
+                 (resource(), resource("api", "logical_intent"))]
+    fresh = h.apply(successor, h.proposal([successor], name="fresh", resources=resources))["agreement"]
+    assert h.ack(successor, fresh)["error"] == "claim_conflict"
+
+    request = h.request(owner, {"kind": "cancel", "agreement_id": "agreement", "reason": "close failed work"})
+    result = h.service.apply(request, h.identity)
+    assert result["status"] == "ok", result
+    assert result["agreement"]["state"] == "cancelled"
+    assert result["agreement"]["terminal_at"] == h.now
+    after = next(p for p in h.read()["participants"] if p["participant_id"] == owner["participant_id"])
+    for key in ("status", "generation", "running", "intent", "terminal_at", "checkpoint"):
+        assert after[key] == before[key]
+    assert after["checkpoint"]["checks"][0]["status"] == "failed"
+    assert h.ack(successor, fresh)["agreement"]["state"] == "committed"
+    assert h.acquire(successor, resource(), resource("api", "logical_intent"),
+                     agreement_id="fresh")["status"] == "ok"
+    revision = h.read()["revision"]
+    assert h.service.apply(request, h.identity) == result
+    assert h.read()["revision"] == revision
+    assert h.apply(owner, {"kind": "cancel", "agreement_id": "agreement",
+                           "reason": "new cancellation"})["error"] == "stale_revision"
+
+
+@pytest.mark.parametrize("invalid", ["generation", "revision", "capability"])
+def test_terminal_agreement_cancel_keeps_authentication_and_cas(h, invalid):
+    owner = _cancelled_owner_with_open_agreement(h)
+    before = h.read()
+    extra = {"generation": {"expected_generation": owner["generation"] + 1},
+             "revision": {"expected_revision": before["revision"] - 1},
+             "capability": {"capability": "0" * 64}}[invalid]
+    result = h.apply(owner, {"kind": "cancel", "agreement_id": "agreement", "reason": "close"},
+                     **extra)
+    assert result["error"] == {"generation": "stale_generation", "revision": "stale_revision",
+                               "capability": "unauthorized_actor"}[invalid]
+    after = h.read()
+    assert after["revision"] == before["revision"]
+    assert after["agreements"] == before["agreements"]
+
+
+@pytest.mark.parametrize("action", [
+    {"kind": "heartbeat"},
+    {"kind": "acquire", "resources": [resource()], "work_unit_id": "new", "checkpoint": {"trigger": "done"}},
+    {"kind": "checkpoint", "checkpoint_id": "new", "release_ready": True},
+    {"kind": "release", "claims": [{"claim_id": "foreign-claim", "expected_revision": 1}], "reason": "not owned"},
+    {"kind": "cancel", "reason": "cancel task again"},
+])
+def test_terminal_agreement_cleanup_grants_no_execution_actions(h, action):
+    owner = _cancelled_owner_with_open_agreement(h)
+    assert h.apply(owner, action)["error"] == "unauthorized_actor"
+    assert h.recover(owner)["error"] == "unauthorized_actor"
+
+
+def test_terminal_agreement_cancel_preserves_other_execution_claims(h):
+    owner = _cancelled_owner_with_open_agreement(h)
+    other = h.register("other")
+    agreement = h.apply(other, h.proposal([other], name="foreign",
+        resources=[{**resource("foreign.py"), "owner": other["participant_id"]}]))["agreement"]
+    h.ack(other, agreement)
+    held = h.acquire(other, resource("foreign.py"), agreement_id="foreign")["claims"]
+    assert h.apply(owner, {"kind": "cancel", "agreement_id": "foreign",
+                           "reason": "not my agreement"})["error"] == "unauthorized_actor"
+    assert h.apply(owner, {"kind": "cancel", "agreement_id": "agreement",
+                           "reason": "close my agreement"})["status"] == "ok"
+    assert h.read()["claims"] == held
+    assert next(a for a in h.read()["agreements"] if a["agreement_id"] == "foreign")["state"] == "active"
+
+
+@pytest.mark.parametrize("cancelled", ["parent", "child"])
+def test_terminal_agreement_cancel_cannot_use_parent_relay(h, cancelled):
+    parent = h.register("parent")
+    child = h.register("child", parent=parent)
+    agreement = h.apply(child, h.proposal([child]))["agreement"]
+    h.ack(child, agreement)
+    actor = parent if cancelled == "parent" else child
+    assert h.apply(actor, {"kind": "cancel", "reason": "task ended"})["cancelled"]
+    before = h.read()
+    result = h.apply(parent, {"kind": "cancel", "agreement_id": "agreement", "reason": "relay"},
+                     subject_id=child["participant_id"], expected_generation=child["generation"])
+    assert result["error"] == "unauthorized_actor"
+    assert h.read()["revision"] == before["revision"]
+    assert h.read()["agreements"] == before["agreements"]
+
+
+def test_terminal_agreement_cancel_rejects_revoked_capability(h):
+    owner = _cancelled_owner_with_open_agreement(h)
+    # Model revoked credentials in this test's private journal, never live state.
+    with h.service.store.transaction() as db:
+        db.execute("UPDATE participants SET verifier=? WHERE id=?", ("revoked", owner["participant_id"]))
+    assert h.apply(owner, {"kind": "cancel", "agreement_id": "agreement",
+                           "reason": "close"})["error"] == "unauthorized_actor"
+
+
+def test_terminal_agreement_cancel_survives_restart_and_disablement(h):
+    owner = _cancelled_owner_with_open_agreement(h)
+    h.service.close()
+    h.service.start()
+    h.service.enabled = False
+    assert h.apply(owner, {"kind": "cancel", "agreement_id": "agreement",
+                           "reason": "close metadata only"})["status"] == "ok"
+    assert h.apply(owner, {"kind": "heartbeat"})["error"] == "unauthorized_actor"
+
+
+@pytest.mark.parametrize("inconsistent", ["running", "claim"])
+def test_terminal_agreement_cancel_refuses_inconsistent_execution_state(h, inconsistent):
+    owner = _cancelled_owner_with_open_agreement(h)
+    # Simulate an imported inconsistent journal in this test's private state.
+    with h.service.store.transaction() as db:
+        if inconsistent == "running":
+            participant = h.service._participant(db, h.identity.repository_id, owner["participant_id"])
+            participant["running"] = True
+            h.service._save_participant(db, participant)
+    if inconsistent == "claim":
+        other = h.register("claim-source")
+        claim = h.acquire(other, resource("other.py"))["claims"][0]
+        with h.service.store.transaction() as db:
+            claim["participant_id"] = owner["participant_id"]
+            db.execute("UPDATE claims SET body=? WHERE id=?", (canonical(claim), claim["claim_id"]))
+    before = h.read()
+    assert h.apply(owner, {"kind": "cancel", "agreement_id": "agreement",
+                           "reason": "close"})["error"] == "scope_denied"
+    after = h.read()
+    assert after["revision"] == before["revision"]
+    assert after["claims"] == before["claims"]
+    assert after["agreements"] == before["agreements"]

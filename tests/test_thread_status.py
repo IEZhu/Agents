@@ -102,6 +102,22 @@ def test_other_claude_entrypoints_keep_cli_title_and_sdk_helper(monkeypatch, tmp
     assert "mcp__ccd_session_mgmt" not in fields["additionalContext"]
 
 
+@pytest.mark.parametrize("entrypoint", ["cli", "claude-desktop"])
+def test_claude_prompt_reminds_to_mark_a_new_phase(monkeypatch, tmp_path, entrypoint):
+    monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", entrypoint)
+    prompt = runtime.hook_output(event(cwd=str(tmp_path)), "claude")["hookSpecificOutput"]
+    assert "mark_chapter" in prompt["additionalContext"]
+    assert "If the client exposes a chapter tool" in prompt["additionalContext"]
+    assert "this request moves the work to a meaningfully different phase of the session" in prompt["additionalContext"]
+    assert "first message" in prompt["additionalContext"]
+    start = runtime.hook_output(event("SessionStart", cwd=str(tmp_path)), "claude")["hookSpecificOutput"]
+    assert "mark_chapter" not in start["additionalContext"]
+    codex = runtime.hook_output(event(), "codex")["hookSpecificOutput"]
+    assert "mark_chapter" not in codex["additionalContext"]
+    # Like the rest of the hook's context, the reminder needs a known chat identity.
+    assert runtime.hook_output(event(session_id=None, cwd=str(tmp_path)), "claude") == {}
+
+
 @pytest.mark.parametrize("title", ["⏸️ Paused", "🛑 Stopped", "🧹 Remaining obligations", "✅ Closed", "🏁 Finished", "🙋 Need answer", "👀 Review", "⏳ CI", "🚧 Blocked"])
 def test_lifecycle_alone_does_not_reopen_task(title):
     output = runtime.hook_output(event(session_title=title), "claude")
@@ -159,7 +175,7 @@ def test_confirmed_current_turn_interrupt_persists_stopped_only(monkeypatch, tmp
     monkeypatch.setattr(runtime, "rename_codex_session", lambda *args, **kw: writes.append((args, kw)) or {"persisted": True})
     runtime.handle_hook_event(event(turn_id="turn-1"), "codex", state_directory=tmp_path)
     receipt = runtime.handle_hook_event(event("Interrupt", turn_id="turn-1"), "codex", state_directory=tmp_path)
-    assert writes == [((SESSION, "stopped"), {"timeout": 2.0, "expected_turn_id": "turn-1", "recorded_turn_id": "turn-1"})]
+    assert writes == [((SESSION, "stopped"), {"timeout": 2.4, "expected_turn_id": "turn-1", "recorded_turn_id": "turn-1"})]
     assert "Stopped" in receipt["systemMessage"]
     assert "unverified" in receipt["systemMessage"]
     saved = json.loads((tmp_path / (SESSION + ".json")).read_text())["last_interrupt"]
@@ -174,7 +190,7 @@ def test_early_interrupt_uses_public_turn_check_before_prompt_hook(monkeypatch, 
     monkeypatch.setattr(runtime, "rename_codex_session", lambda *a, **kw: calls.append(kw) or {"persisted": True})
     assert "Stopped" in runtime.handle_hook_event(event("Interrupt", turn_id="early-turn"),
                                                  "codex", state_directory=tmp_path)["systemMessage"]
-    assert calls == [{"timeout": 2.0, "expected_turn_id": "early-turn", "recorded_turn_id": previous_turn}]
+    assert calls == [{"timeout": 2.4, "expected_turn_id": "early-turn", "recorded_turn_id": previous_turn}]
     runtime.handle_hook_event(event(turn_id="resumed-turn"), "codex", state_directory=tmp_path)
     saved = json.loads((tmp_path / (SESSION + ".json")).read_text())
     assert saved["turn_id"] == "resumed-turn"
@@ -192,16 +208,17 @@ def test_stale_interrupt_and_normal_completion_do_not_overwrite_new_work(monkeyp
         assert runtime.handle_hook_event(stale, "codex", state_directory=tmp_path) == {}
     assert runtime.handle_hook_event(event("Interrupt", turn_id="new-turn", agent_id="child"),
                                      "codex", state_directory=tmp_path) == {}
-    assert calls == [{"timeout": 2.0, "expected_turn_id": "old-turn", "recorded_turn_id": "new-turn"}]
+    assert calls == [{"timeout": 2.4, "expected_turn_id": "old-turn", "recorded_turn_id": "new-turn"}]
     saved = json.loads((tmp_path / (SESSION + ".json")).read_text())
     assert saved["turn_id"] == "new-turn" and saved["last_interrupt"]["outcome"] == "skipped"
 
 
-def test_new_prompt_waits_for_our_older_interrupt_write(monkeypatch, tmp_path):
+@pytest.mark.parametrize("hold_seconds", [0.05, 2.6])
+def test_new_prompt_waits_for_our_older_interrupt_write(monkeypatch, tmp_path, hold_seconds):
     started, release, prompt_finished = threading.Event(), threading.Event(), threading.Event()
     def writer(*a, **kw):
         started.set()
-        assert release.wait(1)
+        assert release.wait(4)
         return {"persisted": True}
     monkeypatch.setattr(runtime, "rename_codex_session", writer)
     runtime.handle_hook_event(event(turn_id="old-turn"), "codex", state_directory=tmp_path)
@@ -220,13 +237,64 @@ def test_new_prompt_waits_for_our_older_interrupt_write(monkeypatch, tmp_path):
     prompt = threading.Thread(target=run, args=(event(turn_id="new-turn"), prompt_finished))
     prompt.start()
     try:
-        assert not prompt_finished.wait(0.05)
+        assert not prompt_finished.wait(hold_seconds)
     finally:
         release.set()
         interrupt.join(2)
         prompt.join(2)
     assert not interrupt.is_alive() and not prompt.is_alive() and not errors
     assert json.loads((tmp_path / (SESSION + ".json")).read_text())["turn_id"] == "new-turn"
+
+
+@pytest.mark.parametrize("import_elapsed", [0.45, 2.5])
+def test_codex_adapter_import_consumes_writer_deadline(monkeypatch, import_elapsed):
+    import builtins
+
+    clock, calls = [100.0], []
+    real_import = builtins.__import__
+    adapter = SimpleNamespace(rename_codex_thread=lambda *a, **kw:
+                              calls.append(kw) or {"persisted": True})
+
+    def import_adapter(name, *args, **kwargs):
+        if name == "agents_core_codex_titles":
+            clock[0] += import_elapsed
+            return adapter
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(runtime.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(builtins, "__import__", import_adapter)
+    if import_elapsed < 2.4:
+        assert runtime.rename_codex_session(SESSION, "stopped", timeout=2.4)["persisted"] is True
+        assert calls[0]["timeout"] == pytest.approx(2.4 - import_elapsed)
+    else:
+        with pytest.raises(RuntimeError, match="deadline"):
+            runtime.rename_codex_session(SESSION, "stopped", timeout=2.4)
+        assert calls == []
+
+
+@pytest.mark.parametrize("elapsed,expected_timeout", [(1.1, 1.6), (2.8, None)])
+def test_interrupt_main_accounts_for_startup_before_writer(monkeypatch, tmp_path, capsys,
+                                                          elapsed, expected_timeout):
+    import io
+
+    monkeypatch.setattr(runtime, "_HOOK_STARTED_AT", 100.0 - elapsed, raising=False)
+    monkeypatch.setattr(runtime.time, "monotonic", lambda: 100.0)
+    monkeypatch.setattr(runtime, "__file__", str(tmp_path / "hook.py"))
+    payload = event("Interrupt", turn_id="01a14e91-da9f-75f0-b282-911dfe1f8bbe")
+    monkeypatch.setattr(runtime.sys, "stdin", SimpleNamespace(buffer=io.BytesIO(json.dumps(payload).encode())))
+    calls = []
+    monkeypatch.setattr(runtime, "rename_codex_session", lambda *args, **kwargs:
+                        calls.append(kwargs) or {"persisted": True})
+    assert runtime.main(["--client", "codex"]) == 0
+    output = json.loads(capsys.readouterr().out)
+    receipt = json.loads((tmp_path / "agents-core-thread-status-state" / (SESSION + ".json")).read_text())["last_interrupt"]
+    if expected_timeout is None:
+        assert calls == [] and output == {}
+        assert receipt["outcome"] == "failed" and receipt["persisted"] is False
+        assert "deadline" in receipt["error"]
+    else:
+        assert calls[0]["timeout"] == pytest.approx(expected_timeout)
+        assert "Stopped" in output["systemMessage"] and receipt["persisted"] is True
 
 
 def test_interrupt_writer_failure_is_not_reported_as_saved(monkeypatch, tmp_path):

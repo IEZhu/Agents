@@ -66,7 +66,8 @@ def test_source_symlink_must_stay_in_catalog(catalog, tmp_path):
 
 @pytest.mark.parametrize(("raw", "error"), [(b"", "flow_invalid"),
     (b" \n", "flow_invalid"), (b"\xff", "flow_unreadable"),
-    (b"a" * (256 * 1024 + 1), "flow_invalid")])
+    (b"a" * (256 * 1024 + 1), "flow_invalid")],
+    ids=["empty", "whitespace", "invalid-utf8", "oversized"])
 def test_invalid_content(catalog, raw, error):
     (catalog.directory / "docs.md").write_bytes(raw)
     with pytest.raises(FlowError, match=error):
@@ -130,8 +131,21 @@ async def test_builtin_flow_personas_build_complete_bundles(monkeypatch):
     from src import flow_persona
     from src.engine import enrichment
     from src.engine.persona_bundle import build_persona_bundle
+    from src.engine.skills import SkillRetriever
+    from src.engine.implants import ImplantRetriever
+    from types import SimpleNamespace
 
     monkeypatch.setattr(enrichment, "resolve_profile", lambda query: None)
+    # Exact component selections still use the real formatters, but do not need
+    # retriever construction, indexes or an embedding model on a clean runner.
+    monkeypatch.setattr(enrichment, "_skill_retriever", SimpleNamespace(
+        format_skills_for_prompt=lambda items, **kwargs:
+            SkillRetriever.format_skills_for_prompt(None, items, **kwargs),
+    ))
+    monkeypatch.setattr(enrichment, "_implant_retriever", SimpleNamespace(
+        format_implants_for_prompt=lambda items:
+            ImplantRetriever.format_implants_for_prompt(None, items),
+    ))
     catalog = FlowCatalog()
     declared = {flow_id: flow_persona.declared(catalog.load(flow_id).content)
                 for flow_id in catalog.ids()}
@@ -210,7 +224,7 @@ def test_protocol_runs_a_named_flow_before_improvising():
 
 @pytest.mark.asyncio
 async def test_thread_close_audits_every_installed_tool_and_catalogues_every_server_tool():
-    """Catalogue all native tools and the documented optional proxy tools without connecting upstream."""
+    """Static tool names stay complete alongside the runtime proxy family."""
     import re
 
     import src.server as server
@@ -224,23 +238,22 @@ async def test_thread_close_audits_every_installed_tool_and_catalogues_every_ser
                    "**Managed blocks.**", "**One list, one yes.**"):
         assert phrase in audit, phrase
     table = text.split("**Catalogue.**", 1)[1].split("\n## ", 1)[0]
-    cells = [line.split("|")[2] for line in table.splitlines() if line.startswith("| `")]
+    rows = {line.split("|")[1].strip(" `"): line.split("|")[2]
+            for line in table.splitlines() if line.startswith("| `")}
+    assert "`<alias>__<tool>`" in rows.pop("mcp-proxy")
+    proxy_read = rows.pop('proxy-read')
+    assert set(re.findall(r"`([^`]+)`", proxy_read)) == {'code_execute_readonly', 'get_status', 'get_stats', 'get_data_range', 'get_today_stats', 'code_search', 'get_settings'}
+    proxy_state = rows.pop('proxy-state')
+    assert set(re.findall(r"`([^`]+)`", proxy_state)) == {'skip_break', 'pause_timer', 'start_break', 'resume_timer', 'code_execute'}
+    cells = rows.values()
     catalogued = {re.sub(r"\(.*", "", name) for cell in cells for name in re.findall(r"`([^`]+)`", cell)}
     registered = {tool.name for tool in await server.mcp.list_tools()}
-    optional_proxies = {
-        "blincho__get_data_range", "blincho__get_settings", "blincho__get_stats",
-        "blincho__get_status", "blincho__get_today_stats", "blincho__pause_timer",
-        "blincho__resume_timer", "blincho__skip_break", "blincho__start_break",
-        "plata__code_search", "plata__code_execute_readonly", "plata__code_execute",
-    }
-    assert {name for name in catalogued if "__" in name} == optional_proxies
-    assert sorted(registered - catalogued) == []
-    assert sorted(catalogued - registered - optional_proxies) == []
-    for phrase in ("Proxy rows apply only when the client exposes those tools",
-                   "a catalogue entry grants no permission or task trigger by itself",
-                   "a queued action reported completed without checking resulting state",
-                   "detailed activity spans, call history or names, event IDs, journal answers or camera frames",
-                   "attempting writes while `ENABLE_WRITE_TOOLS=false` or outside authorized scope"):
+    assert sorted(registered - catalogued) == [] and sorted(catalogued - registered) == []
+    for phrase in ("a saved proxy definition or cached catalogue does not prove a live connection",
+                   "access claimed without checking the live connection and the upstream app's state",
+                   "Blincho detailed activity spans, call history or names, event IDs, journal answers or camera frames",
+                   "queued timer work was reported completed without checking the resulting state",
+                   "an unfinished strict break was bypassed"):
         assert phrase in " ".join(table.split()), phrase
 
 
