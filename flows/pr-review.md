@@ -10,33 +10,10 @@ Follow [bounded execution and evidence reuse](../docs/flow-execution.md): one
 working record, grouped fixes, compact output and one monitor per pending run.
 All exact-head review, CI, authorization and merge conditions below still apply.
 
-## Mandatory bounded-return gate
+## Bounded-return gate
 
-On a host with code mode or Node orchestration around tool calls, use the
-[executable guard and code-mode recipe](../docs/mcp-tool-safety.md) for this
-gate. Load the trusted local adapter before the first large call, including flow
-discovery; a gate returned inside a flow cannot protect its own initial
-delivery. Native thread metadata uses the closed item/field projection.
-
-A direct-call client, such as Claude Code or Cursor, calls tools without an
-orchestration isolate: each result enters its context before any adapter could
-run. There the adapter is opt-in, not a precondition of this gate. Apply the
-rules below to what the client prints and forwards: choose the narrowest tool
-arguments, write large shell output to the evidence area and select fields from
-it with a script (the Node module may be used for that), and never report a
-result as guarded when the guard did not receive it.
-
-Before each tool call that can return a catalogue, protocol, context bundle or
-large status object, choose the output field allowlist and retain the complete
-source in the task's existing evidence area. Parse JSON strings before selecting
-fields. Never forward an unfiltered result or catalogue to the model.
-
-Before emitting the selected fields, serialize them and enforce an 8,000-character
-return budget. If the budget is exceeded, return only the source reference,
-identity, status and counts. Read required instructions or evidence separately
-in bounded ranges until complete; truncation never counts as a completed read.
-Keep persona descriptors and footers intact, and read each required persona
-block separately rather than combining it with a long flow or catalogue.
+Apply the [bounded-return gate for your client class](../docs/mcp-tool-safety.md#bounded-return-gate-by-client-class)
+throughout this flow, from its first large call on.
 
 The `code_reviewer` persona contributes review judgment for checking findings.
 This flow still fixes, commits, replies and merges: the persona's "flag, don't

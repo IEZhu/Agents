@@ -170,7 +170,7 @@ PYTHONDONTWRITEBYTECODE=1 LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pyt
 The flow checks cover default TokenSave selectors and the AX observation/action
 dependency.
 See [the boundary and code-mode recipe](../docs/mcp-tool-safety.md) for its opt-in
-scope and [bounded flow execution](../docs/flow-execution.md) for caller guidance.
+scope and for the bounded-return gate each client class follows.
 
 The optional bounded GitHub run observer is tested offline with scripted API
 responses and a fake clock. Repeated unchanged states produce no intermediate

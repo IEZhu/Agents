@@ -43,19 +43,22 @@ for (const [runtime, api] of [['module', moduleApi], ['code-mode', new Function(
     await api.guardMetadata(raw, exact.options);
     const short = host({maxCharacters: receipt.characters - 1});
     await assert.rejects(api.guardMetadata(raw, short.options), error =>
-      error.code === 'output_budget_exceeded' && error.sourceRef === 'source:1');
+      error.code === 'output_budget_exceeded' && error.sourceRef === 'source:1' &&
+      String(error).includes('output_budget_exceeded') && String(error).includes('Source retained as source:1'));
     assert.equal(short.emitted.length, 0);
     assert.equal(short.sources.get('source:1'), raw);
   });
   test(`${runtime}: invalid budgets and retention failures emit nothing`, async () => {
     for (const maxCharacters of [0, -1, 0.5, NaN, Infinity, '8000', 8001]) {
       const h = host({maxCharacters});
-      await assert.rejects(api.guardMetadata({}, h.options), {code: 'invalid_guard_options'});
+      await assert.rejects(api.guardMetadata({}, h.options), error => error.code === 'invalid_guard_options' &&
+        error.sourceRef === null && String(error).includes('No source was retained'));
       assert.equal(h.emitted.length, 0);
     }
     for (const retain of [() => {throw new Error('FORBIDDEN');}, () => 'x'.repeat(257), () => ({raw: 'FORBIDDEN'})]) {
       const h = host({retain});
-      await assert.rejects(api.guardMetadata({}, h.options), error => !String(error).includes('FORBIDDEN'));
+      await assert.rejects(api.guardMetadata({}, h.options), error => error.sourceRef === null &&
+        String(error).includes('No source was retained') && !/FORBIDDEN|xxxx/u.test(`${error} ${error.stack}`));
       assert.equal(h.emitted.length, 0);
     }
   });
@@ -99,7 +102,9 @@ for (const [runtime, api] of [['module', moduleApi], ['code-mode', new Function(
     assert.ok(!/AUTH_SENTINEL|CAP_SENTINEL|OPAQUE_SENTINEL/u.test(h.emitted[0]));
     assert.equal(h.sources.get('source:1').status.includes('OPAQUE_SENTINEL'), true);
     const badRef = host({retain: () => 'source:OPAQUE_SENTINEL', secrets: ['OPAQUE_SENTINEL']});
-    await assert.rejects(api.guardMetadata({status: 'ok', entries: []}, badRef.options), {code: 'sensitive_source_reference'});
+    await assert.rejects(api.guardMetadata({status: 'ok', entries: []}, badRef.options), error =>
+      error.code === 'sensitive_source_reference' && error.sourceRef === null &&
+      !String(error).includes('OPAQUE_SENTINEL') && !String(error.stack).includes('OPAQUE_SENTINEL'));
     assert.equal(badRef.emitted.length, 0);
   });
   test(`${runtime}: native read_thread item/field allowlist excludes arguments despite includeOutputs=false`, async () => {
@@ -190,9 +195,13 @@ const MESSAGE = 'FORBIDDEN_MESSAGE_BODY_SENTINEL';
 function documentedRecipe() {
   const doc = readFileSync(new URL('docs/mcp-tool-safety.md', root), 'utf8').replace(/\r\n/gu, '\n');
   const section = doc.split('\n## Code mode before the first large call\n')[1]?.split('\n## ')[0];
-  const recipe = section && /```javascript\n([\s\S]*?)\n```/u.exec(section)?.[1];
+  assert.ok(section, 'docs/mcp-tool-safety.md keeps its code-mode section');
+  assert.equal(section.match(/^```javascript$/gmu)?.length, 1, 'the code-mode section holds exactly one javascript fence');
+  const recipe = /^```javascript\n([\s\S]*?)\n```$/mu.exec(section)?.[1];
   assert.ok(recipe, 'docs/mcp-tool-safety.md keeps its code-mode recipe');
-  return recipe.replaceAll('/absolute/Agents-Core', JSON.stringify(rootPath).slice(1, -1));
+  // A replacer function: a string replacement would expand `$&`, `$'` and similar patterns in the path.
+  const installation = JSON.stringify(rootPath).slice(1, -1);
+  return recipe.replaceAll('/absolute/Agents-Core', () => installation);
 }
 
 /** The documented loader alone: everything up to compiling the adapter, then hand it back. */
@@ -259,10 +268,16 @@ test('documented code-mode recipe: a malformed result refuses with its retained 
   const cut = flowCatalogue.slice(0, flowCatalogue.indexOf(PROMPT) + PROMPT.length);
   const raw = {content: [{type: 'text', text: cut}], structuredContent: {result: cut}, isError: false};
   const isolate = codeModeIsolate({list_flows: raw});
-  await assert.rejects(isolate.run(documentedRecipe()), error =>
-    error.name === 'MetadataGuardError' && error.code === 'invalid_or_incomplete_json' &&
-    error.sourceRef === 'store:flowCatalogueSource' &&
-    !/FORBIDDEN/u.test(`${error} ${error.stack} ${JSON.stringify(error)}`));
+  let refusal;
+  await assert.rejects(isolate.run(documentedRecipe()), error => { refusal = error; return true; });
+  assert.equal(refusal.name, 'MetadataGuardError');
+  assert.equal(refusal.code, 'invalid_or_incomplete_json');
+  assert.equal(refusal.sourceRef, 'store:flowCatalogueSource');
+  // What the model sees of an uncaught refusal is its text: the code and the retained reference, no body.
+  const seen = String(refusal);
+  assert.equal(seen, 'MetadataGuardError: Metadata inspection refused: invalid_or_incomplete_json. ' +
+    'Source retained as store:flowCatalogueSource; read it in bounded ranges.');
+  assert.ok(!/FORBIDDEN/u.test(`${seen} ${refusal.stack} ${JSON.stringify(refusal)}`));
   assert.equal(isolate.emitted.length, 0);
   assert.equal(isolate.stored.get('flowCatalogueSource'), raw);
 });
@@ -297,6 +312,7 @@ test('documented loader: run_flow bodies stay retained; success is bounded and a
 
   await assert.rejects(guard.guardMetadata(raw, options({content: {path: ['content']}})), error =>
     error.code === 'output_budget_exceeded' && error.sourceRef === 'store:runFlowSource' &&
+    String(error).includes('Source retained as store:runFlowSource') &&
     !/FORBIDDEN/u.test(`${error} ${error.stack}`));
   assert.equal(isolate.emitted.length, 1);
   assert.equal(isolate.stored.get('runFlowSource'), raw);

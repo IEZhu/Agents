@@ -1,9 +1,14 @@
 /** Executable boundary for metadata inspection in a JavaScript tool runtime. */
 export const DEFAULT_MAX_CHARACTERS = 8000;
 
+/** The message names the fixed code and, once the source is retained, its validated reference.
+ * A refusal before retention has sourceRef null. Neither ever includes source content.
+ */
 export class MetadataGuardError extends Error {
   constructor(code, sourceRef = null) {
-    super(`Metadata inspection refused: ${code}. Retain the source and read it in bounded ranges.`);
+    super(sourceRef === null
+      ? `Metadata inspection refused: ${code}. No source was retained; retain it and read it in bounded ranges.`
+      : `Metadata inspection refused: ${code}. Source retained as ${sourceRef}; read it in bounded ranges.`);
     this.name = 'MetadataGuardError';
     this.code = code;
     this.sourceRef = sourceRef;

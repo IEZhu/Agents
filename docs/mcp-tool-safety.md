@@ -7,29 +7,80 @@ tool calls or change the JSON-RPC transport. Keep required instructions and
 persona descriptors/footers complete. A small metadata return is not a read of
 the underlying instructions.
 
+## Bounded-return gate by client class
+
+This section is the one statement of the bounded-return gate; flows and guides
+link here instead of restating it. The gate covers every tool call that can
+return a catalogue, protocol, context bundle or large status object, flow
+discovery included.
+
+For every client: keep what a step prints, emits or forwards within an
+8,000-character return budget, and when the selection would exceed it, return
+only the source reference, identity, status and counts. When a required
+instruction or evidence source is too large to return whole, read it separately
+in bounded ranges until complete; truncation never counts as a completed read.
+Keep persona descriptors and footers intact.
+
+**Orchestrated hosts** (Codex code mode, or a Node orchestrator around tool
+calls) see a tool result before the model does, so the guard applies:
+
+- Load the trusted adapter before the first large call, as described in
+  [code mode before the first large call](#code-mode-before-the-first-large-call),
+  which also covers the first flow discovery.
+- Before each call the gate covers, choose the output field allowlist, then pass
+  the result to `guardMetadata`, or to `guardThreadMetadata` for native thread
+  metadata, with a `retain` callback that keeps the complete source in the
+  task's existing evidence area (in memory for sensitive metadata).
+- Never forward an unfiltered result or catalogue to the model. The guard parses
+  JSON strings, checks the serialized envelope against the budget and refuses
+  instead of truncating.
+- Read each required persona block separately rather than combining it with a
+  long flow or catalogue in one return.
+
+**Direct-call clients** call MCP tools natively and receive each result without
+passing it through the guard; Claude Code and Cursor work this way as Agents-Core
+installs them. Their native MCP results, flow discovery included, reach model
+context unguarded: never report such a result as guarded or as retained by the
+guard. Such a client must still:
+
+- choose the narrowest tool arguments (identifiers, scopes, filters, limits)
+  so that results stay small;
+- save large shell, `gh` or API output to a file in the task's evidence area and
+  print only fields that a script selects from the saved file (the Node module
+  can do that selection);
+- apply the same 8,000-character budget to what it prints or forwards to a
+  worker, report or comment.
+
 ## What is enforced and what is opt-in
 
 **Enforced** for a result that the caller hands to `guardMetadata` or
 `guardThreadMetadata`: the complete source is retained before decoding, and a
 retention failure or invalid reference refuses output; the MCP envelope and the
-JSON shape are validated; only allowlisted scalars and array counts are
-projected; selected strings are redacted; the whole serialized
-`{sourceRef, metadata}` envelope is checked against the budget before `emit`.
-A refusal carries a fixed code and the source reference, never the raw input,
-and there is no raw fallback.
+JSON shape are validated; `guardMetadata` projects only allowlisted scalars and
+array counts, and `guardThreadMetadata` only its
+[closed item projection](#native-thread-metadata); selected strings are
+redacted; the whole serialized `{sourceRef, metadata}` envelope is checked
+against the budget before `emit`. A refusal after retention carries a fixed code
+and the source reference, and its message names both. A refusal before
+retention (`invalid_guard_options`, `source_retention_failed`,
+`invalid_source_reference`, `sensitive_source_reference`) carries only the code:
+its `sourceRef` is null. No refusal includes the raw input, and there is no raw
+fallback.
 
-**Opt-in, not enforced:** nothing routes a tool result to the guard. Neither the
-Agents-Core server nor any client applies it automatically, and the transport
-is unchanged. A result is guarded only when the caller's orchestration passes it
-there: Codex code mode with the recipe below, or a Node orchestrator that
-injects retention and emission. A direct-call client, such as Claude Code or
-Cursor, receives each tool result in its context before any adapter could run;
-for it the guard is a voluntary filter for output it saved first, not a
-protection of its own calls. The field allowlist is the caller's choice: the
-guard cannot stop a selected field from carrying prompt text, and it does not
-detect unknown secrets. The host's `retain` callback owns storage and access
-control. The tests below check the enforced part and run the documented recipe;
-they do not show that a client used it.
+**Opt-in, not enforced:** nothing routes a tool result to the guard. No
+Agents-Core component installs the guard in any client, and the transport is
+unchanged; automatic routing is tracked in
+[issue #506](https://github.com/IEZhu/Agents/issues/506). The helper does not
+intercept native-client, terminal or third-party responses. A result is guarded
+only when the caller's orchestration passes it there: Codex code mode with the
+recipe below, or a Node orchestrator that injects retention and emission. A
+direct-call client follows the
+[gate's direct-call rules](#bounded-return-gate-by-client-class); for it the
+guard is a voluntary filter for output it saved first. The field allowlist is
+the caller's choice: the guard cannot stop a selected field from carrying prompt
+text, and it does not detect unknown secrets. The host's `retain` callback owns
+storage and access control. The tests below check the enforced part and run the
+documented recipe; they do not show that a client used it.
 
 ## Retain, decode, project, then emit
 
@@ -41,8 +92,10 @@ before calling `emit`. The limit defaults to 8,000 UTF-16 code units (JavaScript
 limit is allowed. A larger limit, unsafe projection, invalid source reference,
 retention failure or oversized envelope throws before emission. There is no raw
 fallback. Errors have fixed codes and never include parser input or callback
-error messages. On refusal, use the retained reference and narrower fields or
-bounded source reads; do not print the raw error's inputs or retry a write.
+error messages; the message of a refusal after retention names its source
+reference, so an uncaught refusal still shows where the source is. On refusal,
+use the retained reference and narrower fields or bounded source reads; do not
+print the raw error's inputs or retry a write.
 
 `decodeObject` accepts a complete JSON object string or a plain object.
 `decodeMcpObject` explicitly handles MCP CallToolResult envelopes: structured
@@ -70,9 +123,15 @@ the host stored the source correctly.
 
 ## Code mode before the first large call
 
-Derive the trusted installation root from the built-in flow's `source_path`
-(`flows/` is directly below the root), keeping the target `repo_path` separate.
-Load the adapter **before** calling a catalogue, `run_flow` or context tool.
+The trusted installation root is the directory above `flows/` in a built-in
+flow's `source_path`; keep the target `repo_path` separate. Only `list_flows`,
+`get_flow` and `run_flow` return that path, so the root can be unknown before
+flow discovery. When the owner or the task already names the root, load the
+adapter **before** any catalogue, `run_flow` or context call, flow discovery
+included. Otherwise the first discovery call is exempt: call `list_flows` with
+`scope: 'builtin'`, emit only one built-in flow's `source_path` from it, and
+load the adapter before any further large call, including `run_flow`.
+
 In Codex code mode, the following recipe uses the exposed shell tool to read a
 trusted local file; no filesystem or import API inside the isolate is assumed.
 Set the absolute path from inspected installation metadata. Do not interpolate
@@ -179,7 +238,8 @@ The code-mode recipe above also runs verbatim in a Codex-like isolate whose
 shell tool reads the real adapter file. Its Agents-Core results use the legacy
 `structuredContent.result` wrapper that FastMCP returns for a string-valued
 tool. Flow discovery emits only the bounded envelope and retains the whole
-result; a malformed result refuses with its source reference; a truncated
-adapter load stops before the first tool call. Through the same loader, a
-`run_flow` bundle keeps its request, flow body and persona blocks out of the
-output, and selecting its oversized body refuses with the source reference.
+result; a malformed result refuses with its source reference in the error text
+the model sees; a truncated adapter load stops before the first tool call.
+Through the same loader, a `run_flow` bundle keeps its request, flow body and
+persona blocks out of the output, and selecting its oversized body refuses with
+the source reference.

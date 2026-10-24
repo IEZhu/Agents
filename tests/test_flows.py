@@ -255,6 +255,10 @@ async def test_thread_close_audits_every_installed_tool_and_catalogues_every_ser
                    "queued timer work was reported completed without checking the resulting state",
                    "an unfinished strict break was bypassed"):
         assert phrase in " ".join(table.split()), phrase
+    misuse = {line.split("|")[1].strip(" `"): line.split("|")[4]
+              for line in table.splitlines() if line.startswith("| `proxy-")}
+    for slug in ("proxy-read", "proxy-state"):
+        assert "credentials or tokens exposed in output" in misuse[slug], slug
 
 
 def test_flow_execution_uses_valid_default_tokensave_selector_and_current_ax_targets():
@@ -276,6 +280,30 @@ def test_flow_execution_uses_valid_default_tokensave_selector_and_current_ax_tar
                    "After every action, verify the observed state",
                    "These helpers are opt-in orchestration boundaries; they do not intercept other tool calls"):
         assert phrase in safety, phrase
+
+
+def test_bounded_return_gate_is_stated_once_per_client_class_and_linked():
+    """One canonical gate: orchestrated and direct-call rules live in the safety guide only."""
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    safety = " ".join((root / "docs/mcp-tool-safety.md").read_text(encoding="utf-8").split())
+    for phrase in ("## Bounded-return gate by client class",
+                   "**Orchestrated hosts**", "**Direct-call clients**",
+                   "reach model context unguarded: never report such a result as guarded",
+                   "No Agents-Core component installs the guard in any client",
+                   "https://github.com/IEZhu/Agents/issues/506",
+                   "The helper does not intercept native-client, terminal or third-party responses",
+                   "Otherwise the first discovery call is exempt",
+                   "A refusal before retention", "its `sourceRef` is null"):
+        assert phrase in safety, phrase
+    for gone in ("any client applies it automatically", "before any adapter could run"):
+        assert gone not in safety, gone
+    for name in ("flows/pr-review.md", "docs/flow-execution.md"):
+        text = (root / name).read_text(encoding="utf-8")
+        assert "mcp-tool-safety.md#bounded-return-gate-by-client-class" in text, name
+        for restated in ("before any adapter could run", "8,000-character", "Never forward an unfiltered"):
+            assert restated not in text, (name, restated)
 
 
 def test_thread_close_handoff_keeps_required_obligations_unfinished():
