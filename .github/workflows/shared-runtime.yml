@@ -10,6 +10,7 @@ on:
       - src/personal_runtime.py
       - src/stdio_runtime.py
       - src/daemon/runtime.py
+      - src/daemon/sync_ui.py
       - tests/test_personal_runtime.py
       - tests/test_runtime_composition.py
       - src/schemas/artifacts.py
@@ -70,6 +71,7 @@ on:
       - src/personal_runtime.py
       - src/stdio_runtime.py
       - src/daemon/runtime.py
+      - src/daemon/sync_ui.py
       - tests/test_personal_runtime.py
       - tests/test_runtime_composition.py
       - src/schemas/artifacts.py
