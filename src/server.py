@@ -208,8 +208,8 @@ mcp = _WorkerInputMCP(
         # Claude Code shows the first 4,096 characters of these instructions, and only 2,048 before
         # v2.1.296 (#421). The first-answer, logging and delegation directives come first (#508).
         # The keep/switch rules that follow the delegation block also appear in the route_and_load,
-        # get_agent_context and refresh_persona_context descriptions; the first-work and
-        # owning-session rules arrive with every SUCCESS instruction.
+        # get_agent_context and refresh_persona_context descriptions; the describe_repo fallback
+        # and owning-session rules arrive with every SUCCESS instruction.
         "Before the first final answer with MCP available and no prior activation, load an "
         "explicitly requested known role with get_agent_context, otherwise route_and_load with "
         "current_persona=null, even for greetings and project-status questions. Complete "
@@ -231,7 +231,14 @@ mcp = _WorkerInputMCP(
         "get_subagent_context before spawning with a canonical agent_name, task, "
         "acceptance_criteria, relevant context, scope, non_goals and result_type. "
         "Default compact budgets are max_skills=3, max_implants=0, max_context_chars=16000. "
-        "Require status: prepared. The default receipt names a private package file: launch the "
+        "Require status: prepared.\n"
+        # The first-work rule, which a session may need before its first activation, sits inside
+        # the delegation exchange: the 4,096 window then holds it and the validation rule.
+        "For ordinary conversations, the first time you read, search or change repository files, "
+        "when describe_repo is available, call describe_repo with workspace and the target repo_path before ad hoc exploration. "
+        "On needs_summary, follow its instruction; call write_repo_summary only where that "
+        "instruction allows a write.\n"
+        "The default receipt names a private package file: launch the "
         "worker with the receipt's launch text plus only necessary task materials and keep its "
         "contract_revision; the server keeps the contract. With delivery inline (only when the "
         "worker cannot read the server's files), retain the contract and forward worker_context "
@@ -263,10 +270,6 @@ mcp = _WorkerInputMCP(
         "force_reload=True; refresh with refresh_persona_context. Pass current_persona. Preserve "
         "higher-priority instructions, conversation and user constraints. Ignore stale/replayed "
         "activations; never clear caches to switch.\n"
-        "For ordinary conversations, the first time you read, search or change repository files, "
-        "when describe_repo is available, call describe_repo with workspace and the target repo_path before ad hoc exploration. "
-        "On needs_summary, follow its instruction; call write_repo_summary only where that "
-        "instruction allows a write.\n"
         "When describe_repo is unavailable, report that limitation and use the documented manual role fallback without claiming a loaded repository description. "
         "Before changing another session's branch, worktree, pull request, host or service, message the owning session and wait for its answer. If it does not answer, ask the user; silence and delivery acknowledgement are not consent. Explicit user authorization remains authoritative.\n\n"
         "For shared task data, publish immutable UTF-8 artifacts with artifact_publish and pin versions with "

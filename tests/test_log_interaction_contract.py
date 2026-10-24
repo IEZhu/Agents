@@ -17,7 +17,8 @@ FULL = {
 TOOLS = ("log_interaction", "route_and_load", "get_agent_context", "refresh_persona_context", "run_flow")
 # Claude Code shows this many characters of a server's instructions: 4,096 since v2.1.296,
 # 2,048 before (#421, #508). Older clients are still in use, so the shorter window holds
-# the directives every turn needs and the longer one the delegation exchange through validation.
+# the directives every turn needs and the longer one the first-work rule and the delegation
+# exchange through validation.
 OLDER_CLAUDE_CODE_WINDOW = 2048
 CLAUDE_CODE_WINDOW = 4096
 
@@ -254,12 +255,14 @@ def test_per_turn_directives_stay_inside_the_older_instruction_window(phrase):
 
 
 @pytest.mark.parametrize("phrase", [
+    "call describe_repo with workspace and the target repo_path before ad hoc exploration.",
     "Call validate_subagent_result for every returned or revised output",
     "Require valid: true before accepting",
 ])
-def test_delegation_validation_stays_inside_the_current_window(phrase):
-    """#508: current Claude Code shows 4,096 characters, enough for the delegation exchange
-    through its validation rule after the per-turn directives."""
+def test_first_work_and_validation_stay_inside_the_current_window(phrase):
+    """#508: current Claude Code shows 4,096 characters, enough after the per-turn directives
+    for the first-work rule, which a session may need before its first activation, and the
+    delegation exchange through its validation rule."""
     text = server.mcp.instructions
     assert phrase in text and text.index(phrase) + len(phrase) < CLAUDE_CODE_WINDOW
 
