@@ -915,17 +915,21 @@ the hook authenticates the project for memory calls. See
 [Antigravity client setup](docs/routing_flow.md#installation-migration-and-rollback).
 
 The checked-in `CLAUDE.md` uses the same template; the global installer does not
-change this tracked file. After editing the template, refresh this checkout's
-managed section:
+change this tracked file. The template, the MCP initialization instructions, the
+`instruction` of every `SUCCESS` and the memory reminder are all composed from the
+section files in `src/engine/protocol/`. After editing a section, regenerate the
+template, the reminder and this checkout's managed section:
 
 ```bash
-.venv/bin/python scripts/_helpers/inject_claude_md.py CLAUDE.md scripts/templates/routing-protocol-core.md
+.venv/bin/python -m src.engine.protocol_text --write
 ```
 
-On Windows, use `.venv\Scripts\python.exe` for the same command.
-The helper replaces only the text between the markers and preserves repository
-notes outside them. When the section changes, it leaves an untracked
-`CLAUDE.md.backup.<timestamp>` in the checkout; do not commit it. Backup retention
+On Windows, use `.venv\Scripts\python.exe` for the same command; `--check` lists
+stale files without writing. The command replaces only the text between the
+markers and preserves repository notes outside them. The installer helper
+`scripts/_helpers/inject_claude_md.py` refreshes other files' managed sections;
+when it changes a file it leaves `<file>.backup.<timestamp>` next to it and keeps the
+three newest. Inside this checkout, do not commit such a backup. Backup retention
 and routing-reminder migration are described in
 [installation, migration and rollback](docs/routing_flow.md#installation-migration-and-rollback).
 Review your own project instructions and memory for conflicting unconditional

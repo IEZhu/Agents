@@ -75,9 +75,10 @@ also applies to AI instructions, plans, and reports.
 | [AGENTS.md](../AGENTS.md) | Short entry point for AI contributors; links to the shared protocol and working instructions |
 | [CLAUDE.md](../CLAUDE.md) | Tracked routing section plus repository-specific notes |
 | [flows/](../flows/README.md) | Reusable task instructions invoked by file path or through `run_flow` for the caller's repository |
-| [routing-protocol-core.md](../scripts/templates/routing-protocol-core.md) | Protocol 2 client instruction template |
-| `src/server.py` (`FastMCP` `instructions`), `src/engine/persona.py` (`APPLY_INSTRUCTION`) | Protocol 2 summary sent to every MCP client at initialization, and the apply instruction returned with each `SUCCESS` bundle; keep both consistent with `routing-protocol-core.md` |
-| [memory-routing.md](../scripts/templates/memory-routing.md) | Matching installer reminder for client memory; [legacy/](../scripts/templates/legacy/README.md) keeps earlier generated copies for migration |
+| [src/engine/protocol/](../src/engine/protocol/), `src/engine/protocol_text.py` | The one source of the protocol 2 text: a file per section with its variants, and the renderer of every surface below (`python -m src.engine.protocol_text --write`) |
+| [routing-protocol-core.md](../scripts/templates/routing-protocol-core.md) | Protocol 2 client instruction template, generated |
+| `src/server.py` (`FastMCP` `instructions`), `src/engine/persona.py` (`APPLY_INSTRUCTION`) | Protocol 2 summary sent to every MCP client at initialization, and the apply instruction returned with each `SUCCESS` bundle, both rendered at import |
+| [memory-routing.md](../scripts/templates/memory-routing.md) | Matching installer reminder for client memory, generated; [legacy/](../scripts/templates/legacy/README.md) keeps earlier generated copies for migration |
 | [`agents/`](../agents/README.md), [`skills/`](../skills/README.md), [`implants/`](../implants/README.md), [`rules/`](../rules/README.md) | Runtime prompt content, selected and assembled by the server |
 
 Protocol 2 is the only protocol; protocol 1 was removed on 2026-09-29. See

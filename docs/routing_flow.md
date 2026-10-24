@@ -463,11 +463,21 @@ a detected Claude client.
 `scripts/install_instructions.py` also refreshes an existing Antigravity plugin's `~/.gemini/config/plugins/agents-core/rules/AGENTS.md`; select it with `--clients antigravity`. It skips an absent rules file and does not provision or enable the plugin or change connection settings and hooks. Cursor and standalone Claude Desktop receive the shared contract in MCP initialization rather than a global file managed by this command; reconnect them after a server instruction update. Fresh sessions are needed for changed client startup rules.
 
 The checked-in `CLAUDE.md` uses the same managed section. Global installation does
-not modify this tracked file. After editing the template, run
-`.venv/bin/python scripts/_helpers/inject_claude_md.py CLAUDE.md scripts/templates/routing-protocol-core.md`
-(or use `.venv\Scripts\python.exe` on Windows). Only the managed section is replaced; repository notes outside it remain intact.
-When the section changes, the helper leaves an untracked
-`CLAUDE.md.backup.<timestamp>` in the checkout; leave it out of the commit.
+not modify this tracked file. The protocol text has one source, the section files
+in `src/engine/protocol/`: each holds one protocol section with its variants side
+by side (`full` for the instruction files, `compact` for the text that the MCP
+instructions, the `SUCCESS` instruction and the memory reminder share, and a
+surface's own wording where it needs one). `src/engine/protocol_text.py` composes
+every surface, in the order that keeps the per-turn and first-work rules inside
+the 2,048 and 4,096 characters that Claude Code shows of the MCP instructions.
+After editing a section, run
+`.venv/bin/python -m src.engine.protocol_text --write` (or use
+`.venv\Scripts\python.exe` on Windows): it regenerates the template, the memory
+reminder and this checkout's managed section, replacing only the text between the
+markers; `--check` lists stale files. `tests/test_protocol_text.py` fails on a
+stale file and on a sentence the source states in two places, and
+`tests/test_log_interaction_contract.py` on a server instruction that leaves its
+window.
 
 Both installers replace only the marked routing section and back up changed
 files. The shared instruction writer retains the three newest backups per file
@@ -507,7 +517,7 @@ first.
 Run deterministic contract and migration tests from the checkout root:
 
 ```bash
-LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/test_persona_protocol.py tests/test_persona_bundle.py tests/test_install_instructions.py tests/test_installer_instructions.py tests/test_codex_instructions.py tests/test_protocol_migration.py tests/test_log_interaction_contract.py tests/test_log_interaction_async.py tests/test_readiness.py tests/test_version.py -q
+LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/test_persona_protocol.py tests/test_persona_bundle.py tests/test_install_instructions.py tests/test_installer_instructions.py tests/test_codex_instructions.py tests/test_protocol_migration.py tests/test_protocol_text.py tests/test_cooperation_instructions.py tests/test_log_interaction_contract.py tests/test_log_interaction_async.py tests/test_readiness.py tests/test_version.py -q
 ```
 
 See [tests/README.md](../tests/README.md) for the full suite, model prerequisites,

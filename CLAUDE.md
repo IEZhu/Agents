@@ -309,10 +309,14 @@ For PR/MR review, follow [flows/pr-review.md](flows/pr-review.md), including
 description updates, bot review cycles, thread replies, and merge conditions.
 
 The committed managed section is `scripts/templates/routing-protocol-core.md`
-(protocol 2, the only protocol). The global installer does not modify this
-tracked checkout file; after editing the template, refresh it with the command in
-[README.md](README.md#persona-continuity). Keep these repository notes outside
-the markers so future protocol changes preserve them.
+(protocol 2, the only protocol), generated with the MCP instructions, the
+`SUCCESS` instruction and the memory reminder from the section files in
+`src/engine/protocol/`. Do not edit the template or the managed section by hand.
+The global installer does not modify this tracked checkout file; after editing a
+section, run `.venv/bin/python -m src.engine.protocol_text --write`, which also
+refreshes the managed section here ([README.md](README.md#persona-continuity)).
+Keep these repository notes outside the markers so future protocol changes
+preserve them.
 
 - `src/server.py` exposes the MCP tools. Protocol handlers and complete bundle
   assembly live in `src/engine/persona.py` and `src/engine/persona_bundle.py`;
