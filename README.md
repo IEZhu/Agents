@@ -770,7 +770,7 @@ The server exposes MCP tools that any compatible client can call:
 | `load_implants(query\|task_type)` | Load cognitive reasoning strategies by semantic query or preset bundle |
 | `list_agents()` | Enumerate all available agents with metadata |
 | `list_flows(scope="all")` | Discover built-in, personal (`user:`) and repository (`repo:`) Markdown workflows, with IDs and content revisions |
-| `run_flow(flow, request="", repo_path=None, current_persona?)` | Load a workflow for the caller's repository; returns `needs_execution` for the current model to carry out using its tools, plus `persona_activation` when the flow names a persona |
+| `run_flow(flow, request="", repo_path=None, current_persona?, force_reload=False)` | Load a workflow for the caller's repository; returns `needs_execution` for the current model to carry out using its tools, plus `persona_activation` when the flow names a persona (`force_reload=True` with `current_persona` restores that persona's full instruction) |
 | `get_flow` / `save_flow` / `delete_flow` | Manage personal and repository flows from chat, with history and conflict detection; stored in the git-ignored `flows/.user` ([details](flows/README.md#personal-and-repository-flows)) |
 | `set_flow_persona(flow, agent?, skills?, implants?, rules?, reset=False)` | Choose the agent and exact skills, implants and rules a flow runs with, without copying its text; stored in `flows/.user/personas/`. Without `agent` the flow runs without a persona; `reset=true` restores the flow's frontmatter ([details](flows/README.md#choose-a-flows-agent-and-components)) |
 | `list_user_rules` / `get_user_rule` / `subscribe_user_rule` / `refresh_user_rule` | Inspect or explicitly fetch cached [URL-subscribed user rules](docs/user-rules.md); only subscribe and refresh contact the source |
@@ -916,8 +916,9 @@ the hook authenticates the project for memory calls. See
 
 The checked-in `CLAUDE.md` uses the same template; the global installer does not
 change this tracked file. The template, the MCP initialization instructions, the
-`instruction` of every `SUCCESS` and the memory reminder are all composed from the
-section files in `src/engine/protocol/`. After editing a section, regenerate the
+`instruction` of a `SUCCESS`, the pointers sent instead of a text the client already
+holds (#433) and the memory reminder are all composed from the section files in
+`src/engine/protocol/`. After editing a section, regenerate the
 template, the reminder and this checkout's managed section:
 
 ```bash

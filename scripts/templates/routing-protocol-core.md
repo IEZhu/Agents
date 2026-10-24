@@ -156,6 +156,11 @@ earlier task, pass only relevant facts in `chat_history` when routing is needed.
   Preserve higher-priority instructions, conversation history, facts, goals,
   constraints, user permissions, and tool results.
 - Save `persona` and the exact returned `footer` only after successful application.
+- After a conversation's first activation, a `SUCCESS` carries a short `instruction`
+  that points to the full one by `instruction_revision`; the full rules still hold.
+  Restore with `force_reload=True` when the full instruction is gone from your
+  context. A first activation may carry `warnings` about outdated managed routing
+  sections: mention them once to the user.
 - `NO_CHANGE`: retain the active instructions, descriptor, and footer. It does not
   certify that source files are current. A refresh checks the bundle revision.
 - `ERROR`, missing blocks, or invalid descriptors: keep the previous state and

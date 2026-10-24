@@ -77,7 +77,8 @@ their recorded revision; they do not override the current implementation.
   `src/engine/protocol_text.py` into every surface: the template
   [routing-protocol-core.md](scripts/templates/routing-protocol-core.md) (the
   managed section of `CLAUDE.md` and `AGENTS.md`), the MCP initialization
-  instructions, the `instruction` of every `SUCCESS` and the installer's
+  instructions, the `instruction` of a `SUCCESS`, the pointers sent instead of
+  a text the client already holds (#433) and the installer's
   [memory-routing.md](scripts/templates/memory-routing.md). Edit the section
   that states the rule, never a generated surface, then run
   `.venv/bin/python -m src.engine.protocol_text --write`, which regenerates the

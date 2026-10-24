@@ -16,8 +16,13 @@ from src.version import agents_core_version
 
 logger = logging.getLogger(__name__)
 
-# Sent as the instruction of every SUCCESS; composed from src/engine/protocol/ (#431).
+# Sent as the instruction of a conversation's first SUCCESS and of a restore; composed from
+# src/engine/protocol/ (#431). A later SUCCESS points to it instead (#433).
 APPLY_INSTRUCTION = protocol_text.bundle_instruction()
+INSTRUCTION_POINTER = protocol_text.bundle_pointer()
+INSTRUCTION_REVISION = protocol_text.instruction_revision()
+# What the caller needs to choose a ROUTE_REQUIRED candidate; trigger_command is for people.
+CANDIDATE_FIELDS = ("name", "display_name", "role")
 
 
 PERSONA_KEYS = tuple(PersonaDescriptor.model_fields)
@@ -218,7 +223,7 @@ async def load_persona(
             return unchanged(current, request_id)
 
         bundle = await build_persona_bundle(agent_name, query, history, selection=selection)
-        if ((refresh or selection is not None) and current
+        if ((refresh or selection is not None) and current and not force_reload
                 and current.agent == agent_name
                 and current.bundle_revision == bundle.bundle_revision):
             return unchanged(current, request_id)
@@ -229,10 +234,14 @@ async def load_persona(
             skills_loaded=bundle.skills_loaded, implants_loaded=bundle.implants_loaded,
             rules_loaded=bundle.rules_loaded,
         )
+        # The conversation holds the full instruction from its first activation, unless this
+        # is a first activation or a restore of lost instructions.
+        repeat = current is not None and not force_reload
         result = PersonaResponse(
             status="SUCCESS", request_id=request_id, persona=persona,
             replaces_activation_id=current.activation_id if current else None,
-            footer=persona_footer(persona), instruction=APPLY_INSTRUCTION,
+            footer=persona_footer(persona), instruction=INSTRUCTION_POINTER if repeat else APPLY_INSTRUCTION,
+            instruction_revision=INSTRUCTION_REVISION,
             persona_block=bundle.persona_block, rules_block=bundle.rules_block,
             skills_block=bundle.skills_block, implants_block=bundle.implants_block,
         )
@@ -266,7 +275,8 @@ async def route_persona(router, query: str, history: list[str], current_persona,
             return PersonaResponse(
                 status="ROUTE_REQUIRED", request_id=request_id,
                 replaces_activation_id=current.activation_id if current else None,
-                candidates=router.get_agent_catalog(),
+                candidates=[{key: entry[key] for key in CANDIDATE_FIELDS if key in entry}
+                            for entry in router.get_agent_catalog()],
                 instruction=("Choose the best agent for the request and relevant conversation, "
                              "then call get_agent_context with protocol_version=2 and the same "
                              "current_persona. Keep the existing activation until SUCCESS."),

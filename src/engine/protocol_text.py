@@ -6,13 +6,18 @@ side as named variants, so a rule is edited in one file:
 - ``full``: the prose of the instruction files, the managed section that the installers write
   into ``CLAUDE.md`` and ``AGENTS.md``;
 - ``compact`` (and ``compact-*`` when a surface needs it in parts): the short form that the MCP
-  server instructions, the ``instruction`` of every ``SUCCESS`` and the memory reminder all
+  server instructions, the full ``instruction`` of a ``SUCCESS`` and the memory reminder all
   reuse unchanged;
 - ``server``, ``bundle``, ``memory`` and their ``*-*`` parts: a surface's own wording where it
   needs one. The server instructions keep their opening within the windows that Claude Code
-  shows of them, the ``SUCCESS`` instruction is sent with every activation, and the memory
-  reminder states the conversation steps in its own prose; a short rule that two of them
-  state alike (``finish:turn-end``, ``finish:redaction``) is its own variant.
+  shows of them, the ``SUCCESS`` instruction is sent with a conversation's first activation
+  and a restore, and the memory reminder states the conversation steps in its own prose; a
+  short rule that two of them state alike (``finish:turn-end``, ``finish:redaction``) is its
+  own variant.
+
+The ``pointer`` section holds what a later ``SUCCESS`` of a conversation and the server
+instructions for a client whose own instruction file is current send instead of a text the
+client already holds (#433).
 
 The functions below compose each surface from these variants in a fixed order. The template
 and the memory reminder stay committed files, because installers and shell scripts read them;
@@ -24,6 +29,7 @@ reused instead of copied.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import os
 import re
 import shutil
@@ -52,7 +58,7 @@ _VARIANT_MARKER = re.compile(r"^<!-- variant: ([a-z][a-z0-9-]*) -->$")
 SECTION_NAMES = (
     "intro", "header", "worker", "delegation", "artifacts", "output-artifacts", "local-inference",
     "cooperation", "start", "decide", "apply", "flows", "first-work", "ownership", "progress", "finish",
-    "history-errors", "compatibility", "tools",
+    "history-errors", "compatibility", "tools", "pointer",
 )
 # Sentences shorter than this are too generic to count as a copied rule ("Then send the final answer.").
 MIN_REPEATED_SENTENCE = 40
@@ -141,12 +147,11 @@ def server_instructions() -> str:
     activation, comes next, and the rest of the delegation exchange through its validation rule
     fits the longer window. The keep/switch rules also appear in the descriptions of the persona
     tools, and the describe_repo fallback, the owning-session rules and the definition of progress
-    messages, which follow the windows, arrive with every ``SUCCESS`` instruction.
+    messages, which follow the windows, arrive with the full ``SUCCESS`` instruction.
     tests/test_log_interaction_contract.py checks both windows.
     """
     return "\n\n".join([
-        _paragraph(("header", "server"), ("worker", "server"), ("start", "server"),
-                   _sentences_of(("finish", "server"), ("finish", "turn-end"), ("finish", "server-delivery"))),
+        _server_opening(),
         _paragraph(("delegation", "compact-request"), ("first-work", "compact"), ("delegation", "compact")),
         _paragraph(("decide", "server"), _sentences_of(("first-work", "compact-unavailable"), ("ownership", "compact"))),
         part("progress", "compact"),
@@ -154,23 +159,81 @@ def server_instructions() -> str:
         part("output-artifacts", "compact"),
         part("cooperation", "compact"),
         _paragraph(("apply", "server"), _sentences_of(("intro", "compact"), ("apply", "server-prompts"))),
-        _paragraph(("tools", "server"), ("flows", "server"), ("compatibility", "server")),
+        _server_tail(),
     ])
 
 
+def _server_opening() -> str:
+    """The per-turn lines that open the server instructions and their pointer."""
+    return _paragraph(("header", "server"), ("worker", "server"), ("start", "server"),
+                      _sentences_of(("finish", "server"), ("finish", "turn-end"), ("finish", "server-delivery")))
+
+
+def _server_tail() -> str:
+    """The closing rules: language and footer, the workspace header and history errors and the flow
+    tools, which only the server instructions state, and the MCP-unavailable fallback."""
+    return _paragraph(("tools", "server"), ("flows", "server"), ("compatibility", "server"))
+
+
+def server_pointer() -> str:
+    """The server instructions for a client whose own instruction file holds the current template (#433).
+
+    It keeps the opening lines and the closing rules of ``server_instructions`` and points to the
+    file for everything between them, which the template states in full.
+    """
+    pointer = " ".join(part("pointer", "server").replace("{revision}", template_revision()).split())
+    return "\n\n".join([_server_opening(), pointer, _server_tail()])
+
+
+# The variants of the ``SUCCESS`` instruction, in order. ``bundle_pointer`` names each rule they
+# carry, and tests/test_instruction_pointers.py fails on a variant it does not name.
+BUNDLE_PARTS: tuple[tuple[str, str], ...] = (
+    ("worker", "bundle"), ("first-work", "compact"), ("first-work", "compact-unavailable"),
+    ("ownership", "compact"), ("apply", "bundle"), ("apply", "bundle-pointer"), ("finish", "bundle"),
+    ("finish", "redaction"), ("history-errors", "compact"), ("progress", "compact"),
+    ("delegation", "compact-request"), ("delegation", "compact"), ("artifacts", "compact"),
+    ("output-artifacts", "compact"), ("intro", "compact"), ("local-inference", "compact"),
+    ("cooperation", "compact"),
+)
+
+
 def bundle_instruction() -> str:
-    """The ``instruction`` of a persona ``SUCCESS``, sent with every activation: one paragraph.
+    """The ``instruction`` of a conversation's first ``SUCCESS`` and of a restore: one paragraph.
 
     The worker exemption comes first, then the first-work and owning-session rules, which a
     client that never loaded the instruction files learns here, as it learns the definition of
-    progress messages after the logging rules.
+    progress messages after the logging rules. A later ``SUCCESS`` sends ``bundle_pointer``.
     """
-    return _sentences_of(
-        ("worker", "bundle"), ("first-work", "compact"), ("first-work", "compact-unavailable"),
-        ("ownership", "compact"), ("apply", "bundle"), ("finish", "bundle"), ("finish", "redaction"),
-        ("history-errors", "compact"), ("progress", "compact"), ("delegation", "compact-request"),
-        ("delegation", "compact"), ("artifacts", "compact"), ("output-artifacts", "compact"),
-        ("intro", "compact"), ("local-inference", "compact"), ("cooperation", "compact"))
+    return _sentences_of(*BUNDLE_PARTS)
+
+
+def bundle_pointer() -> str:
+    """The ``instruction`` of a ``SUCCESS`` after the first activation of a conversation (#433)."""
+    return _sentences_of(("pointer", "bundle"))
+
+
+def _revision(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+
+
+def instruction_revision() -> str:
+    """Names the full ``SUCCESS`` instruction, so a pointer can say which text it stands for."""
+    return _revision(bundle_instruction())
+
+
+def template_revision() -> str:
+    """Names the managed routing section, so the server pointer and the warnings can say which one."""
+    return _revision(template())
+
+
+def managed_section(text: str) -> str | None:
+    """The text between the routing markers of an instruction file, stripped; None without a pair."""
+    try:
+        _, rest = text.split(BEGIN_MARKER, 1)
+        section, _ = rest.split(END_MARKER, 1)
+    except ValueError:
+        return None
+    return section.strip()
 
 
 def memory_reminder() -> str:

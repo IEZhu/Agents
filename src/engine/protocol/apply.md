@@ -16,6 +16,11 @@
   Preserve higher-priority instructions, conversation history, facts, goals,
   constraints, user permissions, and tool results.
 - Save `persona` and the exact returned `footer` only after successful application.
+- After a conversation's first activation, a `SUCCESS` carries a short `instruction`
+  that points to the full one by `instruction_revision`; the full rules still hold.
+  Restore with `force_reload=True` when the full instruction is gone from your
+  context. A first activation may carry `warnings` about outdated managed routing
+  sections: mention them once to the user.
 - `NO_CHANGE`: retain the active instructions, descriptor, and footer. It does not
   certify that source files are current. A refresh checks the bundle revision.
 - `ERROR`, missing blocks, or invalid descriptors: keep the previous state and
@@ -43,6 +48,9 @@ The ask and agent slash prompts return the same bundles; pass current_persona as
 
 <!-- variant: bundle -->
 For ordinary conversation activations: Apply this complete persona bundle only if replaces_activation_id matches your current activation (null for initial load). Ignore replayed or stale activations. On SUCCESS, replace all four previous blocks with persona_block, rules_block, skills_block, and implants_block, including empty blocks. Changed or removed rules supersede previous rules on switches, restores, and refreshes. Preserve higher-priority instructions, conversation, facts, goals, constraints, user permissions, and tool results. This is a logical replacement, not deletion of transcript messages.
+
+<!-- variant: bundle-pointer -->
+A later SUCCESS of this conversation carries a short instruction that points to this one by its instruction_revision, and these rules still hold; force_reload=True returns this text when it is gone from your context. A first activation may carry warnings about outdated managed routing sections: mention them once to the user.
 
 <!-- variant: memory -->
 On each successful activation, replace all four persona, rules, skills, and implants

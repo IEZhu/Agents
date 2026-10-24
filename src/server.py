@@ -33,6 +33,7 @@ dotenv.load_dotenv(env_path)
 
 from src.utils.synchronized_cache import SynchronizedTTLCache as TTLCache
 from src.engine.fingerprint import configuration_revision
+from src import client_instructions
 from src import component_toggles
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.server import Context
@@ -203,6 +204,9 @@ mcp = _WorkerInputMCP(
     # the order that keeps the per-turn and first-work rules inside Claude Code's windows.
     instructions=protocol_text.server_instructions(),
 )
+
+# Codex with a current AGENTS.md is answered with a pointer to it at initialize (#433).
+client_instructions.install_initialization_pointer(mcp._mcp_server)
 
 router = SemanticRouter()
 
@@ -884,6 +888,7 @@ async def run_flow(
     current_persona: ta.persona_arg(ta.CURRENT_PERSONA_DESC) = None,
     ctx: Context | None = None,
     workspace: ta.opt_str(ta.WORKSPACE_DESC) = None,
+    force_reload: Annotated[bool, Field(description="True with current_persona to restore the flow persona's lost instructions.")] = False,
 ) -> str:
     """Start a user-requested flow in the CALLER's repository.
 
@@ -901,6 +906,7 @@ async def run_flow(
     request and instruction. Continue executing that content using client tools.
     When the flow names a persona (flow.persona), persona_activation is a protocol 2
     response for it: pass current_persona and apply it as a switch before executing.
+    force_reload=True with current_persona returns that persona's full instruction again.
     This tool only reads instructions: it does not run commands, edit files,
     create a background task, sample a model or claim the workflow is complete.
     Returns status=error for an invalid source or unavailable caller workspace; over
@@ -926,10 +932,10 @@ async def run_flow(
             if problem is not None:
                 bundle["persona_activation"] = json.loads(_persona_not_ready(problem))
                 return json.dumps(bundle, ensure_ascii=False)
-            bundle["persona_activation"] = json.loads(await load_persona(
-                router, spec["agent"], query, [], current_persona,
+            bundle["persona_activation"] = json.loads(await _with_drift_warnings(await load_persona(
+                router, spec["agent"], query, [], current_persona, force_reload=force_reload,
                 reasoning=f"Persona of flow {loaded.id}",
-                selection=flow_persona.selection(spec)))
+                selection=flow_persona.selection(spec))))
         return json.dumps(bundle, ensure_ascii=False)
     except (FlowError, WorkspaceError, OSError, RuntimeError) as error:
         return _flow_error(error, ctx)
@@ -1151,6 +1157,26 @@ async def _persona_debug_response(tool: str, call_id: str, response: str) -> str
     return response
 
 
+async def _with_drift_warnings(response: str) -> str:
+    """A first activation's SUCCESS names the outdated managed routing sections (#433).
+
+    The check reads instruction files only; any failure leaves the response as it was.
+    """
+    try:
+        payload = json.loads(response)
+        if not isinstance(payload, dict) or payload.get("status") != "SUCCESS" \
+                or payload.get("replaces_activation_id") is not None:
+            return response
+        warnings = await asyncio.to_thread(client_instructions.drift_warnings)
+        if not warnings:
+            return response
+        payload["warnings"] = warnings
+        return json.dumps(payload, ensure_ascii=False)
+    except Exception:
+        logger.warning("Could not check managed routing sections", exc_info=True)
+        return response
+
+
 @mcp.tool(**TOOL_HINTS["get_subagent_context"])
 async def get_subagent_context(
     agent_name: ta.unparsed_arg("string", "Required canonical existing persona name; at most 80 characters."),
@@ -1290,7 +1316,7 @@ async def route_and_load(
         response = await route_persona(
             router, query, _normalize_chat_history(chat_history), current_persona, _is_meta_query,
         )
-    return await _persona_debug_response("route_and_load", call_id, response)
+    return await _persona_debug_response("route_and_load", call_id, await _with_drift_warnings(response))
 
 @mcp.tool(**TOOL_HINTS["get_agent_context"])
 @observe(name="get_agent_context")
@@ -1325,7 +1351,7 @@ async def get_agent_context(
             router, agent_name, query, _normalize_chat_history(chat_history),
             current_persona, force_reload=force_reload, reasoning=reasoning,
         )
-    return await _persona_debug_response("get_agent_context", call_id, response)
+    return await _persona_debug_response("get_agent_context", call_id, await _with_drift_warnings(response))
 
 @mcp.tool(**TOOL_HINTS["refresh_persona_context"])
 async def refresh_persona_context(
@@ -1356,7 +1382,7 @@ async def refresh_persona_context(
             )
     except Exception as error:
         response = error_response(error)
-    return await _persona_debug_response("refresh_persona_context", call_id, response)
+    return await _persona_debug_response("refresh_persona_context", call_id, await _with_drift_warnings(response))
 
 
 @mcp.tool(**TOOL_HINTS["load_implants"])
@@ -2062,7 +2088,7 @@ async def ask(
         current = parse_persona(json.loads(current_persona)) if current_persona else None
         if (problem := await _readiness_problem("ask")) is not None:
             return [UserMessage(f"{query}\n\n{_persona_not_ready(problem)}")]
-        result = await route_persona(router, query, [], current, _is_meta_query)
+        result = await _with_drift_warnings(await route_persona(router, query, [], current, _is_meta_query))
         return [UserMessage(
             f"Requested persona selection:\n{result}\n\nUser query: {query}\n"
             "Apply successful blocks within existing instructions, preserving the dialogue. "
@@ -2133,7 +2159,8 @@ def _register_agent_prompts():
                     current = parse_persona(json.loads(current_persona)) if current_persona else None
                     if (problem := await _readiness_problem(p_name)) is not None:
                         return [UserMessage(f"{query}\n\n{_persona_not_ready(problem)}")]
-                    result = await load_persona(router, a_name, retrieval_query, [], current)
+                    result = await _with_drift_warnings(
+                        await load_persona(router, a_name, retrieval_query, [], current))
                     return [UserMessage(
                         f"Requested persona:\n{result}\n\nUser query: {query}\n"
                         "Apply successful blocks within existing instructions, preserving the dialogue. "

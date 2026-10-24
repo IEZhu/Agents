@@ -162,7 +162,8 @@ arguments are transported as strings, for example
 version message without loading a persona.
 
 `SUCCESS` contains `protocol_version`, `request_id`, `persona`,
-`replaces_activation_id`, `footer`, an application instruction, and separate
+`replaces_activation_id`, `footer`, an application `instruction` with its
+`instruction_revision`, and separate
 `persona_block`, `rules_block`, `skills_block`, `implants_block`. The descriptor
 contains canonical `agent`, unique `activation_id`, full SHA-256 `bundle_revision`,
 metadata `scope`, and the loaded component lists: `skills_loaded` (skill file IDs),
@@ -189,6 +190,42 @@ The revision reflects the issued texts, resolved imports, the component lists an
 their order, plus the agent identity and scope used by the local suitability
 assessment.
 It is neither a conversation identifier nor an authentication token.
+
+The full `instruction` (worker mode, the first-work and owning-session rules,
+delegation, artifacts, cooperation, progress messages and the final answer) comes
+with a conversation's first activation (`current_persona` null) and with a restore
+(`force_reload=True`). A later `SUCCESS` of the same conversation, a switch or a
+refresh, carries a short pointer to it instead, with the same
+`instruction_revision` and the names of the rules it stands for; a client that
+lost the full text restores it (#433), and `run_flow` takes `force_reload=True`
+with `current_persona` for a flow's persona. A first activation's `SUCCESS` also
+lists in `warnings` each managed routing section that differs from the
+installation's template among the files the client loads and the server can
+resolve: the registered workspace's `CLAUDE.md` for Claude Code, its `AGENTS.md`
+(or a nonempty `AGENTS.override.md`) for Codex, and their global files
+(`~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md` or a nonempty `AGENTS.override.md`,
+and Antigravity's plugin rules), all of them when the client is unknown or bridged
+over stdio, none for Cursor and standalone Claude Desktop. Global files resolve
+through the server's environment (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`), so a session
+started with another profile is warned about the server's profile files. Other
+sessions' linked worktrees are not checked. Each warning names the command that
+refreshes the file, and a file that matches the committed template while the
+running server serves an older one asks for a restart instead. The check only
+reads the files; the slash prompts carry the same warnings. `ROUTE_REQUIRED`
+candidates carry `name`, `display_name` and `role`; the slash command
+(`trigger_command`) is for people and stays out of them.
+
+Over HTTP the server instructions answered at `initialize` keep their opening
+lines and the rules only they state (language, footer, workspace header, flows,
+the MCP-unavailable fallback) and point to the managed section for the rest when
+the request names `X-Agents-Client: codex`, the workspace's `AGENTS.md` holds the
+current template in the registered root and in every checkout registered under
+it, the section ends within its first 32 KiB (Codex's default
+`project_doc_max_bytes`) and no nonempty project `AGENTS.override.md` exists.
+Every other case, stdio and Claude Code included, gets the full text: Claude Code
+shows only the first 4,096 characters of the instructions (2,048 before v2.1.296),
+which both texts spend alike. Only the workspace file decides, since a global file
+may belong to a different profile than the client's.
 
 The client applies a response only if `replaces_activation_id` matches its active
 activation (null for first load). Replayed activations are no-ops; stale responses
@@ -483,7 +520,8 @@ not modify this tracked file. The protocol text has one source, the section file
 in `src/engine/protocol/`: each holds one protocol section with its variants side
 by side (`full` for the instruction files, `compact` for the text that the MCP
 instructions, the `SUCCESS` instruction and the memory reminder share, and a
-surface's own wording where it needs one). `src/engine/protocol_text.py` composes
+surface's own wording where it needs one); the `pointer` section holds the short
+texts sent instead of one the client already holds. `src/engine/protocol_text.py` composes
 every surface, in the order that keeps the per-turn and first-work rules inside
 the 2,048 and 4,096 characters that Claude Code shows of the MCP instructions.
 After editing a section, run
