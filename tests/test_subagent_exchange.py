@@ -274,8 +274,9 @@ def test_malformed_transcript_records_are_skipped(worker_tree, tmp_path):
         {"type": "response_item", "payload": {"type": "message", "role": "assistant", "content": "text"}},
         {"type": "assistant", "message": {"id": "c", "content": 5}},
         {"type": "response_item", "payload": {"type": "message", "role": "assistant", "content": 7}},
-        {"type": "assistant", "message": {"id": ["unhashable"], "content": [{"type": "text", "text": "odd id"}]}},
         {"type": "assistant", "message": {"id": "b", "content": [{"type": "text", "text": "task: final"}]}},
+        {"type": "assistant", "message": {"id": ["late"], "content": [{"type": "text", "text": "late odd id"}]}},
+        {"type": "assistant", "message": {"content": [{"type": "text", "text": "late without id"}]}},
     ]
     transcript.write_text("\n".join(json.dumps(record) for record in records) + "\n", encoding="utf-8")
     assert subagent_exchange.read_result(str(transcript)) == "task: final"

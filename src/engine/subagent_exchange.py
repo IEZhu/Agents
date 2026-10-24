@@ -131,7 +131,8 @@ def _transcript_roots() -> list[Path]:
 def _claude_text(record: dict) -> tuple[str | None, str | None]:
     """(message id, text) of a Claude Code assistant record; a background hand-back counts as text."""
     message = record.get("message")
-    if record.get("type") != "assistant" or not isinstance(message, dict):
+    if (record.get("type") != "assistant" or not isinstance(message, dict)
+            or not isinstance(message.get("id"), str)):  # Claude message IDs are strings
         return None, None
     parts = []
     content = message.get("content")
