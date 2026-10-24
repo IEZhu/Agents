@@ -166,7 +166,10 @@ def assess_result(contract: Any, result: Any) -> tuple[ValidationResponse, Outco
         if is_text_result(result):
             if len(result) > MAX_RESULT_CHARS:
                 raise ContractError("payload_too_large", f"Payload exceeds {MAX_RESULT_CHARS} characters.")
-            digest = hashlib.sha256(result.encode("utf-8")).hexdigest()
+            try:
+                digest = hashlib.sha256(result.encode("utf-8")).hexdigest()
+            except UnicodeEncodeError:
+                raise ContractError("invalid_text", "The result is not valid UTF-8 text.") from None
             try:
                 value = parse_result(result, expected)
             except TextFormatError as error:

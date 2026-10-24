@@ -210,7 +210,7 @@ For several components, run steps 2–6 per component in parallel prepared worke
 one component or one tightly related cluster each, with disjoint files. The parent
 is the single writer of shared files (agent frontmatter, catalogs, routing
 datasets) and runs steps 1, 7–10 itself. Validate every worker result with
-`validate_subagent_result` by `contract_revision` and `result_ref` and check its sources
+`validate_subagent_result` by `contract_revision` and `result_ref` (or `result` when no file holds it) and check its sources
 before integrating it.
 
 ## Report

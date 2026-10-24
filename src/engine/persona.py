@@ -61,7 +61,7 @@ APPLY_INSTRUCTION = (
     "Default to max_skills=3, max_implants=0 and max_context_chars=16000. "
     "Call validate_subagent_result for every returned or revised output with contract_revision "
     "and result_ref (the worker's transcript, Codex rollout or result file), or the unchanged "
-    "result when no file holds it; never retype it. Require valid: true before accepting or integrating it, "
+    "result when no file holds it, and an inline package with its retained contract; never retype it. Require valid: true before accepting or integrating it, "
     "then check evidence and acceptance criteria; structural validity is not correctness. "
     "Invalid results require correction and revalidation; a new execution attempt requires "
     "a new attempt_id and prepared contract, at a returned escalation's complexity after a "

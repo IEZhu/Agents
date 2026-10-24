@@ -190,15 +190,27 @@ def test_reference_reads_claude_codex_and_handback_transcripts(worker_tree, tmp_
     assert validate_result(package.contract.model_dump(mode="json"), subagent_exchange.read_result(str(codex))).valid
 
 
-@pytest.mark.parametrize("reference,code", [
+@pytest.mark.parametrize("name,code", [
     ("relative/result.md", "invalid_result_ref"),
-    ("/nonexistent/agents-core/result.md", "result_ref_missing"),
-    (str(Path(__file__).resolve()), "result_ref_outside"),
+    ("missing.md", "result_ref_missing"),
+    ("outside.md", "result_ref_outside"),
 ])
-def test_reference_policy(worker_tree, reference, code):
+def test_reference_policy(worker_tree, tmp_path, monkeypatch, name, code):
+    allowed, outside = tmp_path / "allowed", tmp_path / "outside"
+    allowed.mkdir(); outside.mkdir()
+    (outside / "outside.md").write_text("task: x", encoding="utf-8")
+    monkeypatch.setattr(subagent_exchange, "_result_roots", lambda: [allowed.resolve()])
+    monkeypatch.setattr(subagent_exchange, "_transcript_roots", lambda: [allowed.resolve()])
+    reference = name if name.startswith("relative") else str((allowed if name == "missing.md" else outside) / name)
     with pytest.raises(subagent_exchange.ContractError) as error:
         subagent_exchange.read_result(reference)
     assert error.value.code == code
+
+
+def test_unencodable_text_is_a_diagnostic_not_a_crash(worker_tree):
+    package = prepared()
+    response = validate_result(package.contract.model_dump(mode="json"), text_result(package) + "\ud800")
+    assert not response.valid and "invalid_text" in codes(response)
 
 
 def test_client_homes_allow_only_transcripts(worker_tree, tmp_path, monkeypatch):
