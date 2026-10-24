@@ -31,11 +31,12 @@ def git(root: Path, *args: str) -> str:
                           check=True, env=environment).stdout.strip()
 
 
-def baseline(root: Path, sha: str) -> str:
+def baseline(root: Path, sha: str) -> tuple[str, bool]:
+    """Return the published version and whether the base records it in VERSION."""
     if git(root, "ls-tree", "--name-only", sha, "--", "VERSION"):
         value = git(root, "show", f"{sha}:VERSION")
         calendar_version.parse(value)
-        return value
+        return value, True
     # Historical releases had no VERSION. Preserve their existing time policy.
     timestamp, *parents = git(root, "show", "-s", "--format=%cI %P", sha).split()
     moment = datetime.fromisoformat(timestamp)
@@ -44,7 +45,7 @@ def baseline(root: Path, sha: str) -> str:
                               for parent in parents)
         if promoted >= previous:
             moment = promoted
-    return moment.astimezone(timezone.utc).strftime(calendar_version.FORMAT)
+    return moment.astimezone(timezone.utc).strftime(calendar_version.FORMAT), False
 
 
 def check_package(root: Path) -> None:
@@ -70,10 +71,12 @@ def prepare(root: Path, base: str, *, check: bool = False, now: datetime | None 
     base_sha = git(root, "rev-parse", "--verify", "--end-of-options", f"{base}^{{commit}}")
     if not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", base_sha):
         raise ValueError("The release base did not resolve to a commit")
-    released = baseline(root, base_sha)
+    released, recorded = baseline(root, base_sha)
     released_time = calendar_version.parse(released)
     current = calendar_version.read(root)
-    if current is not None and calendar_version.parse(current) < released_time:
+    # A newer VERSION on main can be merged back; a legacy commit-time baseline has
+    # no VERSION to merge, so a VERSION behind it is advanced like a missing one.
+    if recorded and current is not None and calendar_version.parse(current) < released_time:
         raise ValueError("VERSION is behind main; reconcile main into dev through review first")
     if check:
         if current is None or calendar_version.parse(current) <= released_time:
@@ -84,7 +87,7 @@ def prepare(root: Path, base: str, *, check: bool = False, now: datetime | None 
         return {"version": current, "released_version": released, "base_sha": base_sha,
                 "changed": False, "checked": True}
     target = current
-    if target is None or calendar_version.parse(target) == released_time:
+    if target is None or calendar_version.parse(target) <= released_time:
         moment = now or datetime.now(timezone.utc)
         if moment.tzinfo is None:
             raise ValueError("Preparation time must have a timezone")

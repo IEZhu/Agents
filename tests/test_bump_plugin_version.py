@@ -96,13 +96,15 @@ def test_utc_conversion_and_next_day_rollover(repository):
     assert bump.prepare(root, "HEAD", now=NOW)["version"] == "27.01.01.0000"
 
 
-def test_preparation_refuses_a_branch_behind_main(repository):
+@pytest.mark.parametrize("check", [False, True])
+def test_preparation_refuses_a_branch_behind_main(repository, check):
     root, path, sha, _ = repository
     (root / "VERSION").write_text("26.10.15.2045\n", encoding="utf-8")
     original = path.read_bytes()
     with pytest.raises(ValueError, match="behind main"):
-        bump.prepare(root, sha, now=NOW)
+        bump.prepare(root, sha, check=check, now=NOW)
     assert path.read_bytes() == original
+    assert (root / "VERSION").read_text() == "26.10.15.2045\n"
 
 
 @pytest.mark.parametrize("invalid", ["0.1.3", "26.1.18.0805", "26.02.30.0805", "26.10.18.2460",
@@ -128,6 +130,27 @@ def test_migration_from_semver_manifest_uses_legacy_main_timestamp(repository):
     result = bump.prepare(root, "HEAD", now=NOW)
     assert (result["released_version"], result["version"]) == (BASE, NEXT)
     assert json.loads(path.read_text())["version"] == (root / "VERSION").read_text().strip() == NEXT
+
+
+@pytest.mark.parametrize("now,expected", [(NOW, NEXT),
+                                          (datetime(2026, 10, 16, 12, 0, tzinfo=timezone.utc), "26.10.16.2046")])
+def test_preparation_advances_a_version_behind_a_legacy_main(repository, now, expected):
+    """A main without VERSION offers nothing to merge back, so the stale VERSION is advanced."""
+    root, path, _, git = repository
+    (root / "VERSION").unlink()
+    path.write_text(path.read_text().replace(BASE, "0.1.3"), encoding="utf-8")
+    git("add", "-u")
+    git("commit", "-m", "Legacy release")
+    stale = "26.10.15.2045"
+    (root / "VERSION").write_text(stale + "\n", encoding="utf-8")
+    path.write_text(path.read_text().replace("0.1.3", stale), encoding="utf-8")
+    with pytest.raises(ValueError, match="must be greater"):
+        bump.prepare(root, "HEAD", check=True)
+    assert (root / "VERSION").read_text() == stale + "\n"
+    result = bump.prepare(root, "HEAD", now=now)
+    assert (result["released_version"], result["version"], result["changed"]) == (BASE, expected, True)
+    assert json.loads(path.read_text())["version"] == (root / "VERSION").read_text().strip() == expected
+    assert bump.prepare(root, "HEAD", check=True)["checked"] is True
 
 
 @pytest.mark.parametrize("base", ["missing-main", "--output=/tmp/not-a-ref"])
