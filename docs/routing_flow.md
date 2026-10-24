@@ -39,6 +39,12 @@ to `protocol_version=2`, and clients pass it explicitly; any other value returns
 take no `protocol_version`. Slash prompts always return protocol 2 bundles. Choosing HTTP or stdio
 does not select a persona protocol.
 
+Persona and worker preparation tools return instructions and contracts; the
+current model composes the answer and the host launches native workers. The
+optional `local_*` HTTP tools provide one bounded local completion under separate
+owner configuration, capabilities and budgets. They do not replace activation
+or the prepare/spawn/validate exchange; see [local inference operations](shared-mcp-daemon.md#local-inference).
+
 ## Delegated workers
 
 The separate [subagent API](subagent-contract.md) uses
@@ -55,6 +61,14 @@ runtime limits; the prompt itself does not.
 The parent must run `validate_subagent_result` against its original contract for every returned or revised output, without rewriting the output or contract. Require `valid: true` before accepting or integrating delegated work, then independently check evidence and acceptance criteria. Structural conformance does not verify source claims or execute reported checks. Invalid output requires correction and revalidation; a new execution attempt requires a new `attempt_id` and prepared contract.
 
 If preparation fails, either endpoint is unavailable, or native spawning is unavailable, report the limitation and work in the parent when practical. Do not launch an unprepared/full-persona worker or accept an unvalidated result. Authorized nested delegation follows the same exchange. The conversation fallback below does not waive these requirements.
+
+For shared exact input, pass the complete active `artifact_manifest` returned
+in the artifact tool response's `data` field. Preparation verifies stored bytes
+and pins the manifest in the retained contract, then supplies exact read calls
+without inlining the bodies. Workers read required entries through `eof`; parents
+also call `artifact_manifest_verify` before acceptance. Structural validation
+performs no artifact I/O and can still pass after a manifest expires or is
+released. See [shared artifacts](shared-artifacts.md).
 
 ## Cooperation and persona continuity
 
@@ -154,13 +168,14 @@ contains canonical `agent`, unique `activation_id`, full SHA-256 `bundle_revisio
 metadata `scope`, and the loaded component lists: `skills_loaded` (skill file IDs),
 `implants_loaded` (each implant's `short_name`, or its file ID when none is
 declared) and `rules_loaded` (rule names). The footer shows these lists, then a
-plain Markdown segment `Agents-Core <version>`. The version is the UTC commit
-time of the installation's `HEAD` as `YY.MM.DD.HHMM` (on `main`, a release merge
-commit takes the time of the `dev` HEAD it merged, as its tag does:
-[calendar releases](releases.md#release-pipeline); `-dev` when the installation
-is on the integration branch `dev`, `-dirty` when tracked files have uncommitted
-changes, both as in `26.10.14.1146-dev-dirty`; `unknown` without git metadata), computed once per
-process by `src/version.py`. Under the shared daemon the version text is a link,
+plain Markdown segment `Agents-Core <version>`. The base number is the root
+`VERSION` value in `YY.MM.DD.HHMM`, shared with the plugin and
+[calendar release tag](releases.md#release-pipeline). The runtime adds `-dev`
+on the integration branch `dev` and `-dirty` for uncommitted tracked changes,
+as in `26.10.14.1146-dev-dirty`. Source archives can read `VERSION` without Git.
+Legacy checkouts without that file retain the UTC commit-time calculation;
+an unreadable or invalid version returns `unknown`. `src/version.py` computes
+the value once per process. Under the shared daemon the version text is a link,
 `[Agents-Core <version>](http://127.0.0.1:<port>/ui)`, to the web UI; standalone stdio
 servers show the version as plain text. A stdio server of a service installation
 serves through the service

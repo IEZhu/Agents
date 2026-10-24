@@ -48,6 +48,27 @@ failed, and 2 for wrong arguments.
 | `codex-probe [--kind worker\|stage] --confirm-live-probe` | The owner's live check of Codex: the outer profile, the model-free probes, the nested-sandbox check and the decision between Codex and the Claude worker; a stage check also runs the probe plan through `codex exec` (a model turn) when those pass. See [autodev-codex.md](autodev-codex.md#command). |
 | `worker-probe --confirm-live-probe` | The owner's live check of the Claude worker (#345): one worker turn built as a review's, in a review's layout under the run directory, with a `Read` in its tree and one in its materials that must succeed and one outside both that must be denied (a model turn, so it refuses without the flag). See [autodev-workers.md](autodev-workers.md#current-limits). |
 
+## Update channels and autodev
+
+The daemon's update channel and the autodev base are separate. `AGENTS_AUTO_UPDATE_BRANCH`
+chooses the branch followed by the installation's updaters (`src/update_channel.py`);
+autodev still fetches `refs/heads/main`, reads protection rules for `main`, compares its
+runner content with that pinned commit and creates pull requests with `base: main`
+(`repos.py`, `preconditions.py`, `drift.py`, `broker.py`). `autodev.json` has no base-branch
+setting. Choosing `dev` as the update channel does not make autodev target `dev`.
+
+This matters in this repository, where ordinary contribution PRs target `dev` and `main`
+takes releases from `dev` ([contribution instructions](../AGENTS.md#make-changes)). Code or
+persona content installed from `dev` can differ from pinned `main` and end a run as
+`failed: infra` with `runner drift`, even when the installation is clean. A successful content
+check does not resolve the PR-target policy: the current broker still targets `main`. Resolve
+that boundary before enabling real runs. Do not switch or edit the live checkout to repair a
+drift failure; changes belong in a separate worktree cut from `origin/dev`.
+
+The run lease coordinates autodev with daemon updates; it does not change either branch
+choice. The scheduler's own LaunchAgent imports from the installation (`PYTHONPATH` in
+`schedules/launchagent.py`); an isolated daemon `runtime_root` does not move that scheduler.
+
 ## Settings page
 
 The daemon's web UI has an Autodev page (#348): the **Autodev** chip under the version opens it in

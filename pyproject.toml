@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agents-private"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Multi-agent MCP framework for Cursor IDE"
 requires-python = ">=3.11"
 dependencies = [
@@ -48,6 +48,9 @@ evals = [
     "openai>=1.40",
     "anthropic>=0.40",
 ]
+
+[tool.setuptools.dynamic]
+version = {file = ["VERSION"]}
 
 [tool.setuptools.packages.find]
 where = ["."]

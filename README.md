@@ -1,8 +1,13 @@
 # 🤖 Agents-Core
 
 [![Shared runtime (dev)](https://github.com/IEZhu/Agents/actions/workflows/shared-runtime.yml/badge.svg?branch=dev&event=push)](https://github.com/IEZhu/Agents/actions/workflows/shared-runtime.yml?query=branch%3Adev+event%3Apush)
+[![Instruction signing tests (dev)](https://github.com/IEZhu/Agents/actions/workflows/instruction-signing.yml/badge.svg?branch=dev&event=push)](https://github.com/IEZhu/Agents/actions/workflows/instruction-signing.yml?query=branch%3Adev+event%3Apush)
+[![Documentation checks (dev)](https://github.com/IEZhu/Agents/actions/workflows/documentation-quality.yml/badge.svg?branch=dev&event=push)](https://github.com/IEZhu/Agents/actions/workflows/documentation-quality.yml?query=branch%3Adev+event%3Apush)
+[![MCP API reference coverage](docs/badges/mcp-api-docs.svg)](docs/mcp-tools.md)
 [![User sync (dev)](https://github.com/IEZhu/Agents/actions/workflows/user-sync.yml/badge.svg?branch=dev&event=push)](https://github.com/IEZhu/Agents/actions/workflows/user-sync.yml?query=branch%3Adev+event%3Apush)
 [![Vulnerability scan (dev)](https://github.com/IEZhu/Agents/actions/workflows/vulnerability-scan.yml/badge.svg?branch=dev&event=push)](https://github.com/IEZhu/Agents/actions/workflows/vulnerability-scan.yml?query=branch%3Adev+event%3Apush)
+
+[Quality checks and badge scope](docs/quality-checks.md)
 
 **Specialist context, reusable workflows and repository memory for AI assistants.**
 
@@ -12,6 +17,7 @@ Agents-Core is a local Model Context Protocol (MCP) server for assistants that n
 - [Compact documentation index](llms.txt): direct Markdown links for agents discovering the project.
 - [Install in an MCP client](llms-install.md): manual stdio configuration, including Cline.
 - [Documentation map](docs/README.md): current guides, reference material, and evaluation reports.
+- [Next-release integration](docs/documentation-audit-2026-10-18.md#parallel-feature-integration): integrated HTTP/stdio proxy and thread-status evidence, with remaining release prerequisites.
 - [Instruction signing](docs/instruction-signing-core.md): local key/trust controls and accepted coverage policy; runtime enforcement is still planned.
 - [AI contributor instructions](AGENTS.md) and [Claude instructions](CLAUDE.md).
 - [Model workflows](flows/README.md): reusable Markdown instructions, including
@@ -19,15 +25,7 @@ Agents-Core is a local Model Context Protocol (MCP) server for assistants that n
 
 ## Checks
 
-The badges show the latest matching push runs on the integration branch, `dev`. Shared runtime and User sync use changed-path filters, so their last run can predate a documentation-only commit. Open the links for job logs, and use each pull request's Checks tab for that change's results. Other focused workflows are listed in [GitHub Actions](https://github.com/IEZhu/Agents/actions) and the [test guide](tests/README.md).
-
-| Workflow | Scope |
-|---|---|
-| [Shared runtime](.github/workflows/shared-runtime.yml) | Linux, macOS and Windows checks for persistent artifacts, scoped workers, cooperation, MCP integration, dense adapter contracts and fake startup readiness; POSIX jobs also check fake native/Redis boundaries. |
-| [User sync](.github/workflows/user-sync.yml) | Library history, synchronization and executable discovery on Linux, macOS and Windows, using local bare repositories and fake GitHub APIs. |
-| [Vulnerability scan](.github/workflows/vulnerability-scan.yml) | The complete committed `uv.lock` inventory, including declared extras, plus independently resolved universal `requirements.txt` dependencies. Every severity, unfixed advisory, missing package and scanner/resolver error fails the gate. Findings are printed in the job log. |
-
-The dependency scan runs on pull requests, merge groups, `main`/`dev` pushes, daily on the default branch and on manual dispatch; releases reuse it for their exact source commit. A passing scan describes known dependency advisories within that inventory, not an application security audit. Badges report workflow status; merge enforcement requires the corresponding required checks in repository branch protection or rulesets.
+The workflow badges show the latest matching push runs on the integration branch, `dev`; the MCP API badge is derived from the source. [Quality checks and badge scope](docs/quality-checks.md) is the one table of what each badge covers, its triggers and its limits, including the vulnerability gate that releases wait for. Other focused workflows are listed in [GitHub Actions](https://github.com/IEZhu/Agents/actions) and the [test guide](tests/README.md).
 
 After preparing the environment as described in the [test guide](tests/README.md), run the regular suite locally:
 
@@ -112,7 +110,7 @@ in place, and warns when `.env` follows another branch than an explicit
 (a detached HEAD gets `main`) and never switches channels: that is
 `channel set`'s job, with its downgrade check ([update channel](#update-channel)).
 First close the client sessions that run this installation's stdio server, as
-for any manual Git operation or rebuild. If this checkout serves the shared macOS service, update it with
+for any manual Git operation or rebuild. If this checkout serves the shared service, update it with
 `.venv/bin/python -m src.daemon update` instead (see [Updates](#updates)).
 An update is refused when the checkout has uncommitted changes to tracked files
 (commit or stash them first). Untracked files do not block an update and are left
@@ -296,7 +294,7 @@ The interactive script:
 [Claude plugin](#claude-plugin) installed and enabled, setup skips only Claude Code's
 `Agents-Core` entry; `--force-claude-code-mcp` (or `AGENTS_FORCE_CLAUDE_CODE_MCP=1`)
 writes it anyway. Use `./scripts/init_repo.sh --help` for the
-available options (`--yes` accepts all defaults). For the shared macOS service and
+available options (`--yes` accepts all defaults). For the shared service and
 client connections, continue with [MCP client configuration](#-mcp-client-configuration).
 
 For an existing installation, refresh Codex, Claude and existing Antigravity plugin instructions with
@@ -421,11 +419,13 @@ The shared service switches in its update transaction instead
 | `FASTEMBED_CACHE_DIR` | `~/.cache/fastembed` | Persistent model cache; the shared service's `install` reads it only from the shell ([daemon guide](docs/shared-mcp-daemon.md)) |
 | `AGENTS_CLIENT_REPO_ROOT` | Unset: a verified `workspace` or sole current MCP root; without roots, the nearest `.git`, `CLAUDE.md` or `AGENTS.md` at or above the session directory, else that safe existing directory ([rules](#-repository-memory)) | Explicit stdio memory and workflow target. Refused with `workspace_unsafe` when it is a system, program or home directory. Set it in a per-project MCP entry's `env`, never in the installation `.env`, a shared registration or the Desktop entry |
 | `RULES_ENABLED` | `1` | Include [shared rules](rules/README.md) in loaded context |
+| `AGENTS_SUBAGENT_TIERING` | `1` | Resolve model tiers when worker preparation supplies `complexity`; `0` keeps the host model. Per-client model/effort overrides and escalation are in [delegated model tiers](docs/subagent-model-tiers.md#configuration) |
 | `AGENTS_COOPERATION_ENABLED` | `0` | Opt the installed daemon into the local [agent cooperation service and mailbox](docs/agent-cooperation/README.md); HTTP and existing stdio-bridge clients share it; standalone stdio returns `store_unavailable`; accepting the setup option or `--yes` sets this to `1` |
 | `AGENTS_COOPERATION_RETENTION_DAYS` | `30` | Owner retention window for terminal cooperation receipts/events (integer, minimum 30); invalid values leave coordination unavailable; see [maintenance and recovery](docs/agent-cooperation/runtime.md) |
 | `AGENTS_USER_RULES_DIR` | `data/user-rules` in the installation | Machine-local cache for [URL-subscribed user rules](docs/user-rules.md), separate from flow sync |
 | `AGENTS_RULE_AUTH_HOSTS` | Unset | JSON map from a Bearer-token environment variable name to its exact permitted source hostname, required when `auth_env` is used for a user rule |
 | `AGENTS_RULE_PRIVATE_HOSTS` | Unset | Exact hostnames allowed to resolve to RFC1918 IPv4 for user-rule fetches; comma or whitespace separated; loopback/link-local remain denied |
+| `AGENTS_LOCAL_INFERENCE_CONFIG` | Unset; generation disabled | Absolute owner JSON path for optional [local inference](docs/shared-mcp-daemon.md#local-inference) through the shared HTTP daemon. Models and optional dependencies require separate setup; restart after configuration changes |
 | `INTENT_CLASSIFIER_ENABLED` | `0` | Enable the optional intent-based enrichment classifier |
 | `AGENTS_USER_FLOWS_DIR` | `flows/.user` in the installation | Location (absolute path) of [personal and repository flows](flows/README.md#personal-and-repository-flows), their persona choices, and the installation's rule, skill and implant switches (`components.json`) |
 | `AGENTS_GITHUB_HOST` | `github.com` | GitHub host that [library sync](docs/user-sync.md#github) signs in to and calls; set it for GitHub Enterprise Server |
@@ -473,7 +473,7 @@ later keeps a group or a file out on every machine without deleting it anywhere.
 To set it up:
 
 - **During setup.** `init_repo.sh` and `init_repo.bat` ask once, at the end:
-  "Set up sync between your machines now? [y/N]". On macOS, when the shared
+  "Set up sync between your machines now? [y/N]". On macOS or Windows, when the shared
   service answers and serves the Sync page, yes opens its settings page there;
   otherwise it starts the terminal wizard. When the wizard has started sync on a
   machine without the service, setup also asks "Also sync every 5 minutes in the
@@ -583,10 +583,15 @@ store; the interaction journal `history.md` retains its separate role.
 
 Feature PRs target `dev`; release PRs promote `dev` into `main`
 ([branches and releases](#branches-and-releases), with the release
-[procedure](docs/releases.md#procedure)). Merged release PRs record the existing
-UTC calendar version with an immutable Git tag at the resulting commit. See
-[Calendar releases](docs/releases.md) for event guards, same-minute releases and
-retry behavior.
+[procedure](docs/releases.md#procedure)). The root [`VERSION`](VERSION) stores
+one `YY.MM.DD.HHMM` calendar number for the runtime, Claude plugin manifest and
+release tag. Prepare it in UTC with `python3 scripts/bump_plugin_version.py`
+before promotion; later commits retain that number. The runtime adds `-dev` on
+`dev` and `-dirty` for tracked uncommitted changes. Merged release PRs record
+`vVERSION` with an immutable tag at the exact merge commit once the vulnerability
+scan of that commit passes. See
+[Calendar releases](docs/releases.md) for preparation, legacy fallback, collision
+checks and retry behavior.
 
 The shared daemon has its own update controller. Run
 `.venv/bin/python -m src.daemon update` for a manual update; automatic daemon
@@ -1075,7 +1080,7 @@ This command updates global instructions, that reminder and its memory-index
 entry, and their managed backups. It does not install dependencies, change `.env`
 or vector indexes, register MCP connections, or change
 service configuration. The shared daemon migration below configures Codex's MCP
-connection on macOS; without the service, add the [standalone Codex entry](#codex-configtoml).
+connection on macOS and Windows; without the service, add the [standalone Codex entry](#codex-configtoml).
 Refreshing client instruction files alone does not require restarting the daemon. Start fresh client sessions to load them. Cursor and standalone Claude Desktop receive the shared contract through MCP initialization; this instruction-only command does not manage a global rules file for them. After updating server-side initialization instructions, restart or reconnect the server and reconnect those clients to receive the new initialization response. Existing project-level rules can override global guidance, so update their managed sections with the same template when they restate an older contract.
 
 ### Shared macOS and Windows service
@@ -1153,7 +1158,7 @@ CLAUDE_CONFIG_DIR="$HOME/.claude-work" .venv/bin/python -m src.daemon migrate --
 ```
 
 The configurations below are for explicit standalone stdio use (including platforms
-without the macOS service). To return from the shared service to stdio, run
+without the shared service). To return from the shared service to stdio, run
 `restore-clients` and then `uninstall` (see
 [rollback](docs/shared-mcp-daemon.md#updates-and-recovery); to remove Agents-Core
 altogether, see [Uninstall](#uninstall)); setup writes

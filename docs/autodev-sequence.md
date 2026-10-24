@@ -47,6 +47,9 @@ continuation's under `resume`); `ready` needs one passing report per kind and mo
    between this check and the first stage.
 2. **The drift check** (`runner.default_drift`): `main` is fetched into the trusted repository,
    its quarantine older than 30 days is pruned, and the installation is compared with `pinned`.
+   The installation's update channel does not select this base; see
+   [update channels and autodev](autodev-runner.md#update-channels-and-autodev) before using a
+   `dev` installation or opening real autodev PRs under the repository's contribution policy.
 3. **The preconditions** (real modes only, `preconditions.check`): the broker's credentials,
    main's protection rules, workflows that cannot approve pull requests, and no repository secret
    `CLAUDE_ROUTINE_TOKEN`. Anything missing ends the run `refused` with the list of items, before

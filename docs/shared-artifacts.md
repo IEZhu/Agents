@@ -69,6 +69,14 @@ a model or requires Redis.
 | `artifact_manifest_verify` | Required `manifest_id` and `manifest_sha256`. Rechecks active access and every selected artifact's full bytes, descriptor and hash; returns `verified: true` and verified descriptors on success. |
 | `artifact_manifest_release` | Required `manifest_id` and `manifest_sha256`. Revokes subsequent access and returns `released: true`, retaining immutable data. |
 
+For publication, the successful response's `data` is the artifact descriptor.
+For manifest creation and lookup, `data` is the complete manifest: pass that
+object as `get_subagent_context.artifact_manifest` or
+`local_context_create.artifact_manifest`, rather than the outer response envelope.
+The manifest's hash field is `sha256`; use that exact value as
+`manifest_sha256` in read, verify, lookup and release calls. An artifact entry's
+own `sha256` identifies its bytes and is a different field from the manifest hash.
+
 Names are display names of 1–120 characters, without path separators or control
 characters. Supported media types are `text/plain`, `text/markdown` and
 `application/json`; JSON publication must contain valid finite JSON. All

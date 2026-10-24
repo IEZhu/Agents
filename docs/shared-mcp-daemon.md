@@ -66,6 +66,23 @@ never falls back to TCP or attaches to another engine. The schema-1 `port` field
 is accepted but unused. Only the owned child can be terminated. Effective context capacity is
 reported after startup, including the pinned engine's one-token headroom.
 
+For a normal installed service, put `AGENTS_LOCAL_INFERENCE_CONFIG` in the
+canonical installation's `.env`; the daemon loads that file at startup without
+overriding an existing process environment value. Restart with the controller
+after changing the path or JSON content. The broker retains its first loaded
+configuration, including a configuration error, for its lifetime. To disable it,
+remove the setting or set `enabled: false` in the owner JSON, then restart.
+Enabled native inference is POSIX-only; Windows supports the disabled API and
+refuses native startup.
+
+Call `local_inference_status` through the HTTP connection to inspect the optional
+configuration. Ordinary daemon `status` and `/health` do not read that JSON or
+start the native engine: the embedding runtime can be ready while optional
+inference is disabled, invalid or `not_started`. The explicit tool reads the
+configuration but also starts no engine or capability probe. Before a native
+startup, its effective token capacity is unknown and its cache capabilities stay
+`unknown`; an enabled configuration alone does not establish live acceptance.
+
 Use `local_context_create`, retain its separate owner/access tokens privately,
 and grant bounded child capabilities with `local_context_grant`. Submit a UUID
 request with `local_generate`; it returns a job immediately. Poll with
@@ -664,8 +681,9 @@ bearer token and, besides the MCP SDK `version`, returns `agents_core_version`
 [routing reference](routing_flow.md)) and `agents_core_commit`, the full Git commit
 of the source tree actually executing the service. Both are cached during process
 startup; changing the checkout cannot change the identity of an already running
-process. A source archive without its own Git metadata reports an unknown version
-and a null commit, even when the canonical content installation has Git metadata.
+process. A source archive with a valid canonical `VERSION` reports that version and
+a null commit; without `VERSION`, its version is unknown. Git metadata in the
+canonical content installation does not supply an archive's own source commit.
 Readiness means the model and indexes have warmed successfully.
 Admission is bounded at 32 work requests, plus up to 32 open notification streams
 counted separately, with eight I/O workers and one inference worker. Capacity

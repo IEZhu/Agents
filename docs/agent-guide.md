@@ -13,8 +13,10 @@ Agents-Core supplies specialist context and reusable procedures to an AI assista
 | "Give a worker a bounded review task" | `get_subagent_context` | A compact worker context, the original contract to retain and a fixed result schema |
 | "What context do we have from earlier work here?" | `describe_repo` or `read_history` | Repository context or existing journal entries; an empty history is possible |
 | "Give several workers the same exact input" | Artifact publication and manifest tools | Persistent UTF-8 inputs pinned by identity and hash; see [shared artifacts](shared-artifacts.md) |
+| "Coordinate workers whose work overlaps" | `cooperation_register` and `cooperation_read` for discovery; `cooperation_apply` for an agreement and `acquire` | Agree on scope and one integrator, obtain all required acknowledgements for a committed agreement, and acquire valid resource claims before conflicting work. Registration alone reserves no resource; see [cooperation runtime](agent-cooperation/runtime.md) |
+| "Run one bounded completion on an owner-configured local model" | `local_inference_status`, then the local context and generation tools | Optional HTTP broker with separate capabilities and budgets; see [local inference](shared-mcp-daemon.md#local-inference) |
 
-Use the connected server's tool schemas for the installed version. Catalogs and examples in this repository describe their own revision. The [agent catalog](../agents/README.md) and [workflow catalog](../flows/README.md) let a discovering assistant inspect the available content before installation.
+Use the connected server's tool schemas for the installed version. Catalogs and examples in this repository describe their own revision. The [MCP tool index](mcp-tools.md) links every main-server tool to its behavior reference. The [agent catalog](../agents/README.md) and [workflow catalog](../flows/README.md) let a discovering assistant inspect the available content before installation.
 
 ## A first persona call
 
@@ -64,7 +66,8 @@ Replace the path with the actual caller project, and replace null with the retai
 
 ## Delegate a bounded assignment
 
-Use `get_subagent_context` with a canonical role, one task, concrete `acceptance_criteria`, relevant `context`, explicit `scope` and `non_goals`, and the required `result_type`. Rate the assignment with `complexity` (`low`, `standard` or `high`) and pass `client`, the host you run in (`claude`, `codex` or `cursor`), so the package names a lighter model for simpler work ([model tiers](subagent-model-tiers.md)); omit `complexity` to keep your own model.
+Use `get_subagent_context` with a canonical role, one task, concrete `acceptance_criteria`, relevant `context`, explicit `scope` and `non_goals`, and an explicit `result_type` for the desired result schema. The API defaults to `generic` when this argument is omitted; this delegation workflow requires an explicit choice.
+Rate `complexity` as `low` for mechanical, fully specified work, `standard` for bounded work in one module, or `high` for ambiguous, cross-cutting or risky work. Pass the launching host as `client` (`claude`, `codex` or `cursor`). The server may raise the requested tier; see [model tiers](subagent-model-tiers.md). Omitting `complexity` leaves model selection to the host.
 
 1. Require `status: prepared` and retain the package's `contract`. A correction keeps that contract; a new attempt has its own package and contract.
 2. Forward `worker_context` unchanged, plus only necessary task materials, to a fresh native worker. When the package has `execution.spawn`, launch the worker with exactly those arguments. The host launches it and enforces permissions and runtime limits. Keep the parent's persona unchanged.
@@ -72,6 +75,8 @@ Use `get_subagent_context` with a canonical role, one task, concrete `acceptance
 4. Require `valid: true`, then independently assess source evidence, reported checks and acceptance criteria. Structural validity alone does not verify correctness. For a contract prepared with `complexity`, `validate_subagent_result` may return `escalation`. It already comes with the first `valid: false` response; then return the diagnostics for one correction and act on the escalation only if the corrected output is still invalid. For a `failed` or `partial` status or a failed check, prepare a new attempt with a new `attempt_id` at the escalation's `complexity`.
 
 If preparation, validation or native spawning is unavailable, report that limitation and do practical work in the parent. The [worker contract](subagent-contract.md) covers result statuses and retries. Pinned [artifact manifests](shared-artifacts.md) support shared exact input without copying it into every assignment.
+
+Artifact-backed preparation verifies the active manifest and stored bytes, but the worker still reads every required input completely. The parent also verifies the manifest before acceptance; structural result validation does not check artifact storage. Optional local inference produces one textual completion and does not launch a native worker or execute its output.
 
 ## Requirements, data and limits
 

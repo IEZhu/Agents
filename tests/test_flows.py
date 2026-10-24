@@ -125,17 +125,18 @@ AUTODEV_PERSONAS = {
 async def test_builtin_flow_personas_build_complete_bundles(monkeypatch):
     """A declared persona must activate: unknown or invalid components would fail every run.
 
-    Builds the real bundle at a fixed tier; the intent classifier is skipped
-    because it loads an embedding model that is irrelevant here.
+    Builds real source components at a fixed tier without initializing a vector
+    index or model. Declared selections do not require semantic retrieval.
     """
     from src import flow_persona
-    from src.engine import enrichment
-    from src.engine.persona_bundle import build_persona_bundle
+    from types import SimpleNamespace
+    from src.engine import embedder, enrichment
     from src.engine.skills import SkillRetriever
     from src.engine.implants import ImplantRetriever
-    from types import SimpleNamespace
+    from src.engine.persona_bundle import build_persona_bundle
 
     monkeypatch.setattr(enrichment, "resolve_profile", lambda query: None)
+    monkeypatch.setattr(embedder, "_get_model", lambda: pytest.fail("Flow bundle validation must not load an embedding model"))
     # Exact component selections still use the real formatters, but do not need
     # retriever construction, indexes or an embedding model on a clean runner.
     monkeypatch.setattr(enrichment, "_skill_retriever", SimpleNamespace(

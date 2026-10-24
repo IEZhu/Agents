@@ -78,8 +78,19 @@ LANGFUSE_TRACING_ENABLED=false ./scripts/run_tests.sh -k russian
 The wrapper runs the whole selected suite, not only language detection tests.
 Use the direct Python command when you need to select specific test files.
 
-The User sync workflow keeps the complete suite on Linux and macOS and splits
-the same collection across four Windows jobs. Its opt-in `tests.ci_shard` plugin
+The [Documentation workflow](../.github/workflows/documentation-quality.yml) runs
+the offline documentation checker and `test_check_docs.py`, `test_flows.py`,
+`test_version.py` and `test_workflow_permissions.py` for every pull request and pushes to `main`/`dev`.
+It checks the source-derived README badge as well as navigation and public tool
+references. It installs the runtime test dependencies for the registration and
+flow checks, but starts no model. Declared flow bundles use real source components
+and formatters, with a guard rejecting embedding-model initialization. See
+[badge scope](../docs/quality-checks.md).
+
+The [User sync workflow](../.github/workflows/user-sync.yml) runs its selected
+library-history and user-sync files intact on Linux and macOS and splits that
+collection across four Windows jobs. It does not run the full regular suite.
+Its opt-in `tests.ci_shard` plugin
 assigns each node ID to exactly one shard; ordinary pytest runs stay unchanged.
 To reproduce one part, set `AGENTS_TEST_SHARD_COUNT=4` and
 `AGENTS_TEST_SHARD_INDEX=0` (indices 0 through 3), then add `-p tests.ci_shard`
@@ -87,6 +98,22 @@ to the workflow's pytest command. Invalid or incomplete settings fail before
 collection. `test_ci_shard.py` checks complete, disjoint and stable coverage.
 
 ### Checks outside pytest
+
+Check local Markdown navigation and the public MCP tool inventory without
+importing the server, loading a model or starting a service:
+
+```bash
+.venv/bin/python -B scripts/check_docs.py
+.venv/bin/python -B scripts/check_docs.py README.md docs/mcp-tools.md
+```
+
+The default checks tracked `.md` files; explicit paths also cover new documents
+before they are staged. The checker uses `markdown-it-py` from the project
+environment, ignores inline/fenced examples, checks local paths and rendered
+heading/HTML anchors, and compares `docs/mcp-tools.md` with source registrations
+using AST reads. It does not fetch external URLs. `--skip-tool-index` selects
+navigation only. `tests/test_check_docs.py` checks the parser, path boundaries,
+anchors and tool additions/removals against temporary fixtures.
 
 The optional native context compaction adapters have offline policy, installer
 and fake-UI checks. They never send a real slash command, read credentials or
@@ -111,6 +138,12 @@ for changes in those areas; listing them here does not claim a live-client pass:
 node --test bridge/test.mjs                  # Node bridge; Node 22+, no npm install
 LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/test_workspace_auto.py tests/test_config_client_root.py tests/test_python_stdio_bridge.py tests/test_python_workspace_hook.py tests/test_standalone_workspace.py tests/test_standalone_workspace_mcp.py tests/test_daemon_clients.py tests/test_daemon_registrations.py -q
 ```
+
+For the shared calendar version, preparation helper and release gate, run
+`python -m pytest tests/test_bump_plugin_version.py tests/test_release_version.py tests/test_version.py tests/test_workflow_permissions.py tests/test_vulnerability_gate.py -q`.
+These checks cover the canonical `VERSION`, matching plugin manifest, monotonic
+preparation, runtime labels, strict tag collisions, the legacy no-`VERSION`
+fallback and the dependency scan that publication waits for. They use temporary Git repositories and fake APIs, never a live release.
 
 The workspace checks use isolated temporary directories, fake MCP roots and local
 HTTP fixtures. They cover empty sessions, marker discovery, unsafe and removed
@@ -170,9 +203,11 @@ PYTHONDONTWRITEBYTECODE=1 LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pyt
 | Routing and intent | `test_routing.py`, `test_intent.py` |
 | Protocol 2, fresh bundles and the footer version | `test_persona_protocol.py`, `test_persona_bundle.py`, `test_version.py` |
 | Compact worker profiles, bounded preparation and result validation | `test_subagent.py`, `test_subagent_mcp.py`; include `test_persona_protocol.py`, `test_log_interaction_contract.py` and installer/migration checks when shared instructions change |
+| Delegated model tiers, catalogs, launch arguments and escalation | `test_model_tiers.py`, `test_subagent_tiers.py`, `test_subagent_tiers_mcp.py`; fake catalogs and prepared contracts cover complexity/floor resolution, overrides, client detection, execution integrity and escalation. These checks do not establish worker quality or token savings; [model-tier contract](../docs/subagent-model-tiers.md) |
 | Persistent artifacts, manifests and artifact-backed workers | `test_artifact_store.py`, `test_artifact_service.py`, `test_artifact_mcp.py`, `test_subagent_artifacts.py`; include `test_local_inference_*.py` for exact hydration and manifest rechecks, and installer/migration plus persona checks for shared instruction changes; [workflow](../docs/shared-artifacts.md) |
 | Cooperation mailbox, private notifications and request tracking | `test_cooperation_*.py`, including real initialized MCP clients, schema-1/2/3 migration, durable receipt replay, private cursors, revision races, deadline-only wakeups, lost-wakeup boundaries and cancelled/shutdown waits; include `test_tool_annotations.py`, `test_subagent_combined_budget.py` and installer/migration checks when shared guidance changes. The Shared runtime workflow runs mailbox, request, notification, schema, MCP, instruction and combined-budget checks on Linux, macOS and Windows. Tests use isolated stores and ASGI clients, never a live daemon or model; [runtime contract](../docs/agent-cooperation/runtime.md#request-tracking-and-event-waits) |
 | Skills, implants and rules, and their on/off switches | `test_skill_freshness.py`, `test_implant_gating.py`, `test_rules.py`, `test_web_search_skill.py`, `test_component_toggles.py` |
+| URL-subscribed user rules | `test_rule_sources.py` (HTTPS, DNS/address policy, auth and bounded fetches without external network), `test_user_rules.py` (cached lifecycle, revision conflicts and damaged snapshots), `test_user_rule_tools.py` (MCP lifecycle), `test_user_rule_integration.py` (persona/worker delivery, exact selections and UI conflicts); [operator guide](../docs/user-rules.md) |
 | Embedding model, its prompts, batching and the one-time model switch | `test_onnx_embedding.py`, `test_embedder.py`, `test_embedding_prompts.py`, `test_model_migration.py` (no model is loaded); the service's switch is in `test_daemon_update.py` |
 | Installers: one-command install, version checks, client profiles, instructions, migration and the sync step | `test_installer_oneliner.py` (`install.sh` and `init_repo.sh --yes`; an update from a terminal that runs the real sync step and leaves the library's `.git` byte for byte; the GitHub token reaching `init_repo.sh` and never git; `AGENTS_BRANCH` becoming the update branch of a new `.env`; Unix only), `test_setup_cloud_env.py` (`scripts/setup_cloud_env.sh`; Unix only), `test_installer_python.py`, `test_installer_windows.py`, `test_installer_profiles.py`, `test_install_instructions.py`, `test_installer_instructions.py`, `test_codex_instructions.py`, `test_protocol_migration.py`, `test_inject_mcp.py`, `test_installer_sync.py` (both installers' sync section around a stub, the GitHub token only for the step; a pseudo-terminal on Unix, `cmd.exe` on Windows) |
 | Agent frontmatter and metadata | `scripts/validate_agents.py` |
@@ -192,6 +227,8 @@ PYTHONDONTWRITEBYTECODE=1 LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pyt
 | The autodev run sequence (#347) | `test_schedules_sequence.py` (whole runs with the fake `claude`'s stage, probe and worker modes, synthetic GitHub answers in `fixtures/autodev_select_synthetic.json` and `fixtures/autodev_preconditions_synthetic.json`, a fake broker transport and push runner and a throwaway trusted repository: the dry-run printout with an empty broker log, select, implement and submit with the exact broker operations, each missing precondition, the control-path patch and bundle, a changed `.git`, invalid outputs, the checks after implement, the decoy tripwire, a failed probe, the stage timeout, resume with a foreign head, a new review before the push and the merge base, the Codex select stage and the Codex fallbacks; macOS only), `test_schedules_candidates.py` (the GET-only candidate fetch), `test_flow_execution.py` (the effort table from a stored `claude --help` excerpt), `test_schedules_stages.py` (the stage schemas pinned to the flows, the models, prompts, inputs files and the stream parser), `test_schedules_preconditions.py` (each missing item of a real run), `test_schedules_run_state.py` (`state.json` and its read-only copy), `test_schedules_report.py` (the report and the notification's arguments), `test_schedules_broker_sequence.py` (the broker's runner-internal operations), `test_schedules_repos_sequence.py` (the session repository with the branch, the export and the quarantine), `test_schedules_integrity.py` (the post-session `.git` check) and `test_schedules_workers_sequence.py` (one worker service across stages, open security risks and risk candidates). No test starts a model, reaches GitHub or reads the keychain; the owner's live steps are listed in docs/autodev-sequence.md |
 | The update channel (#381): the branch an installation follows | `test_update_channel.py` (the `.env` key read without the rest of `.env`, an exported override, `set_branch`'s refusals and records, `channel` and `python -m src.update_channel`), `test_self_update.py`, `test_daemon_update.py` and `test_daemon_autoupdate.py` (switching inside the update transactions: only from the previous setting, never for an exported branch, a release merge commit is no downgrade, a target branch in another worktree, a channel saved during the build, the activation gates and the rollback of the target branch's upstream), `test_env_file.py` (the `.env` bindings both writers change, checked against python-dotenv's parser, and the installers' branch helper; also run by the Windows installer job), `test_updates_ui.py` (`/ui/api/updates`: access checks, the channel without secrets, a save of `dev`, a stale revision, unsafe, unoffered and missing branches, a downgrade only with its confirmation, a busy `control.lock`, `set_branch` off the event loop), `test_flows_ui_page.py` (the overview's Updates section: a save, a confirmed and a declined downgrade, a conflict), `test_installer_oneliner.py` (`AGENTS_BRANCH` through `install.sh` and the real `.env` step of `init_repo.sh`, and `scripts/_helpers/env_branch.py`, which `init_repo.bat` calls too). Temporary git repositories and a local bare remote; nothing is updated |
 | Updates, startup and readiness | `test_self_update.py`, `test_startup.py`, `test_readiness.py`, `test_startup_handshake.py` (slow; a fake dense adapter, no model), `test_langfuse_compat.py` |
+| Optional session readiness hooks and compaction reminders | `test_session_readiness.py` covers generated adapters, event/output shapes, copied runtimes, backups, uninstall and a real stdio helper handshake. It calls no model and does not establish interactive client rendering; [installation and limits](../docs/session-readiness.md) |
+| Calendar versions and release publication | `test_bump_plugin_version.py`, `test_release_version.py`, `test_version.py`, `test_workflow_permissions.py`, `test_vulnerability_gate.py`; temporary Git histories and fake APIs cover displayed versions, immutable tags, retries and publication permissions, without writing to GitHub; [release procedure](../docs/releases.md) |
 | Data isolation and storage | `test_data_isolation.py`, `test_vector_store.py`, `test_file_lock.py` |
 | Language detection | `test_language.py` |
 | Evaluation runners and providers (`evals/runners/`) | `test_persona_dialogue*.py`, `test_bench.py`, `test_local_provider.py`, `test_openrouter_provider.py`, `test_eval_cache_routing.py`, `test_eval_retrieval.py` |

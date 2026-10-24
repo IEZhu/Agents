@@ -340,8 +340,12 @@ empty in each session, and `route_and_load` returns `ROUTE_REQUIRED` with the
 agent catalog until the session has selected an agent for a similar request. Do not
 commit `history.md`: once tracked, it changes on every turn and the cloud session's
 check for uncommitted changes reports it.
-`describe_repo` creates or edits the repository's `CLAUDE.md`, which then needs a
-commit like any other change.
+`describe_repo` only reads repository context and returns an instruction when a
+summary is needed; it does not create or edit `CLAUDE.md`. Follow that instruction
+before explicitly persisting a summary with `write_repo_summary`. A resulting
+`CLAUDE.md` change needs review and a commit like any other repository change.
+The running Agents-Core installation and runtime source root refuse summary
+writes; describe the client repository or a separately authorized worktree.
 
 ## Issue agent
 

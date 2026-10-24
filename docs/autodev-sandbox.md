@@ -47,12 +47,13 @@ has exactly the session's argv, settings and environment.
 
 ## The session
 
-`sandbox.argv(claude, kind, paths)` builds:
+`sandbox.argv(claude, kind, paths, schema=...)` builds:
 
 ```text
 claude -p --restricted --safe-mode --tools <tools> --strict-mcp-config --permission-mode dontAsk
   --permission-prompts none --disallowedTools mcp__* --no-session-persistence --settings <file>
-  --add-dir <exchange> <state copy> --output-format stream-json --verbose [--model M] [--effort E]
+  --add-dir <exchange> <state copy> --output-format stream-json --verbose
+  [--json-schema <stage schema>] [--model M] [--effort E]
 ```
 
 | Kind | `--tools` |
@@ -62,7 +63,8 @@ claude -p --restricted --safe-mode --tools <tools> --strict-mcp-config --permiss
 
 The prompt goes on standard input; the working directory is the one-off repository. Every flag was
 checked in `claude --help` of 2.1.296 on 2026-10-13. The output flags let the runner read the
-`system/init` event and every tool call.
+`system/init` event and every tool call. The run sequence always supplies the stage schema;
+the standalone `probe` command does too, so it checks a launch with the same schema.
 
 **Project settings.** `--restricted` "ignores user, project and local settings files (managed
 settings and --settings still apply)" (`claude --help`, 2.1.296), so the one-off repository's

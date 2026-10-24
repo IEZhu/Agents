@@ -52,6 +52,35 @@ def test_format_marks_only_the_dev_branch(branch, dirty, expected):
     assert version.format_version("2026-10-01T08:01:00+00:00", dirty, branch) == expected
 
 
+def test_canonical_release_version_does_not_change_with_commit_time(tmp_path, monkeypatch):
+    (tmp_path / "VERSION").write_text("26.10.18.0805\n", encoding="utf-8")
+    fake_git(monkeypatch, "2026-10-19T09:00:00+00:00\n", porcelain(branch="main"))
+    assert version.agents_core_version() == "26.10.18.0805"
+
+
+@pytest.mark.parametrize("branch,dirty,suffix", [("main", False, ""), ("dev", False, "-dev"),
+                                              ("dev", True, "-dev-dirty"), ("(detached)", True, "-dirty")])
+def test_canonical_version_preserves_runtime_labels(tmp_path, monkeypatch, branch, dirty, suffix):
+    (tmp_path / "VERSION").write_text("26.10.18.0805\n", encoding="utf-8")
+    fake_git(monkeypatch, "2026-10-19T09:00:00+00:00\n",
+             porcelain(branch, MODIFIED if dirty else ""))
+    assert version.agents_core_version() == "26.10.18.0805" + suffix
+
+
+def test_canonical_version_works_in_a_source_archive_without_git(tmp_path, monkeypatch):
+    (tmp_path / ".git").rmdir()
+    (tmp_path / "VERSION").write_text("26.10.18.0805\n", encoding="utf-8")
+    monkeypatch.setattr(version, "_git", lambda *args: pytest.fail("Archive must not call git"))
+    assert version.agents_core_version() == "26.10.18.0805"
+
+
+@pytest.mark.parametrize("invalid", ["0.1.3", "26.02.30.0805", "26.10.18.9999", "26.1.18.0805"])
+def test_invalid_canonical_version_does_not_silently_change_number(tmp_path, monkeypatch, invalid):
+    (tmp_path / "VERSION").write_text(invalid + "\n", encoding="utf-8")
+    fake_git(monkeypatch, "2026-10-19T09:00:00+00:00\n")
+    assert version.agents_core_version() == "unknown"
+
+
 MODIFIED = "1 .M N... 100644 100644 100644 " + "a" * 40 + " " + "b" * 40 + " src/x.py\n"
 
 

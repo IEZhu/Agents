@@ -14,13 +14,13 @@ Claude side is [autodev-sandbox.md](autodev-sandbox.md) (#343), whose helpers th
 
 ## Current limits
 
-- **On this Mac, Codex is never used.** A nested Seatbelt sandbox does not work on macOS 26.5.1
-  (see [What the research changed](#what-the-research-changed)), so `decide` returns the Claude
+- **The recorded Mac falls back to Claude.** In the 2026-10-14 research, a nested Seatbelt
+  sandbox did not work on macOS 26.5.1 (see [What the research changed](#what-the-research-changed)), so `decide` returns the Claude
   worker with `nested_sandbox_unavailable` and `stage_availability` stores Codex as unavailable.
   The code still builds, probes and records everything, so that a macOS where the nested check
   passes, or an owner decision on the [open question](#open-decision-for-the-owner), changes the
   outcome without new code paths. Codex never runs without the outer profile.
-- **Nothing starts a worker yet.** The worker launcher (#345,
+- **Workers are integrated.** The worker launcher (#345,
   [autodev-workers.md](autodev-workers.md)) calls `codex_probes.decide` before every Codex worker,
   records the result with `record_decision`, starts Codex only through `codex_probes.start` with the
   derived output schema, runs the Claude worker on a fallback (`decision.fallback`) and **fails the
@@ -34,7 +34,7 @@ Claude side is [autodev-sandbox.md](autodev-sandbox.md) (#343), whose helpers th
   available; then it decides (`decide`, recorded as the step `stage-select`), starts the session
   through `start` with the stage's `--output-schema`, reads the `-o` file and validates it as a
   Claude output is validated. Otherwise, and always for `implement` and `submit`, the stage runs
-  as a Claude session with `client_requested`, `client_applied` and `fallback_reason` in its
+  as a Claude session with `requested_client`, `client` and `fallback_reason` in its
   record: `codex_stage_commit_unsupported` for a stage that commits, since a `workspace-write`
   session cannot write `.git` and the runner-side commit on its behalf is not built (#347 open
   question Q-codex-commit), or the stored or decided reason (on this Mac
@@ -44,6 +44,11 @@ Claude side is [autodev-sandbox.md](autodev-sandbox.md) (#343), whose helpers th
   records pass in every required mode, even when the stored Codex check passed and only the live
   decision falls back. Otherwise it ends `refused` with the missing probe commands
   ([automatic mode](autodev-runner.md#automatic-mode)).
+- **Profiles remain explicit.** Autodev takes stage and delegate models from `autodev.json`;
+  generic prepared-worker model tiers do not replace them
+  ([worker profiles](autodev-workers.md#profiles-and-model-tiers)). A worker attempt records
+  `client_requested` and `client_applied` inside its `client` object; those names differ from
+  a stage record's `requested_client` and `client`.
 - **The live check is the owner's.** `python -m src.schedules codex-probe --confirm-live-probe`
   runs the real checks. Nothing in the tests starts the real `codex` or a model turn; the profile
   tests apply the generated profile with the real `/usr/bin/sandbox-exec` to files, a shell-script
