@@ -498,8 +498,10 @@ operation trigger, not just exposure to the client.
   references, including in private memory and closing logs. Keep internal
   identifiers, topology and nonsecret configuration out of public/shared output
   unless specifically authorized. Sanitize references and link labels as well
-  as prose; leave out medical, financial and other personal details. The report
-  is logged in both modes.
+  as prose; leave out medical, financial and other personal details. In both
+  modes, log the report only when a safe payload and authorized destination are
+  established. Otherwise, report the privacy skip and incomplete closing-log
+  step as required by step 9.
 
 ## 8. Clean up (`apply`)
 
