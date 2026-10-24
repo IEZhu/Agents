@@ -21,6 +21,7 @@ def between(source, start, end):
 
 @pytest.fixture(params=["bash", "cmd"], ids=["unix", "windows"])
 def profile_installer(request, tmp_path):
+    """Provide real Unix or native Windows MCP setup hooks with disposable client profiles."""
     kind = request.param
     if kind == "cmd" and sys.platform != "win32":
         pytest.skip("requires native cmd.exe")
@@ -49,7 +50,7 @@ def profile_installer(request, tmp_path):
     for name in ("routing-protocol-core.md", "memory-routing.md",
                  "legacy/memory-routing-v1.md", "legacy/memory-routing-v2.md",
                  "legacy/memory-routing-v3.md", "legacy/memory-routing-v4.md",
-                 "legacy/memory-routing-v5.md", "legacy/memory-routing-v6.md", "legacy/memory-routing-v7.md", "legacy/memory-routing-v8.md", "legacy/memory-routing-v9.md", "legacy/memory-routing-v10.md", "legacy/memory-routing-v11.md", "legacy/memory-routing-v12.md", "legacy/memory-routing-v13.md", "legacy/memory-routing-v14.md", "legacy/memory-routing-v15.md", "legacy/memory-routing-v16.md", "legacy/memory-routing-v17.md", "legacy/memory-routing-v18.md", "legacy/memory-routing-v19.md", "legacy/memory-routing-v20.md"):
+                 "legacy/memory-routing-v5.md", "legacy/memory-routing-v6.md", "legacy/memory-routing-v7.md", "legacy/memory-routing-v8.md", "legacy/memory-routing-v9.md", "legacy/memory-routing-v10.md", "legacy/memory-routing-v11.md", "legacy/memory-routing-v12.md", "legacy/memory-routing-v13.md", "legacy/memory-routing-v14.md", "legacy/memory-routing-v15.md", "legacy/memory-routing-v16.md", "legacy/memory-routing-v17.md", "legacy/memory-routing-v18.md", "legacy/memory-routing-v19.md", "legacy/memory-routing-v20.md", "legacy/memory-routing-v21.md"):
         shutil.copyfile(ROOT / "scripts/templates" / name, templates / name)
     home = tmp_path / "isolated home"
     home.mkdir()
@@ -113,7 +114,10 @@ def profile_installer(request, tmp_path):
 
 
 @pytest.mark.parametrize("profile_kind", ["defaults", "custom-profiles", "single-exclamation", "paired-exclamations"])
-def test_installer_configures_effective_paths_and_preserves_other_profiles(profile_installer, profile_kind):
+@pytest.mark.parametrize("legacy_memory_version", [1, 21], ids=["legacy-v1", "legacy-v21"])
+def test_installer_configures_effective_paths_and_preserves_other_profiles(
+        profile_installer, profile_kind, legacy_memory_version):
+    """Migrate v1/v21 reminders and configure selected clients without changing other profiles."""
     run, home, checkout, templates, desktop = profile_installer
     defaults = {"claude": home / ".claude.json", "cursor": home / ".cursor/mcp.json", "desktop": desktop,
                 "antigravity": home / ".gemini/config/mcp_config.json"}
@@ -150,7 +154,7 @@ def test_installer_configures_effective_paths_and_preserves_other_profiles(profi
     target.write_bytes(b"Selected personal instructions\r\n")
     reminder = claude_home / "memory/feedback_agents_core_routing.md"
     reminder.parent.mkdir()
-    reminder.write_bytes((templates / "legacy" / "memory-routing-v1.md").read_bytes())
+    reminder.write_bytes((templates / "legacy" / f"memory-routing-v{legacy_memory_version}.md").read_bytes())
     preserved = {path: path.read_bytes() for path in [*defaults.values(), default_instructions]} if custom else {}
 
     result = run(overrides)

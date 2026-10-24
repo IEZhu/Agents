@@ -70,10 +70,14 @@ READINESS_SCRIPT = "agents-core-session-readiness.py"
 READINESS_MATCHER = "^(startup|clear)$"
 READINESS_COMPACT_MATCHER = "^compact$"  # the persona-restore group
 THREAD_STATUS_SCRIPT = "agents-core-thread-status.py"
+THREAD_STATUS_INTERRUPT = "agents-core-thread-status-interrupt.py"
+THREAD_STATUS_WATCH_TIMEOUT = 6 * 3600  # scripts/install_thread_status.py WATCH_TIMEOUT
 THREAD_STATUS_RUNTIMES = (
     (THREAD_STATUS_SCRIPT, "scripts/thread_status.py"),
     ("agents_core_thread_titles.py", "src/thread_status.py"),
     ("agents_core_codex_titles.py", "src/codex_thread_titles.py"),
+    # Copied for Claude only; an absent copy in another profile is simply skipped.
+    (THREAD_STATUS_INTERRUPT, "scripts/thread_status_interrupt.py"),
 )
 # scripts/_helpers/inject_claude_md.py
 MARKERS = (
@@ -1304,6 +1308,28 @@ def _thread_status_handler(handler, client: str, event: str, script: Path,
             and arguments[1] == str(script) and arguments[2:] == ["--client", client])
 
 
+def _thread_status_interrupt_handler(handler, event: str, script: Path,
+                                     installation: Path, *, windows: bool) -> bool:
+    """Recognize Claude's generated interrupt watcher or its Stop marker exactly."""
+    if not isinstance(handler, dict) or event not in ("UserPromptSubmit", "Stop"):
+        return False
+    watch = event == "UserPromptSubmit"
+    expected = {"command": handler.get("command"), "type": "command",
+                "timeout": THREAD_STATUS_WATCH_TIMEOUT if watch else 5}
+    if watch:
+        expected["asyncRewake"] = True
+    if handler != expected or type(handler.get("timeout")) is not int:
+        return False
+    arguments = _readiness_arguments(handler.get("command"), windows=windows)
+    if windows and arguments is not None:
+        arguments = [value[1:-1] if value.startswith('"') and value.endswith('"') else value
+                     for value in arguments]
+    return (arguments is not None and len(arguments) == 3
+            and _readiness_python(arguments[0], installation)
+            and arguments[1] == str(script.with_name(THREAD_STATUS_INTERRUPT))
+            and arguments[2] == ("--watch" if watch else "--done"))
+
+
 def remove_thread_status(content: bytes, client: str, script: Path, installation: Path,
                          *, windows: bool) -> bytes | None:
     """Remove exact installed handlers without reserializing unrelated client settings."""
@@ -1317,7 +1343,13 @@ def remove_thread_status(content: bytes, client: str, script: Path, installation
         return content
     events = (("sessionStart",) if client == "cursor" else
               ("SessionStart", "UserPromptSubmit", "Interrupt") if client == "codex" else
-              ("SessionStart", "UserPromptSubmit"))
+              ("SessionStart", "UserPromptSubmit", "Stop"))
+
+    def generated(handler, event: str) -> bool:
+        return (_thread_status_handler(handler, client, event, script, installation, windows=windows)
+                or (client == "claude" and _thread_status_interrupt_handler(
+                    handler, event, script, installation, windows=windows)))
+
     removals, empty = [], []
     for event in events:
         prefix = ("hooks", event)
@@ -1334,8 +1366,7 @@ def remove_thread_status(content: bytes, client: str, script: Path, installation
             # Generated groups have no matcher or other options. A customized group stays.
             if not isinstance(entry, dict) or set(entry) != {"hooks"} or not isinstance(entry["hooks"], list):
                 continue
-            owned = [i for i, handler in enumerate(entry["hooks"])
-                     if _thread_status_handler(handler, client, event, script, installation, windows=windows)]
+            owned = [i for i, handler in enumerate(entry["hooks"]) if generated(handler, event)]
             if owned and len(owned) == len(entry["hooks"]):
                 removals.append(((*prefix, index), None))
             else:
@@ -1444,10 +1475,11 @@ def thread_status_items(ctx: Context, backups: Backups, installation: Path) -> l
                                       "if it uses this installation interpreter, migrate or remove it before uninstall"))
         files = [(script.with_name(name), installation / template) for name, template in THREAD_STATUS_RUNTIMES]
         candidates.append((target, changed, files))
-        state = script.parent / "agents-core-thread-status-state"
-        if os.path.lexists(state):
-            items.append(Item("data", str(state), "keep", source,
-                              "per-chat thread-status turn records; remove them yourself if no longer needed"))
+        for state in (script.parent / "agents-core-thread-status-state",
+                      script.parent / "agents-core-thread-status-interrupt-state"):
+            if os.path.lexists(state):
+                items.append(Item("data", str(state), "keep", source,
+                                  "per-chat thread-status turn records; remove them yourself if no longer needed"))
 
     for target, changed, files in candidates:
         present = [runtime for runtime, _ in files if os.path.lexists(runtime)]

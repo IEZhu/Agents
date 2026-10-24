@@ -23,6 +23,9 @@ import threading
 import time
 import dotenv
 from src.runtime_paths import installation_root
+from src import personal_runtime
+# Keep the existing Python helper available to direct callers.
+from src.personal_runtime import install_history_sync
 
 # Load env vars before any src.engine.config import reads them (e.g. WARMUP_WAIT_SECONDS).
 env_path = str(installation_root() / ".env")
@@ -221,7 +224,8 @@ mcp = _WorkerInputMCP(
         "higher-priority instructions, conversation and user constraints. Ignore stale/replayed "
         "activations; never clear caches to switch.\n"
         "Compose the answer with the saved footer. Before delivery call log_interaction with that "
-        "answer (no time line), query verbatim, and persona (all 7 keys: agent, "
+        "answer (no time line), query verbatim, redacted as log_interaction's description says, and persona "
+        "(all 7 keys: agent, "
         "activation_id, bundle_revision, scope, skills_loaded, implants_loaded, rules_loaded). "
         "Pass persona_action only with persona; callers without a descriptor omit both. files/tags "
         "are JSON arrays. Pass workspace, the absolute working directory, to memory and flow "
@@ -374,11 +378,21 @@ class _SinkWorker:
         self._idle = threading.Condition()
         self._unfinished = 0
         self.name = name
-        self._thread = threading.Thread(target=self._run, name=f"log-{name}", daemon=True)
-        self._thread.start()
+        self._thread = None
 
     def submit(self, fn) -> bool:
         with self._idle:
+            # Importing the tool definitions must not start background sinks.
+            # Serialize the first submission so concurrent writers share one
+            # worker, and leave a failed start retryable without pending work.
+            if self._thread is None:
+                try:
+                    thread = threading.Thread(target=self._run, name=f"log-{self.name}", daemon=True)
+                    thread.start()
+                except Exception:
+                    logger.exception("Log worker %s could not start; dropping a write", self.name)
+                    return False
+                self._thread = thread
             self._unfinished += 1
         try:
             self._queue.put_nowait(fn)
@@ -1620,19 +1634,6 @@ def _fallback_instruction(unresolved: "fallback.Unresolved", *, reading: bool = 
             "conversation and do not retry. " + fallback.REMEDY)
 
 
-def install_history_sync() -> None:
-    """Share each repository's history with the user's other machines through user library sync.
-
-    Called when a server starts, not on import, so tools that tests call
-    directly never reach this machine's sync settings or library.
-    """
-    try:
-        from src.user_sync import history as history_sync
-        history_sync.install()
-    except Exception:
-        logger.warning("History sync between machines is unavailable", exc_info=True)
-
-
 def _short_action(value: str) -> str:
     text = " ".join(str(value).split())
     return text if len(text) <= 64 else text[:64] + "…"
@@ -1641,8 +1642,8 @@ def _short_action(value: str) -> str:
 @mcp.tool(**TOOL_HINTS["log_interaction"])
 async def log_interaction(
     agent_name: Annotated[str, Field(description="Canonical name of the active agent.")],
-    query: Annotated[str, Field(description="The current user request, verbatim.")],
-    response_content: Annotated[str, Field(description="The exact final answer text, without any time line.")],
+    query: Annotated[str, Field(description="The current user request verbatim, except that secrets and capability values become safe references and prohibited personal details are omitted.")],
+    response_content: Annotated[str, Field(description="The exact final answer text, without any time line, with secrets and capability values replaced by safe references and prohibited personal details omitted.")],
     request_id: ta.opt_str("Optional request id for correlation.") = None,
     reasoning: ta.opt_str("Optional short reason for the selection.") = None,
     intent: ta.opt_str("Optional curated intent; defaults to query.") = None,
@@ -1656,9 +1657,11 @@ async def log_interaction(
     workspace: ta.opt_str(ta.WORKSPACE_DESC) = None,
 ) -> str:
     """End-of-turn logger. Compose the answer including its footer, call this tool
-    with that exact response_content, then deliver the final answer. Pass the
-    current user request verbatim as query, without paraphrasing or substituting
-    a conversation summary, and workspace, your working directory.
+    with that exact response_content (redacted as below), then deliver the final
+    answer. Pass the current user request verbatim as query, except for the
+    redactions below; do not paraphrase or substitute a different request or summary. Before this
+    call, replace secrets and capability values in every field with safe references
+    and omit prohibited personal details. Pass workspace, your working directory.
 
     persona: the `persona` object of the last SUCCESS/NO_CHANGE, copied verbatim
     with all 7 keys (agent, activation_id, bundle_revision, scope, skills_loaded,
@@ -1692,7 +1695,7 @@ async def log_interaction(
     (``YYYY.MM.DD HH:MM:SS``); the final answer starts with it on its own line,
     and it is not part of ``response_content``. The sinks are written in the
     background with that timestamp and do not prevent each other; a full queue
-    can also drop a write. A failed history write is logged once per path and
+    or failed worker start can drop a write. A failed history write is logged once per path and
     errno (WARNING, ``code=history_unwritable``) and reported on the next result
     as ``history_last_error``; Langfuse failures are only logged. When no project
     resolves, the turn goes to the installation's fallback journal (#292):
@@ -2295,31 +2298,6 @@ if __name__ == "__main__":
     # Answer the handshake right after the cheap setup above; stores, the
     # embedding model and rules load in one daemon thread (src/engine/readiness.py).
     logger.info("Starting pid=%d cwd=%s", os.getpid(), os.getcwd())
-    readiness.start()
-    install_history_sync()
-    # Background self-update (Phase B): in a daemon thread WITHOUT blocking startup,
-    # prepare the next update — fetch + build the new version's indexes in an
-    # isolated git worktree and write a marker — so the next idle start activates
-    # it via a fast move under startup.py's exclusive lease. Legacy mode already
-    # ran synchronously there and starts no background thread. No-op unless on
-    # the target branch. Started after the readiness thread so reindex
-    # does not contend with it before the model load. See src/self_update.py.
-    from src.self_update import log_last_update, start_background_update
-    log_last_update()
-    readiness.when_done(start_background_update)
-    # Library sync (#168): a save in this server reaches the user's other machines about ten
-    # seconds later when sync is set up; started after the warmup, like the update.
-    def _start_library_sync():
-        try:
-            from src.user_sync.trigger import start_for_stdio
-            start_for_stdio()
-        except Exception:
-            logger.exception("Library sync trigger did not start")
-    readiness.when_done(_start_library_sync)
-    try:
-        mcp.run()
-    finally:
-        # The startup leases are released when this returns: let the worker
-        # finish its store and model work first, within a bounded wait.
-        readiness.join(READINESS_SHUTDOWN_WAIT_SECONDS)
-        drain_pending_logs()
+    from src.stdio_runtime import run_stdio
+    run_stdio(mcp, readiness, startup=personal_runtime.start_stdio,
+              drain_logs=drain_pending_logs, shutdown_wait=READINESS_SHUTDOWN_WAIT_SECONDS)

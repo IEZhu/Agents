@@ -16,10 +16,9 @@ from starlette.responses import JSONResponse
 
 from src.version import agents_core_branch, agents_core_commit, agents_core_version
 from src.runtime_paths import installation_root, runtime_root
+from src import personal_runtime
 from .execution import TrackedExecutor, request_jobs, finish_jobs
-from .flows_ui import FlowsUI
 from .overview import Overview
-from .sync_loop import UserSync
 from .usage import Usage, app_name, observing
 from .workspaces import ClientContext, WorkspaceRegistry, WorkspaceError
 
@@ -58,7 +57,7 @@ def refusal(headers, error):
     return error
 
 
-def load_runtime(port):
+def load_runtime(port, *, history_sync_installer=None):
     from src import server
     from src.engine import readiness
     from src.engine.fingerprint import configuration_revision
@@ -73,13 +72,15 @@ def load_runtime(port):
     server.mcp.settings.stateless_http = True
     server.mcp.settings.json_response = True
     server.mcp.remove_tool("clear_session_cache")
-    server.install_history_sync()
+    install_history = (personal_runtime.install_history_sync if history_sync_installer is None
+                       else history_sync_installer)
+    install_history()
     return server.mcp, server
 
 
 class Service:
     def __init__(self, directory, token, port=8765, runtime_loader=load_runtime, *, hand_off_schedule=False,
-                 local_inference_service=None, artifact_service=None):
+                 local_inference_service=None, artifact_service=None, components_factory=None):
         self.directory = Path(directory)
         self.token = token
         self.port = port
@@ -112,9 +113,10 @@ class Service:
         self.mcp_registry = Registry(library, self.directory)
         self.mcp_secrets = Secrets(self.directory)
         self.mcp_proxy = Supervisor(self.mcp_registry, self.mcp_secrets, self.directory)
-        self.flows_ui = FlowsUI(self)
-        # Only the service's entry point hands the library over from the OS scheduler (#168).
-        self.user_sync = UserSync(self, hand_off_schedule=hand_off_schedule)
+        factory = personal_runtime.daemon_components if components_factory is None else components_factory
+        components = factory(self, hand_off_schedule=hand_off_schedule)
+        self.flows_ui = components.flows_ui
+        self.user_sync = components.user_sync
         # This separate lazy broker does not read configuration or start a model here.
         from src.local_inference.service import LocalInferenceService
         from src.artifacts.service import ArtifactService
@@ -246,12 +248,14 @@ class Service:
                 await asyncio.to_thread(self.mcp_registry.publish_machine)
             except (OSError, ValueError):
                 logger.warning("MCP host inventory could not be published")
-        runtime = asyncio.create_task(self.start_runtime())
-        diagnostics = asyncio.create_task(self.retain_diagnostics())
-        loop_monitor = asyncio.create_task(self.monitor_loop())
-        # Automatic sync begins once the service is ready; admin operations work from the start.
-        self.user_sync.start()
+        runtime = diagnostics = loop_monitor = None
         try:
+            # A supplied sync owner can fail while starting. Keep that failure
+            # inside the owned cleanup boundary and do not start daemon work.
+            self.user_sync.start()
+            runtime = asyncio.create_task(self.start_runtime())
+            diagnostics = asyncio.create_task(self.retain_diagnostics())
+            loop_monitor = asyncio.create_task(self.monitor_loop())
             yield
         finally:
             self.state = "draining"
@@ -271,9 +275,12 @@ class Service:
             await self.mcp_proxy.close()
             self.stop.set()
             self.user_sync.wake()
-            await runtime
-            await diagnostics
-            await loop_monitor
+            if runtime is not None:
+                await runtime
+            if diagnostics is not None:
+                await diagnostics
+            if loop_monitor is not None:
+                await loop_monitor
             await self.user_sync.finish()
             # Queued log_interaction writes run on their own executor; flush them
             # before the process can exit.
@@ -513,13 +520,14 @@ class Service:
 
 
 def create_app(directory, token, port=8765, runtime_loader=load_runtime, *, hand_off_schedule=False,
-               local_inference_service=None, artifact_service=None):
+               local_inference_service=None, artifact_service=None, components_factory=None):
     """``hand_off_schedule``: the user-sync task removes the scheduled sync run of #168 when it
     starts; only ``bootstrap.serve`` sets it, so tests never reach the OS scheduler."""
     if not token or len(token) < 32:
         raise ValueError("A private bearer token of at least 32 characters is required")
     service = Service(directory, token, port, runtime_loader, hand_off_schedule=hand_off_schedule,
-                      local_inference_service=local_inference_service, artifact_service=artifact_service)
+                      local_inference_service=local_inference_service, artifact_service=artifact_service,
+                      components_factory=components_factory)
     app = Starlette(lifespan=service.lifespan)
     # Route the original scope directly so MCP receives the request state.
     app.router.default = service

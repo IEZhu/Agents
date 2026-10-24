@@ -1,0 +1,46 @@
+"""Dependencies supplied by the application that composes the daemon."""
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Protocol
+
+if TYPE_CHECKING:
+    from starlette.requests import Request
+    from starlette.responses import Response
+    from src.user_sync.engine import Syncer
+
+
+class SyncLifecycle(Protocol):
+    """Operations the daemon itself requires from its single sync owner."""
+
+    @property
+    def pending(self) -> int: ...
+    def start(self) -> object: ...
+    def wake(self) -> None: ...
+    def drain(self) -> None: ...
+    def resume(self) -> None: ...
+    async def finish(self) -> None: ...
+    def summary(self) -> dict | None: ...
+    async def handle(self, request: Request, command: str) -> Response: ...
+
+
+class PersonalEditorSync(SyncLifecycle, Protocol):
+    """Additional operations required when composing the Personal editor."""
+
+    async def perform(self, command: str, call, *, queued: bool, plain: bool = False) -> dict: ...
+    async def offload(self, function, *args): ...
+    def engine(self) -> Syncer: ...
+    async def status_view(self, *, fresh: bool = True) -> dict: ...
+
+
+class DaemonEditor(Protocol):
+    async def __call__(self, scope, receive, send) -> None: ...
+    def issue_code(self) -> str: ...
+
+
+@dataclass(frozen=True)
+class DaemonComponents:
+    """One editor and one sync lifecycle, owned by the enclosing service."""
+
+    flows_ui: DaemonEditor
+    user_sync: SyncLifecycle
