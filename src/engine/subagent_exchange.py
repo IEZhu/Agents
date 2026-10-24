@@ -140,7 +140,7 @@ def _claude_text(record: dict) -> tuple[str | None, str | None]:
         if block.get("type") == "text" and isinstance(block.get("text"), str):
             parts.append(block["text"])
         elif (block.get("type") == "tool_use" and block.get("name") == "SubagentHandback"
-              and isinstance((block.get("input") or {}).get("message"), str)):
+              and isinstance(block.get("input"), dict) and isinstance(block["input"].get("message"), str)):
             parts.append(block["input"]["message"])
     return message.get("id"), ("\n".join(parts) if parts else None)
 
@@ -190,7 +190,7 @@ def read_result(reference) -> str:
     try:
         path = Path(reference).resolve(strict=True)
         size = path.stat().st_size
-    except OSError:
+    except (OSError, ValueError):  # ValueError: an embedded NUL byte
         raise ContractError("result_ref_missing", "result_ref does not name a readable file.", "$.result_ref") from None
     transcript = path.suffix in TRANSCRIPT_SUFFIXES
     if not any(path.is_relative_to(root) for root in (_transcript_roots() if transcript else _result_roots())):

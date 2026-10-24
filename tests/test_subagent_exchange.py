@@ -194,6 +194,7 @@ def test_reference_reads_claude_codex_and_handback_transcripts(worker_tree, tmp_
     ("relative/result.md", "invalid_result_ref"),
     ("missing.md", "result_ref_missing"),
     ("outside.md", "result_ref_outside"),
+    ("nul\x00.md", "result_ref_missing"),
 ])
 def test_reference_policy(worker_tree, tmp_path, monkeypatch, name, code):
     allowed, outside = tmp_path / "allowed", tmp_path / "outside"
@@ -201,7 +202,7 @@ def test_reference_policy(worker_tree, tmp_path, monkeypatch, name, code):
     (outside / "outside.md").write_text("task: x", encoding="utf-8")
     monkeypatch.setattr(subagent_exchange, "_result_roots", lambda: [allowed.resolve()])
     monkeypatch.setattr(subagent_exchange, "_transcript_roots", lambda: [allowed.resolve()])
-    reference = name if name.startswith("relative") else str((allowed if name == "missing.md" else outside) / name)
+    reference = name if name.startswith("relative") else str((allowed if name != "outside.md" else outside) / name)
     with pytest.raises(subagent_exchange.ContractError) as error:
         subagent_exchange.read_result(reference)
     assert error.value.code == code
@@ -262,6 +263,19 @@ def test_reference_reads_are_bounded_and_decoded_strictly(worker_tree, tmp_path,
     with pytest.raises(subagent_exchange.ContractError) as error:
         subagent_exchange.read_result(str(growing))
     assert error.value.code == "result_ref_too_large"
+
+
+def test_malformed_transcript_records_are_skipped(worker_tree, tmp_path):
+    transcript = tmp_path / "agent-odd.jsonl"
+    records = [
+        {"type": "assistant", "message": {"id": "a", "content": [
+            {"type": "tool_use", "name": "SubagentHandback", "input": "unexpected"}]}},
+        {"type": "assistant", "message": "not an object"},
+        {"type": "response_item", "payload": {"type": "message", "role": "assistant", "content": "text"}},
+        {"type": "assistant", "message": {"id": "b", "content": [{"type": "text", "text": "task: final"}]}},
+    ]
+    transcript.write_text("\n".join(json.dumps(record) for record in records) + "\n", encoding="utf-8")
+    assert subagent_exchange.read_result(str(transcript)) == "task: final"
 
 
 def test_reference_to_an_unfinished_transcript_is_empty(worker_tree, tmp_path):
