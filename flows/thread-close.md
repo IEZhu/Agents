@@ -102,6 +102,50 @@ thread only from the transcript and the live state, and its report must say so.
 
   Never merge, force-push or rewrite history as part of closing.
 
+## Confidentiality and destination visibility
+
+Before external lookup, drafting a proposal or choosing a patch destination,
+classify the source information and the destination's actual visibility and
+audience. Internal or unknown information stays private unless the user has
+explicitly authorized disclosure of those specific details to that destination.
+Read-only searches and API queries also transfer their query text to the
+receiving service; check this boundary before making the call.
+
+Internal information includes nonsecret service and tool names, proxy aliases,
+domains, endpoints, repository paths, API contracts, deployment configuration,
+architecture and incident details. Removing credentials alone does not make
+this material public. Existing public mentions do not authorize further
+disclosure. Access to a private repository does not authorize publication to a
+public repository, including another repository owned by the same user.
+
+For an upstream/public improvement, describe only the general mechanism and use
+synthetic examples that do not identify the organization or its systems. Keep
+company-specific registrations, tool inventories and examples in an authorized
+private repository, private flow or local configuration. Never propose putting
+them in a public catalogue merely because the framework or catalogue lives
+there. Public proposals and drafts must already be safe before asking approval.
+
+Search for existing issues/PRs only inside an authorized destination and with
+query terms safe for that destination. Do not send internal names or identifiers
+to a public issue/code search to discover whether someone has already published
+them. Use an authorized private tracker or a generic sanitized public query
+instead. If visibility or safe disclosure cannot be established, stop only that
+external operation, keep the finding private and report the verification gap.
+
+Immediately before every external write, including a push or submission of an
+approved patch, recheck the destination's actual visibility and audience and
+reclassify the payload. If any differs from the approved scope or is unknown,
+stop only that operation, keep the finding private and report the verification
+gap. Revalidate the disclosure and its authorization before continuing; an
+earlier proposal check or approval is not a substitute for this write-time check.
+
+Apply this boundary to reports, logs, memory, links, attachments, worker inputs
+and delegated searches as well. A worker receives no broader disclosure
+permission than the parent. A generic instruction to run/apply this flow,
+check issues, fix a workflow or "go ahead" is not permission to publish internal
+details. Follow an explicit user authorization for a specified disclosure;
+otherwise continue with the private or sanitized alternative.
+
 ## Verification levels
 
 | Level | Meaning | Typical evidence |
@@ -267,7 +311,9 @@ client's own tools. Calls from this close's own `run_flow` on are not audited.
      no row names is `uncatalogued`, a finding against the catalogue. The built-in
      catalogue names every statically registered tool and the dynamic proxy
      family. A missing row means a newer server or an outdated personal copy of
-     this flow; a runtime proxy name belongs to `mcp-proxy` below.
+     this flow; a runtime proxy name belongs to `mcp-proxy` below. Concrete
+     private aliases need not appear in an upstream/public catalogue; their
+     absence alone is not a catalogue defect.
    - **Every other tool:** each loaded instruction that names a trigger for it:
      the client's instruction files (`CLAUDE.md`, `AGENTS.md`, rules files), the
      MCP server's own instructions, a skill's or plugin's description ("use
@@ -342,10 +388,19 @@ client's own tools. Calls from this close's own `run_flow` on are not audited.
    write the next layer toward automatic (memory lesson, then client
    instruction, then hook, flow step or flow persona, then Agents-Core itself),
    and name the earlier close's time.
-8. **One list, one yes.** Collect every patch into one numbered list. Apply them
-   only after the user's yes, which may approve the whole list or name items; a
-   V2 memory lesson in `apply` mode needs none. Verify each applied patch (the
-   diff in place, the call's result) and report which were applied.
+8. **One list, one yes.** Check existing tracking within the confidentiality
+   boundary before adding a patch. For each proposal, name its destination,
+   verified visibility and whether its content is generic or private. Public
+   improvements describe the mechanism; keep concrete private inventories in
+   authorized private context. Never require public enumeration of private
+   tools as a completion condition. Collect every patch into one numbered list.
+   Apply them only after the user's yes, which may approve the whole list or
+   name items; a V2 memory lesson in `apply` mode needs none. Immediately before
+   each external write, recheck visibility, audience and payload classification
+   as required above, including for an approved push or submission. Stop only
+   that operation when the scope changed or is unknown, keep the finding private
+   and report the gap. Verify each applied patch (the diff in place, the call's
+   result) and report which were applied.
 
 **Catalogue.** The slug names the row in the report and in tags. The rows name
 every statically registered Agents-Core tool; a test keeps those names complete.
@@ -366,7 +421,7 @@ policy change. Listing a write-capable tool does not authorize its calls or writ
 | `persona-restore` | `get_agent_context(force_reload=true)` | a context compaction; answers that lost the footer or the rules | no reload after the compaction, and later answers break the bundle or a `log_interaction` is stored `unverified` |
 | `persona-enrichment` | `refresh_persona_context`, `load_implants` | the task needed a skill or reasoning pattern the bundle lacked | the method was improvised while a matching skill or implant existed |
 | `session-cache` | `clear_session_cache` | the owner asks to reset the server's shared caches | called to switch personas, which needs no reset and affects other sessions |
-| `log` | `log_interaction` | every final answer | final answers outnumber calls; a `history_last_error` or workspace error went unmentioned |
+| `log` | `log_interaction` | every final answer eligible for safe, authorized logging | eligible final answers outnumber calls after excluding documented policy-authorized privacy skips; a `history_last_error` or workspace error went unmentioned |
 | `history` | `read_history` | the user refers to earlier work | earlier work reconstructed from memory or asked for again |
 | `flows` | `list_flows`, `run_flow` | the user names a flow, or asks for a task that an existing flow covers | the task done ad hoc while the flow existed |
 | `new-flow` | `save_flow` | the same multi-step procedure done twice, or one the user wants to reuse | no flow proposed |
@@ -383,8 +438,10 @@ policy change. Listing a write-capable tool does not authorize its calls or writ
 
 Inventory dynamic proxy tools under their upstream connection as well as their
 transport. Their runtime names are not `uncatalogued` solely because they are
-absent from the static registration catalogue. Read and apply the upstream's
-own usage and authorization rules. Inventorying a tool does not authorize
+absent from the static registration catalogue. Inventory concrete private names
+only in authorized private context; a generic upstream rule can cover private
+aliases without publishing them. Read and apply the upstream's own usage and
+authorization rules. Inventorying a tool does not authorize
 calling it: a `missed` call requires demonstrated availability and an applicable
 operation trigger, not just exposure to the client.
 
@@ -435,9 +492,16 @@ operation trigger, not just exposure to the client.
 - **Issues, tracker items and documentation.** Propose follow-up issues and
   tracker items, and create them only on a yes. Propose repository knowledge as a
   documentation change through the repository's pull request flow.
-- **Secrets and personal data.** Scan everything you persist or report: replace
-  secrets with references and leave out medical, financial and other personal
-  details. The report is logged in both modes, so this applies to the report too.
+- **Confidential information, secrets and personal data.** Check the authorized
+  audience of every destination, including the closing log and any synced
+  memory. Scan everything persisted or reported and replace secrets with safe
+  references, including in private memory and closing logs. Keep internal
+  identifiers, topology and nonsecret configuration out of public/shared output
+  unless specifically authorized. Sanitize references and link labels as well
+  as prose; leave out medical, financial and other personal details. In both
+  modes, log the report only when a safe payload and authorized destination are
+  established. Otherwise, report the privacy skip and incomplete closing-log
+  step as required by step 9.
 
 ## 8. Clean up (`apply`)
 
@@ -485,13 +549,19 @@ audit report does not mean the audited work is complete, and optional suggestion
 alone do not require `finishing`. `closed` requires explicit closure or confirmed archival.
 The status grants no additional authority; follow **Inputs and authority** for each action.
 
-Then make this turn's single `log_interaction` call, as the client protocol
-requires for every answer. Do not make a second call:
+Then, only when a safe payload and authorized destination are established, make
+this turn's single `log_interaction` call under the client protocol. For a
+policy-authorized privacy skip, report the gap and leave this closing-log step
+incomplete; do not classify that skip as a missed or misused call. Do not make
+a second call:
 
 - `agent_name` and `persona`: the active persona;
 - `persona_action`: `switch` when the flow's `persona_activation` returned
   `SUCCESS` in this turn, `keep` when it returned `NO_CHANGE` or `ERROR`;
-- `query`: the user's request, verbatim;
+- `query`: the current user's request after applying the sanitization rules above;
+  keep verbatim content only when it is safe for the authorized closing-log audience.
+  If a required logging contract demands unsafe verbatim content, do not persist
+  it: report the conflict and leave this closing step incomplete;
 - `response_content`: the report exactly as it will be delivered, footer
   included, but without the time line that the `answer-timestamp` rule puts
   first once this call returns.
@@ -530,6 +600,11 @@ flow can match this work instead of recording it twice.
 - Background work is stopped or its continuation is justified.
 - In `apply` mode, every memory change is V2 or above and the closing log entry
   is curated.
+- Every external lookup and proposed patch destination respects the
+  confidentiality boundary; no public enumeration of private tools is required.
+- Every external write performed by this flow has a recorded passing visibility,
+  audience, and payload recheck. A skipped, failed, or unknown recheck blocks the
+  affected write and is reported; it cannot be counted as a completed action.
 - The report is delivered.
 
 The flow does not prove a thread right. It records how well each result is

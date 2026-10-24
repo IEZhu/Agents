@@ -27,3 +27,5 @@ installations from either branch can migrate:
 
 - `memory-routing-v19.md` retains the reminder before first-work repository bootstrap and turn-ending progress attribution were added.
 - `memory-routing-v20.md` retains the reminder before MCP-unavailable first-work fallback and explicit ownership-consent delivery were aligned.
+
+- `memory-routing-v21.md` retains the reminder before secret redaction in logged fields was made explicit.

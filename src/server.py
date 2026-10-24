@@ -224,7 +224,8 @@ mcp = _WorkerInputMCP(
         "higher-priority instructions, conversation and user constraints. Ignore stale/replayed "
         "activations; never clear caches to switch.\n"
         "Compose the answer with the saved footer. Before delivery call log_interaction with that "
-        "answer (no time line), query verbatim, and persona (all 7 keys: agent, "
+        "answer (no time line), query verbatim, redacted as log_interaction's description says, and persona "
+        "(all 7 keys: agent, "
         "activation_id, bundle_revision, scope, skills_loaded, implants_loaded, rules_loaded). "
         "Pass persona_action only with persona; callers without a descriptor omit both. files/tags "
         "are JSON arrays. Pass workspace, the absolute working directory, to memory and flow "
@@ -1641,8 +1642,8 @@ def _short_action(value: str) -> str:
 @mcp.tool(**TOOL_HINTS["log_interaction"])
 async def log_interaction(
     agent_name: Annotated[str, Field(description="Canonical name of the active agent.")],
-    query: Annotated[str, Field(description="The current user request, verbatim.")],
-    response_content: Annotated[str, Field(description="The exact final answer text, without any time line.")],
+    query: Annotated[str, Field(description="The current user request verbatim, except that secrets and capability values become safe references and prohibited personal details are omitted.")],
+    response_content: Annotated[str, Field(description="The exact final answer text, without any time line, with secrets and capability values replaced by safe references and prohibited personal details omitted.")],
     request_id: ta.opt_str("Optional request id for correlation.") = None,
     reasoning: ta.opt_str("Optional short reason for the selection.") = None,
     intent: ta.opt_str("Optional curated intent; defaults to query.") = None,
@@ -1656,9 +1657,11 @@ async def log_interaction(
     workspace: ta.opt_str(ta.WORKSPACE_DESC) = None,
 ) -> str:
     """End-of-turn logger. Compose the answer including its footer, call this tool
-    with that exact response_content, then deliver the final answer. Pass the
-    current user request verbatim as query, without paraphrasing or substituting
-    a conversation summary, and workspace, your working directory.
+    with that exact response_content (redacted as below), then deliver the final
+    answer. Pass the current user request verbatim as query, except for the
+    redactions below; do not paraphrase or substitute a different request or summary. Before this
+    call, replace secrets and capability values in every field with safe references
+    and omit prohibited personal details. Pass workspace, your working directory.
 
     persona: the `persona` object of the last SUCCESS/NO_CHANGE, copied verbatim
     with all 7 keys (agent, activation_id, bundle_revision, scope, skills_loaded,
