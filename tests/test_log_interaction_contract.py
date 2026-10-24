@@ -279,6 +279,31 @@ async def test_a_symlinked_fallback_directory_is_an_error_not_a_crash(writer, mo
     writer.assert_not_called()
 
 
+@pytest.mark.asyncio
+async def test_logging_guidance_keeps_the_request_verbatim_apart_from_one_redaction_set():
+    """Every surface that says what to log keeps the request verbatim and names the same
+    redactions; one revision of #487 dropped the verbatim rule from three of them."""
+    from pathlib import Path
+    from src.engine.persona import APPLY_INSTRUCTION
+    root = Path(__file__).resolve().parents[1]
+    tool = {t.name: t for t in await server.mcp.list_tools()}["log_interaction"]
+    properties = tool.inputSchema["properties"]
+    surfaces = {"APPLY_INSTRUCTION": APPLY_INSTRUCTION, "tool description": tool.description,
+                "query description": properties["query"]["description"]}
+    for name in ("scripts/templates/routing-protocol-core.md", "scripts/templates/memory-routing.md",
+                 "CLAUDE.md", "docs/routing_flow.md"):
+        surfaces[name] = (root / name).read_text(encoding="utf-8")
+    redactions = ("capability values", "safe references", "prohibited personal details")
+    for name, text in surfaces.items():
+        flat = " ".join(text.split())
+        assert "request verbatim" in flat, name
+        assert all(term in flat for term in redactions), name
+    response = properties["response_content"]["description"]
+    assert all(term in response for term in redactions)
+    # The server instructions are kept short and defer the redaction set to the tool description.
+    assert "query verbatim, redacted as log_interaction's description says" in server.mcp.instructions
+
+
 def test_server_choice_guidance_is_visible_before_truncation():
     """#421: a Code-tab session lists Agents-Core and the denied Agents-Core-Desktop; every
     protocol surface says which to call, and Claude Code's 2048-character window keeps it."""
