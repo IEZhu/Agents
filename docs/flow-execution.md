@@ -26,12 +26,19 @@ not approve a merge, prove publication or verify installed bytes.
 
 ## Batch reads and keep raw evidence out of the conversation
 
-Use the [executable metadata guard and code-mode adapter](mcp-tool-safety.md)
-before returning large tool metadata. Retain the original, decode its shape,
-allowlist fields, redact selected sensitive values, and check the complete
-serialized envelope before emission. Load the trusted adapter before the first
-large call; native history reads need its closed item projection because output
-options do not remove tool arguments or previews.
+On a host with code mode or Node orchestration around tool calls, use the
+[executable metadata guard and code-mode adapter](mcp-tool-safety.md) before
+returning large tool metadata. Retain the original, decode its shape, allowlist
+fields, redact selected sensitive values, and check the complete serialized
+envelope before emission. Load the trusted adapter before the first large call;
+native history reads need its closed item projection because output options do
+not remove tool arguments or previews.
+
+A direct-call client, such as Claude Code or Cursor, receives each tool result
+before any adapter could run, so for it the guard is opt-in. Apply the same
+allowlist and budget to what it prints and forwards, select fields from saved
+shell output with a script, and do not report a result as guarded when the
+guard did not receive it.
 
 - Batch independent reads and checks in one orchestration call. Keep edits,
   dependent checks, approvals and adaptive follow-ups sequential.

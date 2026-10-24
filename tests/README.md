@@ -158,7 +158,9 @@ KV reports do not establish artifact-layer test or deployment results.
 The executable metadata boundary runs the same behavioral cases through its ESM
 module and generated no-import code-mode adapter. It tests retained sources,
 allowlisted output, exact serialized limits, invalid/truncated MCP envelopes and
-credential redaction without reading real history or client profiles:
+credential redaction without reading real history or client profiles. It also
+runs the documented code-mode recipe verbatim against Agents-Core-shaped results
+in the legacy `structuredContent.result` wrapper, for a success and a refusal:
 
 ```bash
 node --test tests/mcp_metadata_guard.test.mjs

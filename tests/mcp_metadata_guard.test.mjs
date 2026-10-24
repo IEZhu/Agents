@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
+import {fileURLToPath} from 'node:url';
 import test from 'node:test';
 import * as moduleApi from '../scripts/dev/mcp_metadata_guard.mjs';
 
@@ -177,3 +178,126 @@ for (const [runtime, api] of [['module', moduleApi], ['code-mode', new Function(
     assert.equal(invoked, 0);
   });
 }
+
+// The documented code-mode path: the recipe in docs/mcp-tool-safety.md runs verbatim (only the
+// installation-root placeholder is replaced) in a Codex-like isolate whose shell tool reads the
+// real adapter file, against Agents-Core-shaped CallToolResults.
+const rootPath = fileURLToPath(root).replace(/[\\/]$/u, '');
+const AsyncFunction = (async () => {}).constructor;
+const PROMPT = 'FORBIDDEN_PROMPT_BODY_SENTINEL';
+const MESSAGE = 'FORBIDDEN_MESSAGE_BODY_SENTINEL';
+
+function documentedRecipe() {
+  const doc = readFileSync(new URL('docs/mcp-tool-safety.md', root), 'utf8').replace(/\r\n/gu, '\n');
+  const section = doc.split('\n## Code mode before the first large call\n')[1]?.split('\n## ')[0];
+  const recipe = section && /```javascript\n([\s\S]*?)\n```/u.exec(section)?.[1];
+  assert.ok(recipe, 'docs/mcp-tool-safety.md keeps its code-mode recipe');
+  return recipe.replaceAll('/absolute/Agents-Core', JSON.stringify(rootPath).slice(1, -1));
+}
+
+/** The documented loader alone: everything up to compiling the adapter, then hand it back. */
+function documentedLoader() {
+  const lines = documentedRecipe().split('\n');
+  const compiled = lines.findIndex(line => line.includes('new Function(loaded.output)'));
+  assert.ok(compiled > 0, 'the recipe compiles the adapter from the shell output');
+  return lines.slice(0, compiled + 1).join('\n') + '\nreturn guard;';
+}
+
+/** FastMCP's result for a str-returning Agents-Core tool: one text block plus the legacy
+ * structuredContent.result wrapper around the same JSON string. */
+function agentsCoreResult(json) {
+  return {content: [{type: 'text', text: json}], structuredContent: {result: json}, isError: false};
+}
+
+function codeModeIsolate(toolResults, {truncateShell = false} = {}) {
+  const stored = new Map();
+  const emitted = [];
+  const calls = [];
+  const tools = {
+    async exec_command({cmd, max_output_tokens: limit}) {
+      calls.push('exec_command');
+      const path = /^cat '(.*)'$/su.exec(cmd)?.[1];
+      if (!path) return {exit_code: 2, output: 'unsupported command'};
+      const output = readFileSync(path, 'utf8');
+      // Conservative stand-in for the host's token cap: one token per character.
+      if (truncateShell || output.length > limit) {
+        return {exit_code: 0, output: output.slice(0, 200) + '\n…4000 tokens truncated…'};
+      }
+      return {exit_code: 0, output};
+    },
+  };
+  for (const [name, result] of Object.entries(toolResults)) {
+    tools[`mcp__Agents_Core__${name}`] = async () => { calls.push(name); return result; };
+  }
+  const store = (key, value) => { stored.set(key, value); };
+  const text = value => { emitted.push(value); };
+  const run = source => new AsyncFunction('tools', 'store', 'text', source)(tools, store, text);
+  return {stored, emitted, calls, store, text, run};
+}
+
+const flowCatalogue = JSON.stringify({status: 'success', flows: [
+  {id: 'pr-review', title: 'Review and merge a pull request or merge request', source_path: '/absolute/Agents-Core/flows/pr-review.md',
+    revision: 'r1', source: 'builtin', qualified_id: 'builtin:pr-review'},
+  {id: 'repo:notes', title: `Notes: ${PROMPT}`, source_path: '/absolute/target/notes.md', revision: 'r2', source: 'repo'},
+], repo: {status: 'available', key: 'example', origin: 'https://github.com/example/target', path: '/absolute/target'},
+issues: [{id: 'user:draft', error: `flow_invalid: ${MESSAGE}`}]});
+
+test('documented code-mode recipe: flow discovery emits only the bounded envelope and retains the whole result', async () => {
+  const raw = agentsCoreResult(flowCatalogue);
+  const isolate = codeModeIsolate({list_flows: raw});
+  await isolate.run(documentedRecipe());
+  assert.deepEqual(isolate.calls, ['exec_command', 'list_flows']);
+  assert.equal(isolate.emitted.length, 1);
+  assert.deepEqual(JSON.parse(isolate.emitted[0]),
+    {sourceRef: 'store:flowCatalogueSource', metadata: {status: 'success', count: 2}});
+  assert.ok(isolate.emitted[0].length <= 8000);
+  assert.ok(!/FORBIDDEN/u.test(isolate.emitted[0]));
+  assert.equal(isolate.stored.get('flowCatalogueSource'), raw);
+});
+
+test('documented code-mode recipe: a malformed result refuses with its retained source and no body', async () => {
+  const cut = flowCatalogue.slice(0, flowCatalogue.indexOf(PROMPT) + PROMPT.length);
+  const raw = {content: [{type: 'text', text: cut}], structuredContent: {result: cut}, isError: false};
+  const isolate = codeModeIsolate({list_flows: raw});
+  await assert.rejects(isolate.run(documentedRecipe()), error =>
+    error.name === 'MetadataGuardError' && error.code === 'invalid_or_incomplete_json' &&
+    error.sourceRef === 'store:flowCatalogueSource' &&
+    !/FORBIDDEN/u.test(`${error} ${error.stack} ${JSON.stringify(error)}`));
+  assert.equal(isolate.emitted.length, 0);
+  assert.equal(isolate.stored.get('flowCatalogueSource'), raw);
+});
+
+test('documented code-mode recipe: a truncated adapter load stops before the first tool call', async () => {
+  const isolate = codeModeIsolate({list_flows: agentsCoreResult(flowCatalogue)}, {truncateShell: true});
+  await assert.rejects(isolate.run(documentedRecipe()), /Trusted metadata adapter unavailable/u);
+  assert.deepEqual(isolate.calls, ['exec_command']);
+  assert.equal(isolate.emitted.length, 0);
+  assert.equal(isolate.stored.size, 0);
+});
+
+test('documented loader: run_flow bodies stay retained; success is bounded and an oversized field refuses', async () => {
+  const bundle = {status: 'needs_execution',
+    flow: {id: 'pr-review', title: 'Review', source_path: '/absolute/Agents-Core/flows/pr-review.md', revision: 'r1', source: 'builtin'},
+    repo_path: '/absolute/target', workspace_id: 'w1', request: `${PROMPT} review PR 475`,
+    content: `# Review\n${MESSAGE}\n` + 'step\n'.repeat(4000), instruction: `Execute the supplied flow. ${MESSAGE}`,
+    persona_activation: {status: 'SUCCESS', persona_block: MESSAGE, rules_block: MESSAGE, footer: 'Agent: code_reviewer'}};
+  const raw = agentsCoreResult(JSON.stringify(bundle));
+  const isolate = codeModeIsolate({run_flow: raw});
+  const guard = await isolate.run(documentedLoader());
+  const options = fields => ({mcp: true, fields, emit: isolate.text,
+    retain: value => { isolate.store('runFlowSource', value); return 'store:runFlowSource'; }});
+
+  const receipt = await guard.guardMetadata(raw, options({status: {path: ['status']},
+    flow: {path: ['flow', 'id']}, revision: {path: ['flow', 'revision']},
+    activation: {path: ['persona_activation', 'status']}}));
+  assert.deepEqual(JSON.parse(isolate.emitted[0]), {sourceRef: 'store:runFlowSource',
+    metadata: {status: 'needs_execution', flow: 'pr-review', revision: 'r1', activation: 'SUCCESS'}});
+  assert.equal(receipt.characters, isolate.emitted[0].length);
+  assert.ok(receipt.characters <= 8000 && !/FORBIDDEN/u.test(isolate.emitted[0]));
+
+  await assert.rejects(guard.guardMetadata(raw, options({content: {path: ['content']}})), error =>
+    error.code === 'output_budget_exceeded' && error.sourceRef === 'store:runFlowSource' &&
+    !/FORBIDDEN/u.test(`${error} ${error.stack}`));
+  assert.equal(isolate.emitted.length, 1);
+  assert.equal(isolate.stored.get('runFlowSource'), raw);
+});

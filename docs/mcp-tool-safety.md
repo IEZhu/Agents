@@ -7,6 +7,30 @@ tool calls or change the JSON-RPC transport. Keep required instructions and
 persona descriptors/footers complete. A small metadata return is not a read of
 the underlying instructions.
 
+## What is enforced and what is opt-in
+
+**Enforced** for a result that the caller hands to `guardMetadata` or
+`guardThreadMetadata`: the complete source is retained before decoding, and a
+retention failure or invalid reference refuses output; the MCP envelope and the
+JSON shape are validated; only allowlisted scalars and array counts are
+projected; selected strings are redacted; the whole serialized
+`{sourceRef, metadata}` envelope is checked against the budget before `emit`.
+A refusal carries a fixed code and the source reference, never the raw input,
+and there is no raw fallback.
+
+**Opt-in, not enforced:** nothing routes a tool result to the guard. Neither the
+Agents-Core server nor any client applies it automatically, and the transport
+is unchanged. A result is guarded only when the caller's orchestration passes it
+there: Codex code mode with the recipe below, or a Node orchestrator that
+injects retention and emission. A direct-call client, such as Claude Code or
+Cursor, receives each tool result in its context before any adapter could run;
+for it the guard is a voluntary filter for output it saved first, not a
+protection of its own calls. The field allowlist is the caller's choice: the
+guard cannot stop a selected field from carrying prompt text, and it does not
+detect unknown secrets. The host's `retain` callback owns storage and access
+control. The tests below check the enforced part and run the documented recipe;
+they do not show that a client used it.
+
 ## Retain, decode, project, then emit
 
 `guardMetadata(raw, options)` retains the complete original response before
@@ -53,6 +77,8 @@ In Codex code mode, the following recipe uses the exposed shell tool to read a
 trusted local file; no filesystem or import API inside the isolate is assumed.
 Set the absolute path from inspected installation metadata. Do not interpolate
 tool payloads into code or execute a payload as a bootstrap.
+`tests/mcp_metadata_guard.test.mjs` runs this block verbatim, replacing only
+`/absolute/Agents-Core`, so keep it runnable.
 
 ```javascript
 const loaded = await tools.exec_command({
@@ -148,3 +174,12 @@ run through both exports and the actual no-import adapter, including lossless
 retention, exact serialized thresholds, malformed/truncated JSON, closed native
 item projection and forbidden credential sentinels. No real history or
 clipboard is read.
+
+The code-mode recipe above also runs verbatim in a Codex-like isolate whose
+shell tool reads the real adapter file. Its Agents-Core results use the legacy
+`structuredContent.result` wrapper that FastMCP returns for a string-valued
+tool. Flow discovery emits only the bounded envelope and retains the whole
+result; a malformed result refuses with its source reference; a truncated
+adapter load stops before the first tool call. Through the same loader, a
+`run_flow` bundle keeps its request, flow body and persona blocks out of the
+output, and selecting its oversized body refuses with the source reference.

@@ -12,10 +12,19 @@ All exact-head review, CI, authorization and merge conditions below still apply.
 
 ## Mandatory bounded-return gate
 
-Use the [executable guard and supported code-mode recipe](../docs/mcp-tool-safety.md)
-for this gate. Load the trusted local adapter before the first large call,
-including flow discovery; a gate returned inside a flow cannot protect its own
-initial delivery. Native thread metadata uses the closed item/field projection.
+On a host with code mode or Node orchestration around tool calls, use the
+[executable guard and code-mode recipe](../docs/mcp-tool-safety.md) for this
+gate. Load the trusted local adapter before the first large call, including flow
+discovery; a gate returned inside a flow cannot protect its own initial
+delivery. Native thread metadata uses the closed item/field projection.
+
+A direct-call client, such as Claude Code or Cursor, calls tools without an
+orchestration isolate: each result enters its context before any adapter could
+run. There the adapter is opt-in, not a precondition of this gate. Apply the
+rules below to what the client prints and forwards: choose the narrowest tool
+arguments, write large shell output to the evidence area and select fields from
+it with a script (the Node module may be used for that), and never report a
+result as guarded when the guard did not receive it.
 
 Before each tool call that can return a catalogue, protocol, context bundle or
 large status object, choose the output field allowlist and retain the complete
