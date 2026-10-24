@@ -16,10 +16,9 @@ from starlette.responses import JSONResponse
 
 from src.version import agents_core_branch, agents_core_commit, agents_core_version
 from src.runtime_paths import installation_root, runtime_root
+from src import personal_runtime
 from .execution import TrackedExecutor, request_jobs, finish_jobs
-from .flows_ui import FlowsUI
 from .overview import Overview
-from .sync_loop import UserSync
 from .usage import Usage, app_name, observing
 from .workspaces import ClientContext, WorkspaceRegistry, WorkspaceError
 
@@ -73,7 +72,7 @@ def load_runtime(port):
     server.mcp.settings.stateless_http = True
     server.mcp.settings.json_response = True
     server.mcp.remove_tool("clear_session_cache")
-    server.install_history_sync()
+    personal_runtime.install_history_sync()
     return server.mcp, server
 
 
@@ -112,9 +111,7 @@ class Service:
         self.mcp_registry = Registry(library, self.directory)
         self.mcp_secrets = Secrets(self.directory)
         self.mcp_proxy = Supervisor(self.mcp_registry, self.mcp_secrets, self.directory)
-        self.flows_ui = FlowsUI(self)
-        # Only the service's entry point hands the library over from the OS scheduler (#168).
-        self.user_sync = UserSync(self, hand_off_schedule=hand_off_schedule)
+        personal_runtime.configure_daemon(self, hand_off_schedule=hand_off_schedule)
         # This separate lazy broker does not read configuration or start a model here.
         from src.local_inference.service import LocalInferenceService
         from src.artifacts.service import ArtifactService
