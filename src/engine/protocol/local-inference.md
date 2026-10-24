@@ -9,4 +9,4 @@ summarization, truncation or replay. This does not replace native workers or
 the prepare/validate exchange.
 
 <!-- variant: compact -->
-local_context_create.artifact_manifest hydrates all selected entries exactly before byte/native-token limits and rechecks before dispatch, publication and result reads. Reuse one context with separate grants for shared prefixes; local_generate is one completion, not a tool loop or artifact reader. Oversized input fails without summarization, truncation or replay. This does not replace native workers or the prepare/validate exchange.
+local_context_create.artifact_manifest hydrates all selected entries exactly before byte/native-token limits and rechecks the manifest before dispatch, publication and result reads. Reuse one context with separate grants for shared prefixes; local_generate is one completion, not a tool loop or artifact reader. Oversized input fails without summarization, truncation or replay. This does not replace native workers or the prepare/validate exchange.

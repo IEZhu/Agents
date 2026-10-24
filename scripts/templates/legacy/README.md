@@ -11,11 +11,21 @@ released reminder (the one at the merge base with `origin/dev` or `dev`) here
 unchanged as `memory-routing-v<N>.md`, using the next unused number, and prints its
 name and source; it does so on every run, so a reminder released after the branch
 last changed its own is kept too, and `--check` fails while one is missing. When git
-or a `dev` base is unavailable, it keeps the replaced working-tree reminder instead. The helper reads only
+or a `dev` base is unavailable, the released reminder cannot be determined: the
+command keeps no copy, since the working-tree reminder may never have been
+installed, prints a warning, and `--check` does not report the directory. Fetch
+`dev` and run the command again. The helper reads only
 files matching `memory-routing-*.md`; without that copy, installed reminders of
 the previous version are reported as user-edited and are not migrated. Also add
 the new copy where the tests list the existing ones
 (`grep -rn memory-routing-v tests/`).
+
+Only the reminder at the merge base is checked. When another pull request
+changes the reminder and lands on `dev` after this branch's merge base, the
+reminder released by that merge is neither the merge-base one nor the rendered
+one, and nothing keeps it until the branch is merged with or rebased onto the
+current `dev`, which moves the merge base. Update the branch from `dev` before
+the last `--write`, so the reminder installations run from `dev` is kept too.
 
 The concurrent artifact and cooperation branches both introduced a distinct
 `memory-routing-v11.md`. Preserve every historical reminder byte-for-byte so

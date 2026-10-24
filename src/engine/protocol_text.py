@@ -53,6 +53,8 @@ END_MARKER = "# <<< Agents-Core Routing Protocol (managed by init_repo) <<<"
 REGENERATE = "python -m src.engine.protocol_text --write"
 
 _VARIANT_MARKER = re.compile(r"^<!-- variant: ([a-z][a-z0-9-]*) -->$")
+# Any line that looks like a variant marker; one that is not exactly a marker is refused.
+_MARKER_LIKE = re.compile(r"^\s*<!--\s*variant", re.IGNORECASE)
 # The section files the surfaces are built from. Only these are read, so another file in the
 # directory (a README) cannot break the server's import; a test checks that the list is complete.
 SECTION_NAMES = (
@@ -80,6 +82,9 @@ def _parse(path: Path) -> dict[str, str]:
         raise ProtocolSourceError(f"cannot read protocol section {path.name}: {error}") from None
     for number, line in enumerate(lines, 1):
         match = _VARIANT_MARKER.match(line)
+        if match is None and _MARKER_LIKE.match(line):
+            raise ProtocolSourceError(f"{path.name}:{number}: malformed variant marker {line!r}; "
+                                      "write <!-- variant: name --> alone on its line")
         if match:
             current = match.group(1)
             if current in variants:
@@ -143,12 +148,14 @@ def server_instructions() -> str:
     Claude Code shows their first 4,096 characters, and only 2,048 before v2.1.296 (#421, #508).
     The shorter window holds what every turn needs: the opening lines (protocol, server choice,
     worker exemption, first-answer activation, logging) and the delegation request through
-    ``Require status: prepared.``. The first-work rule, which a session may need before its first
-    activation, comes next, and the rest of the delegation exchange through its validation rule
-    fits the longer window. The keep/switch rules also appear in the descriptions of the persona
-    tools, and the describe_repo fallback, the owning-session rules and the definition of progress
-    messages, which follow the windows, arrive with the full ``SUCCESS`` instruction.
-    tests/test_log_interaction_contract.py checks both windows.
+    ``Require status: prepared.``. The longer window adds the first-work rule, which a session may
+    need before its first activation, and the delegation exchange from the launch through
+    validation, acceptance and new attempts to ``Never edit identities or the contract to make a
+    result pass.``; the exchange's fallback, what the worker reads from its package and nested
+    delegation follow it and may fall outside. The keep/switch rules also appear in the
+    descriptions of the persona tools, and the describe_repo fallback, the owning-session rules and
+    the definition of progress messages, which follow the windows, arrive with the full
+    ``SUCCESS`` instruction. tests/test_log_interaction_contract.py checks both windows.
     """
     return "\n\n".join([
         _server_opening(),
@@ -281,25 +288,32 @@ def _renders() -> dict[Path, tuple[str, str]]:
 def stale_files() -> list[Path]:
     """The committed generated files whose text differs from the render, and a missing legacy copy.
 
-    The legacy directory is listed when the released reminder is neither current nor kept there.
+    The legacy directory is listed when the released reminder is neither current nor kept there;
+    without a ``dev`` base the released reminder is unknown, and the directory is not listed.
     """
     renders = _renders()
     stale = [path for path, (current, rendered) in renders.items() if rendered != current]
-    if MEMORY_REMINDER in renders and _missing_legacy(renders[MEMORY_REMINDER][1]) is not None:
-        stale.append(LEGACY_DIR)
+    if MEMORY_REMINDER in renders:
+        released = released_reminder()
+        if released is not None and _needs_legacy(renders[MEMORY_REMINDER][1], released[0]):
+            stale.append(LEGACY_DIR)
     return stale
 
 
-def _replace(path: Path, text: str) -> None:
-    """Write ``text`` to ``path`` through a temporary file in the same directory, keeping its mode."""
+def _replace(path: Path, text: str, mode_from: Path | None = None) -> None:
+    """Write ``text`` to ``path`` through a temporary file in the same directory.
+
+    An existing file keeps its mode; a new one takes the mode of ``mode_from`` when given.
+    """
     if path.is_symlink():
         raise ProtocolSourceError(f"refusing to replace the symbolic link {path}")
     handle, temporary = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
     try:
         with os.fdopen(handle, "w", encoding="utf-8", newline="\n") as stream:
             stream.write(text)
-        if path.exists() and os.name == "posix":
-            shutil.copymode(path, temporary)
+        reference = path if path.exists() else mode_from
+        if reference is not None and reference.exists() and os.name == "posix":
+            shutil.copymode(reference, temporary)
         os.replace(temporary, path)
     except BaseException:
         Path(temporary).unlink(missing_ok=True)
@@ -326,40 +340,46 @@ def released_reminder() -> tuple[str, str] | None:
     return None
 
 
+def _legacy_copies() -> list[Path]:
+    """The kept reminders. A symbolic link in place of the legacy directory is refused."""
+    if LEGACY_DIR.is_symlink():
+        raise ProtocolSourceError(f"refusing the symbolic link {LEGACY_DIR}")
+    return sorted(LEGACY_DIR.glob("memory-routing-v*.md"))
+
+
 def _kept(previous: str) -> bool:
     data = previous.encode("utf-8")
-    return any(copy.read_bytes().replace(b"\r\n", b"\n") == data for copy in LEGACY_DIR.glob("memory-routing-v*.md"))
+    return any(copy.read_bytes().replace(b"\r\n", b"\n") == data for copy in _legacy_copies())
 
 
-def _missing_legacy(rendered: str) -> tuple[str, str] | None:
-    """The released reminder and its source when migration would not recognize it, else None."""
-    released = released_reminder()
-    if released is None or released[0] == rendered or _kept(released[0]):
-        return None
-    return released
+def _needs_legacy(rendered: str, released: str) -> bool:
+    """Whether migration would not recognize the ``released`` reminder: neither rendered now nor kept."""
+    return released != rendered and not _kept(released)
 
 
-def _keep_previous_reminder(previous: str) -> Path | None:
-    """Save ``previous`` as the next legacy reminder, unless a legacy copy already holds it."""
-    if _kept(previous):
-        return None
-    copies = sorted(LEGACY_DIR.glob("memory-routing-v*.md"))
-    numbers = [int(match.group(1)) for copy in copies if (match := re.fullmatch(r"memory-routing-v(\d+)\.md", copy.name))]
+def _keep_legacy(previous: str) -> Path:
+    """Save ``previous`` as the next legacy reminder, through a temporary file, with the reminder's mode."""
+    numbers = [int(match.group(1)) for copy in _legacy_copies()
+               if (match := re.fullmatch(r"memory-routing-v(\d+)\.md", copy.name))]
     target = LEGACY_DIR / f"memory-routing-v{max(numbers, default=0) + 1}.md"
-    target.write_bytes(previous.encode("utf-8"))
+    if target.is_symlink() or target.exists():
+        raise ProtocolSourceError(f"refusing to replace {target}")
+    _replace(target, previous, mode_from=MEMORY_REMINDER)
     return target
 
 
 def write_generated(on_write: Callable[[Path], None] = lambda path: None,
-                    on_source: Callable[[str], None] = lambda source: None) -> list[Path]:
+                    on_source: Callable[[str], None] = lambda source: None,
+                    on_unknown_release: Callable[[], None] = lambda: None) -> list[Path]:
     """Regenerate the committed files; return the ones written, a new legacy reminder included.
 
     Everything is rendered, and every target checked, before the first write, so a source error
     or a symbolic link changes no file. On every run the released reminder (``released_reminder``)
     is kept as the next legacy copy when migration would not recognize it, even when the
-    reminder itself is current; without a released one, a replaced working-tree reminder is
-    kept. ``on_write`` hears of each file as soon as it is written, ``on_source`` where a kept
-    reminder came from.
+    reminder itself is current. Without a ``dev`` base the released reminder is unknown: no
+    legacy copy is written, since the working-tree reminder may never have been installed, and
+    ``on_unknown_release`` is called. ``on_write`` hears of each file as soon as it is written,
+    ``on_source`` where a kept reminder came from.
     """
     changed = []
 
@@ -367,18 +387,13 @@ def write_generated(on_write: Callable[[Path], None] = lambda path: None,
         changed.append(path)
         on_write(path)
     renders = _renders()
-    reminder = renders.get(MEMORY_REMINDER)
-    if reminder is not None:
-        current, rendered = reminder
-        released = _missing_legacy(rendered)
-        if released is not None:
-            previous, source = released
-        elif released_reminder() is None and rendered != current:
-            previous, source = current, "the working tree (no dev base found)"
-        else:
-            previous = None
-        if previous is not None and (legacy := _keep_previous_reminder(previous)) is not None:
-            on_source(source)
+    if MEMORY_REMINDER in renders:
+        released = released_reminder()
+        if released is None:
+            on_unknown_release()
+        elif _needs_legacy(renders[MEMORY_REMINDER][1], released[0]):
+            legacy = _keep_legacy(released[0])
+            on_source(released[1])
             written(legacy)
     for path, (current, rendered) in renders.items():
         if rendered != current:
@@ -439,7 +454,11 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"updated {path.relative_to(ROOT)}")
                 if path.parent == LEGACY_DIR:
                     print(f"  add {path.name} where the tests list legacy reminders: grep -rn memory-routing-v tests/")
-            write_generated(report, lambda source: print(f"  kept the released reminder of {source}"))
+            def unknown_release() -> None:
+                print(f"warning: the released {MEMORY_REMINDER.name} could not be determined (no merge base with "
+                      f"origin/dev or dev), so no legacy copy was kept; fetch dev and run {REGENERATE} again",
+                      file=sys.stderr)
+            write_generated(report, lambda source: print(f"  kept the released reminder of {source}"), unknown_release)
             return 0
         stale = stale_files()
     except (ProtocolSourceError, OSError) as error:

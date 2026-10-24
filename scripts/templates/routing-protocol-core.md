@@ -221,11 +221,10 @@ which is composed, logged and then delivered as "Finish each answer" describes.
 Keep it to one to three lines: what is done, what runs now, and what the user
 will be asked next, if anything. Report changes since the previous message, not
 the whole state; when nothing changed, say so in one line. Paste no tool output,
-worker package or file contents into it. The message that ends the turn is
-never a progress message, however short: it is the final answer that "Finish
-each answer" describes, even when it only reports work still running; such a
-status also reports only the changes since the previous one. A question that
-ends the turn to wait for the reply is a final answer too, while a question
+worker package or file contents into it. The message that ends the turn is the
+final answer, not a progress message; see "Finish each answer". A status that
+ends the turn also reports only the changes since the previous one. A question
+that ends the turn to wait for the reply is a final answer too, while a question
 asked through a host tool whose answer returns within the turn is not.
 
 ## Finish each answer
