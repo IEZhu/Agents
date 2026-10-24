@@ -21,6 +21,7 @@ def between(source, start, end):
 
 @pytest.fixture(params=["bash", "cmd"], ids=["unix", "windows"])
 def profile_installer(request, tmp_path):
+    """Provide real Unix or native Windows MCP setup hooks with disposable client profiles."""
     kind = request.param
     if kind == "cmd" and sys.platform != "win32":
         pytest.skip("requires native cmd.exe")
@@ -116,6 +117,7 @@ def profile_installer(request, tmp_path):
 @pytest.mark.parametrize("legacy_memory_version", [1, 21], ids=["legacy-v1", "legacy-v21"])
 def test_installer_configures_effective_paths_and_preserves_other_profiles(
         profile_installer, profile_kind, legacy_memory_version):
+    """Migrate v1/v21 reminders and configure selected clients without changing other profiles."""
     run, home, checkout, templates, desktop = profile_installer
     defaults = {"claude": home / ".claude.json", "cursor": home / ".cursor/mcp.json", "desktop": desktop,
                 "antigravity": home / ".gemini/config/mcp_config.json"}
