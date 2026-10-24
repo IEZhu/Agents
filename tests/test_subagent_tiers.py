@@ -36,7 +36,7 @@ def test_complexity_puts_the_execution_in_contract_and_package(worker_tree):
     assert package.execution.spawn.model_dump() == {
         "tool": "spawn_agent", "arguments": {"model": "gpt-6-luna", "reasoning_effort": "medium", "fork_turns": "none"}}
     assert package.execution.source == "catalog" and package.execution.requested_tier == "light"
-    assert '"tier":"light"' in package.worker_context
+    assert "tier: light (low complexity)" in package.worker_context
     assert PreparedPackage.model_validate(package.model_dump()) == package
 
 

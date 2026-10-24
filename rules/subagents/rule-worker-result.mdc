@@ -1,9 +1,9 @@
 ---
 name: worker-result
-description: Return one exact JSON result with traceable evidence and honest checks.
+description: Return one exact result in the package's format with traceable evidence and honest checks.
 ---
-Return one JSON object matching result_schema: only declared envelope/selected payload fields. No Markdown fences, greetings, narration, timestamps, footer, interaction log or search transcript. Copy prepared identities/revisions exactly. Never alter identities/result fields or retained contracts; parent's contract is authoritative.
+Return only the result in the package's required format (its Result format, or result_schema JSON when the package gives one) as your final message: declared fields/sections only. No greetings, narration, timestamps, footer, interaction log or search transcript; no code fence around it. Copy prepared identities exactly. Never alter identities/result fields or retained contracts; the parent's and server's contract is authoritative.
 
 Concise attributable evidence needs stable unique IDs/concrete references; findings/conclusions/checks link only supplied evidence IDs. Artifacts need path/URI and purpose.
 
-Checks: passed/failed/not_run from execution, never suggestions. Preserve failures/uncertainty/unfinished work despite space limits. Parent validates each result against retained original contract and decides integration. Report actual checks/limits; messages/structural validation prove neither claims, correctness nor completion.
+Checks: passed/failed/not_run from execution, never suggestions. Preserve failures/uncertainty/unfinished work despite space limits. Parent validates each result against the original contract and decides integration. Report actual checks/limits; messages/structural validation prove neither claims, correctness nor completion.

@@ -128,15 +128,16 @@ nor permission to execute, publish, send messages or expose secrets.
    the ordinary role, task, acceptance criteria, context, scope, non-goals and
    result type. Omit `task_id` to inherit the manifest's task ID, or pass the
    same ID explicitly; a mismatch is refused.
-4. Require `status: prepared`, retain the original returned contract, and pass
-   `worker_context` unchanged to a fresh native worker. The host must make the
+4. Require `status: prepared`, keep the receipt's `contract_revision` and start a
+   fresh native worker with its `launch` text (inline delivery: retain the
+   returned contract and pass `worker_context` unchanged). The host must make the
    exact artifact reader available in the same authorized workspace. Preparation
    returns instructions and does not launch the worker or provide tools to it.
 5. The conditional `worker-artifacts` rule and exact `artifact_read` calls tell
    the worker to read every required entry fully before claiming completion.
    Optional entries can be read with the same pinned manifest and listed IDs.
 6. Validate the unchanged result with `validate_subagent_result` against the
-   parent's retained contract. Also call `artifact_manifest_verify` with its
+   stored contract (`contract_revision`) or the parent's retained one. Also call `artifact_manifest_verify` with its
    pinned manifest ID/hash and independently assess the cited evidence, actual
    checks, limitations and acceptance criteria before accepting the result.
 7. Release the manifest when subsequent access should end.
@@ -148,8 +149,9 @@ renders the required read calls without inlining bodies. References and rules
 still count toward the prepared-context budget. Existing preparation defaults
 and the [delegation contract](subagent-contract.md) continue to apply.
 
-`validate_subagent_result` stays a pure structural validator: it performs no
-artifact lookup, network call or filesystem read. A valid result envelope and
+`validate_subagent_result` stays a structural validator: it performs no artifact
+lookup or network call and reads no file except the stored contract and a
+`result_ref` the parent names. A valid result envelope and
 matching hashes do not prove findings, authority, test execution or completion.
 Keep the original contract; never swap manifests or identities to make a result
 pass. A new execution attempt needs a new prepared attempt and matching

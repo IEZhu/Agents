@@ -757,7 +757,7 @@ The server exposes MCP tools that any compatible client can call:
 | `get_agent_context(agent_name, query, reasoning?, chat_history?, protocol_version=2, current_persona?, force_reload=False)` | Direct agent loading when the target is already known; the active agent returns `NO_CHANGE` unless `force_reload=True` restores lost instructions |
 | `refresh_persona_context(query, current_persona, chat_history?)` | Refresh skills/implants for the active role without reselecting it |
 | `get_subagent_context(agent_name, task, acceptance_criteria, ..., complexity?, client?)` | Prepare a compact task-scoped worker role, bounded components and a versioned result contract; with `complexity`, also the model to launch it on; [worker guide](docs/subagent-contract.md) |
-| `validate_subagent_result(contract, result)` | Check the worker result against the parent-retained contract; structural validation only, without opening references; names the next model tier when a tiered worker fell short |
+| `validate_subagent_result(contract_revision, result_ref)` | Check the worker's text or JSON result, read from its transcript or result file, against the contract the server stored (or `contract`/`result` for an inline package); structural validation only, without opening references inside the result; returns `result_sha256` and names the next model tier when a tiered worker fell short |
 | `cooperation_register(...)` | Register bounded work in the optional local cooperation journal; does not spawn workers or grant repository access |
 | `cooperation_read(...)` | Read a bounded repository snapshot and ordered cooperation events through the verified workspace |
 | `cooperation_apply(...)` | Apply an authenticated, revision-checked cooperation action; journal claims coordinate participating agents, not arbitrary filesystem writes |
@@ -883,8 +883,7 @@ records the telemetry and evaluation evidence for the switch and links the
 remaining validation gaps for each tested client/model.
 
 Delegated workers use a separate [subagent contract](docs/subagent-contract.md):
-the parent prepares an authored compact role with `get_subagent_context`, forwards
-its unchanged `worker_context` through native spawning only after `status: prepared`, and validates every returned or revised JSON result with `validate_subagent_result` and the original retained contract. Require `valid: true` before accepting or integrating it; a failed or unavailable endpoint means work stays with the parent, without an unprepared worker or unvalidated result. Default packages
+the parent prepares an authored compact role with `get_subagent_context` and, only after `status: prepared`, starts a native worker with the receipt's `launch` text; the server writes the package to a private file and keeps the contract. The worker answers in plain text, and the parent validates every returned or revised result with `validate_subagent_result` by `contract_revision` and `result_ref` (the worker's transcript or result file), never retyping it ([compact exchange](docs/subagent-contract.md#compact-exchange)). Require `valid: true` before accepting or integrating it; a failed or unavailable endpoint means work stays with the parent, without an unprepared worker or unvalidated result. Default packages
 select up to three skills and zero implants under a 16,000-character context
 budget. The parent then checks the evidence and acceptance criteria. The tools
 do not launch a model or enforce its runtime permissions or token budget. A valid

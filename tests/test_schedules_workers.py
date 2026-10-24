@@ -567,7 +567,9 @@ def test_records_in_the_brokers_format_and_the_run_record(world):
     assert record["package"]["contract_revision"] == package.contract_revision
     assert record["contract"] == package.contract.model_dump(mode="json")
     assert record["output"]["sha256"] == workers.output_digest(record["output"]["raw"]) == review["output_sha256"]
-    assert record["validation"] == {"valid": True, "errors": [], "verification": "structural_only"}
+    assert record["validation"] == {"valid": True, "errors": [], "verification": "structural_only",
+                                    "result_sha256": record["validation"]["result_sha256"]}
+    assert len(record["validation"]["result_sha256"]) == 64
     assert (record["range"], record["head"], record["verdict"]) == (f"{world.repo.base}..{head}", head, "accepted")
     assert record["client"] == {"client_requested": "claude", "client_applied": "claude", "fallback_reason": None,
                                 "detail": ""}

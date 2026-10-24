@@ -216,7 +216,9 @@ def test_invalid_requests(worker_tree, extra):
 
 
 def test_budget_never_crops_mandatory_or_optional_instructions(worker_tree):
-    assert "context_budget_exceeded" in codes(prepare_subagent(request(max_context_chars=2000)))
+    assert "context_budget_exceeded" in codes(prepare_subagent(request(max_context_chars=2000, result_format="json")))
+    assert "context_budget_exceeded" in codes(prepare_subagent(request(max_context_chars=2000,
+                                                                       context=["Mandatory fact. " * 120])))
     baseline = prepared(max_skills=0)
     budget = baseline.context_chars + 35
     result = prepared(max_context_chars=budget)

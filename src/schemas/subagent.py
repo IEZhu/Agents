@@ -31,6 +31,9 @@ AgentName = Annotated[str, StringConstraints(strict=True, max_length=80,
 Revision = Annotated[str, StringConstraints(strict=True, pattern=r"^[a-f0-9]{64}$")]
 TextList = Annotated[list[Text], Field(max_length=50)]
 ResultType = Literal["generic", "review", "implementation", "research"]
+# text: plain-text assignment and result (src/engine/subagent_text.py); json: the JSON contract
+# and result schema, for structured-output runners such as the autodev launcher.
+ResultFormat = Literal["text", "json"]
 Complexity = Literal["low", "standard", "high"]
 Tier = Literal["light", "standard", "inherit"]
 Client = Literal["claude", "codex", "cursor"]
@@ -65,6 +68,7 @@ class PreparationRequest(Budgets):
     scope: TextList = Field(default_factory=list)
     non_goals: TextList = Field(default_factory=list)
     result_type: ResultType = "generic"
+    result_format: ResultFormat = "text"
     artifact_manifest: ArtifactManifest | None = None
     complexity: Complexity | None = None
     client: Client | None = None
@@ -135,6 +139,8 @@ class TaskContract(StrictModel):
     non_goals: TextList
     acceptance_criteria: Annotated[list[Criterion], Field(min_length=1, max_length=50)]
     result_type: ResultType
+    # Absent from JSON contracts, so their fingerprints stay as they were before text existed.
+    result_format: ResultFormat = "json"
     budgets: ContractBudgets
     artifact_manifest: ArtifactManifest | None = None
     execution: ContractExecution | None = None
@@ -147,7 +153,10 @@ class TaskContract(StrictModel):
 
     @model_serializer(mode="wrap")
     def omit_absent_optionals(self, handler):
-        return _omit_none(handler(self), "artifact_manifest", "execution")
+        data = _omit_none(handler(self), "artifact_manifest", "execution")
+        if data.get("result_format") == "json":
+            data.pop("result_format")
+        return data
 
 
 class Evidence(StrictModel):
@@ -254,10 +263,13 @@ class ValidationResponse(StrictModel):
     errors: Annotated[list[Diagnostic], Field(max_length=MAX_ERRORS)]
     verification: Literal["structural_only"] = "structural_only"
     escalation: Escalation | None = None
+    # SHA-256 of the exact result text (or canonical JSON of a result object) that was checked,
+    # so a parent can cite the validated bytes without quoting them (#453).
+    result_sha256: Revision | None = None
 
     @model_serializer(mode="wrap")
     def omit_absent_escalation(self, handler):
-        return _omit_none(handler(self), "escalation")
+        return _omit_none(handler(self), "escalation", "result_sha256")
 
 
 class WorkerDescriptor(StrictModel):
@@ -295,12 +307,36 @@ class PreparedPackage(StrictModel):
         return _omit_none(handler(self), "execution")
 
 
+class PreparedReceipt(StrictModel):
+    """What the parent gets when the server delivers the package as a file (the default).
+
+    The worker reads ``context_path`` itself, and the server keeps the contract, so the parent
+    holds neither: it launches the worker with ``launch`` and validates by ``contract_revision``.
+    """
+    protocol: Literal["agents-core/subagent/1"] = PROTOCOL
+    status: Literal["prepared"] = "prepared"
+    delivery: Literal["file"] = "file"
+    task_id: Identifier
+    attempt_id: Identifier
+    contract_revision: Revision
+    context_path: str
+    context_chars: int
+    context_sha256: Revision
+    launch: str
+    descriptor: WorkerDescriptor
+    execution: ExecutionPlan | None = None
+
+    @model_serializer(mode="wrap")
+    def omit_absent_execution(self, handler):
+        return _omit_none(handler(self), "execution")
+
+
 class PreparationError(StrictModel):
     protocol: Literal["agents-core/subagent/1"] = PROTOCOL
     status: Literal["error"] = "error"
     errors: Annotated[list[Diagnostic], Field(max_length=MAX_ERRORS)]
 
 
-class PreparationResponse(RootModel[PreparedPackage | PreparationError]):
+class PreparationResponse(RootModel[PreparedPackage | PreparedReceipt | PreparationError]):
     # MCP output schemas must describe an object. Each alternative is closed.
     model_config = ConfigDict(json_schema_extra={"type": "object"})

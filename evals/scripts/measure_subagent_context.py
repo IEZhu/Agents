@@ -66,7 +66,7 @@ async def main(output: Path | None):
                                  **({"context_chars": result.context_chars, "skills": result.descriptor.skills_loaded,
                                      "omitted_for_budget": [decision.id for decision in result.selection if decision.reason == "context_budget"]}
                                     if isinstance(result, PreparedPackage) else {"errors": [item.model_dump() for item in result.errors]})})
-    report = {"method": {"worker": "Full worker_context with task, criteria and built-in generic JSON result schema; defaults max_skills=3/max_implants=0/max_context_chars=16000. Installation toggles all on.",
+    report = {"method": {"worker": "Full worker_context with task, criteria and the built-in generic result format (plain text by default); defaults max_skills=3/max_implants=0/max_context_chars=16000. Installation toggles all on.",
               "ordinary": "build_persona_bundle tier=standard; fresh full persona and all 6 universal rules; skill retriever stub selects first n_results preferred/capable non-core IDs in declared order, ordinary builder also adds core IDs; implant stub selects declared preferred IDs in order and builder applies ordinary count policy; source rendering unchanged.",
               "counting": "Python len Unicode characters, joining nonempty ordinary blocks with two newlines. Ordinary response descriptor/footer/JSON envelope excluded; worker JSON result schema and assignment included. No model, token or task-quality measurements."},
               "measurements": measurements, "coverage": coverage}
