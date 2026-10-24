@@ -113,7 +113,9 @@ def profile_installer(request, tmp_path):
 
 
 @pytest.mark.parametrize("profile_kind", ["defaults", "custom-profiles", "single-exclamation", "paired-exclamations"])
-def test_installer_configures_effective_paths_and_preserves_other_profiles(profile_installer, profile_kind):
+@pytest.mark.parametrize("legacy_memory_version", [1, 21], ids=["legacy-v1", "legacy-v21"])
+def test_installer_configures_effective_paths_and_preserves_other_profiles(
+        profile_installer, profile_kind, legacy_memory_version):
     run, home, checkout, templates, desktop = profile_installer
     defaults = {"claude": home / ".claude.json", "cursor": home / ".cursor/mcp.json", "desktop": desktop,
                 "antigravity": home / ".gemini/config/mcp_config.json"}
@@ -150,7 +152,7 @@ def test_installer_configures_effective_paths_and_preserves_other_profiles(profi
     target.write_bytes(b"Selected personal instructions\r\n")
     reminder = claude_home / "memory/feedback_agents_core_routing.md"
     reminder.parent.mkdir()
-    reminder.write_bytes((templates / "legacy" / "memory-routing-v1.md").read_bytes())
+    reminder.write_bytes((templates / "legacy" / f"memory-routing-v{legacy_memory_version}.md").read_bytes())
     preserved = {path: path.read_bytes() for path in [*defaults.values(), default_instructions]} if custom else {}
 
     result = run(overrides)
