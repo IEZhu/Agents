@@ -36,6 +36,7 @@ import time
 from starlette.requests import ClientDisconnect
 from starlette.responses import JSONResponse
 
+from .runtime import PersonalEditorSync
 from src.user_sync import keys, scope
 from src.file_lock import file_lock
 from src.flows import FlowError
@@ -481,7 +482,7 @@ class SyncUI:
         self._account = asyncio.Lock()
 
     @property
-    def loop(self):
+    def loop(self) -> "PersonalEditorSync":
         return self.service.user_sync
 
     def passive(self, method: str, path: str) -> bool:

@@ -1,9 +1,8 @@
 # Personal runtime startup boundary
 
-This first extraction gives the existing Personal local runtime one startup
-composition module, `src/personal_runtime.py`. Personal remains the only runtime
-composed by both entry points. There is no edition setting or switch that skips
-Personal startup.
+The Personal local runtime uses one composition module,
+`src/personal_runtime.py`. Both shipped entry points select Personal by default;
+there is no edition setting that disables its sync or changes its data formats.
 
 The standalone stdio server starts readiness, installs the history integration
 and queues its catch-up, reports the previous update, then registers update
@@ -35,3 +34,57 @@ storage, an opaque personal-sync store, and a thin Rust client bridge for transp
 cryptography and minimal local vault I/O. This module does not provide that
 runtime or make the current Python server safe to expose as a Teams service.
 No local Python Core, model, team index or Git is added to the Teams client.
+
+## Explicit composition points
+
+`Service` and `create_app` accept a keyword-only `components_factory`. It is
+called once per service with that service and the unchanged
+`hand_off_schedule` flag, and returns `DaemonComponents(flows_ui, user_sync)`.
+Without an override, `personal_runtime.daemon_components` constructs the same
+Personal objects. With an override, the service does not also construct the
+default editor or another sync owner. The supplied objects must support the
+existing editor and sync lifecycle APIs, including health, admin routes and
+bounded shutdown. A replacement sync owner for the Personal library must perform
+the scheduler handoff when `hand_off_schedule` is true; a factory that cannot do
+so must reject that composition. `DaemonEditor` and `SyncLifecycle` describe the operations the
+daemon calls. Reusing the Personal editor also requires the separate
+`PersonalEditorSync` contract: `perform`, `offload`, `engine` and `status_view`.
+The editor and sync object must therefore be supplied as a compatible pair.
+The factory runs before `service.artifacts` and `service.local_inference` are
+assigned and must not access those attributes during construction or start work.
+
+A supplied sync owner's state inspection, `drain`, `wake` and `finish` operations
+must be valid from construction, including after a failed or partially completed
+`start`. It owns reconciliation of its partial work in `finish`; its cleanup
+operations must not raise. The daemon creates its runtime, diagnostics and monitor
+tasks only after `start` succeeds. A failed start still takes the enclosing
+service's cleanup path and propagates its original exception when cleanup
+satisfies this contract. These are contracts for trusted composition dependencies.
+
+`load_runtime` separately accepts a `history_sync_installer` hook, called only
+after strict readiness and transport configuration. Its default is the existing
+Personal history integration. A composition can supply a loader bound to its own
+hook without changing the daemon's existing one-argument loader contract.
+An injected hook owns its error policy: an uncaught exception fails daemon
+startup, leaving health unavailable. The default Personal hook retains its
+existing warning-and-continue behavior when history sharing is unavailable;
+there is no automatic fallback to it after an injected hook fails.
+
+`src/stdio_runtime.py` runs an explicitly supplied transport, readiness worker,
+startup hook and log drain. It selects no updater, Git adapter or profile.
+`src/server.py` supplies the Personal startup hook and the existing shutdown
+timeout. Readiness still starts before history sync and deferred update/sync
+callbacks; shutdown joins readiness before draining logs. An exception from a
+supplied startup hook now also takes that cleanup path before propagating.
+
+These composition points run after the existing installation bootstrap. They
+do not move application imports ahead of installation leases, change
+`configure_runtime_paths`, or make import-time engine state request-scoped.
+Storage/access isolation and an actual second server composition remain later
+work. The factory alone does not provide a Git-free or tenant-safe Teams server.
+
+`tests/test_runtime_composition.py` checks that an injected daemon composition
+reaches its UI, health and admin routes through the full lifecycle without
+constructing the Personal default, and that stdio joins and drains on startup and transport
+failures. Hook tests also check transport configuration and exception propagation. The
+existing Personal characterization and sync suites cover the default lifecycle.
