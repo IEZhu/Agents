@@ -5,8 +5,8 @@ the installers write from ``scripts/templates/routing-protocol-core.md``. When t
 own file holds the current template, the full server instructions repeat what the model already
 reads, so ``initialization_instructions`` keeps only what the file lacks and points to it. Any
 doubt (an unknown client, no workspace, an unknown physical checkout, a linked worktree whose
-file differs, a project override, a section Codex may cut off, a missing, unreadable or
-different section) keeps the full text.
+file differs, worktrees that cannot be listed, a project override, a section Codex may cut off,
+a missing, unreadable or different section) keeps the full text.
 
 ``drift_warnings`` names the managed sections the server can resolve that differ from this
 installation's template, with the command that refreshes each, so an outdated file is reported
@@ -51,6 +51,10 @@ POINTER_FILES = {"codex": "AGENTS.md"}
 CODEX_PROJECT_DOC_MAX_BYTES = 32 * 1024
 # Managed clients that load no instruction file of their own: they get the protocol from MCP.
 CLIENTS_WITHOUT_FILES = frozenset({"cursor", "claude-desktop"})
+# A repository with more linked worktrees than this is not listed, and the pointer is not sent.
+MAX_LINKED_WORKTREES = 50
+# A .git file, a worktree's gitdir or its commondir holds one path; a larger file is not one of them.
+MAX_GIT_POINTER_BYTES = 4096
 
 
 class SectionState(NamedTuple):
@@ -60,10 +64,24 @@ class SectionState(NamedTuple):
 
 
 def _nonempty(path: Path) -> bool:
+    """Whether ``path`` is a file with more than whitespace; one larger than a managed file counts as such."""
+    if not path.is_file():
+        return False
+    signature = _signature(path)
+    if signature is None:
+        return False
+    return signature[1] > MAX_INSTRUCTION_FILE_BYTES or _has_text(str(path), signature)
+
+
+@lru_cache(maxsize=256)
+def _has_text(path: str, signature: tuple[int, int]) -> bool:
+    """``_nonempty`` of ``path`` at ``signature``: a read bounded by the managed file size, once per file version."""
     try:
-        return path.is_file() and bool(path.read_bytes().strip())
+        with open(path, "rb") as stream:
+            data = stream.read(MAX_INSTRUCTION_FILE_BYTES + 1)
     except OSError:
         return False
+    return len(data) > MAX_INSTRUCTION_FILE_BYTES or bool(data.strip())
 
 
 def _codex_file(directory: Path) -> Path:
@@ -112,7 +130,9 @@ def _state_of(path: str, signature: tuple[int, int], template: str,
     if len(data) > MAX_INSTRUCTION_FILE_BYTES:
         return None
     end_marker = protocol_text.END_MARKER.encode("utf-8")
-    end = data.find(end_marker)
+    # The section ends at the first end marker after its begin marker; an earlier one is only quoted.
+    begin = data.find(protocol_text.BEGIN_MARKER.encode("utf-8"))
+    end = data.find(end_marker, begin) if begin >= 0 else -1
     text = data.decode("utf-8", errors="replace").replace("\r\n", "\n")
     section = protocol_text.managed_section(text)
     if section is None:
@@ -157,13 +177,96 @@ def _grants(context) -> list[Path]:
     return [Path(path) for path in (getattr(context, "cooperation_roots", None) or ())]
 
 
+@lru_cache(maxsize=1024)
+def _git_pointer(path: str, signature: tuple[int, int]) -> str:
+    """The path that ``path`` (a .git file, a gitdir or commondir) holds, read once per file version."""
+    with open(path, "rb") as stream:
+        data = stream.read(MAX_GIT_POINTER_BYTES + 1)
+    if len(data) > MAX_GIT_POINTER_BYTES:
+        raise ValueError(f"{path} is too large for a git path")
+    return data.decode("utf-8").strip()
+
+
+def _pointer_in(path: Path) -> str:
+    signature = _signature(path)
+    if signature is None:
+        raise FileNotFoundError(path)
+    return _git_pointer(str(path), signature)
+
+
+def _repository_checkouts(top: Path) -> list[Path]:
+    """``top`` and the other checkouts of its git repository: the main one and the linked worktrees.
+
+    ``top`` holds a ``.git`` directory (a main checkout) or file (a linked worktree or a
+    submodule). A linked worktree's ``gitdir`` names its ``.git`` file; one whose directory is
+    gone cannot hold a session. Raises OSError or ValueError when the worktrees cannot be listed.
+    """
+    dot_git = top / ".git"
+    checkouts = [top]
+    if dot_git.is_dir():
+        common = dot_git
+    else:
+        pointer = _pointer_in(dot_git)
+        if not pointer.startswith("gitdir:"):
+            raise ValueError(f"{dot_git} names no git directory")
+        gitdir = top / pointer[len("gitdir:"):].strip()
+        commondir = gitdir / "commondir"
+        if commondir.exists():  # a linked worktree; a submodule's git directory is its own common one
+            common = (gitdir / _pointer_in(commondir)).resolve()
+            if common.name == ".git":
+                checkouts.append(common.parent)
+        else:
+            common = gitdir
+    worktrees = common / "worktrees"
+    if not worktrees.is_dir():
+        return checkouts
+    entries = []
+    with os.scandir(worktrees) as listing:
+        for entry in listing:
+            if entry.is_dir():
+                entries.append(Path(entry.path))
+            if len(entries) > MAX_LINKED_WORKTREES:
+                raise ValueError(f"{worktrees} lists more than {MAX_LINKED_WORKTREES} worktrees")
+    for entry in entries:
+        # An absolute path, or one relative to the entry (worktree.useRelativePaths).
+        checkout = (entry / _pointer_in(entry / "gitdir")).parent.resolve()
+        if checkout.is_dir():
+            checkouts.append(checkout)
+    return checkouts
+
+
+def _session_checkouts(checkouts: Iterable[Path]) -> list[Path] | None:
+    """Every directory a session of these checkouts may run in, or None when that cannot be told.
+
+    A fixed identity (a project configuration registered without the session's own checkout)
+    serves every linked worktree of its repository, whose files may differ from the main
+    checkout's, so each checkout counts with the same directory in the repository's other
+    worktrees.
+    """
+    found: list[Path] = []
+    try:
+        for checkout in checkouts:
+            top = next((directory for directory in (checkout, *checkout.parents)
+                        if os.path.lexists(directory / ".git")), None)
+            if top is None:
+                found.append(checkout)
+                continue
+            relative = checkout.relative_to(top)
+            found.append(checkout)
+            found.extend(other / relative for other in _repository_checkouts(top) if (other / relative).is_dir())
+    except (OSError, ValueError):  # UnicodeDecodeError is a ValueError
+        return None
+    return list(dict.fromkeys(found))
+
+
 def initialization_instructions(full: str, context=None) -> str:
     """``full``, or the pointer when every checkout's file for this client holds the current template.
 
-    Only workspace files decide: they are the ones this client is known to load. The session's
-    physical checkout must be known (a grant registered by an auto-registering bridge): a fixed
-    identity may serve a linked worktree whose own file differs from the main checkout's. A
-    global file might belong to another profile than the client's.
+    Only workspace files decide: they are the ones this client is known to load. Every checkout
+    the session may run in must hold it: the registered root, its physical grants and the linked
+    worktrees of their repositories, since a fixed identity serves a linked worktree whose own
+    file may differ from the main checkout's. A global file might belong to another profile than
+    the client's.
     """
     context = REQUEST_CLIENT.get() if context is None else context
     client = getattr(context, "client", None)
@@ -173,18 +276,21 @@ def initialization_instructions(full: str, context=None) -> str:
         return full
     checkouts = list(dict.fromkeys([root, *grants]))
     try:
-        infos = [section_info(checkout / name) for checkout in checkouts]
+        sessions = _session_checkouts(checkouts)
+        if sessions is None:
+            return full  # the linked worktrees cannot be listed
+        infos = [section_info(checkout / name) for checkout in sessions]
         if any(info is None or info.state != "current" for info in infos):
             return full
         if client == "codex":
-            if any(_nonempty(checkout / "AGENTS.override.md") for checkout in checkouts):
+            if any(_nonempty(checkout / "AGENTS.override.md") for checkout in sessions):
                 return full  # Codex reads a project override instead of AGENTS.md
             if any(info.end is None or info.end > CODEX_PROJECT_DOC_MAX_BYTES for info in infos):
                 return full  # Codex may cut the section off
+        return protocol_text.server_pointer()
     except Exception:  # never fail an initialize over a pointer
         logger.warning("Could not check the managed sections of %s", checkouts, exc_info=True)
         return full
-    return protocol_text.server_pointer()
 
 
 def install_initialization_pointer(server) -> None:
@@ -192,7 +298,8 @@ def install_initialization_pointer(server) -> None:
 
     The HTTP daemon sets ``REQUEST_CLIENT`` before the stateless session starts, and the session
     builds its options inside that context; stdio always gets the full text. The SDK builds the
-    options for every stateless request, which costs one cached ``stat`` per checkout here.
+    options for every stateless request; for a Codex session that costs a listing of each
+    repository's worktrees and a cached ``stat`` per checkout and worktree entry here.
     """
     create = server.create_initialization_options
 

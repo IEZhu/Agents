@@ -3,6 +3,7 @@ import asyncio
 import json
 import os
 import shlex
+import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -33,11 +34,16 @@ LEGACY = ("# >>> Agents-Core Routing Protocol (managed by init_repo.sh) >>>\n\nO
           "# <<< Agents-Core Routing Protocol (managed by init_repo.sh) <<<\n")
 
 
+CACHES = (ci._state_of, ci._has_text, ci._git_pointer)
+
+
 @pytest.fixture(autouse=True)
 def fresh_states():
-    ci._state_of.cache_clear()
+    for cache in CACHES:
+        cache.cache_clear()
     yield
-    ci._state_of.cache_clear()
+    for cache in CACHES:
+        cache.cache_clear()
 
 
 @pytest.fixture
@@ -252,6 +258,142 @@ def test_a_codex_section_past_the_project_doc_limit_keeps_the_full_text(tmp_path
     assert ci.initialization_instructions(full, context(tmp_path, "codex", grants=[tmp_path])) == full
 
 
+def git(directory, *args):
+    """git in ``directory`` without the user's global configuration or hooks."""
+    subprocess.run(["git", "-C", str(directory), "-c", "user.email=test@example.com", "-c", "user.name=Test", *args],
+                   check=True, capture_output=True, env={**os.environ, "GIT_CONFIG_GLOBAL": os.devnull})
+
+
+def test_a_fixed_identity_points_only_when_every_linked_worktree_is_current(tmp_path):
+    """A project configuration registers its root without the session's own checkout, so the
+    identity's only grant is the main checkout; Codex may still run it in a linked worktree,
+    whose own AGENTS.md decides too."""
+    main, worktree = tmp_path / "main", tmp_path / "worktree"
+    main.mkdir()
+    git(main, "init", "-q")
+    (main / "AGENTS.md").write_text(CURRENT, encoding="utf-8")
+    git(main, "add", "AGENTS.md")
+    git(main, "commit", "-qm", "managed section")
+    git(main, "worktree", "add", "-q", "--detach", str(worktree))
+    (worktree / "AGENTS.md").write_text(OUTDATED, encoding="utf-8")
+    registry = WorkspaceRegistry(tmp_path / "service")
+    identity = registry.register(main)  # as ClientMigration.prepare does for a project layer
+    grants = registry.cooperation_roots(identity)
+    assert grants == (main.resolve(),)
+    fixed = context(registry.resolve(identity), "codex", grants=grants)
+    full = protocol_text.server_instructions()
+    assert ci.initialization_instructions(full, fixed) == full
+    (worktree / "AGENTS.md").unlink()
+    assert ci.initialization_instructions(full, fixed) == full
+    (worktree / "AGENTS.md").write_text(CURRENT, encoding="utf-8")
+    assert ci.initialization_instructions(full, fixed) == protocol_text.server_pointer()
+    # From the worktree's side, its main checkout counts too.
+    (main / "AGENTS.md").write_text(OUTDATED, encoding="utf-8")
+    assert ci.initialization_instructions(full, context(worktree.resolve(), "codex", grants=[worktree.resolve()])) == full
+
+
+def handmade_repository(tmp_path, relative=False):
+    """A main checkout and one linked worktree as git lays them out, both with the current section.
+
+    The worktree's entry names its .git file by an absolute path, or by one relative to the entry
+    as ``worktree.useRelativePaths`` writes it.
+    """
+    main, worktree = tmp_path / "main", tmp_path / "worktree"
+    entry = main / ".git" / "worktrees" / "worktree"
+    entry.mkdir(parents=True)
+    worktree.mkdir()
+    (worktree / ".git").write_text(f"gitdir: {entry}\n", encoding="utf-8")
+    (entry / "commondir").write_text("../..\n", encoding="utf-8")
+    (entry / "gitdir").write_text("../../../../worktree/.git\n" if relative else f"{worktree / '.git'}\n",
+                                  encoding="utf-8")
+    for checkout in (main, worktree):
+        (checkout / "AGENTS.md").write_text(CURRENT, encoding="utf-8")
+    return main, worktree, entry
+
+
+def test_linked_worktrees_are_listed_by_absolute_or_relative_gitdir_and_gone_ones_are_skipped(tmp_path):
+    main, worktree, entry = handmade_repository(tmp_path, relative=True)
+    assert ci._session_checkouts([main]) == [main, worktree.resolve()]
+    assert ci._session_checkouts([worktree]) == [worktree, main.resolve()]
+    # A subdirectory registered as the root counts with the same subdirectory of each worktree.
+    (main / "sub").mkdir()
+    (worktree / "sub").mkdir()
+    assert ci._session_checkouts([main / "sub"]) == [main / "sub", worktree.resolve() / "sub"]
+    (entry / "gitdir").write_text(f"{tmp_path / 'gone' / '.git'}\n", encoding="utf-8")  # a removed worktree
+    assert ci._session_checkouts([main]) == [main]
+    (main / ".git" / "worktrees" / ".DS_Store").write_bytes(b"not a worktree")
+    assert ci._session_checkouts([main]) == [main]
+    assert ci._session_checkouts([tmp_path / "plain"]) == [tmp_path / "plain"]  # no repository: itself only
+
+
+@pytest.mark.parametrize("damage", ["no gitdir", "too many", "bad .git file"])
+def test_worktrees_that_cannot_be_listed_keep_the_full_text(tmp_path, monkeypatch, damage):
+    main, worktree, entry = handmade_repository(tmp_path)
+    full = protocol_text.server_instructions()
+    assert ci.initialization_instructions(full, context(main, "codex", grants=[main])) == protocol_text.server_pointer()
+    root = main
+    if damage == "no gitdir":
+        (entry / "gitdir").unlink()
+    elif damage == "too many":
+        monkeypatch.setattr(ci, "MAX_LINKED_WORKTREES", 0)
+    else:
+        (worktree / ".git").write_text("not a git pointer\n", encoding="utf-8")
+        root = worktree
+    assert ci._session_checkouts([root]) is None
+    assert ci.initialization_instructions(full, context(root, "codex", grants=[root])) == full
+
+
+def test_a_quoted_end_marker_before_the_section_does_not_shorten_it(tmp_path):
+    """The section ends at the end marker after its begin marker, so Codex's byte limit is checked
+    against the real end (#433 review)."""
+    text = f"The managed section ends at `{END}`.\n" + "x" * 40_000 + "\n\n" + CURRENT
+    path = tmp_path / "AGENTS.md"
+    path.write_text(text, encoding="utf-8")
+    info = ci.section_info(path)
+    data = text.encode("utf-8")
+    assert info.state == "current" and info.end == data.rindex(END.encode("utf-8")) + len(END.encode("utf-8"))
+    assert info.end > ci.CODEX_PROJECT_DOC_MAX_BYTES
+    full = protocol_text.server_instructions()
+    assert ci.initialization_instructions(full, context(tmp_path, "codex", grants=[tmp_path])) == full
+
+
+def test_the_override_check_reads_a_bounded_prefix_once_per_file_version(tmp_path, monkeypatch):
+    monkeypatch.setattr(ci, "MAX_INSTRUCTION_FILE_BYTES", 64)
+    reads = []
+
+    def counting_open(path, *args, **kwargs):
+        reads.append(str(path))
+        return open(path, *args, **kwargs)
+    monkeypatch.setattr(ci, "open", counting_open, raising=False)
+    override = tmp_path / "AGENTS.override.md"
+    override.write_bytes(b" " * 65)  # larger than a managed file: counts as nonempty, unread
+    assert ci._nonempty(override) and reads == []
+    override.write_text("Project rules\n", encoding="utf-8")
+    assert ci._nonempty(override) and ci._nonempty(override)
+    assert reads == [str(override)]
+    override.write_text("   \n", encoding="utf-8")  # a new version is read again
+    assert not ci._nonempty(override) and reads == [str(override)] * 2
+    assert not ci._nonempty(tmp_path / "missing.md")
+
+
+def test_a_failing_pointer_render_keeps_the_full_text(tmp_path, monkeypatch):
+    (tmp_path / "AGENTS.md").write_text(CURRENT, encoding="utf-8")
+    full = protocol_text.server_instructions()
+
+    def broken():
+        raise protocol_text.ProtocolSourceError("the protocol source has no variant pointer:server")
+    monkeypatch.setattr(protocol_text, "server_pointer", broken)
+    session = context(tmp_path, "codex", grants=[tmp_path])
+    assert ci.initialization_instructions(full, session) == full
+    server = FastMCP("test", instructions=full)
+    ci.install_initialization_pointer(server._mcp_server)
+    token = ci.REQUEST_CLIENT.set(session)
+    try:
+        assert server._mcp_server.create_initialization_options().instructions == full
+    finally:
+        ci.REQUEST_CLIENT.reset(token)
+
+
 def test_a_failing_check_keeps_the_full_text(tmp_path, monkeypatch):
     (tmp_path / "AGENTS.md").write_text(CURRENT, encoding="utf-8")
     monkeypatch.setattr(ci, "section_info", lambda path: (_ for _ in ()).throw(RuntimeError("boom")))
@@ -463,6 +605,29 @@ async def test_the_ask_prompt_and_a_cached_route_carry_the_warnings(bundle, monk
     assert "outdated section" not in switched[0].content.text
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="the project directory check differs on Windows")
+def test_current_client_over_stdio_is_the_process_workspace(tmp_path, monkeypatch, homes):
+    """The conftest fixture replaces drift_warnings for calls without a context; this one calls the
+    real check, which reads the stdio process's own workspace through current_client."""
+    from src.engine import config
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "CLAUDE.md").write_text(OUTDATED, encoding="utf-8")
+    monkeypatch.delenv("AGENTS_TRANSPORT", raising=False)
+    monkeypatch.setenv("AGENTS_CLIENT_REPO_ROOT", str(project))
+    config._reset_client_repo_root_cache()
+    try:
+        current = ci.current_client()
+        assert current.transport == "stdio" and current.client is None  # a stdio server may serve any client
+        assert current.root == project.resolve() and current.error is None
+        warnings = REAL_DRIFT_WARNINGS()
+        assert len(warnings) == 1 and warnings[0].startswith(f"The managed routing section of {project.resolve()}")
+        monkeypatch.setenv("AGENTS_TRANSPORT", "http")  # the daemon: a call outside a request has no client
+        assert ci.current_client() is None
+    finally:
+        config._reset_client_repo_root_cache()
+
+
 def pointer_runtime(port):
     mcp = FastMCP("test", host="127.0.0.1", port=port, stateless_http=True, json_response=True,
                   instructions=protocol_text.server_instructions())
@@ -516,4 +681,55 @@ async def test_daemon_initialize_answers_with_the_pointer_for_a_current_workspac
             response = await http.post("/mcp", json=call, headers=named("current", "codex"))
             seen = json.loads(response.json()["result"]["content"][0]["text"])
             assert seen == {"client": "codex", "root": str(current.resolve())}
+    assert ci.REQUEST_CLIENT.get() is None
+
+
+@pytest.mark.asyncio
+async def test_concurrent_requests_each_see_their_own_client(tmp_path):
+    """Two requests in flight together, with different X-Agents-Client values and workspaces, each
+    read their own REQUEST_CLIENT, also from a worker thread, and leave none behind."""
+    first, second = tmp_path / "first", tmp_path / "second"
+    first.mkdir()
+    second.mkdir()
+    registry = WorkspaceRegistry(tmp_path / "service")
+    ids = {first: registry.register(first), second: registry.register(second)}
+    entered, both = [], asyncio.Event()
+
+    def runtime(port):
+        mcp = FastMCP("test", host="127.0.0.1", port=port, stateless_http=True, json_response=True,
+                      instructions=protocol_text.server_instructions())
+        ci.install_initialization_pointer(mcp._mcp_server)
+
+        @mcp.tool()
+        async def who() -> str:
+            before = ci.current_client()
+            entered.append(before.client)
+            if len(entered) == 2:
+                both.set()
+            await asyncio.wait_for(both.wait(), 10)  # both requests are in flight now
+            after = ci.current_client()
+            in_thread = await asyncio.to_thread(lambda: ci.current_client().client)
+            return json.dumps({"before": [before.client, str(before.root)], "after": [after.client, str(after.root)],
+                               "thread": in_thread})
+        return mcp, None
+    app = create_app(registry.directory, TOKEN, runtime_loader=runtime)
+    async with app.router.lifespan_context(app):
+        for _ in range(200):
+            if app.state.service.state != "starting":
+                break
+            await asyncio.sleep(.01)
+        assert app.state.service.state == "ready"
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://127.0.0.1:8765") as http:
+            async def call(workspace, client):
+                headers = {"Authorization": "Bearer " + TOKEN, "Accept": "application/json, text/event-stream",
+                           "X-Agents-Workspace": ids[workspace], "X-Agents-Client": client}
+                body = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "who", "arguments": {}}}
+                response = await http.post("/mcp", json=body, headers=headers)
+                return json.loads(response.json()["result"]["content"][0]["text"])
+            codex, claude = await asyncio.gather(call(first, "codex"), call(second, "claude-code"))
+    assert sorted(entered) == ["claude-code", "codex"]
+    assert codex == {"before": ["codex", str(first.resolve())], "after": ["codex", str(first.resolve())],
+                     "thread": "codex"}
+    assert claude == {"before": ["claude-code", str(second.resolve())],
+                      "after": ["claude-code", str(second.resolve())], "thread": "claude-code"}
     assert ci.REQUEST_CLIENT.get() is None
