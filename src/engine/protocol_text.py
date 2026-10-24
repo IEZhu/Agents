@@ -12,7 +12,7 @@ side as named variants, so a rule is edited in one file:
   needs one. The server instructions keep their opening within the windows that Claude Code
   shows of them, the ``SUCCESS`` instruction is sent with every activation, and the memory
   reminder states the conversation steps in its own prose; a short rule that two of them
-  state alike (``finish:progress``, ``finish:redaction``) is its own variant.
+  state alike (``finish:turn-end``, ``finish:redaction``) is its own variant.
 
 The functions below compose each surface from these variants in a fixed order. The template
 and the memory reminder stay committed files, because installers and shell scripts read them;
@@ -51,7 +51,7 @@ _VARIANT_MARKER = re.compile(r"^<!-- variant: ([a-z][a-z0-9-]*) -->$")
 # directory (a README) cannot break the server's import; a test checks that the list is complete.
 SECTION_NAMES = (
     "intro", "header", "worker", "delegation", "artifacts", "output-artifacts", "local-inference",
-    "cooperation", "start", "decide", "apply", "flows", "first-work", "ownership", "finish",
+    "cooperation", "start", "decide", "apply", "flows", "first-work", "ownership", "progress", "finish",
     "history-errors", "compatibility", "tools",
 )
 # Sentences shorter than this are too generic to count as a copied rule ("Then send the final answer.").
@@ -126,7 +126,8 @@ def template() -> str:
         part("output-artifacts", "full"), part("local-inference", "full"), part("delegation", "full-fallback"),
         part("worker", "full"), part("cooperation", "full"), part("start", "full"), part("decide", "full"),
         part("apply", "full"), part("flows", "full"), part("first-work", "full"), part("ownership", "full"),
-        _paragraph(("finish", "full"), ("history-errors", "full")), part("compatibility", "full"),
+        part("progress", "full"), _paragraph(("finish", "full"), ("history-errors", "full")),
+        part("compatibility", "full"),
     ]) + "\n"
 
 
@@ -139,14 +140,16 @@ def server_instructions() -> str:
     ``Require status: prepared.``. The first-work rule, which a session may need before its first
     activation, comes next, and the rest of the delegation exchange through its validation rule
     fits the longer window. The keep/switch rules also appear in the descriptions of the persona
-    tools, and the describe_repo fallback and owning-session rules arrive with every ``SUCCESS``
-    instruction. tests/test_log_interaction_contract.py checks both windows.
+    tools, and the describe_repo fallback, the owning-session rules and the definition of progress
+    messages, which follow the windows, arrive with every ``SUCCESS`` instruction.
+    tests/test_log_interaction_contract.py checks both windows.
     """
     return "\n\n".join([
         _paragraph(("header", "server"), ("worker", "server"), ("start", "server"),
-                   _sentences_of(("finish", "server"), ("finish", "progress"), ("finish", "server-delivery"))),
+                   _sentences_of(("finish", "server"), ("finish", "turn-end"), ("finish", "server-delivery"))),
         _paragraph(("delegation", "compact-request"), ("first-work", "compact"), ("delegation", "compact")),
         _paragraph(("decide", "server"), _sentences_of(("first-work", "compact-unavailable"), ("ownership", "compact"))),
+        part("progress", "compact"),
         _sentences_of(("artifacts", "compact"), ("local-inference", "compact")),
         part("output-artifacts", "compact"),
         part("cooperation", "compact"),
@@ -159,14 +162,15 @@ def bundle_instruction() -> str:
     """The ``instruction`` of a persona ``SUCCESS``, sent with every activation: one paragraph.
 
     The worker exemption comes first, then the first-work and owning-session rules, which a
-    client that never loaded the instruction files learns here.
+    client that never loaded the instruction files learns here, as it learns the definition of
+    progress messages after the logging rules.
     """
     return _sentences_of(
         ("worker", "bundle"), ("first-work", "compact"), ("first-work", "compact-unavailable"),
         ("ownership", "compact"), ("apply", "bundle"), ("finish", "bundle"), ("finish", "redaction"),
-        ("history-errors", "compact"), ("delegation", "compact-request"), ("delegation", "compact"),
-        ("artifacts", "compact"), ("output-artifacts", "compact"), ("intro", "compact"),
-        ("local-inference", "compact"), ("cooperation", "compact"))
+        ("history-errors", "compact"), ("progress", "compact"), ("delegation", "compact-request"),
+        ("delegation", "compact"), ("artifacts", "compact"), ("output-artifacts", "compact"),
+        ("intro", "compact"), ("local-inference", "compact"), ("cooperation", "compact"))
 
 
 def memory_reminder() -> str:
@@ -177,8 +181,8 @@ def memory_reminder() -> str:
         part("worker", "memory"), part("artifacts", "compact"), part("output-artifacts", "compact"),
         part("local-inference", "compact"), part("cooperation", "compact"), part("ownership", "compact"),
         _sentences_of(("first-work", "compact"), ("first-work", "compact-unavailable")),
-        part("start", "memory"), part("decide", "memory"), part("apply", "memory"),
-        _paragraph(("finish", "memory"), ("finish", "progress"), ("finish", "redaction")),
+        part("start", "memory"), part("decide", "memory"), part("apply", "memory"), part("progress", "compact"),
+        _paragraph(("finish", "memory"), ("finish", "turn-end"), ("finish", "redaction")),
         part("history-errors", "compact"), part("compatibility", "memory"),
     ]) + "\n"
 

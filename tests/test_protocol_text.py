@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 # Claude Code shows this many characters of the MCP server instructions before v2.1.296 (4,096
 # since); tests/test_log_interaction_contract.py checks what each window must hold.
 OLDER_CLAUDE_CODE_WINDOW = 2048
+CLAUDE_CODE_WINDOW = 4096
 
 
 def test_committed_surfaces_match_the_render():
@@ -29,7 +30,7 @@ def test_the_template_is_the_full_variants_in_reading_order():
                         "## Start before the first answer", "## Decide locally before each answer",
                         "## Apply a complete response", "## Run a named flow",
                         "## Describe a repository on first work", "## Work that another session owns",
-                        "## Finish each answer", "## Compatibility and unavailable servers"]
+                        "## Progress messages", "## Finish each answer", "## Compatibility and unavailable servers"]
 
 
 def test_server_and_persona_send_the_renders():
@@ -66,10 +67,10 @@ SHORT_SURFACES = ("server_instructions", "bundle_instruction", "memory_reminder"
         ("delegation", "compact-request"), ("delegation", "compact"), ("artifacts", "compact"),
         ("output-artifacts", "compact"), ("local-inference", "compact"), ("cooperation", "compact"),
         ("intro", "compact"), ("first-work", "compact"), ("first-work", "compact-unavailable"),
-        ("ownership", "compact"))),
+        ("ownership", "compact"), ("progress", "compact"))),
     # The server instructions state the history errors in their tools paragraph, in their own words.
     ("history-errors", "compact", ("bundle_instruction", "memory_reminder")),
-    ("finish", "progress", ("server_instructions", "memory_reminder")),
+    ("finish", "turn-end", ("server_instructions", "memory_reminder")),
     ("finish", "redaction", ("bundle_instruction", "memory_reminder")),
 ])
 def test_shared_rules_are_included_by_every_short_surface(section, variant, surfaces):
@@ -300,3 +301,44 @@ def test_a_symbolic_link_among_the_targets_is_refused_before_any_write(tmp_path,
         first: lambda _current: protocol_text.template(), link: lambda _current: protocol_text.template()})
     assert protocol_text.main(["--write"]) == 2
     assert first.read_text(encoding="utf-8") == "stale\n"
+
+
+def _flat(text):
+    return " ".join(text.split())
+
+
+def test_progress_messages_are_defined_on_every_surface():
+    """#432: text before the final answer carries no footer or time line and is not logged; the
+    message that ends the turn stays a final answer (#454)."""
+    managed = (ROOT / "CLAUDE.md").read_text(encoding="utf-8").split(protocol_text.BEGIN_MARKER, 1)[1]
+    managed = managed.split(protocol_text.END_MARKER, 1)[0]
+    for name, text in (("template", protocol_text.template()), ("CLAUDE.md", managed)):
+        assert "\n\n## Progress messages\n\n" in text, name
+        section = _flat(text.split("## Progress messages\n\n", 1)[1].split("\n\n## ", 1)[0])
+        for phrase in ("before the turn's final answer", "no footer or time line and is not logged",
+                       "composed, logged and then delivered", "one to three lines",
+                       "what the user will be asked next, if anything", "changes since the previous message",
+                       "Paste no tool output, worker package or file contents",
+                       "The message that ends the turn is never a progress message",
+                       "A question that ends the turn to wait for the reply is a final answer",
+                       "a question asked through a host tool whose answer returns within the turn is not"):
+            assert phrase in section, (name, phrase)
+        assert text.split("## Progress messages", 1)[1].split("\n## ", 1)[1].startswith("Finish each answer"), name
+    compact = _flat(protocol_text.part("progress", "compact"))
+    for phrase in ("the text shown before the turn's final answer", "no footer or time line and are not logged",
+                   "one to three lines", "what the user will be asked next, if anything",
+                   "changes since the previous one", "without pasted tool output, worker packages or file contents",
+                   "A question that ends the turn to wait for the reply is a final answer",
+                   "host tool whose answer returns within the turn is not"):
+        assert phrase in compact, phrase
+    # Each short surface also keeps the turn-end rule of #454, in its own wording on the SUCCESS instruction.
+    turn_end = _flat(protocol_text.part("finish", "turn-end"))
+    for surface, rule in (("server_instructions", turn_end), ("memory_reminder", turn_end), ("bundle_instruction",
+                          "any message that ends the turn even when it only reports progress")):
+        text = _flat(getattr(protocol_text, surface)())
+        assert compact in text and rule in text, surface
+    server = protocol_text.server_instructions()
+    assert server.index(protocol_text.part("progress", "compact")) > CLAUDE_CODE_WINDOW
+    rule = (ROOT / "rules/rule-answer-timestamp.mdc").read_text(encoding="utf-8")
+    assert ("Applies only to the final answer that ends with the footer, never to progress messages "
+            "(the protocol's \"Progress messages\" section defines them).") in rule

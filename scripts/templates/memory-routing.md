@@ -49,6 +49,8 @@ permissions, and results.
 Keep the applied descriptor and returned footer; never clear history or caches to
 switch.
 
+Progress messages, the text shown before the turn's final answer, carry no footer or time line and are not logged. Each is one to three lines: what is done, what runs now, what the user will be asked next, if anything. Report only changes since the previous one, without pasted tool output, worker packages or file contents. A question that ends the turn to wait for the reply is a final answer; one asked through a host tool whose answer returns within the turn is not.
+
 Except for the unavailable-MCP fallback below, compose the answer plus saved
 footer. Before delivering it, call
 `log_interaction(agent_name, query, response_content, persona=..., persona_action=..., workspace=...)`:

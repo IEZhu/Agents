@@ -44,7 +44,7 @@ Compose the answer with the saved footer. Before delivery call log_interaction w
 <!-- variant: server-delivery -->
 Then send the final answer. When the footer lists answer-timestamp and logging returns timestamp, prepend it as the first line, then an empty line.
 
-<!-- variant: progress -->
+<!-- variant: turn-end -->
 A message that ends the turn is a final answer even when it only reports progress while a background worker, timer or another session is still running: log it and include the footer.
 
 <!-- variant: redaction -->

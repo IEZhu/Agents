@@ -217,6 +217,22 @@ deliver the answer with the returned `timestamp` as its first line, followed by
 an empty line, when the footer lists the `answer-timestamp` rule; with the rule
 switched off or without a `timestamp`, add no line.
 
+Text shown to the user before the final answer of a turn is a progress message
+(#432; the "Progress messages" section of the protocol, with its compact form in
+the server instructions, the `SUCCESS` instruction and the memory reminder). It
+carries no footer or time line and is not logged, so the history keeps one entry
+per turn, and it stays within one to three lines: what is done, what runs now, and
+what the user will be asked next, if anything. It reports only changes since the
+previous message and pastes no tool output, worker package or file contents. The
+message that ends the turn is the final answer, with the footer and the log that
+"Finish each answer" requires, however short: a status sent while a background
+worker, a timer or another session is still running (#454), which also reports
+only the changes since the previous status, and a question that ends the turn to
+wait for the reply. A question asked through a host tool whose answer returns
+within the turn does not end it. The compact form follows the 2,048 and 4,096
+characters that Claude Code shows of the server instructions, so Claude Code
+reads the definition from the managed section and the `SUCCESS` instruction.
+
 ## Enrichment and storage
 
 Agent metadata declares core, preferred and capable skills, plus preferred
