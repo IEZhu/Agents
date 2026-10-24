@@ -82,14 +82,17 @@ their recorded revision; they do not override the current implementation.
   [memory-routing.md](scripts/templates/memory-routing.md). Edit the section
   that states the rule, never a generated surface, then run
   `.venv/bin/python -m src.engine.protocol_text --write`, which regenerates the
-  template, the reminder and this checkout's managed section. When the reminder
-  changes, the command keeps the released one as the next legacy copy
-  ([legacy/README.md](scripts/templates/legacy/README.md)); add the name it
-  prints where the tests list legacy reminders. `tests/test_protocol_text.py`
-  fails on a stale file and on a sentence the source states in two places, and
-  `tests/test_log_interaction_contract.py` on a server instruction that leaves
-  Claude Code's windows. Keep repository notes and Repository Memory outside the
-  routing markers.
+  template, the reminder and this checkout's managed section. On every run, not
+  only when the reminder changes, the command keeps the released reminder (the
+  one at the merge base with `dev`) as the next legacy copy when migration would
+  not recognize it ([legacy/README.md](scripts/templates/legacy/README.md)); add
+  any name it prints where the tests list legacy reminders.
+  `tests/test_protocol_text.py` fails on a stale file and on a sentence the
+  source states in two places, `tests/test_log_interaction_contract.py` on a
+  server instruction that leaves Claude Code's windows, and
+  `tests/test_instruction_pointers.py` when a pointer of
+  `src/client_instructions.py` does not name a rule of the full instruction.
+  Keep repository notes and Repository Memory outside the routing markers.
 - Treat `.env`, MCP client registrations, memory journals and generated indexes
   as local state. A documentation update does not require reinstalling clients
   or restarting the shared daemon.

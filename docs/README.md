@@ -76,6 +76,7 @@ also applies to AI instructions, plans, and reports.
 | [CLAUDE.md](../CLAUDE.md) | Tracked routing section plus repository-specific notes |
 | [flows/](../flows/README.md) | Reusable task instructions invoked by file path or through `run_flow` for the caller's repository |
 | [src/engine/protocol/](../src/engine/protocol/), `src/engine/protocol_text.py` | The one source of the protocol 2 text: a file per section with its variants, and the renderer of every surface below (`python -m src.engine.protocol_text --write`) |
+| `src/client_instructions.py` | Decides when the MCP initialization answers with the pointer instead of the full instructions, from the managed sections of the client's workspace files, and words the warnings about outdated sections |
 | [routing-protocol-core.md](../scripts/templates/routing-protocol-core.md) | Protocol 2 client instruction template, generated |
 | `src/server.py` (`FastMCP` `instructions`), `src/engine/persona.py` (`APPLY_INSTRUCTION`) | Protocol 2 summary sent to every MCP client at initialization, and the apply instruction returned with each `SUCCESS` bundle, both rendered at import |
 | [memory-routing.md](../scripts/templates/memory-routing.md) | Matching installer reminder for client memory, generated; [legacy/](../scripts/templates/legacy/README.md) keeps earlier generated copies for migration |

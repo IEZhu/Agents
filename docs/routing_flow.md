@@ -571,7 +571,7 @@ first.
 Run deterministic contract and migration tests from the checkout root:
 
 ```bash
-LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/test_persona_protocol.py tests/test_persona_bundle.py tests/test_install_instructions.py tests/test_installer_instructions.py tests/test_codex_instructions.py tests/test_protocol_migration.py tests/test_protocol_text.py tests/test_cooperation_instructions.py tests/test_log_interaction_contract.py tests/test_log_interaction_async.py tests/test_readiness.py tests/test_version.py -q
+LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/test_persona_protocol.py tests/test_persona_bundle.py tests/test_install_instructions.py tests/test_installer_instructions.py tests/test_codex_instructions.py tests/test_protocol_migration.py tests/test_protocol_text.py tests/test_instruction_pointers.py tests/test_cooperation_instructions.py tests/test_log_interaction_contract.py tests/test_log_interaction_async.py tests/test_readiness.py tests/test_version.py -q
 ```
 
 See [tests/README.md](../tests/README.md) for the full suite, model prerequisites,

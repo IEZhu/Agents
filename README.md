@@ -927,7 +927,11 @@ template, the reminder and this checkout's managed section:
 
 On Windows, use `.venv\Scripts\python.exe` for the same command; `--check` lists
 stale files without writing. The command replaces only the text between the
-markers and preserves repository notes outside them. The installer helper
+markers and preserves repository notes outside them. On every run, not only when
+the reminder changes, it keeps the released reminder (the one at the merge base
+with `dev`) as the next `scripts/templates/legacy/memory-routing-v<N>.md` when
+migration would not recognize it; add any name it prints where the tests list
+legacy reminders ([legacy/README.md](scripts/templates/legacy/README.md)). The installer helper
 `scripts/_helpers/inject_claude_md.py` refreshes other files' managed sections;
 when it changes a file it leaves `<file>.backup.<timestamp>` next to it and keeps the
 three newest. Inside this checkout, do not commit such a backup. Backup retention
@@ -976,6 +980,7 @@ Agents/
 │   ├── component_toggles.py # Installation-wide on/off switches for rules, skills and implants
 │   ├── component_catalog.py # Read-only agent and component listing for the web UI
 │   ├── client_paths.py   # Client configuration paths shared by installers and migration
+│   ├── client_instructions.py # What a client's instruction files hold: the initialize pointer and drift warnings
 │   ├── file_lock.py      # Stable sidecar file locks
 │   ├── daemon/           # HTTP app, service control, workspaces, client migration, web UI and its sign-in
 │   ├── mcp_servers/      # Optional document OCR server and the MCP server template
@@ -983,6 +988,7 @@ Agents/
 │   │   ├── router.py     # Semantic routing (cache-first)
 │   │   ├── persona.py    # Protocol 2 activation, restore, and refresh
 │   │   ├── persona_bundle.py # Fresh instruction blocks and bundle revision
+│   │   ├── protocol_text.py # Every protocol surface, rendered from the section files in protocol/
 │   │   ├── readiness.py  # Background retrieval startup (warming_up)
 │   │   ├── skills.py     # Skill retrieval (vector search)
 │   │   ├── implants.py   # Implant retrieval (vector search)

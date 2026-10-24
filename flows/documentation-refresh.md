@@ -152,7 +152,7 @@ assume it uses Python, MCP, routing templates or the Agents-Core test commands.
 | Environment variables and defaults | `env.example`, `src/engine/config.py`; also `src/daemon/` for daemon settings, `src/client_paths.py` for `CLAUDE_CONFIG_DIR` and `CODEX_HOME`, `src/model_migration.py` for the default embedding model and `EMBEDDING_MODEL_GENERATION`, `src/engine/embedding_prompts.py` for `EMBEDDING_PROMPTS`, and `src/user_flows.py` and `src/component_toggles.py` for `AGENTS_USER_FLOWS_DIR` |
 | MCP tools, parameters, statuses, and slash prompts | `src/server.py`, `src/schemas/protocol.py`, `src/schemas/tool_args.py`, `src/engine/readiness.py` (`warming_up`), `tests/test_readiness.py`, `tests/test_startup_handshake.py`, `tests/test_log_interaction_contract.py`, `tests/test_log_interaction_async.py` |
 | Protocol 2 and bundle assembly | `src/engine/persona.py`, `src/engine/persona_bundle.py`, `src/version.py` (footer version), `tests/test_persona_protocol.py`, `tests/test_persona_bundle.py`, `tests/test_version.py` |
-| Protocol text of every surface (managed section, MCP instructions, `SUCCESS` instruction, memory reminder) | `src/engine/protocol/`, `src/engine/protocol_text.py`, `tests/test_protocol_text.py`, `tests/test_cooperation_instructions.py`, `tests/test_log_interaction_contract.py` |
+| Protocol text of every surface (managed section, MCP instructions, `SUCCESS` instruction, memory reminder) and the pointers sent instead of a text the client already holds | `src/engine/protocol/`, `src/engine/protocol_text.py`, `src/client_instructions.py`, `tests/test_protocol_text.py`, `tests/test_instruction_pointers.py`, `tests/test_cooperation_instructions.py`, `tests/test_log_interaction_contract.py` |
 | Prepared workers, model tiers and structural result validation | `src/engine/subagent.py`, `src/engine/subagent_validation.py`, `src/engine/model_tiers.py`, `src/engine/model_catalogs.py`, `src/engine/subagent_ledger.py`, `src/schemas/subagent.py`, `agents/*/subagent.mdc`, `rules/subagents/`, `tests/test_subagent*.py` |
 | Exact shared artifacts and pinned task manifests | `src/artifacts/`, `src/schemas/artifacts.py`, `src/engine/subagent.py`, `src/local_inference/service.py`, `tests/test_artifact*.py`, `tests/test_subagent_artifacts.py` |
 | Routing, skills, implants, and rules | `src/engine/router.py`, `src/engine/enrichment.py`, `src/engine/skills.py`, `src/engine/implants.py`, `src/engine/rules.py`, `src/component_toggles.py` (web UI switches), `tests/test_component_toggles.py` |
@@ -207,9 +207,13 @@ product behavior merely to match the text.
 
   The command needs only the standard library; in a worktree without `.venv`, run
   `python3 -m src.engine.protocol_text --write` from the worktree root (Windows:
-  `py -3`). When it replaces the memory reminder, it first keeps the released one
-  (the reminder at the merge base with `dev`) as the next
-  `scripts/templates/legacy/memory-routing-v<N>.md` and prints its name.
+  `py -3`). On every run, not only when it replaces the memory reminder, it keeps
+  the released reminder (the one at the merge base with `dev`) as the next
+  `scripts/templates/legacy/memory-routing-v<N>.md` when migration would not
+  recognize it, and prints its name; add that name where the tests list legacy
+  reminders (`grep -rn memory-routing-v tests/`). Without a `dev` base it keeps
+  none and says so. See
+  [legacy/README.md](../scripts/templates/legacy/README.md).
   The MCP initialization instructions and `APPLY_INSTRUCTION` are rendered from
   the same sections at import. Review the diff of every generated surface. Do not
   run the global installer just to synchronize Markdown. Change protocol text
@@ -286,9 +290,9 @@ contributor guide or CI. These commands apply to Agents-Core:
 
 | Change | Check |
 |---|---|
-| Routing instructions, Codex discovery, managed sections, reminders | `LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/test_protocol_text.py tests/test_cooperation_instructions.py tests/test_install_instructions.py tests/test_installer_instructions.py tests/test_codex_instructions.py tests/test_protocol_migration.py tests/test_installer_profiles.py -q` |
+| Routing instructions, Codex discovery, managed sections, reminders, instruction pointers | `LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/test_protocol_text.py tests/test_instruction_pointers.py tests/test_log_interaction_contract.py tests/test_cooperation_instructions.py tests/test_install_instructions.py tests/test_installer_instructions.py tests/test_codex_instructions.py tests/test_protocol_migration.py tests/test_installer_profiles.py -q` |
 | Agent catalog or metadata | `.venv/bin/python scripts/validate_agents.py`; compare catalog rows with `identity` and `routing` metadata |
-| Protocol or bundle assembly documentation | `LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/test_persona_protocol.py tests/test_persona_bundle.py -q` |
+| Protocol or bundle assembly documentation | `LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/test_persona_protocol.py tests/test_persona_bundle.py tests/test_instruction_pointers.py -q` |
 | Another single area, such as installers, flows, the issue agent bridge, the Node bridge or updates | The focused checks in [Choose tests by change](../tests/README.md#choose-tests-by-change) |
 | Documentation checker or workflow changes | `.venv/bin/python -m pytest tests/test_check_docs.py tests/test_flows.py -q`; retain safe import isolation when reusing an environment |
 | Behavior changes or several related subsystems | The regular suite described in `tests/README.md` |
