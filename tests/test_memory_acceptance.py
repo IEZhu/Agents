@@ -193,10 +193,10 @@ def test_windows_receipt_sync_uses_writable_handle_without_changing_content(tmp_
     path.write_bytes(b"accepted entry")
     real_open = open
 
-    def windows_open(filename, mode):
+    def windows_open(filename, mode, **kwargs):
         if "+" not in mode:
             raise PermissionError("FlushFileBuffers requires GENERIC_WRITE")
-        return real_open(filename, mode)
+        return real_open(filename, mode, **kwargs)
 
     with monkeypatch.context() as patch:
         patch.setattr(history.os, "name", "nt")

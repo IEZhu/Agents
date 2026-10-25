@@ -37,6 +37,16 @@ workspaces instead of redirecting to the fallback journal. Unkeyed Personal
 clients retain their existing fallback behavior. Journal symlinks are refused
 before writing because replacement would change the journal's physical identity.
 
+Reads, receipt lookup and Git export also refuse symbolic links and nonregular
+files in the live journal, pending rotation and monthly archives. Local archive
+paths are opened relative to the workspace root; an explicitly configured
+external archive retains its separate trusted root. POSIX opens each descendant
+directory and file without following links. Windows verifies the final opened
+handle's path before reading. Parse-cache hits undergo the same file checks.
+An unsafe artifact causes an explicit storage error rather than a partial
+export or a successful acceptance based on another journal's receipt. Repair
+the storage layout before retrying with the same idempotency key.
+
 Receipts have **no automatic expiry**. Lookup includes the live file, a pending
 rotation and every local monthly archive, independently of the legacy last-50
 deduplication window. Deleting an entry through the history UI retains a compact

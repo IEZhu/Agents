@@ -24,6 +24,7 @@ on:
       - tests/test_daemon_runtime_override.py
       - src/memory/history.py
       - tests/test_memory_acceptance.py
+      - tests/test_history_artifact_safety.py
       - requirements.txt
       - .github/workflows/workspace-bindings.yml
   workflow_dispatch:
@@ -67,4 +68,4 @@ jobs:
       - name: Node bridge session isolation and authenticated hooks
         run: node --test bridge/test.mjs
       - name: Durable memory acceptance and retry recovery
-        run: python -B -m pytest tests/test_memory_acceptance.py -q -p no:cacheprovider
+        run: python -B -m pytest tests/test_memory_acceptance.py tests/test_history_artifact_safety.py -q -p no:cacheprovider

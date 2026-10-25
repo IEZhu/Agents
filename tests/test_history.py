@@ -593,14 +593,14 @@ def test_failed_archive_append_keeps_recoverable_entries(tmp_path, history_path,
     for i in range(3):
         writer.append_entry(f"q{i} " + "x" * 600, "a", "o" * 600)
     assert list(archive_dir.glob("*.md"))
-    real_open = open
+    real_fdopen = os.fdopen
 
-    def refuse_archive(path, mode="r", *args, **kwargs):
-        if str(path).startswith(str(archive_dir) + os.sep) and "w" in mode:
+    def refuse_archive(fd, mode="r", *args, **kwargs):
+        if mode == "wb":
             raise OSError(28, "no space")
-        return real_open(path, mode, *args, **kwargs)
+        return real_fdopen(fd, mode, *args, **kwargs)
 
-    monkeypatch.setattr("src.memory.history.open", refuse_archive, raising=False)
+    monkeypatch.setattr("src.memory.history.os.fdopen", refuse_archive)
     result = writer.append_entry("last " + "z" * 2000, "a", "o")
     monkeypatch.undo()
     assert result["status"] == "recorded"
@@ -641,11 +641,11 @@ def test_partial_archive_write_never_reaches_the_archive(tmp_path, history_path,
         writer.append_entry(f"q{i} " + "x" * 600, "a", "o" * 600)
     archive = next(archive_dir.glob("*.md"))
     before = archive.read_bytes()
-    real_open = open
+    real_fdopen = os.fdopen
 
-    def partial(path, mode="r", *args, **kwargs):
-        handle = real_open(path, mode, *args, **kwargs)
-        if str(path) == str(archive) + ".tmp" and "w" in mode:
+    def partial(fd, mode="r", *args, **kwargs):
+        handle = real_fdopen(fd, mode, *args, **kwargs)
+        if mode == "wb":
             class Boom:
                 def __enter__(self):
                     return self
@@ -660,7 +660,7 @@ def test_partial_archive_write_never_reaches_the_archive(tmp_path, history_path,
             return Boom()
         return handle
 
-    monkeypatch.setattr("src.memory.history.open", partial, raising=False)
+    monkeypatch.setattr("src.memory.history.os.fdopen", partial)
     assert writer.append_entry("last " + "z" * 2000, "a", "o")["status"] == "recorded"
     monkeypatch.undo()
     assert archive.read_bytes() == before

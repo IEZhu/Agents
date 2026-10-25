@@ -831,9 +831,9 @@ def test_recency_reads_stop_once_the_limit_is_filled(two, clock, monkeypatch):
     parsed = []
     real = journal.parsed_file
 
-    def recording(path):
+    def recording(path, **kwargs):
         parsed.append(Path(path).name)
-        return real(path)
+        return real(path, **kwargs)
 
     monkeypatch.setattr(journal, "parsed_file", recording)
     journal._PARSED = journal._ParsedFiles()
@@ -842,16 +842,32 @@ def test_recency_reads_stop_once_the_limit_is_filled(two, clock, monkeypatch):
     assert "2026-01.md" not in parsed and "2026-02.md" not in parsed
     everything = a.read(limit=50, machine="machine-b")
     assert len(everything) == 7 and "2026-01.md" in parsed
-    opened = []
+    read = []
     real_open = open
 
     def recording_open(file, *args, **kwargs):
-        opened.append(Path(file).name)
-        return real_open(file, *args, **kwargs)
+        stream = real_open(file, *args, **kwargs)
+
+        class Observed:
+            def __enter__(self):
+                stream.__enter__()
+                return self
+
+            def __exit__(self, *exc):
+                return stream.__exit__(*exc)
+
+            def __getattr__(self, name):
+                return getattr(stream, name)
+
+            def read(self, *args):
+                read.append(Path(file).name)
+                return stream.read(*args)
+
+        return Observed()
 
     monkeypatch.setattr(journal, "open", recording_open, raising=False)
     assert a.read(limit=50, machine="machine-b") == everything
-    assert not [name for name in opened if name.startswith("2026-0")]  # unchanged parts come from the cache
+    assert not [name for name in read if name.startswith("2026-0")]  # validate handles, reuse cached bytes
 
 
 def test_readers_wait_for_a_writer_or_rotation_in_progress(shared, clock):

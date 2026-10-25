@@ -165,7 +165,7 @@ class ClientContext:
 
     def require_root(self):
         self.workspace_root()
-        for relative in ("history.md", "history", "CLAUDE.md", "data/memory"):
+        for relative in ("history.md", "history.md.rotating", "history", "CLAUDE.md", "data/memory"):
             if not (self.root / relative).resolve().is_relative_to(self.root):
                 raise WorkspaceError("workspace_invalid: memory path escapes workspace")
         return self.root
