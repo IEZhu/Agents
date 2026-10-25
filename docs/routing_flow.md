@@ -227,6 +227,20 @@ shows only the first 4,096 characters of the instructions (2,048 before v2.1.296
 which both texts spend alike. Only the workspace file decides, since a global file
 may belong to a different profile than the client's.
 
+`route_and_load`, `get_agent_context` and `refresh_persona_context` declare
+`anthropic/maxResultSizeChars` at Claude Code's ceiling of 500,000 characters, as
+`run_flow` and `get_flow` do ([flows](../flows/README.md)). A bundle at tier `deep`
+can pass Claude Code's default of 50,000 shown characters (`src/result_size.py`);
+without the declaration Claude Code saves such a result to a file and shows the
+model its first 2 KB and the file's path, so the model has to read the four
+blocks back in parts before it can apply them. No limit in code keeps a bundle
+below the ceiling (a URL user rule alone may hold 64 KiB, and up to 32 can be
+subscribed), so the value is the ceiling: a bundle over it still goes to a file,
+and Claude Code can apply limits of its own. The declaration also replaces `MAX_MCP_OUTPUT_TOKENS` for these tools, and a
+connected client reads it only when it lists the tools again: reconnect the
+server (`/mcp`) after an update. It covers tool results only; the agent slash
+prompts and `/ask` return their bundles as prompts.
+
 The client applies a response only if `replaces_activation_id` matches its active
 activation (null for first load). Replayed activations are no-ops; stale responses
 are ignored. Missing mandatory components produce `ERROR` with no partial
