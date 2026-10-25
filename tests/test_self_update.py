@@ -2374,10 +2374,10 @@ def test_a_resumed_activation_refused_by_a_gate_keeps_the_journal(venv_repos, ph
     assert status == ActivationStatus.ACTIVATE_ROLLBACK_FAILED
     assert "INVALID_ENVIRONMENT" in caplog.text and marker["environment"]["id"] in caplog.text
     assert self_update._read_prepared_marker() == marker and _venv_state(venv_repos) == {"kind": "directory"}
-    # The journal names the revision to go back to, and so does the log; .venv lacks python-dotenv.
+    # The journal names the revision to go back to, and so does the log, with what .venv lacks.
     journal = json.loads((venv_repos.local / "data" / self_update.UPDATE_JOURNAL).read_text())
     assert journal["old_sha"] == marker["base_sha"] and marker["base_sha"][:9] in caplog.text
-    assert "lacks python-dotenv" in caplog.text
+    assert "lacks mcp 1.0 (needs ==2), python-dotenv (not installed)" in caplog.text
     with pytest.raises(SystemExit, match=f"switches .venv to .venvs/{marker['environment']['id']}"):
         assert_installation_safe(str(venv_repos.local))
 
@@ -2395,10 +2395,10 @@ def test_a_resumed_activation_on_a_venv_with_every_package_continues(venv_repos,
     assert _env_prepare(venv_repos, phase_a_env) == PreparedStatus.PREPARED
     marker = self_update._read_prepared_marker()
     _merge_target(venv_repos)
-    _install(venv_repos, "python-dotenv", "httpx")
+    _install(venv_repos, ("mcp", "2"), "python-dotenv", "httpx")
     shutil.rmtree(marker["environment"]["path"])  # Gate 9: INVALID_ENVIRONMENT
     status = self_update.activate_prepared_update(str(venv_repos.local), "main")
-    assert status == ActivationStatus.INVALID_ENVIRONMENT and "has every package it names" in caplog.text
+    assert status == ActivationStatus.INVALID_ENVIRONMENT and "satisfies every requirement it names" in caplog.text
     assert self_update._read_prepared_marker() is None
     assert not (venv_repos.local / "data" / self_update.UPDATE_JOURNAL).exists()
 
@@ -2429,8 +2429,84 @@ def test_a_resumed_activation_whose_move_and_switch_fail_holds_on_the_restored_v
     monkeypatch.setattr(environments, "switch", interrupted)
     status = self_update.activate_prepared_update(str(venv_repos.local), "main")
     assert status == ActivationStatus.ACTIVATE_ROLLBACK_FAILED
-    assert (venv_repos.local / "data" / self_update.UPDATE_JOURNAL).exists()
+    journal = json.loads((venv_repos.local / "data" / self_update.UPDATE_JOURNAL).read_text())
+    # A resumed activation journals the revision to go back to, not the target it already runs.
+    assert journal["old_sha"] == self_update._read_prepared_marker()["base_sha"] != journal["target_sha"]
     assert _venv_state(venv_repos) == {"kind": "directory"} and (venv_repos.local / ".venv/pyvenv.cfg").exists()
+
+
+@pytest.mark.parametrize("installed, held", [("1.28.1", True), ("1.31.0", False)])
+def test_a_version_bump_holds_until_venv_has_the_new_version(venv_repos, phase_a_env, installed, held, caplog):
+    """mcp==1.28.1 -> mcp==1.31.0: .venv with the old version must not serve the target."""
+    _commit(venv_repos.upstream, "requirements.txt", "mcp==1.31.0\n", "bump mcp")
+    assert _env_prepare(venv_repos, phase_a_env) == PreparedStatus.PREPARED
+    marker = self_update._read_prepared_marker()
+    _merge_target(venv_repos)
+    _install(venv_repos, ("mcp", installed), "python-dotenv")
+    shutil.rmtree(marker["environment"]["path"])  # Gate 9: INVALID_ENVIRONMENT
+    status = self_update.activate_prepared_update(str(venv_repos.local), "main")
+    if held:
+        assert status == ActivationStatus.ACTIVATE_ROLLBACK_FAILED and "mcp 1.28.1 (needs ==1.31.0)" in caplog.text
+    else:
+        assert status == ActivationStatus.INVALID_ENVIRONMENT
+    assert (venv_repos.local / "data" / self_update.UPDATE_JOURNAL).exists() == held
+
+
+def test_a_malformed_base_in_a_held_marker_keeps_the_recovery_message(venv_repos, phase_a_env, caplog):
+    _commit(venv_repos.upstream, "requirements.txt", "mcp==2\n", "new requirements")
+    assert _env_prepare(venv_repos, phase_a_env) == PreparedStatus.PREPARED
+    marker = self_update._read_prepared_marker()
+    marker["base_sha"] = 12345  # Gate 1: INVALID_MARKER
+    Path(self_update.PREPARED_MARKER).write_text(json.dumps(marker))
+    _merge_target(venv_repos)
+    status = self_update.activate_prepared_update(str(venv_repos.local), "main")
+    assert status == ActivationStatus.ACTIVATE_ROLLBACK_FAILED
+    assert "restore the previous revision (unknown)" in caplog.text and "INVALID_MARKER" in caplog.text
+    journal = json.loads((venv_repos.local / "data" / self_update.UPDATE_JOURNAL).read_text())
+    assert journal["old_sha"] == journal["target_sha"] == marker["target_sha"]
+
+
+def _every_package(repos):
+    _install(repos, ("mcp", "2"), "python-dotenv", "httpx")
+
+
+def test_an_unplannable_switch_on_a_venv_with_every_package_is_discarded(venv_repos, phase_a_env, monkeypatch):
+    from src import environments
+    _commit(venv_repos.upstream, "requirements.txt", "mcp==2\n", "new requirements")
+    assert _env_prepare(venv_repos, phase_a_env) == PreparedStatus.PREPARED
+    _merge_target(venv_repos)
+    _every_package(venv_repos)
+    monkeypatch.setattr(environments, "plan", lambda *a, **k: (_ for _ in ()).throw(environments.Refused("no")))
+    status = self_update.activate_prepared_update(str(venv_repos.local), "main")
+    assert status == ActivationStatus.INVALID_ENVIRONMENT and self_update._read_prepared_marker() is None
+    assert not (venv_repos.local / "data" / self_update.UPDATE_JOURNAL).exists()
+
+
+def test_a_resumed_move_and_switch_failure_on_a_venv_with_every_package_finishes(venv_repos, phase_a_env, monkeypatch):
+    from src import environments
+    _commit(venv_repos.upstream, "requirements.txt", "mcp==2\n", "new requirements")
+    assert _env_prepare(venv_repos, phase_a_env) == PreparedStatus.PREPARED
+    _merge_target(venv_repos)
+    _every_package(venv_repos)
+    monkeypatch.setattr(self_update, "_activate_staged_stores",
+                        lambda *a, **k: (_ for _ in ()).throw(OSError("disk full")))
+    monkeypatch.setattr(environments, "switch", lambda *a: (_ for _ in ()).throw(OSError("no space")))
+    status = self_update.activate_prepared_update(str(venv_repos.local), "main")
+    assert status == ActivationStatus.ACTIVATE_MOVE_FAILED and _venv_state(venv_repos) == {"kind": "directory"}
+    assert not (venv_repos.local / "data" / self_update.UPDATE_JOURNAL).exists()
+
+
+def test_a_resumed_switch_failure_on_a_venv_with_every_package_finishes(venv_repos, phase_a_env, monkeypatch):
+    from src import environments
+    _commit(venv_repos.upstream, "requirements.txt", "mcp==2\n", "new requirements")
+    assert _env_prepare(venv_repos, phase_a_env) == PreparedStatus.PREPARED
+    _merge_target(venv_repos)
+    _every_package(venv_repos)
+    monkeypatch.setattr(environments, "switch", lambda *a: (_ for _ in ()).throw(OSError("no space")))
+    status = self_update.activate_prepared_update(str(venv_repos.local), "main")
+    assert status == ActivationStatus.ACTIVATE_ENVIRONMENT_FAILED and _venv_state(venv_repos) == {"kind": "directory"}
+    assert not (venv_repos.local / "data" / self_update.UPDATE_JOURNAL).exists()
+    assert self_update._read_prepared_marker() is None
 
 
 def test_the_in_place_refusal_logs_its_reason(venv_repos, recorder, caplog):

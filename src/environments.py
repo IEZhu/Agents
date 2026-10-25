@@ -241,6 +241,35 @@ def _pad(version, length):
     return tuple(version) + (0,) * (length - len(version))
 
 
+def _clause_holds(clause, version) -> Optional[bool]:
+    """Whether release *version* (a tuple of ints) satisfies one specifier *clause*; None when this
+    cannot evaluate the clause: release segments only, with ``.*`` wildcards for ``==`` and ``!=``."""
+    match = _CLAUSE.match(clause)
+    if not match:
+        return None
+    operator, text, wildcard = match.groups()
+    wanted = tuple(int(part) for part in text.split("."))
+    length = max(len(wanted), len(version))
+    have, need = _pad(version, length), _pad(wanted, length)
+    if wildcard:
+        if operator not in ("==", "!="):
+            return None
+        prefix = tuple(version[:len(wanted)]) == wanted
+        return prefix if operator == "==" else not prefix
+    if operator == "~=":
+        if len(wanted) < 2:
+            return None
+        return have >= need and tuple(version[:len(wanted) - 1]) == wanted[:-1]
+    return {"==": have == need, "===": have == need, "!=": have != need, "<=": have <= need,
+            ">=": have >= need, "<": have < need, ">": have > need}[operator]
+
+
+def _release(text) -> Optional[tuple]:
+    """The release segments of an installed version, such as ``(1, 30, 0)`` for ``1.30.0.post1``."""
+    match = re.match(r"\s*v?([0-9]+(?:\.[0-9]+)*)", text or "")
+    return tuple(int(part) for part in match.group(1).split(".")) if match else None
+
+
 def python_refusal(specifier, version) -> Optional[str]:
     """Why *version* does not satisfy ``requires-python`` *specifier*, or None.
 
@@ -250,26 +279,10 @@ def python_refusal(specifier, version) -> Optional[str]:
     if not specifier:
         return None
     for clause in specifier.split(","):
-        match = _CLAUSE.match(clause)
-        if not match:
+        holds = _clause_holds(clause, version)
+        if holds is None:
             return f"cannot evaluate requires-python {specifier!r}"
-        operator, text, wildcard = match.groups()
-        wanted = tuple(int(part) for part in text.split("."))
-        length = max(len(wanted), len(version))
-        have, need = _pad(version, length), _pad(wanted, length)
-        if wildcard:
-            if operator not in ("==", "!="):
-                return f"cannot evaluate requires-python {specifier!r}"
-            prefix = tuple(version[:len(wanted)]) == wanted
-            satisfied = prefix if operator == "==" else not prefix
-        elif operator == "~=":
-            if len(wanted) < 2:
-                return f"cannot evaluate requires-python {specifier!r}"
-            satisfied = have >= need and tuple(version[:len(wanted) - 1]) == wanted[:-1]
-        else:
-            satisfied = {"==": have == need, "===": have == need, "!=": have != need, "<=": have <= need,
-                         ">=": have >= need, "<": have < need, ">": have > need}[operator]
-        if not satisfied:
+        if not holds:
             return "Python {} does not satisfy requires-python {!r}".format(".".join(map(str, version)), specifier)
     return None
 
@@ -301,38 +314,91 @@ def unsafe_requirement(line) -> Optional[str]:
     return None
 
 
-def distribution_names(text) -> set:
-    """Normalized names of the distributions a requirements text names; a bare URL names none."""
+def distribution_names(text) -> Optional[set]:
+    """Normalized names of the distributions a requirements text names.
+
+    None when a line is a bare URL or VCS reference, whose distribution cannot be
+    read from the text. Markers are not evaluated: a line counts whatever it says.
+    """
     from src.daemon.update_dependencies import requirement_lines
-    return {name for name, _, _ in map(_parse, requirement_lines(text)) if name}
+    names = set()
+    for line in requirement_lines(text):
+        name = _parse(line)[0]
+        if name is None:
+            return None
+        names.add(name)
+    return names
 
 
-def installed(environment) -> set:
-    """Normalized names of the distributions installed in *environment*."""
+def _installed(environment) -> dict:
+    """Normalized name -> version of each distribution installed in *environment*."""
     if WINDOWS:
         sites = [os.path.join(environment, "Lib", "site-packages")]
     else:
         sites = glob.glob(os.path.join(glob.escape(str(environment)), "lib", "python*", "site-packages"))
-    return {_normalized(dist.name) for dist in metadata.distributions(path=sites) if dist.name}
+    return {_normalized(dist.name): dist.version for dist in metadata.distributions(path=sites) if dist.name}
+
+
+def installed(environment) -> set:
+    """Normalized names of the distributions installed in *environment*."""
+    return set(_installed(environment))
+
+
+def unmet(text, environment) -> Optional[list]:
+    """The requirements of *text* that *environment* does not satisfy, described; None when unknown.
+
+    A distribution must be installed in a release version that every specifier
+    clause accepts (:func:`_clause_holds`). A clause this cannot evaluate, a direct
+    URL reference or an unreadable installed version counts as unmet; a bare URL
+    line makes the answer unknown. Markers are not evaluated.
+    """
+    from src.daemon.update_dependencies import requirement_lines
+    if distribution_names(text) is None:
+        return None
+    versions, found = _installed(environment), []
+    for line in requirement_lines(text):
+        name, clauses = _clauses(line)
+        version = versions.get(name)
+        release = _release(version) if version else None
+        if version is None:
+            found.append(f"{name} (not installed)")
+        elif clauses is None or release is None:
+            found.append(f"{name} {version} (cannot check {line!r})")
+        elif unsatisfied := [clause for clause in clauses if not _clause_holds(clause, release)]:
+            found.append(f"{name} {version} (needs {','.join(unsatisfied)})")
+    return found
+
+
+def _clauses(line):
+    """``(name, specifier clauses)`` of a requirement line: the clauses after an extras group and
+    before a marker; None for a direct URL reference. ``(None, None)`` for a bare URL."""
+    if _URL.match(line):
+        return None, None
+    match = _NAME.match(line)
+    if not match:
+        return None, None
+    rest = re.sub(r"\A\[[^\]]*\]", "", line[match.end():].strip()).strip()
+    if rest.startswith("@"):
+        return _normalized(match.group(1)), None
+    return _normalized(match.group(1)), [re.sub(r"\s+", "", clause)
+                                         for clause in rest.split(";", 1)[0].split(",") if clause.strip()]
 
 
 def _parse(line):
     """``(name, specifiers, exact pins)`` of a requirement line.
 
     *specifiers* is the clause list of a plain ``name<specifiers>`` line, else None
-    (extras, a marker or a URL keep the line as written). *name* is None for a bare
-    URL or VCS reference, which no leading word such as ``git`` names.
+    (extras, a marker or a URL keep the line as written). Exact pins come from any
+    named line, also one with extras or a marker. *name* is None for a bare URL or
+    VCS reference, which no leading word such as ``git`` names.
     """
-    if _URL.match(line):
+    name, clauses = _clauses(line)
+    if name is None:
         return None, None, set()
-    match = _NAME.match(line)
-    if not match:
-        return None, None, set()
-    name, rest = _normalized(match.group(1)), line[match.end():].strip()
-    clauses = [re.sub(r"\s+", "", clause) for clause in rest.split(";", 1)[0].split(",") if clause.strip()]
-    pins = {re.match(r"\A===?(.+)", clause).group(1) for clause in clauses
-            if re.match(r"\A===?[^=]", clause) and not clause.endswith(".*") and "@" not in rest}
-    plain = not rest.startswith("[") and ";" not in rest and "@" not in rest and all(
+    pins = {re.match(r"\A===?(.+)", clause).group(1) for clause in clauses or ()
+            if re.match(r"\A===?[^=]", clause) and not clause.endswith(".*")}
+    rest = line[_NAME.match(line).end():].strip()
+    plain = clauses is not None and not rest.startswith("[") and ";" not in rest and all(
         _SPECIFIER.match(clause) for clause in clauses)
     return name, clauses if plain else None, pins
 
@@ -554,9 +620,13 @@ def _runs(environment) -> bool:
 
 
 def ours(root) -> bool:
-    """Whether this process started on an environment of the installation: ``.venv`` or one under ``.venvs``."""
-    return _lexically_same(RUNNING, link_path(root)) or \
-        _lexically_same(os.path.dirname(RUNNING), os.path.realpath(environments_dir(root)))
+    """Whether this process started on an environment of the installation: ``.venv`` or one under ``.venvs``.
+
+    As in :func:`managed`, the installation may be reached through a link: its path
+    is resolved, the environment's own name is compared as it is.
+    """
+    parent, name = os.path.dirname(RUNNING), os.path.normcase(os.path.basename(RUNNING))
+    return (name == os.path.normcase(LINK) and _same(parent, root)) or _same(parent, environments_dir(root))
 
 
 def replaced(root) -> bool:

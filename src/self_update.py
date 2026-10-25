@@ -1602,10 +1602,13 @@ def activate_prepared_update(
             return (ActivationStatus.ACTIVATE_MERGE_FAILED if restored
                     else ActivationStatus.ACTIVATE_ROLLBACK_FAILED)
         merged_now = True
-    elif env_undo:
-        _begin_update(repo_root, target_sha, target_sha, env_undo)
     else:
-        _begin_update(repo_root, target_sha, target_sha)
+        # Resumed: an earlier run merged. The marker's base is still the revision to go back to.
+        resumed_from = old_sha if isinstance(old_sha, str) and _FULL_SHA_RE.match(old_sha) else target_sha
+        if env_undo:
+            _begin_update(repo_root, resumed_from, target_sha, env_undo)
+        else:
+            _begin_update(repo_root, resumed_from, target_sha)
 
     try:
         _activate_staged_stores(staging_dir, repo_root, stores)
@@ -1715,12 +1718,12 @@ def _stranded_environment(repo_root, marker, git_timeout):
     return environment["id"]
 
 
-def _missing_distributions(repo_root, marker, git_timeout):
-    """The distributions the target's environment installs that ``.venv`` lacks; None when unknown.
+def _unmet_requirements(repo_root, marker, git_timeout):
+    """The requirements of the target's environment that ``.venv`` does not satisfy; None when unknown.
 
     The prepared environment's requirements when it still exists, else the target's
-    ``requirements.txt`` and runtime dependencies, compared by normalized name, as
-    carried extras are.
+    ``requirements.txt`` and runtime dependencies; each distribution must be installed
+    in a release version its specifiers accept (`src.environments.unmet`).
     """
     try:
         with open(os.path.join(environments.path(repo_root, marker["environment"]["id"]),
@@ -1734,26 +1737,26 @@ def _missing_distributions(repo_root, marker, git_timeout):
             return None
         text = "\n".join([spec.requirements, *spec.dependencies])
     try:
-        present = environments.installed(os.path.realpath(environments.link_path(repo_root)))
+        return environments.unmet(text, os.path.realpath(environments.link_path(repo_root)))
     except OSError:
         return None
-    return sorted(environments.distribution_names(text) - present)
 
 
 def _hold_stranded(repo_root, marker, reason, git_timeout, plan=None) -> Optional[str]:
-    """Stop startup while the checkout runs code whose environment is not active and ``.venv`` lacks
-    some of its packages; None when ``.venv`` has all of them (installed by hand), with a warning.
+    """Stop startup while the checkout runs code whose environment is not active and ``.venv`` does not
+    satisfy all of its requirements; None when it does (installed by hand), with a warning.
 
     The recovery journal stays (or is written, with the marker's base as ``old_sha``)
     with the environment switch, so no start serves the target's code without its
     packages; the prepared update stays for a later activation. ``ACTIVATE_ROLLBACK_FAILED``.
     """
-    name, target_sha, base_sha = marker["environment"]["id"], marker["target_sha"], marker.get("base_sha") or ""
-    missing = _missing_distributions(repo_root, marker, git_timeout)
+    name, target_sha = marker["environment"]["id"], marker["target_sha"]
+    base_sha = marker.get("base_sha") if isinstance(marker.get("base_sha"), str) else ""
+    missing = _unmet_requirements(repo_root, marker, git_timeout)
     if missing == []:
         logger.warning("Auto-update: the checkout runs %s without its Python environment %s/%s (%s), but .venv "
-                       "has every package it names; continuing on .venv.", target_sha[:9],
-                       environments.ENVIRONMENTS, name, reason)
+                       "satisfies every requirement it names (names and release versions; markers are not "
+                       "evaluated); continuing on .venv.", target_sha[:9], environments.ENVIRONMENTS, name, reason)
         return None
     journal = os.path.join(repo_root, "data", UPDATE_JOURNAL)
     logger.error(

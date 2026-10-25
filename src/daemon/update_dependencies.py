@@ -4,9 +4,9 @@ A target's manifests decide what its update needs:
 
 * ``NONE``: the installed environment suffices. Metadata, package data, a new
   optional extra, the order of requirements (in ``pyproject.toml`` and in
-  ``requirements.txt``), comments, blank lines and spacing in ``requirements.txt``
-  and a ``uv.lock``-only change (installs read ``requirements.txt``) change no
-  package.
+  ``requirements.txt``), comments, blank lines and surrounding spaces in
+  ``requirements.txt`` and a ``uv.lock``-only change (installs read
+  ``requirements.txt``) change no package.
 * ``ENVIRONMENT``: a requirement line of ``requirements.txt`` or the environment
   contract of ``pyproject.toml`` changed: ``project.dependencies``,
   ``project.requires-python``, an existing ``project.optional-dependencies``

@@ -6,6 +6,7 @@ real build leaves.
 """
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -58,7 +59,11 @@ class FakeBuilder:
 
 
 def make_environment(directory, *, record=True, packages=(), base=None):
-    """A venv as ``python -m venv`` leaves it; *record* marks it a complete build."""
+    """A venv as ``python -m venv`` leaves it; *record* marks it a complete build.
+
+    *packages* are names (version 1.0) or ``(name, version)`` pairs; one replaces an
+    installed version of the same name.
+    """
     python = Path(environments.python_path(directory))
     python.parent.mkdir(parents=True, exist_ok=True)
     python.write_text("interpreter")
@@ -67,10 +72,13 @@ def make_environment(directory, *, record=True, packages=(), base=None):
                                           f"executable = {executable}\n")
     site = directory / ("Lib/site-packages" if environments.WINDOWS else "lib/python3.13/site-packages")
     site.mkdir(parents=True, exist_ok=True)
-    for name in packages:
-        info = site / f"{name}-1.0.dist-info"
+    for package in packages:
+        name, version = package if isinstance(package, tuple) else (package, "1.0")
+        for previous in site.glob(f"{name}-*.dist-info"):
+            shutil.rmtree(previous)
+        info = site / f"{name}-{version}.dist-info"
         info.mkdir()
-        (info / "METADATA").write_text(f"Metadata-Version: 2.1\nName: {name}\nVersion: 1.0\n")
+        (info / "METADATA").write_text(f"Metadata-Version: 2.1\nName: {name}\nVersion: {version}\n")
     if record:
         (directory / environments.RECORD).write_text(json.dumps({"requirements_sha256": "x"}))
     return directory
@@ -158,6 +166,8 @@ def test_identical_requirements_are_listed_once(root):
     ("mcp==2\n", '["mcp==1.28.1"]'),
     ("Foo_Bar==1\n", '["foo-bar==2"]'),  # one distribution by PEP 503 normalization
     ("mcp===2\n", '["mcp==3"]'),
+    ("uvicorn==0.49.0\n", '["uvicorn[standard]==0.48.0"]'),  # a line with extras pins too
+    ("foo==2.0\n", '["foo[a,b]==1.0"]'),
 ])
 def test_two_different_exact_pins_of_one_distribution_are_refused(root, requirements, declared):
     project = PROJECT.replace('dependencies = ["python-dotenv"]', f"dependencies = {declared}")
@@ -669,6 +679,49 @@ def test_requirements_text_is_deterministic():
     assert text == ("a==1\n\n# project.dependencies of pyproject.toml\nb\nc\n\n"
                     "# optional extra y, installed in the previous environment\ny1\n\n"
                     "# optional extra z, installed in the previous environment\nz1\n")
+
+
+@pytest.mark.parametrize("requirement, installed, met", [
+    ("mcp==1.31.0", "1.30.0", False),  # an exact pin bumped, the old version installed
+    ("mcp==1.31.0", "1.31.0", True),
+    ("mcp>=1.31", "1.30.0", False),
+    ("mcp>=1.31,<2", "1.31.2.post1", True),
+    ("mcp~=1.30.0", "1.30.4", True),
+    ("mcp==1.*", "2.0", False),
+    ("mcp==1.31.0rc1", "1.31.0", False),  # a clause this cannot evaluate holds
+    ("mcp[cli]>=1.31", "1.31.0", True),
+    ('mcp>=9; python_version < "3"', "1.0", False),  # markers are not evaluated
+    ("mcp @ https://example.invalid/mcp.whl", "1.0", False),
+    ("mcp>=1", "unknown", False),
+])
+def test_unmet_requirements_compare_names_and_release_versions(root, requirement, installed, met):
+    make_environment(root / ".venv", record=False, packages=[("mcp", installed)])
+    found = environments.unmet(requirement + "\npython-dotenv\n", str(root / ".venv"))
+    assert "python-dotenv (not installed)" in found
+    assert (found == ["python-dotenv (not installed)"]) == met
+
+
+def test_a_bare_url_makes_the_requirements_unknown(root):
+    assert environments.distribution_names("mcp\ngit+https://example.invalid/x.git\n") is None
+    assert environments.unmet("mcp\nhttps://example.invalid/x.whl\n", str(root / ".venv")) is None
+    assert environments.distribution_names('mcp; python_version < "3"\nHTTPX>=1\n') == {"mcp", "httpx"}
+
+
+def test_an_installation_reached_through_a_link_knows_its_environments(root, tmp_path, monkeypatch):
+    alias = tmp_path / "alias"
+    try:
+        os.symlink(root, alias, target_is_directory=True)
+    except OSError:
+        pytest.skip("symlinks unavailable")
+    monkeypatch.setattr(environments, "RUNNING", os.path.realpath(root / ".venv"))
+    assert environments.ours(str(alias)) and not environments.replaced(str(alias))
+    built(root, NEW)
+    environments.switch(str(alias), environments.plan(str(alias), NEW))
+    assert environments.replaced(str(alias))
+    monkeypatch.setattr(environments, "RUNNING", os.path.realpath(root / ".venvs" / NEW))
+    assert environments.ours(str(alias)) and not environments.replaced(str(alias))
+    monkeypatch.setattr(environments, "RUNNING", os.path.realpath(tmp_path / "elsewhere" / ".venv"))
+    assert not environments.ours(str(alias))
 
 
 def test_installed_reads_distribution_names(root):
