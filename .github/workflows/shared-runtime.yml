@@ -65,6 +65,12 @@ on:
       - tests/test_daemon_runtime_override.py
       - tests/test_daemon_autoupdate.py
       - tests/test_self_update.py
+      - tests/test_init_repo_venv.py
+      - tests/test_schedules_drift.py
+      - tests/test_clean_whitespace.py
+      - scripts/init_repo.sh
+      - scripts/clean_whitespace.py
+      - src/schedules/drift.py
       - tests/test_daemon_update.py
       - tests/test_daemon_update_dependencies.py
       - tests/test_environments.py
@@ -138,6 +144,12 @@ on:
       - tests/test_daemon_runtime_override.py
       - tests/test_daemon_autoupdate.py
       - tests/test_self_update.py
+      - tests/test_init_repo_venv.py
+      - tests/test_schedules_drift.py
+      - tests/test_clean_whitespace.py
+      - scripts/init_repo.sh
+      - scripts/clean_whitespace.py
+      - src/schedules/drift.py
       - tests/test_daemon_update.py
       - tests/test_daemon_update_dependencies.py
       - tests/test_environments.py
@@ -210,4 +222,5 @@ jobs:
         shell: bash
         run: >-
           python -B -m pytest tests/test_local_inference_*.py tests/test_daemon_runtime_override.py
-          tests/test_daemon_autoupdate.py tests/test_self_update.py -q -p no:cacheprovider
+          tests/test_daemon_autoupdate.py tests/test_self_update.py tests/test_init_repo_venv.py
+          tests/test_schedules_drift.py tests/test_clean_whitespace.py -q -p no:cacheprovider
