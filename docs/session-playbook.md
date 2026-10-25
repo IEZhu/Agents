@@ -64,7 +64,11 @@ monitor's completion per pending run while retaining the required quality gates.
   or indexed skill/implant content or metadata, reload the serving process so
   those changes are indexed. For HTTP, run `.venv/bin/python -m src.daemon restart`
   ([service control](shared-mcp-daemon.md#service-control)); for stdio, reconnect
-  the server. See [routing](routing_flow.md) for refresh semantics.
+  the server. The protocol text in `src/engine/protocol/` is composed when the
+  server process starts: after `python -m src.engine.protocol_text --write`,
+  restart or reconnect it the same way and reconnect clients, or a first
+  activation in a checkout that holds the new template warns that the server is
+  older. See [routing](routing_flow.md) for refresh semantics.
 - **Closing a thread.** Before `/clear` or an unrelated task, run
   [flows/thread-close.md](../flows/thread-close.md) to verify the thread's results
   and secure unsaved work.
