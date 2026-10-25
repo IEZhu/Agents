@@ -64,6 +64,7 @@ on:
       - tests/test_startup_handshake.py
       - tests/test_daemon_runtime_override.py
       - tests/test_daemon_autoupdate.py
+      - tests/test_self_update.py
       - tests/test_daemon_update.py
       - tests/test_daemon_update_dependencies.py
       - tests/test_environments.py
@@ -136,6 +137,7 @@ on:
       - tests/test_startup_handshake.py
       - tests/test_daemon_runtime_override.py
       - tests/test_daemon_autoupdate.py
+      - tests/test_self_update.py
       - tests/test_daemon_update.py
       - tests/test_daemon_update_dependencies.py
       - tests/test_environments.py
@@ -203,7 +205,9 @@ jobs:
         run: python -B -m pytest tests/test_cooperation_mailbox.py tests/test_cooperation_requests.py tests/test_cooperation_notifications.py tests/test_cooperation_service.py tests/test_cooperation_models.py tests/test_cooperation_mcp.py tests/test_cooperation_runtime_integration.py tests/test_cooperation_instructions.py tests/test_subagent_combined_budget.py -q -p no:cacheprovider
       - name: Lazy log worker startup and async writes
         run: python -B -m pytest tests/test_log_interaction_async.py tests/test_log_worker_startup.py -q -p no:cacheprovider
-      - name: POSIX fake native and Redis boundaries, runtime identity and update admission
+      - name: POSIX fake native and Redis boundaries, runtime identity, update admission and the stdio updater
         if: runner.os != 'Windows'
         shell: bash
-        run: python -B -m pytest tests/test_local_inference_*.py tests/test_daemon_runtime_override.py tests/test_daemon_autoupdate.py -q -p no:cacheprovider
+        run: >-
+          python -B -m pytest tests/test_local_inference_*.py tests/test_daemon_runtime_override.py
+          tests/test_daemon_autoupdate.py tests/test_self_update.py -q -p no:cacheprovider
