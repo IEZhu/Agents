@@ -409,11 +409,11 @@ Loading a flow does not route or complete the task. See the
 Over stdio the server answers `initialize` and `tools/list` right after cheap
 setup (configuration, tool registration, the router's agent scan). Loading the
 skill and implant stores, the embedding model and the rules cache happens in one
-background daemon thread started right before `mcp.run()`
-(`src/engine/readiness.py`). The Langfuse library is imported on first traced
-call, never before the handshake. Startup logs carry a timestamp and PID, and one
-line reports the PID, working directory, code revision and per-phase durations
-when readiness completes.
+background daemon thread (`src/engine/readiness.py`) that `src/stdio_runtime.py`
+starts before the Personal startup hook and `mcp.run()`. The Langfuse library is
+imported on first traced call, never before the handshake. Startup logs carry a
+timestamp and PID, and one line reports the PID, working directory, code
+revision and per-phase durations when readiness completes.
 
 Tools that need retrieval wait for readiness for at most `WARMUP_WAIT_SECONDS`
 (default 20): `route_and_load`, `get_agent_context`, `refresh_persona_context`,

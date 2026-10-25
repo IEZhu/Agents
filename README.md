@@ -956,7 +956,7 @@ passing server tests alone does not establish it.
 
 ```
 Agents/
-├── .github/workflows/    # Windows installer CI and the issue-agent bridge
+├── .github/workflows/    # CI checks, vulnerability and release gates, issue-agent bridge
 ├── agents/               # Agent personas, discovered from system_prompt.mdc
 │   ├── software_engineer/
 │   │   └── system_prompt.mdc
@@ -970,6 +970,8 @@ Agents/
 ├── src/
 │   ├── server.py         # FastMCP tools, prompts, and standalone entrypoint
 │   ├── startup.py        # Installation leases and isolated stdio indexes
+│   ├── personal_runtime.py # Personal startup hooks for the daemon and standalone stdio
+│   ├── stdio_runtime.py  # Stdio run loop with supplied startup hook and log drain
 │   ├── self_update.py    # Standalone staged updates
 │   ├── reindex.py        # Skill and implant index rebuild
 │   ├── model_migration.py # One-time switch to the default embedding model
@@ -995,6 +997,7 @@ Agents/
 │   │   ├── rules.py      # Shared rule loading
 │   │   ├── config.py     # Centralized configuration
 │   │   ├── embedder.py   # Dense ONNX embedding wrapper
+│   │   ├── onnx_embedding.py # Dense ONNX adapter with the retained FastEmbed catalog
 │   │   ├── embedding_prompts.py # Model prompts and extra model registrations
 │   │   ├── vector_store.py # NumPy-based vector store
 │   │   ├── enrichment.py # Tier-based context enrichment
@@ -1326,7 +1329,7 @@ including case variants and macOS volume aliases of the protected checkout.
 
 - **`describe_repo`** — reads repository context without sampling or writing project files, including with `force_refresh=True`. Returns `up-to-date` with the cached summary preview, or `needs_summary` with a prompt, `repo_hash`, `repo_path`, `workspace_id` and an `instruction` for the calling model. The prompt's context bundle (directory tree to depth 3, root manifests, first 200 lines of `README.md`) is capped at 24,000 shown units, the size Claude Code counts for a tool result, so the whole response stays under its 50,000-unit inline limit and is shown inline; a part over its cap is cut at a line boundary and ends with a note of what it left out. A refresh is needed when the repository fingerprint changes (top-level names, first- and second-level directory names, key manifest contents and the head of `README.md`), the managed section is missing, or `force_refresh=True`. Both stdio and HTTP use the same read-only behavior.
 - **`write_repo_summary`** — explicitly persists the caller's overview in the managed *Repository Memory* section of `CLAUDE.md` and updates its fingerprint cache. Follow the description's `instruction` before calling it. The running Agents-Core installation and runtime source root are protected: writes return `rejected` with a `live_installation` reason before creating a lock, summary or cache. Existing summaries remain readable there; keep a new overview in the answer or use a separate worktree and describe that target again. A worktree's default memory root can normalize to the main checkout. A nested worktree inside the authorized workspace can be selected with its explicit physical `repo_path`; for an external worktree, first set a per-project `AGENTS_CLIENT_REPO_ROOT` to its physical path and reconnect MCP, or register that physical root over HTTP. Ordinary project and explicitly selected worktree summaries retain their existing storage and freshness behavior.
-- **`log_interaction`** — end-of-turn logger. Appends `intent / action / outcome` entries (with optional files and tags) to `history.md` at the repo root; deduplicated by content hash; rotated to `history/YYYY-MM.md` when the file exceeds 512 KB. Also sends a Langfuse generation trace if keys are configured. A partial, malformed or mismatching `persona`, or `persona_action` without `persona`, never drops the turn: the entry is written with an `unverified`/`mismatch` persona line and the response carries `warnings`; a turn whose project does not resolve goes to the installation's fallback journal (see below) instead of being dropped (sinks stay best-effort: a full queue or a sink failure can still lose a write; a failed history write is reported as `history_last_error`, see below). It returns at once with a local `timestamp` (`YYYY.MM.DD HH:MM:SS`), which the final answer shows as its first line when the footer lists the `answer-timestamp` rule; both writes happen in the background and are drained on shutdown.
+- **`log_interaction`** — end-of-turn logger. Appends `intent / action / outcome` entries (with optional files and tags) to `history.md` at the repo root; deduplicated by content hash; rotated to `history/YYYY-MM.md` when the file exceeds 512 KB. Also sends a Langfuse generation trace if keys are configured. A partial, malformed or mismatching `persona`, or `persona_action` without `persona`, never drops the turn: the entry is written with an `unverified`/`mismatch` persona line and the response carries `warnings`; a turn whose project does not resolve goes to the installation's fallback journal (see below) instead of being dropped (sinks stay best-effort: a full queue, a log worker that cannot start or a sink failure can still lose a write; a failed history write is reported as `history_last_error`, see below). It returns at once with a local `timestamp` (`YYYY.MM.DD HH:MM:SS`), which the final answer shows as its first line when the footer lists the `answer-timestamp` rule; both writes happen in the background and are drained on shutdown.
 - **`read_history`** — returns recent entries by recency/`since` filter, or runs a lazy semantic search backed by the same `NumpyVectorStore` used for routing. A listing stays under the 50,000 characters above which Claude Code saves a tool result to a file. `outcome` comes as a preview of up to 600 characters, `intent` and `action` of up to 300, `files` and `tags` keep up to 20 items, and a shortened entry gives each cut field's full length in `truncated` (characters, or items for a list). When that is still too much, the previews get shorter, and then the last entries are left out, counted in `omitted`; `offset` skips that many entries, and the `instruction` gives the `offset` and `limit` that read them; entries logged between two calls shift those pages. Semantic results carry `intent`, `action` and `outcome` like recent ones, without `files` and `metadata`. `read_history(entry_id=...)` returns one entry whole, also one that rotation moved to `history/YYYY-MM.md`. With [user library sync](docs/user-sync.md#repository-history) set up, a repository's top-level checkout (with an `origin`) reads its `history.md` and `history/*.md` merged with the entries the user's machines shared for that repository, including this machine's other checkouts: one per entry hash, the checkout's own copy first, ordered by time and read newest month first. Each entry carries `machine` (null for the checkout's own entries, else the label of the machine that wrote it); `machine=<label>` keeps that machine's entries and `machine=local` this checkout's own. `history.md` itself stays the checkout's journal. A machine shares a repository's entries only after its owner reviewed them with `python -m src.user_sync history export`: approval covers the repository's later entries on that machine and exactly the past entries listed, so another checkout that joins later waits for its own review. `python -m src.user_sync history share all` shares every repository's entries from that machine without a review instead, except repositories `history revoke` leaves out.
 
 Over stdio, a non-empty `AGENTS_CLIENT_REPO_ROOT` selects the project as named
@@ -1461,7 +1464,8 @@ main|dev` or the web UI's Updates section ([update channel](#update-channel)). T
 ### Vulnerability gate
 
 `Vulnerability scan` audits the complete committed `uv.lock` on every pull request,
-merge queue, push to `dev`/`main`, manual run and daily schedule. Trivy 0.76.1 includes
+merge queue, push to `dev`/`main` and manual run, and daily on the default branch,
+`main`, once the workflow is there. Trivy 0.76.1 includes
 development dependencies and every severity, including unknown and unfixed issues.
 uv 0.11.25 first rejects drift between dependency declarations (including every
 optional extra) and the lock, with source builds disabled. Missing or unparsed
@@ -1474,10 +1478,11 @@ requirements at scan time; it does not turn independent pip installs into locked
 No repository ignore policy is loaded. Release publication scans the exact merged
 release commit again and depends on both inventories passing.
 
-Require the `Vulnerability scan` check in the protection rules for `dev` and `main`
-after this workflow lands; a failing workflow alone does not prevent an unprotected
-branch from being merged. Fix dependencies rather than adding an automatic exception
-for a vulnerability without an available fix. Revert the workflow change to roll back
+A failing scan blocks a merge into `dev` or `main` only when the repository rules
+require the `Vulnerability scan` check; add that required check to enforce the
+gate before a merge. Release publication waits for its own scan of the merge
+commit either way. Fix dependencies rather than adding an automatic exception for
+a vulnerability without an available fix. Revert the workflow change to roll back
 this policy, updating any required-check rule at the same time.
 
 ### Validation
