@@ -643,6 +643,49 @@ class TestContextBundleBudget:
         assert dropped_two > 0
         assert note.startswith(f"… {400 + dropped_two} more entries (400 at depth 3, {dropped_two} at depth 2;")
 
+    def test_tree_measures_the_full_listing_in_shown_units(self, tmp_path):
+        # Short names with an astral character: each line costs far more than its length.
+        tops = [f"🚀{top:02}" for top in range(30)]
+        names = [f"{leaf:02}🚀" for leaf in range(40)]
+        for top in tops:
+            (tmp_path / top).mkdir()
+            for name in names:
+                (tmp_path / top / name).write_text("")
+        full = "\n".join(line for top in tops for line in [f"{top}/"] + [f"  {name}" for name in names])
+        room = describer_module._body_room(_TREE, describer_module.DESCRIBE_TREE_MAX_CHARS)
+        # The full listing fits the room by its length, not by what it shows.
+        assert len(full) <= room < _cost(full)
+        section = _sections(RepoDescriber(repo_path=str(tmp_path)).build_context_bundle())[_TREE]
+        assert _cost(section) <= describer_module.DESCRIBE_TREE_MAX_CHARS
+        lines = _body(section)
+        note = lines.pop()
+        assert note.endswith(" at depth 2; the deepest lines were cut first, evenly across directories)")
+        assert _children(lines, 1) == {(): [f"{top}/" for top in tops]}
+        leaves = _children(lines, 2)
+        counts = [len(kept) for kept in leaves.values()]
+        assert len(leaves) == len(tops) and max(counts) - min(counts) <= 1 and max(counts) < len(names)
+        assert all(kept == names[:len(kept)] for kept in leaves.values())
+
+    @pytest.mark.parametrize("over", [0, 1])
+    def test_full_tree_listing_is_kept_whole_up_to_its_exact_room(self, tmp_path, monkeypatch, over):
+        per_dir = describer_module.DESCRIBE_TREE_MAX_ENTRIES_PER_DIR
+        names = [f"🚀_{index:02}.txt" for index in range(per_dir + 5)]
+        (tmp_path / "wide").mkdir()
+        for name in names:
+            (tmp_path / "wide" / name).write_text("")
+        full = ["wide/"] + [f"  {name}" for name in names]
+        # The room holds the full listing exactly, or one shown unit less.
+        frame = _cost(describer_module._fenced(_TREE, ""))
+        monkeypatch.setattr(describer_module, "DESCRIBE_TREE_MAX_CHARS", frame + _cost("\n".join(full)) - over)
+        section = _sections(RepoDescriber(repo_path=str(tmp_path)).build_context_bundle())[_TREE]
+        if over:
+            # One unit more than the room: the per-directory cap applies.
+            assert _cost(section) < describer_module.DESCRIBE_TREE_MAX_CHARS
+            assert _body(section) == full[:1 + per_dir] + ["  … 5 more entries"]
+        else:
+            assert _cost(section) == describer_module.DESCRIBE_TREE_MAX_CHARS
+            assert _body(section) == full
+
     def test_tree_trim_counts_the_entries_of_a_dropped_directory_note(self):
         tree_line = describer_module._TreeLine
         lines = [
