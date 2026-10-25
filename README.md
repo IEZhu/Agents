@@ -69,8 +69,10 @@ checkout), then runs `scripts/init_repo.sh --yes` after a single confirmation.
   from before the current model generation moves to the default model once
   ([model switch on update](#model-switch-on-update)); otherwise setup writes the
   one default model (see [Environment Variables](#environment-variables));
-- an existing `.venv` is reused and its dependencies are refreshed; it is
-  recreated only when its Python version is unknown or older than 3.11;
+- an existing `.venv` is reused and its dependencies are refreshed (in the
+  environment it links to, after an [update delivered
+  dependencies](#standalone-stdio-auto-update)); it is recreated only when its
+  Python version is unknown or older than 3.11;
 - the Claude instruction and routing-reminder prompts are accepted. Client
   registration and Codex instructions never ask (see [After Cloning](#after-cloning));
 - sync between machines is not asked about: the summary says how to turn it on,
@@ -633,7 +635,7 @@ checkout only when it is on the previous setting, which `set` records as
 development and stays untouched, and so is a checkout whose `.env` setting was
 edited by hand without a previous record (`channel set` names the way out). The
 switch runs through the usual update transaction, with its gates (idle service,
-clean tracked tree, unchanged dependency manifests), the build while the service
+clean tracked tree, dependency changes it can deliver), the build while the service
 serves, probation and rollback to the previous branch, with the target branch's
 old tip and upstream settings restored. It waits while another worktree has the
 target branch checked out. A switch to a branch that lacks non-merge commits of the installed HEAD,
@@ -654,12 +656,14 @@ mid-session:
 1. **Prepare** (background): a daemon thread (non-blocking, so it never delays
    serving) fetches the target branch and, if the install is fast-forwardable,
    builds the new version's vector stores in an isolated git worktree under
-   `data/.prepared/<sha>`, then writes a marker. The live tree and stores are
-   untouched.
+   `data/.prepared/<sha>`, then writes a marker. A target that changes the
+   dependencies first gets its own Python environment (see below). The live tree,
+   stores and `.venv` are untouched.
 2. **Activate** (next idle start): if a valid prepared update exists, the server
-   fast-forwards the live tree (local, no network) and atomically moves the
+   fast-forwards the live tree (local, no network), atomically moves the
    pre-built stores into `data/` — the expensive embedding already happened in
-   phase 1. Activation runs only at a start with no other server session of this
+   phase 1 — and points `.venv` at the target's environment when it has one.
+   Activation runs only at a start with no other server session of this
    installation, including the shared daemon; otherwise the update stays pending.
    A start that overlaps activation waits and then loads the new code. Git and
    reindex children keep the installation leased until they and their
@@ -684,18 +688,35 @@ It is **safe by default**:
   activation merge (including a timeout after HEAD moved) restores the old tree.
   If rollback or re-exec fails, or an unexpected activation error leaves the tree's
   state unknown, startup stops instead of serving mixed versions;
-- dependencies are **not** auto-installed. When `requirements.txt` or
-  `pyproject.toml` changed, the updater only logs a warning. The staged updater
-  warns while preparing, before the live checkout has the new manifests, and
-  builds with the current environment, in which the activated code then also
-  runs. For such an update, stop the server sessions and update manually:
-  `git pull --ff-only`, `.venv/bin/pip install -r requirements.txt`,
+- a dependency change gets a Python environment of its own. When the target
+  changes `requirements.txt` or the environment contract of `pyproject.toml`
+  (runtime dependencies, `requires-python`, an existing extra, the build system),
+  prepare builds `.venvs/<id>` beside the live environment with the same base
+  interpreter: `python -m venv`, then `pip install` of the target's
+  `requirements.txt`, its `pyproject.toml` runtime dependencies and every extra
+  the active environment has installed, within
+  `AGENTS_AUTO_UPDATE_ENVIRONMENT_TIMEOUT` (default 1800 s). A complete
+  environment with the same requirements is reused. The stores are built with
+  it, and activation points `.venv` at it after the fast-forward and the store
+  move, so the re-exec starts on it; client configurations keep naming
+  `.venv/bin/python`. `.venv` thereby becomes a link (a directory junction on
+  Windows): the first switch renames the directory setup created to
+  `.venvs/legacy-<UTC time>`. A failed build changes nothing and the next update
+  tries again; every rollback points `.venv` back, and a successful activation
+  removes the environments other than the active and the previous one. Packages
+  installed by hand outside `requirements.txt`, `pyproject.toml` and its extras
+  are not carried into a new environment. A `uv.lock`-only change needs no
+  environment. The updater skips, with a logged reason, a dependency change for a
+  server that does not run on the installation's `.venv`, a `requires-python` its
+  base interpreter does not satisfy, a `requirements.txt` that includes other
+  files, changed `bridge/package.json` or `bridge/package-lock.json`, and missing
+  or malformed manifests. For those, stop the server sessions and update
+  manually: `git pull --ff-only`, `.venv/bin/pip install -r requirements.txt`,
   `.venv/bin/python -m src.model_migration .env` (applies a pending
   [model switch](#model-switch-on-update) before the rebuild), then
-  `.venv/bin/python -m src.reindex`. If it has already activated, stop the
-  sessions and install the dependencies before restarting. Only with
-  `AGENTS_AUTO_UPDATE_STAGING=0` is the new `requirements.txt` already in place
-  when the warning appears.
+  `.venv/bin/python -m src.reindex`. With `AGENTS_AUTO_UPDATE_STAGING=0` every
+  dependency change is skipped: the in-place path has no second environment to
+  build or to roll back to.
 
 Lifetime locks are `flock` on Linux and macOS and `LockFileEx` on Windows. On a
 file system without byte-range locks (some Windows network shares) the server
@@ -720,7 +741,10 @@ activation or rollback. An interrupted mutation or failed rollback keeps the
 journal (and available staging artifacts); subsequent starts stop before importing
 the application, even with auto-update disabled. To recover, stop the sessions,
 inspect the recorded `old_sha` / `target_sha` and Git state, restore a complete
-chosen revision, and successfully run `python -m src.reindex` there. Remove the
+chosen revision, and successfully run `python -m src.reindex` there. A recorded
+`environment` names the environment `.venv` pointed at before (`previous`); point
+`.venv` back at it (or rename `.venvs/<legacy>` back to `.venv`) when you restore
+the old revision. Remove the
 journal only after verifying the restored checkout and rebuilt stores, then
 restart the server. An unreadable journal also requires this explicit recovery.
 
@@ -731,6 +755,7 @@ AGENTS_AUTO_UPDATE_BRANCH=main           # the update channel: main (releases) o
 AGENTS_AUTO_UPDATE_TIMEOUT=30            # seconds per git op
 AGENTS_AUTO_UPDATE_INTERVAL=900          # throttle network checks (0 = every start)
 AGENTS_AUTO_UPDATE_REINDEX_TIMEOUT=3600  # seconds per index build (staged or in-place); stops only a hung build
+AGENTS_AUTO_UPDATE_ENVIRONMENT_TIMEOUT=1800  # seconds to build a dependency change's Python environment
 AGENTS_AUTO_UPDATE_STAGING=1             # 0 = synchronous in-place update at an idle start
 # AGENTS_AUTO_UPDATE_STAGING_DIR=/path   # staging parent (default data/.prepared; same filesystem as data/)
 ```
