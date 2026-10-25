@@ -1479,16 +1479,35 @@ The manual and scheduled controllers use the same dependency gate
 (`src/daemon/update_dependencies.py`), as does the standalone stdio updater. A
 `pyproject.toml` change may update metadata or package data and declare a new
 optional extra without touching the environment; requirement ordering is ignored,
-and so is a `uv.lock`-only change, since installs read `requirements.txt`. A
-change to `requirements.txt` or to the environment contract of `pyproject.toml`
-(runtime dependencies, `requires-python`, a previously declared extra, the build
-system) needs a new environment, which the update builds and switches to (below).
-That needs a service that runs on the installation's `.venv` (the `python` that
-`install` recorded, `.venv/bin/python` by default) and a base interpreter that
-satisfies the target's `requires-python`. Changes to `bridge/package.json` or
-`bridge/package-lock.json`, a `requirements.txt` that includes other files,
-missing or malformed manifests and dynamic dependency declarations still require
-explicit environment maintenance.
+and so is a `uv.lock`-only change, since installs read `requirements.txt`.
+`requirements.txt` is compared by its requirement lines: comments (a `#` at the
+start of a line or after whitespace, as pip reads them), blank lines and
+surrounding spaces do not count, so a comment-only edit needs nothing. A changed
+requirement line, or a change to the environment contract of `pyproject.toml`,
+needs a new environment, which the update builds and switches to (below). That
+contract is `project.dependencies`, `project.requires-python`, every optional
+extra the installed revision declares (a new extra was unavailable before and
+needs nothing; a changed or removed one counts, since the controller cannot tell
+which extras the owner installed) and the whole `build-system` table, including
+backend and backend options. The reason names each changed field:
+`requirements.txt`, `project.dependencies`, `project.requires-python`,
+`project.optional-dependencies.<name>` or `build-system`.
+
+Building that environment needs a service started through the installation's
+`.venv` interpreter (the `python` that `install` recorded, `.venv/bin/python`
+by default) and a `.venv` that is the directory setup created or a link into
+`.venvs`, not a file or a link elsewhere. It needs the base interpreter that
+made `.venv` (`pyvenv.cfg`), present, running and of the same Python version,
+and satisfying the target's `requires-python`. On Windows, `.venv` must already
+be a junction: Windows cannot rename the directory of the running interpreter,
+so there the setup's directory refuses dependency changes. Requirement lines
+that are pip options (`-r`, `-e`, `--index-url` …) or local paths, one
+distribution pinned differently in two places, changes to `bridge/package.json`
+or `bridge/package-lock.json` (nothing installs npm packages), missing or
+malformed manifests and dynamic dependency declarations need explicit
+environment maintenance. The refusal names the manifest and field. For it, stop
+the service, update the checkout, install the dependencies as below and start it
+again.
 
 The update is built while the service keeps serving. Holding the updater lock,
 the controller checks out the target in a worktree under `data/.prepared/<sha>`.
@@ -1500,8 +1519,12 @@ delivered, is refused before anything is built. A target that changes the
 dependencies first gets its environment, `.venvs/<id>` in the installation, from
 the base interpreter of the service's environment: `python -m venv`, then `pip
 install` of the target's `requirements.txt`, its `pyproject.toml` runtime
-dependencies and every extra the active environment has installed, within
-`AGENTS_AUTO_UPDATE_ENVIRONMENT_TIMEOUT` (default 1800 s). A complete environment
+dependencies and the carried extras, within `AGENTS_AUTO_UPDATE_ENVIRONMENT_TIMEOUT`
+(default 1800 s). An extra is carried when both revisions declare it and every one
+of its distributions is installed in the active environment, also as a dependency
+of another package; it installs the target's requirements. venv and pip run in the
+new environment's directory without `PYTHONHOME`, `PYTHONPATH`, `PYTHONSTARTUP`,
+`PYTHONUSERBASE`, `PIP_USER`, `PIP_TARGET` or `PIP_PREFIX`. A complete environment
 with the same requirements is reused, and the reindex runs with its interpreter. A
 failed environment build removes the partial environment, leaves the service
 serving and reports `PREPARE_ENVIRONMENT_FAILED` with the reason; the next run
@@ -1535,16 +1558,19 @@ backs up the live indexes, fast-forwards the checkout to the built commit and
 moves the built indexes into `data/`. For a dependency change it then points
 `.venv` at the new environment (a link, a directory junction on Windows; the first
 switch renames the directory setup created to `.venvs/legacy-<UTC time>`), and the
-service restarts on `.venv/bin/python`, which now resolves to it. The journal
-records what `.venv` pointed at before the switch: a failed probation, a rollback
-and `recover` point it back together with the code and indexes. A successful
-activation removes the environments other than the active and the previous one.
+service restarts on `.venv/bin/python`, which now resolves to it. The switch runs
+in maintenance, with the service stopped and the leases held: POSIX replaces the
+link atomically, while Windows removes the junction and then creates the new one.
+The journal records what `.venv` pointed at before the switch: a failed switch, a
+failed probation, a rollback and `recover` point it back together with the code
+and indexes. A successful activation removes the environments other than the
+active and the previous one.
 These are file operations only, so the
 service is down for its stop, the activation and its warmup. Before the build
 moved ahead of the stop, the reindex ran while the service was down: on
 2026-10-04 an update that added one skill kept it down for six minutes, and
 Claude Code, which stops reconnecting after about 17 seconds, had to be
-reconnected by hand. A failed fast-forward or move restores the previous code
+reconnected by hand. A failed fast-forward, move or environment switch restores the previous code
 and indexes. If the tree changed after the build was checked, activation discards
 the build and the service restarts on the previous code. A rollback or `recover`
 also discards the build, so a partly moved build is never activated later. Git

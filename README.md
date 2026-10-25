@@ -195,14 +195,15 @@ directory that `AGENTS_HOME`, `AGENTS_SERVICE_DIR`, `FASTEMBED_CACHE_DIR` or
 `AGENTS_USER_FLOWS_DIR` names is removed only when its content shows it is Agents-Core's (a
 checkout `AGENTS_HOME` names is kept when it has uncommitted changes, untracked files, a branch
 outside the published `main` and `dev` channels, commits from local refs, reflogs or HEAD
-outside known remote-tracking history, or ignored files outside the installer's `.env` file and `.venv/`
-directory), and
+outside known remote-tracking history, or ignored files outside the installer's `.env` file, its
+`.venv` (a directory, or a link once an update delivered dependencies) and the updater's `.venvs/`
+environments), and
 nothing that is or contains a filesystem root, the home directory, `~/Documents` or a profile
 or XDG base directory is ever removed. Backups are private (0700 directories, 0600 files). A
 checkout you cloned yourself and run the script from is kept when it is separate from the
 installation being removed. The commit check uses existing local remote-tracking refs without
-fetching; it does not confirm that the remote is still available. `.env` and `.venv/` are
-intentional installation assets and can be removed, so keep personal files elsewhere. Other
+fetching; it does not confirm that the remote is still available. `.env`, `.venv` and `.venvs/`
+are intentional installation assets and can be removed, so keep personal files elsewhere. Other
 ignored material, including extra runtime caches, conservatively keeps the selected checkout.
 Registered submodules and retained `.git/modules` repositories also keep the whole checkout,
 because parent Git history does not establish ownership of nested private work.
@@ -689,29 +690,42 @@ It is **safe by default**:
   If rollback or re-exec fails, or an unexpected activation error leaves the tree's
   state unknown, startup stops instead of serving mixed versions;
 - a dependency change gets a Python environment of its own. When the target
-  changes `requirements.txt` or the environment contract of `pyproject.toml`
-  (runtime dependencies, `requires-python`, an existing extra, the build system),
-  prepare builds `.venvs/<id>` beside the live environment with the same base
-  interpreter: `python -m venv`, then `pip install` of the target's
-  `requirements.txt`, its `pyproject.toml` runtime dependencies and every extra
-  the active environment has installed, within
-  `AGENTS_AUTO_UPDATE_ENVIRONMENT_TIMEOUT` (default 1800 s). A complete
-  environment with the same requirements is reused. The stores are built with
-  it, and activation points `.venv` at it after the fast-forward and the store
-  move, so the re-exec starts on it; client configurations keep naming
-  `.venv/bin/python`. `.venv` thereby becomes a link (a directory junction on
-  Windows): the first switch renames the directory setup created to
-  `.venvs/legacy-<UTC time>`. A failed build changes nothing and the next update
-  tries again; every rollback points `.venv` back, and a successful activation
-  removes the environments other than the active and the previous one. Packages
+  changes a requirement line of `requirements.txt` (comments and blank lines do
+  not count) or the environment contract of `pyproject.toml`
+  (`project.dependencies`, `project.requires-python`, an existing
+  `project.optional-dependencies` group, `build-system`), prepare builds
+  `.venvs/<id>` beside the live environment with the same base interpreter:
+  `python -m venv`, then `pip install` of the target's `requirements.txt`, its
+  `pyproject.toml` runtime dependencies and the carried extras, within
+  `AGENTS_AUTO_UPDATE_ENVIRONMENT_TIMEOUT` (default 1800 s). An extra is carried
+  when both revisions declare it and every one of its distributions is installed
+  in the active environment, also as a dependency of another package; it
+  installs the target's requirements. A complete environment with the same
+  requirements is reused. The stores are built with it, and activation points
+  `.venv` at it after the fast-forward and the store move, so the re-exec starts
+  on it; client configurations keep naming `.venv/bin/python`. `.venv` thereby
+  becomes a link (a directory junction on Windows): the first switch renames the
+  directory setup created to `.venvs/legacy-<UTC time>`. The switch runs only
+  while no session of the installation does, under the exclusive lease of an idle
+  start: POSIX replaces the link atomically, while Windows removes the junction
+  and then creates the new one. A failed build changes
+  nothing and the next update tries again; a rollback after a failed merge,
+  store move or switch points `.venv` back, and a successful activation removes
+  the environments other than the active and the previous one. Packages
   installed by hand outside `requirements.txt`, `pyproject.toml` and its extras
   are not carried into a new environment. A `uv.lock`-only change needs no
-  environment. The updater skips, with a logged reason, a dependency change for a
-  server that does not run on the installation's `.venv`, a `requires-python` its
-  base interpreter does not satisfy, a `requirements.txt` that includes other
-  files, changed `bridge/package.json` or `bridge/package-lock.json`, and missing
-  or malformed manifests. For those, stop the server sessions and update
-  manually: `git pull --ff-only`, `.venv/bin/pip install -r requirements.txt`,
+  environment. The updater skips, with a logged reason naming the changed
+  fields, a dependency change when the server was not started through
+  `.venv/bin/python`; when `.venv` is a file or a link outside `.venvs`; when the
+  base interpreter is missing, does not run or is another Python version than
+  the one `.venv` was made with, or does not satisfy the target's
+  `requires-python`; on Windows while `.venv` is still the directory setup
+  created (Windows cannot rename the directory of a running interpreter: stop
+  the sessions and rerun setup); when a requirement line is a pip option (`-r`,
+  `-e`, `--index-url` …) or a local path; when one distribution is pinned
+  differently in two places; for changed `bridge/package.json` or
+  `bridge/package-lock.json`; and for missing or malformed manifests. For those,
+  stop the server sessions and update manually: `git pull --ff-only`, `.venv/bin/pip install -r requirements.txt`,
   `.venv/bin/python -m src.model_migration .env` (applies a pending
   [model switch](#model-switch-on-update) before the rebuild), then
   `.venv/bin/python -m src.reindex`. With `AGENTS_AUTO_UPDATE_STAGING=0` every
@@ -742,9 +756,14 @@ journal (and available staging artifacts); subsequent starts stop before importi
 the application, even with auto-update disabled. To recover, stop the sessions,
 inspect the recorded `old_sha` / `target_sha` and Git state, restore a complete
 chosen revision, and successfully run `python -m src.reindex` there. A recorded
-`environment` names the environment `.venv` pointed at before (`previous`); point
-`.venv` back at it (or rename `.venvs/<legacy>` back to `.venv`) when you restore
-the old revision. Remove the
+`environment` names the Python environment switch, and the startup message
+repeats it. To restore the old revision, point `.venv` at
+`.venvs/<environment.previous.name>` (or, when `previous.legacy` is set, remove
+the `.venv` link and rename `.venvs/<previous.legacy>` back to `.venv`). To keep
+the target, which a checkout already at the target with its stores moved
+requires, point `.venv` at `.venvs/<environment.to>` (first moving a `.venv`
+directory to `.venvs/<previous.legacy>`) and rebuild the stores with that
+interpreter: `.venv/bin/python -m src.reindex`. Remove the
 journal only after verifying the restored checkout and rebuilt stores, then
 restart the server. An unreadable journal also requires this explicit recovery.
 
