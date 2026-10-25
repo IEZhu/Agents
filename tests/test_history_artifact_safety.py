@@ -1,6 +1,9 @@
 """Journal artifacts must not read or import a linked private journal."""
 
 import os
+import stat
+import sys
+from types import SimpleNamespace
 
 import pytest
 
@@ -213,3 +216,125 @@ def test_workspace_preflight_rejects_pending_escape(journals):
 ])
 def test_windows_handle_path_normalization_preserves_dos_and_unc(plain, extended):
     assert history._normalized_windows_path(plain) == history._normalized_windows_path(extended)
+
+
+def test_windows_regular_reparse_file_survives_missing_fstat_tag(journals, monkeypatch):
+    path, _ = journals
+    path.write_bytes(b"cloud-backed journal")
+    real_lstat, real_fstat = os.lstat, os.fstat
+
+    def shaped(info, tag):
+        values = {name: getattr(info, name) for name in dir(info) if name.startswith("st_")}
+        return SimpleNamespace(**{**values, "st_file_attributes": 0x420, "st_reparse_tag": tag})
+
+    def lstat(filename, *args, **kwargs):
+        info = real_lstat(filename, *args, **kwargs)
+        return shaped(info, 0x9000601A) if stat.S_ISREG(info.st_mode) else info
+
+    def fstat(fd):
+        info = real_fstat(fd)
+        return shaped(info, 0) if stat.S_ISREG(info.st_mode) else info
+
+    monkeypatch.delattr(history.os, "O_NOFOLLOW", raising=False)
+    monkeypatch.setattr(history.os, "lstat", lstat)
+    monkeypatch.setattr(history.os, "fstat", fstat)
+    monkeypatch.setattr(history, "_windows_final_path", lambda _: history._normalized_windows_path(str(path)))
+    with history._open_regular(str(path), "rb") as stream:
+        assert stream.read() == b"cloud-backed journal"
+
+
+def test_regular_history_file_does_not_disable_read_or_export(journals):
+    path, _ = journals
+    history.HistoryWriter(str(path)).append_entry("local", "action", "outcome")
+    (path.parent / "history").write_text("project release history")
+    reader = history.HistoryReader(str(path))
+    assert [e.intent for e in reader.journal_entries()] == ["local"]
+    assert [e.intent for e, _ in history.journal_blocks(str(path))] == ["local"]
+    assert [e.intent for e in reader.read_merged(history.MachineHistory("local"))] == ["local"]
+    # Keep keyed acceptance fail-closed when its receipt archive cannot be enumerated.
+    with pytest.raises(NotADirectoryError):
+        history.HistoryWriter(str(path)).append_entry("next", "action", "outcome", idempotency_key="one")
+
+
+def test_failed_unlink_empties_regular_pending_and_keeps_delete_usable(journals, monkeypatch):
+    path, _ = journals
+    pending = path.with_name(path.name + ".rotating")
+    real_unlink = os.unlink
+
+    def refuse_pending(filename, *args, **kwargs):
+        if os.fspath(filename) == str(pending):
+            raise PermissionError("pending busy")
+        return real_unlink(filename, *args, **kwargs)
+
+    monkeypatch.setattr(history.os, "unlink", refuse_pending)
+    result = history.HistoryWriter(str(path), rotation_kb=0).append_entry("local", "action", "outcome")
+    assert pending.stat().st_size == 0
+    reader = history.HistoryReader(str(path))
+    assert reader.read_recent() == []
+    entry, = reader.journal_entries()
+    assert entry.id == result["entry_id"]
+    history.delete_entry(str(path), entry.timestamp[:7], entry.id, entry.timestamp)
+    assert reader.journal_entries() == []
+
+
+def test_delete_reports_unsafe_pending_without_following_it(journals):
+    path, target = journals
+    receipt = history.HistoryWriter(str(path)).append_entry("local", "action", "outcome")
+    before = target.read_bytes()
+    link_or_skip(path.with_name(path.name + ".rotating"), target)
+    with pytest.raises(PermissionError):
+        history.delete_entry(str(path), None, receipt["entry_id"], receipt["timestamp"])
+    assert target.read_bytes() == before
+
+
+@pytest.mark.parametrize("warm", [False, True])
+def test_statistics_refuse_linked_pending_even_with_cached_answers(journals, warm):
+    from src.memory.history_stats import FileSummaries, _workspace_answers
+
+    path, target = journals
+    pending = path.with_name(path.name + ".rotating")
+    summaries = FileSummaries()
+    if warm:
+        pending.write_bytes(target.read_bytes())
+        assert summaries.answers(str(pending))
+        pending.unlink()
+    link_or_skip(pending, target)
+    with pytest.raises(OSError):
+        list(_workspace_answers(path.parent, summaries, "2000-01"))
+
+
+def test_ui_raw_source_refuses_an_in_workspace_link(journals, monkeypatch):
+    from src.daemon.history_ui import HistoryUI
+
+    path, target = journals
+    inside = path.parent / "other.md"
+    inside.write_bytes(target.read_bytes())
+    link_or_skip(path, inside)
+    ui = HistoryUI(SimpleNamespace())
+    monkeypatch.setattr(ui, "_root", lambda _: path.parent)
+    with pytest.raises(OSError):
+        ui.source("workspace", "current")
+
+
+@pytest.mark.parametrize("kind", ["symlink", "directory", "fifo"])
+def test_no_sync_semantic_index_refuses_unsafe_journal(journals, monkeypatch, kind):
+    path, target = journals
+    if kind == "symlink":
+        link_or_skip(path, target)
+    elif kind == "directory":
+        path.mkdir()
+    elif hasattr(os, "mkfifo"):
+        os.mkfifo(path)
+    else:
+        pytest.skip("POSIX named pipes")
+    data_dir = path.parent / "index"
+    data_dir.mkdir()
+    fake_store = SimpleNamespace(count=lambda: 0)
+    monkeypatch.setitem(sys.modules, "src.engine.vector_store", SimpleNamespace(NumpyVectorStore=lambda **_: fake_store))
+    monkeypatch.setitem(sys.modules, "src.engine.embedder", SimpleNamespace(model_fingerprint=lambda: "test"))
+    store = history.HistoryStore(str(path), str(data_dir))
+    parsed = []
+    monkeypatch.setattr(store, "_refresh", lambda *args, **kwargs: parsed.extend(kwargs["load"]()))
+    with pytest.raises(OSError):
+        store._ensure(None)
+    assert not parsed

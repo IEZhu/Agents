@@ -133,21 +133,31 @@ def _reading(history_path: str):
         yield
 
 
-def _archive_names(archive_dir: str) -> List[str]:
+def _archive_names(archive_dir: str, *, strict=False) -> List[str]:
     try:
-        _regular_kind(os.lstat(archive_dir), directory=True)
+        info = os.lstat(archive_dir)
+        if _is_link(info):
+            raise PermissionError("journal archive directory must not be a link")
+        if not stat.S_ISDIR(info.st_mode):
+            if strict:
+                raise NotADirectoryError("journal archive path is not a directory")
+            return []
         return sorted(name for name in os.listdir(archive_dir) if _ARCHIVE_NAME.fullmatch(name))
     except FileNotFoundError:
         return []
 
 
-def _regular_kind(info, *, directory=False):
-    """Reject links, Windows name-surrogate reparse points and special files."""
+def _is_link(info):
+    """Classify an lstat result, including Windows name-surrogate reparse tags."""
     reparse = getattr(info, "st_file_attributes", 0) & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
     tag = getattr(info, "st_reparse_tag", 0)
-    linked = stat.S_ISLNK(info.st_mode) or (reparse and (not tag or tag & 0x20000000))
+    return stat.S_ISLNK(info.st_mode) or bool(reparse and (not tag or tag & 0x20000000))
+
+
+def _regular_kind(info, *, directory=False):
+    """Reject links, Windows name-surrogate reparse points and special files."""
     expected = stat.S_ISDIR if directory else stat.S_ISREG
-    if linked or not expected(info.st_mode):
+    if _is_link(info) or not expected(info.st_mode):
         raise PermissionError("journal artifact must be a regular directory" if directory
                               else "journal artifact must be a regular file")
 
@@ -227,7 +237,11 @@ def _open_regular(path, mode="r", *, root=None, **kwargs):
             fd = os.open(name, flags, dir_fd=directory_fd) if anchored else os.open(filename, flags)
             try:
                 opened = os.fstat(fd)
-                _regular_kind(opened)
+                # Windows fstat omits the reparse tag even for ordinary cloud
+                # files. Link classification belongs to lstat above; identity
+                # and final handle path still verify the object actually opened.
+                if not stat.S_ISREG(opened.st_mode):
+                    raise PermissionError("journal artifact must be a regular file")
                 if not os.path.samestat(before, opened):
                     raise PermissionError("journal file changed while opening")
                 if not anchored and _windows_final_path(fd) != expected_path:
@@ -475,8 +489,12 @@ def delete_entry(history_path: str, month: Optional[str], entry_id: str, timesta
     path = history_path if month is None else os.path.join(archive_dir, f"{month}.md")
     with _WRITE_LOCK, file_lock(_sidecar(history_path)):
         pending = history_path + ".rotating"
-        if os.path.exists(pending) and os.path.getsize(pending) > 0:  # an emptied leftover holds nothing
-            raise EntryChanged("a rotation of history.md is pending; try again in a moment")
+        try:
+            with _open_regular(pending, "rb") as stream:
+                if os.fstat(stream.fileno()).st_size > 0:  # an emptied leftover holds nothing
+                    raise EntryChanged("a rotation of history.md is pending; try again in a moment")
+        except FileNotFoundError:
+            pass
         try:
             with _open_regular(path, "r", root=_archive_root(history_path, archive_dir) if month else None,
                                encoding="utf-8", errors="surrogateescape", newline="") as stream:
@@ -739,7 +757,7 @@ class HistoryWriter:
             # The local journal includes archives and interrupted rotations.
             # Synced segments are another writer's data, not this acceptance scope.
             texts = [(self.history_path, content)]
-            archives = _archive_names(self.archive_dir)
+            archives = _archive_names(self.archive_dir, strict=True)
             paths = [self.history_path + ".rotating"] + [os.path.join(self.archive_dir, name) for name in archives]
             for path in paths:
                 try:
@@ -947,7 +965,7 @@ class HistoryWriter:
 
     @staticmethod
     def _discard_pending(pending: str) -> None:
-        """Remove an already-archived pending file, never raising.
+        """Remove or safely empty an already-archived pending file, never raising.
 
         The archive holds the payload at this point, so a cleanup failure must
         not look like a failed merge: a leftover payload is recognized by
@@ -957,6 +975,15 @@ class HistoryWriter:
             os.unlink(pending)
             _sync_directory(os.path.dirname(pending) or ".")
             return
+        except OSError:
+            pass
+        try:
+            with _open_regular(pending, "r+b") as stream:
+                stream.truncate(0)
+                stream.flush()
+                os.fsync(stream.fileno())
+        except FileNotFoundError:
+            pass  # The unlink succeeded but syncing the directory failed.
         except OSError as err:
             key = (pending, getattr(err, "errno", None))
             if key not in _ROTATION_WARNED:
@@ -1392,22 +1419,19 @@ class HistoryStore:
             if machines is not None:
                 return self._ensure_merged(machines, embed_texts)
 
-            # If the history file was deleted/moved, clear the store so semantic
-            # search doesn't return stale entries.
-            if not os.path.exists(self.history_path):
-                if self._store.count() > 0:
-                    self._store.clear()
-                    self._store.save()
-                return self._store
-
-            from src.engine.embedder import model_fingerprint
             with _reading(self.history_path):
                 # Content-based invalidation catches edits that preserve mtimes.
                 try:
-                    with open(self.history_path, "rb") as source:
+                    with _open_regular(self.history_path, "rb") as source:
                         data = source.read()
                 except FileNotFoundError:
-                    data = b""
+                    # Missing history clears stale vectors without loading an
+                    # embedding model. Unsafe artifacts remain storage errors.
+                    if self._store.count() > 0:
+                        self._store.clear()
+                        self._store.save()
+                    return self._store
+            from src.engine.embedder import model_fingerprint
             digest = hashlib.sha256(data).hexdigest() + ":" + model_fingerprint()
             # Embedding runs under the index's own lock, never the history lock:
             # appends and readers do not wait for the model.

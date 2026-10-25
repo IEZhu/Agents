@@ -720,7 +720,7 @@ def test_cleanup_failure_after_archive_commit_does_not_restore_pending(tmp_path,
         return real_unlink(path, *args, **kwargs)
 
     def locked_open(path, mode="r", *args, **kwargs):
-        if str(path).endswith(".rotating") and "w" in mode:
+        if str(path).endswith(".rotating") and ("w" in mode or "+" in mode):
             raise PermissionError(32, "in use")
         return real_open(path, mode, *args, **kwargs)
 
@@ -731,7 +731,8 @@ def test_cleanup_failure_after_archive_commit_does_not_restore_pending(tmp_path,
         writer.append_entry("again", "a", "o")
         writer.append_entry("and again", "a", "o")
     monkeypatch.undo()
-    assert len([r for r in caplog.records if "could not clear archived pending" in r.getMessage()]) <= 1
+    assert len([r for r in caplog.records if "could not clear archived pending" in r.getMessage()]) == 1
+    assert "tail " in Path(history_path + ".rotating").read_text(encoding="utf-8")
     live = Path(history_path).read_text(encoding="utf-8")
     archived = "".join(p.read_text(encoding="utf-8") for p in archive_dir.glob("*.md"))
     assert "tail " in archived

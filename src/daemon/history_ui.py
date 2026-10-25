@@ -41,7 +41,7 @@ from typing import Optional
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from src.memory.history import ENTRY_ID, EntryChanged, _archive_names, _reading, delete_entry, parsed_file
+from src.memory.history import ENTRY_ID, EntryChanged, _archive_names, _open_regular, _reading, delete_entry, parsed_file
 from src.memory.history_stats import FileSummaries, attribution
 from .state import read_json
 from .workspaces import WorkspaceError
@@ -215,9 +215,9 @@ class HistoryUI:
                     path = _file_path(root, name)
                     if name == CURRENT:
                         with _reading(str(path)):
-                            answers = self.summaries.answers(str(path))
+                            answers = self.summaries.answers(str(path), root=str(root))
                     else:
-                        answers = self.summaries.answers(str(path))
+                        answers = self.summaries.answers(str(path), root=str(root))
                     size = path.stat().st_size
                 except (HistoryError, OSError):
                     files.append({"file": name, "entries": None, "bytes": None, "newest": None, "unreadable": True})
@@ -294,7 +294,7 @@ class HistoryUI:
             raise HistoryError("file_not_found", f"{file} does not exist in this workspace", 404)
         # history.md under the shared history lock, as every reader: a rotation never sees it open.
         with _reading(str(root / "history.md")) if file == CURRENT else _nothing():
-            with open(path, encoding="utf-8", errors="replace", newline="") as stream:
+            with _open_regular(path, root=str(root), encoding="utf-8", errors="replace", newline="") as stream:
                 return {"workspace": workspace, "file": file, "text": stream.read()}
 
     def delete(self, workspace: str, file, entry, time) -> dict:

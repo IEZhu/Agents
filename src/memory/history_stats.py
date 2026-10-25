@@ -13,14 +13,13 @@ import heapq
 import json
 import os
 import re
-import stat
 import threading
 from collections import Counter, OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Optional
 
-from src.memory.history import _FIELD_RE, _HEADER_RE, _archive_names, _reading
+from src.memory.history import _FIELD_RE, _HEADER_RE, _archive_names, _open_regular, _reading
 
 DAYS = 30  # the window of the counts and of the chart
 RECENT = 50  # the newest answers across workspaces
@@ -115,26 +114,24 @@ class FileSummaries:
         self._lock = threading.Lock()
         self.reads = 0  # files parsed, not served from the cache
 
-    def answers(self, path: str) -> tuple[Answer, ...]:
+    def answers(self, path: str, *, root=None) -> tuple[Answer, ...]:
         """The answers of ``path``; empty when it does not exist. Other read errors propagate."""
         try:
-            info = os.stat(path)
-        except (FileNotFoundError, NotADirectoryError):
+            with _open_regular(path, "r", root=root, encoding="utf-8", errors="replace", newline="") as stream:
+                info = os.fstat(stream.fileno())
+                key = (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns)
+                with self._lock:
+                    cached = self._items.get(path)
+                    if cached is not None and cached[0] == key:
+                        self._items.move_to_end(path)
+                        return cached[1]
+                answers = tuple(_answers(stream))
+                after = os.fstat(stream.fileno())
+        except FileNotFoundError:
             return ()
-        if not stat.S_ISREG(info.st_mode):
-            return ()
-        key = (info.st_ino, info.st_size, info.st_mtime_ns)  # a replaced file differs even at equal size
-        with self._lock:
-            cached = self._items.get(path)
-            if cached is not None and cached[0] == key:
-                self._items.move_to_end(path)
-                return cached[1]
-        with open(path, "r", encoding="utf-8", errors="replace", newline="") as stream:
-            answers = tuple(_answers(stream))
-            after = os.fstat(stream.fileno())
         with self._lock:
             self.reads += 1
-            if (after.st_ino, after.st_size, after.st_mtime_ns) == key:  # unchanged while read
+            if (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns) == key:  # unchanged while read
                 self._items[path] = (key, answers)
                 self._items.move_to_end(path)
                 while len(self._items) > self._max_files:
@@ -154,13 +151,13 @@ def _workspace_answers(root: Path, files: FileSummaries, since_month: str) -> It
     chosen: dict[tuple[str, str], Answer] = {}
     for name in _archive_names(archive_dir):
         if name[:7] >= since_month:
-            for answer in files.answers(os.path.join(archive_dir, name)):
+            for answer in files.answers(os.path.join(archive_dir, name), root=str(root)):
                 chosen[(answer.id, answer.time)] = answer
     pending = history + ".rotating"
-    if os.path.exists(history) or os.path.exists(pending):
+    if os.path.lexists(history) or os.path.lexists(pending):
         with _reading(history):
             for path in (pending, history):
-                for answer in files.answers(path):
+                for answer in files.answers(path, root=str(root)):
                     chosen[(answer.id, answer.time)] = answer
     return chosen.values()
 

@@ -37,15 +37,21 @@ workspaces instead of redirecting to the fallback journal. Unkeyed Personal
 clients retain their existing fallback behavior. Journal symlinks are refused
 before writing because replacement would change the journal's physical identity.
 
-Reads, receipt lookup and Git export also refuse symbolic links and nonregular
+Reads (including statistics, raw UI source and semantic indexing), receipt lookup
+and Git export also refuse symbolic links and nonregular
 files in the live journal, pending rotation and monthly archives. Local archive
-paths are opened relative to the workspace root; an explicitly configured
-external archive retains its separate trusted root. POSIX opens each descendant
+paths are opened relative to the workspace root; the Python API's explicit
+external `archive_dir` retains its separate trusted root, which must not itself
+be a link. POSIX opens each descendant
 directory and file without following links. Windows verifies the final opened
 handle's path before reading. Parse-cache hits undergo the same file checks.
 An unsafe artifact causes an explicit storage error rather than a partial
 export or a successful acceptance based on another journal's receipt. Repair
 the storage layout before retrying with the same idempotency key.
+
+A regular project file named `history` (or `HISTORY` on a case-insensitive
+filesystem) does not disable ordinary reads or export. Keyed acceptance still
+fails closed when that path prevents inspection of its receipt archive.
 
 Receipts have **no automatic expiry**. Lookup includes the live file, a pending
 rotation and every local monthly archive, independently of the legacy last-50
@@ -126,9 +132,12 @@ Regression coverage includes real child-process exits before commit and after
 commit/before response, cross-process and concurrent retries, changed payloads,
 archive-only replay, deletion followed by retry, workspace refusal and immediate
 I/O error reporting. The existing Personal/Git suite remains part of acceptance.
-The Workspace bindings workflow runs `tests/test_memory_acceptance.py` on Linux,
-macOS and Windows. Its symlink cases skip only when Windows denies the required
-symlink privilege; this does not skip the other durability and replay checks.
+The Workspace bindings workflow runs the complete history, memory-acceptance,
+artifact-safety, statistics and history-UI suites on Linux, macOS and Windows
+with Python 3.11, plus Windows with Python 3.13. Symlink cases skip only when
+Windows denies the required privilege; POSIX-only cases report their skips.
+The remaining durability and replay checks still run. The User sync workflow
+separately includes the Personal/Git history tests on all three platforms.
 
 Teams/Hosted contributions follow the `team` integration path in the
 [release procedure](releases.md#procedure).
