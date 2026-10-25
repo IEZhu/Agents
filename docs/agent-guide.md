@@ -10,7 +10,7 @@ Agents-Core supplies specialist context and reusable procedures to an AI assista
 | "Use the code reviewer role" | `get_agent_context` with `agent_name="code_reviewer"` | Direct activation of the named role |
 | "Which specialist roles are installed?" | `list_agents` | The installed catalog; discovery alone does not activate a role |
 | "Run the PR review procedure" or "refresh these docs using our procedure" | `list_flows`, then user-requested `run_flow` | Markdown instructions bound to the caller's repository; the current model continues execution |
-| "Give a worker a bounded review task" | `get_subagent_context` | A compact worker context, the original contract to retain and a fixed result schema |
+| "Give a worker a bounded review task" | `get_subagent_context` | A short receipt with the worker's `launch` text and the `contract_revision` to keep; the worker reads its package file and answers in a fixed plain-text result format |
 | "What context do we have from earlier work here?" | `describe_repo` or `read_history` | Repository context or existing journal entries; an empty history is possible. `describe_repo` returns a cached summary or `needs_summary` with a size-capped prompt; the protocol asks for it once, at a conversation's first work in a repository |
 | "Give several workers the same exact input" | Artifact publication and manifest tools | Persistent UTF-8 inputs pinned by identity and hash; see [shared artifacts](shared-artifacts.md) |
 | "Coordinate workers whose work overlaps" | `cooperation_register` and `cooperation_read` for discovery; `cooperation_apply` for an agreement and `acquire` | Agree on scope and one integrator, obtain all required acknowledgements for a committed agreement, and acquire valid resource claims before conflicting work. Registration alone reserves no resource; see [cooperation runtime](agent-cooperation/runtime.md) |
@@ -43,7 +43,7 @@ If the response is `ROUTE_REQUIRED`, select the best canonical candidate and cal
 
 Apply only a complete `SUCCESS`: its `replaces_activation_id` must match the active activation, or be null for this initial activation. Replace the four returned instruction blocks together and retain the exact `persona` descriptor and `footer`. `NO_CHANGE` keeps the existing bundle; an error does not activate a role. Follow the returned application and logging instructions before answering. See the [full protocol](routing_flow.md) for restore, refresh and unavailable-server behavior.
 
-For later requests that fit the active role, keep it locally without another routing or enrichment call. When a switch is needed, pass the retained descriptor verbatim as `current_persona`; null in these examples means there was no prior activation. A prepared worker uses its separate task package and result schema.
+For later requests that fit the active role, keep it locally without another routing or enrichment call. When a switch is needed, pass the retained descriptor verbatim as `current_persona`; null in these examples means there was no prior activation. A prepared worker uses its separate task package and result format.
 
 ## Run a repeatable procedure
 

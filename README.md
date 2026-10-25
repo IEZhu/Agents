@@ -756,7 +756,7 @@ The server exposes MCP tools that any compatible client can call:
 | `route_and_load(query, chat_history?, protocol_version=2, current_persona?)` | Semantic routing when selection is requested; returns a loaded role or candidates for the client to choose |
 | `get_agent_context(agent_name, query, reasoning?, chat_history?, protocol_version=2, current_persona?, force_reload=False)` | Direct agent loading when the target is already known; the active agent returns `NO_CHANGE` unless `force_reload=True` restores lost instructions |
 | `refresh_persona_context(query, current_persona, chat_history?)` | Refresh skills/implants for the active role without reselecting it |
-| `get_subagent_context(agent_name, task, acceptance_criteria, ..., complexity?, client?)` | Prepare a compact task-scoped worker role, bounded components and a versioned result contract; with `complexity`, also the model to launch it on; [worker guide](docs/subagent-contract.md) |
+| `get_subagent_context(agent_name, task, acceptance_criteria, ..., complexity?, client?, delivery?, result_format?)` | Prepare a compact task-scoped worker role, bounded components and a versioned result contract; by default the package goes to a private file and the reply is a receipt with the worker's `launch` text; with `complexity`, also the model to launch it on; [worker guide](docs/subagent-contract.md) |
 | `validate_subagent_result(contract_revision, result_ref)` | Check the worker's text or JSON result, read from its transcript or result file, against the contract the server stored (or `contract`/`result` for an inline package); structural validation only, without opening references inside the result; returns `result_sha256` and names the next model tier when a tiered worker fell short |
 | `cooperation_register(...)` | Register bounded work in the optional local cooperation journal; does not spawn workers or grant repository access |
 | `cooperation_read(...)` | Read a bounded repository snapshot and ordered cooperation events through the verified workspace |
@@ -787,7 +787,7 @@ The server exposes MCP tools that any compatible client can call:
 | `local_generate` / `local_generation_result` / `local_generation_cancel` | Submit one bounded completion, reconnect/poll its retained result, or cancel it; UUID deduplication prevents a repeated submit from generating twice |
 
 For shared task inputs, publish once and pass the complete manifest to
-`get_subagent_context.artifact_manifest`. Preparation pins it in the retained
+`get_subagent_context.artifact_manifest`. Preparation pins it in the task
 contract and supplies exact reads for a native worker. The parent still validates
 the unchanged result and independently verifies its artifact evidence. Optional
 `local_context_create.artifact_manifest` instead hydrates every selected entry
@@ -892,7 +892,8 @@ per-result interaction log; ordinary conversation attribution remains unchanged.
 
 [Model tiers](docs/subagent-model-tiers.md) cut flagship tokens on simpler
 assignments. The parent rates each one `complexity: low | standard | high` and
-names its host in `client`; the package's `execution.spawn` then launches the worker on the newest lighter model
+names its host in `client`; the receipt's `execution.spawn` then launches the
+worker on the newest lighter model
 the client offers: Claude Code `haiku` or `sonnet`, Codex's newest `*-luna` or
 `*-sol` at medium effort, Cursor Auto or its newest Composer. `high` keeps the
 parent's model. Risky or large assignments are raised to a higher tier, and a

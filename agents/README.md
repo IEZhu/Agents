@@ -104,8 +104,8 @@ copying every available skill:
   mid-instruction.
 
 The reusable body does not define the final answer format: the prepared package
-provides the task, acceptance criteria, worker rules, and exact result schema.
-Workers return that envelope without a full persona activation or conversation
+provides the task, acceptance criteria, worker rules, and exact result format.
+Workers return that result without a full persona activation or conversation
 footer/log call. The parent validates structure and separately assesses the
 evidence. See the [worker rules](../rules/subagents/README.md) and
 [task contract](../docs/subagent-contract.md).
