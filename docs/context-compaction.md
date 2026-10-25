@@ -126,35 +126,37 @@ state write. Native user-initiated compaction remains available independently.
 
 ## Claude Code's auto-compact window
 
-The plugin acts only after a completed main turn, and only when no subagent or
-background agent is still running. A long autonomous run, such as working through
-a PR queue with reviewers and workers, can go on for hours as one turn, or with
-agents running between its turns: the plugin does not act in it, and only Claude
-Code's own auto-compaction applies. Without a configured window, a local session on
-a model with a native 1M context window (the Fable models, Sonnet 5 and later,
-Haiku 5.5, Opus 4.7 and later) compacts at about 967K tokens, unless
-`CLAUDE_CODE_DISABLE_1M_CONTEXT=1` holds it at 200K. Claude Code sends the whole
-conversation with every request; prompt caching makes the repeated part cheaper,
-but usage still grows with the context.
+The plugin acts only after a completed main turn, and only when none of the
+session's subagents or teammates is still running. A long autonomous run, such as
+working through a PR queue with reviewers and workers, can last for hours inside
+one turn, or across turns that each end while a subagent is still running: the
+plugin does not act then, and only Claude Code's own auto-compaction applies.
+Without a configured window, a local session on a model with a native 1M context
+window (the Fable models, Sonnet 5 and later, Haiku 5.5, Opus 4.7 and later)
+compacts at about 967K tokens, unless `CLAUDE_CODE_DISABLE_1M_CONTEXT=1` holds it
+at 200K. Claude Code sends the whole conversation with every request; prompt
+caching makes the repeated part cheaper, but usage still grows with the context.
 
 One measured day was dominated by an autonomous PR-queue session on Opus with the
 1M window, about 81% of the day's usage. Its main thread grew to 963K tokens before
 it compacted. Across the day's transcripts, an estimated 70% of usage went to
 requests with more than 150K tokens of context and 40% to requests with more than
 300K (weighted by API price ratios), and a 300K window was estimated to save 10 to
-21% of that session's usage. These are estimates from one session, so take 300K as
-a starting point for long autonomous sessions, not a measured optimum: a smaller
-window compacts more often, each compaction is one more summarization request and
-a prompt-cache rebuild, and what the summary leaves out is gone. Short sessions
-never reach the window, so it changes nothing for them.
+21% of that session's usage. These are estimates from one day's transcripts,
+dominated by one session, so take 300K as a starting point for long autonomous
+sessions, not a measured optimum: a smaller window compacts more often, each
+compaction is one more summarization request and a prompt-cache rebuild, and what
+the summary leaves out is gone. Short sessions never reach the window, so it
+changes nothing for them.
 
-Four places set the window; only `/autocompact` sets it per model:
+Four places set the window. `/autocompact` stores one for the session's model; the
+other three apply to whichever model the session runs:
 
 - `/autocompact 300k` saves the window for the session's model under
   `modelSettings` in your user settings (Claude Code 2.1.288 or later) and applies
-  it to the session. A window that managed settings set for that model or for
-  every model outranks it, and the command says so. `/autocompact auto` returns to
-  the model's default.
+  it to the session. A window set for that model or for every model in a
+  higher-priority scope, such as managed settings, outranks it, and the command
+  says so. `/autocompact auto` returns to the model's default.
 - `claude --autocompact 300k` sets it for one launch without saving it; managed
   settings do not outrank the flag.
 - `"autoCompactWindow": 300000` at the top level of a settings file sets it for
@@ -163,18 +165,18 @@ Four places set the window; only `/autocompact` sets it per model:
   takes precedence over all of the above unless Claude Code ignores its value as
   unusable. Write a plain token count: a `k` or `M` suffix needs Claude Code
   2.1.304 or later, and a small number such as `300` reads as 300 tokens and is
-  raised to the 100K minimum with a warning. While the variable is set,
-  `/autocompact` only reports it.
+  raised to the 100K minimum with a warning. While Claude Code uses the variable,
+  `/autocompact` reports the override without saving.
 
 The window accepts 100,000 to 1,000,000 tokens and is capped at the model's
-context window. A subagent can compact earlier than the session with
+context window. A subagent can compact earlier than it otherwise would with
 `autoCompactWindow` in its frontmatter (Claude Code 2.1.296 or later). Write a
 plain integer such as `300000`, because frontmatter reads `300k` as 300 and ignores
 it, and set a value below the window the subagent would otherwise inherit. A
 usable `CLAUDE_CODE_AUTO_COMPACT_WINDOW` overrides the field.
 
 A compaction can drop the active persona's instructions. When session readiness is
-installed, its `compact` group asks the model to restore them
+installed with its `compact` group, that group asks the model to restore them
 ([persona restore after compaction](session-readiness.md#persona-restore-after-compaction)).
 
 ## Disable and remove
@@ -207,6 +209,7 @@ Sources: [Claude mods reference](https://code.claude.com/docs/en/plugins/mods/re
 [Claude mod creation and validation](https://code.claude.com/docs/en/plugins/mods/create),
 [Claude Code auto-compact window](https://code.claude.com/docs/en/model-config#set-the-auto-compact-window)
 and [default thresholds](https://code.claude.com/docs/en/model-config#default-auto-compact-thresholds),
+[`CLAUDE_CODE_AUTO_COMPACT_WINDOW` values](https://code.claude.com/docs/en/model-config#claude_code_auto_compact_window-values),
 [`autoCompactWindow`](https://code.claude.com/docs/en/settings-reference#autocompactwindow),
 [subagent auto-compact window](https://code.claude.com/docs/en/sub-agents#subagent-auto-compact-window),
 [why usage climbs in a long session](https://code.claude.com/docs/en/costs#why-usage-climbs-in-a-long-session),
