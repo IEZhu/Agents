@@ -550,6 +550,10 @@ def flow_result_size(max_flow_bytes: int = MAX_FLOW_BYTES) -> int:
 
 
 FLOW_RESULT_META = {"anthropic/maxResultSizeChars": flow_result_size()}
+# A persona bundle has no bound below the ceiling: the agent prompt, every enabled rule, and the
+# selected skills and implants in full. A bundle the model reads only as a file preview is never
+# applied, so the persona tools declare the ceiling (#520).
+PERSONA_RESULT_META = {"anthropic/maxResultSizeChars": RESULT_SIZE_CEILING}
 
 
 def tool_hints(title: str, *, read_only: bool, destructive: bool | None = None,
@@ -1410,7 +1414,7 @@ async def validate_subagent_result(
     return response
 
 
-@mcp.tool(**TOOL_HINTS["route_and_load"])
+@mcp.tool(**TOOL_HINTS["route_and_load"], meta=PERSONA_RESULT_META)
 @observe(name="route_and_load")
 async def route_and_load(
     query: Annotated[str, Field(description="The user request to route.")],
@@ -1439,7 +1443,7 @@ async def route_and_load(
         )
     return await _persona_debug_response("route_and_load", call_id, response)
 
-@mcp.tool(**TOOL_HINTS["get_agent_context"])
+@mcp.tool(**TOOL_HINTS["get_agent_context"], meta=PERSONA_RESULT_META)
 @observe(name="get_agent_context")
 async def get_agent_context(
     agent_name: Annotated[str, Field(description="Canonical name of the agent to load.")],
@@ -1474,7 +1478,7 @@ async def get_agent_context(
         )
     return await _persona_debug_response("get_agent_context", call_id, response)
 
-@mcp.tool(**TOOL_HINTS["refresh_persona_context"])
+@mcp.tool(**TOOL_HINTS["refresh_persona_context"], meta=PERSONA_RESULT_META)
 async def refresh_persona_context(
     query: Annotated[str, Field(description="The task that needs more skills or implants.")],
     current_persona: ta.persona_arg(ta.REFRESH_PERSONA_DESC),
