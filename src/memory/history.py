@@ -151,7 +151,9 @@ def _is_link(info):
     """Classify an lstat result, including Windows name-surrogate reparse tags."""
     reparse = getattr(info, "st_file_attributes", 0) & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
     tag = getattr(info, "st_reparse_tag", 0)
-    return stat.S_ISLNK(info.st_mode) or bool(reparse and (not tag or tag & 0x20000000))
+    # CPython lstat traverses non-name-surrogate reparse points and may return
+    # their attributes with tag 0. Symlinks and junctions retain their link tag.
+    return stat.S_ISLNK(info.st_mode) or bool(reparse and tag & 0x20000000)
 
 
 def _regular_kind(info, *, directory=False):

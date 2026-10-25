@@ -45,6 +45,10 @@ external `archive_dir` retains its separate trusted root, which must not itself
 be a link. POSIX opens each descendant
 directory and file without following links. Windows verifies the final opened
 handle's path before reading. Parse-cache hits undergo the same file checks.
+These checks rely on CPython and the filesystem reporting file identity and
+name-surrogate reparse metadata correctly; they do not defend against a provider
+that hides such metadata. CPython may omit the tag for an ordinary cloud-backed
+file or directory, which is not by itself evidence of a link.
 An unsafe artifact causes an explicit storage error rather than a partial
 export or a successful acceptance based on another journal's receipt. Repair
 the storage layout before retrying with the same idempotency key.
@@ -52,6 +56,10 @@ the storage layout before retrying with the same idempotency key.
 A regular project file named `history` (or `HISTORY` on a case-insensitive
 filesystem) does not disable ordinary reads or export. Keyed acceptance still
 fails closed when that path prevents inspection of its receipt archive.
+It also prevents rotation from finishing: a pending journal remains recoverable,
+but history UI deletion waits until the archive path is repaired. An unreadable
+workspace is marked unavailable in the UI list and skipped in cross-workspace
+search, leaving the other workspaces usable.
 
 Receipts have **no automatic expiry**. Lookup includes the live file, a pending
 rotation and every local monthly archive, independently of the legacy last-50
@@ -134,9 +142,11 @@ archive-only replay, deletion followed by retry, workspace refusal and immediate
 I/O error reporting. The existing Personal/Git suite remains part of acceptance.
 The Workspace bindings workflow runs the complete history, memory-acceptance,
 artifact-safety, statistics and history-UI suites on Linux, macOS and Windows
-with Python 3.11, plus Windows with Python 3.13. Symlink cases skip only when
-Windows denies the required privilege; POSIX-only cases report their skips.
-The remaining durability and replay checks still run. The User sync workflow
+with Python 3.11, plus Windows with Python 3.13. CI requires the artifact-safety
+and workspace-isolation symlink cases to execute; missing Windows symlink
+privilege fails that step. Local runs may skip those cases without the privilege;
+POSIX-only cases report their skips. The remaining durability and replay checks
+still run. The User sync workflow
 separately includes the Personal/Git history tests on all three platforms.
 
 Teams/Hosted contributions follow the `team` integration path in the

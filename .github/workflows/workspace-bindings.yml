@@ -76,4 +76,6 @@ jobs:
       - name: Node bridge session isolation and authenticated hooks
         run: node --test bridge/test.mjs
       - name: Journal reads, durable acceptance and retry recovery
+        env:
+          AGENTS_TEST_REQUIRE_SYMLINKS: "1"
         run: python -B -m pytest tests/test_history.py tests/test_memory_acceptance.py tests/test_history_artifact_safety.py tests/test_usage_stats.py tests/test_history_ui.py -q -rs -p no:cacheprovider

@@ -210,7 +210,14 @@ class HistoryUI:
                             "files": [], "entries": 0, "bytes": 0, "newest": None})
                 continue
             files = []
-            for name in _files(root):
+            try:
+                names = _files(root)
+            except OSError:
+                out.append({"workspace": identity, "name": _name(identity, root), "root": str(root),
+                            "available": False, "unreadable": True, "unresolved": identity == UNRESOLVED,
+                            "files": [], "entries": 0, "bytes": 0, "newest": None})
+                continue
+            for name in names:
                 try:
                     path = _file_path(root, name)
                     if name == CURRENT:
@@ -317,10 +324,11 @@ class HistoryUI:
         for identity, root in self._workspaces():
             try:
                 root = self._root(identity)
-            except WorkspaceError:
+                names = _files(root)
+            except (WorkspaceError, OSError):
                 continue
             matches = 0
-            for name in _files(root):
+            for name in names:
                 try:
                     entries = self._entries(root, name)
                 except (HistoryError, OSError):
