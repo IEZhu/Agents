@@ -550,9 +550,10 @@ def flow_result_size(max_flow_bytes: int = MAX_FLOW_BYTES) -> int:
 
 
 FLOW_RESULT_META = {"anthropic/maxResultSizeChars": flow_result_size()}
-# A persona bundle has no bound below the ceiling: the agent prompt, every enabled rule, and the
-# selected skills and implants in full. A bundle the model reads only as a file preview is never
-# applied, so the persona tools declare the ceiling (#520).
+# Nothing bounds the text of a persona bundle (the agent prompt, every enabled rule, the selected
+# skills and implants) below the ceiling, and a bundle saved to a file reaches the model as a
+# 2 KB preview it has to read back in parts before it can apply it: the persona tools declare
+# the ceiling (#520).
 PERSONA_RESULT_META = {"anthropic/maxResultSizeChars": RESULT_SIZE_CEILING}
 
 
