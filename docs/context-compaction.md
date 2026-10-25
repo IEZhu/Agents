@@ -127,15 +127,16 @@ state write. Native user-initiated compaction remains available independently.
 ## Claude Code's auto-compact window
 
 The plugin acts only after a completed main turn, and only when none of the
-session's subagents or teammates is still running. A long autonomous run, such as
-working through a PR queue with reviewers and workers, can last for hours inside
-one turn, or across turns that each end while a subagent is still running: the
-plugin does not act then, and only Claude Code's own auto-compaction applies.
-Without a configured window, a local session on a model with a native 1M context
-window (the Fable models, Sonnet 5 and later, Haiku 5.5, Opus 4.7 and later)
-compacts at about 967K tokens, unless `CLAUDE_CODE_DISABLE_1M_CONTEXT=1` holds it
-at 200K. Claude Code sends the whole conversation with every request; prompt
-caching makes the repeated part cheaper, but usage still grows with the context.
+session's subagents or teammates is pending, running or waiting. A long autonomous
+run, such as working through a PR queue with reviewers and workers, can last for
+hours inside one turn, or across turns that each end while a subagent is still
+running: the plugin does not act then, and only Claude Code's own auto-compaction
+applies. Without a configured window, a local session on a model with a native 1M
+context window (the Fable models, Sonnet 5 and later, Haiku 5.5, Opus 4.7 and
+later) compacts at about 967K tokens, unless `CLAUDE_CODE_DISABLE_1M_CONTEXT=1`
+holds it at 200K. Claude Code sends the whole conversation with every request;
+prompt caching makes the repeated part cheaper, but usage still grows with the
+context.
 
 One measured day was dominated by an autonomous PR-queue session on Opus with the
 1M window, about 81% of the day's usage. Its main thread grew to 963K tokens before
