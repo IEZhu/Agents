@@ -129,6 +129,15 @@ class TestPromptRendering:
         assert "{CONTEXT_BUNDLE}" in DESCRIBE_PROMPT_TEMPLATE
         assert "{REPO_NAME}" in DESCRIBE_PROMPT_TEMPLATE
 
+    def test_placeholder_in_the_checkout_name_stays_literal(self, tmp_path):
+        repo = tmp_path / "{CONTEXT_BUNDLE}"
+        repo.mkdir()
+        _seed_repo(repo)
+        prompt = RepoDescriber(repo_path=str(repo)).build_prompt()
+        # The name is filled in as it is: the bundle appears once, not again in its place.
+        assert prompt.count("### Directory Tree") == 1
+        assert "`{CONTEXT_BUNDLE}`" in prompt
+
     def test_excluded_dirs_pruned_from_tree(self, describer, tmp_path):
         # Add a vendor-ish dir; make sure it does NOT appear in the tree
         (tmp_path / "node_modules").mkdir()

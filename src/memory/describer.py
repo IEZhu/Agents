@@ -14,6 +14,7 @@ import itertools
 import json
 import logging
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Optional
@@ -295,6 +296,9 @@ Table: term | definition. Domain-specific terms only. Max 15.
 - Output ONLY the markdown sections above. No preamble, no closing remarks.
 """
 
+# The template's placeholders, which build_prompt fills.
+_PLACEHOLDER = re.compile(r"\{(REPO_NAME|WORD_MIN|WORD_MAX|CONTEXT_BUNDLE)\}")
+
 
 @dataclass
 class DescribeDecision:
@@ -562,19 +566,16 @@ class RepoDescriber:
         return _fit_tree(capped, max_chars)
 
     def build_prompt(self) -> str:
-        bundle = self.build_context_bundle()
-        repo_name = os.path.basename(self.repo_path) or self.repo_path
-        # Use str.replace instead of str.format — the bundle contains raw file
-        # contents (JSON, TOML) with curly braces that would crash .format().
-        # Replace simple placeholders first, then CONTEXT_BUNDLE last so any
-        # literal "{WORD_MIN}" / "{WORD_MAX}" in file contents isn't corrupted.
-        return (
-            DESCRIBE_PROMPT_TEMPLATE
-            .replace("{REPO_NAME}", repo_name)
-            .replace("{WORD_MIN}", str(DESCRIBE_WORD_MIN))
-            .replace("{WORD_MAX}", str(DESCRIBE_WORD_MAX))
-            .replace("{CONTEXT_BUNDLE}", bundle)
-        )
+        values = {
+            "REPO_NAME": os.path.basename(self.repo_path) or self.repo_path,
+            "WORD_MIN": str(DESCRIBE_WORD_MIN),
+            "WORD_MAX": str(DESCRIBE_WORD_MAX),
+            "CONTEXT_BUNDLE": self.build_context_bundle(),
+        }
+        # One pass over the template only: a placeholder inside a value, such as a
+        # checkout named "{CONTEXT_BUNDLE}" or file contents in the bundle, stays
+        # literal, and str.format would choke on the braces of JSON or TOML.
+        return _PLACEHOLDER.sub(lambda match: values[match.group(1)], DESCRIBE_PROMPT_TEMPLATE)
 
     # ----------------------------------------------------------------- write
     # Minimum usable summary length — below this we refuse to persist so a
