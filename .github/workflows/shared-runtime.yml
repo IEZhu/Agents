@@ -33,6 +33,7 @@ on:
       - src/daemon/autoupdate.py
       - src/daemon/update.py
       - src/daemon/update_dependencies.py
+      - src/environments.py
       - src/version.py
       - src/daemon/mcp_proxy/**
       - src/daemon/mcp_ui.py
@@ -65,6 +66,7 @@ on:
       - tests/test_daemon_autoupdate.py
       - tests/test_daemon_update.py
       - tests/test_daemon_update_dependencies.py
+      - tests/test_environments.py
       - tests/test_version.py
       - tests/conftest.py
       - requirements.txt
@@ -103,6 +105,7 @@ on:
       - src/daemon/autoupdate.py
       - src/daemon/update.py
       - src/daemon/update_dependencies.py
+      - src/environments.py
       - src/version.py
       - src/daemon/mcp_proxy/**
       - src/daemon/mcp_ui.py
@@ -135,6 +138,7 @@ on:
       - tests/test_daemon_autoupdate.py
       - tests/test_daemon_update.py
       - tests/test_daemon_update_dependencies.py
+      - tests/test_environments.py
       - tests/test_version.py
       - tests/conftest.py
       - requirements.txt
@@ -192,7 +196,8 @@ jobs:
           tests/test_mcp_cli.py tests/test_mcp_sync.py tests/test_mcp_ui.py
           tests/test_user_sync_blocked.py tests/test_sync_ui_blocked.py
           tests/test_daemon.py tests/test_history_ui.py
-          tests/test_daemon_update.py tests/test_daemon_update_dependencies.py tests/test_version.py
+          tests/test_daemon_update.py tests/test_daemon_update_dependencies.py tests/test_environments.py
+          tests/test_version.py
           -q -p no:cacheprovider
       - name: Cooperation notifications, request states and MCP privacy
         run: python -B -m pytest tests/test_cooperation_mailbox.py tests/test_cooperation_requests.py tests/test_cooperation_notifications.py tests/test_cooperation_service.py tests/test_cooperation_models.py tests/test_cooperation_mcp.py tests/test_cooperation_runtime_integration.py tests/test_cooperation_instructions.py tests/test_subagent_combined_budget.py -q -p no:cacheprovider
