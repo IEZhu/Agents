@@ -280,6 +280,25 @@ def test_a_venv_link_inside_the_installation_is_unlinked_not_followed(home, tmp_
     assert target.read_text(encoding="utf-8") == "binary" and not os.path.lexists(link)
 
 
+def test_versioned_environments_and_the_venv_link_are_removed(home, tmp_path):
+    """Auto-update's .venvs and the .venv link to the active one (#181) go with the installation."""
+    darwin_home(home)
+    installation = home / ".agents-core"
+    shutil.rmtree(installation / ".venv")
+    system = write(tmp_path / "system-python", "binary")
+    active = installation / ".venvs/py313-0123456789ab"
+    write(installation / ".venvs/legacy-20261025T000000Z/bin/placeholder", "")
+    try:
+        (active / "bin").mkdir(parents=True)
+        os.symlink(system, active / "bin/python")
+        os.symlink(active, installation / ".venv", target_is_directory=True)
+    except OSError:
+        pytest.skip("symlinks unavailable")
+    assert main(["--yes"], ctx=context(home, "darwin", FakeRunner()), interactive=False) == 0
+    assert not os.path.lexists(installation / ".venv") and not (installation / ".venvs").exists()
+    assert system.read_text(encoding="utf-8") == "binary"
+
+
 def test_source_checkout_is_kept(home, tmp_path):
     darwin_home(home)
     source = checkout(tmp_path / "Documents/Agents")
@@ -724,7 +743,8 @@ def test_git_fixture_setup_ignores_foreign_repository_environment(home, monkeypa
 
 @pytest.mark.parametrize("case", ["published", "active-commit", "inactive-commit", "detached-commit",
                                  "tagged-commit", "reflog-commit", "stash", "no-remotes", "ignored-note",
-                                 "ignored-worktree", "venv-lookalike", "installation-assets", "hidden-untracked"])
+                                 "ignored-worktree", "venv-lookalike", "installation-assets", "hidden-untracked",
+                                 "versioned-environments"])
 def test_selected_checkout_git_state_is_preserved(home, case):
     """Real Git distinguishes published source and install assets from irreplaceable local state."""
     installation = home / "selected-checkout"
@@ -767,10 +787,17 @@ def test_selected_checkout_git_state_is_preserved(home, case):
     elif case == "installation-assets":
         write(installation / ".env", "LANGFUSE_TRACING_ENABLED=false\n")
         write(installation / ".venv/bin/python", "installer-owned placeholder\n")
+    elif case == "versioned-environments":
+        write(installation / ".venvs/py313-0123456789ab/bin/python", "auto-update environment\n")
+        write(installation / ".venvs/legacy-20261025T000000Z/bin/python", "the setup's environment\n")
+        try:
+            os.symlink(installation / ".venvs/py313-0123456789ab", installation / ".venv", target_is_directory=True)
+        except OSError:
+            pytest.skip("symlinks unavailable")
     ctx = context(home, "darwin", uninstall.run_command, AGENTS_HOME=str(installation))
     ctx.source_root = installation
     reason = uninstall.local_work(ctx, installation)
-    if case in {"published", "installation-assets"}:
+    if case in {"published", "installation-assets", "versioned-environments"}:
         assert reason is None
     else:
         assert reason is not None

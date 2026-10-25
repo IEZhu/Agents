@@ -751,7 +751,8 @@ def local_work(ctx: Context, checkout: Path) -> str | None:
 
     install.sh clones a published channel and never commits. Keep dirty/custom-branch
     checkouts, commits outside known remote-tracking history, and ignored material outside
-    the installer's .env and .venv assets. Registered submodules or retained .git/modules
+    the installer's .env and .venv assets (with the auto-updater's .venvs environments and
+    the .venv link to the active one). Registered submodules or retained .git/modules
     also keep the checkout: parent Git history does not cover their private state.
     Git failures keep the whole checkout.
     """
@@ -791,11 +792,12 @@ def local_work(ctx: Context, checkout: Path) -> str | None:
     ignored = git("ls-files", "--others", "--ignored", "--exclude-standard", "-z")
     if ignored.returncode != 0 or (ignored.stdout and not ignored.stdout.endswith(b"\0")):
         return "git could not check it for local work"
-    # init_repo creates these two assets. Other ignore patterns (including arbitrary
-    # dotfiles and archives) do not establish that their contents belong to the installer.
-    if any(entry != b".env" and not entry.startswith(b".venv/")
+    # init_repo creates .env and .venv; auto-update keeps versioned environments in .venvs
+    # and makes .venv a link to one (src/environments.py). Other ignore patterns (including
+    # arbitrary dotfiles and archives) do not establish that their contents belong to the installer.
+    if any(entry not in (b".env", b".venv") and not entry.startswith((b".venv/", b".venvs/"))
            for entry in ignored.stdout.split(b"\0") if entry):
-        return "it has ignored files outside the installer's .env and .venv assets"
+        return "it has ignored files outside the installer's .env, .venv and .venvs assets"
     return None
 
 
@@ -1864,7 +1866,7 @@ def build_plan(ctx: Context, *, keep_data: bool = False) -> list[Item]:
             return remove_except(ctx, installation, keep, owned=owned)
 
         items.append(Item("installation", str(installation), "remove", "install.sh (git clone into AGENTS_HOME, "
-                          "default ~/.agents-core), scripts/init_repo.sh (.venv, .env, data/)",
+                          "default ~/.agents-core), scripts/init_repo.sh (.venv, .env, data/), auto-update (.venvs)",
                           "the one-command installation" + ("; keeps " + ", ".join(
                               str(path.relative_to(installation)) for path in keep) + " (--keep-data)" if keep else ""),
                           remove_installation))
