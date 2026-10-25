@@ -156,6 +156,11 @@ earlier task, pass only relevant facts in `chat_history` when routing is needed.
   Preserve higher-priority instructions, conversation history, facts, goals,
   constraints, user permissions, and tool results.
 - Save `persona` and the exact returned `footer` only after successful application.
+- After a conversation's first activation, a `SUCCESS` carries a short `instruction`
+  that points to the full one by `instruction_revision`; the full rules still hold.
+  Restore with `force_reload=True` when the full instruction is gone from your
+  context. A first activation may carry `warnings` about outdated managed routing
+  sections: mention them once to the user.
 - `NO_CHANGE`: retain the active instructions, descriptor, and footer. It does not
   certify that source files are current. A refresh checks the bundle revision.
 - `ERROR`, missing blocks, or invalid descriptors: keep the previous state and
@@ -206,6 +211,21 @@ is not the required answer. While waiting, stop the conflicting action, release
 its claims and continue independent work where possible. The Agents-Core mailbox
 can wait within the turn with bounded `cooperation_wait`; waiting does not wake
 an idle model. Explicit user authorization remains authoritative.
+
+## Progress messages
+
+A progress message is text the user sees before the turn's final answer: a
+note before a long tool run or wait, or a phase boundary. It carries no footer
+or time line and is not logged: `log_interaction` records only the final answer,
+which is composed, logged and then delivered as "Finish each answer" describes.
+Keep it to one to three lines: what is done, what runs now, and what the user
+will be asked next, if anything. Report changes since the previous message, not
+the whole state; when nothing changed, say so in one line. Paste no tool output,
+worker package or file contents into it. The message that ends the turn is the
+final answer, not a progress message; see "Finish each answer". A status that
+ends the turn also reports only the changes since the previous one. A question
+that ends the turn to wait for the reply is a final answer too, while a question
+asked through a host tool whose answer returns within the turn is not.
 
 ## Finish each answer
 

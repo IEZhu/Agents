@@ -158,6 +158,11 @@ earlier task, pass only relevant facts in `chat_history` when routing is needed.
   Preserve higher-priority instructions, conversation history, facts, goals,
   constraints, user permissions, and tool results.
 - Save `persona` and the exact returned `footer` only after successful application.
+- After a conversation's first activation, a `SUCCESS` carries a short `instruction`
+  that points to the full one by `instruction_revision`; the full rules still hold.
+  Restore with `force_reload=True` when the full instruction is gone from your
+  context. A first activation may carry `warnings` about outdated managed routing
+  sections: mention them once to the user.
 - `NO_CHANGE`: retain the active instructions, descriptor, and footer. It does not
   certify that source files are current. A refresh checks the bundle revision.
 - `ERROR`, missing blocks, or invalid descriptors: keep the previous state and
@@ -208,6 +213,21 @@ is not the required answer. While waiting, stop the conflicting action, release
 its claims and continue independent work where possible. The Agents-Core mailbox
 can wait within the turn with bounded `cooperation_wait`; waiting does not wake
 an idle model. Explicit user authorization remains authoritative.
+
+## Progress messages
+
+A progress message is text the user sees before the turn's final answer: a
+note before a long tool run or wait, or a phase boundary. It carries no footer
+or time line and is not logged: `log_interaction` records only the final answer,
+which is composed, logged and then delivered as "Finish each answer" describes.
+Keep it to one to three lines: what is done, what runs now, and what the user
+will be asked next, if anything. Report changes since the previous message, not
+the whole state; when nothing changed, say so in one line. Paste no tool output,
+worker package or file contents into it. The message that ends the turn is the
+final answer, not a progress message; see "Finish each answer". A status that
+ends the turn also reports only the changes since the previous one. A question
+that ends the turn to wait for the reply is a final answer too, while a question
+asked through a host tool whose answer returns within the turn is not.
 
 ## Finish each answer
 
@@ -309,14 +329,22 @@ For PR/MR review, follow [flows/pr-review.md](flows/pr-review.md), including
 description updates, bot review cycles, thread replies, and merge conditions.
 
 The committed managed section is `scripts/templates/routing-protocol-core.md`
-(protocol 2, the only protocol). The global installer does not modify this
-tracked checkout file; after editing the template, refresh it with the command in
-[README.md](README.md#persona-continuity). Keep these repository notes outside
-the markers so future protocol changes preserve them.
+(protocol 2, the only protocol), generated with the MCP instructions, the
+`SUCCESS` instruction and the memory reminder from the section files in
+`src/engine/protocol/`. Do not edit the template or the managed section by hand.
+The global installer does not modify this tracked checkout file; after editing a
+section, run `.venv/bin/python -m src.engine.protocol_text --write`, which also
+refreshes the managed section here ([README.md](README.md#persona-continuity)).
+Keep these repository notes outside the markers so future protocol changes
+preserve them.
 
 - `src/server.py` exposes the MCP tools. Protocol handlers and complete bundle
   assembly live in `src/engine/persona.py` and `src/engine/persona_bundle.py`;
   shared response schemas live in `src/schemas/protocol.py`.
+- `src/client_instructions.py` decides when the MCP initialization answers with
+  the pointer instead of the full instructions (only when every checkout the
+  session may run in holds the current managed section) and words the warnings
+  about outdated sections; `tests/test_instruction_pointers.py` checks it.
 - Agent metadata declares core, preferred and capable skills, plus preferred
   implants. General rules are versioned bundle content, governed by
   `src/engine/rules.py`; the configuration can disable them with `RULES_ENABLED=0`,

@@ -220,10 +220,10 @@ evaluation that runs the same assignments per tier is separate work.
 
 ## Protocol text
 
-`scripts/templates/routing-protocol-core.md` gains one step in Delegated worker
-mode, restated in the MCP initialization instructions in `src/server.py` and
-`APPLY_INSTRUCTION` in `src/engine/persona.py` as the
-[contributor rules](../AGENTS.md) require:
+The delegation section, `src/engine/protocol/delegation.md`, gains one step in
+Delegated worker mode, and `python -m src.engine.protocol_text --write` renders it
+into every surface: the template `scripts/templates/routing-protocol-core.md`, the
+MCP initialization instructions, `APPLY_INSTRUCTION` and the memory reminder:
 
 - rate the assignment `complexity` (the three-line rubric) when preparing;
 - launch the worker with the package's `execution.spawn` arguments; for Codex this

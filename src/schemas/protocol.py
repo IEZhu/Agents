@@ -55,12 +55,17 @@ class PersonaResponse(BaseModel):
     replaces_activation_id: Optional[str] = None
     footer: Optional[str] = None
     instruction: Optional[str] = None
+    # Names the full SUCCESS instruction; a later SUCCESS of the conversation carries a pointer
+    # to it instead of the text (#433).
+    instruction_revision: Optional[str] = None
     persona_block: Optional[str] = None
     rules_block: Optional[str] = None
     skills_block: Optional[str] = None
     implants_block: Optional[str] = None
     candidates: Optional[List[Dict[str, Any]]] = None
     message: Optional[str] = None
+    # Outdated managed routing sections in the client's instruction files, on a first activation.
+    warnings: Optional[List[str]] = None
 
     def to_json(self) -> str:
         # Null replacement explicitly identifies initial activation.
