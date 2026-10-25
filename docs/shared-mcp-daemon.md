@@ -1495,14 +1495,18 @@ backend and backend options. The reason names each changed field:
 
 Building that environment needs a service started through the installation's
 `.venv` interpreter (the `python` that `install` recorded, `.venv/bin/python`
-by default) and a `.venv` that is the directory setup created or a link into
-`.venvs`, not a file or a link elsewhere. It needs the base interpreter that
-made `.venv` (`pyvenv.cfg`), present, running and of the same Python version,
-and satisfying the target's `requires-python`. On Windows, `.venv` must already
-be a junction: Windows cannot rename the directory of the running interpreter,
-so there the setup's directory refuses dependency changes. Requirement lines
-that are pip options (`-r`, `-e`, `--index-url` …) or local paths, one
-distribution pinned differently in two places, changes to `bridge/package.json`
+by default) and a `.venv` that is the directory setup created (with its
+`pyvenv.cfg`) or a link into `.venvs`, not a file or a link elsewhere. It needs a
+base interpreter of the Python version that made `.venv` (`pyvenv.cfg`'s
+`executable`, then its `home`'s `python<major>.<minor>`, `python3` and `python`,
+the first that runs that version) satisfying the target's `requires-python`.
+On Windows a `.venv` directory that setup created is refused: Windows cannot
+rename the directory of the running interpreter. Only a `.venv` that is already
+a junction into `.venvs` is switched there, and setup does not create one yet,
+so a Windows installation gets there only through a junction made by hand.
+Requirement lines that are pip options (`-r`, `-e`, `--index-url` …), local
+paths or continued on the next line, one distribution pinned to two different
+versions (`==` or `===`), changes to `bridge/package.json`
 or `bridge/package-lock.json` (nothing installs npm packages), missing or
 malformed manifests and dynamic dependency declarations need explicit
 environment maintenance. The refusal names the manifest and field. For it, stop
@@ -1522,7 +1526,12 @@ install` of the target's `requirements.txt`, its `pyproject.toml` runtime
 dependencies and the carried extras, within `AGENTS_AUTO_UPDATE_ENVIRONMENT_TIMEOUT`
 (default 1800 s). An extra is carried when both revisions declare it and every one
 of its distributions is installed in the active environment, also as a dependency
-of another package; it installs the target's requirements. venv and pip run in the
+of another package; it installs the target's requirements. httpx comes with mcp and
+anthropic, for example, so `local-inference` is carried and every automatically
+built environment also gets `httpx>=0.28.1,<0.29`. Plain requirements of one
+distribution from several places become one line with all their specifiers, such
+as `pytest>=7.0.0,>=8.0` when `evals` or `signing-tests` is carried; lines with
+extras, markers or URLs stay as written. venv and pip run in the
 new environment's directory without `PYTHONHOME`, `PYTHONPATH`, `PYTHONSTARTUP`,
 `PYTHONUSERBASE`, `PIP_USER`, `PIP_TARGET` or `PIP_PREFIX`. A complete environment
 with the same requirements is reused, and the reindex runs with its interpreter. A
@@ -1556,8 +1565,9 @@ stop the service, and acquire the exclusive installation lease and the updater
 lock. A running standalone stdio server of this installation blocks the update. Activation
 backs up the live indexes, fast-forwards the checkout to the built commit and
 moves the built indexes into `data/`. For a dependency change it then points
-`.venv` at the new environment (a link, a directory junction on Windows; the first
-switch renames the directory setup created to `.venvs/legacy-<UTC time>`), and the
+`.venv` at the new environment (a symbolic link; on POSIX the first switch renames
+the directory setup created to `.venvs/legacy-<UTC time>`, while on Windows only a
+junction already in place is replaced by another), and the
 service restarts on `.venv/bin/python`, which now resolves to it. The switch runs
 in maintenance, with the service stopped and the leases held: POSIX replaces the
 link atomically, while Windows removes the junction and then creates the new one.

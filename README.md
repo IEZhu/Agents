@@ -700,15 +700,23 @@ It is **safe by default**:
   `AGENTS_AUTO_UPDATE_ENVIRONMENT_TIMEOUT` (default 1800 s). An extra is carried
   when both revisions declare it and every one of its distributions is installed
   in the active environment, also as a dependency of another package; it
-  installs the target's requirements. A complete environment with the same
-  requirements is reused. The stores are built with it, and activation points
-  `.venv` at it after the fast-forward and the store move, so the re-exec starts
-  on it; client configurations keep naming `.venv/bin/python`. `.venv` thereby
-  becomes a link (a directory junction on Windows): the first switch renames the
-  directory setup created to `.venvs/legacy-<UTC time>`. The switch runs only
-  while no session of the installation does, under the exclusive lease of an idle
-  start: POSIX replaces the link atomically, while Windows removes the junction
-  and then creates the new one. A failed build changes
+  installs the target's requirements. httpx, for example, comes with mcp and
+  anthropic, so the `local-inference` extra is carried and an automatically built
+  environment also gets `httpx>=0.28.1,<0.29`. Plain requirements of one
+  distribution from several places become one line with all their specifiers
+  (`pytest>=7.0.0,>=8.0`); lines with extras, markers or URLs stay as written. A
+  complete environment with the same requirements is reused. The stores are
+  built with it, and activation points `.venv` at it after the fast-forward and
+  the store move, so the re-exec starts on it; client configurations keep naming
+  `.venv/bin/python`. `.venv` thereby becomes a symbolic link: on POSIX the first
+  switch renames the directory setup created to `.venvs/legacy-<UTC time>`. On
+  Windows a `.venv` directory that setup created is refused (Windows cannot
+  rename the directory of a running interpreter); only a `.venv` that is already
+  a junction into `.venvs`, made by hand until setup creates that layout, is
+  switched, from one junction to the next. The switch runs only while no session
+  of the installation does, under the exclusive lease of an idle start: POSIX
+  replaces the link atomically, while Windows removes the junction and then
+  creates the new one. A failed build changes
   nothing and the next update tries again; a rollback after a failed merge,
   store move or switch points `.venv` back, and a successful activation removes
   the environments other than the active and the previous one. Packages
@@ -719,11 +727,11 @@ It is **safe by default**:
   `.venv/bin/python`; when `.venv` is a file or a link outside `.venvs`; when the
   base interpreter is missing, does not run or is another Python version than
   the one `.venv` was made with, or does not satisfy the target's
-  `requires-python`; on Windows while `.venv` is still the directory setup
-  created (Windows cannot rename the directory of a running interpreter: stop
-  the sessions and rerun setup); when a requirement line is a pip option (`-r`,
-  `-e`, `--index-url` …) or a local path; when one distribution is pinned
-  differently in two places; for changed `bridge/package.json` or
+  `requires-python`; when `.venv` is a directory without `pyvenv.cfg`; on Windows
+  while `.venv` is still the directory setup created; when a requirement line is
+  a pip option (`-r`, `-e`, `--index-url` …), a local path or continues on the
+  next line; when one distribution is pinned to two different versions
+  (`==`); for changed `bridge/package.json` or
   `bridge/package-lock.json`; and for missing or malformed manifests. For those,
   stop the server sessions and update manually: `git pull --ff-only`, `.venv/bin/pip install -r requirements.txt`,
   `.venv/bin/python -m src.model_migration .env` (applies a pending
@@ -757,13 +765,17 @@ the application, even with auto-update disabled. To recover, stop the sessions,
 inspect the recorded `old_sha` / `target_sha` and Git state, restore a complete
 chosen revision, and successfully run `python -m src.reindex` there. A recorded
 `environment` names the Python environment switch, and the startup message
-repeats it. To restore the old revision, point `.venv` at
+repeats it. To restore the old revision (`old_sha`), point `.venv` at
 `.venvs/<environment.previous.name>` (or, when `previous.legacy` is set, remove
-the `.venv` link and rename `.venvs/<previous.legacy>` back to `.venv`). To keep
-the target, which a checkout already at the target with its stores moved
-requires, point `.venv` at `.venvs/<environment.to>` (first moving a `.venv`
-directory to `.venvs/<previous.legacy>`) and rebuild the stores with that
-interpreter: `.venv/bin/python -m src.reindex`. Remove the
+the `.venv` link and rename `.venvs/<previous.legacy>` back to `.venv`); when
+`previous` is `{"kind": "directory"}` without a legacy name, `.venv` is still the
+old environment and stays. To keep the target, which a checkout already at the
+target with its stores moved requires, move a `.venv` directory aside first (to
+`.venvs/<previous.legacy>`, or to any `.venvs/legacy-<UTC time>` name when none
+is recorded), point `.venv` at `.venvs/<environment.to>` and rebuild the stores
+with that interpreter: `.venv/bin/python -m src.reindex`. A checkout that runs
+the target while `.venv` already has every package the target names is not held:
+the updater logs a warning and continues on `.venv`. Remove the
 journal only after verifying the restored checkout and rebuilt stores, then
 restart the server. An unreadable journal also requires this explicit recovery.
 
