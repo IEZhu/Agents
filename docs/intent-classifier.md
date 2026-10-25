@@ -42,7 +42,7 @@ Two measured consequences:
   samples are pushed up to `deep`, 18 of 57 `lite` samples up to `standard`.
 
 The legacy regex compounded it: matching bare substrings, it fired `deep` on any
-query merely containing `план`, `compare`, `design` or `review`.
+query merely containing `план` (Russian "plan"), `compare`, `design` or `review`.
 
 ## Design
 
@@ -313,7 +313,7 @@ familiar lexical class, now at medium and low rather than high.
   point, so "Design a fault-tolerant event pipeline for 1M events per second"
   landed on `retrieve`/`lite` — the cheapest budget — even though this repo ships
   a `system_architect` agent whose traffic reads exactly that way. Added as
-  **collocations** ("design a", "plan the", "спроектируй"), not bare words:
+  **collocations** ("design a", "plan the", "спроектируй" (design)), not bare words:
   `design` as a word is precisely what made the legacy regex fire `deep` on any
   passing mention, and "the design is ugly" must not promote.
 - **`настро` matched "настроение" (mood), `команд` matched "команда" (team),

@@ -68,8 +68,9 @@ This is the one description of the release procedure; the README links it.
    metadata when adding optional dependencies, refresh the lock file through its
    normal tooling, and rerun the relevant checks. Pending-feature banners and
    branch-pinned examples must be updated against integrated source before they
-   become released instructions. The dated [parallel-feature checklist](documentation-audit-2026-10-18.md#parallel-feature-integration)
-   records the current documentation submission's dependencies.
+   become released instructions. The dated
+   [pre-promotion record](documentation-audit-2026-10-25.md#before-the-promotion)
+   lists the dependencies and checks of the coming promotion.
 4. Open one `dev` into `main` PR, or update the existing promotion PR. Describe
    the complete range since the last release, its validation, and the issue
    closing references required above. If documentation or another prerequisite
@@ -208,11 +209,12 @@ particularly if `main` advances while Glama is processing a release.
 GitHub publication and Glama publication are separate outcomes. A green Actions
 publication job proves that the tag and GitHub Release exist, not that Glama
 has finished. Check Glama's build/startup result and public version before
-announcing the container update. The listing currently uses SemVer
-`26.10.14+1807` for calendar version `26.10.14.1807`; verify the next automatic
-version too. These provider mappings and
-delivery of a `GITHUB_TOKEN`-created release to Auto-Release have not yet been
-confirmed by an end-to-end automatic release in this repository.
+announcing the container update. On 2026-10-15 the listing used SemVer
+`26.10.14+1807` for calendar version `26.10.14.1807`. The workflow then
+published the GitHub Releases `v26.10.15.1905`, `v26.10.16.2026` and
+`v26.10.16.2041` with `GITHUB_TOKEN`; no Glama version for them is recorded in
+this repository, so the calendar-to-SemVer mapping and the delivery of such a
+release to Auto-Release remain unconfirmed. Verify both for the next release.
 
 The job deliberately does not chain a second Actions workflow on `release`:
 events created by `GITHUB_TOKEN` generally do not start another Actions run.

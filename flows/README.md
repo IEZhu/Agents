@@ -53,10 +53,11 @@ The three issue flows run in a Claude Code cloud routine that a GitHub Actions
 bridge starts for the owner's `/agent` comments, not from a local request. See
 [issue agent setup](../docs/cloud-runs.md#issue-agent).
 
-`environment-autoconfigure` runs as `sysadmin` with that agent's default
-components. It audits and repairs the current host only when explicitly invoked;
-it is not an installation hook for ordinary conversations. The configured stack
-and platform determine versions and supported integrations.
+`environment-autoconfigure` runs as `sysadmin` and `shared-kv-inference` as
+`software_engineer`, each with that agent's default components.
+`environment-autoconfigure` audits and repairs the current host only when
+explicitly invoked; it is not an installation hook for ordinary conversations.
+The configured stack and platform determine versions and supported integrations.
 
 ## Run a flow
 

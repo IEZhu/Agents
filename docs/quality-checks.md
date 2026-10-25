@@ -24,7 +24,7 @@ required checks in repository branch protection or rulesets.
 These badges do not measure line/branch test coverage, maintainability scores,
 model quality or the proportion of all repository prose that is correct. See
 the [test guide](../tests/README.md) for test selection and the
-[documentation audit](documentation-audit-2026-10-18.md) for bounded source review.
+[documentation audit](documentation-audit-2026-10-25.md) for bounded source review.
 The API-reference denominator excludes dynamic aliases supplied by the
 [HTTP/stdio MCP proxy](mcp-proxy.md), optional servers and client-side hooks.
 Adding their guides does not increase the native-tool coverage count or establish

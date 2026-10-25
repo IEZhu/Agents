@@ -218,7 +218,21 @@ The single `lawyer` agent replaced nine country-specific clones (`colombian_lawy
 | `3d_print_finder` | `/3dprint` | 3D Model Search Specialist & Print Optimization Advisor |
 | `install_to_repo` | `/install_agents` | Agent Framework Installer & Repository Scaffolder |
 
+## Agent resources
+
+Some agents ship Markdown beside `system_prompt.mdc`. Personas are built from
+`system_prompt.mdc` and `subagent.mdc`; these files are reference material to
+read or copy.
+
+- [3D Print Finder overview](3d_print_finder/README.md) and
+  [example queries](3d_print_finder/examples/queries.md).
+- [Semantic expert export prompt](semantic_expert/export_prompt_v3.md), a
+  standalone v3 prompt, and the earlier
+  [v2.3 prompt](semantic_expert/tactiq_prompt.md).
+- [Universal meta-prompt](universal_agent/meta_prompt.md): a prompt to paste into
+  a new chat to generate system prompts.
+
 ---
 
-**Total agents**: 44
-**Updated**: 2026-09-30
+**Total agents**: 45
+**Updated**: 2026-10-16
