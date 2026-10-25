@@ -190,6 +190,16 @@ their order, plus the agent identity and scope used by the local suitability
 assessment.
 It is neither a conversation identifier nor an authentication token.
 
+`route_and_load`, `get_agent_context` and `refresh_persona_context` declare
+`anthropic/maxResultSizeChars` at Claude Code's ceiling of 500,000 characters, as
+`run_flow` and `get_flow` do ([flows](../flows/README.md)). A bundle at tier `deep`
+can pass Claude Code's default of 50,000 shown characters (`src/result_size.py`);
+without the declaration Claude Code saves such a result to a file and shows the
+model only its first 2 KB, which cannot be applied. No limit in code bounds a
+bundle below the ceiling. The declaration also replaces `MAX_MCP_OUTPUT_TOKENS`
+for these tools, and a connected client reads it only when it lists the tools
+again: reconnect the server (`/mcp`) after an update.
+
 The client applies a response only if `replaces_activation_id` matches its active
 activation (null for first load). Replayed activations are no-ops; stale responses
 are ignored. Missing mandatory components produce `ERROR` with no partial
