@@ -289,7 +289,7 @@ def prepare(controller, expected_target=None, channel=None, reasons=None):
                                   check=check, stdin=subprocess.DEVNULL, env=executables.git_environment(root),
                                   creationflags=NO_WINDOW)
         try:
-            environments.needed(str(root), git, old, target, config["python"])
+            environments.needed(str(root), git, old, target, config["python"], run=self_update._run_command)
         except environments.Refused as refusal:
             raise RuntimeError(str(refusal)) from None
 

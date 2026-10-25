@@ -3,17 +3,22 @@
 A target's manifests decide what its update needs:
 
 * ``NONE``: the installed environment suffices. Metadata, package data, a new
-  optional extra, requirement order and a ``uv.lock``-only change (installs read
+  optional extra, requirement order, comments and blank lines in
+  ``requirements.txt`` and a ``uv.lock``-only change (installs read
   ``requirements.txt``) change no package.
-* ``ENVIRONMENT``: ``requirements.txt`` or the environment contract of
-  ``pyproject.toml`` (runtime dependencies, ``requires-python``, an existing extra,
-  the build system) changed. The staged updaters build the target's environment
-  while the installation serves and switch to it at activation
-  (`src.environments`); the in-place updater refuses.
+* ``ENVIRONMENT``: a requirement line of ``requirements.txt`` or the environment
+  contract of ``pyproject.toml`` changed: ``project.dependencies``,
+  ``project.requires-python``, an existing ``project.optional-dependencies``
+  group, or ``build-system``, compared as a whole because a changed backend or
+  option may change what an installation needs. The reason names each changed
+  field. The staged updaters build the target's environment while the
+  installation serves and switch to it at activation (`src.environments`); the
+  in-place updater refuses.
 * ``REFUSED``: the bridge's Node manifests changed (nothing installs npm
   packages), or a manifest is missing, malformed or dynamic, so the change cannot
   be verified. Such a target needs explicit maintenance.
 """
+import re
 import tomllib
 from typing import NamedTuple, Optional
 
@@ -71,6 +76,29 @@ def _environment(text):
     return runtime, python, extras, build
 
 
+def requirement_lines(text):
+    """The requirement lines of a requirements file: comments, blank lines and surrounding space dropped.
+
+    A ``#`` starts a comment at the start of a line or after whitespace, as pip reads it.
+    """
+    lines = (re.sub(r"(?:^|\s+)#.*$", "", line).strip() for line in text.splitlines())
+    return [line for line in lines if line]
+
+
+def _changed_fields(before, after):
+    """The dependency fields of ``pyproject.toml`` that differ between two parsed environments."""
+    fields = []
+    if before[0] != after[0]:
+        fields.append("project.dependencies")
+    if before[1] != after[1]:
+        fields.append("project.requires-python")
+    fields += [f"project.optional-dependencies.{name}" for name, values in sorted(before[2].items())
+               if after[2].get(name) != values]
+    if before[3] != after[3]:
+        fields.append("build-system")
+    return fields
+
+
 def _show(git, revision, name, missing):
     """The file *name* at *revision*; ValueError(*missing*) when it does not exist there."""
     result = git("show", f"{revision}:{name}", check=False)
@@ -99,22 +127,26 @@ def classify(git, old, target):
         before, after = (_environment(_show(git, revision, "pyproject.toml",
                                             "pyproject.toml must exist in both revisions"))
                          for revision in (old, target))
-        same = before[:2] == after[:2] and before[3] == after[3] and all(
-            name in after[2] and values == after[2][name] for name, values in before[2].items())
-        if same and "requirements.txt" not in changed:
-            return Change(NONE)
-        # The environment build installs the target's requirements.txt.
-        _show(git, target, "requirements.txt", "requirements.txt must exist in the target")
+        fields = _changed_fields(before, after)
+        if "requirements.txt" in changed:
+            wanted = requirement_lines(_show(git, target, "requirements.txt",
+                                             "requirements.txt must exist in the target"))
+            installed = git("show", f"{old}:requirements.txt", check=False)
+            if installed.returncode or requirement_lines(installed.stdout) != wanted:
+                fields.insert(0, "requirements.txt")
+        if fields:  # the environment build installs the target's requirements.txt
+            _show(git, target, "requirements.txt", "requirements.txt must exist in the target")
     except (ValueError, TypeError) as error:
         return Change(REFUSED, listed + f"; cannot verify environment compatibility ({error}); "
                                         "use explicit maintenance")
-    if "requirements.txt" in changed:
-        return Change(ENVIRONMENT, listed + "; requirements.txt changed")
-    return Change(ENVIRONMENT, listed + "; runtime, Python, existing extra or build requirements changed")
+    if not fields:
+        return Change(NONE)
+    return Change(ENVIRONMENT, listed + "; changed: " + ", ".join(fields))
 
 
 def inputs(git, old, target):
-    """The target's :class:`Inputs`; ValueError when a manifest is missing or malformed."""
+    """The target's :class:`Inputs` (``requirements`` is the file's text); ValueError when a manifest
+    is missing or malformed."""
     requirements = _show(git, target, "requirements.txt", "requirements.txt must exist in the target")
     runtime, python, extras, _ = _environment(_show(git, target, "pyproject.toml",
                                                     "pyproject.toml must exist in the target"))

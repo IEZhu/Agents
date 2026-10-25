@@ -261,10 +261,11 @@ def check_target(controller, remote=None, branch=None):
             return {**found, "state": "skipped", "reason": f"local branch {branch} has commits {remote}/{branch} lacks"}
     elif _git(controller, "merge-base", "--is-ancestor", head, target, check=False).returncode:
         return {**found, "state": "skipped", "reason": "not a fast-forward"}
+    from src import self_update
     try:
         needed = environments.needed(controller.config["installation"],
                                      lambda *args, **kwargs: _git(controller, *args, **kwargs),
-                                     head, target, controller.config.get("python"))
+                                     head, target, controller.config.get("python"), run=self_update._run_command)
     except environments.Refused as refusal:
         return {**found, "state": "skipped", "reason": str(refusal)}
     if needed is not None:

@@ -3,7 +3,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from src.daemon.update_dependencies import DEPENDENCIES, ENVIRONMENT, NONE, REFUSED, classify, inputs
+from src.daemon.update_dependencies import (DEPENDENCIES, ENVIRONMENT, NONE, REFUSED, classify, inputs,
+                                            requirement_lines)
 
 
 MANIFEST = '''[build-system]
@@ -20,10 +21,14 @@ dependencies = ["mcp==1.28.1", "python-dotenv"]
 local-inference = ["httpx>=0.28,<0.29"]
 '''
 REQUIREMENTS = "mcp==1.28.1\npython-dotenv\n"
+# The target's requirements.txt by default: one more requirement line than REQUIREMENTS.
+TARGET_REQUIREMENTS = REQUIREMENTS + "numpy>=1.24\n"
 
 
-def fake_git(before=MANIFEST, after=MANIFEST, *, changed=("pyproject.toml",), missing=None, requirements=REQUIREMENTS):
-    """Git over two revisions: *missing* names a revision without pyproject.toml, or "requirements"."""
+def fake_git(before=MANIFEST, after=MANIFEST, *, changed=("pyproject.toml",), missing=None,
+             requirements=TARGET_REQUIREMENTS, installed_requirements=REQUIREMENTS):
+    """Git over two revisions: *missing* names a revision without pyproject.toml, or "requirements"
+    (the target's requirements.txt)."""
     def git(*args, check=True):
         if args[0] == "diff":
             assert args[1:] == ("--name-only", "old", "target", "--", *DEPENDENCIES)
@@ -31,6 +36,8 @@ def fake_git(before=MANIFEST, after=MANIFEST, *, changed=("pyproject.toml",), mi
         assert args[0] == "show" and check is False
         revision, name = args[1].split(":", 1)
         if name == "requirements.txt":
+            if revision == "old":
+                return SimpleNamespace(stdout=installed_requirements, returncode=0)
             return SimpleNamespace(stdout=requirements, returncode=128 if missing == "requirements" else 0)
         assert name == "pyproject.toml"
         return SimpleNamespace(stdout=before if revision == "old" else after,
@@ -82,9 +89,38 @@ def test_environment_contract_changes_need_a_new_environment(before, after):
     assert "Dependency manifests changed: pyproject.toml" in change.reason
 
 
+@pytest.mark.parametrize("after, field", [
+    (MANIFEST.replace("mcp==1.28.1", "mcp==2"), "project.dependencies"),
+    (MANIFEST.replace('requires-python = ">=3.11"', 'requires-python = ">=3.12"'), "project.requires-python"),
+    (MANIFEST.replace("httpx>=0.28,<0.29", "httpx>=1"), "project.optional-dependencies.local-inference"),
+    (MANIFEST.replace('local-inference = ["httpx>=0.28,<0.29"]', ""), "project.optional-dependencies.local-inference"),
+    (MANIFEST.replace("setuptools.build_meta", "other.backend"), "build-system"),
+])
+def test_the_reason_names_the_changed_field(after, field):
+    """#364: the reason says which dependency field changed, not only which manifest."""
+    assert gate(after=after).reason.endswith("; changed: " + field)
+
+
 def test_a_requirements_change_needs_a_new_environment():
     change = gate(changed=("requirements.txt",))
-    assert change.kind == ENVIRONMENT and "requirements.txt changed" in change.reason
+    assert change.kind == ENVIRONMENT and change.reason.endswith("; changed: requirements.txt")
+    both = gate(after=MANIFEST.replace("mcp==1.28.1", "mcp==2"), changed=("pyproject.toml", "requirements.txt"))
+    assert both.reason.endswith("; changed: requirements.txt, project.dependencies")
+
+
+@pytest.mark.parametrize("edited", [
+    "# runtime\n" + REQUIREMENTS,
+    REQUIREMENTS.replace("python-dotenv", "python-dotenv   # loads .env") + "\n\n",
+    "  mcp==1.28.1  \n\npython-dotenv\n",
+])
+def test_comments_blank_lines_and_spacing_in_requirements_change_nothing(edited):
+    """#364: only requirement lines count; an edited comment needs no environment."""
+    assert gate(changed=("requirements.txt",), requirements=edited) == (NONE, None)
+
+
+def test_requirement_lines_drop_comments_like_pip():
+    text = "# header\nmcp==2  # pinned\nurl @ https://x/y#egg=z\n\n  numpy  \n"
+    assert requirement_lines(text) == ["mcp==2", "url @ https://x/y#egg=z", "numpy"]
 
 
 @pytest.mark.parametrize("malformed", [

@@ -2084,13 +2084,12 @@ def test_a_prepared_switch_rechecks_the_policy_at_activation(repos, phase_a_env,
 @pytest.fixture
 def venv_repos(repos, phase_a_env, tmp_path):
     """An installation with the setup's ``.venv`` and both manifests; fake venv/pip builds."""
-    from tests.test_daemon_update_dependencies import MANIFEST
-    from tests.test_environments import FakeBuilder, make_environment
+    from tests.test_environments import PROJECT, FakeBuilder, make_environment
     base = tmp_path / "base/bin/python3"
     base.parent.mkdir(parents=True)
     base.write_text("base interpreter")
     make_environment(repos.local / ".venv", record=False, packages=("mcp",), base=base)
-    (repos.upstream / "pyproject.toml").write_text(MANIFEST)
+    (repos.upstream / "pyproject.toml").write_text(PROJECT)
     _commit(repos.upstream, "requirements.txt", "mcp==1.28.1\n", "manifests")
     _git(repos.local, "fetch", "-q", "origin")
     _git(repos.local, "merge", "-q", "--ff-only", "origin/main")
@@ -2151,14 +2150,14 @@ def test_a_failed_environment_build_changes_nothing(venv_repos, phase_a_env, fai
 ])
 def test_a_dependency_change_that_cannot_be_delivered_is_skipped_before_a_build(
         venv_repos, phase_a_env, path, content, reason):
-    from tests.test_daemon_update_dependencies import MANIFEST
+    from tests.test_environments import PROJECT
     if content is None:
-        content = MANIFEST.replace('requires-python = ">=3.11"', 'requires-python = ">=3.99"')
+        content = PROJECT.replace('requires-python = ">=3.11"', 'requires-python = ">=3.99"')
     (venv_repos.upstream / "bridge").mkdir(exist_ok=True)
     _commit(venv_repos.upstream, path, content, "dependency change")
     reasons = []
     assert _env_prepare(venv_repos, phase_a_env, reasons=reasons) == PreparedStatus.SKIPPED_DEPENDENCIES
-    assert reason in reasons[0] and venv_repos.builder.calls == [] and venv_repos.staged_with == []
+    assert reason in reasons[0] and venv_repos.builder.builds == [] and venv_repos.staged_with == []
     assert self_update._read_prepared_marker() is None
 
 
@@ -2167,7 +2166,7 @@ def test_a_lock_file_only_change_prepares_without_an_environment(venv_repos, pha
     assert _env_prepare(venv_repos, phase_a_env) == PreparedStatus.PREPARED
     marker = self_update._read_prepared_marker()
     assert "environment" not in marker and marker["schema"] == self_update.PREPARED_MARKER_SCHEMA
-    assert venv_repos.builder.calls == [] and venv_repos.staged_with == [None]
+    assert venv_repos.builder.builds == [] and venv_repos.staged_with == [None]
 
 
 def _activate_recording_journal(repos, monkeypatch):
@@ -2194,8 +2193,9 @@ def test_activation_switches_venv_after_the_merge_and_the_store_move(venv_repos,
     assert _venv_state(venv_repos) == {"kind": "link", "name": new}
     assert (venv_repos.local / ".venvs" / planned["previous"]["legacy"] / "pyvenv.cfg").exists()
     assert not (venv_repos.local / "data" / self_update.UPDATE_JOURNAL).exists()
-    # A re-exec through the installation's .venv runs the new environment.
-    monkeypatch.setattr(self_update.sys, "prefix", str(venv_repos.local / ".venv"))
+    # A process started on the setup's directory re-execs through .venv, into the new environment.
+    monkeypatch.setattr(environments, "RUNNING", str(venv_repos.local / ".venv"))
+    assert environments.replaced(str(venv_repos.local))
     assert self_update._reexec_executable(str(venv_repos.local)) == environments.python_path(venv_repos.local / ".venv")
 
 
@@ -2313,3 +2313,93 @@ def test_the_in_place_updater_accepts_a_lock_file_only_change(venv_repos, record
 
 def test_a_reexec_outside_the_installation_keeps_this_interpreter(tmp_path):
     assert self_update._reexec_executable(str(tmp_path)) == self_update.sys.executable
+
+
+def test_the_default_staged_reindex_runs_the_new_environment(venv_repos, phase_a_env, monkeypatch):
+    """Without an injected reindex, `python -m src.reindex` runs with the target environment's interpreter."""
+    from src import environments
+    _commit(venv_repos.upstream, "requirements.txt", "mcp==2\n", "new requirements")
+    real, reindexed = self_update._run_command, []
+
+    def run(args, cwd, timeout, *, env=None):
+        if list(args[1:]) == ["-m", "src.reindex"]:
+            reindexed.append(args[0])
+            phase_a_env.builder(cwd)
+            return subprocess.CompletedProcess(args, 0, "", "")
+        return real(args, cwd, timeout, env=env)
+    monkeypatch.setattr(self_update, "_run_command", run)
+    status = self_update.prepare_update(
+        str(venv_repos.local), "origin", "main", staging_parent=phase_a_env.parent,
+        live_python=environments.python_path(venv_repos.local / ".venv"), environment_runner=venv_repos.builder)
+    assert status == PreparedStatus.PREPARED
+    assert reindexed == [environments.python_path(self_update._read_prepared_marker()["environment"]["path"])]
+
+
+def test_a_reexec_uses_the_interpreter_chosen_for_it(monkeypatch):
+    monkeypatch.setattr(self_update, "_reexec_executable", lambda: "/sentinel/python")
+    execs = []
+    monkeypatch.setattr(self_update, "_exec_server", lambda exe, argv: execs.append((exe, argv)))
+    self_update._reexec_updated_server()
+    assert execs == [("/sentinel/python", ["/sentinel/python", *self_update.sys.argv])]
+
+
+def _merge_target(repos):
+    """An earlier run fast-forwarded and died: the checkout runs the target already."""
+    _git(repos.local, "merge", "-q", "--ff-only", _head(repos.upstream))
+
+
+def test_a_resumed_activation_whose_store_move_fails_still_switches(venv_repos, phase_a_env, monkeypatch):
+    _commit(venv_repos.upstream, "requirements.txt", "mcp==2\n", "new requirements")
+    assert _env_prepare(venv_repos, phase_a_env) == PreparedStatus.PREPARED
+    wanted = self_update._read_prepared_marker()["environment"]["id"]
+    _merge_target(venv_repos)
+    monkeypatch.setattr(self_update, "_activate_staged_stores",
+                        lambda *a, **k: (_ for _ in ()).throw(OSError("disk full")))
+    status = self_update.activate_prepared_update(str(venv_repos.local), "main")
+    # The code is the target's: it keeps its environment, and the stores rebuild on load.
+    assert status == ActivationStatus.ACTIVATE_MOVE_FAILED
+    assert _venv_state(venv_repos) == {"kind": "link", "name": wanted}
+    assert not (venv_repos.local / "data" / self_update.UPDATE_JOURNAL).exists()
+
+
+def test_a_resumed_activation_refused_by_a_gate_keeps_the_journal(venv_repos, phase_a_env, caplog):
+    from src.startup import assert_installation_safe
+    _commit(venv_repos.upstream, "requirements.txt", "mcp==2\n", "new requirements")
+    assert _env_prepare(venv_repos, phase_a_env) == PreparedStatus.PREPARED
+    marker = self_update._read_prepared_marker()
+    _merge_target(venv_repos)
+    shutil.rmtree(marker["environment"]["path"])  # Gate 9: INVALID_ENVIRONMENT
+    status = self_update.activate_prepared_update(str(venv_repos.local), "main")
+    # Target code must not start on the old environment: startup stops, naming both recoveries.
+    assert status == ActivationStatus.ACTIVATE_ROLLBACK_FAILED
+    assert "INVALID_ENVIRONMENT" in caplog.text and marker["environment"]["id"] in caplog.text
+    assert self_update._read_prepared_marker() == marker and _venv_state(venv_repos) == {"kind": "directory"}
+    with pytest.raises(SystemExit, match=f"switches .venv to .venvs/{marker['environment']['id']}"):
+        assert_installation_safe(str(venv_repos.local))
+
+
+def test_the_in_place_refusal_logs_its_reason(venv_repos, recorder, caplog):
+    _commit(venv_repos.upstream, "requirements.txt", "mcp==2\n", "new requirements")
+    assert check_and_apply_update(str(venv_repos.local), "origin", "main",
+                                  reindex_fn=recorder) == UpdateStatus.SKIPPED_DEPENDENCIES
+    assert "changed: requirements.txt" in caplog.text and "AGENTS_AUTO_UPDATE_STAGING=0" in caplog.text
+
+
+def test_a_start_whose_environment_was_switched_under_it_reexecs(tmp_path, monkeypatch):
+    """A resumed activation that switched .venv but failed its store move still re-execs onto .venv."""
+    from src import environments
+    marker = tmp_path / ".prepared_update.json"
+    marker.write_text("{}")
+    for name, value in [("AUTO_UPDATE_ENABLED", True), ("AUTO_UPDATE_STAGING", True),
+                        ("PREPARED_MARKER", str(marker)), ("STAGING_ROOT", str(tmp_path / "staging")),
+                        ("LOCK_FILE", str(tmp_path / ".update.lock"))]:
+        monkeypatch.setattr(self_update, name, value)
+    monkeypatch.setattr(self_update, "activate_prepared_update", lambda *a, **k: ActivationStatus.ACTIVATE_MOVE_FAILED)
+    execs = []
+    monkeypatch.setattr(self_update, "_reexec_updated_server", lambda: execs.append(1))
+    monkeypatch.setattr(environments, "replaced", lambda root: False)
+    self_update.run_activation_safely()
+    assert execs == []
+    monkeypatch.setattr(environments, "replaced", lambda root: True)
+    self_update.run_activation_safely()
+    assert execs == [1]

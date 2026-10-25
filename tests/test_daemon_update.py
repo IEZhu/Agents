@@ -11,6 +11,7 @@ import pytest
 from src import self_update
 from src.daemon.state import write_json, read_json
 from src.daemon.update import offline_update, recover
+from src.daemon.update import prepare_reindex as real_prepare_reindex
 from src.daemon.bootstrap import assert_service_safe
 from src.file_lock import file_lock
 from src import executables
@@ -39,6 +40,7 @@ class FakeController:
         self.probes = 0
         self.stops = 0
         self.builds = 0
+        self.staged_with = []  # the interpreter each prepared reindex was given (None: the service's)
 
     def status(self): return {"state": "ready" if self.running else "stopped"}
     def _stop(self):
@@ -90,7 +92,8 @@ def installation(tmp_path, monkeypatch):
         monkeypatch.setattr(self_update, name, str(data / filename))
     from src.daemon import update
 
-    def prepare_reindex(current, staging_dir):
+    def prepare_reindex(current, staging_dir, python=None):
+        controller.staged_with.append(python)
         assert controller.running  # the service keeps serving while the update is built
         with pytest.raises(BlockingIOError):  # under the updater lease: no stdio server prepares meanwhile
             with file_lock(root / "data/.update.lock", blocking=False): pass
@@ -766,14 +769,15 @@ def test_recovery_before_mutation_and_fail_closed_journal(installation):
     assert controller.running
 
 
-def test_dependency_changes_rejected_before_merge(installation):
+def test_a_missing_manifest_fails_closed_before_build_or_stop(installation):
+    """A requirements change whose revisions have no pyproject.toml cannot be verified."""
     controller, root, old, target = installation
     git(root, "reset", "--hard", target)
     (root / "requirements.txt").write_text("new-package==1\n")
     git(root, "add", "."); git(root, "commit", "-m", "dependencies")
     git(root, "push", "origin", "main")
     git(root, "reset", "--hard", old)
-    with pytest.raises(RuntimeError, match="Dependency manifests"):
+    with pytest.raises(RuntimeError, match="pyproject.toml must exist in both revisions"):
         offline_update(controller)
     assert git(root, "rev-parse", "HEAD") == old
     assert controller.running and controller.stops == 0 and controller.builds == 0
@@ -816,7 +820,7 @@ def test_an_environment_change_for_a_service_outside_venv_refuses_before_build_o
     git(root, "push", "-q", "origin", "main")
     base, _ = publish_pyproject_update(root, git(root, "rev-parse", "HEAD"), MANIFEST,
                                        MANIFEST.replace("httpx>=0.28,<0.29", "httpx>=1"))
-    with pytest.raises(RuntimeError, match="not an interpreter of the installation's .venv"):
+    with pytest.raises(RuntimeError, match="not the installation's interpreter"):
         offline_update(controller)
     assert git(root, "rev-parse", "HEAD") == base and controller.stops == controller.builds == 0
 
@@ -1152,16 +1156,14 @@ def test_failed_probation_restores_the_target_branchs_upstream(installation):
 def venv_installation(installation, tmp_path, monkeypatch):
     """A service on the installation's setup ``.venv`` with both manifests; fake venv/pip builds."""
     from src import environments
-    from src.daemon import update
-    from tests.test_daemon_update_dependencies import MANIFEST
-    from tests.test_environments import FakeBuilder, make_environment
+    from tests.test_environments import PROJECT, FakeBuilder, make_environment
     controller, root, old, target = installation
     base = tmp_path / "base/bin/python3"
     base.parent.mkdir(parents=True)
     base.write_text("base interpreter")
     make_environment(root / ".venv", record=False, packages=("mcp",), base=base)
     git(root, "reset", "--hard", target)
-    (root / "pyproject.toml").write_text(MANIFEST)
+    (root / "pyproject.toml").write_text(PROJECT)
     (root / "requirements.txt").write_text("mcp==1.28.1\n")
     git(root, "add", "pyproject.toml", "requirements.txt"); git(root, "commit", "-qm", "manifests")
     git(root, "push", "-q", "origin", "main")
@@ -1171,19 +1173,14 @@ def venv_installation(installation, tmp_path, monkeypatch):
     builder, real = FakeBuilder(), self_update._run_command
 
     def run(args, cwd, timeout, *, env=None):
-        if len(args) > 2 and args[1] == "-m" and args[2] in ("venv", "pip"):
+        # The base interpreter's version probe and venv, and pip of a new environment.
+        if args[0] == str(base) or list(args[1:3]) == ["-m", "pip"]:
             assert controller.running  # the environment is built while the service serves
-            return builder(args, cwd=cwd, timeout=timeout)
+            return builder(args, cwd=cwd, timeout=timeout, env=env)
         return real(args, cwd, timeout, env=env)
     monkeypatch.setattr(self_update, "_run_command", run)
-    staged_with, reindex = [], update.prepare_reindex
-
-    def prepare_reindex(current, staging_dir, python=None):
-        staged_with.append(python)
-        return reindex(current, staging_dir)
-    monkeypatch.setattr(update, "prepare_reindex", prepare_reindex)
     return SimpleNamespace(controller=controller, root=root, base=git(root, "rev-parse", "HEAD"),
-                           builder=builder, staged_with=staged_with)
+                           builder=builder, staged_with=controller.staged_with)
 
 
 def publish_requirements(root, base, content):
@@ -1267,6 +1264,62 @@ def test_a_failed_environment_build_leaves_the_service_serving(venv_installation
     assert result["state"] == "PREPARE_ENVIRONMENT_FAILED" and "ResolutionImpossible" in result["reason"]
     assert controller.running and controller.stops == 0 and git(root, "rev-parse", "HEAD") == env.base
     assert list((root / ".venvs").iterdir()) == []
+
+
+def test_the_service_reindex_runs_the_interpreter_it_is_given(installation, monkeypatch, tmp_path):
+    controller, root, _, _ = installation
+    commands = []
+
+    def run(args, cwd, timeout, *, env=None):
+        commands.append((args, cwd))
+        return subprocess.CompletedProcess(args, 0, "", "")
+    monkeypatch.setattr(self_update, "_run_command", run)
+    assert real_prepare_reindex(controller, str(tmp_path / "staged"), python="/x/python")
+    assert real_prepare_reindex(controller, str(tmp_path / "staged"))
+    assert commands == [(["/x/python", "-m", "src.reindex"], str(tmp_path / "staged")),
+                        ([controller.config["python"], "-m", "src.reindex"], str(tmp_path / "staged"))]
+
+
+def test_a_failed_environment_switch_restores_code_stores_and_venv(venv_installation, monkeypatch):
+    from src import environments
+    env = venv_installation
+    controller, root = env.controller, env.root
+    publish_requirements(root, env.base, "mcp==2\n")
+
+    def interrupted(installation, planned):
+        os.rename(os.path.join(installation, ".venv"),
+                  os.path.join(installation, ".venvs", planned["previous"]["legacy"]))
+        raise OSError("no space for the link")
+    monkeypatch.setattr(environments, "switch", interrupted)
+    result = offline_update(controller)
+    assert result["state"] == "ACTIVATE_ENVIRONMENT_FAILED" and git(root, "rev-parse", "HEAD") == env.base
+    assert environments.state(str(root)) == {"kind": "directory"}
+    assert (root / "data/skills_store.npz").read_text() == "old-index"
+    assert not (controller.directory / "transaction.json").exists() and controller.running
+
+
+def test_a_comment_only_requirements_change_updates_without_an_environment(venv_installation):
+    """#364: a comment in requirements.txt changes no package; the update applies on the setup .venv."""
+    from src import environments
+    env = venv_installation
+    controller, root = env.controller, env.root
+    target = publish_requirements(root, env.base, "# the MCP server\nmcp==1.28.1   # pinned\n\n")
+    result = offline_update(controller)
+    assert result["state"] == "UPDATED" and git(root, "rev-parse", "HEAD") == target
+    assert env.builder.builds == [] and env.staged_with == [None]
+    assert environments.state(str(root)) == {"kind": "directory"}
+
+
+def test_malformed_toml_is_refused_with_its_reason(venv_installation):
+    env = venv_installation
+    controller, root = env.controller, env.root
+    (root / "pyproject.toml").write_text("not valid TOML !\n")
+    git(root, "commit", "-qam", "broken manifest")
+    git(root, "push", "-q", "origin", "main")
+    git(root, "reset", "--hard", env.base)
+    with pytest.raises(RuntimeError, match="cannot verify environment compatibility"):
+        offline_update(controller)
+    assert controller.running and controller.stops == 0 and env.builder.calls == []
 
 
 def test_a_bridge_package_change_is_refused_before_build_or_stop(venv_installation):

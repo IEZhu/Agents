@@ -168,12 +168,12 @@ def test_stopped_service_is_not_started_by_an_update(scheduled):
     assert git(root, "rev-parse", "HEAD") == old and controller.probes == 0
 
 
-def test_dependency_change_is_refused_before_draining_and_logged_once(scheduled):
+def test_a_missing_manifest_is_refused_before_draining_and_logged_once(scheduled):
     controller, root, old, _ = scheduled
     push_to_remote(root, "pyproject.toml", "[project]\nname = 'x'\n", "bump deps")
     for _ in range(3):
         result = autoupdate.run(controller)
-        assert result["state"] == "skipped" and "pyproject.toml" in result["reason"]
+        assert result["state"] == "skipped" and "pyproject.toml must exist in both revisions" in result["reason"]
     assert git(root, "rev-parse", "HEAD") == old and controller.stops == 0
     log = (controller.directory / "auto-update.log").read_text().splitlines()
     assert len(log) == 1
@@ -210,7 +210,7 @@ def test_scheduled_update_skips_an_environment_change_for_a_service_outside_venv
     git(root, "reset", "--hard", env.base)
     result = autoupdate.run(controller)
     assert result["state"] == "skipped" and result["target"] == changed
-    assert "not an interpreter of the installation's .venv" in result["reason"]
+    assert "not the installation's interpreter" in result["reason"]
     assert controller.stops == controller.builds == 0 and env.builder.calls == []
 
 
@@ -220,12 +220,35 @@ def test_check_target_notes_an_environment_and_skips_bridge_package_changes(venv
     target = publish_requirements(root, env.base, "mcp==2\n")
     found = autoupdate.check_target(controller)
     assert found["state"] == "available" and found["target"] == target
-    assert "requirements.txt changed" in found["environment"]
+    assert found["environment"].endswith("; changed: requirements.txt")
     (root / "bridge").mkdir()
     push_to_remote(root, "bridge/package.json", "{}\n", "bridge manifest")
     found = autoupdate.check_target(controller)
     assert found["state"] == "skipped" and "bridge/package.json" in found["reason"]
-    assert controller.stops == controller.builds == 0 and env.builder.calls == []
+    assert controller.stops == controller.builds == 0 and env.builder.builds == []
+
+
+def test_check_target_finds_a_comment_only_requirements_change_available_without_an_environment(venv_scheduled):
+    env = venv_scheduled
+    target = publish_requirements(env.root, env.base, "# pinned for the MCP server\nmcp==1.28.1\n")
+    assert autoupdate.check_target(env.controller) == {"state": "available", "head": env.base, "target": target}
+
+
+def test_check_target_skips_malformed_toml_with_its_reason(venv_scheduled):
+    env = venv_scheduled
+    push_to_remote(env.root, "pyproject.toml", "not valid TOML !\n", "broken manifest")
+    found = autoupdate.check_target(env.controller)
+    assert found["state"] == "skipped" and "cannot verify environment compatibility" in found["reason"]
+
+
+def test_a_scheduled_failed_build_records_its_reason(venv_scheduled):
+    env = venv_scheduled
+    publish_requirements(env.root, env.base, "mcp==2\n")
+    env.builder.fail = "pip"
+    result = autoupdate.run(env.controller)
+    assert result["state"] == "PREPARE_ENVIRONMENT_FAILED" and "ResolutionImpossible" in result["reason"]
+    assert read_json(env.controller.directory / "auto-update.json")["reason"] == result["reason"]
+    assert env.controller.stops == 0
 
 
 def test_scheduled_update_delivers_a_dependency_change(venv_scheduled):
