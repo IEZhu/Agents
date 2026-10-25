@@ -1152,6 +1152,10 @@ def test_failed_probation_restores_the_target_branchs_upstream(installation):
 
 # --- Dependencies: the target's Python environment (#181) ----------------------
 
+# As in tests/test_environments.py: Windows refuses delivery into the setup directory.
+posix_delivery = pytest.mark.skipif(os.name == "nt", reason="Windows refuses delivery into the setup directory")
+
+
 @pytest.fixture
 def venv_installation(installation, tmp_path, monkeypatch):
     """A service on the installation's setup ``.venv`` with both manifests; fake venv/pip builds."""
@@ -1193,6 +1197,7 @@ def publish_requirements(root, base, content):
     return changed
 
 
+@posix_delivery
 def test_a_dependency_update_builds_while_serving_and_switches_venv_in_maintenance(venv_installation, monkeypatch):
     from src import environments
     env = venv_installation
@@ -1217,6 +1222,7 @@ def test_a_dependency_update_builds_while_serving_and_switches_venv_in_maintenan
     assert (root / ".venvs" / planned["previous"]["legacy"] / "pyvenv.cfg").exists()
 
 
+@posix_delivery
 def test_a_failed_probation_restores_the_environment_with_the_code_and_stores(venv_installation):
     from src import environments
     env = venv_installation
@@ -1230,6 +1236,7 @@ def test_a_failed_probation_restores_the_environment_with_the_code_and_stores(ve
     assert not (controller.directory / "transaction.json").exists()
 
 
+@posix_delivery
 def test_recover_restores_the_environment_of_an_interrupted_update(venv_installation, monkeypatch):
     from src.daemon import update
     from src import environments
@@ -1255,6 +1262,7 @@ def test_recover_restores_the_environment_of_an_interrupted_update(venv_installa
     assert environments.state(str(root)) == {"kind": "directory"} and git(root, "rev-parse", "HEAD") == env.base
 
 
+@posix_delivery
 def test_a_failed_environment_build_leaves_the_service_serving(venv_installation):
     env = venv_installation
     controller, root = env.controller, env.root
@@ -1280,6 +1288,7 @@ def test_the_service_reindex_runs_the_interpreter_it_is_given(installation, monk
                         ([controller.config["python"], "-m", "src.reindex"], str(tmp_path / "staged"))]
 
 
+@posix_delivery
 def test_a_failed_environment_switch_restores_code_stores_and_venv(venv_installation, monkeypatch):
     from src import environments
     env = venv_installation

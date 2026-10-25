@@ -84,6 +84,12 @@ def make_environment(directory, *, record=True, packages=(), base=None):
     return directory
 
 
+# Windows refuses dependency delivery into the directory setup created (see
+# test_windows_refuses_dependency_changes_on_the_setup_directory), so tests that
+# deliver into it, or reach a check behind that refusal, run on POSIX only.
+posix_delivery = pytest.mark.skipif(os.name == "nt", reason="Windows refuses delivery into the setup directory")
+
+
 @pytest.fixture
 def root(tmp_path):
     """An installation whose ``.venv`` is the directory setup created, on a real base interpreter file."""
@@ -121,6 +127,7 @@ def test_unchanged_or_lock_only_manifests_need_no_environment(root):
     assert needed(root, changed=("uv.lock",)) is None
 
 
+@posix_delivery
 def test_requirements_and_runtime_dependencies_are_installed(root):
     found = needed(root)
     assert found.version == VERSION and found.base == str(root.parent / "base/bin/python3")
@@ -129,6 +136,7 @@ def test_requirements_and_runtime_dependencies_are_installed(root):
     assert lines[0] == "mcp==2" and "python-dotenv" in lines
 
 
+@posix_delivery
 def test_a_comment_only_requirements_edit_does_not_change_the_environment_id(root):
     """#364: the id hashes the requirement lines, not comments or blank lines."""
     plain = needed(root, requirements="mcp==2\nnumpy\n")
@@ -136,6 +144,7 @@ def test_a_comment_only_requirements_edit_does_not_change_the_environment_id(roo
     assert plain.requirements == commented.requirements
 
 
+@posix_delivery
 def test_an_extra_installed_only_as_a_dependency_is_carried(root):
     """The rule: both revisions declare the extra and every distribution of it is installed,
     also as a dependency of another package (httpx comes with mcp here). A new extra is not."""
@@ -144,12 +153,14 @@ def test_an_extra_installed_only_as_a_dependency_is_carried(root):
     assert "httpx>=0.28,<0.29" in lines and "claude-agent-sdk==0.2.168" not in lines
 
 
+@posix_delivery
 def test_a_carried_extra_installs_the_target_pins(root):
     after = PROJECT.replace("httpx>=0.28,<0.29", "httpx>=1")
     lines = needed(root, changed=("requirements.txt", "pyproject.toml"), after=after).requirements.splitlines()
     assert "httpx>=1" in lines and "httpx>=0.28,<0.29" not in lines
 
 
+@posix_delivery
 def test_an_extra_with_a_missing_distribution_is_not_carried(root):
     redis = PROJECT + 'local-inference-redis = ["httpx>=0.28,<0.29", "redis>=7.0.0,<7.1"]\n'
     lines = needed(root, before=redis, after=redis).requirements.splitlines()
@@ -157,6 +168,7 @@ def test_an_extra_with_a_missing_distribution_is_not_carried(root):
     assert "# optional extra local-inference-redis, installed in the previous environment" not in lines
 
 
+@posix_delivery
 def test_identical_requirements_are_listed_once(root):
     lines = needed(root, requirements="mcp==2\npython-dotenv\n").requirements.splitlines()
     assert lines.count("python-dotenv") == 1
@@ -169,6 +181,7 @@ def test_identical_requirements_are_listed_once(root):
     ("uvicorn==0.49.0\n", '["uvicorn[standard]==0.48.0"]'),  # a line with extras pins too
     ("foo==2.0\n", '["foo[a,b]==1.0"]'),
 ])
+@posix_delivery
 def test_two_different_exact_pins_of_one_distribution_are_refused(root, requirements, declared):
     project = PROJECT.replace('dependencies = ["python-dotenv"]', f"dependencies = {declared}")
     with pytest.raises(environments.Refused, match="pin .* to different versions") as refused:
@@ -205,6 +218,7 @@ def test_lines_with_extras_markers_or_urls_stay_as_written(first, second):
 @pytest.mark.parametrize("line", ["-rbase.txt", "-r base.txt", "-cx", "-e.", "--requirement=x", "-f x",
                                   "--index-url https://example.invalid/simple", "--hash=sha256:00",
                                   "./pkg", "/opt/pkg", "~/pkg", "C:\\pkg", "c:/pkg", "numpy>=1.24 \\"])
+@posix_delivery
 def test_pip_options_local_paths_and_continuations_in_requirements_are_refused(root, line):
     with pytest.raises(environments.Refused, match="pip option|local path|continues on the next line"):
         needed(root, requirements=f"mcp==2\n{line}\n")
@@ -212,6 +226,7 @@ def test_pip_options_local_paths_and_continuations_in_requirements_are_refused(r
 
 @pytest.mark.parametrize("field", ["dependencies", "extra"])
 @pytest.mark.parametrize("declared", ['"-e ."', '"python-dotenv\\n--index-url x"'])
+@posix_delivery
 def test_pip_options_and_line_breaks_in_pyproject_are_refused(root, field, declared):
     if field == "dependencies":
         project = PROJECT.replace('dependencies = ["python-dotenv"]', f"dependencies = [{declared}]")
@@ -233,6 +248,7 @@ def test_requires_python_is_evaluated_for_the_base_interpreter(specifier, refuse
         assert "Python 3.13.1 does not satisfy" in reason
 
 
+@posix_delivery
 def test_a_target_the_base_interpreter_cannot_run_is_refused_without_a_build(root):
     after = PROJECT.replace('requires-python = ">=3.11"', 'requires-python = ">=3.14"')
     runner = FakeBuilder()
@@ -338,6 +354,7 @@ def test_a_missing_base_interpreter_is_refused(root):
 
 # --- building ---------------------------------------------------------------------------------------
 
+@posix_delivery
 def test_a_build_installs_the_requirements_and_writes_its_record_last(root):
     wanted = needed(root)
     builder = FakeBuilder()
@@ -355,6 +372,7 @@ def test_a_build_installs_the_requirements_and_writes_its_record_last(root):
     assert not environments.is_link(root / ".venv") and (root / ".venv/pyvenv.cfg").exists()
 
 
+@posix_delivery
 def test_venv_and_pip_run_without_settings_that_redirect_them(root, monkeypatch):
     for key in ("PYTHONHOME", "PYTHONPATH", "PYTHONSTARTUP", "PYTHONUSERBASE", "PIP_USER", "PIP_TARGET",
                 "PIP_PREFIX"):
@@ -368,6 +386,7 @@ def test_venv_and_pip_run_without_settings_that_redirect_them(root, monkeypatch)
                     "PIP_PREFIX"}.intersection(env)
 
 
+@posix_delivery
 def test_a_complete_environment_is_reused(root):
     wanted = needed(root)
     first = environments.build(str(root), wanted, run=FakeBuilder(), timeout=60)
@@ -377,6 +396,7 @@ def test_a_complete_environment_is_reused(root):
 
 
 @pytest.mark.parametrize("failure", [{"fail": "pip"}, {"fail": "venv"}, {"hang": "pip"}, {"raises": "pip"}])
+@posix_delivery
 def test_a_failed_build_leaves_no_partial_environment(root, failure):
     wanted = needed(root)
     with pytest.raises(environments.BuildFailed):
@@ -384,6 +404,7 @@ def test_a_failed_build_leaves_no_partial_environment(root, failure):
     assert list((root / ".venvs").iterdir()) == []
 
 
+@posix_delivery
 def test_a_failure_reports_pip_errors_first_and_the_end_of_its_output(root):
     with pytest.raises(environments.BuildFailed) as failed:
         environments.build(str(root), needed(root), run=FakeBuilder(fail="pip", stdout="Collecting x\n" * 500),
@@ -393,6 +414,7 @@ def test_a_failure_reports_pip_errors_first_and_the_end_of_its_output(root):
     assert message.endswith("Collecting x") and len(message) < 600
 
 
+@posix_delivery
 def test_a_build_past_its_deadline_stops_and_leaves_nothing(root, monkeypatch):
     clock = iter([0, 1, 100])
     monkeypatch.setattr(environments, "_now", lambda: next(clock))
@@ -401,6 +423,7 @@ def test_a_build_past_its_deadline_stops_and_leaves_nothing(root, monkeypatch):
     assert list((root / ".venvs").iterdir()) == []
 
 
+@posix_delivery
 def test_an_incomplete_environment_is_removed_before_a_rebuild(root):
     wanted = needed(root)
     leftover = root / ".venvs" / environments.environment_id(wanted.requirements, wanted.version)
@@ -410,6 +433,7 @@ def test_an_incomplete_environment_is_removed_before_a_rebuild(root):
     assert record["path"] == str(leftover) and not (leftover / "stale.txt").exists()
 
 
+@posix_delivery
 def test_a_redirected_venvs_is_neither_built_in_nor_pruned(root, tmp_path):
     elsewhere = tmp_path / "elsewhere"
     old = make_environment(elsewhere / ("py313-" + "c" * 12))
