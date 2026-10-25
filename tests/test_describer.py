@@ -741,6 +741,15 @@ class TestContextBundleBudget:
         # Its 60 entries count beside the lines cut with it.
         assert note.startswith(f"… {60 + len(cut)} more entries ({60 + len(cut)} at depth 2;")
 
+    @pytest.mark.parametrize("over", [0, 1])
+    def test_capped_tree_is_kept_whole_up_to_its_exact_room(self, over):
+        tree_line = describer_module._TreeLine
+        lines = [tree_line("dir/", 1), tree_line("  file", 2), tree_line("  … 3 more entries", 2, 3)]
+        whole = "\n".join(line.text for line in lines)
+        text = describer_module._fit_tree(lines, _cost(whole) - over)
+        assert _cost(text) <= _cost(whole) - over
+        assert (text == whole) is (over == 0)
+
     @pytest.mark.parametrize("count", [150, 200, 201, 500])
     def test_long_readme_is_cut_at_a_line_boundary(self, tmp_path, count):
         head_lines = describer_module.DESCRIBE_README_HEAD_LINES
@@ -791,6 +800,49 @@ class TestContextBundleBudget:
         assert all(left // 2 - line < share <= describer_module.DESCRIBE_MANIFEST_MAX_CHARS for share in shares)
         assert sum(shares) <= left
         assert all(_body(sections[f"### {name}"])[-1].endswith(" more lines") for name in large)
+
+    @pytest.mark.parametrize("share", range(200, 208))
+    def test_manifest_share_includes_its_separator(self, tmp_path, monkeypatch, share):
+        monkeypatch.setattr(describer_module, "DESCRIBE_MANIFEST_MAX_CHARS", share)
+        (tmp_path / "go.mod").write_text("x\n" * 1_000)
+        section = _sections(RepoDescriber(repo_path=str(tmp_path)).build_context_bundle())["### go.mod"]
+        assert _body(section)[-1].endswith(" more lines")
+        assert _cost(section) + _SEPARATOR_COST <= share
+
+    def test_unreadable_manifest_leaves_no_heading(self, tmp_path, monkeypatch):
+        (tmp_path / "pyproject.toml").write_text("[project]\n")
+        (tmp_path / "go.mod").write_text("module demo\n")
+        read_text = Path.read_text
+
+        def refuse_pyproject(path, *args, **kwargs):
+            if path.name == "pyproject.toml":
+                raise PermissionError("unreadable")
+            return read_text(path, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "read_text", refuse_pyproject)
+        sections = _sections(RepoDescriber(repo_path=str(tmp_path)).build_context_bundle())
+        assert set(sections) == {_TREE, "### go.mod"}
+        assert _body(sections["### go.mod"]) == ["module demo"]
+
+    def test_symlinks_are_listed_but_not_followed(self, tmp_path):
+        outside = tmp_path / "outside"
+        (outside / "inner").mkdir(parents=True)
+        (outside / "inner" / "secret.txt").write_text("")
+        (outside / "README.md").write_text("# Outside\n")
+        (outside / "pyproject.toml").write_text("[project]\nname = \"outside\"\n")
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / "main.py").write_text("")
+        try:
+            (repo / "link").symlink_to(outside / "inner", target_is_directory=True)
+            (repo / "README.md").symlink_to(outside / "README.md")
+            (repo / "pyproject.toml").symlink_to(outside / "pyproject.toml")
+        except OSError:
+            pytest.skip("symlinks unavailable")
+        sections = _sections(RepoDescriber(repo_path=str(repo)).build_context_bundle())
+        # The tree names the links without descending; their targets stay out of the bundle.
+        assert set(sections) == {_TREE}
+        assert _body(sections[_TREE]) == ["link/", "README.md", "main.py", "pyproject.toml"]
 
     def test_overlong_lines_are_shortened_with_an_ellipsis(self, tmp_path):
         line_cap = describer_module.DESCRIBE_LINE_MAX_CHARS
