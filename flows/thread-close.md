@@ -378,9 +378,13 @@ client's own tools. Calls from this close's own `run_flow` on are not audited.
 
    **Managed blocks.** The block between the `init_repo` markers in `CLAUDE.md`
    or `AGENTS.md` is regenerated from Agents-Core's
-   `scripts/templates/routing-protocol-core.md`; a hand edit there is
-   overwritten. Patch that template through an Agents-Core pull request, and put
-   rules of the user's own outside the markers.
+   `scripts/templates/routing-protocol-core.md`, which is itself generated from
+   the section files in `src/engine/protocol/`. A hand edit of the block or the
+   template is overwritten and fails `tests/test_protocol_text.py`. Patch the
+   section file under `src/engine/protocol/` that states the rule through an
+   Agents-Core pull request and regenerate with
+   `python -m src.engine.protocol_text --write`; put rules of the user's own
+   outside the markers.
 
    **Repeats escalate.** Search `read_history` for earlier closes tagged
    `#ac-missed-<slug>` or `#tool-missed-<slug>`, or naming that slug in their tool

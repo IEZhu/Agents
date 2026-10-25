@@ -770,7 +770,7 @@ The server exposes MCP tools that any compatible client can call:
 | `load_implants(query\|task_type)` | Load cognitive reasoning strategies by semantic query or preset bundle |
 | `list_agents()` | Enumerate all available agents with metadata |
 | `list_flows(scope="all")` | Discover built-in, personal (`user:`) and repository (`repo:`) Markdown workflows, with IDs and content revisions |
-| `run_flow(flow, request="", repo_path=None, current_persona?)` | Load a workflow for the caller's repository; returns `needs_execution` for the current model to carry out using its tools, plus `persona_activation` when the flow names a persona |
+| `run_flow(flow, request="", repo_path=None, current_persona?, force_reload=False)` | Load a workflow for the caller's repository; returns `needs_execution` for the current model to carry out using its tools, plus `persona_activation` when the flow names a persona (`force_reload=True` with `current_persona` restores that persona's full instruction) |
 | `get_flow` / `save_flow` / `delete_flow` | Manage personal and repository flows from chat, with history and conflict detection; stored in the git-ignored `flows/.user` ([details](flows/README.md#personal-and-repository-flows)) |
 | `set_flow_persona(flow, agent?, skills?, implants?, rules?, reset=False)` | Choose the agent and exact skills, implants and rules a flow runs with, without copying its text; stored in `flows/.user/personas/`. Without `agent` the flow runs without a persona; `reset=true` restores the flow's frontmatter ([details](flows/README.md#choose-a-flows-agent-and-components)) |
 | `list_user_rules` / `get_user_rule` / `subscribe_user_rule` / `refresh_user_rule` | Inspect or explicitly fetch cached [URL-subscribed user rules](docs/user-rules.md); only subscribe and refresh contact the source |
@@ -915,17 +915,26 @@ the hook authenticates the project for memory calls. See
 [Antigravity client setup](docs/routing_flow.md#installation-migration-and-rollback).
 
 The checked-in `CLAUDE.md` uses the same template; the global installer does not
-change this tracked file. After editing the template, refresh this checkout's
-managed section:
+change this tracked file. The template, the MCP initialization instructions, the
+`instruction` of a `SUCCESS`, the pointers sent instead of a text the client already
+holds (#433) and the memory reminder are all composed from the section files in
+`src/engine/protocol/`. After editing a section, regenerate the
+template, the reminder and this checkout's managed section:
 
 ```bash
-.venv/bin/python scripts/_helpers/inject_claude_md.py CLAUDE.md scripts/templates/routing-protocol-core.md
+.venv/bin/python -m src.engine.protocol_text --write
 ```
 
-On Windows, use `.venv\Scripts\python.exe` for the same command.
-The helper replaces only the text between the markers and preserves repository
-notes outside them. When the section changes, it leaves an untracked
-`CLAUDE.md.backup.<timestamp>` in the checkout; do not commit it. Backup retention
+On Windows, use `.venv\Scripts\python.exe` for the same command; `--check` lists
+stale files without writing. The command replaces only the text between the
+markers and preserves repository notes outside them. On every run, not only when
+the reminder changes, it keeps the released reminder (the one at the merge base
+with `dev`) as the next `scripts/templates/legacy/memory-routing-v<N>.md` when
+migration would not recognize it; add any name it prints where the tests list
+legacy reminders ([legacy/README.md](scripts/templates/legacy/README.md)). The installer helper
+`scripts/_helpers/inject_claude_md.py` refreshes other files' managed sections;
+when it changes a file it leaves `<file>.backup.<timestamp>` next to it and keeps the
+three newest. Inside this checkout, do not commit such a backup. Backup retention
 and routing-reminder migration are described in
 [installation, migration and rollback](docs/routing_flow.md#installation-migration-and-rollback).
 Review your own project instructions and memory for conflicting unconditional
@@ -971,6 +980,7 @@ Agents/
 │   ├── component_toggles.py # Installation-wide on/off switches for rules, skills and implants
 │   ├── component_catalog.py # Read-only agent and component listing for the web UI
 │   ├── client_paths.py   # Client configuration paths shared by installers and migration
+│   ├── client_instructions.py # What a client's instruction files hold: the initialize pointer and drift warnings
 │   ├── file_lock.py      # Stable sidecar file locks
 │   ├── daemon/           # HTTP app, service control, workspaces, client migration, web UI and its sign-in
 │   ├── mcp_servers/      # Optional document OCR server and the MCP server template
@@ -978,6 +988,7 @@ Agents/
 │   │   ├── router.py     # Semantic routing (cache-first)
 │   │   ├── persona.py    # Protocol 2 activation, restore, and refresh
 │   │   ├── persona_bundle.py # Fresh instruction blocks and bundle revision
+│   │   ├── protocol_text.py # Every protocol surface, rendered from the section files in protocol/
 │   │   ├── readiness.py  # Background retrieval startup (warming_up)
 │   │   ├── skills.py     # Skill retrieval (vector search)
 │   │   ├── implants.py   # Implant retrieval (vector search)

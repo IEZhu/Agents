@@ -1,24 +1,13 @@
 """Offline instruction propagation and authored behavior fixture checks; no model trials."""
-import ast
 from collections import defaultdict
 import json
 from pathlib import Path
 
 import pytest
 
+from src.engine import protocol_text
 
 ROOT = Path(__file__).resolve().parents[1]
-
-
-def _python_instruction(path, *, assignment=None, call=None):
-    tree = ast.parse((ROOT / path).read_text(encoding="utf-8"))
-    for node in ast.walk(tree):
-        if assignment and isinstance(node, ast.Assign):
-            if any(isinstance(target, ast.Name) and target.id == assignment for target in node.targets):
-                return ast.literal_eval(node.value)
-        if call and isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == call:
-            return ast.literal_eval(next(item.value for item in node.keywords if item.arg == "instructions"))
-    raise AssertionError(f"Missing instruction surface: {path}")
 
 
 def _surfaces():
@@ -26,8 +15,10 @@ def _surfaces():
         "routing_template": (ROOT / "scripts/templates/routing-protocol-core.md").read_text(),
         "managed_claude": (ROOT / "CLAUDE.md").read_text(),
         "memory_reminder": (ROOT / "scripts/templates/memory-routing.md").read_text(),
-        "mcp_initialization": _python_instruction("src/server.py", call="_WorkerInputMCP"),
-        "bundle_application": _python_instruction("src/engine/persona.py", assignment="APPLY_INSTRUCTION"),
+        # Rendered from src/engine/protocol/ (#431); tests/test_protocol_text.py checks that
+        # server.py and persona.py use these renders.
+        "mcp_initialization": protocol_text.server_instructions(),
+        "bundle_application": protocol_text.bundle_instruction(),
     }
 
 

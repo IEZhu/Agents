@@ -72,17 +72,27 @@ their recorded revision; they do not override the current implementation.
 - Update documentation when changing a public tool, configuration default,
   installer, command or AI instruction. The source-to-document map and review
   steps are in [documentation-refresh.md](flows/documentation-refresh.md).
-- The source of the managed routing section is
-  [routing-protocol-core.md](scripts/templates/routing-protocol-core.md).
-  Edit the template first when changing that contract, then update the managed
-  section with `scripts/_helpers/inject_claude_md.py`. A contract change also
-  updates the MCP initialization instructions in `src/server.py`,
-  `APPLY_INSTRUCTION` in `src/engine/persona.py` and, where it restates the
-  change, [memory-routing.md](scripts/templates/memory-routing.md), after saving
-  its previous copy as described in
-  [legacy/README.md](scripts/templates/legacy/README.md). No test compares these
-  restatements with the template. Keep repository notes and Repository Memory
-  outside the routing markers.
+- The protocol text has one source, the section files in
+  [src/engine/protocol/](src/engine/protocol/), composed by
+  `src/engine/protocol_text.py` into every surface: the template
+  [routing-protocol-core.md](scripts/templates/routing-protocol-core.md) (the
+  managed section of `CLAUDE.md` and `AGENTS.md`), the MCP initialization
+  instructions, the `instruction` of a `SUCCESS`, the pointers sent instead of
+  a text the client already holds (#433) and the installer's
+  [memory-routing.md](scripts/templates/memory-routing.md). Edit the section
+  that states the rule, never a generated surface, then run
+  `.venv/bin/python -m src.engine.protocol_text --write`, which regenerates the
+  template, the reminder and this checkout's managed section. On every run, not
+  only when the reminder changes, the command keeps the released reminder (the
+  one at the merge base with `dev`) as the next legacy copy when migration would
+  not recognize it ([legacy/README.md](scripts/templates/legacy/README.md)); add
+  any name it prints where the tests list legacy reminders.
+  `tests/test_protocol_text.py` fails on a stale file and on a sentence the
+  source states in two places, `tests/test_log_interaction_contract.py` on a
+  server instruction that leaves Claude Code's windows, and
+  `tests/test_instruction_pointers.py` when a pointer of
+  `src/client_instructions.py` does not name a rule of the full instruction.
+  Keep repository notes and Repository Memory outside the routing markers.
 - Treat `.env`, MCP client registrations, memory journals and generated indexes
   as local state. A documentation update does not require reinstalling clients
   or restarting the shared daemon.

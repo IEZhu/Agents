@@ -16,7 +16,7 @@ from starlette.responses import JSONResponse
 
 from src.version import agents_core_branch, agents_core_commit, agents_core_version
 from src.runtime_paths import installation_root, runtime_root
-from src import personal_runtime
+from src import client_instructions, personal_runtime
 from .execution import TrackedExecutor, request_jobs, finish_jobs
 from .overview import Overview
 from .usage import Usage, app_name, observing
@@ -465,7 +465,13 @@ class Service:
         if request.method == "POST":
             # Only an initialize names the client (clientInfo); the transport still reads every byte.
             receive = observing(receive, self.usage.apps, app, identity if root else None)
-        await self.transport(scope, receive, send)
+        # The stateless session starts inside this call and inherits the variable: its initialize
+        # answer and the persona tools read the client's instruction files through it (#433).
+        token = client_instructions.REQUEST_CLIENT.set(context)
+        try:
+            await self.transport(scope, receive, send)
+        finally:
+            client_instructions.REQUEST_CLIENT.reset(token)
 
     async def stream(self, request, scope, receive, send, app=None):
         if self.streams >= MAX_STREAMS:
