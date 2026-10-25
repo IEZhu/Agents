@@ -550,6 +550,14 @@ print_header "🐍 Virtual Environment & Dependencies"
 
 SKIP_INSTALL=false
 
+# Auto-update keeps versioned environments in .venvs/ and makes .venv a link to the
+# active one (src/environments.py). A working link is reused like a directory (its
+# dependencies refresh in the active environment), and `rm -rf` removes only the
+# link; a link whose environment is gone is removed so that a new .venv can be made.
+if [ -L "$VENV_PATH" ] && [ ! -e "$VENV_PATH" ]; then
+    rm -f "$VENV_PATH"
+fi
+
 if [ -d "$VENV_PATH" ]; then
     # Check existing venv python version
     VENV_PYTHON_VER=$("$VENV_PATH/bin/python" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null) || VENV_PYTHON_VER=unknown
