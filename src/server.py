@@ -16,8 +16,10 @@ import uuid
 import re
 import json
 import asyncio
+import hashlib
 import datetime
 import queue
+from concurrent.futures import Future
 from pathlib import Path
 import threading
 import time
@@ -39,7 +41,7 @@ from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.server import Context
 from mcp.types import TextContent, ToolAnnotations
 from typing import Annotated, Optional, List
-from pydantic import Field
+from pydantic import Field, WithJsonSchema
 
 # Setup logging
 logging.basicConfig(
@@ -64,7 +66,7 @@ from src.utils.debug_logger import debug_log
 from src.utils import debug_logger
 from src.memory.describer import RepoDescriber
 from src.memory import fallback
-from src.memory.history import ENTRY_ID, HistoryReader, HistoryWriter
+from src.memory.history import ENTRY_ID, HistoryReader, HistoryWriter, MemoryWriteRejected
 from src.memory.history_results import listing, to_json
 from src.result_size import RESULT_SIZE_CEILING
 from src.daemon.workspaces import (resolve_client_context, workspace_inputs, desktop_started_hint,
@@ -230,22 +232,27 @@ class _LazyLangfuse:
 
 langfuse = _LazyLangfuse()
 
-# log_interaction writes its sinks (history.md, Langfuse) on these workers after
-# it has answered. The workers are daemon threads, so a permanently blocked sink
+# log_interaction awaits its history worker's durable result. Langfuse remains
+# best effort. The workers are daemon threads, so a permanently blocked sink
 # can never keep the process from exiting (a ThreadPoolExecutor is joined at
 # interpreter exit). The queues are bounded: when a sink is stuck and its queue
-# is full, new writes are dropped with an error in the server log.
+# is full, memory is explicitly rejected before acceptance.
 LOG_DRAIN_TIMEOUT_SECONDS = 10.0
 HISTORY_SYNC_DRAIN_SECONDS = 2.0
 # One deadline for every exit drain (the server's finally and atexit both drain):
 # the history sync worker gets HISTORY_SYNC_DRAIN_SECONDS in total, not per call.
 _history_sync_drain_deadline: Optional[float] = None
 LOG_QUEUE_MAX = 256
+# At most one running + seven queued memory writes, below the daemon's 32
+# request slots. Keep real jobs tracked so drain never mistakes a timeout for
+# completed storage, while leaving other tools available if the disk stalls.
+HISTORY_QUEUE_MAX = 7
+HISTORY_WAIT_SECONDS = 10.0
 
 
 class _SinkWorker:
-    def __init__(self, name: str):
-        self._queue: "queue.Queue" = queue.Queue(maxsize=LOG_QUEUE_MAX)
+    def __init__(self, name: str, capacity: int | None = None):
+        self._queue: "queue.Queue" = queue.Queue(maxsize=LOG_QUEUE_MAX if capacity is None else capacity)
         self._idle = threading.Condition()
         self._unfinished = 0
         self.name = name
@@ -270,13 +277,38 @@ class _SinkWorker:
             return True
         except queue.Full:
             self._finished()
-            logger.error("Log queue %s is full (%d); dropping a write", self.name, LOG_QUEUE_MAX)
+            logger.error("Log queue %s is full (%d); dropping a write", self.name, self._queue.maxsize)
             return False
 
     def _finished(self) -> None:
         with self._idle:
             self._unfinished -= 1
             self._idle.notify_all()
+
+    async def result(self, fn):
+        """Await an admitted write, retaining real work across client cancellation."""
+        from src.daemon.execution import request_jobs
+
+        future = Future()
+
+        def run():
+            if not future.set_running_or_notify_cancel():
+                return
+            try:
+                future.set_result(fn())
+            except BaseException as error:
+                future.set_exception(error)
+
+        if not self.submit(run):
+            return {"status": "error", "state": "rejected", "error": "history_busy", "retryable": True}
+        jobs = request_jobs.get()
+        if jobs is not None:
+            jobs.append(future)
+        try:
+            return await asyncio.wait_for(asyncio.shield(asyncio.wrap_future(future)), HISTORY_WAIT_SECONDS)
+        except TimeoutError:
+            # The worker can still commit. Never tell the caller this was rejected.
+            return {"status": "error", "state": "unknown", "error": "history_timeout", "retryable": True}
 
     def _run(self) -> None:
         while True:
@@ -299,7 +331,7 @@ class _SinkWorker:
 
 
 # Separate workers so a hanging Langfuse call can never delay the history write.
-_history_worker = _SinkWorker("history")
+_history_worker = _SinkWorker("history", HISTORY_QUEUE_MAX)
 _langfuse_worker = _SinkWorker("langfuse")
 
 
@@ -1588,6 +1620,9 @@ async def log_interaction(
     persona_action: ta.opt_str(ta.LOG_PERSONA_ACTION_DESC) = None,
     ctx: Context | None = None,
     workspace: ta.opt_str(ta.WORKSPACE_DESC) = None,
+    idempotency_key: Annotated[str | None, Field(min_length=1, max_length=256,
+        description="Generate a fresh UUID for each logical memory write and reuse it only for retries of that exact payload, across chats in the trusted Personal workspace. Changed payloads conflict. Retained with the journal; request_id is only correlation."),
+        WithJsonSchema({"type": "string", "minLength": 1, "maxLength": 256})] = None,
 ) -> str:
     """End-of-turn logger. Compose the answer including its footer, call this tool
     with that exact response_content (redacted as below), then deliver the final
@@ -1618,29 +1653,52 @@ async def log_interaction(
       ``LANGFUSE_SECRET_KEY`` are configured; otherwise the call is a no-op via
       ``langfuse_compat``.
 
-    Returns at once, before either sink is written:
-    ``{request_id, timestamp, langfuse: {status: "queued"}, history: {status: "queued"}}``
-    plus ``workspace`` (``root``, ``source``), ``pid``, ``history_last_error``
-    (``code``, ``errno``, ``path``, ``at``; only after an earlier history write
+    Waits for the local journal's durable commit, without waiting for Langfuse,
+    semantic indexing or Git sync. ``history`` returns ``status: recorded`` (or
+    legacy ``duplicate``) and ``state: durably_accepted`` only after persistence.
+    An optional ``idempotency_key`` replays the original history receipt and
+    answer timestamp for the same canonical payload; changes return
+    ``history: {status: error, state: rejected, error: idempotency_conflict}``.
+    Keys are scoped to the trusted Personal workspace and log operation, retained
+    with its complete local journal including archives and deletion receipts.
+    They have no automatic TTL; deleting journal storage ends retry protection.
+    This single-owner boundary does not provide Hosted multi-tenant authorization.
+    ``request_id`` remains correlation only. Keyed writes reject unresolved
+    workspaces instead of redirecting them to the fallback journal.
+    Results also carry ``workspace`` (``root``, ``source``), ``pid``, ``history_last_error``
+    (``code``, ``errno``, ``path``, ``at``; when this or an earlier history write
     failed) and the attribution (with ``warnings`` and an ``instruction`` when it
     was incomplete). While retrieval is still warming up, ``langfuse`` is
     ``{status: "skipped", reason: "warming_up"}`` and no trace is recorded. ``timestamp`` is the server's local time
     (``YYYY.MM.DD HH:MM:SS``); the final answer starts with it on its own line,
-    and it is not part of ``response_content``. The sinks are written in the
-    background with that timestamp and do not prevent each other; a full queue
-    or failed worker start can drop a write. A failed history write is logged once per path and
-    errno (WARNING, ``code=history_unwritable``) and reported on the next result
-    as ``history_last_error``; Langfuse failures are only logged. When no project
+    and it is not part of ``response_content``. Memory is written to the journal
+    before acceptance; only Langfuse uses a best-effort background queue.
+    A failed history write returns ``history.status: error`` and ``state: unknown``
+    when persistence is uncertain (retry with the same key). It is logged once per
+    path and errno and reported as ``history_last_error`` on this result;
+    Langfuse failures are only logged. When no project
     resolves, the turn goes to the installation's fallback journal (#292):
     ``workspace`` is ``{root: null, source: "fallback", claimed, reason, journal}``,
     ``claimed`` the directory the client named (recorded, never written), and the
-    ``instruction`` says to mention it once. The only request-level rejection left
-    is a stdio client with MCP roots that named no workspace, asked to retry once
+    ``instruction`` says to mention it once. Keyed calls reject invalid keys or
+    unresolved workspaces. Other request-level rejections include a stdio client
+    with MCP roots that named no workspace, asked to retry once
     with it, or a fallback journal directory that cannot be created (a later write
-    failure shows as ``history_last_error``): a protocol ERROR without
+    failure is returned in ``history``): a protocol ERROR without
     ``timestamp``, over stdio with ``pid`` and ``workspace_inputs`` (``cwd``,
     ``claude_project_dir``, ``agents_client_repo_root``, ``client``, ``roots``).
     """
+    if idempotency_key is not None and (not isinstance(idempotency_key, str)
+                                       or not 1 <= len(idempotency_key) <= 256
+                                       or not idempotency_key.strip()):
+        return error_response(ValueError("invalid_idempotency_key"), request_id)
+    # Include all caller-controlled content, not the generated correlation id,
+    # server timestamp or transport label. Ownership is never a tool argument.
+    payload_fingerprint = hashlib.sha256(json.dumps({
+        "agent_name": agent_name, "query": query, "response_content": response_content,
+        "reasoning": reasoning, "intent": intent, "action": action, "outcome": outcome,
+        "files": files, "tags": tags, "persona": persona, "persona_action": persona_action,
+    }, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
     if not request_id:
         request_id = str(uuid.uuid4())
     logged = parse_persona_for_logging(persona, agent_name)
@@ -1669,6 +1727,10 @@ async def log_interaction(
         root = client.require_root()
     except ValueError as error:
         inputs = workspace_inputs(ctx)
+        if idempotency_key is not None:
+            # A claimed path is not an authorized scope. Keyed writes never
+            # silently move to the shared fallback journal.
+            return error_response(error, request_id, instruction="Nothing was accepted. Resolve the workspace before retrying this keyed write.")
         # A stdio client with MCP roots resolves its project on a retry that names it.
         retry = inputs and inputs["roots"] and not inputs["agents_client_repo_root"] and not workspace
         if not retry:
@@ -1737,7 +1799,7 @@ async def log_interaction(
             logger.error("Langfuse logging failed: %s", e, exc_info=True)
 
     # --- History append (defaults to raw query/response) ---
-    def _send_history() -> None:
+    def _send_history() -> dict:
         history_path = str(root / "history.md")
         try:
             writer = HistoryWriter(history_path, str(root / "history"))
@@ -1760,42 +1822,62 @@ async def log_interaction(
             result = writer.append_entry(
                 eff_intent, eff_action, eff_outcome, files, tags,
                 metadata, dedupe_action=dedupe_action,
+                idempotency_key=idempotency_key, payload_fingerprint=payload_fingerprint,
             )
             if result.get("status") == "error":
                 logger.error("History append failed: %s", result.get("error"))
             else:
                 _clear_history_failure(root)
+            return result
+        except MemoryWriteRejected as e:
+            return {"status": "error", "state": "rejected", "error": str(e)}
         except Exception as e:
             _record_history_failure(root, history_path, e)
+            # A failure after replace has an uncertain outcome. A keyed retry
+            # resolves it without duplicating the committed entry.
+            return {"status": "error", "state": "unknown", "error": "history_unwritable"}
 
-    # Snapshot before the workers run: a failure of this very write must show
-    # up on the next call, not nondeterministically on this one.
+    history_result = await _history_worker.result(_send_history)
+    # Keyed retries reuse the originally committed answer timestamp.
+    timestamp = history_result.get("answer_timestamp", timestamp)
     workspace_report = (_workspace_report(client, root) if unresolved is None
                         else _fallback_report(unresolved, workspace_inputs(ctx)))
 
-    # Both sinks are independent; the response does not wait for either.
+    # Telemetry remains best effort; memory waits for its worker's commit and
+    # rejects a full queue explicitly. Neither waits for Git.
     # While startup runs, importing Langfuse would compete with it: skip the trace.
     langfuse_skipped = readiness.is_warming()
-    if not langfuse_skipped:
-        _langfuse_worker.submit(_send_langfuse)
-    _history_worker.submit(_send_history)
+    langfuse_queued = not langfuse_skipped and _langfuse_worker.submit(_send_langfuse)
 
     payload = {
         "request_id": request_id,
         "timestamp": timestamp,
-        "langfuse": {"status": "skipped", "reason": "warming_up"} if langfuse_skipped else {"status": "queued"},
-        "history": {"status": "queued"},
+        "langfuse": ({"status": "skipped", "reason": "warming_up"} if langfuse_skipped
+                     else {"status": "queued"} if langfuse_queued
+                     else {"status": "skipped", "reason": "queue_unavailable"}),
+        "history": history_result,
         **workspace_report,
         **attribution,
     }
     instructions = []
     if unresolved is not None:
         instructions.append(_fallback_instruction(unresolved))
-    if warnings:
+    if warnings and history_result.get("status") != "error":
         instructions.append(
             "The turn was logged with unverified attribution. Do not retry logging. "
             "Next time pass the full `persona` object from the last SUCCESS/NO_CHANGE "
             "verbatim, and persona_action only together with it."
+        )
+    if history_result.get("status") == "error":
+        instructions.append(
+            "Memory acceptance was not confirmed. Retry later with the same idempotency_key and identical payload."
+            if history_result.get("retryable") and idempotency_key is not None else
+            "Memory acceptance was not confirmed. Retry later with the identical payload; unkeyed calls have only legacy deduplication."
+            if history_result.get("retryable") else
+            "Memory acceptance was not confirmed. Retry the identical payload with the same idempotency_key "
+            "after resolving the storage failure; do not change its key or payload."
+            if history_result.get("state") == "unknown" and idempotency_key is not None else
+            "Memory acceptance was not confirmed. Inspect history.error; do not claim the turn was saved."
         )
     if instructions:
         payload["instruction"] = " ".join(instructions)

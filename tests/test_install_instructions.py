@@ -34,7 +34,7 @@ def instruction_install(tmp_path, monkeypatch):
     for name in ("routing-protocol-core.md", "memory-routing.md",
                  "legacy/memory-routing-v1.md", "legacy/memory-routing-v2.md",
                  "legacy/memory-routing-v3.md", "legacy/memory-routing-v4.md",
-                 "legacy/memory-routing-v5.md", "legacy/memory-routing-v6.md", "legacy/memory-routing-v7.md", "legacy/memory-routing-v8.md", "legacy/memory-routing-v9.md", "legacy/memory-routing-v10.md", "legacy/memory-routing-v11.md", "legacy/memory-routing-v12.md", "legacy/memory-routing-v13.md", "legacy/memory-routing-v14.md", "legacy/memory-routing-v15.md", "legacy/memory-routing-v16.md", "legacy/memory-routing-v17.md", "legacy/memory-routing-v18.md", "legacy/memory-routing-v19.md", "legacy/memory-routing-v20.md", "legacy/memory-routing-v21.md", "legacy/memory-routing-v22.md", "legacy/memory-routing-v23.md"):
+                 "legacy/memory-routing-v5.md", "legacy/memory-routing-v6.md", "legacy/memory-routing-v7.md", "legacy/memory-routing-v8.md", "legacy/memory-routing-v9.md", "legacy/memory-routing-v10.md", "legacy/memory-routing-v11.md", "legacy/memory-routing-v12.md", "legacy/memory-routing-v13.md", "legacy/memory-routing-v14.md", "legacy/memory-routing-v15.md", "legacy/memory-routing-v16.md", "legacy/memory-routing-v17.md", "legacy/memory-routing-v18.md", "legacy/memory-routing-v19.md", "legacy/memory-routing-v20.md", "legacy/memory-routing-v21.md", "legacy/memory-routing-v22.md", "legacy/memory-routing-v23.md", "legacy/memory-routing-v24.md"):
         shutil.copyfile(ROOT / "scripts" / "templates" / name, templates / name)
 
     profile = tmp_path / "isolated profile"
@@ -255,7 +255,7 @@ def test_repeat_is_idempotent_and_migrations_back_up_previous_bytes(instruction_
 
 
 @pytest.mark.parametrize("legacy", ["memory-routing-v1.md", "memory-routing-v2.md", "memory-routing-v3.md", "memory-routing-v4.md",
-                                    "memory-routing-v5.md", "memory-routing-v6.md", "memory-routing-v7.md", "memory-routing-v8.md", "memory-routing-v9.md", "memory-routing-v10.md", "memory-routing-v11.md", "memory-routing-v12.md", "memory-routing-v13.md", "memory-routing-v14.md", "memory-routing-v15.md", "memory-routing-v16.md", "memory-routing-v17.md", "memory-routing-v18.md", "memory-routing-v19.md", "memory-routing-v20.md", "memory-routing-v21.md", "memory-routing-v22.md", "memory-routing-v23.md"])
+                                    "memory-routing-v5.md", "memory-routing-v6.md", "memory-routing-v7.md", "memory-routing-v8.md", "memory-routing-v9.md", "memory-routing-v10.md", "memory-routing-v11.md", "memory-routing-v12.md", "memory-routing-v13.md", "memory-routing-v14.md", "memory-routing-v15.md", "memory-routing-v16.md", "memory-routing-v17.md", "memory-routing-v18.md", "memory-routing-v19.md", "memory-routing-v20.md", "memory-routing-v21.md", "memory-routing-v22.md", "memory-routing-v23.md", "memory-routing-v24.md"])
 def test_existing_known_claude_memory_migrates_and_repeat_preserves_mtime(instruction_install, legacy):
     """Preserve notes, backups, and timestamps across known-memory migration and repeat installs."""
     install = instruction_install

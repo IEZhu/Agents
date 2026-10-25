@@ -39,6 +39,7 @@ import re
 import shutil
 import stat
 import threading
+import tempfile
 from collections import OrderedDict
 from dataclasses import asdict, dataclass, field, replace
 from typing import Any, Dict, FrozenSet, List, Optional, Tuple
@@ -252,7 +253,7 @@ def _machine_history(history_path: str) -> Optional[MachineHistory]:
         return None
 
 
-def _appended(history_path: str, entry_id: str) -> None:
+def _appended(history_path: str, entry_id: Optional[str]) -> None:
     """Tell the sync that an entry was appended; its failure never fails the append."""
     integration = _sync
     if integration is None:
@@ -279,7 +280,12 @@ class EntryChanged(Exception):
     """The entry to delete is not there as it was shown."""
 
 
+class MemoryWriteRejected(ValueError):
+    """A write was rejected before mutation, rather than failing in storage."""
+
+
 _MARKER = re.compile(r"\s*(?:<!--|>)")  # a rotation's merge comment or the archive pointer
+_RECEIPT_RE = re.compile(r"^<!-- agents-write-receipt (.+) -->$", re.MULTILINE)
 
 
 def without_entry(content: str, entry_id: str, timestamp: str) -> str:
@@ -308,19 +314,32 @@ def _replace(path: str, text: str) -> None:
 
     ``surrogateescape`` writes back exactly the bytes a read with it decoded, invalid ones included.
     """
-    temp = path + ".tmp"
+    fd, temp = tempfile.mkstemp(prefix="." + os.path.basename(path) + ".", suffix=".tmp",
+                                dir=os.path.dirname(path) or ".")
     try:
-        with open(temp, "w", encoding="utf-8", errors="surrogateescape", newline="") as stream:
+        with os.fdopen(fd, "w", encoding="utf-8", errors="surrogateescape", newline="") as stream:
             stream.write(text)
             stream.flush()
             os.fsync(stream.fileno())
         with contextlib.suppress(OSError):
             os.chmod(temp, stat.S_IMODE(os.stat(path).st_mode))
         os.replace(temp, path)
+        _sync_directory(os.path.dirname(path) or ".")
     except BaseException:
         with contextlib.suppress(OSError):
             os.unlink(temp)
         raise
+
+
+def _sync_directory(path: str) -> None:
+    """Persist a directory entry on POSIX; Windows only promises process-crash recovery."""
+    if os.name == "nt":
+        return
+    fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
 
 
 def delete_entry(history_path: str, month: Optional[str], entry_id: str, timestamp: str,
@@ -343,7 +362,15 @@ def delete_entry(history_path: str, month: Optional[str], entry_id: str, timesta
                 content = stream.read()
         except FileNotFoundError:
             raise EntryChanged("the file is gone") from None
-        _replace(path, without_entry(content, entry_id, timestamp))
+        updated = without_entry(content, entry_id, timestamp)
+        for entry in HistoryReader._parse(content):
+            if entry.id == entry_id and entry.timestamp == timestamp:
+                receipt = (entry.metadata or {}).get("_agents_write")
+                if receipt:
+                    # Keep only the acceptance receipt, not the deleted content.
+                    # A delayed retry must not resurrect a deliberately removed entry.
+                    updated += "\n<!-- agents-write-receipt " + json.dumps(receipt, sort_keys=True) + " -->\n"
+        _replace(path, updated)
     _deleted(history_path, entry_id, timestamp)
 
 
@@ -505,18 +532,26 @@ class HistoryWriter:
         tags: Optional[List[str]] = None,
         metadata: Optional[Dict[str, Any]] = None,
         dedupe_action: Optional[str] = None,
+        *,
+        idempotency_key: Optional[str] = None,
+        payload_fingerprint: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Append a single entry; returns a JSON-friendly status dict.
 
         ``dedupe_action`` replaces ``action`` in the content hash, so a retry that
         differs only in an appended attribution line is still a duplicate.
         """
+        if idempotency_key is not None and (not isinstance(idempotency_key, str)
+                                             or not 1 <= len(idempotency_key) <= 256
+                                             or not idempotency_key.strip()):
+            raise MemoryWriteRejected("invalid_idempotency_key")
         intent = (intent or "").strip()
         action = (action or "").strip()
         outcome = (outcome or "").strip()
         if not (intent and action and outcome):
             return {
                 "status": "error",
+                "state": "rejected",
                 "error": "intent, action, and outcome are all required",
             }
 
@@ -524,39 +559,16 @@ class HistoryWriter:
 
         os.makedirs(os.path.dirname(self.history_path) or ".", exist_ok=True)
 
-        # Open in append+read mode so we can scan the tail under the lock.
-        # Every write + header + dedup + rotation happens INSIDE the lock so
-        # concurrent writers (cross-process: e.g. Claude Desktop + VS Code
-        # attached to the same repo) cannot interleave and corrupt the file.
+        # Commit the entry and its retry receipt in the SAME atomic replacement.
+        # The journal is also the recoverable source for indexing and Git export.
         rotated_to: Optional[str] = None
         with _WRITE_LOCK, file_lock(_sidecar(self.history_path)):
-            with open(self.history_path, "a+", encoding="utf-8", newline="") as fh:
-                try:
-                    _lock_exclusive(fh)
-
-                    # Re-check size under the lock — a concurrent writer may have
-                    # created the file between our os.makedirs and open().
-                    fh.seek(0, os.SEEK_END)
-                    if fh.tell() == 0:
-                        fh.write(self._render_header())
-                        fh.flush()
-
-                    if self._is_duplicate_from_handle(fh, entry_id):
-                        return {
-                            "status": "duplicate",
-                            "entry_id": entry_id,
-                            "path": self.history_path,
-                        }
-
-                    timestamp = _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds")
-                    block = self._render_entry(
-                        entry_id, timestamp, intent, action, outcome, files, tags, metadata
-                    )
-                    fh.write(block)
-                    fh.flush()
-                    os.fsync(fh.fileno())
-                finally:
-                    _unlock(fh)
+            if os.path.islink(self.history_path):
+                raise MemoryWriteRejected("journal_symlink_unsupported")
+            result, fresh = self._append_locked(
+                entry_id, intent, action, outcome, files, tags, metadata,
+                idempotency_key, payload_fingerprint,
+            )
 
             # Rotate after the append handle is closed (Windows cannot move an
             # open file) but still inside both locks, so the move/merge cannot
@@ -572,17 +584,108 @@ class HistoryWriter:
 
         # Outside every history lock, and it only schedules the work: sharing the
         # entry waits for the library lock in the sync's own worker, never here.
-        _appended(self.history_path, entry_id)
-
-        result: Dict[str, Any] = {
-            "status": "recorded",
-            "entry_id": entry_id,
-            "path": self.history_path,
-            "timestamp": timestamp,
-        }
-        if rotated_to:
+        if fresh:
+            _appended(self.history_path, result["entry_id"])
+        elif idempotency_key is not None:
+            # Reconcile after a lost commit notification, but do not classify an
+            # old/replayed (possibly deleted) entry as newly approved for sharing.
+            _appended(self.history_path, None)
+        if rotated_to and idempotency_key is None:
             result["rotated_to"] = rotated_to
         return result
+
+    def _append_locked(self, entry_id, intent, action, outcome, files, tags, metadata,
+                       idempotency_key, payload_fingerprint):
+        try:
+            with open(self.history_path, encoding="utf-8", errors="surrogateescape", newline="") as fh:
+                content = fh.read()
+        except FileNotFoundError:
+            content = self._render_header()
+        if not content:
+            content = self._render_header()
+        metadata = dict(metadata or {})
+        key_digest = None
+        if idempotency_key is not None:
+            scope = os.path.normcase(os.path.realpath(self.history_path))
+            key_digest = hashlib.sha256(json.dumps(
+                ["log_interaction/v1", scope, idempotency_key], ensure_ascii=False,
+            ).encode("utf-8")).hexdigest()
+            payload_digest = payload_fingerprint or hashlib.sha256(json.dumps(
+                [intent, action, outcome, files or [], tags or [], metadata],
+                sort_keys=True, ensure_ascii=False, separators=(",", ":"),
+            ).encode("utf-8")).hexdigest()
+            # The local journal includes archives and interrupted rotations.
+            # Synced segments are another writer's data, not this acceptance scope.
+            texts = [(self.history_path, content)]
+            try:
+                archives = sorted(name for name in os.listdir(self.archive_dir) if _ARCHIVE_NAME.fullmatch(name))
+            except FileNotFoundError:
+                archives = []
+            paths = [self.history_path + ".rotating"] + [os.path.join(self.archive_dir, name) for name in archives]
+            for path in paths:
+                try:
+                    with open(path, encoding="utf-8", errors="surrogateescape", newline="") as fh:
+                        texts.append((path, fh.read()))
+                except FileNotFoundError:
+                    continue
+            entry_id = key_digest[:12]  # Preserve the v1 Personal/Git id format.
+            collision = False
+            for path, text in texts:
+                entries = HistoryReader._parse(text)
+                receipts = [(entry.metadata or {}).get("_agents_write", {}) for entry in entries]
+                receipts.extend(json.loads(match) for match in _RECEIPT_RE.findall(text))
+                collision |= any(entry.id == entry_id for entry in entries)
+                for receipt in receipts:
+                    if not isinstance(receipt, dict) or receipt.get("key_digest") != key_digest:
+                        continue
+                    if receipt.get("payload_digest") != payload_digest:
+                        raise MemoryWriteRejected("idempotency_conflict")
+                    # A prior call could have died between replace and directory
+                    # sync. Establish durability again before replaying its receipt.
+                    with open(path, "rb") as fh:
+                        os.fsync(fh.fileno())
+                    _sync_directory(os.path.dirname(path) or ".")
+                    return {**receipt["result"], "path": self.history_path}, False
+            if collision:
+                raise MemoryWriteRejected("idempotency_collision")
+        else:
+            entries = HistoryReader._parse(content)
+            complete_duplicate = False
+            for entry in entries[-self.dedup_tail:]:
+                if entry.id != entry_id:
+                    continue
+                if (entry.action and entry.intent == " ".join(intent.split())
+                        and entry.outcome == " ".join(outcome.split())):
+                    complete_duplicate = True
+                elif (not entry.intent or not entry.action or not entry.outcome
+                      or (entry.intent == " ".join(intent.split())
+                          and " ".join(outcome.split()).startswith(entry.outcome))):
+                    # Old append-in-place versions could leave a valid heading
+                    # with missing/truncated fields. Do not acknowledge that as
+                    # the complete write the caller is retrying.
+                    content = without_entry(content, entry.id, entry.timestamp)
+                else:
+                    # A complete different entry is not evidence of a torn append.
+                    raise MemoryWriteRejected("history_entry_conflict")
+            if complete_duplicate:
+                with open(self.history_path, "rb") as fh:
+                    os.fsync(fh.fileno())
+                _sync_directory(os.path.dirname(self.history_path) or ".")
+                return {"status": "duplicate", "entry_id": entry_id, "path": self.history_path,
+                        "state": "durably_accepted"}, False
+
+        timestamp = _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds")
+        result = {"status": "recorded", "entry_id": entry_id, "path": self.history_path,
+                  "timestamp": timestamp, "state": "durably_accepted"}
+        if "answer_timestamp" in metadata:
+            result["answer_timestamp"] = metadata["answer_timestamp"]
+        if key_digest is not None:
+            metadata["_agents_write"] = {"version": 1, "key_digest": key_digest,
+                                        "payload_digest": payload_digest,
+                                        "result": {key: value for key, value in result.items() if key != "path"}}
+        block = self._render_entry(entry_id, timestamp, intent, action, outcome, files, tags, metadata)
+        _replace(self.history_path, content + block)
+        return result, True
 
     def append_existing(self, entry: "HistoryEntry") -> Dict[str, Any]:
         """Append an entry kept elsewhere as it is: its id, time, fields and metadata (#292).
@@ -703,30 +806,13 @@ class HistoryWriter:
         if size_kb < self.rotation_kb:
             return None
 
-        # The archive month is the newest entry's: an entry moved in from elsewhere keeps its older
-        # time (#292), and an archive of month M must hold nothing later than M.
-        last_ts = self._read_newest_timestamp() or _dt.datetime.now(_dt.timezone.utc).isoformat()
-        month = last_ts[:7]  # YYYY-MM
-        os.makedirs(self.archive_dir, exist_ok=True)
-        archive_path = os.path.join(self.archive_dir, f"{month}.md")
-
-        # If a file for this month already exists, append-merge with a separator
-        # so multi-rotation months stay in one archive file.
-        if os.path.exists(archive_path):
-            # Move the live file aside first: if another process holds it open
-            # (Windows), this fails before anything reaches the archive, so a
-            # repeated failure cannot merge the same payload twice.
-            os.replace(self.history_path, pending)
-            try:
-                archive_path = self._merge_pending_locked(pending)
-            except Exception:
-                # The archive was rolled back: put the entries back so
-                # read_history still sees them.
-                if not os.path.exists(self.history_path):
-                    os.replace(pending, self.history_path)
-                raise
-        else:
-            shutil.move(self.history_path, archive_path)
+        # Keep a durable recovery source until even a first archive is synced.
+        # A failed merge may already have replaced the archive. Do not restore
+        # pending to live and append to it: that would defeat suffix recovery.
+        # Readers include pending, and the next rotation recovers it first.
+        os.replace(self.history_path, pending)
+        _sync_directory(os.path.dirname(self.history_path) or ".")
+        archive_path = self._merge_pending_locked(pending)
 
         # Recreate fresh history.md with header pointing at the archive.
         with open(self.history_path, "w", encoding="utf-8", newline="") as fh:
@@ -749,12 +835,14 @@ class HistoryWriter:
         """
         try:
             os.unlink(pending)
+            _sync_directory(os.path.dirname(pending) or ".")
             return
         except OSError:
             pass
         try:
-            with open(pending, "w", encoding="utf-8"):
-                pass
+            with open(pending, "w", encoding="utf-8") as fh:
+                fh.flush()
+                os.fsync(fh.fileno())
         except OSError as err:
             key = (pending, getattr(err, "errno", None))
             if key not in _ROTATION_WARNED:
@@ -792,10 +880,14 @@ class HistoryWriter:
         matches = _HEADER_RE.findall(payload)
         month = (max(match[0] for match in matches) if matches else _dt.datetime.now(_dt.timezone.utc).isoformat())[:7]
         os.makedirs(self.archive_dir, exist_ok=True)
+        _sync_directory(os.path.dirname(self.archive_dir) or ".")
         archive_path = os.path.join(self.archive_dir, f"{month}.md")
         existed = os.path.exists(archive_path)
         if existed and self._archive_ends_with(archive_path, payload):
             # A crash after the append but before the unlink: already archived.
+            with open(archive_path, "rb") as fh:
+                os.fsync(fh.fileno())
+            _sync_directory(self.archive_dir)
             self._discard_pending(pending)
             return archive_path
         # Build the merged archive beside the real one and replace it in one
@@ -812,6 +904,7 @@ class HistoryWriter:
                 dst.flush()
                 os.fsync(dst.fileno())
             os.replace(temp, archive_path)
+            _sync_directory(self.archive_dir)
         except Exception:
             try:
                 os.unlink(temp)

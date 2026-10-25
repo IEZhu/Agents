@@ -710,7 +710,8 @@ two triggers:
 `start` or at the next login. `start` turns the repetition on and runs the task.
 `stop` and `restore-clients` drain the service, turn the repetition off and ask
 the service to exit (`POST /admin/exit`): it shuts down as it does on launchd's
-SIGTERM, flushing queued `log_interaction` writes. Task Scheduler's `/End`
+SIGTERM, flushing queued `log_interaction` telemetry. Memory is committed before
+the tool acknowledges it. Task Scheduler's `/End`
 terminates the process without that, so it is only the fallback for a service
 that does not answer or does not exit within two minutes. As on macOS, the
 service stays stopped until `start` or the next login, and a start by the logon
@@ -776,9 +777,10 @@ with `Drain timed out; runtime resumed without killing active work` without
 applying its change. Retry after the work finishes. Two commands differ:
 `uninstall` has already disabled automatic updates, and `token rotate` rolls back
 by draining again and restarting the service; if that second drain also times
-out, run `recover`. `log_interaction` answers before its history and Langfuse
-writes, so the drain does not count those queued writes; the stopping service
-flushes them for up to 10 seconds before it exits.
+out, run `recover`. `log_interaction` waits for its local memory commit; Langfuse
+still uses a best-effort queue outside the request drain. The stopping service
+flushes that queue for up to 10 seconds before it exits. See
+[memory acceptance](memory-acceptance.md) for retry and crash guarantees.
 
 Commands that restart the service (`restart`, `update`, `recover`, or `stop`
 followed by `start`) do not require closing connected clients. Each client holds

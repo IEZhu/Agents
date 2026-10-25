@@ -521,10 +521,16 @@ class TestRotationWithOpenHandle:
         writer = HistoryWriter(history_path, str(tmp_path / "history"), rotation_kb=1)
         opened = []
         real_open = builtins.open
+        real_fdopen = os.fdopen
+
+        def tracking_fdopen(*args, **kwargs):
+            handle = real_fdopen(*args, **kwargs)
+            opened.append(handle)
+            return handle
 
         def tracking_open(path, *args, **kwargs):
             handle = real_open(path, *args, **kwargs)
-            if os.path.abspath(str(path)) == os.path.abspath(history_path) and "a" in (args[0] if args else kwargs.get("mode", "r")):
+            if os.path.abspath(str(path)) in (os.path.abspath(history_path), os.path.abspath(history_path + ".tmp")):
                 opened.append(handle)
             return handle
 
@@ -535,6 +541,7 @@ class TestRotationWithOpenHandle:
             return real_rotate()
 
         monkeypatch.setattr(builtins, "open", tracking_open)
+        monkeypatch.setattr(os, "fdopen", tracking_fdopen)
         monkeypatch.setattr(writer, "_maybe_rotate_locked", rotate_checking_handle)
         statuses = [
             writer.append_entry(f"q{i} " + "x" * 600, "a", "o" * 600)["status"]
@@ -567,8 +574,12 @@ def test_failed_merge_rotation_does_not_duplicate_archive(tmp_path, history_path
     assert archives
     before = archives[0].read_text(encoding="utf-8")
 
+    real_replace = os.replace
+
     def locked(src, dst):
-        raise PermissionError(32, "in use")
+        if str(src) == history_path:
+            raise PermissionError(32, "in use")
+        return real_replace(src, dst)
 
     monkeypatch.setattr("src.memory.history.os.replace", locked)
     for i in range(3, 6):
@@ -576,7 +587,7 @@ def test_failed_merge_rotation_does_not_duplicate_archive(tmp_path, history_path
     assert archives[0].read_text(encoding="utf-8") == before
 
 
-def test_failed_archive_append_restores_entries(tmp_path, history_path, monkeypatch):
+def test_failed_archive_append_keeps_recoverable_entries(tmp_path, history_path, monkeypatch):
     archive_dir = tmp_path / "history"
     writer = HistoryWriter(history_path, str(archive_dir), rotation_kb=1)
     for i in range(3):
@@ -593,8 +604,8 @@ def test_failed_archive_append_restores_entries(tmp_path, history_path, monkeypa
     result = writer.append_entry("last " + "z" * 2000, "a", "o")
     monkeypatch.undo()
     assert result["status"] == "recorded"
-    assert not os.path.exists(history_path + ".rotating")
-    assert "last " in Path(history_path).read_text(encoding="utf-8")
+    assert os.path.exists(history_path + ".rotating")
+    assert any(entry.intent.startswith("last ") for entry in HistoryReader(history_path).journal_entries())
 
 
 def test_interrupted_rotation_is_recovered_not_overwritten(tmp_path, history_path):
@@ -639,7 +650,7 @@ def test_partial_archive_write_never_reaches_the_archive(tmp_path, history_path,
     monkeypatch.undo()
     assert archive.read_bytes() == before
     assert not list(archive_dir.glob("*.tmp"))
-    assert "last " in Path(history_path).read_text(encoding="utf-8")
+    assert any(entry.intent.startswith("last ") for entry in HistoryReader(history_path).journal_entries())
 
 
 def test_pending_file_is_recovered_before_size_check(tmp_path, history_path):

@@ -249,7 +249,7 @@ field with safe references and omit prohibited personal details. Pass
 `workspace`, the absolute path of your working directory, whenever you have one,
 here and to the other memory and flow tools: one server process can serve several
 sessions, as the one the Claude desktop app starts for its Code sessions does. The call
-returns at once; when the footer's `Rules` list includes `answer-timestamp` and the
+waits for the local journal commit; report any memory acceptance error. When the footer's `Rules` list includes `answer-timestamp` and the
 call returns a `timestamp`, prepend it to the answer as its first line, followed by
 an empty line. Otherwise add no time line.
 After logging, deliver the composed answer. This order matters: clients may end

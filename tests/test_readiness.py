@@ -199,7 +199,6 @@ def test_log_interaction_skips_langfuse_only_while_warming(monkeypatch, tmp_path
     readiness.start([("slow", release.wait)])
     submitted = []
     monkeypatch.setattr(server._langfuse_worker, "submit", lambda fn: submitted.append(fn) or True)
-    monkeypatch.setattr(server._history_worker, "submit", lambda fn: True)
 
     async def log():
         return json.loads(await server.log_interaction("universal_agent", "q", "a"))
