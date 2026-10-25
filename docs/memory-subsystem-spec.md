@@ -306,9 +306,10 @@ async def log_interaction(
 ) -> str:
     """End-of-turn logger. Queues independent history and optional Langfuse writes
     and returns before either sink completes. Pass the current user request verbatim
-    as query and the exact final answer text, without any time line, as
-    response_content; in every field replace secrets and capability values with safe
-    references and omit prohibited personal details. History is append-only and deduped.
+    as query, except for the redactions below, and the exact final answer text,
+    without any time line, as response_content. Before the call, replace secrets
+    and capability values in every field with safe references and omit prohibited
+    personal details; both sinks receive these already-redacted arguments. History is append-only and deduped.
 
     Returns JSON: {request_id, timestamp, langfuse: {status: "queued"},
     history: {status: "queued"}, workspace, pid, history_last_error?}.

@@ -58,9 +58,10 @@ thread only from the transcript and the live state, and its report must say so.
 ## Inputs and authority
 
 - **Mode.**
-  - `draft` (default) reads, checks and reports. Its only write is the closing
-    per-turn log, which step 9 makes only when a safe payload and an authorized
-    destination are established.
+  - `draft` (default) reads, checks and reports. Its only write of its own is the
+    closing per-turn log, which step 9 makes only when a safe payload and an
+    authorized destination are established; any other action needs the user's
+    yes listed under Authority.
   - `apply` also writes memory items at level V2 or above, curates the closing
     history entry, and does the cleanup that step 8 verifies as safe.
 - **Thread.**
@@ -595,8 +596,8 @@ close with `read_history`, which returns recent or similar entries without a
 session filter. Accept an entry only when its tags contain both `#thread-close`
 and this thread's `#session-<id>`, and name that entry's time in the report. If
 none matches, the report says that no earlier close was found. Without
-Agents-Core MCP, or after a privacy skip under step 9, there is no history entry;
-say so in the report.
+Agents-Core MCP, or after a privacy skip under step 9, this close creates no
+history entry; say so in the report.
 
 **Hand-off keys.** List the session id, pull request and issue numbers, and
 branch names in the report, so that daily summaries such as a personal day-close
@@ -613,8 +614,8 @@ flow can match this work instead of recording it twice.
 - No unsaved work is left without a decision.
 - Background work is stopped or its continuation is justified.
 - In `apply` mode, every memory change is V2 or above and the closing log entry
-  is curated, or the report names the privacy skip or conflict that left the
-  closing-log step incomplete.
+  is curated, or the report names the privacy skip, the unavailable Agents-Core
+  MCP or the conflict that left the closing-log step incomplete.
 - Every external lookup and proposed patch destination respects the
   confidentiality boundary; no public enumeration of private tools is required.
 - Every external write performed by this flow has a recorded passing visibility,
