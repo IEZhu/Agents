@@ -7,7 +7,9 @@
 inheritance: true
 reviews:
   auto_review:
-    # Every pull request goes to dev first (docs/releases.md); main, the default
-    # branch, is reviewed without being listed. Entries are unanchored regexes.
+    # dev integrates general changes; team integrates Teams/Hosted work.
+    # main, the default branch, is reviewed without being listed.
+    # Entries are unanchored regexes.
     base_branches:
       - "^dev$"
+      - "^team$"

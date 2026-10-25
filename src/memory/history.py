@@ -331,6 +331,13 @@ def _replace(path: str, text: str) -> None:
         raise
 
 
+def _sync_file(path: str) -> None:
+    # Windows _commit/FlushFileBuffers requires a writable handle, even when
+    # replay only confirms an existing record and does not modify its bytes.
+    with open(path, "r+b" if os.name == "nt" else "rb") as stream:
+        os.fsync(stream.fileno())
+
+
 def _sync_directory(path: str) -> None:
     """Persist a directory entry on POSIX; Windows only promises process-crash recovery."""
     if os.name == "nt":
@@ -642,8 +649,7 @@ class HistoryWriter:
                         raise MemoryWriteRejected("idempotency_conflict")
                     # A prior call could have died between replace and directory
                     # sync. Establish durability again before replaying its receipt.
-                    with open(path, "rb") as fh:
-                        os.fsync(fh.fileno())
+                    _sync_file(path)
                     _sync_directory(os.path.dirname(path) or ".")
                     return {**receipt["result"], "path": self.history_path}, False
             if collision:
@@ -668,8 +674,7 @@ class HistoryWriter:
                     # A complete different entry is not evidence of a torn append.
                     raise MemoryWriteRejected("history_entry_conflict")
             if complete_duplicate:
-                with open(self.history_path, "rb") as fh:
-                    os.fsync(fh.fileno())
+                _sync_file(self.history_path)
                 _sync_directory(os.path.dirname(self.history_path) or ".")
                 return {"status": "duplicate", "entry_id": entry_id, "path": self.history_path,
                         "state": "durably_accepted"}, False
@@ -885,8 +890,7 @@ class HistoryWriter:
         existed = os.path.exists(archive_path)
         if existed and self._archive_ends_with(archive_path, payload):
             # A crash after the append but before the unlink: already archived.
-            with open(archive_path, "rb") as fh:
-                os.fsync(fh.fileno())
+            _sync_file(archive_path)
             _sync_directory(self.archive_dir)
             self._discard_pending(pending)
             return archive_path

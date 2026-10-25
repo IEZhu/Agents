@@ -307,8 +307,8 @@ above only where their required state or tool is unavailable:
 
 For contribution instructions, read [AGENTS.md](AGENTS.md). Never edit, commit
 or switch branches in the live installation checkout the daemon runs from; work
-in a linked worktree cut from `origin/dev` and open the PR against `dev`
-(AGENTS.md, "Make changes"). The
+in a linked worktree using the base and PR target in AGENTS.md, "Make changes"
+(`dev` generally; `team` for Teams/Hosted work). The
 [documentation map](docs/README.md) distinguishes current references from plans
 and recorded results. To refresh both human documentation and AI instructions,
 execute [flows/documentation-refresh.md](flows/documentation-refresh.md).

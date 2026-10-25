@@ -15,6 +15,15 @@ from src.memory import history
 from src.memory.history import HistoryReader, HistoryWriter, delete_entry
 
 
+def symlink_or_skip(path, target):
+    try:
+        path.symlink_to(target)
+    except OSError as error:
+        if os.name == "nt" and getattr(error, "winerror", None) == 1314:
+            pytest.skip("Windows runner lacks the privilege to create symlinks")
+        raise
+
+
 def write(path, **kwargs):
     return HistoryWriter(str(path)).append_entry("intent", "action", "outcome",
                                                  idempotency_key="write-1", **kwargs)
@@ -163,7 +172,7 @@ def test_unreadable_archives_fail_closed(tmp_path, monkeypatch):
 def test_journal_symlink_is_rejected_without_retargeting(tmp_path):
     path, target = tmp_path / "history.md", tmp_path / "real.md"
     target.write_text("original")
-    path.symlink_to(target)
+    symlink_or_skip(path, target)
     with pytest.raises(ValueError, match="journal_symlink_unsupported"):
         write(path)
     assert path.is_symlink() and target.read_text() == "original"
@@ -172,9 +181,26 @@ def test_journal_symlink_is_rejected_without_retargeting(tmp_path):
 def test_preexisting_temporary_symlink_cannot_redirect_write(tmp_path):
     path, target = tmp_path / "history.md", tmp_path / "unrelated"
     target.write_text("keep me")
-    (tmp_path / "history.md.tmp").symlink_to(target)
+    symlink_or_skip(tmp_path / "history.md.tmp", target)
     assert write(path)["state"] == "durably_accepted"
     assert target.read_text() == "keep me"
+
+
+def test_windows_receipt_sync_uses_writable_handle_without_changing_content(tmp_path, monkeypatch):
+    path = tmp_path / "history.md"
+    path.write_bytes(b"accepted entry")
+    real_open = open
+
+    def windows_open(filename, mode):
+        if "+" not in mode:
+            raise PermissionError("FlushFileBuffers requires GENERIC_WRITE")
+        return real_open(filename, mode)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(history.os, "name", "nt")
+        patch.setattr(history, "open", windows_open, raising=False)
+        history._sync_file(str(path))
+    assert path.read_bytes() == b"accepted entry"
 
 
 def test_retry_reschedules_export_without_marking_entry_fresh(tmp_path, monkeypatch):

@@ -113,3 +113,9 @@ Regression coverage includes real child-process exits before commit and after
 commit/before response, cross-process and concurrent retries, changed payloads,
 archive-only replay, deletion followed by retry, workspace refusal and immediate
 I/O error reporting. The existing Personal/Git suite remains part of acceptance.
+The Workspace bindings workflow runs `tests/test_memory_acceptance.py` on Linux,
+macOS and Windows. Its symlink cases skip only when Windows denies the required
+symlink privilege; this does not skip the other durability and replay checks.
+
+Teams/Hosted contributions follow the `team` integration path in the
+[release procedure](releases.md#procedure).

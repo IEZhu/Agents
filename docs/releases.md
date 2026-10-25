@@ -4,7 +4,12 @@
 
 This is the one description of the release procedure; the README links it.
 
-- Every pull request targets `dev`, the integration branch.
+- General contribution pull requests target `dev`, the integration branch.
+- Teams/Hosted contributions target the shared `team` branch, created from `dev`.
+  Create feature worktrees from `origin/team` and submit reviewed PRs into `team`.
+  Promote integrated Teams/Hosted work through a separate reviewed `team` into
+  `dev` PR before including it in a release. Keep `team` current through reviewed
+  `dev` into `team` PRs; never rebase or force-push the shared branch.
 - A release is a pull request from `dev` into `main`. The owner reviews it and
   merges it with a merge commit, never a squash or a rebase. Installations switch
   between the branches with `channel set` ([update channel](../README.md#update-channel)):

@@ -23,6 +23,7 @@ on:
       - tests/test_installer_instructions.py
       - tests/test_daemon_runtime_override.py
       - src/memory/history.py
+      - tests/test_memory_acceptance.py
       - requirements.txt
       - .github/workflows/workspace-bindings.yml
   workflow_dispatch:
@@ -65,3 +66,5 @@ jobs:
         run: python -B -m pytest tests/test_workspace_auto.py tests/test_config_client_root.py tests/test_daemon.py tests/test_daemon_clients.py tests/test_daemon_registrations.py tests/test_codex_mcp.py tests/test_startup.py tests/test_server_describe.py tests/test_server_flows.py tests/test_installer_instructions.py tests/test_daemon_runtime_override.py tests/test_python_stdio_bridge.py tests/test_python_workspace_hook.py tests/test_standalone_workspace.py tests/test_standalone_workspace_mcp.py tests/test_history.py::TestAppend tests/test_history.py::TestDedup -q -p no:cacheprovider
       - name: Node bridge session isolation and authenticated hooks
         run: node --test bridge/test.mjs
+      - name: Durable memory acceptance and retry recovery
+        run: python -B -m pytest tests/test_memory_acceptance.py -q -p no:cacheprovider
