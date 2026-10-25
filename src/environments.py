@@ -11,11 +11,11 @@ without it is removed before a rebuild.
 ``<root>/.venv`` is a link to the active environment: a symbolic link on POSIX, a
 directory junction on Windows (no administrator rights needed). Client
 configurations and the service keep naming ``<root>/.venv/bin/python``
-(``Scripts\\python.exe``). The first switch of an installation whose ``.venv`` is a
-real directory renames it to ``.venvs/legacy-<UTC time>``, only so that a rollback
-can rename it back, where its scripts are valid again. Windows cannot rename the
-directory of a running interpreter, so there that layout refuses dependency
-changes. A switch happens only while no process of the installation runs: at a
+(``Scripts\\python.exe``). On POSIX the first switch of an installation whose
+``.venv`` is a real directory renames it to ``.venvs/legacy-<UTC time>``, only so
+that a rollback can rename it back, where its scripts are valid again. Windows
+cannot rename the directory of a running interpreter, so there that layout refuses
+dependency changes; only a ``.venv`` junction already in place is switched. A switch happens only while no process of the installation runs: at a
 standalone start under the exclusive installation lease, or in the service's
 maintenance. POSIX replaces the link atomically; Windows removes the junction,
 then creates the new one, which no process can observe in that state.
@@ -52,6 +52,9 @@ _ID = re.compile(r"\Apy[0-9]+-[0-9a-f]{12}\Z")
 _LEGACY = re.compile(r"\Alegacy-[0-9]{8}T[0-9]{6}Z(?:-[0-9]+)?\Z")
 _TEMPORARY_LINK = re.compile(r"\A\.venv\.[0-9]+\.tmp\Z")
 _NAME = re.compile(r"\s*([A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)")
+_SPECIFIER = re.compile(r"\A(?:~=|===|==|!=|<=|>=|<|>)[A-Za-z0-9.*+!_-]+\Z")
+# A bare URL or VCS reference: no distribution name precedes it.
+_URL = re.compile(r"\A(?:[A-Za-z][A-Za-z0-9+.-]*://|(?:git|hg|svn|bzr)\+)")
 # A local path, which pip would resolve next to the generated file instead of the checkout.
 _LOCAL_PATH = re.compile(r"\A(?:[./~]|[A-Za-z]:)")
 _CLAUSE = re.compile(r"\s*(~=|===|==|!=|<=|>=|<|>)\s*([0-9]+(?:\.[0-9]+)*)(\.\*)?\s*\Z")
@@ -63,6 +66,8 @@ _PROBE = "import sys; print('%d.%d.%d' % sys.version_info[:3])"
 _PROBE_TIMEOUT = 30
 # Module-level so tests can exercise the Windows junction path with a stub.
 WINDOWS = os.name == "nt"
+# The build deadline's clock; tests replace it.
+_now = time.monotonic
 # The environment this process runs, before any switch can redirect ``.venv``.
 RUNNING = os.path.realpath(sys.prefix)
 
@@ -166,13 +171,16 @@ def _default_run(args, cwd=None, timeout=None, env=None):
 def managed(root, python) -> bool:
     """Whether *python* names the interpreter of the installation's ``.venv``.
 
-    Lexically ``<root>/.venv/bin/python`` (``Scripts\\python.exe``), not a path that
-    resolves there: only a process started through ``.venv`` follows a switch.
+    Its environment directory is named ``.venv`` and sits in the installation, which
+    may be reached through a link (only that parent is resolved); a path that merely
+    resolves there, such as ``.venvs/<id>/bin/python``, does not count: only a process
+    started through ``.venv`` follows a switch.
     """
     if not isinstance(python, str) or not os.path.isabs(python):
         return False
     environment = os.path.dirname(os.path.dirname(os.path.abspath(python)))
-    return _lexically_same(environment, link_path(root)) and os.path.lexists(link_path(root))
+    return (os.path.normcase(os.path.basename(environment)) == os.path.normcase(LINK)
+            and _same(os.path.dirname(environment), root) and os.path.lexists(link_path(root)))
 
 
 def _pyvenv(environment) -> dict:
@@ -212,21 +220,21 @@ def base_python(root, run=None):
     names = ("python.exe",) if WINDOWS else (f"python{recorded[0]}.{recorded[1]}", "python3", "python")
     candidates = [config.get("executable")] + [os.path.join(config["home"], name)
                                                for name in names if config.get("home")]
-    chosen = next((candidate for candidate in candidates if candidate and os.path.isfile(candidate)), None)
-    if chosen is None:
+    found = []
+    for candidate in dict.fromkeys(candidate for candidate in candidates if candidate and os.path.isfile(candidate)):
+        try:
+            probe = (run or _default_run)([candidate, "-c", _PROBE], cwd=str(root), timeout=_PROBE_TIMEOUT,
+                                          env=_child_environment())
+            version = _version(probe.stdout) if not probe.returncode else None
+        except Exception:  # a probe that cannot run counts as a mismatch, whatever the reason
+            version = None
+        if version is not None and version[:2] == recorded[:2]:
+            return candidate, version
+        found.append(f"{candidate} ({'Python ' + '.'.join(map(str, version)) if version else 'does not run'})")
+    if not found:
         raise Refused(f"the base interpreter of {link_path(root)} no longer exists")
-    try:
-        probe = (run or _default_run)([chosen, "-c", _PROBE], cwd=str(root), timeout=_PROBE_TIMEOUT,
-                                      env=_child_environment())
-        version = _version(probe.stdout) if not probe.returncode else None
-    except Exception:  # a probe that cannot run refuses, whatever the reason
-        version = None
-    if version is None:
-        raise Refused(f"the base interpreter {chosen} of {link_path(root)} does not run")
-    if version[:2] != recorded[:2]:
-        raise Refused("the base interpreter {} is Python {}, but {} was made with {}".format(
-            chosen, ".".join(map(str, version)), link_path(root), ".".join(map(str, recorded))))
-    return chosen, version
+    raise Refused("no base interpreter of {} runs Python {}.{}, which made it: {}".format(
+        link_path(root), recorded[0], recorded[1], "; ".join(found)))
 
 
 def _pad(version, length):
@@ -284,11 +292,19 @@ def unsafe_requirement(line) -> Optional[str]:
     if "\n" in line or "\r" in line:
         return f"{line!r} spans several lines"
     stripped = line.strip()
+    if stripped.endswith("\\"):
+        return f"{stripped!r} continues on the next line"
     if stripped.startswith("-"):
         return f"{stripped!r} is a pip option"
     if _LOCAL_PATH.match(stripped):
         return f"{stripped!r} is a local path"
     return None
+
+
+def distribution_names(text) -> set:
+    """Normalized names of the distributions a requirements text names; a bare URL names none."""
+    from src.daemon.update_dependencies import requirement_lines
+    return {name for name, _, _ in map(_parse, requirement_lines(text)) if name}
 
 
 def installed(environment) -> set:
@@ -300,28 +316,55 @@ def installed(environment) -> set:
     return {_normalized(dist.name) for dist in metadata.distributions(path=sites) if dist.name}
 
 
+def _parse(line):
+    """``(name, specifiers, exact pins)`` of a requirement line.
+
+    *specifiers* is the clause list of a plain ``name<specifiers>`` line, else None
+    (extras, a marker or a URL keep the line as written). *name* is None for a bare
+    URL or VCS reference, which no leading word such as ``git`` names.
+    """
+    if _URL.match(line):
+        return None, None, set()
+    match = _NAME.match(line)
+    if not match:
+        return None, None, set()
+    name, rest = _normalized(match.group(1)), line[match.end():].strip()
+    clauses = [re.sub(r"\s+", "", clause) for clause in rest.split(";", 1)[0].split(",") if clause.strip()]
+    pins = {re.match(r"\A===?(.+)", clause).group(1) for clause in clauses
+            if re.match(r"\A===?[^=]", clause) and not clause.endswith(".*") and "@" not in rest}
+    plain = not rest.startswith("[") and ";" not in rest and "@" not in rest and all(
+        _SPECIFIER.match(clause) for clause in clauses)
+    return name, clauses if plain else None, pins
+
+
 def requirements_text(requirements, dependencies, extras) -> str:
     """The requirements an environment installs: ``requirements.txt`` lines, runtime dependencies, carried extras.
 
-    An identical requirement is listed once; one distribution with different
-    specifiers in two places raises ValueError naming both lines.
+    Identical lines are listed once. Plain ``name<specifiers>`` lines of one
+    distribution become one line with every specifier, which a specifier set
+    intersects; lines with extras, a marker or a URL stay as written. Only two
+    different exact pins (``==``, ``===``) of one distribution raise ValueError,
+    naming both lines.
     """
-    seen, lines = {}, []
+    lines, plain, pinned, listed = [], {}, {}, set()
 
     def add(items):
         for item in items:
             stripped = item.strip()
-            match = _NAME.match(stripped)
-            if match and not stripped[match.end():].startswith("://"):
-                name, rest = _normalized(match.group(1)), re.sub(r"\s+", "", stripped[match.end():])
+            name, clauses, pins = _parse(stripped)
+            for pin in pins:
+                if name in pinned and pinned[name][0] != pin:
+                    raise ValueError(f"{pinned[name][1]!r} and {stripped!r} pin {name} to different versions")
+                pinned.setdefault(name, (pin, stripped))
+            if clauses is None:
+                if stripped not in listed:
+                    listed.add(stripped)
+                    lines.append(stripped)
+            elif name in plain:
+                plain[name][1].extend(clause for clause in clauses if clause not in plain[name][1])
             else:
-                name, rest = stripped, ""  # a bare URL is its own requirement
-            if name in seen:
-                if seen[name][0] != rest:
-                    raise ValueError(f"{seen[name][1]!r} and {stripped!r} pin {name} differently")
-                continue
-            seen[name] = (rest, stripped)
-            lines.append(stripped)
+                plain[name] = [_NAME.match(stripped).group(1), list(clauses)]
+                lines.append(plain[name])
 
     add(requirements)
     lines.append("")
@@ -333,7 +376,8 @@ def requirements_text(requirements, dependencies, extras) -> str:
         add(extras[name])
         if len(lines) == start + 2:
             del lines[start:]  # every requirement of the extra is listed already
-    return "\n".join(lines) + "\n"
+    return "\n".join(line if isinstance(line, str) else line[0] + ",".join(line[1])
+                     for line in lines) + "\n"
 
 
 def needed(root, git, old, target, python, run=None) -> Optional[Needed]:
@@ -344,10 +388,10 @@ def needed(root, git, old, target, python, run=None) -> Optional[Needed]:
     (:func:`base_python`). Raises :class:`Refused` for a change that needs explicit
     maintenance: see `src.daemon.update_dependencies`, an interpreter other than
     ``.venv``'s, a ``.venv`` that is neither an environment directory nor a link into
-    ``.venvs`` (and on Windows not a junction), a missing or different base
-    interpreter, a ``requires-python`` it misses, a pip option or a local path in the
-    requirements, or one distribution pinned differently in two places. Git errors
-    propagate.
+    ``.venvs`` (a directory without ``pyvenv.cfg``, and on Windows any directory),
+    a missing or different base interpreter, a ``requires-python`` it misses, a pip
+    option, a local path or a continued line in the requirements, or two different
+    exact pins of one distribution. Git errors propagate.
     """
     from src.daemon.update_dependencies import ENVIRONMENT, REFUSED, classify, inputs, requirement_lines
     change = classify(git, old, target)
@@ -362,10 +406,13 @@ def needed(root, git, old, target, python, run=None) -> Optional[Needed]:
     if kind not in ("link", "directory"):
         raise Refused(f"{change.reason}, but {link_path(root)} is neither an environment directory nor a "
                       f"link into {ENVIRONMENTS}; install the dependencies in explicit maintenance")
+    if kind == "directory" and not os.path.isfile(os.path.join(link_path(root), "pyvenv.cfg")):
+        raise Refused(f"{change.reason}, but {link_path(root)} has no pyvenv.cfg, so it is no environment this "
+                      "updater can replace; install the dependencies in explicit maintenance")
     if WINDOWS and kind == "directory":
         raise Refused(f"{change.reason}, but {link_path(root)} is the directory setup created, which Windows "
-                      "cannot rename while its interpreter runs; stop the service and rerun setup to install "
-                      "the dependencies")
+                      "cannot rename while its interpreter runs; install the dependencies in explicit "
+                      "maintenance with the sessions stopped")
     base, version = base_python(root, run)
     try:
         spec = inputs(git, old, target)
@@ -413,7 +460,7 @@ def complete(environment, digest=None) -> bool:
 
 
 def _step(run, args, cwd, deadline, what):
-    remaining = deadline - time.monotonic()
+    remaining = deadline - _now()
     if remaining <= 0:
         raise BuildFailed(f"{what} did not start before the environment timeout")
     try:
@@ -459,7 +506,7 @@ def build(root, wanted, *, run, timeout) -> dict:
             _remove_tree(environment)
         except OSError as error:
             raise BuildFailed(f"cannot remove the incomplete environment {environment} ({error})") from None
-    deadline = time.monotonic() + timeout
+    deadline = _now() + timeout
     try:
         os.mkdir(environment)
         _step(run, [wanted.base, "-m", "venv", environment], environment, deadline, "python -m venv")
@@ -623,9 +670,10 @@ def restore(root, planned) -> None:
     if previous["kind"] == "link":
         _point(root, previous["name"])
     elif previous["kind"] == "directory":
-        if not is_link(link) and os.path.isfile(os.path.join(link, "pyvenv.cfg")):
-            return  # never renamed, or already restored
         legacy = path(root, previous["legacy"])
+        if not is_link(link) and os.path.isdir(link) and (
+                os.path.isfile(os.path.join(link, "pyvenv.cfg")) or not os.path.lexists(legacy)):
+            return  # never renamed, or already restored
         if is_link(legacy) or not os.path.isdir(legacy):
             raise FileNotFoundError(f"the previous environment {legacy} is missing")
         if is_link(link):

@@ -23,9 +23,10 @@ PROJECT = MANIFEST.replace('dependencies = ["mcp==1.28.1", "python-dotenv"]', 'd
 class FakeBuilder:
     """Stands in for ``self_update._run_command`` running the version probe, ``venv`` and ``pip``."""
 
-    def __init__(self, *, fail=None, hang=None, raises=None, version="3.13.1", stdout=""):
+    def __init__(self, *, fail=None, hang=None, raises=None, version="3.13.1", stdout="", versions=None):
         self.calls, self.envs = [], []
         self.fail, self.hang, self.raises, self.version, self.stdout = fail, hang, raises, version, stdout
+        self.versions = versions or {}  # interpreter path -> the version its probe prints
 
     @property
     def builds(self):
@@ -37,7 +38,7 @@ class FakeBuilder:
         self.envs.append(env)
         assert timeout and timeout > 0
         if args[1] == "-c":  # the base interpreter's version probe
-            return subprocess.CompletedProcess(args, 0, self.version + "\n", "")
+            return subprocess.CompletedProcess(args, 0, self.versions.get(args[0], self.version) + "\n", "")
         step = args[2]
         if step == self.raises:
             raise UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte")
@@ -155,26 +156,58 @@ def test_identical_requirements_are_listed_once(root):
 
 @pytest.mark.parametrize("requirements, declared", [
     ("mcp==2\n", '["mcp==1.28.1"]'),
-    ("httpx>=0.27\n", '["python-dotenv"]'),  # against the carried extra's httpx>=0.28,<0.29
+    ("Foo_Bar==1\n", '["foo-bar==2"]'),  # one distribution by PEP 503 normalization
+    ("mcp===2\n", '["mcp==3"]'),
 ])
-def test_one_distribution_pinned_differently_twice_is_refused(root, requirements, declared):
+def test_two_different_exact_pins_of_one_distribution_are_refused(root, requirements, declared):
     project = PROJECT.replace('dependencies = ["python-dotenv"]', f"dependencies = {declared}")
-    with pytest.raises(environments.Refused, match="pin .* differently"):
+    with pytest.raises(environments.Refused, match="pin .* to different versions") as refused:
         needed(root, before=project, after=project, requirements=requirements)
+    assert requirements.strip() in str(refused.value) and declared[2:-2] in str(refused.value)
+
+
+def test_the_repository_manifests_with_every_extra_carried_merge_into_one_specifier_set():
+    """requirements.txt pins pytest>=7.0.0 and anthropic>=0.18.0; evals and signing-tests ask for more."""
+    import tomllib
+    from src.daemon.update_dependencies import requirement_lines
+    root = Path(__file__).resolve().parents[1]
+    project = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))["project"]
+    extras = project["optional-dependencies"]
+    text = environments.requirements_text(requirement_lines((root / "requirements.txt").read_text(encoding="utf-8")),
+                                          project["dependencies"], extras)
+    lines = text.splitlines()
+    assert "pytest>=7.0.0,>=8.0" in lines and "anthropic>=0.18.0,>=0.40" in lines
+    assert [line for line in lines if line.startswith(("pytest>", "pytest=", "anthropic"))] == \
+        ["pytest>=7.0.0,>=8.0", "anthropic>=0.18.0,>=0.40"]
+
+
+@pytest.mark.parametrize("first, second", [
+    ("uvicorn[standard]==0.48.0", "uvicorn==0.48.0"),
+    ('numpy<2; python_version < "3.12"', "numpy>=1.24"),
+    ("git+https://example.invalid/a.git", "git+https://example.invalid/b.git"),
+    ("pkg @ https://example.invalid/pkg-1.whl", "pkg>=1"),
+])
+def test_lines_with_extras_markers_or_urls_stay_as_written(first, second):
+    lines = environments.requirements_text([first], [second], {}).splitlines()
+    assert first in lines and second in lines
 
 
 @pytest.mark.parametrize("line", ["-rbase.txt", "-r base.txt", "-cx", "-e.", "--requirement=x", "-f x",
                                   "--index-url https://example.invalid/simple", "--hash=sha256:00",
-                                  "./pkg", "/opt/pkg", "~/pkg", "C:\\pkg", "c:/pkg"])
-def test_pip_options_and_local_paths_in_requirements_are_refused(root, line):
-    with pytest.raises(environments.Refused, match="pip option|local path"):
+                                  "./pkg", "/opt/pkg", "~/pkg", "C:\\pkg", "c:/pkg", "numpy>=1.24 \\"])
+def test_pip_options_local_paths_and_continuations_in_requirements_are_refused(root, line):
+    with pytest.raises(environments.Refused, match="pip option|local path|continues on the next line"):
         needed(root, requirements=f"mcp==2\n{line}\n")
 
 
-@pytest.mark.parametrize("declared", ['["-e ."]', '["python-dotenv\\n--index-url x"]'])
-def test_pip_options_and_line_breaks_in_pyproject_are_refused(root, declared):
-    project = PROJECT.replace('dependencies = ["python-dotenv"]', f"dependencies = {declared}")
-    with pytest.raises(environments.Refused, match="pip option|several lines|cannot verify"):
+@pytest.mark.parametrize("field", ["dependencies", "extra"])
+@pytest.mark.parametrize("declared", ['"-e ."', '"python-dotenv\\n--index-url x"'])
+def test_pip_options_and_line_breaks_in_pyproject_are_refused(root, field, declared):
+    if field == "dependencies":
+        project = PROJECT.replace('dependencies = ["python-dotenv"]', f"dependencies = [{declared}]")
+    else:
+        project = PROJECT.replace('local-inference = ["httpx>=0.28,<0.29"]', f"local-inference = [{declared}]")
+    with pytest.raises(environments.Refused, match="pip option|several lines"):
         needed(root, after=project, changed=("requirements.txt", "pyproject.toml"))
 
 
@@ -199,10 +232,11 @@ def test_a_target_the_base_interpreter_cannot_run_is_refused_without_a_build(roo
 
 
 def test_only_the_venv_interpreter_is_managed(root):
-    """Lexically .venv's interpreter: one under .venvs would not follow a switch."""
+    """.venv's interpreter: one under .venvs would not follow a switch, even the one .venv points at."""
     with pytest.raises(environments.Refused, match="not the installation's interpreter .*\\.venv"):
         needed(root, interpreter=sys.executable)
     built(root, NEW)
+    environments.switch(str(root), environments.plan(str(root), NEW))
     with pytest.raises(environments.Refused, match="not the installation's interpreter"):
         needed(root, interpreter=environments.python_path(root / ".venvs" / NEW))
 
@@ -218,6 +252,12 @@ def test_a_venv_that_is_a_file_or_a_link_elsewhere_is_refused(root, tmp_path, ki
         except OSError:
             pytest.skip("symlinks unavailable")
     with pytest.raises(environments.Refused, match="neither an environment directory nor a link"):
+        needed(root)
+
+
+def test_a_venv_directory_that_is_no_environment_is_refused(root):
+    (root / ".venv/pyvenv.cfg").unlink()
+    with pytest.raises(environments.Refused, match="has no pyvenv.cfg"):
         needed(root)
 
 
@@ -238,11 +278,26 @@ def test_the_running_interpreter_is_its_own_base(root, monkeypatch):
 
 
 def test_the_base_from_pyvenv_cfg_must_run_its_recorded_version(root):
-    with pytest.raises(environments.Refused, match="is Python 3.12.4, but .* was made with 3.13.1"):
+    with pytest.raises(environments.Refused, match="runs Python 3.13, which made it: .*Python 3.12.4"):
         environments.base_python(str(root), FakeBuilder(version="3.12.4"))
     patch = FakeBuilder(version="3.13.9")  # a patch release of the same Python
     assert environments.base_python(str(root), patch) == (str(root.parent / "base/bin/python3"), (3, 13, 9))
     assert patch.calls == [[str(root.parent / "base/bin/python3"), "-c", environments._PROBE]]
+
+
+def test_the_first_candidate_of_the_recorded_version_is_the_base(root):
+    home = root.parent / "home"
+    home.mkdir()
+    (home / "python3.13").write_text("python3.13")
+    executable = root.parent / "base/bin/python3"
+    (root / ".venv/pyvenv.cfg").write_text(f"home = {home}\nversion = 3.13.1\nexecutable = {executable}\n")
+    if environments.WINDOWS:
+        pytest.skip("Windows looks for python.exe only")
+    # pyvenv.cfg's executable became another Python (a profile link updated); home still has 3.13.
+    probe = FakeBuilder(versions={str(executable): "3.14.0"})
+    assert environments.base_python(str(root), probe) == (str(home / "python3.13"), (3, 13, 1))
+    with pytest.raises(environments.Refused, match="no base interpreter .* runs Python 3.13"):
+        environments.base_python(str(root), FakeBuilder(version="3.12.0"))
 
 
 def test_a_base_interpreter_that_does_not_run_is_refused(root):
@@ -250,6 +305,8 @@ def test_a_base_interpreter_that_does_not_run_is_refused(root):
         raise OSError("exec format error")
     with pytest.raises(environments.Refused, match="does not run"):
         environments.base_python(str(root), broken)
+    assert "python3 (does not run)" in str(pytest.raises(environments.Refused, environments.base_python,
+                                                          str(root), broken).value)
 
 
 def test_home_prefers_the_versioned_interpreter_name(root):
@@ -328,7 +385,7 @@ def test_a_failure_reports_pip_errors_first_and_the_end_of_its_output(root):
 
 def test_a_build_past_its_deadline_stops_and_leaves_nothing(root, monkeypatch):
     clock = iter([0, 1, 100])
-    monkeypatch.setattr(environments.time, "monotonic", lambda: next(clock))
+    monkeypatch.setattr(environments, "_now", lambda: next(clock))
     with pytest.raises(environments.BuildFailed, match="pip install did not start before the environment timeout"):
         environments.build(str(root), needed(root), run=FakeBuilder(), timeout=10)
     assert list((root / ".venvs").iterdir()) == []
@@ -486,6 +543,14 @@ def test_windows_removes_the_empty_directory_a_failed_junction_left(root, window
     assert environments.state(str(root)) == {"kind": "link", "name": OTHER}
 
 
+def test_a_restore_of_a_switch_that_never_ran_changes_nothing(root):
+    built(root, NEW)
+    planned = environments.plan(str(root), NEW, now=0)
+    (root / ".venv/pyvenv.cfg").unlink()  # whatever the directory holds, it was never renamed
+    environments.restore(str(root), planned)
+    assert environments.state(str(root)) == {"kind": "directory"}
+
+
 def test_a_restore_replaces_an_empty_venv_directory_with_the_setup_directory(root):
     built(root, NEW)
     planned = environments.plan(str(root), NEW, now=0)
@@ -518,7 +583,8 @@ def test_prune_keeps_the_active_and_the_previous_environment(root):
         sorted([names[3], "legacy-19700101T000000Z", "notes"])
 
 
-def test_an_interrupted_prune_leaves_nothing_complete_and_the_next_one_finishes(root, monkeypatch):
+@pytest.mark.parametrize("decoy", ["file", "directory"])
+def test_an_interrupted_prune_leaves_nothing_complete_and_the_next_one_finishes(root, monkeypatch, decoy):
     victim, kept = "py313-" + "1" * 12, "py313-" + "2" * 12
     built(root, victim), built(root, kept)
     stale = root / f".venv.{os.getpid() + 1}.tmp"
@@ -526,7 +592,11 @@ def test_an_interrupted_prune_leaves_nothing_complete_and_the_next_one_finishes(
         os.symlink(os.path.join(".venvs", kept), stale, target_is_directory=True)
     except OSError:
         pytest.skip("symlinks unavailable")
-    (root / ".venv.7.tmp.txt").write_text("not a link of ours")
+    # Named like a temporary link, but not a link: never removed.
+    if decoy == "file":
+        (root / ".venv.7.tmp").write_text("not a link of ours")
+    else:
+        (root / ".venv.7.tmp").mkdir()
 
     def interrupted(path, *args, **kwargs):
         raise OSError("interrupted")
@@ -536,7 +606,7 @@ def test_an_interrupted_prune_leaves_nothing_complete_and_the_next_one_finishes(
     leftovers = list((root / ".venvs").iterdir())
     assert not environments.complete(str(root / ".venvs" / victim))
     assert [path.name for path in leftovers if environments.complete(str(path))] == [kept]
-    assert not os.path.lexists(stale) and (root / ".venv.7.tmp.txt").exists()
+    assert not os.path.lexists(stale) and (root / ".venv.7.tmp").exists()
     monkeypatch.undo()
     assert environments.prune(str(root), keep=(kept,)) == []
     assert [path.name for path in (root / ".venvs").iterdir()] == [kept]
@@ -551,6 +621,18 @@ def test_activation_refuses_a_missing_or_incomplete_environment(root):
     (environment / environments.RECORD).write_text(json.dumps({"requirements_sha256": digest}))
     assert environments.activation_refusal(str(root), record) is None
     assert "malformed" in environments.activation_refusal(str(root), {"id": "../elsewhere"})
+
+
+def test_an_installation_reached_through_a_link_is_managed(root, tmp_path):
+    alias = tmp_path / "alias"
+    try:
+        os.symlink(root, alias, target_is_directory=True)
+    except OSError:
+        pytest.skip("symlinks unavailable")
+    assert environments.managed(str(root), environments.python_path(alias / ".venv"))
+    assert environments.managed(str(alias), python(root))
+    built(root, NEW)
+    assert not environments.managed(str(root), environments.python_path(alias / ".venvs" / NEW))
 
 
 def test_managed_names_venv_lexically(root):

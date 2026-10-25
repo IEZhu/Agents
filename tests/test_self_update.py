@@ -2374,8 +2374,63 @@ def test_a_resumed_activation_refused_by_a_gate_keeps_the_journal(venv_repos, ph
     assert status == ActivationStatus.ACTIVATE_ROLLBACK_FAILED
     assert "INVALID_ENVIRONMENT" in caplog.text and marker["environment"]["id"] in caplog.text
     assert self_update._read_prepared_marker() == marker and _venv_state(venv_repos) == {"kind": "directory"}
+    # The journal names the revision to go back to, and so does the log; .venv lacks python-dotenv.
+    journal = json.loads((venv_repos.local / "data" / self_update.UPDATE_JOURNAL).read_text())
+    assert journal["old_sha"] == marker["base_sha"] and marker["base_sha"][:9] in caplog.text
+    assert "lacks python-dotenv" in caplog.text
     with pytest.raises(SystemExit, match=f"switches .venv to .venvs/{marker['environment']['id']}"):
         assert_installation_safe(str(venv_repos.local))
+
+
+def _install(repos, *names):
+    """Packages installed by hand into the setup's .venv."""
+    from tests.test_environments import make_environment
+    make_environment(repos.local / ".venv", record=False, packages=names,
+                     base=Path((repos.local / ".venv/pyvenv.cfg").read_text().split("executable = ")[1].strip()))
+
+
+def test_a_resumed_activation_on_a_venv_with_every_package_continues(venv_repos, phase_a_env, caplog):
+    """The owner pulled and installed the dependencies by hand: nothing to hold, the build is discarded."""
+    _commit(venv_repos.upstream, "requirements.txt", "mcp==2\n", "new requirements")
+    assert _env_prepare(venv_repos, phase_a_env) == PreparedStatus.PREPARED
+    marker = self_update._read_prepared_marker()
+    _merge_target(venv_repos)
+    _install(venv_repos, "python-dotenv", "httpx")
+    shutil.rmtree(marker["environment"]["path"])  # Gate 9: INVALID_ENVIRONMENT
+    status = self_update.activate_prepared_update(str(venv_repos.local), "main")
+    assert status == ActivationStatus.INVALID_ENVIRONMENT and "has every package it names" in caplog.text
+    assert self_update._read_prepared_marker() is None
+    assert not (venv_repos.local / "data" / self_update.UPDATE_JOURNAL).exists()
+
+
+def test_a_resumed_activation_whose_switch_cannot_be_planned_holds(venv_repos, phase_a_env, monkeypatch, caplog):
+    from src import environments
+    _commit(venv_repos.upstream, "requirements.txt", "mcp==2\n", "new requirements")
+    assert _env_prepare(venv_repos, phase_a_env) == PreparedStatus.PREPARED
+    _merge_target(venv_repos)
+    monkeypatch.setattr(environments, "plan", lambda *a, **k: (_ for _ in ()).throw(environments.Refused("no")))
+    status = self_update.activate_prepared_update(str(venv_repos.local), "main")
+    assert status == ActivationStatus.ACTIVATE_ROLLBACK_FAILED and "its switch cannot be planned" in caplog.text
+    assert (venv_repos.local / "data" / self_update.UPDATE_JOURNAL).exists()
+
+
+def test_a_resumed_activation_whose_move_and_switch_fail_holds_on_the_restored_venv(
+        venv_repos, phase_a_env, monkeypatch):
+    from src import environments
+    _commit(venv_repos.upstream, "requirements.txt", "mcp==2\n", "new requirements")
+    assert _env_prepare(venv_repos, phase_a_env) == PreparedStatus.PREPARED
+    _merge_target(venv_repos)
+    monkeypatch.setattr(self_update, "_activate_staged_stores",
+                        lambda *a, **k: (_ for _ in ()).throw(OSError("disk full")))
+
+    def interrupted(root, planned):
+        os.rename(os.path.join(root, ".venv"), os.path.join(root, ".venvs", planned["previous"]["legacy"]))
+        raise OSError("no space for the link")
+    monkeypatch.setattr(environments, "switch", interrupted)
+    status = self_update.activate_prepared_update(str(venv_repos.local), "main")
+    assert status == ActivationStatus.ACTIVATE_ROLLBACK_FAILED
+    assert (venv_repos.local / "data" / self_update.UPDATE_JOURNAL).exists()
+    assert _venv_state(venv_repos) == {"kind": "directory"} and (venv_repos.local / ".venv/pyvenv.cfg").exists()
 
 
 def test_the_in_place_refusal_logs_its_reason(venv_repos, recorder, caplog):

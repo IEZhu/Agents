@@ -3,9 +3,10 @@
 A target's manifests decide what its update needs:
 
 * ``NONE``: the installed environment suffices. Metadata, package data, a new
-  optional extra, requirement order, comments and blank lines in
-  ``requirements.txt`` and a ``uv.lock``-only change (installs read
-  ``requirements.txt``) change no package.
+  optional extra, the order of requirements (in ``pyproject.toml`` and in
+  ``requirements.txt``), comments, blank lines and spacing in ``requirements.txt``
+  and a ``uv.lock``-only change (installs read ``requirements.txt``) change no
+  package.
 * ``ENVIRONMENT``: a requirement line of ``requirements.txt`` or the environment
   contract of ``pyproject.toml`` changed: ``project.dependencies``,
   ``project.requires-python``, an existing ``project.optional-dependencies``
@@ -132,7 +133,7 @@ def classify(git, old, target):
             wanted = requirement_lines(_show(git, target, "requirements.txt",
                                              "requirements.txt must exist in the target"))
             installed = git("show", f"{old}:requirements.txt", check=False)
-            if installed.returncode or requirement_lines(installed.stdout) != wanted:
+            if installed.returncode or sorted(requirement_lines(installed.stdout)) != sorted(wanted):
                 fields.insert(0, "requirements.txt")
         if fields:  # the environment build installs the target's requirements.txt
             _show(git, target, "requirements.txt", "requirements.txt must exist in the target")

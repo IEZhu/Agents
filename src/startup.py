@@ -110,17 +110,22 @@ def _environment_note(journal):
         target, previous = switch["to"], switch.get("previous") or {}
     except (OSError, ValueError, AttributeError, KeyError, TypeError):
         return ""
+    if not isinstance(previous, dict):
+        return ""
+    keep = (f"point .venv at .venvs/{target} and rebuild the stores with its interpreter")
     if previous.get("name"):
-        before = f".venvs/{previous['name']}"
+        restore = f"point .venv back at .venvs/{previous['name']}"
     elif previous.get("legacy"):
-        before = f"the setup's directory (moved to .venvs/{previous['legacy']} by the switch)"
+        restore = (f"remove the .venv link and rename .venvs/{previous['legacy']} back to .venv "
+                   "(when the switch moved it there)")
+        keep = f"move a .venv directory to .venvs/{previous['legacy']} first, then " + keep
     elif previous.get("kind") == "directory":
-        before = "the setup's directory, which .venv still is"
+        restore = "leave .venv, which is still the setup's directory"
+        keep = "move the .venv directory aside to .venvs/legacy-<UTC time> first, then " + keep
     else:
-        before = "what it pointed at before"
-    return (f" The update switches .venv to .venvs/{target}: to restore the previous revision, point .venv "
-            f"back at {before}; to keep the target, point .venv at .venvs/{target} and rebuild the stores "
-            "with its interpreter.")
+        restore = "point .venv back at what it pointed at before"
+    return (f" The update switches .venv to .venvs/{target}. To restore the previous revision, {restore}; "
+            f"to keep the target, {keep}.")
 
 
 @contextmanager

@@ -1536,8 +1536,9 @@ def activate_prepared_update(
         marker, repo_root, branch, embedding_model, git_timeout, _policy(policy, repo_root)
     )
     if invalid is not None:
-        if stranded := _stranded_environment(repo_root, marker, git_timeout):
-            return _hold_stranded(repo_root, marker["target_sha"], stranded, f"activation refused it ({invalid})")
+        if _stranded_environment(repo_root, marker, git_timeout) and (
+                held := _hold_stranded(repo_root, marker, f"activation refused it ({invalid})", git_timeout)):
+            return held
         _discard_staging(repo_root, git_timeout)
         return invalid
 
@@ -1554,8 +1555,9 @@ def activate_prepared_update(
             logger.warning("Auto-update: %s; discarding.", refusal)
             plan = None
         if not plan or plan.get("to") != wanted:
-            if already_at_target:
-                return _hold_stranded(repo_root, target_sha, wanted, "its switch cannot be planned")
+            if already_at_target and (held := _hold_stranded(repo_root, marker, "its switch cannot be planned",
+                                                             git_timeout)):
+                return held
             _discard_staging(repo_root, git_timeout)
             return ActivationStatus.INVALID_ENVIRONMENT
     # Journaled with the branch switch: every rollback below restores the environment too.
@@ -1640,8 +1642,9 @@ def activate_prepared_update(
                     environments.switch(repo_root, plan)
                 except (OSError, ValueError) as switch_error:
                     _restore_environment(repo_root, plan)
-                    return _hold_stranded(repo_root, target_sha, plan["to"],
-                                          f"switching to it failed ({switch_error})", plan)
+                    if held := _hold_stranded(repo_root, marker, f"switching to it failed ({switch_error})",
+                                              git_timeout, plan):
+                        return held
             _finish_update(repo_root)
         if restored:
             _discard_staging(repo_root, git_timeout)
@@ -1653,7 +1656,7 @@ def activate_prepared_update(
             environments.switch(repo_root, plan)
         except (OSError, ValueError) as e:
             logger.error("Auto-update: switching the Python environment failed (%s).", e)
-            return _environment_switch_failed(repo_root, git_timeout, merged_now, pre_merge_sha, undo, target_sha)
+            return _environment_switch_failed(repo_root, git_timeout, merged_now, pre_merge_sha, undo, marker)
 
     _discard_staging(repo_root, git_timeout)
     _write_state(ActivationStatus.ACTIVATED, old_sha, target_sha, branch if switched else None)
@@ -1664,13 +1667,14 @@ def activate_prepared_update(
     return ActivationStatus.ACTIVATED
 
 
-def _environment_switch_failed(repo_root, git_timeout, merged_now, pre_merge_sha, undo, target_sha) -> str:
+def _environment_switch_failed(repo_root, git_timeout, merged_now, pre_merge_sha, undo, marker) -> str:
     """Undo an activation whose stores moved in but whose environment switch failed.
 
     The new stores are invalidated, so the old code rebuilds them; the environment
     and, when this run merged, the tree are restored. A resumed activation (merged by
     an earlier run) cannot return to the old code, and the new code must not run
-    on the old environment: it keeps the journal, which stops startup.
+    on an environment that lacks its packages: it keeps the journal, which stops
+    startup (:func:`_hold_stranded`).
     """
     try:
         _invalidate_store_hashes(os.path.join(repo_root, "data"))
@@ -1680,8 +1684,13 @@ def _environment_switch_failed(repo_root, git_timeout, merged_now, pre_merge_sha
         logger.error("Auto-update: cannot invalidate the moved stores.", exc_info=True)
     if not merged_now:
         _restore_environment(repo_root, undo.get("environment"))
-        return _hold_stranded(repo_root, target_sha, undo["environment"]["to"], "switching to it failed",
-                              undo["environment"])
+        if held := _hold_stranded(repo_root, marker, "switching to it failed", git_timeout, undo["environment"]):
+            return held
+        if invalidated:
+            _finish_update(repo_root)
+            _discard_staging(repo_root, git_timeout)
+            return ActivationStatus.ACTIVATE_ENVIRONMENT_FAILED
+        return ActivationStatus.ACTIVATE_ROLLBACK_FAILED
     restored = _rollback_activation(repo_root, pre_merge_sha, git_timeout, clear_journal=invalidated, **undo)
     if restored and invalidated:
         _discard_staging(repo_root, git_timeout)
@@ -1706,22 +1715,56 @@ def _stranded_environment(repo_root, marker, git_timeout):
     return environment["id"]
 
 
-def _hold_stranded(repo_root, target_sha, name, reason, plan=None) -> str:
-    """Stop startup while the checkout runs code whose environment ``.venvs/<name>`` is not active.
+def _missing_distributions(repo_root, marker, git_timeout):
+    """The distributions the target's environment installs that ``.venv`` lacks; None when unknown.
 
-    The recovery journal stays (or is written) with the environment switch, so no
-    start serves the target's code on the old environment; the prepared update stays
-    for a later activation. ``ACTIVATE_ROLLBACK_FAILED``.
+    The prepared environment's requirements when it still exists, else the target's
+    ``requirements.txt`` and runtime dependencies, compared by normalized name, as
+    carried extras are.
     """
+    try:
+        with open(os.path.join(environments.path(repo_root, marker["environment"]["id"]),
+                               environments.REQUIREMENTS), encoding="utf-8") as stream:
+            text = stream.read()
+    except OSError:
+        from src.daemon.update_dependencies import inputs
+        try:
+            spec = inputs(_manifest_git(repo_root, git_timeout), marker.get("base_sha"), marker["target_sha"])
+        except (ValueError, TypeError, subprocess.SubprocessError, OSError):
+            return None
+        text = "\n".join([spec.requirements, *spec.dependencies])
+    try:
+        present = environments.installed(os.path.realpath(environments.link_path(repo_root)))
+    except OSError:
+        return None
+    return sorted(environments.distribution_names(text) - present)
+
+
+def _hold_stranded(repo_root, marker, reason, git_timeout, plan=None) -> Optional[str]:
+    """Stop startup while the checkout runs code whose environment is not active and ``.venv`` lacks
+    some of its packages; None when ``.venv`` has all of them (installed by hand), with a warning.
+
+    The recovery journal stays (or is written, with the marker's base as ``old_sha``)
+    with the environment switch, so no start serves the target's code without its
+    packages; the prepared update stays for a later activation. ``ACTIVATE_ROLLBACK_FAILED``.
+    """
+    name, target_sha, base_sha = marker["environment"]["id"], marker["target_sha"], marker.get("base_sha") or ""
+    missing = _missing_distributions(repo_root, marker, git_timeout)
+    if missing == []:
+        logger.warning("Auto-update: the checkout runs %s without its Python environment %s/%s (%s), but .venv "
+                       "has every package it names; continuing on .venv.", target_sha[:9],
+                       environments.ENVIRONMENTS, name, reason)
+        return None
     journal = os.path.join(repo_root, "data", UPDATE_JOURNAL)
     logger.error(
-        "Auto-update: the checkout runs the update%s, which needs the Python environment %s/%s, but %s. "
-        "Startup stops until recovery: point .venv at %s/%s and rebuild the stores with its interpreter "
-        "(python -m src.reindex), or restore the previous revision and the environment .venv pointed at; "
-        "then remove %s.", f" {target_sha[:9]}" if target_sha else "", environments.ENVIRONMENTS, name, reason,
-        environments.ENVIRONMENTS, name, journal)
+        "Auto-update: the checkout runs the update %s, which needs the Python environment %s/%s (.venv lacks %s), "
+        "but %s. Startup stops until recovery: point .venv at %s/%s and rebuild the stores with its interpreter "
+        "(python -m src.reindex), or restore the previous revision %s and the environment .venv pointed at; "
+        "then remove %s.", target_sha[:9], environments.ENVIRONMENTS, name,
+        ", ".join(missing[:5]) if missing else "packages it may need", reason, environments.ENVIRONMENTS, name,
+        base_sha[:9] or "(unknown)", journal)
     try:
-        _begin_update(repo_root, target_sha, target_sha,
+        _begin_update(repo_root, base_sha or target_sha, target_sha,
                       {"environment": plan or {"to": name, "previous": environments.state(repo_root)}})
     except FileExistsError:
         pass  # the journal of this activation stays

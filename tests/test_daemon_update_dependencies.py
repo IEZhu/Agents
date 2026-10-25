@@ -118,6 +118,11 @@ def test_comments_blank_lines_and_spacing_in_requirements_change_nothing(edited)
     assert gate(changed=("requirements.txt",), requirements=edited) == (NONE, None)
 
 
+def test_reordered_requirements_change_nothing():
+    reordered = "python-dotenv\nmcp==1.28.1\n"
+    assert gate(changed=("requirements.txt",), requirements=reordered) == (NONE, None)
+
+
 def test_requirement_lines_drop_comments_like_pip():
     text = "# header\nmcp==2  # pinned\nurl @ https://x/y#egg=z\n\n  numpy  \n"
     assert requirement_lines(text) == ["mcp==2", "url @ https://x/y#egg=z", "numpy"]
