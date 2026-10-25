@@ -613,9 +613,10 @@ flow can match this work instead of recording it twice.
 - The audit ran with an independent verifier, or the report says why not.
 - No unsaved work is left without a decision.
 - Background work is stopped or its continuation is justified.
-- In `apply` mode, every memory change is V2 or above and the closing log entry
-  is curated, or the report names the privacy skip, the unavailable Agents-Core
-  MCP or the conflict that left the closing-log step incomplete.
+- In `apply` mode, every memory change is V2 or above.
+- In `apply` mode, the closing log entry is curated, or the report names the
+  privacy skip, the unavailable Agents-Core MCP or the conflict that left the
+  closing-log step incomplete.
 - Every external lookup and proposed patch destination respects the
   confidentiality boundary; no public enumeration of private tools is required.
 - Every external write performed by this flow has a recorded passing visibility,
