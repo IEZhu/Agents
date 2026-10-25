@@ -2,7 +2,7 @@
 
 **Specialist roles, repeatable workflows and project memory for your AI coding assistant.**
 
-Agents-Core is one local [MCP](https://modelcontextprotocol.io) server for Claude Code, Codex, Cursor, Claude Desktop, Antigravity and other MCP clients. It gives your current model a task-relevant expert persona with skills and shared rules, Markdown workflows it executes with its own tools, bounded and validated delegated workers, and a memory of each project. The core server needs no external API key and runs on your machine.
+Agents-Core is one local [MCP](https://modelcontextprotocol.io) server for Claude Code, Codex, Cursor, Claude Desktop, Antigravity and other MCP clients. It gives your current model a task-relevant expert persona with skills, shared rules and optional reasoning patterns called cognitive implants, Markdown workflows it executes with its own tools, bounded and validated delegated workers, and a memory of each project. The core server needs no external API key and runs on your machine.
 
 **[Features and client support](docs/features.md)** · [Quick start](#-quick-start) · [Documentation map](docs/README.md) · [Agent guide](docs/agent-guide.md) · [Install in another MCP client](llms-install.md)
 
@@ -17,7 +17,7 @@ Agents-Core is one local [MCP](https://modelcontextprotocol.io) server for Claud
 curl -fsSL https://raw.githubusercontent.com/IEZhu/Agents/main/install.sh | bash
 ```
 
-One command installs the server on macOS or Linux and registers it with the clients it finds; see [Quick start](#-quick-start) for Windows, the Claude Code plugin and manual setup.
+One command installs the server on macOS or Linux (Python 3.11+, about 1.1 GB model download), registers it with the clients it finds and writes the protocol section into their instruction files; its defaults also add session hooks and, on macOS, the shared background service with cooperation. See [Quick start](#-quick-start) for what it changes, Windows, the Claude Code plugin and manual setup.
 
 ## ✨ What you get
 
@@ -41,7 +41,7 @@ One command installs the server on macOS or Linux and registers it with the clie
 | Claude Desktop (chat) | ✅ | Installer or the shared service; protocol through MCP initialization |
 | Other MCP clients, such as Cline | 🟡 | A hand-written stdio entry ([manual install](llms-install.md)) |
 
-Client hooks such as thread status, persona restore after compaction and native compaction differ by client: see the [full feature matrix](docs/features.md).
+✅ means the installer sets the client up; what works in it differs. Claude Desktop chat starts outside any project, so workflows, repository memory and shared artifacts need a pinned project, and client hooks such as thread status, persona restore after compaction and native compaction exist only in some clients: see the [full feature matrix](docs/features.md).
 
 ## When to use Agents-Core
 
@@ -68,8 +68,7 @@ The core server needs no external API key. Setup requires Python 3.11+ and downl
 - [AI contributor instructions](AGENTS.md) and [Claude instructions](CLAUDE.md).
 - [Model workflows](flows/README.md): reusable Markdown instructions, including
   the [documentation refresh process](flows/documentation-refresh.md).
-
-- [Quality checks and badge scope](docs/quality-checks.md): what each badge below covers.
+- [Quality checks and badge scope](docs/quality-checks.md): what each badge at the top of this page covers.
 
 ---
 

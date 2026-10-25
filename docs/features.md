@@ -1,12 +1,13 @@
 # Features and client support
 
-Agents-Core is one local MCP server. Everything below works through that server,
-so any MCP client can call the tools; what differs between clients is how the
-server is installed, how the protocol instructions reach the model and which
-client hooks exist. Each feature links to its maintained guide.
+Agents-Core is one local MCP server. Its core features are MCP tools and
+prompts, so any MCP client can call them; what differs between clients is how the
+server is installed, how the protocol instructions reach the model, whether a
+call belongs to a project and which client hooks exist. Each feature links to its
+maintained guide.
 
 **Legend:** ✅ supported · 🟡 partial, see the note under the table ·
-❌ not supported · ➖ does not depend on the client.
+❌ not supported · ➖ not applicable: the feature belongs to another client.
 
 **Columns:** *Claude Code* is the CLI and the Code tab of the Claude desktop app;
 *Claude Desktop* is the desktop app's ordinary chat; *Codex* covers the CLI,
@@ -21,7 +22,7 @@ implemented and documented; it does not mean every client was tested live.
 
 | Client | Connects through | Protocol instructions | Set up by |
 |---|---|---|---|
-| Claude Code | A stdio entry in the user-level Claude registry, the [Claude Code plugin](../plugins/agents-core/README.md), or a bridge to the shared service | Managed section in `~/.claude/CLAUDE.md` | [Installer](../README.md#one-command-install-macos-and-linux) or plugin |
+| Claude Code | A stdio entry in the user scope of `~/.claude.json`, the [Claude Code plugin](../plugins/agents-core/README.md), or a bridge to the shared service | Managed section in `~/.claude/CLAUDE.md` | [Installer](../README.md#one-command-install-macos-and-linux) or plugin |
 | Claude Desktop | The `Agents-Core-Desktop` stdio entry or a bridge to the shared service | MCP initialization text | Installer |
 | Codex | A stdio entry in `config.toml` or a bridge to the shared service | Managed section in `AGENTS.md` | Installer |
 | Cursor | A stdio entry in `mcp.json` or a bridge to the shared service | MCP initialization text | Installer |
@@ -34,7 +35,7 @@ server.
 
 ## Core features
 
-These are MCP tools, so every client that reaches the server can call them. The
+These are MCP tools and prompts, so every client that reaches the server can call them. The
 differences come from the protocol instructions, the project a call belongs to
 and the host's own worker tools.
 
@@ -45,13 +46,13 @@ and the host's own worker tools.
 | [Workflows](../flows/README.md#through-agents-core-mcp) | Built-in procedures, such as PR review or a documentation refresh, run against your repository with your model's own tools | ✅ | 🟡 ³ | ✅ | ✅ | ✅ | 🟡 ³ |
 | [Personal and repository workflows](../flows/README.md#personal-and-repository-flows) | Your own procedures, saved globally or per project, each with the persona it runs as | ✅ | 🟡 ³ | ✅ | ✅ | ✅ | 🟡 ³ |
 | [Delegated workers](subagent-contract.md#compact-exchange) | A bounded task for a fresh worker with a fixed result format, validated against its contract | ✅ | 🟡 ⁴ | ✅ | 🟡 ⁵ | 🟡 ⁴ | 🟡 ⁴ |
-| [Worker model tiers](subagent-model-tiers.md#model-resolution) | Simple delegated tasks on a lighter model, with one escalation when a result falls short | ✅ | ❌ | ✅ | 🟡 ⁶ | ❌ | ❌ |
+| [Worker model tiers](subagent-model-tiers.md#model-resolution) | Simple delegated tasks on a lighter model, moved up one tier at a time when a result falls short | ✅ | ❌ | ✅ | 🟡 ⁶ | ❌ | ❌ |
 | [Repository memory](../README.md#-repository-memory) | A short description of each project, returned when work starts | ✅ | 🟡 ³ | ✅ | ✅ | ✅ | 🟡 ³ |
 | [Turn log and history](shared-mcp-daemon.md#memory-and-errors) | Every answer recorded with its persona, and earlier turns of a project to read or search | ✅ | 🟡 ⁷ | ✅ | ✅ | ✅ | 🟡 ⁷ |
 | [Shared artifacts](shared-artifacts.md#native-worker-workflow) | The same exact inputs for several workers, pinned by hash instead of pasted into every prompt | ✅ | 🟡 ³ | ✅ | ✅ | ✅ | 🟡 ³ |
-| [Agent cooperation](agent-cooperation/runtime.md#enablement-and-authority) | Overlapping sessions, even in different clients, that message each other and claim work instead of colliding | ✅ ⁸ | 🟡 ³ ⁸ | ✅ ⁸ | ✅ ⁸ | ✅ ⁸ | 🟡 ⁸ |
+| [Agent cooperation](agent-cooperation/runtime.md#enablement-and-authority) | Overlapping sessions, even in different clients, that message each other and claim work instead of colliding | ✅ ⁸ | 🟡 ³ ⁸ | ✅ ⁸ | ✅ ⁸ | ✅ ⁸ | 🟡 ³ ⁸ |
 | [Rules from URLs](user-rules.md#mcp-operations) | A team rule file at an HTTPS address, added to every persona and worker package | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| [Local inference](shared-mcp-daemon.md#local-inference) | One bounded completion on a local model the owner configured | ✅ ⁹ | 🟡 ³ ⁹ | ✅ ⁹ | ✅ ⁹ | ✅ ⁹ | 🟡 ⁹ |
+| [Local inference](shared-mcp-daemon.md#local-inference) | One bounded completion on a local model the owner configured | ✅ ⁹ | 🟡 ³ ⁹ | ✅ ⁹ | ✅ ⁹ | ✅ ⁹ | 🟡 ³ ⁹ |
 
 1. The protocol reaches these clients through the MCP initialization text, or
    through the Antigravity plugin's rules; persona behavior was measured on
@@ -61,16 +62,18 @@ and the host's own worker tools.
 3. These tools need the project a call belongs to: an MCP root, a launch
    directory inside a project, `AGENTS_CLIENT_REPO_ROOT`, or the registered
    workspace over HTTP. The desktop chat starts servers outside any project.
-4. The host launches the worker itself; these clients get no launch arguments,
-   and their transcripts are not read, so validation takes the result text or
-   a result file.
+4. These clients get no launch arguments, and their transcripts are not read:
+   the host launches the worker with its own tool where it has one, and
+   validation takes the result text or a result file.
 5. Cursor gets launch arguments, but its transcripts are not read: validate the
    result text or a result file.
 6. The light tier passes Cursor's default model; Cursor's acceptance of that
    value is not verified.
 7. Without a project, turns go to the installation's fallback journal.
 8. Needs the shared service (direct HTTP or its stdio bridge) with cooperation
-   enabled; standalone stdio has no coordinator. Off by default.
+   enabled; standalone stdio has no coordinator. Setup on macOS and Windows offers
+   both, and the one-command install (`--yes`) accepts them; the server setting
+   alone is off by default.
 9. Owner-enabled and off by default; needs the shared service, and native
    inference runs on POSIX hosts only.
 
@@ -81,8 +84,8 @@ and the host's own worker tools.
 | [One-command installer](../README.md#one-command-install-macos-and-linux) | The server installed and registered with every supported client it finds | ✅ | ✅ | ✅ | ✅ | ✅ | 🟡 ¹ |
 | [Managed instruction files](routing_flow.md#installation-migration-and-rollback) | The persona protocol kept current in the client's own instruction file, your text left alone | ✅ | 🟡 ² | ✅ | 🟡 ² | ✅ | 🟡 ³ |
 | [Claude Code plugin](../plugins/agents-core/README.md#setup) | The server launched from a marketplace plugin instead of a registration written by setup | ✅ ⁴ | ➖ | ➖ | ➖ | ➖ | ➖ |
-| [Shared local service](../README.md#shared-macos-and-windows-service) | One background server holding the model for every client and session | ✅ | ✅ | ✅ | ✅ | ✅ | 🟡 ⁵ |
-| [MCP proxy](mcp-proxy.md#connect-a-server) | Your other MCP servers through the one Agents-Core connection, with per-app access and credentials in the OS secret store | ✅ | ✅ | ✅ | ✅ | 🟡 ⁶ | 🟡 ⁵ |
+| [Shared local service](../README.md#shared-macos-and-windows-service) | One background server holding the model for every client and session, on macOS and Windows | ✅ | ✅ | ✅ | ✅ | ✅ | 🟡 ⁵ |
+| [MCP proxy](mcp-proxy.md#connect-a-server) | Your other MCP servers through the one Agents-Core connection, with per-app access and credentials in the OS secret store | ✅ ¹² | ✅ ¹² | ✅ ¹² | ✅ ¹² | 🟡 ⁶ ¹² | 🟡 ⁵ ¹² |
 | [Session readiness banner](session-readiness.md#session-readiness-banner) | A snapshot of time, directory, Git state and host when a session starts | ✅ | 🟡 ⁷ | 🟡 ⁸ | 🟡 ⁷ | 🟡 ⁷ | ❌ |
 | [Persona restore after compaction](session-readiness.md#persona-restore-after-compaction) | A reminder to reload the active persona right after the client compacts the conversation | ✅ | ❌ | 🟡 ⁹ | ❌ | ❌ | ❌ |
 | [Emoji thread status](thread-status.md#client-support) | One emoji in the chat title for working, waiting, review or closed | ✅ | ❌ | 🟡 ¹⁰ | 🟡 ¹¹ | ❌ | ❌ |
@@ -105,6 +108,8 @@ and the host's own worker tools.
 10. The desktop app renames through its own tool; the CLI and IDE need an
     exposed rename tool or the metadata helper.
 11. The Agents window only; the classic sidebar has no title write.
+12. Needs the shared service (macOS and Windows); standalone stdio exposes no
+    proxy tools.
 
 ## Running and maintaining the installation
 
@@ -115,7 +120,7 @@ These features do not depend on the client you chat in.
 | [Personal library sync](user-sync.md#user-library-sync) | Your personal flows, persona choices and component switches kept identical on all your machines through one private Git repository you own | Any installation; off until you set it up |
 | [Updates and update channels](../README.md#update-channel) | Releases from `main` or every merged change from `dev`, with a rollback path on the shared service | Standalone servers update themselves; the shared service has an opt-in updater |
 | [Web settings page](shared-mcp-daemon.md#flow-editor) | A local browser page to edit flows, switch rules, skills and implants, run sync, choose the update channel and manage MCP connections | The shared service on macOS and Windows |
-| [Autodev](autodev.md#autodev) | A scheduled, sandboxed session that implements an issue you marked ready and opens a pull request only you can merge | macOS; runs the Claude Code CLI, and Codex for selection and reviews; off by default |
+| [Autodev](autodev.md#autodev) | Scheduled, sandboxed self-development: a session implements an issue you marked ready in the configured repository and the runner opens a pull request only you can merge | macOS; runs the Claude Code CLI, with optional Codex reviews that fall back to Claude where its sandbox cannot run; off by default |
 | [Cloud issue agent](cloud-runs.md#issue-agent) | `/agent` commands in a GitHub issue or pull request that plan, implement and review in a cloud session | A Claude Code cloud routine; per-repository setup |
 | [Evaluations](README.md#evaluation-guides) | Deterministic routing and retrieval checks and hosted-model A/B runs before a change ships | Local scripts and hosted model APIs |
 | [Observability](../README.md#-observability) | Traces of routing, loading, retrieval and memory calls in your own Langfuse project | Off until both Langfuse keys are set |
