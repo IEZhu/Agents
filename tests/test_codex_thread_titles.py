@@ -353,11 +353,23 @@ def test_invalid_timeout_never_launches_child(server, timeout):
 def test_timeout_includes_initialization_and_kills_blocked_child(server, stage):
     server[0].update(hang_at=stage, ignore_terminate=True)
     started = time.monotonic()
-    with pytest.raises(RuntimeError, match="timed out"):
+    # A loaded runner may still be reaping the killed child when the cleanup reserve ends.
+    with pytest.raises(RuntimeError, match="timed out|cleanup deadline"):
         rename(timeout=0.4)
     assert time.monotonic() - started < 0.55
-    assert server[1][0].poll() is not None
+    # The child ignores SIGTERM and hangs for 30 s, so only the group kill ends it in time.
+    server[1][0].wait(timeout=2)
     assert server[1][0].stdin.closed and server[1][0].stdout.closed
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Process groups are POSIX only")
+def test_refused_group_signal_does_not_turn_a_completed_rename_into_an_error(server, monkeypatch):
+    def refuse(pid, sig):
+        raise PermissionError(1, "Operation not permitted")
+
+    monkeypatch.setattr(adapter.os, "killpg", refuse)
+    assert rename()["persisted"] is True
+    assert server[1][0].poll() is not None
 
 
 def test_deadline_is_shared_across_requests_instead_of_reset(server):
