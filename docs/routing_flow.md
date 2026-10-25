@@ -269,10 +269,11 @@ Keep the complete descriptor and exact footer in retained conversation context,
 including summaries used during compaction. Losing a temporary tool variable
 does not remove an activation that remains in the conversation. Before sending
 the final answer, compose it with the saved footer and call `log_interaction`
-with that exact text (without a time line), the current user request verbatim, the
-descriptor, and the action (`keep`, `switch`, `refresh`, or `restore`), after
-replacing secrets and capability values in every logged field with safe references
-and omitting prohibited personal details. Then
+with that exact text (without a time line), the current user request verbatim
+apart from the redactions below, the descriptor, and the action (`keep`, `switch`,
+`refresh`, or `restore`). Before the call, replace secrets and capability values
+in every logged field with safe references and omit prohibited personal details.
+Then
 deliver the answer with the returned `timestamp` as its first line, followed by
 an empty line, when the footer lists the `answer-timestamp` rule; with the rule
 switched off or without a `timestamp`, add no line.
