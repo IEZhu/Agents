@@ -61,8 +61,10 @@ before this promotion. Their status on 2026-10-25:
 1. Done: the documentation and version PR
    [#451](https://github.com/IEZhu/Agents/pull/451) merged into `dev` on
    2026-10-24.
-2. Done by this refresh: `dev` was re-fetched and the README, documentation map,
-   daemon and runtime guides were reconciled with the integrated source above.
+2. Partly done: `dev` was re-fetched and the README, the documentation map and
+   the Personal runtime boundary guide were reconciled with the integrated source
+   above; the daemon and sync guides and the proxy plan were not re-audited in
+   this run.
    `VERSION` stays the dynamic package version source; this refresh changes no
    lock file.
 3. Partly re-checked: the thread-status guide was compared with the Claude
@@ -81,9 +83,10 @@ these issues with closing keywords, all already closed: #431, #432, #433, #434,
 #476, #508 and #520.
 
 `VERSION` is `26.10.21.0011`. `python3 scripts/bump_plugin_version.py --check
---base origin/main` passes against the baseline `26.10.16.2041`, which `main`
-derives from its merge time because it has no `VERSION` file; running the
-helper again keeps the newer value, so the release is expected to be tagged
+--base origin/main` passes against the baseline `26.10.16.2041`, which the helper derives, because
+`main` has no `VERSION` file, from the commit time of the `dev` head that
+`main`'s last release merge promoted (20:41 UTC; the merge commit itself is
+20:45 UTC); running the helper again keeps the newer value, so the release is expected to be tagged
 `v26.10.21.0011`.
 
 Still owed at the frozen promotion head: the release checks of

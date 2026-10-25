@@ -58,9 +58,9 @@ thread only from the transcript and the live state, and its report must say so.
 ## Inputs and authority
 
 - **Mode.**
-  - `draft` (default) reads, checks and reports. Its only write is the per-turn
-    log the client makes anyway, which step 9 makes only when a safe payload and
-    an authorized destination are established.
+  - `draft` (default) reads, checks and reports. Its only write is the closing
+    per-turn log, which step 9 makes only when a safe payload and an authorized
+    destination are established.
   - `apply` also writes memory items at level V2 or above, curates the closing
     history entry, and does the cleanup that step 8 verifies as safe.
 - **Thread.**
@@ -328,10 +328,11 @@ client's own tools. Calls from this close's own `run_flow` on are not audited.
      it is never a finding.
 3. **What was called.** List every call of an installed tool with its turn, time,
    tool and status, and for Agents-Core calls the persona descriptor. The helper
-   gives no per-call list, only summaries such as `logging_calls` (the number of
-   `log_interaction` calls), `external_writes`, `scheduled` and
-   `unclassified_tools`; take the other calls from a short script over the
-   transcript and do not reprint it. Count
+   lists no call of every tool: `logging_calls` counts the `log_interaction`
+   calls and `unclassified_tools` counts other unclassified tools by name, while
+   `external_writes` and `scheduled` list only write-classified and scheduling
+   calls, with time, tool and actor but no status; take the other calls and the
+   statuses from a short script over the transcript and do not reprint it. Count
    final answers apart from progress messages, and note each context compaction.
 4. **Where it applied.** Match the thread against every row: the catalogue and the
    rules from item 2. Every finding names its trigger: the turn, command or tool
