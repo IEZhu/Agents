@@ -8,14 +8,17 @@ Two-phase, "prepare in the background, activate by move on the next start"
     cross-process lock, throttle redundant network checks, ``git fetch``, and — if
     the install is fast-forwardable and no update is already pending — build the
     new version's vector stores in an **isolated git worktree** under
-    ``AUTO_UPDATE_STAGING_DIR`` and write a marker. The live install is never
-    touched.
+    ``AUTO_UPDATE_STAGING_DIR`` and write a marker. A target that changes the
+    dependencies first gets its own Python environment under ``.venvs``
+    (`src.environments`, #181), which the stores are built with. The live
+    install is never touched.
   * **Phase A — activate** (:func:`activate_prepared_update`, via
     :func:`run_activation_safely` inside ``startup.py``'s exclusive session lease,
     before the engine modules eagerly load the stores): if a valid prepared marker
-    exists, fast-forward the live tree to the prepared sha (local, no network) and
-    atomically move the pre-built stores into ``data/``. The expensive embedding
-    already happened in Phase B, so this is just a merge + a few ``os.replace``.
+    exists, fast-forward the live tree to the prepared sha (local, no network),
+    atomically move the pre-built stores into ``data/`` and point ``.venv`` at the
+    prepared environment, if any. The expensive work already happened in Phase B,
+    so this is just a merge + a few ``os.replace``.
 
 Set ``AGENTS_AUTO_UPDATE_STAGING=0`` to use the synchronous in-place path at an
 idle startup under the same exclusive lease
@@ -60,7 +63,8 @@ import time
 from contextlib import contextmanager
 from typing import Optional
 
-from src import executables
+from src import environments, executables
+from src.daemon.update_dependencies import NONE as DEPENDENCIES_UNCHANGED, classify as classify_dependencies
 from src.startup import UPDATE_JOURNAL
 from src.update_channel import Policy, drops_commits, in_use_reason, plausible_branch, policy_for, worktree_on
 
@@ -74,6 +78,7 @@ from src.engine.config import (
     AUTO_UPDATE_GIT_TIMEOUT,
     AUTO_UPDATE_MIN_INTERVAL,
     AUTO_UPDATE_REINDEX_TIMEOUT,
+    AUTO_UPDATE_ENVIRONMENT_TIMEOUT,
     AUTO_UPDATE_STAGING,
     AUTO_UPDATE_STAGING_DIR,
 )
@@ -91,8 +96,11 @@ STATE_FILE = os.path.join(INSTALL_DATA_DIR, ".last_update.json")
 PREPARED_MARKER = os.path.join(INSTALL_DATA_DIR, ".prepared_update.json")
 STAGING_ROOT = AUTO_UPDATE_STAGING_DIR
 # Marker schema version — bumped if the on-disk format changes; mismatches are
-# treated as invalid and discarded by the Phase A validator.
+# treated as invalid and discarded by the Phase A validator. A marker that also
+# switches the Python environment uses the next version, which an updater that
+# cannot switch environments discards instead of activating code without them.
 PREPARED_MARKER_SCHEMA = 1
+ENVIRONMENT_MARKER_SCHEMA = 2
 
 # Vector stores that a prepared update stages and activates, paired with their
 # content-hash sidecar file. The router cache is intentionally NOT here — it is a
@@ -140,6 +148,8 @@ class UpdateStatus:
     SKIPPED_DOWNGRADE = "SKIPPED_DOWNGRADE"
     # A branch switch whose target branch is checked out in another worktree.
     SKIPPED_BRANCH_IN_USE = "SKIPPED_BRANCH_IN_USE"
+    # The target changes dependencies this path cannot deliver (`src.environments`).
+    SKIPPED_DEPENDENCIES = "SKIPPED_DEPENDENCIES"
     MERGE_FAILED = "MERGE_FAILED"
     REINDEX_FAILED = "REINDEX_FAILED"
     ROLLBACK_FAILED = "ROLLBACK_FAILED"
@@ -178,7 +188,9 @@ class PreparedStatus:
     SKIPPED_AHEAD = UpdateStatus.SKIPPED_AHEAD
     SKIPPED_DOWNGRADE = UpdateStatus.SKIPPED_DOWNGRADE
     SKIPPED_BRANCH_IN_USE = UpdateStatus.SKIPPED_BRANCH_IN_USE
+    SKIPPED_DEPENDENCIES = UpdateStatus.SKIPPED_DEPENDENCIES
     PREPARED = "PREPARED"
+    PREPARE_ENVIRONMENT_FAILED = "PREPARE_ENVIRONMENT_FAILED"
     PREPARE_WORKTREE_FAILED = "PREPARE_WORKTREE_FAILED"
     PREPARE_REINDEX_FAILED = "PREPARE_REINDEX_FAILED"
     PREPARE_STAGE_INCONSISTENT = "PREPARE_STAGE_INCONSISTENT"
@@ -200,8 +212,10 @@ class ActivationStatus:
     INVALID_STAGING_MISSING = "INVALID_STAGING_MISSING"
     INVALID_STAGING_INCONSISTENT = "INVALID_STAGING_INCONSISTENT"
     INVALID_CROSS_DEVICE = "INVALID_CROSS_DEVICE"
+    INVALID_ENVIRONMENT = "INVALID_ENVIRONMENT"
     ACTIVATE_MERGE_FAILED = "ACTIVATE_MERGE_FAILED"
     ACTIVATE_MOVE_FAILED = "ACTIVATE_MOVE_FAILED"
+    ACTIVATE_ENVIRONMENT_FAILED = "ACTIVATE_ENVIRONMENT_FAILED"
     ACTIVATE_ROLLBACK_FAILED = "ACTIVATE_ROLLBACK_FAILED"
 
 
@@ -416,28 +430,14 @@ def _run_reindex(repo_root: str, timeout: int) -> bool:
     return True
 
 
-def _warn_if_deps_changed(repo_root: str, old_sha: str, new_sha: str, timeout: int) -> None:
-    """Log a warning if the pulled range touched dependency manifests.
-
-    We deliberately do NOT run ``pip install`` automatically; this just makes
-    the need visible to the operator.
-    """
-    if not old_sha or not new_sha:
-        return
-    try:
-        diff = _run_git(["diff", "--name-only", f"{old_sha}..{new_sha}"], repo_root, timeout)
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        return
-    if diff.returncode != 0:
-        return
-    changed = set(diff.stdout.split())
-    hit = {"requirements.txt", "pyproject.toml"} & changed
-    if hit:
-        logger.warning(
-            "Auto-update: dependency files changed (%s) but pip install is NOT run "
-            "automatically — update the environment manually if needed.",
-            ", ".join(sorted(hit)),
-        )
+def _manifest_git(repo_root: str, timeout: int):
+    """``update_dependencies``' git callable: ``check`` raises CalledProcessError, as ``subprocess.run`` does."""
+    def git(*args, check=True):
+        result = _run_git(list(args), repo_root, timeout)
+        if check and result.returncode:
+            raise subprocess.CalledProcessError(result.returncode, ["git", *args], result.stdout, result.stderr)
+        return result
+    return git
 
 
 # --- State + throttle persistence --------------------------------------------
@@ -531,7 +531,8 @@ def _touch_check_stamp() -> None:
 
 # --- Prepared-update marker (Phase A/B) --------------------------------------
 
-def _write_prepared_marker(target_sha, base_sha, branch, embedding_model, staging_dir, stores, switch=None) -> None:
+def _write_prepared_marker(target_sha, base_sha, branch, embedding_model, staging_dir, stores, switch=None,
+                           environment=None) -> None:
     """Atomically write the prepared-update marker.
 
     Written **last** by ``prepare_update`` — its presence is the sole signal that
@@ -552,6 +553,10 @@ def _write_prepared_marker(target_sha, base_sha, branch, embedding_model, stagin
     if switch:
         # A branch switch: activation checks out *branch* from ``switch_from``.
         payload.update(switch_from=switch["from"], remote=switch["remote"], downgrade=bool(switch["downgrade"]))
+    if environment:
+        # The target's Python environment under .venvs: activation points .venv at it.
+        payload.update(schema=ENVIRONMENT_MARKER_SCHEMA, environment={
+            key: environment[key] for key in ("id", "path", "requirements_sha256")})
     os.makedirs(os.path.dirname(PREPARED_MARKER) or ".", exist_ok=True)
     tmp = PREPARED_MARKER + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
@@ -821,6 +826,8 @@ def check_and_apply_update(
     be unit-tested directly. ``reindex_fn`` (``repo_root -> bool``) is injected in
     tests; defaults to spawning ``python -m src.reindex``. A *policy* allows a
     branch switch (:func:`_resolve_target`). Returns an :class:`UpdateStatus` value.
+    A target that changes dependencies is skipped: this path rebuilds in place with
+    the running environment and has no second one to build or roll back to.
     """
     reindex = reindex_fn or (lambda rr: _run_reindex(rr, reindex_timeout))
 
@@ -831,6 +838,18 @@ def check_and_apply_update(
 
     if validate_target is not None:
         validate_target(old_sha, target_sha)
+
+    try:
+        change = classify_dependencies(_manifest_git(repo_root, git_timeout), old_sha, target_sha)
+    except (subprocess.SubprocessError, OSError):
+        logger.warning("Auto-update: could not compare dependency manifests; serving current code.")
+        return UpdateStatus.FETCH_FAILED
+    if change.kind != DEPENDENCIES_UNCHANGED:
+        logger.warning(
+            "Auto-update: %s. The in-place updater (AGENTS_AUTO_UPDATE_STAGING=0) does not install "
+            "dependencies: use the staged updater or update in explicit maintenance; skipping.", change.reason,
+        )
+        return UpdateStatus.SKIPPED_DEPENDENCIES
 
     undo = _switch_rollback(branch, switch)
     if undo:
@@ -847,8 +866,6 @@ def check_and_apply_update(
         new = _run_git(["rev-parse", "HEAD"], repo_root, git_timeout)
         new_sha = new.stdout.strip() if new.returncode == 0 else ""
         logger.info("Auto-update: fast-forwarded %s -> %s on %s.", old_sha[:9], new_sha[:9], branch)
-
-        _warn_if_deps_changed(repo_root, old_sha, new_sha, git_timeout)
 
         # Step 7 — rebuild the vector stores with the new code; roll back on failure.
         # reindex_fn may raise (injected fns, unexpected errors); treat any raise
@@ -1015,22 +1032,23 @@ def _add_worktree(staging_parent: str, target_sha: str, repo_root: str, git_time
     return staging_dir
 
 
-def _run_reindex_at(staging_dir: str, timeout: int) -> bool:
+def _run_reindex_at(staging_dir: str, timeout: int, python: Optional[str] = None) -> bool:
     """Build the vector stores INSIDE *staging_dir* by running the worktree's code.
 
     ``python -m src.reindex`` with ``cwd=staging_dir`` makes the worktree its own
     import root (``-m`` puts cwd on ``sys.path``), so ``config.INSTALL_DATA_DIR``
     resolves to ``<staging_dir>/data`` and the stores never touch the live install
-    (verified). Uses the **live** interpreter (``sys.executable``) because the
-    worktree has no ``.venv``; site-packages come from the interpreter prefix
-    regardless of cwd. ``EMBEDDING_MODEL`` is pinned explicitly so the staged
-    vectors match the live process even though the worktree has no ``.env``.
+    (verified). Uses *python*, the target's environment when the target changes
+    dependencies, else the **live** interpreter (``sys.executable``): the worktree
+    has no ``.venv``, and site-packages come from the interpreter prefix regardless
+    of cwd. ``EMBEDDING_MODEL`` is pinned explicitly so the staged vectors match the
+    live process even though the worktree has no ``.env``.
     """
     env = dict(os.environ)
     env["EMBEDDING_MODEL"] = EMBEDDING_MODEL
     try:
         result = _run_command(
-            [sys.executable, "-m", "src.reindex"],
+            [python or sys.executable, "-m", "src.reindex"],
             cwd=staging_dir,
             timeout=timeout,
             env=env,
@@ -1102,6 +1120,10 @@ def prepare_update(
     embedding_model: Optional[str] = None,
     validate_target=None,
     policy=FROM_ENVIRONMENT,
+    live_python: Optional[str] = None,
+    environment_timeout: int = AUTO_UPDATE_ENVIRONMENT_TIMEOUT,
+    environment_runner=None,
+    reasons: Optional[list] = None,
 ) -> str:
     """Phase B: prepare a staged update WITHOUT mutating the live install.
 
@@ -1115,9 +1137,18 @@ def prepare_update(
     is built and may raise to refuse the target. A *policy* allows a branch switch
     (:func:`_resolve_target`); the marker then records it for activation. Returns a
     :class:`PreparedStatus` value.
+
+    A target that changes dependencies first gets its environment under ``.venvs``
+    (`src.environments`): built with *environment_runner* (default
+    :func:`_run_command`) within *environment_timeout*, or reused. ``reindex_fn`` then
+    gets ``python=`` that environment's interpreter, and the marker records the
+    environment for activation to switch ``.venv`` to it. *live_python* is the
+    interpreter serving the installation (default: this process's). A dependency
+    change that cannot be delivered returns ``SKIPPED_DEPENDENCIES``, a failed build
+    ``PREPARE_ENVIRONMENT_FAILED``; *reasons*, when given, receives the explanation.
     """
     staging_parent = staging_parent or STAGING_ROOT
-    reindex = reindex_fn or (lambda sd: _run_reindex_at(sd, reindex_timeout))
+    reindex = reindex_fn or (lambda sd, python=None: _run_reindex_at(sd, reindex_timeout, python))
 
     status, old_sha, target_sha, switch = _resolve_target(repo_root, remote, branch, git_timeout,
                                                           _policy(policy, repo_root))
@@ -1127,7 +1158,27 @@ def prepare_update(
     if validate_target is not None:
         validate_target(old_sha, target_sha)
 
-    _warn_if_deps_changed(repo_root, old_sha, target_sha, git_timeout)
+    environment = None
+    try:
+        needed = environments.needed(repo_root, _manifest_git(repo_root, git_timeout), old_sha, target_sha,
+                                     live_python or sys.executable)
+        if needed is not None:
+            logger.info("Auto-update: %s; preparing the target's Python environment.", needed.reason)
+            environment = environments.build(repo_root, needed, run=environment_runner or _run_command,
+                                             timeout=environment_timeout)
+    except environments.Refused as refusal:
+        logger.warning("Auto-update: %s; skipping.", refusal)
+        if reasons is not None:
+            reasons.append(str(refusal))
+        return PreparedStatus.SKIPPED_DEPENDENCIES
+    except environments.BuildFailed as failure:
+        logger.error("Auto-update: building the target's Python environment failed: %s", failure)
+        if reasons is not None:
+            reasons.append(f"building the target's Python environment failed: {failure}")
+        return PreparedStatus.PREPARE_ENVIRONMENT_FAILED
+    except (subprocess.SubprocessError, OSError):
+        logger.warning("Auto-update: could not compare dependency manifests; serving current code.", exc_info=True)
+        return PreparedStatus.FETCH_FAILED
 
     stores = [name for name, _ in _STAGED_STORES]
 
@@ -1137,7 +1188,8 @@ def prepare_update(
 
     try:
         try:
-            built = bool(reindex(staging_dir))
+            built = bool(reindex(staging_dir, python=environment["python"]) if environment
+                         else reindex(staging_dir))
         except Exception:
             logger.error("Auto-update: prepare reindex raised; treating as failure.", exc_info=True)
             built = False
@@ -1161,6 +1213,7 @@ def prepare_update(
             staging_dir=staging_dir,
             stores=stores,
             switch=switch,
+            environment=environment,
         )
     except OSError as e:
         logger.error("Auto-update: prepare failed to finalize (%s); discarding staging.", e)
@@ -1231,8 +1284,12 @@ def _validate_prepared(marker, repo_root, branch, embedding_model, git_timeout, 
     target_sha = marker.get("target_sha")
     base_sha = marker.get("base_sha")
     stores = marker.get("stores")
+    environment = marker.get("environment")
     if (
-        marker.get("schema") != PREPARED_MARKER_SCHEMA
+        marker.get("schema") not in (PREPARED_MARKER_SCHEMA, ENVIRONMENT_MARKER_SCHEMA)
+        or (marker.get("schema") == ENVIRONMENT_MARKER_SCHEMA) != (environment is not None)
+        or (environment is not None and (not isinstance(environment, dict)
+                                         or not environments.valid_id(environment.get("id"))))
         or not isinstance(target_sha, str)
         or not _FULL_SHA_RE.match(target_sha)
         or not isinstance(base_sha, str)
@@ -1348,6 +1405,11 @@ def _validate_prepared(marker, repo_root, branch, embedding_model, git_timeout, 
         )
         return ActivationStatus.INVALID_CROSS_DEVICE, False
 
+    # Gate 9 — the target's Python environment is complete, and .venv can be pointed at it.
+    if environment is not None and (reason := environments.activation_refusal(repo_root, environment)):
+        logger.warning("Auto-update: %s; discarding.", reason)
+        return ActivationStatus.INVALID_ENVIRONMENT, False
+
     return None, already_at_target
 
 
@@ -1438,6 +1500,7 @@ def activate_prepared_update(
     git_timeout: int = AUTO_UPDATE_GIT_TIMEOUT,
     embedding_model: str = EMBEDDING_MODEL,
     policy=FROM_ENVIRONMENT,
+    environment_plan=None,
 ) -> str:
     """Phase A: activate a prepared update via a fast local ff-merge + file move.
 
@@ -1450,6 +1513,11 @@ def activate_prepared_update(
     A marker built for a branch switch checks out *branch* at the target instead of
     merging (:func:`_move_to_target`); a failure returns to the previous branch.
     *policy* rechecks a downgrade's confirmation (:func:`_validate_prepared`).
+    A marker with a Python environment points ``.venv`` at it after the store move
+    (`src.environments.switch`); the recovery journal records what it replaces, and
+    every rollback restores it. *environment_plan* is that record when the caller
+    journaled it already (the shared service). After success, environments other
+    than the new and the previous one are removed.
     Pure of threading/locking. Returns an :class:`ActivationStatus` value.
     """
     marker = _read_prepared_marker()
@@ -1475,12 +1543,26 @@ def activate_prepared_update(
     old_sha = marker.get("base_sha", "")
     staging_dir = os.path.join(STAGING_ROOT, target_sha)
     stores = marker.get("stores", [])
+    plan = None
+    if marker.get("environment"):
+        wanted = marker["environment"]["id"]
+        try:
+            plan = environment_plan or environments.plan(repo_root, wanted)
+        except environments.Refused as refusal:
+            logger.warning("Auto-update: %s; discarding.", refusal)
+            plan = None
+        if not plan or plan.get("to") != wanted:
+            _discard_staging(repo_root, git_timeout)
+            return ActivationStatus.INVALID_ENVIRONMENT
+    # Journaled with the branch switch: every rollback below restores the environment too.
+    env_undo = {"environment": plan} if plan else {}
 
     # Commit point: the ff-merge. Skipped when already at the target (a prior run
     # merged then died before the move) — we only need to finish the move.
     merged_now = False
     pre_merge_sha = ""
-    undo = {}
+    undo = dict(env_undo)
+    switched = {}
     if not already_at_target:
         try:
             head = _run_git(["rev-parse", "HEAD"], repo_root, git_timeout)
@@ -1491,7 +1573,8 @@ def activate_prepared_update(
                 _discard_staging(repo_root, git_timeout)
                 return ActivationStatus.ACTIVATE_MERGE_FAILED
             switch = _prepared_switch(marker, repo_root, branch, target_sha, git_timeout)
-            undo = _switch_rollback(branch, switch)
+            switched = _switch_rollback(branch, switch)
+            undo = {**switched, **env_undo}
             if undo:
                 _begin_update(repo_root, pre_merge_sha, target_sha, undo)
             else:
@@ -1513,6 +1596,8 @@ def activate_prepared_update(
             return (ActivationStatus.ACTIVATE_MERGE_FAILED if restored
                     else ActivationStatus.ACTIVATE_ROLLBACK_FAILED)
         merged_now = True
+    elif env_undo:
+        _begin_update(repo_root, target_sha, target_sha, env_undo)
     else:
         _begin_update(repo_root, target_sha, target_sha)
 
@@ -1550,11 +1635,68 @@ def activate_prepared_update(
         return (ActivationStatus.ACTIVATE_MOVE_FAILED if restored
                 else ActivationStatus.ACTIVATE_ROLLBACK_FAILED)
 
+    if plan:
+        try:
+            environments.switch(repo_root, plan)
+        except (OSError, ValueError) as e:
+            logger.error("Auto-update: switching the Python environment failed (%s).", e)
+            return _environment_switch_failed(repo_root, git_timeout, merged_now, pre_merge_sha, undo)
+
     _discard_staging(repo_root, git_timeout)
-    _write_state(ActivationStatus.ACTIVATED, old_sha, target_sha, branch if undo else None)
+    _write_state(ActivationStatus.ACTIVATED, old_sha, target_sha, branch if switched else None)
     _finish_update(repo_root)
+    if plan:
+        _prune_environments(repo_root, plan)
     logger.info("Auto-update: activated prepared update %s -> %s.", (old_sha or "")[:9], target_sha[:9])
     return ActivationStatus.ACTIVATED
+
+
+def _environment_switch_failed(repo_root, git_timeout, merged_now, pre_merge_sha, undo) -> str:
+    """Undo an activation whose stores moved in but whose environment switch failed.
+
+    The new stores are invalidated, so the old code rebuilds them; the environment
+    and, when this run merged, the tree are restored. A resumed activation (merged by
+    an earlier run) cannot return to the old code, and the new code must not run
+    on the old environment: it keeps the journal, which stops startup.
+    """
+    try:
+        _invalidate_store_hashes(os.path.join(repo_root, "data"))
+        invalidated = True
+    except OSError:
+        invalidated = False
+        logger.error("Auto-update: cannot invalidate the moved stores.", exc_info=True)
+    if not merged_now:
+        _restore_environment(repo_root, undo.get("environment"))
+        return ActivationStatus.ACTIVATE_ROLLBACK_FAILED
+    restored = _rollback_activation(repo_root, pre_merge_sha, git_timeout, clear_journal=invalidated, **undo)
+    if restored and invalidated:
+        _discard_staging(repo_root, git_timeout)
+        return ActivationStatus.ACTIVATE_ENVIRONMENT_FAILED
+    return ActivationStatus.ACTIVATE_ROLLBACK_FAILED
+
+
+def _restore_environment(repo_root, plan) -> bool:
+    """Point ``.venv`` back at what *plan* replaced; True when that holds (or nothing was planned)."""
+    if not plan:
+        return True
+    try:
+        environments.restore(repo_root, plan)
+    except (OSError, ValueError):
+        logger.error("Auto-update: could not restore the previous Python environment.", exc_info=True)
+        return False
+    return True
+
+
+def _prune_environments(repo_root, plan) -> None:
+    """Best effort: keep the new and the previous environment, remove older ones."""
+    previous = plan.get("previous") or {}
+    try:
+        removed = environments.prune(repo_root, keep=(plan.get("to"), previous.get("name"), previous.get("legacy")))
+    except OSError:
+        logger.warning("Auto-update: could not remove older Python environments; will retry later.", exc_info=True)
+        return
+    if removed:
+        logger.info("Auto-update: removed older Python environments %s.", ", ".join(removed))
 
 
 def _prepared_switch(marker, repo_root, branch, target_sha, git_timeout):
@@ -1572,14 +1714,17 @@ def _prepared_switch(marker, repo_root, branch, target_sha, git_timeout):
 
 def _rollback_activation(repo_root: str, old_sha: str, git_timeout: int, *, clear_journal=True,
                          old_branch: Optional[str] = None, branch: Optional[str] = None,
-                         branch_tip: str = "", branch_config: Optional[dict] = None) -> bool:
+                         branch_tip: str = "", branch_config: Optional[dict] = None,
+                         environment: Optional[dict] = None) -> bool:
     """Restore the pre-activation tree even if merge timed out after changing HEAD.
 
     After a branch switch (*old_branch* given) check *old_branch* out again first, then
     put the switched-to *branch* back where it was (*branch_tip*), with the upstream
     settings it had (*branch_config*, ``""`` for unset), or remove it when the switch
-    created it.
+    created it. An *environment* switch (`src.environments.plan`) is undone as well,
+    whether or not it happened.
     """
+    environment_restored = _restore_environment(repo_root, environment)
     try:
         if old_branch:
             back = _run_git(["checkout", "--quiet", "--force", old_branch], repo_root, git_timeout)
@@ -1603,6 +1748,8 @@ def _rollback_activation(repo_root: str, old_sha: str, git_timeout: int, *, clea
         return False
     if result.returncode != 0:
         logger.error("Auto-update: activation rollback failed: %s", result.stderr.strip())
+        return False
+    if not environment_restored:
         return False
     try:
         if clear_journal:
@@ -1671,9 +1818,21 @@ def _activate_at_startup() -> None:
         raise SystemExit("Auto-update startup failed; restart required.") from exc
 
 
+def _reexec_executable(repo_root: str = INSTALL_ROOT) -> str:
+    """The interpreter a re-exec runs: ``.venv``'s when this process runs an environment of the
+    installation (activation may have pointed ``.venv`` at another), else this process's."""
+    running = os.path.realpath(sys.prefix)
+    venv = environments.link_path(repo_root)
+    candidate = environments.python_path(venv)
+    ours = _same_path(os.path.dirname(running), os.path.realpath(environments.environments_dir(repo_root))) \
+        or _same_path(running, os.path.realpath(venv))
+    return candidate if ours and os.path.exists(candidate) else sys.executable
+
+
 def _reexec_updated_server() -> None:
+    executable = _reexec_executable()
     try:
-        _exec_server(sys.executable, [sys.executable, *sys.argv])
+        _exec_server(executable, [executable, *sys.argv])
     except OSError as exc:
         # Falling through would mix already-imported old modules with new files.
         raise SystemExit("Auto-update re-exec failed; restart required.") from exc

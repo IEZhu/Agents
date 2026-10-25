@@ -1,8 +1,45 @@
-"""Environment compatibility gate shared by manual and scheduled Git updates."""
+"""Dependency gate shared by the staged, in-place and service updaters (#181).
+
+A target's manifests decide what its update needs:
+
+* ``NONE``: the installed environment suffices. Metadata, package data, a new
+  optional extra, requirement order and a ``uv.lock``-only change (installs read
+  ``requirements.txt``) change no package.
+* ``ENVIRONMENT``: ``requirements.txt`` or the environment contract of
+  ``pyproject.toml`` (runtime dependencies, ``requires-python``, an existing extra,
+  the build system) changed. The staged updaters build the target's environment
+  while the installation serves and switch to it at activation
+  (`src.environments`); the in-place updater refuses.
+* ``REFUSED``: the bridge's Node manifests changed (nothing installs npm
+  packages), or a manifest is missing, malformed or dynamic, so the change cannot
+  be verified. Such a target needs explicit maintenance.
+"""
 import tomllib
+from typing import NamedTuple, Optional
 
 
 DEPENDENCIES = ("pyproject.toml", "requirements.txt", "uv.lock", "bridge/package.json", "bridge/package-lock.json")
+# The bridge has no npm dependencies today; a change to its manifests is never installed automatically.
+BRIDGE = ("bridge/package.json", "bridge/package-lock.json")
+# Installs use requirements.txt; the lock file alone changes no installed package.
+LOCK_ONLY = ("uv.lock",)
+
+NONE, ENVIRONMENT, REFUSED = "none", "environment", "refused"
+
+
+class Change(NamedTuple):
+    """What a target's update needs: ``kind`` is NONE, ENVIRONMENT or REFUSED; ``reason`` explains the last two."""
+    kind: str
+    reason: Optional[str] = None
+
+
+class Inputs(NamedTuple):
+    """What the target's environment installs (`src.environments.needed`)."""
+    requirements: str          # the target's requirements.txt
+    dependencies: list         # the target's project.dependencies
+    requires_python: Optional[str]
+    extras: dict               # the target's optional dependencies
+    installed_extras: dict     # the installed revision's optional dependencies
 
 
 def _strings(value, field):
@@ -34,31 +71,52 @@ def _environment(text):
     return runtime, python, extras, build
 
 
-def dependency_change_reason(git, old, target):
-    """Return an actionable refusal, or None when the existing environment suffices.
+def _show(git, revision, name, missing):
+    """The file *name* at *revision*; ValueError(*missing*) when it does not exist there."""
+    result = git("show", f"{revision}:{name}", check=False)
+    if result.returncode:
+        raise ValueError(missing)
+    return result.stdout
+
+
+def classify(git, old, target):
+    """The :class:`Change` from revision *old* to *target*.
 
     New extras were unavailable to the old installation, so merely declaring one
-    needs no package installation. Existing extras stay protected even when this
-    controller cannot tell which ones the owner installed. Git reads both exact
-    revisions; a missing, deleted or malformed manifest fails closed.
+    needs no package installation. Existing extras count as environment contract
+    even when this controller cannot tell which ones the owner installed. Git reads
+    both exact revisions; a missing, deleted or malformed manifest fails closed.
+    *git* is called as ``git(*args, check=True)`` and returns a completed process.
     """
     changed = git("diff", "--name-only", old, target, "--", *DEPENDENCIES).stdout.splitlines()
-    if not changed:
-        return None
-    reason = "Dependency manifests changed: " + ", ".join(changed)
-    if changed != ["pyproject.toml"]:
-        return reason + "; update the environment in explicit maintenance"
+    if not [name for name in changed if name not in LOCK_ONLY]:
+        return Change(NONE)
+    listed = "Dependency manifests changed: " + ", ".join(changed)
+    if [name for name in changed if name in BRIDGE]:
+        return Change(REFUSED, listed + "; the bridge's Node packages are not installed automatically; "
+                                        "update the environment in explicit maintenance")
     try:
-        environments = []
-        for revision in (old, target):
-            result = git("show", f"{revision}:pyproject.toml", check=False)
-            if result.returncode:
-                raise ValueError("pyproject.toml must exist in both revisions")
-            environments.append(_environment(result.stdout))
-        before, after = environments
-        if before[:2] == after[:2] and before[3] == after[3] and all(
-                name in after[2] and values == after[2][name] for name, values in before[2].items()):
-            return None
+        before, after = (_environment(_show(git, revision, "pyproject.toml",
+                                            "pyproject.toml must exist in both revisions"))
+                         for revision in (old, target))
+        same = before[:2] == after[:2] and before[3] == after[3] and all(
+            name in after[2] and values == after[2][name] for name, values in before[2].items())
+        if same and "requirements.txt" not in changed:
+            return Change(NONE)
+        # The environment build installs the target's requirements.txt.
+        _show(git, target, "requirements.txt", "requirements.txt must exist in the target")
     except (ValueError, TypeError) as error:
-        return reason + f"; cannot verify environment compatibility ({error}); use explicit maintenance"
-    return reason + "; runtime, Python, existing extra or build requirements changed; use explicit maintenance"
+        return Change(REFUSED, listed + f"; cannot verify environment compatibility ({error}); "
+                                        "use explicit maintenance")
+    if "requirements.txt" in changed:
+        return Change(ENVIRONMENT, listed + "; requirements.txt changed")
+    return Change(ENVIRONMENT, listed + "; runtime, Python, existing extra or build requirements changed")
+
+
+def inputs(git, old, target):
+    """The target's :class:`Inputs`; ValueError when a manifest is missing or malformed."""
+    requirements = _show(git, target, "requirements.txt", "requirements.txt must exist in the target")
+    runtime, python, extras, _ = _environment(_show(git, target, "pyproject.toml",
+                                                    "pyproject.toml must exist in the target"))
+    installed = _environment(_show(git, old, "pyproject.toml", "pyproject.toml must exist in both revisions"))[2]
+    return Inputs(requirements, runtime, python, extras, installed)

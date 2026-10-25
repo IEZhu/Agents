@@ -582,6 +582,11 @@ AUTO_UPDATE_MIN_INTERVAL = _int_env("AGENTS_AUTO_UPDATE_INTERVAL", 900, lo=0)
 # slower machine a short ceiling means an update that never lands; this one only
 # stops a hung build.
 AUTO_UPDATE_REINDEX_TIMEOUT = _int_env("AGENTS_AUTO_UPDATE_REINDEX_TIMEOUT", 3600, lo=1)
+# A target that changes the dependencies gets a new Python environment under .venvs/
+# (src/environments.py): `python -m venv` plus `pip install` of its requirements,
+# downloads included, while the installation keeps serving. A build past this many
+# seconds fails and is retried by the next update.
+AUTO_UPDATE_ENVIRONMENT_TIMEOUT = _int_env("AGENTS_AUTO_UPDATE_ENVIRONMENT_TIMEOUT", 1800, lo=1)
 # Two-phase staged update (the default). When on, the background daemon does NOT
 # mutate the live install: it prepares the new version + freshly-built indexes in
 # an isolated git worktree under AUTO_UPDATE_STAGING_DIR and writes a marker; the

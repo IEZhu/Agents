@@ -8,10 +8,9 @@ import secrets
 import shutil
 import subprocess
 
-from src import executables
+from src import environments, executables
 from src.file_lock import file_lock
 from .state import read_json, write_json, private_dir, atomic_private
-from .update_dependencies import DEPENDENCIES, dependency_change_reason
 
 
 INDEX_FILES = ("skills_store.npz", "skills_store.json", ".skills_hash",
@@ -82,9 +81,10 @@ def restore_files(controller, journal):
             raise RuntimeError("Installation HEAD changed outside this transaction; manual recovery required")
         # The file updater starts from a verified clean tree and retains the leases.
         from src import self_update
-        # A branch switch (#381) returns to the branch the installation was on.
-        switched = {key: journal[key] for key in ("old_branch", "branch", "branch_tip", "branch_config")
-                    if journal.get(key)}
+        # A branch switch (#381) returns to the branch the installation was on, and
+        # .venv to the Python environment it pointed at (#181).
+        switched = {key: journal[key] for key in ("old_branch", "branch", "branch_tip", "branch_config",
+                                                  "environment") if journal.get(key)}
         if not self_update._rollback_activation(str(root), journal["old_sha"], 30, clear_journal=False, **switched):
             raise RuntimeError("Code rollback failed; maintenance retained")
     if journal.get("service_backup"):
@@ -189,13 +189,14 @@ def built_with_current_inputs(controller, target):
         record.get("embedding_inputs") == embedding_inputs(controller.config)
 
 
-def prepare_reindex(controller, staging_dir):
+def prepare_reindex(controller, staging_dir, python=None):
     """Build the target's stores inside *staging_dir* with the service's interpreter and model.
 
     Runs while the service still serves. The worktree as working directory makes its
     own code and ``data/`` the import root, as in ``self_update._run_reindex_at``.
     The live stores are copied in first: their content hashes let the reindex skip
-    a store whose sources did not change, as the in-place reindex does.
+    a store whose sources did not change, as the in-place reindex does. *python* is
+    the target's environment when the target changes dependencies (#181).
     """
     from src import self_update
     from src.engine.config import AUTO_UPDATE_REINDEX_TIMEOUT
@@ -207,7 +208,7 @@ def prepare_reindex(controller, staging_dir):
     for name in INDEX_FILES:
         if (live / name).is_file() and not (live / name).is_symlink():
             shutil.copyfile(live / name, staged / name)
-    result = self_update._run_command([config["python"], "-m", "src.reindex"], cwd=staging_dir,
+    result = self_update._run_command([python or config["python"], "-m", "src.reindex"], cwd=staging_dir,
                                       timeout=AUTO_UPDATE_REINDEX_TIMEOUT, env=reindex_env(config))
     if result.returncode:
         raise RuntimeError("Prepared reindex for " + config["model"] + " failed: " + (result.stderr or "")[-500:])
@@ -252,7 +253,7 @@ def runtime_source_refusal(config):
             "migration and verify the launcher before updating; the override has been retained")
 
 
-def prepare(controller, expected_target=None, channel=None):
+def prepare(controller, expected_target=None, channel=None, reasons=None):
     """Build the update while the service serves: Phase B of the staged updater.
 
     The target and its stores land in a worktree under ``data/.prepared``; the live
@@ -263,6 +264,11 @@ def prepare(controller, expected_target=None, channel=None):
     refuse fails here instead. Returns a ``PreparedStatus`` value, or the
     ``ActivationStatus`` of a refused build. *channel* (default: read now) names the
     branch, which may differ from the checked-out one: then the build is a branch switch.
+
+    A target that changes dependencies gets its Python environment under ``.venvs``
+    first (`src.environments`), and its stores are built with that interpreter. A
+    change that cannot be delivered (`src.daemon.update_dependencies`) raises before
+    anything is built; *reasons* receives why an environment build failed.
     """
     from src import self_update
     from src.engine.config import AUTO_UPDATE_GIT_TIMEOUT
@@ -282,8 +288,10 @@ def prepare(controller, expected_target=None, channel=None):
             return subprocess.run([executables.path("git"), *args], cwd=root, capture_output=True, text=True,
                                   check=check, stdin=subprocess.DEVNULL, env=executables.git_environment(root),
                                   creationflags=NO_WINDOW)
-        if reason := dependency_change_reason(git, old, target):
-            raise RuntimeError(reason)
+        try:
+            environments.needed(str(root), git, old, target, config["python"])
+        except environments.Refused as refusal:
+            raise RuntimeError(str(refusal)) from None
 
     with file_lock(root / "data/.update.lock", blocking=False) as updater_fd, self_update._inherit_lock(updater_fd):
         inputs = embedding_inputs(config)
@@ -293,8 +301,10 @@ def prepare(controller, expected_target=None, channel=None):
             return self_update.PreparedStatus.PREPARED
         status = self_update.prepare_update(repo_root=str(root), remote=channel.remote, branch=channel.branch,
                                             embedding_model=config["model"], validate_target=check,
-                                            reindex_fn=lambda staging_dir: prepare_reindex(controller, staging_dir),
-                                            policy=channel.policy)
+                                            reindex_fn=lambda staging_dir, **kw: prepare_reindex(
+                                                controller, staging_dir, **kw),
+                                            policy=channel.policy, live_python=config["python"],
+                                            reasons=reasons)
         if status != self_update.PreparedStatus.PREPARED:
             return status
         marker = self_update._read_prepared_marker() or {}
@@ -314,24 +324,28 @@ def activate(controller, journal, channel=None):
 
     A failed merge or move rolls the tree back inside activation; the stores then
     come back from the journal's backup, so the old code restarts on its own indexes
-    instead of rebuilding them. Returns ``UPDATED`` for an activated update.
+    instead of rebuilding them. A build with a Python environment points ``.venv`` at
+    it last; the journal's ``environment`` names what it replaced, which every
+    rollback restores. Returns ``UPDATED`` for an activated update.
     """
     from src import self_update
     status = self_update.ActivationStatus
     channel = channel or channel_settings(controller)
+    planned = {"environment_plan": journal["environment"]} if journal.get("environment") else {}
     result = self_update.activate_prepared_update(controller.config["installation"], channel.branch,
                                                   embedding_model=controller.config["model"],
-                                                  policy=channel.policy)
+                                                  policy=channel.policy, **planned)
     if result == status.ACTIVATE_ROLLBACK_FAILED:
         raise RuntimeError("File updater rollback failed")
-    if result in (status.ACTIVATE_MERGE_FAILED, status.ACTIVATE_MOVE_FAILED):
+    if result in (status.ACTIVATE_MERGE_FAILED, status.ACTIVATE_MOVE_FAILED, status.ACTIVATE_ENVIRONMENT_FAILED):
         restore_files(controller, journal)
     return self_update.UpdateStatus.UPDATED if result == status.ACTIVATED else result
 
 
 # Builds that failed. Like a refused build (``INVALID_…``) and a rolled-back
 # update, they leave a pending model switch for the next run.
-PREPARE_FAILED = ("PREPARE_WORKTREE_FAILED", "PREPARE_REINDEX_FAILED", "PREPARE_STAGE_INCONSISTENT")
+PREPARE_FAILED = ("PREPARE_ENVIRONMENT_FAILED", "SKIPPED_DEPENDENCIES", "PREPARE_WORKTREE_FAILED",
+                  "PREPARE_REINDEX_FAILED", "PREPARE_STAGE_INCONSISTENT")
 # service.json settings a build used; a change during the build makes it stale.
 BUILD_CONFIG = ("installation", "runtime_root", "python", "git", "path", "model", "model_cache", "model_artifact", "model_path")
 
@@ -369,6 +383,20 @@ def switch_journal(controller, channel):
               for key in ("remote", "merge")}
     return {"old_branch": current, "branch": channel.branch,
             "branch_tip": tip.stdout.strip() if tip.returncode == 0 else "", "branch_config": config}
+
+
+def environment_journal(controller):
+    """The Python environment switch of a prepared update (#181) for the journal; empty without one.
+
+    Taken on the stopped service right before activation: the environment ``.venv``
+    will point at and what it points at now (or the name a ``.venv`` directory gets
+    under ``.venvs``), so that a rollback or ``recover`` restores it.
+    """
+    from src import self_update
+    environment = (self_update._read_prepared_marker() or {}).get("environment")
+    if not isinstance(environment, dict) or not environment.get("id"):
+        return {}
+    return {"environment": environments.plan(controller.config["installation"], environment["id"])}
 
 
 def _channel_used(channel):
@@ -429,13 +457,14 @@ def _offline_update(controller, expected_target, precheck, notes):
     os.environ.update(model_env(controller.config))
     executables.enter_service_environment()
     from src import self_update
-    prepared = prepare(controller, expected_target, channel)
+    reasons = []
+    prepared = prepare(controller, expected_target, channel, reasons)
     if prepared in PREPARE_FAILED or prepared.startswith("INVALID_"):
         # Leave the switch pending: the next update tries both again.
         switched = None
     if prepared != self_update.PreparedStatus.PREPARED and not switched:
         # Nothing to activate, or the build failed: the service never stopped.
-        return {"state": prepared}
+        return {"state": prepared, **({"reason": reasons[-1]} if reasons else {})}
     built = controller.config
     with file_lock(controller.directory / "control.lock", blocking=False):
         load_service(controller)
@@ -491,7 +520,7 @@ def _offline_update(controller, expected_target, precheck, notes):
                     backup = private_dir(controller.directory / "rollback" / old)
                     backup_indexes(controller, backup)
                     journal.update(old_sha=old, target_sha=target, backup=str(backup),
-                                   **switch_journal(controller, channel))
+                                   **switch_journal(controller, channel), **environment_journal(controller))
                     phase(controller, journal, "applying")
                     mutated = True
                     with self_update._inherit_lock(session_fd), self_update._inherit_lock(updater_fd):

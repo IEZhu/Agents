@@ -11,7 +11,8 @@ import pytest
 
 from src.daemon import autoupdate
 from src.daemon.state import read_json, write_json
-from tests.test_daemon_update import git, installation, publish_pyproject_update  # noqa: F401  (fixture)
+from tests.test_daemon_update import (git, installation, publish_pyproject_update,  # noqa: F401  (fixtures)
+                                      publish_requirements, venv_installation)
 
 
 @pytest.fixture
@@ -190,13 +191,53 @@ def test_scheduled_update_accepts_metadata_and_new_extra(scheduled):
     assert git(root, "rev-parse", "HEAD") == changed and controller.stops == 1
 
 
-def test_scheduled_update_refuses_existing_extra_changes(scheduled):
+@pytest.fixture
+def venv_scheduled(scheduled, venv_installation):  # noqa: F811
+    """A scheduled service on the installation's setup .venv (`venv_installation`)."""
+    return venv_installation
+
+
+def test_scheduled_update_skips_an_environment_change_for_a_service_outside_venv(venv_scheduled):
     from tests.test_daemon_update_dependencies import MANIFEST
-    controller, root, _, target = scheduled
-    base, changed = publish_pyproject_update(root, target, MANIFEST, MANIFEST.replace("httpx>=0.28,<0.29", "httpx>=1"))
+    env = venv_scheduled
+    controller, root = env.controller, env.root
+    controller.config["python"] = "/usr/bin/python3"
+    write_json(controller.directory / "service.json", controller.config)
+    (root / "pyproject.toml").write_text(MANIFEST.replace("httpx>=0.28,<0.29", "httpx>=1"))
+    git(root, "commit", "-qam", "existing extra")
+    changed = git(root, "rev-parse", "HEAD")
+    git(root, "push", "-q", "origin", "main")
+    git(root, "reset", "--hard", env.base)
     result = autoupdate.run(controller)
-    assert result["state"] == "skipped" and result["target"] == changed and "existing extra" in result["reason"]
-    assert git(root, "rev-parse", "HEAD") == base and controller.stops == controller.builds == 0
+    assert result["state"] == "skipped" and result["target"] == changed
+    assert "not an interpreter of the installation's .venv" in result["reason"]
+    assert controller.stops == controller.builds == 0 and env.builder.calls == []
+
+
+def test_check_target_notes_an_environment_and_skips_bridge_package_changes(venv_scheduled):
+    env = venv_scheduled
+    controller, root = env.controller, env.root
+    target = publish_requirements(root, env.base, "mcp==2\n")
+    found = autoupdate.check_target(controller)
+    assert found["state"] == "available" and found["target"] == target
+    assert "requirements.txt changed" in found["environment"]
+    (root / "bridge").mkdir()
+    push_to_remote(root, "bridge/package.json", "{}\n", "bridge manifest")
+    found = autoupdate.check_target(controller)
+    assert found["state"] == "skipped" and "bridge/package.json" in found["reason"]
+    assert controller.stops == controller.builds == 0 and env.builder.calls == []
+
+
+def test_scheduled_update_delivers_a_dependency_change(venv_scheduled):
+    from src import environments
+    env = venv_scheduled
+    controller, root = env.controller, env.root
+    target = publish_requirements(root, env.base, "mcp==2\n")
+    result = autoupdate.run(controller)
+    assert result["state"] == "UPDATED" and result["target"] == target and "environment" in result
+    assert git(root, "rev-parse", "HEAD") == target and controller.stops == 1
+    assert environments.state(str(root))["kind"] == "link"
+    assert read_json(controller.directory / "auto-update.json")["environment"] == result["environment"]
 
 
 def test_branch_moving_after_the_check_applies_nothing(scheduled, monkeypatch):

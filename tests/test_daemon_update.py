@@ -4,6 +4,7 @@ import os
 import shutil
 import subprocess
 import sys
+from types import SimpleNamespace
 
 import pytest
 
@@ -805,11 +806,17 @@ def test_metadata_and_new_extra_can_activate_without_environment_maintenance(ins
     assert git(root, "rev-parse", "HEAD") == changed and controller.stops == 1
 
 
-def test_existing_extra_change_refuses_before_build_or_stop(installation):
+def test_an_environment_change_for_a_service_outside_venv_refuses_before_build_or_stop(installation):
+    """The service's interpreter must be the installation's .venv: only that one can be switched (#181)."""
     from tests.test_daemon_update_dependencies import MANIFEST
     controller, root, _, target = installation
-    base, _ = publish_pyproject_update(root, target, MANIFEST, MANIFEST.replace("httpx>=0.28,<0.29", "httpx>=1"))
-    with pytest.raises(RuntimeError, match="existing extra"):
+    git(root, "reset", "--hard", target)
+    (root / "requirements.txt").write_text("mcp==1.28.1\n")
+    git(root, "add", "requirements.txt"); git(root, "commit", "-qm", "requirements")
+    git(root, "push", "-q", "origin", "main")
+    base, _ = publish_pyproject_update(root, git(root, "rev-parse", "HEAD"), MANIFEST,
+                                       MANIFEST.replace("httpx>=0.28,<0.29", "httpx>=1"))
+    with pytest.raises(RuntimeError, match="not an interpreter of the installation's .venv"):
         offline_update(controller)
     assert git(root, "rev-parse", "HEAD") == base and controller.stops == controller.builds == 0
 
@@ -1137,3 +1144,139 @@ def test_failed_probation_restores_the_target_branchs_upstream(installation):
     assert offline_update(controller)["state"] == "rolled_back"
     assert git(root, "symbolic-ref", "--short", "HEAD") == "main" and git(root, "rev-parse", "dev") == old
     assert _upstream(root, "dev") == ("upstream-x", "refs/heads/foo")
+
+
+# --- Dependencies: the target's Python environment (#181) ----------------------
+
+@pytest.fixture
+def venv_installation(installation, tmp_path, monkeypatch):
+    """A service on the installation's setup ``.venv`` with both manifests; fake venv/pip builds."""
+    from src import environments
+    from src.daemon import update
+    from tests.test_daemon_update_dependencies import MANIFEST
+    from tests.test_environments import FakeBuilder, make_environment
+    controller, root, old, target = installation
+    base = tmp_path / "base/bin/python3"
+    base.parent.mkdir(parents=True)
+    base.write_text("base interpreter")
+    make_environment(root / ".venv", record=False, packages=("mcp",), base=base)
+    git(root, "reset", "--hard", target)
+    (root / "pyproject.toml").write_text(MANIFEST)
+    (root / "requirements.txt").write_text("mcp==1.28.1\n")
+    git(root, "add", "pyproject.toml", "requirements.txt"); git(root, "commit", "-qm", "manifests")
+    git(root, "push", "-q", "origin", "main")
+    controller.config["python"] = environments.python_path(root / ".venv")
+    write_json(controller.directory / "service.json", controller.config)
+
+    builder, real = FakeBuilder(), self_update._run_command
+
+    def run(args, cwd, timeout, *, env=None):
+        if len(args) > 2 and args[1] == "-m" and args[2] in ("venv", "pip"):
+            assert controller.running  # the environment is built while the service serves
+            return builder(args, cwd=cwd, timeout=timeout)
+        return real(args, cwd, timeout, env=env)
+    monkeypatch.setattr(self_update, "_run_command", run)
+    staged_with, reindex = [], update.prepare_reindex
+
+    def prepare_reindex(current, staging_dir, python=None):
+        staged_with.append(python)
+        return reindex(current, staging_dir)
+    monkeypatch.setattr(update, "prepare_reindex", prepare_reindex)
+    return SimpleNamespace(controller=controller, root=root, base=git(root, "rev-parse", "HEAD"),
+                           builder=builder, staged_with=staged_with)
+
+
+def publish_requirements(root, base, content):
+    """Publish a requirements.txt change on top of *base* and leave the installation at *base*."""
+    (root / "requirements.txt").write_text(content)
+    git(root, "commit", "-qam", "requirements")
+    changed = git(root, "rev-parse", "HEAD")
+    git(root, "push", "-q", "origin", "main")
+    git(root, "reset", "--hard", base)
+    return changed
+
+
+def test_a_dependency_update_builds_while_serving_and_switches_venv_in_maintenance(venv_installation, monkeypatch):
+    from src import environments
+    env = venv_installation
+    controller, root = env.controller, env.root
+    target = publish_requirements(root, env.base, "mcp==2\n")
+    seen = []
+    start = controller._start
+
+    def probation(probation=None):
+        # The restarted service finds .venv on the new environment, and the journal names the old one.
+        journal = read_json(controller.directory / "transaction.json")
+        seen.append((environments.state(str(root)), journal["environment"]))
+        start(probation)
+    monkeypatch.setattr(controller, "_start", probation)
+
+    result = offline_update(controller)
+    assert result["state"] == "UPDATED" and git(root, "rev-parse", "HEAD") == target
+    (state, planned), = seen
+    assert state == {"kind": "link", "name": planned["to"]} and planned["previous"]["kind"] == "directory"
+    assert env.staged_with == [environments.python_path(root / ".venvs" / planned["to"])]
+    assert controller.stops == 1 and not (controller.directory / "transaction.json").exists()
+    assert (root / ".venvs" / planned["previous"]["legacy"] / "pyvenv.cfg").exists()
+
+
+def test_a_failed_probation_restores_the_environment_with_the_code_and_stores(venv_installation):
+    from src import environments
+    env = venv_installation
+    controller, root = env.controller, env.root
+    publish_requirements(root, env.base, "mcp==2\n")
+    controller.fail_ready = 1
+    result = offline_update(controller)
+    assert result["state"] == "rolled_back" and git(root, "rev-parse", "HEAD") == env.base
+    assert environments.state(str(root)) == {"kind": "directory"} and (root / ".venv/pyvenv.cfg").exists()
+    assert (root / "data/skills_store.npz").read_text() == "old-index"
+    assert not (controller.directory / "transaction.json").exists()
+
+
+def test_recover_restores_the_environment_of_an_interrupted_update(venv_installation, monkeypatch):
+    from src.daemon import update
+    from src import environments
+    env = venv_installation
+    controller, root = env.controller, env.root
+    publish_requirements(root, env.base, "mcp==2\n")
+    probation, rollback = update.probation, update.rollback
+
+    def failed(*args, **kwargs):
+        raise RuntimeError("candidate warmup failed")
+
+    def dies(*args):
+        raise KeyboardInterrupt  # the controller dies before its own rollback
+    monkeypatch.setattr(update, "probation", failed)
+    monkeypatch.setattr(update, "rollback", dies)
+    with pytest.raises(KeyboardInterrupt):
+        offline_update(controller)
+    assert environments.state(str(root))["kind"] == "link"
+    assert read_json(controller.directory / "transaction.json")["environment"]["previous"]["kind"] == "directory"
+    monkeypatch.setattr(update, "probation", probation)
+    monkeypatch.setattr(update, "rollback", rollback)
+    assert recover(controller)["state"] == "rolled_back"
+    assert environments.state(str(root)) == {"kind": "directory"} and git(root, "rev-parse", "HEAD") == env.base
+
+
+def test_a_failed_environment_build_leaves_the_service_serving(venv_installation):
+    env = venv_installation
+    controller, root = env.controller, env.root
+    publish_requirements(root, env.base, "mcp==2\n")
+    env.builder.fail = "pip"
+    result = offline_update(controller)
+    assert result["state"] == "PREPARE_ENVIRONMENT_FAILED" and "ResolutionImpossible" in result["reason"]
+    assert controller.running and controller.stops == 0 and git(root, "rev-parse", "HEAD") == env.base
+    assert list((root / ".venvs").iterdir()) == []
+
+
+def test_a_bridge_package_change_is_refused_before_build_or_stop(venv_installation):
+    env = venv_installation
+    controller, root = env.controller, env.root
+    (root / "bridge").mkdir()
+    (root / "bridge/package.json").write_text("{}\n")
+    git(root, "add", "bridge/package.json"); git(root, "commit", "-qm", "bridge")
+    git(root, "push", "-q", "origin", "main")
+    git(root, "reset", "--hard", env.base)
+    with pytest.raises(RuntimeError, match="bridge"):
+        offline_update(controller)
+    assert controller.running and controller.stops == 0 and env.builder.calls == []
