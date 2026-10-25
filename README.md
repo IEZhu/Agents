@@ -774,8 +774,10 @@ target with its stores moved requires, move a `.venv` directory aside first (to
 `.venvs/<previous.legacy>`, or to any `.venvs/legacy-<UTC time>` name when none
 is recorded), point `.venv` at `.venvs/<environment.to>` and rebuild the stores
 with that interpreter: `.venv/bin/python -m src.reindex`. A checkout that runs
-the target while `.venv` already has every package the target names is not held:
-the updater logs a warning and continues on `.venv`. Remove the
+the target while `.venv` already satisfies every requirement the target names
+(each distribution installed, in a release version that its specifiers accept;
+markers are not evaluated, and a clause the updater cannot evaluate counts as
+unmet) is not held: the updater logs a warning and continues on `.venv`. Remove the
 journal only after verifying the restored checkout and rebuilt stores, then
 restart the server. An unreadable journal also requires this explicit recovery.
 
