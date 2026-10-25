@@ -196,10 +196,10 @@ It is neither a conversation identifier nor an authentication token.
 can pass Claude Code's default of 50,000 shown characters (`src/result_size.py`);
 without the declaration Claude Code saves such a result to a file and shows the
 model its first 2 KB and the file's path, so the model has to read the four
-blocks back in parts before it can apply them. Nothing in code bounds the length
-of a bundle's text, only the number of components, so the value is the ceiling:
-a bundle over it still goes to a file, and Claude Code can apply limits of its
-own. The declaration also replaces `MAX_MCP_OUTPUT_TOKENS` for these tools, and a
+blocks back in parts before it can apply them. No limit in code keeps a bundle
+below the ceiling (a URL user rule alone may hold 64 KiB, and up to 32 can be
+subscribed), so the value is the ceiling: a bundle over it still goes to a file,
+and Claude Code can apply limits of its own. The declaration also replaces `MAX_MCP_OUTPUT_TOKENS` for these tools, and a
 connected client reads it only when it lists the tools again: reconnect the
 server (`/mcp`) after an update. It covers tool results only; the agent slash
 prompts and `/ask` return their bundles as prompts.
