@@ -62,8 +62,8 @@ DESCRIBE_TREE_MAX_CHARS = 10_000
 DESCRIBE_MANIFESTS_MAX_CHARS = 6_000
 DESCRIBE_MANIFEST_MAX_CHARS = 3_000
 DESCRIBE_README_MAX_CHARS = 8_000
-# Entries listed per directory before a "… N more entries" note, when the full
-# tree does not fit its cap.
+# Entries listed per directory below the root before a "… N more entries" note,
+# when the full tree does not fit its cap.
 DESCRIBE_TREE_MAX_ENTRIES_PER_DIR = 40
 # A line that costs more is shortened with an ellipsis when its part is cut.
 DESCRIBE_LINE_MAX_CHARS = 1_000

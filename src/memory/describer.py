@@ -505,10 +505,11 @@ class RepoDescriber:
     def _render_tree(self, root: Path, max_chars: int) -> str:
         """Indented directory listing, depth-bounded, vendor-pruned, within ``max_chars`` shown units.
 
-        The full listing is returned unchanged when it fits. Otherwise a
-        directory lists at most ``DESCRIBE_TREE_MAX_ENTRIES_PER_DIR`` entries
-        and notes how many more it has, an overlong line is shortened, and
-        ``_fit_tree`` drops the deepest lines if the listing is still too long.
+        The full listing is returned unchanged when it fits. Otherwise each
+        directory below the root lists at most ``DESCRIBE_TREE_MAX_ENTRIES_PER_DIR``
+        entries and notes how many more it has, an overlong line is shortened, and
+        ``_fit_tree`` drops the deepest lines if the listing is still too long, so
+        the root's own entries go last.
         Once the full listing has grown too long, the walk skips the entries
         past a directory's cap.
         """
@@ -534,7 +535,8 @@ class RepoDescriber:
             ]
             indent = "  " * (depth - 1)
             for position, child in enumerate(children):
-                within = listed and position < per_dir
+                # The root is never capped: its entries are the last the tree gives up.
+                within = listed and (depth == 1 or position < per_dir)
                 if not within and full is None:
                     break  # the rest of this directory is past the cap
                 marker = "/" if child.is_dir() else ""
@@ -549,7 +551,7 @@ class RepoDescriber:
                 if child.is_dir() and not child.is_symlink():
                     walk(child, depth + 1, within)
             more = len(children) - per_dir
-            if listed and more > 0:
+            if listed and depth > 1 and more > 0:
                 capped.append(_TreeLine(
                     f"{indent}{_ELLIPSIS} {_count(more, 'more entry', 'more entries')}", depth, more,
                 ))

@@ -643,6 +643,30 @@ class TestContextBundleBudget:
         assert dropped_two > 0
         assert note.startswith(f"… {400 + dropped_two} more entries (400 at depth 3, {dropped_two} at depth 2;")
 
+    def test_root_entries_are_never_capped(self, tmp_path):
+        cap = describer_module.DESCRIBE_TREE_MAX_ENTRIES_PER_DIR
+        services = [f"service_{index:02}" for index in range(cap + 20)]
+        names = [f"file_{leaf:02}.py" for leaf in range(30)]
+        for service in services:
+            (tmp_path / service).mkdir()
+            for name in names:
+                (tmp_path / service / name).write_text("")
+        root_files = ["Dockerfile", "LICENSE", "Makefile"]
+        for name in root_files:
+            (tmp_path / name).write_text("")
+        section = _sections(RepoDescriber(repo_path=str(tmp_path)).build_context_bundle())[_TREE]
+        assert _cost(section) <= describer_module.DESCRIBE_TREE_MAX_CHARS
+        lines = _body(section)
+        note = lines.pop()
+        # The root keeps every entry, its files included; the deeper lines give way
+        # evenly across directories.
+        assert _children(lines, 1) == {(): [f"{service}/" for service in services] + root_files}
+        leaves = _children(lines, 2)
+        assert set(leaves) == {(f"{service}/",) for service in services}
+        counts = [len(kept) for kept in leaves.values()]
+        assert max(counts) - min(counts) <= 1 and max(counts) < len(names)
+        assert note.endswith(" at depth 2; the deepest lines were cut first, evenly across directories)")
+
     def test_tree_measures_the_full_listing_in_shown_units(self, tmp_path):
         # Short names with an astral character: each line costs far more than its length.
         tops = [f"🚀{top:02}" for top in range(30)]
