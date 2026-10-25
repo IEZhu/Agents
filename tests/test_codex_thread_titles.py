@@ -126,6 +126,8 @@ def rename(**kwargs):
 
 def exits(pid, timeout=2.0):
     """Whether process *pid* is gone or a zombie within *timeout* seconds (POSIX ``ps``)."""
+    if pid != os.getpid():
+        assert not exits(os.getpid(), timeout=0), "ps cannot see this process, so it cannot tell"
     end = time.monotonic() + timeout
     while True:
         with _POPEN(["ps", "-o", "stat=", "-p", str(pid)], stdout=subprocess.PIPE, text=True) as ps:
@@ -135,6 +137,17 @@ def exits(pid, timeout=2.0):
         if time.monotonic() > end:
             return False
         time.sleep(0.02)
+
+
+def assert_helper_ended(server, helper):
+    """The server's helper ended with it; one that did not is killed so it cannot linger."""
+    if os.name != "posix" or not server[2]():
+        return  # no process groups, or the server never reached its loop to start the helper
+    pid = int(helper.read_text(encoding="utf-8"))  # written before the server logs any message
+    ended = exits(pid)
+    if not ended:
+        os.kill(pid, signal.SIGKILL)
+    assert ended, "the server's helper outlived it: the process group was not signalled"
 
 
 def test_supported_metadata_flow_preserves_body_and_confirms_readback(server):
@@ -377,15 +390,15 @@ def test_timeout_includes_initialization_and_kills_blocked_child(server, stage, 
     helper = tmp_path / "helper.pid"
     server[0].update(hang_at=stage, ignore_terminate=True, helper=str(helper) if os.name == "posix" else None)
     started = time.monotonic()
-    # The killed child can outlast the cleanup reserve on a slow runner (#518), so either error counts.
+    # The killed child can outlast the cleanup reserve on a slow runner (#518), so either error counts;
+    # the deadline tests below and test_success_closes_and_reaps_server_that_ignores_eof guard the reserve.
     with pytest.raises(RuntimeError, match="timed out|cleanup deadline"):
         rename(timeout=0.4)
     assert time.monotonic() - started < 1.0  # far below the 30 s hang, with room for a slow runner
     # The child ignores SIGTERM and hangs for 30 s: only the SIGKILL ends it in time,
     # and only a group signal ends its helper.
     server[1][0].wait(timeout=2)
-    if helper.exists():  # absent on Windows, or when the deadline ended before the server started it
-        assert exits(int(helper.read_text(encoding="utf-8")))
+    assert_helper_ended(server, helper)
     assert server[1][0].stdin.closed and server[1][0].stdout.closed
 
 
@@ -428,6 +441,15 @@ def test_success_closes_and_reaps_server_that_ignores_eof(server):
     server[0].update(ignore_eof=True, ignore_terminate=True)
     assert rename(timeout=0.6)["persisted"] is True
     assert server[1][0].poll() is not None
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Process groups are POSIX only")
+def test_success_still_ends_the_helper_of_a_server_that_already_exited(server, tmp_path):
+    helper = tmp_path / "helper.pid"
+    server[0]["helper"] = str(helper)
+    assert rename()["persisted"] is True
+    assert server[1][0].poll() is not None
+    assert_helper_ended(server, helper)
 
 
 def test_module_can_load_as_installed_standalone_sibling(tmp_path):
