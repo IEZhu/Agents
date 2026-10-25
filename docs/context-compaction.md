@@ -124,6 +124,48 @@ client chat databases or transcripts are read or rewritten, and no application
 bundle or debug port is modified. Disabled mode performs no UI action or runtime
 state write. Native user-initiated compaction remains available independently.
 
+## Claude Code's auto-compact window
+
+The plugin acts only after a completed main turn with no subagent running. A long
+autonomous turn, such as working through a PR queue with reviewers and workers, can
+run for hours as one turn: the plugin never acts in it, and only Claude Code's own
+auto-compaction applies. Without a configured window, a model with a native 1M
+context window (the Fable models, Sonnet 5 and later, Haiku 5.5, Opus 4.7 and
+later) compacts at about 967K tokens. Every request carries the whole context, and
+Claude Code's token use scales with context size.
+
+In one measured autonomous PR-queue session on Opus with the 1M window, the main
+thread grew to 963K tokens before it compacted. An estimated 70% of the session's
+usage went to requests with more than 150K tokens of context, and 40% to requests
+with more than 300K (estimates weighted by API price ratios). A 300K window was
+estimated to save 10 to 21% of that session. Take 300K as a starting point for
+long autonomous sessions, not a measured optimum: a smaller window compacts more
+often, each compaction is one more summarization request and a prompt-cache
+rebuild, and what the summary leaves out is gone. Short sessions never reach the
+window, so it changes nothing for them.
+
+Set the window for the model the session runs on:
+
+- `/autocompact 300k` in a session on that model saves the window for that model
+  under `modelSettings` in your user settings (Claude Code 2.1.288 or later) and
+  applies it to the session. `/autocompact auto` returns to the model's default.
+- `claude --autocompact 300k` sets it for one launch without saving it.
+- `"autoCompactWindow": 300000` at the top level of a settings file sets it for
+  every model; a window saved for a model in the same file takes precedence.
+- `CLAUDE_CODE_AUTO_COMPACT_WINDOW=300000` takes precedence over all of the above,
+  for scripts and cloud environments. Without a `k` or `M` suffix its value is a
+  token count, so `300` means 300 tokens.
+
+The window accepts 100,000 to 1,000,000 tokens and is capped at the model's
+context window. A subagent can set its own in its frontmatter (2.1.296 or later),
+unless the environment variable is set.
+
+A compaction can drop the active persona's instructions: the session-readiness
+hook's compact group asks the model to restore them
+([persona restore after compaction](session-readiness.md#persona-restore-after-compaction)).
+Like any native compaction the plugin observes, an auto-compaction restarts its turn
+count and cooldown.
+
 ## Disable and remove
 
 `python3 -m src.context_compaction disable` stops future Claude attempts; it cannot
@@ -152,6 +194,11 @@ Automated tests never perform this in the owner's existing chats.
 
 Sources: [Claude mods reference](https://code.claude.com/docs/en/plugins/mods/reference),
 [Claude mod creation and validation](https://code.claude.com/docs/en/plugins/mods/create),
+[Claude Code auto-compact window](https://code.claude.com/docs/en/model-config#set-the-auto-compact-window)
+and [default thresholds](https://code.claude.com/docs/en/model-config#default-auto-compact-thresholds),
+[`autoCompactWindow`](https://code.claude.com/docs/en/settings-reference#autocompactwindow),
+[subagent auto-compact window](https://code.claude.com/docs/en/sub-agents#subagent-auto-compact-window),
+[reducing token usage](https://code.claude.com/docs/en/costs#reduce-token-usage),
 [Cursor hooks](https://cursor.com/docs/hooks),
 [Cursor native summarization announcement](https://cursor.com/changelog/1-6#summarization-triggers),
 and static inspection of Cursor 3.24.12's native submit and stop-hook handlers.
