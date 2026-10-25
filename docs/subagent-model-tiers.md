@@ -228,7 +228,8 @@ into every surface: the template `scripts/templates/routing-protocol-core.md`, t
 MCP initialization instructions, `APPLY_INSTRUCTION` and the memory reminder:
 
 - rate the assignment `complexity` (the three-line rubric) when preparing;
-- launch the worker with the receipt's `execution.spawn` arguments; for Codex this
+- launch the worker with the `execution.spawn` arguments of the receipt (or of an
+  inline package); for Codex this
   is the user's explicit request to set `model` and `reasoning_effort`;
 - on a returned `escalation`, prepare a new attempt at that complexity.
 

@@ -914,8 +914,8 @@ per-result interaction log; ordinary conversation attribution remains unchanged.
 
 [Model tiers](docs/subagent-model-tiers.md) cut flagship tokens on simpler
 assignments. The parent rates each one `complexity: low | standard | high` and
-names its host in `client`; the receipt's `execution.spawn` then launches the
-worker on the newest lighter model
+names its host in `client`; the `execution.spawn` of the receipt (or of an inline
+package) then launches the worker on the newest lighter model
 the client offers: Claude Code `haiku` or `sonnet`, Codex's newest `*-luna` or
 `*-sol` at medium effort, Cursor Auto or its newest Composer. `high` keeps the
 parent's model. Risky or large assignments are raised to a higher tier, and a
