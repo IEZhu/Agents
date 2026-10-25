@@ -77,6 +77,9 @@ rename and file locks. A container's disposable writable layer, lost VDS disk,
 storage corruption and unsynchronized network filesystems are outside this
 guarantee. File sync alone does not persist directory entries; see the
 [Linux fsync contract](https://man7.org/linux/man-pages/man2/fsync.2.html).
+macOS uses ordinary `fsync`, not `F_FULLFSYNC`; acceptance therefore promises
+process-crash recovery, not persistence through loss of drive power or volatile
+drive caches. See the [Apple fsync contract](https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/fsync.2.html).
 Windows retains process-crash recovery and its existing sidecar locking; this
 implementation does not claim power-loss durability there because it does not
 flush Windows directory handles. No new dependency or database migration is

@@ -1426,10 +1426,11 @@ committing its action log.
 ## 📊 Observability
 
 Selected routing, loading, retrieval, and memory operations are instrumented with
-Langfuse. `log_interaction` records the answer and declared persona attribution in
-the background: its response reports both sinks as `queued` (Langfuse `skipped`
-while retrieval warms up), a failed history write appears as `history_last_error`
-on later results, and Langfuse failures go only to the server log. Set real Langfuse keys
+Langfuse. `log_interaction` waits for the local journal commit and returns its
+`history` result. Only Langfuse runs in the background and reports `queued`
+(`skipped` while retrieval warms up). A failed history write is reported in
+`history` and `history_last_error` on the same call; Langfuse failures go only to
+the server log. Set real Langfuse keys
 in `.env` to enable it; leave them empty for local-only operation (see
 [Environment Variables](#environment-variables)). Set
 `LANGFUSE_TRACING_ENABLED=false` when running checks that should not send traces.

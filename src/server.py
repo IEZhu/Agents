@@ -1694,10 +1694,12 @@ async def log_interaction(
         return error_response(ValueError("invalid_idempotency_key"), request_id)
     # Include all caller-controlled content, not the generated correlation id,
     # server timestamp or transport label. Ownership is never a tool argument.
-    payload_fingerprint = hashlib.sha256(json.dumps({
+    payload_fingerprint = None if idempotency_key is None else hashlib.sha256(json.dumps({
         "agent_name": agent_name, "query": query, "response_content": response_content,
         "reasoning": reasoning, "intent": intent, "action": action, "outcome": outcome,
-        "files": files, "tags": tags, "persona": persona, "persona_action": persona_action,
+        "files": files, "tags": tags,
+        "persona": persona.model_dump(mode="json") if isinstance(persona, PersonaDescriptor) else persona,
+        "persona_action": persona_action,
     }, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
     if not request_id:
         request_id = str(uuid.uuid4())

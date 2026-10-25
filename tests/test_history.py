@@ -608,6 +608,21 @@ def test_failed_archive_append_keeps_recoverable_entries(tmp_path, history_path,
     assert any(entry.intent.startswith("last ") for entry in HistoryReader(history_path).journal_entries())
 
 
+def test_recent_history_includes_pending_rotation_without_sync(history_path, monkeypatch):
+    monkeypatch.setattr("src.memory.history._machine_history", lambda _: None)
+    writer = HistoryWriter(history_path, rotation_kb=0)
+
+    def fail_merge(_pending):
+        raise OSError("archive temporarily unavailable")
+
+    monkeypatch.setattr(writer, "_merge_pending_locked", fail_merge)
+    receipt = writer.append_entry("accepted", "action", "outcome")
+    assert os.path.exists(history_path + ".rotating")
+    reader = HistoryReader(history_path)
+    assert [entry.id for entry in reader.read_recent()] == [receipt["entry_id"]]
+    assert reader.read_recent(since="9999") == []
+
+
 def test_interrupted_rotation_is_recovered_not_overwritten(tmp_path, history_path):
     archive_dir = tmp_path / "history"
     writer = HistoryWriter(history_path, str(archive_dir), rotation_kb=1)

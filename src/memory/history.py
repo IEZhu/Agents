@@ -285,7 +285,7 @@ class MemoryWriteRejected(ValueError):
 
 
 _MARKER = re.compile(r"\s*(?:<!--|>)")  # a rotation's merge comment or the archive pointer
-_RECEIPT_RE = re.compile(r"^<!-- agents-write-receipt (.+) -->$", re.MULTILINE)
+_RECEIPT_RE = re.compile(r"^<!-- agents-write-receipt (.+) -->\r?$", re.MULTILINE)
 
 
 def without_entry(content: str, entry_id: str, timestamp: str) -> str:
@@ -856,7 +856,7 @@ class HistoryWriter:
 
     @staticmethod
     def _archive_ends_with(archive_path: str, payload: str) -> bool:
-        data = payload.encode("utf-8")
+        data = payload.encode("utf-8", errors="surrogateescape")
         try:
             with open(archive_path, "rb") as fh:
                 size = fh.seek(0, os.SEEK_END)
@@ -873,7 +873,9 @@ class HistoryWriter:
         The archive is rebuilt in a temporary file and replaced atomically, so a
         failure or crash cannot leave partial content. Returns the archive path.
         """
-        with open(pending, "r", encoding="utf-8") as src:
+        # Suffix recovery compares bytes; universal newline conversion would
+        # turn an already archived CRLF payload into a second, different copy.
+        with open(pending, "r", encoding="utf-8", errors="surrogateescape", newline="") as src:
             payload = src.read()
         if not payload:
             # Emptied after an archived merge: nothing to add to the archive.
@@ -904,7 +906,7 @@ class HistoryWriter:
                     with open(archive_path, "rb") as old:
                         shutil.copyfileobj(old, dst)
                     dst.write(b"\n\n<!-- merged on rotation -->\n\n")
-                dst.write(payload.encode("utf-8"))
+                dst.write(payload.encode("utf-8", errors="surrogateescape"))
                 dst.flush()
                 os.fsync(dst.fileno())
             os.replace(temp, archive_path)
@@ -1030,13 +1032,13 @@ class HistoryReader:
         With the user library sync set up for this repository, the list is the
         merged history (``history.md``, ``history/*.md`` and the synced
         segments), read newest month first until ``limit`` is filled; otherwise
-        ``history.md`` alone. ``machine`` filters as ``_machine_filter`` says.
+        ``history.md`` and any pending rotation. ``machine`` filters as ``_machine_filter`` says.
         """
         limit = max(1, limit) if limit > 0 else 20
         machines = _machine_history(self.history_path)
         keep = _machine_filter(machine, machines)
         if machines is None:
-            entries = self.read_all()
+            entries = [entry for _, _, items in self._live_files() for entry in items]
         else:
             entries = self._recent_merged(machines, limit, since, keep)
         if keep is not None:

@@ -112,10 +112,12 @@ def test_archive_deletions_preserve_adjacent_receipts(tmp_path):
     assert HistoryReader(str(path)).journal_entries() == []
 
 
-def test_deleted_entry_is_not_resurrected_by_delayed_retry(tmp_path):
+@pytest.mark.parametrize("newline", [b"\n", b"\r\n"])
+def test_deleted_entry_is_not_resurrected_by_delayed_retry(tmp_path, newline):
     path = tmp_path / "history.md"
     original = write(path)
     delete_entry(str(path), None, original["entry_id"], original["timestamp"])
+    path.write_bytes(path.read_bytes().replace(b"\n", newline))
     assert write(path) == original
     assert HistoryReader(str(path)).journal_entries() == []
     assert "**Outcome:**" not in path.read_text()
@@ -216,14 +218,17 @@ def test_retry_reschedules_export_without_marking_entry_fresh(tmp_path, monkeypa
     assert calls == [(str(path), None)]
 
 
-def test_suffix_recovery_syncs_archive_before_removing_pending(tmp_path, monkeypatch):
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+@pytest.mark.parametrize("extra_bytes", [b"", b"\xff"])
+def test_suffix_recovery_syncs_archive_before_removing_pending(tmp_path, monkeypatch, newline, extra_bytes):
     writer = HistoryWriter(str(tmp_path / "history.md"))
     archive_dir = tmp_path / "history"
     archive_dir.mkdir()
-    payload = "## 2026-01-02T03:04:05+00:00 | abcdef123456\nENTRY\n"
+    payload = "## 2026-01-02T03:04:05+00:00 | abcdef123456\nENTRY\n".replace("\n", newline)
     archive, pending = archive_dir / "2026-01.md", tmp_path / "history.md.rotating"
-    archive.write_text(payload)
-    pending.write_text(payload)
+    payload_bytes = payload.encode() + extra_bytes
+    archive.write_bytes(payload_bytes)
+    pending.write_bytes(payload_bytes)
     real_sync = history._sync_directory
 
     def fail_archive(directory):
@@ -235,10 +240,10 @@ def test_suffix_recovery_syncs_archive_before_removing_pending(tmp_path, monkeyp
         patch.setattr(history, "_sync_directory", fail_archive)
         with pytest.raises(OSError):
             writer._merge_pending_locked(str(pending))
-    assert pending.read_text() == payload
+    assert pending.read_bytes() == payload_bytes
     writer._merge_pending_locked(str(pending))
     assert not pending.exists()
-    assert archive.read_text() == payload
+    assert archive.read_bytes() == payload_bytes
 
 
 @pytest.mark.parametrize("existing_archive", [False, True])
@@ -335,6 +340,27 @@ async def test_api_waits_for_commit_replays_timestamp_and_rejects_change(server_
 
 
 @pytest.mark.asyncio
+async def test_api_retry_accepts_persona_model_and_equivalent_object(server_workspace):
+    from src.schemas.protocol import PersonaDescriptor
+
+    server, path = server_workspace
+    persona = PersonaDescriptor(
+        agent="software_engineer", activation_id="test", bundle_revision="a" * 64,
+        scope="Memory acceptance", skills_loaded=[], implants_loaded=[], rules_loaded=[],
+    )
+    args = dict(agent_name=persona.agent, query="q", response_content="r",
+                persona_action="keep", idempotency_key="typed-persona")
+    first = json.loads(await server.log_interaction(**args, persona=persona))
+    replay = json.loads(await server.log_interaction(**args, persona=persona.model_dump()))
+    assert first["history"]["state"] == "durably_accepted"
+    assert replay["history"] == first["history"]
+    assert len(HistoryReader(str(path / "history.md")).journal_entries()) == 1
+    changed = {**persona.model_dump(), "activation_id": "different"}
+    conflict = json.loads(await server.log_interaction(**args, persona=changed))
+    assert conflict["history"]["error"] == "idempotency_conflict"
+
+
+@pytest.mark.asyncio
 async def test_full_memory_queue_rejects_without_writing(server_workspace, monkeypatch):
     server, path = server_workspace
     monkeypatch.setattr(server._history_worker, "submit", lambda _: False)
@@ -411,9 +437,10 @@ async def test_running_write_survives_client_cancellation_and_is_tracked(server_
 
 
 @pytest.mark.asyncio
-async def test_malformed_receipt_is_storage_failure_not_semantic_rejection(server_workspace):
+@pytest.mark.parametrize("newline", [b"\n", b"\r\n"])
+async def test_malformed_receipt_is_storage_failure_not_semantic_rejection(server_workspace, newline):
     server, path = server_workspace
-    (path / "history.md").write_text("<!-- agents-write-receipt {invalid} -->\n")
+    (path / "history.md").write_bytes(b"<!-- agents-write-receipt {invalid} -->" + newline)
     result = json.loads(await server.log_interaction("software_engineer", "q", "r", idempotency_key="key"))
     assert result["history"] == {"status": "error", "state": "unknown", "error": "history_unwritable"}
 
