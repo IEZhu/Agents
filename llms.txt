@@ -18,6 +18,7 @@ These links describe the published main branch. For an installed version or a de
 - [Persona protocol](https://raw.githubusercontent.com/IEZhu/Agents/main/docs/routing_flow.md): Protocol 2 activation, role continuity, complete bundles and logging.
 - [Agent catalog](https://raw.githubusercontent.com/IEZhu/Agents/main/agents/README.md): Available specializations and their purpose; list_agents discovers the installed catalog.
 - [Workflow catalog](https://raw.githubusercontent.com/IEZhu/Agents/main/flows/README.md): Reusable task procedures; run_flow returns instructions for the caller to execute.
+- [Features and client support](https://raw.githubusercontent.com/IEZhu/Agents/main/docs/features.md): Every feature with its guide and which clients support it.
 - [MCP tool index](https://raw.githubusercontent.com/IEZhu/Agents/main/docs/mcp-tools.md): Every main-server tool with its maintained behavior reference; the connected server's schema supplies exact arguments.
 - [Worker contracts](https://raw.githubusercontent.com/IEZhu/Agents/main/docs/subagent-contract.md): Prepare a bounded assignment, launch with native host tools and validate the returned result (plain text by default, or JSON).
 - [Worker model tiers](https://raw.githubusercontent.com/IEZhu/Agents/main/docs/subagent-model-tiers.md): Complexity ratings, host launch arguments, conservative floors and escalation to a new attempt.

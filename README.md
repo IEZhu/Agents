@@ -1,5 +1,11 @@
 # 🤖 Agents-Core
 
+**Specialist roles, repeatable workflows and project memory for your AI coding assistant.**
+
+Agents-Core is one local [MCP](https://modelcontextprotocol.io) server for Claude Code, Codex, Cursor, Claude Desktop, Antigravity and other MCP clients. It gives your current model a task-relevant expert persona with skills and shared rules, Markdown workflows it executes with its own tools, bounded and validated delegated workers, and a memory of each project. The core server needs no external API key and runs on your machine.
+
+**[Features and client support](docs/features.md)** · [Quick start](#-quick-start) · [Documentation map](docs/README.md) · [Agent guide](docs/agent-guide.md) · [Install in another MCP client](llms-install.md)
+
 [![Shared runtime (dev)](https://github.com/IEZhu/Agents/actions/workflows/shared-runtime.yml/badge.svg?branch=dev&event=push)](https://github.com/IEZhu/Agents/actions/workflows/shared-runtime.yml?query=branch%3Adev+event%3Apush)
 [![Instruction signing tests (dev)](https://github.com/IEZhu/Agents/actions/workflows/instruction-signing.yml/badge.svg?branch=dev&event=push)](https://github.com/IEZhu/Agents/actions/workflows/instruction-signing.yml?query=branch%3Adev+event%3Apush)
 [![Documentation checks (dev)](https://github.com/IEZhu/Agents/actions/workflows/documentation-quality.yml/badge.svg?branch=dev&event=push)](https://github.com/IEZhu/Agents/actions/workflows/documentation-quality.yml?query=branch%3Adev+event%3Apush)
@@ -7,34 +13,35 @@
 [![User sync (dev)](https://github.com/IEZhu/Agents/actions/workflows/user-sync.yml/badge.svg?branch=dev&event=push)](https://github.com/IEZhu/Agents/actions/workflows/user-sync.yml?query=branch%3Adev+event%3Apush)
 [![Vulnerability scan (dev)](https://github.com/IEZhu/Agents/actions/workflows/vulnerability-scan.yml/badge.svg?branch=dev&event=push)](https://github.com/IEZhu/Agents/actions/workflows/vulnerability-scan.yml?query=branch%3Adev+event%3Apush)
 
-[Quality checks and badge scope](docs/quality-checks.md)
-
-**Specialist context, reusable workflows and repository memory for AI assistants.**
-
-Agents-Core is a local Model Context Protocol (MCP) server for assistants that need a specialist role, a repeatable task procedure or context from earlier work in a repository. It supplies personas, domain skills, shared rules and optional reasoning patterns called cognitive implants. Your current model uses that context and executes the task with its existing tools.
-
-- [Start here as an agent](docs/agent-guide.md): task-to-tool guide, first-call examples and operating limits.
-- [Compact documentation index](llms.txt): direct Markdown links for agents discovering the project.
-- [Install in an MCP client](llms-install.md): manual stdio configuration, including Cline.
-- [Documentation map](docs/README.md): current guides, reference material, and evaluation reports.
-- [Next-release audit](docs/documentation-audit-2026-10-25.md#before-the-promotion): base revision, checks and remaining prerequisites of the coming `dev` → `main` promotion.
-- [Instruction signing](docs/instruction-signing-core.md): local key/trust controls and accepted coverage policy; runtime enforcement is still planned.
-- [AI contributor instructions](AGENTS.md) and [Claude instructions](CLAUDE.md).
-- [Model workflows](flows/README.md): reusable Markdown instructions, including
-  the [documentation refresh process](flows/documentation-refresh.md).
-
-## Checks
-
-The workflow badges show the latest matching push runs on the integration branch, `dev`; the MCP API badge is derived from the source. [Quality checks and badge scope](docs/quality-checks.md) is the one table of what each badge covers, its triggers and its limits, including the vulnerability gate that releases wait for. Other focused workflows are listed in [GitHub Actions](https://github.com/IEZhu/Agents/actions) and the [test guide](tests/README.md).
-
-After preparing the environment as described in the [test guide](tests/README.md), run the regular suite locally:
-
 ```bash
-LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/ -q
-node --test bridge/test.mjs
+curl -fsSL https://raw.githubusercontent.com/IEZhu/Agents/main/install.sh | bash
 ```
 
-Pytest excludes the `slow` marker by default. See the test guide for focused, slow and explicit live checks. These commands do not reproduce the complete hosted platform matrix or the dependency scan, and no coverage percentage is claimed.
+One command installs the server on macOS or Linux and registers it with the clients it finds; see [Quick start](#-quick-start) for Windows, the Claude Code plugin and manual setup.
+
+## ✨ What you get
+
+| | Feature | What it does for you |
+|---|---|---|
+| 🎭 | [Specialist personas](docs/features.md#core-features) | Routes each task to an expert role (reviewer, architect, technical writer and more) with its skills and rules, and keeps that role across turns |
+| 🔁 | [Repeatable workflows](flows/README.md) | PR review, documentation refresh, thread close and your own procedures, run by your model against your repository |
+| 🤝 | [Delegated workers](docs/subagent-contract.md) | Bounded tasks for fresh reviewers or parallel workers, a fixed result format and validation, simple work on a lighter model |
+| 🧠 | [Project memory](#-repository-memory) | A short description of each repository and a searchable log of earlier turns |
+| 🔌 | [One server for every client](docs/features.md#client-integration) | A shared local service on macOS and Windows, managed instruction files, and your other MCP servers through one connection |
+| 🔄 | [Sync and updates](docs/features.md#running-and-maintaining-the-installation) | Your personal flows and settings on every machine, and releases or every merged change through the update channel |
+
+## 💻 Supported clients
+
+| Client | Status | Connects through |
+|---|:-:|---|
+| Claude Code (CLI and desktop Code tab) | ✅ | Installer, [Claude Code plugin](plugins/agents-core/README.md) or the shared service; managed `CLAUDE.md` |
+| Codex (CLI, desktop, IDE) | ✅ | Installer or the shared service; managed `AGENTS.md` |
+| Cursor | ✅ | Installer or the shared service; protocol through MCP initialization |
+| Antigravity | ✅ | Installer with a native plugin, or the shared service |
+| Claude Desktop (chat) | ✅ | Installer or the shared service; protocol through MCP initialization |
+| Other MCP clients, such as Cline | 🟡 | A hand-written stdio entry ([manual install](llms-install.md)) |
+
+Client hooks such as thread status, persona restore after compaction and native compaction differ by client: see the [full feature matrix](docs/features.md).
 
 ## When to use Agents-Core
 
@@ -47,6 +54,22 @@ Pytest excludes the `slow` marker by default. See the test guide for focused, sl
 | Shared exact inputs across workers | Persistent artifacts and pinned manifests | [Shared artifacts](docs/shared-artifacts.md) |
 
 The core server needs no external API key. Setup requires Python 3.11+ and downloads a local embedding model (about 1.1 GB with the default configuration). Clients connect through standalone stdio or the shared local service; the Claude Code plugin launches a separately installed server. Native worker execution, file edits and shell commands remain the host client's responsibility. See the [agent guide](docs/agent-guide.md) for selection examples, data handling and limits.
+
+---
+
+## 📚 Documentation
+
+- [Start here as an agent](docs/agent-guide.md): task-to-tool guide, first-call examples and operating limits.
+- [Compact documentation index](llms.txt): direct Markdown links for agents discovering the project.
+- [Install in an MCP client](llms-install.md): manual stdio configuration, including Cline.
+- [Documentation map](docs/README.md): current guides, reference material, and evaluation reports.
+- [Next-release audit](docs/documentation-audit-2026-10-25.md#before-the-promotion): base revision, checks and remaining prerequisites of the coming `dev` → `main` promotion.
+- [Instruction signing](docs/instruction-signing-core.md): local key/trust controls and accepted coverage policy; runtime enforcement is still planned.
+- [AI contributor instructions](AGENTS.md) and [Claude instructions](CLAUDE.md).
+- [Model workflows](flows/README.md): reusable Markdown instructions, including
+  the [documentation refresh process](flows/documentation-refresh.md).
+
+- [Quality checks and badge scope](docs/quality-checks.md): what each badge below covers.
 
 ---
 
@@ -1099,7 +1122,7 @@ Refreshing client instruction files alone does not require restarting the daemon
 
 ### Shared macOS and Windows service
 
-On macOS and Windows, one shared daemon can serve Codex, Claude Code, Cursor and Claude Desktop.
+On macOS and Windows, one shared daemon can serve Codex, Claude Code, Cursor, Claude Desktop and Antigravity.
 Before `install`, capture a baseline and stop this installation's stdio servers,
 either by disabling Agents-Core in open clients or by ending those sessions;
 `install` fails while any of them holds the installation lease. See
@@ -1441,6 +1464,19 @@ in `.env` to enable it; leave them empty for local-only operation (see
 `LANGFUSE_TRACING_ENABLED=false` when running checks that should not send traces.
 
 ---
+
+## Checks
+
+The workflow badges show the latest matching push runs on the integration branch, `dev`; the MCP API badge is derived from the source. [Quality checks and badge scope](docs/quality-checks.md) is the one table of what each badge covers, its triggers and its limits, including the vulnerability gate that releases wait for. Other focused workflows are listed in [GitHub Actions](https://github.com/IEZhu/Agents/actions) and the [test guide](tests/README.md).
+
+After preparing the environment as described in the [test guide](tests/README.md), run the regular suite locally:
+
+```bash
+LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/ -q
+node --test bridge/test.mjs
+```
+
+Pytest excludes the `slow` marker by default. See the test guide for focused, slow and explicit live checks. These commands do not reproduce the complete hosted platform matrix or the dependency scan, and no coverage percentage is claimed.
 
 ## 🛠️ Development
 

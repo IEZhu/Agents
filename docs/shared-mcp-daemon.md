@@ -289,7 +289,7 @@ their command lines do not identify an installation. Check the reported PIDs
 when multiple installations or a smoke-test daemon are present.
 
 While the service is installed, setup (`scripts/init_repo.sh`, also run by
-`install.sh`) keeps Cursor, Claude Code and Claude Desktop on the service:
+`install.sh`) keeps Cursor, Claude Code, Claude Desktop and Antigravity on the service:
 instead of writing standalone entries, it applies the same user-scope migration
 with a private backup and refreshes compatible managed registrations after MCP
 setup while automatic upkeep is enabled. It fails during maintenance or while another controller
