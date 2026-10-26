@@ -23,6 +23,12 @@ on:
       - tests/test_installer_instructions.py
       - tests/test_daemon_runtime_override.py
       - src/memory/history.py
+      - src/memory/history_stats.py
+      - tests/test_history.py
+      - tests/test_history_ui.py
+      - tests/test_usage_stats.py
+      - tests/test_memory_acceptance.py
+      - tests/test_history_artifact_safety.py
       - requirements.txt
       - .github/workflows/workspace-bindings.yml
   workflow_dispatch:
@@ -40,6 +46,10 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
+        python: ['3.11']
+        include:
+          - os: windows-latest
+            python: '3.13'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     env:
@@ -55,13 +65,17 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-python@v7
         with:
-          python-version: '3.11'
+          python-version: ${{ matrix.python }}
       - uses: actions/setup-node@v6
         with:
           node-version: '22'
       - name: Install runtime and test dependencies
         run: python -m pip install -r requirements.txt
       - name: Workspace resolution, installer migration and memory writes
-        run: python -B -m pytest tests/test_workspace_auto.py tests/test_config_client_root.py tests/test_daemon.py tests/test_daemon_clients.py tests/test_daemon_registrations.py tests/test_codex_mcp.py tests/test_startup.py tests/test_server_describe.py tests/test_server_flows.py tests/test_installer_instructions.py tests/test_daemon_runtime_override.py tests/test_python_stdio_bridge.py tests/test_python_workspace_hook.py tests/test_standalone_workspace.py tests/test_standalone_workspace_mcp.py tests/test_history.py::TestAppend tests/test_history.py::TestDedup -q -p no:cacheprovider
+        run: python -B -m pytest tests/test_workspace_auto.py tests/test_config_client_root.py tests/test_daemon.py tests/test_daemon_clients.py tests/test_daemon_registrations.py tests/test_codex_mcp.py tests/test_startup.py tests/test_server_describe.py tests/test_server_flows.py tests/test_installer_instructions.py tests/test_daemon_runtime_override.py tests/test_python_stdio_bridge.py tests/test_python_workspace_hook.py tests/test_standalone_workspace.py tests/test_standalone_workspace_mcp.py -q -p no:cacheprovider
       - name: Node bridge session isolation and authenticated hooks
         run: node --test bridge/test.mjs
+      - name: Journal reads, durable acceptance and retry recovery
+        env:
+          AGENTS_TEST_REQUIRE_SYMLINKS: "1"
+        run: python -B -m pytest tests/test_history.py tests/test_memory_acceptance.py tests/test_history_artifact_safety.py tests/test_usage_stats.py tests/test_history_ui.py -q -rs -p no:cacheprovider

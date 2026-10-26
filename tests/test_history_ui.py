@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
+import os
 import shutil
 import threading
 import time
@@ -110,6 +111,33 @@ async def test_the_list_shows_repositories_with_a_history_newest_first(daemon):
     assert [(f["file"], f["entries"]) for f in project["files"]] == [("current", 3), ("2026-09", 2)]
     assert project["newest"] == (NOW - dt.timedelta(minutes=2)).isoformat(timespec="seconds")
     assert other["entries"] == 1 and gone == {**gone, "available": False, "files": [], "newest": None}
+
+
+@pytest.mark.asyncio
+async def test_linked_archive_only_blocks_its_own_workspace(daemon, tmp_path):
+    http, ids = daemon
+    await login(http)
+    archive = tmp_path / "project" / "history"
+    shutil.rmtree(archive)
+    try:
+        archive.symlink_to(tmp_path / "archived" / "history", target_is_directory=True)
+    except OSError as error:
+        if getattr(error, "winerror", None) == 1314:
+            if os.environ.get("AGENTS_TEST_REQUIRE_SYMLINKS") == "1":
+                pytest.fail("CI must execute journal symlink safety checks")
+            pytest.skip("Windows symlink privilege unavailable")
+        raise
+    response = await http.get("/ui/api/history/repos", headers=UI)
+    assert response.status_code == 200
+    repos = {repo["workspace"]: repo for repo in response.json()["repos"]}
+    assert repos[ids["project"]]["unreadable"] is True
+    assert repos[ids["project"]]["available"] is False
+    assert repos[ids["other"]]["entries"] == 1
+    response = await http.get("/ui/api/history/search?q=needle", headers=UI)
+    assert response.status_code == 200
+    assert response.json()["repos"] == [{"workspace": ids["other"], "matches": 1}]
+    response = await http.get(f"/ui/api/history?workspace={ids['project']}", headers=UI)
+    assert response.status_code == 500 and response.json()["error"].startswith("storage_error:")
 
 
 @pytest.mark.asyncio

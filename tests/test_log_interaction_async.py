@@ -1,6 +1,7 @@
-"""log_interaction answers with a timestamp before its sinks finish."""
+"""Memory is committed before acknowledgement; optional telemetry stays asynchronous."""
 
 import json
+import asyncio
 import logging
 import re
 import threading
@@ -33,17 +34,17 @@ def workspace(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_returns_exact_format_timestamp_and_queued_sinks(workspace, monkeypatch):
+async def test_returns_timestamp_after_memory_commit(workspace, monkeypatch):
     monkeypatch.setattr(server, "is_langfuse_configured", lambda: False)
     response = json.loads(await server.log_interaction("software_engineer", "q", "r"))
     assert TIMESTAMP.fullmatch(response["timestamp"])
     assert response["langfuse"] == {"status": "queued"}
-    assert response["history"] == {"status": "queued"}
+    assert response["history"]["state"] == "durably_accepted"
     assert server.drain_pending_logs(5)
 
 
 @pytest.mark.asyncio
-async def test_returns_promptly_with_hanging_sinks(workspace, monkeypatch):
+async def test_returns_promptly_with_hanging_telemetry(workspace, monkeypatch):
     release = threading.Event()
     started = threading.Event()
     monkeypatch.setattr(server, "is_langfuse_configured", lambda: True)
@@ -54,13 +55,6 @@ async def test_returns_promptly_with_hanging_sinks(workspace, monkeypatch):
         raise RuntimeError("released")
 
     monkeypatch.setattr(server.langfuse, "create_trace_id", hang)
-    real_append = HistoryWriter.append_entry
-
-    def blocked_append(self, *args, **kwargs):
-        release.wait(10)
-        return real_append(self, *args, **kwargs)
-
-    monkeypatch.setattr(HistoryWriter, "append_entry", blocked_append)
     try:
         begin = time.monotonic()
         response = json.loads(await server.log_interaction("software_engineer", "q", "r"))
@@ -86,33 +80,38 @@ async def test_background_history_entry_carries_issued_timestamp(workspace, monk
 
 
 @pytest.mark.asyncio
-async def test_sink_failures_are_logged_not_returned(workspace, monkeypatch, caplog):
+async def test_history_failure_is_returned_telemetry_failure_is_logged(workspace, monkeypatch, caplog):
     monkeypatch.setattr(server, "is_langfuse_configured", lambda: True)
     monkeypatch.setattr(server.langfuse, "create_trace_id", Mock(side_effect=RuntimeError("lf down")))
     monkeypatch.setattr(HistoryWriter, "append_entry", Mock(side_effect=OSError("disk full")))
     with caplog.at_level(logging.WARNING, logger="mcp-server"):
         response = json.loads(await server.log_interaction("software_engineer", "q", "r"))
         assert server.drain_pending_logs(5)
-    assert "error" not in json.dumps(response).lower()
+    assert response["history"] == {"status": "error", "state": "unknown", "error": "history_unwritable"}
     assert "lf down" in caplog.text and "disk full" in caplog.text
 
 
 @pytest.mark.asyncio
-async def test_drain_waits_for_pending_writes(workspace, monkeypatch):
+async def test_no_acknowledgement_until_history_write_completes(workspace, monkeypatch):
     monkeypatch.setattr(server, "is_langfuse_configured", lambda: False)
     release = threading.Event()
+    started = threading.Event()
     real_append = HistoryWriter.append_entry
 
     def slow_append(self, *args, **kwargs):
+        started.set()
         release.wait(10)
         return real_append(self, *args, **kwargs)
 
     monkeypatch.setattr(HistoryWriter, "append_entry", slow_append)
-    await server.log_interaction("software_engineer", "q", "r")
-    assert not server.drain_pending_logs(0.05)
-    monkeypatch.setattr(server, "_drain_abandoned", False)
-    release.set()
-    assert server.drain_pending_logs(5)
+    task = asyncio.create_task(server.log_interaction("software_engineer", "q", "r"))
+    try:
+        assert await asyncio.to_thread(started.wait, 5)
+        assert not task.done()
+    finally:
+        release.set()
+    result = json.loads(await task)
+    assert result["history"]["state"] == "durably_accepted"
     assert (workspace / "history.md").exists()
 
 

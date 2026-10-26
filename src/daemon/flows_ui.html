@@ -2037,7 +2037,9 @@ function showHistory(repo) {
   $("h-title").textContent = repo.name;
   $("h-meta").textContent = data ? [data.root, entryCount(data.total), bytes(data.bytes)].join(" · ") : repo.root;
   const notice = $("h-notice");
-  notice.textContent = data ? "" : "This repository's directory is gone, so its history cannot be read.";
+  notice.textContent = data ? "" : repo.unreadable
+    ? "This repository's history is unreadable. Check its journal files and permissions."
+    : "This repository's directory is gone, so its history cannot be read.";
   notice.classList.toggle("hidden", !!data);
   $("h-seg").classList.toggle("hidden", !data);
   const select = $("h-file");

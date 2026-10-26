@@ -1,5 +1,7 @@
 # Agents-Core Memory Subsystem: `describe` + `history.md`
 
+Current write durability and retry contract: [Memory acceptance (MEM-01)](memory-acceptance.md).
+
 > Specification and step-by-step implementation plan for the per-repo memory mechanism of the Agents-Core MCP server.
 > Status: implemented 2026-04-15. Sections 1–5 carry later corrections, including client-scoped paths (#36), read-only description with explicit `write_repo_summary` persistence, persona attribution and asynchronous `log_interaction` delivery, sidecar locks, the history merged across machines through user library sync (#172) and `read_history` previews within Claude Code's result limit (#212). The implementation and test plans (sections 6–7) mostly keep their original wording; Appendix C records deviations between the plan and the implementation. For current behavior, see [README: Repository Memory](../README.md#-repository-memory), [service memory behavior](shared-mcp-daemon.md#memory-and-errors) and the [routing reference](routing_flow.md#runtime-and-project-boundaries).
 
@@ -88,7 +90,8 @@ log_interaction(..., intent, action, outcome, files?, tags?)
   ├─ HistoryWriter.compute_entry_hash()      # SHA256(intent \x1f action \x1f outcome)[:12]
   ├─ scan last 50 entries for duplicate → return {status:"duplicate"} on match
   ├─ format markdown entry
-  ├─ sidecar lock + fcntl.flock (POSIX) + append to history.md
+  ├─ sidecar lock + atomic history.md replacement + file/directory fsync
+  │    # keyed calls also commit their receipt; see memory-acceptance.md
   ├─ maybe_rotate() if file > 512 KB → archive to history/YYYY-MM.md
   ├─ with user library sync: after the locks are released, mark the checkout for the
   │    sync worker, which shares its new entries of an approved repository later
@@ -303,21 +306,18 @@ async def log_interaction(
     persona_action: Literal["keep", "switch", "refresh", "restore"] | None = None,
     ctx: Context | None = None,
     workspace: str | None = None,
+    idempotency_key: str | None = None,
 ) -> str:
-    """End-of-turn logger. Queues independent history and optional Langfuse writes
-    and returns before either sink completes. History is append-only and deduped.
+    """End-of-turn logger. Waits for the durable local journal commit.
 
-    Returns JSON: {request_id, timestamp, langfuse: {status: "queued"},
-    history: {status: "queued"}, workspace, pid, history_last_error?}.
-    While warming up, Langfuse is skipped with reason warming_up. Queued is not
-    proof of persistence; a previous history failure appears in history_last_error.
-    With a valid persona descriptor, the payload also carries persona,
-    persona_action and attribution: "client-reported". Incomplete attribution is
-    queued as unverified with warnings and instruction; do not retry it.
-    Without a resolved project, history uses the installation's fallback journal
-    and reports workspace.source="fallback". Follow its instruction. A request
-    can still return protocol ERROR when workspace retry is required or the
-    fallback journal is unavailable. See the maintained service memory reference.
+    Returns JSON: {request_id, timestamp, langfuse, history, workspace, pid}.
+    history.state is durably_accepted after persistence, rejected for a key
+    conflict, or unknown on an uncertain I/O failure. history_last_error reports
+    this call's I/O failure. Optional idempotency_key replays the original memory
+    receipt and timestamp for the same canonical payload in a trusted workspace.
+    Unkeyed calls retain content deduplication and fallback journal behavior.
+    Langfuse remains asynchronous; indexing and Git sync are separate stages.
+    See memory-acceptance.md for retention and storage guarantees.
     """
 
 @mcp.tool()
