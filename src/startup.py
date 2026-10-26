@@ -13,6 +13,7 @@ their session to the service's bridge (``_serve_through_service``, #266).
 """
 
 import errno
+import json
 import logging
 import importlib
 import os
@@ -97,8 +98,34 @@ def assert_installation_safe(repo_root):
         return
     raise SystemExit(
         f"Unfinished auto-update: {journal}. Restore the installation and rebuild "
-        "its stores, then remove this journal only after successful recovery."
+        "its stores, then remove this journal only after successful recovery." + _environment_note(journal)
     )
+
+
+def _environment_note(journal):
+    """The Python environment switch a journal records (#181), as recovery advice; "" without one."""
+    try:
+        with open(journal, encoding="utf-8") as stream:
+            switch = json.load(stream).get("environment")
+        target, previous = switch["to"], switch.get("previous") or {}
+    except (OSError, ValueError, AttributeError, KeyError, TypeError):
+        return ""
+    if not isinstance(previous, dict):
+        return ""
+    keep = (f"point .venv at .venvs/{target} and rebuild the stores with its interpreter")
+    if previous.get("name"):
+        restore = f"point .venv back at .venvs/{previous['name']}"
+    elif previous.get("legacy"):
+        restore = (f"remove the .venv link and rename .venvs/{previous['legacy']} back to .venv "
+                   "(when the switch moved it there)")
+        keep = f"move a .venv directory to .venvs/{previous['legacy']} first, then " + keep
+    elif previous.get("kind") == "directory":
+        restore = "leave .venv, which is still the setup's directory"
+        keep = "move the .venv directory aside to .venvs/legacy-<UTC time> first, then " + keep
+    else:
+        restore = "point .venv back at what it pointed at before"
+    return (f" The update switches .venv to .venvs/{target}. To restore the previous revision, {restore}; "
+            f"to keep the target, {keep}.")
 
 
 @contextmanager

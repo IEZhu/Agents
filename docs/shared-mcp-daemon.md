@@ -1470,26 +1470,74 @@ retain source history.
 .venv/bin/python -m src.daemon recover
 ```
 
-Updates require a clean target branch, a fast-forward, and compatibility with the
-existing dependency environment. Clients may stay connected (see [Drain and connected
+Updates require a clean target branch and a fast-forward. A target that changes
+the Python dependencies gets an environment of its own inside the same
+transaction. Clients may stay connected (see [Drain and connected
 clients](#drain-and-connected-clients)).
 
-The manual and scheduled controllers use the same dependency gate. A
+The manual and scheduled controllers use the same dependency gate
+(`src/daemon/update_dependencies.py`), as does the standalone stdio updater. A
 `pyproject.toml` change may update metadata or package data and declare a new
-optional extra while keeping runtime dependencies, `requires-python`, all
-previously declared extras and the build-system contract unchanged. Requirement
-ordering is ignored; changed requirement strings remain a maintenance boundary.
-Missing or malformed manifests and dynamic dependency declarations fail closed.
-Changes to `requirements.txt`, `uv.lock`, `bridge/package.json` or
-`bridge/package-lock.json` always require explicit environment maintenance.
+optional extra without touching the environment; requirement ordering is ignored,
+and so is a `uv.lock`-only change, since installs read `requirements.txt`.
+`requirements.txt` is compared by its requirement lines: comments (a `#` at the
+start of a line or after whitespace, as pip reads them), blank lines and
+surrounding spaces do not count, so a comment-only edit needs nothing. A changed
+requirement line, or a change to the environment contract of `pyproject.toml`,
+needs a new environment, which the update builds and switches to (below). That
+contract is `project.dependencies`, `project.requires-python`, every optional
+extra the installed revision declares (a new extra was unavailable before and
+needs nothing; a changed or removed one counts, since the controller cannot tell
+which extras the owner installed) and the whole `build-system` table, including
+backend and backend options. The reason names each changed field:
+`requirements.txt`, `project.dependencies`, `project.requires-python`,
+`project.optional-dependencies.<name>` or `build-system`.
+
+Building that environment needs a service started through the installation's
+`.venv` interpreter (the `python` that `install` recorded, `.venv/bin/python`
+by default) and a `.venv` that is the directory setup created (with its
+`pyvenv.cfg`) or a link into `.venvs`, not a file or a link elsewhere. It needs a
+base interpreter of the Python version that made `.venv` (`pyvenv.cfg`'s
+`executable`, then its `home`'s `python<major>.<minor>`, `python3` and `python`,
+the first that runs that version) satisfying the target's `requires-python`.
+On Windows a `.venv` directory that setup created is refused: Windows cannot
+rename the directory of the running interpreter. Only a `.venv` that is already
+a junction into `.venvs` is switched there, and setup does not create one yet,
+so a Windows installation gets there only through a junction made by hand.
+Requirement lines that are pip options (`-r`, `-e`, `--index-url` …), local
+paths or continued on the next line, one distribution pinned to two different
+versions (`==` or `===`), changes to `bridge/package.json`
+or `bridge/package-lock.json` (nothing installs npm packages), missing or
+malformed manifests and dynamic dependency declarations need explicit
+environment maintenance. The refusal names the manifest and field. For it, stop
+the service, update the checkout, install the dependencies as below and start it
+again.
 
 The update is built while the service keeps serving. Holding the updater lock,
 the controller checks out the target in a worktree under `data/.prepared/<sha>`.
 It copies the live skill and implant indexes there and runs the reindex in a
 separate process with the service's interpreter and model. The reindex re-embeds
 only an index whose sources changed. While it re-embeds, a second model process
-runs next to the service. A target that moved or changes environment requirements is
-refused before anything is built. The reindex gets the installation's `.env`
+runs next to the service. A target that moved, or whose dependency change cannot be
+delivered, is refused before anything is built. A target that changes the
+dependencies first gets its environment, `.venvs/<id>` in the installation, from
+the base interpreter of the service's environment: `python -m venv`, then `pip
+install` of the target's `requirements.txt`, its `pyproject.toml` runtime
+dependencies and the carried extras, within `AGENTS_AUTO_UPDATE_ENVIRONMENT_TIMEOUT`
+(default 1800 s). An extra is carried when both revisions declare it and every one
+of its distributions is installed in the active environment, also as a dependency
+of another package; it installs the target's requirements. httpx comes with mcp and
+anthropic, for example, so `local-inference` is carried and every automatically
+built environment also gets `httpx>=0.28.1,<0.29`. Plain requirements of one
+distribution from several places become one line with all their specifiers, such
+as `pytest>=7.0.0,>=8.0` when `evals` or `signing-tests` is carried; lines with
+extras, markers or URLs stay as written. venv and pip run in the
+new environment's directory without `PYTHONHOME`, `PYTHONPATH`, `PYTHONSTARTUP`,
+`PYTHONUSERBASE`, `PIP_USER`, `PIP_TARGET` or `PIP_PREFIX`. A complete environment
+with the same requirements is reused, and the reindex runs with its interpreter. A
+failed environment build removes the partial environment, leaves the service
+serving and reports `PREPARE_ENVIRONMENT_FAILED` with the reason; the next run
+tries again. The reindex gets the installation's `.env`
 under the controller's own settings, as the service does. The build records
 the settings that shape the embeddings (`EMBEDDING_*`, `AGENTS_MODEL_*` and
 `FASTEMBED_*`). If they change while it builds or at any point before
@@ -1516,12 +1564,23 @@ Only then does the controller enter maintenance, wait up to 60 seconds for drain
 stop the service, and acquire the exclusive installation lease and the updater
 lock. A running standalone stdio server of this installation blocks the update. Activation
 backs up the live indexes, fast-forwards the checkout to the built commit and
-moves the built indexes into `data/`. These are file operations only, so the
+moves the built indexes into `data/`. For a dependency change it then points
+`.venv` at the new environment (a symbolic link; on POSIX the first switch renames
+the directory setup created to `.venvs/legacy-<UTC time>`, while on Windows only a
+junction already in place is replaced by another), and the
+service restarts on `.venv/bin/python`, which now resolves to it. The switch runs
+in maintenance, with the service stopped and the leases held: POSIX replaces the
+link atomically, while Windows removes the junction and then creates the new one.
+The journal records what `.venv` pointed at before the switch: a failed switch, a
+failed probation, a rollback and `recover` point it back together with the code
+and indexes. A successful activation removes the environments other than the
+active and the previous one.
+These are file operations only, so the
 service is down for its stop, the activation and its warmup. Before the build
 moved ahead of the stop, the reindex ran while the service was down: on
 2026-10-04 an update that added one skill kept it down for six minutes, and
 Claude Code, which stops reconnecting after about 17 seconds, had to be
-reconnected by hand. A failed fast-forward or move restores the previous code
+reconnected by hand. A failed fast-forward, move or environment switch restores the previous code
 and indexes. If the tree changed after the build was checked, activation discards
 the build and the service restarts on the previous code. A rollback or `recover`
 also discards the build, so a partly moved build is never activated later. Git
@@ -1556,11 +1615,13 @@ probation and leaves it running; `auto-update` leaves a stopped service alone.
 While the service runs, update the installation only with `update` or
 `auto-update`: `install.sh`, `git pull` or `scripts/init_repo.sh` in the checkout
 change code, dependencies or indexes without drain, maintenance, index backup,
-probation or rollback. `update` refuses a target that changes the dependency
-environment. For such a target, `stop` the service and close this installation's
+probation or rollback. `update` refuses a dependency change it cannot deliver
+(see above). For such a target, `stop` the service and close this installation's
 stdio servers, fast-forward the checkout (`git pull --ff-only`), install the
-dependencies as setup does (`.venv/bin/python -m pip install -r requirements.txt`),
-then `start` the service; its warmup rebuilds changed skill and implant indexes.
+dependencies an automatic build would (`.venv/bin/python -m pip install -r requirements.txt`,
+then each `project.dependencies` entry of `pyproject.toml` that `requirements.txt`
+does not list and the requirements of each extra in use), then `start` the
+service; its warmup rebuilds changed skill and implant indexes.
 Git credentials and SSH must work with the service's system-directory PATH and
 the LaunchAgent's (on Windows, the task's) environment ([tools and PATH](#tools-and-path)).
 
@@ -1590,8 +1651,9 @@ the stdio servers use as well: the controller (`update`, `auto-update run` and
 `AGENTS_AUTO_UPDATE_ALLOW_DOWNGRADE` from the installation's `.env` with
 `dotenv_values`, without loading the rest of `.env` into its environment. A
 variable exported in the controller's shell overrides the file for that command.
-`AGENTS_AUTO_UPDATE_TIMEOUT` and `AGENTS_AUTO_UPDATE_REINDEX_TIMEOUT` still come
-only from the controller's own environment: the updater LaunchAgent does not set
+`AGENTS_AUTO_UPDATE_TIMEOUT`, `AGENTS_AUTO_UPDATE_REINDEX_TIMEOUT` and
+`AGENTS_AUTO_UPDATE_ENVIRONMENT_TIMEOUT` still come only from the controller's own
+environment: the updater LaunchAgent does not set
 them, so scheduled runs use the defaults, and a manual `update` uses the values
 exported in its shell.
 
@@ -1616,9 +1678,10 @@ A run skips a target without touching the service when the checked-out branch is
 neither the configured branch nor the previous setting, or a switch would be needed
 to a branch exported over `.env`, the target branch is checked out in another
 worktree, tracked files have local changes, the target is not a fast-forward (or, for a switch, an
-unconfirmed downgrade), dependency environment requirements changed, or a
+unconfirmed downgrade), its dependency change cannot be delivered, or a
 different `runtime_root` pins the service to another source. Each skip is logged
-once per target. Otherwise it waits until the service is ready, has no
+once per target. A target that changes the dependencies is available with an
+`environment` note, which the run's record keeps. Otherwise it waits until the service is ready, has no
 work in flight, and has been idle for `--idle-seconds` (default 120), and then
 runs the same transaction as `update`. It also waits while any stdio server of
 this installation is running, since `update` would stop the service only to find

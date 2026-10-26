@@ -120,6 +120,10 @@ SETTINGS = ("FASTEMBED_CACHE_DIR", "AGENTS_USER_FLOWS_DIR")  # also read from th
 # What fastembed (Hugging Face hub layout) keeps in its cache directory.
 FASTEMBED_ENTRY = re.compile(r"^(?:models--.+|blobs|local|\.locks|tmp.*|CACHEDIR\.TAG|\.DS_Store)$")
 LIBRARY_MARKER = ".agents-library.json"  # src/user_library.py MARKER
+# A file in an environment auto-update made under .venvs, by the names src/environments.py gives
+# them (_ID, _LEGACY and a removal's TRASH name); tests/test_uninstall.py checks them against it.
+UPDATER_ENVIRONMENT_FILE = re.compile(
+    rb"\A\.venvs/(?:py[0-9]+-[0-9a-f]{12}|legacy-[0-9]{8}T[0-9]{6}Z(?:-[0-9]+)?|\.trash-[^/]+)/")
 
 KINDS = (
     ("service", "Services and scheduled jobs"),
@@ -751,7 +755,8 @@ def local_work(ctx: Context, checkout: Path) -> str | None:
 
     install.sh clones a published channel and never commits. Keep dirty/custom-branch
     checkouts, commits outside known remote-tracking history, and ignored material outside
-    the installer's .env and .venv assets. Registered submodules or retained .git/modules
+    the installer's .env and .venv assets (with the environments the auto-updater names in
+    .venvs and the .venv link to the active one). Registered submodules or retained .git/modules
     also keep the checkout: parent Git history does not cover their private state.
     Git failures keep the whole checkout.
     """
@@ -791,11 +796,14 @@ def local_work(ctx: Context, checkout: Path) -> str | None:
     ignored = git("ls-files", "--others", "--ignored", "--exclude-standard", "-z")
     if ignored.returncode != 0 or (ignored.stdout and not ignored.stdout.endswith(b"\0")):
         return "git could not check it for local work"
-    # init_repo creates these two assets. Other ignore patterns (including arbitrary
-    # dotfiles and archives) do not establish that their contents belong to the installer.
-    if any(entry != b".env" and not entry.startswith(b".venv/")
+    # init_repo creates .env and .venv; auto-update keeps versioned environments in .venvs
+    # and makes .venv a link to one (src/environments.py). Other ignore patterns (including
+    # arbitrary dotfiles and archives, and other names under .venvs, which its pruning leaves
+    # alone too) do not establish that their contents belong to the installer.
+    if any(entry not in (b".env", b".venv") and not entry.startswith(b".venv/")
+           and not UPDATER_ENVIRONMENT_FILE.match(entry)
            for entry in ignored.stdout.split(b"\0") if entry):
-        return "it has ignored files outside the installer's .env and .venv assets"
+        return "it has ignored files outside the installer's .env, .venv and .venvs assets"
     return None
 
 
@@ -1864,7 +1872,7 @@ def build_plan(ctx: Context, *, keep_data: bool = False) -> list[Item]:
             return remove_except(ctx, installation, keep, owned=owned)
 
         items.append(Item("installation", str(installation), "remove", "install.sh (git clone into AGENTS_HOME, "
-                          "default ~/.agents-core), scripts/init_repo.sh (.venv, .env, data/)",
+                          "default ~/.agents-core), scripts/init_repo.sh (.venv, .env, data/), auto-update (.venvs)",
                           "the one-command installation" + ("; keeps " + ", ".join(
                               str(path.relative_to(installation)) for path in keep) + " (--keep-data)" if keep else ""),
                           remove_installation))
