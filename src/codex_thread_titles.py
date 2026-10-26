@@ -201,7 +201,9 @@ def _stop(process, deadline: float, *, completed: bool) -> None:
         for sig in (signal.SIGTERM, signal.SIGKILL):
             try:
                 os.killpg(process.pid, sig)
-            except ProcessLookupError:
+            except (ProcessLookupError, PermissionError):
+                # macOS answers EPERM for a group whose remaining members are zombies;
+                # the wait below still decides whether the child exited.
                 pass
             if sig == signal.SIGTERM:
                 try:
