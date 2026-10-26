@@ -49,22 +49,22 @@ or the prepare/spawn/validate exchange; see [local inference operations](shared-
 
 The separate [subagent API](subagent-contract.md) uses
 `agents-core/subagent/1`; it does not replace conversation persona protocol 2.
-Every AI delegation, including a reviewer, verifier or parallel worker, requires `get_subagent_context` before the host's spawning tool. Supply the canonical role, task, acceptance criteria, relevant context, scope/non-goals and result type; require `status: prepared`. Start the worker with the receipt's `launch` text and only necessary task materials and keep its `contract_revision`; with `delivery="inline"`, retain the original `contract` and forward `worker_context` unchanged ([compact exchange](subagent-contract.md#compact-exchange)). Use a fresh worker without inherited history when supported (Codex collaboration: `fork_turns="none"`). Do not substitute a full persona or parent transcript. Preparation does not mutate the parent's descriptor or routing cache. The parent rates the assignment with `complexity`, passes `client` (its host: `claude`, `codex` or `cursor`) and launches the worker with the package's `execution.spawn` arguments; a returned `escalation` names the complexity for a new attempt ([model tiers](subagent-model-tiers.md)).
+Every AI delegation, including a reviewer, verifier or parallel worker, requires `get_subagent_context` before the host's spawning tool. Supply the canonical role, task, acceptance criteria, relevant context, scope/non-goals and result type; require `status: prepared`. Start the worker with the receipt's `launch` text and only necessary task materials and keep its `contract_revision`; with `delivery="inline"`, retain the original `contract` and forward `worker_context` unchanged ([compact exchange](subagent-contract.md#compact-exchange)). Use a fresh worker without inherited history when supported (Codex collaboration: `fork_turns="none"`). Do not substitute a full persona or parent transcript. Preparation does not mutate the parent's descriptor or routing cache. The parent rates the assignment with `complexity`, passes `client` (its host: `claude`, `codex` or `cursor`) and launches the worker with the `execution.spawn` arguments of the receipt or, with `delivery="inline"`, of the package; a returned `escalation` names the complexity for a new attempt ([model tiers](subagent-model-tiers.md)).
 
 The prepared package supplies the worker's task role. That worker returns its
-result in the package's format (plain text by default) without a second full activation, inherited parent
-descriptor, footer, timestamp or `log_interaction` call. Worker rules require it
-to honor scope and allowed actions, report missing input, and stop at completion
-or return partial work. Native host controls enforce actual permissions and
-runtime limits; the prompt itself does not.
+result in the package's format (plain text by default) without a second full
+activation, inherited parent descriptor, footer, timestamp or `log_interaction`
+call. Worker rules require it to honor scope and allowed actions, report missing
+input, and stop at completion or return partial work. Native host controls
+enforce actual permissions and runtime limits; the prompt itself does not.
 
-The parent must run `validate_subagent_result` against its original contract for every returned or revised output, without rewriting the output or contract. Require `valid: true` before accepting or integrating delegated work, then independently check evidence and acceptance criteria. Structural conformance does not verify source claims or execute reported checks. Invalid output requires correction and revalidation; a new execution attempt requires a new `attempt_id` and prepared contract.
+The parent must run `validate_subagent_result` for every returned or revised output against the contract stored at preparation (`contract_revision`, with `result_ref` naming the worker's transcript or result file, or the unchanged `result` when no file holds the output) or, for an inline package, its retained `contract`, without rewriting the output or contract. Require `valid: true` before accepting or integrating delegated work, then independently check evidence and acceptance criteria. Structural conformance does not verify source claims or execute reported checks. Invalid output requires correction and revalidation; a new execution attempt requires a new `attempt_id` and prepared contract.
 
 If preparation fails, either endpoint is unavailable, or native spawning is unavailable, report the limitation and work in the parent when practical. Do not launch an unprepared/full-persona worker or accept an unvalidated result. Authorized nested delegation follows the same exchange. The conversation fallback below does not waive these requirements.
 
 For shared exact input, pass the complete active `artifact_manifest` returned
 in the artifact tool response's `data` field. Preparation verifies stored bytes
-and pins the manifest in the retained contract, then supplies exact read calls
+and pins the manifest in the task contract, then supplies exact read calls
 without inlining the bodies. Workers read required entries through `eof`; parents
 also call `artifact_manifest_verify` before acceptance. Structural validation
 performs no artifact I/O and can still pass after a manifest expires or is
@@ -79,12 +79,14 @@ unless disabled or omitted by an exact flow selection; worker packages receive
 the mandatory scoped `worker-cooperation` equivalent. Scope-changing agreements
 need a new prepared attempt, not edited identities or an expanded persona.
 
-The managed routing template, memory reminder, MCP initialization and bundle
-apply instruction carry the same fallback trigger: preserve intersecting work,
-coordinate through authorized records/channels, keep one integrator and continue
-independent work when coordination is unavailable. Silence is not consent, and
-discovering a chat does not authorize messaging it. An existing `keep` retains
-the rules already applied; new activations or explicit refreshes load updates.
+The managed routing template, the memory reminder, the full MCP initialization
+instructions and the full `SUCCESS` instruction carry the same fallback trigger:
+preserve intersecting work, coordinate through authorized records/channels, keep
+one integrator and continue independent work when coordination is unavailable.
+The pointers sent instead of a text the client already holds name cooperation
+among the rules that text carries. Silence is not consent, and discovering a chat
+does not authorize messaging it. An existing `keep` retains the rules already
+applied; new activations or explicit refreshes load updates.
 
 Authorized participant messages use `cooperation_send`, `cooperation_receive`
 and `cooperation_ack` on the shared MCP coordinator, including across different
@@ -201,27 +203,33 @@ lost the full text restores it (#433), and `run_flow` takes `force_reload=True`
 with `current_persona` for a flow's persona. A first activation's `SUCCESS` also
 lists in `warnings` each managed routing section that differs from the
 installation's template among the files the client loads and the server can
-resolve: the registered workspace's `CLAUDE.md` for Claude Code, its `AGENTS.md`
-(or a nonempty `AGENTS.override.md`) for Codex, and their global files
-(`~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md` or a nonempty `AGENTS.override.md`,
-and Antigravity's plugin rules), all of them when the client is unknown or bridged
-over stdio, none for Cursor and standalone Claude Desktop. Global files resolve
-through the server's environment (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`), so a session
-started with another profile is warned about the server's profile files. Other
-sessions' linked worktrees are not checked. Each warning names the command that
-refreshes the file, and a file that matches the committed template while the
-running server serves an older one asks for a restart instead. The check only
-reads the files; the slash prompts carry the same warnings. `ROUTE_REQUIRED`
+resolve: for Claude Code the registered workspace's `CLAUDE.md` and
+`~/.claude/CLAUDE.md`; for Codex the workspace's `AGENTS.md` and
+`~/.codex/AGENTS.md`, each replaced by a nonempty `AGENTS.override.md` beside it;
+for Antigravity only its plugin rules; all of them when the client is unknown or
+bridged over stdio; none for Cursor and standalone Claude Desktop. Global files
+resolve through the server's environment (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`), so
+a session started with another profile is warned about the server's profile
+files. Other sessions' linked worktrees are not checked. Each warning names the
+command that refreshes the file, and a file that matches the committed template
+while the running server serves an older one asks for a restart instead. The
+check only reads the files; the slash prompts and a flow's `persona_activation`
+carry the same warnings. `ROUTE_REQUIRED`
 candidates carry `name`, `display_name` and `role`; the slash command
 (`trigger_command`) is for people and stays out of them.
 
 Over HTTP the server instructions answered at `initialize` keep their opening
-lines and the rules only they state (language, footer, workspace header, flows,
-the MCP-unavailable fallback) and point to the managed section for the rest when
-the request names `X-Agents-Client: codex`, the workspace's `AGENTS.md` holds the
-current template in the registered root and in every checkout registered under
-it, the section ends within its first 32 KiB (Codex's default
-`project_doc_max_bytes`) and no nonempty project `AGENTS.override.md` exists.
+lines, the rules only they state (the answer language and footer, the workspace
+header and history errors, the flow tools) and the MCP-unavailable fallback, and
+point to the managed section for the rest when the request names
+`X-Agents-Client: codex`, its workspace identity has registered checkouts, and the
+`AGENTS.md` of the registered root, of each registered checkout and of the same
+directory in the main checkout and every linked worktree of their repositories
+holds the current template, with the section ending within the file's first
+32 KiB (the default `project_doc_max_bytes` the code assumes for Codex; a lower
+user setting is not detected) and no nonempty `AGENTS.override.md` beside any of
+them. A repository whose worktrees cannot be listed, or that has more than 50
+linked worktrees, keeps the full text.
 Every other case, stdio and Claude Code included, gets the full text: Claude Code
 shows only the first 4,096 characters of the instructions (2,048 before v2.1.296),
 which both texts spend alike. Only the workspace file decides, since a global file
@@ -236,10 +244,11 @@ model its first 2 KB and the file's path, so the model has to read the four
 blocks back in parts before it can apply them. No limit in code keeps a bundle
 below the ceiling (a URL user rule alone may hold 64 KiB, and up to 32 can be
 subscribed), so the value is the ceiling: a bundle over it still goes to a file,
-and Claude Code can apply limits of its own. The declaration also replaces `MAX_MCP_OUTPUT_TOKENS` for these tools, and a
-connected client reads it only when it lists the tools again: reconnect the
-server (`/mcp`) after an update. It covers tool results only; the agent slash
-prompts and `/ask` return their bundles as prompts.
+and Claude Code can apply limits of its own. The declaration also replaces
+`MAX_MCP_OUTPUT_TOKENS` for these tools, and a connected client reads it only when
+it lists the tools again: reconnect the server (`/mcp`) after an update. It covers
+tool results only; the agent slash prompts and `/ask` return their bundles as
+prompts.
 
 The client applies a response only if `replaces_activation_id` matches its active
 activation (null for first load). Replayed activations are no-ops; stale responses
@@ -260,10 +269,11 @@ Keep the complete descriptor and exact footer in retained conversation context,
 including summaries used during compaction. Losing a temporary tool variable
 does not remove an activation that remains in the conversation. Before sending
 the final answer, compose it with the saved footer and call `log_interaction`
-with that exact text (without a time line), the current user request verbatim, the
-descriptor, and the action (`keep`, `switch`, `refresh`, or `restore`), after
-replacing secrets and capability values in every logged field with safe references
-and omitting prohibited personal details. Then
+with that exact text (without a time line), the current user request verbatim
+apart from the redactions below, the descriptor, and the action (`keep`, `switch`,
+`refresh`, or `restore`). Before the call, replace secrets and capability values
+in every logged field with safe references and omit prohibited personal details.
+Then
 deliver the answer with the returned `timestamp` as its first line, followed by
 an empty line, when the footer lists the `answer-timestamp` rule; with the rule
 switched off or without a `timestamp`, add no line.
@@ -399,11 +409,11 @@ Loading a flow does not route or complete the task. See the
 Over stdio the server answers `initialize` and `tools/list` right after cheap
 setup (configuration, tool registration, the router's agent scan). Loading the
 skill and implant stores, the embedding model and the rules cache happens in one
-background daemon thread started right before `mcp.run()`
-(`src/engine/readiness.py`). The Langfuse library is imported on first traced
-call, never before the handshake. Startup logs carry a timestamp and PID, and one
-line reports the PID, working directory, code revision and per-phase durations
-when readiness completes.
+background daemon thread (`src/engine/readiness.py`) that `src/stdio_runtime.py`
+starts before the Personal startup hook and `mcp.run()`. The Langfuse library is
+imported on first traced call, never before the handshake. Startup logs carry a
+timestamp and PID, and one line reports the PID, working directory, code
+revision and per-phase durations when readiness completes.
 
 Tools that need retrieval wait for readiness for at most `WARMUP_WAIT_SECONDS`
 (default 20): `route_and_load`, `get_agent_context`, `refresh_persona_context`,
@@ -536,8 +546,10 @@ by side (`full` for the instruction files, `compact` for the text that the MCP
 instructions, the `SUCCESS` instruction and the memory reminder share, and a
 surface's own wording where it needs one); the `pointer` section holds the short
 texts sent instead of one the client already holds. `src/engine/protocol_text.py` composes
-every surface, in the order that keeps the per-turn and first-work rules inside
-the 2,048 and 4,096 characters that Claude Code shows of the MCP instructions.
+every surface, in an order that keeps the per-turn rules inside the first 2,048
+characters of the MCP instructions, all that Claude Code showed before v2.1.296,
+and the first-work rule and the delegation exchange through validation inside the
+4,096 characters it shows now.
 After editing a section, run
 `.venv/bin/python -m src.engine.protocol_text --write` (or use
 `.venv\Scripts\python.exe` on Windows): it regenerates the template, the memory
@@ -585,7 +597,7 @@ first.
 Run deterministic contract and migration tests from the checkout root:
 
 ```bash
-LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/test_persona_protocol.py tests/test_persona_bundle.py tests/test_install_instructions.py tests/test_installer_instructions.py tests/test_codex_instructions.py tests/test_protocol_migration.py tests/test_protocol_text.py tests/test_instruction_pointers.py tests/test_cooperation_instructions.py tests/test_log_interaction_contract.py tests/test_log_interaction_async.py tests/test_readiness.py tests/test_version.py -q
+LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/test_persona_protocol.py tests/test_persona_bundle.py tests/test_install_instructions.py tests/test_installer_instructions.py tests/test_codex_instructions.py tests/test_protocol_migration.py tests/test_protocol_text.py tests/test_instruction_pointers.py tests/test_flow_result_size.py tests/test_cooperation_instructions.py tests/test_log_interaction_contract.py tests/test_log_interaction_async.py tests/test_readiness.py tests/test_version.py -q
 ```
 
 See [tests/README.md](../tests/README.md) for the full suite, model prerequisites,

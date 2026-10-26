@@ -42,7 +42,7 @@ has its own root-selection rules. See [workspace targeting](routing_flow.md).
 | `describe_repo` | Read context or return `needs_summary`; does not write project files | [Repository memory](../README.md#-repository-memory) |
 | `write_repo_summary` | Explicitly persist a description using its repository fingerprint; refuses installation/source roots | [Repository memory](../README.md#-repository-memory) |
 | `read_history` | Read recent, semantic or exact-entry history; inspect returned workspace and errors | [Memory operations](shared-mcp-daemon.md#memory-and-errors) |
-| `log_interaction` | Record the exact composed answer and retained persona attribution before delivery | [Routing protocol](routing_flow.md) |
+| `log_interaction` | Record the exact composed answer (without the time line) and the verbatim request, both with secrets and capability values replaced by safe references and prohibited personal details omitted, together with the retained persona attribution, before delivery | [Routing protocol](routing_flow.md) |
 
 ## Reusable flows and user rules
 
@@ -70,15 +70,16 @@ that require optimistic concurrency.
 
 ## Delegated tasks and exact artifacts
 
-Preparation does not launch a worker. The host launches it with the compact
-package, and the parent retains the original contract. Structural validation
-and artifact integrity checks have different purposes; neither proves that a
-worker's conclusions are correct.
+Preparation does not launch a worker. The host launches it with the receipt's
+`launch` text (inline delivery: the compact package), and the parent keeps the
+receipt's `contract_revision` (inline: the original contract). Structural
+validation and artifact integrity checks have different purposes; neither
+proves that a worker's conclusions are correct.
 
 | Tool | Purpose and boundary | Reference |
 |---|---|---|
-| `get_subagent_context` | Prepare one scoped assignment, contract and fixed result schema; optional model-tier selection | [Worker contract](subagent-contract.md), [model tiers](subagent-model-tiers.md) |
-| `validate_subagent_result` | Validate every returned/revised result against the original parent-retained contract | [Worker contract](subagent-contract.md) |
+| `get_subagent_context` | Prepare one scoped assignment and its contract; by default store the package in a private file and return a receipt with the worker's `launch` text; plain-text or JSON result format; optional model-tier selection | [Worker contract](subagent-contract.md), [model tiers](subagent-model-tiers.md) |
+| `validate_subagent_result` | Validate every returned/revised result (text or JSON, or a `result_ref` to a result file or worker transcript) against the contract stored at preparation (`contract_revision`) or retained from an inline package | [Worker contract](subagent-contract.md) |
 | `artifact_publish` | Publish immutable UTF-8 task data in the workspace store | [Shared artifacts](shared-artifacts.md) |
 | `artifact_manifest_create` | Pin selected artifacts, hashes and purposes for a task | [Shared artifacts](shared-artifacts.md) |
 | `artifact_manifest_get` | Read the exact active pinned manifest | [Shared artifacts](shared-artifacts.md) |

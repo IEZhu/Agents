@@ -162,9 +162,9 @@ With `complexity`, the contract gains `execution`, covered by
  "model": "gpt-6-luna", "reasoning_effort": "medium"}
 ```
 
-The prepared package gains a top-level `execution` with the same fields plus
-`requested_tier`, `floor_reasons`, `source` and `spawn`, the launch arguments
-for the host:
+The receipt of the default file delivery, like the inline package, gains a
+top-level `execution` with the same fields plus `requested_tier`, `floor_reasons`,
+`source` and `spawn`, the launch arguments for the host:
 
 | Client | `spawn` |
 |---|---|
@@ -192,10 +192,10 @@ For a contract with `execution`, `validate_subagent_result` may add `escalation`
   no escalation.
 
 An escalated attempt is a new attempt: the parent prepares a new package with a
-new `attempt_id` and the escalation's `complexity`, keeps that new contract, and
-launches a fresh worker. Floors still apply. `escalation` never makes a result
-acceptable; the parent's own review of evidence and acceptance criteria is
-unchanged.
+new `attempt_id` and the escalation's `complexity`, keeps that new receipt's
+`contract_revision` (inline: its contract) and launches a fresh worker. Floors
+still apply. `escalation` never makes a result acceptable; the parent's own
+review of evidence and acceptance criteria is unchanged.
 
 ## Ledger
 
@@ -209,9 +209,11 @@ codes, plus `valid`, result status, failed check count and the escalation tier a
 reason for validations. It never holds task text, context, paths, results or
 workspace names. A write failure is logged and never fails the tool call.
 
-The ledger is off by default, like the `AGENTS_DEBUG` logs: both worker tools keep
-their read-only tool annotations, which clients such as Codex use to decide whether
-a call needs approval.
+The ledger is off by default, like the `AGENTS_DEBUG` logs, so that
+`validate_subagent_result` keeps its read-only tool annotation, which clients such
+as Codex use to decide whether a call needs approval. `get_subagent_context` is
+annotated as not read-only because it writes the exchange files
+([compact exchange](subagent-contract.md#compact-exchange)).
 
 `scripts/subagent_tiers_report.py` summarizes the ledger per client, tier and
 model: prepared packages, validations, the share accepted without escalation, and
@@ -226,7 +228,8 @@ into every surface: the template `scripts/templates/routing-protocol-core.md`, t
 MCP initialization instructions, `APPLY_INSTRUCTION` and the memory reminder:
 
 - rate the assignment `complexity` (the three-line rubric) when preparing;
-- launch the worker with the package's `execution.spawn` arguments; for Codex this
+- launch the worker with the `execution.spawn` arguments of the receipt (or of an
+  inline package); for Codex this
   is the user's explicit request to set `model` and `reasoning_effort`;
 - on a returned `escalation`, prepare a new attempt at that complexity.
 
