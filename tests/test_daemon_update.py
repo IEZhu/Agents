@@ -1152,7 +1152,8 @@ def test_failed_probation_restores_the_target_branchs_upstream(installation):
 
 # --- Dependencies: the target's Python environment (#181) ----------------------
 
-# As in tests/test_environments.py: Windows refuses delivery into the setup directory.
+# As in tests/test_environments.py: Windows refuses delivery into the setup directory;
+# the linked_installation tests run there too.
 posix_delivery = pytest.mark.skipif(os.name == "nt", reason="Windows refuses delivery into the setup directory")
 
 
@@ -1272,6 +1273,46 @@ def test_a_failed_environment_build_leaves_the_service_serving(venv_installation
     assert result["state"] == "PREPARE_ENVIRONMENT_FAILED" and "ResolutionImpossible" in result["reason"]
     assert controller.running and controller.stops == 0 and git(root, "rev-parse", "HEAD") == env.base
     assert list((root / ".venvs").iterdir()) == []
+
+
+ACTIVE = "py313-" + "d" * 12
+
+
+@pytest.fixture
+def linked_installation(venv_installation):
+    """The same service after its first switch: ``.venv`` links into ``.venvs``, by a junction on Windows,
+    the only layout Windows delivers into."""
+    from src import environments
+    root = venv_installation.root
+    shutil.copytree(root / ".venv", root / ".venvs" / ACTIVE)
+    environments.switch(str(root), environments.plan(str(root), ACTIVE, now=0))
+    return venv_installation
+
+
+def test_a_dependency_update_repoints_a_linked_venv(linked_installation):
+    """Runs on Windows too: the build, the activation and the journal of a junction switch."""
+    from src import environments
+    env = linked_installation
+    controller, root = env.controller, env.root
+    target = publish_requirements(root, env.base, "mcp==2\n")
+    result = offline_update(controller)
+    assert result["state"] == "UPDATED" and git(root, "rev-parse", "HEAD") == target
+    current = environments.state(str(root))
+    assert current["kind"] == "link" and current["name"] != ACTIVE
+    assert env.staged_with == [environments.python_path(root / ".venvs" / current["name"])]
+    assert controller.stops == 1 and not (controller.directory / "transaction.json").exists()
+
+
+def test_a_failed_probation_repoints_a_linked_venv_back(linked_installation):
+    from src import environments
+    env = linked_installation
+    controller, root = env.controller, env.root
+    publish_requirements(root, env.base, "mcp==2\n")
+    controller.fail_ready = 1
+    result = offline_update(controller)
+    assert result["state"] == "rolled_back" and git(root, "rev-parse", "HEAD") == env.base
+    assert environments.state(str(root)) == {"kind": "link", "name": ACTIVE}
+    assert not (controller.directory / "transaction.json").exists()
 
 
 def test_the_service_reindex_runs_the_interpreter_it_is_given(installation, monkeypatch, tmp_path):

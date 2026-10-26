@@ -86,7 +86,8 @@ def make_environment(directory, *, record=True, packages=(), base=None):
 
 # Windows refuses dependency delivery into the directory setup created (see
 # test_windows_refuses_dependency_changes_on_the_setup_directory), so tests that
-# deliver into it, or reach a check behind that refusal, run on POSIX only.
+# deliver into it, or reach a check behind that refusal, run on POSIX only; the
+# `linked` fixture builds on every platform.
 posix_delivery = pytest.mark.skipif(os.name == "nt", reason="Windows refuses delivery into the setup directory")
 
 
@@ -444,6 +445,34 @@ def test_a_redirected_venvs_is_neither_built_in_nor_pruned(root, tmp_path):
     with pytest.raises(environments.BuildFailed, match="is a link"):
         environments.build(str(root), needed(root), run=FakeBuilder(), timeout=60)
     assert environments.prune(str(root)) == [] and (old / environments.RECORD).exists()
+
+
+ACTIVE = "py313-" + "d" * 12
+
+
+@pytest.fixture
+def linked(root):
+    """The installation after its first switch: ``.venv`` links into ``.venvs``, by a junction on Windows,
+    the only layout Windows delivers into."""
+    shutil.copytree(root / ".venv", root / ".venvs" / ACTIVE)
+    environments.switch(str(root), environments.plan(str(root), ACTIVE, now=0))
+    return root
+
+
+def test_a_build_beside_a_linked_venv_is_reused_and_a_failed_one_leaves_nothing(linked):
+    """Runs on Windows too, where the tests above stop at the setup directory's refusal."""
+    wanted = needed(linked)
+    record = environments.build(str(linked), wanted, run=FakeBuilder(), timeout=60)
+    assert record["python"] == environments.python_path(record["path"])
+    assert environments.complete(record["path"], record["requirements_sha256"])
+    again = FakeBuilder()
+    assert environments.build(str(linked), wanted, run=again, timeout=60) == record and again.calls == []
+    with pytest.raises(environments.BuildFailed):
+        environments.build(str(linked), needed(linked, requirements="mcp==3\n"), run=FakeBuilder(fail="pip"),
+                           timeout=60)
+    assert sorted(path.name for path in (linked / ".venvs").iterdir()) == \
+        sorted([ACTIVE, "legacy-19700101T000000Z", record["id"]])
+    assert environments.state(str(linked)) == {"kind": "link", "name": ACTIVE}
 
 
 # --- switching -------------------------------------------------------------------------------------
