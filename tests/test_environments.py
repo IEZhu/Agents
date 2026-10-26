@@ -225,20 +225,37 @@ def test_pip_options_local_paths_and_continuations_in_requirements_are_refused(r
         needed(root, requirements=f"mcp==2\n{line}\n")
 
 
-@pytest.mark.parametrize("line", ["bad package", "numpy 1.24", "numpy>=1.24 extra", "numpy>=1.24,latest",
-                                  "numpy (>=1.24)"])
+UNREADABLE = ["bad package", "numpy 1.24", "numpy>=1.24 extra", "numpy>=1.24,latest", "numpy>=latest", "numpy~=1",
+              "numpy>=1.0+local", "numpy>=1.*", "numpy[extra]>=1,,<2", "numpy,"]
+READABLE = ["numpy", "numpy >= 1.24, < 3", "numpy~=1.24.0", "numpy==1.*", "numpy!=1.2.*", "numpy===1.24+cpu",
+            "numpy==1.0+cpu", "numpy>=1.0rc1", "numpy>=1!2.0", "numpy>=1.0.post1.dev2", "numpy<=v1.2", "numpy>=1,",
+            "numpy (>=1.24)", "numpy[extra]>=1.24", "numpy>=1.24 ; python_version < '3.14'",
+            "numpy; sys_platform == 'win32'", "numpy @ https://example.invalid/numpy-1.whl"]
+
+
+@pytest.mark.parametrize("line", UNREADABLE)
 @posix_delivery
 def test_unreadable_version_specifiers_are_refused_before_a_build(root, line):
     with pytest.raises(environments.Refused, match="version specifier this updater cannot read"):
         needed(root, requirements=f"mcp==2\n{line}\n")
 
 
-@pytest.mark.parametrize("line", ["numpy", "numpy >= 1.24, < 3", "numpy~=1.24.0", "numpy==1.*", "numpy===1.24+cpu",
-                                  "numpy[extra]>=1.24", "numpy>=1.24 ; python_version < '3.14'",
-                                  "numpy; sys_platform == 'win32'", "numpy @ https://example.invalid/numpy-1.whl",
-                                  "https://example.invalid/numpy-1.whl"])
+@pytest.mark.parametrize("line", [*READABLE, "https://example.invalid/numpy-1.whl"])
 def test_readable_requirement_lines_pass_the_line_check(line):
     assert environments.unsafe_requirement(line) is None
+
+
+@pytest.mark.parametrize("line", UNREADABLE + READABLE)
+def test_the_line_check_reads_specifiers_as_pip_does(line):
+    """pip's own parser (its vendored packaging) accepts exactly the lines the check passes."""
+    requirements = pytest.importorskip("pip._vendor.packaging.requirements")
+    try:
+        requirements.Requirement(line)
+    except requirements.InvalidRequirement:
+        accepted = False
+    else:
+        accepted = True
+    assert (environments.unsafe_requirement(line) is None) is accepted
 
 
 @pytest.mark.parametrize("field", ["dependencies", "extra"])
