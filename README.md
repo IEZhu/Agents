@@ -756,6 +756,9 @@ It is **safe by default**:
   (`==`); for changed `bridge/package.json` or
   `bridge/package-lock.json`; and for missing or malformed manifests. For those,
   stop the server sessions and update manually: `git pull --ff-only`, `.venv/bin/pip install -r requirements.txt`,
+  `.venv/bin/pip install` of each `project.dependencies` entry of `pyproject.toml`
+  that `requirements.txt` does not list and of the requirements of each extra in
+  use (an automatic build installs all of them),
   `.venv/bin/python -m src.model_migration .env` (applies a pending
   [model switch](#model-switch-on-update) before the rebuild), then
   `.venv/bin/python -m src.reindex`. With `AGENTS_AUTO_UPDATE_STAGING=0` every
@@ -785,7 +788,8 @@ activation or rollback. An interrupted mutation or failed rollback keeps the
 journal (and available staging artifacts); subsequent starts stop before importing
 the application, even with auto-update disabled. To recover, stop the sessions,
 inspect the recorded `old_sha` / `target_sha` and Git state, restore a complete
-chosen revision, and successfully run `python -m src.reindex` there. A recorded
+chosen revision with its Python environment (see below), and successfully run
+`.venv/bin/python -m src.reindex` there. A recorded
 `environment` names the Python environment switch, and the startup message
 repeats it. To restore the old revision (`old_sha`), point `.venv` at
 `.venvs/<environment.previous.name>` (or, when `previous.legacy` is set, remove

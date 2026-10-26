@@ -744,7 +744,7 @@ def test_git_fixture_setup_ignores_foreign_repository_environment(home, monkeypa
 @pytest.mark.parametrize("case", ["published", "active-commit", "inactive-commit", "detached-commit",
                                  "tagged-commit", "reflog-commit", "stash", "no-remotes", "ignored-note",
                                  "ignored-worktree", "venv-lookalike", "installation-assets", "hidden-untracked",
-                                 "versioned-environments"])
+                                 "versioned-environments", "venvs-personal"])
 def test_selected_checkout_git_state_is_preserved(home, case):
     """Real Git distinguishes published source and install assets from irreplaceable local state."""
     installation = home / "selected-checkout"
@@ -794,6 +794,9 @@ def test_selected_checkout_git_state_is_preserved(home, case):
             os.symlink(installation / ".venvs/py313-0123456789ab", installation / ".venv", target_is_directory=True)
         except OSError:
             pytest.skip("symlinks unavailable")
+    elif case == "venvs-personal":
+        write(installation / ".venvs/py313-0123456789ab/bin/python", "auto-update environment\n")
+        write(installation / ".venvs/personal/notes.txt", "not an environment auto-update made\n")
     ctx = context(home, "darwin", uninstall.run_command, AGENTS_HOME=str(installation))
     ctx.source_root = installation
     reason = uninstall.local_work(ctx, installation)
@@ -802,6 +805,21 @@ def test_selected_checkout_git_state_is_preserved(home, case):
     else:
         assert reason is not None
     assert (installation / "source.txt").exists()
+
+
+def test_updater_environment_names_are_the_ones_src_environments_makes(tmp_path):
+    """The uninstaller's standard-library copy of the names accepts what auto-update creates, nothing else."""
+    from src import environments
+    (tmp_path / ".venv").mkdir()
+    (tmp_path / ".venvs/legacy-19700101T000000Z").mkdir(parents=True)
+    identifier = environments.environment_id("mcp==1.30.0\n", (3, 13, 1))
+    legacy = environments.plan(str(tmp_path), identifier, now=0)["previous"]["legacy"]
+    assert legacy == "legacy-19700101T000000Z-1"
+    for name in (identifier, "legacy-19700101T000000Z", legacy, f"{environments.TRASH}{identifier}-4242"):
+        assert uninstall.UPDATER_ENVIRONMENT_FILE.match(f".venvs/{name}/bin/python".encode())
+    for name in ("personal", "py313-0123", identifier + "0", "legacy-notes"):
+        assert not uninstall.UPDATER_ENVIRONMENT_FILE.match(f".venvs/{name}/notes.txt".encode())
+    assert not uninstall.UPDATER_ENVIRONMENT_FILE.match(b".venvs/notes.txt")
 
 
 @pytest.mark.parametrize("override", ["repository", "config"])

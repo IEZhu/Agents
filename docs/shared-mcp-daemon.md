@@ -1618,8 +1618,10 @@ change code, dependencies or indexes without drain, maintenance, index backup,
 probation or rollback. `update` refuses a dependency change it cannot deliver
 (see above). For such a target, `stop` the service and close this installation's
 stdio servers, fast-forward the checkout (`git pull --ff-only`), install the
-dependencies as setup does (`.venv/bin/python -m pip install -r requirements.txt`),
-then `start` the service; its warmup rebuilds changed skill and implant indexes.
+dependencies an automatic build would (`.venv/bin/python -m pip install -r requirements.txt`,
+then each `project.dependencies` entry of `pyproject.toml` that `requirements.txt`
+does not list and the requirements of each extra in use), then `start` the
+service; its warmup rebuilds changed skill and implant indexes.
 Git credentials and SSH must work with the service's system-directory PATH and
 the LaunchAgent's (on Windows, the task's) environment ([tools and PATH](#tools-and-path)).
 
