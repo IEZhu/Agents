@@ -58,6 +58,18 @@ _URL = re.compile(r"\A(?:[A-Za-z][A-Za-z0-9+.-]*://|(?:git|hg|svn|bzr)\+)")
 # A local path, which pip would resolve next to the generated file instead of the checkout.
 _LOCAL_PATH = re.compile(r"\A(?:[./~]|[A-Za-z]:)")
 _CLAUSE = re.compile(r"\s*(~=|===|==|!=|<=|>=|<|>)\s*([0-9]+(?:\.[0-9]+)*)(\.\*)?\s*\Z")
+# The versions a specifier clause takes, as pip's packaging reads them (PEP 440): a local label and
+# a ``.*`` suffix only with == and !=, ~= with two release segments at least, === any token.
+# tests/test_environments.py checks the line check against pip's own parser.
+_RELEASE = r"v?(?:[0-9]+!)?[0-9]+(?:\.[0-9]+)*"
+_SUFFIXES = (r"(?:[-_.]?(?:alpha|beta|preview|pre|a|b|c|rc)[-_.]?[0-9]*)?"
+             r"(?:-[0-9]+|[-_.]?(?:post|rev|r)[-_.]?[0-9]*)?(?:[-_.]?dev[-_.]?[0-9]*)?")
+_LOCAL = r"(?:\+[a-z0-9]+(?:[-_.][a-z0-9]+)*)?"
+_EQUALITY = re.compile(rf"{_RELEASE}(?:\.\*|{_SUFFIXES}{_LOCAL})\Z", re.IGNORECASE)
+_VERSIONS = {"===": re.compile(r"[^\s;)]+\Z"), "==": _EQUALITY, "!=": _EQUALITY,
+             "~=": re.compile(rf"v?(?:[0-9]+!)?[0-9]+(?:\.[0-9]+)+{_SUFFIXES}\Z", re.IGNORECASE)}
+_ORDERED = re.compile(rf"{_RELEASE}{_SUFFIXES}\Z", re.IGNORECASE)
+_OPERATOR = re.compile(r"\s*(~=|===|==|!=|<=|>=|<|>)\s*(\S*)\s*\Z")
 _REPARSE_POINT = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
 # Settings that would point venv or pip at another interpreter, site or target than the new environment.
 _FOREIGN_SETTINGS = ("PYTHONHOME", "PYTHONPATH", "PYTHONSTARTUP", "PYTHONUSERBASE", "PIP_USER", "PIP_TARGET",
@@ -300,7 +312,9 @@ def unsafe_requirement(line) -> Optional[str]:
     """Why a requirement line cannot go into a generated requirements file, or None.
 
     A pip option (``-r``, ``-e``, ``--index-url`` …) or a local path would apply
-    to, or resolve against, the generated file instead of the checkout.
+    to, or resolve against, the generated file instead of the checkout. A version
+    part that is not ``<operator><version>`` clauses pip reads (``bad package``,
+    ``>=latest``, ``>=1,,<2``) would only fail in pip, after a whole build.
     """
     if "\n" in line or "\r" in line:
         return f"{line!r} spans several lines"
@@ -311,7 +325,19 @@ def unsafe_requirement(line) -> Optional[str]:
         return f"{stripped!r} is a pip option"
     if _LOCAL_PATH.match(stripped):
         return f"{stripped!r} is a local path"
+    version = (_version_part(stripped)[1] or "").strip()
+    clauses = version.split(",") if version else []
+    if len(clauses) > 1 and not clauses[-1].strip():
+        clauses.pop()  # one trailing comma, which pip accepts
+    for clause in clauses:
+        if not _readable_clause(clause):
+            return f"{stripped!r} has a version specifier this updater cannot read ({clause.strip()!r})"
     return None
+
+
+def _readable_clause(clause) -> bool:
+    match = _OPERATOR.match(clause)
+    return bool(match) and bool(_VERSIONS.get(match.group(1), _ORDERED).match(match.group(2)))
 
 
 def distribution_names(text) -> Optional[set]:
@@ -369,9 +395,10 @@ def unmet(text, environment) -> Optional[list]:
     return found
 
 
-def _clauses(line):
-    """``(name, specifier clauses)`` of a requirement line: the clauses after an extras group and
-    before a marker; None for a direct URL reference. ``(None, None)`` for a bare URL."""
+def _version_part(line):
+    """``(name, version part)`` of a requirement line: the text after an extras group and before a
+    marker, without the parentheses PEP 508 allows around it; None for a direct URL reference.
+    ``(None, None)`` for a bare URL."""
     if _URL.match(line):
         return None, None
     match = _NAME.match(line)
@@ -380,8 +407,18 @@ def _clauses(line):
     rest = re.sub(r"\A\[[^\]]*\]", "", line[match.end():].strip()).strip()
     if rest.startswith("@"):
         return _normalized(match.group(1)), None
-    return _normalized(match.group(1)), [re.sub(r"\s+", "", clause)
-                                         for clause in rest.split(";", 1)[0].split(",") if clause.strip()]
+    version = rest.split(";", 1)[0].strip()
+    enclosed = re.fullmatch(r"\((.*)\)", version)
+    return _normalized(match.group(1)), enclosed.group(1) if enclosed else version
+
+
+def _clauses(line):
+    """``(name, specifier clauses)`` of a requirement line (:func:`_version_part`), without spaces;
+    None for a direct URL reference. ``(None, None)`` for a bare URL."""
+    name, version = _version_part(line)
+    if version is None:
+        return name, None
+    return name, [re.sub(r"\s+", "", clause) for clause in version.split(",") if clause.strip()]
 
 
 def _parse(line):
@@ -456,8 +493,8 @@ def needed(root, git, old, target, python, run=None) -> Optional[Needed]:
     ``.venv``'s, a ``.venv`` that is neither an environment directory nor a link into
     ``.venvs`` (a directory without ``pyvenv.cfg``, and on Windows any directory),
     a missing or different base interpreter, a ``requires-python`` it misses, a pip
-    option, a local path or a continued line in the requirements, or two different
-    exact pins of one distribution. Git errors propagate.
+    option, a local path, a continued line or an unreadable version specifier in the
+    requirements, or two different exact pins of one distribution. Git errors propagate.
     """
     from src.daemon.update_dependencies import ENVIRONMENT, REFUSED, classify, inputs, requirement_lines
     change = classify(git, old, target)
