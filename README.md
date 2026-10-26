@@ -751,8 +751,9 @@ It is **safe by default**:
   the one `.venv` was made with, or does not satisfy the target's
   `requires-python`; when `.venv` is a directory without `pyvenv.cfg`; on Windows
   while `.venv` is still the directory setup created; when a requirement line is
-  a pip option (`-r`, `-e`, `--index-url` …), a local path or continues on the
-  next line; when one distribution is pinned to two different versions
+  a pip option (`-r`, `-e`, `--index-url` …), a local path, continues on the
+  next line or has a version part other than `<operator><version>` clauses
+  (`bad package`); when one distribution is pinned to two different versions
   (`==`); for changed `bridge/package.json` or
   `bridge/package-lock.json`; and for missing or malformed manifests. For those,
   stop the server sessions and update manually: `git pull --ff-only`, `.venv/bin/pip install -r requirements.txt`,

@@ -300,7 +300,9 @@ def unsafe_requirement(line) -> Optional[str]:
     """Why a requirement line cannot go into a generated requirements file, or None.
 
     A pip option (``-r``, ``-e``, ``--index-url`` …) or a local path would apply
-    to, or resolve against, the generated file instead of the checkout.
+    to, or resolve against, the generated file instead of the checkout. A version
+    part that is not ``<operator><version>`` clauses (``bad package``) would only
+    fail in pip, after a whole build.
     """
     if "\n" in line or "\r" in line:
         return f"{line!r} spans several lines"
@@ -311,6 +313,11 @@ def unsafe_requirement(line) -> Optional[str]:
         return f"{stripped!r} is a pip option"
     if _LOCAL_PATH.match(stripped):
         return f"{stripped!r} is a local path"
+    version = _version_part(stripped)[1]
+    for clause in (version or "").split(","):
+        clause = re.sub(r"\A(~=|===|==|!=|<=|>=|<|>)\s+", r"\1", clause.strip())
+        if clause and not _SPECIFIER.match(clause):
+            return f"{stripped!r} has a version specifier this updater cannot read ({clause!r})"
     return None
 
 
@@ -369,9 +376,9 @@ def unmet(text, environment) -> Optional[list]:
     return found
 
 
-def _clauses(line):
-    """``(name, specifier clauses)`` of a requirement line: the clauses after an extras group and
-    before a marker; None for a direct URL reference. ``(None, None)`` for a bare URL."""
+def _version_part(line):
+    """``(name, version part)`` of a requirement line: the text after an extras group and before a
+    marker; None for a direct URL reference. ``(None, None)`` for a bare URL."""
     if _URL.match(line):
         return None, None
     match = _NAME.match(line)
@@ -380,8 +387,16 @@ def _clauses(line):
     rest = re.sub(r"\A\[[^\]]*\]", "", line[match.end():].strip()).strip()
     if rest.startswith("@"):
         return _normalized(match.group(1)), None
-    return _normalized(match.group(1)), [re.sub(r"\s+", "", clause)
-                                         for clause in rest.split(";", 1)[0].split(",") if clause.strip()]
+    return _normalized(match.group(1)), rest.split(";", 1)[0]
+
+
+def _clauses(line):
+    """``(name, specifier clauses)`` of a requirement line (:func:`_version_part`), without spaces;
+    None for a direct URL reference. ``(None, None)`` for a bare URL."""
+    name, version = _version_part(line)
+    if version is None:
+        return name, None
+    return name, [re.sub(r"\s+", "", clause) for clause in version.split(",") if clause.strip()]
 
 
 def _parse(line):
@@ -456,8 +471,8 @@ def needed(root, git, old, target, python, run=None) -> Optional[Needed]:
     ``.venv``'s, a ``.venv`` that is neither an environment directory nor a link into
     ``.venvs`` (a directory without ``pyvenv.cfg``, and on Windows any directory),
     a missing or different base interpreter, a ``requires-python`` it misses, a pip
-    option, a local path or a continued line in the requirements, or two different
-    exact pins of one distribution. Git errors propagate.
+    option, a local path, a continued line or an unreadable version specifier in the
+    requirements, or two different exact pins of one distribution. Git errors propagate.
     """
     from src.daemon.update_dependencies import ENVIRONMENT, REFUSED, classify, inputs, requirement_lines
     change = classify(git, old, target)

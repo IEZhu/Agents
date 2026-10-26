@@ -225,6 +225,22 @@ def test_pip_options_local_paths_and_continuations_in_requirements_are_refused(r
         needed(root, requirements=f"mcp==2\n{line}\n")
 
 
+@pytest.mark.parametrize("line", ["bad package", "numpy 1.24", "numpy>=1.24 extra", "numpy>=1.24,latest",
+                                  "numpy (>=1.24)"])
+@posix_delivery
+def test_unreadable_version_specifiers_are_refused_before_a_build(root, line):
+    with pytest.raises(environments.Refused, match="version specifier this updater cannot read"):
+        needed(root, requirements=f"mcp==2\n{line}\n")
+
+
+@pytest.mark.parametrize("line", ["numpy", "numpy >= 1.24, < 3", "numpy~=1.24.0", "numpy==1.*", "numpy===1.24+cpu",
+                                  "numpy[extra]>=1.24", "numpy>=1.24 ; python_version < '3.14'",
+                                  "numpy; sys_platform == 'win32'", "numpy @ https://example.invalid/numpy-1.whl",
+                                  "https://example.invalid/numpy-1.whl"])
+def test_readable_requirement_lines_pass_the_line_check(line):
+    assert environments.unsafe_requirement(line) is None
+
+
 @pytest.mark.parametrize("field", ["dependencies", "extra"])
 @pytest.mark.parametrize("declared", ['"-e ."', '"python-dotenv\\n--index-url x"'])
 @posix_delivery

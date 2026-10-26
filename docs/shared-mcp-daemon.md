@@ -1505,7 +1505,8 @@ rename the directory of the running interpreter. Only a `.venv` that is already
 a junction into `.venvs` is switched there, and setup does not create one yet,
 so a Windows installation gets there only through a junction made by hand.
 Requirement lines that are pip options (`-r`, `-e`, `--index-url` …), local
-paths or continued on the next line, one distribution pinned to two different
+paths, continued on the next line or with a version part other than
+`<operator><version>` clauses, one distribution pinned to two different
 versions (`==` or `===`), changes to `bridge/package.json`
 or `bridge/package-lock.json` (nothing installs npm packages), missing or
 malformed manifests and dynamic dependency declarations need explicit
