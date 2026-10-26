@@ -1,7 +1,7 @@
 # Agents-Core Memory Subsystem: `describe` + `history.md`
 
 > Specification and step-by-step implementation plan for the per-repo memory mechanism of the Agents-Core MCP server.
-> Status: implemented 2026-04-15. Sections 1–5 carry later corrections, including client-scoped paths (#36), read-only description with explicit `write_repo_summary` persistence, persona attribution and asynchronous `log_interaction` delivery, sidecar locks, the history merged across machines through user library sync (#172) and `read_history` previews within Claude Code's result limit (#212). The implementation and test plans (sections 6–7) mostly keep their original wording; Appendix C records deviations between the plan and the implementation. For current behavior, see [README: Repository Memory](../README.md#-repository-memory), [service memory behavior](shared-mcp-daemon.md#memory-and-errors) and the [routing reference](routing_flow.md#runtime-and-project-boundaries).
+> Status: implemented 2026-04-15. Sections 1–5 carry later corrections, including client-scoped paths (#36), read-only description with explicit `write_repo_summary` persistence, persona attribution and asynchronous `log_interaction` delivery, sidecar locks, the history merged across machines through user library sync (#172) and `read_history` previews within Claude Code's result limit (#212), the `describe_repo` context bundle held to a size budget in shown units (#434). The implementation and test plans (sections 6–7) mostly keep their original wording; Appendix C records deviations between the plan and the implementation. For current behavior, see [README: Repository Memory](../README.md#-repository-memory), [service memory behavior](shared-mcp-daemon.md#memory-and-errors) and the [routing reference](routing_flow.md#runtime-and-project-boundaries).
 
 > **Update 2026-04-15 (post-implementation):** The standalone `record_history` MCP tool was merged
 > into `log_interaction`. Now `log_interaction(...)` always appends to `history.md` (with optional
@@ -70,7 +70,7 @@ describe_repo(repo_path?, force_refresh=False)
   ├─ RepoDescriber.compute_repo_hash()       # MD5 of top-level names, depth-1/2 dir names,
   │                                          # root manifests, README head (skips memory files,
   │                                          # excluded dirs, dot-entries except .env.example)
-  ├─ if hash unchanged and not force → return {status:"up-to-date"}
+  ├─ if hash unchanged, managed section present and not force → return {status:"up-to-date"}
   ├─ tree walk (depth ≤ 3, excluding vendor) + reading key files → CONTEXT_BUNDLE
   ├─ render DESCRIBE_PROMPT (template) with CONTEXT_BUNDLE
   └─ without sampling or writing, return
@@ -305,7 +305,11 @@ async def log_interaction(
     workspace: str | None = None,
 ) -> str:
     """End-of-turn logger. Queues independent history and optional Langfuse writes
-    and returns before either sink completes. History is append-only and deduped.
+    and returns before either sink completes. Pass the current user request verbatim
+    as query, except for the redactions below, and the exact final answer text,
+    without any time line, as response_content. Before the call, replace secrets
+    and capability values in every field with safe references and omit prohibited
+    personal details; both sinks receive these already-redacted arguments. History is append-only and deduped.
 
     Returns JSON: {request_id, timestamp, langfuse: {status: "queued"},
     history: {status: "queued"}, workspace, pid, history_last_error?}.
@@ -362,21 +366,21 @@ All tools return JSON strings (following the existing pattern in `src/server.py`
 
 ## 5. Describe Prompt (central artifact)
 
-`RepoDescriber` builds this prompt and returns it in `needs_summary` for the calling model; it does not send an MCP sampling request. The `{{CONTEXT_BUNDLE}}` placeholder is filled deterministically with three parts: the directory tree to depth 3 (skipping `DESCRIBE_EXCLUDED_DIRS`, dot-entries other than `.env.example`, and the contents of symlinked directories); the text of each root manifest that is a regular file and not a symlink (`pyproject.toml`, `package.json`, `Cargo.toml`, `go.mod`, `pom.xml`, `build.gradle`, `build.gradle.kts`, `requirements.txt`, `Pipfile`, `Gemfile`, `composer.json`); and the first 200 lines of `README.md`. The bundle stays within 24,000 shown units, the size Claude Code counts for the `describe_repo` response (`src.result_size.shown_size`, where a quote or backslash costs 4 and a newline 3), through caps of 10,000 for the tree, 6,000 for all manifests with 3,000 each, and 8,000 for the README head (`src/memory/config.py`). A part within its cap is kept whole; a larger one is cut at a line boundary and ends with a note of what it left out: the tree then lists at most 40 entries per directory below the root and drops its deepest lines first, evenly across directories, so the root's own entries go last, and a line over 1,000 units is shortened with an ellipsis.
+`RepoDescriber` builds this prompt and returns it in `needs_summary` for the calling model; it does not send an MCP sampling request. The template has four placeholders: `{REPO_NAME}`, `{WORD_MIN}` and `{WORD_MAX}` (800 and 1500), and `{CONTEXT_BUNDLE}`. They are filled in one pass over the template, so placeholder-like text in the checkout's name or in the bundle stays literal. The `{CONTEXT_BUNDLE}` placeholder is filled deterministically with three parts: the directory tree to depth 3 (skipping `DESCRIBE_EXCLUDED_DIRS`, dot-entries other than `.env.example`, and the contents of symlinked directories); the text of each root manifest that is a regular file and not a symlink (`pyproject.toml`, `package.json`, `Cargo.toml`, `go.mod`, `pom.xml`, `build.gradle`, `build.gradle.kts`, `requirements.txt`, `Pipfile`, `Gemfile`, `composer.json`); and the first 200 lines of `README.md`. The bundle stays within 24,000 shown units. A shown unit is what a character adds to the response as Claude Code counts a tool result (`src.result_size.shown_size`): a quote or backslash costs 4, a newline or tab 3, another control character 7, an astral character 2 and any other character 1. The 24,000 units leave room under Claude Code's 50,000-unit inline limit for the template and the instruction. The caps are 10,000 for the tree, 6,000 for all manifests with 3,000 each, and 8,000 for the README head (`src/memory/config.py`). A part within its cap is kept whole; a larger one is cut at a line boundary and ends with a note of what it left out: the tree then lists at most 40 entries per directory below the root and drops its deepest lines first, evenly across directories, so the root's own entries go last, and a line over 1,000 units is shortened with an ellipsis.
 
 > The prompt text is kept in English intentionally — future Claude sessions in any language context will be able to execute it, and the output structure matches the English sections of `CLAUDE.md`.
 
 ```
 You are a **Repository Analyst** performing a one-time deep study of a codebase.
-Your output will be saved into CLAUDE.md as the project memory and read by every
-future Claude session, so future sessions can work effectively without re-exploring
-the codebase.
+Produce reusable project memory so future sessions can work effectively without
+re-exploring the codebase. Persistence is a separate action governed by the
+describe_repo response's instruction and the caller's repository instructions.
 
 ## Task
-Produce a compressed, LLM-consumable repository overview for `{{REPO_NAME}}`.
+Produce a compressed, LLM-consumable repository overview for `{REPO_NAME}`.
 
 ## Input (CONTEXT_BUNDLE)
-{{CONTEXT_BUNDLE}}
+{CONTEXT_BUNDLE}
 
 ## Output Format
 Produce exactly these sections in this order. Use compressed markdown
@@ -422,7 +426,7 @@ Table: term | definition. Domain-specific terms only. Max 15.
 - Atomic: one paragraph = one idea.
 - Concrete: cite file paths and line numbers, not vague references.
 - Skip empty sections rather than writing "N/A".
-- Total output: 800–1500 words. Exceeding wastes context; under-shooting loses info.
+- Total output: {WORD_MIN}–{WORD_MAX} words. Exceeding wastes context; under-shooting loses info.
 - Output ONLY the markdown sections above. No preamble, no closing remarks.
 ```
 
@@ -572,7 +576,7 @@ The implementation as of 2026-04-15 matched the spec, apart from the clarificati
 
 8. **Rotation merge:** if `history/YYYY-MM.md` already exists at rotation time (multiple rotations in one month), the new snapshot is appended with a `<!-- merged on rotation -->` separator rather than overwriting the existing archive.
 
-9. **CLI instruction in `CLAUDE.md`** added as item `4. Repository memory (first session per repo)` — a separate section within the Routing Flow to avoid confusion with post-flight step 3. **Removed on 2026-09-20** with the persona continuity protocol: the current managed section (`scripts/templates/routing-protocol-core.md`) only requires `log_interaction` at the end of each answer. The closing message of `scripts/init_repo.sh` and `scripts/init_repo.bat` suggests `describe_repo`, which is also available as the `describe_repo` MCP prompt (optional `force` argument).
+9. **CLI instruction in `CLAUDE.md`** added as item `4. Repository memory (first session per repo)` — a separate section within the Routing Flow to avoid confusion with post-flight step 3. **Removed on 2026-09-20** with the persona continuity protocol: the current managed section (`scripts/templates/routing-protocol-core.md`) requires `log_interaction` at the end of each answer and `describe_repo` at a conversation's first work in a repository (`src/engine/protocol/first-work.md`). The closing message of `scripts/init_repo.sh` and `scripts/init_repo.bat` suggests `describe_repo`, which is also available as the `describe_repo` MCP prompt (optional `force` argument).
 
 10. **README.md** contains a `Repository Memory` section with a link to this spec and a mention of the `.gitignore` opt-out.
 
@@ -587,6 +591,8 @@ The implementation as of 2026-04-15 matched the spec, apart from the clarificati
 15. **Language tagging** of history entries (planned reuse of `LanguageDetector`) was not implemented. Entries carry only Intent, Action and Outcome, plus optional Files, Tags and Meta lines.
 
 16. **Later tool additions.** `log_interaction` gained client-reported persona attribution and protocol ERROR responses, and all memory tools resolve the client workspace per request (HTTP requires `X-Agents-Workspace`); see 4.3 and [service memory behavior](shared-mcp-daemon.md#memory-and-errors).
+
+17. **Bounded context bundle (#434).** `src/memory/config.py` gained `DESCRIBE_BUNDLE_MAX_CHARS`, `DESCRIBE_TREE_MAX_CHARS`, `DESCRIBE_MANIFESTS_MAX_CHARS`, `DESCRIBE_MANIFEST_MAX_CHARS`, `DESCRIBE_README_MAX_CHARS`, `DESCRIBE_TREE_MAX_ENTRIES_PER_DIR` and `DESCRIBE_LINE_MAX_CHARS`. The bundle is measured in shown units (`src/result_size.py`) so that a `needs_summary` response stays under Claude Code's 50,000-unit inline limit; see section 5.
 
 ---
 

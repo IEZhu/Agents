@@ -11,9 +11,9 @@ monitor wait without repeated model polling. This does not relax any flow gate.
 
 ## Delegated workers
 
-Every flow that launches an AI reviewer, verifier or other worker follows the [mandatory delegation contract](../docs/routing_flow.md#delegated-workers): call `get_subagent_context`, require `status: prepared`, retain the original contract, and pass the compact `worker_context` unchanged to a fresh native worker. For every returned or revised output, call `validate_subagent_result` with that contract and require `valid: true` before using it, then check evidence and acceptance criteria. No endpoint failure permits unprepared delegation or unvalidated acceptance; report the limitation and work in the parent when practical. Flow-specific requirements for an independent review remain unsatisfied when no validated independent review ran.
+Every flow that launches an AI reviewer, verifier or other worker follows the [mandatory delegation contract](../docs/routing_flow.md#delegated-workers): call `get_subagent_context` and require `status: prepared`. With the default file delivery, start a fresh native worker with the receipt's `launch` text and keep the receipt's `contract_revision`; the inline package has no `launch` text (see below). For every returned or revised output, call `validate_subagent_result` with `contract_revision` and `result_ref` (the worker's transcript or result file; `result` only when no file holds the output; for an inline package, the retained `contract` instead of `contract_revision`) and require `valid: true` before using it, then check evidence and acceptance criteria. Only for a worker that cannot read the server's files, request `delivery="inline"`, retain the returned `contract` and start the worker with `worker_context` unchanged. No endpoint failure permits unprepared delegation or unvalidated acceptance; report the limitation and work in the parent when practical. Flow-specific requirements for an independent review remain unsatisfied when no validated independent review ran.
 
-When a flow is task material for a prepared worker, as [code-review-pass](code-review-pass.md) and [change-premortem](change-premortem.md) are for the workers of an [autodev](autodev.md) run, the package and the worker rules govern: the flow's persona frontmatter, its exact component lists, a personal overlay and its steps about `run_flow` and role activation do not apply. The worker gets a compact role from the package and returns only the package's result schema; the flow contributes its method where it does not conflict.
+When a flow is task material for a prepared worker, as [code-review-pass](code-review-pass.md) and [change-premortem](change-premortem.md) are for the workers of an [autodev](autodev.md) run, the package and the worker rules govern: the flow's persona frontmatter, its exact component lists, a personal overlay and its steps about `run_flow` and role activation do not apply. The worker gets a compact role from the package and returns only the result in the package's format; the flow contributes its method where it does not conflict.
 
 ## Available flows
 
@@ -53,10 +53,11 @@ The three issue flows run in a Claude Code cloud routine that a GitHub Actions
 bridge starts for the owner's `/agent` comments, not from a local request. See
 [issue agent setup](../docs/cloud-runs.md#issue-agent).
 
-`environment-autoconfigure` runs as `sysadmin` with that agent's default
-components. It audits and repairs the current host only when explicitly invoked;
-it is not an installation hook for ordinary conversations. The configured stack
-and platform determine versions and supported integrations.
+`environment-autoconfigure` runs as `sysadmin` and `shared-kv-inference` as
+`software_engineer`, each with that agent's default components.
+`environment-autoconfigure` audits and repairs the current host only when
+explicitly invoked; it is not an installation hook for ordinary conversations.
+The configured stack and platform determine versions and supported integrations.
 
 ## Run a flow
 

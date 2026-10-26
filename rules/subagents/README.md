@@ -12,8 +12,8 @@ It also adds `worker-artifacts` when the request supplies `artifact_manifest`:
 | `worker-scope` | Assignment boundaries, operation permissions, fixed specialization, and delegation limits |
 | `worker-input` | Harmless assumptions versus critical dependencies and `input_required` |
 | `worker-completion` | Acceptance criteria, effort limits, partial results, and stop conditions |
-| `worker-result` | Exact JSON envelope, traceable evidence, and truthful check status |
-| `worker-cooperation` | Parent-mediated intersection handling, authorized sidecar use, valid claims, and unchanged final envelopes |
+| `worker-result` | Exact result in the package's format (plain text by default, JSON for `result_format="json"`), traceable evidence, and truthful check status |
+| `worker-cooperation` | Parent-mediated intersection handling, authorized sidecar use, valid claims, and unchanged final results |
 | `worker-artifacts` (conditional) | Complete pinned `artifact_read` of required inputs, unavailable-input handling, and authorized output manifests |
 
 Each file has YAML frontmatter with a unique `name` matching its
@@ -24,21 +24,24 @@ incomplete package. Keep changes short: every worker receives the mandatory rule
 
 Worker scope is independent of universal presentation rules. The builder also
 retains installation-enabled non-presentation universal rules, including honesty
-and uncertainty, while excluding `answer-timestamp` and `language-match`.
+and uncertainty, while excluding `answer-timestamp`, `language-match` and
+`thread-status`.
 It excludes universal `agent-cooperation` with the reason `worker_equivalent`
 because the mandatory worker rule supplies its equivalent within the assignment.
 Turning conversation rules off does not remove `worker-cooperation`; if mandatory
 instructions exceed the character budget, preparation returns an error instead
 of dropping or cropping them.
-Language can be specified in the assignment; the returned artifact is always
-the selected JSON envelope. Do not add applicability fields to universal rules.
+Language can be specified in the assignment; the returned result always follows
+the package's result format. Do not add applicability fields to universal rules.
 
-Use the supplied result schema as the structural authority. Do not duplicate
-its full definition in these files or invent another result format. Keep rule
-text consistent with status invariants and evidence references. The parent
-retains the authoritative contract, validates the result structurally, and
-assesses evidence and acceptance criteria before integration. These prompts
-cannot enforce runtime budgets, permissions, or the truth of reported checks.
+Use the supplied result format (the text template, or `result_schema` for JSON)
+as the structural authority. Do not duplicate its full definition in these files
+or invent another result format. Keep rule text consistent with status
+invariants and evidence references. The server stores the authoritative contract
+(with inline delivery the parent retains it); the parent validates the result
+structurally and assesses evidence and acceptance criteria before integration.
+These prompts cannot enforce runtime budgets, permissions, or the truth of
+reported checks.
 
 For the full contract and authoring requirements, see
 [Task-scoped subagents](../../docs/subagent-contract.md) and the

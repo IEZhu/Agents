@@ -62,11 +62,11 @@ removed, renamed or reprioritized.
 [`subagents/`](subagents/README.md) contains a separate mandatory rule collection
 for `get_subagent_context`. The conversation loader's root-only glob does not
 load these files. They define assignment scope, permitted action mode, missing
-input, completion and effort limits, and the exact JSON result contract.
+input, completion and effort limits, and the exact result format.
 
 Worker preparation keeps installation-enabled non-presentation universal rules
 but excludes `answer-timestamp`, `language-match` and `thread-status`; assignment language and the
-result schema control worker output. It also excludes `agent-cooperation` with
+result format control worker output. It also excludes `agent-cooperation` with
 the selection reason `worker_equivalent`: the mandatory `worker-cooperation`
 rule supplies its task-scoped equivalent, even when conversation rules are off.
 Worker scope rules do not depend on those presentation rules and are not added

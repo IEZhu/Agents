@@ -1,5 +1,11 @@
 # 🤖 Agents-Core
 
+**Specialist roles, repeatable workflows and project memory for your AI coding assistant.**
+
+Agents-Core is one local [MCP](https://modelcontextprotocol.io) server for Claude Code, Codex, Cursor, Claude Desktop, Antigravity and other MCP clients. It gives your current model a task-relevant expert persona with skills, shared rules and optional reasoning patterns called cognitive implants, Markdown workflows it executes with its own tools, bounded and validated delegated workers, and a memory of each project. The core server needs no external API key and runs on your machine.
+
+**[Features and client support](docs/features.md)** · [Quick start](#-quick-start) · [Documentation map](docs/README.md) · [Agent guide](docs/agent-guide.md) · [Install in another MCP client](llms-install.md)
+
 [![Shared runtime (dev)](https://github.com/IEZhu/Agents/actions/workflows/shared-runtime.yml/badge.svg?branch=dev&event=push)](https://github.com/IEZhu/Agents/actions/workflows/shared-runtime.yml?query=branch%3Adev+event%3Apush)
 [![Instruction signing tests (dev)](https://github.com/IEZhu/Agents/actions/workflows/instruction-signing.yml/badge.svg?branch=dev&event=push)](https://github.com/IEZhu/Agents/actions/workflows/instruction-signing.yml?query=branch%3Adev+event%3Apush)
 [![Documentation checks (dev)](https://github.com/IEZhu/Agents/actions/workflows/documentation-quality.yml/badge.svg?branch=dev&event=push)](https://github.com/IEZhu/Agents/actions/workflows/documentation-quality.yml?query=branch%3Adev+event%3Apush)
@@ -7,34 +13,35 @@
 [![User sync (dev)](https://github.com/IEZhu/Agents/actions/workflows/user-sync.yml/badge.svg?branch=dev&event=push)](https://github.com/IEZhu/Agents/actions/workflows/user-sync.yml?query=branch%3Adev+event%3Apush)
 [![Vulnerability scan (dev)](https://github.com/IEZhu/Agents/actions/workflows/vulnerability-scan.yml/badge.svg?branch=dev&event=push)](https://github.com/IEZhu/Agents/actions/workflows/vulnerability-scan.yml?query=branch%3Adev+event%3Apush)
 
-[Quality checks and badge scope](docs/quality-checks.md)
-
-**Specialist context, reusable workflows and repository memory for AI assistants.**
-
-Agents-Core is a local Model Context Protocol (MCP) server for assistants that need a specialist role, a repeatable task procedure or context from earlier work in a repository. It supplies personas, domain skills, shared rules and optional reasoning patterns called cognitive implants. Your current model uses that context and executes the task with its existing tools.
-
-- [Start here as an agent](docs/agent-guide.md): task-to-tool guide, first-call examples and operating limits.
-- [Compact documentation index](llms.txt): direct Markdown links for agents discovering the project.
-- [Install in an MCP client](llms-install.md): manual stdio configuration, including Cline.
-- [Documentation map](docs/README.md): current guides, reference material, and evaluation reports.
-- [Next-release integration](docs/documentation-audit-2026-10-18.md#parallel-feature-integration): integrated HTTP/stdio proxy and thread-status evidence, with remaining release prerequisites.
-- [Instruction signing](docs/instruction-signing-core.md): local key/trust controls and accepted coverage policy; runtime enforcement is still planned.
-- [AI contributor instructions](AGENTS.md) and [Claude instructions](CLAUDE.md).
-- [Model workflows](flows/README.md): reusable Markdown instructions, including
-  the [documentation refresh process](flows/documentation-refresh.md).
-
-## Checks
-
-The workflow badges show the latest matching push runs on the integration branch, `dev`; the MCP API badge is derived from the source. [Quality checks and badge scope](docs/quality-checks.md) is the one table of what each badge covers, its triggers and its limits, including the vulnerability gate that releases wait for. Other focused workflows are listed in [GitHub Actions](https://github.com/IEZhu/Agents/actions) and the [test guide](tests/README.md).
-
-After preparing the environment as described in the [test guide](tests/README.md), run the regular suite locally:
-
 ```bash
-LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/ -q
-node --test bridge/test.mjs
+curl -fsSL https://raw.githubusercontent.com/IEZhu/Agents/main/install.sh | bash
 ```
 
-Pytest excludes the `slow` marker by default. See the test guide for focused, slow and explicit live checks. These commands do not reproduce the complete hosted platform matrix or the dependency scan, and no coverage percentage is claimed.
+One command installs the server on macOS or Linux (Python 3.11+, about 1.1 GB model download), registers it with the clients it finds and writes the protocol section into their instruction files; its defaults also add session hooks and, on macOS, the shared background service with cooperation. See [Quick start](#-quick-start) for what it changes, Windows, the Claude Code plugin and manual setup.
+
+## ✨ What you get
+
+| | Feature | What it does for you |
+|---|---|---|
+| 🎭 | [Specialist personas](docs/features.md#core-features) | Routes each task to an expert role (reviewer, architect, technical writer and more) with its skills and rules, and keeps that role across turns |
+| 🔁 | [Repeatable workflows](flows/README.md) | PR review, documentation refresh, thread close and your own procedures, run by your model against your repository |
+| 🤝 | [Delegated workers](docs/subagent-contract.md) | Bounded tasks for fresh reviewers or parallel workers, a fixed result format and validation, simple work on a lighter model |
+| 🧠 | [Project memory](#-repository-memory) | A short description of each repository and a searchable log of earlier turns |
+| 🔌 | [One server for every client](docs/features.md#client-integration) | A shared local service on macOS and Windows, managed instruction files, and your other MCP servers through one connection |
+| 🔄 | [Sync and updates](docs/features.md#running-and-maintaining-the-installation) | Your personal flows and settings on every machine, and releases or every merged change through the update channel |
+
+## 💻 Supported clients
+
+| Client | Status | Connects through |
+|---|:-:|---|
+| Claude Code (CLI and desktop Code tab) | ✅ | Installer, [Claude Code plugin](plugins/agents-core/README.md) or the shared service; managed `CLAUDE.md` |
+| Codex (CLI, desktop, IDE) | ✅ | Installer or the shared service; managed `AGENTS.md` |
+| Cursor | ✅ | Installer or the shared service; protocol through MCP initialization |
+| Antigravity | ✅ | Installer with a native plugin, or the shared service |
+| Claude Desktop (chat) | ✅ | Installer or the shared service; protocol through MCP initialization |
+| Other MCP clients, such as Cline | 🟡 | A hand-written stdio entry ([manual install](llms-install.md)) |
+
+✅ means the installer sets the client up; what works in it differs. Claude Desktop chat starts outside any project, so workflows, repository memory and shared artifacts need a pinned project, and client hooks such as thread status, persona restore after compaction and native compaction exist only in some clients: see the [full feature matrix](docs/features.md).
 
 ## When to use Agents-Core
 
@@ -47,6 +54,21 @@ Pytest excludes the `slow` marker by default. See the test guide for focused, sl
 | Shared exact inputs across workers | Persistent artifacts and pinned manifests | [Shared artifacts](docs/shared-artifacts.md) |
 
 The core server needs no external API key. Setup requires Python 3.11+ and downloads a local embedding model (about 1.1 GB with the default configuration). Clients connect through standalone stdio or the shared local service; the Claude Code plugin launches a separately installed server. Native worker execution, file edits and shell commands remain the host client's responsibility. See the [agent guide](docs/agent-guide.md) for selection examples, data handling and limits.
+
+---
+
+## 📚 Documentation
+
+- [Start here as an agent](docs/agent-guide.md): task-to-tool guide, first-call examples and operating limits.
+- [Compact documentation index](llms.txt): direct Markdown links for agents discovering the project.
+- [Install in an MCP client](llms-install.md): manual stdio configuration, including Cline.
+- [Documentation map](docs/README.md): current guides, reference material, and evaluation reports.
+- [Next-release audit](docs/documentation-audit-2026-10-25.md#before-the-promotion): base revision, checks and remaining prerequisites of the coming `dev` → `main` promotion.
+- [Instruction signing](docs/instruction-signing-core.md): local key/trust controls and accepted coverage policy; runtime enforcement is still planned.
+- [AI contributor instructions](AGENTS.md) and [Claude instructions](CLAUDE.md).
+- [Model workflows](flows/README.md): reusable Markdown instructions, including
+  the [documentation refresh process](flows/documentation-refresh.md).
+- [Quality checks and badge scope](docs/quality-checks.md): what each badge at the top of this page covers.
 
 ---
 
@@ -756,7 +778,7 @@ The server exposes MCP tools that any compatible client can call:
 | `route_and_load(query, chat_history?, protocol_version=2, current_persona?)` | Semantic routing when selection is requested; returns a loaded role or candidates for the client to choose |
 | `get_agent_context(agent_name, query, reasoning?, chat_history?, protocol_version=2, current_persona?, force_reload=False)` | Direct agent loading when the target is already known; the active agent returns `NO_CHANGE` unless `force_reload=True` restores lost instructions |
 | `refresh_persona_context(query, current_persona, chat_history?)` | Refresh skills/implants for the active role without reselecting it |
-| `get_subagent_context(agent_name, task, acceptance_criteria, ..., complexity?, client?)` | Prepare a compact task-scoped worker role, bounded components and a versioned result contract; with `complexity`, also the model to launch it on; [worker guide](docs/subagent-contract.md) |
+| `get_subagent_context(agent_name, task, acceptance_criteria, ..., complexity?, client?, delivery?, result_format?)` | Prepare a compact task-scoped worker role, bounded components and a versioned result contract; by default the package goes to a private file and the reply is a receipt with the worker's `launch` text; with `complexity`, also the model to launch it on; [worker guide](docs/subagent-contract.md) |
 | `validate_subagent_result(contract_revision, result_ref)` | Check the worker's text or JSON result, read from its transcript or result file, against the contract the server stored (or `contract`/`result` for an inline package); structural validation only, without opening references inside the result; returns `result_sha256` and names the next model tier when a tiered worker fell short |
 | `cooperation_register(...)` | Register bounded work in the optional local cooperation journal; does not spawn workers or grant repository access |
 | `cooperation_read(...)` | Read a bounded repository snapshot and ordered cooperation events through the verified workspace |
@@ -775,7 +797,7 @@ The server exposes MCP tools that any compatible client can call:
 | `set_flow_persona(flow, agent?, skills?, implants?, rules?, reset=False)` | Choose the agent and exact skills, implants and rules a flow runs with, without copying its text; stored in `flows/.user/personas/`. Without `agent` the flow runs without a persona; `reset=true` restores the flow's frontmatter ([details](flows/README.md#choose-a-flows-agent-and-components)) |
 | `list_user_rules` / `get_user_rule` / `subscribe_user_rule` / `refresh_user_rule` | Inspect or explicitly fetch cached [URL-subscribed user rules](docs/user-rules.md); only subscribe and refresh contact the source |
 | `set_user_rule_enabled` / `rollback_user_rule` / `delete_user_rule` | Change a user rule using its current revision, without fetching; private cached content stays outside flow sync |
-| `log_interaction(agent_name, query, response_content, persona?, persona_action?, intent?, action?, outcome?, files?, tags?, request_id?, reasoning?)` | End-of-turn attribution log ([details](#-repository-memory)); `persona` is the last `SUCCESS`/`NO_CHANGE` descriptor object copied verbatim with all 7 keys (`agent`, `activation_id`, `bundle_revision`, `scope`, `skills_loaded`, `implants_loaded`, `rules_loaded`), `persona_action` is `keep`, `switch`, `refresh` or `restore` and only goes with `persona`; `files`/`tags` are JSON arrays. Malformed attribution is written as `unverified` |
+| `log_interaction(agent_name, query, response_content, persona?, persona_action?, intent?, action?, outcome?, files?, tags?, request_id?, reasoning?)` | End-of-turn attribution log ([details](#-repository-memory)); `query` is the current request verbatim and `response_content` the exact answer without the time line, both with secrets and capability values replaced by safe references and prohibited personal details omitted; `persona` is the last `SUCCESS`/`NO_CHANGE` descriptor object copied verbatim with all 7 keys (`agent`, `activation_id`, `bundle_revision`, `scope`, `skills_loaded`, `implants_loaded`, `rules_loaded`), `persona_action` is `keep`, `switch`, `refresh` or `restore` and only goes with `persona`; `files`/`tags` are JSON arrays. Malformed attribution is written as `unverified` |
 | `clear_session_cache()` | Stdio only: administrative reset of the shared enrichment cache; not required for persona changes. For HTTP, use `.venv/bin/python -m src.daemon clear-cache` |
 | `describe_repo(repo_path=None, force_refresh=False)` | Read-only repository context and cached summary preview; returns `needs_summary` when a refresh is needed, without sampling or writing ([details](#-repository-memory)) |
 | `write_repo_summary(summary, repo_hash, repo_path=None, workspace_id=None)` | Explicitly persists the summary after `needs_summary`; pass its `repo_hash`, `repo_path` and `workspace_id` back unchanged; refuses the running installation/source root |
@@ -787,7 +809,7 @@ The server exposes MCP tools that any compatible client can call:
 | `local_generate` / `local_generation_result` / `local_generation_cancel` | Submit one bounded completion, reconnect/poll its retained result, or cancel it; UUID deduplication prevents a repeated submit from generating twice |
 
 For shared task inputs, publish once and pass the complete manifest to
-`get_subagent_context.artifact_manifest`. Preparation pins it in the retained
+`get_subagent_context.artifact_manifest`. Preparation pins it in the task
 contract and supplies exact reads for a native worker. The parent still validates
 the unchanged result and independently verifies its artifact evidence. Optional
 `local_context_create.artifact_manifest` instead hydrates every selected entry
@@ -883,7 +905,7 @@ records the telemetry and evaluation evidence for the switch and links the
 remaining validation gaps for each tested client/model.
 
 Delegated workers use a separate [subagent contract](docs/subagent-contract.md):
-the parent prepares an authored compact role with `get_subagent_context` and, only after `status: prepared`, starts a native worker with the receipt's `launch` text; the server writes the package to a private file and keeps the contract. The worker answers in plain text, and the parent validates every returned or revised result with `validate_subagent_result` by `contract_revision` and `result_ref` (the worker's transcript or result file), never retyping it ([compact exchange](docs/subagent-contract.md#compact-exchange)). Require `valid: true` before accepting or integrating it; a failed or unavailable endpoint means work stays with the parent, without an unprepared worker or unvalidated result. Default packages
+the parent prepares an authored compact role with `get_subagent_context` and, only after `status: prepared`, starts a native worker with the receipt's `launch` text; the server writes the package to a private file and keeps the contract. The worker answers in plain text by default, or in the JSON envelope with `result_format="json"` (the validator accepts both forms), and the parent validates every returned or revised result with `validate_subagent_result` by `contract_revision` and `result_ref` (the worker's transcript or result file), or the unchanged `result` when no file holds it, never retyping it ([compact exchange](docs/subagent-contract.md#compact-exchange)). Only for a worker that cannot read the server's files, `delivery="inline"` returns the package itself: the parent starts the worker with its `worker_context` unchanged, retains its `contract` and validates by that `contract` with the unchanged `result`. Require `valid: true` before accepting or integrating it; a failed or unavailable endpoint means work stays with the parent, without an unprepared worker or unvalidated result. Default packages
 select up to three skills and zero implants under a 16,000-character context
 budget. The parent then checks the evidence and acceptance criteria. The tools
 do not launch a model or enforce its runtime permissions or token budget. A valid
@@ -892,7 +914,8 @@ per-result interaction log; ordinary conversation attribution remains unchanged.
 
 [Model tiers](docs/subagent-model-tiers.md) cut flagship tokens on simpler
 assignments. The parent rates each one `complexity: low | standard | high` and
-names its host in `client`; the package's `execution.spawn` then launches the worker on the newest lighter model
+names its host in `client`; the `execution.spawn` of the receipt (or of an inline
+package) then launches the worker on the newest lighter model
 the client offers: Claude Code `haiku` or `sonnet`, Codex's newest `*-luna` or
 `*-sol` at medium effort, Cursor Auto or its newest Composer. `high` keeps the
 parent's model. Risky or large assignments are raised to a higher tier, and a
@@ -956,7 +979,7 @@ passing server tests alone does not establish it.
 
 ```
 Agents/
-├── .github/workflows/    # Windows installer CI and the issue-agent bridge
+├── .github/workflows/    # CI checks, vulnerability and release gates, issue-agent bridge
 ├── agents/               # Agent personas, discovered from system_prompt.mdc
 │   ├── software_engineer/
 │   │   └── system_prompt.mdc
@@ -970,6 +993,8 @@ Agents/
 ├── src/
 │   ├── server.py         # FastMCP tools, prompts, and standalone entrypoint
 │   ├── startup.py        # Installation leases and isolated stdio indexes
+│   ├── personal_runtime.py # Personal startup hooks for the daemon and standalone stdio
+│   ├── stdio_runtime.py  # Stdio run loop with supplied startup hook and log drain
 │   ├── self_update.py    # Standalone staged updates
 │   ├── reindex.py        # Skill and implant index rebuild
 │   ├── model_migration.py # One-time switch to the default embedding model
@@ -995,6 +1020,7 @@ Agents/
 │   │   ├── rules.py      # Shared rule loading
 │   │   ├── config.py     # Centralized configuration
 │   │   ├── embedder.py   # Dense ONNX embedding wrapper
+│   │   ├── onnx_embedding.py # Dense ONNX adapter with the retained FastEmbed catalog
 │   │   ├── embedding_prompts.py # Model prompts and extra model registrations
 │   │   ├── vector_store.py # NumPy-based vector store
 │   │   ├── enrichment.py # Tier-based context enrichment
@@ -1091,11 +1117,11 @@ entry, and their managed backups. It does not install dependencies, change `.env
 or vector indexes, register MCP connections, or change
 service configuration. The shared daemon migration below configures Codex's MCP
 connection on macOS and Windows; without the service, add the [standalone Codex entry](#codex-configtoml).
-Refreshing client instruction files alone does not require restarting the daemon. Start fresh client sessions to load them. Cursor and standalone Claude Desktop receive the shared contract through MCP initialization; this instruction-only command does not manage a global rules file for them. After updating server-side initialization instructions, restart or reconnect the server and reconnect those clients to receive the new initialization response. Existing project-level rules can override global guidance, so update their managed sections with the same template when they restate an older contract.
+Refreshing client instruction files alone does not require restarting the daemon while it serves the same protocol; if the files now hold a newer template than the running daemon, a conversation's first activation warns that they hold a newer protocol and names the restart command (`.venv/bin/python -m src.daemon restart`, run in the installation). Start fresh client sessions to load them. Cursor and standalone Claude Desktop receive the shared contract through MCP initialization; this instruction-only command does not manage a global rules file for them. After updating server-side initialization instructions, restart or reconnect the server and reconnect those clients to receive the new initialization response. Existing project-level rules can override global guidance, so update their managed sections with the same template when they restate an older contract.
 
 ### Shared macOS and Windows service
 
-On macOS and Windows, one shared daemon can serve Codex, Claude Code, Cursor and Claude Desktop.
+On macOS and Windows, one shared daemon can serve Codex, Claude Code, Cursor, Claude Desktop and Antigravity.
 Before `install`, capture a baseline and stop this installation's stdio servers,
 either by disabling Agents-Core in open clients or by ending those sessions;
 `install` fails while any of them holds the installation lease. See
@@ -1324,9 +1350,9 @@ client project.
 Summary destination checks use filesystem identity as well as resolved paths,
 including case variants and macOS volume aliases of the protected checkout.
 
-- **`describe_repo`** — reads repository context without sampling or writing project files, including with `force_refresh=True`. Returns `up-to-date` with the cached summary preview, or `needs_summary` with a prompt, `repo_hash`, `repo_path`, `workspace_id` and an `instruction` for the calling model. The prompt's context bundle (directory tree to depth 3, root manifests, first 200 lines of `README.md`) stays within 24,000 of the units Claude Code counts for a tool result, so the response is shown inline; a part over its cap is cut at a line boundary and ends with a note of what it left out. A refresh is needed when the repository fingerprint changes (top-level names, first- and second-level directory names, key manifest contents and the head of `README.md`), the managed section is missing, or `force_refresh=True`. Both stdio and HTTP use the same read-only behavior.
+- **`describe_repo`** — reads repository context without sampling or writing project files, including with `force_refresh=True`. Returns `up-to-date` with the cached summary preview, or `needs_summary` with a prompt, `repo_hash`, `repo_path`, `workspace_id` and an `instruction` for the calling model. The prompt's context bundle (directory tree to depth 3, root manifests, first 200 lines of `README.md`) is capped at 24,000 shown units, the size Claude Code counts for a tool result, so the whole response stays under its 50,000-unit inline limit and is shown inline; a part over its cap is cut at a line boundary and ends with a note of what it left out. A refresh is needed when the repository fingerprint changes (top-level names, first- and second-level directory names, key manifest contents and the head of `README.md`), the managed section is missing, or `force_refresh=True`. Both stdio and HTTP use the same read-only behavior.
 - **`write_repo_summary`** — explicitly persists the caller's overview in the managed *Repository Memory* section of `CLAUDE.md` and updates its fingerprint cache. Follow the description's `instruction` before calling it. The running Agents-Core installation and runtime source root are protected: writes return `rejected` with a `live_installation` reason before creating a lock, summary or cache. Existing summaries remain readable there; keep a new overview in the answer or use a separate worktree and describe that target again. A worktree's default memory root can normalize to the main checkout. A nested worktree inside the authorized workspace can be selected with its explicit physical `repo_path`; for an external worktree, first set a per-project `AGENTS_CLIENT_REPO_ROOT` to its physical path and reconnect MCP, or register that physical root over HTTP. Ordinary project and explicitly selected worktree summaries retain their existing storage and freshness behavior.
-- **`log_interaction`** — end-of-turn logger. Appends `intent / action / outcome` entries (with optional files and tags) to `history.md` at the repo root; deduplicated by content hash; rotated to `history/YYYY-MM.md` when the file exceeds 512 KB. Also sends a Langfuse generation trace if keys are configured. A partial, malformed or mismatching `persona`, or `persona_action` without `persona`, never drops the turn: the entry is written with an `unverified`/`mismatch` persona line and the response carries `warnings`; a turn whose project does not resolve goes to the installation's fallback journal (see below) instead of being dropped (sinks stay best-effort: a full queue or a sink failure can still lose a write; a failed history write is reported as `history_last_error`, see below). It returns at once with a local `timestamp` (`YYYY.MM.DD HH:MM:SS`), which the final answer shows as its first line when the footer lists the `answer-timestamp` rule; both writes happen in the background and are drained on shutdown.
+- **`log_interaction`** — end-of-turn logger. Appends `intent / action / outcome` entries (with optional files and tags) to `history.md` at the repo root; deduplicated by content hash; rotated to `history/YYYY-MM.md` when the file exceeds 512 KB. Also sends a Langfuse generation trace if keys are configured. A partial, malformed or mismatching `persona`, or `persona_action` without `persona`, never drops the turn: the entry is written with an `unverified`/`mismatch` persona line and the response carries `warnings`; a turn whose project does not resolve goes to the installation's fallback journal (see below) instead of being dropped (sinks stay best-effort: a full queue, a log worker that cannot start or a sink failure can still lose a write; a failed history write is reported as `history_last_error`, see below). It returns at once with a local `timestamp` (`YYYY.MM.DD HH:MM:SS`), which the final answer shows as its first line when the footer lists the `answer-timestamp` rule; both writes happen in the background and are drained on shutdown.
 - **`read_history`** — returns recent entries by recency/`since` filter, or runs a lazy semantic search backed by the same `NumpyVectorStore` used for routing. A listing stays under the 50,000 characters above which Claude Code saves a tool result to a file. `outcome` comes as a preview of up to 600 characters, `intent` and `action` of up to 300, `files` and `tags` keep up to 20 items, and a shortened entry gives each cut field's full length in `truncated` (characters, or items for a list). When that is still too much, the previews get shorter, and then the last entries are left out, counted in `omitted`; `offset` skips that many entries, and the `instruction` gives the `offset` and `limit` that read them; entries logged between two calls shift those pages. Semantic results carry `intent`, `action` and `outcome` like recent ones, without `files` and `metadata`. `read_history(entry_id=...)` returns one entry whole, also one that rotation moved to `history/YYYY-MM.md`. With [user library sync](docs/user-sync.md#repository-history) set up, a repository's top-level checkout (with an `origin`) reads its `history.md` and `history/*.md` merged with the entries the user's machines shared for that repository, including this machine's other checkouts: one per entry hash, the checkout's own copy first, ordered by time and read newest month first. Each entry carries `machine` (null for the checkout's own entries, else the label of the machine that wrote it); `machine=<label>` keeps that machine's entries and `machine=local` this checkout's own. `history.md` itself stays the checkout's journal. A machine shares a repository's entries only after its owner reviewed them with `python -m src.user_sync history export`: approval covers the repository's later entries on that machine and exactly the past entries listed, so another checkout that joins later waits for its own review. `python -m src.user_sync history share all` shares every repository's entries from that machine without a review instead, except repositories `history revoke` leaves out.
 
 Over stdio, a non-empty `AGENTS_CLIENT_REPO_ROOT` selects the project as named
@@ -1414,8 +1440,10 @@ See [service memory behavior](docs/shared-mcp-daemon.md#memory-and-errors) for t
 current transport contract and [the original memory design](docs/memory-subsystem-spec.md)
 for its rationale.
 
-`log_interaction` stores the supplied prompt and response by default; callers can
-provide curated `intent`, `action`, and `outcome` fields. This checkout ignores
+`log_interaction` stores the supplied prompt and response by default, after the
+caller has replaced secrets and capability values with safe references and left
+out prohibited personal details; callers can provide curated `intent`, `action`,
+and `outcome` fields. This checkout ignores
 `history.md` and `history/`. In a client project, check the ignore rules for
 `history.md`, `history/`, `data/memory/` and the hidden lock files
 (`.history.md.lock`, `.CLAUDE.md.lock`, `.agents-description.lock`) before
@@ -1435,6 +1463,19 @@ in `.env` to enable it; leave them empty for local-only operation (see
 `LANGFUSE_TRACING_ENABLED=false` when running checks that should not send traces.
 
 ---
+
+## Checks
+
+The workflow badges show the latest matching push runs on the integration branch, `dev`; the MCP API badge is derived from the source. [Quality checks and badge scope](docs/quality-checks.md) is the one table of what each badge covers, its triggers and its limits, including the vulnerability gate that releases wait for. Other focused workflows are listed in [GitHub Actions](https://github.com/IEZhu/Agents/actions) and the [test guide](tests/README.md).
+
+After preparing the environment as described in the [test guide](tests/README.md), run the regular suite locally:
+
+```bash
+LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/ -q
+node --test bridge/test.mjs
+```
+
+Pytest excludes the `slow` marker by default. See the test guide for focused, slow and explicit live checks. These commands do not reproduce the complete hosted platform matrix or the dependency scan, and no coverage percentage is claimed.
 
 ## 🛠️ Development
 
@@ -1459,7 +1500,8 @@ main|dev` or the web UI's Updates section ([update channel](#update-channel)). T
 ### Vulnerability gate
 
 `Vulnerability scan` audits the complete committed `uv.lock` on every pull request,
-merge queue, push to `dev`/`main`, manual run and daily schedule. Trivy 0.76.1 includes
+merge queue, push to `dev`/`main` and manual run, and daily on the default branch,
+`main`, once the workflow is there. Trivy 0.76.1 includes
 development dependencies and every severity, including unknown and unfixed issues.
 uv 0.11.25 first rejects drift between dependency declarations (including every
 optional extra) and the lock, with source builds disabled. Missing or unparsed
@@ -1472,10 +1514,11 @@ requirements at scan time; it does not turn independent pip installs into locked
 No repository ignore policy is loaded. Release publication scans the exact merged
 release commit again and depends on both inventories passing.
 
-Require the `Vulnerability scan` check in the protection rules for `dev` and `main`
-after this workflow lands; a failing workflow alone does not prevent an unprotected
-branch from being merged. Fix dependencies rather than adding an automatic exception
-for a vulnerability without an available fix. Revert the workflow change to roll back
+A failing scan blocks a merge into `dev` or `main` only when the repository rules
+require the `Vulnerability scan` check; add that required check to enforce the
+gate before a merge. Release publication waits for its own scan of the merge
+commit either way. Fix dependencies rather than adding an automatic exception for
+a vulnerability without an available fix. Revert the workflow change to roll back
 this policy, updating any required-check rule at the same time.
 
 ### Validation
