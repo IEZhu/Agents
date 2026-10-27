@@ -156,16 +156,41 @@ attempts, so a worker that keeps breaking the contract cannot loop.
 
 ## Packages
 
-Each attempt calls `src.engine.subagent.prepare_subagent` with `result_type="review"`, the agent
-`code_reviewer` for reviews and `delegates.change-premortem.role` (default `sysadmin`, Q2) for the
-pre-mortem, `task_id` `autodev-<run-id>-<handle>`, the attempt number as `attempt_id` and a
-budget of 32,000 characters. `AGENTS_USER_FLOWS_DIR` points to an empty directory during the call
+Each attempt calls `src.engine.subagent.prepare_subagent` with `result_type="review"` and
+`result_format="json"` (the default is plain text; the launcher passes `result_schema` to the
+CLI's structured output), the agent `code_reviewer` for reviews and
+`delegates.change-premortem.role` (default `sysadmin`, Q2) for the pre-mortem, `task_id`
+`autodev-<run-id>-<handle>`, the attempt number as `attempt_id` and a budget of 32,000
+characters. `AGENTS_USER_FLOWS_DIR` points to an empty directory during the call
 (under a process-wide lock), so no personal component toggle changes the worker. The task text
 names the range and the head; the acceptance criteria ask for findings with locations, failure
 scenarios and remedies and for the range as evidence; the restricted reviews and the
 verification say what they consider. The service keeps the contract, checks that
 `len(worker_context) == context_chars`, and passes `worker_context` to the CLI's standard input
 byte for byte.
+
+### Profiles and model tiers
+
+Autodev chooses execution from `autodev.json`, independently of the general prepared-worker
+model tiers. `WorkerService.request` currently supplies neither `complexity` nor `client` to
+`prepare_subagent`; without `complexity`, preparation adds no `execution` block or native
+`execution.spawn` arguments. `WorkerService.client` and `worker_launch.Launcher` apply the
+delegate's explicit profile instead. Changing the general tier configuration therefore does
+not select a cheaper model or escalate an autodev attempt.
+
+The defaults in `src/schedules/config.py` and `workers.py` are:
+
+| Step | Requested client and model | Effort | Claude fallback |
+|---|---|---|---|
+| First code review | Codex, `gpt-6.1-sol` | `high` | `opus`, `high` |
+| Later review and verification | Same configured client and model | `effort_followup`, default `medium` | `opus`, `medium` |
+| Pre-mortem | Claude, `opus` | `high` | Used only if its profile requests Codex |
+
+An explicit `claude` object on a Codex delegate replaces the fallback model and effort;
+`effort_followup` replaces its effort only when Claude accepts that level. A null follow-up
+effort keeps the first effort. Every new attempt uses this same profile policy, with a default
+timeout of 30 minutes per attempt (`budget.timeout_minutes` on the delegate overrides it);
+the enclosing stage and run timeouts still apply.
 
 ## Materials
 

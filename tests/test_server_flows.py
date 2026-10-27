@@ -41,7 +41,8 @@ async def test_registered_tool_schema_and_stdio_execution(environment):
     assert "list_flows" in tools
     schema = tools["run_flow"].inputSchema
     assert schema["required"] == ["flow"]
-    assert set(schema["properties"]) == {"flow", "request", "repo_path", "current_persona", "workspace"}
+    assert set(schema["properties"]) == {"flow", "request", "repo_path", "current_persona", "workspace",
+                                         "force_reload"}
     content, _ = await server.mcp.call_tool("run_flow", {"flow": "check", "request": "no-merge"})
     result = json.loads(content[0].text)
     assert result["status"] == "needs_execution"
@@ -94,8 +95,8 @@ async def test_no_install_fallback_when_stdio_cwd_is_lost(environment, monkeypat
     def missing_cwd():
         raise FileNotFoundError("cwd unavailable")
     monkeypatch.setattr(config.os, "getcwd", missing_cwd)
-    # A previous legacy lookup may legitimately have cached its fallback.
-    assert config.get_client_repo_root() == config.INSTALL_ROOT
+    with pytest.raises(config.ClientRootError, match="cwd unavailable"):
+        config.get_client_repo_root()
     result = json.loads(await server.run_flow("check"))
     assert result["status"] == "error"
     assert "cwd unavailable" in result["error"]
@@ -218,6 +219,8 @@ async def test_run_flow_activates_the_flow_persona(environment, tmp_path, monkey
             rules_loaded=["truth"], tier="standard")
     monkeypatch.setattr(persona, "build_persona_bundle", build)
     monkeypatch.setattr(server.router, "update_cache", AsyncMock())
+    from src import client_instructions
+    monkeypatch.setattr(client_instructions, "drift_warnings", lambda context=None: ["outdated section"])
 
     plain = json.loads(await server.run_flow("check"))
     assert "persona_activation" not in plain and plain["flow"]["persona"] is None
@@ -231,6 +234,9 @@ async def test_run_flow_activates_the_flow_persona(environment, tmp_path, monkey
     assert activation["status"] == "SUCCESS"
     assert activation["persona"]["agent"] == "code_reviewer"
     assert activation["replaces_activation_id"] is None
+    # A first activation: the full instruction and the warnings about managed sections (#433).
+    assert activation["instruction"] == persona.APPLY_INSTRUCTION
+    assert activation["warnings"] == ["outdated section"]
     agent, query, selection = calls[-1]
     assert (agent, query) == ("code_reviewer", "Check repository\nPR 7")
     assert (selection.skills, selection.implants, selection.rules) == (("skill-a",), (), ("truth",))
@@ -253,6 +259,20 @@ async def test_run_flow_activates_the_flow_persona(environment, tmp_path, monkey
     switched = json.loads(await server.run_flow("check", current_persona=activation["persona"]))
     assert switched["persona_activation"]["status"] == "SUCCESS"
     assert calls[-1][2].skills is None  # The agent's default selection.
+    # Later in the conversation: a pointer to the full instruction, and no warnings.
+    assert switched["persona_activation"]["instruction"] == persona.INSTRUCTION_POINTER
+    assert "warnings" not in switched["persona_activation"]
+    # A lost instruction of a flow's persona comes back with force_reload, replacing the active
+    # one even though its bundle revision is unchanged.
+    monkeypatch.setattr(persona, "build_persona_bundle", build)
+    active = {**switched["persona_activation"]["persona"], "bundle_revision": "c" * 64}
+    unchanged = json.loads(await server.run_flow("check", current_persona=active))
+    assert unchanged["persona_activation"]["status"] == "NO_CHANGE"
+    restored = json.loads(await server.run_flow("check", current_persona=active, force_reload=True))
+    assert restored["persona_activation"]["status"] == "SUCCESS"
+    assert restored["persona_activation"]["instruction"] == persona.APPLY_INSTRUCTION
+    assert restored["persona_activation"]["replaces_activation_id"] == active["activation_id"]
+    assert "warnings" not in restored["persona_activation"]
     server.router.update_cache.assert_not_awaited()
 
     # A component removed after the choice was saved: refused, not an ERROR activation.
@@ -293,7 +313,7 @@ async def test_run_flow_persona_waits_for_readiness(environment, tmp_path, monke
 
 
 @pytest.mark.asyncio
-async def test_stdio_markerless_cwd_and_program_files_never_become_repo_path(environment, tmp_path, monkeypatch):
+async def test_stdio_empty_cwd_works_but_program_files_are_refused(environment, tmp_path, monkeypatch):
     monkeypatch.delenv("AGENTS_CLIENT_REPO_ROOT")
     monkeypatch.setattr(config, "_CLIENT_ROOT_MARKERS", ("no-such-marker",))
     plain = tmp_path / "plain"
@@ -301,8 +321,7 @@ async def test_stdio_markerless_cwd_and_program_files_never_become_repo_path(env
     monkeypatch.chdir(plain)
     config._reset_client_repo_root_cache()
     result = json.loads(await server.run_flow("check"))
-    assert result["status"] == "error" and result["error"].startswith("workspace_required: refusing")
-    assert "repo_path" not in result
+    assert result["status"] == "needs_execution" and result["repo_path"] == str(plain.resolve())
 
     programs = tmp_path / "Program Files"
     (programs / "tool").mkdir(parents=True)

@@ -66,7 +66,8 @@ def test_source_symlink_must_stay_in_catalog(catalog, tmp_path):
 
 @pytest.mark.parametrize(("raw", "error"), [(b"", "flow_invalid"),
     (b" \n", "flow_invalid"), (b"\xff", "flow_unreadable"),
-    (b"a" * (256 * 1024 + 1), "flow_invalid")])
+    (b"a" * (256 * 1024 + 1), "flow_invalid")],
+    ids=["empty", "whitespace", "invalid-utf8", "oversized"])
 def test_invalid_content(catalog, raw, error):
     (catalog.directory / "docs.md").write_bytes(raw)
     with pytest.raises(FlowError, match=error):
@@ -124,14 +125,28 @@ AUTODEV_PERSONAS = {
 async def test_builtin_flow_personas_build_complete_bundles(monkeypatch):
     """A declared persona must activate: unknown or invalid components would fail every run.
 
-    Builds the real bundle at a fixed tier; the intent classifier is skipped
-    because it loads an embedding model that is irrelevant here.
+    Builds real source components at a fixed tier without initializing a vector
+    index or model. Declared selections do not require semantic retrieval.
     """
     from src import flow_persona
-    from src.engine import enrichment
+    from types import SimpleNamespace
+    from src.engine import embedder, enrichment
+    from src.engine.skills import SkillRetriever
+    from src.engine.implants import ImplantRetriever
     from src.engine.persona_bundle import build_persona_bundle
 
     monkeypatch.setattr(enrichment, "resolve_profile", lambda query: None)
+    monkeypatch.setattr(embedder, "_get_model", lambda: pytest.fail("Flow bundle validation must not load an embedding model"))
+    # Exact component selections still use the real formatters, but do not need
+    # retriever construction, indexes or an embedding model on a clean runner.
+    monkeypatch.setattr(enrichment, "_skill_retriever", SimpleNamespace(
+        format_skills_for_prompt=lambda items, **kwargs:
+            SkillRetriever.format_skills_for_prompt(None, items, **kwargs),
+    ))
+    monkeypatch.setattr(enrichment, "_implant_retriever", SimpleNamespace(
+        format_implants_for_prompt=lambda items:
+            ImplantRetriever.format_implants_for_prompt(None, items),
+    ))
     catalog = FlowCatalog()
     declared = {flow_id: flow_persona.declared(catalog.load(flow_id).content)
                 for flow_id in catalog.ids()}
@@ -186,3 +201,121 @@ def test_readme_catalog_lists_every_builtin_flow():
     readme = (catalog.directory / "README.md").read_text(encoding="utf-8")
     table = readme.split("## Available flows", 1)[1].split("\n## ", 1)[0]
     assert [flow_id for flow_id in catalog.ids() if f"]({flow_id}.md)" not in table] == []
+
+
+def test_protocol_runs_a_named_flow_before_improvising():
+    """A flow the user asked for by name was improvised; the protocol now names that trigger."""
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    for name in ("scripts/templates/routing-protocol-core.md", "CLAUDE.md"):
+        flat = " ".join((root / name).read_text(encoding="utf-8").split())
+        section = flat.split("## Run a named flow", 1)[1].split(" ## ", 1)[0]
+        for phrase in ("call `list_flows` and then `run_flow` for the matching flow before taking any of its steps",
+                       '"флоу"', '"по флоу X"', "apply a returned `persona_activation` as a `switch`",
+                       "Do not improvise a procedure that an installed flow covers."):
+            assert phrase in section, (name, phrase)
+    import src.server as server
+    instructions = " ".join(server.mcp.instructions.split())
+    for phrase in ("When the user names a flow, workflow or ritual, or asks for work by one, in any language",
+                   "call list_flows and then run_flow for a matching flow before taking its steps.",
+                   "If no flow matches, say so and continue without one.",
+                   "Do not improvise a procedure an installed flow covers."):
+        assert phrase in instructions, phrase
+
+
+@pytest.mark.asyncio
+async def test_thread_close_audits_every_installed_tool_and_catalogues_every_server_tool():
+    """Static tool names stay complete alongside the runtime proxy family."""
+    import re
+
+    import src.server as server
+
+    text = FlowCatalog().load("thread-close").content
+    audit = " ".join(text.split("## 4. Audit tool usage", 1)[1].split("\n## ", 1)[0].split())
+    for phrase in ("Installed tools are everything the client exposed to the thread",
+                   "A tool that no instruction names is `no-rule`",
+                   "a `missed` finding is `?`, and a `?` never becomes a memory lesson",
+                   "Write one patch for each `missed`, `misused` and `uncatalogued` finding",
+                   "**Managed blocks.**", "**One list, one yes.**"):
+        assert phrase in audit, phrase
+    table = text.split("**Catalogue.**", 1)[1].split("\n## ", 1)[0]
+    rows = {line.split("|")[1].strip(" `"): line.split("|")[2]
+            for line in table.splitlines() if line.startswith("| `")}
+    assert "`<alias>__<tool>`" in rows.pop("mcp-proxy")
+    proxy_read = rows.pop('proxy-read')
+    assert set(re.findall(r"`([^`]+)`", proxy_read)) == {'code_execute_readonly', 'get_status', 'get_stats', 'get_data_range', 'get_today_stats', 'code_search', 'get_settings'}
+    proxy_state = rows.pop('proxy-state')
+    assert set(re.findall(r"`([^`]+)`", proxy_state)) == {'skip_break', 'pause_timer', 'start_break', 'resume_timer', 'code_execute'}
+    cells = rows.values()
+    catalogued = {re.sub(r"\(.*", "", name) for cell in cells for name in re.findall(r"`([^`]+)`", cell)}
+    registered = {tool.name for tool in await server.mcp.list_tools()}
+    assert sorted(registered - catalogued) == [] and sorted(catalogued - registered) == []
+    for phrase in ("a saved proxy definition or cached catalogue does not prove a live connection",
+                   "access claimed without checking the live connection and the upstream app's state",
+                   "Blincho detailed activity spans, call history or names, event IDs, journal answers or camera frames",
+                   "queued timer work was reported completed without checking the resulting state",
+                   "an unfinished strict break was bypassed"):
+        assert phrase in " ".join(table.split()), phrase
+    misuse = {line.split("|")[1].strip(" `"): line.split("|")[4]
+              for line in table.splitlines() if line.startswith("| `proxy-")}
+    for slug in ("proxy-read", "proxy-state"):
+        assert "credentials or tokens exposed in output" in misuse[slug], slug
+
+
+def test_flow_execution_uses_valid_default_tokensave_selector_and_current_ax_targets():
+    """Shared guidance preserves selector validity and the observation/action dependency."""
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    execution = " ".join((root / "docs/flow-execution.md").read_text(encoding="utf-8").split())
+    safety = " ".join((root / "docs/mcp-tool-safety.md").read_text(encoding="utf-8").split())
+    for phrase in ("await tools.mcp__tokensave__tokensave_status({});",
+                   "Omit `graph_root` for that default project",
+                   "explicitly different, already initialized project",
+                   "Do not initialize indexing, add a tracked branch",
+                   "verify relevant output against the current file or a pinned Git object"):
+        assert phrase in execution, phrase
+    for phrase in ("First obtain the latest AX state and inspect its returned tree",
+                   "Only then derive the element index from that tree",
+                   "Never batch `getAXState({emit:false, disableDiffing:true})` with a `click(index)` chosen from an earlier observation",
+                   "After every action, verify the observed state",
+                   "These helpers are opt-in orchestration boundaries; they do not intercept other tool calls"):
+        assert phrase in safety, phrase
+
+
+def test_bounded_return_gate_is_stated_once_per_client_class_and_linked():
+    """One canonical gate: orchestrated and direct-call rules live in the safety guide only."""
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    safety = " ".join((root / "docs/mcp-tool-safety.md").read_text(encoding="utf-8").split())
+    for phrase in ("## Bounded-return gate by client class",
+                   "**Orchestrated hosts**", "**Direct-call clients**",
+                   "reach model context unguarded: never report such a result as guarded",
+                   "No Agents-Core component installs the guard in any client",
+                   "https://github.com/IEZhu/Agents/issues/506",
+                   "The helper does not intercept native-client, terminal or third-party responses",
+                   "Otherwise the first discovery call is exempt",
+                   "A refusal before a usable reference exists", "its `sourceRef` is null",
+                   "Exactly four codes do so: `invalid_guard_options`",
+                   "The caller can pass each result through the guard, and this gate requires it"):
+        assert phrase in safety, phrase
+    for gone in ("any client applies it automatically", "before any adapter could run",
+                 "A refusal before retention", "so the guard applies"):
+        assert gone not in safety, gone
+    for name in ("flows/pr-review.md", "docs/flow-execution.md"):
+        text = (root / name).read_text(encoding="utf-8")
+        assert "mcp-tool-safety.md#bounded-return-gate-by-client-class" in text, name
+        for restated in ("before any adapter could run", "8,000-character", "Never forward an unfiltered"):
+            assert restated not in text, (name, restated)
+
+
+def test_thread_close_handoff_keeps_required_obligations_unfinished():
+    text = " ".join(FlowCatalog().load("thread-close").content.split())
+    for phrase in ("use `finishing` (🧹) when required obligations remain",
+                   "unless essential user input or required human approval calls for `needs_user`/`review`",
+                   "Resume implementation as `working`",
+                   "Verify or explicitly resolve every required task before `ready_to_close`",
+                   "`closed` requires explicit closure or confirmed archival",
+                   "The status grants no additional authority"):
+        assert phrase in text

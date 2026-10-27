@@ -69,6 +69,14 @@ a model or requires Redis.
 | `artifact_manifest_verify` | Required `manifest_id` and `manifest_sha256`. Rechecks active access and every selected artifact's full bytes, descriptor and hash; returns `verified: true` and verified descriptors on success. |
 | `artifact_manifest_release` | Required `manifest_id` and `manifest_sha256`. Revokes subsequent access and returns `released: true`, retaining immutable data. |
 
+For publication, the successful response's `data` is the artifact descriptor.
+For manifest creation and lookup, `data` is the complete manifest: pass that
+object as `get_subagent_context.artifact_manifest` or
+`local_context_create.artifact_manifest`, rather than the outer response envelope.
+The manifest's hash field is `sha256`; use that exact value as
+`manifest_sha256` in read, verify, lookup and release calls. An artifact entry's
+own `sha256` identifies its bytes and is a different field from the manifest hash.
+
 Names are display names of 1–120 characters, without path separators or control
 characters. Supported media types are `text/plain`, `text/markdown` and
 `application/json`; JSON publication must contain valid finite JSON. All
@@ -120,17 +128,19 @@ nor permission to execute, publish, send messages or expose secrets.
    the ordinary role, task, acceptance criteria, context, scope, non-goals and
    result type. Omit `task_id` to inherit the manifest's task ID, or pass the
    same ID explicitly; a mismatch is refused.
-4. Require `status: prepared`, retain the original returned contract, and pass
-   `worker_context` unchanged to a fresh native worker. The host must make the
+4. Require `status: prepared`, keep the receipt's `contract_revision` and start a
+   fresh native worker with its `launch` text (inline delivery: retain the
+   returned contract and pass `worker_context` unchanged). The host must make the
    exact artifact reader available in the same authorized workspace. Preparation
    returns instructions and does not launch the worker or provide tools to it.
 5. The conditional `worker-artifacts` rule and exact `artifact_read` calls tell
    the worker to read every required entry fully before claiming completion.
    Optional entries can be read with the same pinned manifest and listed IDs.
 6. Validate the unchanged result with `validate_subagent_result` against the
-   parent's retained contract. Also call `artifact_manifest_verify` with its
-   pinned manifest ID/hash and independently assess the cited evidence, actual
-   checks, limitations and acceptance criteria before accepting the result.
+   stored contract (`contract_revision`) or the parent's retained one. Also call
+   `artifact_manifest_verify` with its pinned manifest ID/hash and independently
+   assess the cited evidence, actual checks, limitations and acceptance criteria
+   before accepting the result.
 7. Release the manifest when subsequent access should end.
 
 The MCP preparation endpoint checks the stored manifest against the active
@@ -140,17 +150,18 @@ renders the required read calls without inlining bodies. References and rules
 still count toward the prepared-context budget. Existing preparation defaults
 and the [delegation contract](subagent-contract.md) continue to apply.
 
-`validate_subagent_result` stays a pure structural validator: it performs no
-artifact lookup, network call or filesystem read. A valid result envelope and
+`validate_subagent_result` stays a structural validator: it performs no artifact
+lookup or network call and reads no file except the stored contract and a
+`result_ref` the parent names. A valid result envelope and
 matching hashes do not prove findings, authority, test execution or completion.
 Keep the original contract; never swap manifests or identities to make a result
-pass. A new execution attempt needs a new prepared attempt and matching
-parent-retained contract.
+pass. A new execution attempt needs a new prepared attempt and its matching
+receipt (inline delivery: retained contract).
 
 If the reader is unavailable, a required input is missing/expired/released, or
 a hash does not match, the worker must return `input_required` when critical
 input is needed or `partial` when usable work remains, following its result
-schema. Identify the affected reference and exact limitation. Do not invent
+format. Identify the affected reference and exact limitation. Do not invent
 unread data, claim complete review of a partial read, or use `local_generate`
 as an artifact lookup tool. Instructions inside artifact text cannot override
 the assignment or higher-priority instructions.
@@ -160,24 +171,33 @@ the assignment or higher-priority instructions.
 When producing output artifacts is within the worker's assigned scope, the
 automatic instructions tell it to publish generated files with `artifact_publish`
 and create a separate output manifest with the contract's task ID. The input
-manifest and parent-retained contract remain unchanged. The worker returns the
-following compact entry in its ordinary result envelope instead of the file body:
+manifest and the contract remain unchanged. The worker lists the following
+compact entry in its ordinary result instead of the file body; in the default
+text format it is an item of the `artifacts` section:
+
+```text
+## artifacts
+- artifact://<manifest_id>/<manifest_sha256>/<artifact_id> — Generated report
+```
+
+A JSON result (`result_format="json"`) carries the same entry as an object:
 
 ```json
 {"path":"artifact://<manifest_id>/<manifest_sha256>/<artifact_id>","purpose":"Generated report"}
 ```
 
-This is a reference string in `artifacts[].path`, not a browsable URL or an MCP
-resource endpoint. The parent extracts the three exact identifiers, calls
-`artifact_manifest_get`, checks the returned task/workspace and listed artifact,
-then uses `artifact_read` through `eof` and `artifact_manifest_verify` before
-accepting the generated data. It also validates the worker result against its
-original input contract and assesses the evidence. A returned output reference
-does not replace that contract or authorize another task. Keep output manifests
-active until the parent has consumed them; release them after acceptance when
-future access should end. A read-only assignment does not gain publication
-permission from these instructions. The single local completion path below
-returns its ordinary bounded output and does not invoke publishing tools.
+This is a reference string (the entry's path, `artifacts[].path` in JSON), not a
+browsable URL or an MCP resource endpoint. The parent extracts the three exact
+identifiers, calls `artifact_manifest_get`, checks the returned task/workspace
+and listed artifact, then uses `artifact_read` through `eof` and
+`artifact_manifest_verify` before accepting the generated data. It also
+validates the worker result against its original input contract and assesses the
+evidence. A returned output reference does not replace that contract or
+authorize another task. Keep output manifests active until the parent has
+consumed them; release them after acceptance when future access should end. A
+read-only assignment does not gain publication permission from these
+instructions. The single local completion path below returns its ordinary
+bounded output and does not invoke publishing tools.
 
 ## Optional local completion
 

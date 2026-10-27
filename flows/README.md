@@ -11,9 +11,9 @@ monitor wait without repeated model polling. This does not relax any flow gate.
 
 ## Delegated workers
 
-Every flow that launches an AI reviewer, verifier or other worker follows the [mandatory delegation contract](../docs/routing_flow.md#delegated-workers): call `get_subagent_context`, require `status: prepared`, retain the original contract, and pass the compact `worker_context` unchanged to a fresh native worker. For every returned or revised output, call `validate_subagent_result` with that contract and require `valid: true` before using it, then check evidence and acceptance criteria. No endpoint failure permits unprepared delegation or unvalidated acceptance; report the limitation and work in the parent when practical. Flow-specific requirements for an independent review remain unsatisfied when no validated independent review ran.
+Every flow that launches an AI reviewer, verifier or other worker follows the [mandatory delegation contract](../docs/routing_flow.md#delegated-workers): call `get_subagent_context` and require `status: prepared`. With the default file delivery, start a fresh native worker with the receipt's `launch` text and keep the receipt's `contract_revision`; the inline package has no `launch` text (see below). For every returned or revised output, call `validate_subagent_result` with `contract_revision` and `result_ref` (the worker's transcript or result file; `result` only when no file holds the output; for an inline package, the retained `contract` instead of `contract_revision`) and require `valid: true` before using it, then check evidence and acceptance criteria. Only for a worker that cannot read the server's files, request `delivery="inline"`, retain the returned `contract` and start the worker with `worker_context` unchanged. No endpoint failure permits unprepared delegation or unvalidated acceptance; report the limitation and work in the parent when practical. Flow-specific requirements for an independent review remain unsatisfied when no validated independent review ran.
 
-When a flow is task material for a prepared worker, as [code-review-pass](code-review-pass.md) and [change-premortem](change-premortem.md) are for the workers of an [autodev](autodev.md) run, the package and the worker rules govern: the flow's persona frontmatter, its exact component lists, a personal overlay and its steps about `run_flow` and role activation do not apply. The worker gets a compact role from the package and returns only the package's result schema; the flow contributes its method where it does not conflict.
+When a flow is task material for a prepared worker, as [code-review-pass](code-review-pass.md) and [change-premortem](change-premortem.md) are for the workers of an [autodev](autodev.md) run, the package and the worker rules govern: the flow's persona frontmatter, its exact component lists, a personal overlay and its steps about `run_flow` and role activation do not apply. The worker gets a compact role from the package and returns only the result in the package's format; the flow contributes its method where it does not conflict.
 
 ## Available flows
 
@@ -21,12 +21,12 @@ When a flow is task material for a prepared worker, as [code-review-pass](code-r
 |---|---|---|
 | [Shared local inference and KV cache](shared-kv-inference.md) | Reconcile the existing Agents-Core implementation, then implement requested local-inference or Redis snapshot gaps in an authorized worktree | Reviewable implementation, focused tests and a capability/evaluation report |
 | [Environment auto-configuration](environment-autoconfigure.md) | Audit installed AI clients and reconcile their environment with the current RTK, TokenSave and CodeGraph stack | Verified configuration changes, private backups, rollback steps and explicit compatibility limits |
-| [Documentation refresh](documentation-refresh.md) | Check and update documentation for people and AI against the implementation | Reviewed documentation changes on a separate branch, with validation results |
+| [Documentation refresh](documentation-refresh.md) | Inventory public surfaces and review documentation for people and AI against current source | Reviewed changes on a separate branch, a coverage record, navigation/tool-index checks and explicit validation limits |
 | [PR/MR review](pr-review.md) | Review the diff, handle bot findings one push per round until they converge, and keep the description current | A merged request or a precise blocker, with a report in the invocation language |
 | [Issue agent](issue-agent.md) | Verify an owner's `/agent` comment, keep trusted state in the issue, and dispatch; bot reviews never trigger a session | The command's result and an updated state comment |
 | [Issue plan](issue-plan.md) | `/agent plan` / `replan`: validate requirements, ask questions, write a versioned plan with a pre-mortem | A Markdown plan comment or open questions |
 | [Issue implementation](issue-implementation.md) | `/agent run_plan` / `run`: implement, self-review, independent review, pre-mortem, PR and the full bot review cycle in the same session | A pull request with review results or a precise blocker, left unmerged |
-| [Thread close](thread-close.md) | Close a conversation: inventory what it produced, verify each result against the current state with evidence levels (V0 claimed to V4 accepted), audit the thread for its own errors and secure unsaved work | A report with per-artifact levels; in apply mode one `#thread-close` history entry and memory updates at V2 or above |
+| [Thread close](thread-close.md) | Close a conversation: inventory what it produced, verify each result against the current state with evidence levels (V0 claimed to V4 accepted), audit the thread for its own errors and for how it used every installed tool, with a patch for each miss, check disclosure boundaries before external lookup, writes and patch proposals, and secure unsaved work | A report with per-artifact levels and a patch list; in apply mode memory updates at V2 or above, plus one `#thread-close` history entry only when safe logging is authorized (otherwise the logging step remains incomplete) |
 | [A/B eval](ab-eval.md) | Evaluate a change (rule, skill, implant, prompt, setting or embedding model) on hosted models and Opus with blind judging and statistics | A recorded result, a recommendation and an unmerged pull request |
 | [Autodev](autodev.md) | The self-development pipeline: gate, selection, implementation with reviews and a pre-mortem, then a pull request in `pr-review`'s autodev mode; describes the runner's stages and an interactive run | One pull request left for the owner, `autodev:blocked`, or a dry-run decision |
 | [Autodev gate](autodev-gate.md) | The gate rules of the runner's code in words: select, resume or wait | A decision with its reason |
@@ -53,10 +53,11 @@ The three issue flows run in a Claude Code cloud routine that a GitHub Actions
 bridge starts for the owner's `/agent` comments, not from a local request. See
 [issue agent setup](../docs/cloud-runs.md#issue-agent).
 
-`environment-autoconfigure` runs as `sysadmin` with that agent's default
-components. It audits and repairs the current host only when explicitly invoked;
-it is not an installation hook for ordinary conversations. The configured stack
-and platform determine versions and supported integrations.
+`environment-autoconfigure` runs as `sysadmin` and `shared-kv-inference` as
+`software_engineer`, each with that agent's default components.
+`environment-autoconfigure` audits and repairs the current host only when
+explicitly invoked; it is not an installation hook for ordinary conversations.
+The configured stack and platform determine versions and supported integrations.
 
 ## Run a flow
 
@@ -78,7 +79,7 @@ Add optional scope, a starting revision, or a branch when needed:
 
 ```text
 Run flows/documentation-refresh.md for routing documentation and AI instructions.
-Use main as the base and codex/docs-routing-refresh as the branch.
+Use origin/dev as the base and codex/docs-routing-refresh as the branch.
 ```
 
 Use an absolute file path and identify the target repository when the file is in

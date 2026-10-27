@@ -1,4 +1,5 @@
 import json
+import sys
 from pathlib import Path
 import plistlib
 from unittest.mock import MagicMock
@@ -85,12 +86,13 @@ def test_install_persists_node_path_for_other_working_directories(tmp_path, monk
     expected = None if node_source == "missing" else str(node)
     assert read_json(controller.directory / "service.json")["node"] == expected
     # #266: stdio servers of the installation serve through the service from install on.
-    assert (controller.directory / "bridges/stdio-auto.json").exists() == (expected is not None)
+    assert (controller.directory / "bridges/stdio-auto.json").is_file()
     monkeypatch.chdir(root)
     migration = ClientMigration(controller.directory)
     if expected is None:
-        with pytest.raises(ValueError, match="Node executable"):
-            migration.bridge()
+        bridge = migration.bridge()
+        assert bridge["command"] == sys.executable
+        assert Path(bridge["args"][0]).name == "stdio.py"
     else:
         assert migration.bridge()["command"] == expected
 

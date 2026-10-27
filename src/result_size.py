@@ -1,4 +1,4 @@
-"""How Claude Code sizes an MCP tool's result (#196, #212).
+"""How Claude Code sizes an MCP tool's result (#196, #212, #520).
 
 Claude Code saves a tool's text result longer than ``INLINE_LIMIT`` characters to a file and
 gives the model a pointer instead, unless the tool declares a larger

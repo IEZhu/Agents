@@ -1,16 +1,47 @@
 # 🤖 Agents-Core
 
-**Specialist context, reusable workflows and repository memory for AI assistants.**
+**Specialist roles, repeatable workflows and project memory for your AI coding assistant.**
 
-Agents-Core is a local Model Context Protocol (MCP) server for assistants that need a specialist role, a repeatable task procedure or context from earlier work in a repository. It supplies personas, domain skills, shared rules and optional reasoning patterns called cognitive implants. Your current model uses that context and executes the task with its existing tools.
+Agents-Core is one local [MCP](https://modelcontextprotocol.io) server for Claude Code, Codex, Cursor, Claude Desktop, Antigravity and other MCP clients. It gives your current model a task-relevant expert persona with skills, shared rules and optional reasoning patterns called cognitive implants, Markdown workflows it executes with its own tools, bounded and validated delegated workers, and a memory of each project. The core server needs no external API key and runs on your machine.
 
-- [Start here as an agent](docs/agent-guide.md): task-to-tool guide, first-call examples and operating limits.
-- [Compact documentation index](llms.txt): direct Markdown links for agents discovering the project.
-- [Install in an MCP client](llms-install.md): manual stdio configuration, including Cline.
-- [Documentation map](docs/README.md): current guides, reference material, and evaluation reports.
-- [AI contributor instructions](AGENTS.md) and [Claude instructions](CLAUDE.md).
-- [Model workflows](flows/README.md): reusable Markdown instructions, including
-  the [documentation refresh process](flows/documentation-refresh.md).
+**[Features and client support](docs/features.md)** · [Quick start](#-quick-start) · [Documentation map](docs/README.md) · [Agent guide](docs/agent-guide.md) · [Install in another MCP client](llms-install.md)
+
+[![Shared runtime (dev)](https://github.com/IEZhu/Agents/actions/workflows/shared-runtime.yml/badge.svg?branch=dev&event=push)](https://github.com/IEZhu/Agents/actions/workflows/shared-runtime.yml?query=branch%3Adev+event%3Apush)
+[![Instruction signing tests (dev)](https://github.com/IEZhu/Agents/actions/workflows/instruction-signing.yml/badge.svg?branch=dev&event=push)](https://github.com/IEZhu/Agents/actions/workflows/instruction-signing.yml?query=branch%3Adev+event%3Apush)
+[![Documentation checks (dev)](https://github.com/IEZhu/Agents/actions/workflows/documentation-quality.yml/badge.svg?branch=dev&event=push)](https://github.com/IEZhu/Agents/actions/workflows/documentation-quality.yml?query=branch%3Adev+event%3Apush)
+[![MCP API reference coverage](docs/badges/mcp-api-docs.svg)](docs/mcp-tools.md)
+[![User sync (dev)](https://github.com/IEZhu/Agents/actions/workflows/user-sync.yml/badge.svg?branch=dev&event=push)](https://github.com/IEZhu/Agents/actions/workflows/user-sync.yml?query=branch%3Adev+event%3Apush)
+[![Vulnerability scan (dev)](https://github.com/IEZhu/Agents/actions/workflows/vulnerability-scan.yml/badge.svg?branch=dev&event=push)](https://github.com/IEZhu/Agents/actions/workflows/vulnerability-scan.yml?query=branch%3Adev+event%3Apush)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/IEZhu/Agents/main/install.sh | bash
+```
+
+One command installs the server on macOS or Linux (Python 3.11+, about 1.1 GB model download), registers it with the clients it finds and writes the protocol section into their instruction files; its defaults also add session hooks and, on macOS, the shared background service with cooperation. See [Quick start](#-quick-start) for what it changes, Windows, the Claude Code plugin and manual setup.
+
+## ✨ What you get
+
+| | Feature | What it does for you |
+|---|---|---|
+| 🎭 | [Specialist personas](docs/features.md#core-features) | Routes each task to an expert role (reviewer, architect, technical writer and more) with its skills and rules, and keeps that role across turns |
+| 🔁 | [Repeatable workflows](flows/README.md) | PR review, documentation refresh, thread close and your own procedures, run by your model against your repository |
+| 🤝 | [Delegated workers](docs/subagent-contract.md) | Bounded tasks for fresh reviewers or parallel workers, a fixed result format and validation, simple work on a lighter model |
+| 🧠 | [Project memory](#-repository-memory) | A short description of each repository and a searchable log of earlier turns |
+| 🔌 | [One server for every client](docs/features.md#client-integration) | A shared local service on macOS and Windows, managed instruction files, and your other MCP servers through one connection |
+| 🔄 | [Sync and updates](docs/features.md#running-and-maintaining-the-installation) | Your personal flows and settings on every machine, and releases or every merged change through the update channel |
+
+## 💻 Supported clients
+
+| Client | Status | Connects through |
+|---|:-:|---|
+| Claude Code (CLI and desktop Code tab) | ✅ | Installer, [Claude Code plugin](plugins/agents-core/README.md) or the shared service; managed `CLAUDE.md` |
+| Codex (CLI, desktop, IDE) | ✅ | Installer or the shared service; managed `AGENTS.md` |
+| Cursor | ✅ | Installer or the shared service; protocol through MCP initialization |
+| Antigravity | ✅ | Installer with a native plugin, or the shared service |
+| Claude Desktop (chat) | ✅ | Installer or the shared service; protocol through MCP initialization |
+| Other MCP clients, such as Cline | 🟡 | A hand-written stdio entry ([manual install](llms-install.md)) |
+
+✅ means the installer sets the client up; what works in it differs. Claude Desktop chat starts outside any project, so workflows, repository memory and shared artifacts need a pinned project, and client hooks such as thread status, persona restore after compaction and native compaction exist only in some clients: see the [full feature matrix](docs/features.md).
 
 ## When to use Agents-Core
 
@@ -23,6 +54,21 @@ Agents-Core is a local Model Context Protocol (MCP) server for assistants that n
 | Shared exact inputs across workers | Persistent artifacts and pinned manifests | [Shared artifacts](docs/shared-artifacts.md) |
 
 The core server needs no external API key. Setup requires Python 3.11+ and downloads a local embedding model (about 1.1 GB with the default configuration). Clients connect through standalone stdio or the shared local service; the Claude Code plugin launches a separately installed server. Native worker execution, file edits and shell commands remain the host client's responsibility. See the [agent guide](docs/agent-guide.md) for selection examples, data handling and limits.
+
+---
+
+## 📚 Documentation
+
+- [Start here as an agent](docs/agent-guide.md): task-to-tool guide, first-call examples and operating limits.
+- [Compact documentation index](llms.txt): direct Markdown links for agents discovering the project.
+- [Install in an MCP client](llms-install.md): manual stdio configuration, including Cline.
+- [Documentation map](docs/README.md): current guides, reference material, and evaluation reports.
+- [Next-release audit](docs/documentation-audit-2026-10-25.md#before-the-promotion): base revision, checks and remaining prerequisites of the coming `dev` → `main` promotion.
+- [Instruction signing](docs/instruction-signing-core.md): local key/trust controls and accepted coverage policy; runtime enforcement is still planned.
+- [AI contributor instructions](AGENTS.md) and [Claude instructions](CLAUDE.md).
+- [Model workflows](flows/README.md): reusable Markdown instructions, including
+  the [documentation refresh process](flows/documentation-refresh.md).
+- [Quality checks and badge scope](docs/quality-checks.md): what each badge at the top of this page covers.
 
 ---
 
@@ -45,8 +91,10 @@ checkout), then runs `scripts/init_repo.sh --yes` after a single confirmation.
   from before the current model generation moves to the default model once
   ([model switch on update](#model-switch-on-update)); otherwise setup writes the
   one default model (see [Environment Variables](#environment-variables));
-- an existing `.venv` is reused and its dependencies are refreshed; it is
-  recreated only when its Python version is unknown or older than 3.11;
+- an existing `.venv` is reused and its dependencies are refreshed (in the
+  environment it links to, after an [update delivered
+  dependencies](#standalone-stdio-auto-update)); it is recreated only when its
+  Python version is unknown or older than 3.11;
 - the Claude instruction and routing-reminder prompts are accepted. Client
   registration and Codex instructions never ask (see [After Cloning](#after-cloning));
 - sync between machines is not asked about: the summary says how to turn it on,
@@ -58,6 +106,14 @@ download it, read it, then run `bash install.sh`. Pass `init_repo.sh` flags with
 `... | bash -s -- --skip-index`; `--skip-mcp` leaves client configurations and
 instructions unchanged, and `--force-claude-code-mcp` registers Claude Code's own
 entry even when the [Claude plugin](#claude-plugin) serves it.
+
+To install merged development changes before a release, fetch the development bootstrap and select `--dev`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/IEZhu/Agents/dev/install.sh | bash -s -- --dev
+```
+
+`--dev` selects `dev` before clone/update, overrides `AGENTS_BRANCH`, and is consumed by the bootstrap. Without it, installation keeps the normal stable/default-branch behavior. A fresh `.env` follows the selected branch; an existing explicit update-channel setting is preserved with the existing warning. The flag does not include unmerged pull requests. A bootstrap downloaded from an older `main` may not yet recognize a new flag; the `dev/install.sh` URL above avoids that version mismatch. On Windows, clone/check out `dev` before running `scripts\init_repo.bat`; the batch initializer does not switch the checkout.
 
 | Variable | Default | Purpose |
 |---|---|---|
@@ -78,7 +134,7 @@ in place, and warns when `.env` follows another branch than an explicit
 (a detached HEAD gets `main`) and never switches channels: that is
 `channel set`'s job, with its downgrade check ([update channel](#update-channel)).
 First close the client sessions that run this installation's stdio server, as
-for any manual Git operation or rebuild. If this checkout serves the shared macOS service, update it with
+for any manual Git operation or rebuild. If this checkout serves the shared service, update it with
 `.venv/bin/python -m src.daemon update` instead (see [Updates](#updates)).
 An update is refused when the checkout has uncommitted changes to tracked files
 (commit or stash them first). Untracked files do not block an update and are left
@@ -132,11 +188,11 @@ powershell -ExecutionPolicy Bypass -File scripts\uninstall.ps1 --dry-run   # Win
   `~/.claude/settings.json`), Claude Desktop, Codex, Cursor and Antigravity (with its
   `agents-core` plugin), and in the `.mcp.json`, `.codex/config.toml` and `.cursor/mcp.json` of
   every workspace the service registered. Other servers and settings stay byte for byte.
-  Optional session readiness hooks and Desktop's `Agents-Readiness` entry are removed only
+  Readiness and thread-status hooks, and Desktop's `Agents-Readiness` entry, are removed only
   when their generated settings still match and their interpreter belongs to this installation's
   `.venv`. Their copied runtimes are removed only when unchanged and no remaining handler
   references them. Modified entries, files and adapters from another installation are listed
-  as kept so you can remove them manually.
+  as kept so you can remove them manually. Thread-status turn records are retained and reported.
 - **Instructions**: only the section between the routing-protocol markers in
   `~/.claude/CLAUDE.md` and Codex's `AGENTS.md`, and the generated routing reminder in Claude's
   memory. A file left empty is deleted.
@@ -161,14 +217,15 @@ directory that `AGENTS_HOME`, `AGENTS_SERVICE_DIR`, `FASTEMBED_CACHE_DIR` or
 `AGENTS_USER_FLOWS_DIR` names is removed only when its content shows it is Agents-Core's (a
 checkout `AGENTS_HOME` names is kept when it has uncommitted changes, untracked files, a branch
 outside the published `main` and `dev` channels, commits from local refs, reflogs or HEAD
-outside known remote-tracking history, or ignored files outside the installer's `.env` file and `.venv/`
-directory), and
+outside known remote-tracking history, or ignored files outside the installer's `.env` file, its
+`.venv` (a directory, or a link once an update delivered dependencies) and the updater's `.venvs/`
+environments), and
 nothing that is or contains a filesystem root, the home directory, `~/Documents` or a profile
 or XDG base directory is ever removed. Backups are private (0700 directories, 0600 files). A
 checkout you cloned yourself and run the script from is kept when it is separate from the
 installation being removed. The commit check uses existing local remote-tracking refs without
-fetching; it does not confirm that the remote is still available. `.env` and `.venv/` are
-intentional installation assets and can be removed, so keep personal files elsewhere. Other
+fetching; it does not confirm that the remote is still available. `.env`, `.venv` and `.venvs/`
+are intentional installation assets and can be removed, so keep personal files elsewhere. Other
 ignored material, including extra runtime caches, conservatively keeps the selected checkout.
 Registered submodules and retained `.git/modules` repositories also keep the whole checkout,
 because parent Git history does not establish ownership of nested private work.
@@ -242,8 +299,10 @@ The interactive script:
   or restore a backup before retrying;
 - asks before installing protocol 2 instructions in the global Claude
   configuration. When Codex is detected, it installs the same protocol in Codex's
-  global instructions without asking; this does not connect Codex to MCP (see
+  global instructions and registers its MCP connection without asking (see
   [Codex instruction installation](#codex-instruction-installation));
+- offers readiness/persona-restore hooks and emoji thread-status hooks separately for detected supported clients; `--yes` accepts both, with `--skip-hooks`, `--skip-readiness` and `--skip-thread-status` available to opt out;
+- offers the shared daemon and cross-client agent cooperation separately on macOS and Windows; `--yes` accepts both, while `--skip-daemon` and `--skip-cooperation` opt out independently;
 - targets another profile when `CLAUDE_CONFIG_DIR` (Claude Code),
   `AGENTS_CURSOR_MCP_CONFIG`, `AGENTS_CLAUDE_DESKTOP_CONFIG` or
   `AGENTS_ANTIGRAVITY_MCP_CONFIG` is exported in the shell that runs setup. Setup
@@ -260,7 +319,7 @@ The interactive script:
 [Claude plugin](#claude-plugin) installed and enabled, setup skips only Claude Code's
 `Agents-Core` entry; `--force-claude-code-mcp` (or `AGENTS_FORCE_CLAUDE_CODE_MCP=1`)
 writes it anyway. Use `./scripts/init_repo.sh --help` for the
-available options (`--yes` accepts all defaults). For the shared macOS service and
+available options (`--yes` accepts all defaults). For the shared service and
 client connections, continue with [MCP client configuration](#-mcp-client-configuration).
 
 For an existing installation, refresh Codex, Claude and existing Antigravity plugin instructions with
@@ -314,7 +373,7 @@ placeholders `pk-lf-...` and `sk-lf-...`, which an `.env` copied from an older
 [document OCR server](src/mcp_servers/document_ocr/README.md) needs a real
 `ANTHROPIC_API_KEY`.
 
-Embeddings run locally through FastEmbed (ONNX Runtime); the initial model download
+Embeddings run locally through ONNX Runtime, Hugging Face Tokenizers and Hub; the initial model download
 requires network access. The default model is `microsoft/harrier-oss-v1-270m`
 (MIT, multilingual, about 1.1 GB to download and 0.85 GB loaded): on the project's
 retrieval sets it ranks implants and skills better than the earlier defaults
@@ -325,14 +384,39 @@ once downloaded. Setup no longer asks: harrier-270m is the one model for every
 machine, replacing the earlier Full, Balanced and Light choices. Setup writes it
 to `EMBEDDING_MODEL` in `.env`, together with `EMBEDDING_MODEL_GENERATION`. When
 `EMBEDDING_MODEL` is unset, for example after `--skip-index`, standalone stdio
-uses it as well. Any FastEmbed model stays selectable,
+uses it as well. All 37 dense models from the FastEmbed 0.8.1 catalog stay selectable,
 `intfloat/multilingual-e5-large` included: edit `EMBEDDING_MODEL` and, with
 server sessions stopped, run
 `.venv/bin/python -m src.reindex`. An `.env` without
 `EMBEDDING_MODEL_GENERATION=2`, such as one copied by hand from `env.example`,
 needs that line too; otherwise the next start switches it to the default
-([model switch](#model-switch-on-update)). The [shared macOS service](#shared-macos-service)
+([model switch](#model-switch-on-update)). The [shared macOS and Windows service](#shared-macos-and-windows-service)
 pins its model in its own configuration.
+
+The dense adapter in `src/engine/onnx_embedding.py` retains the catalog, model
+files, pooling, dimensions and cache locations from FastEmbed 0.8.1 while using
+the maintained inference and tokenizer packages directly. OCR uses Pillow 13 or
+newer independently. The explicit embedding contract and ONNX Runtime version
+now enter the derived-index fingerprint, so the first start rebuilds vector
+indexes once; source history and cached model weights are retained. Changes to
+the adapter's numerical conventions must bump its `EMBEDDING_CONTRACT`. Model
+licenses remain in the catalog and `THIRD_PARTY_NOTICES`.
+
+Automatic model-load recovery removes only a managed model directory with an
+identified UTF-8, JSON/metadata or ONNX protobuf fault. A failed Hub snapshot
+also removes its blob targets only inside the same repository and only when a
+complete re-scan under Hub's own per-blob publication lock finds no other
+snapshot references. Shared blobs, uncertain or aliased cache/lock paths, busy
+publishers and exhausted lock-wait budgets preserve the blob files. This
+cooperates with upstream Hub publishers; it does not add a lifetime protocol
+for unrelated clients that bypass those locks. Temporary resource, provider or
+other unclassified initialization failures keep cached snapshots and fallback
+sources available for later offline loads. Hub transport failures retain the
+bounded source retries and archive fallback. Caller-owned `AGENTS_MODEL_PATH`
+directories are never removed or rewritten. Positive sentinel-only tokenizer
+limits are accepted and then bounded by the normal input cap. SigLIP's fixed
+padding still requires a finite tokenizer context. Unknown tokenizer/schema
+errors remain visible rather than being guessed from exception text.
 
 #### Model switch on update
 
@@ -358,13 +442,15 @@ The shared service switches in its update transaction instead
 | `EMBEDDING_PROMPTS` | `on` | Model-specific query and passage prompts ([embedding_prompts.py](src/engine/embedding_prompts.py)); `off` embeds text as given |
 | `EMBEDDING_BATCH_SIZE` | `4` | Documents per embedding batch (1–256) when history, skill or implant indexes are built. Memory grows with batch size, by up to about 68 MB per 512-token document with `intfloat/multilingual-e5-large` (a full harrier-270m index build peaked at about 2.8 GB with the default in the [recorded run](docs/embedding-models-eval-results.md)); larger values may be faster on machines with spare memory. Inputs are also capped at 2048 tokens |
 | `FASTEMBED_CACHE_DIR` | `~/.cache/fastembed` | Persistent model cache; the shared service's `install` reads it only from the shell ([daemon guide](docs/shared-mcp-daemon.md)) |
-| `AGENTS_CLIENT_REPO_ROOT` | Unset: a tool call's `workspace` inside the client's MCP roots, else the nearest `.git` or `CLAUDE.md` at or above `CLAUDE_PROJECT_DIR` or the working directory ([rules](#-repository-memory)) | Explicit stdio memory and workflow target. Refused with `workspace_unsafe` when it is a system, program or home directory. Set it in a per-project MCP entry's `env`, never in the installation `.env`, a shared registration or the Desktop entry |
+| `AGENTS_CLIENT_REPO_ROOT` | Unset: a verified `workspace` or sole current MCP root; without roots, the nearest `.git`, `CLAUDE.md` or `AGENTS.md` at or above the session directory, else that safe existing directory ([rules](#-repository-memory)) | Explicit stdio memory and workflow target. Refused with `workspace_unsafe` when it is a system, program or home directory. Set it in a per-project MCP entry's `env`, never in the installation `.env`, a shared registration or the Desktop entry |
 | `RULES_ENABLED` | `1` | Include [shared rules](rules/README.md) in loaded context |
-| `AGENTS_COOPERATION_ENABLED` | `0` | Opt the installed daemon into the local [agent cooperation service and mailbox](docs/agent-cooperation/README.md); HTTP and existing stdio-bridge clients share it; standalone stdio returns `store_unavailable` |
+| `AGENTS_SUBAGENT_TIERING` | `1` | Resolve model tiers when worker preparation supplies `complexity`; `0` keeps the host model. Per-client model/effort overrides and escalation are in [delegated model tiers](docs/subagent-model-tiers.md#configuration) |
+| `AGENTS_COOPERATION_ENABLED` | `0` | Opt the installed daemon into the local [agent cooperation service and mailbox](docs/agent-cooperation/README.md); HTTP and existing stdio-bridge clients share it; standalone stdio returns `store_unavailable`; accepting the setup option or `--yes` sets this to `1` |
 | `AGENTS_COOPERATION_RETENTION_DAYS` | `30` | Owner retention window for terminal cooperation receipts/events (integer, minimum 30); invalid values leave coordination unavailable; see [maintenance and recovery](docs/agent-cooperation/runtime.md) |
 | `AGENTS_USER_RULES_DIR` | `data/user-rules` in the installation | Machine-local cache for [URL-subscribed user rules](docs/user-rules.md), separate from flow sync |
 | `AGENTS_RULE_AUTH_HOSTS` | Unset | JSON map from a Bearer-token environment variable name to its exact permitted source hostname, required when `auth_env` is used for a user rule |
 | `AGENTS_RULE_PRIVATE_HOSTS` | Unset | Exact hostnames allowed to resolve to RFC1918 IPv4 for user-rule fetches; comma or whitespace separated; loopback/link-local remain denied |
+| `AGENTS_LOCAL_INFERENCE_CONFIG` | Unset; generation disabled | Absolute owner JSON path for optional [local inference](docs/shared-mcp-daemon.md#local-inference) through the shared HTTP daemon. Models and optional dependencies require separate setup; restart after configuration changes |
 | `INTENT_CLASSIFIER_ENABLED` | `0` | Enable the optional intent-based enrichment classifier |
 | `AGENTS_USER_FLOWS_DIR` | `flows/.user` in the installation | Location (absolute path) of [personal and repository flows](flows/README.md#personal-and-repository-flows), their persona choices, and the installation's rule, skill and implant switches (`components.json`) |
 | `AGENTS_GITHUB_HOST` | `github.com` | GitHub host that [library sync](docs/user-sync.md#github) signs in to and calls; set it for GitHub Enterprise Server |
@@ -412,7 +498,7 @@ later keeps a group or a file out on every machine without deleting it anywhere.
 To set it up:
 
 - **During setup.** `init_repo.sh` and `init_repo.bat` ask once, at the end:
-  "Set up sync between your machines now? [y/N]". On macOS, when the shared
+  "Set up sync between your machines now? [y/N]". On macOS or Windows, when the shared
   service answers and serves the Sync page, yes opens its settings page there;
   otherwise it starts the terminal wizard. When the wizard has started sync on a
   machine without the service, setup also asks "Also sync every 5 minutes in the
@@ -522,10 +608,15 @@ store; the interaction journal `history.md` retains its separate role.
 
 Feature PRs target `dev`; release PRs promote `dev` into `main`
 ([branches and releases](#branches-and-releases), with the release
-[procedure](docs/releases.md#procedure)). Merged release PRs record the existing
-UTC calendar version with an immutable Git tag at the resulting commit. See
-[Calendar releases](docs/releases.md) for event guards, same-minute releases and
-retry behavior.
+[procedure](docs/releases.md#procedure)). The root [`VERSION`](VERSION) stores
+one `YY.MM.DD.HHMM` calendar number for the runtime, Claude plugin manifest and
+release tag. Prepare it in UTC with `python3 scripts/bump_plugin_version.py`
+before promotion; later commits retain that number. The runtime adds `-dev` on
+`dev` and `-dirty` for tracked uncommitted changes. Merged release PRs record
+`vVERSION` with an immutable tag at the exact merge commit once the vulnerability
+scan of that commit passes. See
+[Calendar releases](docs/releases.md) for preparation, legacy fallback, collision
+checks and retry behavior.
 
 The shared daemon has its own update controller. Run
 `.venv/bin/python -m src.daemon update` for a manual update; automatic daemon
@@ -567,7 +658,7 @@ checkout only when it is on the previous setting, which `set` records as
 development and stays untouched, and so is a checkout whose `.env` setting was
 edited by hand without a previous record (`channel set` names the way out). The
 switch runs through the usual update transaction, with its gates (idle service,
-clean tracked tree, unchanged dependency manifests), the build while the service
+clean tracked tree, dependency changes it can deliver), the build while the service
 serves, probation and rollback to the previous branch, with the target branch's
 old tip and upstream settings restored. It waits while another worktree has the
 target branch checked out. A switch to a branch that lacks non-merge commits of the installed HEAD,
@@ -588,12 +679,14 @@ mid-session:
 1. **Prepare** (background): a daemon thread (non-blocking, so it never delays
    serving) fetches the target branch and, if the install is fast-forwardable,
    builds the new version's vector stores in an isolated git worktree under
-   `data/.prepared/<sha>`, then writes a marker. The live tree and stores are
-   untouched.
+   `data/.prepared/<sha>`, then writes a marker. A target that changes the
+   dependencies first gets its own Python environment (see below). The live tree,
+   stores and `.venv` are untouched.
 2. **Activate** (next idle start): if a valid prepared update exists, the server
-   fast-forwards the live tree (local, no network) and atomically moves the
+   fast-forwards the live tree (local, no network), atomically moves the
    pre-built stores into `data/` — the expensive embedding already happened in
-   phase 1. Activation runs only at a start with no other server session of this
+   phase 1 — and points `.venv` at the target's environment when it has one.
+   Activation runs only at a start with no other server session of this
    installation, including the shared daemon; otherwise the update stays pending.
    A start that overlaps activation waits and then loads the new code. Git and
    reindex children keep the installation leased until they and their
@@ -618,18 +711,60 @@ It is **safe by default**:
   activation merge (including a timeout after HEAD moved) restores the old tree.
   If rollback or re-exec fails, or an unexpected activation error leaves the tree's
   state unknown, startup stops instead of serving mixed versions;
-- dependencies are **not** auto-installed. When `requirements.txt` or
-  `pyproject.toml` changed, the updater only logs a warning. The staged updater
-  warns while preparing, before the live checkout has the new manifests, and
-  builds with the current environment, in which the activated code then also
-  runs. For such an update, stop the server sessions and update manually:
-  `git pull --ff-only`, `.venv/bin/pip install -r requirements.txt`,
+- a dependency change gets a Python environment of its own. When the target
+  changes a requirement line of `requirements.txt` (comments and blank lines do
+  not count) or the environment contract of `pyproject.toml`
+  (`project.dependencies`, `project.requires-python`, an existing
+  `project.optional-dependencies` group, `build-system`), prepare builds
+  `.venvs/<id>` beside the live environment with the same base interpreter:
+  `python -m venv`, then `pip install` of the target's `requirements.txt`, its
+  `pyproject.toml` runtime dependencies and the carried extras, within
+  `AGENTS_AUTO_UPDATE_ENVIRONMENT_TIMEOUT` (default 1800 s). An extra is carried
+  when both revisions declare it and every one of its distributions is installed
+  in the active environment, also as a dependency of another package; it
+  installs the target's requirements. httpx, for example, comes with mcp and
+  anthropic, so the `local-inference` extra is carried and an automatically built
+  environment also gets `httpx>=0.28.1,<0.29`. Plain requirements of one
+  distribution from several places become one line with all their specifiers
+  (`pytest>=7.0.0,>=8.0`); lines with extras, markers or URLs stay as written. A
+  complete environment with the same requirements is reused. The stores are
+  built with it, and activation points `.venv` at it after the fast-forward and
+  the store move, so the re-exec starts on it; client configurations keep naming
+  `.venv/bin/python`. `.venv` thereby becomes a symbolic link: on POSIX the first
+  switch renames the directory setup created to `.venvs/legacy-<UTC time>`. On
+  Windows a `.venv` directory that setup created is refused (Windows cannot
+  rename the directory of a running interpreter); only a `.venv` that is already
+  a junction into `.venvs`, made by hand until setup creates that layout, is
+  switched, from one junction to the next. The switch runs only while no session
+  of the installation does, under the exclusive lease of an idle start: POSIX
+  replaces the link atomically, while Windows removes the junction and then
+  creates the new one. A failed build changes
+  nothing and the next update tries again; a rollback after a failed merge,
+  store move or switch points `.venv` back, and a successful activation removes
+  the environments other than the active and the previous one. Packages
+  installed by hand outside `requirements.txt`, `pyproject.toml` and its extras
+  are not carried into a new environment. A `uv.lock`-only change needs no
+  environment. The updater skips, with a logged reason naming the changed
+  fields, a dependency change when the server was not started through
+  `.venv/bin/python`; when `.venv` is a file or a link outside `.venvs`; when the
+  base interpreter is missing, does not run or is another Python version than
+  the one `.venv` was made with, or does not satisfy the target's
+  `requires-python`; when `.venv` is a directory without `pyvenv.cfg`; on Windows
+  while `.venv` is still the directory setup created; when a requirement line is
+  a pip option (`-r`, `-e`, `--index-url` …), a local path, continues on the
+  next line or has a version part other than `<operator><version>` clauses
+  (`bad package`); when one distribution is pinned to two different versions
+  (`==`); for changed `bridge/package.json` or
+  `bridge/package-lock.json`; and for missing or malformed manifests. For those,
+  stop the server sessions and update manually: `git pull --ff-only`, `.venv/bin/pip install -r requirements.txt`,
+  `.venv/bin/pip install` of each `project.dependencies` entry of `pyproject.toml`
+  that `requirements.txt` does not list and of the requirements of each extra in
+  use (an automatic build installs all of them),
   `.venv/bin/python -m src.model_migration .env` (applies a pending
   [model switch](#model-switch-on-update) before the rebuild), then
-  `.venv/bin/python -m src.reindex`. If it has already activated, stop the
-  sessions and install the dependencies before restarting. Only with
-  `AGENTS_AUTO_UPDATE_STAGING=0` is the new `requirements.txt` already in place
-  when the warning appears.
+  `.venv/bin/python -m src.reindex`. With `AGENTS_AUTO_UPDATE_STAGING=0` every
+  dependency change is skipped: the in-place path has no second environment to
+  build or to roll back to.
 
 Lifetime locks are `flock` on Linux and macOS and `LockFileEx` on Windows. On a
 file system without byte-range locks (some Windows network shares) the server
@@ -654,7 +789,22 @@ activation or rollback. An interrupted mutation or failed rollback keeps the
 journal (and available staging artifacts); subsequent starts stop before importing
 the application, even with auto-update disabled. To recover, stop the sessions,
 inspect the recorded `old_sha` / `target_sha` and Git state, restore a complete
-chosen revision, and successfully run `python -m src.reindex` there. Remove the
+chosen revision with its Python environment (see below), and successfully run
+`.venv/bin/python -m src.reindex` there. A recorded
+`environment` names the Python environment switch, and the startup message
+repeats it. To restore the old revision (`old_sha`), point `.venv` at
+`.venvs/<environment.previous.name>` (or, when `previous.legacy` is set, remove
+the `.venv` link and rename `.venvs/<previous.legacy>` back to `.venv`); when
+`previous` is `{"kind": "directory"}` without a legacy name, `.venv` is still the
+old environment and stays. To keep the target, which a checkout already at the
+target with its stores moved requires, move a `.venv` directory aside first (to
+`.venvs/<previous.legacy>`, or to any `.venvs/legacy-<UTC time>` name when none
+is recorded), point `.venv` at `.venvs/<environment.to>` and rebuild the stores
+with that interpreter: `.venv/bin/python -m src.reindex`. A checkout that runs
+the target while `.venv` already satisfies every requirement the target names
+(each distribution installed, in a release version that its specifiers accept;
+markers are not evaluated, and a clause the updater cannot evaluate counts as
+unmet) is not held: the updater logs a warning and continues on `.venv`. Remove the
 journal only after verifying the restored checkout and rebuilt stores, then
 restart the server. An unreadable journal also requires this explicit recovery.
 
@@ -665,6 +815,7 @@ AGENTS_AUTO_UPDATE_BRANCH=main           # the update channel: main (releases) o
 AGENTS_AUTO_UPDATE_TIMEOUT=30            # seconds per git op
 AGENTS_AUTO_UPDATE_INTERVAL=900          # throttle network checks (0 = every start)
 AGENTS_AUTO_UPDATE_REINDEX_TIMEOUT=3600  # seconds per index build (staged or in-place); stops only a hung build
+AGENTS_AUTO_UPDATE_ENVIRONMENT_TIMEOUT=1800  # seconds to build a dependency change's Python environment
 AGENTS_AUTO_UPDATE_STAGING=1             # 0 = synchronous in-place update at an idle start
 # AGENTS_AUTO_UPDATE_STAGING_DIR=/path   # staging parent (default data/.prepared; same filesystem as data/)
 ```
@@ -681,6 +832,8 @@ With serving processes stopped, run a manual rebuild using `python -m src.reinde
 
 ## 🎯 How It Works
 
+The shared daemon can also proxy manually configured HTTP and stdio MCP servers through the existing Agents-Core entry. Open **MCP** in the web UI, store credentials in the native OS secret store and select allowed apps. Definitions and per-host selections sync through the private personal library; tokens stay in each host's OS secret store. Tools appear as `<alias>__<tool>` after reconnecting MCP in open chats. See [MCP proxy](docs/mcp-proxy.md) for setup and the initial scope.
+
 The server exposes MCP tools that any compatible client can call:
 
 | Tool | Purpose |
@@ -688,8 +841,8 @@ The server exposes MCP tools that any compatible client can call:
 | `route_and_load(query, chat_history?, protocol_version=2, current_persona?)` | Semantic routing when selection is requested; returns a loaded role or candidates for the client to choose |
 | `get_agent_context(agent_name, query, reasoning?, chat_history?, protocol_version=2, current_persona?, force_reload=False)` | Direct agent loading when the target is already known; the active agent returns `NO_CHANGE` unless `force_reload=True` restores lost instructions |
 | `refresh_persona_context(query, current_persona, chat_history?)` | Refresh skills/implants for the active role without reselecting it |
-| `get_subagent_context(agent_name, task, acceptance_criteria, ...)` | Prepare a compact task-scoped worker role, bounded components and a versioned result contract; [worker guide](docs/subagent-contract.md) |
-| `validate_subagent_result(contract, result)` | Check the worker result against the parent-retained contract; structural validation only, without opening references |
+| `get_subagent_context(agent_name, task, acceptance_criteria, ..., complexity?, client?, delivery?, result_format?)` | Prepare a compact task-scoped worker role, bounded components and a versioned result contract; by default the package goes to a private file and the reply is a receipt with the worker's `launch` text; with `complexity`, also the model to launch it on; [worker guide](docs/subagent-contract.md) |
+| `validate_subagent_result(contract_revision, result_ref)` | Check the worker's text or JSON result, read from its transcript or result file, against the contract the server stored (or `contract`/`result` for an inline package); structural validation only, without opening references inside the result; returns `result_sha256` and names the next model tier when a tiered worker fell short |
 | `cooperation_register(...)` | Register bounded work in the optional local cooperation journal; does not spawn workers or grant repository access |
 | `cooperation_read(...)` | Read a bounded repository snapshot and ordered cooperation events through the verified workspace |
 | `cooperation_apply(...)` | Apply an authenticated, revision-checked cooperation action; journal claims coordinate participating agents, not arbitrary filesystem writes |
@@ -702,12 +855,12 @@ The server exposes MCP tools that any compatible client can call:
 | `load_implants(query\|task_type)` | Load cognitive reasoning strategies by semantic query or preset bundle |
 | `list_agents()` | Enumerate all available agents with metadata |
 | `list_flows(scope="all")` | Discover built-in, personal (`user:`) and repository (`repo:`) Markdown workflows, with IDs and content revisions |
-| `run_flow(flow, request="", repo_path=None, current_persona?)` | Load a workflow for the caller's repository; returns `needs_execution` for the current model to carry out using its tools, plus `persona_activation` when the flow names a persona |
+| `run_flow(flow, request="", repo_path=None, current_persona?, force_reload=False)` | Load a workflow for the caller's repository; returns `needs_execution` for the current model to carry out using its tools, plus `persona_activation` when the flow names a persona (`force_reload=True` with `current_persona` restores that persona's full instruction) |
 | `get_flow` / `save_flow` / `delete_flow` | Manage personal and repository flows from chat, with history and conflict detection; stored in the git-ignored `flows/.user` ([details](flows/README.md#personal-and-repository-flows)) |
 | `set_flow_persona(flow, agent?, skills?, implants?, rules?, reset=False)` | Choose the agent and exact skills, implants and rules a flow runs with, without copying its text; stored in `flows/.user/personas/`. Without `agent` the flow runs without a persona; `reset=true` restores the flow's frontmatter ([details](flows/README.md#choose-a-flows-agent-and-components)) |
 | `list_user_rules` / `get_user_rule` / `subscribe_user_rule` / `refresh_user_rule` | Inspect or explicitly fetch cached [URL-subscribed user rules](docs/user-rules.md); only subscribe and refresh contact the source |
 | `set_user_rule_enabled` / `rollback_user_rule` / `delete_user_rule` | Change a user rule using its current revision, without fetching; private cached content stays outside flow sync |
-| `log_interaction(agent_name, query, response_content, persona?, persona_action?, intent?, action?, outcome?, files?, tags?, request_id?, reasoning?)` | End-of-turn attribution log ([details](#-repository-memory)); `persona` is the last `SUCCESS`/`NO_CHANGE` descriptor object copied verbatim with all 7 keys (`agent`, `activation_id`, `bundle_revision`, `scope`, `skills_loaded`, `implants_loaded`, `rules_loaded`), `persona_action` is `keep`, `switch`, `refresh` or `restore` and only goes with `persona`; `files`/`tags` are JSON arrays. Malformed attribution is written as `unverified` |
+| `log_interaction(agent_name, query, response_content, persona?, persona_action?, intent?, action?, outcome?, files?, tags?, request_id?, reasoning?)` | End-of-turn attribution log ([details](#-repository-memory)); `query` is the current request verbatim and `response_content` the exact answer without the time line, both with secrets and capability values replaced by safe references and prohibited personal details omitted; `persona` is the last `SUCCESS`/`NO_CHANGE` descriptor object copied verbatim with all 7 keys (`agent`, `activation_id`, `bundle_revision`, `scope`, `skills_loaded`, `implants_loaded`, `rules_loaded`), `persona_action` is `keep`, `switch`, `refresh` or `restore` and only goes with `persona`; `files`/`tags` are JSON arrays. Malformed attribution is written as `unverified` |
 | `clear_session_cache()` | Stdio only: administrative reset of the shared enrichment cache; not required for persona changes. For HTTP, use `.venv/bin/python -m src.daemon clear-cache` |
 | `describe_repo(repo_path=None, force_refresh=False)` | Read-only repository context and cached summary preview; returns `needs_summary` when a refresh is needed, without sampling or writing ([details](#-repository-memory)) |
 | `write_repo_summary(summary, repo_hash, repo_path=None, workspace_id=None)` | Explicitly persists the summary after `needs_summary`; pass its `repo_hash`, `repo_path` and `workspace_id` back unchanged; refuses the running installation/source root |
@@ -719,7 +872,7 @@ The server exposes MCP tools that any compatible client can call:
 | `local_generate` / `local_generation_result` / `local_generation_cancel` | Submit one bounded completion, reconnect/poll its retained result, or cancel it; UUID deduplication prevents a repeated submit from generating twice |
 
 For shared task inputs, publish once and pass the complete manifest to
-`get_subagent_context.artifact_manifest`. Preparation pins it in the retained
+`get_subagent_context.artifact_manifest`. Preparation pins it in the task
 contract and supplies exact reads for a native worker. The parent still validates
 the unchanged result and independently verifies its artifact evidence. Optional
 `local_context_create.artifact_manifest` instead hydrates every selected entry
@@ -780,12 +933,15 @@ skills and implants and switches each one on or off for the installation.
 
 ### Persona continuity
 
-For optional session readiness in every supported client (Claude Code, Codex,
-Cursor, Antigravity and Claude Desktop), see [Session readiness](docs/session-readiness.md).
-Install it separately using the [commands for your platform](docs/session-readiness.md#install);
-Codex requires reviewing and trusting the new hook in `/hooks`. Cursor and
-Antigravity request display in the first response; ordinary Claude Desktop Chat
-uses an MCP first-response fallback because it has no native lifecycle hook.
+Normal setup offers two independent lifecycle options for detected clients: session readiness (including persona restoration after compaction), and emoji thread status. `--yes` / `-y`, including the one-command installer, accepts both. Use `--skip-hooks` to skip both, or `--skip-readiness` / `--skip-thread-status` to skip one. `--skip-hooks` leaves the daemon/cooperation choices available. `--skip-mcp` skips client writes and both shared-runtime choices. Repeated setup preserves unrelated hooks and updates the owned handlers without duplicates. No profiles are created for absent clients. An alternate Cursor/Antigravity MCP file outside the native profile does not select a hook profile; those hooks are skipped with an explanation rather than modifying the inactive default profile.
+
+See [Session readiness](docs/session-readiness.md) and [Thread status](docs/thread-status.md) for standalone update commands and client limits. Codex requires a fresh session and reviewing/trusting the definitions in `/hooks`; setup cannot grant that trust. Codex interrupt title persistence additionally needs its CLI on PATH, while lifecycle policy and native current-chat renaming do not require it. Setup attempts to install Claude's title SDK in the hook interpreter when that option is selected. If the optional dependency fails, it still installs the stdlib hook and continues setup, with a warning that SDK-based CLI title writes need a later retry. Claude Desktop Code tabs use the app's own title tools; after the user presses stop, an `asyncRewake` watcher wakes Claude once to set the stopped title (Claude Code 2.1.287 or later). Cursor and Antigravity request the readiness banner in the first model response; ordinary Claude Desktop Chat uses the separate read-only `Agents-Readiness` MCP helper. Installing hooks does not verify live UI rendering. [Automatic native compaction](docs/context-compaction.md) remains a separate opt-in feature; persona restoration does not enable it.
+
+For optional automatic compaction between turns in Claude Code, see
+[Native context compaction](docs/context-compaction.md). Its
+separate owner switch defaults to **off**. It uses the signed-in client's native
+compaction, with no separate model API key. Cursor automation is deferred: its
+reserved adapter explicitly reports `unsupported` and sends no keyboard events.
 
 Before each request, the model silently checks whether its active role fits the
 task. If it does, it keeps that role without routing, candidate selection or
@@ -812,13 +968,24 @@ records the telemetry and evaluation evidence for the switch and links the
 remaining validation gaps for each tested client/model.
 
 Delegated workers use a separate [subagent contract](docs/subagent-contract.md):
-the parent prepares an authored compact role with `get_subagent_context`, forwards
-its unchanged `worker_context` through native spawning only after `status: prepared`, and validates every returned or revised JSON result with `validate_subagent_result` and the original retained contract. Require `valid: true` before accepting or integrating it; a failed or unavailable endpoint means work stays with the parent, without an unprepared worker or unvalidated result. Default packages
+the parent prepares an authored compact role with `get_subagent_context` and, only after `status: prepared`, starts a native worker with the receipt's `launch` text; the server writes the package to a private file and keeps the contract. The worker answers in plain text by default, or in the JSON envelope with `result_format="json"` (the validator accepts both forms), and the parent validates every returned or revised result with `validate_subagent_result` by `contract_revision` and `result_ref` (the worker's transcript or result file), or the unchanged `result` when no file holds it, never retyping it ([compact exchange](docs/subagent-contract.md#compact-exchange)). Only for a worker that cannot read the server's files, `delivery="inline"` returns the package itself: the parent starts the worker with its `worker_context` unchanged, retains its `contract` and validates by that `contract` with the unchanged `result`. Require `valid: true` before accepting or integrating it; a failed or unavailable endpoint means work stays with the parent, without an unprepared worker or unvalidated result. Default packages
 select up to three skills and zero implants under a 16,000-character context
 budget. The parent then checks the evidence and acceptance criteria. The tools
 do not launch a model or enforce its runtime permissions or token budget. A valid
 worker package supplies the role without another full activation, chat footer or
 per-result interaction log; ordinary conversation attribution remains unchanged.
+
+[Model tiers](docs/subagent-model-tiers.md) cut flagship tokens on simpler
+assignments. The parent rates each one `complexity: low | standard | high` and
+names its host in `client`; the `execution.spawn` of the receipt (or of an inline
+package) then launches the worker on the newest lighter model
+the client offers: Claude Code `haiku` or `sonnet`, Codex's newest `*-luna` or
+`*-sol` at medium effort, Cursor Auto or its newest Composer. `high` keeps the
+parent's model. Risky or large assignments are raised to a higher tier, and a
+worker that fails, stays partial or fails a check gets an `escalation` to the next
+tier. `AGENTS_SUBAGENT_MODEL_<CLIENT>_<TIER>` overrides a model,
+`AGENTS_SUBAGENT_TIERING=0` turns tiering off, and `AGENTS_SUBAGENT_LEDGER=1`
+records outcomes for `scripts/subagent_tiers_report.py`.
 
 With MCP available, a new ordinary conversation activates a persona before its first final
 answer, even for a greeting or project-status question. `ROUTE_REQUIRED` must be
@@ -834,17 +1001,26 @@ the hook authenticates the project for memory calls. See
 [Antigravity client setup](docs/routing_flow.md#installation-migration-and-rollback).
 
 The checked-in `CLAUDE.md` uses the same template; the global installer does not
-change this tracked file. After editing the template, refresh this checkout's
-managed section:
+change this tracked file. The template, the MCP initialization instructions, the
+`instruction` of a `SUCCESS`, the pointers sent instead of a text the client already
+holds (#433) and the memory reminder are all composed from the section files in
+`src/engine/protocol/`. After editing a section, regenerate the
+template, the reminder and this checkout's managed section:
 
 ```bash
-.venv/bin/python scripts/_helpers/inject_claude_md.py CLAUDE.md scripts/templates/routing-protocol-core.md
+.venv/bin/python -m src.engine.protocol_text --write
 ```
 
-On Windows, use `.venv\Scripts\python.exe` for the same command.
-The helper replaces only the text between the markers and preserves repository
-notes outside them. When the section changes, it leaves an untracked
-`CLAUDE.md.backup.<timestamp>` in the checkout; do not commit it. Backup retention
+On Windows, use `.venv\Scripts\python.exe` for the same command; `--check` lists
+stale files without writing. The command replaces only the text between the
+markers and preserves repository notes outside them. On every run, not only when
+the reminder changes, it keeps the released reminder (the one at the merge base
+with `dev`) as the next `scripts/templates/legacy/memory-routing-v<N>.md` when
+migration would not recognize it; add any name it prints where the tests list
+legacy reminders ([legacy/README.md](scripts/templates/legacy/README.md)). The installer helper
+`scripts/_helpers/inject_claude_md.py` refreshes other files' managed sections;
+when it changes a file it leaves `<file>.backup.<timestamp>` next to it and keeps the
+three newest. Inside this checkout, do not commit such a backup. Backup retention
 and routing-reminder migration are described in
 [installation, migration and rollback](docs/routing_flow.md#installation-migration-and-rollback).
 Review your own project instructions and memory for conflicting unconditional
@@ -866,7 +1042,7 @@ passing server tests alone does not establish it.
 
 ```
 Agents/
-├── .github/workflows/    # Windows installer CI and the issue-agent bridge
+├── .github/workflows/    # CI checks, vulnerability and release gates, issue-agent bridge
 ├── agents/               # Agent personas, discovered from system_prompt.mdc
 │   ├── software_engineer/
 │   │   └── system_prompt.mdc
@@ -880,6 +1056,8 @@ Agents/
 ├── src/
 │   ├── server.py         # FastMCP tools, prompts, and standalone entrypoint
 │   ├── startup.py        # Installation leases and isolated stdio indexes
+│   ├── personal_runtime.py # Personal startup hooks for the daemon and standalone stdio
+│   ├── stdio_runtime.py  # Stdio run loop with supplied startup hook and log drain
 │   ├── self_update.py    # Standalone staged updates
 │   ├── reindex.py        # Skill and implant index rebuild
 │   ├── model_migration.py # One-time switch to the default embedding model
@@ -890,6 +1068,7 @@ Agents/
 │   ├── component_toggles.py # Installation-wide on/off switches for rules, skills and implants
 │   ├── component_catalog.py # Read-only agent and component listing for the web UI
 │   ├── client_paths.py   # Client configuration paths shared by installers and migration
+│   ├── client_instructions.py # What a client's instruction files hold: the initialize pointer and drift warnings
 │   ├── file_lock.py      # Stable sidecar file locks
 │   ├── daemon/           # HTTP app, service control, workspaces, client migration, web UI and its sign-in
 │   ├── mcp_servers/      # Optional document OCR server and the MCP server template
@@ -897,12 +1076,14 @@ Agents/
 │   │   ├── router.py     # Semantic routing (cache-first)
 │   │   ├── persona.py    # Protocol 2 activation, restore, and refresh
 │   │   ├── persona_bundle.py # Fresh instruction blocks and bundle revision
+│   │   ├── protocol_text.py # Every protocol surface, rendered from the section files in protocol/
 │   │   ├── readiness.py  # Background retrieval startup (warming_up)
 │   │   ├── skills.py     # Skill retrieval (vector search)
 │   │   ├── implants.py   # Implant retrieval (vector search)
 │   │   ├── rules.py      # Shared rule loading
 │   │   ├── config.py     # Centralized configuration
-│   │   ├── embedder.py   # FastEmbed wrapper (ONNX Runtime)
+│   │   ├── embedder.py   # Dense ONNX embedding wrapper
+│   │   ├── onnx_embedding.py # Dense ONNX adapter with the retained FastEmbed catalog
 │   │   ├── embedding_prompts.py # Model prompts and extra model registrations
 │   │   ├── vector_store.py # NumPy-based vector store
 │   │   ├── enrichment.py # Tier-based context enrichment
@@ -950,10 +1131,28 @@ Agents/
 ### Codex instruction installation
 
 During the client setup stage, both installers automatically update Codex's global
-instructions when `CODEX_HOME` is non-empty, the default `~/.codex` directory exists, or
+instructions and register Agents-Core in `config.toml` when `CODEX_HOME` is non-empty, the default `~/.codex` directory exists, or
 the `codex` command is available. `CODEX_HOME` selects the target directory when
 non-empty; otherwise the target is `~/.codex`. There is no additional Codex prompt.
-`--skip-mcp` skips this instruction update along with client configuration.
+`--skip-mcp` skips both instructions and MCP registration. Discovery does not require
+the CLI when the profile directory exists. Standalone setup writes absolute interpreter and
+server paths. The registration step preserves other settings and servers and
+retains an existing Agents-Core HTTP or stdio bridge connection. Managed service
+upkeep can then upgrade compatible owned entries as described below. Repeating
+setup leaves an already current entry unchanged. Standalone setup creates a unique
+`config.toml.backup.*` snapshot before changing an existing TOML file and replaces it atomically; shared-service migration uses its private restorable backup journal. Invalid TOML or
+an unsupported inline MCP layout is left unchanged and setup reports an error;
+convert inline MCP definitions to table syntax before retrying. A symlinked
+`config.toml` is also refused; use a regular file before retrying. On NixOS,
+setup includes the same per-process native library path as for other clients.
+
+Registration does not test live connectivity. Standalone registration preserves
+an existing HTTP/bridge entry even if its service is unavailable; repair the
+shared service with its migration command below. Managed service upkeep refreshes
+only compatible entries as described next.
+If this installation already has a shared-service marker, a new Codex registration uses the service's existing migration under its control lock and recovery checks, selecting its stdio bridge (Node when available, otherwise Python). Unusable shared state stops registration without falling back to standalone; the service may be stopped while its client configuration is prepared. The subsequent managed-registration refresh upgrades compatible entries and their known layers together; owner overrides remain intact. Without a marker, setup uses standalone stdio.
+After moving a standalone installation or its virtual environment, rerun setup
+to refresh its absolute paths.
 
 The installer updates a non-empty `AGENTS.override.md` when present; otherwise it
 updates `AGENTS.md`. This matches Codex's global instruction precedence. Personal
@@ -980,12 +1179,12 @@ This command updates global instructions, that reminder and its memory-index
 entry, and their managed backups. It does not install dependencies, change `.env`
 or vector indexes, register MCP connections, or change
 service configuration. The shared daemon migration below configures Codex's MCP
-connection on macOS; without the service, add the [standalone Codex entry](#codex-configtoml).
-Refreshing client instruction files alone does not require restarting the daemon. Start fresh client sessions to load them. Cursor and standalone Claude Desktop receive the shared contract through MCP initialization; this instruction-only command does not manage a global rules file for them. After updating server-side initialization instructions, restart or reconnect the server and reconnect those clients to receive the new initialization response. Existing project-level rules can override global guidance, so update their managed sections with the same template when they restate an older contract.
+connection on macOS and Windows; without the service, add the [standalone Codex entry](#codex-configtoml).
+Refreshing client instruction files alone does not require restarting the daemon while it serves the same protocol; if the files now hold a newer template than the running daemon, a conversation's first activation warns that they hold a newer protocol and names the restart command (`.venv/bin/python -m src.daemon restart`, run in the installation). Start fresh client sessions to load them. Cursor and standalone Claude Desktop receive the shared contract through MCP initialization; this instruction-only command does not manage a global rules file for them. After updating server-side initialization instructions, restart or reconnect the server and reconnect those clients to receive the new initialization response. Existing project-level rules can override global guidance, so update their managed sections with the same template when they restate an older contract.
 
-### Shared macOS service
+### Shared macOS and Windows service
 
-On macOS, one shared daemon can serve Codex, Claude Code, Cursor and Claude Desktop.
+On macOS and Windows, one shared daemon can serve Codex, Claude Code, Cursor, Claude Desktop and Antigravity.
 Before `install`, capture a baseline and stop this installation's stdio servers,
 either by disabling Agents-Core in open clients or by ending those sessions;
 `install` fails while any of them holds the installation lease. See
@@ -996,7 +1195,13 @@ The service pins the plain-file copy of `microsoft/harrier-oss-v1-270m`, which
 stdio sessions stopped. `install --model intfloat/multilingual-e5-large` pins a
 cached e5-large snapshot instead. Export a custom `FASTEMBED_CACHE_DIR` in the shell before `install`,
 which does not read it from `.env`. Desktop and tracked project configurations use
-the Node 22+ bridge. See the [prerequisites](docs/shared-mcp-daemon.md).
+a stdio bridge: Node 22+ when recorded and available, otherwise the standard-library
+Python bridge. See the [prerequisites](docs/shared-mcp-daemon.md).
+
+Normal setup offers the shared daemon and cross-client cooperation as independent options on macOS and Windows. The one-command installer passes `--yes`, accepting both; interactive `init_repo` asks separately. `--skip-daemon` skips installation and managed-client migration, while `--skip-cooperation` preserves the existing cooperation setting. Cooperation requires a shared daemon; it can be enabled on an existing service even when new daemon installation is skipped. `--skip-mcp` skips both choices, and `--skip-hooks` affects only lifecycle hooks. Linux keeps standalone MCP setup because this service manager supports macOS and Windows.
+
+Accepting cooperation persists only `AGENTS_COOPERATION_ENABLED=1` in `.env`, including under `--skip-env`, and starts or gracefully restarts the selected service when necessary. Already-current setup preserves the service's port, model, token and running process. Daemon installation uses the model/cache settings supplied by setup or saved in `.env`, without exporting unrelated `.env` keys. The existing launchers select the pre-index model themselves; a shell model override is not a uniform cross-platform setup option. The daemon requires an already cached embedding model; `--skip-index` does not waive that prerequisite. Managed registrations are brought to the shared bridge without replacing custom, foreign or absent profiles, and an existing `registrations disable` setting is respected. If an accepted setup option fails, setup reports it, still runs Sync, summary and health checks, retains completed steps and exits nonzero at the end. Reconnect open client sessions after migration. `/health` reports cooperation as `ready`, `disabled` or `unavailable`, separately from ordinary daemon readiness.
+
 Run controller commands from the installation checkout (`~/.agents-core`, or
 `AGENTS_HOME`, for the one-command installer).
 
@@ -1014,12 +1219,16 @@ about one that only a directory the user can write holds. The service starts the
 tools by those paths and runs with system directories in its `PATH`, not the
 installing shell's (see [tools and PATH](docs/shared-mcp-daemon.md#tools-and-path)).
 
-Global registrations provide routing. With Node recorded, the user entries of
-Claude Code, Codex and Cursor register each session's project themselves, and the
-service keeps the registrations it wrote up to date at every start
-([details](docs/shared-mcp-daemon.md#registrations-kept-current)). Without Node,
-project memory requires a registered workspace: register each clone or worktree
-with `migrate --workspace`.
+Global registrations provide routing and automatic project binding. The user entries
+of Claude Code, Codex and Cursor register each safe session directory themselves,
+including an empty folder without repository markers. Node is optional: the bridge
+uses the recorded Python when Node is unavailable. The service keeps compatible
+managed registrations and their known client layers consistent at every start,
+and setup refreshes them after MCP configuration while automatic upkeep is enabled
+([details](docs/shared-mcp-daemon.md#registrations-kept-current)). Ordinary empty
+session folders need no per-project migration. Use `migrate --workspace` for an
+intentional project pin, or when the client provides no usable session directory,
+MCP root or trusted workspace hook.
 Migration manages private bearer headers and backups. Reconnect MCP in open
 clients after migration. See [service operations](docs/shared-mcp-daemon.md) for
 scope audits, updates, token rotation and rollback. A client that still starts
@@ -1048,7 +1257,7 @@ CLAUDE_CONFIG_DIR="$HOME/.claude-work" .venv/bin/python -m src.daemon migrate --
 ```
 
 The configurations below are for explicit standalone stdio use (including platforms
-without the macOS service). To return from the shared service to stdio, run
+without the shared service). To return from the shared service to stdio, run
 `restore-clients` and then `uninstall` (see
 [rollback](docs/shared-mcp-daemon.md#updates-and-recovery); to remove Agents-Core
 altogether, see [Uninstall](#uninstall)); setup writes
@@ -1092,8 +1301,9 @@ then uses Claude Code's own `Agents-Core` for its project, while the app's chats
 calls to the denied tools are refused. The desktop app reads the profile its own
 environment selects: when setup runs with `CLAUDE_CONFIG_DIR`, the app must see the
 same value. While the shared service is installed, setup keeps the entries `migrate`
-wrote. The shared desktop server still needs the `workspace` argument for its memory
-and flow tools ([rules](#-repository-memory)).
+wrote. The shared desktop server selects a sole current MCP root automatically;
+with several roots its memory and flow tools need the caller's root-verified
+`workspace` argument ([rules](#-repository-memory)).
 
 ### Cursor (`.cursor/mcp.json` in the client project)
 
@@ -1113,8 +1323,8 @@ and flow tools ([rules](#-repository-memory)).
 
 ### Codex (`config.toml`)
 
-Setup installs Codex instructions but does not register this server; without an
-entry, Codex follows the instructions' MCP-unavailable fallback. Add to
+Setup installs Codex instructions and registers this server automatically. For a
+manual standalone registration, add to
 `~/.codex/config.toml` (or `$CODEX_HOME/config.toml`):
 
 ```toml
@@ -1203,42 +1413,53 @@ client project.
 Summary destination checks use filesystem identity as well as resolved paths,
 including case variants and macOS volume aliases of the protected checkout.
 
-- **`describe_repo`** — reads repository context without sampling or writing project files, including with `force_refresh=True`. Returns `up-to-date` with the cached summary preview, or `needs_summary` with a prompt, `repo_hash`, `repo_path`, `workspace_id` and an `instruction` for the calling model. A refresh is needed when the repository fingerprint changes (top-level names, first- and second-level directory names, key manifest contents and the head of `README.md`), the managed section is missing, or `force_refresh=True`. Both stdio and HTTP use the same read-only behavior.
+- **`describe_repo`** — reads repository context without sampling or writing project files, including with `force_refresh=True`. Returns `up-to-date` with the cached summary preview, or `needs_summary` with a prompt, `repo_hash`, `repo_path`, `workspace_id` and an `instruction` for the calling model. The prompt's context bundle (directory tree to depth 3, root manifests, first 200 lines of `README.md`) is capped at 24,000 shown units, the size Claude Code counts for a tool result, so the whole response stays under its 50,000-unit inline limit and is shown inline; a part over its cap is cut at a line boundary and ends with a note of what it left out. A refresh is needed when the repository fingerprint changes (top-level names, first- and second-level directory names, key manifest contents and the head of `README.md`), the managed section is missing, or `force_refresh=True`. Both stdio and HTTP use the same read-only behavior.
 - **`write_repo_summary`** — explicitly persists the caller's overview in the managed *Repository Memory* section of `CLAUDE.md` and updates its fingerprint cache. Follow the description's `instruction` before calling it. The running Agents-Core installation and runtime source root are protected: writes return `rejected` with a `live_installation` reason before creating a lock, summary or cache. Existing summaries remain readable there; keep a new overview in the answer or use a separate worktree and describe that target again. A worktree's default memory root can normalize to the main checkout. A nested worktree inside the authorized workspace can be selected with its explicit physical `repo_path`; for an external worktree, first set a per-project `AGENTS_CLIENT_REPO_ROOT` to its physical path and reconnect MCP, or register that physical root over HTTP. Ordinary project and explicitly selected worktree summaries retain their existing storage and freshness behavior.
-- **`log_interaction`** — end-of-turn logger. Appends `intent / action / outcome` entries (with optional files and tags) to `history.md` at the repo root; deduplicated by content hash; rotated to `history/YYYY-MM.md` when the file exceeds 512 KB. Also sends a Langfuse generation trace if keys are configured. A partial, malformed or mismatching `persona`, or `persona_action` without `persona`, never drops the turn: the entry is written with an `unverified`/`mismatch` persona line and the response carries `warnings`; a turn whose project does not resolve goes to the installation's fallback journal (see below) instead of being dropped (sinks stay best-effort: a full queue or a sink failure can still lose a write; a failed history write is reported as `history_last_error`, see below). It returns at once with a local `timestamp` (`YYYY.MM.DD HH:MM:SS`), which the final answer shows as its first line when the footer lists the `answer-timestamp` rule; both writes happen in the background and are drained on shutdown.
+- **`log_interaction`** — end-of-turn logger. Appends `intent / action / outcome` entries (with optional files and tags) to `history.md` at the repo root; deduplicated by content hash; rotated to `history/YYYY-MM.md` when the file exceeds 512 KB. Also sends a Langfuse generation trace if keys are configured. A partial, malformed or mismatching `persona`, or `persona_action` without `persona`, never drops the turn: the entry is written with an `unverified`/`mismatch` persona line and the response carries `warnings`; a turn whose project does not resolve goes to the installation's fallback journal (see below) instead of being dropped (sinks stay best-effort: a full queue, a log worker that cannot start or a sink failure can still lose a write; a failed history write is reported as `history_last_error`, see below). It returns at once with a local `timestamp` (`YYYY.MM.DD HH:MM:SS`), which the final answer shows as its first line when the footer lists the `answer-timestamp` rule; both writes happen in the background and are drained on shutdown.
 - **`read_history`** — returns recent entries by recency/`since` filter, or runs a lazy semantic search backed by the same `NumpyVectorStore` used for routing. A listing stays under the 50,000 characters above which Claude Code saves a tool result to a file. `outcome` comes as a preview of up to 600 characters, `intent` and `action` of up to 300, `files` and `tags` keep up to 20 items, and a shortened entry gives each cut field's full length in `truncated` (characters, or items for a list). When that is still too much, the previews get shorter, and then the last entries are left out, counted in `omitted`; `offset` skips that many entries, and the `instruction` gives the `offset` and `limit` that read them; entries logged between two calls shift those pages. Semantic results carry `intent`, `action` and `outcome` like recent ones, without `files` and `metadata`. `read_history(entry_id=...)` returns one entry whole, also one that rotation moved to `history/YYYY-MM.md`. With [user library sync](docs/user-sync.md#repository-history) set up, a repository's top-level checkout (with an `origin`) reads its `history.md` and `history/*.md` merged with the entries the user's machines shared for that repository, including this machine's other checkouts: one per entry hash, the checkout's own copy first, ordered by time and read newest month first. Each entry carries `machine` (null for the checkout's own entries, else the label of the machine that wrote it); `machine=<label>` keeps that machine's entries and `machine=local` this checkout's own. `history.md` itself stays the checkout's journal. A machine shares a repository's entries only after its owner reviewed them with `python -m src.user_sync history export`: approval covers the repository's later entries on that machine and exactly the past entries listed, so another checkout that joins later waits for its own review. `python -m src.user_sync history share all` shares every repository's entries from that machine without a review instead, except repositories `history revoke` leaves out.
 
-Over stdio, the project is `AGENTS_CLIENT_REPO_ROOT` when set; otherwise the
-nearest `.git` or `CLAUDE.md` at or above the start directory. The start directory
-is `CLAUDE_PROJECT_DIR`, which Claude Code exports to the servers it starts, or else
-the launch directory. A `CLAUDE_PROJECT_DIR` without a marker is used as named. A
-launch directory without a marker is refused with `workspace_required`: it says
-nothing about the project. A root (including the override) that is a filesystem
-root, the home directory, or a system or program directory is refused with
-`workspace_unsafe`: on Windows the Windows directory, `%ProgramFiles%`,
+Over stdio, a non-empty `AGENTS_CLIENT_REPO_ROOT` selects the project as named
+and remains authoritative. Without it, a client declaring MCP roots supplies the
+current roots on each request. A sole distinct local root is selected automatically;
+with several roots, pass the caller's absolute `workspace`, which must lie inside
+a declared root. With no usable root, a model path alone cannot enable memory. No first or last root becomes a global process binding.
+The verified directory resolves to the nearest `.git`, `CLAUDE.md` or `AGENTS.md`
+at or above it, or to the directory itself when no marker exists; a git worktree
+normalizes to its main checkout. This per-request selection reports `source` as
+`workspace` and outranks the process's launch directory.
+
+Antigravity's native workspace hook supplies an authenticated per-request path even
+when standalone MCP starts from `/` without roots. Setup provisions the hook and
+startup rules in the active native profile, with a private installation-bound
+signing key; the MCP registration contains only its path. Both standalone and
+shared-service transports verify the proof before repository tools run.
+
+When the client does not declare MCP roots or supply a verified native hint, the start directory is an existing `CLAUDE_PROJECT_DIR`, or else
+the launch directory. The nearest `.git`, `CLAUDE.md` or `AGENTS.md` at or above it owns
+memory; without a marker, the safe existing session directory itself owns memory.
+An ordinary empty folder therefore needs no marker creation, git initialization or
+per-project migration. A model's unverified `workspace` argument cannot redirect a
+process without roots. Set `AGENTS_CLIENT_REPO_ROOT` only on a per-project
+registration, never on a shared or Desktop one.
+
+A filesystem root, the home directory, or a system or program directory is refused
+with `workspace_unsafe`: on Windows the Windows directory, `%ProgramFiles%`,
 `%ProgramFiles(x86)%`, `%ProgramData%` and `C:\Users` itself; on POSIX `/usr`,
 `/var`, `/home`, `/Users` and similar, plus `/etc`, `/bin`, `/usr/bin` and the other
 system subtrees (`/usr/local`, `/private/tmp` and macOS temporary directories stay
-allowed). If the launch directory no longer exists, memory falls back to the
-installation and workflows return an error.
+allowed). Automatic launch-directory inference also refuses the Agents-Core
+installation and runtime source tree, application bundles and editor extension
+runtimes. If cwd is unavailable, resolution reports `workspace_required` instead
+of selecting the installation. A missing or invalid directory is refused; memory
+never silently falls back to a project in the installation.
 
-One stdio process can also serve several sessions. The Claude desktop app starts the
-servers in `claude_desktop_config.json` once, in `C:\Windows\System32` without
-`CLAUDE_PROJECT_DIR`, and injects them into its Code-tab sessions; setup and `migrate`
-deny that entry in Claude Code (see above), so those sessions use their own server.
-Its `roots/list` answer lists the folders of every open session,
-so neither the process nor its roots tell which project a call belongs to. The memory
-and flow tools therefore take `workspace`, the absolute path of the caller's working
-directory, which the routing instructions tell the model to pass. When the client
-declares the MCP roots capability, `workspace` is checked on every call: it must lie
-inside one of the client's roots, resolves like `CLAUDE_PROJECT_DIR` (a git worktree
-to its main checkout, as Claude Code does for a worktree session) and is refused when
-unsafe; `source` is then `workspace`. It takes precedence over `CLAUDE_PROJECT_DIR`
-and the launch directory, never over `AGENTS_CLIENT_REPO_ROOT`, and is never pinned
-for the process. A client without roots cannot vouch for the path, so the process
-root applies and a refusal names `AGENTS_CLIENT_REPO_ROOT`. Set
-`AGENTS_CLIENT_REPO_ROOT` only on a per-project registration, never on a shared or
-Desktop one.
+One stdio process can serve several sessions. The Claude desktop app starts the
+servers in `claude_desktop_config.json` once, outside a project, and can report
+folders from every open session through `roots/list`. A single current root is
+sufficient; multiple roots are ambiguous until the caller names a verified
+`workspace`. Setup and `migrate` deny the Desktop entry in Claude Code (see above),
+so Code-tab sessions use their own server. These rules depend on signals supplied
+by the native client; they do not establish that every client UI supplies them.
 
 `log_interaction` and `read_history` results carry `workspace` (`root`, `source`) and
 `pid`, and, after a failed history write, `history_last_error`
@@ -1248,12 +1469,13 @@ the flow tools, carry `pid` and `workspace_inputs` (`cwd`,
 `claude_project_dir`, `agents_client_repo_root`, `client`, `roots`), and, in a server the
 Claude desktop app started (client `local-agent-mode-<server>`), a `hint` that names its
 `claude_desktop_config.json` and how its Code tab gets its own server; when the client
-declares roots and `workspace` was omitted, the refusal asks for it and
-`log_interaction` tells the model to retry once with it.
+declares roots without a unique root and `workspace` was omitted, the refusal
+asks for it and `log_interaction` tells the model to retry once with it.
 Over HTTP, memory requires the registered `X-Agents-Workspace` header;
 the daemon does not infer a project from its working directory. The user-scope
 entries of Claude Code, Codex and Cursor are a bridge per session that registers the
-session's project and sends that header itself ([details](docs/shared-mcp-daemon.md#installation-and-client-migration)).
+session's project and sends that header itself; a fixed registered HTTP identity
+is never replaced by an unverified tool argument ([details](docs/shared-mcp-daemon.md#installation-and-client-migration)).
 When no project resolves, `log_interaction` keeps the turn in the installation's
 fallback journal (`unresolved/history.md` next to user sync's private state) with the
 directory the client named as unverified metadata, and `read_history` reads the
@@ -1281,8 +1503,10 @@ See [service memory behavior](docs/shared-mcp-daemon.md#memory-and-errors) for t
 current transport contract and [the original memory design](docs/memory-subsystem-spec.md)
 for its rationale.
 
-`log_interaction` stores the supplied prompt and response by default; callers can
-provide curated `intent`, `action`, and `outcome` fields. This checkout ignores
+`log_interaction` stores the supplied prompt and response by default, after the
+caller has replaced secrets and capability values with safe references and left
+out prohibited personal details; callers can provide curated `intent`, `action`,
+and `outcome` fields. This checkout ignores
 `history.md` and `history/`. In a client project, check the ignore rules for
 `history.md`, `history/`, `data/memory/` and the hidden lock files
 (`.history.md.lock`, `.CLAUDE.md.lock`, `.agents-description.lock`) before
@@ -1303,6 +1527,19 @@ in `.env` to enable it; leave them empty for local-only operation (see
 
 ---
 
+## Checks
+
+The workflow badges show the latest matching push runs on the integration branch, `dev`; the MCP API badge is derived from the source. [Quality checks and badge scope](docs/quality-checks.md) is the one table of what each badge covers, its triggers and its limits, including the vulnerability gate that releases wait for. Other focused workflows are listed in [GitHub Actions](https://github.com/IEZhu/Agents/actions) and the [test guide](tests/README.md).
+
+After preparing the environment as described in the [test guide](tests/README.md), run the regular suite locally:
+
+```bash
+LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/ -q
+node --test bridge/test.mjs
+```
+
+Pytest excludes the `slow` marker by default. See the test guide for focused, slow and explicit live checks. These commands do not reproduce the complete hosted platform matrix or the dependency scan, and no coverage percentage is claimed.
+
 ## 🛠️ Development
 
 Read [AGENTS.md](AGENTS.md) for contributor instructions, [the documentation
@@ -1322,6 +1559,30 @@ the merge method, closing keywords, hotfixes, the rules for `dev` and the tag
 workflow. Installations choose their branch with `python -m src.daemon channel set
 main|dev` or the web UI's Updates section ([update channel](#update-channel)). The
 `push` triggers of the CI workflows cover `main` and `dev`.
+
+### Vulnerability gate
+
+`Vulnerability scan` audits the complete committed `uv.lock` on every pull request,
+merge queue, push to `dev`/`main` and manual run, and daily on the default branch,
+`main`, once the workflow is there. Trivy 0.76.1 includes
+development dependencies and every severity, including unknown and unfixed issues.
+uv 0.11.25 first rejects drift between dependency declarations (including every
+optional extra) and the lock, with source builds disabled. Missing or unparsed
+lockfiles and scanner/database errors fail the job. The independent `requirements.txt`
+installation input is also resolved universally for Python 3.11 and later, without
+source builds or Python downloads, and its complete pinned dependency list is scanned
+alongside `uv.lock`. The report must include every expected package name and version
+from both inventories, including conditional versions. This audit resolves the
+requirements at scan time; it does not turn independent pip installs into locked installs.
+No repository ignore policy is loaded. Release publication scans the exact merged
+release commit again and depends on both inventories passing.
+
+A failing scan blocks a merge into `dev` or `main` only when the repository rules
+require the `Vulnerability scan` check; add that required check to enforce the
+gate before a merge. Release publication waits for its own scan of the merge
+commit either way. Fix dependencies rather than adding an automatic exception for
+a vulnerability without an available fix. Revert the workflow change to roll back
+this policy, updating any required-check rule at the same time.
 
 ### Validation
 

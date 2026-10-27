@@ -13,6 +13,7 @@ their session to the service's bridge (``_serve_through_service``, #266).
 """
 
 import errno
+import json
 import logging
 import importlib
 import os
@@ -97,8 +98,34 @@ def assert_installation_safe(repo_root):
         return
     raise SystemExit(
         f"Unfinished auto-update: {journal}. Restore the installation and rebuild "
-        "its stores, then remove this journal only after successful recovery."
+        "its stores, then remove this journal only after successful recovery." + _environment_note(journal)
     )
+
+
+def _environment_note(journal):
+    """The Python environment switch a journal records (#181), as recovery advice; "" without one."""
+    try:
+        with open(journal, encoding="utf-8") as stream:
+            switch = json.load(stream).get("environment")
+        target, previous = switch["to"], switch.get("previous") or {}
+    except (OSError, ValueError, AttributeError, KeyError, TypeError):
+        return ""
+    if not isinstance(previous, dict):
+        return ""
+    keep = (f"point .venv at .venvs/{target} and rebuild the stores with its interpreter")
+    if previous.get("name"):
+        restore = f"point .venv back at .venvs/{previous['name']}"
+    elif previous.get("legacy"):
+        restore = (f"remove the .venv link and rename .venvs/{previous['legacy']} back to .venv "
+                   "(when the switch moved it there)")
+        keep = f"move a .venv directory to .venvs/{previous['legacy']} first, then " + keep
+    elif previous.get("kind") == "directory":
+        restore = "leave .venv, which is still the setup's directory"
+        keep = "move the .venv directory aside to .venvs/legacy-<UTC time> first, then " + keep
+    else:
+        restore = "point .venv back at what it pointed at before"
+    return (f" The update switches .venv to .venvs/{target}. To restore the previous revision, {restore}; "
+            f"to keep the target, {keep}.")
 
 
 @contextmanager
@@ -267,7 +294,13 @@ def _serve_through_service(repo_root, directory):
     except (OSError, ValueError):
         service = {}
     config = os.path.join(directory, "bridges", "stdio-auto.json")
-    bridge = os.path.join(repo_root, "bridge", "stdio.mjs")
+    from src.daemon.bridge import bridge_command
+    try:
+        command, script = bridge_command(service, installation=repo_root)
+    except ValueError as error:
+        sys.stderr.write(f"Agents-Core: {error}; serving standalone.\n")
+        return
+    bridge = str(script)
     problem = _bridge_problem(repo_root, service, config, bridge)
     if problem:
         sys.stderr.write(f"Agents-Core: the shared service is installed, but {problem}; serving standalone.\n")
@@ -277,7 +310,7 @@ def _serve_through_service(repo_root, directory):
         sys.stderr.write(f"Agents-Core: the shared service does not answer on port {service.get('port')}: start "
                          "it with `python -m src.daemon start`, or set AGENTS_STDIO_STANDALONE=1 to serve "
                          "standalone.\n")
-    argv = [service["node"], bridge, config]
+    argv = [command, bridge, config]
     try:
         if os.name != "nt":
             os.execv(argv[0], argv)
@@ -297,9 +330,11 @@ def _bridge_problem(repo_root, service, config, bridge):
     others may read on POSIX, and an installation copied with its `data/` would
     otherwise serve through the other installation's service.
     """
-    node = service.get("node")
-    if not node or not os.path.isabs(node) or not os.path.isfile(node):
-        return "it records no Node executable"
+    from src.daemon.bridge import bridge_command
+    try:
+        bridge_command(service, installation=repo_root)
+    except ValueError:
+        return "it records no usable bridge interpreter"
     installation = service.get("installation")
     if not installation or os.path.normcase(os.path.realpath(installation)) != os.path.normcase(
             os.path.realpath(repo_root)):

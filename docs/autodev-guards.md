@@ -167,14 +167,16 @@ standard base64, with seeded samples.
 
 ### Known fixture hits
 
-With these values every tracked file under `docs/`, `src/`, `flows/`, `agents/`, `tests/` and
-`evals/` is clean except nine fixture files that are hits by design: fake tokens and keys in
+The repository-wide regression check scans tracked files under `docs/`, `src/`, `flows/`,
+`agents/`, `tests/` and `evals/`, excluding the fixture files listed in
+`tests/test_schedules_scan.py` (`KNOWN_FIXTURE_FILES`). They contain intentional hits: fake
+tokens and keys in
 tests, an SSH host key, a recorded GitHub URL with a token-like query value in
 `tests/fixtures/autodev_gate_recorded.json`, and an SRI integrity hash in
 `evals/templates/report.html.j2`. A session diff whose context lines reach those lines is
-refused and the run blocked, which autodev runs that edit `tests/` will meet. The test
-`test_tracked_files_are_clean_except_known_fixtures` lists them (`KNOWN_FIXTURE_FILES`), so a
-new hit in any other file fails it.
+refused and the run blocked, which autodev runs that edit `tests/` can meet. The test
+`test_tracked_files_are_clean_except_known_fixtures` requires every other scanned file to be
+clean; that fixture exclusion belongs to the test, not the broker's outgoing scan.
 
 Not covered: a secret split by other text or several times (only a known secret is found across
 any number of blanks; a token pattern takes one blank inside a line, or line breaks), compressed,

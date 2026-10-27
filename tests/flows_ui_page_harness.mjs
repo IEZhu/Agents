@@ -19,6 +19,12 @@ const [, , pagePath, scenario] = process.argv;
 const html = readFileSync(pagePath, "utf8");
 const script = html.match(/<script nonce="\{\{NONCE\}\}">([\s\S]*?)<\/script>/)[1];
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+// POSIX pipes are asynchronous: await the complete JSON before terminating a scenario.
+async function finish(value) {
+  await new Promise((resolve, reject) => process.stdout.write(JSON.stringify(value) + "\n",
+    (error) => error ? reject(error) : resolve()));
+  process.exit(0);
+}
 // Stub elements start with the classes the markup gives them, so what the page hides starts hidden.
 const markupClasses = new Map();
 for (const [tag] of html.replace(/<script[\s\S]*?<\/script>/g, "").matchAll(/<[a-z][^>]*\sid="[^"]+"[^>]*>/g)) {
@@ -85,8 +91,7 @@ async function fetchStub(path, init = {}) {
     const body = JSON.parse(init.body || "{}");
     posts.push(body);
     if (posts.length > 5) {  // a sign-in loop: report it instead of spinning forever
-      console.log(JSON.stringify({ looped: true, posts }));
-      process.exit(0);
+      await finish({ looped: true, posts });
     }
     await sleep(10);  // keep the attempt pending while other 401s arrive
     if ("code" in body) return respond(401, { error: "code_invalid" });
@@ -737,8 +742,7 @@ if (scenario === "search") {
   steps.slash = { prevented: outside.prevented, focused: search.focused, typing_prevented: typing.prevented };
   fire(search, "keydown", { key: "Escape" });
   steps.escape = shown();
-  console.log(JSON.stringify(steps));
-  process.exit(0);
+  await finish(steps);
 }
 
 const esc = (text) => text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -802,8 +806,7 @@ if (isUi) {
                        enabled: true, revision: "r2" };
     await vm.runInContext("loadComponents('rules', 'user:team')", context);
     out.recovered = { disabled: byId("c-toggle").disabled, body: byId("c-body").value };
-    console.log(JSON.stringify(out));
-    process.exit(0);
+    await finish(out);
   }
   if (scenario === "ui_user_rule_toggle") {
     await openTab("rules");
@@ -814,8 +817,7 @@ if (isUi) {
                      displayed: vm.runInContext("({body: state.item.body, revision: state.item.revision})", context) };
     await vm.runInContext("toggleItem()", context);
     out.retry = { puts: [...puts], enabled: userRuleToggle.enabled };
-    console.log(JSON.stringify(out));
-    process.exit(0);
+    await finish(out);
   }
   if (scenario === "ui_place") {
     // A personal flow's group, 456 px wide, beside a version (the sync chip sits under it) ending at
@@ -841,8 +843,7 @@ if (isUi) {
     out.row = await resize(665);  // 201 px: not even after the version
     out.stack = await resize(665, true);
     out.back = await resize(806);
-    console.log(JSON.stringify(out));
-    process.exit(0);
+    await finish(out);
   }
   if (scenario === "ui_panes") {
     const steps = { start: panes() };
@@ -888,8 +889,7 @@ if (isUi) {
     releaseDelete();
     await sleep(40);
     steps.late_delete_rule = { ...panes(), title: byId("c-title").textContent, deletes: deletes.map((d) => d.id) };
-    console.log(JSON.stringify(steps));
-    process.exit(0);
+    await finish(steps);
   }
   if (scenario === "ui_history") {
     // The text shows before the versions answer; the list then fills in and opens an old version.
@@ -952,8 +952,7 @@ if (isUi) {
     historyHolds.shift()();  // user:doc's list answers after the built-in flow opened
     await sleep(20);
     out.builtin_late = { title: byId("title").textContent, ...history() };
-    console.log(JSON.stringify(out));
-    process.exit(0);
+    await finish(out);
   }
   if (scenario === "ui_signout") {
     holdFlowGet = true;
@@ -968,8 +967,7 @@ if (isUi) {
     // Before a later request can fail and hide the controls again, as the persona catalog's does here.
     const late = { ...panes(), title: byId("title").textContent };
     await sleep(40);
-    console.log(JSON.stringify({ signed_out: signedOut, late, after: panes() }));
-    process.exit(0);
+    await finish({ signed_out: signedOut, late, after: panes() });
   }
   out.stored_at_start = stored();
   out.initial_toc_hidden = byId("e-view").classes.has("toc-hidden");
@@ -979,8 +977,7 @@ if (isUi) {
     fire(byId("e-toc"), "click");
     out.after_header_button = snap("e-view");
     out.stored_after = stored();
-    console.log(JSON.stringify(out));
-    process.exit(0);
+    await finish(out);
   }
   await open(0);
   out.opened = { ...snap("e-view"), panes_hidden: byId("panes").classes.has("hidden"),
@@ -1043,8 +1040,7 @@ if (isUi) {
   out.skill_dismissal.over_edge = pointerOver(cView, "md-edge");
   fire(seg("c-seg", 1), "click");
   out.skill_source = { view_hidden: byId("c-view").classes.has("hidden"), source_hidden: byId("c-source").classes.has("hidden") };
-  console.log(JSON.stringify(out));
-  process.exit(0);
+  await finish(out);
 }
 
 if (scenario.startsWith("landing_updates")) {
@@ -1072,8 +1068,7 @@ if (scenario.startsWith("landing_updates")) {
   out.puts = updatesPuts;
   out.confirms = confirms;
   out.reads = requests.filter((path) => path === "/ui/api/updates");
-  console.log(JSON.stringify(out));
-  process.exit(0);
+  await finish(out);
 }
 
 if (scenario.startsWith("landing")) {
@@ -1122,8 +1117,7 @@ if (scenario.startsWith("landing")) {
   box.checked = true;
   fire(box, "change", { target: box });
   out.stored = stored();
-  console.log(JSON.stringify(out));
-  process.exit(0);
+  await finish(out);
 }
 
 if (isSync) {
@@ -1200,8 +1194,7 @@ if (isSync) {
     await sleep(40);
     out.tab = { page_hidden: byId("sync-page").classes.has("hidden"), main_hidden: byId("main").classes.has("hidden"),
                 tabs: byId("tabs").children.map((b) => b.attrs["aria-pressed"]) };
-    console.log(JSON.stringify(out));
-    process.exit(0);
+    await finish(out);
   }
 
   if (scenario === "sync_poll") {
@@ -1219,8 +1212,7 @@ if (isSync) {
     out.visible = { reads: statusReads(), timers: pendingTimers(30000).length };
     await fireTimers(30000);
     out.visible_after_30s = { reads: statusReads(), timers: pendingTimers(30000).length };
-    console.log(JSON.stringify(out));
-    process.exit(0);
+    await finish(out);
   }
 
   if (scenario === "sync_wizard") {
@@ -1303,8 +1295,7 @@ if (isSync) {
     await sleep(40);
     out.started = { headings: snapshot().headings, alert: alertText(), chip: chip() };
     out.calls = calls();
-    console.log(JSON.stringify(out));
-    process.exit(0);
+    await finish(out);
   }
 
   if (scenario === "sync_wizard_ssh") {
@@ -1348,8 +1339,7 @@ if (isSync) {
     await sleep(30);
     out.changed = { alert: alertText(), headings: snapshot().headings };
     out.calls = calls();
-    console.log(JSON.stringify(out));
-    process.exit(0);
+    await finish(out);
   }
 
   if (scenario === "sync_connection_choice") {
@@ -1410,8 +1400,7 @@ if (isSync) {
     syncState = started();
     await click("Replace local and connect");
     out.calls = calls();
-    console.log(JSON.stringify(out));
-    process.exit(0);
+    await finish(out);
   }
 
   if (["sync_connection_recovery", "sync_comparison_recovery", "sync_preview_error"].includes(scenario)) {
@@ -1442,8 +1431,7 @@ if (isSync) {
       inputs: findAll(root(), (n) => n.tag === "input").length };
     if (scenario === "sync_preview_error") {
       out.calls = calls();
-      console.log(JSON.stringify(out));
-      process.exit(0);
+      await finish(out);
     }
     reply("POST /ui/api/sync/run", [500, { status: "attention", reason: "write_failed", message: "could not finish the replacement" }],
           [200, { status: "synced", sent: [], received: ["common/a.md"], conflicts: [] }]);
@@ -1466,8 +1454,7 @@ if (isSync) {
     out.finished = { ...snapshot(), fresh_reads: freshReads() - fresh, chip: chip() };
     out.recovery_calls = syncCalls.slice(mark);
     out.calls = calls();
-    console.log(JSON.stringify(out));
-    process.exit(0);
+    await finish(out);
   }
 
   if (scenario === "sync_dashboard") {
@@ -1534,8 +1521,7 @@ if (isSync) {
     await click("Disconnect");
     await sleep(30);
     out.disconnected = { alert: alertText(), steps: snapshot().steps, chip: chip() };
-    console.log(JSON.stringify(out));
-    process.exit(0);
+    await finish(out);
   }
 
   if (scenario === "sync_focus") {
@@ -1570,8 +1556,7 @@ if (isSync) {
     inside = [gone];
     out.fallback = run(gone, [make("button", "Resume")]);
     out.outside = run(make("button", "Elsewhere"), [make("button", "Elsewhere")]);
-    console.log(JSON.stringify(out));
-    process.exit(0);
+    await finish(out);
   }
 
   if (scenario === "sync_hostkey") {
@@ -1588,8 +1573,7 @@ if (isSync) {
     await sleep(20);
     out.trusted = { ...snapshot(), key: (findAll(root(), hasClass("sync-key"))[0] || {}).textContent };
     out.calls = calls();
-    console.log(JSON.stringify(out));
-    process.exit(0);
+    await finish(out);
   }
 
   if (scenario === "sync_more") {
@@ -1654,8 +1638,7 @@ if (isSync) {
     const focusedBefore = byId("tabs").children[0].focused;
     fire(byId("sync-chip"), "click");
     out.tab_focused = byId("tabs").children[0].focused - focusedBefore;
-    console.log(JSON.stringify(out));
-    process.exit(0);
+    await finish(out);
   }
 
   if (scenario === "sync_round2") {
@@ -1696,8 +1679,7 @@ if (isSync) {
     running.release();
     await sleep(40);
     out.idle_field = { read_only: field("sync-id-name").readOnly, aria: field("sync-id-name").attrs["aria-disabled"] ?? null };
-    console.log(JSON.stringify(out));
-    process.exit(0);
+    await finish(out);
   }
 
   if (scenario === "sync_busy_radio") {
@@ -1715,8 +1697,7 @@ if (isSync) {
     trusting.release();
     await sleep(30);
     out.sent = calls().filter(([, path]) => path === "/ui/api/sync/setup").map(([, , body]) => body);
-    console.log(JSON.stringify(out));
-    process.exit(0);
+    await finish(out);
   }
 
   if (scenario === "sync_hostkey_github") {
@@ -1731,8 +1712,7 @@ if (isSync) {
     await sleep(30);
     out.again = { ...snapshot(), text: textOf(root()) };
     out.calls = calls();
-    console.log(JSON.stringify(out));
-    process.exit(0);
+    await finish(out);
   }
 
   if (scenario === "sync_notice") {
@@ -1778,8 +1758,7 @@ if (isSync) {
     fire(byId("save"), "click");
     await sleep(60);
     out.deleted_save = { notice: byId("notice").textContent, content: byId("content").value };
-    console.log(JSON.stringify(out));
-    process.exit(0);
+    await finish(out);
   }
 }
 
@@ -1826,12 +1805,12 @@ if (isAutodev) {
     for (const handler of windowHandlers.beforeunload || []) handler({ preventDefault() { blocked = true; } });
     return blocked;
   };
-  const done = () => { console.log(JSON.stringify(out)); process.exit(0); };
+  const done = () => finish(out);
 
   if (scenario === "autodev_link") {  // /ui#autodev opens the page and clears the hash
     await sleep(40);
     out.opened = { ...page(), gets: gets(), replaced: replacedUrls, title_focused: byId("autodev-title").focused };
-    done();
+    await done();
   }
   await openChip();
   if (scenario === "autodev_invalid") {  // the problems, and no form or switch
@@ -1839,7 +1818,7 @@ if (isAutodev) {
     out.invalid = { ...page(), problems: card ? findAll(card, (n) => n.tag === "li").map((n) => n.textContent) : null,
                     state: textOf(field("ad-state")),
                     controls: ["ad-save", "ad-defaults", "ad-reload", "ad-switch", "ad-times", "ad-select-client"].filter((id) => field(id)) };
-    done();
+    await done();
   }
   out.opened = { ...page(), title_focused: byId("autodev-title").focused, tabs: byId("tabs").children.map((b) => b.attrs["aria-pressed"]),
                  gets: gets() };
@@ -1853,7 +1832,7 @@ if (isAutodev) {
   out.status = status();
   out.efforts = { claude: options("ad-select-claude-effort").map((o) => o[0]),
                   followup: options("ad-code-review-pass-followup").map((o) => o[0]) };
-  if (scenario === "autodev_codex") done();
+  if (scenario === "autodev_codex") await done();
 
   if (scenario === "autodev_ready") {
     // Run is offered; turning it on asks for the acceptance first, and "no" sends nothing.
@@ -1871,7 +1850,7 @@ if (isAutodev) {
     await setValue("ad-mode", "run");
     await click("ad-switch");
     out.refused = { post: autodevCalls.at(-1)[2], alert: alert(), state: status().state };
-    done();
+    await done();
   }
 
   if (scenario === "autodev_stored") {
@@ -1883,7 +1862,7 @@ if (isAutodev) {
     await click("ad-save");
     const put = puts().at(-1)[2].settings;
     out.saved = { select: put.stages.select.claude, review: put.delegates["code-review-pass"], alert: alert().text };
-    done();
+    await done();
   }
 
   if (scenario === "autodev_save_edits") {
@@ -1928,7 +1907,7 @@ if (isAutodev) {
                     gets: gets(), unload_blocked: unloadBlocked(), read_at: readAt, stored_at: autodevState.revision };
     await click("ad-save");
     out.corrected = { put: puts().at(-1)[2], alert: alert().text, unload_blocked: unloadBlocked() };
-    done();
+    await done();
   }
 
   if (scenario === "autodev_save_writer") {
@@ -1950,7 +1929,7 @@ if (isAutodev) {
                     stored_catch_up: autodevState.settings.catch_up_minutes,
                     stored_hours: autodevState.settings.allowed_hours, stored_at: autodevState.revision,
                     unload_blocked: unloadBlocked(), alert: alert() };
-    done();
+    await done();
   }
 
   if (scenario === "autodev_races") {
@@ -2003,7 +1982,7 @@ if (isAutodev) {
     await click("ad-save");
     out.switched = { ...out.switched, put: puts().at(-1)[2].expected_revision, read_at: readAt, alert: alert(),
                      times_after: value("ad-times") };
-    done();
+    await done();
   }
 
   // Edits survive leaving the page; a tab leaves it too.
@@ -2044,7 +2023,7 @@ if (isAutodev) {
   await openChip();
   await openChip();
   out.defaults_kept = form();
-  done();
+  await done();
 }
 
 if (scenario === "history_adopt") {
@@ -2062,8 +2041,7 @@ if (scenario === "history_adopt") {
   out.prompt = prompts.at(-1);
   out.posted = historyAdopts;
   out.title = byId("h-title").textContent;
-  console.log(JSON.stringify(out));
-  process.exit(0);
+  await finish(out);
 }
 if (scenario === "history") {
   const out = {};
@@ -2128,8 +2106,7 @@ if (scenario === "history") {
                  first: textOf(rendered()[0].children[0]), meta: byId("h-meta").textContent,
                  repos_read_again: requests.filter((path) => path === "/ui/api/history/repos").length - repoReads,
                  reread: requests.filter((path) => path.startsWith("/ui/api/history?")).at(-1) };
-  console.log(JSON.stringify(out));
-  process.exit(0);
+  await finish(out);
 }
 
 if (scenario === "agents") {
@@ -2174,8 +2151,7 @@ if (scenario === "agents") {
   out.persona_options = byId("persona-agent").children.map((option) => option.text + " = " + option.value);
   out.agent_requests = requests.filter((path) => path.startsWith("/ui/api/agents"));
   out.component_writes = requests.filter((path) => path === "/ui/api/component");
-  console.log(JSON.stringify(out));
-  process.exit(0);
+  await finish(out);
 }
 
 if (scenario === "persona_race") {
@@ -2196,8 +2172,7 @@ if (scenario === "persona_race") {
   await navigation;
   await sleep(20);
   steps.after_navigation = panel();
-  console.log(JSON.stringify(steps));
-  process.exit(0);
+  await finish(steps);
 }
 
 if (scenario === "place") {
@@ -2205,9 +2180,8 @@ if (scenario === "place") {
   // version that ends, with the gap, at 230 px.
   const at = (groupWidth, narrow = false) =>
     context.itemPlace({ narrow, groupWidth, groupEnd: 800, versionEnd: 230, straightStart: 339 });
-  console.log(JSON.stringify({ on_pane: at(461), past_corner: at(462), after_version: at(570),
-                               too_wide: at(571), narrow: at(100, true) }));
-  process.exit(0);
+  await finish({ on_pane: at(461), past_corner: at(462), after_version: at(570),
+                               too_wide: at(571), narrow: at(100, true) });
 }
 
 const result = { startup_posts: posts.length };

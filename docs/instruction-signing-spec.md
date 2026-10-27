@@ -1,7 +1,8 @@
-# Instruction signing: instructions, system files and unsigned-change review
+# Instruction signing: installation, repository instructions and owner approval
 
-Status: draft implementation contract, amended 2026-10-15. Pure verification
-primitives are implemented for #235; runtime enforcement and audit remain planned.
+Status: draft implementation contract, amended 2026-10-18. Pure verification
+primitives are implemented for #235; runtime enforcement, audit and the repository
+instruction guard remain planned.
 Profile identifier: `agent-instructions/v1`; OMS v1.0 envelope unchanged.
 Tracks [#234](https://github.com/IEZhu/Agents/issues/234), part of
 [#233](https://github.com/IEZhu/Agents/issues/233).
@@ -39,6 +40,8 @@ In scope are edits bypassing sanctioned writers, instruction injection through
 sync, altered update targets, accidental corruption, and discovery/review of
 existing unverified changes. Protection applies to Agents-Core installation and
 library files, with explicit local selection of additional installation paths.
+The repository guard (§§16–17) additionally covers enrolled host-consumed
+repository/global instruction sources and checks each incoming request.
 
 Arbitrary operating-system files, a privileged or separate-user protection
 service, and a targeted attacker running as the daemon's OS user are outside this
@@ -282,6 +285,10 @@ A verifier of this profile rejects a seal in any of these cases:
 `signer` and `signed_at` carry no trust. Trust comes only from the key.
 
 ## 7. Keys and trust
+
+The #236 local backend and owner CLI are documented in
+[Local signing authority](instruction-signing-authority.md). Its controls require
+an already trusted runtime; the #237 startup integration remains separate.
 
 Machine key material and the trust store live in the daemon state directory
 (`~/Library/Application Support/Agents-Core/<id>/signing/`, mode `0700`). They never
@@ -756,7 +763,249 @@ The amendment must be merged and indexed before dependent expanded behavior is
 accepted. #243 and epic #233 are complete only after the new criteria across
 #234–#242 pass with linked evidence, rollout prerequisites hold and the user/AI
 operational documentation describes the implemented behavior and limitations.
-Merging this specification alone completes neither the protection nor the epic.
+Repository/global guard acceptance R1–R12 (§17) is also required before #243 or
+epic #233 closes. Merging this specification alone completes neither protection
+nor the epic.
+
+## 16. Repository and global instruction guard
+
+This amendment (2026-10-18) extends epic #233 to instruction sources consumed
+by host clients in working repositories, including global and inherited sources.
+It is a proposed implementation contract, not enabled protection. Sections 1–15
+retain their installation/library authority and acceptance requirements. The guard
+reuses #235–#242 services and adds #463–#468; it does not introduce a third OMS seal
+kind or change the `agent-instructions/v1` envelope.
+
+### 16.1 Coverage, enrollment and effective identity
+
+Each supported client adapter declares the sources it actually discovers and
+loads: whole shared files such as `AGENTS.md` and `CLAUDE.md`, applicable ancestor
+and nested files, enrolled user-global instructions, client rule directories,
+and transitive includes such as `@` references. These are adapter requirements,
+not a claim that every client recognizes the same names. Cover text outside
+managed Agents-Core markers too. Ordinary repository documents do not become
+instructions merely because they contain imperative text.
+
+Discovery includes applicability, working-directory selection, precedence and
+include order, required versus optional sources, and configuration that changes
+resolution. Protect adapter/hook/discovery configuration as control input;
+a candidate file cannot remove itself or disable the gate. Do not sweep secrets
+or all operating-system files into this scope. Referenced content outside an
+enrolled root requires explicit coverage; unresolved/unsupported references,
+cycles, unsafe aliases or links, and incomplete enumeration cannot pass as a
+complete effective set. Remote includes require captured, pinned content and
+the same review/approval; do not authorize an unfrozen URL.
+
+Enroll an owner/trust-authority and repository or global scope through the
+trusted owner controls. Bind repository/worktree identity explicitly: a remote
+URL, branch, basename or equal bytes cannot authorize an unrelated clone. Define
+which worktrees share an enrolled scope, and retain root binding plus effective
+relative resolution. Chats share decisions only within the same authority and
+authorized effective scope. Independent installations/authorities do not claim
+shared consent without a separately designed authenticated federation.
+
+Use a versioned `agents-core/effective-instructions/1` manifest, with §14.1's
+canonical encoding and hashes. It records:
+
+| Field group | Required meaning |
+|---|---|
+| Scope | Owner/authority and enrolled repository/global IDs, root binding, applicable directory/scope and adapter/discovery-policy version |
+| Sources | Sorted logical paths and root IDs, required/optional presence, supported file metadata, sizes and SHA-256 of immutable bytes |
+| Composition | Include graph, resolved source identities, applicability and actual load/precedence order |
+| Provenance | Effective coverage/policy/trust revisions and separately authenticated publisher/signature evidence, when available |
+
+The manifest identity binds composition and scope as well as content. Snapshot
+identity still binds immutable captured data (§14.1); a separate effective
+manifest prevents a location-independent snapshot from granting cross-scope
+authority. Added, modified, deleted and renamed sources, retargeted references,
+changed precedence or applicability all require fresh effective identity.
+Checking only the signature file or an existing resource list misses unsigned
+additions. Watchers and file metadata may invalidate caches, but cannot replace
+verification of current bytes and complete discovery.
+
+First enrollment is pending, with the full captured instructions and the absence
+of an authenticated baseline shown explicitly. Fresh hashes or a Git commit are
+not a trusted baseline. Review stays `inconclusive` where §14 requires one; the
+owner may explicitly adopt the exact initial instruction snapshot as a local
+trust decision with that limitation recorded. This is neither a clean diff nor
+a release/library signing action.
+
+### 16.2 Request gate and client capability
+
+The trusted host integration checks before initial instruction ingestion, before
+every incoming user request, and before subsequent instruction discovery/reads
+during an active turn. It runs independently of persona routing and model tool
+choices: `keep`, no MCP call, resume, compaction and working-directory changes
+cannot bypass it. Revalidate scope, exact effective bytes, complete source set,
+current authority and the decision before granting use.
+
+A gate issues a use result tied to the current effective manifest, immutable
+snapshot, decision and policy/trust/review identities. Every actual instruction
+load consumes those same captured bytes, including includes and precedence,
+rather than checking and then rereading mutable originals. Document protection
+against capture/use races and how the host prevents direct alternate ingestion.
+A filesystem watcher alone is not a gate.
+
+| Capability | Required behavior |
+|---|---|
+| Enforce-capable | Proved interception before model exposure on every claimed ingestion path and request; consume only the exact approved snapshot |
+| Detection-only | Can report changes, but cannot prevent initial/later ingestion or replace cached context consistently; display that limitation explicitly |
+| Unsupported | No reliable discovery/check integration for the client/version; do not report it as protected |
+
+An MCP server observes calls made to it, not every host request. A session-start
+banner, a model instruction to call a checker or a post-ingestion hook alone
+cannot qualify as enforce-capable. Test ordering using a controlled model sink
+or equivalent evidence that unapproved sentinel text never reaches the model.
+
+While a candidate is pending, rejected or stale, enforce mode may use the last
+approved immutable set only if the adapter guarantees consistent discovery,
+resolution and context; otherwise block affected ingestion/execution with a
+reference to the shared review item. Never silently drop a mandatory instruction
+or mix approved and candidate includes. An unavailable service, missing adapter,
+disabled hook or incomplete discovery cannot silently fail open in enforce mode.
+
+If candidate instructions already entered a chat or host cache, disclose that
+fact and require a fresh verified context/restart unless the host proves safe
+replacement. A later warning or approval does not establish that an earlier
+context was clean or undo possible prior actions.
+
+Repository guard mode and coverage are explicit owner policy. Installation warn
+rollout and the eight-hour instruction developer mode (§§10–11) do not implicitly
+exempt repository/global approval or authorize a host to claim enforcement.
+Any owner-selected detection/bypass mode is visible and cannot be changed by
+candidate files, MCP tools or sync. Only clients with demonstrated complete
+mediation may offer enforce mode for the relevant scope.
+
+### 16.3 Review, consent and cryptographic evidence
+
+Reuse §14's bounded local-first security-review backend. Review the delta and
+complete effective context, including unchanged/global instructions that can
+change its meaning. Detect command/tool execution, secret access, exfiltration,
+weakened permissions/confirmation/trust, priority manipulation, concealed text
+and newly connected instruction sources. The reviewer treats all content and
+reports as data, has no execution/signing/approval capabilities, and never runs
+candidate hooks/installers/tests. Apply §14.1's approved-destination/redaction
+rules to any remote processing.
+
+Retain the five integrity results and three review outcomes unchanged.
+A missing baseline, timed-out/skipped/unavailable required check or oversized
+input stays inconclusive with concrete findings retained. Cache reports by
+exact snapshot/baseline/composition, relevant policy/trust and required
+reviewer/ruleset versions. A no-findings report cannot approve content.
+
+Publisher signatures, sanctioned API write seals and owner consent are distinct.
+§9's automatic library sealing preserves its existing attribution behavior; it
+does not satisfy this guard's owner approval when library bytes are consumed by
+a protected repository/global composition. A signed installer or new signature
+over identical bytes cannot grant new scope or silently enroll a key.
+
+Persist a versioned `agents-core/instruction-approval/1` receipt outside candidate
+repositories and instruction snapshots. It binds the action, owner-control
+provenance, exact scope/effective-manifest/snapshot/baseline/report identities,
+policy/trust/review revisions, operation ID, prior decision revision and time.
+Authenticate the record using the trusted service's accepted-state mechanism.
+Its authentication proves a recorded service decision; the owner-control
+channel establishes the claimed consent. This receipt is not an OMS release or
+library seal and confers no installation signing, coverage or mode authority.
+
+Owner actions require a documented and tested owner-intent mechanism unavailable
+through MCP, sync, candidate content or an agent's assertion. Existing same-user
+`/ui` auto sign-in or possession of a machine key alone does not prove a human
+approved. UI/CLI must also enforce request authentication, origin/CSRF controls
+where relevant, and revision binding; render reviewed content inertly.
+
+Keep §12's targeted same-OS-user limitation explicit. Same-user UI authentication,
+a bearer token or a readable local key does not resist a process that can replace
+the verifier/accepted state or control the owner's session. Stronger claims
+require a separately enforced owner/service boundary protecting all of them.
+Do not present a local authenticated receipt as proof that this stronger boundary
+already exists.
+
+### 16.4 One durable decision for every consuming chat
+
+Use one durable transactional service per enrolled owner/authority. Candidate
+lookup uses scope and exact effective manifest plus applicable authorization and
+review revisions, never chat ID. Expose idempotent create-or-attach and atomic
+compare-and-swap decisions. Chat notifications carry references, not authority.
+
+| Candidate state | Behavior |
+|---|---|
+| `pending` | All matching chats attach to one review item; new bytes remain unavailable in enforce mode |
+| `approved` | All eligible chats reuse the exact authorized set while the bound inputs and authority remain current |
+| `rejected` | Keep blocked without a fresh dialog on each identical request; explicit owner reopening is required |
+| `superseded` | Preserve evidence; the displayed old revision cannot authorize a replacement candidate |
+
+An approval/rejection is committed once against the exact displayed revision.
+Contradictory concurrent actions cannot overwrite the accepted result.
+Retries and restart/crash recovery preserve decisions; missing/corrupt/rolled-back
+state grants no default approval or automatic re-enrollment. Recheck current
+bytes, scope, policy, trust and review identities immediately before use.
+Revocation or a changed bound input invalidates authorization.
+
+Coalesce pending notifications across chats through a recoverable delivery lease
+and stable queue link. One thousand identical concurrent requests must produce
+one pending item and at most one interactive notification for that candidate
+revision. Later views may show its existing status. Losing the notification
+leader cannot discard the candidate or authorize it. Rapidly superseding edits
+are grouped into the queue and notifications are rate-limited; all unapproved
+versions stay blocked. Throttling notification delivery never throttles integrity
+checks or permits execution.
+
+An owner can approve one displayed batch enumerating exact scope/snapshot IDs.
+There is no approval of future versions, filenames, directories, installers or
+signers. A global component decision can be reused in its enrolled global scope,
+but cannot blanket-approve unknown repository compositions. Present known
+affected compositions together; a new composition needs its own exact decision.
+Partial file selection builds a fresh effective set and combined review before
+approval; do not splice together individually acceptable but unreviewed mixtures.
+
+Reject/preserve changes no source file. Verified restoration is a separate
+explicit action and must preserve user edits/evidence. Reappearance of the same
+rejected candidate remains rejected until reopening. All UI/CLI/adapter views
+consume the same backend semantics, and MCP exposes no owner decision mutation.
+
+## 17. Repository guard implementation and completion evidence
+
+These are proposed implementation tasks under #233. The 2026-10-18 amendment
+does not reopen completed #234/#235 or claim the guard is shipped.
+
+| Issue | Responsibility | Builds on |
+|---|---|---|
+| [#463](https://github.com/IEZhu/Agents/issues/463) | Host-specific discovery, enrolled scope/composition identities and immutable effective snapshots | #235, #236, #237 |
+| [#464](https://github.com/IEZhu/Agents/issues/464) | Durable cross-chat decision ledger, exact receipts, atomic transitions and notification deduplication | #463, #236 |
+| [#465](https://github.com/IEZhu/Agents/issues/465) | Bounded contextual risk review and report-cache correctness | #463, #237 |
+| [#466](https://github.com/IEZhu/Agents/issues/466) | Owner-intent controls, shared CLI/UI review queue and exact batch decisions | #464, #465, #242 |
+| [#467](https://github.com/IEZhu/Agents/issues/467) | Pre-ingestion/per-request adapters, same-byte loading and explicit capability declarations | #463, #464, #465, #466, #237 |
+| [#468](https://github.com/IEZhu/Agents/issues/468) | Cross-client/platform migration, conformance and rollout evidence | #463–#467 |
+
+The existing #236/#237/#242 services supply authority, capture/review and
+presentation contracts. #463 starts after their needed trust/capture contracts;
+#464 and #465 can proceed in parallel, followed by #466, #467 and #468.
+Existing installation/library tasks keep their responsibilities; #243 consumes
+#468's evidence in addition to §15's gates. #468 does not depend on completion
+of #243, avoiding a rollout dependency cycle.
+
+| ID | Required implementation evidence | Owners |
+|---|---|---|
+| R1 | Whole-file appended instructions outside managed markers, new nested sources, ancestor/global edits, changed transitive includes, cwd applicability and discovery/precedence changes alter effective identity | #463, #467, #468 |
+| R2 | Addition/deletion/rename, alias/link substitution, capture/use races, cycles, unresolved references and incomplete/bounded enumeration cannot reuse approved bytes or produce complete coverage | #463, #467, #468 |
+| R3 | First enrollment displays full content and missing baseline/inconclusive coverage; no hashes/Git commit/signature/no-findings result auto-enrolls it | #464, #465, #466, #468 |
+| R4 | 1000 concurrent identical requests across chats create one pending item/interactive notification, one exact decision releases eligible consumers, and restart causes no unchanged-content re-prompt | #464, #466, #468 |
+| R5 | Approve/reject races, duplicate retries, stale dialogs and edits during review have atomic revision-bound outcomes; partial selections require a new combined snapshot/review | #464, #466, #468 |
+| R6 | Rejected repeats stay blocked without modal flooding; explicit reopen and rapidly superseding edits preserve bounded notifications without permission reuse | #464, #466, #468 |
+| R7 | Different owners/authorities, unrelated clones, unapproved worktree scopes and new global/repository combinations cannot consume another scope's approval; known exact batches can be decided together | #463, #464, #466, #468 |
+| R8 | Benign edits and injection/exfiltration/approval-bypass fixtures yield separate integrity/review/consent results; unavailable/bounded/redacted required checks stay inconclusive and reports cannot execute or approve | #465, #466, #468 |
+| R9 | Initial ingestion, every next request, no-MCP/keep, resume/compaction, cwd change and mid-turn reads never expose unapproved sentinel bytes on enforce-capable adapters; already polluted contexts require verified replacement/restart | #467, #468 |
+| R10 | Guard failure, disabled/missing integration, post-ingestion-only hooks and unsupported clients cannot silently fail open or be advertised as protected; capability/latency evidence records client/platform versions and skipped routes | #467, #468 |
+| R11 | MCP/sync/repository markers, automatic library sealing, forged receipts and local auto-login alone cannot establish required owner intent or weaken policy; revocation, stale/corrupt/rolled-back state and inherited developer mode grant no approval | #464, #466, #467, #468 |
+| R12 | Migration, rejection, failed review/recovery and crash/restart preserve edits/evidence; user/AI docs distinguish enforcement, detection, missing baseline, semantic uncertainty and same-user limits | #468, #243 |
+
+Record tested heads, actual commands/results, client/platform versions,
+notification and latency measurements, unsupported/skipped scope and residual
+limits. These rows are required future tests, not results of this documentation
+change. #243 and epic #233 cannot close until both A1–A12 and R1–R12 have linked
+evidence for all claimed capabilities. Merging this amendment or completing
+cryptographic primitives alone satisfies neither completion gate.
 
 ## References
 

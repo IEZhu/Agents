@@ -64,14 +64,29 @@ monitor's completion per pending run while retaining the required quality gates.
   or indexed skill/implant content or metadata, reload the serving process so
   those changes are indexed. For HTTP, run `.venv/bin/python -m src.daemon restart`
   ([service control](shared-mcp-daemon.md#service-control)); for stdio, reconnect
-  the server. See [routing](routing_flow.md) for refresh semantics.
+  the server. The protocol text in `src/engine/protocol/` is composed when the
+  server process starts: after `python -m src.engine.protocol_text --write`,
+  restart or reconnect it the same way and reconnect clients, or a first
+  activation in a checkout that holds the new template warns that the server is
+  older. See [routing](routing_flow.md) for refresh semantics.
 - **Closing a thread.** Before `/clear` or an unrelated task, run
   [flows/thread-close.md](../flows/thread-close.md) to verify the thread's results
   and secure unsaved work.
 
 ## Delegated work
 
-Before every AI delegation, follow the [shared worker contract](routing_flow.md#delegated-workers): `get_subagent_context` must return `status: prepared` before native spawning, and `validate_subagent_result` must return `valid: true` for the original retained contract before the result is accepted. Forward the compact persona and rules in `worker_context` unchanged, without the parent transcript; use `fork_turns="none"` with Codex collaboration. Independently verify evidence after structural validation. Correct and revalidate invalid output, and report unavailable preparation or validation instead of using an unprepared worker or unvalidated report. An unmet independent-review requirement still blocks the relevant workflow.
+Before every AI delegation, follow the [shared worker contract](routing_flow.md#delegated-workers): `get_subagent_context` must return `status: prepared` before native spawning, and `validate_subagent_result` must return `valid: true` before the result is accepted: by the receipt's `contract_revision` and `result_ref` for file delivery, or by the retained `contract` and the unchanged output for inline delivery. For file delivery, start the worker with the receipt's `launch` text and only necessary task materials, without the parent transcript; for inline delivery, which returns no `launch` text, retain the `contract` and start the worker with `worker_context` unchanged. Use `fork_turns="none"` with Codex collaboration. Independently verify evidence after structural validation. Correct and revalidate invalid output, and report unavailable preparation or validation instead of using an unprepared worker or unvalidated report. An unmet independent-review requirement still blocks the relevant workflow.
+
+Pass the assignment's `complexity` (`low`, `standard` or `high`) and the parent's
+`client` (`claude`, `codex` or `cursor`) when preparing it. Use the returned
+`execution.spawn` arguments when present; do not infer a model from the persona
+name. If validation returns an escalation after a corrected result is still
+invalid, or for a partial/failed result or failed check, prepare a new attempt
+with a new `attempt_id` and the returned complexity. Keep each attempt's
+`contract_revision` (inline delivery: its contract) with its own result.
+[Model tiers](subagent-model-tiers.md) explains
+resolution, conservative floors and the distinction between model selection and
+verified result quality.
 
 ## PR review loop
 

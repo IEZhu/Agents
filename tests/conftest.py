@@ -314,3 +314,17 @@ def user_rule_store(tmp_path, monkeypatch):
     directory = tmp_path / "user-rules"
     monkeypatch.setenv("AGENTS_USER_RULES_DIR", str(directory))
     return directory
+
+
+@pytest.fixture(autouse=True)
+def no_real_instruction_files(monkeypatch):
+    """A first activation's drift check (#433) never reads the user's real instruction files.
+
+    Without a context it checks the session's own files: ``~/.claude/CLAUDE.md``,
+    ``~/.codex/AGENTS.md`` and the stdio workspace's, which would add host-dependent
+    ``warnings`` to responses. A test that passes its own context still runs the check.
+    """
+    from src import client_instructions
+    check = client_instructions.drift_warnings
+    monkeypatch.setattr(client_instructions, "drift_warnings",
+                        lambda context=None: [] if context is None else check(context))

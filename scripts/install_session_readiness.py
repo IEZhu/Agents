@@ -21,6 +21,7 @@ from scripts._helpers.backup_file import backup_file  # noqa: E402
 
 SCRIPT_NAME = "agents-core-session-readiness.py"
 MATCHER = "^(startup|clear)$"
+COMPACT_MATCHER = "^compact$"
 CLIENTS = ("claude", "codex", "cursor", "antigravity", "desktop")
 READINESS_NAME = "Agents-Readiness"
 WINDOWS_HOOKS = os.name == "nt"
@@ -65,6 +66,18 @@ def atomic_write(path: Path, content: bytes) -> None:
     finally:
         if os.path.exists(temporary):
             os.unlink(temporary)
+
+
+def require_unchanged(path: Path, expected: bytes | None) -> None:
+    """Refuse to replace a configuration another client changed during setup."""
+    if path.is_symlink():
+        raise ValueError("Hook configuration became a symbolic link; inspect it before retrying")
+    try:
+        current = path.read_bytes()
+    except FileNotFoundError:
+        current = None
+    if current != expected:
+        raise ValueError("Hook configuration changed during setup; rerun the installer")
 
 
 def owns_handler(handler: dict, script: Path) -> bool:
@@ -174,7 +187,10 @@ def configure(document: dict, client: str, script: Path) -> tuple[dict, dict[Pat
     else:
         handler = {"type": "command", "command": command_for(script), "timeout": 5}
         entry = {"matcher": MATCHER, "hooks": [handler]}
-        upsert(items, entry, lambda item: owns_group(item, script))
+        upsert(items, entry, lambda item: owns_group(item, script) and item.get("matcher") != COMPACT_MATCHER)
+        # Same command; on source "compact" the runtime asks the model to restore its persona.
+        restore = {"matcher": COMPACT_MATCHER, "hooks": [dict(handler)]}
+        upsert(items, restore, lambda item: owns_group(item, script) and item.get("matcher") == COMPACT_MATCHER)
         mode = "native-message"
     return entry, {script: runtime}, mode
 
@@ -195,13 +211,16 @@ def install(client: str, *, dry_run: bool = False) -> dict:
     script_changed = any(not path.exists() or path.read_bytes() != runtime for path, runtime in scripts.items())
     backup = None
     if not dry_run:
+        require_unchanged(target, original)
         # Back up before changing even an existing runtime; failure preserves the installation.
         if config_changed and original is not None:
             backup = backup_file(target)
+        require_unchanged(target, original)
         for path, runtime in scripts.items():
             if not path.exists() or path.read_bytes() != runtime:
                 atomic_write(path, runtime)
         if config_changed:
+            require_unchanged(target, original)
             atomic_write(target, content)
     return {"client": client, "config": str(target), "script": str(next(iter(scripts))),
             "scripts": [str(path) for path in scripts], "delivery": mode,
@@ -223,7 +242,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"ERROR ({client}): {error}", file=sys.stderr)
             failed = True
     if "codex" in args.clients:
-        print("Codex: restart/start a fresh chat, then review and trust the new hook in /hooks.")
+        print("Codex: restart/start a fresh chat, then review and trust the new hooks in /hooks.")
     if any(client in args.clients for client in ("cursor", "antigravity", "desktop")):
         print("Cursor/Antigravity: session-start context requests the banner in the first response. "
               "Claude Desktop Chat: enable Agents-Readiness after restarting the app; it is an MCP "

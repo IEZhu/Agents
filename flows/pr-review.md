@@ -10,6 +10,11 @@ Follow [bounded execution and evidence reuse](../docs/flow-execution.md): one
 working record, grouped fixes, compact output and one monitor per pending run.
 All exact-head review, CI, authorization and merge conditions below still apply.
 
+## Bounded-return gate
+
+Apply the [bounded-return gate for your client class](../docs/mcp-tool-safety.md#bounded-return-gate-by-client-class)
+throughout this flow, from its first large call on.
+
 The `code_reviewer` persona contributes review judgment for checking findings.
 This flow still fixes, commits, replies and merges: the persona's "flag, don't
 fix", its positive findings and its Output Format do not apply here, and an
@@ -143,6 +148,20 @@ Remove obsolete claims and abandoned approaches. A wording update does not
 substitute for reviewing the new commit.
 
 ## 3. Obtain reviews for the current head
+
+Before waiting for pending CI, record the full source SHA, run ID and attempt,
+then assign one observer to that run and attempt. Use the bounded
+[`watch_github_run.py`](../scripts/dev/watch_github_run.py) helper or an
+equivalent script as described in [bounded execution](../docs/flow-execution.md#let-a-monitor-wait).
+Consume that observer's result; do not alternate model sleeps, clock reads and
+fresh remote status fetches for the same unchanged run, or start a second
+observer alongside it. When the helper returns exit code 3, retain its pending
+state. After that invocation exits, continue the same logical observation by
+invoking the helper again with the same repository, full source SHA, run ID,
+attempt and evidence directory. Do not start another invocation while the
+previous one is still running. Failed, skipped, cancelled, missing or
+inconsistent results and changed identities never establish success; assess
+optional skips explicitly under the project's rules.
 
 Review the diff yourself first, as a reviewer would: correctness, edge cases,
 error handling, concurrency and platform differences (a lock that only works on
@@ -412,7 +431,7 @@ Re-read the remote state immediately before merging. Confirm all of the followin
   that a bot fully reviewed have had an independent review if they touch code,
   tests or configuration. Leave out what came in unchanged from the target
   branch, and after a rebase compare the commits with `git range-diff`. A fresh
-  subagent reviews that diff without this session's reasoning. First call `get_subagent_context` for `code_reviewer` with `result_type="review"`, a read-only scope and explicit review criteria; require `status: prepared`, retain the contract, and forward the unchanged `worker_context` to the fresh native worker. Require `validate_subagent_result` to return `valid: true` for the unchanged output and original contract before using the review, then assess its evidence under the [delegation contract](README.md#delegated-workers). Its findings are handled as in step 4; fixes for them get the session's own review, not another subagent round. The session's own review of its fixes
+  subagent reviews that diff without this session's reasoning. First call `get_subagent_context` for `code_reviewer` with `result_type="review"`, a read-only scope and explicit review criteria; require `status: prepared` and start the fresh native worker with the receipt's `launch` text. Require `validate_subagent_result` to return `valid: true` for the unchanged output (`result_ref`, or `result` when no file holds it) and the receipt's `contract_revision` before using the review, then assess its evidence under the [delegation contract](README.md#delegated-workers). Its findings are handled as in step 4; fixes for them get the session's own review, not another subagent round. The session's own review of its fixes
   does not replace this one. Without preparation, native spawning or successful validation, do not merge: report the missing independent review, those changes and the earliest next bot attempt. A `no-merge` run skips this check
   and reports the changes no bot reviewed.
 

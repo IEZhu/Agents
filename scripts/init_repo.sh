@@ -16,7 +16,8 @@
 #                  (recreating it if its Python version is unknown or older
 #                  than 3.11), accepts the Claude instruction and
 #                  routing-reminder prompts (Codex instructions never ask),
-#                  and does not ask about sync between machines.
+#                  accepts lifecycle hooks, shared daemon and cooperation, and does not ask
+#                  about sync between machines.
 #   --skip-env     Skip creating .env from env.example, or adding missing keys
 #                  to an existing one (useful if already configured). The
 #                  embedding model steps can still write .env; see --skip-index.
@@ -24,11 +25,16 @@
 #                  writing the default model to .env when none is set. The
 #                  one-time switch of an .env from an earlier model generation
 #                  to the default still runs.
-#   --skip-mcp     Skip MCP configuration and also the client instruction updates
+#   --skip-mcp     Skip MCP, client instructions, lifecycle hooks, daemon and cooperation
 #                  (the routing section in Claude Code's CLAUDE.md, the Codex
 #                  AGENTS.md and the routing memory). A user of the agents-core
 #                  Claude Code plugin does not need it: with the plugin installed
 #                  and enabled, setup skips only Claude Code's Agents-Core entry.
+#   --skip-daemon / --skip-cooperation
+#                  Skip the named shared-runtime option; --yes accepts both on macOS/Windows
+#   --skip-hooks   Skip both lifecycle hook options (keeps daemon/cooperation choices)
+#   --skip-readiness / --skip-thread-status
+#                  Skip only the named hook option; --yes accepts both otherwise
 #   --force-claude-code-mcp
 #                  Register Agents-Core for Claude Code even when the agents-core
 #                  plugin is installed and enabled (also
@@ -103,6 +109,11 @@ fi
 SKIP_ENV=false
 SKIP_INDEX=false
 SKIP_MCP=false
+SKIP_HOOKS=false
+SKIP_READINESS=false
+SKIP_THREAD_STATUS=false
+SKIP_DAEMON=false
+SKIP_COOPERATION=false
 FORCE_CLAUDE_CODE_MCP=false
 case "${AGENTS_ASSUME_YES:-}" in
     1|true|yes) ASSUME_YES=true ;;
@@ -123,6 +134,11 @@ for arg in "$@"; do
             SKIP_MCP=true
             shift
             ;;
+        --skip-hooks) SKIP_HOOKS=true; shift ;;
+        --skip-readiness) SKIP_READINESS=true; shift ;;
+        --skip-thread-status) SKIP_THREAD_STATUS=true; shift ;;
+        --skip-daemon) SKIP_DAEMON=true; shift ;;
+        --skip-cooperation) SKIP_COOPERATION=true; shift ;;
         --force-claude-code-mcp)
             FORCE_CLAUDE_CODE_MCP=true
             shift
@@ -368,7 +384,7 @@ name = 'Agents-Core-Desktop' if os.environ['MCP_CLIENT'] == 'desktop' else 'Agen
 # stays: setup writes standalone stdio registrations again only after uninstall.
 current = servers.get(name)
 arguments = current.get('args') if isinstance(current, dict) else None
-bridge = isinstance(arguments, list) and arguments and str(arguments[0]).replace(chr(92), '/').endswith('bridge/stdio.mjs')
+bridge = isinstance(arguments, list) and arguments and str(arguments[0]).replace(chr(92), '/').endswith(('bridge/stdio.mjs', 'bridge/stdio.py'))
 if marker.exists() and isinstance(current, dict) and (current.get('url') or bridge):
     if name != 'Agents-Core':
         servers.pop('Agents-Core', None)
@@ -533,6 +549,14 @@ fi
 print_header "🐍 Virtual Environment & Dependencies"
 
 SKIP_INSTALL=false
+
+# Auto-update keeps versioned environments in .venvs/ and makes .venv a link to the
+# active one (src/environments.py). A working link is reused like a directory (its
+# dependencies refresh in the active environment), and `rm -rf` removes only the
+# link; a link whose environment is gone is removed so that a new .venv can be made.
+if [ -L "$VENV_PATH" ] && [ ! -e "$VENV_PATH" ]; then
+    rm -f "$VENV_PATH"
+fi
 
 if [ -d "$VENV_PATH" ]; then
     # Check existing venv python version
@@ -952,15 +976,28 @@ else
         backup_mcp_config "$ANTIGRAVITY_CONFIG" || exit 1
 
         inject_mcp_config "$ANTIGRAVITY_CONFIG" "$ANTIGRAVITY_CONFIG" antigravity || exit 1
+        "$PYTHON_ABS" "$REPO_ROOT/scripts/_helpers/install_antigravity_workspace.py" "$PYTHON_ABS" "$SERVER_ABS" "$ANTIGRAVITY_CONFIG" || exit 1
         CONFIGURED_ENVS+=("Antigravity")
     fi
 
     # --- Configure Codex instructions ---
-    # Registration is separate: Codex's TOML configuration is not a JSON MCP file.
+    # Instructions and the MCP connection use the same detected Codex profile.
     print_step "Checking Codex global instructions..."
     if ! "$PYTHON_ABS" "$REPO_ROOT/scripts/_helpers/install_codex_instructions.py" "$ROUTING_TEMPLATE"; then
         print_error "Failed to configure Codex instructions — inspect the reported path"
     fi
+
+    if "$PYTHON_ABS" "$REPO_ROOT/scripts/_helpers/install_codex_mcp.py" "$PYTHON_ABS" "$SERVER_ABS" --ld-library-path "${NIX_LD_LIB_PATH:-}"; then
+        CONFIGURED_ENVS+=("Codex")
+    else
+        CODEX_MCP_STATUS=$?
+        if [ "$CODEX_MCP_STATUS" -ne 2 ]; then
+            print_error "Failed to configure Codex MCP; setup cannot report a working registration"
+            exit 1
+        fi
+    fi
+
+    "$PYTHON_ABS" "$REPO_ROOT/scripts/_helpers/ensure_workspace_bindings.py" "$SERVER_ABS" || exit 1
 
     # --- Summary ---
     echo ""
@@ -994,6 +1031,25 @@ else
     fi
 fi
 
+# ============== Client Lifecycle Hooks ==============
+SETUP_OPTIONS_FAILED=false
+if [ "$SKIP_MCP" = true ]; then
+    print_step "Skipping lifecycle hooks, shared daemon and cooperation (--skip-mcp)"
+else
+    HOOK_FLAGS=()
+    if [ "$ASSUME_YES" = true ]; then HOOK_FLAGS+=(--yes); fi
+    if [ "$SKIP_HOOKS" = true ]; then HOOK_FLAGS+=(--skip-hooks); fi
+    if [ "$SKIP_READINESS" = true ]; then HOOK_FLAGS+=(--skip-readiness); fi
+    if [ "$SKIP_THREAD_STATUS" = true ]; then HOOK_FLAGS+=(--skip-thread-status); fi
+    if [ "$SKIP_DAEMON" = true ]; then HOOK_FLAGS+=(--skip-daemon); fi
+    if [ "$SKIP_COOPERATION" = true ]; then HOOK_FLAGS+=(--skip-cooperation); fi
+    if [ "$FORCE_CLAUDE_CODE_MCP" = true ]; then HOOK_FLAGS+=(--force-claude-code-mcp); fi
+    if ! "$PYTHON_ABS" "$REPO_ROOT/scripts/install_setup_options.py" "${HOOK_FLAGS[@]}"; then
+        SETUP_OPTIONS_FAILED=true
+        print_warn "Some setup options failed; continuing to sync, summary and health checks."
+    fi
+fi
+
 # ============== Sync Between Machines ==============
 # The personal library gets local Git version history on every installation,
 # including --yes and offline. It can also sync through a private remote
@@ -1012,7 +1068,11 @@ if [ "$ASSUME_YES" = true ]; then SYNC_FLAG="--yes"; fi
 
 # ============== Final Summary ==============
 
-print_header "✅ Initialization Complete!"
+if [ "$SETUP_OPTIONS_FAILED" = true ]; then
+    print_header "Initialization finished with setup warnings"
+else
+    print_header "✅ Initialization Complete!"
+fi
 
 echo ""
 echo -e "  ${GREEN}What was configured:${NC}"
@@ -1078,9 +1138,9 @@ if [ -f "$ENV_FILE" ]; then
 fi
 
 STEP=$((STEP + 1))
-echo "  $STEP. To enable repository memory & history in a project:"
-echo -e "     Run ${CYAN}describe_repo()${NC} in your first Claude session inside that repo."
-echo "     It writes a compressed overview into the repo's own CLAUDE.md"
+echo "  $STEP. Project memory and history are linked automatically from the client folder:"
+echo -e "     Empty folders are supported. For an optional overview, call ${CYAN}describe_repo()${NC}."
+echo "     It loads an existing overview or asks the model to prepare one for the repo's CLAUDE.md"
 echo "     (managed section — not the global ~/.claude/CLAUDE.md)."
 echo -e "     If MCP sampling is unavailable it returns ${CYAN}status=\"needs_summary\"${NC}"
 echo -e "     and you finalize the write with ${CYAN}write_repo_summary(...)${NC}."
@@ -1114,6 +1174,13 @@ if [ "${CLAUDE_MD_CONFIGURED:-false}" != "true" ] && [ -f "$TEMPLATE_FILE" ]; th
     echo "$MARKER_END"
     echo -e "${CYAN}────────────────────────────────────────────────────────────${NC}"
     echo ""
+fi
+
+
+# ============== Setup Option Result ==============
+if [ "${SETUP_OPTIONS_FAILED:-false}" = true ]; then
+    print_warn "Setup finished with failed options. Completed steps were retained; fix the reported problem and rerun."
+    exit 1
 fi
 
 echo -e "${GREEN}Happy coding! 🚀${NC}"

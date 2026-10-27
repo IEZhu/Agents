@@ -1,5 +1,7 @@
 # User library sync
 
+The [MCP proxy and host-inventory guide](mcp-proxy.md) describes the `mcp` sync scope for shared HTTP/stdio definitions and host selections. Server/host JSON can sync, while credentials, runtime catalogs and local execution confirmation stay on each host. Upgrade all syncing installations before using the scope; older versions reject an unknown scope group. A received host record never grants local execution consent.
+
 Status: the engine and its command line (#165), GitHub sign-in through the API (#166), scheduled
 runs, the stdio trigger and the terminal wizard (#168), the sync loop of the macOS daemon (#167),
 the merge of each repository's history across machines (#172,
@@ -48,8 +50,11 @@ their separate purpose; they are not duplicate flow-version stores.
 
 ## Command line
 
-Every runner uses `src/user_sync/` (standard library and the git CLI only). Where the macOS
-daemon runs, it syncs by itself; use `python -m src.daemon user-sync …`, described in
+Every runner uses `src/user_sync/`. Run the commands from the installation root
+with its Python environment (`.venv/bin/python` on macOS/Linux,
+`.venv\Scripts\python.exe` on Windows). Activate that environment before using any bare
+`python` example below, including the daemon commands. Where the shared daemon runs, on macOS or
+Windows, it syncs by itself; use `python -m src.daemon user-sync …`, described in
 [User library sync](shared-mcp-daemon.md#user-library-sync). Without the daemon:
 
 ```bash
@@ -155,7 +160,7 @@ If replacement is interrupted, use **Finish replacement** in the web wizard or r
 
 ### The web UI
 
-Where the macOS daemon runs, the settings page (`python -m src.daemon flows-ui`) shows the state
+Where the shared daemon runs, the settings page (`python -m src.daemon flows-ui`) shows the state
 of sync in its header (`Synced 2m ago`, `3 pending`, `Offline, retry 14:05`, `Needs attention`,
 `2 conflicts`, `Sync off` and so on) and opens the Sync page from there; see
 [Sync page](shared-mcp-daemon.md#sync-page). While sync is off, the page walks through the same
@@ -251,7 +256,11 @@ python -m src.user_sync schedule status
 `python -m src.user_sync --state <dir> --library <dir> run` every few minutes for the current user:
 a hidden Task Scheduler task on Windows (`pythonw.exe`, least privilege, only while the user is
 logged on), a systemd user timer on Linux or one crontab line where `systemctl --user` cannot reach
-a user manager, and a LaunchAgent on macOS unless the daemon is installed, which runs its own loop.
+a user manager, and a LaunchAgent on macOS. On macOS and Windows, an installed daemon runs its
+own loop and refuses a separate scheduled sync job, even while the daemon is stopped. Starting
+the service removes this installation's old scheduled sync job. After that handoff, stopping
+the service stops its background sync loop too. Start the daemon again to resume daemon-owned
+sync. To enable a standalone schedule, first uninstall the daemon.
 Enabling again replaces the interval; `disable` removes the job. Paths a scheduler would misread
 are refused rather than quoted wrongly. A scheduler that fails or hangs is reported with the
 reason `schedule`.
@@ -268,7 +277,7 @@ summary. The step first initializes local history and migrates older snapshots u
 lock, including under `--yes` or without a terminal. Git is required for that local step; SSH and
 remote credentials are required only when connecting a remote. The summary says whether sync is on, whether it runs in the background (the daemon, or the
 scheduled run) and how to turn either on. With a terminal and without `--yes`, the step asks once:
-"Set up sync between your machines now? [y/N]". On macOS, yes opens the daemon's settings page
+"Set up sync between your machines now? [y/N]". On macOS or Windows, yes opens the daemon's settings page
 when the daemon answers `/health` as ready and serves the Sync page (its page calls
 `/ui/api/sync`); otherwise it starts [the wizard](#the-wizard), without a connection error. The
 one-use link is printed only when no browser opened it. After the wizard has started sync on a
@@ -375,10 +384,11 @@ waiting for the deploy key is not an error.
 | Synced by default | Never synced |
 |---|---|
 | `common/**` (personal flows), `personas/**`, `components.json`, permitted Git flow versions | `.lock`, `.tmp-*`, `__pycache__`, `*.pyc`, `.DS_Store` and other file-manager junk |
+| `mcp/servers/<alias>.json`, `mcp/machines/<id>.json` ([MCP connections](mcp-proxy.md)) | MCP credentials, private confirmation state, runtime catalogs and other files under `mcp/` |
 | `repos/<key>/**` for keys derived from an `origin`, with their personas, flow history and [repository history](#repository-history) | repository groups without an `origin` (machine-local), `**/.repo.local.json` |
 | `.agents-library.json`, `.gitignore`, `.gitattributes`, `.agents-sync/**` | symlinks, files over 5 MiB, names some platform cannot store, anything else at the root |
 
-Scope groups are `common`, `personas`, `history`, `components` and `repos/<key>`; a repository's
+Scope groups are `common`, `personas`, `history`, `components`, `mcp` and `repos/<key>`; a repository's
 shared history segments (`repos/<key>/history/**`) belong to both `history` and `repos/<key>`.
 These segments and flow-version metadata are neither named in commit messages nor counted by
 the mass-deletion guard. Exclusions live
@@ -578,6 +588,12 @@ runner reports `lock_held`. Git lock files that a killed run left behind are rem
 seconds. Network calls time out after 60 s and local git calls after 10 s. A network failure
 retries after 1, 2, 5, 10 and then every 30 minutes; access and safety failures stop with a reason
 until the owner acts.
+
+Git commands that receive input bytes read them from a private temporary file, closed after
+the command completes or fails. This lets batch commands emit output before consuming their
+input without blocking the caller in a pipe write and preventing its timeout from running.
+Commands without input receive EOF; none inherit the MCP server's stdin. A timed-out child
+is terminated and reaped before the error reaches the caller and its library lock is released.
 
 Commits carry the configured identity and messages such as
 `sync(laptop): update user:release-notes, persona builtin:pr-review` with the trailer

@@ -48,6 +48,13 @@ Reload or reconnect MCP in the client. Confirm that the `Agents-Core` server con
 
 For persistent client instructions, use the managed protocol from [routing-protocol-core.md](scripts/templates/routing-protocol-core.md). Do not overwrite unrelated project instructions.
 
+The standalone entry above can prepare workers and use persistent
+[artifacts](docs/shared-artifacts.md) with a valid resolved workspace. Optional
+[cooperation](docs/agent-cooperation/runtime.md) requires the enabled shared
+daemon; optional [local inference](docs/shared-mcp-daemon.md#local-inference)
+requires its configured HTTP broker. Neither feature is enabled by adding this
+stdio entry. Worker preparation itself never launches a worker or a model.
+
 Record whether the client actually completed installation and connected successfully. File validation alone does not establish a successful Cline installation, which the [Cline Marketplace submission rules](https://github.com/cline/mcp-marketplace#how-to-submit-your-mcp-server) require.
 
 ## Troubleshooting and removal

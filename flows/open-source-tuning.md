@@ -63,7 +63,7 @@ When this flow is task material for a prepared `agents-core/subagent/1` worker, 
 package and its worker rules govern, not this file's persona frontmatter or any step
 about role activation. A worker usually owns steps 2–6 for its assigned components
 and returns the files it wrote, its source record and its probe cases in the
-package's result schema. The parent owns shared files (agent frontmatter, catalogs),
+package's result format. The parent owns shared files (agent frontmatter, catalogs),
 wiring, checks and the pull request. The method below applies where it does not
 conflict with the package.
 
@@ -210,8 +210,8 @@ For several components, run steps 2–6 per component in parallel prepared worke
 one component or one tightly related cluster each, with disjoint files. The parent
 is the single writer of shared files (agent frontmatter, catalogs, routing
 datasets) and runs steps 1, 7–10 itself. Validate every worker result with
-`validate_subagent_result` against the retained contract and check its sources
-before integrating it.
+`validate_subagent_result` by `contract_revision` and `result_ref` (or `result`
+when no file holds it) and check its sources before integrating it.
 
 ## Report
 

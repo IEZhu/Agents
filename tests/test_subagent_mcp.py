@@ -12,6 +12,11 @@ from tests.test_subagent import worker_tree, request, report
 from src.schemas.subagent import MAX_REQUEST_CHARS, PreparedPackage
 
 
+def inline(**extra):
+    """The full JSON package of the compatibility path; the default receipt is in test_subagent_exchange."""
+    return request(delivery="inline", result_format="json", **extra)
+
+
 async def call(name, arguments):
     content, structured = await server.mcp.call_tool(name, arguments)
     assert json.loads(content[0].text) == structured
@@ -25,13 +30,14 @@ async def test_registered_input_and_output_schemas(worker_tree):
     types = {"agent_name": "string", "task": "string", "acceptance_criteria": "array",
              "task_id": "string", "attempt_id": "string", "context": "array", "scope": "array",
              "non_goals": "array", "result_type": "string", "max_skills": "integer",
-             "max_implants": "integer", "max_context_chars": "integer"}
+             "max_implants": "integer", "max_context_chars": "integer", "complexity": "string",
+             "client": "string", "delivery": "string", "result_format": "string"}
     for name, field_type in types.items():
         schema = context_tool.inputSchema["properties"][name]
         assert schema["type"] == field_type and schema["description"]
         assert not {"anyOf", "$ref", "enum"} & schema.keys()
     assert context_tool.outputSchema["type"] == "object"
-    package = await call("get_subagent_context", request())
+    package = await call("get_subagent_context", inline())
     jsonschema.validate(package, context_tool.outputSchema)
     assert package["result_schema"] != context_tool.outputSchema
     assert package["result_schema"]["additionalProperties"] is False
@@ -39,8 +45,9 @@ async def test_registered_input_and_output_schemas(worker_tree):
     jsonschema.validate(value, package["result_schema"])
     validated = await call("validate_subagent_result", {"contract": package["contract"], "result": value})
     jsonschema.validate(validated, tools["validate_subagent_result"].outputSchema)
-    assert validated == {"valid": True, "errors": [], "verification": "structural_only"}
-    invalid = await call("get_subagent_context", request(task=""))
+    assert validated == {"valid": True, "errors": [], "verification": "structural_only",
+                         "result_sha256": validated["result_sha256"]}
+    invalid = await call("get_subagent_context", inline(task=""))
     jsonschema.validate(invalid, context_tool.outputSchema)
     assert set(invalid) == {"protocol", "status", "errors"}
 
@@ -51,7 +58,7 @@ async def test_registered_input_and_output_schemas(worker_tree):
                                   {"context": "[]"}, {"task_id": []}, {"result_type": "unknown"},
                                   {"agent_name": "../engineer"}, {"max_context_chars": 2000}])
 async def test_mcp_does_not_coerce_invalid_inputs(worker_tree, extra):
-    result = await call("get_subagent_context", request(**extra))
+    result = await call("get_subagent_context", inline(**extra))
     assert result["status"] == "error" and result["errors"]
     assert "worker_context" not in result
 
@@ -60,7 +67,7 @@ async def test_mcp_does_not_coerce_invalid_inputs(worker_tree, extra):
 @pytest.mark.parametrize("kind", ["generic", "review", "implementation", "research"])
 @pytest.mark.parametrize("status", ["completed", "partial", "input_required", "failed"])
 async def test_mcp_all_payloads_and_statuses(worker_tree, kind, status):
-    package = await call("get_subagent_context", request(result_type=kind))
+    package = await call("get_subagent_context", inline(result_type=kind))
     value = report(PreparedPackage.model_validate(package), status)
     response = await call("validate_subagent_result", {"contract": package["contract"], "result": json.dumps(value)})
     assert response["valid"]
@@ -73,7 +80,7 @@ async def test_mcp_all_payloads_and_statuses(worker_tree, kind, status):
                                       ('{"a":Infinity}', "non_finite"), ('{} trailing', "invalid_json"),
                                       ('```json\n{}\n```', "invalid_json")])
 async def test_mcp_preserves_raw_json_for_strict_parser(worker_tree, raw, code):
-    package = await call("get_subagent_context", request())
+    package = await call("get_subagent_context", inline())
     response = await call("validate_subagent_result", {"contract": package["contract"], "result": raw})
     assert not response["valid"]
     assert code in {item["code"] for item in response["errors"]}
@@ -88,7 +95,7 @@ async def test_preparation_never_uses_parent_routing_readiness_or_memory(worker_
     monkeypatch.setattr(server, "route_persona", unexpected)
     monkeypatch.setattr(server, "HistoryWriter", unexpected)
     before = dict(server.SESSION_CACHE)
-    first, second = await call("get_subagent_context", request()), await call("get_subagent_context", request(attempt_id="2"))
+    first, second = await call("get_subagent_context", inline()), await call("get_subagent_context", inline(attempt_id="2"))
     assert dict(server.SESSION_CACHE) == before
     response = await call("validate_subagent_result", {"contract": first["contract"],
                           "result": report(PreparedPackage.model_validate(second))})
@@ -98,7 +105,7 @@ async def test_preparation_never_uses_parent_routing_readiness_or_memory(worker_
 @pytest.mark.asyncio
 async def test_mcp_preserves_json_looking_task_text(worker_tree):
     text = '{"instructions": ["review"]}'
-    package = await call("get_subagent_context", request(task=text))
+    package = await call("get_subagent_context", inline(task=text))
     assert package["status"] == "prepared" and package["contract"]["task"] == text
 
 
@@ -106,17 +113,17 @@ async def test_mcp_preserves_json_looking_task_text(worker_tree):
 async def test_mcp_missing_disabled_and_budgeted_components(worker_tree, monkeypatch):
     from src.engine import subagent
     monkeypatch.setattr(subagent.component_toggles, "disabled", lambda kind: {"skill-test", "implant-debug"})
-    package = await call("get_subagent_context", request(max_implants=2))
+    package = await call("get_subagent_context", inline(max_implants=2))
     assert "skill-test" not in package["descriptor"]["skills_loaded"]
     assert package["descriptor"]["implants_loaded"] == ["implant-plan"]
     (worker_tree / "agents/engineer/subagent.mdc").unlink()
-    response = await call("get_subagent_context", request())
+    response = await call("get_subagent_context", inline())
     assert response["status"] == "error" and "worker_context" not in response
 
 
 @pytest.mark.asyncio
 async def test_mcp_retained_contract_and_evidence_errors(worker_tree):
-    package = await call("get_subagent_context", request(result_type="research"))
+    package = await call("get_subagent_context", inline(result_type="research"))
     value = report(PreparedPackage.model_validate(package))
     value["result"]["conclusions"] = [{"claim": "Claim", "evidence_ids": ["missing"]}]
     response = await call("validate_subagent_result", {"contract": package["contract"], "result": value})
@@ -129,7 +136,7 @@ async def test_mcp_retained_contract_and_evidence_errors(worker_tree):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("name", ["get_subagent_context", "validate_subagent_result"])
 async def test_mcp_rejects_unknown_worker_arguments(worker_tree, name, monkeypatch):
-    package = await call("get_subagent_context", request())
+    package = await call("get_subagent_context", inline())
     arguments = (request(max_context_chars_typo=2000) if name == "get_subagent_context" else
                  {"contract": package["contract"], "result": report(PreparedPackage.model_validate(package)),
                   "unexpected": "must not be echoed"})
@@ -137,7 +144,7 @@ async def test_mcp_rejects_unknown_worker_arguments(worker_tree, name, monkeypat
     def unexpected(*args, **kwargs):
         pytest.fail("Unknown arguments reached the worker tool body")
     monkeypatch.setattr(server, "prepare_subagent", unexpected)
-    monkeypatch.setattr(server, "validate_result", unexpected)
+    monkeypatch.setattr(server, "assess_result", unexpected)
     # Exercise the handler installed for real MCP requests, including output validation.
     response = (await server.mcp._mcp_server.request_handlers[CallToolRequest](
         CallToolRequest(params=CallToolRequestParams(name=name, arguments=arguments))
@@ -164,7 +171,7 @@ async def test_mcp_bounds_original_preparation_arguments(worker_tree, value):
 
 @pytest.mark.asyncio
 async def test_mcp_validation_unknown_arguments_have_bounded_errors(worker_tree):
-    package = await call("get_subagent_context", request())
+    package = await call("get_subagent_context", inline())
     arguments = {"contract": package["contract"], "result": report(PreparedPackage.model_validate(package)),
                  "unexpected" * 10000: "must not be echoed" * 10000,
                  **{f"extra_{i}": "must not be echoed" for i in range(1000)}}

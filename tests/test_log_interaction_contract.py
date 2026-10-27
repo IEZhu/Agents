@@ -15,6 +15,12 @@ FULL = {
     "scope": "Law", "skills_loaded": ["s"], "implants_loaded": [], "rules_loaded": ["r"],
 }
 TOOLS = ("log_interaction", "route_and_load", "get_agent_context", "refresh_persona_context", "run_flow")
+# Claude Code shows this many characters of a server's instructions: 4,096 since v2.1.296,
+# 2,048 before (#421, #508). Older clients are still in use, so the shorter window holds
+# the directives every turn needs and the longer one the first-work rule and the delegation
+# exchange through validation, acceptance and the rule against editing identities.
+OLDER_CLAUDE_CODE_WINDOW = 2048
+CLAUDE_CODE_WINDOW = 4096
 
 
 @pytest.fixture(autouse=True)
@@ -227,8 +233,40 @@ async def test_advertised_schemas_are_renderable():
 def test_log_guidance_in_instructions_ends_before_truncation():
     text = server.mcp.instructions
     end = text.index("Then send the final answer") + len("Then send the final answer")
-    assert end < 2048
+    assert end < OLDER_CLAUDE_CODE_WINDOW
     assert "all 7 keys" in text[:end]
+
+
+@pytest.mark.parametrize("phrase", [
+    "If Agents-Core is listed, make every call there, the first too; retry Desktop denials there.",
+    "Return its result only.",
+    "Complete ROUTE_REQUIRED with get_agent_context in the same turn before answering",
+    "A message that ends the turn is a final answer even when it only reports progress",
+    "Then send the final answer.",
+    "call get_subagent_context before spawning with a canonical agent_name, task, acceptance_criteria",
+    "Require status: prepared.",
+])
+def test_per_turn_directives_stay_inside_the_older_instruction_window(phrase):
+    """#508: the directives every turn depends on stay inside the 2,048 characters older Claude
+    Code versions show, so new guidance placed ahead of them fails here instead of silently
+    dropping them from the window."""
+    text = server.mcp.instructions
+    assert phrase in text and text.index(phrase) + len(phrase) < OLDER_CLAUDE_CODE_WINDOW
+
+
+@pytest.mark.parametrize("phrase", [
+    "call describe_repo with workspace and the target repo_path before ad hoc exploration.",
+    "Call validate_subagent_result for every returned or revised output",
+    "Require valid: true before accepting",
+    "Never edit identities or the contract to make a result pass.",
+])
+def test_first_work_and_validation_stay_inside_the_current_window(phrase):
+    """#508: current Claude Code shows 4,096 characters, enough after the per-turn directives
+    for the first-work rule, which a session may need before its first activation, and the
+    delegation exchange through its validation and acceptance rules and the rule that a result
+    never passes by editing identities or the contract."""
+    text = server.mcp.instructions
+    assert phrase in text and text.index(phrase) + len(phrase) < CLAUDE_CODE_WINDOW
 
 
 @pytest.mark.asyncio
@@ -279,9 +317,34 @@ async def test_a_symlinked_fallback_directory_is_an_error_not_a_crash(writer, mo
     writer.assert_not_called()
 
 
+@pytest.mark.asyncio
+async def test_logging_guidance_keeps_the_request_verbatim_apart_from_one_redaction_set():
+    """Every surface that says what to log keeps the request verbatim and names the same
+    redactions; one revision of #487 dropped the verbatim rule from three of them."""
+    from pathlib import Path
+    from src.engine.persona import APPLY_INSTRUCTION
+    root = Path(__file__).resolve().parents[1]
+    tool = {t.name: t for t in await server.mcp.list_tools()}["log_interaction"]
+    properties = tool.inputSchema["properties"]
+    surfaces = {"APPLY_INSTRUCTION": APPLY_INSTRUCTION, "tool description": tool.description,
+                "query description": properties["query"]["description"]}
+    for name in ("scripts/templates/routing-protocol-core.md", "scripts/templates/memory-routing.md",
+                 "CLAUDE.md", "docs/routing_flow.md"):
+        surfaces[name] = (root / name).read_text(encoding="utf-8")
+    redactions = ("capability values", "safe references", "prohibited personal details")
+    for name, text in surfaces.items():
+        flat = " ".join(text.split())
+        assert "request verbatim" in flat, name
+        assert all(term in flat for term in redactions), name
+    response = properties["response_content"]["description"]
+    assert all(term in response for term in redactions)
+    # The server instructions are kept short and defer the redaction set to the tool description.
+    assert "query verbatim, redacted as log_interaction's description says" in server.mcp.instructions
+
+
 def test_server_choice_guidance_is_visible_before_truncation():
     """#421: a Code-tab session lists Agents-Core and the denied Agents-Core-Desktop; every
-    protocol surface says which to call, and Claude Code's 2048-character window keeps it."""
+    protocol surface says which to call, and Claude Code's shorter window keeps it."""
     from pathlib import Path
     root = Path(__file__).resolve().parents[1]
     text = server.mcp.instructions
@@ -289,7 +352,7 @@ def test_server_choice_guidance_is_visible_before_truncation():
                    # The guidance must not push the delegation directive out of the window.
                    "call get_subagent_context before spawning with a canonical agent_name, task, "
                    "acceptance_criteria"):
-        assert phrase in text and text.index(phrase) + len(phrase) < 2048, phrase
+        assert phrase in text and text.index(phrase) + len(phrase) < OLDER_CLAUDE_CODE_WINDOW, phrase
     for name in ("scripts/templates/routing-protocol-core.md", "CLAUDE.md"):
         flat = " ".join((root / name).read_text(encoding="utf-8").split())
         assert ("When both `Agents-Core` and `Agents-Core-Desktop` are listed, make every call through "

@@ -21,8 +21,10 @@ def fresh(tmp_path, monkeypatch):
     monkeypatch.setattr(version.executables, "_installed_git_version", lambda: (2, 45))
     monkeypatch.setattr(version.executables, "_line_endings", lambda repository: [])
     version.agents_core_version.cache_clear()
+    version.agents_core_commit.cache_clear()
     yield
     version.agents_core_version.cache_clear()
+    version.agents_core_commit.cache_clear()
     persona.configure_ui_port(None)
 
 
@@ -50,6 +52,35 @@ def test_format_marks_only_the_dev_branch(branch, dirty, expected):
     assert version.format_version("2026-10-01T08:01:00+00:00", dirty, branch) == expected
 
 
+def test_canonical_release_version_does_not_change_with_commit_time(tmp_path, monkeypatch):
+    (tmp_path / "VERSION").write_text("26.10.18.0805\n", encoding="utf-8")
+    fake_git(monkeypatch, "2026-10-19T09:00:00+00:00\n", porcelain(branch="main"))
+    assert version.agents_core_version() == "26.10.18.0805"
+
+
+@pytest.mark.parametrize("branch,dirty,suffix", [("main", False, ""), ("dev", False, "-dev"),
+                                              ("dev", True, "-dev-dirty"), ("(detached)", True, "-dirty")])
+def test_canonical_version_preserves_runtime_labels(tmp_path, monkeypatch, branch, dirty, suffix):
+    (tmp_path / "VERSION").write_text("26.10.18.0805\n", encoding="utf-8")
+    fake_git(monkeypatch, "2026-10-19T09:00:00+00:00\n",
+             porcelain(branch, MODIFIED if dirty else ""))
+    assert version.agents_core_version() == "26.10.18.0805" + suffix
+
+
+def test_canonical_version_works_in_a_source_archive_without_git(tmp_path, monkeypatch):
+    (tmp_path / ".git").rmdir()
+    (tmp_path / "VERSION").write_text("26.10.18.0805\n", encoding="utf-8")
+    monkeypatch.setattr(version, "_git", lambda *args: pytest.fail("Archive must not call git"))
+    assert version.agents_core_version() == "26.10.18.0805"
+
+
+@pytest.mark.parametrize("invalid", ["0.1.3", "26.02.30.0805", "26.10.18.9999", "26.1.18.0805"])
+def test_invalid_canonical_version_does_not_silently_change_number(tmp_path, monkeypatch, invalid):
+    (tmp_path / "VERSION").write_text(invalid + "\n", encoding="utf-8")
+    fake_git(monkeypatch, "2026-10-19T09:00:00+00:00\n")
+    assert version.agents_core_version() == "unknown"
+
+
 MODIFIED = "1 .M N... 100644 100644 100644 " + "a" * 40 + " " + "b" * 40 + " src/x.py\n"
 
 
@@ -75,6 +106,38 @@ def test_unknown_without_own_git_metadata(monkeypatch, tmp_path):
     monkeypatch.setattr(version, "ROOT", tmp_path / "missing")
     fake_git(monkeypatch, "2026-10-01T08:01:00+00:00")
     assert version.agents_core_version() == "unknown"
+
+
+def test_commit_is_frozen_from_the_running_source_tree(monkeypatch):
+    calls = []
+    commits = iter(["a" * 40, "b" * 40])
+
+    def git(*args):
+        calls.append(args)
+        return next(commits) + "\n"
+    monkeypatch.setattr(version, "_git", git)
+    assert version.agents_core_commit() == "a" * 40
+    assert version.agents_core_commit() == "a" * 40
+    assert calls == [("rev-parse", "--verify", "HEAD^{commit}")]
+
+
+def test_source_archive_does_not_claim_the_content_installations_commit(monkeypatch, tmp_path):
+    from src import runtime_paths
+    canonical = tmp_path / "canonical"
+    (canonical / ".git").mkdir(parents=True)
+    monkeypatch.setattr(runtime_paths, "_installation_root", canonical)
+    source = tmp_path / "source-archive"
+    source.mkdir()
+    monkeypatch.setattr(version, "ROOT", source)
+    monkeypatch.setattr(version, "_git", lambda *args: pytest.fail("must not use canonical Git metadata"))
+    assert version.agents_core_commit() is None
+    assert version.agents_core_version() == "unknown"
+
+
+@pytest.mark.parametrize("output", [None, "unknown", "a" * 39, "a" * 40 + "\nextra"])
+def test_unreadable_or_malformed_commit_identity_stays_unknown(monkeypatch, output):
+    monkeypatch.setattr(version, "_git", lambda *args: output)
+    assert version.agents_core_commit() is None
 
 
 def test_unknown_when_status_fails(monkeypatch):

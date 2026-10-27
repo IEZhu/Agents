@@ -25,9 +25,10 @@ The method below applies where it does not conflict with the package.
 
 A session that delegates this review itself follows the
 [delegation contract](README.md#delegated-workers): `get_subagent_context` for
-`code_reviewer` with `result_type="review"`, the unchanged `worker_context` to a
-fresh worker, and `validate_subagent_result` with the retained contract before
-the result is used. When the flow is run directly through Agents-Core MCP
+`code_reviewer` with `result_type="review"`, the receipt's `launch` text to a
+fresh worker, and `validate_subagent_result` by `contract_revision` and
+`result_ref` (or `result` when no file holds it) before the result is used. When
+the flow is run directly through Agents-Core MCP
 (`run_flow(flow="code-review-pass", request=...)`), the caller applies the
 returned `persona_activation` as a switch first.
 

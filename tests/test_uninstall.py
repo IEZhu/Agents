@@ -280,6 +280,25 @@ def test_a_venv_link_inside_the_installation_is_unlinked_not_followed(home, tmp_
     assert target.read_text(encoding="utf-8") == "binary" and not os.path.lexists(link)
 
 
+def test_versioned_environments_and_the_venv_link_are_removed(home, tmp_path):
+    """Auto-update's .venvs and the .venv link to the active one (#181) go with the installation."""
+    darwin_home(home)
+    installation = home / ".agents-core"
+    shutil.rmtree(installation / ".venv")
+    system = write(tmp_path / "system-python", "binary")
+    active = installation / ".venvs/py313-0123456789ab"
+    write(installation / ".venvs/legacy-20261025T000000Z/bin/placeholder", "")
+    try:
+        (active / "bin").mkdir(parents=True)
+        os.symlink(system, active / "bin/python")
+        os.symlink(active, installation / ".venv", target_is_directory=True)
+    except OSError:
+        pytest.skip("symlinks unavailable")
+    assert main(["--yes"], ctx=context(home, "darwin", FakeRunner()), interactive=False) == 0
+    assert not os.path.lexists(installation / ".venv") and not (installation / ".venvs").exists()
+    assert system.read_text(encoding="utf-8") == "binary"
+
+
 def test_source_checkout_is_kept(home, tmp_path):
     darwin_home(home)
     source = checkout(tmp_path / "Documents/Agents")
@@ -724,7 +743,8 @@ def test_git_fixture_setup_ignores_foreign_repository_environment(home, monkeypa
 
 @pytest.mark.parametrize("case", ["published", "active-commit", "inactive-commit", "detached-commit",
                                  "tagged-commit", "reflog-commit", "stash", "no-remotes", "ignored-note",
-                                 "ignored-worktree", "venv-lookalike", "installation-assets", "hidden-untracked"])
+                                 "ignored-worktree", "venv-lookalike", "installation-assets", "hidden-untracked",
+                                 "versioned-environments", "venvs-personal"])
 def test_selected_checkout_git_state_is_preserved(home, case):
     """Real Git distinguishes published source and install assets from irreplaceable local state."""
     installation = home / "selected-checkout"
@@ -767,14 +787,39 @@ def test_selected_checkout_git_state_is_preserved(home, case):
     elif case == "installation-assets":
         write(installation / ".env", "LANGFUSE_TRACING_ENABLED=false\n")
         write(installation / ".venv/bin/python", "installer-owned placeholder\n")
+    elif case == "versioned-environments":
+        write(installation / ".venvs/py313-0123456789ab/bin/python", "auto-update environment\n")
+        write(installation / ".venvs/legacy-20261025T000000Z/bin/python", "the setup's environment\n")
+        try:
+            os.symlink(installation / ".venvs/py313-0123456789ab", installation / ".venv", target_is_directory=True)
+        except OSError:
+            pytest.skip("symlinks unavailable")
+    elif case == "venvs-personal":
+        write(installation / ".venvs/py313-0123456789ab/bin/python", "auto-update environment\n")
+        write(installation / ".venvs/personal/notes.txt", "not an environment auto-update made\n")
     ctx = context(home, "darwin", uninstall.run_command, AGENTS_HOME=str(installation))
     ctx.source_root = installation
     reason = uninstall.local_work(ctx, installation)
-    if case in {"published", "installation-assets"}:
+    if case in {"published", "installation-assets", "versioned-environments"}:
         assert reason is None
     else:
         assert reason is not None
     assert (installation / "source.txt").exists()
+
+
+def test_updater_environment_names_are_the_ones_src_environments_makes(tmp_path):
+    """The uninstaller's standard-library copy of the names accepts what auto-update creates, nothing else."""
+    from src import environments
+    (tmp_path / ".venv").mkdir()
+    (tmp_path / ".venvs/legacy-19700101T000000Z").mkdir(parents=True)
+    identifier = environments.environment_id("mcp==1.30.0\n", (3, 13, 1))
+    legacy = environments.plan(str(tmp_path), identifier, now=0)["previous"]["legacy"]
+    assert legacy == "legacy-19700101T000000Z-1"
+    for name in (identifier, "legacy-19700101T000000Z", legacy, f"{environments.TRASH}{identifier}-4242"):
+        assert uninstall.UPDATER_ENVIRONMENT_FILE.match(f".venvs/{name}/bin/python".encode())
+    for name in ("personal", "py313-0123", identifier + "0", "legacy-notes"):
+        assert not uninstall.UPDATER_ENVIRONMENT_FILE.match(f".venvs/{name}/notes.txt".encode())
+    assert not uninstall.UPDATER_ENVIRONMENT_FILE.match(b".venvs/notes.txt")
 
 
 @pytest.mark.parametrize("override", ["repository", "config"])
@@ -1088,19 +1133,40 @@ def test_uninstall_preserves_modified_or_foreign_readiness(tmp_path, monkeypatch
     ctx, paths, runtimes, _ = readiness_profiles(tmp_path, monkeypatch, "linux")
     target, _ = paths[client]
     document = json.loads(target.read_bytes())
-    entry = readiness_entry(document, client)
-    if change == "modified":
-        if client == "desktop":
-            entry["env"] = {"MY_SETTING": "keep"}
+    entries = [readiness_entry(document, client)]
+    if client in ("claude", "codex"):  # the startup/clear group and the compact group
+        entries = [group["hooks"][0] for group in document["hooks"]["SessionStart"]]
+        assert len(entries) == 2
+    for entry in entries:
+        if change == "modified":
+            if client == "desktop":
+                entry["env"] = {"MY_SETTING": "keep"}
+            else:
+                entry["timeout"] = 7
         else:
-            entry["timeout"] = 7
-    else:
-        entry["command"] = entry["command"].replace(str(ctx.home / ".agents-core"), str(ctx.home / "other-installation"))
+            entry["command"] = entry["command"].replace(str(ctx.home / ".agents-core"),
+                                                        str(ctx.home / "other-installation"))
     raw = (json.dumps(document, indent=2) + "\n").encode()
     target.write_bytes(raw)
     contents = {path: path.read_bytes() for path in runtimes[client]}
     assert main(["--yes"], ctx=ctx, interactive=False) == 0
     assert target.read_bytes() == raw
+    assert all(path.read_bytes() == content for path, content in contents.items())
+
+
+@pytest.mark.parametrize("client", ["claude", "codex"])
+def test_uninstall_removes_the_compact_group_beside_a_modified_startup_group(tmp_path, monkeypatch, client):
+    """The unchanged compact group goes; the modified startup group keeps the runtime it references."""
+    ctx, paths, runtimes, _ = readiness_profiles(tmp_path, monkeypatch, "linux")
+    target, _ = paths[client]
+    document = json.loads(target.read_bytes())
+    startup, compact = document["hooks"]["SessionStart"]
+    assert compact["matcher"] == readiness_installer.COMPACT_MATCHER
+    startup["hooks"][0]["timeout"] = 7
+    target.write_text(json.dumps(document), encoding="utf-8")
+    contents = {path: path.read_bytes() for path in runtimes[client]}
+    assert main(["--yes"], ctx=ctx, interactive=False) == 0
+    assert json.loads(target.read_bytes())["hooks"]["SessionStart"] == [startup]
     assert all(path.read_bytes() == content for path, content in contents.items())
 
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from contextlib import contextmanager
 from pathlib import Path
@@ -10,12 +11,13 @@ import pytest
 
 from src.memory import managed_section
 from src.memory import describer as describer_module
-from src.memory.config import DESCRIBE_MARKER_BEGIN, DESCRIBE_MARKER_END
+from src.memory.config import DESCRIBE_BUNDLE_MAX_CHARS, DESCRIBE_MARKER_BEGIN, DESCRIBE_MARKER_END
 from src.memory.describer import (
     DESCRIBE_PROMPT_TEMPLATE,
     DescribeDecision,
     RepoDescriber,
 )
+from src.result_size import shown_size
 
 
 def _seed_repo(root: Path) -> None:
@@ -126,6 +128,15 @@ class TestPromptRendering:
         # Sanity: keep the template string immutable so callers can introspect it
         assert "{CONTEXT_BUNDLE}" in DESCRIBE_PROMPT_TEMPLATE
         assert "{REPO_NAME}" in DESCRIBE_PROMPT_TEMPLATE
+
+    def test_placeholder_in_the_checkout_name_stays_literal(self, tmp_path):
+        repo = tmp_path / "{CONTEXT_BUNDLE}"
+        repo.mkdir()
+        _seed_repo(repo)
+        prompt = RepoDescriber(repo_path=str(repo)).build_prompt()
+        # The name is filled in as it is: the bundle appears once, not again in its place.
+        assert prompt.count("### Directory Tree") == 1
+        assert "`{CONTEXT_BUNDLE}`" in prompt
 
     def test_excluded_dirs_pruned_from_tree(self, describer, tmp_path):
         # Add a vendor-ish dir; make sure it does NOT appear in the tree
@@ -386,3 +397,495 @@ class TestPathOverrideSafety:
         d = RepoDescriber(repo_path=str(tmp_path))
         assert d.claude_md_path.startswith(str(tmp_path))
         assert d.hash_file.startswith(str(tmp_path))
+
+
+# --------------------------------------------------------------------- bundle budget (#434)
+
+# build_context_bundle output for _seed_small_repo before the size budget
+# existed; a repository whose parts fit their caps must still produce it.
+_SMALL_BUNDLE = (
+    "### Directory Tree (depth ≤ 3)\n\n```\n"
+    "src/\n  pkg/\n    deep/\n    __init__.py\n  main.py\n"
+    "tests/\n  test_main.py\n"
+    ".env.example\nREADME.md\npackage.json\npyproject.toml\nrequirements.txt\n```\n\n"
+    "### pyproject.toml\n\n```\n[project]\nname = \"demo\"\nversion = \"0.1.0\"\n```\n\n"
+    "### package.json\n\n```\n{\n  \"name\": \"demo\",\n  \"scripts\": {\"test\": \"pytest\"}\n}\n```\n\n"
+    "### requirements.txt\n\n```\npydantic>=2.0\nрусский-пакет==1.0  # комментарий 🚀\n```\n\n"
+    "### README.md (head)\n\n```\n# Demo\n\nA tiny demo repo for tests.  \n" + "line\n" * 10 + "```"
+)
+
+
+def _seed_small_repo(root: Path) -> None:
+    """A small repo that exercises depth, exclusions, braces, non-ASCII and stripping."""
+    _seed_repo(root)
+    (root / "src" / "pkg" / "deep" / "deeper").mkdir(parents=True)
+    (root / "src" / "pkg" / "deep" / "deeper" / "hidden.py").write_text("x\n")
+    (root / "src" / "pkg" / "deep" / "leaf.py").write_text("x\n")
+    (root / "src" / "pkg" / "__init__.py").write_text("")
+    (root / ".env.example").write_text("A=1\n")
+    (root / ".hidden").mkdir()
+    (root / "node_modules").mkdir()
+    (root / "package.json").write_text('{\n  "name": "demo",\n  "scripts": {"test": "pytest"}\n}\n\n')
+    (root / "requirements.txt").write_text(
+        "\n\npydantic>=2.0\nрусский-пакет==1.0  # комментарий 🚀\n", encoding="utf-8"
+    )
+    (root / "README.md").write_text("# Demo\n\nA tiny demo repo for tests.  \n" + "line\n" * 10 + "\n\n")
+
+
+def _seed_large_repo(root: Path) -> None:
+    """A repo whose tree, manifests and README all exceed their caps."""
+    for top in range(5):
+        for sub in range(50):
+            directory = root / f"pkg_{top}" / f"module_{sub:02}"
+            directory.mkdir(parents=True)
+            for leaf in range(4):
+                (directory / f"file_{leaf}.py").write_text("")
+    for index in range(50):
+        (root / f"top_{index:02}.txt").write_text("")
+    for manifest in describer_module._KEY_MANIFEST_FILES:
+        (root / manifest).write_text("".join(f'"dependency-{i}": "^1.{i}.0",\n' for i in range(400)))
+    readme = [f"Line {i}: " + "documentation text " * 6 for i in range(300)]
+    readme[3] = "Длинная строка 🚀 " * 400
+    (root / "README.md").write_text("\n".join(readme) + "\n", encoding="utf-8")
+
+
+# Each cell costs 4 + 4 + 3 + 7 + 7 + 2 = 27 shown units for 6 characters.
+_DENSE_CELL = '"\\\t\x01\x1b🚀'
+
+
+def _seed_escape_dense_repo(root: Path) -> None:
+    """A repo whose README and manifests are dense with characters JSON escapes."""
+    (root / "README.md").write_text("\n".join([_DENSE_CELL * 40] * 300) + "\n", encoding="utf-8")
+    for manifest in describer_module._KEY_MANIFEST_FILES:
+        (root / manifest).write_text(
+            "\n".join(f'"key_{i}": "C:\\\\path\\\\{i}\t\x02🎉",' for i in range(500)), encoding="utf-8"
+        )
+
+
+def _sections(bundle: str) -> dict[str, str]:
+    """Split a bundle by section heading; the synthetic content holds no headings."""
+    parts = bundle.split("\n\n### ")
+    texts = [parts[0]] + ["### " + part for part in parts[1:]]
+    return {text.split("\n", 1)[0]: text for text in texts}
+
+
+def _body(section: str) -> list[str]:
+    body = section.split("\n\n```\n", 1)[1]
+    assert body.endswith("\n```")
+    return body[:-len("\n```")].split("\n")
+
+
+def _depth(line: str) -> int:
+    return (len(line) - len(line.lstrip(" "))) // 2 + 1
+
+
+def _children(lines: list[str], depth: int) -> dict[tuple[str, ...], list[str]]:
+    """Tree lines at ``depth``, stripped and grouped by their ancestors' lines."""
+    groups: dict[tuple[str, ...], list[str]] = {}
+    branch: list[str] = []
+    for line in lines:
+        level = _depth(line)
+        del branch[level - 1:]
+        if level == depth:
+            groups.setdefault(tuple(branch), []).append(line.strip())
+        branch.append(line.strip())
+    return groups
+
+
+_LIFTED_CAPS = (
+    "DESCRIBE_TREE_MAX_CHARS",
+    "DESCRIBE_MANIFESTS_MAX_CHARS",
+    "DESCRIBE_MANIFEST_MAX_CHARS",
+    "DESCRIBE_README_MAX_CHARS",
+    "DESCRIBE_TREE_MAX_ENTRIES_PER_DIR",
+    "DESCRIBE_LINE_MAX_CHARS",
+)
+
+
+def _unbounded_bundle(root: Path, monkeypatch) -> str:
+    """The bundle with every cap lifted, as rendered before the size budget existed."""
+    with monkeypatch.context() as patch:
+        for name in _LIFTED_CAPS:
+            patch.setattr(describer_module, name, 10**9)
+        return RepoDescriber(repo_path=str(root)).build_context_bundle()
+
+
+_cost = describer_module._cost
+_SEPARATOR_COST = _cost("\n\n")
+_NEWLINE_COST = _cost("\n")
+
+
+_TREE = "### Directory Tree (depth ≤ 3)"
+_README = "### README.md (head)"
+
+
+class TestContextBundleBudget:
+    def test_small_repository_bundle_is_unchanged(self, tmp_path):
+        _seed_small_repo(tmp_path)
+        assert RepoDescriber(repo_path=str(tmp_path)).build_context_bundle() == _SMALL_BUNDLE
+
+    def test_cost_counts_shown_units(self):
+        characters = ("a", "й", "…", '"', "\\", "\n", "\t", "\x01", "🚀")
+        assert [_cost(char) for char in characters] == [1, 1, 1, 4, 4, 3, 3, 7, 2]
+        text = 'say "hi"\tnow\n🚀 C:\\temp\x7f'
+        assert _cost(text) == sum(_cost(char) for char in text)
+        # A text costs what it adds to the shown size of a JSON response that holds it.
+        assert _cost(text) == shown_size(json.dumps(text, ensure_ascii=False)) - shown_size(json.dumps(""))
+        assert _cost(_DENSE_CELL) == 27
+
+    def test_section_caps_fit_the_total(self):
+        caps = (
+            describer_module.DESCRIBE_TREE_MAX_CHARS
+            + describer_module.DESCRIBE_MANIFESTS_MAX_CHARS
+            + describer_module.DESCRIBE_README_MAX_CHARS
+        )
+        assert caps <= DESCRIBE_BUNDLE_MAX_CHARS
+        assert describer_module.DESCRIBE_MANIFEST_MAX_CHARS <= describer_module.DESCRIBE_MANIFESTS_MAX_CHARS
+
+    @pytest.mark.parametrize("seed", [_seed_large_repo, _seed_escape_dense_repo])
+    def test_bundle_cost_stays_within_the_total(self, tmp_path, seed):
+        seed(tmp_path)
+        bundle = RepoDescriber(repo_path=str(tmp_path)).build_context_bundle()
+        assert _cost(bundle) <= DESCRIBE_BUNDLE_MAX_CHARS
+        sections = _sections(bundle)
+        assert _cost(sections[_TREE]) <= describer_module.DESCRIBE_TREE_MAX_CHARS
+        assert _cost(sections[_README]) + _SEPARATOR_COST <= describer_module.DESCRIBE_README_MAX_CHARS
+        manifests = [sections[f"### {name}"] for name in describer_module._KEY_MANIFEST_FILES]
+        assert sum(_cost(text) + _SEPARATOR_COST for text in manifests) <= describer_module.DESCRIBE_MANIFESTS_MAX_CHARS
+        # Every section still ends with its closing fence, and the README and manifests were cut.
+        assert all(text.endswith("\n```") for text in sections.values())
+        assert all(" more lines" in _body(text)[-1] for text in manifests + [sections[_README]])
+
+    def test_small_repository_with_long_lines_is_unchanged(self, tmp_path, monkeypatch):
+        _seed_small_repo(tmp_path)
+        prefix = '{"name": "demo", "description": "'
+        manifest_line = prefix + "x" * (1_500 - len(prefix) - 2) + '"}'
+        badge = "[![build](https://example.com/badge.svg?" + "a=1&" * 300 + ")](https://example.com)"
+        assert len(manifest_line) == 1_500 and len(badge) > describer_module.DESCRIBE_LINE_MAX_CHARS
+        (tmp_path / "package.json").write_text(manifest_line + "\n")
+        (tmp_path / "README.md").write_text(f"# Demo\n\n{badge}\n")
+        bundle = RepoDescriber(repo_path=str(tmp_path)).build_context_bundle()
+        # The per-line cap applies only when a section is cut.
+        assert bundle == _unbounded_bundle(tmp_path, monkeypatch)
+        sections = _sections(bundle)
+        assert _body(sections["### package.json"]) == [manifest_line]
+        assert _body(sections[_README]) == ["# Demo", "", badge]
+
+    def test_small_repository_with_a_wide_directory_is_unchanged(self, tmp_path, monkeypatch):
+        _seed_small_repo(tmp_path)
+        (tmp_path / "assets").mkdir()
+        icons = [f"icon_{index:02}.svg" for index in range(50)]
+        for icon in icons:
+            (tmp_path / "assets" / icon).write_text("")
+        bundle = RepoDescriber(repo_path=str(tmp_path)).build_context_bundle()
+        # The per-directory cap applies only when the tree is cut.
+        assert bundle == _unbounded_bundle(tmp_path, monkeypatch)
+        assert _children(_body(_sections(bundle)[_TREE]), 2)[("assets/",)] == icons
+
+    def test_directory_entries_are_capped_with_a_note(self, tmp_path):
+        cap = describer_module.DESCRIBE_TREE_MAX_ENTRIES_PER_DIR
+        (tmp_path / "many").mkdir()
+        # The full listing of 1,000 entries does not fit, so the per-directory cap applies.
+        for index in range(1_000):
+            (tmp_path / "many" / f"file_{index:03}.txt").write_text("")
+        lines = _body(_sections(RepoDescriber(repo_path=str(tmp_path)).build_context_bundle())[_TREE])
+        assert lines == ["many/"] + [f"  file_{i:03}.txt" for i in range(cap)] + [f"  … {1_000 - cap} more entries"]
+
+    def test_single_extra_entry_uses_the_singular(self, tmp_path):
+        cap = describer_module.DESCRIBE_TREE_MAX_ENTRIES_PER_DIR
+        for name, count in (("few", cap + 1), ("many", 1_000)):
+            (tmp_path / name).mkdir()
+            for index in range(count):
+                (tmp_path / name / f"file_{index:03}.txt").write_text("")
+        lines = _body(_sections(RepoDescriber(repo_path=str(tmp_path)).build_context_bundle())[_TREE])
+        few = _children(lines, 2)[("few/",)]
+        assert few == [f"file_{i:03}.txt" for i in range(cap)] + ["… 1 more entry"]
+
+    def test_tree_trims_the_deepest_depth_evenly_across_directories(self, tmp_path):
+        names = [f"file_{leaf:02}.txt" for leaf in range(30)]
+        for top in range(8):
+            for sub in range(5):
+                directory = tmp_path / f"dir_{top}" / f"sub_{sub}"
+                directory.mkdir(parents=True)
+                for name in names:
+                    (directory / name).write_text("")
+        section = _sections(RepoDescriber(repo_path=str(tmp_path)).build_context_bundle())[_TREE]
+        assert _cost(section) <= describer_module.DESCRIBE_TREE_MAX_CHARS
+        lines = _body(section)
+        note = lines.pop()
+        # Depths 1 and 2 stay complete.
+        assert _children(lines, 1) == {(): [f"dir_{t}/" for t in range(8)]}
+        assert _children(lines, 2) == {(f"dir_{t}/",): [f"sub_{s}/" for s in range(5)] for t in range(8)}
+        # Every depth-2 directory, under the last top-level directories too, keeps its
+        # first entries, as many as any other give or take one.
+        leaves = _children(lines, 3)
+        assert set(leaves) == {(f"dir_{t}/", f"sub_{s}/") for t in range(8) for s in range(5)}
+        counts = [len(kept) for kept in leaves.values()]
+        assert 0 < min(counts) and max(counts) - min(counts) <= 1 and max(counts) < len(names)
+        assert all(kept == names[:len(kept)] for kept in leaves.values())
+        dropped = 8 * 5 * len(names) - sum(counts)
+        assert note == (
+            f"… {dropped} more entries ({dropped} at depth 3; "
+            "the deepest lines were cut first, evenly across directories)"
+        )
+
+    def test_tree_cuts_depth_two_after_depth_three(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(describer_module, "DESCRIBE_TREE_MAX_CHARS", 1_500)
+        for top in range(20):
+            for sub in range(20):
+                directory = tmp_path / f"dir_{top:02}" / f"sub_{sub:02}"
+                directory.mkdir(parents=True)
+                (directory / "leaf.txt").write_text("")
+        section = _sections(RepoDescriber(repo_path=str(tmp_path)).build_context_bundle())[_TREE]
+        assert _cost(section) <= 1_500
+        lines = _body(section)
+        note = lines.pop()
+        assert [line for line in lines if _depth(line) == 1] == [f"dir_{t:02}/" for t in range(20)]
+        assert not [line for line in lines if _depth(line) == 3]
+        # Each top-level directory keeps its first subdirectories, as many as any other give or take one.
+        subs = _children(lines, 2)
+        assert set(subs) == {(f"dir_{t:02}/",) for t in range(20)}
+        counts = [len(kept) for kept in subs.values()]
+        assert max(counts) - min(counts) <= 1
+        assert all(kept == [f"sub_{s:02}/" for s in range(len(kept))] for kept in subs.values())
+        dropped_two = 400 - sum(counts)
+        assert dropped_two > 0
+        assert note.startswith(f"… {400 + dropped_two} more entries (400 at depth 3, {dropped_two} at depth 2;")
+
+    def test_root_entries_are_never_capped(self, tmp_path):
+        cap = describer_module.DESCRIBE_TREE_MAX_ENTRIES_PER_DIR
+        services = [f"service_{index:02}" for index in range(cap + 20)]
+        names = [f"file_{leaf:02}.py" for leaf in range(30)]
+        for service in services:
+            (tmp_path / service).mkdir()
+            for name in names:
+                (tmp_path / service / name).write_text("")
+        root_files = ["Dockerfile", "LICENSE", "Makefile"]
+        for name in root_files:
+            (tmp_path / name).write_text("")
+        section = _sections(RepoDescriber(repo_path=str(tmp_path)).build_context_bundle())[_TREE]
+        assert _cost(section) <= describer_module.DESCRIBE_TREE_MAX_CHARS
+        lines = _body(section)
+        note = lines.pop()
+        # The root keeps every entry, its files included; the deeper lines give way
+        # evenly across directories.
+        assert _children(lines, 1) == {(): [f"{service}/" for service in services] + root_files}
+        leaves = _children(lines, 2)
+        assert set(leaves) == {(f"{service}/",) for service in services}
+        counts = [len(kept) for kept in leaves.values()]
+        assert max(counts) - min(counts) <= 1 and max(counts) < len(names)
+        assert note.endswith(" at depth 2; the deepest lines were cut first, evenly across directories)")
+
+    def test_tree_measures_the_full_listing_in_shown_units(self, tmp_path):
+        # Short names with an astral character: each line costs far more than its length.
+        tops = [f"🚀{top:02}" for top in range(30)]
+        names = [f"{leaf:02}🚀" for leaf in range(40)]
+        for top in tops:
+            (tmp_path / top).mkdir()
+            for name in names:
+                (tmp_path / top / name).write_text("")
+        full = "\n".join(line for top in tops for line in [f"{top}/"] + [f"  {name}" for name in names])
+        room = describer_module._body_room(_TREE, describer_module.DESCRIBE_TREE_MAX_CHARS)
+        # The full listing fits the room by its length, not by what it shows.
+        assert len(full) <= room < _cost(full)
+        section = _sections(RepoDescriber(repo_path=str(tmp_path)).build_context_bundle())[_TREE]
+        assert _cost(section) <= describer_module.DESCRIBE_TREE_MAX_CHARS
+        lines = _body(section)
+        note = lines.pop()
+        assert note.endswith(" at depth 2; the deepest lines were cut first, evenly across directories)")
+        assert _children(lines, 1) == {(): [f"{top}/" for top in tops]}
+        leaves = _children(lines, 2)
+        counts = [len(kept) for kept in leaves.values()]
+        assert len(leaves) == len(tops) and max(counts) - min(counts) <= 1 and max(counts) < len(names)
+        assert all(kept == names[:len(kept)] for kept in leaves.values())
+
+    @pytest.mark.parametrize("over", [0, 1])
+    def test_full_tree_listing_is_kept_whole_up_to_its_exact_room(self, tmp_path, monkeypatch, over):
+        per_dir = describer_module.DESCRIBE_TREE_MAX_ENTRIES_PER_DIR
+        names = [f"🚀_{index:02}.txt" for index in range(per_dir + 5)]
+        (tmp_path / "wide").mkdir()
+        for name in names:
+            (tmp_path / "wide" / name).write_text("")
+        full = ["wide/"] + [f"  {name}" for name in names]
+        # The room holds the full listing exactly, or one shown unit less.
+        frame = _cost(describer_module._fenced(_TREE, ""))
+        monkeypatch.setattr(describer_module, "DESCRIBE_TREE_MAX_CHARS", frame + _cost("\n".join(full)) - over)
+        section = _sections(RepoDescriber(repo_path=str(tmp_path)).build_context_bundle())[_TREE]
+        if over:
+            # One unit more than the room: the per-directory cap applies.
+            assert _cost(section) < describer_module.DESCRIBE_TREE_MAX_CHARS
+            assert _body(section) == full[:1 + per_dir] + ["  … 5 more entries"]
+        else:
+            assert _cost(section) == describer_module.DESCRIBE_TREE_MAX_CHARS
+            assert _body(section) == full
+
+    def test_tree_trim_counts_the_entries_of_a_dropped_directory_note(self):
+        tree_line = describer_module._TreeLine
+        lines = [
+            tree_line("big/", 1),
+            *[tree_line(f"  entry_{index:02}", 2) for index in range(40)],
+            tree_line("  … 60 more entries", 2, 60),
+            tree_line("small/", 1),
+            tree_line("  only", 2),
+        ]
+        max_chars = _cost("\n".join(line.text for line in lines)) - 30
+        text = describer_module._fit_tree(lines, max_chars)
+        assert _cost(text) <= max_chars
+        kept = text.split("\n")
+        note = kept.pop()
+        # The directory note stands furthest down its directory, so it goes first.
+        assert "  … 60 more entries" not in kept and "  only" in kept
+        assert kept == [line.text for line in lines if line.text in kept]
+        cut = [line.text for line in lines if line.entries == 1 and line.text not in kept]
+        assert cut and all(text.startswith("  entry_") for text in cut)
+        # Its 60 entries count beside the lines cut with it.
+        assert note.startswith(f"… {60 + len(cut)} more entries ({60 + len(cut)} at depth 2;")
+
+    @pytest.mark.parametrize("over", [0, 1])
+    def test_capped_tree_is_kept_whole_up_to_its_exact_room(self, over):
+        tree_line = describer_module._TreeLine
+        lines = [tree_line("dir/", 1), tree_line("  file", 2), tree_line("  … 3 more entries", 2, 3)]
+        whole = "\n".join(line.text for line in lines)
+        text = describer_module._fit_tree(lines, _cost(whole) - over)
+        assert _cost(text) <= _cost(whole) - over
+        assert (text == whole) is (over == 0)
+
+    @pytest.mark.parametrize("count", [150, 200, 201, 500])
+    def test_long_readme_is_cut_at_a_line_boundary(self, tmp_path, count):
+        head_lines = describer_module.DESCRIBE_README_HEAD_LINES
+        lines = [f"Line {i:03}: " + "x" * 80 for i in range(count)]
+        (tmp_path / "README.md").write_text("\n".join(lines) + "\n")
+        section = _sections(RepoDescriber(repo_path=str(tmp_path)).build_context_bundle())[_README]
+        assert _cost(section) + _SEPARATOR_COST <= describer_module.DESCRIBE_README_MAX_CHARS
+        body = _body(section)
+        note = body.pop()
+        assert body == lines[:len(body)]
+        # The note counts the lines left out of the sampled head and says when the file goes on.
+        tail = f" of the first {head_lines}; README.md continues" if count > head_lines else ""
+        assert note == f"… {min(count, head_lines) - len(body)} more lines{tail}"
+
+    def test_many_large_manifests_share_their_cap(self, tmp_path):
+        names = describer_module._KEY_MANIFEST_FILES
+        for name in names:
+            (tmp_path / name).write_text("".join(f"key_{i} = \"value\"\n" for i in range(1_000)))
+        bundle = RepoDescriber(repo_path=str(tmp_path)).build_context_bundle()
+        sections = _sections(bundle)
+        assert [heading for heading in sections if heading not in (_TREE, _README)] == [f"### {n}" for n in names]
+        total = 0
+        for name in names:
+            text = sections[f"### {name}"]
+            assert _cost(text) + _SEPARATOR_COST <= describer_module.DESCRIBE_MANIFEST_MAX_CHARS
+            body = _body(text)
+            assert body[-1].startswith("… ") and body[-1].endswith(" more lines")
+            assert body[:-1] == [f"key_{i} = \"value\"" for i in range(len(body) - 1)]
+            total += _cost(text) + _SEPARATOR_COST
+        assert total <= describer_module.DESCRIBE_MANIFESTS_MAX_CHARS
+
+    def test_small_manifests_leave_their_share_to_the_large_ones(self, tmp_path):
+        (tmp_path / "go.mod").write_text("module example.com/demo\n\ngo 1.22\n")
+        (tmp_path / "Gemfile").write_text("source 'https://rubygems.org'\ngem 'rails'\n")
+        large = ("pyproject.toml", "package.json")
+        for name in large:
+            (tmp_path / name).write_text("".join(f"dep_{i} = 1\n" for i in range(2_000)))
+        sections = _sections(RepoDescriber(repo_path=str(tmp_path)).build_context_bundle())
+        assert _body(sections["### go.mod"]) == ["module example.com/demo", "", "go 1.22"]
+        assert _body(sections["### Gemfile"]) == ["source 'https://rubygems.org'", "gem 'rails'"]
+        left = describer_module.DESCRIBE_MANIFESTS_MAX_CHARS - sum(
+            _cost(sections[f"### {name}"]) + _SEPARATOR_COST for name in ("go.mod", "Gemfile")
+        )
+        shares = [_cost(sections[f"### {name}"]) + _SEPARATOR_COST for name in large]
+        # The large manifests split what the small ones left, far more than an equal
+        # quarter of the cap; a share falls short of its half by less than one line.
+        line = _cost("dep_1999 = 1") + _NEWLINE_COST
+        assert all(left // 2 - line < share <= describer_module.DESCRIBE_MANIFEST_MAX_CHARS for share in shares)
+        assert sum(shares) <= left
+        assert all(_body(sections[f"### {name}"])[-1].endswith(" more lines") for name in large)
+
+    @pytest.mark.parametrize("share", range(200, 208))
+    def test_manifest_share_includes_its_separator(self, tmp_path, monkeypatch, share):
+        monkeypatch.setattr(describer_module, "DESCRIBE_MANIFEST_MAX_CHARS", share)
+        (tmp_path / "go.mod").write_text("x\n" * 1_000)
+        section = _sections(RepoDescriber(repo_path=str(tmp_path)).build_context_bundle())["### go.mod"]
+        assert _body(section)[-1].endswith(" more lines")
+        assert _cost(section) + _SEPARATOR_COST <= share
+
+    def test_unreadable_manifest_leaves_no_heading(self, tmp_path, monkeypatch):
+        (tmp_path / "pyproject.toml").write_text("[project]\n")
+        (tmp_path / "go.mod").write_text("module demo\n")
+        read_text = Path.read_text
+
+        def refuse_pyproject(path, *args, **kwargs):
+            if path.name == "pyproject.toml":
+                raise PermissionError("unreadable")
+            return read_text(path, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "read_text", refuse_pyproject)
+        sections = _sections(RepoDescriber(repo_path=str(tmp_path)).build_context_bundle())
+        assert set(sections) == {_TREE, "### go.mod"}
+        assert _body(sections["### go.mod"]) == ["module demo"]
+
+    def test_symlinks_are_listed_but_not_followed(self, tmp_path):
+        outside = tmp_path / "outside"
+        (outside / "inner").mkdir(parents=True)
+        (outside / "inner" / "secret.txt").write_text("")
+        (outside / "README.md").write_text("# Outside\n")
+        (outside / "pyproject.toml").write_text("[project]\nname = \"outside\"\n")
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / "main.py").write_text("")
+        try:
+            (repo / "link").symlink_to(outside / "inner", target_is_directory=True)
+            (repo / "README.md").symlink_to(outside / "README.md")
+            (repo / "pyproject.toml").symlink_to(outside / "pyproject.toml")
+        except OSError:
+            pytest.skip("symlinks unavailable")
+        sections = _sections(RepoDescriber(repo_path=str(repo)).build_context_bundle())
+        # The tree names the links without descending; their targets stay out of the bundle.
+        assert set(sections) == {_TREE}
+        assert _body(sections[_TREE]) == ["link/", "README.md", "main.py", "pyproject.toml"]
+
+    def test_overlong_lines_are_shortened_with_an_ellipsis(self, tmp_path):
+        line_cap = describer_module.DESCRIBE_LINE_MAX_CHARS
+        # The README section does not fit, so its overlong line is shortened.
+        (tmp_path / "README.md").write_text("intro\n" + "a" * (line_cap * 9) + "\noutro\n")
+        (tmp_path / "package.json").write_text('{"name": "' + "b" * 50_000 + '"}')
+        sections = _sections(RepoDescriber(repo_path=str(tmp_path)).build_context_bundle())
+        assert _body(sections[_README]) == ["intro", "a" * (line_cap - 1) + "…", "outro"]
+        # The per-line cap shortens the single manifest line first, which then fits its share,
+        # so no note follows.
+        (package_line,) = _body(sections["### package.json"])
+        assert package_line.startswith('{"name": "bbb') and package_line.endswith("b…")
+        assert _cost(package_line) == line_cap
+
+    def test_single_overlong_line_fills_the_room_beside_its_note(self):
+        text = describer_module._fit_lines(["c" * 500, "next", "last"], 100)
+        first, note = text.split("\n")
+        assert note == "… 2 more lines"
+        assert first == "c" * (100 - _cost(note) - _NEWLINE_COST - _cost("…")) + "…"
+        assert _cost(text) == 100
+
+    @pytest.mark.parametrize("max_chars", range(0, 60))
+    def test_fit_lines_never_exceeds_its_cap(self, max_chars):
+        lines = ["alpha", "", "β" * 30, "gamma 🚀🚀", 'say "hi"\tnow', "δ"]
+        text = describer_module._fit_lines(lines, max_chars)
+        assert _cost(text) <= max_chars
+        kept = text.split("\n") if text else []
+        for line in kept:
+            assert line in lines or line.startswith("…") or line.endswith("…")
+
+    def test_non_ascii_is_never_split_inside_a_character(self, tmp_path):
+        line_cap = describer_module.DESCRIBE_LINE_MAX_CHARS
+        long_line = "Привет, мир! 🚀👩‍💻 Ünïcödé " * 200
+        (tmp_path / "README.md").write_text(
+            "\n".join([long_line] + ["Строка с эмодзи 🎉 " * 4] * 600) + "\n", encoding="utf-8"
+        )
+        (tmp_path / "каталог").mkdir()
+        (tmp_path / "каталог" / "файл_🚀.md").write_text("")
+        sections = _sections(RepoDescriber(repo_path=str(tmp_path)).build_context_bundle())
+        assert _body(sections[_TREE]) == ["каталог/", "  файл_🚀.md", "README.md"]
+        body = _body(sections[_README])
+        # Python slices code points, so the shortened line is a prefix of the original
+        # one; it stops short of its cap by less than its costliest character, 🚀 at 2.
+        assert body[0].endswith("…") and long_line.startswith(body[0][:-1])
+        assert line_cap - 1 <= _cost(body[0]) <= line_cap
+        assert body[-1].startswith("… ") and body[-1].endswith(" more lines of the first 200; README.md continues")

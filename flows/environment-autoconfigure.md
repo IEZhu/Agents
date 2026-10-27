@@ -188,7 +188,12 @@ configuration/profile overrides rather than assuming an initializer is harmless 
    version's documented retention policy. Test exact evidence against recorded fixture bytes.
    A retriever disabled by existing policy is a limitation to report, not permission to change it.
 4. Test each proposed native client hook/plugin with a documented fixture or supported probe:
-   verify command rewriting, output, exit status, raw bypass, and coexistence with unrelated hooks.
+   derive the payload from that client's installed event schema, including its event/tool name,
+   field names and nesting, and response contract. Do not reuse a generic Bash payload across clients.
+   Antigravity uses `run_command`; a `Bash` fixture does not exercise that hook. Observe the original
+   command and the rewritten command, and require the expected RTK rewrite for a supported command.
+   Exit 0 or an `allow` response alone is insufficient: a mismatched event or tool can pass through
+   unchanged. Also verify output, exit status, raw bypass, and coexistence with unrelated hooks.
    Test explicit RTK commands for manual clients; do not claim native interception from an include.
    For selected OpenCode clients, a native `opencode api --standalone plugin.list`
    call is preliminary: OpenCode 2.0.20 can return success with an empty list before

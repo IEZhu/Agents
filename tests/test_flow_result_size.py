@@ -1,5 +1,5 @@
-"""run_flow and get_flow declare a result size, so Claude Code keeps their results in the conversation
-instead of saving one over 50,000 characters to a file (#196)."""
+"""run_flow and get_flow (#196) and the persona tools (#520) declare a result size, so Claude Code keeps
+their results in the conversation instead of saving one over 50,000 characters to a file."""
 import json
 
 import pytest
@@ -11,13 +11,15 @@ from src.user_flows import FlowLibrary
 
 KEY = "anthropic/maxResultSizeChars"
 UNDECLARED = INLINE_LIMIT  # Claude Code's threshold for a tool that declares nothing
+FLOW_TOOLS = ("run_flow", "get_flow")
+PERSONA_TOOLS = ("route_and_load", "get_agent_context", "refresh_persona_context")
 
 
 @pytest.mark.asyncio
-async def test_only_the_flow_tools_declare_a_result_size():
+async def test_only_the_flow_and_persona_tools_declare_a_result_size():
     tools = {tool.name: tool for tool in await server.mcp.list_tools()}
     declared = {name: tool.meta[KEY] for name, tool in tools.items() if KEY in (tool.meta or {})}
-    assert declared == {"run_flow": 500_000, "get_flow": 500_000}
+    assert declared == dict.fromkeys(FLOW_TOOLS + PERSONA_TOOLS, 500_000)
     for name in declared:
         assert tools[name].model_dump(by_alias=True)["_meta"][KEY] == 500_000
         # The output schema stays: a client that listed the tools before an update keeps validating results.

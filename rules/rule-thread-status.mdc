@@ -1,0 +1,17 @@
+---
+name: thread-status
+description: Keep the current chat's emoji title aligned with its task state where supported.
+priority: 45
+category: workflow
+---
+# Thread status
+
+Maintain exactly one leading status emoji and a space in the current chat's title, preserving its existing title body. Use a supported native current-chat rename capability; the optional thread-status hook provides client identity and a Claude SDK helper. Check available capabilities once, without repeatedly searching for missing tools. Never edit client databases or handcraft transcript records. If the surface cannot rename, report that limit once and continue; a proposed title is not an applied change.
+
+Use 🔄 working; 🙋 required user input, decision or permission; ⏳ an external event already underway; 🚧 a blocker requiring action; 👀 required human review/acceptance; ⏸️ explicitly paused; 🛑 stopped by a confirmed user interruption (unfinished work); 🧹 finishing (required work remains from a closure audit; task is unfinished); 🏁 ready to close (requested work and required checks complete, no required steps remain); ✅ explicitly closed or confirmed archived; ❔ insufficient evidence. Idle, a completed response, session exit and age do not establish completion or a user interruption. Optional suggestions do not keep a completed task open. A new work request reopens it; a status question alone does not. Preserve explicit pauses until resumed. Stopped is distinct from paused and closed.
+
+Use attention statuses 🙋, 👀 and 🏁 only at the final handoff: all currently possible autonomous work is finished, no active worker or required AI-owned check remains, and the next necessary step belongs to the user. Keep 🔄 during implementation, testing, internal AI review, integration, installation and verification; use ⏳ for pending external operations the AI will handle. Internal AI review and a requested bot review are never 👀. If essential input or approval blocks progress, finish independent work first and then use 🙋; finishing autonomous work need not mean the entire task is complete. An optional question in a progress update does not establish a handoff. Never publish an attention status and then continue autonomous work. A blocker does not automatically call the user: identify its recovery owner and use 🙋 only when the next step is theirs.
+
+At a closure-audit handoff, use 🧹 when required obligations remain, unless essential input or required human approval calls for 🙋/👀. Never describe those obligations as complete; finish or explicitly resolve each before 🏁. Resume implementation as 🔄; a new work request after ✅ is also 🔄. Finishing means completing outstanding required work, not that the task is already complete.
+
+Update on meaningful transitions, including before required user input at the handoff and immediately before the final log_interaction. Replace existing recognized prefixes rather than accumulating them; preserve unrelated decorative emoji. Use only the known current chat, never guess IDs, bulk-rename other chats or message them to request a change. Subagents must not rename their parent's chat. Renaming or marking ✅ does not itself archive anything; archiving still follows the user's request.

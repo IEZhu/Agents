@@ -22,6 +22,7 @@ from src.utils.prompt_loader import split_frontmatter
 
 _FORBIDDEN_FIELDS = ("applies_to", "exclude_agents")
 _EXPECTED_RULE_NAMES = {
+    "thread-status",
     "agent-cooperation",
     "answer-timestamp",
     "no-fabrication",
@@ -104,6 +105,18 @@ def test_get_rules_sorted_by_priority():
 def test_get_rules_contains_v1_set():
     names = {r.name for r in rules_module.get_rules()}
     assert _EXPECTED_RULE_NAMES <= names
+
+
+def test_thread_status_distinguishes_finishing_from_completion_and_human_attention():
+    rule = next(rule for rule in rules_module.get_rules() if rule.name == "thread-status")
+    text = " ".join(rule.body.split())
+    for phrase in ("🧹 finishing (required work remains from a closure audit; task is unfinished)",
+                   "Use attention statuses 🙋, 👀 and 🏁 only at the final handoff",
+                   "At a closure-audit handoff, use 🧹 when required obligations remain",
+                   "unless essential input or required human approval calls for 🙋/👀",
+                   "finish or explicitly resolve each before 🏁",
+                   "Resume implementation as 🔄", "a new work request after ✅ is also 🔄"):
+        assert phrase in text
 
 
 def test_get_rules_disabled_returns_empty(monkeypatch):

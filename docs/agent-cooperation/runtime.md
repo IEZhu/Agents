@@ -2,9 +2,9 @@
 
 ## Enablement and authority
 
-The coordinator is disabled by default. The installation owner can set `AGENTS_COOPERATION_ENABLED=1` for the installed daemon as part of a separately authorized rollout. No live enablement, client registration or daemon restart was performed during implementation. All cooperating clients must reach that same installed authority. Direct HTTP clients and clients forwarded by the existing `bridge/stdio.mjs` use the same tools and journal. `src/startup.py` also delegates eligible stdio sessions to that bridge. A standalone stdio server without the bridge returns `store_unavailable`; it does not create a second journal.
+The runtime setting defaults to disabled. Normal setup offers shared-daemon installation and cooperation independently on macOS and Windows; `--yes` accepts both. `--skip-daemon` and `--skip-cooperation` opt out, while `--skip-mcp` skips both. Accepting cooperation persists `AGENTS_COOPERATION_ENABLED=1` in the installation `.env` and starts or gracefully restarts its daemon when needed. The owner can also set that variable manually. `/health` reports `cooperation` as `ready`, `disabled` or `unavailable`; ordinary daemon readiness alone does not prove coordination is active. Linux keeps standalone MCP setup because OS service installation is currently supported only on macOS and Windows. All cooperating clients must reach that same installed authority. Direct HTTP clients and clients forwarded by the existing `bridge/stdio.mjs` (Node) or `bridge/stdio.py` (Python fallback) use the same tools and journal. `src/startup.py` also delegates eligible stdio sessions to that bridge. A standalone stdio server without the bridge returns `store_unavailable`; it does not create a second journal.
 
-The mailbox protocol is independent of the client or model provider: an authorized compatible MCP client supplies the same requests and handles the same responses. It neither calls provider APIs nor depends on native host messaging. This is source-level interoperability, not a claim of live testing across provider models. The existing installed bridge needs its private configuration and recorded Node executable; missing bridge prerequisites or an explicit standalone configuration do not provide a shared coordinator.
+The mailbox protocol is independent of the client or model provider: an authorized compatible MCP client supplies the same requests and handles the same responses. It neither calls provider APIs nor depends on native host messaging. This is source-level interoperability, not a claim of live testing across provider models. The installed bridge needs private configuration and a usable recorded interpreter: Node when available, otherwise the recorded Python fallback. Missing bridge prerequisites or an explicit standalone configuration do not provide a shared coordinator.
 
 State is `<installed service state>/cooperation/cooperation.sqlite3`, outside Git. The daemon owns one OS administration lock for its complete coordinator lifetime and advances the persisted epoch once per start. SQLite uses local-filesystem `DELETE` journaling, `synchronous=FULL`, foreign keys, per-call connections and short `BEGIN IMMEDIATE` writes. A bounded busy timeout returns `busy`; migration/schema errors preserve the existing database. Network filesystems are not supported.
 
@@ -25,6 +25,48 @@ Removed physical checkouts are ignored on reads and pruned during owner registra
 Repository and checkout handles use verified canonical filesystem identity and installation namespace. Git remote equality does not join domains. Symlinks, case aliases and nonexisting filenames on case-insensitive filesystems are normalized; escapes, traversal, nested repositories and foreign handles are rejected. Registration and validation do not fetch artifact paths or URLs.
 
 A participant capability is opaque and returned once. Only its verifier is stored; snapshots, events and receipts omit capabilities. Keep it in an authorized host/session channel, never in prompts shared with peers or artifact text. A parent creates a separate limited child capability or relays under its own capability with `subject_id`; every relay is recorded as such. Public IDs, contract hashes, persona names and the daemon bearer token do not substitute for participant authority.
+
+## Registration and responses
+
+After owner registration grants the physical checkout and the enabled daemon is
+connected, an independent root can call `cooperation_register` with the following
+MCP arguments. Replace the absolute checkout path, task IDs and scope with the
+authorized task; this example reserves no file claim by itself.
+
+```json
+{
+  "request": {
+    "protocol": "agents-core/cooperation/1",
+    "checkout_path": "/absolute/path/to/project",
+    "root_task_id": "docs-refresh",
+    "task_id": "docs-refresh",
+    "attempt_id": "1",
+    "scope": [
+      {"resource_type": "physical_file", "resource_key": "README.md", "access": "write"}
+    ],
+    "execution_mode": "independent"
+  },
+  "workspace": "/absolute/path/to/project"
+}
+```
+
+Keep the returned `repository_id`, `participant_id`, `generation`, `revision`
+and `service_epoch`, plus the private capability. Child registration additionally
+uses the parent's ID/capability, the same `root_task_id` and the child's original
+prepared `contract_revision`; it must remain inside the parent's scope. An
+already-bound task/attempt cannot be registered again. If its one-time capability
+was lost, prepare/register a fresh attempt as described above.
+
+Cooperation success responses have top-level `protocol` and `status="ok"`;
+there is no `data` wrapper. Errors have `status="error"`, a string `error` code
+and `message`, with bounded revision/claim diagnostics where relevant. For
+`stale_revision` or `stale_generation`, read current state and reconcile before
+constructing a new operation. After an ambiguous write, retry the exact original
+operation and payload to retrieve its receipt. `idempotency_conflict` means that
+ID was reused for different content. `scope_denied` or `unauthorized_actor`
+requires correcting the workspace, task binding or authenticated actor;
+discovering an ID does not grant access. `store_unavailable` can mean coordination
+is disabled or the connection is standalone stdio, rather than a transient retry.
 
 ## Mailbox workflow
 
@@ -47,7 +89,7 @@ Mailbox calls do not require a journal revision or participant generation and do
 
 Every new `kind="request"` message starts with processing `state="pending"` and request `revision=1`. An optional `expires_at` is an absolute future Unix timestamp in seconds, accepted only for requests. `cooperation_request_status` takes the usual mailbox authentication and `message_id`; only the effective sender or recipient can inspect it. It returns the processing record, its revision, timestamps, deadline, reason and response reference, plus independent `delivery` (`stored` or `acknowledged`) and `acknowledged_at`. A delivery acknowledgement never changes processing state. Reading a request or its notifications does not acknowledge the inbox message.
 
-`cooperation_request_update` adds a stable `operation_id`, current `expected_revision`, and `state`. Only the recipient can report `accepted`, `input_required`, `completed`, `declined` or `failed`; only the sender can report `cancelled`. The existing direct-child parent relay rules apply to all three new tools. A cancelled participant can inspect retained status and events but cannot make a fresh processing update; its original successful operation receipt remains replayable.
+`cooperation_request_update` adds a stable `operation_id`, current `expected_revision`, and `state`. Only the recipient can report `accepted`, `input_required`, `completed`, `declined` or `failed`; only the sender can report `cancelled`. The direct-child parent relay rules also apply to request status, updates and waits. A cancelled participant can inspect retained status and events but cannot make a fresh processing update; its original successful operation receipt remains replayable.
 
 | Current state | Allowed explicit next states |
 |---|---|
@@ -84,8 +126,10 @@ Schema version 4 adds request records and private notifications. Versions 1–3 
 | `release` | Current release-ready checkpoint and exact claim revisions; a previous work unit's checkpoint cannot release a new unit |
 | `handoff` | Current task/generation bindings for every required agreement participant, old owner release-ready checkpoint accepted by the new owner, exact owner/digest and claim revisions, ready destination and atomic transfer |
 | `accept_artifact` | Exact producer task/attempt, artifact digest/head, consumer binding and passing consumer checks; changed artifacts invalidate old acceptance |
-| `cancel` | Acts only on the subject's task or nonterminal cooperation agreement; an original receipt still replays, while a new cancellation cannot overwrite a terminal outcome; held claims remain quarantined pending stopped-execution reconciliation |
+| `cancel` | Acts only on the subject's task or nonterminal cooperation agreement; an authenticated cancelled participant may cancel only its own agreement, without parent relay, running work or held claims; an original receipt still replays, while a new cancellation cannot overwrite a terminal outcome; held claims remain quarantined pending stopped-execution reconciliation |
 | `recover` | Current service epoch, valid owner/registered parent, previous generation, execution evidence, inspected checkpoint and complete claim set |
+
+Close nonterminal agreements before cancelling their participant. If that ordering was missed, the same participant's still-valid capability can submit a fresh `cancel` action naming its agreement, with the current repository revision and its unchanged generation. This records cancellation, preserving failed checks and the participant's terminal state; it does not complete the work, revive the participant, release claims or authorize execution. Revoked capabilities, foreign agreements and parent relays remain denied. This metadata-only cleanup also works after coordinator restart or with admission disabled.
 
 For `cooperation_apply`, `operation_id` is unique per repository and actor within the action-receipt namespace; mailbox send/ack use their own shared namespace. Identical retries return the original durable receipt even after revisions advance. A changed body under the same ID returns `idempotency_conflict`. After an ambiguous timeout, retry exactly the same request or read current state; do not invent another ID. Response schemas are validated before committing the receipt.
 

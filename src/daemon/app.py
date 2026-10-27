@@ -14,12 +14,11 @@ from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from src.version import agents_core_branch, agents_core_version
+from src.version import agents_core_branch, agents_core_commit, agents_core_version
 from src.runtime_paths import installation_root, runtime_root
+from src import client_instructions, personal_runtime
 from .execution import TrackedExecutor, request_jobs, finish_jobs
-from .flows_ui import FlowsUI
 from .overview import Overview
-from .sync_loop import UserSync
 from .usage import Usage, app_name, observing
 from .workspaces import ClientContext, WorkspaceRegistry, WorkspaceError
 
@@ -58,7 +57,7 @@ def refusal(headers, error):
     return error
 
 
-def load_runtime(port):
+def load_runtime(port, *, history_sync_installer=None):
     from src import server
     from src.engine import readiness
     from src.engine.fingerprint import configuration_revision
@@ -73,13 +72,15 @@ def load_runtime(port):
     server.mcp.settings.stateless_http = True
     server.mcp.settings.json_response = True
     server.mcp.remove_tool("clear_session_cache")
-    server.install_history_sync()
+    install_history = (personal_runtime.install_history_sync if history_sync_installer is None
+                       else history_sync_installer)
+    install_history()
     return server.mcp, server
 
 
 class Service:
     def __init__(self, directory, token, port=8765, runtime_loader=load_runtime, *, hand_off_schedule=False,
-                 local_inference_service=None, artifact_service=None):
+                 local_inference_service=None, artifact_service=None, components_factory=None):
         self.directory = Path(directory)
         self.token = token
         self.port = port
@@ -105,9 +106,17 @@ class Service:
         self.requests = set()
         self.usage = Usage(self)  # answer counts and the apps that use the daemon (#187)
         self.overview = Overview(self)  # the landing page's facts about the installation (#188)
-        self.flows_ui = FlowsUI(self)
-        # Only the service's entry point hands the library over from the OS scheduler (#168).
-        self.user_sync = UserSync(self, hand_off_schedule=hand_off_schedule)
+        from src.mcp_registry import Registry
+        from src.mcp_secrets import Secrets
+        from .mcp_proxy.upstreams import Supervisor
+        library = Path(os.environ.get("AGENTS_USER_FLOWS_DIR") or installation_root() / "flows" / ".user")
+        self.mcp_registry = Registry(library, self.directory)
+        self.mcp_secrets = Secrets(self.directory)
+        self.mcp_proxy = Supervisor(self.mcp_registry, self.mcp_secrets, self.directory)
+        factory = personal_runtime.daemon_components if components_factory is None else components_factory
+        components = factory(self, hand_off_schedule=hand_off_schedule)
+        self.flows_ui = components.flows_ui
+        self.user_sync = components.user_sync
         # This separate lazy broker does not read configuration or start a model here.
         from src.local_inference.service import LocalInferenceService
         from src.artifacts.service import ArtifactService
@@ -121,11 +130,14 @@ class Service:
         return {"state": self.state, "service": "Agents-Core", "boot_id": self.boot_id,
                 "pid": os.getpid(), "version": importlib.metadata.version("mcp"),
                 "agents_core_version": agents_core_version(),
+                "agents_core_commit": agents_core_commit(),
                 # The checked-out branch; `channel show` names the configured one (#381).
                 "agents_core_branch": agents_core_branch(),
                 "install_root": str(installation_root()), "runtime_root": str(runtime_root()),
                 "uptime_seconds": round(time.monotonic() - self.started, 3),
                 "model_ready": self.transport is not None,
+                "cooperation": ("ready" if self.cooperation is not None else
+                                "unavailable" if os.environ.get("AGENTS_COOPERATION_ENABLED") == "1" else "disabled"),
                 "inflight": self.inflight, "streams": self.streams,
                 "idle_seconds": 0.0 if self.inflight else round(time.monotonic() - self.last_activity, 1),
                 # User sync's engine calls run in their own threads (sync_loop.py) and count here too.
@@ -133,7 +145,7 @@ class Service:
                 "loop_lag_max_seconds": round(self.loop_lag_max, 6),
                 "startup_loop_lag_max_seconds": round(self.startup_loop_lag_max, 6),
                 "inference_pending": inference.pending if inference else 0,
-                "user_sync": self.user_sync.summary(), **self.local_inference.health()}
+                "user_sync": self.user_sync.summary(), "mcp": self.mcp_proxy.health(), **self.local_inference.health()}
 
     async def start_runtime(self):
         maintenance = None
@@ -227,18 +239,29 @@ class Service:
         # Fix the version before the first request can compute it on the event loop.
         await asyncio.to_thread(agents_core_version)
         await asyncio.to_thread(agents_core_branch)
+        await asyncio.to_thread(agents_core_commit)
         asyncio.get_running_loop().set_default_executor(self.io)
-        runtime = asyncio.create_task(self.start_runtime())
-        diagnostics = asyncio.create_task(self.retain_diagnostics())
-        loop_monitor = asyncio.create_task(self.monitor_loop())
-        # Automatic sync begins once the service is ready; admin operations work from the start.
-        self.user_sync.start()
+        # Migrate existing installations into the portable host inventory.
+        # Imported inventories never become execution consent on this machine.
+        if (self.directory / "mcp" / "registry.json").is_file():
+            try:
+                await asyncio.to_thread(self.mcp_registry.publish_machine)
+            except (OSError, ValueError):
+                logger.warning("MCP host inventory could not be published")
+        runtime = diagnostics = loop_monitor = None
         try:
+            # A supplied sync owner can fail while starting. Keep that failure
+            # inside the owned cleanup boundary and do not start daemon work.
+            self.user_sync.start()
+            runtime = asyncio.create_task(self.start_runtime())
+            diagnostics = asyncio.create_task(self.retain_diagnostics())
+            loop_monitor = asyncio.create_task(self.monitor_loop())
             yield
         finally:
             self.state = "draining"
             self.close_streams()
             self.user_sync.drain()
+            self.mcp_proxy.begin_drain()
             self.local_inference.begin_drain()
             # Detached generation is fenced before any generic executor shutdown.
             try:
@@ -249,11 +272,15 @@ class Service:
             deadline = time.monotonic() + 60
             while (self.inflight or self.io.inflight or self.user_sync.pending) and time.monotonic() < deadline:
                 await asyncio.sleep(.05)
+            await self.mcp_proxy.close()
             self.stop.set()
             self.user_sync.wake()
-            await runtime
-            await diagnostics
-            await loop_monitor
+            if runtime is not None:
+                await runtime
+            if diagnostics is not None:
+                await diagnostics
+            if loop_monitor is not None:
+                await loop_monitor
             await self.user_sync.finish()
             # Queued log_interaction writes run on their own executor; flush them
             # before the process can exit.
@@ -272,6 +299,18 @@ class Service:
         if not hmac.compare_digest(supplied.encode(), ("Bearer " + self.token).encode()):
             return await JSONResponse({"error": "unauthorized"}, 401)(scope, receive, send)
         path = scope["path"]
+        if path == "/admin/mcp":
+            if self.state != "ready":
+                return await JSONResponse({"error": self.state}, 503)(scope, receive, send)
+            if self.inflight >= MAX_INFLIGHT:
+                return await JSONResponse({"error": "busy"}, 503)(scope, receive, send)
+            from .mcp_ui import handle
+            self.inflight += 1
+            try:
+                response = await handle(self, request)
+                return await response(scope, receive, send)
+            finally:
+                self.inflight -= 1
         if path == "/health":
             return await JSONResponse(self.health(), 200 if self.state == "ready" else 503)(scope, receive, send)
         if path == "/admin/drain" and request.method == "POST":
@@ -281,6 +320,7 @@ class Service:
             self.close_streams()
             # Sync pushes what is left; io_pending covers it until it ends or is abandoned.
             self.user_sync.drain()
+            self.mcp_proxy.begin_drain()
             self.local_inference.begin_drain()
             return await JSONResponse(self.health())(scope, receive, send)
         if path == "/admin/exit" and request.method == "POST":
@@ -293,6 +333,7 @@ class Service:
             if self.transport is not None:
                 self.state = "ready"
                 self.user_sync.resume()
+                self.mcp_proxy.resume()
                 self.local_inference.resume()
             return await JSONResponse(self.health())(scope, receive, send)
         if path.startswith("/admin/user-sync/"):
@@ -418,12 +459,19 @@ class Service:
         scope.setdefault("state", {})["client_context"] = context
         scope["state"]["local_inference_service"] = self.local_inference
         scope["state"]["artifact_service"] = self.artifacts
+        scope["state"]["mcp_proxy"] = self.mcp_proxy
         scope["state"]["cooperation_service"] = self.cooperation
         scope["state"]["cooperation_authority"] = self.directory / "cooperation"
         if request.method == "POST":
             # Only an initialize names the client (clientInfo); the transport still reads every byte.
             receive = observing(receive, self.usage.apps, app, identity if root else None)
-        await self.transport(scope, receive, send)
+        # The stateless session starts inside this call and inherits the variable: its initialize
+        # answer and the persona tools read the client's instruction files through it (#433).
+        token = client_instructions.REQUEST_CLIENT.set(context)
+        try:
+            await self.transport(scope, receive, send)
+        finally:
+            client_instructions.REQUEST_CLIENT.reset(token)
 
     async def stream(self, request, scope, receive, send, app=None):
         if self.streams >= MAX_STREAMS:
@@ -478,13 +526,14 @@ class Service:
 
 
 def create_app(directory, token, port=8765, runtime_loader=load_runtime, *, hand_off_schedule=False,
-               local_inference_service=None, artifact_service=None):
+               local_inference_service=None, artifact_service=None, components_factory=None):
     """``hand_off_schedule``: the user-sync task removes the scheduled sync run of #168 when it
     starts; only ``bootstrap.serve`` sets it, so tests never reach the OS scheduler."""
     if not token or len(token) < 32:
         raise ValueError("A private bearer token of at least 32 characters is required")
     service = Service(directory, token, port, runtime_loader, hand_off_schedule=hand_off_schedule,
-                      local_inference_service=local_inference_service, artifact_service=artifact_service)
+                      local_inference_service=local_inference_service, artifact_service=artifact_service,
+                      components_factory=components_factory)
     app = Starlette(lifespan=service.lifespan)
     # Route the original scope directly so MCP receives the request state.
     app.router.default = service

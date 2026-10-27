@@ -10,6 +10,12 @@ still take precedence.
 
 ## Find the right source
 
+- Before the first repository exploration or edit, call `describe_repo` with the
+  target checkout's `repo_path` and the caller's authorized `workspace`. Read its
+  summary preview or context bundle. On `needs_summary`, follow the returned
+  persistence instructions only within the authorized scope; preserve
+  `workspace_id`, `repo_path` and `repo_hash` unchanged when writing. Never
+  persist a summary into the live installation or deployed runtime source.
 - [README.md](README.md): installation, configuration and user-facing behavior.
 - [Documentation map](docs/README.md): maintained references and historical plans.
 - [Model workflows](flows/README.md): reusable task instructions to execute on request.
@@ -66,23 +72,42 @@ their recorded revision; they do not override the current implementation.
 - Update documentation when changing a public tool, configuration default,
   installer, command or AI instruction. The source-to-document map and review
   steps are in [documentation-refresh.md](flows/documentation-refresh.md).
-- The source of the managed routing section is
-  [routing-protocol-core.md](scripts/templates/routing-protocol-core.md).
-  Edit the template first when changing that contract, then update the managed
-  section with `scripts/_helpers/inject_claude_md.py`. A contract change also
-  updates the MCP initialization instructions in `src/server.py`,
-  `APPLY_INSTRUCTION` in `src/engine/persona.py` and, where it restates the
-  change, [memory-routing.md](scripts/templates/memory-routing.md), after saving
-  its previous copy as described in
-  [legacy/README.md](scripts/templates/legacy/README.md). No test compares these
-  restatements with the template. Keep repository notes and Repository Memory
-  outside the routing markers.
+- The protocol text has one source, the section files in
+  [src/engine/protocol/](src/engine/protocol/), composed by
+  `src/engine/protocol_text.py` into every surface: the template
+  [routing-protocol-core.md](scripts/templates/routing-protocol-core.md) (the
+  managed section of `CLAUDE.md` and `AGENTS.md`), the MCP initialization
+  instructions, the `instruction` of a `SUCCESS`, the pointers sent instead of
+  a text the client already holds (#433) and the installer's
+  [memory-routing.md](scripts/templates/memory-routing.md). Edit the section
+  that states the rule, never a generated surface, then run
+  `.venv/bin/python -m src.engine.protocol_text --write`, which regenerates the
+  template, the reminder and this checkout's managed section. On every run, not
+  only when the reminder changes, the command keeps the released reminder (the
+  one at the merge base with `dev`) as the next legacy copy when migration would
+  not recognize it ([legacy/README.md](scripts/templates/legacy/README.md)); add
+  any name it prints where the tests list legacy reminders.
+  `tests/test_protocol_text.py` fails on a stale file and on a sentence the
+  source states in two places, `tests/test_log_interaction_contract.py` on a
+  server instruction that leaves Claude Code's windows, and
+  `tests/test_instruction_pointers.py` when a pointer of the `pointer` section
+  does not name a rule of the full text it replaces, or when
+  `src/client_instructions.py` sends the initialization pointer although a
+  checkout's instruction file is not current.
+  Keep repository notes and Repository Memory outside the routing markers.
 - Treat `.env`, MCP client registrations, memory journals and generated indexes
   as local state. A documentation update does not require reinstalling clients
   or restarting the shared daemon.
 - Run checks appropriate to the changed contract and report their actual result.
   Run only one heavy test or embedding process at a time.
 - In GitHub issue and PR descriptions, keep each prose paragraph and list item on one physical line. Do not hard-wrap text to a fixed width; preserve meaningful paragraph, list, table and code-block boundaries.
+- Before the first PR/MR submission or review action, call `list_flows`, then
+  `run_flow(flow="builtin:pr-review", ...)` with the target worktree's
+  `repo_path`, authorized `workspace`, retained `current_persona` and the user's
+  constraints, including `no-merge` when only submission is requested. Apply its
+  `persona_activation` through the shared routing contract. If that flow is
+  already running for this target, continue it. Reading the Markdown alone does
+  not activate the flow.
 - For PR/MR submission and review, follow [flows/pr-review.md](flows/pr-review.md):
   keep the English description aligned with every commit, handle review threads,
   and obtain fresh bot reviews before merging under its completion conditions.

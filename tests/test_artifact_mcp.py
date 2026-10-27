@@ -4,6 +4,7 @@ import copy
 from contextlib import asynccontextmanager
 import hashlib
 import json
+from pathlib import Path
 import logging
 import os
 from uuid import uuid4
@@ -198,7 +199,13 @@ async def test_preparation_uses_live_snapshot_and_retained_contract_without_inli
     async with application(worker_tree) as (http, artifacts, app, root):
         body = "sentinel-exact-shared-artifact-body"
         artifact, manifest = await pinned(http, body)
-        package = value(await rpc(http, "get_subagent_context", request(artifact_manifest=manifest)))
+        receipt = value(await rpc(http, "get_subagent_context", request(artifact_manifest=manifest)))
+        assert receipt["delivery"] == "file", receipt
+        text_context = Path(receipt["context_path"]).read_text(encoding="utf-8")
+        assert manifest["sha256"] in text_context and artifact["artifact_id"] in text_context
+        assert "artifact_read(" in text_context and body not in text_context
+        package = value(await rpc(http, "get_subagent_context", request(
+            artifact_manifest=manifest, delivery="inline", result_format="json")))
         assert package["status"] == "prepared", package
         assert package["contract"]["artifact_manifest"] == manifest
         assert "worker-artifacts" in package["descriptor"]["rules_loaded"]
@@ -235,7 +242,7 @@ async def test_preparation_without_artifacts_never_resolves_artifact_storage(wor
     async def unexpected(*args, **kwargs):
         pytest.fail("Artifact-free worker preparation resolved artifact storage")
     monkeypatch.setattr(tools, "verify_preparation", unexpected)
-    content, structured = await server.mcp.call_tool("get_subagent_context", request())
+    content, structured = await server.mcp.call_tool("get_subagent_context", request(delivery="inline"))
     assert structured["status"] == "prepared" and json.loads(content[0].text) == structured
     assert "artifact_manifest" not in structured["contract"]
 
@@ -248,7 +255,8 @@ async def test_generated_output_manifest_roundtrip_keeps_original_input_contract
     async with application(worker_tree) as (http, artifacts, app, root):
         _, input_manifest = await pinned(http, "original task input")
         package = value(await rpc(http, "get_subagent_context", request(
-            artifact_manifest=input_manifest, scope=["Read input and publish a generated report artifact."])))
+            artifact_manifest=input_manifest, scope=["Read input and publish a generated report artifact."],
+            delivery="inline", result_format="json")))
         assert package["status"] == "prepared", package
         retained = copy.deepcopy(package["contract"])
         output, output_manifest = await pinned(http, "exact generated report: αβγ")

@@ -48,6 +48,7 @@ def test_default_paths_remain_source_derived():
                       "agents": str(ROOT / "agents"), "flows": str(ROOT / "flows")}
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Imports the POSIX-only schedule runner entrypoints")
 def test_matching_runtime_reads_canonical_components_and_personal_flows(tmp_path):
     canonical = tmp_path / "installation"
     agent = canonical / "agents" / "canonical" / "system_prompt.mdc"
@@ -72,7 +73,7 @@ def test_matching_runtime_reads_canonical_components_and_personal_flows(tmp_path
         from src.schedules import config as schedule_config, cli as schedule_cli
         schedule = scheduler(platform='darwin', runner=lambda *args, **kwargs: None,
                              launch_agents_dir=root / 'launch-agents', lock_dir=root / 'locks')
-        assert 'fastembed' not in sys.modules and 'src.server' not in sys.modules
+        assert 'onnxruntime' not in sys.modules and 'tokenizers' not in sys.modules and 'src.server' not in sys.modules
         print(json.dumps({'paths': {name: getattr(config, name) for name in
                           ('INSTALL_ROOT', 'INSTALL_DATA_DIR', 'AGENTS_DIR', 'SKILLS_DIR',
                            'IMPLANTS_DIR', 'RULES_DIR', 'FLOWS_DIR')},
@@ -240,7 +241,7 @@ def test_bootstrap_keeps_content_dotenv_leases_health_and_state_identity(tmp_pat
                           dotenv=os.environ.get('RUNTIME_IDENTITY_TEST_CANONICAL'),
                           source=str(Path(app_module.__file__).resolve().parents[2]),
                           options=options, handoff=service.user_sync.hand_off_schedule)
-            assert 'fastembed' not in sys.modules and 'src.server' not in sys.modules
+            assert 'onnxruntime' not in sys.modules and 'tokenizers' not in sys.modules and 'src.server' not in sys.modules
         uvicorn.run = capture
         try:
             bootstrap.serve(sys.argv[1])
@@ -269,8 +270,11 @@ def test_original_raw_stdio_entry_still_bridges_the_canonical_installation(tmp_p
     source.mkdir(parents=True)
     (source / "__init__.py").touch()
     shutil.copyfile(ROOT / "src/startup.py", source / "startup.py")
+    (source / "daemon").mkdir()
+    (source / "daemon/__init__.py").touch()
+    shutil.copyfile(ROOT / "src/daemon/bridge.py", source / "daemon/bridge.py")
     shutil.copyfile(ROOT / "src/windows_job.py", source / "windows_job.py")
-    prefix = (ROOT / "src/server.py").read_text().split("import atexit", 1)[0]
+    prefix = (ROOT / "src/server.py").read_text(encoding="utf-8").split("import atexit", 1)[0]
     server = source / "server.py"
     server.write_text(prefix + "raise AssertionError('a second engine would start')\n")
     bridge = canonical / "bridge" / "stdio.mjs"

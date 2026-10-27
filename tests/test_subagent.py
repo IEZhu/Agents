@@ -41,7 +41,7 @@ def worker_tree(tmp_path, monkeypatch):
     for component_id in implants:
         write_mdc(tmp_path / f"implants/{component_id}.mdc", {"description": component_id, "one_liner": "VAGUE"},
                   component_id + " OPERATIONAL FULL BODY")
-    for name in ("no-fabrication", "answer-timestamp", "language-match", "agent-cooperation"):
+    for name in ("no-fabrication", "answer-timestamp", "language-match", "agent-cooperation", "thread-status"):
         write_mdc(tmp_path / f"rules/rule-{name}.mdc", {"name": name, "description": name}, name + " instructions")
     for name in subagent.WORKER_RULE_IDS:
         write_mdc(tmp_path / f"rules/subagents/rule-{name}.mdc", {"name": name, "description": name}, name + " instructions")
@@ -84,6 +84,8 @@ def test_default_policy_is_ranked_compiled_and_stateless(worker_tree, monkeypatc
     assert "Full persona" not in package.worker_context
     assert "answer-timestamp instructions" not in package.worker_context
     assert "language-match instructions" not in package.worker_context
+    assert "thread-status instructions" not in package.worker_context
+    assert next(item for item in package.selection if item.id == "thread-status").reason == "presentation_rule"
     assert "agent-cooperation instructions" not in package.worker_context
     assert "worker-cooperation instructions" in package.worker_context
     assert next(item for item in package.selection if item.id == "agent-cooperation").reason == "worker_equivalent"
@@ -214,7 +216,9 @@ def test_invalid_requests(worker_tree, extra):
 
 
 def test_budget_never_crops_mandatory_or_optional_instructions(worker_tree):
-    assert "context_budget_exceeded" in codes(prepare_subagent(request(max_context_chars=2000)))
+    assert "context_budget_exceeded" in codes(prepare_subagent(request(max_context_chars=2000, result_format="json")))
+    assert "context_budget_exceeded" in codes(prepare_subagent(request(max_context_chars=2000,
+                                                                       context=["Mandatory fact. " * 120])))
     baseline = prepared(max_skills=0)
     budget = baseline.context_chars + 35
     result = prepared(max_context_chars=budget)

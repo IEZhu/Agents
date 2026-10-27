@@ -7,7 +7,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Iterable, Optional
 
-from src.runtime_paths import installation_root
+from src.runtime_paths import installation_root, runtime_root
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +34,7 @@ FLOWS_DIR = os.path.join(INSTALL_ROOT, "flows")
 # lazily so a single install serving many client repos keeps their memory
 # isolated (issue #36).
 
-_CLIENT_ROOT_MARKERS = (".git", "CLAUDE.md")
+_CLIENT_ROOT_MARKERS = (".git", "CLAUDE.md", "AGENTS.md")
 
 
 class ClientRootError(RuntimeError):
@@ -57,8 +57,13 @@ def _find_marker_upwards(start: Path) -> Optional[Path]:
         current = start.resolve(strict=False)
     except OSError:
         return None
+    profiles = {Path(os.environ.get(name) or Path.home() / default).expanduser().resolve()
+                for name, default in (("CODEX_HOME", ".codex"), ("CLAUDE_CONFIG_DIR", ".claude"))}
     for candidate in (current, *current.parents):
-        if any((candidate / marker).exists() for marker in _CLIENT_ROOT_MARKERS):
+        if _unsafe_client_root_reason(candidate) is not None:
+            break
+        if any((candidate / marker).exists() for marker in _CLIENT_ROOT_MARKERS
+               if candidate not in profiles or marker not in ("AGENTS.md", "CLAUDE.md")):
             return candidate
     return None
 
@@ -142,6 +147,23 @@ def _unsafe_client_root_reason(root: Path) -> Optional[str]:
     return None
 
 
+def _unsafe_launch_root_reason(root: Path) -> Optional[str]:
+    """A launch directory is a project only outside installation and app runtimes."""
+    reason = _unsafe_client_root_reason(root)
+    if reason is not None:
+        return reason
+    for base in (Path(INSTALL_ROOT).resolve(), runtime_root().resolve()):
+        if _inside(root, base):
+            return f"it is inside the Agents-Core installation/runtime directory {base}"
+    parts = tuple(part.casefold() for part in root.parts)
+    if any(part.endswith(".app") and child == "contents" for part, child in zip(parts, parts[1:])):
+        return "it is inside an application runtime"
+    extension_hosts = {".vscode", ".vscode-insiders", ".vscode-server", ".cursor", ".cursor-server"}
+    if any(host in extension_hosts and child == "extensions" for host, child in zip(parts, parts[1:])):
+        return "it is inside an editor extension runtime"
+    return None
+
+
 def get_client_repo_root(*, allow_install_fallback: bool = True) -> str:
     """Resolve the client repo that owns this MCP session's per-repo memory.
 
@@ -149,16 +171,15 @@ def get_client_repo_root(*, allow_install_fallback: bool = True) -> str:
       1. `AGENTS_CLIENT_REPO_ROOT` env var — authoritative override.
       2. Walk up from the start directory to the nearest directory containing
          `.git` or `CLAUDE.md`.
-      3. Fallback: `CLAUDE_PROJECT_DIR` itself when no marker is found. A bare
-         cwd without a marker is refused (`workspace_required`).
+      3. Use the safe existing session directory itself, including empty folders.
 
     The start directory is `CLAUDE_PROJECT_DIR` when it names an existing
     directory (Claude Code exports it to the stdio servers it spawns), else
     `os.getcwd()`. Every step raises `ClientRootError` instead of returning a
     filesystem root, a system or home directory (`workspace_unsafe`).
 
-    With allow_install_fallback=False, an unavailable cwd raises OSError
-    instead of selecting the installation as the target of a workflow.
+    An unavailable cwd never selects the installation as a project. The legacy
+    allow_install_fallback argument is retained for callers' compatibility.
     Memoized for the process lifetime; failures are not cached. Tests reset
     via `_reset_client_repo_root_cache()`. A tool call that names its own
     `workspace` bypasses this process-wide root (`client_root_from_workspace`).
@@ -173,6 +194,10 @@ def get_client_repo_root_info(*, allow_install_fallback: bool = True) -> tuple[s
     a deleted cwd).
     """
     root, used_install_fallback, source = _resolve_client_repo_root()
+    if source != "env":
+        path = _existing_directory(root, "session workspace")
+        if str(path) != root:
+            raise ClientRootError("session workspace changed; reconnect the client", code="workspace_invalid")
     if used_install_fallback and not allow_install_fallback:
         raise OSError("workspace_required: cwd unavailable; set AGENTS_CLIENT_REPO_ROOT")
     return root, source
@@ -191,45 +216,25 @@ def _resolve_client_repo_root() -> tuple[str, bool, str]:
     if project_dir and os.path.isdir(project_dir):
         start, source = Path(project_dir), "CLAUDE_PROJECT_DIR"
     else:
-        # `os.getcwd()` raises FileNotFoundError when the process' cwd has been
-        # deleted (long-running daemons started from ephemeral dirs). Without
-        # this guard the first memory-tool call would crash the whole session.
-        # Fall back to INSTALL_ROOT and warn loudly so the anomaly is visible.
         try:
             start, source = Path(os.getcwd()), "cwd"
         except (FileNotFoundError, OSError) as err:
-            logger.warning(
-                "client-repo-root: cwd unavailable (%s); falling back to INSTALL_ROOT. "
-                "Set AGENTS_CLIENT_REPO_ROOT to pin the per-session memory target.",
-                err,
-            )
-            return INSTALL_ROOT, True, "install"
+            raise ClientRootError("cwd unavailable; reconnect the client in its workspace") from err
+
+    path = _existing_directory(str(start), source)
+    reason = (_unsafe_launch_root_reason(path) if source == "cwd" else _unsafe_client_root_reason(path))
+    if reason is not None:
+        raise ClientRootError(f"refusing {path} (from {source} {start}) as the client repo root: {reason}",
+                              code="workspace_unsafe")
 
     root = _find_marker_upwards(start)
     if root is None:
         try:
             root = start.resolve()
         except OSError as err:
-            logger.warning(
-                "client-repo-root: %s resolve failed (%s); falling back to INSTALL_ROOT.",
-                source,
-                err,
-            )
-            return INSTALL_ROOT, True, "install"
-        if source == "cwd":
-            # The cwd of a shared or desktop-owned process says nothing about
-            # the project; only a directory the client named is trusted.
-            reason = _unsafe_client_root_reason(root)
-            raise ClientRootError(
-                f"refusing {root} (from cwd {start}) as the client repo root for "
-                "per-repo memory and flows: "
-                f"{reason or 'it has no .git or CLAUDE.md marker'}. Start the MCP "
-                "server in a project with .git or CLAUDE.md, as Claude Code does, "
-                "or set AGENTS_CLIENT_REPO_ROOT.",
-                code="workspace_unsafe" if reason else "workspace_required",
-            )
+            raise ClientRootError(f"workspace_invalid: cannot resolve {source}", code="workspace_invalid") from err
 
-    reason = _unsafe_client_root_reason(root)
+    reason = _unsafe_launch_root_reason(root) if source == "cwd" else _unsafe_client_root_reason(root)
     if reason is not None:
         raise ClientRootError(
             f"refusing {root} (from {source} {start}) as the client repo root for "
@@ -326,21 +331,20 @@ def client_root_from_directory(directory: str, *, launch_directory: bool = True)
 
     The shared service's bridge (`bridge/stdio.mjs`) reports the
     CLAUDE_PROJECT_DIR or cwd its client gave it, the input a stdio server
-    trusts, with the same rule: a CLAUDE_PROJECT_DIR (launch_directory=False)
-    is used as named, while a bare launch directory needs a `.git` or
-    `CLAUDE.md` at or above it. Some hosts start servers outside the project:
-    the Codex VS Code extension uses its installation directory
-    (openai/codex#9989). Otherwise it resolves as in `client_root_from_workspace`.
+    trusts. Empty session directories need no marker; automatic launch inputs
+    must additionally stay outside installation and application runtimes.
     """
     path = _existing_directory(directory, "directory")
-    if launch_directory and _find_marker_upwards(path) is None:
+    reason = _unsafe_launch_root_reason(path) if launch_directory else _unsafe_client_root_reason(path)
+    if reason is not None:
         raise ClientRootError(
             f"refusing {path} (from the bridge's cwd) as the client repo root for per-repo "
-            "memory and flows: it has no .git or CLAUDE.md marker, and a launch directory "
-            "says nothing about the project",
-            code="workspace_required",
+            f"memory and flows: {reason}", code="workspace_unsafe",
         )
-    return _project_root(path, "directory")
+    root = _project_root(path, "directory")
+    if launch_directory and (reason := _unsafe_launch_root_reason(Path(root))) is not None:
+        raise ClientRootError(f"refusing {root}: {reason}", code="workspace_unsafe")
+    return root
 
 
 def _existing_directory(value: str, label: str) -> Path:
@@ -578,6 +582,11 @@ AUTO_UPDATE_MIN_INTERVAL = _int_env("AGENTS_AUTO_UPDATE_INTERVAL", 900, lo=0)
 # slower machine a short ceiling means an update that never lands; this one only
 # stops a hung build.
 AUTO_UPDATE_REINDEX_TIMEOUT = _int_env("AGENTS_AUTO_UPDATE_REINDEX_TIMEOUT", 3600, lo=1)
+# A target that changes the dependencies gets a new Python environment under .venvs/
+# (src/environments.py): `python -m venv` plus `pip install` of its requirements,
+# downloads included, while the installation keeps serving. A build past this many
+# seconds fails and is retried by the next update.
+AUTO_UPDATE_ENVIRONMENT_TIMEOUT = _int_env("AGENTS_AUTO_UPDATE_ENVIRONMENT_TIMEOUT", 1800, lo=1)
 # Two-phase staged update (the default). When on, the background daemon does NOT
 # mutate the live install: it prepares the new version + freshly-built indexes in
 # an isolated git worktree under AUTO_UPDATE_STAGING_DIR and writes a marker; the

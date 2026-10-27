@@ -32,7 +32,7 @@ Security rules:
   origin, and a token signed in on one host is never sent to another.
 * HTTPS only, except to a loopback address (the tests' fake GitHub).
 
-Standard library only: ``auto-update`` skips targets that change dependency manifests.
+Standard library only, so the module needs nothing beyond the interpreter.
 """
 from __future__ import annotations
 

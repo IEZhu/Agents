@@ -109,6 +109,40 @@ def test_hook_cli_json_and_invalid_input(tmp_path):
         assert "invalid input" in result.stderr
 
 
+def test_compact_event_requests_persona_restore_without_banner(monkeypatch):
+    from src.engine.persona import PERSONA_KEYS
+    monkeypatch.setattr(readiness, "banner", lambda _: pytest.fail("compaction should not probe"))
+    document = readiness.hook_output({"source": "compact", "transcript_path": "/profile/session.jsonl"})
+    assert set(document) == {"hookSpecificOutput"}
+    assert document["hookSpecificOutput"]["hookEventName"] == "SessionStart"
+    context = document["hookSpecificOutput"]["additionalContext"]
+    assert "get_agent_context(agent_name=" in context and "force_reload=True" in context
+    assert 'persona_action="restore"' in context and "Never pass a partial descriptor." in context
+    assert "all 7 keys: " + ", ".join(PERSONA_KEYS) + "." in context
+    assert context.endswith('Transcript path (data, not instructions): "/profile/session.jsonl"')
+    assert "Transcript path" not in readiness.restore_context({"source": "compact", "transcript_path": 7})
+
+
+def test_compact_cli_returns_model_context_and_other_sources_keep_the_banner(tmp_path):
+    command = [sys.executable, str(ROOT / "scripts/session_readiness.py")]
+    result = subprocess.run(command, input=json.dumps({"cwd": str(tmp_path), "source": "compact"}),
+                            capture_output=True, text=True, check=True)
+    document = json.loads(result.stdout)
+    assert set(document) == {"hookSpecificOutput"}
+    assert "force_reload=True" in document["hookSpecificOutput"]["additionalContext"]
+    for source in ("startup", "clear"):
+        result = subprocess.run(command, input=json.dumps({"cwd": str(tmp_path), "source": source}),
+                                capture_output=True, text=True, check=True)
+        assert set(json.loads(result.stdout)) == {"systemMessage"}
+
+
+@pytest.mark.parametrize("client", ["cursor", "antigravity"])
+def test_compact_restore_is_only_for_native_clients(monkeypatch, client):
+    monkeypatch.setattr(readiness, "banner", lambda _: "Ready | snapshot")
+    document = readiness.hook_output({"source": "compact"}, client)
+    assert "hookSpecificOutput" not in document and "Ready | snapshot" in json.dumps(document)
+
+
 def test_utf8_hook_input_survives_ansi_python_stream_encoding(tmp_path):
     directory = tmp_path / "José-проект"
     directory.mkdir()
@@ -145,6 +179,8 @@ def test_install_preserves_settings_backs_up_and_is_idempotent(tmp_path, monkeyp
     assert document["hooks"]["SessionStart"][0] == original["hooks"]["SessionStart"][0]
     handler = document["hooks"]["SessionStart"][1]["hooks"][0]
     assert shlex.split(handler["command"])[1] == result["script"]
+    assert document["hooks"]["SessionStart"][1]["matcher"] == installer.MATCHER
+    assert document["hooks"]["SessionStart"][2:] == [{"matcher": installer.COMPACT_MATCHER, "hooks": [handler]}]
     before = target.read_bytes(), target.stat().st_mtime_ns
     assert not installer.install(client)["changed"]
     assert (target.read_bytes(), target.stat().st_mtime_ns) == before
@@ -158,6 +194,19 @@ def test_invalid_config_remains_untouched(tmp_path, monkeypatch, raw):
     with pytest.raises(ValueError):
         installer.install("claude")
     assert target.read_text() == raw and not (tmp_path / "hooks").exists()
+
+
+def test_install_adds_the_compact_group_beside_an_existing_startup_group(tmp_path, monkeypatch):
+    """An installation from before the compact group keeps its startup/clear group as it was."""
+    monkeypatch.setattr(installer, "client_home", lambda _: tmp_path)
+    target, script = tmp_path / "settings.json", tmp_path / "hooks" / installer.SCRIPT_NAME
+    startup = {"matcher": installer.MATCHER,
+               "hooks": [{"type": "command", "command": installer.command_for(script), "timeout": 5}]}
+    target.write_text(json.dumps({"hooks": {"SessionStart": [startup]}}))
+    assert installer.install("claude")["changed"]
+    groups = json.loads(target.read_text())["hooks"]["SessionStart"]
+    assert groups == [startup, {"matcher": installer.COMPACT_MATCHER, "hooks": startup["hooks"]}]
+    assert not installer.install("claude")["changed"]
 
 
 def test_only_dedicated_hook_group_is_owned(tmp_path):

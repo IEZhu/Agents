@@ -39,22 +39,36 @@ to `protocol_version=2`, and clients pass it explicitly; any other value returns
 take no `protocol_version`. Slash prompts always return protocol 2 bundles. Choosing HTTP or stdio
 does not select a persona protocol.
 
+Persona and worker preparation tools return instructions and contracts; the
+current model composes the answer and the host launches native workers. The
+optional `local_*` HTTP tools provide one bounded local completion under separate
+owner configuration, capabilities and budgets. They do not replace activation
+or the prepare/spawn/validate exchange; see [local inference operations](shared-mcp-daemon.md#local-inference).
+
 ## Delegated workers
 
 The separate [subagent API](subagent-contract.md) uses
 `agents-core/subagent/1`; it does not replace conversation persona protocol 2.
-Every AI delegation, including a reviewer, verifier or parallel worker, requires `get_subagent_context` before the host's spawning tool. Supply the canonical role, task, acceptance criteria, relevant context, scope/non-goals and result type; require `status: prepared`. Retain its original `contract` and forward `worker_context` unchanged with only necessary task materials. Use a fresh worker without inherited history when supported (Codex collaboration: `fork_turns="none"`). Do not substitute a full persona or parent transcript. Preparation does not mutate the parent's descriptor or routing cache.
+Every AI delegation, including a reviewer, verifier or parallel worker, requires `get_subagent_context` before the host's spawning tool. Supply the canonical role, task, acceptance criteria, relevant context, scope/non-goals and result type; require `status: prepared`. Start the worker with the receipt's `launch` text and only necessary task materials and keep its `contract_revision`; with `delivery="inline"`, retain the original `contract` and forward `worker_context` unchanged ([compact exchange](subagent-contract.md#compact-exchange)). Use a fresh worker without inherited history when supported (Codex collaboration: `fork_turns="none"`). Do not substitute a full persona or parent transcript. Preparation does not mutate the parent's descriptor or routing cache. The parent rates the assignment with `complexity`, passes `client` (its host: `claude`, `codex` or `cursor`) and launches the worker with the `execution.spawn` arguments of the receipt or, with `delivery="inline"`, of the package; a returned `escalation` names the complexity for a new attempt ([model tiers](subagent-model-tiers.md)).
 
-The prepared package supplies the worker's task role. That worker returns the
-specified JSON envelope without a second full activation, inherited parent
-descriptor, footer, timestamp or `log_interaction` call. Worker rules require it
-to honor scope and allowed actions, report missing input, and stop at completion
-or return partial work. Native host controls enforce actual permissions and
-runtime limits; the prompt itself does not.
+The prepared package supplies the worker's task role. That worker returns its
+result in the package's format (plain text by default) without a second full
+activation, inherited parent descriptor, footer, timestamp or `log_interaction`
+call. Worker rules require it to honor scope and allowed actions, report missing
+input, and stop at completion or return partial work. Native host controls
+enforce actual permissions and runtime limits; the prompt itself does not.
 
-The parent must run `validate_subagent_result` against its original contract for every returned or revised output, without rewriting the output or contract. Require `valid: true` before accepting or integrating delegated work, then independently check evidence and acceptance criteria. Structural conformance does not verify source claims or execute reported checks. Invalid output requires correction and revalidation; a new execution attempt requires a new `attempt_id` and prepared contract.
+The parent must run `validate_subagent_result` for every returned or revised output against the contract stored at preparation (`contract_revision`, with `result_ref` naming the worker's transcript or result file, or the unchanged `result` when no file holds the output) or, for an inline package, its retained `contract`, without rewriting the output or contract. Require `valid: true` before accepting or integrating delegated work, then independently check evidence and acceptance criteria. Structural conformance does not verify source claims or execute reported checks. Invalid output requires correction and revalidation; a new execution attempt requires a new `attempt_id` and prepared contract.
 
 If preparation fails, either endpoint is unavailable, or native spawning is unavailable, report the limitation and work in the parent when practical. Do not launch an unprepared/full-persona worker or accept an unvalidated result. Authorized nested delegation follows the same exchange. The conversation fallback below does not waive these requirements.
+
+For shared exact input, pass the complete active `artifact_manifest` returned
+in the artifact tool response's `data` field. Preparation verifies stored bytes
+and pins the manifest in the task contract, then supplies exact read calls
+without inlining the bodies. Workers read required entries through `eof`; parents
+also call `artifact_manifest_verify` before acceptance. Structural validation
+performs no artifact I/O and can still pass after a manifest expires or is
+released. See [shared artifacts](shared-artifacts.md).
 
 ## Cooperation and persona continuity
 
@@ -65,12 +79,14 @@ unless disabled or omitted by an exact flow selection; worker packages receive
 the mandatory scoped `worker-cooperation` equivalent. Scope-changing agreements
 need a new prepared attempt, not edited identities or an expanded persona.
 
-The managed routing template, memory reminder, MCP initialization and bundle
-apply instruction carry the same fallback trigger: preserve intersecting work,
-coordinate through authorized records/channels, keep one integrator and continue
-independent work when coordination is unavailable. Silence is not consent, and
-discovering a chat does not authorize messaging it. An existing `keep` retains
-the rules already applied; new activations or explicit refreshes load updates.
+The managed routing template, the memory reminder, the full MCP initialization
+instructions and the full `SUCCESS` instruction carry the same fallback trigger:
+preserve intersecting work, coordinate through authorized records/channels, keep
+one integrator and continue independent work when coordination is unavailable.
+The pointers sent instead of a text the client already holds name cooperation
+among the rules that text carries. Silence is not consent, and discovering a chat
+does not authorize messaging it. An existing `keep` retains the rules already
+applied; new activations or explicit refreshes load updates.
 
 Authorized participant messages use `cooperation_send`, `cooperation_receive`
 and `cooperation_ack` on the shared MCP coordinator, including across different
@@ -97,7 +113,16 @@ A justified refresh acquires skills for the same role. Restore reloads lost
 instructions for a known role without selecting another one. Cache expiry has no
 bearing on the client's retained instructions.
 It requires a previously applied bundle, descriptor and exact footer, so it cannot
-replace initial activation.
+replace initial activation. The optional
+[session readiness hook](session-readiness.md#persona-restore-after-compaction)
+reminds Claude Code and Codex to restore right after a compaction.
+
+When the user names a flow, workflow or ritual, or asks for work by one ("flow",
+"workflow", "флоу", "по флоу X", "ритуал", a flow ID), the client calls
+`list_flows` and then `run_flow` for the matching flow before taking any of its
+steps, and applies a returned `persona_activation` as a switch. If no flow
+matches, it says so and continues without one. It does not improvise a
+procedure that an installed flow covers.
 
 See the complete [client protocol](../scripts/templates/routing-protocol-core.md).
 The installers switched to version 2 on 2026-09-26, and protocol 1 was removed on
@@ -139,19 +164,21 @@ arguments are transported as strings, for example
 version message without loading a persona.
 
 `SUCCESS` contains `protocol_version`, `request_id`, `persona`,
-`replaces_activation_id`, `footer`, an application instruction, and separate
+`replaces_activation_id`, `footer`, an application `instruction` with its
+`instruction_revision`, and separate
 `persona_block`, `rules_block`, `skills_block`, `implants_block`. The descriptor
 contains canonical `agent`, unique `activation_id`, full SHA-256 `bundle_revision`,
 metadata `scope`, and the loaded component lists: `skills_loaded` (skill file IDs),
 `implants_loaded` (each implant's `short_name`, or its file ID when none is
 declared) and `rules_loaded` (rule names). The footer shows these lists, then a
-plain Markdown segment `Agents-Core <version>`. The version is the UTC commit
-time of the installation's `HEAD` as `YY.MM.DD.HHMM` (on `main`, a release merge
-commit takes the time of the `dev` HEAD it merged, as its tag does:
-[calendar releases](releases.md#release-pipeline); `-dev` when the installation
-is on the integration branch `dev`, `-dirty` when tracked files have uncommitted
-changes, both as in `26.10.14.1146-dev-dirty`; `unknown` without git metadata), computed once per
-process by `src/version.py`. Under the shared daemon the version text is a link,
+plain Markdown segment `Agents-Core <version>`. The base number is the root
+`VERSION` value in `YY.MM.DD.HHMM`, shared with the plugin and
+[calendar release tag](releases.md#release-pipeline). The runtime adds `-dev`
+on the integration branch `dev` and `-dirty` for uncommitted tracked changes,
+as in `26.10.14.1146-dev-dirty`. Source archives can read `VERSION` without Git.
+Legacy checkouts without that file retain the UTC commit-time calculation;
+an unreadable or invalid version returns `unknown`. `src/version.py` computes
+the value once per process. Under the shared daemon the version text is a link,
 `[Agents-Core <version>](http://127.0.0.1:<port>/ui)`, to the web UI; standalone stdio
 servers show the version as plain text. A stdio server of a service installation
 serves through the service
@@ -165,6 +192,63 @@ The revision reflects the issued texts, resolved imports, the component lists an
 their order, plus the agent identity and scope used by the local suitability
 assessment.
 It is neither a conversation identifier nor an authentication token.
+
+The full `instruction` (worker mode, the first-work and owning-session rules,
+delegation, artifacts, cooperation, progress messages and the final answer) comes
+with a conversation's first activation (`current_persona` null) and with a restore
+(`force_reload=True`). A later `SUCCESS` of the same conversation, a switch or a
+refresh, carries a short pointer to it instead, with the same
+`instruction_revision` and the names of the rules it stands for; a client that
+lost the full text restores it (#433), and `run_flow` takes `force_reload=True`
+with `current_persona` for a flow's persona. A first activation's `SUCCESS` also
+lists in `warnings` each managed routing section that differs from the
+installation's template among the files the client loads and the server can
+resolve: for Claude Code the registered workspace's `CLAUDE.md` and
+`~/.claude/CLAUDE.md`; for Codex the workspace's `AGENTS.md` and
+`~/.codex/AGENTS.md`, each replaced by a nonempty `AGENTS.override.md` beside it;
+for Antigravity only its plugin rules; all of them when the client is unknown or
+bridged over stdio; none for Cursor and standalone Claude Desktop. Global files
+resolve through the server's environment (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`), so
+a session started with another profile is warned about the server's profile
+files. Other sessions' linked worktrees are not checked. Each warning names the
+command that refreshes the file, and a file that matches the committed template
+while the running server serves an older one asks for a restart instead. The
+check only reads the files; the slash prompts and a flow's `persona_activation`
+carry the same warnings. `ROUTE_REQUIRED`
+candidates carry `name`, `display_name` and `role`; the slash command
+(`trigger_command`) is for people and stays out of them.
+
+Over HTTP the server instructions answered at `initialize` keep their opening
+lines, the rules only they state (the answer language and footer, the workspace
+header and history errors, the flow tools) and the MCP-unavailable fallback, and
+point to the managed section for the rest when the request names
+`X-Agents-Client: codex`, its workspace identity has registered checkouts, and the
+`AGENTS.md` of the registered root, of each registered checkout and of the same
+directory in the main checkout and every linked worktree of their repositories
+holds the current template, with the section ending within the file's first
+32 KiB (the default `project_doc_max_bytes` the code assumes for Codex; a lower
+user setting is not detected) and no nonempty `AGENTS.override.md` beside any of
+them. A repository whose worktrees cannot be listed, or that has more than 50
+linked worktrees, keeps the full text.
+Every other case, stdio and Claude Code included, gets the full text: Claude Code
+shows only the first 4,096 characters of the instructions (2,048 before v2.1.296),
+which both texts spend alike. Only the workspace file decides, since a global file
+may belong to a different profile than the client's.
+
+`route_and_load`, `get_agent_context` and `refresh_persona_context` declare
+`anthropic/maxResultSizeChars` at Claude Code's ceiling of 500,000 characters, as
+`run_flow` and `get_flow` do ([flows](../flows/README.md)). A bundle at tier `deep`
+can pass Claude Code's default of 50,000 shown characters (`src/result_size.py`);
+without the declaration Claude Code saves such a result to a file and shows the
+model its first 2 KB and the file's path, so the model has to read the four
+blocks back in parts before it can apply them. No limit in code keeps a bundle
+below the ceiling (a URL user rule alone may hold 64 KiB, and up to 32 can be
+subscribed), so the value is the ceiling: a bundle over it still goes to a file,
+and Claude Code can apply limits of its own. The declaration also replaces
+`MAX_MCP_OUTPUT_TOKENS` for these tools, and a connected client reads it only when
+it lists the tools again: reconnect the server (`/mcp`) after an update. It covers
+tool results only; the agent slash prompts and `/ask` return their bundles as
+prompts.
 
 The client applies a response only if `replaces_activation_id` matches its active
 activation (null for first load). Replayed activations are no-ops; stale responses
@@ -185,11 +269,30 @@ Keep the complete descriptor and exact footer in retained conversation context,
 including summaries used during compaction. Losing a temporary tool variable
 does not remove an activation that remains in the conversation. Before sending
 the final answer, compose it with the saved footer and call `log_interaction`
-with that exact text (without a time line), the current user request verbatim, the
-descriptor, and the action (`keep`, `switch`, `refresh`, or `restore`). Then
+with that exact text (without a time line), the current user request verbatim
+apart from the redactions below, the descriptor, and the action (`keep`, `switch`,
+`refresh`, or `restore`). Before the call, replace secrets and capability values
+in every logged field with safe references and omit prohibited personal details.
+Then
 deliver the answer with the returned `timestamp` as its first line, followed by
 an empty line, when the footer lists the `answer-timestamp` rule; with the rule
 switched off or without a `timestamp`, add no line.
+
+Text shown to the user before the final answer of a turn is a progress message
+(#432; the "Progress messages" section of the protocol, with its compact form in
+the server instructions, the `SUCCESS` instruction and the memory reminder). It
+carries no footer or time line and is not logged, so the history keeps one entry
+per turn, and it stays within one to three lines: what is done, what runs now, and
+what the user will be asked next, if anything. It reports only changes since the
+previous message and pastes no tool output, worker package or file contents. The
+message that ends the turn is the final answer, with the footer and the log that
+"Finish each answer" requires, however short: a status sent while a background
+worker, a timer or another session is still running (#454), which also reports
+only the changes since the previous status, and a question that ends the turn to
+wait for the reply. A question asked through a host tool whose answer returns
+within the turn does not end it. The compact form follows the 2,048 and 4,096
+characters that Claude Code shows of the server instructions, so Claude Code
+reads the definition from the managed section and the `SUCCESS` instruction.
 
 ## Enrichment and storage
 
@@ -216,7 +319,7 @@ suppression and `IMPLANT_NEED_GATE` apply only to the per-query enrichment path
 (`server._load_and_enrich`) that the evaluation harnesses use, because a bundle
 persists across later requests until a switch, restore, or refresh.
 
-The semantic router uses `NumpyVectorStore`, local FastEmbed embeddings and a
+The semantic router uses `NumpyVectorStore`, local ONNX Runtime embeddings and a
 bounded persistent routing cache. Every `SUCCESS` other than a restore, a refresh
 or a flow's `persona_activation` stores the query and the loaded agent: routed loads, `get_agent_context` calls
 (including selections after `ROUTE_REQUIRED`), agent slash prompts and the meta
@@ -247,18 +350,29 @@ data. The bounded enriched-prompt cache is process-local. Over stdio,
 `.venv/bin/python -m src.daemon clear-cache`. Neither clears the routing cache.
 Cache clearing is an administrative action and is not required for persona changes.
 
-HTTP repository memory requires `X-Agents-Workspace` with a registered workspace
-UUID. Global connections can route and load personas without that header, but
-`describe_repo`, `write_repo_summary`, `read_history`, and `log_interaction` need
-a valid workspace. Over stdio, the workspace is the client root from
-`AGENTS_CLIENT_REPO_ROOT`, else the call's `workspace` argument when it lies inside
-the client's MCP roots (checked per call, `workspace.source` = `workspace`; one stdio
-process, such as the one the Claude desktop app starts, can serve several sessions),
-else one inferred from `CLAUDE_PROJECT_DIR` or the working
-directory. A launch directory without `.git` or `CLAUDE.md` is refused with
-`workspace_required`; a filesystem root, the home directory or a system or program
-directory (also as `AGENTS_CLIENT_REPO_ROOT`) with `workspace_unsafe` (resolution
-order: [Repository Memory](../README.md#-repository-memory)). The results of
+HTTP repository memory uses `X-Agents-Workspace` with a registered workspace
+UUID. Global connections can route and load personas without that header; memory
+without a resolved project uses the fallback behavior below. A tool's `workspace`
+argument cannot replace a registered HTTP identity. Managed user-scope stdio
+bridges register the session's safe existing directory automatically, including an
+empty folder, and attach the header. They use Node when available and the
+standard-library Python bridge otherwise.
+
+Over stdio, non-empty `AGENTS_CLIENT_REPO_ROOT` decides alone. Otherwise a client
+with MCP roots is checked per request: a sole distinct local root is selected
+when `workspace` is omitted; several roots require an explicit `workspace` inside
+a current declared root. With no usable root, an unverified model path cannot
+enable memory. This selection reports `workspace.source` as
+`workspace` and is never pinned as the process's first or last project. When the client does not declare
+roots, use an existing `CLAUDE_PROJECT_DIR` or the launch directory; an unverified
+model path cannot rebind that process. Directory resolution finds the nearest
+`.git`, `CLAUDE.md` or `AGENTS.md`, or uses the safe existing directory itself.
+Ordinary empty session folders need no per-project migration. Filesystem roots,
+home and system/program directories are refused with `workspace_unsafe`;
+automatic launch inference also rejects installation, runtime, application and
+editor-extension directories. An unavailable cwd reports `workspace_required`
+without selecting the installation (full resolution order:
+[Repository Memory](../README.md#-repository-memory)). The results of
 `log_interaction` and `read_history` report `workspace` and `pid`, and
 `history_last_error` after a failed history write. A `read_history` listing shows
 long texts as previews and stays under Claude Code's 50,000-character limit; a
@@ -295,11 +409,11 @@ Loading a flow does not route or complete the task. See the
 Over stdio the server answers `initialize` and `tools/list` right after cheap
 setup (configuration, tool registration, the router's agent scan). Loading the
 skill and implant stores, the embedding model and the rules cache happens in one
-background daemon thread started right before `mcp.run()`
-(`src/engine/readiness.py`). The Langfuse library is imported on first traced
-call, never before the handshake. Startup logs carry a timestamp and PID, and one
-line reports the PID, working directory, code revision and per-phase durations
-when readiness completes.
+background daemon thread (`src/engine/readiness.py`) that `src/stdio_runtime.py`
+starts before the Personal startup hook and `mcp.run()`. The Langfuse library is
+imported on first traced call, never before the handshake. Startup logs carry a
+timestamp and PID, and one line reports the PID, working directory, code
+revision and per-phase durations when readiness completes.
 
 Tools that need retrieval wait for readiness for at most `WARMUP_WAIT_SECONDS`
 (default 20): `route_and_load`, `get_agent_context`, `refresh_persona_context`,
@@ -366,8 +480,13 @@ and refuse its registration update. Unix setup stops
 with a nonzero exit status when a client registration fails; it does not print
 the successful initialization summary. Repair the file or restore a backup
 before rerunning setup. A missing file can still be created.
-Standalone Antigravity setup registers the MCP connection; its native plugin,
-startup rules and workspace hook are provisioned by shared-daemon migration.
+Standalone Antigravity setup also installs the native plugin, startup rules and
+workspace hook in the active native profile. A stable owner-private signing key
+lives at `data/native-workspace/antigravity.json` in the installation; only its
+absolute path is added as `AGENTS_WORKSPACE_AUTH_CONFIG` to the MCP entry.
+Custom transports, external profiles and existing shared-service connections are
+preserved. The hook, registry, rules, key and registration use one backed-up,
+journaled update. Repeat setup reuses the signing key.
 For Antigravity, user-scope migration provisions a stdio bridge
 (`bridges/antigravity-auto.json`) and an Antigravity plugin
 (`~/.gemini/config/plugins/agents-core`) with a `PreToolUse` lifecycle hook.
@@ -387,12 +506,23 @@ server tests verify delivered instructions, not guaranteed compliance by every m
 Because Antigravity launches stdio MCP servers from `/` without project
 environment variables or MCP roots, the lifecycle hook authenticates the active
 workspace path (`workspacePaths[0]`) using an HMAC-SHA256 signature keyed by the
-daemon bearer token (`workspace_signature`). The hook returns `decision: "ask"`
+daemon bearer token, or the standalone installation key (`workspace_signature`).
+Standalone consumes this metadata before strict tool argument validation and
+binds the verified directory to that one request, resetting it on completion or
+error. It never pins a shared process to a previous standalone request. If a
+former standalone entry later forwards through the shared service, the bridge
+also verifies its installation-bound native key while keeping the daemon's
+separate HTTP credentials. The hook returns `decision: "ask"`
 to preserve Antigravity's approval policy, including the user's **Always Allow**
 choice. Unless a non-empty `AGENTS_CLIENT_REPO_ROOT` overrides the auto session,
-`bridge/stdio.mjs` verifies the signature and registers the workspace
-with `origin: "hook"`: a safe existing folder needs no `.git` or `CLAUDE.md`
-marker, but the filesystem root and the user's home directory are refused.
+the stdio bridge verifies the signature and registers the workspace
+with `origin: "hook"`: a safe existing folder needs no `.git`, `CLAUDE.md` or
+`AGENTS.md` marker; unsafe system, program, filesystem-root and home directories
+are refused. The signature authenticates the local hook's client-supplied path;
+an unsigned model claim grants no workspace authority. The supplied bridge and
+lifecycle hook use Node when available and standard-library Python otherwise.
+A rootless client launched from `/` needs that trusted hook or an explicit project
+binding; Python fallback does not infer a project from `/`.
 After successful verification and registration, the auto bridge binds the
 session to that workspace and attaches `X-Agents-Workspace` to tool requests.
 Later authenticated workspace switches update the binding, so calls without a
@@ -410,11 +540,24 @@ a detected Claude client.
 `scripts/install_instructions.py` also refreshes an existing Antigravity plugin's `~/.gemini/config/plugins/agents-core/rules/AGENTS.md`; select it with `--clients antigravity`. It skips an absent rules file and does not provision or enable the plugin or change connection settings and hooks. Cursor and standalone Claude Desktop receive the shared contract in MCP initialization rather than a global file managed by this command; reconnect them after a server instruction update. Fresh sessions are needed for changed client startup rules.
 
 The checked-in `CLAUDE.md` uses the same managed section. Global installation does
-not modify this tracked file. After editing the template, run
-`.venv/bin/python scripts/_helpers/inject_claude_md.py CLAUDE.md scripts/templates/routing-protocol-core.md`
-(or use `.venv\Scripts\python.exe` on Windows). Only the managed section is replaced; repository notes outside it remain intact.
-When the section changes, the helper leaves an untracked
-`CLAUDE.md.backup.<timestamp>` in the checkout; leave it out of the commit.
+not modify this tracked file. The protocol text has one source, the section files
+in `src/engine/protocol/`: each holds one protocol section with its variants side
+by side (`full` for the instruction files, `compact` for the text that the MCP
+instructions, the `SUCCESS` instruction and the memory reminder share, and a
+surface's own wording where it needs one); the `pointer` section holds the short
+texts sent instead of one the client already holds. `src/engine/protocol_text.py` composes
+every surface, in an order that keeps the per-turn rules inside the first 2,048
+characters of the MCP instructions, all that Claude Code showed before v2.1.296,
+and the first-work rule and the delegation exchange through validation inside the
+4,096 characters it shows now.
+After editing a section, run
+`.venv/bin/python -m src.engine.protocol_text --write` (or use
+`.venv\Scripts\python.exe` on Windows): it regenerates the template, the memory
+reminder and this checkout's managed section, replacing only the text between the
+markers; `--check` lists stale files. `tests/test_protocol_text.py` fails on a
+stale file and on a sentence the source states in two places, and
+`tests/test_log_interaction_contract.py` on a server instruction that leaves its
+window.
 
 Both installers replace only the marked routing section and back up changed
 files. The shared instruction writer retains the three newest backups per file
@@ -454,7 +597,7 @@ first.
 Run deterministic contract and migration tests from the checkout root:
 
 ```bash
-LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/test_persona_protocol.py tests/test_persona_bundle.py tests/test_install_instructions.py tests/test_installer_instructions.py tests/test_codex_instructions.py tests/test_protocol_migration.py tests/test_log_interaction_contract.py tests/test_log_interaction_async.py tests/test_readiness.py tests/test_version.py -q
+LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/test_persona_protocol.py tests/test_persona_bundle.py tests/test_install_instructions.py tests/test_installer_instructions.py tests/test_codex_instructions.py tests/test_protocol_migration.py tests/test_protocol_text.py tests/test_instruction_pointers.py tests/test_flow_result_size.py tests/test_cooperation_instructions.py tests/test_log_interaction_contract.py tests/test_log_interaction_async.py tests/test_readiness.py tests/test_version.py -q
 ```
 
 See [tests/README.md](../tests/README.md) for the full suite, model prerequisites,

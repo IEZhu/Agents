@@ -1,13 +1,13 @@
 # Session readiness banner
 
-The optional installer covers all five Agents-Core client families. Their native
+Normal setup offers readiness independently from emoji thread status, for detected clients. The readiness installer covers all five Agents-Core client families. Their native
 lifecycle and display contracts differ, so it installs a matching adapter rather
 than treating every client as Claude Code.
 
 | Client | Configuration | Trigger and delivery |
 |---|---|---|
-| Claude Code; local Claude Desktop Code tab | Claude profile `settings.json` | `SessionStart` matching startup/clear; native `systemMessage` |
-| Codex CLI, desktop and local IDE sessions using that profile | Codex profile `hooks.json` | `SessionStart` matching startup/clear; native `systemMessage`; verified CLI 0.162.1 runs it at the first user turn |
+| Claude Code; local Claude Desktop Code tab | Claude profile `settings.json` | `SessionStart` matching startup/clear; native `systemMessage`. A second group matching compact returns `additionalContext` that asks the model to [restore its persona](#persona-restore-after-compaction) |
+| Codex CLI, desktop and local IDE sessions using that profile | Codex profile `hooks.json` | `SessionStart` matching startup/clear; native `systemMessage`; verified CLI 0.162.1 runs it at the first user turn. The same compact group as Claude Code |
 | Cursor local IDE/CLI | `~/.cursor/hooks.json` | `sessionStart`; `additional_context` requests the banner in the first response |
 | Google Antigravity app/CLI/IDE | `~/.gemini/config/hooks.json` | Named `SessionStart` handler list; `injectSteps` requests the banner in the first response |
 | Ordinary Claude Desktop Chat | Platform-specific `claude_desktop_config.json` | Separate read-only `Agents-Readiness` MCP server requests tool use and display in the first response; no native clear hook |
@@ -49,7 +49,9 @@ or any subset to choose adapters. The installer honors `CLAUDE_CONFIG_DIR`,
 `CODEX_HOME`, and the existing Claude Desktop path/override resolution in
 `src/client_paths.py`. It copies the standalone standard-library runtime into
 each native profile's `hooks/agents-core-session-readiness.py`. The Claude and
-Codex groups match `^(startup|clear)$`; Cursor uses a direct `sessionStart` list;
+Codex profiles get two groups running the same command: one matches
+`^(startup|clear)$`, the other `^compact$`. Reinstalling adds the compact group
+beside an existing startup/clear group and leaves that group as it is. Cursor uses a direct `sessionStart` list;
 Antigravity uses a direct `SessionStart` list under `agents-core-readiness`.
 The recorded interpreter path must remain installed.
 On Windows, native commands use an explicit PowerShell encoded command with
@@ -73,7 +75,7 @@ hooks, permissions, models and Claude's custom status line remain in place. Chan
 configuration files receive an exclusively created adjacent `.backup.<unique-suffix>`
 copy through the shared backup helper; existing snapshots are never overwritten.
 A failed backup stops before runtime or configuration changes.
-The main Agents-Core installers do not enable this optional hook automatically.
+The main Agents-Core installers offer this option, and `--yes` (including the one-command install) accepts it. Use `--skip-readiness` to skip only readiness, or `--skip-hooks` / `--skip-mcp` to skip both lifecycle options. The standalone command above still supports an explicit client selection.
 
 Start a fresh client session after installation. In Codex, open `/hooks` and review
 and trust the new hook before it can run; the installer does not manufacture a
@@ -106,9 +108,41 @@ not visually verified. In Claude Code 2.1.296, the startup banner was observed i
 the interactive terminal; immediate clear-event rendering was not established
 by clearing an empty conversation.
 Plain hook stdout in Claude/Codex would become model context instead of a visible
-banner; those adapters return no `additionalContext`. Claude may discard a
+banner; their startup/clear output therefore carries no `additionalContext`. Only
+the compact group adds model context, described below. Claude may discard a
 SessionStart hook's result if another clear or conversation switch happens before
 it finishes. Client rendering and placement vary.
+
+## Persona restore after compaction
+
+A compaction summary can drop the active Agents-Core persona's instructions or
+some fields of its descriptor. The protocol already says to restore the role with
+`get_agent_context(force_reload=True)`, but nothing reminded the model at that
+moment: in one observed session no reload followed a compaction, the summary had
+lost the descriptor's `scope`, and the next `log_interaction` was stored as
+`unverified`.
+
+On `SessionStart` with source `compact`, the runtime returns no banner and probes
+nothing. It returns `hookSpecificOutput.additionalContext`, which Claude Code and
+Codex add to the model's context before the next model request. The text asks the
+model, if a persona was active, to call `get_agent_context` with the agent name,
+`force_reload=True` and its last complete 7-key descriptor, to use the returned
+descriptor and footer from then on, and to log that turn with
+`persona_action="restore"`. When the summary lost descriptor fields, the model
+recovers them from the last successful activation result in the transcript by its
+`activation_id`, or omits `current_persona`: the server rejects a partial
+descriptor. The event's `transcript_path` is quoted as data; the runtime itself
+reads no transcript content. A session without a persona ignores the text.
+
+| Client | Compact handler |
+|---|---|
+| Claude Code; Desktop Code tab | Yes: `SessionStart` source `compact`, `hookSpecificOutput.additionalContext` |
+| Codex | Yes: Codex documents the same source and field; not yet verified on an installed client |
+| Cursor | No: `sessionStart` has no source, and `preCompact` can only show a user message |
+| Antigravity | No: its hooks document no compaction event |
+| Claude Desktop Chat | No: the MCP fallback has no lifecycle hook |
+
+Existing installations get the compact group when the installer runs again.
 
 Cursor uses `workspace_roots` and Antigravity uses `workspacePaths`/`modelName`.
 When a workspace is missing, these adapters show `(workspace not bound)` instead
@@ -173,4 +207,7 @@ profile paths with spaces, backups and repeat installation. They do not establis
 interactive rendering in a client. Additional checks cover all five configuration
 shapes, preserving unrelated MCP servers, Cursor/Antigravity payloads and output,
 background-session suppression, unbound workspaces, and a real stdio MCP handshake,
-tool listing and tool calls. No test calls a model.
+tool listing and tool calls. Compact checks cover the restore context and its key
+list against the server's descriptor, the unchanged startup/clear output, adding
+the compact group to an existing installation, and the uninstaller removing it.
+No test calls a model.

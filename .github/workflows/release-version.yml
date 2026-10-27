@@ -17,14 +17,35 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
+          fetch-depth: 0
+      - name: Require one new calendar version for a promotion
+        if: >-
+          github.event.pull_request.head.ref == 'dev' &&
+          github.event.pull_request.base.ref == 'main' &&
+          github.event.pull_request.head.repo.full_name == github.repository &&
+          github.event.pull_request.base.repo.full_name == github.repository
+        env:
+          PLUGIN_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: python3 scripts/bump_plugin_version.py --check --base "$PLUGIN_BASE_SHA"
       - name: Install focused test dependencies
         run: python3 -m pip install pytest python-dotenv pyyaml
       - name: Check release behavior and workflow permissions
         env:
           PYTHONDONTWRITEBYTECODE: "1"
           LANGFUSE_TRACING_ENABLED: "false"
-        run: python3 -m pytest tests/test_release_version.py tests/test_workflow_permissions.py -q
+        run: python3 -m pytest tests/test_release_version.py tests/test_bump_plugin_version.py tests/test_workflow_permissions.py tests/test_vulnerability_gate.py -q
+  vulnerability-scan:
+    if: >-
+      github.event.pull_request.merged == true &&
+      github.event.pull_request.head.ref == 'dev' &&
+      github.event.pull_request.base.ref == 'main' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.base.repo.full_name == github.repository
+    uses: ./.github/workflows/vulnerability-scan.yml
+    with:
+      ref: ${{ github.event.pull_request.merge_commit_sha }}
   publish:
+    needs: vulnerability-scan
     if: >-
       github.event.pull_request.merged == true &&
       github.event.pull_request.head.ref == 'dev' &&

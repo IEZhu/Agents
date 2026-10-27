@@ -275,7 +275,7 @@ used by the [ablation runbook](../evals/ablation/README.md) answered
    the files Agents-Core can leave in a client repository's root: `history.md`
    with its lock, rotation and monthly `history/YYYY-MM.md` archives, and the
    hash (`data/memory/.describe_hash`), locks and temporary files of
-   `describe_repo`. Patterns are anchored at the root, and each run replaces the
+   `write_repo_summary`. Patterns are anchored at the root, and each run replaces the
    block; unbalanced block markers fail the setup instead. When the excludes path
    is not a regular file (for example `/dev/null`, which disables global
    excludes), the step only prints a warning.
@@ -340,8 +340,12 @@ empty in each session, and `route_and_load` returns `ROUTE_REQUIRED` with the
 agent catalog until the session has selected an agent for a similar request. Do not
 commit `history.md`: once tracked, it changes on every turn and the cloud session's
 check for uncommitted changes reports it.
-`describe_repo` creates or edits the repository's `CLAUDE.md`, which then needs a
-commit like any other change.
+`describe_repo` only reads repository context and returns an instruction when a
+summary is needed; it does not create or edit `CLAUDE.md`. Follow that instruction
+before explicitly persisting a summary with `write_repo_summary`. A resulting
+`CLAUDE.md` change needs review and a commit like any other repository change.
+The running Agents-Core installation and runtime source root refuse summary
+writes; describe the client repository or a separately authorized worktree.
 
 ## Issue agent
 

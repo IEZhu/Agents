@@ -33,14 +33,23 @@ The items follow the bullets of #349. Later items read earlier runs, so run them
 
 ## Conventions
 
-Run everything from the installation in one zsh session, so the variables and the `snap`
-function below stay defined:
+Use one zsh session, so the variables and functions below stay defined. Commands run the
+installation's interpreter from its checkout; snapshots and redirected output go into a private
+evidence directory outside it. Keep the live installation clean and on its update channel.
+Before any real run, resolve the current [autodev/main branch boundary](autodev-runner.md#update-channels-and-autodev)
+with the repository's `dev` contribution policy. A successful dry-run or `ready` does not check
+that policy.
 
 ```bash
-cd ~/Documents/Agents
-STATE="$(.venv/bin/python -m src.schedules autodev status | jq -r '.config_file | rtrimstr("/schedules/autodev.json")')"
+INSTALLATION="$HOME/Documents/Agents"
+agents_python() { (cd "$INSTALLATION" && .venv/bin/python "$@"); }
+STATE="$(agents_python -m src.schedules autodev status | jq -r '.config_file | rtrimstr("/schedules/autodev.json")')"
 RUNS="$STATE/schedules/runs"
 SESSIONS=~/.local/share/agents-autodev/sessions  # beside the trusted clone; adjust if `clone` differs
+mkdir -p "$HOME/.local/share/agents-autodev/acceptance"
+EVIDENCE_DIR="$(mktemp -d "$HOME/.local/share/agents-autodev/acceptance/run-XXXXXXXX")"
+chmod 700 "$EVIDENCE_DIR"
+cd "$EVIDENCE_DIR"
 ```
 
 - `run-now` prints the run record when the run ends. The same record stays in
@@ -48,7 +57,7 @@ SESSIONS=~/.local/share/agents-autodev/sessions  # beside the trusted clone; adj
   [autodev-sequence.md, Records](autodev-sequence.md#records). The broker's log is
   `$RUNS/<run-id>/broker.jsonl`, one JSON object per line with `op`, `phase` (`intent`, `done`,
   `failed`, `refused`) and `stage` ([broker log](autodev-broker.md#broker-log)).
-- During a run, `.venv/bin/python -m src.schedules autodev status` shows `lease_held` and, in
+- During a run, `agents_python -m src.schedules autodev status` shows `lease_held` and, in
   `recent_runs[0]`, the running run's `run_id`; `$RUNS/<run-id>/state.json` shows its `stage`
   and `branch`.
 - GitHub snapshots use GET requests only. `snap NAME` saves the issues and pull requests with
@@ -83,7 +92,7 @@ SESSIONS=~/.local/share/agents-autodev/sessions  # beside the trusted clone; adj
 
 ```bash
 SINCE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"; snap before
-.venv/bin/python -m src.schedules autodev run-now > dry-1.json; echo "exit $?"
+agents_python -m src.schedules autodev run-now > dry-1.json; echo "exit $?"
 snap after; diff -r snap-before snap-after && echo "GitHub unchanged"
 RUN="$(jq -r .run_id dry-1.json)"
 jq '{run_id, status, reason, note, gate: .gate.decision, gate_reason: .gate.reason,
@@ -123,7 +132,7 @@ and repeat.
 accepted. Only then turn the schedule on:
 
 ```bash
-.venv/bin/python -m src.schedules autodev enable --mode dry-run
+agents_python -m src.schedules autodev enable --mode dry-run
 ```
 
 It answers `enabled: true`, `mode: dry-run`, `scheduler_installed` and `next_slot`. This is the
@@ -140,14 +149,14 @@ Before:
   or check with a dry-run that it is the top choice), and no autodev pull request is open.
 - To exercise Codex in A4 rather than the expected fallback, store the Codex key and set
   `codex.login` ([the guide](autodev.md#codex-optional), step 4), then run
-  `.venv/bin/python -m src.schedules codex-probe --kind worker --confirm-live-probe`. On this Mac
+  `agents_python -m src.schedules codex-probe --kind worker --confirm-live-probe`. On this Mac
   it is expected to answer `client_applied: claude` with
   `fallback_reason: nested_sandbox_unavailable`. Without the key, every review of the run falls
   back with `login_missing`.
 
 ```bash
 SINCE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"; snap before
-.venv/bin/python -m src.schedules autodev run-now --mode run > run-1.json; echo "exit $?"
+agents_python -m src.schedules autodev run-now --mode run > run-1.json; echo "exit $?"
 snap after
 RUN="$(jq -r .run_id run-1.json)"
 jq '{run_id, status, reason, gate: (.gate | {decision, reason, actions}), cleanup, issue, branch, pr, pr_url,
@@ -243,13 +252,13 @@ amendment in [plan 13](autodev-plan.md#13-questions-for-the-owner) if the observ
 plants both from outside the sandbox, as a session would have to, while a real run's implement
 session works.
 
-1. Start a real run on a throwaway issue: `.venv/bin/python -m src.schedules autodev run-now --mode run > plant-1.json`.
+1. Start a real run on a throwaway issue: `agents_python -m src.schedules autodev run-now --mode run > plant-1.json`.
 2. In a second terminal (with the [conventions](#conventions) set up), find the run and its
    one-off repository. Wait until `state.json` says `implement` and the repository is on the
    run's branch with a commit of the session:
 
    ```bash
-   RUN="$(.venv/bin/python -m src.schedules autodev status | jq -r '.recent_runs[0].run_id')"
+   RUN="$(agents_python -m src.schedules autodev status | jq -r '.recent_runs[0].run_id')"
    REPO="$SESSIONS/$RUN/implement/repo"
    jq -r '.stage, .branch' "$RUNS/$RUN/state.json"
    git -C "$REPO" -c core.hooksPath=/dev/null -c core.fsmonitor=false log --oneline -1 --decorate
@@ -347,7 +356,7 @@ planted git hook affect neither the runner nor the next session.
    cat ~/autodev-plant-git 2>/dev/null || echo "no git marker"
    jq '{run_id, status, reason, tripwire, schedule, implement: .stages.implement | {status, reason, integrity},
         later: (.stages // {} | keys)}' plant-2.json
-   .venv/bin/python -m src.schedules autodev status | jq '.config.enabled'
+   agents_python -m src.schedules autodev status | jq '.config.enabled'
    jq . "$STATE/schedules/tripwire.json"
    ```
 
@@ -375,7 +384,7 @@ Twelve probe sessions, each a model turn:
 ```bash
 for mode in dry-run run-now scheduled resume; do
   for kind in implement submit select; do
-    .venv/bin/python -m src.schedules probe --mode "$mode" --kind "$kind" --confirm-live-probe > "probe-$mode-$kind.json"
+    agents_python -m src.schedules probe --mode "$mode" --kind "$kind" --confirm-live-probe > "probe-$mode-$kind.json"
     echo "$mode $kind exit $?"
   done
 done
@@ -407,7 +416,7 @@ another issue or pull request, a read outside `/repos/IEZhu/Agents` and the owne
   deploy key ([plan, phase 0](autodev-plan.md#phase-0-decisions-and-protection)). Repeat that
   test only if the token or the ruleset changed.
 - The broker's own refusals of forbidden requests are covered by
-  `LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/test_schedules_broker.py -q`.
+  `LANGFUSE_TRACING_ENABLED=false agents_python -m pytest tests/test_schedules_broker.py -q`.
 
 **Gap:** no command makes the live broker answer a forbidden request. The runner socket answers
 only processes of the current stage session, so you cannot send one from a shell, and a dry-run
@@ -420,15 +429,15 @@ above is enough or file one.
 (`review_status: waiting_bots`, with `next_attempt`).
 
 ```bash
-.venv/bin/python -m src.schedules autodev status | jq '.tick.next_attempt'
-.venv/bin/python -m src.schedules autodev run-now > gate-1.json; jq '{run_id, status, note, gate}' gate-1.json
+agents_python -m src.schedules autodev status | jq '.tick.next_attempt'
+agents_python -m src.schedules autodev run-now > gate-1.json; jq '{run_id, status, note, gate}' gate-1.json
 ```
 
 Repeat the dry-run after `next_attempt` has passed, or after CodeRabbit or Copilot posted a new
 finding on the pull request (`gate-2.json`). Then continue it:
 
 ```bash
-.venv/bin/python -m src.schedules autodev run-now --mode resume --pr <pr> > resume-1.json
+agents_python -m src.schedules autodev run-now --mode resume --pr <pr> > resume-1.json
 jq '{run_id, status, review_status, head, next_attempt, comments, stages: (.stages // {} | keys)}' resume-1.json
 jq -c '.comments[]? | select(.kind == "state")' run-1.json resume-1.json
 ```
@@ -457,7 +466,7 @@ gate says `wait` again ([gate](autodev-runner.md#gate)).
 then set it to `1`. Then, on a throwaway issue:
 
 ```bash
-.venv/bin/python -m src.schedules autodev run-now --mode run > timeout-1.json
+agents_python -m src.schedules autodev run-now --mode run > timeout-1.json
 RUN="$(jq -r .run_id timeout-1.json)"
 ps -axwwE -o pid,ppid,command | grep '[A]GENTS_SUPERVISED_RUN=' || echo "no process carries the run marker"
 ps -axww -o pid,ppid,command | grep -F "$SESSIONS/$RUN" | grep -v grep || echo "nothing runs in the run's directories"
@@ -487,7 +496,7 @@ timeout it means.
 one-minute run above. The `jq -e` test starts the update only while the run lease is held:
 
 ```bash
-.venv/bin/python -m src.schedules autodev status | jq -e .lease_held >/dev/null && .venv/bin/python -m src.daemon update; echo "exit $?"
+agents_python -m src.schedules autodev status | jq -e .lease_held >/dev/null && agents_python -m src.daemon update; echo "exit $?"
 ```
 
 The test and the update are still two commands: if the run ended between them, the command would
@@ -506,11 +515,11 @@ after the items above pass. These are owner live steps too; the code they use wa
 ([automatic mode](autodev-runner.md#automatic-mode)).
 
 **B1. `ready` passes on this Mac.** Run the twelve probes of [A7](#a7-probes-hold-in-every-mode-and-the-broker-refuses)
-(each pair counts once, at any age), then `.venv/bin/python -m src.schedules autodev ready`. With `select` configured for Codex, its Claude probes are needed only while the stored
+(each pair counts once, at any age), then `agents_python -m src.schedules autodev ready`. With `select` configured for Codex, its Claude probes are needed only while the stored
 Codex check says unavailable (as `nested_sandbox_unavailable` on this Mac); `probe --kind select`
 then probes the Claude select session a run falls back to. It exits with 1 and lists what is
 missing; fix each item until only the acceptance remains, then run
-`.venv/bin/python -m src.schedules autodev enable --mode run --accept-shared-account`, read the
+`agents_python -m src.schedules autodev enable --mode run --accept-shared-account`, read the
 risks it lists, and run `ready` again. **Pass:** exit code 0, `missing: []`, every
 `probes.<kind>.<mode>.status` is `passed`, and `acceptance.current` is true. Keep the output. Do
 not run `autodev disable` or `enable --mode dry-run` afterwards: either withdraws the acceptance.
@@ -524,8 +533,10 @@ change. A refused tick or a tripwire restarts the count.
 
 ## Results
 
-Fill this in as the runs happen; keep each run ID with its evidence. The evidence column holds
-neutral facts only (*Public records* at the top).
+Fill this in as the runs happen; keep each run ID with its evidence. Update this tracked table
+in a separate contribution worktree, rather than editing the live installation. The evidence
+column holds neutral facts only (*Public records* at the top). A source audit or a passing unit
+test does not change a live item from `not run` to passed.
 
 | Item | Run IDs | Evidence | Result |
 |---|---|---|---|

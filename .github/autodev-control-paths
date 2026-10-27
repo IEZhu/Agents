@@ -28,6 +28,7 @@ src/rule_sources.py
 src/utils/__init__.py
 src/utils/langfuse_compat.py
 src/utils/prompt_loader.py
+src/calendar_version.py
 src/version.py
 agents/**
 rules/**
