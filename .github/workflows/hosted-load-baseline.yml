@@ -1,0 +1,50 @@
+name: Hosted load preparation
+
+on:
+  pull_request:
+    paths:
+      - scripts/dev/hosted_load_baseline.py
+      - tests/test_hosted_load_baseline.py
+      - docs/hosted-load-baseline.md
+      - .github/workflows/hosted-load-baseline.yml
+  push:
+    branches: [main, dev, team]
+    paths:
+      - scripts/dev/hosted_load_baseline.py
+      - tests/test_hosted_load_baseline.py
+      - docs/hosted-load-baseline.md
+      - .github/workflows/hosted-load-baseline.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hosted-load-baseline-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  offline:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            python: '3.11'
+          - os: ubuntu-latest
+            python: '3.13'
+          - os: macos-latest
+            python: '3.11'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 5
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Offline scheduler and report contracts
+        run: python -B -m unittest tests.test_hosted_load_baseline -v
