@@ -379,6 +379,40 @@ class BaselineTests(unittest.TestCase):
                 self.assertIn("output must not replace the manifest", result.stderr)
                 self.assertEqual(source.read_bytes(), original)
 
+    def test_cli_symlink_loops_do_not_leak_paths_or_damage_inputs(self):
+        for mode in ("validate", "simulate"):
+            for loop_position in ("manifest", "output"):
+                with self.subTest(mode=mode, loop_position=loop_position):
+                    with tempfile.TemporaryDirectory() as directory:
+                        root = Path(directory)
+                        source, output = root / "plan.json", root / "report.json"
+                        original = json.dumps(manifest()).encode("utf-8")
+                        source.write_bytes(original)
+                        output.write_text("previous report")
+                        loop = root / "private-loop-path"
+                        loop.symlink_to(loop.name)
+                        result = subprocess.run(
+                            [sys.executable, "-B", str(Path(baseline.__file__)), mode,
+                             "--manifest", str(loop if loop_position == "manifest" else source),
+                             "--output", str(loop if loop_position == "output" else output)],
+                            capture_output=True, text=True, check=False,
+                        )
+                        # Newer pathlib can resolve a looping output non-strictly;
+                        # replacing that link is safe, but input loops must fail.
+                        allowed_codes = (0, 2) if loop_position == "output" else (2,)
+                        self.assertIn(result.returncode, allowed_codes, result.stderr)
+                        self.assertNotIn("Traceback", result.stderr)
+                        self.assertNotIn(str(root), result.stdout + result.stderr)
+                        self.assertNotIn(loop.name, result.stdout + result.stderr)
+                        self.assertEqual(source.read_bytes(), original)
+                        self.assertEqual(output.read_text(), "previous report")
+                        if result.returncode == 2:
+                            self.assertTrue(loop.is_symlink())
+                            self.assertEqual(os.readlink(loop), loop.name)
+                        else:
+                            self.assertFalse(loop.is_symlink())
+                            self.assertEqual(json.loads(loop.read_text())["mode"], mode)
+
     def test_cli_dry_validation_and_simulation_are_offline(self):
         with tempfile.TemporaryDirectory() as directory:
             source, output = Path(directory) / "input.json", Path(directory) / "output.json"

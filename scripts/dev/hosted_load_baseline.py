@@ -494,9 +494,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args(argv)
     try:
-        if args.manifest.resolve() == args.output.resolve() or (
-            args.output.exists() and args.manifest.samefile(args.output)
-        ):
+        try:
+            same_path = args.manifest.resolve() == args.output.resolve()
+        except RuntimeError:
+            # Python 3.11/3.12 report symlink loops as RuntimeError with a path.
+            raise ManifestError("unable to resolve manifest or output path") from None
+        if same_path or (args.output.exists() and args.manifest.samefile(args.output)):
             raise ManifestError("output must not replace the manifest")
         manifest = load_manifest(args.manifest)
         report = validation_report(manifest) if args.mode == "validate" else simulate(manifest)

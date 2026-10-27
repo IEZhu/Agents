@@ -116,8 +116,10 @@ python3 -B scripts/dev/hosted_load_baseline.py simulate --manifest plan.json --o
 pass. Invalid input or file I/O failure returns 2. A simulation exceeding its
 synthetic budgets still returns 0 so callers must inspect the explicit budget
 comparisons. There is no live mode, HTTP adapter flag, remote target, or hidden
-default workload. Both commands require an output path and refuse to overwrite
-the input manifest.
+default workload. Both commands require an output path and refuse outputs that
+alias the input manifest, including symlinks, hardlinks and case-only names on
+case-insensitive volumes. Path-resolution failures return a redacted error;
+Python versions that can safely replace a looping output symlink may do so.
 
 ## Manifest version 1
 
