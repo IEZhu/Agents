@@ -175,6 +175,8 @@ def _reject_constant(_value: str) -> None:
 def _decode(text: str) -> dict:
     try:
         return json.loads(text, object_pairs_hook=_unique_object, parse_constant=_reject_constant)
+    except ManifestError:
+        raise
     except (ValueError, RecursionError) as error:
         raise ManifestError("manifest: invalid JSON") from error
 
@@ -492,7 +494,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args(argv)
     try:
-        if args.manifest.resolve() == args.output.resolve():
+        if args.manifest.resolve() == args.output.resolve() or (
+            args.output.exists() and args.manifest.samefile(args.output)
+        ):
             raise ManifestError("output must not replace the manifest")
         manifest = load_manifest(args.manifest)
         report = validation_report(manifest) if args.mode == "validate" else simulate(manifest)

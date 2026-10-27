@@ -308,10 +308,15 @@ class BaselineTests(unittest.TestCase):
     def test_duplicate_json_nonfinite_and_oversize_files_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "manifest.json"
-            for content in ['{"schema_version":1,"schema_version":1}', '{"a":NaN}',
-                            '{"a":Infinity}', "[" * 2000, " " * (128 * 1024 + 1)]:
+            for content, message in [
+                ('{"schema_version":1,"schema_version":1}', "duplicate JSON field"),
+                ('{"a":NaN}', "non-finite JSON number"),
+                ('{"a":Infinity}', "non-finite JSON number"),
+                ("[" * 2000, "invalid JSON"),
+                (" " * (128 * 1024 + 1), "exceeds 128 KiB"),
+            ]:
                 source.write_text(content)
-                with self.assertRaises(baseline.ManifestError):
+                with self.assertRaisesRegex(baseline.ManifestError, message):
                     baseline.load_manifest(source)
 
     def test_private_atomic_replacement_does_not_follow_output_symlink(self):
@@ -339,6 +344,40 @@ class BaselineTests(unittest.TestCase):
                     baseline.write_report(output, self.simulate())
             self.assertEqual(output.read_text(), "previous")
             self.assertEqual(list(Path(directory).iterdir()), [output])
+
+    def test_cli_hardlink_alias_cannot_replace_manifest(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source, alias = Path(directory) / "plan.json", Path(directory) / "alias.json"
+            original = json.dumps(manifest()).encode("utf-8")
+            source.write_bytes(original)
+            os.link(source, alias)
+            result = subprocess.run(
+                [sys.executable, "-B", str(Path(baseline.__file__)), "validate",
+                 "--manifest", str(source), "--output", str(alias)],
+                capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertIn("output must not replace the manifest", result.stderr)
+            self.assertEqual(source.read_bytes(), original)
+            self.assertTrue(source.samefile(alias))
+
+    def test_cli_case_alias_cannot_replace_manifest(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source, alias = Path(directory) / "plan.json", Path(directory) / "PLAN.json"
+            original = json.dumps(manifest()).encode("utf-8")
+            source.write_bytes(original)
+            if not alias.exists():
+                self.skipTest("volume is case-sensitive")
+            self.assertTrue(source.samefile(alias))
+            for mode in ("validate", "simulate"):
+                result = subprocess.run(
+                    [sys.executable, "-B", str(Path(baseline.__file__)), mode,
+                     "--manifest", str(source), "--output", str(alias)],
+                    capture_output=True, text=True, check=False,
+                )
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertIn("output must not replace the manifest", result.stderr)
+                self.assertEqual(source.read_bytes(), original)
 
     def test_cli_dry_validation_and_simulation_are_offline(self):
         with tempfile.TemporaryDirectory() as directory:
