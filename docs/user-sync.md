@@ -403,8 +403,10 @@ repository group that is new to the library is uploaded and announced in the act
 
 Excluding `history` also stops publication of flow-version events. For permitted history,
 the current group and file exclusions apply to every local version before publication, and the
-secret scanner checks earlier contents as well as current files. A skipped historical secret
-is reported as `history_blocked`; it remains available locally. Permissions apply before any
+secret scanner checks earlier contents as well as current files. A running process reads and
+scans each saved version once, by its Git blob ID; later passes reuse that result and read only
+versions added since. A skipped historical secret is reported as `history_blocked`; it remains
+available locally. Permissions apply before any
 private event is rewritten into a portable commit. Already published commits remain in the
 remote's Git history when a scope is later excluded, as do previously shared repository-history
 segments; exclusion cannot revoke a copy another machine has already received.
