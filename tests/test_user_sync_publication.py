@@ -5,6 +5,7 @@ import json
 
 import pytest
 
+from src.library_history import HistoryError
 from src.user_sync import scope, versions
 from src.user_sync.scope import blob_id
 from tests.test_user_sync import TOKEN
@@ -12,6 +13,7 @@ from tests.test_user_sync import TOKEN
 GROUP = "repos/github.com-owner-project"
 RULES = scope.Rules(scope.Scopes(), {GROUP: "github.com/owner/project"})
 METADATA = f"{GROUP}/.repo.json"
+LEGACY = "20260101T000000000000Z-0123456789ab"  # an archive's legacy ID, as .history/<flow>/<ID>.md named it
 
 
 @pytest.fixture(autouse=True)
@@ -77,7 +79,12 @@ def history():
               {"common/large.md": b"x" * (scope.MAX_FILE_BYTES + 1)}),
         event(6, None, changes={"common/notes.md": b"{}\n", "mcp/servers/demo.json": b"{}\n"}),
         event(7, "common/shared.md", None, b"# C\n", {shared: None}),
+        archived(8, "common/archived.md", b"# Archived\n"),
     ]
+
+
+def archived(number, path, content):
+    return {**event(number, path, content), "archive": True, "legacy_id": LEGACY}
 
 
 def assert_same(lazy, plain, read):
@@ -107,7 +114,7 @@ def test_each_blob_is_read_and_scanned_once(scans):
     store = Store()
     first = versions.publication(store.stored(history()), RULES, read=store.read)
     assert sorted(scans) == sorted(["common/shared.md"] * 4 + ["common/large.md", f"{GROUP}/deploy.md", METADATA,
-                                    "common/notes.md", "mcp/servers/demo.json"])
+                                    "common/notes.md", "mcp/servers/demo.json", "common/archived.md"])
     scans.clear()
     store.reads.clear()
     again = versions.publication(store.stored(history()), RULES, read=store.read)
@@ -141,13 +148,29 @@ def test_an_mcp_verdict_belongs_to_its_path(order):
         assert [item["path"] for item in lazy.blocked] == ["mcp/servers/demo.json"]
 
 
-def test_materialize_refuses_bytes_other_than_those_scanned():
+def test_materialize_refuses_bytes_other_than_those_scanned_and_the_next_pass_scans_them():
     store = Store()
-    lazy = versions.publication(store.stored(history()), RULES, read=store.read)
-    tree = lazy.events[0][1]
+    events = store.stored(history())
+    tree = versions.publication(events, RULES, read=store.read).events[0][1]
     oid = next(value.oid for value in tree.values() if isinstance(value, versions.Stored))
     store.blobs[oid] = b"# Replaced\n"
-    with pytest.raises(ValueError, match="does not hold the bytes that were scanned"):
+    with pytest.raises(HistoryError, match="does not hold the bytes that were scanned"):
+        versions.materialize(tree, store.read)
+    assert all(key[0] != oid for key in versions._verdicts)
+    store.reads.clear()
+    tree = versions.publication(events, RULES, read=store.read).events[0][1]
+    assert oid in store.reads[0]
+    assert b"# Replaced\n" in versions.materialize(tree, store.read).values()
+
+
+@pytest.mark.parametrize("order", [(0, 1), (1, 0)])
+def test_materialize_checks_every_file_of_a_blob(order):
+    """One blob at two paths whose scans were remembered apart: each file must match its own scan."""
+    store = Store()
+    oid = store.put(b"# Now\n")
+    files = [versions.Stored(oid, scope.content_hash(b"# Earlier\n")), versions.Stored(oid, scope.content_hash(b"# Now\n"))]
+    tree = {f"changes/common/{name}": files[index] for name, index in zip(("a.md", "b.md"), order)}
+    with pytest.raises(HistoryError, match="does not hold the bytes that were scanned"):
         versions.materialize(tree, store.read)
 
 
@@ -159,11 +182,28 @@ def test_a_pass_keeps_its_verdicts_when_the_cache_is_smaller(monkeypatch, scans)
     assert len(versions._verdicts) == 2
 
 
+def test_the_least_recently_used_scan_is_forgotten_first(monkeypatch):
+    monkeypatch.setattr(versions, "VERDICT_LIMIT", 2)
+    store = Store()
+    one, two, three = (event(number, None, changes={f"common/{number}.md": f"# {number}\n".encode()})
+                       for number in (1, 2, 3))
+    versions.publication(store.stored([one, two]), RULES, read=store.read)
+    versions.publication(store.stored([one, three]), RULES, read=store.read)  # uses one's scan again
+    assert [oid for oid, _ in versions._verdicts] == [store.put(b"# 1\n"), store.put(b"# 3\n")]
+
+
 def test_unpermitted_files_are_never_read():
     store = Store()
+    archive = archived(3, "common/archived.md", b"# Archived\n")
     events = [event(1, "common/private.md", b"# Private\n", b"# Old\n", {"common/private.md": b"# Private\n"}),
-              event(2, None, changes={"repos/github.com-other-tool/notes.md": b"# Local only\n"})]
-    excluded = scope.Rules(scope.Scopes(exclude_files=frozenset({"common/private.md"})), RULES.portable)
+              event(2, None, changes={"repos/github.com-other-tool/notes.md": b"# Local only\n"}), archive]
+    published = versions.publication(store.stored([archive]), RULES, read=store.read)
+    assert len(published.events) == 1 and store.reads  # without its legacy alias excluded
+    versions.clear_cache()
+    store.reads.clear()
+    excluded = scope.Rules(scope.Scopes(exclude_files=frozenset({"common/private.md",
+                                                                f".history/common/archived/{LEGACY}.md"})),
+                           RULES.portable)
     lazy = versions.publication(store.stored(events), excluded, read=store.read)
     assert lazy.events == [] and lazy.blocked == []
     assert store.reads == []

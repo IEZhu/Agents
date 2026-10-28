@@ -21,6 +21,7 @@ import re
 import threading
 from typing import Callable, Iterable, Iterator
 
+from src.library_history import HistoryError
 from src.user_sync import scope
 from src.user_library import REPO_META
 
@@ -80,12 +81,20 @@ def same(left: dict | None, right: dict | None) -> bool:
 
 
 def materialize(tree: dict[str, bytes | Stored], read: Reader) -> dict[str, bytes]:
-    """The tree with the bytes of each ``Stored`` file, which must still be the bytes its scan saw."""
-    stored = {value.oid: value for value in tree.values() if isinstance(value, Stored)}
-    contents = dict(read(list(stored))) if stored else {}
-    for oid, value in stored.items():
-        if hashlib.sha256(contents[oid]).hexdigest() != value.sha256:
-            raise ValueError(f"history blob {oid} does not hold the bytes that were scanned")
+    """The tree with the bytes of each ``Stored`` file, which must still be the bytes its scan saw.
+
+    Every file is checked, since one blob may sit at paths whose scans were remembered apart. A
+    blob that no longer matches loses its remembered scans: the next pass reads and scans it again.
+    """
+    stored = [value for value in tree.values() if isinstance(value, Stored)]
+    contents = dict(read(list(dict.fromkeys(value.oid for value in stored)))) if stored else {}
+    digests = {oid: hashlib.sha256(data).hexdigest() for oid, data in contents.items()}
+    for value in stored:
+        if digests.get(value.oid) != value.sha256:
+            with _verdict_lock:
+                for key in [key for key in _verdicts if key[0] == value.oid]:
+                    del _verdicts[key]
+            raise HistoryError(f"flow_history: history blob {value.oid} does not hold the bytes that were scanned")
     return {name: contents[value.oid] if isinstance(value, Stored) else value for name, value in tree.items()}
 
 
@@ -124,13 +133,10 @@ def _files(event: dict) -> Iterator[tuple[str, object]]:
 
 def _prime(events: list[dict], permitted: Callable[[str], bool], read: Reader
            ) -> tuple[dict[tuple[str, str | None], tuple[str | None, str, int]], dict[str, bytes]]:
-    """This pass's verdicts, scanning only blobs no earlier pass scanned, and the bytes of
-    repository metadata, which publication rewrites."""
+    """This pass's verdicts for the events publication keeps, scanning only blobs no earlier pass
+    scanned, and the bytes of repository metadata, which publication rewrites."""
     wanted, metadata = {}, set()
     for event in events:
-        primary = event.get("path")
-        if primary is not None and not permitted(primary):
-            continue
         for path, oid in _files(event):
             if oid is None or not permitted(path):
                 continue
@@ -182,18 +188,22 @@ def publication(events: list[dict], rules: scope.Rules, *, generation: str | Non
     def permitted(path: str) -> bool:
         return isinstance(path, str) and rules.reason(path) is None and not path.startswith(".history/")
 
-    verdicts, originals = _prime(events, permitted, read) if read is not None else ({}, {})
-    for event in events:
+    def kept(event: dict) -> bool:
         primary = event.get("path")
         if primary is not None and not permitted(primary):
-            continue
+            return False
         legacy = event.get("legacy_id") or event.get("version")
         if primary and event.get("archive") and isinstance(legacy, str) \
                 and re.fullmatch(r"\d{8}T\d{12}Z-[0-9a-f]{12}(?:-deleted)?", legacy):
             directory, _, name = primary.rpartition("/")
             alias = f".history/{directory}/{name.removesuffix('.md')}/{legacy}.md"
-            if rules.reason(alias) is not None:
-                continue
+            return rules.reason(alias) is None
+        return True
+
+    events = [event for event in events if kept(event)]
+    verdicts, originals = _prime(events, permitted, read) if read is not None else ({}, {})
+    for event in events:
+        primary = event.get("path")
         source = event["id"]
         tree: dict[str, bytes | Stored] = {}
         metadata = {"format": 1, "source_id": source, "version": event.get("version", source),

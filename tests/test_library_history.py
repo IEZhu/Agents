@@ -1759,6 +1759,21 @@ def test_export_index_walks_again_only_when_a_ref_moves(history, cold, monkeypat
     assert LibraryHistory(history.root).export_events() == full_exported(history.root)
 
 
+def test_export_index_walks_again_when_accept_moves_an_accepted_tip(history, cold):
+    """Sync accepts newly fetched remote history before it publishes; the history tip stays."""
+    first = source_event()
+    ref = portable(history, first, "stream")
+    history.adopt({}, expected_before={}, accepted_tips={"stream": history._rev(ref)})
+    assert {event["id"] for event in history.export_index()} == {first["id"]}
+    head = history._rev(HISTORY_REF)
+    second = {**source_event(previous=b"# New\n", content=b"# Next\n"), "id": "git-" + "b" * 40}
+    portable(history, second, "stream")
+    assert history.accept({"stream": history._rev(ref)}) == 1
+    assert history._rev(HISTORY_REF) == head
+    assert {event["id"] for event in LibraryHistory(history.root).export_index()} == {first["id"], second["id"]}
+    assert LibraryHistory(history.root).export_events() == full_exported(history.root)
+
+
 def test_export_index_holds_blob_ids_not_bytes(history, cold):
     path = "common/mine.md"
     history.apply({path: b"# Old\n"}, flow_path=path)

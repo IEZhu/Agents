@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from src.library_history import HISTORY_REF, LibraryHistory
+from src.library_history import HISTORY_REF, HistoryError, LibraryHistory
 from src.user_sync.gitcmd import Git, GitError
 from src.user_sync import scope, versions
 from src.user_sync.versions import INCOMING_REFS, PORTABLE_REFS
@@ -244,16 +244,36 @@ def test_sync_reads_and_scans_each_history_version_once(pair, monkeypatch):
     for text in texts[:3]:
         a.save("user:shared", text.decode())
     assert a.run()["status"] == "synced"
-    scanned, original = [], scope.scan
-    monkeypatch.setattr(scope, "scan", lambda data, path=None: scanned.append(data) or original(data, path=path))
+    scanned, history_scanned = [], []
+    scan, verdict = scope.scan, versions._verdict
+    monkeypatch.setattr(scope, "scan", lambda data, path=None: scanned.append(data) or scan(data, path=path))
+    monkeypatch.setattr(versions, "_verdict", lambda data, path: history_scanned.append(data) or verdict(data, path))
     assert a.sync.status()["state"] == "synced"
     assert a.sync.preview()["history_versions"] == 0
     assert a.run(force=True)["status"] == "synced"
     assert not set(texts[:2]) & set(scanned)  # earlier versions: no longer in the working tree
+    assert not set(texts) & set(history_scanned)
     a.save("user:shared", texts[3].decode())
     scanned.clear()
     assert a.run()["status"] == "synced"
     assert a.sync.status()["state"] == "synced"
-    assert not set(texts[:3]) & set(scanned) and texts[3] in scanned
+    assert not set(texts[:3]) & set(scanned)
+    assert history_scanned.count(texts[3]) == 1  # by the first pass that met the new version
     assert b.run()["status"] == "synced"
     assert set(texts[:3]) <= b.archived_texts("common/shared.md")
+
+
+def test_a_history_version_that_cannot_be_read_stops_the_cycle(pair, monkeypatch):
+    """#535: versions are read only when a pass needs them; a failed read still ends the cycle as
+    history_unavailable before anything is pushed, and the next cycle reads them again."""
+    a, _ = pair
+    a.save("user:shared", "# Unreadable for a while (#535)\n")
+    versions.clear_cache()
+
+    def unreadable(backend, oids):
+        raise HistoryError("flow_history: a history object has invalid data")
+
+    monkeypatch.setattr(LibraryHistory, "read_blobs", unreadable)
+    assert a.run()["reason"] == "history_unavailable"
+    monkeypatch.undo()
+    assert a.run()["status"] == "synced"
