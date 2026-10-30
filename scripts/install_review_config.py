@@ -2,7 +2,6 @@
 """Install the shared review configuration and review discipline in a repository."""
 import argparse
 from collections import Counter
-from fnmatch import fnmatch
 import os
 from pathlib import Path
 import re
@@ -156,34 +155,39 @@ def load_instructions(stacks: Iterable[str]) -> list[dict]:
     return entries
 
 
-def guideline_patterns(repo: Path, patterns: Sequence[str],
-                       pending: Path | None = None) -> list[str]:
-    """Keep the guideline patterns matched by a file the target has or will have.
+def glob_regex(pattern: str) -> re.Pattern[str]:
+    """Translate a file glob into a regex where `**/` spans whole directories."""
+    out, index = [], 0
+    while index < len(pattern):
+        if pattern.startswith("**/", index):
+            out.append("(?:[^/]+/)*")
+            index += 3
+        elif pattern.startswith("**", index):
+            out.append(".*")
+            index += 2
+        elif pattern[index] == "*":
+            out.append("[^/]*")
+            index += 1
+        elif pattern[index] == "?":
+            out.append("[^/]")
+            index += 1
+        else:
+            out.append(re.escape(pattern[index]))
+            index += 1
+    return re.compile("^" + "".join(out) + "$")
 
-    `pending` is the instruction file this run creates. Without it the first run
-    of a target that carries CLAUDE.md but no AGENTS.md would drop the AGENTS.md
-    pattern and the next identical run would add it back, so the installer would
-    rewrite the configuration and leave a backup instead of reporting it current.
-    A pending file under a wildcard pattern is matched with `fnmatch`, which has
-    no `**` semantics, so a nested pending file keeps its pattern only when some
-    other file already matches it.
+
+def guideline_patterns(patterns: Sequence[str], paths: Sequence[str]) -> list[str]:
+    """Keep the guideline patterns matched by a path in the target's file list.
+
+    The list is the one detection uses, so an existing file and a file this run
+    creates are matched by the same semantics. Deriving both from one list is
+    what keeps a second identical run reporting the configuration as current:
+    filtering against the files present at render time changed the result once
+    the run had created the instruction file.
     """
-    relative = None
-    if pending is not None:
-        try:
-            relative = pending.relative_to(repo).as_posix()
-        except ValueError:
-            relative = None
-    kept = []
-    for pattern in patterns:
-        if relative is not None and fnmatch(relative, pattern):
-            kept.append(pattern)
-        elif "*" in pattern:
-            if next(repo.glob(pattern), None) is not None:
-                kept.append(pattern)
-        elif (repo / pattern).is_file():
-            kept.append(pattern)
-    return kept
+    return [pattern for pattern in patterns
+            if any(glob_regex(pattern).match(path) for path in paths)]
 
 
 def base_branch_patterns(names: Sequence[str], regexes: Sequence[str]) -> list[str]:
@@ -192,9 +196,8 @@ def base_branch_patterns(names: Sequence[str], regexes: Sequence[str]) -> list[s
     return list(dict.fromkeys(anchored + list(regexes)))
 
 
-def compose_config(repo: Path, stacks: Sequence[str], language: str | None,
-                   profile: str | None, base_branches: Sequence[str],
-                   pending_instructions: Path | None = None) -> str:
+def compose_config(paths: Sequence[str], stacks: Sequence[str], language: str | None,
+                   profile: str | None, base_branches: Sequence[str]) -> str:
     """Render the complete .coderabbit.yaml text for the target repository."""
     config = yaml.safe_load(BASE_TEMPLATE.read_text(encoding="utf-8"))
     if not isinstance(config, dict):
@@ -206,8 +209,7 @@ def compose_config(repo: Path, stacks: Sequence[str], language: str | None,
     if base_branches:
         config["reviews"]["auto_review"]["base_branches"] = list(base_branches)
     config["reviews"]["path_instructions"] = load_instructions(stacks)
-    kept = guideline_patterns(repo, config["knowledge_base"]["code_guidelines"]["filePatterns"],
-                              pending_instructions)
+    kept = guideline_patterns(config["knowledge_base"]["code_guidelines"]["filePatterns"], paths)
     if kept:
         config["knowledge_base"]["code_guidelines"]["filePatterns"] = kept
     else:
@@ -284,6 +286,12 @@ def instruction_path(repo: Path, given: Path | None) -> Path:
 
 def install_section(md_path: Path, create: bool, dry_run: bool) -> str:
     """Inject or refresh the discipline section in the target instruction file."""
+    # Refuse before anything else, so the preflight reports the refusal instead of
+    # letting the real write fail after .coderabbit.yaml is already installed.
+    if md_path.is_symlink():
+        raise InstallError(
+            f"{md_path} is a symlink. Edit its target directly, or pass another path with "
+            "--agents-md.")
     if not md_path.exists() and not create:
         raise InstallError(
             f"{md_path} does not exist. Rerun with --create-agents-md to create it, or with "
@@ -357,18 +365,29 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 1
 
     try:
-        stacks = args.stacks if args.stacks is not None else detect_stacks(repository_files(repo))
+        md_path = None if args.no_agents_md else instruction_path(repo, args.agents_md)
+        # One file list drives detection and the guideline patterns, and it holds the
+        # instruction file this run creates. Deriving either from the files present at
+        # that moment made the next identical run compose a different configuration.
+        paths = repository_files(repo)
+        if md_path is not None and (md_path.exists() or args.create_agents_md):
+            # The instruction file belongs to the target's file set whether it is
+            # tracked yet or not: the installer writes it and the commit follows.
+            # Without this, a run that created it saw it and the next run did not,
+            # because git ls-files does not list a file nobody has added.
+            try:
+                selected = md_path.relative_to(repo).as_posix()
+            except ValueError:
+                selected = None
+            if selected is not None and selected not in paths:
+                paths = [*paths, selected]
+        stacks = args.stacks if args.stacks is not None else detect_stacks(paths)
         unknown = sorted(set(stacks) - set(available_stacks()))
         if unknown:
             raise InstallError(
                 f"Unknown stacks: {', '.join(unknown)}. Run --list-stacks for the full set.")
         branches = base_branch_patterns(args.base_branches or [], args.base_branch_regexes or [])
-        md_path = None if args.no_agents_md else instruction_path(repo, args.agents_md)
-        # The file this run creates counts as present, so a first run and the next
-        # identical one render the same guideline patterns.
-        pending = (md_path if md_path is not None and args.create_agents_md
-                   and not md_path.exists() else None)
-        text = compose_config(repo, stacks, args.language, args.profile, branches, pending)
+        text = compose_config(paths, stacks, args.language, args.profile, branches)
         if args.print_config:
             print(text, end="")
             return 0

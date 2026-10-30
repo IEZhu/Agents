@@ -141,7 +141,7 @@ def test_a_broken_marker_pair_leaves_no_configuration_behind(tmp_path, capsys):
 def test_composed_configuration_parses_and_leads_with_the_universal_set(tmp_path):
     repo = git_repo(tmp_path / "repo", {"a.py": "x\n", "b.py": "x\n", "AGENTS.md": "# r\n"})
 
-    text = installer.compose_config(repo, [], None, None, [])
+    text = installer.compose_config(installer.repository_files(repo), [], None, None, [])
     config = yaml.safe_load(text)
 
     assert text.startswith(installer.MANAGED_MARK)
@@ -157,7 +157,8 @@ def test_base_branch_becomes_an_anchored_regex_and_language_is_set(tmp_path):
     repo = git_repo(tmp_path / "repo", {"a.py": "x\n"})
     branches = installer.base_branch_patterns(["dev", "release/1.0"], [])
 
-    config = yaml.safe_load(installer.compose_config(repo, [], "ru-RU", "quiet", branches))
+    config = yaml.safe_load(installer.compose_config(
+        installer.repository_files(repo), [], "ru-RU", "quiet", branches))
 
     assert config["reviews"]["auto_review"]["base_branches"] == ["^dev$", "^release/1\\.0$"]
     assert config["language"] == "ru-RU"
@@ -188,10 +189,67 @@ def test_creating_the_instruction_file_keeps_the_install_idempotent(tmp_path, ca
     assert not list(repo.glob(f"{installer.CONFIG_NAME}.backup.*"))
 
 
+def test_glob_regex_spans_directories_only_for_a_double_star():
+    assert installer.glob_regex("docs/**/*.md").match("docs/a/b/c.md")
+    assert installer.glob_regex("docs/**/*.md").match("docs/c.md")
+    assert not installer.glob_regex("docs/*.md").match("docs/a/b.md")
+    assert installer.glob_regex("AGENTS.md").match("AGENTS.md")
+    assert not installer.glob_regex("AGENTS.md").match("sub/AGENTS.md")
+
+
+def test_a_nested_created_instruction_file_keeps_its_pattern(tmp_path, capsys):
+    # docs/ holds nothing else, so only the created file can match docs/**/*.md.
+    repo = git_repo(tmp_path / "repo", {"a.py": "x\n", "b.py": "x\n"})
+
+    assert installer.main(["--repo", str(repo), "--agents-md", "docs/AGENTS.md",
+                           "--create-agents-md"]) == 0
+    capsys.readouterr()
+    first = (repo / installer.CONFIG_NAME).read_bytes()
+    patterns = yaml.safe_load(first)["knowledge_base"]["code_guidelines"]["filePatterns"]
+
+    assert installer.main(["--repo", str(repo), "--agents-md", "docs/AGENTS.md",
+                           "--create-agents-md"]) == 0
+
+    assert "docs/**/*.md" in patterns
+    assert (repo / installer.CONFIG_NAME).read_bytes() == first
+    assert "already current" in capsys.readouterr().out
+
+
+def test_detection_outside_git_is_stable_across_runs(tmp_path, capsys):
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    (plain / "a.py").write_text("x\n", encoding="utf-8")
+    (plain / "b.py").write_text("x\n", encoding="utf-8")
+    (plain / "CLAUDE.md").write_text("# c\n", encoding="utf-8")
+
+    assert installer.main(["--repo", str(plain), "--create-agents-md"]) == 0
+    capsys.readouterr()
+    first = (plain / installer.CONFIG_NAME).read_bytes()
+
+    assert installer.main(["--repo", str(plain), "--create-agents-md"]) == 0
+
+    assert (plain / installer.CONFIG_NAME).read_bytes() == first
+    assert "already current" in capsys.readouterr().out
+
+
+def test_a_symlinked_instruction_file_is_refused_before_any_write(tmp_path, capsys):
+    repo = git_repo(tmp_path / "repo", {"a.py": "x\n"})
+    outside = tmp_path / "notes.md"
+    outside.write_text("# notes\n", encoding="utf-8")
+    (repo / "AGENTS.md").symlink_to(outside)
+
+    assert installer.main(["--repo", str(repo)]) == 1
+
+    assert "symlink" in capsys.readouterr().err
+    assert not (repo / installer.CONFIG_NAME).exists()
+    assert outside.read_text(encoding="utf-8") == "# notes\n"
+
+
 def test_absent_guideline_files_drop_the_pattern_list(tmp_path):
     repo = git_repo(tmp_path / "repo", {"a.py": "x\n"})
 
-    config = yaml.safe_load(installer.compose_config(repo, [], None, None, []))
+    config = yaml.safe_load(installer.compose_config(
+        installer.repository_files(repo), [], None, None, []))
 
     assert "filePatterns" not in config["knowledge_base"]["code_guidelines"]
 
@@ -320,7 +378,8 @@ def test_each_stack_composes_and_round_trips_without_loss(tmp_path, stack):
         (installer.INSTRUCTION_DIR / f"{installer.UNIVERSAL_STACK}.yaml").read_text("utf-8"))
     fragment = yaml.safe_load((installer.INSTRUCTION_DIR / f"{stack}.yaml").read_text("utf-8"))
 
-    config = yaml.safe_load(installer.compose_config(repo, [stack], None, None, []))
+    config = yaml.safe_load(installer.compose_config(
+        installer.repository_files(repo), [stack], None, None, []))
 
     # The dumper rewrites every instruction as a block scalar, so reparsing it has
     # to return the fragment unchanged, character for character.
