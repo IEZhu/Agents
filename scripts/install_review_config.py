@@ -66,6 +66,10 @@ GIT_LOCATION_VARIABLES = frozenset({
     "GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR",
     "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_CEILING_DIRECTORIES",
 })
+# git reads the target's own .git/config, which may include a path git blocks
+# on, such as a FIFO, so the listing is bounded and a wedged call falls back.
+GIT_LIST_TIMEOUT = 60
+
 # Dependency and build trees, skipped when the target is not a Git repository and
 # the walk would otherwise count vendored files as the repository's own stack.
 VENDOR_DIRECTORIES = frozenset({
@@ -97,6 +101,13 @@ def available_stacks() -> list[str]:
     return [name for name in names if name != UNIVERSAL_STACK]
 
 
+def is_own_file(path: Path) -> bool:
+    """True for a regular file of the target itself, not a link to one elsewhere."""
+    # is_file follows a link, so a link to a file outside the target would
+    # otherwise be counted as one of the target's own files.
+    return not path.is_symlink() and path.is_file()
+
+
 def repository_files(repo: Path) -> list[str]:
     """Tracked paths when the target is a Git repository, else every walked path."""
     # Git reads the location variables from the environment, so an inherited value
@@ -109,28 +120,43 @@ def repository_files(repo: Path) -> list[str]:
     try:
         completed = subprocess.run(
             # core.fsmonitor= on the command line overrides the target's own
-            # .git/config, which git would otherwise run as this user.
-            ["git", "-c", "core.fsmonitor=", "-C", str(repo), "ls-files", "-z"],
-            capture_output=True, check=True, text=True, env=environment)
-    except (OSError, subprocess.CalledProcessError):
+            # .git/config, which git would otherwise run as this user. -v tags
+            # every record with its index flag, which is what tells an entry git
+            # chose not to materialise from one that is simply not there.
+            ["git", "-c", "core.fsmonitor=", "-C", str(repo), "ls-files", "-v", "-z"],
+            capture_output=True, check=True, text=True, env=environment,
+            timeout=GIT_LIST_TIMEOUT)
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
         # A failed call does not prove the target is not a repository, so compare
         # the vendor names against the path inside the target: an ancestor named
-        # build or dist would otherwise filter out every file.
+        # build or dist would otherwise filter out every file. A call that never
+        # returns ends here too, and TimeoutExpired is neither of the other two.
         walked = []
         for item in repo.rglob("*"):
-            # is_file follows a link, so a link to a file outside the target would
-            # otherwise be counted as one of the target's own files.
-            if item.is_symlink() or not item.is_file():
+            if not is_own_file(item):
                 continue
             relative = item.relative_to(repo)
             if set(relative.parts) & VENDOR_DIRECTORIES:
                 continue
             walked.append(str(relative))
         return walked
-    listed = [entry for entry in completed.stdout.split("\0") if entry]
-    # A .git file holding `gitdir: elsewhere` points ls-files at another
-    # repository's index, so keep only entries that exist under this target.
-    return [entry for entry in listed if (repo / entry).is_file()]
+    listed = []
+    for record in completed.stdout.split("\0"):
+        if not record:
+            continue
+        # Each -v record is the one-letter flag, a space, then the path.
+        flag, _, entry = record.partition(" ")
+        # A .git file holding `gitdir: elsewhere` points ls-files at another
+        # repository's index, so keep only entries that are files of this target;
+        # a tracked link counts no more here than it does on the walk above.
+        # Skip-worktree is the exception, lowercased when it is also
+        # assume-unchanged: git left those paths out of the working tree on
+        # purpose, and the reviewer still reads the whole repository, so dropping
+        # them would silently narrow the stacks and the guideline patterns of a
+        # sparse checkout.
+        if flag.upper() == "S" or is_own_file(repo / entry):
+            listed.append(entry)
+    return listed
 
 
 def detect_stacks(paths: Sequence[str], min_files: int = DEFAULT_MIN_FILES) -> list[str]:
@@ -275,7 +301,7 @@ def install_config(repo: Path, text: str, force: bool, dry_run: bool) -> str:
     # Refuse before the dry-run return, as install_section does: the write helper
     # refuses a symlink too, but only on the real run, so --dry-run used to promise
     # a write the run then declined, and the managed-header gate below was skipped.
-    refuse_unsuitable_destination(target, "remove the link")
+    refuse_unsuitable_destination(target, None)
     if target.exists():
         current = target.read_text(encoding="utf-8", errors="replace")
         # The whole managed header, not just its first line: a hand-written file
@@ -310,25 +336,33 @@ def instruction_path(repo: Path, given: Path | None) -> Path:
     return parent / candidate.name
 
 
-def refuse_unsuitable_destination(path: Path, option: str) -> None:
+def refuse_unsuitable_destination(path: Path, option: str | None) -> None:
     """Refuse a destination whose node type or links make writing it unsafe."""
+    # The configuration name is fixed, so it has no alternative destination to
+    # offer and passes None: one remedy for every node type used to end the
+    # not-a-regular-file message with "remove the link", which contradicts it.
+    alternative = f", or {option}" if option else ""
     # Refuse before anything else, so the preflight reports the refusal instead of
     # letting the real write fail after the other file is already installed.
     if path.is_symlink():
         raise InstallError(
-            f"{path} is a symlink. Edit its target directly, or {option}.")
+            f"{path} is a symlink. Edit its target directly{alternative}.")
     if not path.exists():
         return
     if not path.is_file():
         # A FIFO passes exists() and is not a symlink, and reading it never returns.
-        raise InstallError(f"{path} is not a regular file. Remove it, or {option}.")
+        raise InstallError(f"{path} is not a regular file. Remove it{alternative}.")
     # st_nlink is 0 on Windows for a file opened without the link count, so only a
     # count above one is evidence of a second link.
-    if path.stat().st_nlink > 1:
+    links = path.stat().st_nlink
+    if links > 1:
+        # The count proves another name exists, not where it is: the second link
+        # may be a sibling inside the target, so claim only what it establishes.
         raise InstallError(
-            f"{path} has {path.stat().st_nlink} hard links. Writing it would copy content "
-            f"from outside the target into it and into its backup. Replace it with a "
-            f"single-link file, or {option}.")
+            f"{path} has {links} hard links, so the file has another name. Writing it "
+            f"would break that link, and its backup would hold content the other name "
+            f"shares, which may come from outside the target. Replace it with a "
+            f"single-link file{alternative}.")
 
 
 def install_section(md_path: Path, create: bool, dry_run: bool) -> str:

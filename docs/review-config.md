@@ -47,11 +47,20 @@ unchanged.
 
 The installer makes no network call and reads nothing outside the templates and
 the target repository. It backs up a file it replaces, through the same helper
-the instruction installers use, and refuses to write through a symlink, either
-file's own or a directory above the instruction file. It writes the instruction
-file first and the configuration second, so a write that fails on a directory
-it cannot test beforehand leaves neither file half installed; if a later write
-still fails, the error names what the run had already installed.
+the instruction installers use. It refuses a destination it cannot write
+safely: a symlink, either file's own or a directory above the instruction file;
+a node that is not a regular file, such as a FIFO, which would never finish
+being read; and a file carrying a second hard link, whose backup would hold the
+content that other name shares. Both destinations are checked before either is
+written, so a refusal on one leaves the other untouched; if a write still fails
+on a directory it cannot test beforehand, the error names what the run had
+already installed.
+
+The managed header marks the installer's own file; it does not prove
+authorship. A hand-written `.coderabbit.yaml` that opens with both of those
+lines is refreshed without `--force`. The `git ls-files` call is bounded,
+because a target's own `.git/config` can include a path git blocks on, and a
+listing that does not return falls back to the walk.
 
 ## The stacks
 
@@ -172,6 +181,15 @@ upstream would have to carry.
   untracked guideline file therefore keeps no pattern until it is added, which
   matches what the reviewer sees on the branch. Outside a Git repository the
   list is the walked tree, minus dependency and build directories.
+- A tracked symlink is not counted, on either list, because it may point at a
+  file outside the target. A path git marked skip-worktree is counted although
+  it is not in the working tree, so a sparse checkout keeps the stacks and the
+  guideline patterns of the parts it did not materialise, which is what the
+  reviewer reads anyway.
+- The destination checks run before the write and not through an open
+  descriptor, so a process writing inside the target during the run can still
+  put another node at a destination that has already passed. Install into a
+  target nothing else is writing to.
 - The configuration grows with the stacks selected. The six-stack selection
   `universal, docs-ai-instructions, iac-ci, python, shell, sql` measured 57 KB
   and 38 instruction entries; another six-stack selection reaches about 77 KB

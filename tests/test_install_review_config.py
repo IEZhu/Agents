@@ -170,6 +170,94 @@ def test_the_walk_does_not_count_a_link_to_a_file_outside_the_target(tmp_path, m
     assert "python" in stacks
 
 
+def test_a_tracked_link_to_a_file_outside_the_target_is_not_counted(tmp_path):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "x.bsl").write_text("x\n", encoding="utf-8")
+    (outside / "y.sql").write_text("select 1;\n", encoding="utf-8")
+    repo = git_repo(tmp_path / "repo", {"a.py": "x\n", "b.py": "x\n"})
+    (repo / "linked.bsl").symlink_to(outside / "x.bsl")
+    (repo / "linked.sql").symlink_to(outside / "y.sql")
+    subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
+
+    listed = installer.repository_files(repo)
+
+    # The tracked links resolve, so is_file alone would count them and one file
+    # is enough to select either stack: the Git path must read them as the walk
+    # does, or the same tree yields two configurations.
+    assert listed == ["a.py", "b.py"]
+    assert installer.detect_stacks(listed) == ["python"]
+
+
+def test_a_wedged_git_listing_falls_back_to_the_walk(tmp_path, monkeypatch):
+    repo = git_repo(tmp_path / "repo", {"a.py": "x\n", "b.py": "x\n"})
+    fifo = repo / "blocks.fifo"
+    os.mkfifo(fifo)
+    # git blocks in open() on an included path that never delivers, so without a
+    # bounded call the installer never returns and never reports anything.
+    with (repo / ".git" / "config").open("a", encoding="utf-8") as handle:
+        handle.write(f"[include]\n\tpath = {fifo}\n")
+    monkeypatch.setattr(installer, "GIT_LIST_TIMEOUT", 2)
+
+    listed = installer.repository_files(repo)
+
+    assert sorted(listed) == ["a.py", "b.py"]
+    assert installer.detect_stacks(listed) == ["python"]
+
+
+def test_a_path_git_did_not_materialise_keeps_its_stack(tmp_path):
+    repo = tmp_path / "repo"
+    (repo / "backend").mkdir(parents=True)
+    (repo / "docs").mkdir()
+    (repo / "backend" / "a.py").write_text("x\n", encoding="utf-8")
+    (repo / "backend" / "b.py").write_text("x\n", encoding="utf-8")
+    (repo / "docs" / "one.md").write_text("# d\n", encoding="utf-8")
+    (repo / "docs" / "two.md").write_text("# d\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
+    subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t",
+                    "commit", "-qm", "init"], cwd=repo, check=True)
+    subprocess.run(["git", "sparse-checkout", "set", "--cone", "backend"],
+                   cwd=repo, check=True, capture_output=True)
+    assert not (repo / "docs").exists()
+
+    listed = installer.repository_files(repo)
+
+    # git marks these entries skip-worktree rather than removing them, and the
+    # reviewer reads the whole repository, so their stack and their guideline
+    # pattern must survive a sparse checkout.
+    assert sorted(listed) == ["backend/a.py", "backend/b.py",
+                              "docs/one.md", "docs/two.md"]
+    assert "docs-ai-instructions" in installer.detect_stacks(listed)
+    assert installer.guideline_patterns(["docs/**/*.md"], listed) == ["docs/**/*.md"]
+
+
+def test_an_in_target_hard_link_is_refused_without_blaming_outside_content(tmp_path, capsys):
+    repo = git_repo(tmp_path / "repo", {"a.py": "x\n", "AGENTS.md": "# r\n"})
+    os.link(repo / "AGENTS.md", repo / "CLAUDE.md")
+
+    assert installer.main(["--repo", str(repo)]) == 1
+
+    err = capsys.readouterr().err
+    assert "hard links" in err
+    # The link count proves another name exists, not that it is outside.
+    assert "another name" in err
+    assert "from outside the target into it" not in err
+
+
+def test_the_configuration_refusal_offers_no_link_to_remove(tmp_path, capsys):
+    repo = git_repo(tmp_path / "repo", {"a.py": "x\n", "AGENTS.md": "# r\n"})
+    os.mkfifo(repo / installer.CONFIG_NAME)
+
+    assert installer.main(["--repo", str(repo)]) == 1
+
+    err = capsys.readouterr().err
+    assert "not a regular file" in err
+    # The configuration name is fixed: there is no link here and no other path.
+    assert "remove the link" not in err
+    assert (repo / "AGENTS.md").read_text(encoding="utf-8") == "# r\n"
+
+
 def test_an_instruction_file_outside_the_target_is_reported(tmp_path, capsys):
     repo = git_repo(tmp_path / "repo", {"a.py": "x\n"})
     outside = tmp_path / "elsewhere" / "TEAM.md"
@@ -298,7 +386,10 @@ def test_the_written_configuration_is_not_counted_as_a_target_file(tmp_path, cap
     assert not list(repo.glob(f"{installer.CONFIG_NAME}.backup.*"))
 
 
-@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores the directory mode")
+# getattr, not os.geteuid(): a skipif argument is evaluated while the module is
+# imported, and Windows has no geteuid, so collecting it there would raise.
+@pytest.mark.skipif(getattr(os, "geteuid", lambda: 1)() == 0,
+                    reason="root ignores the directory mode")
 def test_an_unwritable_instruction_directory_installs_nothing(tmp_path, capsys):
     repo = git_repo(tmp_path / "repo", {"a.py": "x\n", "docs/CONTRIBUTING.md": "# c\n"})
     (repo / "docs").chmod(0o500)
