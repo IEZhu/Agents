@@ -1488,7 +1488,7 @@ async def list_agents(include_metadata: bool = True) -> str:
             "trigger_command": routing.get("trigger_command", ""),
         })
 
-    return json.dumps({"agents": catalog}, ensure_ascii=False, indent=2)
+    return json.dumps({"agents": catalog}, ensure_ascii=False, separators=(",", ":"))
 
 # Last history write failure per workspace root, and the (path, errno) pairs
 # already warned about: a broken history.md is reported on the next result
