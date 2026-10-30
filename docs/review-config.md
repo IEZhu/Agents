@@ -91,16 +91,22 @@ somewhere else needs that branch named, or it gets no automatic review at all.
 List the bases a repository actually uses before installing:
 
 ```bash
-gh api "repos/<owner>/<repo>/pulls?state=all&per_page=100" --jq '[.[].base.ref] | unique'
+gh api --paginate "repos/<owner>/<repo>/pulls?state=all&per_page=100" --jq '.[].base.ref' | sort -u
 ```
+
+`--paginate` matters: without it the listing stops at the newest 100 pull
+requests, and a base that only older ones used never reaches
+`base_branches`.
 
 Observed on 2026-10-30, the owner's repositories with bot review history split
 into three groups. Values are the branches pull requests targeted, not a
-recommendation to keep them.
+recommendation to keep them. The listing behind this table read the newest 100
+pull requests of each repository, which is all of them except in Agents-Core,
+the one repository here that is not an install target anyway.
 
 | Repository | Default branch | Other bases seen | Install with |
 |---|---|---|---|
-| `IEZhu/Agents` | `main` | `dev`, temporary `review/*` | `--base-branch dev` |
+| `IEZhu/Agents` | `main` | `dev`, temporary `review/*` | not a target, see [Agents-Core itself](#agents-core-itself) |
 | `IEZhu/pyAviStocks_bot` | `master` | `dev`, `Dev`, feature bases | `--base-branch dev,Dev` |
 | `IEZhu/PyCharts` | `master` | `main`, `test` | `--base-branch main,test` |
 | `WonderMr/blincho` | `main` | `test` | `--base-branch test` |

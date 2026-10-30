@@ -16,6 +16,19 @@ spec.loader.exec_module(installer)
 INSTRUCTION_LIMIT = 20000
 
 
+@pytest.fixture(autouse=True)
+def _scrub_git_location(monkeypatch):
+    """Keep every test's git calls on its own temporary repository.
+
+    A pytest run started from a Git hook inherits GIT_DIR, GIT_WORK_TREE or
+    GIT_INDEX_FILE, which would redirect the git init and git add below to the
+    outer repository. The one test that sets these variables on purpose does so
+    through monkeypatch after this fixture has run.
+    """
+    for name in installer.GIT_LOCATION_VARIABLES:
+        monkeypatch.delenv(name, raising=False)
+
+
 def git_repo(root: Path, files: dict[str, str]) -> Path:
     """Create a repository whose tracked files are exactly the given paths."""
     root.mkdir(parents=True, exist_ok=True)
@@ -78,6 +91,51 @@ def test_walk_fallback_skips_vendored_trees(tmp_path):
 
     assert "python" in stacks
     assert "frontend" not in stacks
+
+
+def test_walk_fallback_survives_a_vendor_named_ancestor(tmp_path, monkeypatch):
+    # The target sits under a directory whose name is also a vendor name.
+    repo = tmp_path / "build" / "repo"
+    (repo / "src").mkdir(parents=True)
+    (repo / "src" / "a.py").write_text("x\n", encoding="utf-8")
+    (repo / "src" / "b.py").write_text("x\n", encoding="utf-8")
+
+    def unavailable(*args, **kwargs):
+        raise OSError("git is unavailable")
+
+    monkeypatch.setattr(installer.subprocess, "run", unavailable)
+    paths = installer.repository_files(repo)
+
+    assert sorted(paths) == ["src/a.py", "src/b.py"]
+    assert "python" in installer.detect_stacks(paths)
+
+
+def test_relative_instruction_path_may_not_escape_through_a_symlink(tmp_path, capsys):
+    repo = git_repo(tmp_path / "repo", {"a.py": "x\n"})
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (repo / "docs").symlink_to(outside, target_is_directory=True)
+
+    exit_code = installer.main(["--repo", str(repo), "--agents-md", "docs/AGENTS.md",
+                                "--create-agents-md"])
+
+    assert exit_code == 1
+    assert "resolves to" in capsys.readouterr().err
+    assert list(outside.iterdir()) == []
+    assert not (repo / installer.CONFIG_NAME).exists()
+
+
+def test_a_broken_marker_pair_leaves_no_configuration_behind(tmp_path, capsys):
+    repo = git_repo(tmp_path / "repo", {"a.py": "x\n"})
+    (repo / "AGENTS.md").write_text(
+        f"{installer.SECTION_BEGIN}\nx\n{installer.SECTION_END}\n"
+        f"{installer.SECTION_BEGIN}\ny\n{installer.SECTION_END}\n", encoding="utf-8")
+
+    assert installer.main(["--repo", str(repo)]) == 1
+
+    assert "marker pair" in capsys.readouterr().err
+    # The configuration is written only after the instruction file passes its checks.
+    assert not (repo / installer.CONFIG_NAME).exists()
 
 
 def test_composed_configuration_parses_and_leads_with_the_universal_set(tmp_path):
@@ -188,6 +246,8 @@ def test_missing_instruction_file_requires_an_explicit_choice(tmp_path, capsys):
 
     assert installer.main(["--repo", str(repo)]) == 1
     assert "--create-agents-md" in capsys.readouterr().err
+    # A refusal must not leave the configuration installed on its own.
+    assert not (repo / installer.CONFIG_NAME).exists()
 
     assert installer.main(["--repo", str(repo), "--create-agents-md"]) == 0
     assert installer.SECTION_BEGIN in (repo / "AGENTS.md").read_text(encoding="utf-8")

@@ -104,8 +104,18 @@ def repository_files(repo: Path) -> list[str]:
             ["git", "-C", str(repo), "ls-files", "-z"],
             capture_output=True, check=True, text=True, env=environment)
     except (OSError, subprocess.CalledProcessError):
-        return [str(item.relative_to(repo)) for item in repo.rglob("*")
-                if item.is_file() and not set(item.parts) & VENDOR_DIRECTORIES]
+        # A failed call does not prove the target is not a repository, so compare
+        # the vendor names against the path inside the target: an ancestor named
+        # build or dist would otherwise filter out every file.
+        walked = []
+        for item in repo.rglob("*"):
+            if not item.is_file():
+                continue
+            relative = item.relative_to(repo)
+            if set(relative.parts) & VENDOR_DIRECTORIES:
+                continue
+            walked.append(str(relative))
+        return walked
     return [entry for entry in completed.stdout.split("\0") if entry]
 
 
@@ -233,6 +243,24 @@ def install_config(repo: Path, text: str, force: bool, dry_run: bool) -> str:
     return "written"
 
 
+def instruction_path(repo: Path, given: Path | None) -> Path:
+    """Resolve the instruction file, keeping a relative path inside the target."""
+    md_path = (given or Path("AGENTS.md")).expanduser()
+    if md_path.is_absolute():
+        return md_path
+    candidate = repo / md_path
+    # Resolve the parent, not the file: a symlinked instruction file must reach
+    # write_with_backup as a symlink, which refuses to replace it, while a
+    # symlinked parent directory would move the write, its backup and its
+    # temporary file out of the target without that helper noticing.
+    parent, root = candidate.parent.resolve(), repo.resolve()
+    if parent != root and root not in parent.parents:
+        raise InstallError(
+            f"--agents-md {md_path} resolves to {parent}, outside {root}. Pass an absolute "
+            "path to write outside the target deliberately.")
+    return parent / candidate.name
+
+
 def install_section(md_path: Path, create: bool, dry_run: bool) -> str:
     """Inject or refresh the discipline section in the target instruction file."""
     if not md_path.exists() and not create:
@@ -318,16 +346,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.print_config:
             print(text, end="")
             return 0
+        md_path = None if args.no_agents_md else instruction_path(repo, args.agents_md)
+        if md_path is not None:
+            # Surface a missing file or a broken marker pair before the first write,
+            # so a refusal cannot leave the configuration installed on its own.
+            install_section(md_path, args.create_agents_md, dry_run=True)
         config_state = install_config(repo, text, args.force, args.dry_run)
         section_state = "skipped"
-        if not args.no_agents_md:
-            md_path = args.agents_md or Path("AGENTS.md")
-            # Expand but do not resolve: a symlinked instruction file must reach
-            # write_with_backup as a symlink, which refuses to replace it. A
-            # relative path belongs to the target, not to the working directory.
-            md_path = md_path.expanduser()
-            if not md_path.is_absolute():
-                md_path = repo / md_path
+        if md_path is not None:
             section_state = install_section(md_path, args.create_agents_md, args.dry_run)
     except InstallError as error:
         print(f"ERROR: {error}", file=sys.stderr)

@@ -31,8 +31,13 @@ you found:
 
    ```bash
    gh api "repos/<owner>/<repo>" --jq '.default_branch'
-   gh api "repos/<owner>/<repo>/pulls?state=all&per_page=100" --jq '[.[].base.ref] | unique'
+   gh api --paginate "repos/<owner>/<repo>/pulls?state=all&per_page=100" --jq '.[].base.ref' | sort -u
    ```
+
+   Paginate that listing. Without `--paginate` it returns only the newest 100
+   pull requests, so a base used by older ones is missing from the result and
+   from the installed `base_branches`, which is the omission this step exists
+   to prevent.
 
    A base that is not the default branch must reach
    `reviews.auto_review.base_branches`, or the repository gets no automatic
@@ -79,8 +84,12 @@ installation only takes effect for a branch that already contains it.
 3. Confirm that `.coderabbit.yaml` parses locally:
 
    ```bash
-   python3 -c "import sys,yaml;yaml.safe_load(open(sys.argv[1]))" <target>/.coderabbit.yaml
+   <agents-core>/.venv/bin/python -c "import sys,yaml;yaml.safe_load(open(sys.argv[1]))" <target>/.coderabbit.yaml
    ```
+
+   Use the same interpreter that ran the installer. A plain `python3` on the
+   host often has no PyYAML, so the check then fails on the import instead of
+   on the file.
 
 4. Answer every finding on this pull request in the format the installed
    section defines. This is the first record of that format in the
@@ -105,4 +114,6 @@ Report in the invocation language:
 - The base branch list covers the bases the repository's pull requests use.
 - An automated review arrived on the pull request, or the report states the
   exact reason it did not.
-- Nothing outside those two files changed in the target.
+- Nothing in the target changed beyond those two files and the backups the
+  installer writes beside a file it replaced, named `<file>.backup.<digits>`.
+  Leave those backups out of the commit, and tell the caller they are there.
