@@ -101,6 +101,16 @@ def available_stacks() -> list[str]:
     return [name for name in names if name != UNIVERSAL_STACK]
 
 
+def printable(text: str) -> str:
+    """The text with any byte UTF-8 cannot encode escaped, so printing it is safe."""
+    # A git path decoded with surrogateescape can carry lone surrogates, and
+    # sys.stderr escapes those only because its own error handler is
+    # backslashreplace: a caller that redirects the stream, or sets
+    # PYTHONIOENCODING without an error handler, gets strict encoding instead and
+    # the message itself would then raise, aborting the run it exists to warn about.
+    return text.encode("utf-8", "backslashreplace").decode("utf-8")
+
+
 def git_path(repo: Path, entry: str) -> Path:
     """The path a git entry names, spelled the way this filesystem spells it."""
     # git emits path bytes verbatim, read below as UTF-8 with surrogateescape, so
@@ -179,13 +189,14 @@ def repository_files(repo: Path) -> list[str]:
             # the existence test above exists to close, so report the gap instead.
             omitted.append(entry)
     if omitted:
-        shown = ", ".join(sorted(omitted)[:3])
+        shown = ", ".join(printable(entry) for entry in sorted(omitted)[:3])
         if len(omitted) > 3:
             shown += ", ..."
-        print(f"WARNING: {len(omitted)} tracked paths are marked skip-worktree and are "
-              f"not in the working tree, so their stacks and guideline patterns are "
-              f"missing from the composed configuration: {shown}. Install from a full "
-              f"checkout, or name the stacks with --stacks.", file=sys.stderr)
+        label = "path" if len(omitted) == 1 else "paths"
+        print(f"WARNING: the index marks {len(omitted)} tracked {label} skip-worktree, "
+              f"absent from the working tree, so the composed configuration lacks the "
+              f"stacks and guideline patterns of {shown}. Install from a full checkout, "
+              f"or name the stacks with --stacks.", file=sys.stderr)
     return listed
 
 

@@ -358,6 +358,27 @@ def test_the_listing_does_not_decode_with_the_locale_codec(tmp_path, monkeypatch
     assert "text" not in recorded
 
 
+def test_a_name_that_is_not_utf_8_does_not_abort_the_listing(tmp_path, monkeypatch, capsys):
+    repo = git_repo(tmp_path / "repo", {"ok.py": "x\n"})
+    # Exactly what the call yields for a repository holding a latin-1 filename,
+    # which Linux allows: surrogateescape carries those bytes through unchanged.
+    stdout = b"H latin-\xe9.py\0H ok.py\0S docs/\xff.md\0".decode("utf-8", "surrogateescape")
+    monkeypatch.setattr(installer.subprocess, "run",
+                        lambda *a, **k: subprocess.CompletedProcess(a[0], 0, stdout, ""))
+
+    listed = installer.repository_files(repo)
+
+    # Neither the decode, the stat nor the report may raise on those names. The
+    # crafted paths are not on disk, so none of them is kept on any platform.
+    assert listed == ["ok.py"]
+    # capsys encodes strictly, as a redirected stream or PYTHONIOENCODING does,
+    # so a raw surrogate in the message would raise here rather than print.
+    err = capsys.readouterr().err
+    assert "skip-worktree" in err
+    assert r"docs/\udcff.md" in err
+    assert "1 tracked path " in err, "the count and its noun have to agree"
+
+
 def test_an_instruction_file_outside_the_target_is_reported(tmp_path, capsys):
     repo = git_repo(tmp_path / "repo", {"a.py": "x\n"})
     outside = tmp_path / "elsewhere" / "TEAM.md"
