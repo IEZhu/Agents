@@ -101,6 +101,14 @@ def available_stacks() -> list[str]:
     return [name for name in names if name != UNIVERSAL_STACK]
 
 
+def git_path(repo: Path, entry: str) -> Path:
+    """The path a git entry names, spelled the way this filesystem spells it."""
+    # git emits path bytes verbatim, read below as UTF-8 with surrogateescape, so
+    # encoding the entry the same way returns those exact bytes and os.fsdecode
+    # then spells them for this filesystem, which is what a stat must be given.
+    return repo / os.fsdecode(entry.encode("utf-8", "surrogateescape"))
+
+
 def is_own_file(path: Path) -> bool:
     """True for a regular file of the target itself, not a link to one elsewhere."""
     # is_file follows a link, so a link to a file outside the target would
@@ -124,7 +132,12 @@ def repository_files(repo: Path) -> list[str]:
             # every record with its index flag, which is how a path git was told
             # to leave out of the working tree can be reported rather than guessed.
             ["git", "-c", "core.fsmonitor=", "-C", str(repo), "ls-files", "-v", "-z"],
-            capture_output=True, check=True, text=True, env=environment,
+            # Not text=True: that decodes with the ambient locale and strict
+            # errors, so one non-ASCII tracked name aborts the run under an ASCII
+            # locale. UTF-8 with surrogateescape decodes any byte sequence git
+            # can emit and gives those bytes back unchanged.
+            capture_output=True, check=True, encoding="utf-8",
+            errors="surrogateescape", env=environment,
             timeout=GIT_LIST_TIMEOUT)
     except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
         # A failed call does not prove the target is not a repository, so compare
@@ -156,7 +169,7 @@ def repository_files(repo: Path) -> list[str]:
         # A .git file holding `gitdir: elsewhere` points ls-files at another
         # repository's index, so the filesystem decides what this target holds,
         # not the index; a tracked link counts no more here than on the walk above.
-        if is_own_file(repo / entry):
+        if is_own_file(git_path(repo, entry)):
             listed.append(entry)
         elif flag.upper() == "S":
             # Skip-worktree, lowercased when the path is also assume-unchanged:

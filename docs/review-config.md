@@ -48,13 +48,13 @@ unchanged.
 The installer makes no network call and reads nothing outside the templates and
 the target repository. It backs up a file it replaces, through the same helper
 the instruction installers use. It refuses a destination it cannot write
-safely: a symlink, either file's own or a directory above the instruction file;
-a node that is not a regular file, such as a FIFO, which would never finish
-being read; and a file carrying a second hard link, whose backup would hold the
-content that other name shares. Both destinations are checked before either is
-written, so a refusal on one leaves the other untouched; if a write still fails
-on a directory it cannot test beforehand, the error names what the run had
-already installed.
+safely: a symlink as the file itself; for a relative `--agents-md`, a parent
+directory that resolves outside the target; a node that is not a regular file,
+such as a FIFO, which would never finish being read; and a file carrying a
+second hard link, whose backup would hold the content that other name shares.
+Both destinations are checked before either is written, so a refusal on one
+leaves the other untouched; if a write still fails on a directory it cannot
+test beforehand, the error names what the run had already installed.
 
 The managed header marks the installer's own file; it does not prove
 authorship. A hand-written `.coderabbit.yaml` that opens with both of those

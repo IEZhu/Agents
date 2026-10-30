@@ -16,6 +16,26 @@ spec.loader.exec_module(installer)
 # CodeRabbit's configuration schema v2 caps one instruction at this length.
 INSTRUCTION_LIMIT = 20000
 
+# FIFOs, mode bits and shell hooks have no Windows equivalent. Hard links do, so
+# those cases stay enabled there.
+POSIX_ONLY = pytest.mark.skipif(sys.platform == "win32",
+                                reason="POSIX-only: FIFOs, mode bits and shell hooks")
+
+
+def make_symlink(link: Path, target: Path, **kwargs) -> None:
+    """Create a symlink, or skip where the platform withholds the privilege.
+
+    Windows can create symlinks, but only with the create-symbolic-link right or
+    Developer Mode, so a capability check belongs here rather than a blanket skip
+    that would stop these cases from ever running there.
+    """
+    try:
+        link.symlink_to(target, **kwargs)
+    except OSError:
+        if sys.platform == "win32":
+            pytest.skip("creating a symlink needs a privilege this host withholds")
+        raise
+
 
 @pytest.fixture(autouse=True)
 def _scrub_git_location(monkeypatch):
@@ -94,6 +114,7 @@ def test_walk_fallback_skips_vendored_trees(tmp_path):
     assert "frontend" not in stacks
 
 
+@POSIX_ONLY
 def test_the_targets_own_git_config_cannot_run_a_command(tmp_path):
     repo = git_repo(tmp_path / "repo", {"a.py": "x\n", "b.py": "x\n"})
     marker = tmp_path / "hook_ran.txt"
@@ -123,7 +144,8 @@ def test_a_git_file_redirect_cannot_supply_another_repositorys_files(tmp_path):
 
 @pytest.mark.parametrize("make, needle", [
     (lambda path, outside: os.link(outside, path), "hard links"),
-    (lambda path, outside: os.mkfifo(path), "not a regular file"),
+    pytest.param(lambda path, outside: os.mkfifo(path), "not a regular file",
+                 marks=POSIX_ONLY),
 ])
 def test_an_unsuitable_instruction_destination_is_refused(tmp_path, capsys, make, needle):
     repo = git_repo(tmp_path / "repo", {"a.py": "x\n"})
@@ -162,7 +184,7 @@ def test_the_walk_does_not_count_a_link_to_a_file_outside_the_target(tmp_path, m
     plain.mkdir()
     (plain / "a.py").write_text("x\n", encoding="utf-8")
     (plain / "b.py").write_text("x\n", encoding="utf-8")
-    (plain / "linked.bsl").symlink_to(outside / "x.bsl")
+    make_symlink(plain / "linked.bsl", outside / "x.bsl")
 
     stacks = installer.detect_stacks(installer.repository_files(plain))
 
@@ -176,8 +198,8 @@ def test_a_tracked_link_to_a_file_outside_the_target_is_not_counted(tmp_path):
     (outside / "x.bsl").write_text("x\n", encoding="utf-8")
     (outside / "y.sql").write_text("select 1;\n", encoding="utf-8")
     repo = git_repo(tmp_path / "repo", {"a.py": "x\n", "b.py": "x\n"})
-    (repo / "linked.bsl").symlink_to(outside / "x.bsl")
-    (repo / "linked.sql").symlink_to(outside / "y.sql")
+    make_symlink(repo / "linked.bsl", outside / "x.bsl")
+    make_symlink(repo / "linked.sql", outside / "y.sql")
     subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
 
     listed = installer.repository_files(repo)
@@ -189,6 +211,7 @@ def test_a_tracked_link_to_a_file_outside_the_target_is_not_counted(tmp_path):
     assert installer.detect_stacks(listed) == ["python"]
 
 
+@POSIX_ONLY
 def test_a_wedged_git_listing_falls_back_to_the_walk(tmp_path, monkeypatch):
     repo = git_repo(tmp_path / "repo", {"a.py": "x\n", "b.py": "x\n"})
     fifo = repo / "blocks.fifo"
@@ -286,6 +309,7 @@ def test_an_in_target_hard_link_is_refused_without_blaming_outside_content(tmp_p
     assert "from outside the target into it" not in err
 
 
+@POSIX_ONLY
 def test_the_configuration_refusal_offers_no_link_to_remove(tmp_path, capsys):
     repo = git_repo(tmp_path / "repo", {"a.py": "x\n", "AGENTS.md": "# r\n"})
     os.mkfifo(repo / installer.CONFIG_NAME)
@@ -297,6 +321,41 @@ def test_the_configuration_refusal_offers_no_link_to_remove(tmp_path, capsys):
     # The configuration name is fixed: there is no link here and no other path.
     assert "remove the link" not in err
     assert (repo / "AGENTS.md").read_text(encoding="utf-8") == "# r\n"
+
+
+def test_a_non_ascii_tracked_name_is_listed_and_counted(tmp_path):
+    repo = git_repo(tmp_path / "repo", {"Обработка.bsl": "Процедура\n", "a.py": "x\n"})
+
+    listed = installer.repository_files(repo)
+
+    # Coverage, not a regression test: on a UTF-8 host the decoding and the
+    # filesystem lookup agree whichever codec the call pins, so what this proves
+    # is that a non-ASCII name survives the listing at all. The codec itself is
+    # pinned by the test below.
+    assert "Обработка.bsl" in listed
+    assert "bsl-1c" in installer.detect_stacks(listed)
+
+
+def test_the_listing_does_not_decode_with_the_locale_codec(tmp_path, monkeypatch):
+    repo = git_repo(tmp_path / "repo", {"a.py": "x\n"})
+    recorded: dict = {}
+    real_run = installer.subprocess.run
+
+    def record(*args, **kwargs):
+        recorded.update(kwargs)
+        return real_run(*args, **kwargs)
+
+    monkeypatch.setattr(installer.subprocess, "run", record)
+
+    installer.repository_files(repo)
+
+    # The process cannot change its own locale, so the codec is asserted rather
+    # than exercised: text=True decodes git's path bytes with the ambient
+    # encoding and strict errors, and under an ASCII locale one non-ASCII tracked
+    # name then aborts the whole run.
+    assert recorded.get("encoding") == "utf-8"
+    assert recorded.get("errors") == "surrogateescape"
+    assert "text" not in recorded
 
 
 def test_an_instruction_file_outside_the_target_is_reported(tmp_path, capsys):
@@ -333,7 +392,7 @@ def test_relative_instruction_path_may_not_escape_through_a_symlink(tmp_path, ca
     repo = git_repo(tmp_path / "repo", {"a.py": "x\n"})
     outside = tmp_path / "outside"
     outside.mkdir()
-    (repo / "docs").symlink_to(outside, target_is_directory=True)
+    make_symlink(repo / "docs", outside, target_is_directory=True)
 
     exit_code = installer.main(["--repo", str(repo), "--agents-md", "docs/AGENTS.md",
                                 "--create-agents-md"])
@@ -429,6 +488,7 @@ def test_the_written_configuration_is_not_counted_as_a_target_file(tmp_path, cap
 
 # getattr, not os.geteuid(): a skipif argument is evaluated while the module is
 # imported, and Windows has no geteuid, so collecting it there would raise.
+@POSIX_ONLY
 @pytest.mark.skipif(getattr(os, "geteuid", lambda: 1)() == 0,
                     reason="root ignores the directory mode")
 def test_an_unwritable_instruction_directory_installs_nothing(tmp_path, capsys):
@@ -447,7 +507,7 @@ def test_an_unwritable_instruction_directory_installs_nothing(tmp_path, capsys):
 
 def test_a_symlinked_configuration_is_refused_in_the_dry_run(tmp_path, capsys):
     repo = git_repo(tmp_path / "repo", {"a.py": "x\n", "AGENTS.md": "# r\n"})
-    (repo / installer.CONFIG_NAME).symlink_to(tmp_path / "elsewhere.yaml")
+    make_symlink(repo / installer.CONFIG_NAME, tmp_path / "elsewhere.yaml")
 
     assert installer.main(["--repo", str(repo), "--dry-run"]) == 1
 
@@ -513,7 +573,7 @@ def test_a_symlinked_instruction_file_is_refused_before_any_write(tmp_path, caps
     repo = git_repo(tmp_path / "repo", {"a.py": "x\n"})
     outside = tmp_path / "notes.md"
     outside.write_text("# notes\n", encoding="utf-8")
-    (repo / "AGENTS.md").symlink_to(outside)
+    make_symlink(repo / "AGENTS.md", outside)
 
     assert installer.main(["--repo", str(repo)]) == 1
 
