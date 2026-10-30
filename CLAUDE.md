@@ -385,7 +385,7 @@ Agents-Core is one local Model Context Protocol server that gives an AI coding a
 - `cryptography==50.0.2` — instruction signing (DSSE, in-toto statements).
 - `uvicorn==0.48.0` — the shared local HTTP service.
 - `langfuse>=3.0` (optional tracing, a no-op without keys), `cachetools`, `python-dotenv`, `langdetect`, `anthropic`, `pdf2image` + `Pillow>=13.0.0` (OCR server).
-- Extras: `thread-status` (`claude-agent-sdk`), `local-inference` (`httpx`, optional `redis`), `signing-tests` (`model-signing`), `evals` (`datasets`, `openai`, `jinja2`, `pytest`).
+- Extras: `thread-status` (`claude-agent-sdk`), `local-inference` (`httpx`), `local-inference-redis` (`httpx`, `redis`), `signing-tests` (`model-signing`), `evals` (`datasets`, `pytest`, `jinja2`, `openai`, `anthropic`).
 
 ### Entry Points
 
