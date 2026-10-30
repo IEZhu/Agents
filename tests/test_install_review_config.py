@@ -94,6 +94,90 @@ def test_walk_fallback_skips_vendored_trees(tmp_path):
     assert "frontend" not in stacks
 
 
+def test_the_targets_own_git_config_cannot_run_a_command(tmp_path):
+    repo = git_repo(tmp_path / "repo", {"a.py": "x\n", "b.py": "x\n"})
+    marker = tmp_path / "hook_ran.txt"
+    hook = tmp_path / "hook.sh"
+    hook.write_text(f"#!/bin/sh\necho ran >> {marker}\n", encoding="utf-8")
+    hook.chmod(0o755)
+    subprocess.run(["git", "config", "core.fsmonitor", str(hook)], cwd=repo, check=True)
+
+    paths = installer.repository_files(repo)
+
+    assert sorted(paths) == ["a.py", "b.py"]
+    assert not marker.exists(), "the target's core.fsmonitor was executed"
+
+
+def test_a_git_file_redirect_cannot_supply_another_repositorys_files(tmp_path):
+    other = git_repo(tmp_path / "other", {"foreign.bsl": "x\n", "foreign.sql": "x\n"})
+    target = tmp_path / "target"
+    target.mkdir()
+    (target / ".git").write_text(f"gitdir: {other / '.git'}\n", encoding="utf-8")
+    (target / "b.py").write_text("y\n", encoding="utf-8")
+    (target / "c.py").write_text("z\n", encoding="utf-8")
+
+    stacks = installer.detect_stacks(installer.repository_files(target))
+
+    assert "bsl-1c" not in stacks and "sql" not in stacks
+
+
+@pytest.mark.parametrize("make, needle", [
+    (lambda path, outside: os.link(outside, path), "hard links"),
+    (lambda path, outside: os.mkfifo(path), "not a regular file"),
+])
+def test_an_unsuitable_instruction_destination_is_refused(tmp_path, capsys, make, needle):
+    repo = git_repo(tmp_path / "repo", {"a.py": "x\n"})
+    outside = tmp_path / "secret.txt"
+    outside.write_text("TOKEN=abc123\n", encoding="utf-8")
+    make(repo / "AGENTS.md", outside)
+
+    assert installer.main(["--repo", str(repo)]) == 1
+
+    assert needle in capsys.readouterr().err
+    assert not (repo / installer.CONFIG_NAME).exists()
+    assert outside.read_text(encoding="utf-8") == "TOKEN=abc123\n"
+
+
+def test_quoting_the_managed_line_does_not_make_a_file_the_installers_own(tmp_path, capsys):
+    repo = git_repo(tmp_path / "repo", {"a.py": "x\n", "AGENTS.md": "# r\n"})
+    hand_written = f"{installer.MANAGED_MARK}\nreviews: {{}}\n"
+    (repo / installer.CONFIG_NAME).write_text(hand_written, encoding="utf-8")
+
+    assert installer.main(["--repo", str(repo)]) == 1
+
+    assert "not written by this installer" in capsys.readouterr().err
+    assert (repo / installer.CONFIG_NAME).read_text(encoding="utf-8") == hand_written
+
+
+def test_the_walk_does_not_count_a_link_to_a_file_outside_the_target(tmp_path, monkeypatch):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "x.bsl").write_text("x\n", encoding="utf-8")
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    (plain / "a.py").write_text("x\n", encoding="utf-8")
+    (plain / "b.py").write_text("x\n", encoding="utf-8")
+    (plain / "linked.bsl").symlink_to(outside / "x.bsl")
+
+    stacks = installer.detect_stacks(installer.repository_files(plain))
+
+    assert "bsl-1c" not in stacks
+    assert "python" in stacks
+
+
+def test_an_instruction_file_outside_the_target_is_reported(tmp_path, capsys):
+    repo = git_repo(tmp_path / "repo", {"a.py": "x\n"})
+    outside = tmp_path / "elsewhere" / "TEAM.md"
+    outside.parent.mkdir()
+
+    assert installer.main(["--repo", str(repo), "--agents-md", str(outside),
+                           "--create-agents-md"]) == 0
+
+    out = capsys.readouterr().out
+    assert "Outside the target, not covered by its commit" in out
+    assert str(outside) in out
+
+
 def test_walk_fallback_survives_a_vendor_named_ancestor(tmp_path, monkeypatch):
     # The target sits under a directory whose name is also a vendor name.
     repo = tmp_path / "build" / "repo"

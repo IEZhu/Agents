@@ -41,7 +41,7 @@ unchanged.
 | `--profile quiet\|chill\|assertive` | CodeRabbit review profile. The template ships `assertive`. |
 | `--base-branch dev` | A literal branch that pull requests target besides the repository default. Each becomes an anchored regex. |
 | `--base-branch-regex '.*'` | An unanchored pattern, for a repository whose pull requests target many bases. |
-| `--agents-md PATH`, `--create-agents-md`, `--no-agents-md` | Choose, create or skip the instruction file. |
+| `--agents-md PATH`, `--create-agents-md`, `--no-agents-md` | Choose, create or skip the instruction file. A relative path stays inside the target: one whose parent resolves outside it is refused, and an absolute path writes outside deliberately and is reported as not covered by the target's commit. |
 | `--force` | Replace a `.coderabbit.yaml` this installer did not write. Read it first. |
 | `--dry-run`, `--print` | Report the actions without writing, or print the composed configuration. |
 
@@ -81,7 +81,7 @@ translation of the pattern, not against CodeRabbit's own matcher, so treat the
 coverage as strong evidence rather than proof.
 
 Each fragment carries the globs of the repositories that produced it, so a
-`php` installation also names `tools/phases/**` and a `csharp` one names
+`php` installation also names `tools/phases/**/*.php` and a `csharp` one names
 `**/CalculationService/*.cs`. A glob that matches nothing in a given
 repository is inert, and `c-embedded` is the one fragment whose globs follow a
 single project's tree: another C project selects the stack and matches nothing
@@ -163,15 +163,19 @@ upstream would have to carry.
 
 - The composed file replaces the managed file as a whole. Local edits belong in
   the templates, not in the target, because the next run overwrites them.
-- Stack detection counts file suffixes. A repository with two incidental `.c`
-  files selects `c-embedded`; pass `--stacks` when detection is wrong.
+- Stack detection counts file suffixes: two matching files select a stack, and
+  one is enough for `bsl-1c` and `sql`, which no linter covers. A repository
+  with two incidental `.c` files selects `c-embedded`, and a single stray
+  `.sql` file selects `sql`; pass `--stacks` when detection is wrong.
 - Detection and the guideline patterns read one file list: the target's tracked
   files in a Git repository, plus the instruction file this run selected. An
   untracked guideline file therefore keeps no pattern until it is added, which
   matches what the reviewer sees on the branch. Outside a Git repository the
   list is the walked tree, minus dependency and build directories.
-- The configuration grows with the stacks selected. A repository that selects
-  six of them produces roughly 57 KB and 38 instruction entries. CodeRabbit
+- The configuration grows with the stacks selected. The six-stack selection
+  `universal, docs-ai-instructions, iac-ci, python, shell, sql` measured 57 KB
+  and 38 instruction entries; another six-stack selection reaches about 77 KB
+  and 50 entries, because the fragments hold 4 to 8 entries each. CodeRabbit
   applies only the entries whose glob matches the file under review, so a
   single `.py` file still receives about twelve of them, but pass `--stacks`
   to narrow the file when a repository selects stacks it barely uses.

@@ -28,6 +28,10 @@ DISCIPLINE_TEMPLATE = TEMPLATE_DIR / "review-discipline.md"
 
 CONFIG_NAME = ".coderabbit.yaml"
 MANAGED_MARK = "# Managed by Agents-Core scripts/install_review_config.py"
+MANAGED_NOTE = "# Do not edit by hand: rerun the installer after changing the templates."
+# Both lines together identify this installer's own file, so a hand-written one
+# that merely quotes the first line is not mistaken for it.
+MANAGED_HEADER = MANAGED_MARK + "\n" + MANAGED_NOTE + "\n"
 SECTION_BEGIN = "<!-- >>> Agents-Core Review Discipline (managed by install_review_config) >>> -->"
 SECTION_END = "<!-- <<< Agents-Core Review Discipline (managed by install_review_config) <<< -->"
 
@@ -95,13 +99,18 @@ def available_stacks() -> list[str]:
 
 def repository_files(repo: Path) -> list[str]:
     """Tracked paths when the target is a Git repository, else every walked path."""
-    # Git reads these from the environment, so an inherited value would make
-    # ls-files report another repository's files for this target.
+    # Git reads the location variables from the environment, so an inherited value
+    # would make ls-files report another repository's files, and GIT_CONFIG_COUNT
+    # with its key and value pairs can set a configuration key whose value git
+    # executes, such as core.fsmonitor.
     environment = {key: value for key, value in os.environ.items()
-                   if key not in GIT_LOCATION_VARIABLES}
+                   if key not in GIT_LOCATION_VARIABLES
+                   and not key.startswith("GIT_CONFIG_")}
     try:
         completed = subprocess.run(
-            ["git", "-C", str(repo), "ls-files", "-z"],
+            # core.fsmonitor= on the command line overrides the target's own
+            # .git/config, which git would otherwise run as this user.
+            ["git", "-c", "core.fsmonitor=", "-C", str(repo), "ls-files", "-z"],
             capture_output=True, check=True, text=True, env=environment)
     except (OSError, subprocess.CalledProcessError):
         # A failed call does not prove the target is not a repository, so compare
@@ -109,14 +118,19 @@ def repository_files(repo: Path) -> list[str]:
         # build or dist would otherwise filter out every file.
         walked = []
         for item in repo.rglob("*"):
-            if not item.is_file():
+            # is_file follows a link, so a link to a file outside the target would
+            # otherwise be counted as one of the target's own files.
+            if item.is_symlink() or not item.is_file():
                 continue
             relative = item.relative_to(repo)
             if set(relative.parts) & VENDOR_DIRECTORIES:
                 continue
             walked.append(str(relative))
         return walked
-    return [entry for entry in completed.stdout.split("\0") if entry]
+    listed = [entry for entry in completed.stdout.split("\0") if entry]
+    # A .git file holding `gitdir: elsewhere` points ls-files at another
+    # repository's index, so keep only entries that exist under this target.
+    return [entry for entry in listed if (repo / entry).is_file()]
 
 
 def detect_stacks(paths: Sequence[str], min_files: int = DEFAULT_MIN_FILES) -> list[str]:
@@ -217,7 +231,7 @@ def compose_config(paths: Sequence[str], stacks: Sequence[str], language: str | 
 
     header = "\n".join([
         MANAGED_MARK,
-        "# Do not edit by hand: rerun the installer after changing the templates.",
+        MANAGED_NOTE,
         f"# Stacks: {', '.join([UNIVERSAL_STACK, *stacks])}",
         "# Reference: https://docs.coderabbit.ai/reference/configuration",
         "",
@@ -258,16 +272,15 @@ def report_partial(installed: Sequence[str]) -> None:
 def install_config(repo: Path, text: str, force: bool, dry_run: bool) -> str:
     """Write the composed configuration, refusing an unmanaged existing file."""
     target = repo / CONFIG_NAME
-    # Refuse a symlink before the dry-run return, as install_section does: the
-    # write helper refuses it too, but only on the real run, so --dry-run used to
-    # promise a write the run then declined, and the managed-header gate below was
-    # skipped as well.
-    if target.is_symlink():
-        raise InstallError(
-            f"{target} is a symlink. Edit its target directly, or remove the link.")
+    # Refuse before the dry-run return, as install_section does: the write helper
+    # refuses a symlink too, but only on the real run, so --dry-run used to promise
+    # a write the run then declined, and the managed-header gate below was skipped.
+    refuse_unsuitable_destination(target, "remove the link")
     if target.exists():
         current = target.read_text(encoding="utf-8", errors="replace")
-        if MANAGED_MARK not in current and not force:
+        # The whole managed header, not just its first line: a hand-written file
+        # that happens to carry that line would otherwise be replaced silently.
+        if not current.startswith(MANAGED_HEADER) and not force:
             raise InstallError(
                 f"{target} exists and was not written by this installer. Review it, then "
                 "rerun with --force to replace it.")
@@ -297,14 +310,30 @@ def instruction_path(repo: Path, given: Path | None) -> Path:
     return parent / candidate.name
 
 
+def refuse_unsuitable_destination(path: Path, option: str) -> None:
+    """Refuse a destination whose node type or links make writing it unsafe."""
+    # Refuse before anything else, so the preflight reports the refusal instead of
+    # letting the real write fail after the other file is already installed.
+    if path.is_symlink():
+        raise InstallError(
+            f"{path} is a symlink. Edit its target directly, or {option}.")
+    if not path.exists():
+        return
+    if not path.is_file():
+        # A FIFO passes exists() and is not a symlink, and reading it never returns.
+        raise InstallError(f"{path} is not a regular file. Remove it, or {option}.")
+    # st_nlink is 0 on Windows for a file opened without the link count, so only a
+    # count above one is evidence of a second link.
+    if path.stat().st_nlink > 1:
+        raise InstallError(
+            f"{path} has {path.stat().st_nlink} hard links. Writing it would copy content "
+            f"from outside the target into it and into its backup. Replace it with a "
+            f"single-link file, or {option}.")
+
+
 def install_section(md_path: Path, create: bool, dry_run: bool) -> str:
     """Inject or refresh the discipline section in the target instruction file."""
-    # Refuse before anything else, so the preflight reports the refusal instead of
-    # letting the real write fail after .coderabbit.yaml is already installed.
-    if md_path.is_symlink():
-        raise InstallError(
-            f"{md_path} is a symlink. Edit its target directly, or pass another path with "
-            "--agents-md.")
+    refuse_unsuitable_destination(md_path, "pass another path with --agents-md")
     if not md_path.exists() and not create:
         raise InstallError(
             f"{md_path} does not exist. Rerun with --create-agents-md to create it, or with "
@@ -438,6 +467,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     print(f"Stacks: {', '.join([UNIVERSAL_STACK, *stacks])}")
     print(f"{CONFIG_NAME}: {config_state}")
     print(f"Review discipline section: {section_state}")
+    if md_path is not None and not md_path.is_relative_to(repo):
+        # An absolute or ~-prefixed path writes outside the target deliberately, but
+        # the rollout flow commits only the target, so name the file it will not cover.
+        print(f"Outside the target, not covered by its commit: {md_path}")
     return 0
 
 

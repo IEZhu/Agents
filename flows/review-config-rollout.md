@@ -84,7 +84,7 @@ in its own place, and report that it is not covered by this pull request.
 
 ```bash
 <agents-core>/.venv/bin/python <agents-core>/scripts/install_review_config.py \
-  --repo <target> --dry-run
+  --repo <target> <options from the table above> --dry-run
 ```
 
 Read the reported stack list. When detection is wrong, for example two
@@ -100,8 +100,17 @@ target. With an external file the installer checks `.coderabbit.yaml` alone, so
 report its state, and only then end the run. Otherwise the external file can
 stay missing or stale while the flow reports completion.
 
-Otherwise install for real with the same options and commit the files the
-installer reported as written, with a `chore(review):` subject. Those are
+Otherwise install for real with the same options, then confirm that the
+configuration parses before anything waits on a review:
+
+```bash
+<agents-core>/.venv/bin/python -c "import sys,yaml;yaml.safe_load(open(sys.argv[1]))" <target>/.coderabbit.yaml
+```
+
+Use the interpreter that ran the installer. A plain `python3` on the host often
+has no PyYAML, so the check then fails on the import instead of on the file.
+Commit the files the installer reported as written, with a `chore(review):`
+subject. Those are
 `.coderabbit.yaml` plus the instruction file this run selected, which is
 `AGENTS.md` by default, the path given to `--agents-md`, or nothing at all
 under `--no-agents-md`.
@@ -115,17 +124,8 @@ installation only takes effect for a branch that already contains it.
 2. Wait for the automated review on that pull request. A review that arrives
    proves the configuration parses and the base branch is covered. No review,
    or a skipped review, means the base branch list or the account settings are
-   wrong: fix them in this pull request.
-3. Confirm that `.coderabbit.yaml` parses locally:
-
-   ```bash
-   <agents-core>/.venv/bin/python -c "import sys,yaml;yaml.safe_load(open(sys.argv[1]))" <target>/.coderabbit.yaml
-   ```
-
-   Use the same interpreter that ran the installer. A plain `python3` on the
-   host often has no PyYAML, so the check then fails on the import instead of
-   on the file.
-
+   wrong, or the file does not parse, which step 3 already checked: fix the
+   cause in this pull request.
 4. Answer every finding on this pull request in the format the installed
    section defines. This is the first record of that format in the
    repository's review learnings, so it sets the pattern.
