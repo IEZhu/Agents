@@ -1,0 +1,106 @@
+# Review guidance for the csharp stack, grounded in bot findings on this
+# owner's repositories. See docs/review-config.md and the templates README.
+- path: "**/*.cs"
+  instructions: >-
+    Inspect the diagnostics of every method that touches the database, degrades to a
+    fallback, or records a decision. A method that issues Entity Framework Core or raw
+    MySQL calls without try catch and ILogger error logging, while sibling methods in the
+    same class wrap their access that way, is a defect, because a transient connection
+    failure then escapes one path and is reported on another; ask for the same try catch
+    with an ILogger error log that names the ticker and the operation. A class that catches
+    exceptions on a fallback or per ticker path while declaring no ILogger dependency at
+    all is a defect; ask for constructor injection of ILogger<T> as an optional nullable
+    parameter, as this project requires, and for a warning that names the failing ticker
+    and the degraded path, so a rejected stock can be explained afterwards. Read the log
+    statements themselves: a message template that repeats a value already supplied as a
+    structured parameter, and a nullable decimal formatted with :F2 so that null renders as
+    an empty string, both make the record unreadable, so ask for each value once and for an
+    explicit placeholder such as n/a when the value is null. Finally, trace every
+    collection of audit or rejection reasons to a consumer: when nothing in the call graph
+    writes it into the report, the spreadsheet or the user visible log, the promised audit
+    trail does not exist, so ask for it to be emitted or removed, and flag a reason string
+    that misnames the stage which actually failed.
+- path: "**/*.Calculation/**/*.cs"
+  instructions: >-
+    Inspect every query built on the Entity Framework Core DbContext here, for example over
+    income statements, balance sheet statements, dividends or quotes. A query that
+    materializes entities with ToListAsync, FirstOrDefaultAsync or a similar call, whose
+    results are only read or projected and are never written back, is a defect when it
+    omits AsNoTracking, because change tracking then retains every loaded statement row for
+    no benefit; this project states that read only operations use AsNoTracking. Name the
+    query and ask for AsNoTracking, or for AsNoTrackingWithIdentityResolution when the
+    materialized graph needs shared references. Check that filters meant to run in the
+    database can translate to SQL, since an untranslatable predicate quietly moves the work
+    into memory over the whole table; ask for a translatable form or for an explicit
+    AsEnumerable boundary. Inspect loops as well: awaiting one query per ticker inside
+    foreach, where each iteration issues its own income, balance and dividend round trips,
+    multiplies latency by the size of the universe and is a defect when the data access
+    class already offers a batch method that accepts a collection of tickers; ask for a
+    single batch call grouped in memory, or for a comment that explains why per ticker
+    sequencing is required.
+- path: "**/CalculationService/*.cs"
+  instructions: >-
+    Inspect every query here that reconstructs the state of the world at a past as of date.
+    Filtering only by AcceptedDate is a defect: a row whose period end Date lies in the
+    future while its AcceptedDate falls inside the window, which happens with provider data
+    errors, then enters the calculation and leaks look ahead information into a backtest.
+    Require an upper bound on the period end as well, for example Date less than or equal
+    to the as of date, beside the AcceptedDate bound. Compare the batch overload with the
+    single ticker method line by line, because the batch path is usually the one that keeps
+    the AcceptedDate bound alone, and confirm that both order and deduplicate restatements
+    identically. Verify that the as of date is passed down rather than recomputed from the
+    current clock inside the query, that the comparison uses the same date kind and
+    precision as the stored column, and that a ticker with no row inside the window yields
+    no data instead of quietly falling back to the newest available row. When you report
+    such a finding, describe the concrete row that would leak, for example a statement with
+    a period end after the as of date and an acceptance date before it.
+- path: "**/CalculationEntities/*.cs"
+  instructions: >-
+    Inspect every growth, forecast or compounding expression in these metric classes. A
+    growth factor formed as 1.0 plus an average growth rate can be negative when the
+    underlying series collapses, so raising it to an even power with Math.Pow, or
+    multiplying it by itself, turns a collapse into a positive forecast. Treat an unclamped
+    base as a defect and ask for the base to be clamped, for example with Math.Max(0.0, 1.0
+    + averageGrowth), before compounding, or for the declining case to be returned
+    explicitly. Then check what the clamp makes unreachable: once the base is non negative
+    and the last dividend is positive, a later guard such as a test for a forecast below
+    zero is dead code and the comment beside it about a steep decline is wrong, so ask for
+    that branch to be removed or replaced by an explicit check for NaN and Infinity. Verify
+    that every division by a price, an average dividend, total assets or revenue is guarded
+    against zero and against a missing period, and that a constant exponent of two is
+    written as a multiplication rather than Math.Pow in this per ticker hot path. State the
+    numeric example that produces the wrong sign or magnitude when you report the finding.
+- path: "**/Recommendation/*.cs"
+  instructions: >-
+    Inspect how this code chooses the current financial statement and how it counts
+    consecutive years. Selecting the current income or balance statement by the maximum
+    AcceptedDate is a defect, because a restatement of an older period carries a later
+    acceptance date but an earlier period end, so the selected record can be older than the
+    newest period and every window anchored on it, such as a five year comparison or a
+    return on assets average bounded by that period end, is truncated or shifted. Ask for
+    selection by the maximum period end Date with AcceptedDate used only as a tie breaker,
+    and ask for income and balance to be selected the same way so both metrics describe the
+    same period. Inspect streak and continuity counters next: iterating only over the years
+    present in a dictionary treats a missing year as continuous, so dividends in 2024 and
+    2022 with nothing in 2023 are counted as a two year streak; require the counter to walk
+    consecutive years and to stop at the first missing intermediate year, and give the gap
+    example in the finding. Confirm that a target date for a five year window is derived
+    from the period end you have just validated and not from a different statement type.
+- path: "**/*.Tests/**/*.cs"
+  instructions: >-
+    Inspect the mocked data that each calculation test feeds into the production method and
+    prove that the method under test really reaches the assertion. Leaving a date property
+    such as Quote.Date at its default DateTime.MinValue is a defect when the production
+    code sorts or samples by that date, because the sampling degenerates and the test
+    passes without exercising the logic; ask for realistic dates that match the configured
+    start date and the one year step. Count the statements supplied against the configured
+    period: when the implementation iterates up to the count minus one, a period of three
+    needs four income statements, and supplying three only passes through a side effect of
+    the current loop. Check the density of a mocked price series against the number of
+    aggregated dividend years, because the production sampler walks a shrinking yearly
+    window and can extract fewer prices than there are dividend years, in which case the
+    method returns zeros early and a test that asserts zero passes for the wrong reason; ask
+    for a denser series or a shorter period, and for at least one assertion on a non zero
+    expected value. Recompute the arithmetic in any explanatory comment against the
+    production formula, since a wrong intermediate value there usually means the asserted
+    number is wrong too.

@@ -1,0 +1,81 @@
+# Universal review guidance: defect classes that recurred in every stack.
+# Source: 3328 CodeRabbit, Copilot and Cursor findings on 381 pull requests
+# across 22 repositories, March to October 2026. See docs/review-config.md.
+- path: "**/*"
+  instructions: |-
+    Contracts and conditions. Report these as defects, not as style notes.
+    1. Two code paths, surfaces or documents that must agree have drifted apart.
+    Check every place the same rule is implemented or stated: a preview endpoint
+    and the endpoint that accepts the same token, a handler and the template it
+    renders, a runtime instruction and the file that documents it. Name both
+    places and the input that makes them disagree.
+    2. An absolute requirement arrives without its exception branch. A statement
+    that something always happens, is always logged, or is always included is a
+    defect when another part of the same change defines a case where it cannot.
+    Ask for the exception to be stated where the requirement is stated.
+    3. A required step cannot be completed with the data at hand, so the author
+    or the model has to invent a value. A mandatory confirmation against a
+    resource that may not exist, or a target for a metric that has no observed
+    value, belongs behind an explicit "when available" branch.
+    4. A metric or badge that describes a selected period is computed from a
+    cumulative row or an unfiltered aggregate. Period-scoped output must come
+    from period-scoped input.
+- path: "**/*"
+  instructions: |-
+    Input, failure and interpolation.
+    1. Boundary input is accepted without validation: negative, zero, empty,
+    absent, far larger than expected, or syntactically valid but semantically
+    impossible. Name the input and the observable consequence, for example a
+    negative limit that silently returns all but the last rows, or an unbounded
+    count that inflates a request.
+    2. Error handling fails open. One malformed entry aborts an enumeration that
+    should skip it and report it; a failure is converted into a warning and the
+    caller still reports success; an exception is swallowed with no log and no
+    signal. State which failure becomes invisible.
+    3. A value is interpolated into another format without that format's own
+    escaping. Text placed into a shell command, a sed replacement, SQL, a
+    configuration file, a URL path segment, HTML or a regular expression needs
+    the target format's quoting, not the source language's. Name a concrete
+    character that breaks it.
+    4. A deadline or budget is advertised but not propagated. When a handler
+    promises a limit and calls several operations with their own fixed timeouts,
+    show the arithmetic that exceeds the promise.
+- path: "**/*"
+  instructions: |-
+    Irreversible actions and disclosure.
+    1. A destructive or irreversible action runs without a verified rollback
+    point: a backup that is written but never read back, a deletion allowlist
+    that matches by prefix instead of by a known inventory, a rollback that
+    reverts state the operation never created. Unknown entries must keep the
+    data, not remove it.
+    2. The decision to delete, overwrite or publish depends on inherited
+    environment or global configuration that the caller does not control. Check
+    for inherited variables and user-level tool settings that change what the
+    probe reports, and require them to be neutralised before the decision.
+    3. Secrets or user text reach a place that is not audited: a passphrase in a
+    process environment or command argument, a masking routine that stops at the
+    first whitespace or handles only unquoted values, prompt or message text in
+    diagnostic output, a default credential used when an environment variable
+    arrives empty.
+    4. A write leaves the repository or account for an audience that was not
+    checked at the moment of the write. Require the destination and payload
+    classification to be rechecked immediately before each external write.
+- path: "**/*"
+  instructions: |-
+    Evidence the change actually holds.
+    1. The change has no regression test for the exact condition that triggers
+    the defect. A test that exercises the happy path again is not coverage for a
+    CRLF journal, a platform where a stat field is zero, one malformed file among
+    valid ones, more than one page of results, or a clock the test itself froze.
+    Name the fixture the test needs.
+    2. Documentation, metadata, help text or a docstring contradicts the code in
+    the same change: a declared minimum version the dependency does not support,
+    a help string naming a script that does not exist, a described contract the
+    function no longer honours, a pull request description that states a narrower
+    change than the diff makes.
+    3. A query or scan grows with total stored data instead of the requested
+    slice, and runs on every request. Ask for the filter, the pagination or the
+    bound, and say which call site pays the cost.
+    4. A command that reads from an external tool relies on that tool's default
+    limit or default output. Default page sizes, default untracked-file settings
+    and default status filters silently truncate; require the explicit flag.
