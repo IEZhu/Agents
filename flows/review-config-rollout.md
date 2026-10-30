@@ -68,8 +68,11 @@ Never commit the installation on the target's default branch directly.
 
 Read the reported stack list. When detection is wrong, for example two
 incidental `.c` files selecting `c-embedded`, rerun with `--stacks`. Then
-install for real, adding the options step 1 established, and commit the two
-files with a `chore(review):` subject.
+install for real, adding the options step 1 established, and commit the files
+the installer reported as written with a `chore(review):` subject. That is
+`.coderabbit.yaml` plus the instruction file this run selected, which is
+`AGENTS.md` by default, the path given to `--agents-md`, or nothing at all
+under `--no-agents-md`.
 
 ## 4. Verify, do not assume
 
@@ -108,12 +111,15 @@ Report in the invocation language:
 
 ## Completion criteria
 
-- The target carries a `.coderabbit.yaml` with the managed header and the
-  review-discipline section between its markers in the instruction file, or the
-  flow reports why one of them was deliberately skipped.
+- The target carries a `.coderabbit.yaml` with the managed header, and the
+  review-discipline section sits between its markers in the instruction file
+  this run selected, or the flow reports why one of them was deliberately
+  skipped. A `--no-agents-md` run installs the configuration alone, and
+  `--agents-md PATH` puts the section in that file instead of `AGENTS.md`.
 - The base branch list covers the bases the repository's pull requests use.
 - An automated review arrived on the pull request, or the report states the
   exact reason it did not.
-- Nothing in the target changed beyond those two files and the backups the
-  installer writes beside a file it replaced, named `<file>.backup.<digits>`.
-  Leave those backups out of the commit, and tell the caller they are there.
+- Nothing in the target changed beyond the selected target files and the
+  backups the installer writes beside a file it replaced, named
+  `<file>.backup.<digits>`. Leave those backups out of the commit, and tell
+  the caller they are there.
