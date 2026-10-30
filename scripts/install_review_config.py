@@ -249,10 +249,23 @@ def render_section(content: bytes, section: bytes, path: Path) -> bytes:
     return tail + block + b"\n"
 
 
+def report_partial(installed: Sequence[str]) -> None:
+    """Name what a failed run already wrote, so the caller is not left guessing."""
+    if installed:
+        print("Installed before the failure: " + ", ".join(installed), file=sys.stderr)
+
+
 def install_config(repo: Path, text: str, force: bool, dry_run: bool) -> str:
     """Write the composed configuration, refusing an unmanaged existing file."""
     target = repo / CONFIG_NAME
-    if target.exists() and not target.is_symlink():
+    # Refuse a symlink before the dry-run return, as install_section does: the
+    # write helper refuses it too, but only on the real run, so --dry-run used to
+    # promise a write the run then declined, and the managed-header gate below was
+    # skipped as well.
+    if target.is_symlink():
+        raise InstallError(
+            f"{target} is a symlink. Edit its target directly, or remove the link.")
+    if target.exists():
         current = target.read_text(encoding="utf-8", errors="replace")
         if MANAGED_MARK not in current and not force:
             raise InstallError(
@@ -364,12 +377,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"ERROR: {repo} is not a directory.", file=sys.stderr)
         return 1
 
+    installed: list[str] = []
     try:
         md_path = None if args.no_agents_md else instruction_path(repo, args.agents_md)
         # One file list drives detection and the guideline patterns, and it holds the
         # instruction file this run creates. Deriving either from the files present at
         # that moment made the next identical run compose a different configuration.
-        paths = repository_files(repo)
+        # The configuration is this installer's own artifact, not one of the
+        # target's files. Counted, its `.yaml` suffix selects the iac-ci stack on
+        # the next run of a target that already holds one other iac-ci file, such
+        # as a pyproject.toml, and the configuration never converges.
+        paths = [path for path in repository_files(repo) if path != CONFIG_NAME]
         if md_path is not None and (md_path.exists() or args.create_agents_md):
             # The instruction file belongs to the target's file set whether it is
             # tracked yet or not: the installer writes it and the commit follows.
@@ -381,7 +399,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 selected = None
             if selected is not None and selected not in paths:
                 paths = [*paths, selected]
-        stacks = args.stacks if args.stacks is not None else detect_stacks(paths)
+        # Sorted, so two invocations that name the same stacks in another order
+        # compose the same bytes. detect_stacks already returns them sorted.
+        stacks = sorted(set(args.stacks)) if args.stacks is not None else detect_stacks(paths)
         unknown = sorted(set(stacks) - set(available_stacks()))
         if unknown:
             raise InstallError(
@@ -392,18 +412,27 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(text, end="")
             return 0
         if md_path is not None:
-            # Surface a missing file or a broken marker pair before the first write,
-            # so a refusal cannot leave the configuration installed on its own.
+            # Surface a missing file, a symlink or a broken marker pair before the
+            # first write, so a refusal cannot leave one file installed alone.
             install_section(md_path, args.create_agents_md, dry_run=True)
-        config_state = install_config(repo, text, args.force, args.dry_run)
+        # The instruction file goes first: it is the write that can still fail on a
+        # directory the preflight cannot test, such as one that is not writable, and
+        # failing before the configuration exists keeps the refusal clean.
         section_state = "skipped"
         if md_path is not None:
             section_state = install_section(md_path, args.create_agents_md, args.dry_run)
+            if section_state == "written":
+                installed.append(str(md_path))
+        config_state = install_config(repo, text, args.force, args.dry_run)
+        if config_state == "written":
+            installed.append(str(repo / CONFIG_NAME))
     except InstallError as error:
         print(f"ERROR: {error}", file=sys.stderr)
+        report_partial(installed)
         return 1
     except (OSError, ValueError, yaml.YAMLError) as error:
         print(f"ERROR: {error}", file=sys.stderr)
+        report_partial(installed)
         return 1
 
     print(f"Stacks: {', '.join([UNIVERSAL_STACK, *stacks])}")

@@ -47,7 +47,11 @@ unchanged.
 
 The installer makes no network call and reads nothing outside the templates and
 the target repository. It backs up a file it replaces, through the same helper
-the instruction installers use, and refuses to write through a symlink.
+the instruction installers use, and refuses to write through a symlink, either
+file's own or a directory above the instruction file. It writes the instruction
+file first and the configuration second, so a write that fails on a directory
+it cannot test beforehand leaves neither file half installed; if a later write
+still fails, the error names what the run had already installed.
 
 ## The stacks
 

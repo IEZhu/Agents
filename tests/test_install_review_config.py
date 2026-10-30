@@ -1,5 +1,6 @@
 """Verify stack detection, composed review configuration and managed-section writes."""
 import importlib.util
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -187,6 +188,61 @@ def test_creating_the_instruction_file_keeps_the_install_idempotent(tmp_path, ca
     assert "already current" in second
     # A rewrite would have left a backup beside the configuration.
     assert not list(repo.glob(f"{installer.CONFIG_NAME}.backup.*"))
+
+
+def test_the_written_configuration_is_not_counted_as_a_target_file(tmp_path, capsys):
+    # One iac-ci file is present; the written .coderabbit.yaml must not be the second.
+    repo = git_repo(tmp_path / "repo", {
+        "a.py": "x\n", "b.py": "x\n", "pyproject.toml": "[project]\n", "AGENTS.md": "# r\n"})
+
+    assert installer.main(["--repo", str(repo)]) == 0
+    first = capsys.readouterr().out
+    # The flow commits the installed files, so the next run sees it tracked.
+    subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
+
+    assert installer.main(["--repo", str(repo)]) == 0
+    second = capsys.readouterr().out
+
+    assert "iac-ci" not in first
+    assert "iac-ci" not in second
+    assert "already current" in second
+    assert not list(repo.glob(f"{installer.CONFIG_NAME}.backup.*"))
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores the directory mode")
+def test_an_unwritable_instruction_directory_installs_nothing(tmp_path, capsys):
+    repo = git_repo(tmp_path / "repo", {"a.py": "x\n", "docs/CONTRIBUTING.md": "# c\n"})
+    (repo / "docs").chmod(0o500)
+    try:
+        exit_code = installer.main(["--repo", str(repo), "--agents-md", "docs/CONTRIBUTING.md"])
+    finally:
+        (repo / "docs").chmod(0o700)
+
+    assert exit_code == 1
+    assert "Installed before the failure" not in capsys.readouterr().err
+    # The instruction file is written first, so the configuration never appeared.
+    assert not (repo / installer.CONFIG_NAME).exists()
+
+
+def test_a_symlinked_configuration_is_refused_in_the_dry_run(tmp_path, capsys):
+    repo = git_repo(tmp_path / "repo", {"a.py": "x\n", "AGENTS.md": "# r\n"})
+    (repo / installer.CONFIG_NAME).symlink_to(tmp_path / "elsewhere.yaml")
+
+    assert installer.main(["--repo", str(repo), "--dry-run"]) == 1
+
+    assert "symlink" in capsys.readouterr().err
+    assert not (tmp_path / "elsewhere.yaml").exists()
+
+
+def test_the_stack_order_does_not_change_the_composed_bytes(tmp_path, capsys):
+    repo = git_repo(tmp_path / "repo", {"a.py": "x\n", "AGENTS.md": "# r\n"})
+
+    assert installer.main(["--repo", str(repo), "--stacks", "python,go", "--print"]) == 0
+    one = capsys.readouterr().out
+    assert installer.main(["--repo", str(repo), "--stacks", "go,python", "--print"]) == 0
+    other = capsys.readouterr().out
+
+    assert one == other
 
 
 def test_glob_regex_spans_directories_only_for_a_double_star():
