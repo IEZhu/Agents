@@ -61,15 +61,41 @@ Never commit the installation on the target's default branch directly.
 
 ## 3. Install
 
+Map the target's state from step 1 to the options before the first run. The
+installer refuses rather than guesses, so a missing flag ends the run before it
+reports anything.
+
+| State established in step 1 | Option for both runs |
+|---|---|
+| The instruction file for this run exists | none |
+| It does not exist and the section belongs in it | `--create-agents-md` |
+| The target should carry the configuration only | `--no-agents-md` |
+| `.coderabbit.yaml` exists and carries the installer's managed header | none; it is refreshed in place |
+| `.coderabbit.yaml` exists without that header | read it, report what it sets, get the owner's decision, then `--force` |
+| The repository states its own documentation language | `--language <code>` |
+| Pull requests target a branch other than the default | `--base-branch` or `--base-branch-regex` |
+| Detection picks a stack the repository barely uses | `--stacks` |
+
+Keep the instruction file inside the target. This flow commits what it changed,
+so an absolute `--agents-md` outside the checkout can never be part of the
+target's pull request. When the owner wants the section in a file outside the
+target, install the configuration here with `--no-agents-md`, write that file
+in its own place, and report that it is not covered by this pull request.
+
 ```bash
 <agents-core>/.venv/bin/python <agents-core>/scripts/install_review_config.py \
   --repo <target> --dry-run
 ```
 
 Read the reported stack list. When detection is wrong, for example two
-incidental `.c` files selecting `c-embedded`, rerun with `--stacks`. Then
-install for real, adding the options step 1 established, and commit the files
-the installer reported as written with a `chore(review):` subject. That is
+incidental `.c` files selecting `c-embedded`, rerun with `--stacks`.
+
+When the dry run reports `already current` for every target file, the target
+already carries this configuration: report that, make no commit, and finish
+without steps 4 and 5. There is nothing to open a pull request for.
+
+Otherwise install for real with the same options and commit the files the
+installer reported as written, with a `chore(review):` subject. Those are
 `.coderabbit.yaml` plus the instruction file this run selected, which is
 `AGENTS.md` by default, the path given to `--agents-md`, or nothing at all
 under `--no-agents-md`.
@@ -103,7 +129,9 @@ installation only takes effect for a branch that already contains it.
 Report in the invocation language:
 
 - the stacks installed and the options used, with the facts from step 1 that
-  justified them;
+  justified them, or that the target was already current and nothing changed;
+- any instruction file written outside the target, which this pull request
+  does not cover;
 - whether a review arrived on the pull request, quoting its first finding or
   stating that none was reported;
 - the pull request link, left unmerged for the owner;
@@ -111,6 +139,8 @@ Report in the invocation language:
 
 ## Completion criteria
 
+- An already-current target ends the run at step 3: the report says so, no
+  commit and no pull request exist, and the criteria below do not apply.
 - The target carries a `.coderabbit.yaml` with the managed header, and the
   review-discipline section sits between its markers in the instruction file
   this run selected, or the flow reports why one of them was deliberately
