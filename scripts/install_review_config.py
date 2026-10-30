@@ -444,9 +444,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             # Surface a missing file, a symlink or a broken marker pair before the
             # first write, so a refusal cannot leave one file installed alone.
             install_section(md_path, args.create_agents_md, dry_run=True)
-        # The instruction file goes first: it is the write that can still fail on a
-        # directory the preflight cannot test, such as one that is not writable, and
-        # failing before the configuration exists keeps the refusal clean.
+        # Both destinations are preflighted before either is written: an unmanaged
+        # configuration without --force, or an unsuitable node at it, used to refuse
+        # only after the instruction file had been written.
+        install_config(repo, text, args.force, dry_run=True)
+        # The instruction file is written first, so that the remaining failure the
+        # preflight cannot test, a write that fails on the destination itself, hits
+        # the file whose directory the caller chose. A failure of the second write
+        # still leaves the first installed, which report_partial names.
         section_state = "skipped"
         if md_path is not None:
             section_state = install_section(md_path, args.create_agents_md, args.dry_run)

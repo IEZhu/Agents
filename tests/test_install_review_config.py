@@ -145,8 +145,13 @@ def test_quoting_the_managed_line_does_not_make_a_file_the_installers_own(tmp_pa
 
     assert installer.main(["--repo", str(repo)]) == 1
 
-    assert "not written by this installer" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "not written by this installer" in err
     assert (repo / installer.CONFIG_NAME).read_text(encoding="utf-8") == hand_written
+    # A refused configuration must not leave the instruction file rewritten either.
+    assert (repo / "AGENTS.md").read_text(encoding="utf-8") == "# r\n"
+    assert not list(repo.glob("AGENTS.md.backup.*"))
+    assert "Installed before the failure" not in err
 
 
 def test_the_walk_does_not_count_a_link_to_a_file_outside_the_target(tmp_path, monkeypatch):
