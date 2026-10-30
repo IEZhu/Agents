@@ -121,8 +121,8 @@ def repository_files(repo: Path) -> list[str]:
         completed = subprocess.run(
             # core.fsmonitor= on the command line overrides the target's own
             # .git/config, which git would otherwise run as this user. -v tags
-            # every record with its index flag, which is what tells an entry git
-            # chose not to materialise from one that is simply not there.
+            # every record with its index flag, which is how a path git was told
+            # to leave out of the working tree can be reported rather than guessed.
             ["git", "-c", "core.fsmonitor=", "-C", str(repo), "ls-files", "-v", "-z"],
             capture_output=True, check=True, text=True, env=environment,
             timeout=GIT_LIST_TIMEOUT)
@@ -140,22 +140,39 @@ def repository_files(repo: Path) -> list[str]:
                 continue
             walked.append(str(relative))
         return walked
-    listed = []
+    listed: list[str] = []
+    omitted: list[str] = []
+    seen: set[str] = set()
     for record in completed.stdout.split("\0"):
         if not record:
             continue
-        # Each -v record is the one-letter flag, a space, then the path.
+        # Each -v record is the one-letter flag, a space, then the path. An
+        # unmerged path arrives once per stage, so the same name repeats three
+        # times during a conflict and would count three times toward its stack.
         flag, _, entry = record.partition(" ")
+        if entry in seen:
+            continue
+        seen.add(entry)
         # A .git file holding `gitdir: elsewhere` points ls-files at another
-        # repository's index, so keep only entries that are files of this target;
-        # a tracked link counts no more here than it does on the walk above.
-        # Skip-worktree is the exception, lowercased when it is also
-        # assume-unchanged: git left those paths out of the working tree on
-        # purpose, and the reviewer still reads the whole repository, so dropping
-        # them would silently narrow the stacks and the guideline patterns of a
-        # sparse checkout.
-        if flag.upper() == "S" or is_own_file(repo / entry):
+        # repository's index, so the filesystem decides what this target holds,
+        # not the index; a tracked link counts no more here than on the walk above.
+        if is_own_file(repo / entry):
             listed.append(entry)
+        elif flag.upper() == "S":
+            # Skip-worktree, lowercased when the path is also assume-unchanged:
+            # git was told to leave it out of the working tree, as a sparse
+            # checkout does. Adding it back on the flag alone would let a hostile
+            # index name paths the filesystem cannot confirm, which is the vector
+            # the existence test above exists to close, so report the gap instead.
+            omitted.append(entry)
+    if omitted:
+        shown = ", ".join(sorted(omitted)[:3])
+        if len(omitted) > 3:
+            shown += ", ..."
+        print(f"WARNING: {len(omitted)} tracked paths are marked skip-worktree and are "
+              f"not in the working tree, so their stacks and guideline patterns are "
+              f"missing from the composed configuration: {shown}. Install from a full "
+              f"checkout, or name the stacks with --stacks.", file=sys.stderr)
     return listed
 
 

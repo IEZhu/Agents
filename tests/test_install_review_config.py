@@ -205,7 +205,7 @@ def test_a_wedged_git_listing_falls_back_to_the_walk(tmp_path, monkeypatch):
     assert installer.detect_stacks(listed) == ["python"]
 
 
-def test_a_path_git_did_not_materialise_keeps_its_stack(tmp_path):
+def test_a_path_git_did_not_materialise_is_reported_not_guessed(tmp_path, capsys):
     repo = tmp_path / "repo"
     (repo / "backend").mkdir(parents=True)
     (repo / "docs").mkdir()
@@ -223,13 +223,54 @@ def test_a_path_git_did_not_materialise_keeps_its_stack(tmp_path):
 
     listed = installer.repository_files(repo)
 
-    # git marks these entries skip-worktree rather than removing them, and the
-    # reviewer reads the whole repository, so their stack and their guideline
-    # pattern must survive a sparse checkout.
-    assert sorted(listed) == ["backend/a.py", "backend/b.py",
-                              "docs/one.md", "docs/two.md"]
-    assert "docs-ai-instructions" in installer.detect_stacks(listed)
-    assert installer.guideline_patterns(["docs/**/*.md"], listed) == ["docs/**/*.md"]
+    # The filesystem decides what the target holds, because the index is what a
+    # hostile .git redirects. The paths git left out are therefore absent from the
+    # configuration, and the run says so instead of narrowing the stacks silently.
+    assert listed == ["backend/a.py", "backend/b.py"]
+    err = capsys.readouterr().err
+    assert "skip-worktree" in err
+    assert "docs/one.md" in err and "docs/two.md" in err
+    assert "--stacks" in err
+
+
+def test_a_redirect_cannot_add_paths_by_marking_them_skip_worktree(tmp_path, capsys):
+    # The regression this guards: honouring the flag to keep an unmaterialised
+    # path reopened the gitdir redirect, because a foreign index can set it.
+    other = git_repo(tmp_path / "other", {"x.bsl": "x\n", "y.sql": "select 1;\n",
+                                          "z.py": "x\n"})
+    subprocess.run(["git", "update-index", "--skip-worktree", "x.bsl", "y.sql"],
+                   cwd=other, check=True)
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "a.py").write_text("x\n", encoding="utf-8")
+    (repo / ".git").write_text(f"gitdir: {other / '.git'}\n", encoding="utf-8")
+
+    listed = installer.repository_files(repo)
+
+    assert listed == []
+    assert installer.detect_stacks(listed) == []
+    # The gap is still reported, so a redirect cannot pass silently either.
+    assert "skip-worktree" in capsys.readouterr().err
+
+
+def test_a_conflicted_path_counts_once_toward_its_stack(tmp_path):
+    repo = git_repo(tmp_path / "repo", {"a.c": "base\n"})
+    commit = ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q"]
+    subprocess.run([*commit, "-m", "base"], cwd=repo, check=True)
+    subprocess.run(["git", "checkout", "-q", "-b", "side"], cwd=repo, check=True)
+    (repo / "a.c").write_text("side\n", encoding="utf-8")
+    subprocess.run([*commit, "-am", "side"], cwd=repo, check=True)
+    subprocess.run(["git", "checkout", "-q", "-"], cwd=repo, check=True)
+    (repo / "a.c").write_text("main\n", encoding="utf-8")
+    subprocess.run([*commit, "-am", "main"], cwd=repo, check=True)
+    subprocess.run(["git", "merge", "side"], cwd=repo, check=False, capture_output=True)
+
+    listed = installer.repository_files(repo)
+
+    # ls-files reports an unmerged path once per stage, and c-embedded needs two
+    # files, so the three records used to select a stack from one conflicted file.
+    assert listed == ["a.c"]
+    assert installer.detect_stacks(listed) == []
 
 
 def test_an_in_target_hard_link_is_refused_without_blaming_outside_content(tmp_path, capsys):

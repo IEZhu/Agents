@@ -182,10 +182,14 @@ upstream would have to carry.
   matches what the reviewer sees on the branch. Outside a Git repository the
   list is the walked tree, minus dependency and build directories.
 - A tracked symlink is not counted, on either list, because it may point at a
-  file outside the target. A path git marked skip-worktree is counted although
-  it is not in the working tree, so a sparse checkout keeps the stacks and the
-  guideline patterns of the parts it did not materialise, which is what the
-  reviewer reads anyway.
+  file outside the target. A path the index marks skip-worktree, as a sparse
+  checkout does, is not counted either: the filesystem decides what the target
+  holds, because the index is exactly what a hostile `.git` redirects. The run
+  prints a warning naming those paths, so a sparse checkout narrows the
+  configuration loudly instead of silently; install from a full checkout, or
+  name the stacks with `--stacks`.
+- A path in a merge conflict is listed once per stage. It counts once, so three
+  records from one conflicted file cannot reach a two-file stack threshold.
 - The destination checks run before the write and not through an open
   descriptor, so a process writing inside the target during the run can still
   put another node at a destination that has already passed. Install into a
