@@ -94,6 +94,12 @@ When the dry run reports `already current` for every target file, the target
 already carries this configuration: report that, make no commit, and finish
 without steps 4 and 5. There is nothing to open a pull request for.
 
+Take that exit only when the owner asked for no instruction file outside the
+target. With an external file the installer checks `.coderabbit.yaml` alone, so
+`already current` says nothing about that file: write or refresh it first,
+report its state, and only then end the run. Otherwise the external file can
+stay missing or stale while the flow reports completion.
+
 Otherwise install for real with the same options and commit the files the
 installer reported as written, with a `chore(review):` subject. Those are
 `.coderabbit.yaml` plus the instruction file this run selected, which is

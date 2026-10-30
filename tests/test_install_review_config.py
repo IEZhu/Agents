@@ -169,6 +169,25 @@ def test_explicit_regex_reaches_the_configuration_unanchored():
     assert installer.base_branch_patterns(["dev"], ["^v2-.*$"]) == ["^dev$", "^v2-.*$"]
 
 
+def test_creating_the_instruction_file_keeps_the_install_idempotent(tmp_path, capsys):
+    # The target carries CLAUDE.md but not AGENTS.md, which --create-agents-md adds.
+    repo = git_repo(tmp_path / "repo", {"a.py": "x\n", "b.py": "x\n", "CLAUDE.md": "# c\n"})
+
+    assert installer.main(["--repo", str(repo), "--create-agents-md"]) == 0
+    capsys.readouterr()
+    first = (repo / installer.CONFIG_NAME).read_bytes()
+
+    assert installer.main(["--repo", str(repo), "--create-agents-md"]) == 0
+    second = capsys.readouterr().out
+
+    patterns = yaml.safe_load(first)["knowledge_base"]["code_guidelines"]["filePatterns"]
+    assert "AGENTS.md" in patterns and "CLAUDE.md" in patterns
+    assert (repo / installer.CONFIG_NAME).read_bytes() == first
+    assert "already current" in second
+    # A rewrite would have left a backup beside the configuration.
+    assert not list(repo.glob(f"{installer.CONFIG_NAME}.backup.*"))
+
+
 def test_absent_guideline_files_drop_the_pattern_list(tmp_path):
     repo = git_repo(tmp_path / "repo", {"a.py": "x\n"})
 

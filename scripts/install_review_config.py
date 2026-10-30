@@ -2,6 +2,7 @@
 """Install the shared review configuration and review discipline in a repository."""
 import argparse
 from collections import Counter
+from fnmatch import fnmatch
 import os
 from pathlib import Path
 import re
@@ -155,11 +156,29 @@ def load_instructions(stacks: Iterable[str]) -> list[dict]:
     return entries
 
 
-def guideline_patterns(repo: Path, patterns: Sequence[str]) -> list[str]:
-    """Keep the guideline patterns that match a file present in the target."""
+def guideline_patterns(repo: Path, patterns: Sequence[str],
+                       pending: Path | None = None) -> list[str]:
+    """Keep the guideline patterns matched by a file the target has or will have.
+
+    `pending` is the instruction file this run creates. Without it the first run
+    of a target that carries CLAUDE.md but no AGENTS.md would drop the AGENTS.md
+    pattern and the next identical run would add it back, so the installer would
+    rewrite the configuration and leave a backup instead of reporting it current.
+    A pending file under a wildcard pattern is matched with `fnmatch`, which has
+    no `**` semantics, so a nested pending file keeps its pattern only when some
+    other file already matches it.
+    """
+    relative = None
+    if pending is not None:
+        try:
+            relative = pending.relative_to(repo).as_posix()
+        except ValueError:
+            relative = None
     kept = []
     for pattern in patterns:
-        if "*" in pattern:
+        if relative is not None and fnmatch(relative, pattern):
+            kept.append(pattern)
+        elif "*" in pattern:
             if next(repo.glob(pattern), None) is not None:
                 kept.append(pattern)
         elif (repo / pattern).is_file():
@@ -174,7 +193,8 @@ def base_branch_patterns(names: Sequence[str], regexes: Sequence[str]) -> list[s
 
 
 def compose_config(repo: Path, stacks: Sequence[str], language: str | None,
-                   profile: str | None, base_branches: Sequence[str]) -> str:
+                   profile: str | None, base_branches: Sequence[str],
+                   pending_instructions: Path | None = None) -> str:
     """Render the complete .coderabbit.yaml text for the target repository."""
     config = yaml.safe_load(BASE_TEMPLATE.read_text(encoding="utf-8"))
     if not isinstance(config, dict):
@@ -186,7 +206,8 @@ def compose_config(repo: Path, stacks: Sequence[str], language: str | None,
     if base_branches:
         config["reviews"]["auto_review"]["base_branches"] = list(base_branches)
     config["reviews"]["path_instructions"] = load_instructions(stacks)
-    kept = guideline_patterns(repo, config["knowledge_base"]["code_guidelines"]["filePatterns"])
+    kept = guideline_patterns(repo, config["knowledge_base"]["code_guidelines"]["filePatterns"],
+                              pending_instructions)
     if kept:
         config["knowledge_base"]["code_guidelines"]["filePatterns"] = kept
     else:
@@ -342,11 +363,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             raise InstallError(
                 f"Unknown stacks: {', '.join(unknown)}. Run --list-stacks for the full set.")
         branches = base_branch_patterns(args.base_branches or [], args.base_branch_regexes or [])
-        text = compose_config(repo, stacks, args.language, args.profile, branches)
+        md_path = None if args.no_agents_md else instruction_path(repo, args.agents_md)
+        # The file this run creates counts as present, so a first run and the next
+        # identical one render the same guideline patterns.
+        pending = (md_path if md_path is not None and args.create_agents_md
+                   and not md_path.exists() else None)
+        text = compose_config(repo, stacks, args.language, args.profile, branches, pending)
         if args.print_config:
             print(text, end="")
             return 0
-        md_path = None if args.no_agents_md else instruction_path(repo, args.agents_md)
         if md_path is not None:
             # Surface a missing file or a broken marker pair before the first write,
             # so a refusal cannot leave the configuration installed on its own.
