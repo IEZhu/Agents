@@ -27,12 +27,16 @@ def make_symlink(link: Path, target: Path, **kwargs) -> None:
 
     Windows can create symlinks, but only with the create-symbolic-link right or
     Developer Mode, so a capability check belongs here rather than a blanket skip
-    that would stop these cases from ever running there.
+    that would stop these cases from ever running there. Only that one error is
+    hidden: skipping on any OSError would turn a broken fixture into a pass.
     """
     try:
         link.symlink_to(target, **kwargs)
-    except OSError:
-        if sys.platform == "win32":
+    except OSError as error:
+        # 1314 is ERROR_PRIVILEGE_NOT_HELD, which Windows raises without
+        # SeCreateSymbolicLinkPrivilege; winerror exists only there, so every
+        # other failure, on every platform, is re-raised as the failure it is.
+        if getattr(error, "winerror", None) == 1314:
             pytest.skip("creating a symlink needs a privilege this host withholds")
         raise
 
@@ -377,6 +381,26 @@ def test_a_name_that_is_not_utf_8_does_not_abort_the_listing(tmp_path, monkeypat
     assert "skip-worktree" in err
     assert r"docs/\udcff.md" in err
     assert "1 tracked path " in err, "the count and its noun have to agree"
+
+
+def test_the_symlink_helper_hides_only_the_windows_privilege_error(tmp_path, monkeypatch):
+    # The Windows branch is simulated, because this host raises neither error:
+    # what the test pins is that one error code is skipped and nothing else is.
+    def refuse(self, target, **kwargs):
+        raise OSError("the fixture is broken, not the privilege")
+
+    monkeypatch.setattr(Path, "symlink_to", refuse)
+    with pytest.raises(OSError):
+        make_symlink(tmp_path / "link", tmp_path / "target")
+
+    def withhold_privilege(self, target, **kwargs):
+        error = OSError("a required privilege is not held by the client")
+        error.winerror = 1314
+        raise error
+
+    monkeypatch.setattr(Path, "symlink_to", withhold_privilege)
+    with pytest.raises(pytest.skip.Exception):
+        make_symlink(tmp_path / "link", tmp_path / "target")
 
 
 def test_an_instruction_file_outside_the_target_is_reported(tmp_path, capsys):
