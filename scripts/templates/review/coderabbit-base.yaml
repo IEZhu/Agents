@@ -43,13 +43,17 @@ reviews:
 knowledge_base:
   code_guidelines:
     enabled: true
-    # The instruction files every AI client and CodeRabbit read. The installer
-    # keeps only the patterns that match a file in the target repository.
+    # The instruction files CodeRabbit applies as review criteria, so this holds
+    # standards only. docs/** is deliberately absent: the docs/**/*.md path
+    # instructions treat a design, plan or research document as claims to check
+    # against the code, and expect it to go stale, which is the opposite of a
+    # rule to enforce. A repository that keeps a real standard under docs/ adds
+    # that exact path. The installer keeps only the patterns that match a file
+    # in the target repository.
     filePatterns:
       - AGENTS.md
       - CLAUDE.md
       - .github/copilot-instructions.md
-      - docs/**/*.md
   learnings:
     # local keeps a repository's learnings inside it. Unrelated projects of one
     # owner should not teach each other their conventions.

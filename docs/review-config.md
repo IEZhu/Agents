@@ -23,6 +23,14 @@ findings on 381 pull requests across 22 repositories between March and October
   It is also where the reply format lives, and that format is what keeps a
   review cycle converging.
 
+`code_guidelines.filePatterns` holds standards only: `AGENTS.md`, `CLAUDE.md`
+and `.github/copilot-instructions.md`. Everything under `docs/` is deliberately
+absent, because the `docs/**/*.md` path instructions treat a design, plan or
+research document as claims to check against the code and expect it to go
+stale. Enforcing those as rules would hold a change to a plan that is itself
+out of date. A repository that keeps a real standard under `docs/` lists that
+exact path in the template.
+
 ## Install
 
 ```bash
@@ -171,7 +179,16 @@ upstream would have to carry.
 ## Limitations
 
 - The composed file replaces the managed file as a whole. Local edits belong in
-  the templates, not in the target, because the next run overwrites them.
+  the templates, not in the target, because the next run overwrites them. The
+  managed section says so too, and a finding against it is a finding against
+  `scripts/templates/review/review-discipline.md`: fix it there and rerun the
+  installer.
+- Every class the universal fragment tells the reviewer to report must also
+  reach the author through the discipline section, or a self-review passes while
+  the reviewer still files findings in that class.
+  `tests/test_install_review_config.py` checks that correspondence by phrase,
+  with an explicit mapping, so adding a class without delivering it fails the
+  suite.
 - Stack detection counts file suffixes: two matching files select a stack, and
   one is enough for `bsl-1c` and `sql`, which no linter covers. A repository
   with two incidental `.c` files selects `c-embedded`, and a single stray
