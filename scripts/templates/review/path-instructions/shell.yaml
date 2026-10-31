@@ -1,0 +1,118 @@
+# Review guidance for the shell stack, grounded in bot findings on this
+# owner's repositories. See docs/review-config.md and the templates README.
+- path: "**/*.sh"
+  instructions: >-
+    Check that a failure reaches the exit status the caller inspects. Inspect every function whose
+    caller treats its return value as a step result, and every pipeline or command substitution whose
+    status or output drives a decision. It is a defect when the last command of such a function is
+    `true`, `echo`, `printf`, a logging helper, or a command ending in `|| true`, because the function
+    then returns success after an earlier required command failed. It is a defect when a completion
+    message is printed without testing the status of the command that did the work. It is a defect to
+    read `$?` after a pipeline while `pipefail` is unset, because the shell reports only the last
+    stage, and to let `grep -q` exit early on a slow producer, because the producer dies on SIGPIPE
+    and the pipeline returns the opposite answer. It is a defect to append `|| echo 0` to a pipeline
+    whose stdout is captured, because the fallback text is concatenated with output the pipeline
+    already printed. Require each step to accumulate the status of every required command and return
+    it, to guard required commands with `|| return 1` or an explicit status variable, to capture a
+    command's status separately from the text it printed, and to use `|| true` rather than
+    `|| echo value` when only the status must be suppressed.
+- path: "scripts/**/*.sh"
+  instructions: >-
+    Inspect how the script's shell options interact with calls that are allowed to fail, and how
+    values reach an inline interpreter. With `set -e` active, a bare call to a function that returns
+    non-zero terminates the whole script, so one optional stage such as editor configuration or index
+    warmup can silently skip every later stage. It is a defect when such a call is not wrapped in
+    `if cmd; then ...; fi` or followed by an explicit status test, and it is a defect when the failing
+    stage still appends itself to a summary list that claims success. With an `ERR` trap installed,
+    inspect every region that deliberately disables errexit: the trap fires on any non-zero status
+    and turns an expected benign failure into a fatal exit, and under `errtrace` the trap is inherited
+    by pipeline subshells, so it fires once inside the subshell and again in the parent. Require the
+    handler to recognise subshell context and tolerant regions, or require those commands to run under
+    `if`. For an inline `python3 -c` or similar program that reads values from the environment, it is
+    a defect to reference plain shell variables that were never exported, since the child sees no such
+    variable; require the values to be passed as `VAR="$val" python3 -c ...` or as arguments.
+- path: "lib/*.sh"
+  instructions: >-
+    These libraries change host state such as interface aliases, packet filter rules, DHCP service
+    plists, forwarding flags and enabled services, so inspect every mutation together with its
+    teardown. It is a defect when the flag or state record that teardown depends on is set after the
+    mutating command instead of immediately before it, because a truncating write such as
+    `sudo tee` can damage the target and then fail while the flag still says nothing was touched. It
+    is a defect when a cleanup trap is cleared, or a success flag set, before the last required step
+    is verified, and when the function that records state returns success only because its failure
+    branch calls a logging helper whose `printf` succeeds. It is a defect when teardown restores an
+    assumed default instead of the value captured before setup, disables a service that was already
+    running, or reloads a whole global ruleset rather than the anchor or drop-in this script added. It
+    is a defect when an inspection command cannot distinguish a query failure from a negative answer,
+    because teardown then deletes its state file while the rule may still be active; require a
+    distinct query failure status that every caller preserves. Require `systemctl enable --now`
+    instead of skipping activation when `is-enabled` reports enabled but inactive, and require
+    `BatchMode=yes` with a connect timeout on every `ssh` call in a discovery or diagnostic path.
+- path: "payload/*.sh"
+  instructions: >-
+    This script generates systemd units, NetworkManager keyfiles and networkd drop-ins from here
+    documents, so review the generated text as configuration and not only as shell. Inspect each
+    generated unit for ordering that contradicts its own activation: a unit that is `WantedBy` a
+    target must not also be `After` that target, because the pair forms a cycle and the job can be
+    dropped from the boot transaction. Inspect device activated oneshot helpers for
+    `RemainAfterExit=yes`, which keeps a successful run active so the helper never runs again when the
+    device reappears, and check whether that unit needs `BindsTo` rather than `Wants`. Inspect every
+    keyfile key for its group, since a key such as `interface-name` written under `[wifi]` instead of
+    `[connection]` is ignored without an error. Inspect drop-in and profile file names for load order,
+    because a later sorting file replaces rather than extends a single valued setting, so every
+    interface that must stay excluded has to appear in the last file. Inspect values computed for the
+    generated file against the semantics of the consumer, for example a DHCP pool offset that is
+    relative to the subnet and not to the final address octet, and a bootstrap wireless profile that
+    must enable protected management frames when it selects SAE. Require a test that extracts the
+    generated block and asserts the required lines.
+- path: "**/*.sh"
+  instructions: >-
+    Inspect every place where a configuration value, a key, a passphrase or a path is interpolated
+    into generated text or into another interpreter. It is a defect to insert such a value into a
+    `sed` replacement, because `&`, the delimiter character and backslash are replacement
+    metacharacters, and a public key comment or a password can contain them, which corrupts or
+    truncates the generated assignment. It is a defect to write one value into two formats with a
+    single encoding, for example a wireless name escaped for the C style quoting of
+    `wpa_supplicant.conf` and then copied into a NetworkManager keyfile, where those backslashes stay
+    literal and the client looks for a different network. Require format specific encoding at each
+    write site, or a transport safe encoding such as Base64 that the consumer decodes, and require the
+    raw value to be kept separately from the encoded one. It is a defect to interpolate a repository
+    or temporary path into a `bash -c` program string, because a path holding a single quote ends the
+    quoting and the remaining text is executed; require the path to be passed as a positional
+    parameter to a fixed program string. Require shell words and redirection targets built from such
+    values to stay quoted, and require a value bound by a fixed width limit to be measured in bytes
+    under a byte oriented locale rather than in characters.
+- path: "**/*.sh"
+  instructions: >-
+    Inspect every value the script extracts from another command's output or from a configuration file
+    with `grep`, `awk`, `sed` or a glob, and ask whether the extraction still holds when the source
+    changes shape. It is a defect to match a JSON field with `grep` on a compact serialization,
+    because a pretty printed or reordered response then reports the item as missing; require a real
+    parser such as `jq`. It is a defect to use an unanchored pattern for a host or scheme test,
+    because a value that merely begins with the expected name is then classified as local. It is a
+    defect to feed human readable status text straight into a variable: a field printed as not set
+    becomes that literal word, a glob ending in a wildcard accepts a version string with trailing
+    garbage, and a status helper that prints a valid state before exiting non-zero loses that state
+    when a fallback line is appended. It is a defect to decide that a directive is active by matching
+    its text anywhere in a file, because a commented line matches while the service never loads it;
+    require the check to inspect the active directive in the intended block. It is a defect to read a
+    dotenv file with a `grep` and `sed` pipeline whose quote and comment handling differs from the
+    consumer's parser, because the two components then resolve different paths; require matching
+    parsing semantics and the same precedence for an environment override.
+- path: "tests/*.sh"
+  instructions: >-
+    These suites test shell libraries, so inspect what each case actually executes. It is a defect
+    when a case asserts only on source text, for example by grepping the library for an error message
+    or a unit body, because an implementation that keeps the string while dropping the retry loop or
+    the forbidden setting still passes; require the case to run the function, or to extract the
+    generated block and assert on it. It is a defect when a case can pass without reaching its branch,
+    for example when the fixture device or tool is absent so the function exits at an earlier check, or
+    when a stub returns success with an empty value for the property the case meant to omit; require
+    doubles that make the intended branch reachable and stubs that separate an absent value from a
+    successful empty one. It is a defect when the test shell does not enable the options the
+    production entry point sets, because a failure that aborts under errexit and pipefail passes in
+    the test. It is a defect when a case calls a real privileged teardown path, since it can block on
+    an interactive password prompt and can delete the shared output file; require such functions to be
+    stubbed and a dedicated state file to be used. It is a defect to create the output file at a
+    predictable path instead of with `mktemp`, and to change two fields in one comparison when each
+    field needs its own case.
