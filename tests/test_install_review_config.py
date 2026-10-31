@@ -3,6 +3,7 @@ import importlib.util
 import io
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 
@@ -596,6 +597,51 @@ def test_the_stack_order_does_not_change_the_composed_bytes(tmp_path, capsys):
     assert one == other
 
 
+# Every class the universal fragment tells the reviewer to report has to reach
+# the author as well, or a self-review passes while the reviewer still files
+# findings in that class. The universal instructions call that disagreement a
+# defect, so the correspondence is checked here rather than in a review. The
+# mapping is by phrase, not by position: one checklist item can carry two
+# classes, and the regression-test class is delivered by "Prove the fix" in
+# prose. Adding a class to the fragment without delivering it fails this test.
+UNIVERSAL_DELIVERY = {
+    "have drifted apart": "must agree",
+    "without its exception branch": "no exception branch",
+    "cannot be completed with the data at hand": "cannot be completed with the data at hand",
+    "selected period is computed from a cumulative row": "computed from a cumulative row",
+    "Boundary input is accepted without validation": "Boundary input",
+    "Error handling fails open": "fails open",
+    "interpolated into another format": "interpolated into another format",
+    "advertised but not propagated": "advertised but not passed on",
+    "without a verified rollback point": "no verified rollback point",
+    "inherited environment or global configuration": "inherited environment or user-level tool",
+    "reach a place that is not audited": "reaching logs, process environment",
+    "was not checked at the moment of the write": "rechecked at the moment of the write",
+    "no regression test for the exact condition": "reproduces the exact",
+    "contradicts the code in the same change": "the same change made",
+    "grows with total stored data": "grows with total stored data",
+    "default limit or default output": "default page size or default filters",
+}
+
+
+def test_every_universal_class_reaches_the_author():
+    fragment = yaml.safe_load(
+        (installer.INSTRUCTION_DIR / "universal.yaml").read_text(encoding="utf-8"))
+    raw = "\n".join(entry["instructions"] for entry in fragment)
+    classes = re.findall(r"^\s*\d+\.\s", raw, re.M)
+    # Both files are wrapped prose, so a phrase that spans a line break would
+    # otherwise never match, and rewrapping either file would fail this test
+    # for no reason.
+    reported = " ".join(raw.split())
+    delivered = " ".join(installer.DISCIPLINE_TEMPLATE.read_text(encoding="utf-8").split())
+    assert len(classes) == len(UNIVERSAL_DELIVERY), (
+        "universal.yaml gained or lost a class: map it to the sentence that "
+        "delivers it in review-discipline.md")
+    for reported_phrase, delivered_phrase in UNIVERSAL_DELIVERY.items():
+        assert reported_phrase in reported, f"not in universal.yaml: {reported_phrase}"
+        assert delivered_phrase in delivered, f"not delivered to the author: {delivered_phrase}"
+
+
 def test_glob_regex_spans_directories_only_for_a_double_star():
     assert installer.glob_regex("docs/**/*.md").match("docs/a/b/c.md")
     assert installer.glob_regex("docs/**/*.md").match("docs/c.md")
@@ -605,19 +651,23 @@ def test_glob_regex_spans_directories_only_for_a_double_star():
 
 
 def test_a_nested_created_instruction_file_keeps_its_pattern(tmp_path, capsys):
-    # docs/ holds nothing else, so only the created file can match docs/**/*.md.
+    # Nothing else in the target matches this pattern, so only the file the run
+    # creates can keep it. It replaces docs/**/*.md, which is no longer a
+    # guideline source: a design or plan document is checked against the code,
+    # not enforced as a rule.
+    nested = ".github/copilot-instructions.md"
     repo = git_repo(tmp_path / "repo", {"a.py": "x\n", "b.py": "x\n"})
 
-    assert installer.main(["--repo", str(repo), "--agents-md", "docs/AGENTS.md",
+    assert installer.main(["--repo", str(repo), "--agents-md", nested,
                            "--create-agents-md"]) == 0
     capsys.readouterr()
     first = (repo / installer.CONFIG_NAME).read_bytes()
     patterns = yaml.safe_load(first)["knowledge_base"]["code_guidelines"]["filePatterns"]
 
-    assert installer.main(["--repo", str(repo), "--agents-md", "docs/AGENTS.md",
+    assert installer.main(["--repo", str(repo), "--agents-md", nested,
                            "--create-agents-md"]) == 0
 
-    assert "docs/**/*.md" in patterns
+    assert nested in patterns
     assert (repo / installer.CONFIG_NAME).read_bytes() == first
     assert "already current" in capsys.readouterr().out
 
