@@ -1,5 +1,6 @@
 """Verify stack detection, composed review configuration and managed-section writes."""
 import importlib.util
+import io
 import os
 from pathlib import Path
 import subprocess
@@ -401,6 +402,30 @@ def test_the_symlink_helper_hides_only_the_windows_privilege_error(tmp_path, mon
     monkeypatch.setattr(Path, "symlink_to", withhold_privilege)
     with pytest.raises(pytest.skip.Exception):
         make_symlink(tmp_path / "link", tmp_path / "target")
+
+
+@pytest.mark.parametrize("encoding, needle", [
+    ("ascii", r"docs/\u041f"),
+    ("utf-8", "docs/Пример.md"),
+])
+def test_the_warning_escapes_only_what_its_stream_cannot_encode(tmp_path, monkeypatch,
+                                                                encoding, needle):
+    repo = git_repo(tmp_path / "repo", {"ok.py": "x\n"})
+    monkeypatch.setattr(installer.subprocess, "run",
+                        lambda *a, **k: subprocess.CompletedProcess(
+                            a[0], 0, "S docs/Пример.md\0H ok.py\0", ""))
+    # A strict stream is what PYTHONIOENCODING without an error handler gives, and
+    # what a caller that replaces sys.stderr gives: the warning has to survive it,
+    # because aborting on the message defeats the point of warning at all.
+    stream = io.TextIOWrapper(io.BytesIO(), encoding=encoding, errors="strict")
+    monkeypatch.setattr(sys, "stderr", stream)
+
+    listed = installer.repository_files(repo)
+
+    stream.flush()
+    reported = stream.buffer.getvalue().decode(encoding)
+    assert listed == ["ok.py"]
+    assert needle in reported
 
 
 def test_an_instruction_file_outside_the_target_is_reported(tmp_path, capsys):

@@ -101,14 +101,21 @@ def available_stacks() -> list[str]:
     return [name for name in names if name != UNIVERSAL_STACK]
 
 
-def printable(text: str) -> str:
-    """The text with any byte UTF-8 cannot encode escaped, so printing it is safe."""
-    # A git path decoded with surrogateescape can carry lone surrogates, and
-    # sys.stderr escapes those only because its own error handler is
-    # backslashreplace: a caller that redirects the stream, or sets
-    # PYTHONIOENCODING without an error handler, gets strict encoding instead and
-    # the message itself would then raise, aborting the run it exists to warn about.
-    return text.encode("utf-8", "backslashreplace").decode("utf-8")
+def printable(text: str, stream=None) -> str:
+    """The text with whatever its destination stream cannot encode escaped.
+
+    The run must not be aborted by the message that reports a problem, and two
+    kinds of path can abort it. A git path decoded with surrogateescape carries
+    lone surrogates, and an ordinary Unicode path is unencodable on an ASCII
+    stream. sys.stderr survives both only because its own error handler is
+    backslashreplace: a caller that redirects the stream, or sets
+    PYTHONIOENCODING without an error handler, gets strict encoding instead.
+    Escaping against the destination's own encoding covers both and leaves a
+    readable name readable wherever the stream can carry it.
+    """
+    stream = sys.stderr if stream is None else stream
+    encoding = getattr(stream, "encoding", None) or "utf-8"
+    return text.encode(encoding, "backslashreplace").decode(encoding, "replace")
 
 
 def git_path(repo: Path, entry: str) -> Path:
