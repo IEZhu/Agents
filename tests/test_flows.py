@@ -98,11 +98,16 @@ def test_shipped_catalog_is_loadable():
 def test_pr_review_reads_the_merge_gating_from_more_than_one_endpoint():
     """A session read classic protection alone and reported a gated branch as ungated."""
     review = " ".join(FlowCatalog().load("pr-review").content.split())
-    for phrase in ("gh api repos/OWNER/REPO/rulesets",
+    for phrase in ("gh api --paginate repos/OWNER/REPO/rulesets",
                    "`Branch not protected`",
                    "gh pr view N --json reviewDecision",
-                   "can be `MERGEABLE` and `BLOCKED` at the same time"):
+                   "can be `MERGEABLE` and `BLOCKED` at the same time",
+                   # One page of rulesets, and an omitted bypass list, each read as
+                   # an absence of gating.
+                   "returns 30 rulesets at a time",
+                   "omits `bypass_actors` for a caller without write access"):
         assert phrase in review, phrase
+    assert "on GitLab read that flow's own paragraph on the equivalents" in review
 
 
 def test_pr_queue_pins_the_steps_a_single_review_cannot_know():
@@ -137,7 +142,11 @@ def test_pr_queue_pins_the_steps_a_single_review_cannot_know():
             "An item opened from a fork has its\nhead in that fork",
             "declares the `workflow_dispatch` trigger on\n   the repository's default branch",
             "re-simulate and run it again\nwhen a head changes",
-            "A\ncheck whose result depends on the merge with the base",
+            "GitHub's default `pull_request` checkout is the merge of the head into the\nbase",
+            # Second review round of this flow.
+            "only when every item in it comes from the target\n   repository itself",
+            "Resolve every item to its exact current head SHA",
+            "Run step 3's checks again on that new simulation",
             "That is a consequence of the deletion, not of the\nmerge",
             "count the eligible approvers"):
         assert " ".join(phrase.split()) in queue, phrase

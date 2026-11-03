@@ -39,8 +39,13 @@ a switch first. Carry user constraints such as `no-merge` or `review-only` into
 
 Without a list, take every open request against the target branch that the user
 named, and state which ones you included. A request that targets another branch
-is not part of the queue: name it as excluded. Confirm each item belongs to the
-target repository before changing anything.
+is not part of the queue: name it as excluded.
+
+Resolve every item to its exact current head SHA and to the repository that
+holds it, and record both. A request opened from a fork has its head in that
+fork, where the target's ordinary remote refs do not reach it, so the SHA and
+its remote are what the later steps fetch and merge. A branch name is not an
+item's identity: it moves while the queue is being worked.
 
 **This flow never merges on its own initiative, and it never widens
 authorization.** Each item's merge follows
@@ -138,7 +143,15 @@ separately can still fail on the merged result. Run the workflows the queue
 changes on the integrated tree:
 
 1. Push the simulation of step 2 to a temporary branch, for example
-   `tmp/queue-integration`.
+   `tmp/queue-integration`, but only when every item in it comes from the target
+   repository itself. A request opened from a fork carries whatever its author
+   committed, a workflow file included, and pushing those commits into the
+   target runs that workflow there, on a `push` trigger, with the target's own
+   secrets, before any item has been reviewed. When the queue holds a fork
+   request, do not push the simulation: run the integrated check in a repository
+   that has none of the target's secrets, or take the evidence from the ordinary
+   runs as in the next item. Record which of the two was used, and never relax
+   this because an item looks harmless.
 2. Start the workflow on that branch with `workflow_dispatch`, for example
    `gh workflow run vulnerability-scan.yml --ref tmp/queue-integration`. This
    works only for a workflow that declares the `workflow_dispatch` trigger on
@@ -182,13 +195,17 @@ evidence about a tree that no longer exists. After each merge:
    its merge commit.
 2. Re-simulate the remaining items on a fresh throwaway branch (step 2) and
    re-count their merge bases.
-3. Merge the new target into every item that step 2 marked, and into any item
+3. Run step 3's checks again on that new simulation. The merge changed the
+   target, so the remaining integrated tree is not the one the earlier run
+   passed, and the earlier run says nothing about it. Report no item as ready on
+   a run that covered a different tree.
+4. Merge the new target into every item that step 2 marked, and into any item
    the platform now reports as conflicting.
-4. The updated items have new heads: their earlier reviews do not cover them, so
+5. The updated items have new heads: their earlier reviews do not cover them, so
    request reviews again as
    [pr-review step 3](pr-review.md#3-obtain-reviews-for-the-current-head)
    requires before counting them ready.
-5. Report the next item with its head, its checks and what is left.
+6. Report the next item with its head, its checks and what is left.
 
 ## 6. Stack the bases only after each head is proven
 
@@ -210,9 +227,11 @@ Therefore restack only after each item's current head already has its completed
 bot reviews and its passing checks, and record per item the run that covered
 that exact head. Changing the base leaves the head commit untouched, so a check
 that builds and tests that commit alone still describes what will be merged. A
-check whose result depends on the merge with the base, or on files the base
-contributes, does not: it described the old base, and it has to be read again
-once the item is back on the target branch. State in the report which checks
+check whose result depends on the base does not, and most do: GitHub's default
+`pull_request` checkout is the merge of the head into the base, so a run against
+the old base tested a tree that no longer exists. Identify those checks per
+item, say that their evidence is stale while the item is stacked, and read them
+again once the item is back on the target branch. State in the report which checks
 will not re-run while the item is stacked, which run covered the head, and which
 of them depend on the base. When the user did not ask for stacked bases, leave
 every item on the target branch and express the queue through the order and the

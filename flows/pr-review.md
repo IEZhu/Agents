@@ -45,7 +45,10 @@ before making changes.
 
 When more than one open request has to reach the target branch one after
 another, run [pr-queue](pr-queue.md) instead: it orders the queue, proves the
-order merges, checks the integrated tree and runs this flow per item.
+order merges, checks the integrated tree and runs this flow per item. Its git
+steps are platform independent, and its platform commands are GitHub's; on
+GitLab read that flow's own paragraph on the equivalents before following its
+commands, and record the ones the target does not offer.
 
 Optional constraints include a specific review scope or `review-only` / `no-merge`.
 The `autodev` mode of a self-development run follows [Autodev mode](#autodev-mode)
@@ -82,9 +85,14 @@ Write committed documentation in English under the
 - Read what actually gates the merge, from more than one endpoint. On GitHub a
   branch can have no classic protection and still be gated by a repository
   ruleset: `gh api repos/OWNER/REPO/branches/<target>/protection` answers
-  `Branch not protected` while `gh api repos/OWNER/REPO/rulesets`, and the
-  ruleset's own endpoint, give the refs it covers, the approvals and checks it
-  requires and who may bypass it. `gh pr view N --json reviewDecision` says
+  `Branch not protected` while `gh api --paginate repos/OWNER/REPO/rulesets`,
+  and the ruleset's own endpoint, give the refs it covers, the approvals and
+  checks it requires and who may bypass it. Read every page: that endpoint
+  returns 30 rulesets at a time, and a rule that requires an approval or a check
+  can sit on a later one. A ruleset response omits `bypass_actors` for a caller
+  without write access, so a missing field is an unverified value, not an empty
+  list: report it as a limitation instead of concluding that nobody may bypass
+  the rule. `gh pr view N --json reviewDecision` says
   whether those approvals are satisfied, which `mergeable` and
   `mergeStateStatus` do not: a request can be `MERGEABLE` and `BLOCKED` at the
   same time for a missing approval. Record the gating before reporting a
