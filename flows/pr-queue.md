@@ -191,8 +191,10 @@ each other.
 A merge changes the target branch, so everything the queue proved before it is
 evidence about a tree that no longer exists. After each merge:
 
-1. `git fetch origin` and confirm the platform reports the item as merged, with
-   its merge commit.
+1. Fetch the target branch from the remote that step 1 verified holds it, not a
+   remote named by habit, and confirm the platform reports the item as merged
+   with its merge commit. Fetching the wrong repository leaves the simulation
+   and the merge-base counts below describing a target that has not moved.
 2. Re-simulate the remaining items on a fresh throwaway branch (step 2) and
    re-count their merge bases.
 3. Run step 3's checks again on that new simulation. The merge changed the

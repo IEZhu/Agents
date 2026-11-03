@@ -147,6 +147,7 @@ def test_pr_queue_pins_the_steps_a_single_review_cannot_know():
             "only when every item in it comes from the target\n   repository itself",
             "Resolve every item to its exact current head SHA",
             "Run step 3's checks again on that new simulation",
+            "Fetch the target branch from the remote that step 1 verified holds it",
             "That is a consequence of the deletion, not of the\nmerge",
             "count the eligible approvers"):
         assert " ".join(phrase.split()) in queue, phrase
