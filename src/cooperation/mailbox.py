@@ -75,21 +75,30 @@ class Mailbox:
         for participant in participants:
             db.execute("INSERT OR IGNORE INTO participant_activity VALUES (?)", (participant["participant_id"],))
 
-    def _seen(self, db, participant, now):
-        """Refresh liveness on the service clock for a participant that acted.
+    def _seen(self, db, *participants):
+        """Refresh liveness on the service clock for participants that acted.
 
-        A send, an acknowledgement or a request update is an act of that
-        participant's own model, so it proves what a ``heartbeat`` proves and
-        the service already holds the honest timestamp. Passive polls keep
-        their documented promise not to renew a heartbeat, because a host-side
-        listener could issue them with no model running. This never bumps the
-        repository revision, so peers keep their ownership decisions, and it
-        never changes ``status``: only ``recover`` clears a suspicion.
+        A send, an acknowledgement or a request update is an act of the
+        authenticated actor's own model, so it proves what a ``heartbeat``
+        proves. The relayed subject is refreshed with it, because a parent in
+        ``parent_relay`` mode is its child's only channel, exactly as ``apply``
+        already treats it; the child's timestamp is therefore not evidence of
+        the child's own activity. This runs before the idempotency receipt is
+        read, so a retry refreshes liveness as the original did, and before the
+        action's own validation, so a transaction that raises refreshes nothing.
+
+        Passive polls keep their documented promise not to renew a heartbeat,
+        because a host-side listener could issue them with no model running.
+        This bumps no repository revision, so peers keep their ownership
+        decisions, and it never changes ``status``: only ``recover`` clears a
+        suspicion.
         """
-        if participant["status"] == "cancelled":
-            return
-        participant["last_seen"] = now
-        self.service._save_participant(db, participant)
+        now = self.service.clock()
+        for participant in {p["participant_id"]: p for p in participants}.values():
+            if participant["status"] == "cancelled":
+                continue
+            participant["last_seen"] = now
+            self.service._save_participant(db, participant)
 
     @staticmethod
     def _message(row):
@@ -145,6 +154,7 @@ class Mailbox:
                 data.pop("expires_at", None)  # Preserve pre-upgrade send receipt fingerprints.
             with self.service.store.transaction() as db:
                 actor, subject = self._authenticate(db, data, identity)
+                self._seen(db, actor, subject)
                 request_digest, receipt = self._receipt(db, data, "send")
                 if receipt is not None:
                     return self._response(SendResponse, receipt)
@@ -192,7 +202,6 @@ class Mailbox:
                 # Incoming mail also makes a registration used: never tombstone
                 # a recipient while its durable inbox still awaits inspection.
                 self._activity(db, actor, subject, recipient)
-                self._seen(db, subject, now)
             self.service.mailbox_notifier.notify({(repo, subject["participant_id"]), (repo, recipient["participant_id"])})
             return response
         except CooperationError as error:
@@ -228,6 +237,7 @@ class Mailbox:
             data = request.model_dump(mode="json")
             with self.service.store.transaction() as db:
                 actor, subject = self._authenticate(db, data, identity)
+                self._seen(db, actor, subject)
                 request_digest, receipt = self._receipt(db, data, "ack")
                 if receipt is not None:
                     return self._response(AckResponse, receipt)
@@ -247,7 +257,6 @@ class Mailbox:
                                          "participant_id": subject["participant_id"], "message_ids": data["message_ids"], "acknowledged_at": now})
                 self._save_receipt(db, data, request_digest, response)
                 self._activity(db, actor, subject)
-                self._seen(db, subject, now)
             self.service.mailbox_notifier.notify(changed_keys)
             return response
         except CooperationError as error:
@@ -277,6 +286,7 @@ class Mailbox:
             data = request.model_dump(mode="json")
             with self.service.store.transaction() as db:
                 actor, subject = self._authenticate(db, data, identity)
+                self._seen(db, actor, subject)
                 request_digest, receipt = self._receipt(db, data, "request_update")
                 if receipt is not None:
                     return self._response(RequestStatusResponse, receipt)
@@ -309,7 +319,6 @@ class Mailbox:
                         "repository_id": repo, "request": self._request_projection(db, record)})
                     self._save_receipt(db, data, request_digest, response)
                     self._activity(db, actor, subject)
-                    self._seen(db, subject, now)
             self.service.mailbox_notifier.notify({(repo, record["sender_id"]), (repo, record["recipient_id"])})
             return response
         except CooperationError as error:
