@@ -793,6 +793,29 @@ def test_each_stack_composes_and_round_trips_without_loss(tmp_path, stack):
     assert config["reviews"]["path_instructions"] == universal + fragment
 
 
+def test_force_keeps_the_replaced_configuration_through_later_runs(tmp_path):
+    """The backup of a file --force replaced is its only copy, so it is not rotated.
+
+    Three later runs used to push it out as the oldest of three managed snapshots,
+    and nothing else holds the bytes the target had before the first install.
+    """
+    helper = importlib.import_module("inject_claude_md")
+    repo = git_repo(tmp_path / "repo", {"a.py": "x\n", "AGENTS.md": "# r\n"})
+    hand_written = "reviews:\n  profile: chill\n"
+    (repo / installer.CONFIG_NAME).write_text(hand_written, encoding="utf-8")
+
+    assert installer.main(["--repo", str(repo), "--force"]) == 0
+    # Each later run composes different bytes, so each one backs the file up again.
+    for language in ("ru-RU", "de-DE", "fr-FR", "es-ES"):
+        assert installer.main(["--repo", str(repo), "--language", language]) == 0
+
+    backups = {path.name: path.read_text(encoding="utf-8")
+               for path in repo.glob(installer.CONFIG_NAME + ".backup.*")}
+    assert hand_written in backups.values(), "the only copy of the replaced file is gone"
+    rotated = [name for name in backups if helper.RETAINED_MARKER not in name]
+    assert len(rotated) == helper.BACKUP_LIMIT, "the managed rotation is no longer bounded"
+
+
 def test_every_fragment_is_reachable_through_the_stack_names():
     stacks = set(installer.available_stacks())
     suffix_stacks = set(installer.STACK_SUFFIXES)
