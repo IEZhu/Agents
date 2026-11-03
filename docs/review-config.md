@@ -38,10 +38,10 @@ because these are paths in the reviewed commit, and the generated configuration
 does not reach that file at all: `reviews.path_instructions` comes from the
 selected stacks and never names the instruction file. The section is written
 there and the run says so, but no reviewer reads it through this
-configuration. A selected path holding `*`, `?` or `[` is refused before
-either file is written: these patterns are globs with no defined escape, so such
-an entry would apply the discipline to other matching files instead of naming
-one.
+configuration. A selected path holding `*`, `?`, `[` or `:` is refused before
+either file is written: the entry is a glob resolved in the reviewed repository
+with no defined escape, so the first three would apply the discipline to other
+matching files and a colon would name another repository instead of this one.
 
 ## Install
 

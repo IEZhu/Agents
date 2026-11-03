@@ -716,19 +716,22 @@ def test_a_custom_instruction_path_outside_the_template_keeps_its_pattern(tmp_pa
     assert "already current" in capsys.readouterr().out
 
 
-def test_a_glob_character_in_the_instruction_path_is_refused_before_any_write(tmp_path, capsys):
-    # The exact path becomes a filePatterns entry, which is a glob. A name holding
-    # a metacharacter would apply the managed discipline to other matching files,
-    # the opposite of naming one file, and these patterns define no escape. The
-    # refusal comes from compose_config, before either destination is written.
+@pytest.mark.parametrize("name", ["docs/review?.md", "docs/review*.md", "docs/rev[1].md",
+                                  pytest.param("docs/standards:rules.md", marks=POSIX_ONLY)])
+def test_an_unusable_pattern_character_is_refused_before_any_write(tmp_path, capsys, name):
+    # The exact path becomes a filePatterns entry, which is a glob resolved in the
+    # reviewed repository. A name holding a metacharacter would apply the managed
+    # discipline to other matching files, and one holding a colon would name
+    # another repository; these patterns define no escape for either. The refusal
+    # comes from compose_config, before either destination is written.
     repo = git_repo(tmp_path / "repo", {"a.py": "x\n", "docs/plan.md": "# plan\n"})
 
-    assert installer.main(["--repo", str(repo), "--agents-md", "docs/review?.md",
+    assert installer.main(["--repo", str(repo), "--agents-md", name,
                            "--create-agents-md"]) == 1
 
-    assert "would read as a wildcard" in capsys.readouterr().err
+    assert "would match other files and : would name" in capsys.readouterr().err
     assert not (repo / installer.CONFIG_NAME).exists()
-    assert not (repo / "docs/review?.md").exists()
+    assert not (repo / name).exists()
 
 
 def test_an_absolute_path_through_a_symlinked_target_keeps_its_pattern(tmp_path, capsys):
