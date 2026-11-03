@@ -222,6 +222,18 @@ def test_request_update_refreshes_only_the_reporting_participant(h):
     assert states["a"]["last_seen"] < h.now and states["a"]["status"] == "suspect"
 
 
+def test_a_stale_request_update_refreshes_no_liveness(h):
+    a, b = h.register("a"), h.register("b")
+    message = send(h, a, b, kind="request")["message"]
+    assert update(h, b, message, "accepted")["status"] == "ok"
+    h.now += 121
+    assert update(h, b, message, "accepted", revision=1)["error"] == "stale_revision"
+    states = {p["task_id"]: p for p in h.read()["participants"]}
+    # This refusal returns instead of raising, so its transaction commits; a
+    # rejected update still must not pass for an act of the model.
+    assert states["b"]["last_seen"] < h.now and states["b"]["status"] == "suspect"
+
+
 def test_status_and_updates_reject_wrong_capabilities_and_foreign_repository(h):
     sender, recipient = h.register("sender"), h.register("recipient")
     message = send(h, sender, recipient, kind="request")["message"]

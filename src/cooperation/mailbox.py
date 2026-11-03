@@ -83,9 +83,11 @@ class Mailbox:
         proves. The relayed subject is refreshed with it, because a parent in
         ``parent_relay`` mode is its child's only channel, exactly as ``apply``
         already treats it; the child's timestamp is therefore not evidence of
-        the child's own activity. This runs before the idempotency receipt is
-        read, so a retry refreshes liveness as the original did, and before the
-        action's own validation, so a transaction that raises refreshes nothing.
+        the child's own activity. Callers place this so that only an accepted
+        action, or the replay of one, refreshes: a refused action leaves
+        liveness alone, and ``request_update`` reports a stale revision or an
+        already terminal request by returning rather than raising, so its
+        transaction commits.
 
         Passive polls keep their documented promise not to renew a heartbeat,
         because a host-side listener could issue them with no model running.
@@ -154,9 +156,9 @@ class Mailbox:
                 data.pop("expires_at", None)  # Preserve pre-upgrade send receipt fingerprints.
             with self.service.store.transaction() as db:
                 actor, subject = self._authenticate(db, data, identity)
-                self._seen(db, actor, subject)
                 request_digest, receipt = self._receipt(db, data, "send")
                 if receipt is not None:
+                    self._seen(db, actor, subject)
                     return self._response(SendResponse, receipt)
                 if actor["status"] == "cancelled" or subject["status"] == "cancelled":
                     raise CooperationError("unauthorized_actor")
@@ -202,6 +204,7 @@ class Mailbox:
                 # Incoming mail also makes a registration used: never tombstone
                 # a recipient while its durable inbox still awaits inspection.
                 self._activity(db, actor, subject, recipient)
+                self._seen(db, actor, subject)
             self.service.mailbox_notifier.notify({(repo, subject["participant_id"]), (repo, recipient["participant_id"])})
             return response
         except CooperationError as error:
@@ -237,9 +240,9 @@ class Mailbox:
             data = request.model_dump(mode="json")
             with self.service.store.transaction() as db:
                 actor, subject = self._authenticate(db, data, identity)
-                self._seen(db, actor, subject)
                 request_digest, receipt = self._receipt(db, data, "ack")
                 if receipt is not None:
+                    self._seen(db, actor, subject)
                     return self._response(AckResponse, receipt)
                 now = self.service.clock()
                 changed_keys = set()
@@ -257,6 +260,7 @@ class Mailbox:
                                          "participant_id": subject["participant_id"], "message_ids": data["message_ids"], "acknowledged_at": now})
                 self._save_receipt(db, data, request_digest, response)
                 self._activity(db, actor, subject)
+                self._seen(db, actor, subject)
             self.service.mailbox_notifier.notify(changed_keys)
             return response
         except CooperationError as error:
@@ -286,9 +290,9 @@ class Mailbox:
             data = request.model_dump(mode="json")
             with self.service.store.transaction() as db:
                 actor, subject = self._authenticate(db, data, identity)
-                self._seen(db, actor, subject)
                 request_digest, receipt = self._receipt(db, data, "request_update")
                 if receipt is not None:
+                    self._seen(db, actor, subject)
                     return self._response(RequestStatusResponse, receipt)
                 if actor["status"] == "cancelled" or subject["status"] == "cancelled":
                     raise CooperationError("unauthorized_actor")
@@ -319,6 +323,7 @@ class Mailbox:
                         "repository_id": repo, "request": self._request_projection(db, record)})
                     self._save_receipt(db, data, request_digest, response)
                     self._activity(db, actor, subject)
+                    self._seen(db, actor, subject)
             self.service.mailbox_notifier.notify({(repo, record["sender_id"]), (repo, record["recipient_id"])})
             return response
         except CooperationError as error:
