@@ -585,9 +585,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     print(f"Stacks: {', '.join([UNIVERSAL_STACK, *stacks])}")
     print(f"{CONFIG_NAME}: {config_state}")
     print(f"Review discipline section: {section_state}")
-    if md_path is not None and not md_path.is_relative_to(repo):
+    if md_path is not None and selected is None:
         # An absolute or ~-prefixed path writes outside the target deliberately, but
         # the rollout flow commits only the target, so name the file it will not cover.
+        # The test is the selection, not the given path: an absolute path that reaches
+        # the target through a symlinked ancestor is inside it and is covered, while
+        # comparing the unresolved path would report it as outside.
         print(f"Outside the target, not covered by its commit: {md_path}")
     return 0
 

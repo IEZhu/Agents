@@ -743,12 +743,15 @@ def test_an_absolute_path_through_a_symlinked_target_keeps_its_pattern(tmp_path,
 
     assert installer.main(["--repo", str(repo), "--agents-md", str(alias / custom),
                            "--create-agents-md"]) == 0
-    capsys.readouterr()
+    out = capsys.readouterr().out
 
     patterns = yaml.safe_load((repo / installer.CONFIG_NAME).read_bytes())[
         "knowledge_base"]["code_guidelines"]["filePatterns"]
     assert custom in patterns
     assert installer.SECTION_BEGIN in (repo / custom).read_text(encoding="utf-8")
+    # The reported status follows the selection, not the path as given: this file is
+    # inside the target and covered by its commit.
+    assert "Outside the target" not in out
 
 
 def test_detection_outside_git_is_stable_across_runs(tmp_path, capsys):
