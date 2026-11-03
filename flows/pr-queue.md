@@ -88,10 +88,13 @@ hides a conflict that the real merge will raise.
 Fetch the target and every item's head first. An item opened from a fork has its
 head in that fork, not in the target's remote, so fetch each item's own remote
 (on GitHub, `headRepository` of the request names it) rather than assuming one.
+That is one fetch per item: two items on the same remote are two refs, and
+fetching the remote once leaves the second head missing, so its recorded SHA
+cannot be merged.
 
 ```bash
 git fetch <target remote> <target branch>
-git fetch <item remote> <item head ref>        # once per remote the items live in
+git fetch <item remote> <item head ref>        # once per item, not per remote
 git switch -c tmp/queue-simulation <target remote>/<target branch>
 git -c rerere.enabled=false merge --no-ff --no-edit <first item head>
 ```
@@ -195,19 +198,23 @@ evidence about a tree that no longer exists. After each merge:
    remote named by habit, and confirm the platform reports the item as merged
    with its merge commit. Fetching the wrong repository leaves the simulation
    and the merge-base counts below describing a target that has not moved.
-2. Re-simulate the remaining items on a fresh throwaway branch (step 2) and
+2. Fetch every remaining item's head from the remote that holds it and re-resolve
+   its exact head SHA. A branch, a fork's especially, can have moved while the
+   earlier items were reviewed, and a simulation built on a head that is no
+   longer the request's head proves nothing about the request.
+3. Re-simulate the remaining items on a fresh throwaway branch (step 2) and
    re-count their merge bases.
-3. Run step 3's checks again on that new simulation. The merge changed the
+4. Run step 3's checks again on that new simulation. The merge changed the
    target, so the remaining integrated tree is not the one the earlier run
    passed, and the earlier run says nothing about it. Report no item as ready on
    a run that covered a different tree.
-4. Merge the new target into every item that step 2 marked, and into any item
+5. Merge the new target into every item that step 2 marked, and into any item
    the platform now reports as conflicting.
-5. The updated items have new heads: their earlier reviews do not cover them, so
+6. The updated items have new heads: their earlier reviews do not cover them, so
    request reviews again as
    [pr-review step 3](pr-review.md#3-obtain-reviews-for-the-current-head)
    requires before counting them ready.
-6. Report the next item with its head, its checks and what is left.
+7. Report the next item with its head, its checks and what is left.
 
 ## 6. Stack the bases only after each head is proven
 
@@ -243,6 +250,11 @@ report alone.
 gh pr edit <item> --base <predecessor branch>
 ```
 
+A predecessor that lives only in a fork cannot be a base: the option selects a
+branch of the target repository, so it either fails or, worse, selects an
+unrelated branch of the same name there. Leave such an item unstacked, and say
+which items the stack therefore skips.
+
 When the predecessor merges and its branch is deleted, GitHub retargets an open
 request whose base was that branch to the predecessor's own base, which in this
 chain is the queue's target. That is a consequence of the deletion, not of the
@@ -260,10 +272,13 @@ approvals they require, which checks they require, and who may bypass them.
 
 A rule that requires an approving review is not satisfied by the author: an
 account cannot approve its own request. Whether that forces a bypass depends on
-who else may approve, so count the eligible approvers from the rule and the
-repository's access: where another person or team can approve, their approval
-satisfies the rule and no bypass is needed, and the report asks for the review
-instead. Only when the author is the sole eligible approver does each merge need
+who else may approve and on how many approvals the rule wants, so count the
+eligible approvers from the rule and the repository's access and compare that
+count with the required one: one approval from one other person does not satisfy
+a rule that requires two. Where enough eligible approvers exist, their approvals
+satisfy the rule and no bypass is needed, and the report asks for those reviews
+instead; where they do not, the report names the approvals still missing and the
+bypass that would cover them. Only when the author is the sole eligible approver does each merge need
 that account's own bypass, and the report then says so once for the queue
 instead of leaving it to be rediscovered per item. Never bypass a rule yourself,
 and never present a bypass as a satisfied approval.
