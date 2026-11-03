@@ -24,7 +24,7 @@ none of them is calibrated against its own labels.
 
 | Layer | Question it answers | Signal that should drive it | Cost of a wrong pick |
 |---|---|---|---|
-| Routing | *who* — which persona | domain nouns, entities ("НДС", "Kubernetes") | high: wrong persona, wrong skill pool |
+| Routing | *who* — which persona | domain nouns, entities ("НДС" (Russian VAT), "Kubernetes") | high: wrong persona, wrong skill pool |
 | Skills | *what* — domain knowledge, procedures | domain + method terms | missing knowledge (recall matters); extra tokens |
 | Implants | *how to think* — task shape | task-shape cues: compare/choose, why/root cause, check facts, assess risk, plan steps | extra tokens, over-verification: precision matters, "load nothing" must be possible |
 
@@ -70,8 +70,9 @@ multilingual numbers as a signal, not an estimate.
 ### 1. Disjoint vocabularies, one per layer
 - Routing keeps `routing.domain_keywords` (entities, domains).
 - Skills keep `keywords` (domain + method terms).
-- Implants get a new `triggers:` field: task-shape cues in ru/en/es ("сравни",
-  "что выбрать", "почему", "проверь факты", "риски", "пошагово", "compare",
+- Implants get a new `triggers:` field: task-shape cues in ru/en/es ("сравни"
+  (compare), "что выбрать" (what to choose), "почему" (why), "проверь факты"
+  (check the facts), "риски" (risks), "пошагово" (step by step), "compare",
   "root cause", "fact-check"), plus optional `anti_triggers`.
 - No disjointness lint between routing and skills (see the correction to finding 5).
   Each implant must declare `triggers` (`tests/test_implant_gating.py`).

@@ -1,17 +1,17 @@
 # Personal runtime startup boundary
 
 The Personal local runtime uses one composition module,
-`src/personal_runtime.py`. Both shipped entry points select Personal by default;
+`src/personal_runtime.py`. Both shipped entry points always compose Personal;
 there is no edition setting that disables its sync or changes its data formats.
+Other components can be supplied only in code (see Explicit composition points).
 
 The standalone stdio server starts readiness, installs the history integration
 and queues its catch-up, reports the previous update, then registers update
-preparation and the library sync trigger with `readiness.when_done`. As before,
-those callbacks run when warmup finishes, including a failed warmup. Serving
-starts without waiting for that work; exit still joins readiness before draining
-queued logs and history. The installation lease bootstrap in `src/startup.py`
-is unchanged. The Python helper `src.server.install_history_sync` remains
-available through an import of the extracted function.
+preparation and the library sync trigger with `readiness.when_done`. Those
+callbacks run when warmup finishes, including a failed warmup. Serving starts
+without waiting for that work; exit joins readiness before draining queued logs
+and history. The installation lease bootstrap stays in `src/startup.py`.
+`src.server.install_history_sync` is an import of the same function.
 
 The daemon completes strict readiness before installing history. Its service
 constructs the same `FlowsUI` and `UserSync` through the composition module and
@@ -21,8 +21,9 @@ existing start, wake, drain, resume and finish operations; `UserSync` retains
 its queue, scheduler handoff, readiness gate, installation leases and final
 sync cycle. The daemon continues to own its separate update lifecycle.
 
-This extraction changes no tool schemas, Git sync settings, history approval or
-export format, local flow Git versions, persisted state, or client registration.
+The composition module defines no tool schemas, Git sync settings, history
+approval or export format, local flow Git versions, persisted state or client
+registration; those stay with their existing modules.
 The characterization checks in `tests/test_personal_runtime.py` use fake
 startup boundaries and temporary service/library directories. Existing sync,
 history, startup-lease and daemon suites remain the checks for their underlying
@@ -30,10 +31,11 @@ implementations.
 
 Teams remains separate work. A hosted engine still needs an explicit server
 composition and lifecycle, authenticated membership and grants, server-side team
-storage, an opaque personal-sync store, and a thin Rust client bridge for transport, grants,
-cryptography and minimal local vault I/O. This module does not provide that
-runtime or make the current Python server safe to expose as a Teams service.
-No local Python Core, model, team index or Git is added to the Teams client.
+storage, an opaque personal-sync store, and a thin Rust client bridge for
+transport, grants, cryptography and minimal local vault I/O. This module does not
+provide that runtime or make the current Python server safe to expose as a Teams
+service. No local Python Core, model, team index or Git is added to the Teams
+client.
 
 ## Explicit composition points
 
@@ -46,8 +48,8 @@ default editor or another sync owner. The supplied objects must support the
 existing editor and sync lifecycle APIs, including health, admin routes and
 bounded shutdown. A replacement sync owner for the Personal library must perform
 the scheduler handoff when `hand_off_schedule` is true; a factory that cannot do
-so must reject that composition. `DaemonEditor` and `SyncLifecycle` describe the operations the
-daemon calls. Reusing the Personal editor also requires the separate
+so must reject that composition. `DaemonEditor` and `SyncLifecycle` describe the
+operations the daemon calls. Reusing the Personal editor also requires the separate
 `PersonalEditorSync` contract: `perform`, `offload`, `engine` and `status_view`.
 The editor and sync object must therefore be supplied as a compatible pair.
 The factory runs before `service.artifacts` and `service.local_inference` are
@@ -73,9 +75,9 @@ there is no automatic fallback to it after an injected hook fails.
 `src/stdio_runtime.py` runs an explicitly supplied transport, readiness worker,
 startup hook and log drain. It selects no updater, Git adapter or profile.
 `src/server.py` supplies the Personal startup hook and the existing shutdown
-timeout. Readiness still starts before history sync and deferred update/sync
+timeout. Readiness starts before history sync and deferred update/sync
 callbacks; shutdown joins readiness before draining logs. An exception from a
-supplied startup hook now also takes that cleanup path before propagating.
+supplied startup hook also takes that cleanup path before it propagates.
 
 These composition points run after the existing installation bootstrap. They
 do not move application imports ahead of installation leases, change
@@ -85,6 +87,7 @@ work. The factory alone does not provide a Git-free or tenant-safe Teams server.
 
 `tests/test_runtime_composition.py` checks that an injected daemon composition
 reaches its UI, health and admin routes through the full lifecycle without
-constructing the Personal default, and that stdio joins and drains on startup and transport
-failures. Hook tests also check transport configuration and exception propagation. The
+constructing the Personal default, that a failing sync start closes owned
+resources, and that stdio joins and drains on startup and transport failures.
+Hook tests also check transport configuration and exception propagation. The
 existing Personal characterization and sync suites cover the default lifecycle.

@@ -64,7 +64,9 @@ def imported_files(installation: str | Path, modules: Iterable = ()) -> list[str
         if not location:
             continue
         path = Path(location).resolve()
-        if path.suffix == ".py" and path.is_relative_to(root) and ".venv" not in path.relative_to(root).parts:
+        # Environments: .venv, and since #181 the versioned ones it links to under .venvs.
+        if path.suffix == ".py" and path.is_relative_to(root) and \
+                not {".venv", ".venvs"}.intersection(path.relative_to(root).parts):
             found.add(path.relative_to(root).as_posix())
     return sorted(found)
 

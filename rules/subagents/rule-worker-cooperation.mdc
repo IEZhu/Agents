@@ -12,4 +12,4 @@ Authorized mailbox: cooperation_send, cooperation_receive, cooperation_ack, repl
 
 cooperation_wait: saved notification cursor. cooperation_request_status/cooperation_request_update: current revision + stable operation ID. Completion proves no validation; expiry/cancellation stops no process; wait wakes no idle model.
 
-No channel: existing envelope; invent no tools/fields; contact no unrelated chats/user.
+No channel: existing result format; invent no tools/fields; contact no unrelated chats/user.

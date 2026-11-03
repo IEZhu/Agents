@@ -188,6 +188,12 @@ This metadata adapter is not an authorization-text reader. When exact user
 authorization is needed, use the minimum authorized redacted source range
 through the host's documented interface; do not broaden this projection.
 
+Both `summarizeThread` and `guardThreadMetadata` need a `thread` object. They
+read the turns from a top-level `turns` property when it is present and from
+`thread.turns` otherwise. A malformed top-level `turns` or an accessor is
+refused (`expected_thread_turns`, `accessor_not_allowed`) rather than replaced
+by the nested value.
+
 ## Derive UI indices from the latest observation
 
 An accessibility (AX) element index belongs to one observation, not permanently
@@ -209,8 +215,6 @@ default served project use `tokensave_status({})`, without `graph_root`; a root
 selector is for an explicitly different initialized project. Follow the
 [project selection and freshness checks](flow-execution.md#select-an-indexed-project-explicitly)
 without initializing an index to repair a lookup.
-
-Native thread summaries accept top-level `turns` or nested `thread.turns`. An explicitly present top-level property always wins. Malformed values and accessors are refused rather than replaced with nested data.
 
 ## Regenerate and check the adapter
 

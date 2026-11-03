@@ -179,6 +179,26 @@ def test_unsupported_locking_disables_updates_but_serves(tmp_path, monkeypatch):
         assert self_update.start_background_update() is None
 
 
+@pytest.mark.parametrize("environment, note", [
+    ({"to": "py313-0123456789ab", "previous": ["not", "a", "dict"]}, None),
+    ({"to": "py313-0123456789ab", "previous": "directory"}, None),
+    ({"to": "py313-0123456789ab", "previous": {"kind": "directory"}},
+     "leave .venv, which is still the setup's directory; to keep the target, move the .venv directory aside "
+     "to .venvs/legacy-<UTC time> first, then point .venv at .venvs/py313-0123456789ab"),
+    ({"to": "py313-0123456789ab", "previous": {"kind": "link", "name": "py313-ba9876543210"}},
+     "point .venv back at .venvs/py313-ba9876543210; to keep the target, point .venv at .venvs/py313-0123456789ab"),
+])
+def test_an_unfinished_update_names_its_environment_switch(tmp_path, environment, note):
+    """#181: the refusal explains both recoveries of a switch; a malformed record only drops the note."""
+    (tmp_path / "data").mkdir()
+    (tmp_path / "data" / startup.UPDATE_JOURNAL).write_text(json.dumps({"old_sha": "a", "environment": environment}))
+    with pytest.raises(SystemExit) as stopped:
+        startup.assert_installation_safe(str(tmp_path))
+    message = str(stopped.value)
+    assert message.startswith("Unfinished auto-update")
+    assert (note in message) if note else ("switches .venv" not in message)
+
+
 @pytest.mark.parametrize("journal_content", ["", "{broken", '{"old_sha": "abc"}'])
 def test_unfinished_update_blocks_before_application_imports(leased_install, journal_content):
     root, server, _ = leased_install

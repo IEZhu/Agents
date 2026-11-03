@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -16,12 +17,21 @@ from src.thread_status import status_title
 
 SESSION = "550e8400-e29b-41d4-a716-446655440000"
 TURN = "01a14e91-da9f-75f0-b282-911dfe1f8bbe"
+_POPEN = subprocess.Popen  # the server fixture replaces it in the subprocess module
 _SERVER = r'''
 import json, os, signal, sys, time
 from pathlib import Path
 config = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
 if config.get("ignore_terminate") and os.name == "posix":
     signal.signal(signal.SIGTERM, signal.SIG_IGN)
+if config.get("helper"):
+    # A local helper in the server's process group, which only a group signal reaches.
+    import subprocess
+    helper = subprocess.Popen([sys.executable, "-c", "import signal, time; "
+                               "signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(30)"],
+                              stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    Path(config["helper"] + ".tmp").write_text(str(helper.pid), encoding="utf-8")
+    os.replace(config["helper"] + ".tmp", config["helper"])
 title = config.get("title", "🔄 Проверить API — #42")
 reads = 0
 started = time.monotonic()
@@ -112,6 +122,32 @@ def format_stopped(title, status):
 
 def rename(**kwargs):
     return adapter.rename_codex_thread(SESSION, "stopped", format_stopped, executable="fake-codex", **kwargs)
+
+
+def exits(pid, timeout=2.0):
+    """Whether process *pid* is gone or a zombie within *timeout* seconds (POSIX ``ps``)."""
+    if pid != os.getpid():
+        assert not exits(os.getpid(), timeout=0), "ps cannot see this process, so it cannot tell"
+    end = time.monotonic() + timeout
+    while True:
+        with _POPEN(["ps", "-o", "stat=", "-p", str(pid)], stdout=subprocess.PIPE, text=True) as ps:
+            state = ps.communicate()[0].strip()
+        if not state or state.startswith("Z"):
+            return True
+        if time.monotonic() > end:
+            return False
+        time.sleep(0.02)
+
+
+def assert_helper_ended(server, helper):
+    """The server's helper ended with it; one that did not is killed so it cannot linger."""
+    if os.name != "posix" or not server[2]():
+        return  # no process groups, or the server never reached its loop to start the helper
+    pid = int(helper.read_text(encoding="utf-8"))  # written before the server logs any message
+    ended = exits(pid)
+    if not ended:
+        os.kill(pid, signal.SIGKILL)
+    assert ended, "the server's helper outlived it: the process group was not signalled"
 
 
 def test_supported_metadata_flow_preserves_body_and_confirms_readback(server):
@@ -350,14 +386,46 @@ def test_invalid_timeout_never_launches_child(server, timeout):
 
 
 @pytest.mark.parametrize("stage", ["initialize", "thread/read", "thread/name/set", "readback"])
-def test_timeout_includes_initialization_and_kills_blocked_child(server, stage):
-    server[0].update(hang_at=stage, ignore_terminate=True)
+def test_timeout_includes_initialization_and_kills_blocked_child(server, stage, tmp_path):
+    helper = tmp_path / "helper.pid"
+    server[0].update(hang_at=stage, ignore_terminate=True, helper=str(helper) if os.name == "posix" else None)
     started = time.monotonic()
-    with pytest.raises(RuntimeError, match="timed out"):
+    # The killed child can outlast the cleanup reserve on a slow runner (#518), so either error counts;
+    # the deadline tests below and test_success_closes_and_reaps_server_that_ignores_eof guard the reserve.
+    with pytest.raises(RuntimeError, match="timed out|cleanup deadline"):
         rename(timeout=0.4)
-    assert time.monotonic() - started < 0.55
-    assert server[1][0].poll() is not None
+    assert time.monotonic() - started < 1.0  # far below the 30 s hang, with room for a slow runner
+    # The child ignores SIGTERM and hangs for 30 s: only the SIGKILL ends it in time,
+    # and only a group signal ends its helper.
+    server[1][0].wait(timeout=2)
+    assert_helper_ended(server, helper)
     assert server[1][0].stdin.closed and server[1][0].stdout.closed
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Process groups are POSIX only")
+def test_refused_group_signal_does_not_turn_a_completed_rename_into_an_error(server, monkeypatch):
+    def refuse(pid, sig):
+        raise PermissionError(1, "Operation not permitted")
+
+    monkeypatch.setattr(adapter.os, "killpg", refuse)
+    assert rename()["persisted"] is True
+    assert server[1][0].poll() is not None
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Process groups are POSIX only")
+def test_a_refused_sigterm_still_sends_sigkill_to_a_blocked_child(server, monkeypatch):
+    real = os.killpg
+
+    def refuse_terminate(pid, sig):
+        if sig == signal.SIGTERM:
+            raise PermissionError(1, "Operation not permitted")
+        real(pid, sig)
+
+    monkeypatch.setattr(adapter.os, "killpg", refuse_terminate)
+    server[0].update(hang_at="thread/read", ignore_terminate=True)
+    with pytest.raises(RuntimeError, match="timed out|cleanup deadline"):
+        rename(timeout=0.4)
+    server[1][0].wait(timeout=2)
 
 
 def test_deadline_is_shared_across_requests_instead_of_reset(server):
@@ -373,6 +441,15 @@ def test_success_closes_and_reaps_server_that_ignores_eof(server):
     server[0].update(ignore_eof=True, ignore_terminate=True)
     assert rename(timeout=0.6)["persisted"] is True
     assert server[1][0].poll() is not None
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Process groups are POSIX only")
+def test_success_still_ends_the_helper_of_a_server_that_already_exited(server, tmp_path):
+    helper = tmp_path / "helper.pid"
+    server[0]["helper"] = str(helper)
+    assert rename()["persisted"] is True
+    assert server[1][0].poll() is not None
+    assert_helper_ended(server, helper)
 
 
 def test_module_can_load_as_installed_standalone_sibling(tmp_path):

@@ -12,6 +12,10 @@ refs' commits. A moved, rewritten or removed ref expands only the commits the ca
 has not seen and combines every commit's events again. History is read from the
 commits as stored: replace refs and grafts, which change a commit without moving a
 ref, are ignored.
+
+Sync's publication reads the exported events the same way (#535): ``export_index``
+keeps them with blob IDs until a ref it reads moves, and ``read_blobs`` reads only
+the blobs asked for, in bounded batches.
 """
 from __future__ import annotations
 
@@ -27,7 +31,7 @@ import re
 import stat
 import threading
 import time
-from typing import Iterable, Mapping
+from typing import Iterable, Iterator, Mapping
 import uuid
 
 from src.flows import FlowError
@@ -58,6 +62,7 @@ _TIP = re.compile(r"([0-9a-f]{40}) ([a-z]+)")
 # Entry counts, not bytes: an index holds every walked commit's events (blob IDs, no file bytes).
 INDEX_LIBRARIES = 8  # cached libraries; the least recently used is dropped first
 DIGEST_LIMIT = 4096  # cached SHA-256 digests of archived blobs, by blob ID
+READ_BATCH_BYTES = 64 * 1024 * 1024  # blob bytes per read_blobs plumbing call; a history may hold gigabytes
 # Commits as stored: no replace refs, and an empty graft file whose deprecation hint stays quiet.
 _STORED_OBJECTS = {"GIT_NO_REPLACE_OBJECTS": "1", "GIT_GRAFT_FILE": os.devnull, "GIT_CONFIG_COUNT": "1",
                    "GIT_CONFIG_KEY_0": "advice.graftFileDeprecated", "GIT_CONFIG_VALUE_0": "false"}
@@ -96,6 +101,10 @@ class _Index:
         self.events: tuple[dict, ...] = ()
         # The tips whose history was refused, and why: raised again until a ref moves.
         self.refused: tuple[tuple[tuple[str, str], ...], HistoryError] | None = None
+        # export_index(): the commits it walked (history tip, accepted tips, boundary) and their events.
+        self.export_lock = threading.Lock()
+        self.export_key: tuple | None = None
+        self.exported: tuple[dict, ...] = ()
 
 
 _indexes: OrderedDict[str, _Index] = OrderedDict()
@@ -300,6 +309,38 @@ class LibraryHistory:
 
     def _prime_blobs(self, ids: list[str]) -> None:
         self._blobs.update(self._objects([oid for oid in ids if oid not in self._blobs], "blob"))
+
+    def _sizes(self, ids: list[str]) -> dict[str, int]:
+        """Sizes of these blobs, without reading their bytes."""
+        if not ids:
+            return {}
+        lines = self.git.text("cat-file", "--batch-check", input=("\n".join(ids) + "\n").encode()).splitlines()
+        if len(lines) != len(ids):
+            raise self._fail("a history object has invalid data")
+        sizes = {}
+        for expected, line in zip(ids, lines):
+            header = line.split()
+            if len(header) != 3 or header[:2] != [expected, "blob"] or not header[2].isdigit():
+                raise self._fail("a history object has invalid data")
+            sizes[expected] = int(header[2])
+        return sizes
+
+    def read_blobs(self, oids: Iterable[str]) -> Iterator[tuple[str, bytes]]:
+        """``(blob ID, bytes)`` of each blob, read in batches of about ``READ_BATCH_BYTES``."""
+        ids = list(dict.fromkeys(oids))
+        try:
+            sizes = self._sizes(ids)
+            batch, total = [], 0
+            for oid in ids:
+                if batch and total + sizes[oid] > READ_BATCH_BYTES:
+                    yield from self._objects(batch, "blob").items()
+                    batch, total = [], 0
+                batch.append(oid)
+                total += sizes[oid]
+            if batch:
+                yield from self._objects(batch, "blob").items()
+        except GitError as error:
+            raise self._fail(str(error)) from None
 
     def _prime_records(self, records: Iterable[tuple[str, str | None, dict]]) -> None:
         """Batch the trees of the records' commits and parents, parents' headers included."""
@@ -668,12 +709,14 @@ class LibraryHistory:
         return self._hydrate(self._combined(records))
 
     @_git_errors
-    def events(self, refs: list[str] | None = None) -> list[dict]:
-        """All exact versions, including discarded history retained privately."""
+    def events(self, refs: list[str] | None = None, *, hydrate: bool = True) -> list[dict]:
+        """All exact versions, including discarded history retained privately; blob IDs unless ``hydrate``."""
         if refs is None:
-            return self._hydrate(self._index())
-        self._ensure_repository()
-        return self._events(self._commits(refs))
+            events = self._index()
+        else:
+            self._ensure_repository()
+            events = self._combined(self._commits(refs))
+        return self._hydrate(events) if hydrate else list(events)
 
     def _index(self) -> tuple[dict, ...]:
         """``events()`` with blob IDs, shared by every reader of this library until a ref moves.
@@ -909,14 +952,31 @@ class LibraryHistory:
     @_git_errors
     def export_events(self) -> list[dict]:
         """Accepted remote versions and native edits after the completed boundary."""
+        return self._hydrate(self.export_index())
+
+    @_git_errors
+    def export_index(self) -> tuple[dict, ...]:
+        """``export_events()`` with blob IDs, shared by every reader of this library until a ref moves.
+
+        The walk is a function of the commits it starts from and stops at, so they are the key.
+        """
         self._ensure_repository()
-        if self._rev(HISTORY_REF) is None:
-            return []
+        head = self._rev(HISTORY_REF)
+        if head is None:
+            return ()
         boundary = self.generation()
-        refs = [HISTORY_REF, *self.accepted_refs()]
+        accepted = ()
         if boundary:
-            refs.append("^" + boundary)
-        return self._events(self._commits(refs))
+            prefix = ACCEPTED_PREFIX + boundary + "/"
+            accepted = tuple(self.git.text("for-each-ref", "--format=%(objectname)", prefix + "tips/",
+                                           prefix + "retained/").split())
+        key = (head, accepted, boundary)
+        index = _library_index(self.root)
+        with index.export_lock:  # one walk per library; concurrent readers wait for it
+            if index.export_key != key:
+                walk = [head, *accepted, *(["^" + boundary] if boundary else [])]
+                index.exported, index.export_key = tuple(self._combined(self._commits(walk))), key
+            return index.exported
 
     def _archived(self, event: dict) -> str | bytes | None:
         """What the event's version restores: a blob ID in the index's events (``_index``),

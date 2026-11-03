@@ -121,3 +121,13 @@ def test_git_failure_is_reported(tmp_path):
         drift.check(tmp_path, "a" * 40, list(drift.TREES), repository=tmp_path)
     with pytest.raises(drift.DriftCheckFailed, match="40-character"):
         drift.check(tmp_path, "origin/main", list(drift.TREES), repository=tmp_path)
+
+
+def test_modules_of_the_installation_environments_are_not_checked(tmp_path):
+    """Since #181 .venv links to an environment under .venvs, where resolved modules then sit."""
+    from types import SimpleNamespace
+    root = tmp_path / "installation"
+    modules = [SimpleNamespace(__file__=str(root / ".venvs/py313-0123456789ab/lib/python3.13/site-packages/x.py")),
+               SimpleNamespace(__file__=str(root / ".venv/lib/python3.13/site-packages/y.py")),
+               SimpleNamespace(__file__=str(root / "src/schedules/runner.py"))]
+    assert drift.imported_files(root, modules) == ["src/schedules/runner.py"]

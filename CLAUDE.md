@@ -341,10 +341,12 @@ preserve them.
 - `src/server.py` exposes the MCP tools. Protocol handlers and complete bundle
   assembly live in `src/engine/persona.py` and `src/engine/persona_bundle.py`;
   shared response schemas live in `src/schemas/protocol.py`.
-- `src/client_instructions.py` decides when the MCP initialization answers with
-  the pointer instead of the full instructions (only when every checkout the
-  session may run in holds the current managed section) and words the warnings
-  about outdated sections; `tests/test_instruction_pointers.py` checks it.
+- `src/client_instructions.py` decides when the MCP initialization answers a Codex
+  session with the pointer instead of the full instructions (only when every
+  checkout the session may run in holds the current managed section in its
+  `AGENTS.md`; Claude Code and every other client keep the full text) and words
+  the warnings about outdated sections; `tests/test_instruction_pointers.py`
+  checks it.
 - Agent metadata declares core, preferred and capable skills, plus preferred
   implants. General rules are versioned bundle content, governed by
   `src/engine/rules.py`; the configuration can disable them with `RULES_ENABLED=0`,

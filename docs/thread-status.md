@@ -62,10 +62,11 @@ from closure. A new work request resumes `working`.
 Claude's native prompt hook sets a working prefix only for unmarked, `unknown`
 or `working` titles. It preserves `needs_user`, `waiting`, `blocked`, `review`,
 `paused`, `stopped`, `finishing`, `ready_to_close` and `closed` until the model
-decides whether the new request actually resumes work. Session startup, resume and compaction only
-deliver context, without claiming work has started. Response-end hooks that set a status
-are deliberately absent: the end of a response does not establish task completion. The
-interrupt watcher's `Stop` handler only records where a turn stopped and changes no title. Subagent and
+decides whether the new request actually resumes work. Session startup, resume
+and compaction only deliver context, without claiming work has started.
+Response-end hooks that set a status are deliberately absent: the end of a
+response does not establish task completion. The interrupt watcher's `Stop`
+handler only records where a turn stopped and changes no title. Subagent and
 background events cannot rename the parent chat.
 
 When the chat identity is known, Claude's prompt hook also reminds the model, once
@@ -178,18 +179,18 @@ turns that no `UserPromptSubmit` starts, terminal and IDE sessions, and a model
 that disregards the reminder keep the previous title. So does an interrupt in a
 continued turn when the blocking hook ran for more than ten minutes, or when its
 feedback reached the transcript before the `Stop` handler read the size and the
-continuation then wrote no tool result for ten minutes. A late watcher can still wake when neither the session record nor the
-transcript shows the newer prompt by the end of its one-second settle window, for
-example while that prompt's synchronous hooks are still running. A late watcher
-whose prompt's last user record lies more than 64 KiB before the newer prompt's
-registration can still replace that prompt. If a message sent right after stop is
-carried into the woken turn and Claude Code stamps that turn's later records,
-including an interrupt record, with the stopped prompt's ID, a stop during that
-work keeps the previous title, and the message's own watcher can keep polling
-until the next prompt. Cursor documents
-an aborted stop status, but no verified general title-write API, so Cursor has no
-automatic button-stop adapter. Do not infer interruption from ordinary tool
-failures or claim unsupported title changes.
+continuation then wrote no tool result for ten minutes. A late watcher can still
+wake when neither the session record nor the transcript shows the newer prompt by
+the end of its one-second settle window, for example while that prompt's
+synchronous hooks are still running. A late watcher whose prompt's last user
+record lies more than 64 KiB before the newer prompt's registration can still
+replace that prompt. If a message sent right after stop is carried into the woken
+turn and Claude Code stamps that turn's later records, including an interrupt
+record, with the stopped prompt's ID, a stop during that work keeps the previous
+title, and the message's own watcher can keep polling until the next prompt.
+Cursor documents an aborted stop status, but no verified general title-write API,
+so Cursor has no automatic button-stop adapter. Do not infer interruption from
+ordinary tool failures or claim unsupported title changes.
 
 The always-on `thread-status` rule reaches new persona activations and explicit
 refreshes, unless rules are disabled or an exact flow selection omits it.
@@ -285,7 +286,7 @@ The main uninstaller removes unchanged registrations and copied runtimes belongi
 ## Verification and sources
 
 ```bash
-PYTHONDONTWRITEBYTECODE=1 LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/test_thread_status.py tests/test_thread_status_interrupt.py tests/test_thread_status_installer.py tests/test_codex_thread_titles.py tests/test_rules.py tests/test_subagent.py -q -p no:cacheprovider
+PYTHONDONTWRITEBYTECODE=1 LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/test_thread_status.py tests/test_thread_status_interrupt.py tests/test_thread_status_installer.py tests/test_uninstall_thread_status.py tests/test_codex_thread_titles.py tests/test_rules.py tests/test_subagent.py -q -p no:cacheprovider
 ```
 
 Tests use temporary profiles and fake SDKs; they check preservation, idempotence,
@@ -304,8 +305,11 @@ lock, corrupt session records, the history and stop caps, a first-turn transcrip
 that appears late or never, version and entrypoint gating, and exit code 0 for
 every failure path.
 The `Thread status` workflow runs these adapter, hook and installer tests on
-Linux, macOS and Windows. They do not establish live client rendering, client
-trust or a real PowerShell/client integration.
+Linux, macOS and Windows, and the `Uninstall` workflow runs
+`tests/test_uninstall_thread_status.py` there, including removal of the
+watcher's handlers and runtime while another `Stop` hook stays. They do not
+establish live client rendering, client trust or a real PowerShell/client
+integration.
 
 Primary contracts: [Claude hooks](https://code.claude.com/docs/en/hooks),
 [Claude SDK metadata](https://code.claude.com/docs/en/agent-sdk/python#rename_session),

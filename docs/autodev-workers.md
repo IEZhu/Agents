@@ -156,10 +156,12 @@ attempts, so a worker that keeps breaking the contract cannot loop.
 
 ## Packages
 
-Each attempt calls `src.engine.subagent.prepare_subagent` with `result_type="review"`, the agent
-`code_reviewer` for reviews and `delegates.change-premortem.role` (default `sysadmin`, Q2) for the
-pre-mortem, `task_id` `autodev-<run-id>-<handle>`, the attempt number as `attempt_id` and a
-budget of 32,000 characters. `AGENTS_USER_FLOWS_DIR` points to an empty directory during the call
+Each attempt calls `src.engine.subagent.prepare_subagent` with `result_type="review"` and
+`result_format="json"` (the default is plain text; the launcher passes `result_schema` to the
+CLI's structured output), the agent `code_reviewer` for reviews and
+`delegates.change-premortem.role` (default `sysadmin`, Q2) for the pre-mortem, `task_id`
+`autodev-<run-id>-<handle>`, the attempt number as `attempt_id` and a budget of 32,000
+characters. `AGENTS_USER_FLOWS_DIR` points to an empty directory during the call
 (under a process-wide lock), so no personal component toggle changes the worker. The task text
 names the range and the head; the acceptance criteria ask for findings with locations, failure
 scenarios and remedies and for the range as evidence; the restricted reviews and the

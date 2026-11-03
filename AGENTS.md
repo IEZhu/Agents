@@ -108,8 +108,10 @@ plans and catalogs out of tracked repository files.
   `tests/test_protocol_text.py` fails on a stale file and on a sentence the
   source states in two places, `tests/test_log_interaction_contract.py` on a
   server instruction that leaves Claude Code's windows, and
-  `tests/test_instruction_pointers.py` when a pointer of
-  `src/client_instructions.py` does not name a rule of the full instruction.
+  `tests/test_instruction_pointers.py` when a pointer of the `pointer` section
+  does not name a rule of the full text it replaces, or when
+  `src/client_instructions.py` sends the initialization pointer although a
+  checkout's instruction file is not current.
   Keep repository notes and Repository Memory outside the routing markers.
 - Treat `.env`, MCP client registrations, memory journals and generated indexes
   as local state. A documentation update does not require reinstalling clients

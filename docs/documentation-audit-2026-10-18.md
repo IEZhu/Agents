@@ -7,6 +7,11 @@ revision, not a guarantee that future source or installed clients match it.
 Repeat the [documentation refresh](../flows/documentation-refresh.md) for a later
 revision. Use the [documentation map](README.md) for current reader entry points.
 
+**Status on 2026-10-25:** historical record. Its documentation PR
+[#451](https://github.com/IEZhu/Agents/pull/451) merged into `dev` on 2026-10-24.
+The [audit of 2026-10-25](documentation-audit-2026-10-25.md#before-the-promotion)
+supersedes the pre-promotion list below.
+
 ## Method and scope
 
 The run inventoried tracked Markdown, discovery files, main-server tool
@@ -133,7 +138,9 @@ tests were inspected rather than rerun. The follow-up documentation selection
 passed 59 tests; the offline checker passed for 133 Markdown files and the
 unchanged 48/48 native-tool index. Diff whitespace validation passed.
 
-Before the planned `dev → main` promotion:
+Before the planned `dev → main` promotion, as listed on 2026-10-18 (the
+[audit of 2026-10-25](documentation-audit-2026-10-25.md#before-the-promotion)
+records each item's later status):
 
 1. Complete review of [this documentation/version PR #451](https://github.com/IEZhu/Agents/pull/451) and include its accepted changes in `dev`. PRs #449 and #452 are integrated as recorded below; the documentation PR remains open for owner approval.
 2. Re-fetch the target branch and compare any newer source with the integrated revisions below. Reconcile overlapping README, documentation index, proxy plan, daemon/sync guides and optional dependency metadata. Keep the canonical dynamic `VERSION` source and include any resulting lock-file changes.
@@ -223,7 +230,7 @@ the focused workflow selection passes without a model cache.
 ### Integration update after PR #449
 
 The final documentation preparation combines preserved candidate
-[`d1d1cefb273d`](https://github.com/IEZhu/Agents/commit/d1d1cefb273d893fc2e8478cf32dd2833ab90a09)
+`d1d1cefb273d` (a local commit that GitHub does not serve)
 with `origin/dev` at
 [`8a789eb79d96`](https://github.com/IEZhu/Agents/commit/8a789eb79d964d1013008e3801907e6a7a7ae480).
 That target contains the #449 merge

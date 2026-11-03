@@ -11,9 +11,9 @@ monitor wait without repeated model polling. This does not relax any flow gate.
 
 ## Delegated workers
 
-Every flow that launches an AI reviewer, verifier or other worker follows the [mandatory delegation contract](../docs/routing_flow.md#delegated-workers): call `get_subagent_context`, require `status: prepared`, retain the original contract, and pass the compact `worker_context` unchanged to a fresh native worker. For every returned or revised output, call `validate_subagent_result` with that contract and require `valid: true` before using it, then check evidence and acceptance criteria. No endpoint failure permits unprepared delegation or unvalidated acceptance; report the limitation and work in the parent when practical. Flow-specific requirements for an independent review remain unsatisfied when no validated independent review ran.
+Every flow that launches an AI reviewer, verifier or other worker follows the [mandatory delegation contract](../docs/routing_flow.md#delegated-workers): call `get_subagent_context` and require `status: prepared`. With the default file delivery, start a fresh native worker with the receipt's `launch` text and keep the receipt's `contract_revision`; the inline package has no `launch` text (see below). For every returned or revised output, call `validate_subagent_result` with `contract_revision` and `result_ref` (the worker's transcript or result file; `result` only when no file holds the output; for an inline package, the retained `contract` instead of `contract_revision`) and require `valid: true` before using it, then check evidence and acceptance criteria. Only for a worker that cannot read the server's files, request `delivery="inline"`, retain the returned `contract` and start the worker with `worker_context` unchanged. No endpoint failure permits unprepared delegation or unvalidated acceptance; report the limitation and work in the parent when practical. Flow-specific requirements for an independent review remain unsatisfied when no validated independent review ran.
 
-When a flow is task material for a prepared worker, as [code-review-pass](code-review-pass.md) and [change-premortem](change-premortem.md) are for the workers of an [autodev](autodev.md) run, the package and the worker rules govern: the flow's persona frontmatter, its exact component lists, a personal overlay and its steps about `run_flow` and role activation do not apply. The worker gets a compact role from the package and returns only the package's result schema; the flow contributes its method where it does not conflict.
+When a flow is task material for a prepared worker, as [code-review-pass](code-review-pass.md) and [change-premortem](change-premortem.md) are for the workers of an [autodev](autodev.md) run, the package and the worker rules govern: the flow's persona frontmatter, its exact component lists, a personal overlay and its steps about `run_flow` and role activation do not apply. The worker gets a compact role from the package and returns only the result in the package's format; the flow contributes its method where it does not conflict.
 
 ## Available flows
 
@@ -35,6 +35,7 @@ When a flow is task material for a prepared worker, as [code-review-pass](code-r
 | [Code review pass](code-review-pass.md) | Review one commit range against the acceptance criteria, as a delegated worker or directly | A `ReviewPayload` |
 | [Change pre-mortem](change-premortem.md) | Name the three to five likeliest reasons a merged change breaks, as a delegated worker or directly | A `ReviewPayload` with one finding per risk |
 | [Autodev retrospective](autodev-retro.md) | Measure the autodev pipeline from its run records and pull requests (design 12 metrics, lead time, rework, cost), find where runs stall and propose changes, read-only and started by the owner | A report with the metrics, the diagnosis and at most five proposals; one issue only on request |
+| [Review config rollout](review-config-rollout.md) | Install the shared CodeRabbit configuration and the review-discipline section in one repository, with its real base branches, then prove a review arrives | A pull request left for the owner, with the stacks installed and the first review's outcome |
 | [Open-source tuning](open-source-tuning.md) | Tune a skill, implant or agent, or create one, from free and legally available sources: probe the gap, extract only the delta, verify facts, wire it to its owners and hand probe cases to A/B eval | A tuned component with its `sources`, a probe case set and a pull request against `dev` |
 
 Built-in flows declare their persona: `documentation-refresh` runs as
@@ -43,7 +44,8 @@ Built-in flows declare their persona: `documentation-refresh` runs as
 `investigative_analyst`, `ab-eval` as `ai_senior_engineer`, `autodev-select`
 as `product_manager`, `autodev-implement` as `software_engineer`,
 `code-review-pass` as `code_reviewer`, `change-premortem` as `sysadmin`,
-`autodev-retro` as `engineering_manager` and `open-source-tuning` as
+`autodev-retro` as `engineering_manager`, `review-config-rollout` as
+`devops_engineer` and `open-source-tuning` as
 `agent_builder`, each
 with an exact list of skills and implants (see
 [choosing a flow's agent](#choose-a-flows-agent-and-components)). The
@@ -53,10 +55,11 @@ The three issue flows run in a Claude Code cloud routine that a GitHub Actions
 bridge starts for the owner's `/agent` comments, not from a local request. See
 [issue agent setup](../docs/cloud-runs.md#issue-agent).
 
-`environment-autoconfigure` runs as `sysadmin` with that agent's default
-components. It audits and repairs the current host only when explicitly invoked;
-it is not an installation hook for ordinary conversations. The configured stack
-and platform determine versions and supported integrations.
+`environment-autoconfigure` runs as `sysadmin` and `shared-kv-inference` as
+`software_engineer`, each with that agent's default components.
+`environment-autoconfigure` audits and repairs the current host only when
+explicitly invoked; it is not an installation hook for ordinary conversations.
+The configured stack and platform determine versions and supported integrations.
 
 ## Run a flow
 

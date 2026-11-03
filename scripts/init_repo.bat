@@ -220,6 +220,10 @@ echo %CYAN%===============================%NC%
 set "SKIP_INSTALL=false"
 
 if exist "%VENV_PATH%\Scripts\python.exe" goto :venv_exists
+REM Auto-update makes .venv a junction to the active environment in .venvs
+REM (src\environments.py). One whose environment is gone would stop venv:
+REM rmdir without /S removes a junction, never its target, or an empty directory.
+rmdir "%VENV_PATH%" 2>nul
 echo   %GREEN%^>%NC% Creating virtual environment using %SELECTED_PYTHON%...
 %SELECTED_PYTHON% -m venv "%VENV_PATH%"
 goto :venv_activate
@@ -263,7 +267,9 @@ exit /b 1
 
 :venv_recreate
 echo   %GREEN%^>%NC% Removing existing venv...
-rmdir /S /Q "%VENV_PATH%"
+REM A junction to the active environment goes without /S, keeping its target in .venvs.
+rmdir "%VENV_PATH%" 2>nul
+if exist "%VENV_PATH%" rmdir /S /Q "%VENV_PATH%"
 echo   %GREEN%^>%NC% Creating fresh virtual environment using %SELECTED_PYTHON%...
 %SELECTED_PYTHON% -m venv "%VENV_PATH%"
 

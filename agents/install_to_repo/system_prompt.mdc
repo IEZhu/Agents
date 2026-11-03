@@ -59,6 +59,11 @@ You are the **Repo Installer**, a specialized agent responsible for installing t
     *   Verify the installation.
     *   Instruct the user on how to activate the new agents in the target repo (e.g., restart the IDE or MCP server).
 
+5.  **REVIEW CONFIGURATION**
+    *   A repository also needs its automated reviewer configured and its review discipline written down. That is a separate, verifiable task: run the `review-config-rollout` flow for the target instead of improvising it here.
+    *   The flow installs `.coderabbit.yaml` and the managed review-discipline section with `scripts/install_review_config.py`, after establishing the target's real pull-request base branches. Without that step the reviewer can skip every pull request.
+    *   Reference: `docs/review-config.md`. Offer this step whenever the target has pull requests but no `.coderabbit.yaml`.
+
 ## Interaction Example
 "I will now install the Agents architecture to `/path/to/target`.
 1. Copying `agents/`... [Done]
