@@ -211,14 +211,35 @@ def test_mail_protects_used_registrations_and_is_not_retention_collected(h):
     assert len(receive(h, b, include_acknowledged=True)["messages"]) == 1
 
 
-def test_mail_does_not_renew_heartbeat_or_clear_quarantine(h):
+def test_model_authored_mail_keeps_a_corresponding_participant_live(h):
     a, b = h.register("a"), h.register("b")
     assert h.acquire(a)["status"] == "ok"
+    before = h.read()
     h.now += 121
     sent = send(h, a, b)["message"]
     assert ack(h, b, sent)["status"] == "ok"
     snapshot = h.read()
-    assert all(p["last_seen"] == 1000.0 and p["status"] == "suspect" for p in snapshot["participants"])
+    states = {p["task_id"]: p for p in snapshot["participants"]}
+    # Correspondence is an act of each participant's own model, so the service
+    # keeps the honest timestamp it already has instead of declaring them stale.
+    assert states["a"]["last_seen"] == h.now and states["b"]["last_seen"] == h.now
+    assert all(p["status"] == "active" for p in snapshot["participants"])
+    assert not snapshot["claims"][0]["quarantined"]
+    # Liveness is not an ownership decision: no peer has to retry a revision.
+    assert snapshot["revision"] == before["revision"]
+
+
+def test_mail_never_clears_an_established_suspicion_or_quarantine(h):
+    a, b = h.register("a"), h.register("b")
+    assert h.acquire(a)["status"] == "ok"
+    h.now += 121
+    assert h.read()["claims"][0]["quarantined"]
+    sent = send(h, a, b)["message"]
+    assert ack(h, b, sent)["status"] == "ok"
+    snapshot = h.read()
+    states = {p["task_id"]: p for p in snapshot["participants"]}
+    assert states["a"]["last_seen"] == h.now and states["b"]["last_seen"] == h.now
+    assert all(p["status"] == "suspect" for p in snapshot["participants"])
     assert snapshot["claims"][0]["quarantined"]
 
 

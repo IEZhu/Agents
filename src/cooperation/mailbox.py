@@ -75,6 +75,22 @@ class Mailbox:
         for participant in participants:
             db.execute("INSERT OR IGNORE INTO participant_activity VALUES (?)", (participant["participant_id"],))
 
+    def _seen(self, db, participant, now):
+        """Refresh liveness on the service clock for a participant that acted.
+
+        A send, an acknowledgement or a request update is an act of that
+        participant's own model, so it proves what a ``heartbeat`` proves and
+        the service already holds the honest timestamp. Passive polls keep
+        their documented promise not to renew a heartbeat, because a host-side
+        listener could issue them with no model running. This never bumps the
+        repository revision, so peers keep their ownership decisions, and it
+        never changes ``status``: only ``recover`` clears a suspicion.
+        """
+        if participant["status"] == "cancelled":
+            return
+        participant["last_seen"] = now
+        self.service._save_participant(db, participant)
+
     @staticmethod
     def _message(row):
         return {**json.loads(row["body"]), "cursor": row["cursor"],
@@ -176,6 +192,7 @@ class Mailbox:
                 # Incoming mail also makes a registration used: never tombstone
                 # a recipient while its durable inbox still awaits inspection.
                 self._activity(db, actor, subject, recipient)
+                self._seen(db, subject, now)
             self.service.mailbox_notifier.notify({(repo, subject["participant_id"]), (repo, recipient["participant_id"])})
             return response
         except CooperationError as error:
@@ -230,6 +247,7 @@ class Mailbox:
                                          "participant_id": subject["participant_id"], "message_ids": data["message_ids"], "acknowledged_at": now})
                 self._save_receipt(db, data, request_digest, response)
                 self._activity(db, actor, subject)
+                self._seen(db, subject, now)
             self.service.mailbox_notifier.notify(changed_keys)
             return response
         except CooperationError as error:
@@ -291,6 +309,7 @@ class Mailbox:
                         "repository_id": repo, "request": self._request_projection(db, record)})
                     self._save_receipt(db, data, request_digest, response)
                     self._activity(db, actor, subject)
+                    self._seen(db, subject, now)
             self.service.mailbox_notifier.notify({(repo, record["sender_id"]), (repo, record["recipient_id"])})
             return response
         except CooperationError as error:
