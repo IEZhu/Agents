@@ -36,7 +36,10 @@ docs/review-rules.md` keeps `docs/review-rules.md` as a pattern without
 restoring `docs/**`. An absolute path outside the target gets no pattern,
 because these are paths in the reviewed commit; the section is still written
 there, and CodeRabbit reads it only through the repository's own
-`path_instructions`.
+`path_instructions`. A selected path holding `*`, `?` or `[` is refused before
+either file is written: these patterns are globs with no defined escape, so such
+an entry would apply the discipline to other matching files instead of naming
+one.
 
 ## Install
 

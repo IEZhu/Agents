@@ -243,6 +243,14 @@ def load_instructions(stacks: Iterable[str]) -> list[dict]:
     return entries
 
 
+# filePatterns are globs, and no escape is defined for them, so a selected
+# instruction path holding one of these would be read as a wildcard and apply the
+# managed discipline to other matching files. `*` and `?` are the ones this
+# module's own matcher honours; `[` is included because CodeRabbit's matcher is
+# not this one and a character class is the next thing a glob implementation adds.
+GUIDELINE_GLOB_METACHARACTERS = "*?["
+
+
 def glob_regex(pattern: str) -> re.Pattern[str]:
     """Translate a file glob into a regex where `**/` spans whole directories."""
     out, index = [], 0
@@ -305,6 +313,12 @@ def compose_config(paths: Sequence[str], stacks: Sequence[str], language: str | 
     # never read, because dropping docs/**/*.md left no pattern that matches it. Its
     # exact path is added, never a directory pattern: docs/** is not a standard.
     if instruction_file is not None and instruction_file not in patterns:
+        held = sorted(set(instruction_file) & set(GUIDELINE_GLOB_METACHARACTERS))
+        if held:
+            raise InstallError(
+                f"{instruction_file} holds the glob character {' and '.join(held)}, which "
+                "code_guidelines.filePatterns would read as a wildcard matching other "
+                "files. Rename the file, or pass a path without it with --agents-md.")
         patterns.append(instruction_file)
     kept = guideline_patterns(patterns, paths)
     if kept:
