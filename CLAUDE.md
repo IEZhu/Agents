@@ -444,7 +444,7 @@ Delegation is a contract, not a prompt. `get_subagent_context` writes a task-sco
 
 ### Test Strategy
 
-`pytest` with `addopts = ["-m", "not slow"]` and one `slow` marker for anything loading the embedding model or a vector store, across 242 test files. `tests/conftest.py` pins the model from `.env`, isolates data and service-state directories, blocks notifications and restarts and fakes external executables, so the suite needs no network and no live daemon. It is not model-free: retriever and isolation checks build the stores and re-embed them on a hash mismatch, so keep `EMBEDDING_MODEL` cached and run offline with `HF_HUB_OFFLINE=1`. Run with `LANGFUSE_TRACING_ENABLED=false`, one heavy test or embedding process at a time. `tests/ci_shard.py` splits a collection across four Windows jobs. Node covers `bridge/test.mjs`, `tests/mcp_metadata_guard.test.mjs` and `tests/flows_ui_page_harness.mjs`. `tests/README.md` maps each subsystem to its files.
+`pytest` with `addopts = ["-m", "not slow"]` and one `slow` marker for most tests loading the embedding model or a vector store, across 242 test files. `tests/conftest.py` pins the model from `.env`, isolates data and service-state directories, blocks notifications and restarts and fakes external executables, so the suite needs no network and no live daemon. It is not model-free: retriever and isolation checks build the stores and re-embed them on a hash mismatch, so keep `EMBEDDING_MODEL` cached and run offline with `HF_HUB_OFFLINE=1`. Run with `LANGFUSE_TRACING_ENABLED=false`, one heavy test or embedding process at a time. `tests/ci_shard.py` splits a collection across four Windows jobs. Node covers `bridge/test.mjs`, `tests/mcp_metadata_guard.test.mjs` and `tests/flows_ui_page_harness.mjs`. `tests/README.md` maps each subsystem to its files.
 
 ### Gotchas
 
@@ -452,7 +452,7 @@ Delegation is a contract, not a prompt. `get_subagent_context` writes a task-sco
 - A worktree's git-ignored `data/` holds live runtime state — worker packages, session locks — not a cache: `git worktree remove` deletes it.
 - `.env`, client registrations, history journals and generated indexes are local state; a documentation change needs no reinstall or daemon restart.
 - The personal flow library lives outside this repository, in the installation's git-ignored `flows/.user`; only `common`, `personas`, `history`, `components` and `mcp` sync between machines (`src/user_sync/scope.py:43`).
-- `RULES_ENABLED=0` disables the rules layer; the web UI switches single rules, skills and implants off for the installation (`src/component_toggles.py`).
+- `RULES_ENABLED=0` disables the rules layer; the web UI switches rules, skills and implants off for the installation (`src/component_toggles.py`).
 - A full local run needs more than the base dependencies: `tests/test_openrouter_provider.py` and `tests/test_prompt_ab.py` need the `evals` extra for `openai`, and `tests/test_language.py` needs `langdetect`, which `requirements.txt` omits.
 - Installation source paths and target paths have different roles in the flow loader (`src/flows.py`) and must not be interchanged.
 
