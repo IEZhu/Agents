@@ -42,7 +42,7 @@ unchanged.
 | `--base-branch dev` | A literal branch that pull requests target besides the repository default. Each becomes an anchored regex. |
 | `--base-branch-regex '.*'` | An unanchored pattern, for a repository whose pull requests target many bases. |
 | `--agents-md PATH`, `--create-agents-md`, `--no-agents-md` | Choose, create or skip the instruction file. A relative path stays inside the target: one whose parent resolves outside it is refused, and an absolute path writes outside deliberately and is reported as not covered by the target's commit. |
-| `--force` | Replace a `.coderabbit.yaml` this installer did not write. Read it first. |
+| `--force` | Replace a `.coderabbit.yaml` this installer did not write. Read it first. Its backup is named `.coderabbit.yaml.backup.kept.<timestamp>` and stays out of the three-snapshot rotation, because it is the only copy of what that file held; delete it yourself when you no longer need it. |
 | `--dry-run`, `--print` | Report the actions without writing, or print the composed configuration. |
 
 The installer makes no network call and reads nothing outside the templates and
@@ -54,7 +54,10 @@ such as a FIFO, which would never finish being read; and a file carrying a
 second hard link, whose backup would hold the content that other name shares.
 Both destinations are checked before either is written, so a refusal on one
 leaves the other untouched; if a write still fails on a directory it cannot
-test beforehand, the error names what the run had already installed.
+test beforehand, the error names what the run had already installed. Each
+destination is then read and written through one descriptor the write opens
+itself, which repeats those refusals on the node it actually holds, so a node put
+at a destination after the check above cannot be read or backed up.
 
 The managed header marks the installer's own file; it does not prove
 authorship. A hand-written `.coderabbit.yaml` that opens with both of those
@@ -190,10 +193,13 @@ upstream would have to carry.
   name the stacks with `--stacks`.
 - A path in a merge conflict is listed once per stage. It counts once, so three
   records from one conflicted file cannot reach a two-file stack threshold.
-- The destination checks run before the write and not through an open
-  descriptor, so a process writing inside the target during the run can still
-  put another node at a destination that has already passed. Install into a
-  target nothing else is writing to.
+- The reported checks run before the write, and the write repeats them on the
+  descriptor it opens, so a node put at a destination after the preflight is
+  refused rather than read or copied. What no descriptor covers is the path
+  lookup itself: a relative `--agents-md` is proved to stay inside the target
+  before the write opens that directory, and a directory swapped in between
+  those two steps is the one the write pins. Install into a target nothing else
+  is writing to.
 - The configuration grows with the stacks selected. The six-stack selection
   `universal, docs-ai-instructions, iac-ci, python, shell, sql` measured 57 KB
   and 38 instruction entries; another six-stack selection reaches about 77 KB
