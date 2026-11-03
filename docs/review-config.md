@@ -30,9 +30,13 @@ research document as claims to check against the code and expect it to go
 stale. Enforcing those as rules would hold a change to a plan that is itself
 out of date. A repository that keeps a real standard under `docs/` lists that
 exact path in the template, and the installer adds the instruction file that
-`--agents-md` selects, whatever its directory, since that file holds the managed
-discipline section: `--agents-md docs/review-rules.md` keeps
-`docs/review-rules.md` as a pattern without restoring `docs/**`.
+`--agents-md` selects when it lies inside the target, whatever its directory
+there, since that file holds the managed discipline section: `--agents-md
+docs/review-rules.md` keeps `docs/review-rules.md` as a pattern without
+restoring `docs/**`. An absolute path outside the target gets no pattern,
+because these are paths in the reviewed commit; the section is still written
+there, and CodeRabbit reads it only through the repository's own
+`path_instructions`.
 
 ## Install
 

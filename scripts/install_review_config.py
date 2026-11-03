@@ -517,7 +517,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             # Without this, a run that created it saw it and the next run did not,
             # because git ls-files does not list a file nobody has added.
             try:
-                selected = md_path.relative_to(repo).as_posix()
+                # The parent is resolved, as instruction_path already does for a
+                # relative path: an absolute --agents-md that reaches the target
+                # through a symlinked ancestor is not lexically under the resolved
+                # repo, and the file would land in the target's set under no name.
+                selected = (md_path.parent.resolve() / md_path.name
+                            ).relative_to(repo).as_posix()
             except ValueError:
                 selected = None
             if selected is not None and selected not in paths:

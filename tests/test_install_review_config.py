@@ -716,6 +716,26 @@ def test_a_custom_instruction_path_outside_the_template_keeps_its_pattern(tmp_pa
     assert "already current" in capsys.readouterr().out
 
 
+def test_an_absolute_path_through_a_symlinked_target_keeps_its_pattern(tmp_path, capsys):
+    # The option takes an absolute path to write outside the target deliberately,
+    # so an absolute path that happens to reach the target through a symlinked
+    # ancestor is inside it and must keep its guideline pattern. Compared
+    # lexically it is not, and the file would be written with no pattern naming it.
+    custom = "docs/review-rules.md"
+    repo = git_repo(tmp_path / "repo", {"a.py": "x\n", "docs/plan.md": "# plan\n"})
+    alias = tmp_path / "alias"
+    make_symlink(alias, repo, target_is_directory=True)
+
+    assert installer.main(["--repo", str(repo), "--agents-md", str(alias / custom),
+                           "--create-agents-md"]) == 0
+    capsys.readouterr()
+
+    patterns = yaml.safe_load((repo / installer.CONFIG_NAME).read_bytes())[
+        "knowledge_base"]["code_guidelines"]["filePatterns"]
+    assert custom in patterns
+    assert installer.SECTION_BEGIN in (repo / custom).read_text(encoding="utf-8")
+
+
 def test_detection_outside_git_is_stable_across_runs(tmp_path, capsys):
     plain = tmp_path / "plain"
     plain.mkdir()

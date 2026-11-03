@@ -49,9 +49,11 @@ knowledge_base:
     # against the code, and expect it to go stale, which is the opposite of a
     # rule to enforce. A repository that keeps a real standard under docs/ adds
     # that exact path, and the installer adds the instruction file --agents-md
-    # selects, whatever its directory, because that file holds the managed
-    # discipline section. The installer keeps only the patterns that match a
-    # file in the target repository.
+    # selects when it lies inside the target, whatever its directory there,
+    # because that file holds the managed discipline section. An absolute path
+    # outside the target gets no entry: these are paths in the reviewed commit.
+    # The installer keeps only the patterns that match a file in the target
+    # repository.
     filePatterns:
       - AGENTS.md
       - CLAUDE.md
