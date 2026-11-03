@@ -117,7 +117,7 @@ def test_pr_queue_pins_the_steps_a_single_review_cannot_know():
             "git merge-base --all",
             "Plan a merge of the target into that item right after its predecessor lands",
             # Every merge invalidates the simulation the queue was planned on.
-            "repeat the simulation after every merge",
+            "Repeat the simulation after every merge",
             "Re-simulate the remaining items on a fresh throwaway branch",
             # A check red on every item because of the target's own state.
             "workflow_dispatch",
@@ -129,8 +129,18 @@ def test_pr_queue_pins_the_steps_a_single_review_cannot_know():
             "This flow never merges on its own initiative",
             "an explicit `no-merge` or `review-only` invocation disables merge for every item",
             "Being next in a queue is not consent to merge an item.",
-            "the merges are the owner's to make"):
-        assert phrase in queue, phrase
+            "the merges are the owner's to make",
+            # Corrections from the first review round of this flow, each of which a
+            # reader would otherwise have to rediscover the way the queue did.
+            "Do not\nstop at the first conflict",
+            "git refuses to delete the branch that is checked\nout",
+            "An item opened from a fork has its\nhead in that fork",
+            "declares the `workflow_dispatch` trigger on\n   the repository's default branch",
+            "re-simulate and run it again\nwhen a head changes",
+            "A\ncheck whose result depends on the merge with the base",
+            "That is a consequence of the deletion, not of the\nmerge",
+            "count the eligible approvers"):
+        assert " ".join(phrase.split()) in queue, phrase
     review = " ".join(catalog.load("pr-review").content.split())
     assert "run [pr-queue](pr-queue.md) instead" in review
 

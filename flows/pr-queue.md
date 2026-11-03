@@ -17,6 +17,14 @@ run. Apply the
 [bounded-return gate for your client class](../docs/mcp-tool-safety.md#bounded-return-gate-by-client-class)
 from the first large call on.
 
+The git steps below are platform independent. The platform commands are
+GitHub's, because that is where they were derived; on GitLab use the equivalent
+of each, or the API, and record which ones the target does not offer: merge
+request approval rules and the project's protected branches in place of
+rulesets, a pipeline run on a branch in place of `workflow_dispatch`, and the
+merge request's own approval state in place of `reviewDecision`. Do not assume a
+GitHub helper exists there.
+
 ## Invoke and identify the queue
 
 ```text
@@ -67,27 +75,44 @@ item. The working record carries it through every round and into the report.
 
 ## 2. Simulate the chain before reviewing it
 
-Build the whole queue on a throwaway branch cut from the target, in the order of
-step 1, and record every conflict with its resolution. Disable `rerere` for the
-simulation: a stored resolution from an earlier attempt hides a conflict that
-the real merge will raise.
+Build the whole queue on a throwaway branch cut from the queue's own target
+branch, in the order of step 1, and record every conflict with its resolution.
+Disable `rerere` for the simulation: a stored resolution from an earlier attempt
+hides a conflict that the real merge will raise.
+
+Fetch the target and every item's head first. An item opened from a fork has its
+head in that fork, not in the target's remote, so fetch each item's own remote
+(on GitHub, `headRepository` of the request names it) rather than assuming one.
 
 ```bash
-git fetch origin
-git switch --detach origin/dev
-git switch -c tmp/queue-simulation
-for head in <item heads in order>; do
-  git -c rerere.enabled=false merge --no-ff --no-edit "$head" || break
-done
+git fetch <target remote> <target branch>
+git fetch <item remote> <item head ref>        # once per remote the items live in
+git switch -c tmp/queue-simulation <target remote>/<target branch>
+git -c rerere.enabled=false merge --no-ff --no-edit <first item head>
 ```
 
-Resolve each conflict by keeping the intent of both sides, exactly as
-[pr-review](pr-review.md#keep-the-branch-current-and-git-healthy) requires, and
-record which item owns which resolution. A conflict found here is work for that
-item's own round, not for the simulation branch: never push the simulation.
+Then merge the remaining items one at a time, in the order of step 1. Do not
+stop at the first conflict: resolve it, record which item owns that resolution,
+complete the merge and continue, so one pass covers the whole queue instead of
+the prefix before the first conflict. Resolve by keeping the intent of both
+sides, exactly as
+[pr-review](pr-review.md#keep-the-branch-current-and-git-healthy) requires. A
+conflict found here is work for that item's own round, not for the simulation
+branch.
 
-Delete the branch when the simulation is finished (`git branch -D
-tmp/queue-simulation`), and repeat the simulation after every merge (step 5).
+The simulation branch outlives this step: step 3 pushes it under a temporary
+name to run the integrated checks. Delete it only after step 3 has finished with
+it, and leave it first, because git refuses to delete the branch that is checked
+out:
+
+```bash
+git switch --detach <target remote>/<target branch>
+git branch -D tmp/queue-simulation
+git push <target remote> --delete tmp/queue-integration   # if step 3 pushed it
+```
+
+Repeat the simulation after every merge (step 5). Never push the simulation to
+the target branch or to any item's branch.
 
 ### More than one merge base
 
@@ -112,16 +137,28 @@ cannot be cleared by any single item, and a check that passes on each item
 separately can still fail on the merged result. Run the workflows the queue
 changes on the integrated tree:
 
-1. Push the simulation of step 2 to a temporary branch.
+1. Push the simulation of step 2 to a temporary branch, for example
+   `tmp/queue-integration`.
 2. Start the workflow on that branch with `workflow_dispatch`, for example
-   `gh workflow run vulnerability-scan.yml --ref tmp/queue-integration`.
-3. Record the run link and its result in the working record.
-4. Delete the temporary branch.
+   `gh workflow run vulnerability-scan.yml --ref tmp/queue-integration`. This
+   works only for a workflow that declares the `workflow_dispatch` trigger on
+   the repository's default branch. When it does not, say so in the report and
+   take the evidence from the ordinary runs instead: the predecessor's own run
+   once it has merged, and the next item's run after it merges the new target.
+3. Record the run link, the exact commit it ran on and its result in the working
+   record.
+4. Delete the temporary branch, locally and on the remote.
 
 Name the result in each affected item's round: a check that the queue fixes is
 reported with the integrated run that proves it, and with the item that carries
 the fix. Do not report an item as green on a check that is still red on its own
 head.
+
+This run is evidence about exactly the commits it merged, before any review
+round. A fix pushed to any item, and any merge into the target, replaces the
+tree it tested, so the claim does not carry over: re-simulate and run it again
+when a head changes, and before the final report. Record which heads the run
+covered, so a stale run is recognisable rather than reused.
 
 ## 4. Run pr-review for each item, in order
 
@@ -171,19 +208,27 @@ costs coverage while it lasts:
 
 Therefore restack only after each item's current head already has its completed
 bot reviews and its passing checks, and record per item the run that covered
-that exact head. Changing the base leaves the head commit untouched, so that
-evidence still describes what will be merged; state in the report which checks
-will not re-run while the item is stacked and which run covered the head
-instead. When the user did not ask for stacked bases, leave every item on the
-target branch and express the queue through the order and the report alone.
+that exact head. Changing the base leaves the head commit untouched, so a check
+that builds and tests that commit alone still describes what will be merged. A
+check whose result depends on the merge with the base, or on files the base
+contributes, does not: it described the old base, and it has to be read again
+once the item is back on the target branch. State in the report which checks
+will not re-run while the item is stacked, which run covered the head, and which
+of them depend on the base. When the user did not ask for stacked bases, leave
+every item on the target branch and express the queue through the order and the
+report alone.
 
 ```bash
 gh pr edit <item> --base <predecessor branch>
 ```
 
-After the predecessor merges and its branch is deleted, the platform retargets
-the next item to the original base. Confirm that it did, and re-read the item's
-checks before it is counted ready again.
+When the predecessor merges and its branch is deleted, GitHub retargets an open
+request whose base was that branch to the predecessor's own base, which in this
+chain is the queue's target. That is a consequence of the deletion, not of the
+merge: when the branch is kept, or the predecessor was merged somewhere else,
+the retarget does not happen. Read each stacked item's base after every merge,
+set it back by hand where the platform did not, and re-read the item's checks
+before counting it ready again.
 
 ## 7. Approvals, and who may merge
 
@@ -193,10 +238,14 @@ GitHub). Record for the whole queue: which refs the rules cover, how many
 approvals they require, which checks they require, and who may bypass them.
 
 A rule that requires an approving review is not satisfied by the author: an
-account cannot approve its own request. When every item is authored by the
-owner's account, each merge needs the owner's own bypass, and the report says so
-once for the queue instead of leaving it to be rediscovered per item. Never
-bypass a rule yourself, and never present a bypass as a satisfied approval.
+account cannot approve its own request. Whether that forces a bypass depends on
+who else may approve, so count the eligible approvers from the rule and the
+repository's access: where another person or team can approve, their approval
+satisfies the rule and no bypass is needed, and the report asks for the review
+instead. Only when the author is the sole eligible approver does each merge need
+that account's own bypass, and the report then says so once for the queue
+instead of leaving it to be rediscovered per item. Never bypass a rule yourself,
+and never present a bypass as a satisfied approval.
 
 A rule set on the target branch does not cover an item stacked on a feature
 branch (step 6). Such an item can report itself as mergeable while the rule
