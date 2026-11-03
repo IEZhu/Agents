@@ -95,6 +95,16 @@ def test_shipped_catalog_is_loadable():
     assert {entry["id"] for entry in entries} >= {"documentation-refresh", "pr-review", "pr-queue"}
 
 
+def test_pr_review_reads_the_merge_gating_from_more_than_one_endpoint():
+    """A session read classic protection alone and reported a gated branch as ungated."""
+    review = " ".join(FlowCatalog().load("pr-review").content.split())
+    for phrase in ("gh api repos/OWNER/REPO/rulesets",
+                   "`Branch not protected`",
+                   "gh pr view N --json reviewDecision",
+                   "can be `MERGEABLE` and `BLOCKED` at the same time"):
+        assert phrase in review, phrase
+
+
 def test_pr_queue_pins_the_steps_a_single_review_cannot_know():
     """#510: a queue was improvised once per item. Each step below had to be rediscovered."""
     catalog = FlowCatalog()

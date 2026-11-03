@@ -79,6 +79,16 @@ Write committed documentation in English under the
 - Read the full diff, title, description, all review activity, project checks,
   merge rules, and required approvals. Confirm which bot integrations actually
   exist and which repository or account configuration is visible.
+- Read what actually gates the merge, from more than one endpoint. On GitHub a
+  branch can have no classic protection and still be gated by a repository
+  ruleset: `gh api repos/OWNER/REPO/branches/<target>/protection` answers
+  `Branch not protected` while `gh api repos/OWNER/REPO/rulesets`, and the
+  ruleset's own endpoint, give the refs it covers, the approvals and checks it
+  requires and who may bypass it. `gh pr view N --json reviewDecision` says
+  whether those approvals are satisfied, which `mergeable` and
+  `mergeStateStatus` do not: a request can be `MERGEABLE` and `BLOCKED` at the
+  same time for a missing approval. Record the gating before reporting a
+  blocker, or reporting that there is none.
 - Keep a working list of every finding, its source, decision, fix commit, reply,
   and validation evidence. Carry it across rounds for the final report.
 - Check the scope before the first review round. Each bot pass reports a few
