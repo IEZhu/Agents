@@ -43,6 +43,10 @@ the returned `repo_path` as the target. Source links belong to the MCP installat
 and instructions belong to the target. Confirm the PR/MR matches that repository
 before making changes.
 
+When more than one open request has to reach the target branch one after
+another, run [pr-queue](pr-queue.md) instead: it orders the queue, proves the
+order merges, checks the integrated tree and runs this flow per item.
+
 Optional constraints include a specific review scope or `review-only` / `no-merge`.
 The `autodev` mode of a self-development run follows [Autodev mode](#autodev-mode)
 wherever it differs from the steps below.

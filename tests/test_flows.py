@@ -92,7 +92,37 @@ def test_bundle_distinguishes_source_target_and_completion(catalog, tmp_path):
 
 def test_shipped_catalog_is_loadable():
     entries = FlowCatalog().list()
-    assert {entry["id"] for entry in entries} >= {"documentation-refresh", "pr-review"}
+    assert {entry["id"] for entry in entries} >= {"documentation-refresh", "pr-review", "pr-queue"}
+
+
+def test_pr_queue_pins_the_steps_a_single_review_cannot_know():
+    """#510: a queue was improvised once per item. Each step below had to be rediscovered."""
+    catalog = FlowCatalog()
+    queue = " ".join(catalog.load("pr-queue").content.split())
+    for phrase in (
+            # A stored rerere resolution hid a conflict in a local chain simulation.
+            "git -c rerere.enabled=false merge --no-ff",
+            "a stored resolution from an earlier attempt hides a conflict",
+            # Two merge bases: ort resolved the item while GitHub reported a conflict.
+            "git merge-base --all",
+            "Plan a merge of the target into that item right after its predecessor lands",
+            # Every merge invalidates the simulation the queue was planned on.
+            "repeat the simulation after every merge",
+            "Re-simulate the remaining items on a fresh throwaway branch",
+            # A check red on every item because of the target's own state.
+            "workflow_dispatch",
+            # The approval requirement and who may bypass it, read rather than assumed.
+            "gh api repos/<owner>/<repo>/rulesets",
+            "an account cannot approve its own request",
+            # pr-review's own rules are not relaxed by the queue.
+            "merge no other item's branch into it",
+            "This flow never merges on its own initiative",
+            "an explicit `no-merge` or `review-only` invocation disables merge for every item",
+            "Being next in a queue is not consent to merge an item.",
+            "the merges are the owner's to make"):
+        assert phrase in queue, phrase
+    review = " ".join(catalog.load("pr-review").content.split())
+    assert "run [pr-queue](pr-queue.md) instead" in review
 
 
 # The autodev flows (#346): the dispatcher and the gate's rules have no persona; each stage

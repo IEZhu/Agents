@@ -67,6 +67,7 @@ also applies to AI instructions, plans, and reports.
 | Refresh documentation for people and AI | [Repeatable workflow](../flows/documentation-refresh.md) | The sources and checks listed in that workflow |
 | Inspect the scope, evidence, limitations and pre-promotion status of the October 25 documentation audit | [Documentation audit](documentation-audit-2026-10-25.md) | Recorded base revision, source/test evidence and actual validation results; a dated audit, not a promise of future freshness |
 | Review and merge a PR/MR | [PR/MR review flow](../flows/pr-review.md) | Live reviews, current-head checks, and repository merge rules |
+| Take several open PRs/MRs to the target branch in sequence | [PR/MR queue flow](../flows/pr-queue.md) | The chain simulation, integrated-tree runs, the target's rulesets, and `pr-review` per item |
 | Close a conversation without losing its work | [Thread close flow](../flows/thread-close.md) | `scripts/dev/thread_inventory.py`, the live repository and GitHub state, `log_interaction` |
 | Improve or add a skill, implant or agent from free sources | [Open-source tuning flow](../flows/open-source-tuning.md) | `skills/README.md`, `implants/README.md`, `agents/README.md`, `agents/common/agent-schema.json`, `evals/ablation/CASES.md`, `tests/test_skill_freshness.py`, `tests/test_subagent.py` |
 
