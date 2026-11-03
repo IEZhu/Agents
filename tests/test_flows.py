@@ -150,6 +150,7 @@ def test_pr_queue_pins_the_steps_a_single_review_cannot_know():
             "Fetch the target branch from the remote that step 1 verified holds it",
             "That is one fetch per item: two items on the same remote are two refs",
             "Fetch every remaining item's head from the remote that holds it and re-resolve",
+            "Read it from the remote's URL (`git remote -v`),\nnot from its name",
             "A predecessor that lives only in a fork cannot be a base",
             "compare that\ncount with the required one",
             "That is a consequence of the deletion, not of the\nmerge",

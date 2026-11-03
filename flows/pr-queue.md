@@ -47,6 +47,14 @@ fork, where the target's ordinary remote refs do not reach it, so the SHA and
 its remote are what the later steps fetch and merge. A branch name is not an
 item's identity: it moves while the queue is being worked.
 
+Resolve the target the same way: which remote of the working checkout holds the
+repository the requests target. Read it from the remote's URL (`git remote -v`),
+not from its name, because `repo_path` names a local directory and says nothing
+about remotes, and a checkout can carry several, one of them a stale mirror.
+Fetching that mirror would leave every simulation and merge-base count below
+describing a target that has not moved. Record the remote; every fetch in this
+flow names it.
+
 **This flow never merges on its own initiative, and it never widens
 authorization.** Each item's merge follows
 [pr-review step 5](pr-review.md#5-merge-when-ready) under that flow's
@@ -199,8 +207,8 @@ evidence about a tree that no longer exists. After each merge:
    with its merge commit. Fetching the wrong repository leaves the simulation
    and the merge-base counts below describing a target that has not moved.
 2. Fetch every remaining item's head from the remote that holds it and re-resolve
-   its exact head SHA. A branch, a fork's especially, can have moved while the
-   earlier items were reviewed, and a simulation built on a head that is no
+   its exact head SHA. A branch, especially a fork's branch, can have moved while
+   the earlier items were reviewed, and a simulation built on a head that is no
    longer the request's head proves nothing about the request.
 3. Re-simulate the remaining items on a fresh throwaway branch (step 2) and
    re-count their merge bases.
