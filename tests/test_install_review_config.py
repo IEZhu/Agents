@@ -624,22 +624,38 @@ UNIVERSAL_DELIVERY = {
 }
 
 
+# Each numbered item, taken whole up to the next number or the end of its entry.
+# Matching the count of markers against the map is not enough: merging two items
+# without deleting either text and adding a new class keeps the count at 16 and
+# every phrase still matches, so the new class could reach no one. Numbering
+# restarts per entry, so the items are collected per entry.
+UNIVERSAL_ITEM = re.compile(r"^\s*\d+\.\s+(.*?)(?=^\s*\d+\.\s|\Z)", re.M | re.S)
+
+
 def test_every_universal_class_reaches_the_author():
     fragment = yaml.safe_load(
         (installer.INSTRUCTION_DIR / "universal.yaml").read_text(encoding="utf-8"))
-    raw = "\n".join(entry["instructions"] for entry in fragment)
-    classes = re.findall(r"^\s*\d+\.\s", raw, re.M)
     # Both files are wrapped prose, so a phrase that spans a line break would
     # otherwise never match, and rewrapping either file would fail this test
     # for no reason.
-    reported = " ".join(raw.split())
+    items = [" ".join(match.group(1).split())
+             for entry in fragment
+             for match in UNIVERSAL_ITEM.finditer(entry["instructions"])]
     delivered = " ".join(installer.DISCIPLINE_TEMPLATE.read_text(encoding="utf-8").split())
-    assert len(classes) == len(UNIVERSAL_DELIVERY), (
+    assert len(items) == len(UNIVERSAL_DELIVERY), (
         "universal.yaml gained or lost a class: map it to the sentence that "
         "delivers it in review-discipline.md")
-    for reported_phrase, delivered_phrase in UNIVERSAL_DELIVERY.items():
-        assert reported_phrase in reported, f"not in universal.yaml: {reported_phrase}"
-        assert delivered_phrase in delivered, f"not delivered to the author: {delivered_phrase}"
+    for item in items:
+        matched = [phrase for phrase in UNIVERSAL_DELIVERY if phrase in item]
+        assert len(matched) == 1, (
+            f"this class matches {len(matched)} map entries {matched}, so the map no "
+            f"longer says which sentence delivers it: {item[:90]}")
+        assert UNIVERSAL_DELIVERY[matched[0]] in delivered, (
+            f"not delivered to the author: {UNIVERSAL_DELIVERY[matched[0]]}")
+    for phrase in UNIVERSAL_DELIVERY:
+        owners = [item for item in items if phrase in item]
+        assert len(owners) == 1, (
+            f"{phrase!r} identifies {len(owners)} classes in universal.yaml, not one")
 
 
 def test_glob_regex_spans_directories_only_for_a_double_star():
@@ -668,6 +684,34 @@ def test_a_nested_created_instruction_file_keeps_its_pattern(tmp_path, capsys):
                            "--create-agents-md"]) == 0
 
     assert nested in patterns
+    assert (repo / installer.CONFIG_NAME).read_bytes() == first
+    assert "already current" in capsys.readouterr().out
+
+
+def test_a_custom_instruction_path_outside_the_template_keeps_its_pattern(tmp_path, capsys):
+    # docs/**/*.md is no longer a guideline source, so an instruction file under
+    # docs/ has no pattern left to fall back on: without its exact path CodeRabbit
+    # never reads the discipline section the same run just wrote there. The other
+    # docs file stays unmatched, so the directory is not restored as a source.
+    custom = "docs/review-rules.md"
+    repo = git_repo(tmp_path / "repo", {"a.py": "x\n", "docs/plan.md": "# plan\n"})
+
+    assert installer.main(["--repo", str(repo), "--agents-md", custom,
+                           "--create-agents-md"]) == 0
+    capsys.readouterr()
+
+    patterns = yaml.safe_load((repo / installer.CONFIG_NAME).read_bytes())[
+        "knowledge_base"]["code_guidelines"]["filePatterns"]
+    assert custom in patterns
+    assert [pattern for pattern in patterns if pattern.startswith("docs/")] == [custom]
+    assert installer.SECTION_BEGIN in (repo / custom).read_text(encoding="utf-8")
+    # The pattern comes from the selection, not from the files present at render
+    # time, so a second identical run must still report the configuration current.
+    first = (repo / installer.CONFIG_NAME).read_bytes()
+
+    assert installer.main(["--repo", str(repo), "--agents-md", custom,
+                           "--create-agents-md"]) == 0
+
     assert (repo / installer.CONFIG_NAME).read_bytes() == first
     assert "already current" in capsys.readouterr().out
 

@@ -48,8 +48,10 @@ knowledge_base:
     # instructions treat a design, plan or research document as claims to check
     # against the code, and expect it to go stale, which is the opposite of a
     # rule to enforce. A repository that keeps a real standard under docs/ adds
-    # that exact path. The installer keeps only the patterns that match a file
-    # in the target repository.
+    # that exact path, and the installer adds the instruction file --agents-md
+    # selects, whatever its directory, because that file holds the managed
+    # discipline section. The installer keeps only the patterns that match a
+    # file in the target repository.
     filePatterns:
       - AGENTS.md
       - CLAUDE.md

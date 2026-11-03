@@ -29,7 +29,10 @@ absent, because the `docs/**/*.md` path instructions treat a design, plan or
 research document as claims to check against the code and expect it to go
 stale. Enforcing those as rules would hold a change to a plan that is itself
 out of date. A repository that keeps a real standard under `docs/` lists that
-exact path in the template.
+exact path in the template, and the installer adds the instruction file that
+`--agents-md` selects, whatever its directory, since that file holds the managed
+discipline section: `--agents-md docs/review-rules.md` keeps
+`docs/review-rules.md` as a pattern without restoring `docs/**`.
 
 ## Install
 

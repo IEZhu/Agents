@@ -285,7 +285,8 @@ def base_branch_patterns(names: Sequence[str], regexes: Sequence[str]) -> list[s
 
 
 def compose_config(paths: Sequence[str], stacks: Sequence[str], language: str | None,
-                   profile: str | None, base_branches: Sequence[str]) -> str:
+                   profile: str | None, base_branches: Sequence[str],
+                   instruction_file: str | None = None) -> str:
     """Render the complete .coderabbit.yaml text for the target repository."""
     config = yaml.safe_load(BASE_TEMPLATE.read_text(encoding="utf-8"))
     if not isinstance(config, dict):
@@ -297,7 +298,15 @@ def compose_config(paths: Sequence[str], stacks: Sequence[str], language: str | 
     if base_branches:
         config["reviews"]["auto_review"]["base_branches"] = list(base_branches)
     config["reviews"]["path_instructions"] = load_instructions(stacks)
-    kept = guideline_patterns(config["knowledge_base"]["code_guidelines"]["filePatterns"], paths)
+    patterns = list(config["knowledge_base"]["code_guidelines"]["filePatterns"])
+    # The selected instruction file carries the managed discipline section, so it is a
+    # guideline source wherever it lives. The template lists the three usual names; a
+    # --agents-md outside them, docs/review-rules.md for example, would be written and
+    # never read, because dropping docs/**/*.md left no pattern that matches it. Its
+    # exact path is added, never a directory pattern: docs/** is not a standard.
+    if instruction_file is not None and instruction_file not in patterns:
+        patterns.append(instruction_file)
+    kept = guideline_patterns(patterns, paths)
     if kept:
         config["knowledge_base"]["code_guidelines"]["filePatterns"] = kept
     else:
@@ -499,6 +508,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         # the next run of a target that already holds one other iac-ci file, such
         # as a pyproject.toml, and the configuration never converges.
         paths = [path for path in repository_files(repo) if path != CONFIG_NAME]
+        # Also the guideline pattern for the instruction file, so a custom path keeps
+        # one; None leaves the template's own list alone.
+        selected: str | None = None
         if md_path is not None and (md_path.exists() or args.create_agents_md):
             # The instruction file belongs to the target's file set whether it is
             # tracked yet or not: the installer writes it and the commit follows.
@@ -518,7 +530,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             raise InstallError(
                 f"Unknown stacks: {', '.join(unknown)}. Run --list-stacks for the full set.")
         branches = base_branch_patterns(args.base_branches or [], args.base_branch_regexes or [])
-        text = compose_config(paths, stacks, args.language, args.profile, branches)
+        text = compose_config(paths, stacks, args.language, args.profile, branches, selected)
         if args.print_config:
             print(text, end="")
             return 0
