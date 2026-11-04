@@ -216,7 +216,9 @@ def test_pr_queue_pins_the_steps_a_single_review_cannot_know():
             # A visibility of `selected` names a list; it does not say who is on it.
             "orgs/<owner>/actions/secrets/<name>/repositories",
             "A `visibility` of `selected` means\n   a list decides",
-            "an empty list under any other visibility is not an absence of reach",
+            "`private` covers only the private ones, so a public destination sits",
+            "its\n   own `allows_public_repositories` says it may",
+            "an empty list under `all` is no absence of reach",
             # A group list says which groups exist, not which runners are in them.
             "orgs/<owner>/actions/runner-groups/<id>/runners",
             "a self-hosted runner is in reach exactly when it\n   sits in a group that covers the destination"):

@@ -255,11 +255,15 @@ changes on the integrated tree:
    a list decides, so read it and the thing is a reach exactly when the
    destination is on it: `orgs/<owner>/actions/secrets/<name>/repositories`
    for the secret, `orgs/<owner>/actions/runner-groups/<id>/repositories` for
-   the group. Any other visibility means no list decides and the thing covers
-   the destination already, a group or secret open to all the organization's
-   repositories, or to all its private ones, whatever those lists hold. So
-   read the visibility first and the list only where it is `selected`, because
-   an empty list under any other visibility is not an absence of reach.
+   the group. The other values decide without a list, and not all of them the
+   same way: `all` covers every repository in the organization, while
+   `private` covers only the private ones, so a public destination sits
+   outside it, and a runner group reaches a public destination only when its
+   own `allows_public_repositories` says it may. So read the visibility
+   first, read the list only where it is `selected`, and match the rest
+   against the destination's own visibility rather than assuming either
+   answer: an empty list under `all` is no absence of reach, and `private`
+   over a public destination is no presence of one.
    Which lists apply follows `gh api repos/<owner>/<repo> --jq .owner.type`:
    a user-owned repository has no organization list, and
    `orgs/<owner>/actions/secrets` answers `404` for it, which is not a list
