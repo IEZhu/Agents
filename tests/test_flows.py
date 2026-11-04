@@ -180,7 +180,12 @@ def test_pr_queue_pins_the_steps_a_single_review_cannot_know():
             # Running this flow on its own queue: a shortened head SHA made every
             # item report what reads like a conflict and is none.
             "A SHA named in a fetch is the whole forty characters.",
-            "git rev-parse --verify <item head>^{commit}"):
+            "git rev-parse --verify <item head>^{commit}",
+            # A branch dispatch is not a fork trigger, so the run receives every
+            # secret the destination reaches, inherited organization ones included.
+            "A `workflow_dispatch` run on a branch is not a fork trigger",
+            "inherits an organization\n   secret set to all repositories",
+            "an\n   unread list is not an empty one"):
         assert " ".join(phrase.split()) in queue, phrase
     review = " ".join(catalog.load("pr-review").content.split())
     assert "run [pr-queue](pr-queue.md) instead" in review

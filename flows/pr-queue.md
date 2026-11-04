@@ -216,6 +216,22 @@ changes on the integrated tree:
    repository, the destination belongs to the same owner with no collaborators
    the target lacks, and a repository you cannot establish that for is not a
    destination. Where none exists, make no dispatch.
+   What the run itself holds is a third question, and neither check above
+   answers it. A `workflow_dispatch` run on a branch is not a fork trigger, so
+   GitHub passes it every secret that repository can reach: its own repository
+   and environment secrets, plus the organization secrets whose access policy
+   includes it. A repository created for this check inherits an organization
+   secret set to all repositories without anyone granting it, and a
+   self-hosted runner adds the network that runner sits in. Establish what a
+   run there actually receives, from
+   `gh api repos/<owner>/<repo>/actions/secrets`, `gh api
+   orgs/<owner>/actions/secrets` with each secret's `visibility`, and the
+   runners the destination can use; require an ephemeral GitHub-hosted runner.
+   The organization endpoints answer `403` without organization-admin rights,
+   exactly as step 7's `bypass_actors` is omitted for a read-only caller: an
+   unread list is not an empty one. Where a credential or a self-hosted runner
+   reaches the run, or where those lists cannot be read, make no dispatch and
+   report the integrated check as unverified.
 2. Start the workflow on that branch with `workflow_dispatch`, naming the
    repository the branch is in:
    `gh workflow run vulnerability-scan.yml --repo <simulation repository> --ref tmp/queue-integration`.
