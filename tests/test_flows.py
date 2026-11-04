@@ -109,7 +109,10 @@ def test_pr_review_reads_the_merge_gating_from_more_than_one_endpoint():
                    # The REST request answers 200 and queues nothing for this bot.
                    "answers 200 for this bot and registers nothing",
                    "requestReviews(input:{",
-                   "`reviewRequests` it returns is the confirmation to read"):
+                   "`reviewRequests` it returns is the confirmation to read",
+                   # Two requests were spent on heads CodeRabbit had already picked up.
+                   "Read the head's own check runs before asking it for anything",
+                   "Ask only when that head has neither a CodeRabbit run nor a review of it"):
         assert phrase in review, phrase
     assert "on GitLab read that flow's own paragraph on the equivalents" in review
 

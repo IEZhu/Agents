@@ -203,6 +203,13 @@ target branch of every pull request. Confirm that those reviews actually
 started.
 CodeRabbit normally reviews subsequent pushes automatically, but its quota is
 often exhausted.
+Read the head's own check runs before asking it for anything
+(`gh api repos/OWNER/REPO/commits/<sha>/check-runs`). Its automatic pass starts
+within seconds of a push into a base branch it lists, so a request sent after
+that adds nothing and spends one of the few reviews the hourly allowance leaves:
+measured here, a push at 00:09:38Z had `CodeRabbit` `in_progress` at 00:10:07Z
+while the request sent at 00:10:13Z was already redundant. Ask only when that
+head has neither a CodeRabbit run nor a review of it.
 After each push of fixes, once the remote head updates, **explicitly
 re-request Copilot review when the integration is available and Copilot is not
 paused** under [Quota, rate limits and errors](#quota-rate-limits-and-errors),
