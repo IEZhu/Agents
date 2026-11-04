@@ -3,6 +3,7 @@ import importlib.util
 import io
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 
@@ -602,6 +603,67 @@ def test_the_stack_order_does_not_change_the_composed_bytes(tmp_path, capsys):
     assert one == other
 
 
+# Every class the universal fragment tells the reviewer to report has to reach
+# the author as well, or a self-review passes while the reviewer still files
+# findings in that class. The universal instructions call that disagreement a
+# defect, so the correspondence is checked here rather than in a review. The
+# mapping is by phrase, not by position: one checklist item can carry two
+# classes, and the regression-test class is delivered by "Prove the fix" in
+# prose. Adding a class to the fragment without delivering it fails this test.
+UNIVERSAL_DELIVERY = {
+    "have drifted apart": "must agree",
+    "without its exception branch": "no exception branch",
+    "cannot be completed with the data at hand": "cannot be completed with the data at hand",
+    "selected period is computed from a cumulative row": "computed from a cumulative row",
+    "Boundary input is accepted without validation": "Boundary input",
+    "Error handling fails open": "fails open",
+    "interpolated into another format": "interpolated into another format",
+    "advertised but not propagated": "advertised but not passed on",
+    "without a verified rollback point": "no verified rollback point",
+    "inherited environment or global configuration": "inherited environment or user-level tool",
+    "reach a place that is not audited": "reaching logs, process environment",
+    "was not checked at the moment of the write": "rechecked at the moment of the write",
+    "no regression test for the exact condition": "reproduces the exact",
+    "contradicts the code in the same change": "the same change made",
+    "grows with total stored data": "grows with total stored data",
+    "default limit or default output": "default page size or default filters",
+}
+
+
+# Each numbered item, taken whole up to the next number or the end of its entry.
+# Matching the count of markers against the map is not enough: merging two items
+# without deleting either text and adding a new class keeps the count at 16 and
+# every phrase still matches, so the new class could reach no one. Numbering
+# restarts per entry, so the items are collected per entry.
+UNIVERSAL_ITEM = re.compile(r"^\s*\d+\.\s+(.*?)(?=^\s*\d+\.\s|\Z)", re.M | re.S)
+
+
+def test_every_universal_class_reaches_the_author():
+    fragment = yaml.safe_load(
+        (installer.INSTRUCTION_DIR / "universal.yaml").read_text(encoding="utf-8"))
+    # Both files are wrapped prose, so a phrase that spans a line break would
+    # otherwise never match, and rewrapping either file would fail this test
+    # for no reason.
+    items = [" ".join(match.group(1).split())
+             for entry in fragment
+             for match in UNIVERSAL_ITEM.finditer(entry["instructions"])]
+    delivered = " ".join(installer.DISCIPLINE_TEMPLATE.read_text(encoding="utf-8").split())
+    assert len(items) == len(UNIVERSAL_DELIVERY), (
+        "universal.yaml gained or lost a class: map it to the sentence that "
+        "delivers it in review-discipline.md")
+    for item in items:
+        matched = [phrase for phrase in UNIVERSAL_DELIVERY if phrase in item]
+        assert len(matched) == 1, (
+            f"this class matches {len(matched)} map entries {matched}, so the map no "
+            f"longer says which sentence delivers it: {item[:90]}")
+        assert UNIVERSAL_DELIVERY[matched[0]] in delivered, (
+            f"not delivered to the author: {UNIVERSAL_DELIVERY[matched[0]]}")
+    for phrase in UNIVERSAL_DELIVERY:
+        owners = [item for item in items if phrase in item]
+        assert len(owners) == 1, (
+            f"{phrase!r} identifies {len(owners)} classes in universal.yaml, not one")
+
+
 def test_glob_regex_spans_directories_only_for_a_double_star():
     assert installer.glob_regex("docs/**/*.md").match("docs/a/b/c.md")
     assert installer.glob_regex("docs/**/*.md").match("docs/c.md")
@@ -611,21 +673,94 @@ def test_glob_regex_spans_directories_only_for_a_double_star():
 
 
 def test_a_nested_created_instruction_file_keeps_its_pattern(tmp_path, capsys):
-    # docs/ holds nothing else, so only the created file can match docs/**/*.md.
+    # Nothing else in the target matches this pattern, so only the file the run
+    # creates can keep it. It replaces docs/**/*.md, which is no longer a
+    # guideline source: a design or plan document is checked against the code,
+    # not enforced as a rule.
+    nested = ".github/copilot-instructions.md"
     repo = git_repo(tmp_path / "repo", {"a.py": "x\n", "b.py": "x\n"})
 
-    assert installer.main(["--repo", str(repo), "--agents-md", "docs/AGENTS.md",
+    assert installer.main(["--repo", str(repo), "--agents-md", nested,
                            "--create-agents-md"]) == 0
     capsys.readouterr()
     first = (repo / installer.CONFIG_NAME).read_bytes()
     patterns = yaml.safe_load(first)["knowledge_base"]["code_guidelines"]["filePatterns"]
 
-    assert installer.main(["--repo", str(repo), "--agents-md", "docs/AGENTS.md",
+    assert installer.main(["--repo", str(repo), "--agents-md", nested,
                            "--create-agents-md"]) == 0
 
-    assert "docs/**/*.md" in patterns
+    assert nested in patterns
     assert (repo / installer.CONFIG_NAME).read_bytes() == first
     assert "already current" in capsys.readouterr().out
+
+
+def test_a_custom_instruction_path_outside_the_template_keeps_its_pattern(tmp_path, capsys):
+    # docs/**/*.md is no longer a guideline source, so an instruction file under
+    # docs/ has no pattern left to fall back on: without its exact path CodeRabbit
+    # never reads the discipline section the same run just wrote there. The other
+    # docs file stays unmatched, so the directory is not restored as a source.
+    custom = "docs/review-rules.md"
+    repo = git_repo(tmp_path / "repo", {"a.py": "x\n", "docs/plan.md": "# plan\n"})
+
+    assert installer.main(["--repo", str(repo), "--agents-md", custom,
+                           "--create-agents-md"]) == 0
+    capsys.readouterr()
+
+    patterns = yaml.safe_load((repo / installer.CONFIG_NAME).read_bytes())[
+        "knowledge_base"]["code_guidelines"]["filePatterns"]
+    assert custom in patterns
+    assert [pattern for pattern in patterns if pattern.startswith("docs/")] == [custom]
+    assert installer.SECTION_BEGIN in (repo / custom).read_text(encoding="utf-8")
+    # The pattern comes from the selection, not from the files present at render
+    # time, so a second identical run must still report the configuration current.
+    first = (repo / installer.CONFIG_NAME).read_bytes()
+
+    assert installer.main(["--repo", str(repo), "--agents-md", custom,
+                           "--create-agents-md"]) == 0
+
+    assert (repo / installer.CONFIG_NAME).read_bytes() == first
+    assert "already current" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("name", ["docs/review?.md", "docs/review*.md", "docs/rev[1].md",
+                                  pytest.param("docs/standards:rules.md", marks=POSIX_ONLY)])
+def test_an_unusable_pattern_character_is_refused_before_any_write(tmp_path, capsys, name):
+    # The exact path becomes a filePatterns entry, which is a glob resolved in the
+    # reviewed repository. A name holding a metacharacter would apply the managed
+    # discipline to other matching files, and one holding a colon would name
+    # another repository; these patterns define no escape for either. The refusal
+    # comes from compose_config, before either destination is written.
+    repo = git_repo(tmp_path / "repo", {"a.py": "x\n", "docs/plan.md": "# plan\n"})
+
+    assert installer.main(["--repo", str(repo), "--agents-md", name,
+                           "--create-agents-md"]) == 1
+
+    assert "would match other files and : would name" in capsys.readouterr().err
+    assert not (repo / installer.CONFIG_NAME).exists()
+    assert not (repo / name).exists()
+
+
+def test_an_absolute_path_through_a_symlinked_target_keeps_its_pattern(tmp_path, capsys):
+    # The option takes an absolute path to write outside the target deliberately,
+    # so an absolute path that happens to reach the target through a symlinked
+    # ancestor is inside it and must keep its guideline pattern. Compared
+    # lexically it is not, and the file would be written with no pattern naming it.
+    custom = "docs/review-rules.md"
+    repo = git_repo(tmp_path / "repo", {"a.py": "x\n", "docs/plan.md": "# plan\n"})
+    alias = tmp_path / "alias"
+    make_symlink(alias, repo, target_is_directory=True)
+
+    assert installer.main(["--repo", str(repo), "--agents-md", str(alias / custom),
+                           "--create-agents-md"]) == 0
+    out = capsys.readouterr().out
+
+    patterns = yaml.safe_load((repo / installer.CONFIG_NAME).read_bytes())[
+        "knowledge_base"]["code_guidelines"]["filePatterns"]
+    assert custom in patterns
+    assert installer.SECTION_BEGIN in (repo / custom).read_text(encoding="utf-8")
+    # The reported status follows the selection, not the path as given: this file is
+    # inside the target and covered by its commit.
+    assert "Outside the target" not in out
 
 
 def test_detection_outside_git_is_stable_across_runs(tmp_path, capsys):
@@ -797,6 +932,80 @@ def test_each_stack_composes_and_round_trips_without_loss(tmp_path, stack):
     # The dumper rewrites every instruction as a block scalar, so reparsing it has
     # to return the fragment unchanged, character for character.
     assert config["reviews"]["path_instructions"] == universal + fragment
+
+
+def test_force_keeps_the_replaced_configuration_through_later_runs(tmp_path):
+    """The backup of a file --force replaced is its only copy, so it is not rotated.
+
+    Three later runs used to push it out as the oldest of three managed snapshots,
+    and nothing else holds the bytes the target had before the first install.
+    """
+    helper = importlib.import_module("inject_claude_md")
+    repo = git_repo(tmp_path / "repo", {"a.py": "x\n", "AGENTS.md": "# r\n"})
+    hand_written = "reviews:\n  profile: chill\n"
+    (repo / installer.CONFIG_NAME).write_text(hand_written, encoding="utf-8")
+
+    assert installer.main(["--repo", str(repo), "--force"]) == 0
+    # Each later run composes different bytes, so each one backs the file up again.
+    for language in ("ru-RU", "de-DE", "fr-FR", "es-ES"):
+        assert installer.main(["--repo", str(repo), "--language", language]) == 0
+
+    backups = {path.name: path.read_text(encoding="utf-8")
+               for path in repo.glob(installer.CONFIG_NAME + ".backup.*")}
+    assert hand_written in backups.values(), "the only copy of the replaced file is gone"
+    rotated = [name for name in backups if helper.RETAINED_MARKER not in name]
+    assert len(rotated) == helper.BACKUP_LIMIT, "the managed rotation is no longer bounded"
+
+
+def test_force_retention_follows_the_bytes_the_write_reads(tmp_path, monkeypatch):
+    """Whether a backup is the only copy is decided by the write's own read.
+
+    The decision used to come from the read install_config reports, so a file
+    replaced between the two was snapshotted as the installer's own and rotated.
+    """
+    helper = importlib.import_module("inject_claude_md")
+    repo = git_repo(tmp_path / "repo", {"a.py": "x\n", "AGENTS.md": "# r\n"})
+    target = repo / installer.CONFIG_NAME
+    hand_written = "reviews:\n  profile: chill\n"
+    target.write_text(hand_written, encoding="utf-8")
+    managed = f"{installer.MANAGED_HEADER}\nreviews: {{}}\n".encode()
+    real_read = installer.read_destination
+    # The reported read sees the installer's own file, so the run needs no --force;
+    # the write reads what the target actually holds.
+    monkeypatch.setattr(installer, "read_destination",
+                        lambda path: managed if path == target else real_read(path))
+
+    # --force, because the write's own read of unmanaged bytes is refused without it;
+    # the reported read is managed, so the retention cannot come from that one.
+    assert installer.main(["--repo", str(repo), "--force"]) == 0
+
+    kept = [path for path in repo.glob(installer.CONFIG_NAME + ".backup.*")
+            if helper.RETAINED_MARKER in path.name]
+    assert [path.read_text(encoding="utf-8") for path in kept] == [hand_written]
+
+
+def test_a_file_that_became_unmanaged_after_the_preflight_is_refused(tmp_path, capsys, monkeypatch):
+    """The --force gate runs again on the bytes the write reads, not only the report.
+
+    A managed file replaced with a hand-written one after the preflight used to be
+    read and overwritten with force false, because the gate had already passed.
+    """
+    repo = git_repo(tmp_path / "repo", {"a.py": "x\n", "AGENTS.md": "# r\n"})
+    target = repo / installer.CONFIG_NAME
+    hand_written = "reviews:\n  profile: chill\n"
+    target.write_text(hand_written, encoding="utf-8")
+    managed = f"{installer.MANAGED_HEADER}\nreviews: {{}}\n".encode()
+    real_read = installer.read_destination
+    # The reported read sees the installer's own file, so the run proceeds; the write
+    # reads what the target holds, which nobody authorised it to replace.
+    monkeypatch.setattr(installer, "read_destination",
+                        lambda path: managed if path == target else real_read(path))
+
+    assert installer.main(["--repo", str(repo)]) == 1
+
+    assert "was not written by this installer" in capsys.readouterr().err
+    assert target.read_text(encoding="utf-8") == hand_written
+    assert not list(repo.glob(installer.CONFIG_NAME + ".backup.*"))
 
 
 def test_every_fragment_is_reachable_through_the_stack_names():

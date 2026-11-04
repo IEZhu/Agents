@@ -23,6 +23,34 @@ findings on 381 pull requests across 22 repositories between March and October
   It is also where the reply format lives, and that format is what keeps a
   review cycle converging.
 
+`code_guidelines.filePatterns` holds standards only: `AGENTS.md`, `CLAUDE.md`
+and `.github/copilot-instructions.md`. Everything under `docs/` is deliberately
+absent, because the `docs/**/*.md` path instructions treat a design, plan or
+research document as claims to check against the code and expect it to go
+stale. Enforcing those as rules would hold a change to a plan that is itself
+out of date. A repository that keeps a real standard under `docs/` lists that
+exact path in the template, and the installer adds the instruction file that
+`--agents-md` selects when it lies inside the target, whatever its directory
+there, since that file holds the managed discipline section: `--agents-md
+docs/review-rules.md` keeps `docs/review-rules.md` as a pattern without
+restoring `docs/**`.
+
+That entry makes CodeRabbit load the file; it does not make it govern the whole
+repository. A string entry scopes a guideline to the directory it lives in and
+below, so `AGENTS.md` and `CLAUDE.md` at the root govern every file while a
+nested selection governs only its own subtree, and the same already holds for
+`.github/copilot-instructions.md`. Giving a nested entry repository-wide reach
+needs the object form, `{files, applyTo}`, which this installer does not emit
+yet; [issue #553](https://github.com/IEZhu/Agents/issues/553) tracks that. An absolute path outside the target gets no pattern,
+because these are paths in the reviewed commit, and the generated configuration
+does not reach that file at all: `reviews.path_instructions` comes from the
+selected stacks and never names the instruction file. The section is written
+there and the run says so, but no reviewer reads it through this
+configuration. A selected path holding `*`, `?`, `[` or `:` is refused before
+either file is written: the entry is a glob resolved in the reviewed repository
+with no defined escape, so the first three would apply the discipline to other
+matching files and a colon would name another repository instead of this one.
+
 ## Install
 
 ```bash
@@ -42,7 +70,7 @@ unchanged.
 | `--base-branch dev` | A literal branch that pull requests target besides the repository default. Each becomes an anchored regex. |
 | `--base-branch-regex '.*'` | An unanchored pattern, for a repository whose pull requests target many bases. |
 | `--agents-md PATH`, `--create-agents-md`, `--no-agents-md` | Choose, create or skip the instruction file. A relative path stays inside the target: one whose parent resolves outside it is refused, and an absolute path writes outside deliberately and is reported as not covered by the target's commit. |
-| `--force` | Replace a `.coderabbit.yaml` this installer did not write. Read it first. |
+| `--force` | Replace a `.coderabbit.yaml` this installer did not write. Read it first. Its backup is named `.coderabbit.yaml.backup.kept.<timestamp>` and stays out of the three-snapshot rotation, because it is the only copy of what that file held; delete it yourself when you no longer need it. |
 | `--dry-run`, `--print` | Report the actions without writing, or print the composed configuration. |
 
 The installer makes no network call and reads nothing outside the templates and
@@ -54,7 +82,10 @@ such as a FIFO, which would never finish being read; and a file carrying a
 second hard link, whose backup would hold the content that other name shares.
 Both destinations are checked before either is written, so a refusal on one
 leaves the other untouched; if a write still fails on a directory it cannot
-test beforehand, the error names what the run had already installed.
+test beforehand, the error names what the run had already installed. Each
+destination is then read and written through one descriptor the write opens
+itself, which repeats those refusals on the node it actually holds, so a node put
+at a destination after the check above cannot be read or backed up.
 
 The managed header marks the installer's own file; it does not prove
 authorship. A hand-written `.coderabbit.yaml` that opens with both of those
@@ -171,7 +202,16 @@ upstream would have to carry.
 ## Limitations
 
 - The composed file replaces the managed file as a whole. Local edits belong in
-  the templates, not in the target, because the next run overwrites them.
+  the templates, not in the target, because the next run overwrites them. The
+  managed section says so too, and a finding against it is a finding against
+  `scripts/templates/review/review-discipline.md`: fix it there and rerun the
+  installer.
+- Every class the universal fragment tells the reviewer to report must also
+  reach the author through the discipline section, or a self-review passes while
+  the reviewer still files findings in that class.
+  `tests/test_install_review_config.py` checks that correspondence by phrase,
+  with an explicit mapping, so adding a class without delivering it fails the
+  suite.
 - Stack detection counts file suffixes: two matching files select a stack, and
   one is enough for `bsl-1c` and `sql`, which no linter covers. A repository
   with two incidental `.c` files selects `c-embedded`, and a single stray
@@ -190,10 +230,16 @@ upstream would have to carry.
   name the stacks with `--stacks`.
 - A path in a merge conflict is listed once per stage. It counts once, so three
   records from one conflicted file cannot reach a two-file stack threshold.
-- The destination checks run before the write and not through an open
-  descriptor, so a process writing inside the target during the run can still
-  put another node at a destination that has already passed. Install into a
-  target nothing else is writing to.
+- The reported checks run before the write, and the write repeats them on the
+  descriptor it opens, so a node put at a destination after the preflight is
+  refused rather than read or copied. The `--force` gate is taken again from the
+  bytes that descriptor reads, so a configuration that became hand-written after
+  the preflight is refused instead of replaced. Two windows are narrowed rather
+  than closed, because no portable call covers them: the path lookup itself, so a
+  directory swapped in between the containment check of a relative `--agents-md`
+  and the open is the one the write pins, and the destination's name, which the
+  write compares by identity immediately before the rename. Install into a target
+  nothing else is writing to.
 - The configuration grows with the stacks selected. The six-stack selection
   `universal, docs-ai-instructions, iac-ci, python, shell, sql` measured 57 KB
   and 38 instruction entries; another six-stack selection reaches about 77 KB
