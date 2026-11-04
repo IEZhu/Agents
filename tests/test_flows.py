@@ -215,7 +215,10 @@ def test_pr_queue_pins_the_steps_a_single_review_cannot_know():
             "a group with no runner in it puts no runner within reach",
             # A visibility of `selected` names a list; it does not say who is on it.
             "orgs/<owner>/actions/secrets/<name>/repositories",
-            "`selected` says a list\n   decides and not what the list holds"):
+            "`selected` says a list\n   decides and not what the list holds",
+            # A group list says which groups exist, not which runners are in them.
+            "orgs/<owner>/actions/runner-groups/<id>/runners",
+            "a self-hosted runner is in reach exactly when it sits in a group whose"):
         assert " ".join(phrase.split()) in queue, phrase
     review = " ".join(catalog.load("pr-review").content.split())
     assert "run [pr-queue](pr-queue.md) instead" in review

@@ -237,23 +237,29 @@ changes on the integrated tree:
    visibility is `selected`, `gh api --paginate
    repos/<owner>/<repo>/actions/runners`, and for an organization `gh api
    --paginate orgs/<owner>/actions/runners` with `gh api --paginate
-   orgs/<owner>/actions/runner-groups` and each group's repository access.
-   Three of those lists are the ones a reader skips, and each is where a
+   orgs/<owner>/actions/runner-groups` and, for each group, both `gh api
+   --paginate orgs/<owner>/actions/runner-groups/<id>/repositories` and `gh
+   api --paginate orgs/<owner>/actions/runner-groups/<id>/runners`.
+   Four of those lists are the ones a reader skips, and each is where a
    destination that looks clean stops being clean. This repository reports no
    repository secret while its `issue-agent` environment holds one, and a job
    in the simulation can name that environment and receive it. A repository's
    runner list does not show an organization runner shared with it through a
    runner group, which is how unreviewed code reaches an organization's
-   network while the repository list reads empty. And `selected` says a list
-   decides and not what the list holds, so a secret with that visibility is a
-   reach exactly when the destination is one of its repositories.
-   Which lists apply follows `gh api
-   repos/<owner>/<repo> --jq .owner.type`: a user-owned repository has no
-   organization list, and `orgs/<owner>/actions/secrets` answers `404` for it,
-   which is not a list you failed to read. For an organization it answers
-   `403` without organization-admin rights, exactly as step 7's
-   `bypass_actors` is omitted for a read-only caller, and that one is: an
-   unread list is not an empty one.
+   network while the repository list reads empty, and the organization's own
+   runner list does not say which group a runner sits in, so the two per-group
+   lists are what decide it: a self-hosted runner is in reach exactly when it
+   sits in a group whose repository access covers the destination. And
+   `selected` says a list decides and not what the list holds, so a secret
+   with that visibility is a reach exactly when the destination is one of its
+   repositories.
+   Which lists apply follows `gh api repos/<owner>/<repo> --jq .owner.type`:
+   a user-owned repository has no organization list, and
+   `orgs/<owner>/actions/secrets` answers `404` for it, which is not a list
+   you failed to read. For an organization it answers `403` without
+   organization-admin rights, exactly as step 7's `bypass_actors` is omitted
+   for a read-only caller, and that one is: an unread list is not an empty
+   one.
    Empty lists still do not make the push and the dispatch safe, and an
    ephemeral runner is not the property that would. Every job receives an
    automatic `GITHUB_TOKEN`, so a rule that counted it as a reachable
