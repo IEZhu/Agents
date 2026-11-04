@@ -355,7 +355,8 @@ client's own tools. Calls from this close's own `run_flow` on are not audited.
    trigger on: when the inventory's `unreadable_lines` or `skipped_entries` may
    fall in that window, a `missed` finding is `?`, and a `?` never becomes a
    memory lesson. That window is why these findings are established here, in the
-   parent: the step 5.3 verifier receives live-state claims only.
+   parent, rather than sent to the step 5.3 verifier, which is launched without
+   the transcript they rest on.
 6. **Cause.** Name the likeliest cause of each `missed` or `misused` finding,
    with its evidence:
    - `not-in-context`: no instruction loaded at that point required the call
