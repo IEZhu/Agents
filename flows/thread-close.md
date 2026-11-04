@@ -566,9 +566,11 @@ Compose the report in the user's language:
    is that reading minus step 1's. The line also holds how many rows of the
    artifact table sit at each state, `✗`, `⚠` and `?` included; the format
    corrections the step-5.3 verifier needed; the steps that produced no finding;
-   and, for the copy that ran, the installation root that `run_flow`'s
-   `flow.source_path` sits under, the `VERSION` file read from that root, and
-   `flow.revision`. Every value names its source or reads `unavailable`.
+   and, for the copy that ran, `run_flow`'s `flow.revision` with the installation
+   root and its `VERSION` only when `flow.source` is `builtin`, where that root
+   is above the `flows/` directory holding `flow.source_path`. A personal or
+   repository copy, or a `VERSION` that cannot be read, is `unavailable`: so is
+   every other value this close could not establish.
 10. **How to resume:** session id or link, branch, next command.
 
 At the final handoff, use `finishing` (🧹) when required obligations remain,
