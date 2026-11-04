@@ -400,10 +400,12 @@ client's own tools. Calls from this close's own `run_flow` on are not audited.
    **Tracked destinations.** A patch to a git-tracked file goes through a linked
    worktree and a pull request, never an in-place edit: test the destination with
    `git ls-files --error-unmatch` and read the checkout's own contribution rules.
-   A patch that is a call rather than a diff passes the worktree as that call's
-   `repo_path`, with the `workspace_id` the tool requires: naming the workspace
-   alone leaves the call on the main checkout. When the tree is dirty, or the
-   repository states no rule, propose the patch and leave it unapplied.
+   A patch that is a call rather than a diff writes where that tool documents,
+   through the arguments it names, so establish that destination before applying
+   it: `write_repo_summary` takes the worktree as `repo_path` with its
+   `workspace_id`, while `save_flow` takes no `repo_path` and at its default
+   scope writes the installation's own `flows/.user`. When the tree is dirty, or
+   the repository states no rule, propose the patch and leave it unapplied.
 
    **Repeats escalate.** Search `read_history` for earlier closes tagged
    `#ac-missed-<slug>` or `#tool-missed-<slug>`, or naming that slug in their tool
