@@ -184,8 +184,21 @@ def test_pr_queue_pins_the_steps_a_single_review_cannot_know():
             # A branch dispatch is not a fork trigger, so the run receives every
             # secret the destination reaches, inherited organization ones included.
             "A `workflow_dispatch` run on a branch is not a fork trigger",
-            "inherits an organization\n   secret set to all repositories",
-            "an\n   unread list is not an empty one"):
+            "inherits an organization\n   secret set to all repositories without anyone",
+            "an unread list is not\n   an empty one",
+            # Copilot, on that same paragraph: the lists are paginated, the
+            # environments were missing, and an ephemeral runner is not the property.
+            "gh api --paginate repos/<owner>/<repo>/environments/<name>/secrets",
+            "an ephemeral runner is not the property that would",
+            "the dispatch is the exception rather than the second of two equal options",
+            # Second Copilot and CodeRabbit round on that paragraph: the gate sat
+            # after the push, the organization list does not exist for a user-owned
+            # repository, and two of the requirements were not enforceable at all.
+            "Establish it before the push and not before the dispatch",
+            "a user-owned repository has no\n   organization list",
+            "a rule that counted it would refuse every\n   dispatch ever",
+            "that file comes from the simulation and an item\n   can rewrite it",
+            "no identity federation accepts that\n   repository"):
         assert " ".join(phrase.split()) in queue, phrase
     review = " ".join(catalog.load("pr-review").content.split())
     assert "run [pr-queue](pr-queue.md) instead" in review

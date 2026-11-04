@@ -205,33 +205,60 @@ changes on the integrated tree:
    workflow, a script, a `Makefile` target or a configuration file from
    anywhere in the tree, so the surface is the whole execution graph and not
    the YAML. Whose repository an item came from does not either: a contributor
-   with a branch in the target can add any of that just as a fork can. Push the
-   simulation to a repository that holds none of the target's secrets and run
-   the workflow there, or make no dispatch at all and take the evidence from the
-   ordinary runs as in the next item. Record which of the two was used, and
-   never relax this because an item looks harmless.
+   with a branch in the target can add any of that just as a fork can. Take the
+   evidence from the ordinary runs instead, as in the next item, and push and
+   dispatch the simulation only where the three paragraphs below are all
+   established for some other repository. Record which of the two was used,
+   and never relax this because an item looks harmless.
    Secrets are not the only thing that repository decides. The simulation
    carries the target's code and the history reachable from it, so it may not be
    readable by anyone the target is not: a private target never goes to a public
    repository, the destination belongs to the same owner with no collaborators
    the target lacks, and a repository you cannot establish that for is not a
-   destination. Where none exists, make no dispatch.
+   destination. Where none exists, push nothing and make no dispatch.
    What the run itself holds is a third question, and neither check above
-   answers it. A `workflow_dispatch` run on a branch is not a fork trigger, so
-   GitHub passes it every secret that repository can reach: its own repository
-   and environment secrets, plus the organization secrets whose access policy
-   includes it. A repository created for this check inherits an organization
-   secret set to all repositories without anyone granting it, and a
-   self-hosted runner adds the network that runner sits in. Establish what a
-   run there actually receives, from
-   `gh api repos/<owner>/<repo>/actions/secrets`, `gh api
-   orgs/<owner>/actions/secrets` with each secret's `visibility`, and the
-   runners the destination can use; require an ephemeral GitHub-hosted runner.
-   The organization endpoints answer `403` without organization-admin rights,
-   exactly as step 7's `bypass_actors` is omitted for a read-only caller: an
-   unread list is not an empty one. Where a credential or a self-hosted runner
-   reaches the run, or where those lists cannot be read, make no dispatch and
-   report the integrated check as unverified.
+   answers it. Establish it before the push and not before the dispatch: a
+   push starts whatever workflows the pushed tree declares, and that tree is
+   the simulation, so an item that added a `push` workflow runs in the
+   destination before any dispatch is decided. A `workflow_dispatch` run on a
+   branch is not a fork trigger either, so GitHub passes it every secret that
+   repository can reach: its own repository secrets, the secrets of any
+   environment a job names, and, where the owner is an organization, the
+   organization secrets whose access policy includes it. A repository created
+   for this check inherits an organization secret set to all repositories
+   without anyone granting it, and a self-hosted runner adds the network that
+   runner sits in. Read every applicable list, each a paginated one that step
+   7's rule covers: `gh api --paginate repos/<owner>/<repo>/actions/secrets`,
+   `gh api --paginate repos/<owner>/<repo>/environments` and then `gh api
+   --paginate repos/<owner>/<repo>/environments/<name>/secrets` for each one,
+   `gh api --paginate orgs/<owner>/actions/secrets` with each secret's
+   `visibility`, and `gh api --paginate
+   repos/<owner>/<repo>/actions/runners`. The environments are the list that
+   is easiest to skip and the one that catches a repository whose own list is
+   empty: this repository reports no repository secret while its
+   `issue-agent` environment holds one, and a job in the simulation can name
+   that environment and receive it. Which lists apply follows `gh api
+   repos/<owner>/<repo> --jq .owner.type`: a user-owned repository has no
+   organization list, and `orgs/<owner>/actions/secrets` answers `404` for it,
+   which is not a list you failed to read. For an organization it answers
+   `403` without organization-admin rights, exactly as step 7's
+   `bypass_actors` is omitted for a read-only caller, and that one is: an
+   unread list is not an empty one.
+   Empty lists still do not make the push and the dispatch safe, and an
+   ephemeral runner is not the property that would. Every job receives an
+   automatic `GITHUB_TOKEN`, so a rule that counted it would refuse every
+   dispatch ever: it is not one of the credentials this audit weighs, because
+   it reaches the destination and nothing else, and the destination is a
+   repository created for this check which holds nothing else and loses the
+   branch again in item 4. What the audit weighs is the reach past it. Do not
+   try to bound that reach through the workflow's own `permissions` block, nor
+   to forbid `id-token` there: that file comes from the simulation and an item
+   can rewrite it. A GitHub-hosted runner cannot be network-isolated, so the
+   dispatch is the exception rather than the second of two equal options: push
+   and dispatch only where every applicable list was read and empty, no
+   self-hosted runner is reachable, and no identity federation accepts that
+   repository. Anything short of that is the no-dispatch path, with nothing
+   pushed and the integrated check reported as unverified.
 2. Start the workflow on that branch with `workflow_dispatch`, naming the
    repository the branch is in:
    `gh workflow run vulnerability-scan.yml --repo <simulation repository> --ref tmp/queue-integration`.
