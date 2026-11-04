@@ -268,10 +268,14 @@ changes on the integrated tree:
    found one more resource an owner shares, and the next one will too. The
    dispatch is the exception rather than the second of two equal options. Push
    and dispatch only into an owner you would knowingly expose to unreviewed
-   code, where every applicable list was read and empty, no self-hosted runner
-   is reachable, and no identity federation accepts that repository. Anything
-   short of that, and anything the lists leave unread, is the no-dispatch
-   path, with nothing pushed and the integrated check reported as unverified.
+   code, where every applicable list was readable and nothing in it is in
+   reach: no secret the run can receive, no self-hosted runner, and no
+   identity federation that accepts that repository. Readable rather than
+   empty, because an entry is not the same as a reach: every organization has
+   one default runner group, so a group list is never empty, and a group with
+   no runner in it puts no runner within reach. Anything the lists leave
+   unread, and anything they show in reach, is the no-dispatch path, with
+   nothing pushed and the integrated check reported as unverified.
 2. Start the workflow on that branch with `workflow_dispatch`, naming the
    repository the branch is in:
    `gh workflow run vulnerability-scan.yml --repo <simulation repository> --ref tmp/queue-integration`.

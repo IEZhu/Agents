@@ -198,7 +198,7 @@ def test_pr_queue_pins_the_steps_a_single_review_cannot_know():
             "a user-owned repository has no\n   organization list",
             "a rule that counted it as a reachable\n   credential would refuse every dispatch ever",
             "that file comes from the simulation and an item\n   can rewrite it",
-            "no identity federation accepts that repository",
+            "no\n   identity federation that accepts that repository",
             # Third round on that paragraph: a repository runner list hides an
             # organization runner shared through a group, and the token leaves marks
             # in the owner that no branch deletion takes back.
@@ -208,7 +208,11 @@ def test_pr_queue_pins_the_steps_a_single_review_cannot_know():
             "one of the two events GitHub does not suppress when the token creates them",
             "read the destination's owner as the blast radius",
             "stop extending this list",
-            "the run left no package in the owner's namespace"):
+            "the run left no package in the owner's namespace",
+            # The gate asked for empty lists, and every organization has a default
+            # runner group, so that would have refused every organization.
+            "Readable rather than empty, because an entry is not the same as a reach",
+            "a group with no runner in it puts no runner within reach"):
         assert " ".join(phrase.split()) in queue, phrase
     review = " ".join(catalog.load("pr-review").content.split())
     assert "run [pr-queue](pr-queue.md) instead" in review
