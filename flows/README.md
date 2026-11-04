@@ -23,6 +23,7 @@ When a flow is task material for a prepared worker, as [code-review-pass](code-r
 | [Environment auto-configuration](environment-autoconfigure.md) | Audit installed AI clients and reconcile their environment with the current RTK, TokenSave and CodeGraph stack | Verified configuration changes, private backups, rollback steps and explicit compatibility limits |
 | [Documentation refresh](documentation-refresh.md) | Inventory public surfaces and review documentation for people and AI against current source | Reviewed changes on a separate branch, a coverage record, navigation/tool-index checks and explicit validation limits |
 | [PR/MR review](pr-review.md) | Review the diff, handle bot findings one push per round until they converge, and keep the description current | A merged request or a precise blocker, with a report in the invocation language |
+| [PR/MR queue](pr-queue.md) | Order several open requests, prove the order merges on a throwaway branch, check the integrated tree, then run `pr-review` per item | One merge chain for the owner, each item with its head, checks and remaining blocker |
 | [Issue agent](issue-agent.md) | Verify an owner's `/agent` comment, keep trusted state in the issue, and dispatch; bot reviews never trigger a session | The command's result and an updated state comment |
 | [Issue plan](issue-plan.md) | `/agent plan` / `replan`: validate requirements, ask questions, write a versioned plan with a pre-mortem | A Markdown plan comment or open questions |
 | [Issue implementation](issue-implementation.md) | `/agent run_plan` / `run`: implement, self-review, independent review, pre-mortem, PR and the full bot review cycle in the same session | A pull request with review results or a precise blocker, left unmerged |
@@ -55,8 +56,9 @@ The three issue flows run in a Claude Code cloud routine that a GitHub Actions
 bridge starts for the owner's `/agent` comments, not from a local request. See
 [issue agent setup](../docs/cloud-runs.md#issue-agent).
 
-`environment-autoconfigure` runs as `sysadmin` and `shared-kv-inference` as
-`software_engineer`, each with that agent's default components.
+`environment-autoconfigure` runs as `sysadmin`, `shared-kv-inference` as
+`software_engineer` and `pr-queue` as `code_reviewer`, each with that agent's
+default components.
 `environment-autoconfigure` audits and repairs the current host only when
 explicitly invoked; it is not an installation hook for ordinary conversations.
 The configured stack and platform determine versions and supported integrations.
@@ -76,6 +78,12 @@ Run flows/pr-review.md for <PR or MR URL>.
 ```
 
 Add `no-merge` to stop before merging.
+
+To take several open requests to the same target branch in sequence:
+
+```text
+Run flows/pr-queue.md for <PR or MR URLs>.
+```
 
 Add optional scope, a starting revision, or a branch when needed:
 

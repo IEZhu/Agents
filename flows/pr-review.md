@@ -43,6 +43,13 @@ the returned `repo_path` as the target. Source links belong to the MCP installat
 and instructions belong to the target. Confirm the PR/MR matches that repository
 before making changes.
 
+When more than one open request has to reach the target branch one after
+another, run [pr-queue](pr-queue.md) instead: it orders the queue, proves the
+order merges, checks the integrated tree and runs this flow per item. Its git
+steps are platform independent, and its platform commands are GitHub's; on
+GitLab read that flow's own paragraph on the equivalents before following its
+commands, and record the ones the target does not offer.
+
 Optional constraints include a specific review scope or `review-only` / `no-merge`.
 The `autodev` mode of a self-development run follows [Autodev mode](#autodev-mode)
 wherever it differs from the steps below.
@@ -75,6 +82,21 @@ Write committed documentation in English under the
 - Read the full diff, title, description, all review activity, project checks,
   merge rules, and required approvals. Confirm which bot integrations actually
   exist and which repository or account configuration is visible.
+- Read what actually gates the merge, from more than one endpoint. On GitHub a
+  branch can have no classic protection and still be gated by a repository
+  ruleset: `gh api repos/OWNER/REPO/branches/<target>/protection` answers
+  `Branch not protected` while `gh api --paginate repos/OWNER/REPO/rulesets`,
+  and the ruleset's own endpoint, give the refs it covers, the approvals and
+  checks it requires and who may bypass it. Read every page: that endpoint
+  returns 30 rulesets at a time, and a rule that requires an approval or a check
+  can sit on a later one. A ruleset response omits `bypass_actors` for a caller
+  without write access, so a missing field is an unverified value, not an empty
+  list: report it as a limitation instead of concluding that nobody may bypass
+  the rule. `gh pr view N --json reviewDecision` says
+  whether those approvals are satisfied, which `mergeable` and
+  `mergeStateStatus` do not: a request can be `MERGEABLE` and `BLOCKED` at the
+  same time for a missing approval. Record the gating before reporting a
+  blocker, or reporting that there is none.
 - Keep a working list of every finding, its source, decision, fix commit, reply,
   and validation evidence. Carry it across rounds for the final report.
 - Check the scope before the first review round. Each bot pass reports a few
@@ -181,6 +203,16 @@ target branch of every pull request. Confirm that those reviews actually
 started.
 CodeRabbit normally reviews subsequent pushes automatically, but its quota is
 often exhausted.
+Read the head's own check runs before asking it for anything
+(`gh api repos/OWNER/REPO/commits/<sha>/check-runs`). Its automatic pass starts
+within seconds of a push into a base branch it lists, so a request sent after
+that adds nothing and spends one of the few reviews the hourly allowance leaves:
+measured here, a push at 00:09:38Z had `CodeRabbit` `in_progress` at 00:10:07Z
+while the request sent at 00:10:13Z was already redundant. What suppresses a
+request is a run still going or a completed review of that head, and nothing
+else: a rate-limited, paused or skipped status is a run of a kind and not a
+review, and those are exactly the states the rows above tell you to retry once
+their wait has passed.
 After each push of fixes, once the remote head updates, **explicitly
 re-request Copilot review when the integration is available and Copilot is not
 paused** under [Quota, rate limits and errors](#quota-rate-limits-and-errors),
@@ -202,9 +234,12 @@ at once, with where the owner selects Lite under "Review effort level": the
 personal Copilot settings (Copilot, then Code review) for reviews requested with
 the owner's account, which this flow's requests are, and the repository's or
 organization's settings (Copilot, then Code review) for automatic reviews.
-Resume after the owner confirms the switch. Do not change the effort, the
-settings or billing yourself, and do not guess a request parameter for the
-effort: there is no assumed `lite` CLI flag.
+Resume after the owner confirms the switch. Do not change the account or
+repository settings or billing yourself. The request itself does carry the
+effort: `requestCopilotCodeReview` takes `reviewEffort`, whose values are
+`LITE`, `BALANCED`, `MAX` and `AUTO`, so ask for `LITE` explicitly as the
+command above does rather than relying on what the settings default to. There is
+still no `lite` flag on the CLI, so do not guess one there.
 
 On GitLab, inspect the actual reviewers and integrations available to the MR.
 Use supported platform actions for requests and discussions. Do not assume that
@@ -305,10 +340,31 @@ the helper. Replace `OWNER`, `REPO`, and `N` with the verified target:
 AGENTS_CORE_ROOT=/absolute/path/to/Agents-Core
 TARGET_REPO=/absolute/path/to/target-repository
 cd "$TARGET_REPO"
-gh api -X POST repos/OWNER/REPO/pulls/N/requested_reviewers -f 'reviewers[]=copilot-pull-request-reviewer[bot]'
+gh api graphql -f query='mutation($pr:ID!){requestCopilotCodeReview(input:{
+  pullRequestId:$pr, reviewEffort:LITE}){pullRequest{headRefOid reviewRequests(
+  first:5){nodes{requestedReviewer{__typename ... on Bot{login}}}}}}}' \
+  -F pr="$(gh pr view N --json id --jq .id)"
 bash "$AGENTS_CORE_ROOT/scripts/dev/wait_copilot.sh" N
 python "$AGENTS_CORE_ROOT/scripts/dev/pr_threads.py" N
 ```
+
+**Request Copilot through its own mutation, and read the result.** The REST
+endpoint
+`gh api -X POST repos/OWNER/REPO/pulls/N/requested_reviewers -f 'reviewers[]=copilot-pull-request-reviewer[bot]'`
+answers 200 for this bot and registers nothing: the response's
+`requested_reviewers` comes back empty and no review is queued. It is not a
+request, and its success is exactly the kind of successful API response this
+step warns about. `requestCopilotCodeReview` is the mutation for this, it takes
+only the pull request's node id, and the `headRefOid` and `reviewRequests` it
+returns are the confirmation to read: an empty reviewer list means the request
+did not take. Nothing else is needed, in particular no bot node id and so no
+earlier Copilot review to take one from.
+
+A registered reviewer is still not a review. The request can register and then
+clear with no review object on the head, which happened twice on one pull
+request of this repository, so the queued request is evidence that the ask
+landed and nothing more: the head counts as reviewed only under
+[Verify completion evidence](#verify-completion-evidence).
 
 [wait_copilot.sh](../scripts/dev/wait_copilot.sh) waits for a Copilot review on
 the PR's current head after it matches the source branch tip. It does not check
