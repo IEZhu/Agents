@@ -249,10 +249,17 @@ changes on the integrated tree:
    network while the repository list reads empty, and the organization's own
    runner list does not say which group a runner sits in, so the two per-group
    lists are what decide it: a self-hosted runner is in reach exactly when it
-   sits in a group whose repository access covers the destination. And
-   `selected` says a list decides and not what the list holds, so a secret
-   with that visibility is a reach exactly when the destination is one of its
-   repositories.
+   sits in a group that covers the destination.
+   Whether a list decides that coverage is itself a field, and the same field
+   governs both the secrets and the groups. A `visibility` of `selected` means
+   a list decides, so read it and the thing is a reach exactly when the
+   destination is on it: `orgs/<owner>/actions/secrets/<name>/repositories`
+   for the secret, `orgs/<owner>/actions/runner-groups/<id>/repositories` for
+   the group. Any other visibility means no list decides and the thing covers
+   the destination already, a group or secret open to all the organization's
+   repositories, or to all its private ones, whatever those lists hold. So
+   read the visibility first and the list only where it is `selected`, because
+   an empty list under any other visibility is not an absence of reach.
    Which lists apply follows `gh api repos/<owner>/<repo> --jq .owner.type`:
    a user-owned repository has no organization list, and
    `orgs/<owner>/actions/secrets` answers `404` for it, which is not a list
