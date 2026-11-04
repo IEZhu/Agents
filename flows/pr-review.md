@@ -357,6 +357,12 @@ returns are the confirmation to read: an empty reviewer list means the request
 did not take. Nothing else is needed, in particular no bot node id and so no
 earlier Copilot review to take one from.
 
+A registered reviewer is still not a review. The request can register and then
+clear with no review object on the head, which happened twice on one pull
+request of this repository, so the queued request is evidence that the ask
+landed and nothing more: the head counts as reviewed only under
+[Verify completion evidence](#verify-completion-evidence).
+
 [wait_copilot.sh](../scripts/dev/wait_copilot.sh) waits for a Copilot review on
 the PR's current head after it matches the source branch tip. It does not check
 approval or decide whether findings remain. It counts any Copilot review object

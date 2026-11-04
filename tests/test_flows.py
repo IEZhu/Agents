@@ -110,6 +110,7 @@ def test_pr_review_reads_the_merge_gating_from_more_than_one_endpoint():
                    "answers 200 for this bot and registers nothing",
                    "requestCopilotCodeReview(input:{",
                    "no bot node id and so no earlier Copilot review to take one from",
+                   "A registered reviewer is still not a review.",
                    "takes `reviewEffort`, whose values are `LITE`, `BALANCED`, `MAX` and `AUTO`",
                    # Two requests were spent on heads CodeRabbit had already picked up.
                    "Read the head's own check runs before asking it for anything",
