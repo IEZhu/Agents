@@ -478,17 +478,24 @@ def test_every_file_open_asks_for_binary_mode(tmp_path, helpers, monkeypatch):
     """Windows os.open follows the C runtime's text mode, which would rewrite bytes.
 
     tempfile.mkstemp, which this helper used before, sets O_BINARY for that reason.
-    The flag does not exist on POSIX, so the platform that needs it stands in here.
+    Without it `os.read` of the destination translates CRLF to LF, and the backup
+    then holds the translated bytes, which is what the written file is compared to.
+
+    O_BINARY exists only on Windows, so elsewhere a bit stands in for it and the
+    wrapper strips it before the real open, because 0x8000 means something else
+    there: O_EVTONLY on macOS, O_LARGEFILE on Linux. Where the flag is real it is
+    passed through, since stripping it is exactly the text mode this asserts against.
     """
     injector, _ = helpers
-    stand_in = 0x8000
+    real_flag = getattr(os, "O_BINARY", 0)
+    stand_in = real_flag or 0x8000
     monkeypatch.setattr(injector, "BINARY", stand_in)
     requested = []
     real_open = os.open
 
     def record(path, flags, *rest, **kwargs):
         requested.append(flags)
-        return real_open(path, flags & ~stand_in, *rest, **kwargs)
+        return real_open(path, flags if real_flag else flags & ~stand_in, *rest, **kwargs)
 
     monkeypatch.setattr(injector.os, "open", record)
     target = tmp_path / "CLAUDE.md"
