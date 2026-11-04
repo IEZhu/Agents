@@ -549,3 +549,56 @@ def test_destination_is_closed_before_the_rename(tmp_path, helpers, monkeypatch)
     assert held and held[0] is not None, "the existing destination was not opened"
     assert not open_at_rename, "the destination is still open when the rename runs"
     assert target.read_bytes() == b"managed"
+
+
+def test_a_node_that_took_the_name_before_the_rename_is_refused(tmp_path, helpers, monkeypatch):
+    """The rename replaces a name, and a descriptor pins an inode rather than one.
+
+    Another process can take the destination's name while this write prepares its
+    backup, and the rename would then replace a file whose bytes no snapshot holds.
+    """
+    injector, _ = helpers
+    target = tmp_path / "CLAUDE.md"
+    target.write_bytes(b"original")
+    intruder = b"another process put this here"
+    original_write = injector._write
+
+    def take_the_name_then_write(path, parent_fd, content, info):
+        # After the backup, before the rename: a different regular file, so only its
+        # identity tells the write that the name is no longer the one it read.
+        path.unlink()
+        path.write_bytes(intruder)
+        return original_write(path, parent_fd, content, info)
+
+    monkeypatch.setattr(injector, "_write", take_the_name_then_write)
+
+    with pytest.raises(ValueError, match="took the name"):
+        injector.write_with_backup(target, b"managed")
+
+    assert target.read_bytes() == intruder, "the file that took the name was replaced"
+    backup, = tmp_path.glob("CLAUDE.md.backup.*")
+    assert backup.read_bytes() == b"original"
+    assert not list(tmp_path.glob(".CLAUDE.md.*")), "the temporary file is left behind"
+
+
+def test_a_file_created_under_a_new_destination_is_refused(tmp_path, helpers, monkeypatch):
+    """A write that found no file refuses one that appeared while it prepared.
+
+    Replacing it would destroy bytes this run never read and never backed up.
+    """
+    injector, _ = helpers
+    target = tmp_path / "AGENTS.md"
+    intruder = b"another process created this"
+    original_write = injector._write
+
+    def create_then_write(path, parent_fd, content, info):
+        path.write_bytes(intruder)
+        return original_write(path, parent_fd, content, info)
+
+    monkeypatch.setattr(injector, "_write", create_then_write)
+
+    with pytest.raises(ValueError, match="took the name"):
+        injector.write_with_backup(target, b"managed")
+
+    assert target.read_bytes() == intruder
+    assert not list(tmp_path.glob("AGENTS.md.backup.*")), "a file it never read was snapshotted"

@@ -89,6 +89,21 @@ def _node(name: str, parent: Path, parent_fd: int | None) -> os.stat_result:
     return os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
 
 
+def _unchanged(path: Path, parent_fd: int | None, info: os.stat_result | None) -> bool:
+    """Say whether the name still holds the node this write read, or still holds none.
+
+    A descriptor pins an inode, never a name, so a rename replaces whatever the name
+    has come to hold. Comparing the identity just before it narrows that window
+    instead of closing it: POSIX has no rename that refuses an unexpected
+    destination, and renameat2 is Linux-only and absent from os.
+    """
+    try:
+        node = _node(path.name, path.parent, parent_fd)
+    except (FileNotFoundError, NotADirectoryError):
+        return info is None
+    return info is not None and (node.st_dev, node.st_ino) == (info.st_dev, info.st_ino)
+
+
 def _replace(source: str, destination: str, parent: Path, parent_fd: int | None) -> None:
     if parent_fd is None:
         os.replace(parent / source, parent / destination)
@@ -245,6 +260,14 @@ def _write(path: Path, parent_fd: int | None, content: bytes,
             output.flush()
             if info is not None:
                 _take_mode(output.fileno(), temporary, info)
+        # Checked as late as the rename allows: another process can take the name
+        # while this write prepares, and the rename would then replace a file whose
+        # bytes no backup holds. Refusing leaves that file and this one's snapshot.
+        if not _unchanged(path, parent_fd, info):
+            raise ValueError(
+                f"Refusing to replace {path}: another node took the name while this write "
+                f"prepared. The destination is untouched, and the snapshot of the bytes "
+                f"that were read is kept; rerun once nothing else is writing there")
         _replace(name, path.name, path.parent, parent_fd)
     finally:
         try:
@@ -309,7 +332,8 @@ def write_with_backup(path: Path, content: bytes,
     retain_backup keeps the snapshot out of that rotation, for content this installer
     did not write, whose backup is the only copy of it. A caller whose answer depends
     on the bytes being replaced passes a function of them, so that decision follows
-    the read this write made and not one the caller made before it.
+    the read this write made and not one the caller made before it. That function
+    runs before anything is written and may refuse the write by raising.
     """
     return _write_with_backup(path, lambda _current: content, retain_backup)
 

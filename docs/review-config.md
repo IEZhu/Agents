@@ -195,11 +195,14 @@ upstream would have to carry.
   records from one conflicted file cannot reach a two-file stack threshold.
 - The reported checks run before the write, and the write repeats them on the
   descriptor it opens, so a node put at a destination after the preflight is
-  refused rather than read or copied. What no descriptor covers is the path
-  lookup itself: a relative `--agents-md` is proved to stay inside the target
-  before the write opens that directory, and a directory swapped in between
-  those two steps is the one the write pins. Install into a target nothing else
-  is writing to.
+  refused rather than read or copied. The `--force` gate is taken again from the
+  bytes that descriptor reads, so a configuration that became hand-written after
+  the preflight is refused instead of replaced. Two windows are narrowed rather
+  than closed, because no portable call covers them: the path lookup itself, so a
+  directory swapped in between the containment check of a relative `--agents-md`
+  and the open is the one the write pins, and the destination's name, which the
+  write compares by identity immediately before the rename. Install into a target
+  nothing else is writing to.
 - The configuration grows with the stacks selected. The six-stack selection
   `universal, docs-ai-instructions, iac-ci, python, shell, sql` measured 57 KB
   and 38 instruction entries; another six-stack selection reaches about 77 KB

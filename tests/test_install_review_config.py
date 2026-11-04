@@ -834,11 +834,37 @@ def test_force_retention_follows_the_bytes_the_write_reads(tmp_path, monkeypatch
     monkeypatch.setattr(installer, "read_destination",
                         lambda path: managed if path == target else real_read(path))
 
-    assert installer.main(["--repo", str(repo)]) == 0
+    # --force, because the write's own read of unmanaged bytes is refused without it;
+    # the reported read is managed, so the retention cannot come from that one.
+    assert installer.main(["--repo", str(repo), "--force"]) == 0
 
     kept = [path for path in repo.glob(installer.CONFIG_NAME + ".backup.*")
             if helper.RETAINED_MARKER in path.name]
     assert [path.read_text(encoding="utf-8") for path in kept] == [hand_written]
+
+
+def test_a_file_that_became_unmanaged_after_the_preflight_is_refused(tmp_path, capsys, monkeypatch):
+    """The --force gate runs again on the bytes the write reads, not only the report.
+
+    A managed file replaced with a hand-written one after the preflight used to be
+    read and overwritten with force false, because the gate had already passed.
+    """
+    repo = git_repo(tmp_path / "repo", {"a.py": "x\n", "AGENTS.md": "# r\n"})
+    target = repo / installer.CONFIG_NAME
+    hand_written = "reviews:\n  profile: chill\n"
+    target.write_text(hand_written, encoding="utf-8")
+    managed = f"{installer.MANAGED_HEADER}\nreviews: {{}}\n".encode()
+    real_read = installer.read_destination
+    # The reported read sees the installer's own file, so the run proceeds; the write
+    # reads what the target holds, which nobody authorised it to replace.
+    monkeypatch.setattr(installer, "read_destination",
+                        lambda path: managed if path == target else real_read(path))
+
+    assert installer.main(["--repo", str(repo)]) == 1
+
+    assert "was not written by this installer" in capsys.readouterr().err
+    assert target.read_text(encoding="utf-8") == hand_written
+    assert not list(repo.glob(installer.CONFIG_NAME + ".backup.*"))
 
 
 def test_every_fragment_is_reachable_through_the_stack_names():

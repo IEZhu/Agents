@@ -587,6 +587,11 @@ content from elsewhere. The destination is refused, with nothing written, when i
 is not a regular file, a FIFO for instance, or when it carries a second hard
 link, whose content the backup would copy and whose other name the write would
 break. The managed section is rendered from the bytes that same descriptor reads.
+A descriptor pins a node and not a name, so the write compares the destination's
+identity again immediately before the rename and refuses when another node has
+taken the name, leaving that file and the snapshot of the bytes it read. That
+narrows the window rather than closing it: no portable rename refuses an
+unexpected destination.
 Pinning the parent directory needs the `dir_fd` arguments of the platform's
 `openat` family and is therefore POSIX-only; on Windows the steps run against the
 path, as they did before.
