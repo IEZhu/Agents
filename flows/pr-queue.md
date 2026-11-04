@@ -232,16 +232,22 @@ changes on the integrated tree:
    `gh api --paginate repos/<owner>/<repo>/environments` and then `gh api
    --paginate repos/<owner>/<repo>/environments/<name>/secrets` for each one,
    `gh api --paginate orgs/<owner>/actions/secrets` with each secret's
-   `visibility`, `gh api --paginate repos/<owner>/<repo>/actions/runners`, and
-   for an organization `gh api --paginate orgs/<owner>/actions/runners` with
-   `gh api --paginate orgs/<owner>/actions/runner-groups` and each group's
-   repository access. Two of those lists are the ones that catch a destination
-   whose own list is empty. This repository reports no repository secret while
-   its `issue-agent` environment holds one, and a job in the simulation can
-   name that environment and receive it; and a repository's runner list does
-   not show an organization runner shared with it through a runner group,
-   which is how unreviewed code reaches an organization's network while the
-   repository list reads empty. Which lists apply follows `gh api
+   `visibility`, `gh api --paginate
+   orgs/<owner>/actions/secrets/<name>/repositories` for every secret whose
+   visibility is `selected`, `gh api --paginate
+   repos/<owner>/<repo>/actions/runners`, and for an organization `gh api
+   --paginate orgs/<owner>/actions/runners` with `gh api --paginate
+   orgs/<owner>/actions/runner-groups` and each group's repository access.
+   Three of those lists are the ones a reader skips, and each is where a
+   destination that looks clean stops being clean. This repository reports no
+   repository secret while its `issue-agent` environment holds one, and a job
+   in the simulation can name that environment and receive it. A repository's
+   runner list does not show an organization runner shared with it through a
+   runner group, which is how unreviewed code reaches an organization's
+   network while the repository list reads empty. And `selected` says a list
+   decides and not what the list holds, so a secret with that visibility is a
+   reach exactly when the destination is one of its repositories.
+   Which lists apply follows `gh api
    repos/<owner>/<repo> --jq .owner.type`: a user-owned repository has no
    organization list, and `orgs/<owner>/actions/secrets` answers `404` for it,
    which is not a list you failed to read. For an organization it answers

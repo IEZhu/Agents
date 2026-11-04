@@ -203,7 +203,7 @@ def test_pr_queue_pins_the_steps_a_single_review_cannot_know():
             # organization runner shared through a group, and the token leaves marks
             # in the owner that no branch deletion takes back.
             "orgs/<owner>/actions/runner-groups",
-            "a repository's runner list does not show an organization runner shared",
+            "repository's runner list does not show an organization runner shared",
             "a package published with the token lives in the owner's namespace",
             "one of the two events GitHub does not suppress when the token creates them",
             "read the destination's owner as the blast radius",
@@ -212,7 +212,10 @@ def test_pr_queue_pins_the_steps_a_single_review_cannot_know():
             # The gate asked for empty lists, and every organization has a default
             # runner group, so that would have refused every organization.
             "Readable rather than empty, because an entry is not the same as a reach",
-            "a group with no runner in it puts no runner within reach"):
+            "a group with no runner in it puts no runner within reach",
+            # A visibility of `selected` names a list; it does not say who is on it.
+            "orgs/<owner>/actions/secrets/<name>/repositories",
+            "`selected` says a list\n   decides and not what the list holds"):
         assert " ".join(phrase.split()) in queue, phrase
     review = " ".join(catalog.load("pr-review").content.split())
     assert "run [pr-queue](pr-queue.md) instead" in review
