@@ -134,6 +134,8 @@ def render_result_format(contract: dict) -> str:
         "```",
         "Omit a section or the question line when it would be empty; keep summary and "
         f"{payload}. One list item per '- ' line; indent continuation lines by two spaces. "
+        "Where the form shows ' — ', that separator is required, written as ' — ' or ' -- ': "
+        "every evidence line, finding, changes item and artifacts item needs it. "
         "[^id] cites an entry of ## evidence; evidence ids are unique. Every text is at most "
         "4000 characters; at most 50 limitations or remaining_work items and 100 of any other "
         "list. completed: no remaining_work, no question. partial: remaining_work. failed: a "
@@ -158,7 +160,8 @@ def _references(text: str) -> tuple[str, list[str]]:
 def _split(text: str, path: str, shape: str) -> tuple[str, str]:
     parts = _SEPARATOR.split(text, maxsplit=1)
     if len(parts) != 2:
-        raise TextFormatError("separator_required", f"Expected '{shape}' with ' — ' between the parts.", path)
+        raise TextFormatError("separator_required",
+                              f"Expected '{shape}', with ' — ' or ' -- ' between the parts.", path)
     return parts[0].strip(), parts[1].strip()
 
 

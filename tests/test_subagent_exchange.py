@@ -103,6 +103,15 @@ def test_text_format_errors_name_the_problem(worker_tree, mutate, code):
     assert not response.valid and code in codes(response), response.errors
 
 
+def test_text_format_names_the_required_separator_and_accepts_both_spellings(worker_tree):
+    """The form only shows an em dash, so the text states the rule and both accepted spellings."""
+    package = prepared(result_type="review")
+    assert "that separator is required, written as ' — ' or ' -- '" in package.worker_context
+    text = text_result(package).replace("[^e1]: src/app.py:12 — logger", "[^e1]: src/app.py:12 -- logger")
+    response = validate_result(package.contract.model_dump(mode="json"), text)
+    assert response.valid, response.errors
+
+
 @pytest.mark.parametrize("prefix", ["", "short", "0" * CONTRACT_PREFIX_CHARS])
 def test_text_contract_prefix_must_match(worker_tree, prefix):
     package = prepared()
