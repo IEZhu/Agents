@@ -451,6 +451,10 @@ def test_parent_swapped_after_it_was_opened_cannot_move_the_write(tmp_path, help
     if os.rename not in os.supports_dir_fd:
         pytest.skip("this platform supports no dir_fd argument")
     injector, _ = helpers
+    # Asserted, not skipped on: a capability probe that asks for one function this
+    # interpreter does not register turned the pinning off everywhere, and a skip
+    # here would have reported that as nothing to check.
+    assert injector.PARENT_FD, "the write does not pin the parent on a platform that can"
     inside, elsewhere = tmp_path / "inside", tmp_path / "elsewhere"
     inside.mkdir()
     elsewhere.mkdir()
@@ -501,3 +505,40 @@ def test_every_file_open_asks_for_binary_mode(tmp_path, helpers, monkeypatch):
     assert target.read_bytes() == b"third\r\nfourth\r\n"
     backup, = tmp_path.glob("CLAUDE.md.backup.*")
     assert backup.read_bytes() == b"first\r\nsecond\r\n"
+
+
+def test_destination_is_closed_before_the_rename(tmp_path, helpers, monkeypatch):
+    """Windows refuses to rename over a file another handle still holds.
+
+    The descriptor pins the node for the comparison and the backup, and by the
+    rename it has done that work, so holding it open only breaks the write there.
+    """
+    injector, _ = helpers
+    target = tmp_path / "CLAUDE.md"
+    target.write_bytes(b"original")
+    held, closed, open_at_rename = [], [], []
+    real_open_destination, real_close, real_write = (
+        injector._open_destination, injector.os.close, injector._write)
+
+    def remember(path, parent_fd):
+        descriptor = real_open_destination(path, parent_fd)
+        held.append(descriptor)
+        return descriptor
+
+    def record_close(descriptor):
+        closed.append(descriptor)
+        return real_close(descriptor)
+
+    def check_then_write(path, parent_fd, content, info):
+        open_at_rename.extend(one for one in held if one is not None and one not in closed)
+        return real_write(path, parent_fd, content, info)
+
+    monkeypatch.setattr(injector, "_open_destination", remember)
+    monkeypatch.setattr(injector.os, "close", record_close)
+    monkeypatch.setattr(injector, "_write", check_then_write)
+
+    assert injector.write_with_backup(target, b"managed")
+
+    assert held and held[0] is not None, "the existing destination was not opened"
+    assert not open_at_rename, "the destination is still open when the rename runs"
+    assert target.read_bytes() == b"managed"

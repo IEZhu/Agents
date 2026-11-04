@@ -35,8 +35,11 @@ BINARY = getattr(os, "O_BINARY", 0)
 # os.rename stands for the rename this uses: os.replace takes src_dir_fd and
 # dst_dir_fd through the same renameat implementation but is not registered in
 # os.supports_dir_fd, so probing it would disable the pinning wherever it works.
+# os.stat with follow_symlinks=False stands for the lstat, which some versions
+# register and others do not although fstatat is the same call underneath.
 PARENT_FD = (all(function in os.supports_dir_fd
-                 for function in (os.open, os.rename, os.unlink, os.lstat))
+                 for function in (os.open, os.rename, os.unlink, os.stat))
+             and os.stat in os.supports_follow_symlinks
              and os.listdir in os.supports_fd)
 
 
@@ -83,7 +86,7 @@ def _unlink(name: str, parent: Path, parent_fd: int | None) -> None:
 def _node(name: str, parent: Path, parent_fd: int | None) -> os.stat_result:
     if parent_fd is None:
         return os.lstat(parent / name)
-    return os.lstat(name, dir_fd=parent_fd)
+    return os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
 
 
 def _replace(source: str, destination: str, parent: Path, parent_fd: int | None) -> None:
@@ -299,17 +302,20 @@ def read_destination(path: Path) -> bytes | None:
         _close(parent_fd)
 
 
-def write_with_backup(path: Path, content: bytes, retain_backup: bool = False) -> bool:
+def write_with_backup(path: Path, content: bytes,
+                      retain_backup: bool | Callable[[bytes], bool] = False) -> bool:
     """Write exact bytes atomically, retaining up to three managed backups.
 
     retain_backup keeps the snapshot out of that rotation, for content this installer
-    did not write, whose backup is the only copy of it.
+    did not write, whose backup is the only copy of it. A caller whose answer depends
+    on the bytes being replaced passes a function of them, so that decision follows
+    the read this write made and not one the caller made before it.
     """
     return _write_with_backup(path, lambda _current: content, retain_backup)
 
 
 def render_with_backup(path: Path, render: Callable[[bytes], bytes],
-                       retain_backup: bool = False) -> bool:
+                       retain_backup: bool | Callable[[bytes], bool] = False) -> bool:
     """Write bytes derived from the destination's own current content.
 
     render receives the bytes this write read through its own descriptor, empty when
@@ -320,7 +326,7 @@ def render_with_backup(path: Path, render: Callable[[bytes], bytes],
 
 
 def _write_with_backup(path: Path, render: Callable[[bytes], bytes],
-                       retain_backup: bool) -> bool:
+                       retain_backup: bool | Callable[[bytes], bool]) -> bool:
     """Write through one pinned parent and destination, then rotate the backups.
 
     The parent directory and the destination node are each opened once and every
@@ -347,12 +353,16 @@ def _write_with_backup(path: Path, render: Callable[[bytes], bytes],
                 _prune(path, parent_fd)
                 return False
             if descriptor is not None:
-                backup = _copy_backup(path, parent_fd, current, info, retain_backup)
-                print(f"Backup created: {backup}")
-            _write(path, parent_fd, content, info)
+                retain = (retain_backup(current) if callable(retain_backup)
+                          else retain_backup)
+                print(f"Backup created: {_copy_backup(path, parent_fd, current, info, retain)}")
         finally:
             if descriptor is not None:
                 os.close(descriptor)
+        # Written after that descriptor is closed: Windows refuses to rename over a
+        # file another handle holds. The pin has done its work by then, because the
+        # bytes and the stat it answered for are the ones the backup holds.
+        _write(path, parent_fd, content, info)
         _prune(path, parent_fd)
         return True
     finally:

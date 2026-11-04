@@ -343,6 +343,16 @@ def report_partial(installed: Sequence[str]) -> None:
         print("Installed before the failure: " + ", ".join(installed), file=sys.stderr)
 
 
+def unmanaged_content(current: bytes) -> bool:
+    """Say whether bytes are not this installer's own, for the write's own read.
+
+    install_config decides --force from the read it reports; whether the backup is
+    the only copy of what it replaces is decided again from the bytes the write
+    reads, so a file that changed in between is still kept out of the rotation.
+    """
+    return not current.decode("utf-8", errors="replace").startswith(MANAGED_HEADER)
+
+
 def install_config(repo: Path, text: str, force: bool, dry_run: bool) -> str:
     """Write the composed configuration, refusing an unmanaged existing file."""
     target = repo / CONFIG_NAME
@@ -354,13 +364,11 @@ def install_config(repo: Path, text: str, force: bool, dry_run: bool) -> str:
     # accepted; a path read could still resolve a FIFO or a foreign hard link that
     # took the name after the check above.
     existing = read_destination(target)
-    unmanaged = False
     if existing is not None:
         current = existing.decode("utf-8", errors="replace")
         # The whole managed header, not just its first line: a hand-written file
         # that happens to carry that line would otherwise be replaced silently.
-        unmanaged = not current.startswith(MANAGED_HEADER)
-        if unmanaged and not force:
+        if unmanaged_content(existing) and not force:
             raise InstallError(
                 f"{target} exists and was not written by this installer. Review it, then "
                 "rerun with --force to replace it.")
@@ -370,7 +378,7 @@ def install_config(repo: Path, text: str, force: bool, dry_run: bool) -> str:
         return "would write"
     # The backup of a file this installer did not write is the only copy of it, so it
     # stays out of the three-snapshot rotation three later runs would push it out of.
-    write_with_backup(target, text.encode("utf-8"), retain_backup=unmanaged)
+    write_with_backup(target, text.encode("utf-8"), retain_backup=unmanaged_content)
     return "written"
 
 

@@ -816,6 +816,31 @@ def test_force_keeps_the_replaced_configuration_through_later_runs(tmp_path):
     assert len(rotated) == helper.BACKUP_LIMIT, "the managed rotation is no longer bounded"
 
 
+def test_force_retention_follows_the_bytes_the_write_reads(tmp_path, monkeypatch):
+    """Whether a backup is the only copy is decided by the write's own read.
+
+    The decision used to come from the read install_config reports, so a file
+    replaced between the two was snapshotted as the installer's own and rotated.
+    """
+    helper = importlib.import_module("inject_claude_md")
+    repo = git_repo(tmp_path / "repo", {"a.py": "x\n", "AGENTS.md": "# r\n"})
+    target = repo / installer.CONFIG_NAME
+    hand_written = "reviews:\n  profile: chill\n"
+    target.write_text(hand_written, encoding="utf-8")
+    managed = f"{installer.MANAGED_HEADER}\nreviews: {{}}\n".encode()
+    real_read = installer.read_destination
+    # The reported read sees the installer's own file, so the run needs no --force;
+    # the write reads what the target actually holds.
+    monkeypatch.setattr(installer, "read_destination",
+                        lambda path: managed if path == target else real_read(path))
+
+    assert installer.main(["--repo", str(repo)]) == 0
+
+    kept = [path for path in repo.glob(installer.CONFIG_NAME + ".backup.*")
+            if helper.RETAINED_MARKER in path.name]
+    assert [path.read_text(encoding="utf-8") for path in kept] == [hand_written]
+
+
 def test_every_fragment_is_reachable_through_the_stack_names():
     stacks = set(installer.available_stacks())
     suffix_stacks = set(installer.STACK_SUFFIXES)
