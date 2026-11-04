@@ -23,6 +23,34 @@ findings on 381 pull requests across 22 repositories between March and October
   It is also where the reply format lives, and that format is what keeps a
   review cycle converging.
 
+`code_guidelines.filePatterns` holds standards only: `AGENTS.md`, `CLAUDE.md`
+and `.github/copilot-instructions.md`. Everything under `docs/` is deliberately
+absent, because the `docs/**/*.md` path instructions treat a design, plan or
+research document as claims to check against the code and expect it to go
+stale. Enforcing those as rules would hold a change to a plan that is itself
+out of date. A repository that keeps a real standard under `docs/` lists that
+exact path in the template, and the installer adds the instruction file that
+`--agents-md` selects when it lies inside the target, whatever its directory
+there, since that file holds the managed discipline section: `--agents-md
+docs/review-rules.md` keeps `docs/review-rules.md` as a pattern without
+restoring `docs/**`.
+
+That entry makes CodeRabbit load the file; it does not make it govern the whole
+repository. A string entry scopes a guideline to the directory it lives in and
+below, so `AGENTS.md` and `CLAUDE.md` at the root govern every file while a
+nested selection governs only its own subtree, and the same already holds for
+`.github/copilot-instructions.md`. Giving a nested entry repository-wide reach
+needs the object form, `{files, applyTo}`, which this installer does not emit
+yet; [issue #553](https://github.com/IEZhu/Agents/issues/553) tracks that. An absolute path outside the target gets no pattern,
+because these are paths in the reviewed commit, and the generated configuration
+does not reach that file at all: `reviews.path_instructions` comes from the
+selected stacks and never names the instruction file. The section is written
+there and the run says so, but no reviewer reads it through this
+configuration. A selected path holding `*`, `?`, `[` or `:` is refused before
+either file is written: the entry is a glob resolved in the reviewed repository
+with no defined escape, so the first three would apply the discipline to other
+matching files and a colon would name another repository instead of this one.
+
 ## Install
 
 ```bash
@@ -171,7 +199,16 @@ upstream would have to carry.
 ## Limitations
 
 - The composed file replaces the managed file as a whole. Local edits belong in
-  the templates, not in the target, because the next run overwrites them.
+  the templates, not in the target, because the next run overwrites them. The
+  managed section says so too, and a finding against it is a finding against
+  `scripts/templates/review/review-discipline.md`: fix it there and rerun the
+  installer.
+- Every class the universal fragment tells the reviewer to report must also
+  reach the author through the discipline section, or a self-review passes while
+  the reviewer still files findings in that class.
+  `tests/test_install_review_config.py` checks that correspondence by phrase,
+  with an explicit mapping, so adding a class without delivering it fails the
+  suite.
 - Stack detection counts file suffixes: two matching files select a stack, and
   one is enough for `bsl-1c` and `sql`, which no linter covers. A repository
   with two incidental `.c` files selects `c-embedded`, and a single stray
