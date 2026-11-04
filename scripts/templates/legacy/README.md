@@ -44,3 +44,4 @@ installations from either branch can migrate:
 - `memory-routing-v21.md` retains the reminder before secret redaction in logged fields was made explicit.
 - `memory-routing-v22.md` retains the reminder before the compact worker exchange (file receipts, plain-text results, validation by `contract_revision` and `result_ref`).
 - `memory-routing-v23.md` retains the reminder before it was rendered from the protocol source in `src/engine/protocol/` (#431), which unified its delegation, artifact, cooperation and first-work wording with the MCP instructions, and before the progress-message definition (#432) was added.
+- `memory-routing-v24.md` retains the reminder before the parent-side bound on delegation volume: how much of the work to hand to workers and keeping the fan-out inside the user's assignment.
