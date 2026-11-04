@@ -54,6 +54,12 @@ knowledge_base:
     # outside the target gets no entry: these are paths in the reviewed commit.
     # The installer keeps only the patterns that match a file in the target
     # repository.
+    # A string entry scopes its guidelines to the directory the file lives in
+    # and below, so the two root names govern every file while
+    # .github/copilot-instructions.md and any nested selection govern only their
+    # own subtree. Repository-wide reach for a nested entry needs the
+    # {files, applyTo} object form, which this installer does not emit yet
+    # (issue #553).
     filePatterns:
       - AGENTS.md
       - CLAUDE.md
