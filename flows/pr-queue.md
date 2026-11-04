@@ -201,10 +201,21 @@ changes on the integrated tree:
    the workflow there, or make no dispatch at all and take the evidence from the
    ordinary runs as in the next item. Record which of the two was used, and
    never relax this because an item looks harmless.
-2. Start the workflow on that branch with `workflow_dispatch`, for example
-   `gh workflow run vulnerability-scan.yml --ref tmp/queue-integration`. This
+   Secrets are not the only thing that repository decides. The simulation
+   carries the target's code and the history reachable from it, so it may not be
+   readable by anyone the target is not: a private target never goes to a public
+   repository, the destination belongs to the same owner with no collaborators
+   the target lacks, and a repository you cannot establish that for is not a
+   destination. Where none exists, make no dispatch.
+2. Start the workflow on that branch with `workflow_dispatch`, naming the
+   repository the branch is in:
+   `gh workflow run vulnerability-scan.yml --repo <simulation repository> --ref tmp/queue-integration`.
+   Without `--repo`, `gh` resolves the repository from the checkout's remotes or
+   from `gh repo set-default`, and this flow sets neither: resolved to the
+   target, the dispatch fails on a branch that exists only in the simulation
+   repository, or worse starts a run there. This
    works only for a workflow that declares the `workflow_dispatch` trigger on
-   the repository's default branch. When it does not, say so in the report and
+   that repository's default branch. When it does not, say so in the report and
    take the evidence from the ordinary runs instead: the predecessor's own run
    once it has merged, and the next item's run after it merges the new target.
 3. Record the run link, the exact commit it ran on and its result in the working
