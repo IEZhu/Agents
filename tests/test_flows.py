@@ -190,15 +190,25 @@ def test_pr_queue_pins_the_steps_a_single_review_cannot_know():
             # environments were missing, and an ephemeral runner is not the property.
             "gh api --paginate repos/<owner>/<repo>/environments/<name>/secrets",
             "an ephemeral runner is not the property that would",
-            "the dispatch is the exception rather than the second of two equal options",
+            "dispatch is the exception rather than the second of two equal options",
             # Second Copilot and CodeRabbit round on that paragraph: the gate sat
             # after the push, the organization list does not exist for a user-owned
             # repository, and two of the requirements were not enforceable at all.
             "Establish it before the push and not before the dispatch",
             "a user-owned repository has no\n   organization list",
-            "a rule that counted it would refuse every\n   dispatch ever",
+            "a rule that counted it as a reachable\n   credential would refuse every dispatch ever",
             "that file comes from the simulation and an item\n   can rewrite it",
-            "no identity federation accepts that\n   repository"):
+            "no identity federation accepts that repository",
+            # Third round on that paragraph: a repository runner list hides an
+            # organization runner shared through a group, and the token leaves marks
+            # in the owner that no branch deletion takes back.
+            "orgs/<owner>/actions/runner-groups",
+            "a repository's runner list does not show an organization runner shared",
+            "a package published with the token lives in the owner's namespace",
+            "one of the two events GitHub does not suppress when the token creates them",
+            "read the destination's owner as the blast radius",
+            "stop extending this list",
+            "the run left no package in the owner's namespace"):
         assert " ".join(phrase.split()) in queue, phrase
     review = " ".join(catalog.load("pr-review").content.split())
     assert "run [pr-queue](pr-queue.md) instead" in review

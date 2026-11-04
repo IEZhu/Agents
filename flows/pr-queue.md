@@ -232,12 +232,16 @@ changes on the integrated tree:
    `gh api --paginate repos/<owner>/<repo>/environments` and then `gh api
    --paginate repos/<owner>/<repo>/environments/<name>/secrets` for each one,
    `gh api --paginate orgs/<owner>/actions/secrets` with each secret's
-   `visibility`, and `gh api --paginate
-   repos/<owner>/<repo>/actions/runners`. The environments are the list that
-   is easiest to skip and the one that catches a repository whose own list is
-   empty: this repository reports no repository secret while its
-   `issue-agent` environment holds one, and a job in the simulation can name
-   that environment and receive it. Which lists apply follows `gh api
+   `visibility`, `gh api --paginate repos/<owner>/<repo>/actions/runners`, and
+   for an organization `gh api --paginate orgs/<owner>/actions/runners` with
+   `gh api --paginate orgs/<owner>/actions/runner-groups` and each group's
+   repository access. Two of those lists are the ones that catch a destination
+   whose own list is empty. This repository reports no repository secret while
+   its `issue-agent` environment holds one, and a job in the simulation can
+   name that environment and receive it; and a repository's runner list does
+   not show an organization runner shared with it through a runner group,
+   which is how unreviewed code reaches an organization's network while the
+   repository list reads empty. Which lists apply follows `gh api
    repos/<owner>/<repo> --jq .owner.type`: a user-owned repository has no
    organization list, and `orgs/<owner>/actions/secrets` answers `404` for it,
    which is not a list you failed to read. For an organization it answers
@@ -246,19 +250,28 @@ changes on the integrated tree:
    unread list is not an empty one.
    Empty lists still do not make the push and the dispatch safe, and an
    ephemeral runner is not the property that would. Every job receives an
-   automatic `GITHUB_TOKEN`, so a rule that counted it would refuse every
-   dispatch ever: it is not one of the credentials this audit weighs, because
-   it reaches the destination and nothing else, and the destination is a
-   repository created for this check which holds nothing else and loses the
-   branch again in item 4. What the audit weighs is the reach past it. Do not
-   try to bound that reach through the workflow's own `permissions` block, nor
-   to forbid `id-token` there: that file comes from the simulation and an item
-   can rewrite it. A GitHub-hosted runner cannot be network-isolated, so the
-   dispatch is the exception rather than the second of two equal options: push
-   and dispatch only where every applicable list was read and empty, no
-   self-hosted runner is reachable, and no identity federation accepts that
-   repository. Anything short of that is the no-dispatch path, with nothing
-   pushed and the integrated check reported as unverified.
+   automatic `GITHUB_TOKEN`, so a rule that counted it as a reachable
+   credential would refuse every dispatch ever. GitHub limits that token's
+   permissions to the repository holding the workflow, so it is no key to the
+   target, and the lists above are what say whether anything wider is in
+   reach. What they cannot bound is where a run leaves a mark, and that is the
+   owner's account rather than the repository: a package published with the
+   token lives in the owner's namespace and outlives the branch and the
+   repository both, so item 4 does not undo it, and `workflow_dispatch` is one
+   of the two events GitHub does not suppress when the token creates them, so
+   a tree that grants itself `actions: write` can re-dispatch its own workflow
+   and go on spending the owner's Actions capacity, which is billed. Do not
+   expect to bound any of that through the workflow's own `permissions` block,
+   nor to forbid `id-token` there: that file comes from the simulation and an
+   item can rewrite it. So read the destination's owner as the blast radius,
+   not the destination, and stop extending this list: every round of review
+   found one more resource an owner shares, and the next one will too. The
+   dispatch is the exception rather than the second of two equal options. Push
+   and dispatch only into an owner you would knowingly expose to unreviewed
+   code, where every applicable list was read and empty, no self-hosted runner
+   is reachable, and no identity federation accepts that repository. Anything
+   short of that, and anything the lists leave unread, is the no-dispatch
+   path, with nothing pushed and the integrated check reported as unverified.
 2. Start the workflow on that branch with `workflow_dispatch`, naming the
    repository the branch is in:
    `gh workflow run vulnerability-scan.yml --repo <simulation repository> --ref tmp/queue-integration`.
@@ -272,7 +285,11 @@ changes on the integrated tree:
    once it has merged, and the next item's run after it merges the new target.
 3. Record the run link, the exact commit it ran on and its result in the working
    record.
-4. Delete the temporary branch, locally and on the remote.
+4. Delete the temporary branch, locally and on the remote. Where a dispatch
+   ran, the branch is not all the cleanup there is: confirm no run of it is
+   still queued or in progress, and that the run left no package in the
+   owner's namespace, because neither the branch deletion nor the
+   repository's own removal takes those back.
 
 Name the result in each affected item's round: a check that the queue fixes is
 reported with the integrated run that proves it, and with the item that carries
