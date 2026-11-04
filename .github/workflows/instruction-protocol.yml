@@ -7,6 +7,7 @@ on:
       - scripts/templates/**
       - scripts/_helpers/migrate_routing_memory.py
       - scripts/install_instructions.py
+      - scripts/install_review_config.py
       - src/flows.py
       - src/engine/persona.py
       - src/server.py
@@ -14,9 +15,11 @@ on:
       - flows/**
       - docs/mcp-tool-safety.md
       - docs/flow-execution.md
+      - docs/review-config.md
       - tests/test_persona_protocol.py
       - tests/test_flows.py
       - tests/test_install_instructions.py
+      - tests/test_install_review_config.py
       - tests/test_installer_profiles.py
       - tests/test_protocol_migration.py
       - tests/conftest.py
@@ -30,6 +33,7 @@ on:
       - scripts/templates/**
       - scripts/_helpers/migrate_routing_memory.py
       - scripts/install_instructions.py
+      - scripts/install_review_config.py
       - src/flows.py
       - src/engine/persona.py
       - src/server.py
@@ -37,9 +41,11 @@ on:
       - flows/**
       - docs/mcp-tool-safety.md
       - docs/flow-execution.md
+      - docs/review-config.md
       - tests/test_persona_protocol.py
       - tests/test_flows.py
       - tests/test_install_instructions.py
+      - tests/test_install_review_config.py
       - tests/test_installer_profiles.py
       - tests/test_protocol_migration.py
       - tests/conftest.py
@@ -82,5 +88,6 @@ jobs:
       - name: Instruction delivery, flow catalogues and reminder migration
         run: >-
           python -B -m pytest tests/test_persona_protocol.py tests/test_flows.py
-          tests/test_install_instructions.py tests/test_installer_profiles.py
-          tests/test_protocol_migration.py -q -p no:cacheprovider
+          tests/test_install_instructions.py tests/test_install_review_config.py
+          tests/test_installer_profiles.py tests/test_protocol_migration.py
+          -q -p no:cacheprovider
