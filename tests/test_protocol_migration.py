@@ -631,6 +631,11 @@ def test_a_symlink_that_took_the_name_is_refused_without_o_nofollow(tmp_path, he
         injector.write_with_backup(target, b"managed")
 
     assert outside.read_bytes() == b"TOKEN=abc123"
-    # os.path.islink, because Path.is_symlink is the method this test took away.
-    assert os.path.islink(target) and os.readlink(target) == str(outside)
+    # os.path.islink, because Path.is_symlink is the method this test took away; and
+    # the link is followed to an identity rather than compared as a path, because
+    # Windows readlink answers in the extended-length spelling and this is not a
+    # test about how a platform writes a name down.
+    assert os.path.islink(target), "the symlink itself was replaced"
+    followed, named = os.stat(target), os.stat(outside)
+    assert (followed.st_dev, followed.st_ino) == (named.st_dev, named.st_ino)
     assert not list(target.parent.glob("CLAUDE.md.backup.*")), "the target's bytes were copied in"
