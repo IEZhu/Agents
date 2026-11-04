@@ -200,7 +200,8 @@ Rules:
 
 ## 1. Establish the scope
 
-1. Read the current time with `date -u`. Fix the mode and identify the thread.
+1. Read the current time with `date -u` and keep it: step 9 reports the time
+   this close took. Fix the mode and identify the thread.
 2. In Claude Code, run the inventory helper. Keep its `notes`: other active
    sessions in the same project mean you must confirm which session is being
    closed.
@@ -397,6 +398,13 @@ client's own tools. Calls from this close's own `run_flow` on are not audited.
    `python -m src.engine.protocol_text --write`; put rules of the user's own
    outside the markers.
 
+   **Tracked destinations.** A patch to a git-tracked file goes through a linked
+   worktree and a pull request, never an in-place edit: test the destination with
+   `git ls-files --error-unmatch` and read the checkout's own contribution rules.
+   A patch that is a call rather than a diff names the workspace it writes to, so
+   that the call receives the worktree. When the tree is dirty, or the repository
+   states no rule, propose the patch and leave it unapplied.
+
    **Repeats escalate.** Search `read_history` for earlier closes tagged
    `#ac-missed-<slug>` or `#tool-missed-<slug>`, or naming that slug in their tool
    usage table. A repeat after an applied patch means the patch did not hold:
@@ -551,7 +559,13 @@ Compose the report in the user's language:
    cleanup.
 8. **Provenance**, labelled as such: models, responses, tokens (main session and
    subagents), session, time span, transcript source.
-9. **How to resume:** session id or link, branch, next command.
+9. **This close's own cost**, as one `close-cost:` line a later run can read
+   without opening the entry: the time from step 1's clock reading to this
+   report, the count at each level, the format corrections the step-5.3 verifier
+   needed, the steps that produced no finding, and the installation root with its
+   `VERSION` and this flow's revision as `run_flow` reported them. Every value
+   names its source or reads `unavailable`.
+10. **How to resume:** session id or link, branch, next command.
 
 At the final handoff, use `finishing` (🧹) when required obligations remain,
 unless essential user input or required human approval calls for `needs_user`/`review`.
@@ -622,6 +636,7 @@ flow can match this work instead of recording it twice.
 - Every external write performed by this flow has a recorded passing visibility,
   audience, and payload recheck. A skipped, failed, or unknown recheck blocks the
   affected write and is reported; it cannot be counted as a completed action.
+- The `close-cost:` line carries a value or `unavailable` for each of its items.
 - The report is delivered.
 
 The flow does not prove a thread right. It records how well each result is
