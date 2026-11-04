@@ -42,6 +42,7 @@ LIST_SECTIONS = ("checks", "artifacts", "limitations", "remaining_work")
 SEVERITIES = ("critical", "high", "medium", "low", "info")
 CHECK_STATES = ("passed", "failed", "not_run")
 _REFERENCE = re.compile(r"\[\^([A-Za-z0-9][A-Za-z0-9_.:-]{0,127})\]")
+_EM_SEPARATOR = re.compile(r"\s+—\s+")
 _SEPARATOR = re.compile(r"\s+(?:—|--)\s+")
 _HEADING = re.compile(r"##\s+([A-Za-z_]+)\s*")
 _HEADER = re.compile(r"([a-z_]+):[ \t]*(.*)")
@@ -134,7 +135,7 @@ def render_result_format(contract: dict) -> str:
         "```",
         "Omit a section or the question line when it would be empty; keep summary and "
         f"{payload}. One list item per '- ' line; indent continuation lines by two spaces. "
-        "Where the form shows ' — ', that separator is required, written as ' — ' or ' -- ': "
+        "Where the form shows ' — ', that separator is required: "
         "every evidence line, finding, changes item and artifacts item needs it. "
         "[^id] cites an entry of ## evidence; evidence ids are unique. Every text is at most "
         "4000 characters; at most 50 limitations or remaining_work items and 100 of any other "
@@ -158,10 +159,12 @@ def _references(text: str) -> tuple[str, list[str]]:
 
 
 def _split(text: str, path: str, shape: str) -> tuple[str, str]:
-    parts = _SEPARATOR.split(text, maxsplit=1)
+    # A reference may itself contain ' -- ', as `git log --oneline -- path` does, so the
+    # documented separator decides wherever it appears; ' -- ' stays accepted without it.
+    pattern = _EM_SEPARATOR if _EM_SEPARATOR.search(text) else _SEPARATOR
+    parts = pattern.split(text, maxsplit=1)
     if len(parts) != 2:
-        raise TextFormatError("separator_required",
-                              f"Expected '{shape}', with ' — ' or ' -- ' between the parts.", path)
+        raise TextFormatError("separator_required", f"Expected '{shape}' with ' — ' between the parts.", path)
     return parts[0].strip(), parts[1].strip()
 
 

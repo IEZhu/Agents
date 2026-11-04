@@ -176,7 +176,7 @@ revision), `status` and, for `input_required`, `question`. Sections are `summary
 payload (`items`, `conclusions`, `findings` or `changes`), `checks`, `evidence`,
 `artifacts`, `limitations`, `remaining_work` and `question`; empty ones are omitted. A
 list item starts with `- `, continuation lines are indented, two-part items separate
-their parts with ` — ` or ` -- `, a finding's recommendation follows on a `fix:` line, and `[^id]`
+their parts with ` — `, a finding's recommendation follows on a `fix:` line, and `[^id]`
 cites an evidence entry. Evidence IDs are unique, and one item cites each ID at most
 once, counting a finding's explanation and its `fix:` line together.
 `src/engine/subagent_text.py` parses this into the same closed result model, filling the

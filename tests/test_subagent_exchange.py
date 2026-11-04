@@ -103,13 +103,26 @@ def test_text_format_errors_name_the_problem(worker_tree, mutate, code):
     assert not response.valid and code in codes(response), response.errors
 
 
-def test_text_format_names_the_required_separator_and_accepts_both_spellings(worker_tree):
-    """The form only shows an em dash, so the text states the rule and both accepted spellings."""
+def test_the_documented_separator_decides_over_a_double_hyphen_in_the_reference(worker_tree):
+    """A reference carries its own ' -- ', as `git log --oneline -- path` does."""
+    from src.engine.subagent_text import parse_result
+
     package = prepared(result_type="review")
-    assert "that separator is required, written as ' — ' or ' -- '" in package.worker_context
+    assert "that separator is required" in package.worker_context
+    text = text_result(package).replace(
+        "[^e1]: src/app.py:12 — logger.info prints the header",
+        "[^e1]: git log --oneline -- src/app.py — logger.info prints the header")
+    assert validate_result(package.contract.model_dump(mode="json"), text).valid
+    evidence = parse_result(text, package.contract)["evidence"][0]
+    assert evidence["reference"] == "git log --oneline -- src/app.py"
+    assert evidence["description"] == "logger.info prints the header"
+
+
+def test_a_double_hyphen_still_separates_when_no_em_dash_is_present(worker_tree):
+    """Accepted before this contract named one spelling; workers using it keep working."""
+    package = prepared(result_type="review")
     text = text_result(package).replace("[^e1]: src/app.py:12 — logger", "[^e1]: src/app.py:12 -- logger")
-    response = validate_result(package.contract.model_dump(mode="json"), text)
-    assert response.valid, response.errors
+    assert validate_result(package.contract.model_dump(mode="json"), text).valid
 
 
 @pytest.mark.parametrize("prefix", ["", "short", "0" * CONTRACT_PREFIX_CHARS])
