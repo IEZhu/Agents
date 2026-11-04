@@ -61,15 +61,18 @@ def _open_parent(parent: Path) -> int | None:
 
 
 def _close(parent_fd: int | None) -> None:
+    """Close a pinned directory, where one was opened at all."""
     if parent_fd is not None:
         os.close(parent_fd)
 
 
 def _children(parent: Path, parent_fd: int | None) -> list[str]:
+    """List the destination's directory, through the descriptor when pinned."""
     return os.listdir(parent if parent_fd is None else parent_fd)
 
 
 def _create(name: str, parent: Path, parent_fd: int | None, mode: int) -> int:
+    """Create a sibling of the destination exclusively, and return its descriptor."""
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | BINARY
     if parent_fd is None:
         return os.open(parent / name, flags, mode)
@@ -77,6 +80,7 @@ def _create(name: str, parent: Path, parent_fd: int | None, mode: int) -> int:
 
 
 def _unlink(name: str, parent: Path, parent_fd: int | None) -> None:
+    """Remove a sibling of the destination, inside the pinned directory."""
     if parent_fd is None:
         os.unlink(parent / name)
     else:
@@ -84,6 +88,7 @@ def _unlink(name: str, parent: Path, parent_fd: int | None) -> None:
 
 
 def _node(name: str, parent: Path, parent_fd: int | None) -> os.stat_result:
+    """Stat a sibling of the destination without following it, as lstat does."""
     if parent_fd is None:
         return os.lstat(parent / name)
     return os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
@@ -118,6 +123,7 @@ def _unchanged(path: Path, parent_fd: int | None, info: os.stat_result | None) -
 
 
 def _replace(source: str, destination: str, parent: Path, parent_fd: int | None) -> None:
+    """Rename one sibling of the destination over another, inside one directory."""
     if parent_fd is None:
         os.replace(parent / source, parent / destination)
     else:
@@ -149,7 +155,7 @@ def _open_destination(path: Path, parent_fd: int | None) -> int | None:
         raise
 
 
-def _refuse_unsuitable(path: Path, info: os.stat_result) -> None:
+def _refuse_unsuitable(path: Path, parent_fd: int | None, info: os.stat_result) -> None:
     """Refuse a node this write cannot replace safely, on the descriptor it holds."""
     if not stat.S_ISREG(info.st_mode):
         raise ValueError(
@@ -161,6 +167,21 @@ def _refuse_unsuitable(path: Path, info: os.stat_result) -> None:
             f"Refusing to replace {path}: it has {info.st_nlink} hard links, so the write "
             f"would break the other name and its backup would hold the content that name "
             f"shares; replace it with a single-link file manually")
+    # Windows has no O_NOFOLLOW, so a symlink that took the name after the caller's
+    # own check was followed, and these bytes would be its target's, copied into a
+    # backup beside the name. lstat names the link itself, and a link's identity is
+    # never its target's, so comparing them catches what the flag cannot.
+    try:
+        named = _node(path.name, path.parent, parent_fd)
+    except OSError as exc:
+        raise ValueError(
+            f"Refusing to replace {path}: its name cannot be read back, so nothing "
+            f"confirms it holds the file that was opened") from exc
+    if (named.st_dev, named.st_ino) != (info.st_dev, info.st_ino):
+        raise ValueError(
+            f"Refusing to replace {path}: its name does not hold the file this read "
+            f"opened, so those bytes may come from elsewhere. Edit the target directly "
+            f"if the name is a symlink, or rerun once nothing else is writing there")
 
 
 def _read_all(descriptor: int) -> bytes:
@@ -304,7 +325,7 @@ def copy_backup(path: Path, retain: bool = False) -> Path:
             raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), str(path))
         try:
             info = os.fstat(descriptor)
-            _refuse_unsuitable(path, info)
+            _refuse_unsuitable(path, parent_fd, info)
             return _copy_backup(path, parent_fd, _read_all(descriptor), info, retain)
         finally:
             os.close(descriptor)
@@ -331,7 +352,7 @@ def read_destination(path: Path) -> bytes | None:
         if descriptor is None:
             return None
         try:
-            _refuse_unsuitable(path, os.fstat(descriptor))
+            _refuse_unsuitable(path, parent_fd, os.fstat(descriptor))
             return _read_all(descriptor)
         finally:
             os.close(descriptor)
@@ -384,7 +405,7 @@ def _write_with_backup(path: Path, render: Callable[[bytes], bytes],
             current, info = None, None
             if descriptor is not None:
                 info = os.fstat(descriptor)
-                _refuse_unsuitable(path, info)
+                _refuse_unsuitable(path, parent_fd, info)
                 current = _read_all(descriptor)
             content = render(current if current is not None else b"")
             if current == content:

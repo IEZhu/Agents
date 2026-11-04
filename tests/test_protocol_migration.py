@@ -608,3 +608,29 @@ def test_a_file_created_under_a_new_destination_is_refused(tmp_path, helpers, mo
 
     assert target.read_bytes() == intruder
     assert not list(tmp_path.glob("AGENTS.md.backup.*")), "a file it never read was snapshotted"
+
+
+def test_a_symlink_that_took_the_name_is_refused_without_o_nofollow(tmp_path, helpers, monkeypatch):
+    """Windows has no O_NOFOLLOW, so its symlink refusal is a check before an open.
+
+    A symlink placed at the name after that check is followed, and the bytes read
+    and backed up are its target's. lstat names the link, whose identity is never
+    the target's, so comparing them refuses what the missing flag cannot.
+    """
+    injector, _ = helpers
+    outside = tmp_path / "secret.txt"
+    outside.write_bytes(b"TOKEN=abc123")
+    target = tmp_path / "home" / "CLAUDE.md"
+    target.parent.mkdir()
+    target.symlink_to(outside)
+    # Windows: the flag does not exist, and the caller's check lost the race.
+    monkeypatch.setattr(injector.os, "O_NOFOLLOW", 0, raising=False)
+    monkeypatch.setattr(injector.Path, "is_symlink", lambda self: False)
+
+    with pytest.raises(ValueError, match="does not hold the file this read opened"):
+        injector.write_with_backup(target, b"managed")
+
+    assert outside.read_bytes() == b"TOKEN=abc123"
+    # os.path.islink, because Path.is_symlink is the method this test took away.
+    assert os.path.islink(target) and os.readlink(target) == str(outside)
+    assert not list(target.parent.glob("CLAUDE.md.backup.*")), "the target's bytes were copied in"
