@@ -151,8 +151,12 @@ def server_instructions() -> str:
     ``Require status: prepared.``. The longer window adds the first-work rule, which a session may
     need before its first activation, and the delegation exchange from the launch through
     validation, acceptance and new attempts to ``Never edit identities or the contract to make a
-    result pass.``; the exchange's fallback, what the worker reads from its package and nested
-    delegation follow it and may fall outside. The keep/switch rules also appear in the
+    result pass.``; the exchange's fallback, what the worker reads from its package, nested
+    delegation and the bound on how much to delegate follow it and may fall outside. Both windows
+    end within a few dozen characters of a rule they must hold, so text moved in front of one
+    pushes that rule out: the volume bound stays behind them and reaches a client through the
+    managed instruction section, the memory reminder and the ``SUCCESS`` instruction instead. The
+    keep/switch rules also appear in the
     descriptions of the persona tools, and the describe_repo fallback, the owning-session rules and
     the definition of progress messages, which follow the windows, arrive with the full
     ``SUCCESS`` instruction. tests/test_log_interaction_contract.py checks both windows.
