@@ -105,7 +105,11 @@ def test_pr_review_reads_the_merge_gating_from_more_than_one_endpoint():
                    # One page of rulesets, and an omitted bypass list, each read as
                    # an absence of gating.
                    "returns 30 rulesets at a time",
-                   "omits `bypass_actors` for a caller without write access"):
+                   "omits `bypass_actors` for a caller without write access",
+                   # The REST request answers 200 and queues nothing for this bot.
+                   "answers 200 for this bot and registers nothing",
+                   "requestReviews(input:{",
+                   "`reviewRequests` it returns is the confirmation to read"):
         assert phrase in review, phrase
     assert "on GitLab read that flow's own paragraph on the equivalents" in review
 
