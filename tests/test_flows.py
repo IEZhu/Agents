@@ -176,7 +176,11 @@ def test_pr_queue_pins_the_steps_a_single_review_cannot_know():
             "A predecessor that lives only in a fork cannot be a base",
             "compare that\ncount with the required one",
             "That is a consequence of the deletion, not of the\nmerge",
-            "count the eligible approvers"):
+            "count the eligible approvers",
+            # Running this flow on its own queue: a shortened head SHA made every
+            # item report what reads like a conflict and is none.
+            "A SHA named in a fetch is the whole forty characters.",
+            "git rev-parse --verify <item head>^{commit}"):
         assert " ".join(phrase.split()) in queue, phrase
     review = " ".join(catalog.load("pr-review").content.split())
     assert "run [pr-queue](pr-queue.md) instead" in review

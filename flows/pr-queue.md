@@ -137,6 +137,15 @@ would either fail or build the whole queue on a stale target. Read `FETCH_HEAD`
 immediately after the target fetch, before the item fetches overwrite it, and
 record that SHA as the base of this simulation.
 
+A SHA named in a fetch is the whole forty characters. GitHub serves a full
+commit SHA that a ref reaches, and refuses an abbreviation: `git fetch <remote>
+ef00e19e` fails with `couldn't find remote ref`, while the same fetch of that
+commit's full SHA returns it. Verify every head resolves in the checkout before
+the first merge, with `git rev-parse --verify <item head>^{commit}`. A head that
+no fetch brought in makes `git merge` answer `not something we can merge` and
+`git merge-base` answer `Not a valid object name`, so a mistyped or shortened
+SHA reports what looks like a conflict on every item at once, and is none.
+
 Then merge the remaining items one at a time, in the order of step 1, each with
 the same `-c rerere.enabled=false`. That option configures one `git` process, so
 it does not carry to the merges after the first: without it on each, a stored
