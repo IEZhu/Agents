@@ -21,6 +21,7 @@ on:
       - tests/test_install_instructions.py
       - tests/test_install_review_config.py
       - tests/test_installer_profiles.py
+      - tests/test_project_manifests.py
       - tests/test_protocol_migration.py
       - tests/conftest.py
       - requirements.txt
@@ -47,6 +48,7 @@ on:
       - tests/test_install_instructions.py
       - tests/test_install_review_config.py
       - tests/test_installer_profiles.py
+      - tests/test_project_manifests.py
       - tests/test_protocol_migration.py
       - tests/conftest.py
       - requirements.txt
@@ -89,5 +91,5 @@ jobs:
         run: >-
           python -B -m pytest tests/test_persona_protocol.py tests/test_flows.py
           tests/test_install_instructions.py tests/test_install_review_config.py
-          tests/test_installer_profiles.py tests/test_protocol_migration.py
-          -q -p no:cacheprovider
+          tests/test_installer_profiles.py tests/test_project_manifests.py
+          tests/test_protocol_migration.py -q -p no:cacheprovider
