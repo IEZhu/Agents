@@ -353,7 +353,8 @@ client's own tools. Calls from this close's own `run_flow` on are not audited.
    conversation supports it. An absent call needs a complete transcript from the
    trigger on: when the inventory's `unreadable_lines` or `skipped_entries` may
    fall in that window, a `missed` finding is `?`, and a `?` never becomes a
-   memory lesson.
+   memory lesson. That window is why these findings are established here, in the
+   parent: the step 5.3 verifier receives live-state claims only.
 6. **Cause.** Name the likeliest cause of each `missed` or `misused` finding,
    with its evidence:
    - `not-in-context`: no instruction loaded at that point required the call
@@ -467,7 +468,7 @@ operation trigger, not just exposure to the client.
    - Read the helper's `corrections`: they are candidates, not conclusions.
    - Find decisions the thread reversed and statements contradicted by later turns.
    - The claims they invalidate become ✗, with the later evidence.
-3. **Fresh-context verifier.** Add the `missed` and `misused` findings of step 4 to the claim list, with their transcript references. Call `get_subagent_context` for a suitable canonical role with `result_type="research"`, the claim list, source references, a read-only scope and criteria covering every claim. Require `status: prepared` and launch a fresh native worker with the receipt's `launch` text and the sources, without the conversation. Ask it to classify each claim as confirmed, refuted with counter-evidence, or unconfirmed with the blocker, within the prescribed result format. Call `validate_subagent_result` with the receipt's `contract_revision` and its unchanged output (`result_ref`, or `result` when no file holds it); require `valid: true` and check the evidence before using its conclusions. Follow the [delegation contract](README.md#delegated-workers) for invalid or unavailable results.
+3. **Fresh-context verifier.** Call `get_subagent_context` for a suitable canonical role with `result_type="research"`, the claim list, source references, a read-only scope and criteria covering every claim. Require `status: prepared` and launch a fresh native worker with the receipt's `launch` text and the sources, without the conversation. Ask it to classify each claim as confirmed, refuted with counter-evidence, or unconfirmed with the blocker, within the prescribed result format. Call `validate_subagent_result` with the receipt's `contract_revision` and its unchanged output (`result_ref`, or `result` when no file holds it); require `valid: true` and check the evidence before using its conclusions. Follow the [delegation contract](README.md#delegated-workers) for invalid or unavailable results.
    - Refuted claims become ✗.
    - Unconfirmed claims keep their level, or become `?`.
    - A claim reaches V3 only if the verifier actually checked its sources.
@@ -540,7 +541,8 @@ Compose the report in the user's language:
 1. **Summary** in three to five lines: what was achieved, and how well it is
    supported overall.
 2. **Artifacts:** a table of artifact, location, made by, level and evidence.
-3. **What this thread got wrong.**
+3. **What this thread got wrong**, and any instruction of this flow that this
+   close could not execute as written or found contradicted by another.
 4. **Tool usage:** a table of slug, status, trigger, cause, level and patch for
    every row that is not `n/a`, catalogue rows and other tools' rules alike; then
    the `uncatalogued`, `no-rule` and `unavailable` tools, the earlier closes with

@@ -418,6 +418,9 @@ Each flow must specify:
 Write flows in English under the
 [documentation language policy](documentation-refresh.md#documentation-language).
 Link to shared protocols and references instead of maintaining duplicate copies.
+Retire a flow's text only on recorded evidence that it is unexecutable as written
+or contradicts another instruction; producing no findings in a run is not a reason
+to remove a check.
 Before adding or updating a flow, review its examples, relative links, and
 completion criteria so another model can execute it from the file path alone.
 Write steps for the caller's repository. Mark project-specific examples and
