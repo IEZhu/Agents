@@ -108,8 +108,9 @@ def test_pr_review_reads_the_merge_gating_from_more_than_one_endpoint():
                    "omits `bypass_actors` for a caller without write access",
                    # The REST request answers 200 and queues nothing for this bot.
                    "answers 200 for this bot and registers nothing",
-                   "requestReviews(input:{",
-                   "`reviewRequests` it returns is the confirmation to read",
+                   "requestCopilotCodeReview(input:{",
+                   "no bot node id and so no earlier Copilot review to take one from",
+                   "takes `reviewEffort`, whose values are `LITE`, `BALANCED`, `MAX` and `AUTO`",
                    # Two requests were spent on heads CodeRabbit had already picked up.
                    "Read the head's own check runs before asking it for anything",
                    "Ask only when that head has neither a CodeRabbit run nor a review of it"):
@@ -134,13 +135,11 @@ def test_pr_queue_pins_the_steps_a_single_review_cannot_know():
             # A check red on every item because of the target's own state.
             "workflow_dispatch",
             # The approval requirement and who may bypass it, read rather than assumed.
-            "gh api repos/<owner>/<repo>/rulesets",
             "an account cannot approve its own request",
             # pr-review's own rules are not relaxed by the queue.
             "merge no other item's branch into it",
-            "This flow never merges on its own initiative",
-            "an explicit `no-merge` or `review-only` invocation disables merge for every item",
-            "Being next in a queue is not consent to merge an item.",
+            "a queue run carries `no-merge` into every item it\nstarts",
+            "Being next in a queue is not consent to merge an item,",
             "the merges are the owner's to make",
             # Corrections from the first review round of this flow, each of which a
             # reader would otherwise have to rediscover the way the queue did.
@@ -151,10 +150,19 @@ def test_pr_queue_pins_the_steps_a_single_review_cannot_know():
             "re-simulate and run it again\nwhen a head changes",
             "GitHub's default `pull_request` checkout is the merge of the head into the\nbase",
             # Second review round of this flow.
-            "only when every item in it comes from the target\n   repository itself",
+            "only after checking what that push would run",
+            "git diff --name-only <target SHA>..HEAD -- .github/workflows",
             "Resolve every item to its exact current head SHA",
             "Run step 3's checks again on that new simulation",
             "Fetch the target branch from the remote that step 1 verified holds it",
+            # Third review round of this flow.
+            "Check its push URL too, and every push URL it has",
+            "Read `FETCH_HEAD`\nimmediately after the target fetch",
+            "each with\nthe same `-c rerere.enabled=false`",
+            "Whose repository the item came\n   from is not the boundary",
+            "a head in a fork belongs\n   to its owner",
+            "gh api --paginate repos/<owner>/<repo>/rulesets",
+            "**This flow does not merge, and it never widens authorization.**",
             "That is one fetch per item: two items on the same remote are two refs",
             "Fetch every remaining item's head from the remote that holds it and re-resolve",
             "Read it from the remote's URL (`git remote -v`),\nnot from its name",

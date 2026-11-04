@@ -55,13 +55,21 @@ Fetching that mirror would leave every simulation and merge-base count below
 describing a target that has not moved. Record the remote; every fetch in this
 flow names it.
 
-**This flow never merges on its own initiative, and it never widens
-authorization.** Each item's merge follows
-[pr-review step 5](pr-review.md#5-merge-when-ready) under that flow's
-conditions and the same authorization: an explicit `no-merge` or `review-only`
-invocation disables merge for every item, and a run without merge authorization
-reports the chain for the owner instead. Being next in a queue is not consent to
-merge an item.
+Check its push URL too, and every push URL it has: `git remote -v` prints fetch
+and push separately, and a remote can fetch the target while pushing somewhere
+else. Step 3 pushes a branch and deletes it, so a push URL pointing elsewhere
+would publish an integrated tree, or delete a branch, in the wrong repository.
+Where fetch and push do not agree on the target, do not push: take step 3's
+evidence the other way it offers.
+
+**This flow does not merge, and it never widens authorization.** Each item is
+run to [pr-review step 5](pr-review.md#5-merge-when-ready)'s conditions, which
+are what "ready" means here, and then stops: the merge itself is the owner's,
+and the queue continues from the merge they make. That holds however the
+invocation is worded, so a queue run carries `no-merge` into every item it
+starts, and an invocation that authorizes merge authorizes the owner's, not the
+session's. Being next in a queue is not consent to merge an item, and a report
+that an item is ready is not a merge.
 
 ## 1. Order the queue and record why
 
@@ -102,15 +110,28 @@ cannot be merged.
 
 ```bash
 git fetch <target remote> <target branch>
+TARGET=$(git rev-parse FETCH_HEAD)             # not <remote>/<branch>: see below
 git fetch <item remote> <item head ref>        # once per item, not per remote
-git switch -c tmp/queue-simulation <target remote>/<target branch>
+git switch -c tmp/queue-simulation "$TARGET"
 git -c rerere.enabled=false merge --no-ff --no-edit <first item head>
 ```
 
-Then merge the remaining items one at a time, in the order of step 1. Do not
-stop at the first conflict: resolve it, record which item owns that resolution,
-complete the merge and continue, so one pass covers the whole queue instead of
-the prefix before the first conflict. Resolve by keeping the intent of both
+The simulation starts from the SHA the fetch actually returned. A remote
+configured with a restricted refspec, a single-branch clone for example, lets
+`git fetch` succeed without moving `<remote>/<branch>`, so switching to that ref
+would either fail or build the whole queue on a stale target. Read `FETCH_HEAD`
+immediately after the target fetch, before the item fetches overwrite it, and
+record that SHA as the base of this simulation.
+
+Then merge the remaining items one at a time, in the order of step 1, each with
+the same `-c rerere.enabled=false`. That option configures one `git` process, so
+it does not carry to the merges after the first: without it on each, a stored
+resolution can auto-resolve a later conflict and the simulation reports a chain
+that merges when it does not. Setting `rerere.enabled` to false in the throwaway
+worktree's own config covers the reruns of step 5 as well. Do not stop at the
+first conflict: resolve it, record which item owns that resolution, complete the
+merge and continue, so one pass covers the whole queue instead of the prefix
+before the first conflict. Resolve by keeping the intent of both
 sides, exactly as
 [pr-review](pr-review.md#keep-the-branch-current-and-git-healthy) requires. A
 conflict found here is work for that item's own round, not for the simulation
@@ -154,15 +175,20 @@ separately can still fail on the merged result. Run the workflows the queue
 changes on the integrated tree:
 
 1. Push the simulation of step 2 to a temporary branch, for example
-   `tmp/queue-integration`, but only when every item in it comes from the target
-   repository itself. A request opened from a fork carries whatever its author
-   committed, a workflow file included, and pushing those commits into the
+   `tmp/queue-integration`, only after checking what that push would run. Any
+   commit in the simulation can carry a workflow file, and pushing it into the
    target runs that workflow there, on a `push` trigger, with the target's own
-   secrets, before any item has been reviewed. When the queue holds a fork
-   request, do not push the simulation: run the integrated check in a repository
-   that has none of the target's secrets, or take the evidence from the ordinary
-   runs as in the next item. Record which of the two was used, and never relax
-   this because an item looks harmless.
+   secrets, before any item has been reviewed. Whose repository the item came
+   from is not the boundary: a contributor with a branch in the target
+   repository can add a workflow just as a fork can, so ownership of the branch
+   decides nothing here. The check is the content: read the simulation's own
+   diff against the target for changes under the workflow directory
+   (`git diff --name-only <target SHA>..HEAD -- .github/workflows`), and push
+   only when it is empty and the definitions that will run are the target's
+   reviewed ones. When it is not empty, do not push: run the integrated check in
+   a repository that holds none of the target's secrets, or take the evidence
+   from the ordinary runs as in the next item. Record which of the two was used,
+   and never relax this because an item looks harmless.
 2. Start the workflow on that branch with `workflow_dispatch`, for example
    `gh workflow run vulnerability-scan.yml --ref tmp/queue-integration`. This
    works only for a workflow that declares the `workflow_dispatch` trigger on
@@ -217,7 +243,12 @@ evidence about a tree that no longer exists. After each merge:
    passed, and the earlier run says nothing about it. Report no item as ready on
    a run that covered a different tree.
 5. Merge the new target into every item that step 2 marked, and into any item
-   the platform now reports as conflicting.
+   the platform now reports as conflicting. This is a push to that item's own
+   branch, which the session may not be able to make: a head in a fork belongs
+   to its owner, and the fetching of step 2 grants no write access to it. Where
+   the branch is not writable, do not try: ask its owner to update or rebase it,
+   and until they do, report that item as blocked on that update rather than as
+   an item waiting its turn.
 6. The updated items have new heads: their earlier reviews do not cover them, so
    request reviews again as
    [pr-review step 3](pr-review.md#3-obtain-reviews-for-the-current-head)
@@ -274,8 +305,10 @@ before counting it ready again.
 ## 7. Approvals, and who may merge
 
 Read the target's actual rules rather than assuming them
-(`gh api repos/<owner>/<repo>/rulesets` and the ruleset's own endpoint on
-GitHub). Record for the whole queue: which refs the rules cover, how many
+(`gh api --paginate repos/<owner>/<repo>/rulesets` and the ruleset's own
+endpoint on GitHub). Read every page here as pr-review does: the endpoint
+returns 30 rulesets at a time, and a later page can carry the approval or check
+that decides the queue. Record for the whole queue: which refs the rules cover, how many
 approvals they require, which checks they require, and who may bypass them.
 
 A rule that requires an approving review is not satisfied by the author: an

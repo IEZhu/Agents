@@ -231,9 +231,12 @@ at once, with where the owner selects Lite under "Review effort level": the
 personal Copilot settings (Copilot, then Code review) for reviews requested with
 the owner's account, which this flow's requests are, and the repository's or
 organization's settings (Copilot, then Code review) for automatic reviews.
-Resume after the owner confirms the switch. Do not change the effort, the
-settings or billing yourself, and do not guess a request parameter for the
-effort: there is no assumed `lite` CLI flag.
+Resume after the owner confirms the switch. Do not change the account or
+repository settings or billing yourself. The request itself does carry the
+effort: `requestCopilotCodeReview` takes `reviewEffort`, whose values are
+`LITE`, `BALANCED`, `MAX` and `AUTO`, so ask for `LITE` explicitly as the
+command above does rather than relying on what the settings default to. There is
+still no `lite` flag on the CLI, so do not guess one there.
 
 On GitLab, inspect the actual reviewers and integrations available to the MR.
 Use supported platform actions for requests and discussions. Do not assume that
@@ -334,27 +337,25 @@ the helper. Replace `OWNER`, `REPO`, and `N` with the verified target:
 AGENTS_CORE_ROOT=/absolute/path/to/Agents-Core
 TARGET_REPO=/absolute/path/to/target-repository
 cd "$TARGET_REPO"
-gh api graphql -f query='mutation($pr:ID!,$bot:ID!){requestReviews(input:{
-  pullRequestId:$pr, botIds:[$bot], union:true}){pullRequest{reviewRequests(
+gh api graphql -f query='mutation($pr:ID!){requestCopilotCodeReview(input:{
+  pullRequestId:$pr, reviewEffort:LITE}){pullRequest{headRefOid reviewRequests(
   first:5){nodes{requestedReviewer{__typename ... on Bot{login}}}}}}}' \
-  -F pr="$(gh pr view N --json id --jq .id)" -F bot=BOT_NODE_ID
+  -F pr="$(gh pr view N --json id --jq .id)"
 bash "$AGENTS_CORE_ROOT/scripts/dev/wait_copilot.sh" N
 python "$AGENTS_CORE_ROOT/scripts/dev/pr_threads.py" N
 ```
 
-**Request Copilot through GraphQL, and read the result.** The REST endpoint
+**Request Copilot through its own mutation, and read the result.** The REST
+endpoint
 `gh api -X POST repos/OWNER/REPO/pulls/N/requested_reviewers -f 'reviewers[]=copilot-pull-request-reviewer[bot]'`
 answers 200 for this bot and registers nothing: the response's
 `requested_reviewers` comes back empty and no review is queued. It is not a
 request, and its success is exactly the kind of successful API response this
-step warns about. The `requestReviews` mutation above does queue one, and the
-`reviewRequests` it returns is the confirmation to read; an empty list there
-means the request did not take. `BOT_NODE_ID` is the bot's node id in that
-repository, which any existing Copilot review carries:
-`gh api graphql -f query='query($o:String!,$r:String!,$n:Int!){repository(owner:$o,name:$r){pullRequest(number:$n){reviews(last:20){nodes{author{login ... on Bot{id}}}}}}}' -F o=OWNER -F r=REPO -F n=N`.
-Where Copilot has never reviewed in that repository there is no such review to
-read it from, so record that the request could not be made rather than reporting
-a request that was never queued.
+step warns about. `requestCopilotCodeReview` is the mutation for this, it takes
+only the pull request's node id, and the `headRefOid` and `reviewRequests` it
+returns are the confirmation to read: an empty reviewer list means the request
+did not take. Nothing else is needed, in particular no bot node id and so no
+earlier Copilot review to take one from.
 
 [wait_copilot.sh](../scripts/dev/wait_copilot.sh) waits for a Copilot review on
 the PR's current head after it matches the source branch tip. It does not check
