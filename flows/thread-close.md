@@ -559,18 +559,18 @@ Compose the report in the user's language:
    cleanup.
 8. **Provenance**, labelled as such: models, responses, tokens (main session and
    subagents), session, time span, transcript source.
-9. **This close's own cost**, as one `close-cost:` line that starts its own
-   line, so a later run greps it out of `history.md`; a `read_history` listing
-   truncates `outcome`, so a retro reads the file or fetches the entry by
-   `entry_id`. Read `date -u` again before composing the report: the elapsed time
-   is that reading minus step 1's. The line also holds how many rows of the
-   artifact table sit at each state, `✗`, `⚠` and `?` included; the format
-   corrections the step-5.3 verifier needed; the steps that produced no finding;
-   and, for the copy that ran, `run_flow`'s `flow.revision` with the installation
-   root and its `VERSION` only when `flow.source` is `builtin`, where that root
-   is above the `flows/` directory holding `flow.source_path`. A personal or
-   repository copy, or a `VERSION` that cannot be read, is `unavailable`: so is
-   every other value this close could not establish.
+9. **This close's own cost.** Read `date -u` again before composing the report:
+   the elapsed time is that reading minus step 1's. Report it as a `close-cost:`
+   line of `key=value` fields, seconds for the elapsed time, holding how many
+   rows of the artifact table sit at each state, `✗`, `⚠` and `?` included; the
+   format corrections the step-5.3 verifier needed; the steps that produced no
+   finding; `flow.revision`; and, only when `flow.source` is `builtin`, the
+   installation root above the `flows/` directory holding `flow.source_path`
+   with the `VERSION` read from that root. Any field this close could not
+   establish reads `unavailable`. The line is part of the report, so the history
+   writer folds it into the entry's single-line `**Outcome:**`: a later run
+   matches the `close-cost:` token inside that line, over `history.md` and the
+   `history/` archives alike.
 10. **How to resume:** session id or link, branch, next command.
 
 At the final handoff, use `finishing` (🧹) when required obligations remain,
