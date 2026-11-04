@@ -19,7 +19,7 @@ import yaml
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR / "_helpers"))
 
-from inject_claude_md import write_with_backup  # noqa: E402
+from inject_claude_md import read_destination, render_with_backup, write_with_backup  # noqa: E402
 
 TEMPLATE_DIR = SCRIPT_DIR / "templates" / "review"
 BASE_TEMPLATE = TEMPLATE_DIR / "coderabbit-base.yaml"
@@ -369,6 +369,29 @@ def report_partial(installed: Sequence[str]) -> None:
         print("Installed before the failure: " + ", ".join(installed), file=sys.stderr)
 
 
+def unmanaged_content(current: bytes) -> bool:
+    """Say whether bytes are not this installer's own."""
+    # The whole managed header, not just its first line: a hand-written file that
+    # happens to carry that line would otherwise be replaced silently.
+    return not current.decode("utf-8", errors="replace").startswith(MANAGED_HEADER)
+
+
+def refuse_unmanaged(target: Path, current: bytes, force: bool) -> bool:
+    """Gate a replacement on given bytes, and say whether they are unmanaged.
+
+    The run reports its decision from the read of the preflight and takes it again
+    from the bytes the write itself reads, so a file that became unmanaged in
+    between is refused rather than replaced, and its backup is kept out of the
+    rotation as the only copy of it.
+    """
+    unmanaged = unmanaged_content(current)
+    if unmanaged and not force:
+        raise InstallError(
+            f"{target} exists and was not written by this installer. Review it, then "
+            "rerun with --force to replace it.")
+    return unmanaged
+
+
 def install_config(repo: Path, text: str, force: bool, dry_run: bool) -> str:
     """Write the composed configuration, refusing an unmanaged existing file."""
     target = repo / CONFIG_NAME
@@ -376,19 +399,22 @@ def install_config(repo: Path, text: str, force: bool, dry_run: bool) -> str:
     # refuses a symlink too, but only on the real run, so --dry-run used to promise
     # a write the run then declined, and the managed-header gate below was skipped.
     refuse_unsuitable_destination(target, None)
-    if target.exists():
-        current = target.read_text(encoding="utf-8", errors="replace")
-        # The whole managed header, not just its first line: a hand-written file
-        # that happens to carry that line would otherwise be replaced silently.
-        if not current.startswith(MANAGED_HEADER) and not force:
-            raise InstallError(
-                f"{target} exists and was not written by this installer. Review it, then "
-                "rerun with --force to replace it.")
-        if current == text:
+    # Through one descriptor, so the node this reads is the one its stat refused or
+    # accepted; a path read could still resolve a FIFO or a foreign hard link that
+    # took the name after the check above.
+    existing = read_destination(target)
+    if existing is not None:
+        refuse_unmanaged(target, existing, force)
+        if existing.decode("utf-8", errors="replace") == text:
             return "already current"
     if dry_run:
         return "would write"
-    write_with_backup(target, text.encode("utf-8"))
+    # Both gates run again on the bytes the write reads itself: the refusal, so a
+    # file that became unmanaged after the preflight is not replaced without --force,
+    # and the retention, because that backup is the only copy of what it replaces and
+    # three later runs would push it out of the three-snapshot rotation.
+    write_with_backup(target, text.encode("utf-8"),
+                      retain_backup=lambda current: refuse_unmanaged(target, current, force))
     return "written"
 
 
@@ -401,7 +427,10 @@ def instruction_path(repo: Path, given: Path | None) -> Path:
     # Resolve the parent, not the file: a symlinked instruction file must reach
     # write_with_backup as a symlink, which refuses to replace it, while a
     # symlinked parent directory would move the write, its backup and its
-    # temporary file out of the target without that helper noticing.
+    # temporary file out of the target without that helper noticing. The helper
+    # opens that directory once and works against the descriptor, so a swap after
+    # this check cannot move the write; the swap it cannot see is one between this
+    # resolve and that open.
     parent, root = candidate.parent.resolve(), repo.resolve()
     if parent != root and root not in parent.parents:
         raise InstallError(
@@ -411,7 +440,12 @@ def instruction_path(repo: Path, given: Path | None) -> Path:
 
 
 def refuse_unsuitable_destination(path: Path, option: str | None) -> None:
-    """Refuse a destination whose node type or links make writing it unsafe."""
+    """Refuse a destination whose node type or links make writing it unsafe.
+
+    This runs before the writes, so --dry-run reports the refusal and one failure
+    cannot leave the other file installed. The write helper repeats every refusal on
+    the descriptor it holds, which is what covers a node swapped in after this check.
+    """
     # The configuration name is fixed, so it has no alternative destination to
     # offer and passes None: one remedy for every node type used to end the
     # not-a-regular-file message with "remove the link", which contradicts it.
@@ -442,18 +476,21 @@ def refuse_unsuitable_destination(path: Path, option: str | None) -> None:
 def install_section(md_path: Path, create: bool, dry_run: bool) -> str:
     """Inject or refresh the discipline section in the target instruction file."""
     refuse_unsuitable_destination(md_path, "pass another path with --agents-md")
-    if not md_path.exists() and not create:
+    # One pinned read, as install_config does: the marker check and this report then
+    # describe the node that was opened, not whatever a second lookup resolves.
+    content = read_destination(md_path)
+    if content is None and not create:
         raise InstallError(
             f"{md_path} does not exist. Rerun with --create-agents-md to create it, or with "
             "--no-agents-md to skip the section.")
     section = DISCIPLINE_TEMPLATE.read_bytes()
-    content = md_path.read_bytes() if md_path.exists() else b""
-    rendered = render_section(content, section, md_path)
-    if rendered == content:
+    if render_section(content or b"", section, md_path) == content:
         return "already current"
     if dry_run:
         return "would write"
-    write_with_backup(md_path, rendered)
+    # The write renders again from the bytes it reads itself, so the section cannot be
+    # composed from a file this preflight never saw.
+    render_with_backup(md_path, lambda current: render_section(current, section, md_path))
     return "written"
 
 

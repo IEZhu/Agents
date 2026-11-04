@@ -108,9 +108,11 @@ SYSTEMD_UNIT = re.compile(r"^agents-core-sync-[0-9a-f]{16}\.(service|timer)$")
 CRON_LINE = re.compile(rb" agents-core-sync-[0-9a-f]{16}\s*$")
 WINDOWS_TASK = re.compile(r"^agents-core-(?:daemon-[0-9a-f]{16}(?:-updater)?|sync-[0-9a-f]{16})$")
 STATE_ID = re.compile(r"^[0-9a-f]{16}$")
-# inject_claude_md.copy_backup (19 digits) and its older timestamps (10 digits), which its own
-# prune_backups also treats as managed: siblings of the instruction files only.
-INSTRUCTION_BACKUP = r"\.backup\.(?:[0-9]{10}|[0-9]{19})$"
+# inject_claude_md.copy_backup (19 digits, more past that range) and its older timestamps
+# (10 digits), which its own MANAGED_SUFFIX also treats as managed: siblings of the
+# instruction files only. A `kept.` snapshot is left out: those are the only copy of
+# content the installer did not write, and it writes none beside the instruction files.
+INSTRUCTION_BACKUP = r"\.backup\.(?:[0-9]{10}|[0-9]{19,})$"
 # backup_file.py (mkstemp): eight characters a user's own name can have too, so only reported.
 MKSTEMP_BACKUP = r"\.backup\.[a-z0-9_]{8}$"
 KEEP_IN_STATE = ("user-sync", "unresolved")  # the library's sync state and the fallback journal

@@ -928,6 +928,80 @@ def test_each_stack_composes_and_round_trips_without_loss(tmp_path, stack):
     assert config["reviews"]["path_instructions"] == universal + fragment
 
 
+def test_force_keeps_the_replaced_configuration_through_later_runs(tmp_path):
+    """The backup of a file --force replaced is its only copy, so it is not rotated.
+
+    Three later runs used to push it out as the oldest of three managed snapshots,
+    and nothing else holds the bytes the target had before the first install.
+    """
+    helper = importlib.import_module("inject_claude_md")
+    repo = git_repo(tmp_path / "repo", {"a.py": "x\n", "AGENTS.md": "# r\n"})
+    hand_written = "reviews:\n  profile: chill\n"
+    (repo / installer.CONFIG_NAME).write_text(hand_written, encoding="utf-8")
+
+    assert installer.main(["--repo", str(repo), "--force"]) == 0
+    # Each later run composes different bytes, so each one backs the file up again.
+    for language in ("ru-RU", "de-DE", "fr-FR", "es-ES"):
+        assert installer.main(["--repo", str(repo), "--language", language]) == 0
+
+    backups = {path.name: path.read_text(encoding="utf-8")
+               for path in repo.glob(installer.CONFIG_NAME + ".backup.*")}
+    assert hand_written in backups.values(), "the only copy of the replaced file is gone"
+    rotated = [name for name in backups if helper.RETAINED_MARKER not in name]
+    assert len(rotated) == helper.BACKUP_LIMIT, "the managed rotation is no longer bounded"
+
+
+def test_force_retention_follows_the_bytes_the_write_reads(tmp_path, monkeypatch):
+    """Whether a backup is the only copy is decided by the write's own read.
+
+    The decision used to come from the read install_config reports, so a file
+    replaced between the two was snapshotted as the installer's own and rotated.
+    """
+    helper = importlib.import_module("inject_claude_md")
+    repo = git_repo(tmp_path / "repo", {"a.py": "x\n", "AGENTS.md": "# r\n"})
+    target = repo / installer.CONFIG_NAME
+    hand_written = "reviews:\n  profile: chill\n"
+    target.write_text(hand_written, encoding="utf-8")
+    managed = f"{installer.MANAGED_HEADER}\nreviews: {{}}\n".encode()
+    real_read = installer.read_destination
+    # The reported read sees the installer's own file, so the run needs no --force;
+    # the write reads what the target actually holds.
+    monkeypatch.setattr(installer, "read_destination",
+                        lambda path: managed if path == target else real_read(path))
+
+    # --force, because the write's own read of unmanaged bytes is refused without it;
+    # the reported read is managed, so the retention cannot come from that one.
+    assert installer.main(["--repo", str(repo), "--force"]) == 0
+
+    kept = [path for path in repo.glob(installer.CONFIG_NAME + ".backup.*")
+            if helper.RETAINED_MARKER in path.name]
+    assert [path.read_text(encoding="utf-8") for path in kept] == [hand_written]
+
+
+def test_a_file_that_became_unmanaged_after_the_preflight_is_refused(tmp_path, capsys, monkeypatch):
+    """The --force gate runs again on the bytes the write reads, not only the report.
+
+    A managed file replaced with a hand-written one after the preflight used to be
+    read and overwritten with force false, because the gate had already passed.
+    """
+    repo = git_repo(tmp_path / "repo", {"a.py": "x\n", "AGENTS.md": "# r\n"})
+    target = repo / installer.CONFIG_NAME
+    hand_written = "reviews:\n  profile: chill\n"
+    target.write_text(hand_written, encoding="utf-8")
+    managed = f"{installer.MANAGED_HEADER}\nreviews: {{}}\n".encode()
+    real_read = installer.read_destination
+    # The reported read sees the installer's own file, so the run proceeds; the write
+    # reads what the target holds, which nobody authorised it to replace.
+    monkeypatch.setattr(installer, "read_destination",
+                        lambda path: managed if path == target else real_read(path))
+
+    assert installer.main(["--repo", str(repo)]) == 1
+
+    assert "was not written by this installer" in capsys.readouterr().err
+    assert target.read_text(encoding="utf-8") == hand_written
+    assert not list(repo.glob(installer.CONFIG_NAME + ".backup.*"))
+
+
 def test_every_fragment_is_reachable_through_the_stack_names():
     stacks = set(installer.available_stacks())
     suffix_stacks = set(installer.STACK_SUFFIXES)
