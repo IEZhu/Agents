@@ -55,12 +55,12 @@ Fetching that mirror would leave every simulation and merge-base count below
 describing a target that has not moved. Record the remote; every fetch in this
 flow names it.
 
-Check its push URL too, and every push URL it has: `git remote -v` prints fetch
-and push separately, and a remote can fetch the target while pushing somewhere
-else. Step 3 pushes a branch and deletes it, so a push URL pointing elsewhere
-would publish an integrated tree, or delete a branch, in the wrong repository.
-Where fetch and push do not agree on the target, do not push: take step 3's
-evidence the other way it offers.
+Nothing in this flow pushes to that remote: the simulation goes to a separate
+repository or nowhere (step 3), and each item's own branch belongs to its
+request. So read the target remote for fetching only, and resolve the
+simulation's destination separately, by its own URL: `git remote -v` prints
+fetch and push separately, and a remote can fetch one repository while pushing
+to another, so a destination identified by name can be the target after all.
 
 **This flow does not merge, and it never widens authorization.** Each item is
 run to [pr-review step 5](pr-review.md#5-merge-when-ready)'s conditions, which
@@ -145,7 +145,7 @@ out:
 ```bash
 git switch --detach <target remote>/<target branch>
 git branch -D tmp/queue-simulation
-git push <target remote> --delete tmp/queue-integration   # if step 3 pushed it
+git push <simulation remote> --delete tmp/queue-integration   # if step 3 pushed it
 ```
 
 Repeat the simulation after every merge (step 5). Never push the simulation to
@@ -174,21 +174,19 @@ cannot be cleared by any single item, and a check that passes on each item
 separately can still fail on the merged result. Run the workflows the queue
 changes on the integrated tree:
 
-1. Push the simulation of step 2 to a temporary branch, for example
-   `tmp/queue-integration`, only after checking what that push would run. Any
-   commit in the simulation can carry a workflow file, and pushing it into the
-   target runs that workflow there, on a `push` trigger, with the target's own
-   secrets, before any item has been reviewed. Whose repository the item came
-   from is not the boundary: a contributor with a branch in the target
-   repository can add a workflow just as a fork can, so ownership of the branch
-   decides nothing here. The check is the content: read the simulation's own
-   diff against the target for changes under the workflow directory
-   (`git diff --name-only <target SHA>..HEAD -- .github/workflows`), and push
-   only when it is empty and the definitions that will run are the target's
-   reviewed ones. When it is not empty, do not push: run the integrated check in
-   a repository that holds none of the target's secrets, or take the evidence
-   from the ordinary runs as in the next item. Record which of the two was used,
-   and never relax this because an item looks harmless.
+1. Do not push the simulation to the target repository. Pushing it there runs
+   the target's workflows, on a `push` trigger, with the target's own secrets,
+   over commits that no item's review has covered yet, and no inspection of the
+   push establishes that this is safe. An empty diff under the workflow
+   directory does not: a target workflow can call a local action, a reusable
+   workflow, a script, a `Makefile` target or a configuration file from
+   anywhere in the tree, so the surface is the whole execution graph and not
+   the YAML. Whose repository an item came from does not either: a contributor
+   with a branch in the target can add any of that just as a fork can. Push the
+   simulation to a repository that holds none of the target's secrets and run
+   the workflow there, or make no dispatch at all and take the evidence from the
+   ordinary runs as in the next item. Record which of the two was used, and
+   never relax this because an item looks harmless.
 2. Start the workflow on that branch with `workflow_dispatch`, for example
    `gh workflow run vulnerability-scan.yml --ref tmp/queue-integration`. This
    works only for a workflow that declares the `workflow_dispatch` trigger on
