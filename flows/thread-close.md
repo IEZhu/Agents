@@ -200,8 +200,7 @@ Rules:
 
 ## 1. Establish the scope
 
-1. Read the current time with `date -u` and keep it: step 9 reports the time
-   this close took. Fix the mode and identify the thread.
+1. Read the current time with `date -u`. Fix the mode and identify the thread.
 2. In Claude Code, run the inventory helper. Keep its `notes`: other active
    sessions in the same project mean you must confirm which session is being
    closed.
@@ -559,19 +558,7 @@ Compose the report in the user's language:
    cleanup.
 8. **Provenance**, labelled as such: models, responses, tokens (main session and
    subagents), session, time span, transcript source.
-9. **This close's own cost.** Read `date -u` again before composing the report:
-   the elapsed time is that reading minus step 1's. Report it as a `close-cost:`
-   line of `key=value` fields, seconds for the elapsed time, holding how many
-   rows of the artifact table sit at each state, `✗`, `⚠` and `?` included; the
-   format corrections the step-5.3 verifier needed; the steps that produced no
-   finding; `flow.revision`; and, only when `flow.source` is `builtin`, the
-   installation root above the `flows/` directory holding `flow.source_path`
-   with the `VERSION` read from that root. Any field this close could not
-   establish reads `unavailable`. The line is part of the report, so the history
-   writer folds it into the entry's single-line `**Outcome:**`: a later run
-   matches the `close-cost:` token inside that line, over `history.md` and the
-   `history/` archives alike.
-10. **How to resume:** session id or link, branch, next command.
+9. **How to resume:** session id or link, branch, next command.
 
 At the final handoff, use `finishing` (🧹) when required obligations remain,
 unless essential user input or required human approval calls for `needs_user`/`review`.
@@ -642,7 +629,6 @@ flow can match this work instead of recording it twice.
 - Every external write performed by this flow has a recorded passing visibility,
   audience, and payload recheck. A skipped, failed, or unknown recheck blocks the
   affected write and is reported; it cannot be counted as a completed action.
-- The `close-cost:` line carries a value or `unavailable` for each of its items.
 - The report is delivered.
 
 The flow does not prove a thread right. It records how well each result is
