@@ -117,10 +117,11 @@ receiving service; check this boundary before making the call.
 
 Internal information includes nonsecret service and tool names, proxy aliases,
 domains, endpoints, repository paths, API contracts, deployment configuration,
-architecture and incident details. Removing credentials alone does not make
-this material public. Existing public mentions do not authorize further
-disclosure. Access to a private repository does not authorize publication to a
-public repository, including another repository owned by the same user.
+architecture, topology and incident details. Removing credentials alone does
+not make this material public. Existing public mentions do not authorize
+further disclosure. Access to a private repository does not authorize
+publication to a public repository, including another repository owned by the
+same user.
 
 For an upstream/public improvement, describe only the general mechanism and use
 synthetic examples that do not identify the organization or its systems. Keep
@@ -402,18 +403,15 @@ client's own tools. Calls from this close's own `run_flow` on are not audited.
    instruction, then hook, flow step or flow persona, then Agents-Core itself),
    and name the earlier close's time.
 8. **One list, one yes.** Check existing tracking within the confidentiality
-   boundary before adding a patch. For each proposal, name its destination,
-   verified visibility and whether its content is generic or private. Public
-   improvements describe the mechanism; keep concrete private inventories in
-   authorized private context. Never require public enumeration of private
-   tools as a completion condition. Collect every patch into one numbered list.
-   Apply them only after the user's yes, which may approve the whole list or
-   name items; a V2 memory lesson in `apply` mode needs none. Immediately before
-   each external write, recheck visibility, audience and payload classification
-   as required above, including for an approved push or submission. Stop only
-   that operation when the scope changed or is unknown, keep the finding private
-   and report the gap. Verify each applied patch (the diff in place, the call's
-   result) and report which were applied.
+   boundary before adding a patch, and for each proposal name its destination,
+   verified visibility and whether its content is generic or private. Never
+   require public enumeration of private tools as a completion condition.
+   Collect every patch into one numbered list. Apply them only after the user's
+   yes, which may approve the whole list or name items; a V2 memory lesson in
+   `apply` mode needs none. Every external write here, an approved push or
+   submission included, passes the write-time recheck of Confidentiality and
+   destination visibility. Verify each applied patch (the diff in place, the
+   call's result) and report which were applied.
 
 **Catalogue.** The slug names the row in the report and in tags. The rows name
 every statically registered Agents-Core tool; a test keeps those names complete.
@@ -507,16 +505,14 @@ operation trigger, not just exposure to the client.
 - **Issues, tracker items and documentation.** Propose follow-up issues and
   tracker items, and create them only on a yes. Propose repository knowledge as a
   documentation change through the repository's pull request flow.
-- **Confidential information, secrets and personal data.** Check the authorized
-  audience of every destination, including the closing log and any synced
-  memory. Scan everything persisted or reported and replace secrets with safe
-  references, including in private memory and closing logs. Keep internal
-  identifiers, topology and nonsecret configuration out of public/shared output
-  unless specifically authorized. Sanitize references and link labels as well
-  as prose; leave out medical, financial and other personal details. In both
-  modes, log the report only when a safe payload and authorized destination are
-  established. Otherwise, report the privacy skip and incomplete closing-log
-  step as required by step 9.
+- **Confidential information, secrets and personal data.** The closing log and
+  any synced memory are destinations too, so both pass Confidentiality and
+  destination visibility. Replace secrets with safe references in everything
+  persisted or reported, private memory and closing logs included. Sanitize
+  references and link labels as well as prose; leave out medical, financial and
+  other personal details. In both modes, log the report only when a safe
+  payload and authorized destination are established. Otherwise, report the
+  privacy skip and incomplete closing-log step as required by step 9.
 
 ## 8. Clean up (`apply`)
 
