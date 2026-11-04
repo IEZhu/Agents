@@ -160,7 +160,8 @@ def test_pr_queue_pins_the_steps_a_single_review_cannot_know():
             "Run step 3's checks again on that new simulation",
             "Fetch the target branch from the remote that step 1 verified holds it",
             # Third review round of this flow.
-            "read the target remote for fetching only, and resolve the\nsimulation's destination separately",
+            "the no-push\nrule covers the simulation rather than the flow",
+            "The one push this flow does make is the\ntarget merge into an item's own branch",
             "Read `FETCH_HEAD`\nimmediately after the target fetch",
             "each with\nthe same `-c rerere.enabled=false`",
             "a contributor\n   with a branch in the target can add any of that just as a fork can",

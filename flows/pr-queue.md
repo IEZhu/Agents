@@ -55,12 +55,16 @@ Fetching that mirror would leave every simulation and merge-base count below
 describing a target that has not moved. Record the remote; every fetch in this
 flow names it.
 
-Nothing in this flow pushes to that remote: the simulation goes to a separate
-repository or nowhere (step 3), and each item's own branch belongs to its
-request. So read the target remote for fetching only, and resolve the
-simulation's destination separately, by its own URL: `git remote -v` prints
-fetch and push separately, and a remote can fetch one repository while pushing
-to another, so a destination identified by name can be the target after all.
+The simulation never goes into that remote: it is pushed to a separate
+repository or nowhere at all (step 3). The one push this flow does make is the
+target merge into an item's own branch (step 5), and it goes to the remote that
+holds that item's head, which for an item whose branch lives in the target
+repository is this same remote and for an item from a fork is that fork's. So
+the push URL matters for the remote each of those updates names, and the no-push
+rule covers the simulation rather than the flow. Resolve the simulation's
+destination separately, by its own URL: `git remote -v` prints fetch and push
+separately, and a remote can fetch one repository while pushing to another, so a
+destination identified by name can be the target after all.
 
 **This flow does not merge, and it never widens authorization.** Each item is
 run to [pr-review step 5](pr-review.md#5-merge-when-ready)'s conditions, which
