@@ -26,6 +26,24 @@ still take precedence.
 Verify behavior against source and tests. Plans and old evaluation reports describe
 their recorded revision; they do not override the current implementation.
 
+## Personal issue planning context
+
+Before choosing or sequencing work on this repository's issues, read the optional
+personal plan with `get_flow(flow="user:agents-issue-plan", workspace=<authorized workspace>)`.
+It is stored in the user's personal library, not this checkout. Reading it is
+reference lookup; do not invoke `run_flow` merely to consult it. Resolve relative
+attachments from the returned `flow.source_path`, so the same reference works
+from another machine or linked worktree.
+
+Treat its dated dependencies and priorities as planning context. Recheck the
+relevant current issues, native blockers, linked PRs and source before acting;
+separate component readiness from final issue acceptance and retain every unique
+requirement. Current user scope and this repository's safety and review rules
+still govern execution. The plan grants no permission for unrelated work, GitHub
+changes, publication or merging. If it is unavailable, report that once and
+continue independent work; do not create an empty replacement. Keep personal
+plans and catalogs out of tracked repository files.
+
 ## Make changes
 
 - Inspect the branch, worktrees and existing changes first, and keep unrelated
