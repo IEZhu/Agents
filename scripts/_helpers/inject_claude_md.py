@@ -89,19 +89,32 @@ def _node(name: str, parent: Path, parent_fd: int | None) -> os.stat_result:
     return os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
 
 
+def _identity(info: os.stat_result) -> tuple[int, int, int, int]:
+    """Identify the bytes a write read, not only the node that held them.
+
+    The inode alone is not enough in either direction. ext4 hands the number of a
+    file just unlinked to the next file created in that directory, so a replaced
+    destination can keep it, which is why the change time and the size are part of
+    this; and a file rewritten in place keeps its number while its content, which
+    the backup holds, is gone. Windows tunneling can preserve a recreated file's
+    creation time instead, and there its file id is the part that changes.
+    """
+    return (info.st_dev, info.st_ino, info.st_ctime_ns, info.st_size)
+
+
 def _unchanged(path: Path, parent_fd: int | None, info: os.stat_result | None) -> bool:
-    """Say whether the name still holds the node this write read, or still holds none.
+    """Say whether the name still holds the bytes this write read, or still holds none.
 
     A descriptor pins an inode, never a name, so a rename replaces whatever the name
-    has come to hold. Comparing the identity just before it narrows that window
-    instead of closing it: POSIX has no rename that refuses an unexpected
-    destination, and renameat2 is Linux-only and absent from os.
+    has come to hold. Comparing just before it narrows that window instead of
+    closing it: POSIX has no rename that refuses an unexpected destination, and
+    renameat2 is Linux-only and absent from os.
     """
     try:
         node = _node(path.name, path.parent, parent_fd)
     except (FileNotFoundError, NotADirectoryError):
         return info is None
-    return info is not None and (node.st_dev, node.st_ino) == (info.st_dev, info.st_ino)
+    return info is not None and _identity(node) == _identity(info)
 
 
 def _replace(source: str, destination: str, parent: Path, parent_fd: int | None) -> None:
@@ -260,14 +273,15 @@ def _write(path: Path, parent_fd: int | None, content: bytes,
             output.flush()
             if info is not None:
                 _take_mode(output.fileno(), temporary, info)
-        # Checked as late as the rename allows: another process can take the name
-        # while this write prepares, and the rename would then replace a file whose
-        # bytes no backup holds. Refusing leaves that file and this one's snapshot.
+        # Checked as late as the rename allows: another process can take the name or
+        # rewrite the file while this write prepares, and the rename would then
+        # replace bytes no backup holds. Refusing leaves them and this one's snapshot.
         if not _unchanged(path, parent_fd, info):
             raise ValueError(
-                f"Refusing to replace {path}: another node took the name while this write "
-                f"prepared. The destination is untouched, and the snapshot of the bytes "
-                f"that were read is kept; rerun once nothing else is writing there")
+                f"Refusing to replace {path}: it changed while this write prepared, so the "
+                f"bytes it would replace are not the ones it read and backed up. The "
+                f"destination is untouched and that snapshot is kept; rerun once nothing "
+                f"else is writing there")
         _replace(name, path.name, path.parent, parent_fd)
     finally:
         try:

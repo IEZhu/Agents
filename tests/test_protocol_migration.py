@@ -551,11 +551,17 @@ def test_destination_is_closed_before_the_rename(tmp_path, helpers, monkeypatch)
     assert target.read_bytes() == b"managed"
 
 
-def test_a_node_that_took_the_name_before_the_rename_is_refused(tmp_path, helpers, monkeypatch):
+@pytest.mark.parametrize("intrude", ["replaced", "rewritten"])
+def test_a_destination_that_changed_before_the_rename_is_refused(
+    tmp_path, helpers, monkeypatch, intrude,
+):
     """The rename replaces a name, and a descriptor pins an inode rather than one.
 
-    Another process can take the destination's name while this write prepares its
-    backup, and the rename would then replace a file whose bytes no snapshot holds.
+    Another process can take the destination's name, or rewrite the file in place,
+    while this write prepares its backup, and the rename would then replace bytes
+    no snapshot holds. The inode alone decides neither case: ext4 gives a recreated
+    file the number of the one just unlinked, and a rewrite keeps the number while
+    the content the backup holds is gone.
     """
     injector, _ = helpers
     target = tmp_path / "CLAUDE.md"
@@ -563,19 +569,19 @@ def test_a_node_that_took_the_name_before_the_rename_is_refused(tmp_path, helper
     intruder = b"another process put this here"
     original_write = injector._write
 
-    def take_the_name_then_write(path, parent_fd, content, info):
-        # After the backup, before the rename: a different regular file, so only its
-        # identity tells the write that the name is no longer the one it read.
-        path.unlink()
+    def intrude_then_write(path, parent_fd, content, info):
+        # After the backup, before the rename.
+        if intrude == "replaced":
+            path.unlink()
         path.write_bytes(intruder)
         return original_write(path, parent_fd, content, info)
 
-    monkeypatch.setattr(injector, "_write", take_the_name_then_write)
+    monkeypatch.setattr(injector, "_write", intrude_then_write)
 
-    with pytest.raises(ValueError, match="took the name"):
+    with pytest.raises(ValueError, match="changed while this write prepared"):
         injector.write_with_backup(target, b"managed")
 
-    assert target.read_bytes() == intruder, "the file that took the name was replaced"
+    assert target.read_bytes() == intruder, "the bytes that took the destination were replaced"
     backup, = tmp_path.glob("CLAUDE.md.backup.*")
     assert backup.read_bytes() == b"original"
     assert not list(tmp_path.glob(".CLAUDE.md.*")), "the temporary file is left behind"
@@ -597,7 +603,7 @@ def test_a_file_created_under_a_new_destination_is_refused(tmp_path, helpers, mo
 
     monkeypatch.setattr(injector, "_write", create_then_write)
 
-    with pytest.raises(ValueError, match="took the name"):
+    with pytest.raises(ValueError, match="changed while this write prepared"):
         injector.write_with_backup(target, b"managed")
 
     assert target.read_bytes() == intruder
