@@ -71,6 +71,16 @@ starts, and an invocation that authorizes merge authorizes the owner's, not the
 session's. Being next in a queue is not consent to merge an item, and a report
 that an item is ready is not a merge.
 
+Carrying `no-merge` moves one of those conditions onto this flow. A `no-merge`
+run of pr-review skips its independent review of the changes no bot covered and
+only reports them, which is sound when nothing will be merged; here the owner
+merges what this queue calls ready, so the check cannot simply disappear. An
+item counts as ready only when those changes have had that validated
+independent review, prepared and checked as
+[pr-review step 5](pr-review.md#5-merge-when-ready) describes, or the report
+names the missing review as that item's remaining blocker. Never present an item
+as ready with neither.
+
 ## 1. Order the queue and record why
 
 Decide the order before touching any branch, and record it with one reason per

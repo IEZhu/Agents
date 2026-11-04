@@ -114,7 +114,8 @@ def test_pr_review_reads_the_merge_gating_from_more_than_one_endpoint():
                    "takes `reviewEffort`, whose values are `LITE`, `BALANCED`, `MAX` and `AUTO`",
                    # Two requests were spent on heads CodeRabbit had already picked up.
                    "Read the head's own check runs before asking it for anything",
-                   "Ask only when that head has neither a CodeRabbit run nor a review of it"):
+                   "What suppresses a request is a run still going or a completed review of that head",
+                   "a rate-limited, paused or skipped status is a run of a kind and not a review"):
         assert phrase in review, phrase
     assert "on GitLab read that flow's own paragraph on the equivalents" in review
 
@@ -140,6 +141,8 @@ def test_pr_queue_pins_the_steps_a_single_review_cannot_know():
             # pr-review's own rules are not relaxed by the queue.
             "merge no other item's branch into it",
             "a queue run carries `no-merge` into every item it\nstarts",
+            "Carrying `no-merge` moves one of those conditions onto this flow.",
+            "Never present an item\nas ready with neither.",
             "Being next in a queue is not consent to merge an item,",
             "the merges are the owner's to make",
             # Corrections from the first review round of this flow, each of which a
