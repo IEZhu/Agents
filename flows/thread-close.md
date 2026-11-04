@@ -508,8 +508,9 @@ operation trigger, not just exposure to the client.
   documentation change through the repository's pull request flow.
 - **Confidential information, secrets and personal data.** The closing log and
   any synced memory are destinations too, so both pass Confidentiality and
-  destination visibility. Replace secrets with safe references in everything
-  persisted or reported, private memory and closing logs included. Sanitize
+  destination visibility. Scan everything persisted or reported and replace
+  secrets with safe references, including in private memory and closing logs.
+  Sanitize
   references and link labels as well as prose; leave out medical, financial and
   other personal details. In both modes, log the report only when a safe
   payload and authorized destination are established. Otherwise, report the
