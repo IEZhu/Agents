@@ -559,12 +559,16 @@ Compose the report in the user's language:
    cleanup.
 8. **Provenance**, labelled as such: models, responses, tokens (main session and
    subagents), session, time span, transcript source.
-9. **This close's own cost**, as one `close-cost:` line a later run can read
-   without opening the entry: the time from step 1's clock reading to this
-   report, the count at each level, the format corrections the step-5.3 verifier
-   needed, the steps that produced no finding, and the installation root with its
-   `VERSION` and this flow's revision as `run_flow` reported them. Every value
-   names its source or reads `unavailable`.
+9. **This close's own cost**, as one `close-cost:` line that starts its own
+   line, so a later run greps it out of `history.md`; a `read_history` listing
+   truncates `outcome`, so a retro reads the file or fetches the entry by
+   `entry_id`. Read `date -u` again before composing the report: the elapsed time
+   is that reading minus step 1's. The line also holds how many rows of the
+   artifact table sit at each state, `✗`, `⚠` and `?` included; the format
+   corrections the step-5.3 verifier needed; the steps that produced no finding;
+   and, for the copy that ran, the installation root that `run_flow`'s
+   `flow.source_path` sits under, the `VERSION` file read from that root, and
+   `flow.revision`. Every value names its source or reads `unavailable`.
 10. **How to resume:** session id or link, branch, next command.
 
 At the final handoff, use `finishing` (🧹) when required obligations remain,
