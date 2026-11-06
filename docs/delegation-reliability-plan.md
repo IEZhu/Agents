@@ -724,13 +724,21 @@ only source of d and f that Layer 4 can use.
 Production refutations are a weaker quantity and must be labelled as one. They
 count only the wrong results somebody happened to notice, so the rate they give
 is an observed-refutation rate, a lower bound on the field false-accept rate
-rather than an estimate of it. Turning it into an estimate would need either
-follow-up on a known fraction of accepted results, or an assumption about what
-share of errors eventually surface — and both are assumptions, not measurements.
-Until one of them is in place the ledger reports the observed-refutation rate
-under that name and does not call it the field error rate. The ρ estimates
-Layer 3 needs come from coincident-failure counts across route pairs on the same
-control items, which is again the control set rather than production. Keep the current privacy shape exactly: opt-in
+rather than an estimate of it. Turning it into an estimate needs more than a
+known follow-up fraction: the followed-up results have to be drawn at random
+from the accepted ones, because following up the suspicious ones is exactly the
+selection that biases the answer upward, and the follow-up has to end in a
+reliable label rather than in another unverified judgement. The alternative is
+an assumption about what share of errors eventually surface on their own, which
+is an assumption and not a measurement. Until a randomly drawn, reliably
+labelled follow-up sample exists, the ledger reports the observed-refutation
+rate under that name and does not call it the field error rate.
+
+The ρ estimates Layer 3 needs come from coincident-failure counts across route
+pairs on the same control items, which is again the control set rather than
+production.
+
+Keep the current privacy shape exactly: opt-in
 behind the environment variable, hashed task IDs, routing and outcome facts only,
 never task text, and a write failure that never fails a tool call.
 
