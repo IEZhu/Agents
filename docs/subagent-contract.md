@@ -1,7 +1,7 @@
 # Task-scoped subagent context and exchange contract
 
 Status: implemented; mandatory delegation guidance updated 2026-10-11; compact
-exchange added 2026-10-24.
+exchange added 2026-10-24; text-result diagnostics collected 2026-11-06.
 Tracking: [Issue #291](https://github.com/IEZhu/Agents/issues/291). This reference describes
 the implemented worker API; the ordinary persona protocol remains version 2.
 
@@ -175,10 +175,16 @@ The header lines are `task`, `attempt`, `contract` (at least 12 hex characters o
 revision), `status` and, for `input_required`, `question`. Sections are `summary`, the
 payload (`items`, `conclusions`, `findings` or `changes`), `checks`, `evidence`,
 `artifacts`, `limitations`, `remaining_work` and `question`; empty ones are omitted. A
-list item starts with `- `, continuation lines are indented, two-part items separate
-their parts with ` — `, a finding's recommendation follows on a `fix:` line, and `[^id]`
-cites an evidence entry. Evidence IDs are unique, and one item cites each ID at most
-once, counting a finding's explanation and its `fix:` line together.
+list item starts with `- `, continuation lines are indented, a finding's recommendation
+follows on a `fix:` line, and `[^id]` cites an evidence entry. The ` — ` separator between
+the two parts of a line is required throughout: every `## evidence` line needs it, and so
+does every `## changes` item, every `## artifacts` item and every finding. Evidence IDs
+are unique; in a text result a repeated citation of one ID inside a single item counts
+once, including a finding's explanation and its `fix:` line together, and does not fail
+validation. A JSON result keeps the stricter rule and reports
+`duplicate_evidence_reference` for a reference repeated within one item. The rendered
+result format shows an evidence example with several locations and closes with a
+pre-reply check for the separator and the 4,000-character limit per text.
 `src/engine/subagent_text.py` parses this into the same closed result model, filling the
 protocol, the full contract revision and the bundle revision from the contract, so every
 structural rule below applies unchanged; a text result may sit in one code fence.
@@ -358,6 +364,21 @@ invariants and evidence references. Bound nesting, arrays, strings, total payloa
 size and diagnostic output. No caller-provided executable schema or remote `$ref`
 resolution in v1: JSON Schemas come only from the fixed built-in result models.
 
+One validation of a text result reports every per-line format error it found instead of
+stopping at the first: `invalid_item`, `invalid_evidence`, `separator_required`,
+`invalid_severity` and `invalid_check` are collected across the whole result, within the
+same limit of 20 diagnostics. A line whose error was collected is skipped rather than
+guessed — the result is invalid either way, and nothing is repaired — and its diagnostic
+keeps the original position, such as `$.result.result.changes[2]`. Schema errors join the
+same response whenever the text can still be parsed, so a string over 4,000 characters is
+reported together with the format errors; the semantic cross-checks — identity, status
+invariants and evidence references — are skipped while the parse was partial and run once
+the format is clean. Whole-result errors still stop parsing with a single diagnostic,
+because they leave the result's structure or identity uninterpretable: `unknown_section`,
+`duplicate_section`, `invalid_header`, `duplicate_header`, `header_required` and
+`identity_mismatch`. The `separator_required` message names every evidence line, finding,
+changes item and artifacts item, so one correction round can fix every occurrence.
+
 Return `valid: true/false`, a bounded list of errors with field paths and error
 codes, `verification: structural_only`, `result_sha256` when the result could be
 read and, for a contract prepared with `complexity`, possibly `escalation`.
@@ -442,6 +463,18 @@ conclusions are true:
 
 On `valid: false`, inspect `errors[].path`, `code` and `message`, return concrete diagnostics for correction, and validate the revised output again. A new execution attempt requires a new package with a different `attempt_id` and its matching receipt or retained contract. Never rewrite identities or the parent contract to make an invalid result pass. A missing, failed or unavailable validation is not success. Require `valid: true`, then independently verify evidence and acceptance criteria before accepting, integrating, citing as verified, or marking the delegated work complete. Validation opens no path or URI except the stored contract of `contract_revision` and `result_ref`, and never one named inside a result.
 
+In Claude Code that correction round depends on the kind of worker the parent launched. A
+Workflow agent cannot be resumed: `SendMessage` to it answers `No transcript found for
+agent ID`, so even a failure on format alone needs a new attempt with a new `attempt_id`,
+which repeats the whole task at full cost. A background `Agent` worker does receive the
+diagnostics through `SendMessage` and revises the result it already produced, so prefer
+it whenever a correction round matters, and launch with the tool named in the receipt's
+`execution.spawn`. In the reproductions recorded for
+[issue #526](https://github.com/IEZhu/Agents/issues/526), eight of nine Workflow review
+workers failed validation on format alone on 2026-10-26 and each failure became a new
+attempt, while on 2026-11-05 five of seven background `Agent` workers failed on format
+and all five revisions validated after one `SendMessage`.
+
 Component selection uses lexical overlap between task/criteria/scope/context
 and each eligible component's ID, description and keywords, with profile order
 breaking ties. This deterministic ranking needs no embedding model or router
@@ -464,8 +497,10 @@ stored contract; and `invalid_result_ref`, `result_ref_missing`,
 `result_ref_outside`, `result_ref_too_large`, `result_ref_unreadable`,
 `invalid_text` or `result_ref_empty` for the file. A text result that breaks the
 format reports `unknown_section`, `duplicate_section`, `invalid_header`,
-`duplicate_header`, `header_required`, `identity_mismatch`, `separator_required`,
-`invalid_item`, `invalid_evidence`, `invalid_severity` or `invalid_check`.
+`duplicate_header`, `header_required` or `identity_mismatch` on its own, and collects
+`separator_required`, `invalid_item`, `invalid_evidence`, `invalid_severity` and
+`invalid_check` for every offending line in one response, merged with the schema errors
+([result validation](#result-validation)).
 Artifact-backed preparation can also fail with `worker_artifact_rule_missing`,
 workspace errors, `artifact_unavailable` or `integrity_error`; it returns no
 usable partial package. A later release or expiry does not make an otherwise

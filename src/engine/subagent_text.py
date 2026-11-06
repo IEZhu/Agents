@@ -29,6 +29,7 @@ A result looks like this (the payload section depends on the result type)::
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 import re
 
 from src.schemas.subagent import PROTOCOL, TaskContract
@@ -123,6 +124,7 @@ def render_result_format(contract: dict) -> str:
         "",
         "## evidence",
         "[^e1]: <command, path:line or URL> — <what it showed>",
+        "[^e2]: src/a.py:10-20, src/b.py:30 — <what both showed>",
         "",
         "## artifacts",
         "- <path or artifact:// reference> — <purpose>",
@@ -140,7 +142,9 @@ def render_result_format(contract: dict) -> str:
         "[^id] cites an entry of ## evidence; evidence ids are unique. Every text is at most "
         "4000 characters; at most 50 limitations or remaining_work items and 100 of any other "
         "list. completed: no remaining_work, no question. partial: remaining_work. failed: a "
-        "limitation saying why. input_required: question.",
+        "limitation saying why. input_required: question. "
+        "Before replying, check that every line the form shows with ' — ' has it, and that "
+        "summary and every item stay within 4000 characters.",
     ])
 
 
@@ -153,8 +157,13 @@ def _unfence(text: str) -> str:
     return stripped
 
 
+def _unique(ids: list[str]) -> list[str]:
+    """One item citing the same evidence twice makes one reference, in first-seen order."""
+    return list(dict.fromkeys(ids))
+
+
 def _references(text: str) -> tuple[str, list[str]]:
-    ids = _REFERENCE.findall(text)
+    ids = _unique(_REFERENCE.findall(text))
     return re.sub(r"[ \t]+\n", "\n", _REFERENCE.sub("", text)).strip(), ids
 
 
@@ -164,39 +173,75 @@ def _split(text: str, path: str, shape: str) -> tuple[str, str]:
     pattern = _EM_SEPARATOR if _EM_SEPARATOR.search(text) else _SEPARATOR
     parts = pattern.split(text, maxsplit=1)
     if len(parts) != 2:
-        raise TextFormatError("separator_required", f"Expected '{shape}' with ' — ' between the parts.", path)
+        raise TextFormatError("separator_required", f"Expected '{shape}' with ' — ' between the parts; "
+                              "every evidence line, finding, changes item and artifacts item needs it.",
+                              path)
     return parts[0].strip(), parts[1].strip()
 
 
-def _items(lines: list[str], section: str) -> list[str]:
+def _parsed(items: list[str], path: str, parse: Callable[[str, str], dict],
+            errors: list[TextFormatError]) -> list[dict]:
+    """Parse every item of a section; a problem is collected and that item is skipped.
+
+    ``path`` is a template the item's own index fills, so a collected problem keeps the
+    index of the offending line even though the parsed list is then shorter.
+    """
+    values: list[dict] = []
+    for index, item in enumerate(items):
+        try:
+            values.append(parse(item, path.format(index)))
+        except TextFormatError as error:
+            errors.append(error)
+    return values
+
+
+def _items(lines: list[str], section: str, errors: list[TextFormatError]) -> list[str]:
     items: list[str] = []
+    skipped = False
     for line in lines:
         if not line.strip():
             continue
         if line.startswith("- "):
             items.append(line[2:].strip())
+            skipped = False
+        elif line[:1] in (" ", "\t") and skipped:
+            continue  # a continuation of the line just reported is part of that one problem
         elif line[:1] in (" ", "\t") and items:
             items[-1] += "\n" + line.strip()
         else:
-            raise TextFormatError("invalid_item", "List items start with '- '; indent continuation lines.",
-                                  f"$.result.{section}[{len(items)}]")
+            errors.append(TextFormatError("invalid_item", "List items start with '- '; indent continuation lines.",
+                                          f"$.result.{section}[{len(items)}]"))
+            skipped = True
     return items
 
 
-def _evidence(lines: list[str]) -> list[dict]:
+def _evidence(lines: list[str], errors: list[TextFormatError]) -> list[dict]:
     entries: list[dict] = []
+    index = 0  # the line's own position, kept when an earlier line was skipped
+    skipped = False
     for line in lines:
         if not line.strip():
             continue
         match = _EVIDENCE.fullmatch(line.strip()) if not line[:1].isspace() else None
-        path = f"$.result.evidence[{len(entries)}]"
+        path = f"$.result.evidence[{index}]"
         if match:
-            reference, description = _split(match.group(2), path, "[^id]: reference — description")
+            index += 1
+            try:
+                reference, description = _split(match.group(2), path, "[^id]: reference — description")
+            except TextFormatError as error:
+                errors.append(error)
+                skipped = True
+                continue
             entries.append({"id": match.group(1), "reference": reference, "description": description})
+            skipped = False
+        elif line[:1].isspace() and skipped:
+            continue  # a continuation of the line just reported is part of that one problem
         elif line[:1].isspace() and entries:
             entries[-1]["description"] += "\n" + line.strip()
         else:
-            raise TextFormatError("invalid_evidence", "Evidence lines read '[^id]: reference — description'.", path)
+            index, skipped = index + 1, True
+            errors.append(TextFormatError("invalid_evidence",
+                                          "Evidence lines read '[^id]: reference — description'.", path))
     return entries
 
 
@@ -217,7 +262,8 @@ def _finding(item: str, path: str) -> dict:
     explanation, explanation_ids = _references(explanation)
     recommendation, recommendation_ids = _references(recommendation or "")
     return {"severity": severity, "location": location, "explanation": explanation,
-            "recommendation": recommendation, "evidence_ids": explanation_ids + recommendation_ids}
+            "recommendation": recommendation,
+            "evidence_ids": _unique(explanation_ids + recommendation_ids)}
 
 
 def _check(item: str, path: str) -> dict:
@@ -228,20 +274,31 @@ def _check(item: str, path: str) -> dict:
     return {"name": name, "status": status.strip(), "evidence_ids": ids}
 
 
-def _payload(key: str, items: list[str]) -> list:
+def _artifact(item: str, path: str) -> dict:
+    return dict(zip(("path", "purpose"), _split(item, path, "<path> — <purpose>")))
+
+
+def _change(item: str, path: str) -> dict:
+    return dict(zip(("path", "description"), _split(item, path, "<path> — <description>")))
+
+
+def _payload(key: str, items: list[str], errors: list[TextFormatError]) -> list:
     if key == "items":
         return items
     if key == "conclusions":
         return [dict(zip(("claim", "evidence_ids"), _references(item))) for item in items]
     if key == "findings":
-        return [_finding(item, f"$.result.result.findings[{index}]") for index, item in enumerate(items)]
-    return [dict(zip(("path", "description"), _split(item, f"$.result.result.changes[{index}]",
-                                                       "<path> — <description>")))
-            for index, item in enumerate(items)]
+        return _parsed(items, "$.result.result.findings[{}]", _finding, errors)
+    return _parsed(items, "$.result.result.changes[{}]", _change, errors)
 
 
-def parse_result(text: str, expected: TaskContract) -> dict:
-    """The JSON-shaped result a text result stands for; identities come from ``expected``.
+def parse_result(text: str, expected: TaskContract) -> tuple[dict, list[TextFormatError]]:
+    """The JSON-shaped result a text result stands for, and the per-line problems it carries.
+
+    A problem that leaves the whole result unreadable raises ``TextFormatError``: an unknown
+    or repeated section, a malformed, repeated or missing header line, an identity that does
+    not match. A problem of one line is collected into the returned list and that line is
+    skipped, never guessed at, so one validation can report every one of them (#526).
 
     The worker writes a prefix of the contract revision; a matching prefix stands for the
     whole revision, and the bundle revision follows from the contract that binds it.
@@ -282,20 +339,20 @@ def parse_result(text: str, expected: TaskContract) -> dict:
     if "question" in header and "question" in sections:
         raise TextFormatError("duplicate_header", "Give the question once.", "$.result.question")
     question = header.get("question") or "\n".join(sections.get("question", [])).strip() or None
-    lists = {name: _items(sections.get(name, []), name) for name in (*LIST_SECTIONS, payload_key)}
+    errors: list[TextFormatError] = []
+    lists = {name: _items(sections.get(name, []), name, errors)
+             for name in (*LIST_SECTIONS, payload_key)}
     return {
         "protocol": PROTOCOL, "task_id": header["task"], "attempt_id": header["attempt"],
         "bundle_revision": expected.bundle_revision, "contract_revision": expected.contract_revision,
         "status": header["status"], "question": question,
         "result": {"summary": "\n".join(sections.get("summary", [])).strip(),
-                   payload_key: _payload(payload_key, lists[payload_key])},
-        "evidence": _evidence(sections.get("evidence", [])),
-        "artifacts": [dict(zip(("path", "purpose"), _split(item, f"$.result.artifacts[{index}]",
-                                                            "<path> — <purpose>")))
-                      for index, item in enumerate(lists["artifacts"])],
-        "checks": [_check(item, f"$.result.checks[{index}]") for index, item in enumerate(lists["checks"])],
+                   payload_key: _payload(payload_key, lists[payload_key], errors)},
+        "evidence": _evidence(sections.get("evidence", []), errors),
+        "artifacts": _parsed(lists["artifacts"], "$.result.artifacts[{}]", _artifact, errors),
+        "checks": _parsed(lists["checks"], "$.result.checks[{}]", _check, errors),
         "limitations": lists["limitations"], "remaining_work": lists["remaining_work"],
-    }
+    }, errors
 
 
 def is_text_result(value) -> bool:

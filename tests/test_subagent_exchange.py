@@ -12,7 +12,7 @@ from src.engine import subagent_exchange
 from src.engine.subagent import prepare_subagent
 from src.engine.subagent_text import CONTRACT_PREFIX_CHARS, PAYLOAD_KEYS
 from src.engine.subagent_validation import contract_fingerprint, validate_result
-from src.schemas.subagent import PreparedPackage
+from src.schemas.subagent import MAX_ERRORS, PreparedPackage
 from tests.test_subagent import codes, prepared, request, worker_tree  # noqa: F401
 
 PAYLOADS = {
@@ -59,7 +59,8 @@ def test_text_result_maps_to_the_closed_model(worker_tree):
     from src.engine.subagent_text import parse_result
 
     package = prepared(result_type="review")
-    value = parse_result(text_result(package), package.contract)
+    value, errors = parse_result(text_result(package), package.contract)
+    assert errors == []
     assert value["contract_revision"] == package.contract_revision
     assert value["bundle_revision"] == package.descriptor.bundle_revision
     assert value["result"]["findings"] == [{
@@ -103,6 +104,98 @@ def test_text_format_errors_name_the_problem(worker_tree, mutate, code):
     assert not response.valid and code in codes(response), response.errors
 
 
+def test_one_validation_reports_every_malformed_line_and_the_schema(worker_tree):
+    """Three evidence lines without the separator and a too-long summary, in one round."""
+    package = prepared(result_type="implementation")
+    text = text_result(package).replace(
+        "[^e1]: src/app.py:12 — logger.info prints the header\n"
+        "[^e2]: pytest tests/test_app.py -q — 12 passed",
+        "[^e1]: src/app.py:12 logger.info prints the header\n"
+        "[^e2]: pytest tests/test_app.py -q 12 passed\n"
+        "[^e3]: src/schemas.py:7 the third line").replace("Checked the log path.", "x" * 4001)
+    response = validate_result(package.contract.model_dump(mode="json"), text)
+    assert not response.valid
+    assert [(error.path, error.code) for error in response.errors] == [
+        ("$.result.evidence[0]", "separator_required"),
+        ("$.result.evidence[1]", "separator_required"),
+        ("$.result.evidence[2]", "separator_required"),
+        ("$.result.result.summary", "string_too_long")], response.errors
+    assert len(response.result_sha256) == 64
+
+
+def test_a_malformed_item_and_a_malformed_evidence_line_arrive_together(worker_tree):
+    """The round that fixed changes[2] only to fail again on evidence[1] (#526)."""
+    package = prepared(result_type="implementation")
+    payload = ("## changes\n- src/a.py — First change\n- src/b.py — Second change\n"
+               "- the directory that holds the environments")
+    text = text_result(package, payload=payload).replace(
+        "[^e2]: pytest tests/test_app.py -q — 12 passed",
+        "[^e2]: src/environments.py:136-146 (managed), 301-311 (complete)")
+    response = validate_result(package.contract.model_dump(mode="json"), text)
+    assert not response.valid
+    assert {(error.path, error.code) for error in response.errors} == {
+        ("$.result.result.changes[2]", "separator_required"),
+        ("$.result.evidence[1]", "separator_required")}, response.errors
+
+
+def test_a_continuation_of_a_reported_line_is_not_a_second_problem(worker_tree):
+    """The indented rest of a line already reported belongs to that one diagnostic."""
+    package = prepared(result_type="review")
+    evidence = text_result(package).replace(
+        "[^e1]: src/app.py:12 — logger.info prints the header",
+        "[^e1]: src/app.py:12 logger.info prints the header\n  and again in the body")
+    response = validate_result(package.contract.model_dump(mode="json"), evidence)
+    assert [(error.path, error.code) for error in response.errors] == [
+        ("$.result.evidence[0]", "separator_required")], response.errors
+
+    item = text_result(package).replace("## checks\n", "## checks\nstray line\n  its continuation\n")
+    response = validate_result(package.contract.model_dump(mode="json"), item)
+    assert [(error.path, error.code) for error in response.errors] == [
+        ("$.result.checks[0]", "invalid_item")], response.errors
+
+
+def test_the_combined_diagnostics_stay_within_the_error_cap(worker_tree):
+    package = prepared(result_type="implementation")
+    broken = "\n".join(f"[^e{index}]: src/app.py:{index} line {index}" for index in range(30))
+    text = text_result(package).replace("[^e1]: src/app.py:12 — logger.info prints the header", broken)
+    response = validate_result(package.contract.model_dump(mode="json"), text)
+    assert not response.valid and len(response.errors) == MAX_ERRORS, response.errors
+    assert len(response.result_sha256) == 64
+
+
+def test_a_finding_may_cite_the_same_evidence_twice(worker_tree):
+    """A repeated [^id] in one item is one reference; JSON results keep their own check."""
+    from src.engine.subagent_text import parse_result
+
+    package = prepared(result_type="review")
+    text = text_result(package, payload="## findings\n- high src/app.py:12 — The token is logged.[^e1]\n"
+                                        "  fix: Drop it from the message.[^e1]")
+    response = validate_result(package.contract.model_dump(mode="json"), text)
+    assert response.valid, response.errors
+    value, errors = parse_result(text, package.contract)
+    assert errors == [] and value["result"]["findings"][0]["evidence_ids"] == ["e1"]
+
+
+def test_the_separator_diagnostic_names_the_sections_it_covers(worker_tree):
+    package = prepared(result_type="review")
+    text = text_result(package).replace("[^e1]: src/app.py:12 — logger", "[^e1]: src/app.py:12 logger")
+    response = validate_result(package.contract.model_dump(mode="json"), text)
+    message = next(error.message for error in response.errors if error.code == "separator_required")
+    assert "every evidence line, finding, changes item and artifacts item" in message
+    assert len(message) <= 240, message
+
+
+def test_the_result_format_shows_several_locations_and_a_pre_reply_check(worker_tree):
+    from src.engine.subagent_text import render_result_format
+
+    package = prepared(result_type="implementation")
+    rendered = render_result_format(package.contract.model_dump(mode="json"))
+    assert "[^e2]: src/a.py:10-20, src/b.py:30 — <what both showed>" in rendered
+    assert ("Before replying, check that every line the form shows with ' — ' has it, and that "
+            "summary and every item stay within 4000 characters.") in rendered
+    assert rendered in package.worker_context
+
+
 def test_the_documented_separator_decides_over_a_double_hyphen_in_the_reference(worker_tree):
     """A reference carries its own ' -- ', as `git log --oneline -- path` does."""
     from src.engine.subagent_text import parse_result
@@ -113,7 +206,7 @@ def test_the_documented_separator_decides_over_a_double_hyphen_in_the_reference(
         "[^e1]: src/app.py:12 — logger.info prints the header",
         "[^e1]: git log --oneline -- src/app.py — logger.info prints the header")
     assert validate_result(package.contract.model_dump(mode="json"), text).valid
-    evidence = parse_result(text, package.contract)["evidence"][0]
+    evidence = parse_result(text, package.contract)[0]["evidence"][0]
     assert evidence["reference"] == "git log --oneline -- src/app.py"
     assert evidence["description"] == "logger.info prints the header"
 

@@ -171,10 +171,20 @@ def assess_result(contract: Any, result: Any) -> tuple[ValidationResponse, Outco
             except UnicodeEncodeError:
                 raise ContractError("invalid_text", "The result is not valid UTF-8 text.") from None
             try:
-                value = parse_result(result, expected)
+                value, text_errors = parse_result(result, expected)
             except TextFormatError as error:
                 raise ContractError(error.code, str(error), "$" + error.path[len("$.result"):]) from None
             value = bounded_object(value, max_chars=MAX_RESULT_CHARS)
+            if text_errors:
+                # One round reports every malformed line, with the schema problems of the
+                # lines that did parse; the semantic cross-checks below would only report
+                # noise about the skipped ones (#526).
+                reported = [diagnostic(error.path, error.code, str(error)) for error in text_errors]
+                try:
+                    RESULT_MODELS[expected.result_type].model_validate(value)
+                except ValidationError as error:
+                    reported += diagnostics(error, "$.result")
+                return finish(reported[:MAX_ERRORS])
         else:
             value = bounded_object(result, max_chars=MAX_RESULT_CHARS, allow_json=True)
             digest = hashlib.sha256((result if isinstance(result, str) else canonical_json(value))
