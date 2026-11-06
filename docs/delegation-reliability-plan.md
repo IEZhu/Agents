@@ -275,8 +275,14 @@ subject checks out of its `check_failed` count, while a worker whose own command
 failed still escalates as today. This plan's own research round hit a second
 variant worth fixing in the same change: a repair worker that faithfully
 preserved the failed checks of a previous attempt escalated on them, although
-its own execution had not failed. Checks should be scoped to the attempt that
-ran them.
+its own execution had not failed. `kind` alone does not fix that, because a
+copied check inherits the new envelope's `attempt_id` and is indistinguishable
+from one the current attempt ran. Each check therefore needs its own provenance:
+a `ran_in_attempt` field carrying the `attempt_id` that executed it. Escalation
+counts only failed `own_execution` checks whose `ran_in_attempt` equals the
+envelope's `attempt_id`, so a preserved check stays visible as evidence without
+driving the current attempt up a tier, and validation rejects a
+`ran_in_attempt` the contract's lineage does not contain.
 
 Two cheap additions from argumentation theory make the field usable rather than
 decorative:
@@ -338,20 +344,40 @@ parent asserts differ from the verified attempt.
 
 Then the definition the protocol needs: **a verification that differs on no
 dimension is a replication of the same measurement**, detecting sampling noise
-and nothing else. The server can enforce part of this honestly, because it
-resolves the tier itself: when `independence` claims `model` while
-`execution.model` resolves to the same model as the verified attempt,
-preparation refuses. With `independence` empty the receipt carries a warning and
+and nothing else. With `independence` empty the receipt carries a warning and
 the parent must record the result as same-route.
+
+What the server can and cannot enforce has to be stated exactly, because the
+obvious enforcement does not work. A `model` independence claim can be checked
+only when both attempts carry a resolved model identity. Tier `inherit` leaves
+`execution.model` null — the host picks the model and the contract never learns
+it — so for an `inherit` attempt on either side the claim is neither confirmed
+nor refuted: preparation marks it `unverifiable`, and an unverifiable claim is
+recorded as route-different-unverified, never as model independence. An unknown
+model is not evidence of difference any more than it is evidence of equality.
+Making the claim checkable requires the host to report the model it actually
+launched and preparation to bind that identity to the attempt; until it does,
+`model` independence is assertable only at the `light` and `standard` tiers,
+where the server resolves the model itself.
+
+The same honesty applies to the contract the claim points at. `verifies` can be
+resolved server-side only while the stored contract of that `contract_revision`
+is still on disk; with `delivery="inline"`, or after the seven-day cleanup, only
+the parent holds it. In that case preparation accepts the retained contract
+object for the verified attempt, and when neither is available it refuses the
+`independence` claim rather than assuming the routes differ.
 
 Three mechanisms fill the dimensions, in descending order of evidence.
 
 - **Blind the verifier** (finding 6, the 36 % exaggeration by unblinded
   assessors). `blinded: true` means the worker received the task and the
   materials but not the conclusion under check. This is cheap, needs no second
-  model, and has the best effect size in the literature. #563 already describes
-  the shape for declined findings: give the worker the finding, the code and the
-  decline reason, and *not* the session's reasoning.
+  model, and has the best effect size in the literature. #563 is the nearest
+  existing shape but it is deliberately *not* blinded: it hands the worker the
+  decline reason, which is the conclusion under check, and withholds only the
+  session's wider reasoning. It therefore records as route-different with
+  `blinded: false`, and a fully blinded variant — the finding and the code
+  without the decline — is a separate arm worth measuring against it.
 - **Change the model family** (finding 1 and the heterogeneity result: a mixed
   model pool scored 76.7 on a nine-benchmark average against 72.1 for the
   homogeneous mean). This is the analogue of diverse double-compiling, the
@@ -383,7 +409,7 @@ finding a defeater, which is both #563's shape and the only form in which findin
 - **Honest limit:** `model` and `blinded` have measured payoffs.
   `decomposition` and `information_set` are reasoned by analogy with forced
   diversity and with #547's field observations; no retrieved study measures them.
-- **Cut rule:** if route-independent verification finds no more planted defects
+- **Cut rule:** if route-different verification finds no more planted defects
   than same-route verification on the #567 set, keep `blinded`, `model` and
   `stance` and drop the rest.
 
@@ -396,8 +422,8 @@ The arithmetic is standard. With n verdicts sharing a route dimension at
 correlation ρ, the design effect is `DE = 1 + (n − 1)ρ` and the effective count
 is `n / DE`; in the source's own case study 128 clustered observations behaved
 like about 84, and a design powered at 80 % delivered 61 %. Three verdicts from
-identically prepared same-model workers at ρ = 0.8 are worth about 1.25
-independent verdicts. Clemen and Winkler's result says the same thing from the
+identically prepared same-model workers at ρ = 0.8 give DE = 1 + 2 × 0.8 = 2.6
+and are therefore worth 3 / 2.6 ≈ 1.15 independent verdicts. Clemen and Winkler's result says the same thing from the
 other direction: dependent sources are equivalent to a smaller number of
 independent ones, and the incremental value of extra sources falls off quickly.
 
@@ -412,7 +438,12 @@ without ground truth:
   the off-diagonal entries of their verdict covariance matrix form a rank-one
   matrix whose leading eigenvector entries scale with each classifier's balanced
   accuracy (Parisi et al.). Departure from rank-one is evidence of dependence,
-  and the same eigenvector gives an unsupervised accuracy ranking. Jaffe et al.
+  and the same eigenvector gives an unsupervised accuracy ranking — but only up
+  to the eigenvector's sign, which no amount of unlabelled data resolves. The
+  source's own tie-breaker is the assumption that most of the classifiers are
+  better than random; where that cannot be asserted for a task class, the
+  control set has to supply the orientation, and until one of the two holds the
+  ranking is reported as ambiguous rather than used as a weight. Jaffe et al.
   supply the matching negative result and remedy: ensembles built on conditional
   independence "can be severely sub-optimal" when it is violated, and dependent
   members can be detected without labels.
@@ -480,10 +511,26 @@ return, the expected value of that sample information is zero. This needs no
 statistics: before spawning a verifier, name the verdict that would change the
 decision. If there is none, stop.
 
-**Set the bar from the cost ratio.** The Bayes-optimal threshold is
-p\* = c_FP / (c_FP + c_FN), with c_FN the cost of accepting a wrong result and
-c_FP the cost of one more verifier. Accepting a wrong result is normally far
-more costly, so p\* sits close to 1.
+**Keep the two cost decisions apart.** They have different thresholds, and
+conflating them is easy. The first is *accept or reject what you have*, a
+decision under misclassification costs: with `C_accept_bad` the cost of
+accepting a wrong result and `C_reject_good` the cost of rejecting a good one,
+the Bayes rule accepts when the posterior probability that the result is
+correct is at least `C_accept_bad / (C_accept_bad + C_reject_good)`. Because
+accepting a wrong result is normally far more costly, that threshold sits close
+to 1 — a result has to be strongly supported to be accepted. The second is
+*buy another check*, a sampling decision, and it compares the expected
+reduction in loss against the price of the check: a perfect check is worth
+buying while `p · C_accept_bad > c_check`, that is `p > c_check / C_accept_bad`,
+where p is the current probability that the result is wrong. Neither threshold
+is the other, and only the first is Elkan's classification threshold.
+
+With a real verifier the sampling comparison needs its operating
+characteristics. A check that detects a present defect with probability d
+reduces the expected loss by at most `p · d · C_accept_bad`, so it is worth
+buying only while `p · d · C_accept_bad > c_check`. Layer 6 is where d comes
+from; with d unknown this rule cannot be applied, and the honest fallback is the
+zero-value question above plus a declared `max_attempts`.
 
 **Do not fix N; use a rule that stays valid while you look.** Each verification
 can contribute a conditional e-value; the running product is a test
@@ -493,6 +540,17 @@ adaptive parent does — read a verdict, decide whether to buy another — and i
 the one framework under which the practice carries a stated error bound. A
 fixed-sample threshold read under adaptive stopping carries none.
 
+The guarantee is conditional on a requirement that this setting makes hard, and
+it must be stated rather than assumed: each stage's e-value has to satisfy
+`E[E_m | F_{m-1}] ≤ 1` under the null *given the routes and verdicts already
+seen*. Per-route sensitivity and specificity averaged over a task class are not
+enough; what is needed is the verdict distribution of the next route conditional
+on the previous ones, which is exactly what common-mode failure corrupts. Two
+same-lineage verifiers that fail together on hard inputs break the conditional
+bound, and the product then carries no error control at all. So the e-process is
+usable only where Layer 6 has measured that conditional behaviour on the control
+set; until then the plan claims no formal guarantee for it.
+
 **Know when verification stops paying at all.** Deming's all-or-none rule: with p
 the error rate of incoming work, k₁ the cost of one check and k₂ the cost of
 letting an error through, minimum average cost comes from **no** checking when
@@ -500,13 +558,25 @@ p < k₁/k₂ and from checking **everything** when p > k₁/k₂; an intermedia
 sampling plan is optimal only at the break-even point. "Spot-check a fraction of
 worker outputs" is almost never the optimal policy.
 
+That rule assumes the check catches the defect it looks at, which an inspector
+in a factory approximately does and an LLM verifier demonstrably does not. With
+detection rate d the break-even moves to `p · d > k₁/k₂`, so a weak verifier
+pushes the all-or-none boundary towards "do not check" — not towards "check
+more", which is the intuitive and wrong response. Applying the undiscounted rule
+with d ≈ 0.3 would prescribe checking everything on workloads where checking
+loses money, so d belongs in the comparison from the start.
+
 Proposal: an optional, pre-registered `acceptance` block in the contract.
 
 ```
 Acceptance {
-  cost_ratio:   c_FP / c_FN, or alpha directly
-  stopping:     single | sequential
-  max_attempts: the budget ceiling the parent will not exceed
+  accept_costs:         C_accept_bad and C_reject_good, giving the acceptance
+                        threshold, or alpha directly
+  check_cost:           c_check, for the sampling comparison
+  stopping:             single | sequential
+  max_attempts:         the budget ceiling the parent will not exceed
+  dependence_threshold: the measured route dependence above which a check
+                        yields accepted_conditional instead of accepted
 }
 ```
 
@@ -536,18 +606,32 @@ reportable claim while "a blinded different-model refuter found no defeater" is.
 
 Proposal, all parent-side and no schema change:
 
-- Three dispositions with fixed meanings. `accepted` — criteria met and checked
-  by a route-independent method. `accepted_conditional` — criteria met, but the
-  check was same-route, or unblinded, or the stated falsifier was not
-  observable; the limitation is named. `rejected`.
-- `accepted_conditional` is the guard-band case and it must reach the user.
-  Deciding on the bare value is simple acceptance, whose false-accept risk the
-  standards put at up to 50 % at the limit.
-- The qualifier vocabulary already exists in the repository:
-  `skill-confidence-markers` fixes HIGH as "checked this turn", MEDIUM as
-  "reasoned, likely unverified" and LOW as speculative, on the deliverable
-  rather than per sentence. Reuse it, and tie HIGH to a route-independent check
-  so the marker means something auditable.
+- Four dispositions with fixed meanings, because a route that merely *differs*
+  is not an independent one and because the stopping rule can legitimately stop
+  before any check runs. `accepted` — criteria met, checked by a route-different
+  method, and the measured dependence for that pair of routes is below the
+  threshold the contract pre-registered. `accepted_conditional` — criteria met
+  and checked, but the check was same-route, unblinded, claimed an independence
+  the server could not verify, or the stated falsifier was not observable; the
+  limitation is named. `accepted_unchecked` — criteria met and no check was
+  bought, because the claim's importance was `routine` or because the
+  value-of-information rule said no verdict could change the decision; the
+  reason is named. `rejected`.
+- Only `accepted` may be reported as verified. Until Layer 6 has measured a
+  dependence threshold for a task class, a route-different check yields
+  `accepted_conditional`, not `accepted` — the plan's own risks section says
+  heterogeneity is not independence, and the disposition has to say the same.
+- `accepted_conditional` and `accepted_unchecked` both reach the user. Deciding
+  on the bare value is simple acceptance, whose false-accept risk the standards
+  put at up to 50 % at the limit.
+- The qualifier is a **separate delegation marker**, not a reuse of the existing
+  scale. `skill-confidence-markers` fixes HIGH as "checked this turn", and an
+  ordinary verified edit legitimately earns it; redefining HIGH as "checked by a
+  route-different method" would change the meaning of a shared component for
+  every other consumer and mislabel ordinary work. The delegation marker is the
+  disposition itself, which is auditable because the route record backs it, and
+  the two vocabularies stay independent. Extending the skill instead is possible
+  but is its own change, with its own consumers to update.
 - Where no ground truth exists and several routes were run, report the
   dispersion (finding 10) rather than a verdict, and call it what the standards
   call it: a degree of equivalence, not accuracy.
@@ -569,13 +653,26 @@ three different strengths, and the standards name the weakest one honestly.
 |---|---|---|
 | Proficiency testing: the provider holds the assigned value and scores each participant by z = (xᵢ − x_pt)/σ_pt, with \|z\| ≤ 2 satisfactory, 2–3 warning, ≥ 3 action | A blind, homogeneous test item and a justified assigned value | #567's planted-defect benchmark, generalised beyond `code_reviewer` to every role used as a verifier, and re-run rather than run once |
 | Certified reference materials: the known value travels with the item and its certificate, carrying its own traceable uncertainty | Homogeneity, stability, and a value not also used as the calibrator | A small frozen set of tasks with known answers, kept out of every prompt, rule and eval example, used as the trueness control in the configuration that actually runs |
-| Key comparisons: no external truth exists, the reference value comes from the participants, and the output is a *degree of equivalence* — a deviation plus the expanded uncertainty of that deviation | A protocol fixing the reference-value method before results are seen | k route-independent workers on one task, reporting dispersion rather than a verdict |
+| Key comparisons: no external truth exists, the reference value comes from the participants, and the output is a *degree of equivalence* — a deviation plus the expanded uncertainty of that deviation | A protocol fixing the reference-value method before results are seen | k route-different workers on one task, reporting dispersion rather than a verdict |
 
 **The ledger.** Extend `src/engine/subagent_ledger.py` from routing facts to
 outcomes: per (agent, complexity, route dimensions), how often an accepted
 result was later refuted — by a failing test, by CI, by a human, by a later
-session. That yields the per-route sensitivity and specificity Layer 4 needs and
-the ρ estimates Layer 3 needs. Keep the current privacy shape exactly: opt-in
+session.
+
+A refutation is only half an operating characteristic, and the ledger has to be
+designed for the other half. An accepted result that later turns out wrong is a
+false-accept observation; it supplies no denominator for the opposite error,
+because results the verifier rejected do not come back labelled. Sensitivity and
+specificity therefore come from the control set, where the answer is known: the
+ledger records, per attempt, the route, the verifier's verdict, the known answer
+where there is one, and which outcome class the pair falls into, with the
+positive class defined once and written down ("the verifier says the result is
+defective"). Production refutations then calibrate the false-accept rate in the
+field, and the control set supplies the full confusion matrix. Only the two
+together give Layer 4 the d it needs; neither alone does, and the ρ estimates
+Layer 3 needs come from the coincident-failure counts across route pairs on the
+same control items. Keep the current privacy shape exactly: opt-in
 behind the environment variable, hashed task IDs, routing and outcome facts only,
 never task text, and a write failure that never fails a tool call.
 
@@ -650,7 +747,7 @@ so the rule and this layer stay consistent instead of defining two taxonomies.
 | Level | Validation required | Stored |
 |---|---|---|
 | `routine` | none | no |
-| `load_bearing` | one route-independent check, blinded where possible | yes, with its route and expiry |
+| `load_bearing` | one route-different check, blinded where possible | yes, with its route and expiry |
 | `critical` | blinded re-derivation by a different route, plus a refuter asked for a named defeater | only on a confirmed verdict; otherwise `accepted_conditional` and not stored |
 
 **The store.** A validated fact is not a cache entry; it is a certificate, and
@@ -743,12 +840,13 @@ not a candidate.
 |---|---|---|---|
 | Criteria are not revised after reading a result; the decision rule is agreed before measuring | 0 | `docs/subagent-contract.md`, `src/engine/protocol/` | instruction |
 | "A check that reaches the answer by the claim's own route is not a check" | 2 | `src/engine/protocol/`, `rules/subagents/rule-worker-result.mdc` | instruction |
-| Three parent dispositions, and the conditional one reaches the user | 5 | `docs/subagent-contract.md`, `flows/pr-review.md`, `flows/code-review-pass.md` | instruction |
-| `Check.kind: own_execution \| subject` and `Check.criterion_id`, excluded from `check_failed`; checks scoped to their own attempt | 1 | `src/schemas/subagent.py`, `src/engine/model_tiers.py`, `src/engine/subagent_text.py` | schema |
+| Four parent dispositions, with the conditional and unchecked ones reaching the user | 5 | `docs/subagent-contract.md`, `flows/pr-review.md`, `flows/code-review-pass.md` | instruction |
+| `Check.kind: own_execution \| subject`, `Check.criterion_id` and `Check.ran_in_attempt`; `check_failed` counts only own-execution checks from the current attempt | 1 | `src/schemas/subagent.py`, `src/engine/model_tiers.py`, `src/engine/subagent_text.py` | schema |
 | `Criterion.falsifier`, `Criterion.method` | 1 | `src/schemas/subagent.py`, `src/engine/subagent_validation.py` | schema |
 | `Route` with `blinded`, plus `verifies` and `independence`; same-model refusal at preparation | 2 | `src/schemas/subagent.py`, `src/engine/subagent.py`, `src/engine/model_tiers.py` | schema |
 | Evidence overlap and the rank-one dependence test; effective-verdict count | 3 | parent procedure, documented | procedure |
-| `Acceptance {cost_ratio, stopping, max_attempts}`; escalation driven by it | 4 | `src/schemas/subagent.py`, `src/engine/model_tiers.py`, `docs/subagent-model-tiers.md` | schema |
+| `Acceptance {accept_costs, check_cost, stopping, max_attempts, dependence_threshold}`; escalation driven by it | 4 | `src/schemas/subagent.py`, `src/engine/model_tiers.py`, `docs/subagent-model-tiers.md` | schema |
+| A host-reported resolved model bound to the attempt, so a `model` independence claim is checkable at tier `inherit` | 2 | `src/engine/model_tiers.py`, `docs/subagent-model-tiers.md` | schema |
 | Ledger outcomes, per-route sensitivity, ρ estimates, control chart, debiased calibration | 6 | `src/engine/subagent_ledger.py`, `scripts/subagent_tiers_report.py` | subsystem |
 | Known-answer control set, re-run on every model or prompt change | 6 | `evals/` (generalising #567) | evaluation |
 | Derived `importance`; `ValidatedFact` store, append-only, expiring, parent-only, granted to workers only as pinned artifacts | 7 | new module beside `src/artifacts/` and `src/memory/`; `src/user_sync/scope.py` for opt-in sync | subsystem |
@@ -776,7 +874,7 @@ seeds, pinned routing, decision rule stated before the run — is the template.
 - **Metrics.** Planted-defect recall with the correct location; false-positive
   rate on clean tasks, judged blind by a model different from the one under test;
   the share of accepted results later refuted, from the ledger; cost per accepted
-  result including retries; dispersion across route-independent workers on set D;
+  result including retries; dispersion across route-different workers on set D;
   and the observed coincident-failure count against the independence prediction,
   which is the one statistic that directly measures ρ.
 - **Sample size, stated before the run.** The repository's recorded noise band
@@ -834,9 +932,10 @@ Cheap first, each step independently useful, everything after step 2 gated on a
 measurement in #327's form.
 
 1. Instruction only: Layer 0's two sentences, Layer 2's same-route sentence,
-   Layer 5's three dispositions. No schema change.
+   Layer 5's four dispositions. No schema change.
 2. `Check.kind` and `Check.criterion_id`, with `escalation()` ignoring subject
-   checks and checks scoped to their own attempt. Closes #534 and stops the
+   checks and `ran_in_attempt` binding each check to the attempt that ran it.
+   Closes #534 and stops the
    spurious escalations #443 would otherwise measure.
 3. `blinded` verification as the default shape for every check, with #563's
    materials rule: the verifier sees the artefact and not the reasoning.
