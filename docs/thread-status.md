@@ -83,8 +83,15 @@ instead of depending on CLI-side metadata writes being mirrored back. In that en
 and the SDK command. It names the app's
 `mcp__ccd_session_mgmt__get_session` and `mcp__ccd_session_mgmt__set_session_title`
 tools with `session_id: "self"`, plus the ToolSearch query that loads them while
-deferred. The app may ask the user to approve renaming a title the user set
+deferred. The chat identity the hook prints is the CLI session ID, so the context
+says to pass `"self"` instead, and that the SDK helper is for the Claude Code CLI.
+The app may ask the user to approve renaming a title the user set
 manually. Titles it generated are replaced without asking.
+
+Claude Code passes its environment to hook processes, and the desktop app sets the
+entrypoint on the Claude Code process it starts, so the hook needs no other signal.
+The app's own session ID (`local_…`) is in `CLAUDE_CODE_HOST_SESSION_ID`; the
+hook does not use it, because `"self"` already names the current chat.
 
 Codex's `Interrupt` hook runs outside the cancelled model turn. It requires the
 session and interrupted turn IDs, verifies that the public `thread/turns/list`
@@ -224,6 +231,9 @@ adapter. The installer honors `CLAUDE_CONFIG_DIR` and `CODEX_HOME`; Cursor uses
 Its interpreter must remain installed. It updates only owned handlers, preserves
 other hooks and settings, backs up every changed existing file before writes,
 and refuses symlink paths. Repeating it does not duplicate handlers.
+The copies do not follow later updates of the checkout: rerun the installer
+after an update that changes these hooks. Its `--dry-run` reports `changed: true`
+while the installed copies are out of date.
 
 Start a fresh session. Review and trust changed Codex hook definitions through
 the client's `/hooks` interface where required; installation does not fabricate
@@ -249,7 +259,12 @@ python /path/to/profile/hooks/agents-core-thread-status.py --client claude --ses
 
 A successful result confirms `persisted: true`, with
 `live_ui_refresh_verified: false`: SDK persistence does not prove that an already
-open interface refreshed. Failures return nonzero and do not claim application.
+open interface refreshed. It also carries `claude_desktop_sidebar_updated: false`
+and a `note`: the helper writes the CLI session title, which a Claude desktop app
+sidebar does not show. Run from a desktop Code tab, where the entrypoint is
+`claude-desktop`, the note says that the sidebar title did not change and names
+`mcp__ccd_session_mgmt__set_session_title` with `session_id: "self"`; the write
+itself still happens. Failures return nonzero and do not claim application.
 The helper never picks the newest session as a substitute for an unknown ID.
 It consumes no transcript paths and contains no client storage-format writer.
 

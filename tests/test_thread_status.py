@@ -88,10 +88,11 @@ def test_claude_desktop_points_to_app_title_tools_instead_of_cli_title(monkeypat
     assert "sessionTitle" not in fields
     context = fields["additionalContext"]
     assert context.startswith(STATUS_GUIDANCE)
-    assert 'session_id "self"' in context
+    assert 'session_id "self" (not the chat identity above)' in context
     assert '"select:mcp__ccd_session_mgmt__get_session,mcp__ccd_session_mgmt__set_session_title"' in context
     # The SDK helper writes only the CLI title, so the desktop context must not offer it.
     assert "--set-status" not in context
+    assert "the helper is for the Claude Code CLI" in context
 
 
 def test_other_claude_entrypoints_keep_cli_title_and_sdk_helper(monkeypatch, tmp_path):
@@ -340,9 +341,22 @@ def test_sdk_uses_explicit_session_reads_back_and_avoids_duplicate_writes(sdk, t
     result = runtime.rename_claude_session(SESSION, str(tmp_path), status)
     assert result["title"] == prefix + " Test task" and result["persisted"] is True
     assert result["live_ui_refresh_verified"] is False
+    assert result["claude_desktop_sidebar_updated"] is False
+    assert result["note"] == runtime.CLI_HELPER_NOTE
     assert len(state["writes"]) == 1
     assert runtime.rename_claude_session(SESSION, str(tmp_path), status)["changed"] is False
     assert len(state["writes"]) == 1
+
+
+def test_sdk_result_in_claude_desktop_says_the_sidebar_did_not_change(monkeypatch, sdk, tmp_path):
+    # An agent in a desktop Code tab ran this helper and reported the title as set,
+    # although the app keeps its own title and never showed the CLI one.
+    monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", runtime.DESKTOP_ENTRYPOINT)
+    result = runtime.rename_claude_session(SESSION, str(tmp_path), "review")
+    assert result["persisted"] is True and result["claude_desktop_sidebar_updated"] is False
+    assert result["note"] == runtime.DESKTOP_HELPER_NOTE
+    assert "sidebar title did NOT change" in result["note"]
+    assert 'mcp__ccd_session_mgmt__set_session_title and session_id "self"' in result["note"]
 
 
 def test_sdk_failure_or_missing_session_is_not_reported_as_applied(sdk, tmp_path):
@@ -382,6 +396,24 @@ def test_installed_runtime_runs_outside_checkout_with_sibling_core(tmp_path, cli
     assert "finishing=🧹" in context
     # JSON remains ASCII safe even under legacy terminal encodings.
     assert result.stdout.isascii()
+
+
+@pytest.mark.parametrize("event_name", ["SessionStart", "UserPromptSubmit"])
+def test_installed_runtime_in_claude_desktop_names_app_title_tool(monkeypatch, tmp_path, event_name):
+    # Claude Code hands its own environment, with the entrypoint the desktop app set, to hook processes.
+    monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", runtime.DESKTOP_ENTRYPOINT)
+    hook = tmp_path / "hooks/agents-core-thread-status.py"
+    hook.parent.mkdir()
+    shutil.copyfile(ROOT / "scripts/thread_status.py", hook)
+    shutil.copyfile(ROOT / "src/thread_status.py", hook.with_name("agents_core_thread_titles.py"))
+    result = subprocess.run([sys.executable, str(hook), "--client", "claude"], cwd=tmp_path,
+                            input=json.dumps(event(event_name, session_title="Task", cwd=str(tmp_path))),
+                            capture_output=True, text=True, check=True)
+    fields = json.loads(result.stdout)["hookSpecificOutput"]
+    assert "sessionTitle" not in fields
+    context = fields["additionalContext"]
+    assert 'mcp__ccd_session_mgmt__set_session_title, both with session_id "self"' in context
+    assert "--set-status" not in context and str(hook) not in context
 
 
 @pytest.mark.parametrize("client", ["claude", "codex", "cursor"])
