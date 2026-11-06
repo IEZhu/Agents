@@ -281,8 +281,19 @@ from one the current attempt ran. Each check therefore needs its own provenance:
 a `ran_in_attempt` field carrying the `attempt_id` that executed it. Escalation
 counts only failed `own_execution` checks whose `ran_in_attempt` equals the
 envelope's `attempt_id`, so a preserved check stays visible as evidence without
-driving the current attempt up a tier, and validation rejects a
-`ran_in_attempt` the contract's lineage does not contain.
+driving the current attempt up a tier.
+
+That membership test needs a lineage the contract does not currently carry, so
+the lineage has to be supplied rather than assumed. The parent knows which
+earlier attempts it is asking the worker to preserve checks from — it holds
+their receipts — and passes them as a bounded `preserves_attempts` list;
+preparation writes them into the contract as `attempt_lineage`, inside the
+fingerprint like every other contract field. Validation then accepts a
+`ran_in_attempt` only when it equals the envelope's `attempt_id` or appears in
+that lineage. When no lineage was supplied the only accepted value is the
+current `attempt_id`, and any other is a diagnostic rather than a silently
+ignored field — which also keeps a worker from inventing an attempt to park a
+failed check in.
 
 Two cheap additions from argumentation theory make the field usable rather than
 decorative:
@@ -356,9 +367,17 @@ nor refuted: preparation marks it `unverifiable`, and an unverifiable claim is
 recorded as route-different-unverified, never as model independence. An unknown
 model is not evidence of difference any more than it is evidence of equality.
 Making the claim checkable requires the host to report the model it actually
-launched and preparation to bind that identity to the attempt; until it does,
-`model` independence is assertable only at the `light` and `standard` tiers,
-where the server resolves the model itself.
+launched and preparation to bind that identity to the attempt.
+
+Resolving a tier is not the same as knowing the model, so even the lower tiers
+do not settle it by themselves. Tier resolution can yield an alias or a
+configured override rather than a model identity — on one client the aliases are
+deliberately stable names that always point at the newest model of a class — so
+two different recorded names can select the same model, and one name can select
+different models a month apart. Comparing names therefore establishes a
+difference only where the two names are known to denote distinct models;
+otherwise the claim is `unverifiable` for the same reason as at `inherit`. What
+makes it decidable is a bound actual identity, and nothing less.
 
 The same honesty applies to the contract the claim points at. `verifies` can be
 resolved server-side only while the stored contract of that `contract_revision`
@@ -518,19 +537,38 @@ accepting a wrong result and `C_reject_good` the cost of rejecting a good one,
 the Bayes rule accepts when the posterior probability that the result is
 correct is at least `C_accept_bad / (C_accept_bad + C_reject_good)`. Because
 accepting a wrong result is normally far more costly, that threshold sits close
-to 1 — a result has to be strongly supported to be accepted. The second is
-*buy another check*, a sampling decision, and it compares the expected
-reduction in loss against the price of the check: a perfect check is worth
-buying while `p · C_accept_bad > c_check`, that is `p > c_check / C_accept_bad`,
-where p is the current probability that the result is wrong. Neither threshold
-is the other, and only the first is Elkan's classification threshold.
+to 1 — a result has to be strongly supported to be accepted — and the threshold
+is a ratio of the two *decision* costs, not of anything to do with the price of
+a check.
 
-With a real verifier the sampling comparison needs its operating
-characteristics. A check that detects a present defect with probability d
-reduces the expected loss by at most `p · d · C_accept_bad`, so it is worth
-buying only while `p · d · C_accept_bad > c_check`. Layer 6 is where d comes
-from; with d unknown this rule cannot be applied, and the honest fallback is the
-zero-value question above plus a declared `max_attempts`.
+The second decision is *buy another check*, and it compares the price of the
+check against the loss the check could actually remove. That is the current
+minimum loss over the actions already available, not the loss of accepting. With
+p the probability that the result is wrong,
+
+```
+L0 = min( p · C_accept_bad ,  (1 - p) · C_reject_good )
+```
+
+and a perfect check is worth buying only while `L0 > c_check`. The reason the
+distinction bites is that rejecting is often cheap: with p = 0.9,
+`C_accept_bad` = 100 and `C_reject_good` = 1, accepting costs 90 but rejecting
+costs 0.1, so a perfect check priced at 1 cannot pay for itself even though the
+result is almost certainly wrong. Verification is worth buying only when *both*
+actions are expensive — when the result is genuinely needed and cannot simply be
+discarded. Comparing `c_check` against `p · C_accept_bad` instead of against L0
+buys checks on work that should just be thrown away.
+
+With a real verifier the comparison has to run over the verdicts rather than
+over a single number, because a verdict can also be wrong in the direction that
+costs money. For a check with detection rate d on a defective result and
+false-flag rate f on a sound one, the quantity to compare with `c_check` is
+`L0 − E_v[ min over actions of the expected loss given verdict v ]`, where the
+expectation runs over the verdicts the check can return. Missed defects leave
+part of `p · C_accept_bad` in place; false flags add rejections of sound
+results. Layer 6 is where d and f come from; while either is unknown this rule
+cannot be applied at all, and the honest fallback is the zero-value question
+above plus a declared `max_attempts`.
 
 **Do not fix N; use a rule that stays valid while you look.** Each verification
 can contribute a conditional e-value; the running product is a test
@@ -563,8 +601,20 @@ in a factory approximately does and an LLM verifier demonstrably does not. With
 detection rate d the break-even moves to `p · d > k₁/k₂`, so a weak verifier
 pushes the all-or-none boundary towards "do not check" — not towards "check
 more", which is the intuitive and wrong response. Applying the undiscounted rule
-with d ≈ 0.3 would prescribe checking everything on workloads where checking
-loses money, so d belongs in the comparison from the start.
+with a detection rate of, say, 0.3 would prescribe checking everything on
+workloads where checking loses money, so d belongs in the comparison from the
+start.
+
+Four assumptions come with the rule even in that corrected form, and a workload
+that breaks any of them needs the full verdict-wise comparison above instead.
+Detecting a defect is taken to avoid the whole of k₂ at no further correction
+cost; a false flag on a sound result is taken to cost nothing, or to be already
+inside k₁; the expected cost and benefit of a check are taken not to vary with
+the fraction of work inspected, which is what makes the optimum all-or-none
+rather than partial; and p is taken to be stable over the batch, which is the
+statistical-control precondition the original rule states in its own terms. The
+third is the one most likely to fail here, because a parent that checks only the
+hard cases is choosing a non-uniform sampling fraction on purpose.
 
 Proposal: an optional, pre-registered `acceptance` block in the contract.
 
@@ -668,11 +718,19 @@ specificity therefore come from the control set, where the answer is known: the
 ledger records, per attempt, the route, the verifier's verdict, the known answer
 where there is one, and which outcome class the pair falls into, with the
 positive class defined once and written down ("the verifier says the result is
-defective"). Production refutations then calibrate the false-accept rate in the
-field, and the control set supplies the full confusion matrix. Only the two
-together give Layer 4 the d it needs; neither alone does, and the ρ estimates
-Layer 3 needs come from the coincident-failure counts across route pairs on the
-same control items. Keep the current privacy shape exactly: opt-in
+defective"). The control set supplies the full confusion matrix, and it is the
+only source of d and f that Layer 4 can use.
+
+Production refutations are a weaker quantity and must be labelled as one. They
+count only the wrong results somebody happened to notice, so the rate they give
+is an observed-refutation rate, a lower bound on the field false-accept rate
+rather than an estimate of it. Turning it into an estimate would need either
+follow-up on a known fraction of accepted results, or an assumption about what
+share of errors eventually surface — and both are assumptions, not measurements.
+Until one of them is in place the ledger reports the observed-refutation rate
+under that name and does not call it the field error rate. The ρ estimates
+Layer 3 needs come from coincident-failure counts across route pairs on the same
+control items, which is again the control set rather than production. Keep the current privacy shape exactly: opt-in
 behind the environment variable, hashed task IDs, routing and outcome facts only,
 never task text, and a write failure that never fails a tool call.
 
@@ -942,12 +1000,16 @@ measurement in #327's form.
 4. `Criterion.falsifier` and `Criterion.method`, with the validator's conditional
    requirement.
 5. `Route`, `verifies`, `independence`, and the server-side same-model refusal.
-6. Ledger outcomes and per-route sensitivity; then the `Acceptance` block and the
-   sequential rule, which cannot be implemented honestly before the ledger has
-   data.
-7. The known-answer control set, generalising #567, with periodic re-measurement
-   and a control chart.
-8. Derived `importance`, then the `ValidatedFact` store — last, because a store
+6. Ledger outcome recording: the route, the verdict, the known answer where
+   there is one, and the outcome class. Recording only; no derived statistic
+   yet.
+7. The known-answer control set, generalising #567, with periodic
+   re-measurement and a control chart. This has to precede any measurement of
+   sensitivity, because the control set is where the labels come from.
+8. Per-route sensitivity, specificity and ρ, measured on that control set; then
+   the `Acceptance` block and the sequential rule, which cannot be implemented
+   honestly before those numbers exist.
+9. Derived `importance`, then the `ValidatedFact` store — last, because a store
    is only as good as the validation that fills it.
 
 ## Evidence base
