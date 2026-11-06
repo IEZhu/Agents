@@ -995,8 +995,12 @@ measurement in #327's form.
    checks and `ran_in_attempt` binding each check to the attempt that ran it.
    Closes #534 and stops the
    spurious escalations #443 would otherwise measure.
-3. `blinded` verification as the default shape for every check, with #563's
-   materials rule: the verifier sees the artefact and not the reasoning.
+3. `blinded` verification as the default shape for every check: the verifier
+   receives the artefact and the materials, and not the conclusion under check.
+   That goes further than #563's materials rule, which withholds the session's
+   reasoning but still hands over the decline reason — so a blinded verifier
+   must not receive the decline either, and #563's existing shape records as
+   route-different with `blinded: false`.
 4. `Criterion.falsifier` and `Criterion.method`, with the validator's conditional
    requirement.
 5. `Route`, `verifies`, `independence`, and the server-side same-model refusal.
