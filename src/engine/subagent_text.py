@@ -229,7 +229,7 @@ def dropped_positions(errors: list[TextFormatError]) -> dict[str, list[int]]:
     """
     positions: dict[str, list[int]] = {}
     for error in errors:
-        if error.code == "invalid_item":  # a stray line removes no entry from the list
+        if error.code in ("invalid_item", "invalid_evidence"):  # a stray line is no entry
             continue
         path, _, index = error.path.rpartition("[")
         if index[:-1].isdigit():
@@ -256,14 +256,14 @@ def _evidence(lines: list[str], errors: list[TextFormatError]) -> list[dict]:
                 continue
             entries.append({"id": match.group(1), "reference": reference, "description": description})
             skipped = False
-        elif line[:1].isspace() and skipped:
-            continue  # a continuation of the line just reported is part of that one problem
+        elif skipped:
+            continue  # a line following one already reported is part of that one problem
         elif line[:1].isspace() and entries:
             entries[-1]["description"] += "\n" + line.strip()
         else:
-            index, skipped = index + 1, True
             errors.append(TextFormatError("invalid_evidence",
                                           "Evidence lines read '[^id]: reference — description'.", path))
+            skipped = True  # a line that is no evidence line takes no position of its own
     return entries
 
 
@@ -297,10 +297,12 @@ def _check(item: str, path: str) -> dict:
 
 
 def _artifact(item: str, path: str) -> dict:
+    """One item of ## artifacts: ``<path> — <purpose>``."""
     return dict(zip(("path", "purpose"), _split(item, path, "<path> — <purpose>")))
 
 
 def _change(item: str, path: str) -> dict:
+    """One item of ## changes: ``<path> — <description>``."""
     return dict(zip(("path", "description"), _split(item, path, "<path> — <description>")))
 
 

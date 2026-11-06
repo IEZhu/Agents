@@ -278,6 +278,37 @@ def test_consecutive_stray_lines_report_one_problem(worker_tree):
         ("$.result.checks[0]", "invalid_item")], response.errors
 
 
+def test_consecutive_lines_that_are_no_evidence_report_one_problem(worker_tree):
+    """A prose block under ## evidence is one problem, a second bad [^id]: line is another."""
+    package = prepared(result_type="review")
+    text = text_result(package).replace(
+        "[^e2]: pytest tests/test_app.py -q — 12 passed",
+        "first stray\nsecond stray\nthird stray\n[^e2]: pytest tests/test_app.py -q — 12 passed")
+    response = validate_result(package.contract.model_dump(mode="json"), text)
+    assert [(error.path, error.code) for error in response.errors] == [
+        ("$.result.evidence[1]", "invalid_evidence")], response.errors
+
+    text = text_result(package).replace(
+        "[^e2]: pytest tests/test_app.py -q — 12 passed",
+        "a stray line\n[^e2]: pytest tests/test_app.py -q 12 passed")
+    response = validate_result(package.contract.model_dump(mode="json"), text)
+    assert [(error.path, error.code) for error in response.errors] == [
+        ("$.result.evidence[1]", "invalid_evidence"),
+        ("$.result.evidence[1]", "separator_required")], response.errors
+
+
+def test_a_line_that_is_no_evidence_line_takes_no_position(worker_tree):
+    """The schema error still names the second evidence line, which a stray line precedes."""
+    package = prepared(result_type="review")
+    text = text_result(package).replace(
+        "[^e2]: pytest tests/test_app.py -q — 12 passed",
+        f"a stray line\n[^e2]: pytest tests/test_app.py -q — {'y' * 4001}")
+    response = validate_result(package.contract.model_dump(mode="json"), text)
+    assert [(error.path, error.code) for error in response.errors] == [
+        ("$.result.evidence[1]", "invalid_evidence"),
+        ("$.result.evidence[1].description", "string_too_long")], response.errors
+
+
 def test_a_continuation_after_a_stray_line_stays_with_its_item(worker_tree):
     """The fix: line belongs to the finding above the unindented line, not to a second problem."""
     package = prepared(result_type="review")
