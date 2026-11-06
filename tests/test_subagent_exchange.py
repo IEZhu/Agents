@@ -191,9 +191,116 @@ def test_the_result_format_shows_several_locations_and_a_pre_reply_check(worker_
     package = prepared(result_type="implementation")
     rendered = render_result_format(package.contract.model_dump(mode="json"))
     assert "[^e2]: src/a.py:10-20, src/b.py:30 — <what both showed>" in rendered
-    assert ("Before replying, check that every line the form shows with ' — ' has it, and that "
-            "summary and every item stay within 4000 characters.") in rendered
+    assert "Before replying, check every ' — ' the form shows and the 4000-character limit." in rendered
     assert rendered in package.worker_context
+
+
+@pytest.mark.parametrize("section,prefix", [("evidence", "$.result.evidence"),
+                                            ("changes", "$.result.result.changes"),
+                                            ("checks", "$.result.checks")])
+def test_a_schema_error_after_a_skipped_entry_keeps_the_source_position(worker_tree, section, prefix):
+    """The over-long entry is the third line, not the second one the shortened list holds."""
+    package = prepared(result_type="implementation")
+    long_text = "x" * 4001
+    if section == "evidence":
+        text = text_result(package).replace(
+            "[^e1]: src/app.py:12 — logger.info prints the header\n"
+            "[^e2]: pytest tests/test_app.py -q — 12 passed",
+            "[^e1]: src/app.py:12 logger.info prints the header\n"
+            "[^e2]: pytest tests/test_app.py -q — 12 passed\n"
+            f"[^e3]: src/schemas.py:7 — {long_text}")
+    elif section == "changes":
+        text = text_result(package, payload="## changes\n- the directory that holds the environments\n"
+                                            "- src/b.py — Second change\n"
+                                            f"- src/c.py — {long_text}")
+    else:
+        text = text_result(package).replace(
+            "- passed: Read the code.[^e1]\n- not_run: Live run.",
+            "- done: Read the code.[^e1]\n- not_run: Live run.\n"
+            f"- passed: {long_text}")
+    response = validate_result(package.contract.model_dump(mode="json"), text)
+    first = "invalid_check" if section == "checks" else "separator_required"
+    field = "name" if section == "checks" else "description"
+    assert [(error.path, error.code) for error in response.errors] == [
+        (f"{prefix}[0]", first),
+        (f"{prefix}[2].{field}", "string_too_long")], response.errors
+
+
+def test_a_repeated_citation_in_a_check_or_a_conclusion_counts_once(worker_tree):
+    from src.engine.subagent_text import parse_result
+
+    package = prepared(result_type="research")
+    text = text_result(package, payload="## conclusions\n- The cache is cold.[^e1][^e1]").replace(
+        "- passed: Read the code.[^e1]", "- passed: Read the code.[^e1][^e1]")
+    response = validate_result(package.contract.model_dump(mode="json"), text)
+    assert response.valid, response.errors
+    value, errors = parse_result(text, package.contract)
+    assert errors == []
+    assert value["result"]["conclusions"][0]["evidence_ids"] == ["e1"]
+    assert value["checks"][0]["evidence_ids"] == ["e1"]
+
+
+def test_a_json_result_still_rejects_a_repeated_citation(worker_tree):
+    from src.engine.subagent_text import parse_result
+
+    package = prepared()
+    value, errors = parse_result(text_result(package), package.contract)
+    assert errors == []
+    value["checks"][0]["evidence_ids"] = ["e1", "e1"]
+    response = validate_result(package.contract.model_dump(mode="json"), value)
+    assert not response.valid and "duplicate_evidence_reference" in codes(response), response.errors
+
+
+def test_an_identity_problem_arrives_with_the_format_errors(worker_tree):
+    """A wrong header reads only the header, so it does not wait for the next round."""
+    package = prepared()
+    text = text_result(package).replace(f"task: {package.task_id}", "task: another-task").replace(
+        "[^e1]: src/app.py:12 — logger", "[^e1]: src/app.py:12 logger")
+    response = validate_result(package.contract.model_dump(mode="json"), text)
+    assert not response.valid
+    assert codes(response) >= {"identity_mismatch", "separator_required"}, response.errors
+
+
+def test_a_structural_limit_arrives_with_the_format_errors(worker_tree):
+    package = prepared(result_type="implementation")
+    bullets = "\n".join(f"- src/app{index}.py — Change {index}" for index in range(101))
+    text = text_result(package, payload=f"## changes\n{bullets}\n- the directory of environments")
+    response = validate_result(package.contract.model_dump(mode="json"), text)
+    assert not response.valid
+    assert codes(response) >= {"array_too_large", "separator_required"}, response.errors
+
+
+def test_consecutive_stray_lines_report_one_problem(worker_tree):
+    package = prepared(result_type="review")
+    text = text_result(package).replace("## checks\n", "## checks\nfirst stray\nsecond stray\nthird stray\n")
+    response = validate_result(package.contract.model_dump(mode="json"), text)
+    assert [(error.path, error.code) for error in response.errors] == [
+        ("$.result.checks[0]", "invalid_item")], response.errors
+
+
+def test_a_continuation_after_a_stray_line_stays_with_its_item(worker_tree):
+    """The fix: line belongs to the finding above the unindented line, not to a second problem."""
+    package = prepared(result_type="review")
+    text = text_result(package, payload="## findings\n- high src/app.py:12 — The token is logged and\n"
+                                        "the header too.\n  fix: Drop both.")
+    response = validate_result(package.contract.model_dump(mode="json"), text)
+    assert [(error.path, error.code) for error in response.errors] == [
+        ("$.result.result.findings[1]", "invalid_item")], response.errors
+
+
+def test_a_continuation_still_reaches_the_entry_after_a_skipped_line(worker_tree):
+    from src.engine.subagent_text import parse_result
+
+    package = prepared()
+    text = text_result(package).replace(
+        "[^e1]: src/app.py:12 — logger.info prints the header",
+        "[^e1]: src/app.py:12 logger.info prints the header").replace(
+        "[^e2]: pytest tests/test_app.py -q — 12 passed",
+        "[^e2]: pytest tests/test_app.py -q — 12 passed\n  and 3 skipped")
+    value, errors = parse_result(text, package.contract)
+    assert [(error.path, error.code) for error in errors] == [
+        ("$.result.evidence[0]", "separator_required")]
+    assert value["evidence"][0]["description"] == "12 passed\nand 3 skipped"
 
 
 def test_the_documented_separator_decides_over_a_double_hyphen_in_the_reference(worker_tree):

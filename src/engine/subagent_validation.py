@@ -10,7 +10,8 @@ from typing import Any
 from pydantic import ValidationError
 
 from src.engine import model_tiers
-from src.engine.subagent_text import TextFormatError, is_text_result, parse_result
+from src.engine.subagent_text import (TextFormatError, dropped_positions, is_text_result,
+                                      parse_result)
 from src.schemas.subagent import (ContractExecution, Diagnostic, Escalation, MAX_ERRORS,
                                   MAX_JSON_DEPTH, MAX_JSON_NODES, MAX_RESULT_CHARS, RESULT_MODELS,
                                   TaskContract, ValidationResponse)
@@ -133,6 +134,52 @@ class Outcome:
     escalation: Escalation | None
 
 
+def _source_position(position: int, dropped: list[int]) -> int:
+    """The position a parsed entry had before the collected errors shortened its list."""
+    for index in sorted(dropped):
+        if index <= position:
+            position += 1
+    return position
+
+
+def _schema_diagnostics(error: Exception, positions: dict[str, list[int]]) -> list[Diagnostic]:
+    """`diagnostics` with every list position translated back to the line that holds it."""
+    if not isinstance(error, ValidationError):
+        return diagnostics(error, "$.result")
+    reported = []
+    for item in error.errors(include_input=False, include_url=False)[:MAX_ERRORS]:
+        path = "$.result"
+        for part in item["loc"]:
+            if isinstance(part, int):
+                path += f"[{_source_position(part, positions.get(path, []))}]"
+            else:
+                path += f".{part}"
+        reported.append(diagnostic(path, item["type"], item["msg"]))
+    return reported
+
+
+def partial_diagnostics(value: dict, text_errors: list[TextFormatError],
+                        expected: TaskContract) -> list[Diagnostic]:
+    """Everything one validation can say when some lines of a text result did not parse.
+
+    The identity reads the header alone, so it is reported now instead of in the round after
+    the format fixes. The status invariants and evidence references are not: they would only
+    describe the lines that were skipped (#526).
+    """
+    reported = [diagnostic(f"$.result.{field}", "identity_mismatch",
+                           "Does not match the retained contract.")
+                for field in ("protocol", "task_id", "attempt_id", "bundle_revision",
+                              "contract_revision")
+                if value.get(field) != getattr(expected, field)]
+    reported += [diagnostic(error.path, error.code, str(error)) for error in text_errors]
+    try:
+        RESULT_MODELS[expected.result_type].model_validate(
+            bounded_object(value, max_chars=MAX_RESULT_CHARS))
+    except (ContractError, ValidationError) as error:
+        reported += _schema_diagnostics(error, dropped_positions(text_errors))
+    return reported
+
+
 def validate_result(contract: Any, result: Any) -> ValidationResponse:
     """The parent must supply its retained contract, never a worker replacement."""
     return assess_result(contract, result)[0]
@@ -174,17 +221,9 @@ def assess_result(contract: Any, result: Any) -> tuple[ValidationResponse, Outco
                 value, text_errors = parse_result(result, expected)
             except TextFormatError as error:
                 raise ContractError(error.code, str(error), "$" + error.path[len("$.result"):]) from None
-            value = bounded_object(value, max_chars=MAX_RESULT_CHARS)
             if text_errors:
-                # One round reports every malformed line, with the schema problems of the
-                # lines that did parse; the semantic cross-checks below would only report
-                # noise about the skipped ones (#526).
-                reported = [diagnostic(error.path, error.code, str(error)) for error in text_errors]
-                try:
-                    RESULT_MODELS[expected.result_type].model_validate(value)
-                except ValidationError as error:
-                    reported += diagnostics(error, "$.result")
-                return finish(reported[:MAX_ERRORS])
+                return finish(partial_diagnostics(value, text_errors, expected)[:MAX_ERRORS])
+            value = bounded_object(value, max_chars=MAX_RESULT_CHARS)
         else:
             value = bounded_object(result, max_chars=MAX_RESULT_CHARS, allow_json=True)
             digest = hashlib.sha256((result if isinstance(result, str) else canonical_json(value))

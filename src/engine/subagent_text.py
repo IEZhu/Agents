@@ -104,6 +104,8 @@ def render_result_format(contract: dict) -> str:
     """A filled-in template of the result; it replaces the JSON Schema for text contracts."""
     payload = PAYLOAD_KEYS[contract["result_type"]]
     revision = contract["contract_revision"][:CONTRACT_PREFIX_CHARS]
+    short_lists = "items, limitations or remaining_work items" if payload == "items" else \
+        "limitations or remaining_work items"
     return "\n".join([
         "## Result format",
         "Reply with only a plain-text result in this form: no JSON, no code fence, nothing before or after it.",
@@ -140,11 +142,10 @@ def render_result_format(contract: dict) -> str:
         "Where the form shows ' — ', that separator is required: "
         "every evidence line, finding, changes item and artifacts item needs it. "
         "[^id] cites an entry of ## evidence; evidence ids are unique. Every text is at most "
-        "4000 characters; at most 50 limitations or remaining_work items and 100 of any other "
-        "list. completed: no remaining_work, no question. partial: remaining_work. failed: a "
+        f"4000 characters; at most 50 {short_lists} and 100 of any other list. "
+        "completed: no remaining_work, no question. partial: remaining_work. failed: a "
         "limitation saying why. input_required: question. "
-        "Before replying, check that every line the form shows with ' — ' has it, and that "
-        "summary and every item stay within 4000 characters.",
+        "Before replying, check every ' — ' the form shows and the 4000-character limit.",
     ])
 
 
@@ -195,24 +196,45 @@ def _parsed(items: list[str], path: str, parse: Callable[[str, str], dict],
     return values
 
 
-def _items(lines: list[str], section: str, errors: list[TextFormatError]) -> list[str]:
+def _list_path(section: str, payload_key: str) -> str:
+    """Where a section's items sit in the result model; the payload sits one level deeper."""
+    return f"$.result.result.{section}" if section == payload_key else f"$.result.{section}"
+
+
+def _items(lines: list[str], path: str, errors: list[TextFormatError]) -> list[str]:
     items: list[str] = []
-    skipped = False
+    stray = False  # one run of lines that do not belong to the list is one problem
     for line in lines:
         if not line.strip():
             continue
         if line.startswith("- "):
             items.append(line[2:].strip())
-            skipped = False
-        elif line[:1] in (" ", "\t") and skipped:
-            continue  # a continuation of the line just reported is part of that one problem
+            stray = False
         elif line[:1] in (" ", "\t") and items:
-            items[-1] += "\n" + line.strip()
+            items[-1] += "\n" + line.strip()  # also the fix: line under a stray one
+        elif stray:
+            continue
         else:
             errors.append(TextFormatError("invalid_item", "List items start with '- '; indent continuation lines.",
-                                          f"$.result.{section}[{len(items)}]"))
-            skipped = True
+                                          f"{path}[{len(items)}]"))
+            stray = True
     return items
+
+
+def dropped_positions(errors: list[TextFormatError]) -> dict[str, list[int]]:
+    """The list positions the collected errors removed, by list path.
+
+    A diagnostic names the position of the line that failed, so the positions of the
+    entries that did parse have to be translated back from the shorter list (#526).
+    """
+    positions: dict[str, list[int]] = {}
+    for error in errors:
+        if error.code == "invalid_item":  # a stray line removes no entry from the list
+            continue
+        path, _, index = error.path.rpartition("[")
+        if index[:-1].isdigit():
+            positions.setdefault(path, []).append(int(index[:-1]))
+    return positions
 
 
 def _evidence(lines: list[str], errors: list[TextFormatError]) -> list[dict]:
@@ -340,7 +362,7 @@ def parse_result(text: str, expected: TaskContract) -> tuple[dict, list[TextForm
         raise TextFormatError("duplicate_header", "Give the question once.", "$.result.question")
     question = header.get("question") or "\n".join(sections.get("question", [])).strip() or None
     errors: list[TextFormatError] = []
-    lists = {name: _items(sections.get(name, []), name, errors)
+    lists = {name: _items(sections.get(name, []), _list_path(name, payload_key), errors)
              for name in (*LIST_SECTIONS, payload_key)}
     return {
         "protocol": PROTOCOL, "task_id": header["task"], "attempt_id": header["attempt"],

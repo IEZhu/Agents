@@ -369,11 +369,13 @@ stopping at the first: `invalid_item`, `invalid_evidence`, `separator_required`,
 `invalid_severity` and `invalid_check` are collected across the whole result, within the
 same limit of 20 diagnostics. A line whose error was collected is skipped rather than
 guessed — the result is invalid either way, and nothing is repaired — and its diagnostic
-keeps the original position, such as `$.result.result.changes[2]`. Schema errors join the
-same response whenever the text can still be parsed, so a string over 4,000 characters is
-reported together with the format errors; the semantic cross-checks — identity, status
-invariants and evidence references — are skipped while the parse was partial and run once
-the format is clean. Whole-result errors still stop parsing with a single diagnostic,
+keeps the original position, such as `$.result.result.changes[2]`. Schema and size errors
+join the same response whenever the text can still be parsed, so a string over 4,000
+characters or a list over its cap is reported together with the format errors, at the
+position of the line that holds it rather than of the shortened list. The identity reads
+the header alone, so a wrong `task:` or `attempt:` is reported in that same response; the
+status invariants and the evidence references are not, because they would only describe
+the lines that were skipped, and they run once the format is clean. Whole-result errors still stop parsing with a single diagnostic,
 because they leave the result's structure or identity uninterpretable: `unknown_section`,
 `duplicate_section`, `invalid_header`, `duplicate_header`, `header_required` and
 `identity_mismatch`. The `separator_required` message names every evidence line, finding,
