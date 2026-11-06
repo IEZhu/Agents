@@ -391,11 +391,23 @@ Three mechanisms fill the dimensions, in descending order of evidence.
 - **Blind the verifier** (finding 6, the 36 % exaggeration by unblinded
   assessors). `blinded: true` means the worker received the task and the
   materials but not the conclusion under check. This is cheap, needs no second
-  model, and has the best effect size in the literature. #563 is the nearest
-  existing shape but it is deliberately *not* blinded: it hands the worker the
-  decline reason, which is the conclusion under check, and withholds only the
-  session's wider reasoning. It therefore records as route-different with
-  `blinded: false`, and a fully blinded variant — the finding and the code
+  model, and has the best effect size in the literature. It is also only
+  available when the conclusion is separable from the material: a diff and a
+  failing test can be handed over without the verdict, but a research report
+  states its conclusions in its own body, and there is no way to send the report
+  while withholding them. Where the conclusion cannot be separated, the check
+  records `blinded: false` rather than claiming a blinding the materials make
+  impossible.
+  #563 is the nearest existing shape and it is deliberately *not* blinded: it
+  hands the worker the decline reason, which is the conclusion under check, and
+  withholds only the session's wider reasoning. It is also not a route
+  comparison at all, because the decline it checks was made by the session
+  rather than by a prepared attempt: there is no contract and no `route` record
+  on the checked side, so the dimensions have nothing to differ from. Such a
+  check records as unblinded with the route unknown. Making it comparable would
+  mean the parent recording its own route for decisions it takes itself, which
+  is a larger change than this plan proposes and is listed as an open question
+  rather than assumed. A fully blinded variant — the finding and the code
   without the decline — is a separate arm worth measuring against it.
 - **Change the model family** (finding 1 and the heterogeneity result: a mixed
   model pool scored 76.7 on a nine-benchmark average against 72.1 for the
@@ -991,6 +1003,15 @@ seeds, pinned routing, decision rule stated before the run — is the template.
   indirect prompt injection through retrieved content is a demonstrated attack
   class. Nothing here relaxes the existing rule that artifact and task material
   are data, and the route record must never be taken from worker text.
+- **Open question: the parent's own route is not recorded.** Every mechanism
+  here compares one prepared attempt against another. A decision the parent
+  takes itself — a decline, an edit, a conclusion drawn in the session — has no
+  contract and no `route`, so it cannot be the checked side of a route
+  comparison, and a worker checking it records the route as unknown. Giving the
+  parent a route record of its own would extend the comparison to that case,
+  and would also be the groundwork for checking a parent's work the way a
+  worker's is checked. It is deliberately outside this plan, which stays within
+  the existing contract surface.
 
 ## Order of work
 
@@ -1003,12 +1024,15 @@ measurement in #327's form.
    checks and `ran_in_attempt` binding each check to the attempt that ran it.
    Closes #534 and stops the
    spurious escalations #443 would otherwise measure.
-3. `blinded` verification as the default shape for every check: the verifier
-   receives the artefact and the materials, and not the conclusion under check.
-   That goes further than #563's materials rule, which withholds the session's
-   reasoning but still hands over the decline reason — so a blinded verifier
-   must not receive the decline either, and #563's existing shape records as
-   route-different with `blinded: false`.
+3. `blinded` verification as the default shape wherever the conclusion is
+   separable from the material: the verifier receives the artefact and the
+   materials and not the conclusion under check, and where the material states
+   its own conclusions the check records `blinded: false` instead. That goes
+   further than #563's materials rule, which withholds the session's reasoning
+   but still hands over the decline reason — so a blinded verifier must not
+   receive the decline either. #563's existing shape stays unblinded, and
+   because the decline it checks is a session decision rather than a prepared
+   attempt, it has no route to compare and records with the route unknown.
 4. `Criterion.falsifier` and `Criterion.method`, with the validator's conditional
    requirement.
 5. `Route`, `verifies`, `independence`, and the server-side same-model refusal.
