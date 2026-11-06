@@ -202,6 +202,11 @@ def _list_path(section: str, payload_key: str) -> str:
 
 
 def _items(lines: list[str], path: str, errors: list[TextFormatError]) -> list[str]:
+    """The '- ' items of one section, each with its indented continuation lines.
+
+    A run of lines that belong to no item is one collected problem, reported at the
+    position the next item would take; such a line takes no position of its own.
+    """
     items: list[str] = []
     stray = False  # one run of lines that do not belong to the list is one problem
     for line in lines:
@@ -238,6 +243,11 @@ def dropped_positions(errors: list[TextFormatError]) -> dict[str, list[int]]:
 
 
 def _evidence(lines: list[str], errors: list[TextFormatError]) -> list[dict]:
+    """The entries of ## evidence, each written '[^id]: reference — description'.
+
+    A malformed entry is collected and skipped, keeping the position of its own line.
+    A run of lines that are no entry at all is one problem and takes no position.
+    """
     entries: list[dict] = []
     index = 0  # the line's own position, kept when an earlier line was skipped
     skipped = False
