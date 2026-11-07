@@ -10,8 +10,9 @@ They are not style rules. Each one failed at least once on real content:
 * a source declared as ``http://`` when the publisher serves the same
   consolidated statute over ``https`` — a legal reference should not take its
   figures over a channel a middlebox can rewrite;
-* a word with Latin and Cyrillic letters inside it, which looks right and
-  matches nothing, so later greps for the term come back empty;
+* a word drawing letters from two scripts, which looks right and matches
+  nothing, so later searches come back empty — and which, for a routing
+  keyword, means the alias is dead on arrival;
 * an unbalanced ``**`` that swallows the rest of a line into bold;
 * a ragged table, which renders with a column silently dropped;
 * a date in the future stated as though it were in force, which is how a staged
@@ -29,21 +30,83 @@ import datetime as dt
 import glob
 import itertools
 import os
+import pathlib
 import re
 
 import pytest
 import yaml
 
-from src.engine.config import SKILLS_DIR
+from src.engine.config import AGENTS_DIR, SKILLS_DIR
 from src.utils.prompt_loader import split_frontmatter
 
 VOLATILE_PREFIXES = ("skill-jurisdiction-", "skill-labor-", "skill-investment-")
 
 # A word carrying both a Latin and a Cyrillic letter. Georgian, Greek and Serbian
 # Cyrillic are all legitimate on their own; the mixture inside one word is not.
-MIXED_SCRIPT = re.compile(r"\b(?=\w*[A-Za-z])(?=\w*[Ѐ-ӿ])\w+\b")
+SCRIPT_RANGES = (
+    ("Latin", ((0x41, 0x5A), (0x61, 0x7A), (0xC0, 0x24F))),
+    ("Greek", ((0x370, 0x3FF), (0x1F00, 0x1FFF))),
+    ("Cyrillic", ((0x400, 0x52F),)),
+    ("Armenian", ((0x530, 0x58F),)),
+    ("Hebrew", ((0x590, 0x5FF),)),
+    ("Arabic", ((0x600, 0x6FF),)),
+    ("Georgian", ((0x10A0, 0x10FF), (0x1C90, 0x1CBF))),
+)
+WORD = re.compile(r"[^\W\d_]+", re.UNICODE)
+
+
+def _scripts(word: str) -> set[str]:
+    found = set()
+    for char in word:
+        code = ord(char)
+        for name, ranges in SCRIPT_RANGES:
+            if any(low <= code <= high for low, high in ranges):
+                found.add(name)
+                break
+    return found
+
+
+ROMAN = set("IVXLCDM")
+
+
+def _is_georgian_act_number(word: str, scripts: set[str]) -> bool:
+    """A Georgian act number joins a Roman session numeral to a Georgian letter.
+
+    ``7178-Iს`` and ``3418-IIს`` are how the Georgian legislature numbers its
+    acts, so Latin beside Georgian is legitimate there — but only where every
+    Latin character is a Roman numeral. ``შromis`` stays a defect.
+    """
+    return scripts == {"Latin", "Georgian"} and all(
+        ch in ROMAN for ch in word if 0x41 <= ord(ch) <= 0x7A
+    )
+
+
+def mixed_script_words(text: str) -> list[str]:
+    """Words whose letters come from more than one script: the worst kind of typo.
+
+    It looks right, it matches nothing, and a later search for the term comes
+    back empty — which for a routing keyword means the alias is dead.
+
+    An earlier version of this looked only for Latin together with Cyrillic, and
+    so missed the defect review found: a Georgian keyword carrying a Cyrillic
+    "sha", with no Latin letter in the word at all. A mutation run showed the
+    check was narrower than its name.
+    """
+    found = set()
+    for match in WORD.finditer(text):
+        word = match.group(0)
+        scripts = _scripts(word)
+        if len(scripts) > 1 and not _is_georgian_act_number(word, scripts):
+            found.add(word)
+    return sorted(found)
 PLACEHOLDER = re.compile(r"\bTODO\b|\bTBD\b|\bFIXME\b|\bXXX\b")
-INVISIBLE = re.compile(r"[ ​‎‏﻿]")
+# Written as escapes on purpose. An earlier version held the characters themselves,
+# so a reader could not tell what it matched and an editor or a linter autofix could
+# strip them and leave the class empty with nothing failing. Review caught that;
+# test_the_invisible_pattern_still_matches_what_it_names now guards it.
+INVISIBLE = re.compile(
+    "[\u00a0\u200b\u200e\u200f\ufeff]"  # NBSP, ZWSP, LRM, RLM, BOM
+)
 # A code span is a literal, not prose: `Sentencia T-XXX/YY` is a citation format,
 # not an unfinished sentence. Placeholders are looked for outside them.
 CODE_SPAN = re.compile(r"`[^`]*`|```.*?```", re.S)
@@ -58,6 +121,21 @@ NOT_YET_IN_FORCE = re.compile(
     r"takes effect|comes into force|commences)",
     re.I,
 )
+
+
+NAMED_INVISIBLES = (0x00A0, 0x200B, 0x200E, 0x200F, 0xFEFF)
+
+
+def test_the_invisible_pattern_still_matches_what_it_names():
+    """Keeps the invisible-character class from being emptied without notice.
+
+    The class is spelled with escapes, but a careless edit could still turn it
+    into something that matches nothing — and every file would then pass. This
+    asserts the five code points it claims, and that it does not fire on text.
+    """
+    for code in NAMED_INVISIBLES:
+        assert INVISIBLE.search(chr(code)), f"U+{code:04X} no longer matches"
+    assert not INVISIBLE.search("ordinary text, 40.70 EUR, art. 14.2")
 
 
 def _skill_paths() -> list[str]:
@@ -125,9 +203,9 @@ def test_no_placeholders_or_invisible_characters(path):
 @pytest.mark.parametrize("path", _skill_paths(), ids=os.path.basename)
 def test_no_word_mixes_latin_and_cyrillic(path):
     fm, body = _parts(path)
-    words = sorted({m.group(0) for m in MIXED_SCRIPT.finditer(body + "\n" + str(fm.get("compiled", "")))})
+    words = mixed_script_words(body + "\n" + str(fm.get("compiled", "")))
     assert not words, (
-        f"{os.path.basename(path)}: {words} mix Latin and Cyrillic letters inside one word. "
+        f"{os.path.basename(path)}: {words} draw letters from more than one script in one word. "
         "Write the term in one script; a mixed one matches nothing."
     )
 
@@ -182,6 +260,27 @@ def test_a_future_date_is_marked_as_not_yet_in_force(path):
     assert not offenders, (
         f"{os.path.basename(path)}: {offenders} name a date after as_of {cutoff} without saying it is "
         "not yet in force. A staged reform read as current law is the failure this guards."
+    )
+
+
+def _agent_prompts() -> list[str]:
+    return sorted(glob.glob(os.path.join(AGENTS_DIR, "*", "system_prompt.mdc")))
+
+
+@pytest.mark.parametrize("path", _agent_prompts(), ids=lambda p: os.path.basename(os.path.dirname(p)))
+def test_no_routing_keyword_mixes_scripts(path):
+    """A routing keyword is matched literally, so a wrong letter makes it dead.
+
+    Found by review, not by this file: a Georgian alias in the labour agent
+    carried a Cyrillic "sha" (U+0448) where the Georgian letter (U+10E8)
+    belongs, so the keyword could never match the query it existed for. The
+    skills were already covered; the agent prompts were not.
+    """
+    text = pathlib.Path(path).read_text(encoding="utf-8")
+    words = mixed_script_words(text)
+    assert not words, (
+        f"{os.path.basename(os.path.dirname(path))}: {words} draw letters from more than one script "
+        "one word. A literal keyword with a letter from the wrong script matches nothing."
     )
 
 

@@ -20,8 +20,12 @@ earlier failures were not wrong numbers but **missing layers** — a whole
 collective-agreement or probation layer absent, so every answer built on the file
 was incomplete rather than incorrect.
 
-The result is a branch with the refreshed skills, a per-claim verification record,
-an explicit limits section and a pull request against `dev`.
+The result is a branch with the refreshed skills, a per-claim verification record
+for the run, an explicit limits section in the pull request, and a recorded audit
+document under `docs/` — the per-claim ledgers stay with the run as working
+evidence, and the document carries what a later reader cannot reconstruct. The
+2026-11 run is recorded in
+[docs/legal-reference-audit-2026-11-07.md](../docs/legal-reference-audit-2026-11-07.md).
 
 ## How to invoke
 

@@ -46,7 +46,10 @@ import yaml
 
 SCRIPT_DIR = Path(__file__).parent
 REPO_ROOT = SCRIPT_DIR.parent
+sys.path.insert(0, str(REPO_ROOT))
 SKILLS_DIR = REPO_ROOT / "skills"
+
+from src.utils.prompt_loader import split_frontmatter  # noqa: E402 - needs REPO_ROOT on the path
 
 VOLATILE_PREFIXES = ("skill-jurisdiction-", "skill-labor-", "skill-investment-")
 ACCEPT = "application/xml, application/json, text/html, */*"
@@ -67,12 +70,17 @@ FAILING = {ERROR_PAGE, MISSING}
 
 
 def declared_sources(path: Path) -> list[str]:
-    text = path.read_text(encoding="utf-8")
-    match = re.match(r"^---\n(.*?)\n---\n", text, re.S)
-    if not match:
-        return []
-    front = yaml.safe_load(match.group(1)) or {}
-    return [str(s) for s in (front.get("sources") or [])]
+    """Read the frontmatter the way the loader and the tests do.
+
+    A hand-rolled ``^---\\n`` match fails on a file saved with CRLF and returns
+    an empty list, so the script would report a skill as having no sources and
+    exit 0 — a check reporting silence as success. ``split_frontmatter`` is the
+    one parser the rest of the repository uses.
+    """
+    with open(path, encoding="utf-8") as handle:
+        front, _ = split_frontmatter(handle.read())
+    data = (yaml.safe_load(front) or {}) if front else {}
+    return [str(s) for s in (data.get("sources") or [])]
 
 
 def probe(url: str, timeout: int, _retry: bool = True) -> tuple[str, int, int, str]:
@@ -124,6 +132,9 @@ def main() -> int:
     with futures.ThreadPoolExecutor(max_workers=args.jobs) as pool:
         for path in paths:
             urls = declared_sources(path)
+            if not urls:
+                rows.append((path.name, "<no sources declared>", 0, 0, MISSING))
+                continue
             for url, code, size, verdict in pool.map(
                 lambda u: probe(u, args.timeout), urls
             ):

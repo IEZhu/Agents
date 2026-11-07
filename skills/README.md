@@ -201,8 +201,9 @@ All nine jurisdiction skills sit in the `lawyer` agent's `capable_skills` pool â
 The eight labour skills and `skill-employment-dispute-method` are the
 `labor_lawyer` agent's layer (`/labor_lawyer`, or `/XX_labor`); they also sit in
 `lawyer`'s pool so a country-aliased legal question still reaches them.
-`skill-investment-us` sits in both. All ten country files carry the freshness
-contract above.
+`skill-investment-us` sits in both. All **nine** country files carry the freshness contract
+above; `skill-employment-dispute-method` carries none on purpose, because it
+holds an order of analysis rather than a figure that can go stale.
 
 ### Domain-Specific
 
