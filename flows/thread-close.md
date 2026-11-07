@@ -397,6 +397,14 @@ client's own tools. Calls from this close's own `run_flow` on are not audited.
    `python -m src.engine.protocol_text --write`; put rules of the user's own
    outside the markers.
 
+   **Tracked destinations.** A patch to a git-tracked file goes through a linked
+   worktree and a pull request, never an in-place edit: test the destination with
+   `git ls-files --error-unmatch` and read the checkout's own contribution rules.
+   A patch that is a call rather than a diff passes the same gate: its contract
+   and the scope its arguments select decide where it writes, so establish and
+   test that destination before applying it. When the tree is dirty, or the
+   repository states no rule, propose the patch and leave it unapplied.
+
    **Repeats escalate.** Search `read_history` for earlier closes tagged
    `#ac-missed-<slug>` or `#tool-missed-<slug>`, or naming that slug in their tool
    usage table. A repeat after an applied patch means the patch did not hold:
