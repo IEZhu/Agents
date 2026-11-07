@@ -415,23 +415,23 @@ evidence, a `host_attested` one only as an attestation whose trust is the host's
 and `unknown` leaves the claim `unverifiable` however the tier was requested.
 
 Once the attestations do arrive, the classification is not left where
-preparation put it. Preparation marked the `inherit` claim `unverifiable` and
-the attempt route-different-unverified, and that receipt stays exactly as
-issued — it records what was knowable at preparation, and rewriting it would
-destroy the only fixed point the check has. The decision is taken afterwards,
-on both attempts' bound identities — and what matters is that each side is
-bound, not where it came from. A `resolved` identity on one side and a
-`host_attested` one on the other compare exactly as two of either kind do:
-differing identities promote the claim to model-different, matching ones refute
-it, and only an `unknown` on either side leaves it unverified. The trust the
-verdict carries is the weaker of the two sources, so a comparison resting on an
-attestation is recorded as such. The promoted or
-refuted verdict is recorded beside the receipt with the attestations it rests
-on, so a reader can always see which of the two the conclusion came from, and
-an attestation that arrives for only one side of a comparison settles
-nothing.
-Tier `inherit` is therefore never checkable from the contract, and checkable
-from an attestation exactly when the host makes one.
+preparation put it. Preparation marked the `inherit` claim `unverifiable`
+and the attempt route-different-unverified, and that receipt stays exactly
+as issued — it records what was knowable at preparation, and rewriting it
+would destroy the only fixed point the check has. The decision is taken
+afterwards, on both attempts' bound identities — and what matters is that
+each side is bound, not where it came from. A `resolved` identity on one
+side and a `host_attested` one on the other compare exactly as two of either
+kind do: differing identities promote the claim to model-different, matching
+ones refute it, and only an `unknown` on either side leaves it unverified.
+The trust the verdict carries is the weaker of the two sources, so a
+comparison resting on an attestation is recorded as such. The promoted or
+refuted verdict is recorded beside the receipt with the attestations it
+rests on, so a reader can always see which of the two the conclusion came
+from. An attestation that arrives for one side while the other stays
+`unknown` settles nothing: the comparison needs two bound identities, not
+two of the same kind. Tier `inherit` is therefore never checkable from the
+contract, and checkable from an attestation exactly when the host makes one.
 
 Resolving a tier is not the same as knowing the model, so even the lower tiers
 do not settle it by themselves. Tier resolution can yield an alias or a
