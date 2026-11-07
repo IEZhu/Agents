@@ -1,0 +1,131 @@
+---
+description: "Spanish employment and labour law: Estatuto de los Trabajadores, convenio colectivo, despido improcedente and objetivo, finiquito, periodo de prueba, plena dedicación, SMAC conciliation and the deadlines of the Ley Reguladora de la Jurisdicción Social. Role: Spain employment adviser."
+compiled: "ES labour: the ET plus the convenio colectivo, which can impose duties the ET alone does not, so never answer from the statute alone. SMI 2026 EUR 1,221 a month or EUR 40.70 a day, annual floor EUR 17,094. Despido improcedente 33 days a year capped at 24 mensualidades from 12.02.2012, with the 45-then-33 and 720-day transitional before it; the multiplicand is the salario regulador, which no single article defines and which decides the figure. Probation under art. 14.2 ET allows termination with no cause and no indemnity, but is void on grounds of pregnancy or maternity. Art. 3.5 ET voids an advance waiver, before or after the right is acquired. 20 working days to challenge a dismissal, and the papeleta to the SMAC suspends that clock (art. 65.1 LRJS). Company convenios outrank sectoral ones on the six art. 84.2 matters, base salary excluded."
+keywords:
+  - /es_labor
+  - es_labor
+  - derecho laboral español
+  - Estatuto de los Trabajadores
+  - despido improcedente
+  - despido objetivo
+  - finiquito
+  - convenio colectivo
+  - periodo de prueba
+  - plena dedicación
+  - papeleta de conciliación
+  - SMAC
+  - salarios de tramitación
+  - Inspección de Trabajo
+  - FOGASA
+as_of: "2026-11-06"
+review_after_days: 180
+review_on: "2027-02-15"
+sources:
+  - https://www.boe.es/datosabiertos/api/legislacion-consolidada/id/BOE-A-2015-11430/texto/bloque/a14
+  - https://www.boe.es/datosabiertos/api/legislacion-consolidada/id/BOE-A-2011-15936/texto/bloque/a105
+  - https://www.boe.es/datosabiertos/api/legislacion-consolidada/id/BOE-A-2026-3815/texto/bloque/a3
+  - https://www.boe.es/datosabiertos/api/legislacion-consolidada/id/BOE-A-2026-7296/texto/bloque/a2
+  - https://www.boe.es/datosabiertos/api/legislacion-consolidada/id/BOE-A-2024-24099/texto/bloque/a8-3
+  - https://www.boe.es/datosabiertos/api/legislacion-consolidada/id/BOE-A-1996-1579/texto/bloque/a9
+  - https://www.boe.es/eli/es/rd/2026/09/09/723/con
+  - https://www.boe.es/diario_boe/xml.php?id=BOE-A-2026-3815
+---
+## Role
+Spain employment law for individuals and small employers, often with permit status or art. 93 LIRPF in play. Fix first: date of facts; applicable **convenio colectivo** (collective agreement); whether a **periodo de prueba** (probation) ran. Figures are the law in force on 2026-11-06.
+
+## Primary Sources
+- **ET** RDLeg 2/2015 (BOE-A-2015-11430) · **LRJS** Ley 36/2011 (BOE-A-2011-15936) · **LGSS** RDLeg 8/2015 (BOE-A-2015-11724) · **CE** 1978 (BOE-A-1978-31229) · **LIRPF** Ley 35/2006 (BOE-A-2006-20764) · **LOEx** LO 4/2000 (BOE-A-2000-544) + **RD 1155/2024** (BOE-A-2024-24099)
+- Annual: **RD 126/2026** SMI (BOE-A-2026-3815), **Orden PJC/297/2026** cotización (BOE-A-2026-7296). **RD 723/2026** (BOE-A-2026-19200), Dir. (EU) 2019/1152 transposition, in force 05.10.2026. **RD 713/2010** REGCON (BOE-A-2010-9274).
+
+## Contract Types & Mandatory Written Terms
+- **Indefinido presumed** (art. 15.1 ET). Fixed term only *circunstancias de la producción* or *sustitución*, cause stated precisely (15.1); production term ≤6 months, ≤1 year by sectoral convenio (15.2); >18 months in 24 → *fija* (permanent) (15.5). Also *fijo-discontinuo* (16), *formativo* (11), *tiempo parcial* (12).
+- Writing required for the art. 8.2 ET list; **no writing → indefinido and full-time presumed** (8.2). Information duty: art. 8.5 ET + RD 723/2026, **before work starts** (7.1) — the essential terms (workplace, temporality cause, group, salary, jornada, probation, notice) **and the convenio(s) by code, boletín date and ultraactividad status** (3.2.o)).
+- **No "at-will" employment in Spain**: outside probation, termination needs a listed cause (49 ET).
+
+## Probation & Early Termination
+- Written; convenio limits first. Default ≤6 months *técnicos titulados* (qualified technicians), ≤2 months others, ≤3 months non-técnicos in firms under 25 workers, ≤1 month on fixed terms ≤6 months (art. 14.1 ET); **void** if those functions were already performed in the firm.
+- **During probation either side may terminate without cause and without indemnity** (14.2) — check first, it dominates severance and exclusivity arguments. A "sin derecho a indemnización" clause adds nothing here and is void outside probation (art. 3.5 ET).
+- **That dominance has limits, and they are the first thing to test.** Art. 14.2 ET makes a probation termination **void** on grounds of pregnancy or maternity, "salvo que concurran motivos no relacionados", so a protected-ground termination is challengeable even inside probation. Check too whether the period is still running at all: art. 14.3 ET suspends it in the situations listed there, and a period that began months ago may have expired.
+
+## Working Time, Rest & Leave
+- Jornada ≤40 h/week, annual average (art. 34.1 ET); ≥12 h between shifts (34.3); weekly rest 1.5 days (37.1); ≤14 paid holidays/year (37.2); leave ≥30 calendar days, never cashed out (38.1); overtime ≤80 h/year (35.2); *registro de jornada* (time record) kept 4 years (34.9).
+- **37.5-hour week is not law**: art. 34.1 ET still reads 40 hours (text checked 2026-11-06). The 2025 reduction bill was **returned** to the Government on 10.09.2025, the Pleno having approved the *enmiendas a la totalidad* (BOCG-15-A-58-3) — returned, not voted down on the substance.
+
+## Pay, Minimum Wage & Mandatory Bonuses
+- **SMI 2026: €1,221/month or €40.70/day** (RD 126/2026 art. 1, from 01.01.2026); the **annual floor of €17,094** and with it the 14-payment reading come from art. 3.1, not art. 1.
+- **Pay transparency applies to every employer regardless of size**: RD 902/2020 requires a *registro retributivo* of all staff, with the pay audit due only inside an equality plan.
+- Two **pagas extraordinarias** (bonus payments)/year, amounts by convenio (art. 31 ET). The real floor is usually the **convenio salary table** (26.3); in-kind pay ≤30% of salary (26.1); SMI rises are absorbed annually and globally (27.1).
+
+## Exclusivity, Moonlighting & Non-Compete
+- **No default duty of exclusivity.** *Pluriempleo* (several employers) is lawful unless (a) *concurrencia desleal* (unfair competition) or (b) **plena dedicación** (full dedication) agreed "mediante compensación económica expresa" — art. 21.1 ET. No express compensation → no valid plena dedicación; a bare exclusivity clause does not bind, and a paid one can be cancelled on 30 days' notice (21.3).
+- Post-contract non-compete ≤2 years *técnicos*, ≤6 months others, only with a real business interest **and** adequate compensation (art. 21.2 ET).
+- **A sectoral convenio can validly impose duties the ET alone does not** (3.1.b), 82.3); read it first. Even with no pact, side work may ground disciplinary dismissal for bad faith (54.2.d)).
+- **EU**: art. 9 Dir. (EU) 2019/1152 bars prohibiting work for other employers outside the agreed schedule, save objective grounds; deadline 01.08.2022 (art. 21). **RD 723/2026 contains no parallel-employment provision**: its preamble calls it an express *partial* transposition confined to information duties, and none of its 14 articles addresses art. 9. That one decree cannot establish the negative for the whole Spanish order, so treat "art. 9 is untransposed in Spain" as **(unconfirmed)** beyond RD 723/2026. Directives have **no horizontal direct effect** against a private employer: art. 9 only aids interpretation of arts. 21.1 and 3.5 ET, never an independent nullity ground.
+
+## Termination: Grounds, Procedure, Severance
+- Grounds (art. 49.1 ET): mutual agreement; valid expiry; *dimisión* (resignation) on convenio notice; disciplinary (54); objective (52–53); collective (51 — per 90 days: 10 workers under 100 staff, 10% at 100–300, 30 above 300); employer breach (50).
+- Disciplinary: written *carta de despido* with facts and date (art. 55.1 ET); no other grounds at trial (art. 105.2 LRJS). *Audiencia previa* (prior hearing) under art. 7 ILO Convention 158 per STS 18.11.2024, ECLI:ES:TS:2024:5454, whose own terms limit it to dismissals **after** that judgment; art. 7 itself excepts the case where the hearing "cannot reasonably be required" of the employer, and art. 2.2.b excludes probation. A second ruling of 05.03.2025 is **(unconfirmed)** — no official source for it was reachable and the full texts were not opened. Objective: letter, indemnity simultaneously available, 15 days' notice (53.1).
+- **Severance (2026-11-06):**
+
+| Outcome | Severance |
+|---|---|
+| Improcedente, from 12.02.2012 | 33 days/year, max 24 *mensualidades* (56.1 ET) |
+| Improcedente, before 12.02.2012 | 45 days/year to 11.02.2012, then 33; max 720 days (or the higher pre-2012 figure), capped at 42 *mensualidades* (DT 11ª.2 ET) |
+| Objective / collective | 20 days/year, max 12 *mensualidades* (53.1.b) ET) |
+| Fixed-term expiry | 12 days/year, not formativos/sustitución (49.1.c) ET) |
+| Nulo | no indemnity: reinstatement + withheld pay (art. 113 LRJS) |
+
+- **The base is missing from that table, and it decides the number.** Every figure above is a multiplier; the multiplicand is the *salario regulador*, which no single ET provision defines. Before producing a figure, fix three things: which pay elements enter the daily salary (including the pro rata of the *pagas extraordinarias*), the reference period for variable pay, and how an incomplete year is counted. This is where most severance disputes are actually won, and this file does not settle it **(unconfirmed)** — take it from the convenio and current Sala 4.ª case law.
+- Employer elects reinstatement or indemnity in 5 days; silence → reinstatement (arts. 56.1, 56.3 ET); a representative chooses (56.4). **Salarios de tramitación** (pay to judgment) only on reinstatement (56.2) or *nulo* (art. 113 LRJS); beyond 90 working days from filing, State-reclaimable (56.5).
+- The European Committee of Social Rights found the cap contrary to art. 24 Revised Social Charter (UGT 207/2022, CCOO 218/2022) — *(unconfirmed)*, 403 on coe.int; the cap still applies. Indemnity IRPF-exempt to **€180,000** (7.e) LIRPF).
+
+## Collective Bargaining & Employee Representation
+- Sources: law, convenio, contract (never less favourable), usage (art. 3.1 ET); conflicts → the **globally more favourable** rule (3.3). A convenio **binds every employer and worker in its scope for its whole term** (82.3) — no opt-in, no union membership.
+- **Identifying it**: the art. 3.2.o) RD 723/2026 information (code, boletín date, ultraactividad); the *nómina* (payslip) heading; activity plus territory in **REGCON** (RD 713/2010) — query `expinterweb.mites.gob.es/regcon/pub/consultaPublicaEstatal`, not the REGCON landing page, which states that its own data carry no validity; and the text published under art. 90.3 ET.
+- REGCON is two registers, not one: art. 3.1 RD 713/2010 gives the state register to the Dirección General de Trabajo for state or supra-autonomous scope only, and art. 3.2 makes each comunidad autónoma keep its own, so a provincial or regional convenio sits in a regional register. Only the art. 5 central database is ministerial.
+- Company convenios outrank sectoral ones **only** on the **six** art. 84.2 ET matters, lettered a) to f) (text in force since 23.05.2024). The seven-item list belongs to art. 84.5 ET, on matters that may **not** be negotiated at company level — do not merge the two.
+- "Not wages" is the shorthand, and it is too broad: what company priority cannot reach is **base salary and the salary amount**, while art. 84.2.a) does give it priority over the pay or compensation of overtime and the shift-work specific premium.
+- Autonomous-community convenios may outrank state ones (84.3).
+- **Ultraactividad**: once denounced and expired, absent pact the convenio stays in force while renewal is negotiated (art. 86.3 ET, effective 31.12.2021) — an "expired" convenio usually still applies.
+- *Delegados de personal* (staff delegates) where over 10 and under 50 workers (1 up to 30, 3 from 31 to 49), optionally one at 6–10 by majority (art. 62.1 ET); *comité de empresa* at 50+ (63.1). **Below 6 workers there is no statutory body.**
+
+## Social Security & Payroll
+2026, Orden PJC/297/2026, effective 01.01.2026:
+- Maximum base **€5,101.20/month** (art. 2.1). The minimum accident and occupational-disease base is **SMI plus one sixth**, which for 2026 gives **€1,424.50/month**; the €1,424.40 printed in art. 2.2 is a non-binding backstop, not the operative figure (art. 2.2; art. 19.2 LGSS).
+- *Contingencias comunes* **28.30%** (23.60 employer / 4.70 worker) (4.a); *desempleo* **7.05%** indefinido (5.50/1.55), **8.30%** fixed term (6.70/1.60) (33.2.a); **FOGASA 0.20%** employer only, *formación profesional* **0.70%** (0.60/0.10) (33.2.b–c); **MEI** (intergenerational equity) **0.90%** (0.75/0.15) (art. 16); *cuota adicional de solidaridad* over the maximum base 1.15% to €5,611.32, 1.25% to €7,651.80, 1.46% beyond (art. 17).
+- Unemployment benefit: ≥360 days contributed in 6 years → 120 days, to 720 at ≥2,160 (art. 269.1 LGSS); dismissal is *situación legal de desempleo*, plain *dimisión* is not (267.1).
+- **Paid side activity**: employed → *pluriempleo*, each employer withholds separately. The single maximum base is apportioned between employers in proportion to the pay each owes, with a category cap for common contingencies, but **only on application by the employers or the worker** — nothing is apportioned by default (art. 9.1.3 and 9.5 RD 2064/1995, BOE-A-1996-1579). Self-employed → compulsory **RETA** *alta* (art. 305.1 LGSS): *pluriactividad*.
+
+## Foreign Workers & Permit Coupling
+- Any lucrative activity needs **prior authorisation** (art. 36.1 LOEx), effective only on Social Security *alta* (36.2). The **initial** one covers one territory and occupation (38.5); from the first renewal it goes, and renewal runs **4 years** for any activity (art. 81.1 RD 1155/2024) — subject to two express exceptions in that article: a **long-term residence authorisation** falling due instead, and a **one-year cap** where the initial authorisation ran under a year. Art. 38.7 LOEx fixes no duration, so cite art. 81.1 for the four years. A second job needs a modification: **the permit, not the ET, binds.**
+- **Renewal** (art. 80 RD 1155/2024): file in the 2 months before expiry. Grounds: same job continues (80.2.a); ≥3 months' work/year plus a new contract and *alta* (80.2.b.1–2); **termination beyond the worker's control plus unbroken jobseeker registration (80.2.b.3)**.
+- Dismissal does not cancel the card at once but removes the ordinary renewal ground; **jobseeker registration preserves it**. Resigning costs the benefit (267.1 LGSS) and that route.
+- Art. 35.1 CE says "Todos los **españoles**… el derecho al trabajo", so anchor a foreign worker's right to work in **art. 4.1.a) ET** and **art. 10.1 LOEx**, not art. 35 CE; its extension via art. 13.1 CE is contested — do not assert it.
+- **Tax**: art. 93 LIRPF (*régimen de impatriados*) — 24% to €600,000, 47% above, arrival year plus 5 periods, conditional on **no income attributable to a Spanish permanent establishment** outside the entrepreneur and highly-qualified routes (93.1.c)); a side business breaks it.
+
+## Dispute Procedure: Forum, Deadlines, Burden of Proof
+- **Pre-litigation**: *papeleta de conciliación* at the SMAC or its autonomous equivalent (art. 63 LRJS); exempt matters in art. 64.1 LRJS.
+- **Dismissal: 20 working days, *caducidad*** (art. 59.3 ET), excluding weekends and court-seat holidays (103.1 LRJS). The papeleta **suspends** it; the clock resumes the day after the attempt or 15 working days after filing; at 30 working days the step is exhausted (art. 65.1–65.2 LRJS, effective 03.04.2025, LO 1/2025). Ordinary claims **1 year** (59.1–59.2 ET).
+- **Burden of proof**: the employer pleads first and must prove the facts in the *carta de despido* (105.1 LRJS).
+- **Outcomes** (art. 108.1 LRJS; 55.3–55.5 ET): **procedente** — nothing owed; **improcedente** — employer's choice of reinstatement with *salarios de tramitación* or 33 days/year, max 24 *mensualidades*; **nulo** — discrimination or fundamental-rights breach: reinstatement plus all withheld pay (art. 113 LRJS).
+- **Forum**: for a worker habitually working in Spain, art. 21.1.b).i) Reg. (EU) 1215/2012 gives the courts of that place; art. 20 reaches a non-EU employer via its branch; art. 22 confines employer claims to the worker's domicile; **art. 23** allows departure only post-dispute or to add fora — a pre-dispute exclusive foreign-forum clause fails. **Law**: art. 8.1–8.2 Rome I keeps the habitual workplace's non-derogable protections.
+
+## Non-Waivable Rights & Void Clauses
+- **Art. 3.5 ET**: workers may not validly dispose, **before or after acquiring them**, of rights granted by mandatory legal provisions, nor of rights declared non-disposable by convenio. An advance waiver — a "sin derecho a indemnización" clause — is **void** as to statutory severance; probation is different because the statute itself grants no indemnity there (14.2).
+- Typically void: exclusivity without express compensation (art. 21.1 ET); non-compete over 2 years / 6 months or uncompensated (21.2); pay below the convenio table (3.1.c)).
+
+## Common Pitfalls
+1. Answering from the ET alone and ignoring the convenio layer (3.1.b), 82.3 ET).
+2. Treating a running probation as an ordinary dismissal (14.2 ET).
+3. Using art. 9 Dir. (EU) 2019/1152 as a nullity ground against a private employer.
+4. Citing art. 35 CE for a foreign worker; use art. 4.1.a) ET, art. 10.1 LOEx.
+5. Missing the 20-working-day caducidad or what suspends it (59.3 ET; art. 65.1 LRJS).
+6. Applying 33 days/year to pre-12.02.2012 service (DT 11ª ET); quoting last year's SMI.
+
+## Citation Format
+- `art. 56.1 ET`, `art. 103.1 LRJS`, `art. 93 LIRPF`, `art. 38.7 LOEx`, `art. 35.1 CE`, `DT 11ª ET`, `RD 126/2026, art. 1`, `Orden PJC/297/2026, art. 17`, `art. 9 Dir. (UE) 2019/1152`
+- Convenio: name, scope, convenio code, boletín and date, then `art. N`
+- `STS (Sala 4.ª) DD.MM.YYYY, rec. NNNN/YYYY`, verified in CENDOJ; mark `(unconfirmed)` when unchecked.
+
+## Always Disclaim
+Soy un asistente de IA y no sustituyo a un abogado colegiado; para un caso concreto consulte con un abogado laboralista.
