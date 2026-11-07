@@ -213,7 +213,7 @@ def test_an_empty_or_missing_fix_line_is_rejected_by_its_own_name(worker_tree, f
     assert [(error.path, error.code) for error in response.errors] == [
         ("$.result.result.findings[0]", "recommendation_required")], response.errors
     message = response.errors[0].message
-    assert "two-space-indented 'fix:' line" in message
+    assert "'fix:' line with a recommendation" in message
     assert "Line: high src/app.py:12 — The token is logged.[^e1]" in message
 
 
@@ -237,6 +237,7 @@ def test_the_result_format_states_both_line_shapes_with_a_counter_example(worker
     assert "one space, an em dash (U+2014, '—') and one space" in rendered
     assert "outside any `code span`" in rendered
     assert "  wrong: - high src/app.py:12 The token is logged.[^e1]   (no separator: rejected)" in rendered
+    assert "(only inside a span: rejected)" in rendered
     assert "A finding that only confirms something takes one too" in rendered
     assert "  wrong: - info src/app.py:40 — The guard is correct.[^e2]\n         fix:" in rendered
     assert "check every ' — ' and every 'fix:' line the form shows" in rendered
@@ -284,6 +285,20 @@ def test_a_schema_error_after_a_skipped_entry_keeps_the_source_position(worker_t
     assert [(error.path, error.code) for error in response.errors] == [
         (f"{prefix}[0]", first),
         (f"{prefix}[2].{field}", "string_too_long")], response.errors
+    assert all(" Line: " in error.message for error in response.errors), response.errors
+
+
+def test_a_finding_rejected_for_its_fix_line_keeps_the_later_positions(worker_tree):
+    """The over-long finding is the third line, not the second the shortened list holds."""
+    package = prepared(result_type="review")
+    text = text_result(package, payload=(
+        "## findings\n- high src/app.py:12 — First finding.[^e1]\n  fix:\n"
+        "- low src/app.py:14 — Second finding.[^e1]\n  fix: Keep it.\n"
+        "- info src/app.py:16 — " + "x" * 4001 + "\n  fix: Keep it."))
+    response = validate_result(package.contract.model_dump(mode="json"), text)
+    assert [(error.path, error.code) for error in response.errors] == [
+        ("$.result.result.findings[0]", "recommendation_required"),
+        ("$.result.result.findings[2].explanation", "string_too_long")], response.errors
     assert all(" Line: " in error.message for error in response.errors), response.errors
 
 
@@ -400,7 +415,7 @@ def test_the_documented_separator_decides_over_a_double_hyphen_in_the_reference(
     from src.engine.subagent_text import parse_result
 
     package = prepared(result_type="review")
-    assert "that separator is required" in package.worker_context
+    assert "' -- ' still parses on a line that holds no em dash" in package.worker_context
     text = text_result(package).replace(
         "[^e1]: src/app.py:12 — logger.info prints the header",
         "[^e1]: git log --oneline -- src/app.py — logger.info prints the header")
@@ -408,6 +423,38 @@ def test_the_documented_separator_decides_over_a_double_hyphen_in_the_reference(
     evidence = parse_result(text, package.contract)[0]["evidence"][0]
     assert evidence["reference"] == "git log --oneline -- src/app.py"
     assert evidence["description"] == "logger.info prints the header"
+
+
+def test_a_separator_only_inside_a_code_span_is_no_separator(worker_tree):
+    """Splitting there corrupted the location and the explanation instead of rejecting."""
+    package = prepared(result_type="review")
+    text = text_result(package, payload="## findings\n- high `src/app.py:12 — the header` is logged.[^e1]\n"
+                                        "  fix: Drop it from the message.")
+    response = validate_result(package.contract.model_dump(mode="json"), text)
+    assert [(error.path, error.code) for error in response.errors] == [
+        ("$.result.result.findings[0]", "separator_required")], response.errors
+    assert "Line: high `src/app.py:12 — the header` is logged.[^e1]" in response.errors[0].message
+
+
+def test_a_code_span_does_not_move_the_separator_that_is_outside_it(worker_tree):
+    """The parts keep their own backticks; only the separator is read outside a span."""
+    from src.engine.subagent_text import parse_result
+
+    package = prepared(result_type="review")
+    text = text_result(package, payload="## findings\n- high `src/app.py:12` — `a — b` is logged.[^e1]\n"
+                                        "  fix: Drop it from the message.")
+    assert validate_result(package.contract.model_dump(mode="json"), text).valid
+    finding = parse_result(text, package.contract)[0]["result"]["findings"][0]
+    assert finding["location"] == "`src/app.py:12`"
+    assert finding["explanation"] == "`a — b` is logged."
+
+
+def test_an_unclosed_backtick_masks_nothing(worker_tree):
+    """An unclosed span must not swallow the rest of the line and hide the separator."""
+    package = prepared(result_type="review")
+    text = text_result(package, payload="## findings\n- high src/app.py:12 — the `header is logged.[^e1]\n"
+                                        "  fix: Drop it from the message.")
+    assert validate_result(package.contract.model_dump(mode="json"), text).valid
 
 
 def test_a_double_hyphen_still_separates_when_no_em_dash_is_present(worker_tree):

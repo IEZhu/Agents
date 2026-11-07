@@ -178,9 +178,13 @@ payload (`items`, `conclusions`, `findings` or `changes`), `checks`, `evidence`,
 list item starts with `- `, continuation lines are indented, a finding's recommendation
 follows on a two-space-indented `fix:` line, and `[^id]` cites an evidence entry. The
 ` — ` separator between the two parts of a line is one space, an em dash (U+2014) and one
-space, and it has to stand in the line's own text, outside any code span; it is required
-throughout: every `## evidence` line needs it, and so does every `## changes` item, every
-`## artifacts` item and every finding. A finding whose `fix:` line is missing or empty is
+space, and it is required throughout: every `## evidence` line needs it, and so does every
+`## changes` item, every `## artifacts` item and every finding. It is read outside code
+spans only, so an em dash inside backticks is part of that side of the line and not the
+separator; a line whose only spaced em dash sits inside a code span is reported as
+`separator_required` rather than split there. For workers written before this contract
+named one spelling, ` -- ` still separates a line that holds no em dash outside a code
+span, and the rendered format says so while telling the worker to write ` — `. A finding whose `fix:` line is missing or empty is
 rejected as `recommendation_required`, a finding that only confirms something included:
 the typed payload keeps `recommendation` required, so a parent never integrates a review
 item it then has to chase a recommendation for. Evidence IDs
@@ -388,7 +392,9 @@ not, because they would only describe the lines that were skipped, and they run 
 format is clean. Whole-result errors still stop parsing with a single diagnostic,
 because they leave the result's structure or identity uninterpretable: `unknown_section`,
 `duplicate_section`, `invalid_header`, `duplicate_header`, `header_required` and
-`identity_mismatch`. Every diagnostic about one line also quotes that line, collapsed onto
+`identity_mismatch`. A `separator_required` diagnostic names the shape that was expected,
+not the sections it covers, because the quoted line now says which one it is. Every
+diagnostic about one line also quotes that line, collapsed onto
 one line and shortened to 120 characters, so a correction needs no guess about which of a
 long result's lines failed; a schema or size error on a list item quotes its line too.
 Quoting is all that happens to it: a reference inside the line stays a reference and is

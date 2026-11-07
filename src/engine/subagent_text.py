@@ -48,6 +48,7 @@ _SEPARATOR = re.compile(r"\s+(?:—|--)\s+")
 _HEADING = re.compile(r"##\s+([A-Za-z_]+)\s*")
 _HEADER = re.compile(r"([a-z_]+):[ \t]*(.*)")
 _EVIDENCE = re.compile(r"\[\^([^\]]*)\]:[ \t]*(.*)")
+_CODE_SPAN = re.compile(r"`+[^`]*`+")
 EXCERPT_CHARS = 120  # enough of a line to find it, short enough for a 240-character diagnostic
 
 
@@ -176,13 +177,15 @@ def render_result_format(contract: dict) -> str:
         "limitation saying why. input_required: question.",
         "",
         "### The separator",
-        "Where the form shows ' — ', that separator is required: one space, an em dash "
-        "(U+2014, '—') and one space. A plain hyphen, an en dash '–' or nothing at all is "
-        "not it, and it has to stand in the line's own text, outside any `code span`. Every "
-        "evidence line, finding, changes item and artifacts item needs it.",
+        "Where the form shows ' — ', write exactly that: one space, an em dash (U+2014, "
+        "'—') and one space. Not a plain hyphen, not an en dash '–', not nothing at all; "
+        "' -- ' still parses on a line that holds no em dash, for older workers, but do not "
+        "write it. The separator has to stand in the line's own text, outside any `code "
+        "span`, because that is where it is looked for. Every evidence line, finding, "
+        "changes item and artifacts item needs one.",
         "  right: - high src/app.py:12 — The token is logged.[^e1]",
         "  wrong: - high src/app.py:12 The token is logged.[^e1]   (no separator: rejected)",
-        "  wrong: - high `src/app.py:12 — the header` is logged.   (splits inside the span)",
+        "  wrong: - high `src/app.py:12 — the header` is logged.   (only inside a span: rejected)",
         *_PAYLOAD_RULES.get(payload, []),
         "",
         "Before replying, check every ' — '" + (" and every 'fix:' line" if payload == "findings" else "")
@@ -209,16 +212,28 @@ def _references(text: str) -> tuple[str, list[str]]:
     return re.sub(r"[ \t]+\n", "\n", _REFERENCE.sub("", text)).strip(), ids
 
 
+def _outside_code_spans(text: str) -> str:
+    """``text`` with every code span's characters replaced, so none of them can match.
+
+    Lengths are preserved, so a match in the result indexes the original text. An unclosed
+    backtick masks nothing, because it must not swallow the rest of the line.
+    """
+    return _CODE_SPAN.sub(lambda span: "\x00" * len(span.group()), text)
+
+
 def _split(text: str, path: str, shape: str, line: str = "") -> tuple[str, str]:
     # A reference may itself contain ' -- ', as `git log --oneline -- path` does, so the
     # documented separator decides wherever it appears; ' -- ' stays accepted without it.
-    pattern = _EM_SEPARATOR if _EM_SEPARATOR.search(text) else _SEPARATOR
-    parts = pattern.split(text, maxsplit=1)
-    if len(parts) != 2:
+    # Both are looked for outside code spans: a worker who writes a location or a command in
+    # backticks means one part, and splitting inside it would report neither of them (#526).
+    outside = _outside_code_spans(text)
+    pattern = _EM_SEPARATOR if _EM_SEPARATOR.search(outside) else _SEPARATOR
+    found = pattern.search(outside)
+    if not found:
         raise TextFormatError("separator_required",
                               f"Expected '{shape}', with ' — ' between the two parts.",
                               path, line or text)
-    return parts[0].strip(), parts[1].strip()
+    return text[:found.start()].strip(), text[found.end():].strip()
 
 
 def _parsed(items: list[str], path: str, parse: Callable[[str, str], dict],
@@ -341,7 +356,7 @@ def _finding(item: str, path: str) -> dict:
     recommendation, recommendation_ids = _references(recommendation or "")
     if not recommendation:
         raise TextFormatError("recommendation_required",
-                              "A finding needs its own two-space-indented 'fix:' line with a recommendation.",
+                              "A finding needs its own 'fix:' line with a recommendation on it.",
                               path, item)
     return {"severity": severity, "location": location, "explanation": explanation,
             "recommendation": recommendation,
