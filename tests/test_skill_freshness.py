@@ -9,9 +9,18 @@ no-fabrication rule does not catch it because the figure is "in context".
 Contract:
   * a skill with volatile facts declares ``as_of`` (ISO date), ``review_after_days``
     and ``sources`` in its frontmatter;
-  * jurisdiction skills must declare them;
-  * once ``as_of + review_after_days`` has passed, this test fails, which forces
-    a re-verification instead of letting the figures silently age.
+  * jurisdiction, labour and investment skills must declare them;
+  * a skill whose figures are reset on a known calendar date — a statutory
+    minimum wage or a contribution rate that changes every 1 January — also
+    declares ``review_on`` (ISO date), the next date on which they must be
+    re-read. The rolling window alone would keep serving last year's figures
+    for months after the reset;
+  * once the earlier of ``as_of + review_after_days`` and ``review_on`` has
+    passed, this test fails, which forces a re-verification instead of letting
+    the figures silently age.
+
+[flows/legal-reference-refresh.md](../flows/legal-reference-refresh.md) is the
+procedure that clears a failure here.
 """
 from __future__ import annotations
 
@@ -25,7 +34,7 @@ import yaml
 from src.engine.config import SKILLS_DIR
 from src.utils.prompt_loader import split_frontmatter
 
-MUST_DECLARE_FRESHNESS = ("skill-jurisdiction-",)
+MUST_DECLARE_FRESHNESS = ("skill-jurisdiction-", "skill-labor-", "skill-investment-")
 
 
 def _frontmatter(path: str) -> dict:
@@ -44,6 +53,16 @@ def _parse_date(raw) -> dt.date:
     return dt.date.fromisoformat(str(raw))
 
 
+def _due_date(fm: dict) -> tuple[dt.date, str]:
+    """The earlier of the rolling window and the declared calendar re-check."""
+    as_of = _parse_date(fm["as_of"])
+    rolling = as_of + dt.timedelta(days=int(fm.get("review_after_days", 180)))
+    if not fm.get("review_on"):
+        return rolling, "review_after_days"
+    pinned = _parse_date(fm["review_on"])
+    return (pinned, "review_on") if pinned < rolling else (rolling, "review_after_days")
+
+
 @pytest.mark.parametrize(
     "path",
     [p for p in _skill_files() if os.path.basename(p).startswith(MUST_DECLARE_FRESHNESS)],
@@ -58,15 +77,30 @@ def test_volatile_skills_declare_freshness(path):
 
 @pytest.mark.parametrize(
     "path",
+    [p for p in _skill_files() if _frontmatter(p).get("review_on")],
+    ids=os.path.basename,
+)
+def test_review_on_is_a_date_after_as_of(path):
+    fm = _frontmatter(path)
+    assert fm.get("as_of"), f"{os.path.basename(path)}: review_on without as_of"
+    review_on = _parse_date(fm["review_on"])
+    as_of = _parse_date(fm["as_of"])
+    assert review_on > as_of, (
+        f"{os.path.basename(path)}: review_on {review_on} is not after as_of {as_of}; "
+        "it names the next date the figures must be re-read, not a past one."
+    )
+
+
+@pytest.mark.parametrize(
+    "path",
     [p for p in _skill_files() if "as_of" in _frontmatter(p)],
     ids=os.path.basename,
 )
 def test_declared_facts_are_not_past_review(path):
     fm = _frontmatter(path)
-    as_of = _parse_date(fm["as_of"])
-    review_days = int(fm.get("review_after_days", 180))
-    due = as_of + dt.timedelta(days=review_days)
+    due, field = _due_date(fm)
     assert dt.date.today() <= due, (
-        f"{os.path.basename(path)}: facts as_of {as_of} were due for re-verification on {due}. "
-        "Re-check the figures against the listed sources, then bump as_of."
+        f"{os.path.basename(path)}: facts as_of {fm['as_of']} were due for re-verification "
+        f"on {due} ({field}). Re-check the figures against the listed sources, then bump "
+        "as_of and review_on. flows/legal-reference-refresh.md is the procedure."
     )
