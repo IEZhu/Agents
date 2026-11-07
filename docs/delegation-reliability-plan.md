@@ -814,18 +814,22 @@ positive class defined once and written down ("the verifier says the result is
 defective"). The control set supplies the full confusion matrix, and it is the
 only source of d and f that Layer 4 can use.
 
-Production refutations are a weaker quantity and must be labelled as one. They
-count only the wrong results somebody happened to notice, so the rate they give
-is an observed-refutation rate, a lower bound on the field false-accept rate
-rather than an estimate of it. Turning it into an estimate needs more than a
-known follow-up fraction: the followed-up results have to be drawn at random
-from the accepted ones, because following up the suspicious ones is exactly the
-selection that biases the answer upward, and the follow-up has to end in a
-reliable label rather than in another unverified judgement. The alternative is
-an assumption about what share of errors eventually surface on their own, which
-is an assumption and not a measurement. Until a randomly drawn, reliably
-labelled follow-up sample exists, the ledger reports the observed-refutation
-rate under that name and does not call it the field error rate.
+Production refutations are a weaker quantity and must be labelled as one, with
+its cohort named. They count only the wrong results somebody happened to notice,
+among the attempts the ledger happens to hold — and the ledger is opt-in and can
+lose a write, so its contents are not the field. The rate is therefore an
+observed-refutation rate *over the recorded cohort*, and bounds the false-accept
+rate of that cohort alone: one refutation among one recorded claim reads as 100%
+while ninety-nine unrecorded ones were right. Scoping it is not pedantry, it is
+what keeps the number from being read as a field rate. Turning it into an
+estimate for the broader population needs a sample drawn at random from that
+population, not from the ledger, because following up the suspicious ones is
+exactly the selection that biases the answer upward, and the follow-up has to
+end in a reliable label rather than in another unverified judgement. The
+alternative is an assumption about what share of errors surface on their own,
+which is an assumption and not a measurement. Until such a sample exists, the
+ledger reports the observed-refutation rate of the recorded cohort under that
+name, and nothing calls it the field error rate.
 
 The ρ estimates Layer 3 needs come from coincident-failure counts across route
 pairs on the same control items, which is again the control set rather than
@@ -908,8 +912,9 @@ them — so the rating is a recorded parent attestation, not a derivation, and
 nothing stops a parent rating down to buy less verification. The defence is measurement rather than
 derivation, and it is a weak one that measures something narrower than the
 hazard: the ledger stores the rating beside the outcome, so the refutation rate
-of `routine`-rated claims is at least visible, and that rate is a lower bound on
-the false-accept rate among `routine` claims. It is not a bound on rating drift.
+of the `routine`-rated claims *it recorded* is at least visible, and that rate
+bounds the false-accept rate within that recorded cohort — not among `routine`
+claims at large, since the ledger is opt-in and may hold few of them. It is not a bound on rating drift.
 Those are different quantities, and the gap between them is the whole problem:
 `routine` requires no validation, an unvalidated wrong claim is usually never
 refuted, and the ledger therefore sits unchanged whether the ratings are honest
