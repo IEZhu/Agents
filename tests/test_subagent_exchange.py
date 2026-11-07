@@ -302,6 +302,16 @@ def test_the_result_format_names_the_separator_source_and_omits_the_fix_rule(wor
     assert f"write exactly that: {WRITE_SEPARATOR.note}" in rendered
     assert all(f"'{separator.spelling}'" in rendered for separator in SEPARATORS)
 
+    # The templates a worker copies derive the spelling too, so the package cannot state two.
+    spelling = WRITE_SEPARATOR.spelling
+    for template in (f"<location>{spelling}<explanation>",
+                     f"[^e1]: <command, path:line or URL>{spelling}<what it showed>",
+                     f"- <path or artifact:// reference>{spelling}<purpose>"):
+        assert template in rendered, template
+    implementation = render_result_format(
+        prepared(result_type="implementation").contract.model_dump(mode="json"))
+    assert f"- <path>{spelling}<what changed>" in implementation
+
     other = render_result_format(prepared(result_type="research").contract.model_dump(mode="json"))
     assert "### The separator" in other and "### The fix: line" not in other
 

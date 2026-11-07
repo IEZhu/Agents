@@ -131,9 +131,10 @@ def render_assignment(contract: dict) -> str:
 _PAYLOAD_TEMPLATES = {
     "items": ["## items", "- <one result item>"],
     "conclusions": ["## conclusions", "- <claim>[^e1]"],
-    "findings": ["## findings", "- <critical|high|medium|low|info> <location> — <explanation>[^e1]",
+    "findings": ["## findings",
+                 f"- <critical|high|medium|low|info> <location>{WRITE_SEPARATOR.spelling}<explanation>[^e1]",
                  "  fix: <recommendation>"],
-    "changes": ["## changes", "- <path> — <what changed>"],
+    "changes": ["## changes", f"- <path>{WRITE_SEPARATOR.spelling}<what changed>"],
 }
 
 
@@ -183,10 +184,10 @@ _PAYLOAD_RULES = {"findings": [
     "recommendation on it. A finding that only confirms something takes one too, saying "
     "what to keep; a missing or empty 'fix:' rejects the finding.",
     "  right (a confirming finding names what to keep): "
-    "- info src/app.py:40 — The guard is correct.[^e2]",
+    f"- info src/app.py:40{WRITE_SEPARATOR.spelling}The guard is correct.[^e2]",
     "         fix: Keep the guard as it is.",
     "  wrong (the fix: line has no recommendation on it): "
-    "- info src/app.py:40 — The guard is correct.[^e2]",
+    f"- info src/app.py:40{WRITE_SEPARATOR.spelling}The guard is correct.[^e2]",
     "         fix:",
 ]}
 
@@ -216,11 +217,11 @@ def render_result_format(contract: dict) -> str:
         "- <passed|failed|not_run>: <check actually run>[^e1]",
         "",
         "## evidence",
-        "[^e1]: <command, path:line or URL> — <what it showed>",
-        "[^e2]: src/a.py:10-20, src/b.py:30 — <what both showed>",
+        f"[^e1]: <command, path:line or URL>{WRITE_SEPARATOR.spelling}<what it showed>",
+        f"[^e2]: src/a.py:10-20, src/b.py:30{WRITE_SEPARATOR.spelling}<what both showed>",
         "",
         "## artifacts",
-        "- <path or artifact:// reference> — <purpose>",
+        f"- <path or artifact:// reference>{WRITE_SEPARATOR.spelling}<purpose>",
         "",
         "## limitations",
         "- <assumption, gap or failure reason>",
@@ -392,7 +393,7 @@ def _evidence(lines: list[str], errors: list[TextFormatError], sources: list[str
             sources.append(line.strip())
             try:
                 reference, description = _split(match.group(2), path,
-                                                "[^id]: reference — description", line)
+                                                f"[^id]: reference{WRITE_SEPARATOR.spelling}description", line)
             except TextFormatError as error:
                 errors.append(error)
                 skipped = True
@@ -405,7 +406,8 @@ def _evidence(lines: list[str], errors: list[TextFormatError], sources: list[str
             entries[-1]["description"] += "\n" + line.strip()
         else:
             errors.append(TextFormatError("invalid_evidence",
-                                          "Evidence lines read '[^id]: reference — description'.",
+                                          f"Evidence lines read '[^id]: reference"
+                                          f"{WRITE_SEPARATOR.spelling}description'.",
                                           path, line))
             skipped = True  # a line that is no evidence line takes no position of its own
     return entries
@@ -417,7 +419,8 @@ def _finding(item: str, path: str) -> dict:
     if severity not in SEVERITIES:
         raise TextFormatError("invalid_severity", "A finding starts with critical, high, medium, low or info.",
                               path, item)
-    location, explanation = _split(remainder, path, "<severity> <location> — <explanation>", item)
+    location, explanation = _split(remainder, path,
+                                  f"<severity> <location>{WRITE_SEPARATOR.spelling}<explanation>", item)
     recommendation = None
     for line in rest:
         if line.startswith("fix:"):
@@ -447,12 +450,14 @@ def _check(item: str, path: str) -> dict:
 
 def _artifact(item: str, path: str) -> dict:
     """One item of ## artifacts: ``<path> — <purpose>``."""
-    return dict(zip(("path", "purpose"), _split(item, path, "<path> — <purpose>")))
+    return dict(zip(("path", "purpose"),
+                    _split(item, path, f"<path>{WRITE_SEPARATOR.spelling}<purpose>")))
 
 
 def _change(item: str, path: str) -> dict:
     """One item of ## changes: ``<path> — <description>``."""
-    return dict(zip(("path", "description"), _split(item, path, "<path> — <description>")))
+    return dict(zip(("path", "description"),
+                    _split(item, path, f"<path>{WRITE_SEPARATOR.spelling}<description>")))
 
 
 def _payload(key: str, items: list[str], errors: list[TextFormatError]) -> list:
