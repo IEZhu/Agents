@@ -1,0 +1,156 @@
+---
+description: "United States employment and labour law: at-will employment and its exceptions, FLSA overtime and exemptions, Title VII, ADA, ADEA and the EEOC charge deadlines, WARN, NLRA section 7, OWBPA waivers, COBRA, worker misclassification and status coupling for visa holders. Role: US employment adviser."
+compiled: "US labour: at-will by default, with no general statutory protection against dismissal, so ask which state and which threshold first. Title VII, ADA and PWFA at 15+, ADEA 20+, FMLA 50+, WARN 100+. NLRA section 7 has no headcount threshold, but 29 U.S.C. 152(3) writes supervisors, independent contractors and domestic and agricultural workers out of \"employee\". The federal minimum of $7.25 and the $2.13/$5.12 tip credit are floors many states raise or abolish, and final-pay timing is state law with no federal rule. EEOC charge within 180 or 300 days, then 90 days to sue: the deadline decides more cases than the merits. The FTC non-compete rule never took effect and is out of the CFR, so non-competes are state law. Montana is the one general good-cause regime."
+keywords:
+  - /us_labor
+  - us_labor
+  - at-will employment
+  - FLSA overtime exemption
+  - Title VII
+  - EEOC charge
+  - right-to-sue letter
+  - WARN Act
+  - NLRA section 7
+  - OWBPA waiver
+  - McDonnell Douglas
+  - mini-WARN
+  - FTC non-compete rule
+  - DTSA
+  - COBRA election
+  - ABC test misclassification
+  - H-1B 60-day grace period
+as_of: "2026-11-06"
+review_after_days: 180
+review_on: "2027-02-15"
+sources:
+  - https://www.govinfo.gov/link/uscode/42/2000e-5
+  - https://www.govinfo.gov/link/uscode/29/626
+  - https://www.govinfo.gov/link/uscode/29/207
+  - https://www.govinfo.gov/link/uscode/29/2101
+  - https://www.govinfo.gov/link/uscode/29/2611
+  - https://www.govinfo.gov/link/uscode/26/3101
+  - https://www.ecfr.gov/api/versioner/v1/full/2026-11-02/title-29.xml?part=541&section=541.600
+  - https://www.govinfo.gov/link/fr/91/27835
+  - https://www.dol.gov/agencies/whd/fact-sheets/15-tipped-employees-flsa
+---
+## Role
+Assumes `skill-jurisdiction-us`.
+
+**No general US statutory protection against dismissal.** At-will by default; protection is a patchwork of statutes with coverage thresholds, short deadlines and exhaustion rules; state law can be far more protective. Ask first: **which state**, **which threshold**.
+
+| Statute | Threshold | Norm |
+|---|---|---|
+| Title VII | 15+, 20+ calendar weeks | 42 U.S.C. 2000e(b) |
+| ADA title I | 15+, 20+ weeks | 42 U.S.C. 12111(5)(A) |
+| ADEA | 20+, 20+ weeks; age 40+ | 29 U.S.C. 630(b); 631(a) |
+| FMLA | 50+; 50 within 75 miles | 29 U.S.C. 2611(4)(A)(i), 2611(2)(B)(ii) |
+| WARN | 100+ | 29 U.S.C. 2101(a)(1); 20 C.F.R. 639.3(a) |
+| PWFA | 15+ | 42 U.S.C. 2000gg(2)(B)(i) |
+| sec. 7 / sec. 1981 | no headcount threshold | 29 U.S.C. 157; 42 U.S.C. 1981 |
+
+"No threshold" is not "everyone": 29 U.S.C. 152(3) writes agricultural labourers, domestic workers, independent contractors, supervisors and employees of Railway Labor Act carriers out of "employee" altogether.
+
+## Primary Sources
+- 29 U.S.C. ch. 7, 8, 9, 14, 18, 23, 28; 42 U.S.C. 1981, 1981a, 2000e et seq., 2000gg, 12101 et seq., 19401-19404; 9 U.S.C. 2, 402.
+- 29 C.F.R. 541, 795, 825, 2590; 20 C.F.R. 639, 655; 8 C.F.R. 214. Agencies: WHD, EEOC, NLRB, IRS, USCIS.
+
+## Contract Types & Mandatory Written Terms
+- No federal duty to issue a written contract or statement of terms; wage notices are state law.
+- A CBA can give just cause, seniority and severance no statute gives, enforced under 29 U.S.C. 185(a); always ask whether one applies.
+- **Three divergent contractor tests:** FLSA economic reality, 29 C.F.R. 795.110(b) (89 FR 1741, Jan. 10, 2024; still in the CFR at the Nov. 2, 2026 eCFR issue, but DOL proposed rescinding part 795 on Feb. 27, 2026 — FR Doc. 2026-03962, comments closed Apr. 28, 2026, no final rule yet); IRS right-to-control, 26 C.F.R. 31.3121(d)-1(c)(2); state ABC, Cal. Lab. Code 2775 (*Dynamex*, 4 Cal.5th 903).
+
+## Probation & Early Termination
+- **No federal probationary period.** Probation is contract or policy only; it changes neither at-will status nor notice rights.
+- **Policy trap:** a handbook promising cause-only discharge after probation, or mandatory progressive discipline, can create an implied contract in many states — keep an at-will disclaimer.
+- Montana alone legislates it: absent a stated period probation runs 12 months, capped at 18 with extensions, Mont. Code Ann. 39-2-910; at-will during it, 39-2-904(2); good cause after, 39-2-904(1)(b).
+
+## Working Time, Rest & Leave
+- No federal maximum workweek or annual leave; FLSA prices hours: 1.5x the regular rate above 40 per workweek, 29 U.S.C. 207(a)(1).
+- No federal meal or rest break (DOL); short breaks given are compensable.
+- No federal paid sick leave, vacation or holidays privately; breaks and paid leave are state or city law.
+- FMLA is unpaid: 12 workweeks per 12-month period, 29 U.S.C. 2612(a)(1), 29 C.F.R. 825.100(a); 26 for military caregiver, 2612(a)(3); eligibility 12 months plus 1,250 hours, 2611(2)(A).
+
+## Pay, Minimum Wage & Mandatory Bonuses
+| Figure | Amount | Norm and date |
+|---|---|---|
+| Minimum wage | $7.25/hour **federal floor** | 29 U.S.C. 206(a)(1)(C), since July 24, 2009 |
+| Tipped cash wage / tip credit | $2.13 / $5.12 **federal floor** | 29 U.S.C. 203(m)(2)(A)(i), pegged to the cash wage required on Aug. 20, 1996; DOL Fact Sheet 15 |
+| EAP salary level | $684/week, $35,568/year | 29 C.F.R. 541.600(a); 2019 rule effective Jan. 1, 2020, republished 91 FR 27835, May 15, 2026 |
+| Highly compensated | $107,432/year incl. $684/week | 29 C.F.R. 541.601, since Jan. 1, 2020 (84 FR 51307, Sept. 27, 2019; republication note 91 FR 27836, May 15, 2026) |
+
+- The 2024 rule ($844/week from July 1, 2024; $1,128 from Jan. 1, 2025) was **vacated** in *Texas v. U.S. Dep't of Labor*, 756 F. Supp. 3d 361 (E.D. Tex.) (order Nov. 15, 2024); DOL restored the earlier text, 91 FR 27833 (May 15, 2026).
+- Both wage figures above are **federal floors only**: most states set a higher minimum wage, and several abolish the tip credit outright. Ask the state before quoting either.
+- **Final-pay timing is state law and has no federal rule** — some states require payment on the termination date, others by the next regular payday, with penalties for lateness. It is one of the traps most often missed on a dismissal.
+- No statutory 13th-month pay; nondiscretionary bonuses enter the regular rate, 29 U.S.C. 207(e).
+
+## Exclusivity, Moonlighting & Non-Compete
+- No federal exclusivity duty; the at-will duty of loyalty is state common law **(unconfirmed** — no state section was opened here**)**.
+- Trade secrets: DTSA action, 18 U.S.C. 1836(b); the employer **must** notice the 1833(b)(1) immunity for disclosure to government or counsel in any trade-secret agreement, 1833(b)(3)(A).
+- **FTC Non-Compete Clause Rule, 16 C.F.R. part 910: not in effect and no longer in the CFR.** Set aside Aug. 20, 2024 in *Ryan, LLC v. FTC*, 746 F. Supp. 3d 369 (N.D. Tex. 2024); appeals dismissal moved Sept. 5, 2025; part 910 removed and reserved effective Feb. 12, 2026 (FR Doc. 2026-02866), absent from the Oct. 30, 2026 eCFR. FTC Act sec. 5 still applies case by case.
+- **Non-competes are state law**, from total bans (California) through reasonableness review to wage floors **(unconfirmed** — state sections not opened). Ask the state.
+
+## Termination: Grounds, Procedure, Severance
+- At-will: either side may end it any time, no cause, no notice; no federal notice period or severance.
+- At-will exceptions are state-made — public policy, implied contract, implied covenant; which apply varies **(unconfirmed)**.
+- Montana is the one general good-cause regime, Mont. Code Ann. 39-2-904(1), whose (1)(a) also covers discharge for **reporting a violation of public policy**; remedy capped at 4 years' lost wages **39-2-905(1)**, no emotional-distress damages **39-2-905(4)**, and punitive damages only for a 39-2-904(1)(a) discharge, 39-2-905(3).
+- **No statutory severance** (DOL: the FLSA has no severance requirement; it is a matter of agreement). A severance plan can be an ERISA welfare plan, 29 U.S.C. 1002(1)(A)–(B) and 1002(2)(B) with 29 C.F.R. 2510.3-2(b)(1)(i)–(iii) — which reach severance only by negative implication from a closed list, so argue it, do not assert it — which changes the claims procedure and the forum.
+- WARN (1988): **60 days'** written notice of a plant closing or mass layoff to employees or their representative and state and local officials, 29 U.S.C. 2102(a); closing = 50+ losses at one site in 30 days, mass layoff = 33% and 50+, or 500+, 2101(a)(2)-(3).
+- WARN liability: back pay and benefits per day of violation, 29 U.S.C. 2104(a)(1), plus **up to** $500/day to local government, which is waived if the employer pays the employees in full within **3 weeks** of the closing or layoff, 2104(a)(3).
+- **Ask the state about a mini-WARN.** Many states have none, and those that do are not uniformly stricter — do not assume either way.
+
+## Collective Bargaining & Employee Representation
+- NLRA sec. 7, 29 U.S.C. 157: employees may engage in "**other** concerted activities for the purpose of collective bargaining or other mutual aid or protection" — **non-union workers included**; interference breaches 158(a)(1).
+- Two employees comparing pay, or one acting for others, is protected: a ULP route, not a discrimination claim, **6 months** to charge, 160(b).
+- Union route: exhaust the CBA grievance and arbitration machinery first, *Republic Steel Corp. v. Maddox*, 379 U.S. 650 (1965); a wrongful refusal can breach the duty of fair representation, *Vaca v. Sipes*, 386 U.S. 171 (1967).
+- A CBA sends statutory claims to arbitration only clearly and unmistakably, *14 Penn Plaza LLC v. Pyett*, 556 U.S. 247 (2009).
+- **Whether a CBA covers the worker is a separate question from whether one exists**: ask for the recognition clause and the bargaining-unit description, not just the agreement.
+- **If one does cover them, it can defeat the state-law routes named elsewhere in this file.** A state-law claim whose resolution requires interpreting the agreement is preempted under s. 301 LMRA, 29 U.S.C. 185(a) — so check coverage before sending a unionised reader to an implied-contract or public-policy theory. The precise preemption test is **(unconfirmed)** here.
+
+## Social Security & Payroll
+- OASDI 6.2% and Medicare 1.45% are each imposed **twice, under different sections**: on the employee by 26 U.S.C. 3101(a) and (b)(1), on the employer by 3111(a) and (b). Section 3101 taxes only "the income of every individual", so it is the wrong cite for the employer's half. Additional Medicare 0.9% over $250,000 joint / $125,000 separate / $200,000 other since 2013 is employee-only, 3101(b)(2).
+- Social Security wage base **$184,500 for 2026** (IRS Pub. 15, Topic 751); no Medicare cap. Self-employment tax 12.4% + 2.9% = 15.3%, 26 U.S.C. 1401(a), (b)(1).
+- Side activity as self-employment moves a worker from FICA to SECA; IRS, FLSA and state tests can classify one worker three ways.
+- **Unemployment insurance is absent from this file and is usually the first money a dismissed worker receives.** It is state-administered, and eligibility turns on the separation reason this file is otherwise about: a discharge for misconduct, and a resignation agreed as part of a severance package, can both forfeit it. Establish the state's rule before drafting a voluntary resignation into a settlement **(unconfirmed)** here.
+- COBRA (1986): **18 months** after termination or reduced hours, 29 U.S.C. 1162(2)(A)(i), 36 for other events, (iv), and 29 on SSA disability under **(viii)** — not (v), which is the PBGC-recipient rule. The 29 months carry two conditions the summaries drop: the disability must be determined **during the first 60 days** of continuation coverage, and notice must reach the administrator **before the 18 months end**. Employer notifies the administrator in **30 days**, 1166(a)(2), the administrator notifies beneficiaries in **14 days**, 1166(c) and 29 C.F.R. 2590.606-4(b)(1), election at least **60 days**, 1165(a)(1)(B)-(C).
+
+## Foreign Workers & Permit Coupling
+- **There is no general constitutional labour right to invoke here (unconfirmed as to any state constitution)**: federal employment protection is statutory, and a foreign worker's position rests on the same statutes as anyone else's plus the immigration status below — not on a constitutional provision. Say so rather than leaving the question unasked.
+- Status is coupled to the sponsor. 8 C.F.R. 214.1(l)(2): on cessation, a **discretionary grace period of up to 60 consecutive days or the end of the validity period, whichever is shorter, once per validity period** for E-1, E-2, E-3, H-1B, H-1B1, L-1, O-1, TN and dependents; no work meanwhile.
+- H-1B portability: work may begin on filing of a non-frivolous petition, 8 U.S.C. 1184(n). A change of status or a compelling-circumstances EAD may also be available; cite 8 C.F.R. 214.1(l)(2) and the regulations, not the USCIS termination-options page, which now carries its own out-of-date notice.
+- **Benching is unlawful:** the LCA wage is owed through employer-caused non-productive time, 20 C.F.R. 655.731(c)(7)(i); the duty ends only on **bona fide termination**, which under (c)(7)(ii) means notifying DHS and offering return transportation.
+- Return transportation abroad is owed if an H-1B worker is dismissed before the end of authorised admission, 8 C.F.R. 214.2(h)(4)(iii)(E); **resignation is not dismissal** and forfeits it.
+- A pending I-485 decouples a worker more than PERM/I-140 does. AC21: an approved I-140 stays valid for a new employer where the I-485 has been pending **180 days** and the new job is in "the same or a similar occupational classification", 8 U.S.C. 1154(j). Moonlighting on employer-specific status is usually unauthorised.
+
+## Dispute Procedure: Forum, Deadlines, Burden of Proof
+- Charge required for Title VII, ADA, PWFA: **180 days**, or **300** where a state or local agency enforces a parallel law since 1972, 42 U.S.C. 2000e-5(e)(1); ADEA the same, 29 U.S.C. 626(d)(1). Then **90 days** to sue on the right-to-sue letter, 2000e-5(f)(1); ADEA 626(e).
+- No charge for FLSA or the Equal Pay Act: **2 years, 3 if willful** (willful rule since 1967), 29 U.S.C. 255(a); FMLA the same, 2617(c); NLRB ULP **6 months**, 160(b); sec. 1981 **4 years under 28 U.S.C. 1658(a)**, but only for claims "made possible by a post-1990 enactment", *Jones v. R. R. Donnelley*, 541 U.S. 369 (2004) — a §1981 theory already actionable before Dec. 1, 1990 still borrows the forum state's personal-injury period, so this is **state-varying**, not one national number.
+- **Exhaustion trap:** a strong claim dies on a missed charge deadline — date the adverse act and count first. State agencies are faster, a state wage claim needs no charge, and state filings usually dual-file with EEOC.
+- Circumstantial evidence: *McDonnell Douglas Corp. v. Green*, 411 U.S. 792 (1973) — prima facie case, employer articulates a legitimate non-discriminatory reason, plaintiff shows pretext. The burden of persuasion stays with the plaintiff throughout, which is *Texas Dep't of Community Affairs v. Burdine*, 450 U.S. 248 (1981), not *McDonnell Douglas*. ADEA needs but-for causation, *Gross v. FBL Financial Services, Inc.*, 557 U.S. 167 (2009).
+- FLSA collective actions are **opt-in** — each employee must file written consent, 29 U.S.C. 216(b).
+- **A foreign forum or governing-law clause is the question this section would otherwise leave open.** FLSA and Title VII rights are not waivable by private agreement, and the federal statutes apply to work performed in the United States, so a pre-dispute clause sending the dispute abroad does not remove them; the authority defeating such a clause, and how a court treats it alongside 9 U.S.C. 2, is **(unconfirmed)** here. Establish it before advising on a contract pointing abroad.
+- Arbitration clauses are "valid, irrevocable, and enforceable", 9 U.S.C. 2, and class waivers enforceable, *Epic Systems Corp. v. Lewis*, 584 U.S. 497 (2018). Carve-out: at the claimant's election neither binds in a sexual-harassment or sexual-assault dispute, 9 U.S.C. 402(a).
+- Caps on Title VII/ADA compensatory plus punitive damages: $50,000 (15-100 employees), $100,000 (101-200), $200,000 (201-500), $300,000 (501+), 42 U.S.C. 1981a(b)(3) — 1991 figures, never indexed.
+- Outside the caps: back pay, which cannot accrue more than 2 years before the charge, 42 U.S.C. 2000e-5(g)(1), and front pay, which 2000e-5(g)(1) does not name: *Pollard v. E. I. du Pont de Nemours & Co.*, 532 U.S. 843 (2001) holds it is not an element of compensatory damages under 42 U.S.C. 1981a and so is **not subject to the 1981a(b)(3) cap**. FLSA doubles unpaid wages as liquidated damages, 29 U.S.C. 216(b); ADEA liquidates only willful violations, 626(b); fees, 2000e-5(k), 216(b).
+
+## Non-Waivable Rights & Void Clauses
+- **Not prospectively waivable:** FLSA minimum wage and overtime (only via DOL-supervised payment, 29 U.S.C. 216(c)); FMLA rights, 29 C.F.R. 825.220(d); and, **for an ADEA waiver specifically**, the right to file an EEOC charge or assist its investigation, 29 C.F.R. 1625.22(i)(2)-(3) with 29 U.S.C. 626(f)(4). Do not generalise that rule beyond the ADEA, and do not assert that a release still waives personal recovery: nothing opened here supports it.
+- **OWBPA:** an ADEA waiver is invalid unless the individual has at least **21 days** to consider it, **45 days** for a group exit-incentive programme, and at least **7 days** to revoke, 29 U.S.C. 626(f)(1)(F)(i)-(ii), (G).
+- **Speak Out Act:** a nondisclosure or nondisparagement clause agreed **before the dispute arises** is not judicially enforceable in a sexual-assault or sexual-harassment dispute, 42 U.S.C. 19403(a). Post-dispute settlement NDAs fall outside it.
+- **NLRB:** overbroad confidentiality and non-disparagement terms in severance agreements breach sec. 8(a)(1), *McLaren Macomb*, 372 NLRB No. 58 (2023). Posture **(unconfirmed)**: nlrb.gov and apps.nlrb.gov were unreachable in both verification passes, and an April 2026 reaffirmation is reported only secondarily. Treat gag clauses as risky but do not state the current posture as settled.
+
+## Common Pitfalls
+1. Applying Title VII below 15 employees, or FMLA below 50; sec. 1981 has no threshold.
+2. Quoting the vacated $1,128/week threshold as current.
+3. Saying non-competes are banned nationwide — the FTC rule never took effect.
+4. Treating probation as a legal status outside Montana.
+5. Letting the EEOC 180/300-day clock run while negotiating severance.
+6. Telling a visa holder to resign: that forfeits return transportation.
+7. Ignoring the NLRA for a non-union worker fired over pay talk — or assuming it reaches everyone, when 29 U.S.C. 152(3) excludes supervisors, domestic and agricultural workers and RLA carriers.
+8. Drafting an ADEA release without the 21/45-day and 7-day periods.
+
+## Citation Format
+- `29 U.S.C. 207(a)(1)`; `29 C.F.R. 541.600(a)`; `91 FR 27833 (May 15, 2026)`; `Gross v. FBL Fin. Servs., Inc., 557 U.S. 167 (2009)`.
+- Give every figure its year or effective date; never substitute a plausible number. Each `(unconfirmed)` marks a point not opened against a primary source here.
+
+## Always Disclaim
+I am an AI assistant, not your lawyer; this is legal information, not advice. Outcomes turn on the state, employer size and exact dates — confirm the primary source and consult a licensed local attorney.

@@ -1,0 +1,132 @@
+---
+description: "Kazakhstan employment and labour law: Labour Code of the Republic of Kazakhstan and, separately, the AIFC employment regime with its own court; the conciliation commission, reinstatement, foreign-labour permits and collective agreements. Role: Kazakhstan employment adviser."
+compiled: "KZ labour: two regimes that must never be merged — the Labour Code of the RK, and the AIFC with its own Employment Regulations and its own court. MZP 2026 85,000 tenge, MRP 4,325, subsistence minimum 50,851. Read ТК 104(1-1) as one negated chain: the MZP must NOT include доплаты, надбавки, премии or other incentive payments, so a bonus never counts toward the floor. Probation 3 months, 6 for heads, and ТК 131 omits ТК 37, so ending it owes no severance. ТК 52(1) carries 27 employer-initiated grounds, counting the interpolated 4-1) and 5-1). Severance is 1 average monthly wage, 2 on the output-decline ground. The согласительная комиссия is a mandatory pre-court stage for most employers (ТК 159), and two 2026 Constitutional Court rulings override the ТК 160 deadlines: 3 years for unpaid wages, 1 year for a commission-bypassing reinstatement claim. ТК 10(2) voids any term worsening the employee's position; the AIFC equivalent is EmpReg s 7(1)."
+keywords:
+  - /kz_labor
+  - kz_labor
+  - ТК РК
+  - трудовой кодекс РК
+  - согласительная комиссия
+  - совместительство
+  - МЗП
+  - восстановление на работе
+  - разрешение на привлечение иностранной рабочей силы
+  - AIFC Employment Regulations
+  - коллективный договор РК
+  - трудовой спор Казахстан
+as_of: "2026-11-06"
+review_after_days: 180
+review_on: "2027-02-15"
+sources:
+  - https://old.adilet.zan.kz/rus/docs/K1500000414
+  - https://old.adilet.zan.kz/rus/docs/K2300000224
+  - https://old.adilet.zan.kz/rus/docs/Z1500000438
+  - https://old.adilet.zan.kz/rus/docs/Z1100000477
+  - https://old.adilet.zan.kz/rus/docs/V2300032977
+  - https://aifc.kz/legal-framework/employment-regulations/employment-full-text/
+  - https://www.gov.kz/org/kgd-vko/press/article/details/236115?lang=ru
+  - https://egov.kz/cms/ru/information/help/tax_code
+---
+## Role
+Kazakhstan employment layer; `skill-jurisdiction-kz` holds the tax, corporate and migration background. **Two regimes, never merged:** ordinary (ТК РК) and the AIFC/МФЦА enclave. Fix the regime first; 2026 figures, re-verify.
+
+## Primary Sources
+- **ТК РК** Labour Code 23.11.2015 № 414-V; text carries am. 11.06.2026 № 306-VIII (eff. 01.07.2026).
+- **СК** Социальный кодекс 20.04.2023 № 224-VII, in force 01.07.2023; it **repealed** Закон "О занятости населения" № 482-V from that date.
+- **НК РК** Tax Code 18.07.2025 № 214-VIII, from 2026; **МЗ** Закон "О миграции населения" 22.07.2011 № 477-IV; **Приказ № 279** МТСЗН 30.06.2023 № 279 (МЮ № 32977), am. 30.09.2026 № 380.
+- **КЗ-МФЦА** Конституционный закон "О МФЦА" 07.12.2015 № 438-V. **EmpReg** AIFC Employment Regulations 2017, commenced 01.01.2018, am. 2021; number not printed **(unconfirmed)**.
+
+## Contract Types & Mandatory Written Terms
+- Mandatory written content ТК 28; lawful extra terms ТК 28(3); remote work ТК 138.
+- Term ТК 30: indefinite, or fixed **≥ 1 year** (30(1)(2)) except 30(1)(3)–(6) — defined work, replacement, seasonal, permit period; **max 2 extensions**, then indefinite.
+- Substance beats label: ТК 27 — work by qualification or position; personal performance under the work regime; wages for labour. **Any one feature** makes it employment.
+- **AIFC:** EmpReg is itself the applicable law of the contract (s 4), not ТК РК.
+
+## Probation & Early Termination
+- **≤ 3 months**; **6 months** for heads, their deputies, chief accountants and heads of branches: ТК 36(2). Counts toward service; suspended while absent.
+- **ТК 36 has no exempt-persons list** — three paragraphs, no exclusion clause; the only statutory exclusion found is seasonal work (ТК 134(3)). Exemptions claimed for graduates or disabled workers are not in the text **(unconfirmed)**.
+- Negative result → termination by **written notice stating reasons**; expiry without notice = passed (ТК 37). ТК 131 omits ТК 37 → **no severance**.
+- **AIFC:** ≤ **3 months** if the contract says so; inside it either side may end on **1 week's** notice, or for cause without notice (s 15).
+
+## Working Time, Rest & Leave
+- Ordinary: **40 h/week** (ТК 68(1)), **8 h/day** (ТК 71(4)); overtime **≤ 2 h/day** (1 h heavy or harmful), **≤ 12 h/month**, **120 h/year** under cumulative accounting (ТК 78).
+- Leave: **24 calendar days** paid annual (ТК 88); **≥ 6 extra** for harmful work or disability I–II (ТК 89).
+- **AIFC:** 40 h/week average and 8 h/day, waivable by prior written consent (s 22, s 24); **48 h** weekly rest (s 25); **20 Business Days** leave, ≤ 5 carried 12 months (s 27).
+
+## Pay, Minimum Wage & Mandatory Bonuses
+- **МЗП** set annually by the budget law, not the Code (ТК 104(1-2)). **2026: 85,000 ₸**. **МРП 2026: 4,325 ₸**; **прожиточный минимум 2026: 50,851 ₸**.
+- **ТК 104(1-1) reads as one negated chain, and getting it backwards is the trap**: the МЗП must be no lower than the прожиточный минимум and must **NOT** include доплаты, надбавки, компенсационные и социальные выплаты, премии и другие стимулирующие выплаты; it is paid pro rata to time worked. A bonus may never be counted toward the 85,000 ₸ floor.
+- Pay monthly, by the **first ten days of the following month**; delay penalty **1.25 × NBK base rate per overdue day**; final settlement **3 working days** after termination (ТК 113(1),(3),(4)).
+- Premiums **≥ 1.5×**: overtime ТК 108, weekends and holidays ТК 109, night 22:00–06:00 ТК 110/76(1).
+- **No mandatory 13th-month pay or annual bonus exists in Kazakh law** — no aguinaldo equivalent; bonuses are contractual or collective (ТК 107). Average wage, the severance basis: 12 months (ТК 114(2)).
+
+## Exclusivity, Moonlighting & Non-Compete
+- **Совместительство** = another regular paid job under an employment contract in free time (ТК 1(1)(56)). No consent of the main employer is required, but the hours cap is not the only limit: main job plus совместительство may exceed the 8-h norm by **no more than 4 h → 12 h/day** (ТК 68(3), ТК 71(4)); **ТК 26(1)(5) bars совместительство outright** for workers under 18 and for heavy, harmful or hazardous work, medical workers excepted; and **ТК 32(4)** requires a справка from the main workplace before the second contract is signed.
+- A blanket exclusivity clause thus has no statutory basis and is, on my reading, exposed under ТК 10(2). Confidentiality: ТК 22(2)(6); **no general duty of loyalty appears in ТК 22(2)**.
+- **Non-compete is lawful:** ТК 29 — the employee undertakes not to act in ways capable of harming the employer (29(1)); compensation **may** be set, i.e. optional (29(2)); posts approved by **employer act** (29(3)). **No maximum duration, no express post-termination reach, no breach consequence** → enforceability after exit uncertain.
+- **AIFC: the opposite of silent.** EmpReg s 16 imposes default duties — s 16(f) not to compete with the employer's business, and s 16(g) not to disclose confidential information "during and for an indefinite period after the termination of the Employee's employment". Both are variable only by the contract, which makes the AIFC **stricter** than ТК 29, not looser. Only moonlighting is genuinely unaddressed.
+
+## Termination: Grounds, Procedure, Severance
+- ТК 52(1): **27** employer-initiated grounds — the list runs 1) to 25) but carries interpolated **4-1)** and **5-1)**, so counting the printed numbers understates it. The load-bearing three: (1) liquidation, (2) staff reduction, (3) output decline worsening the employer's economic condition.
+- ТК 52 п. 1-1 adds two further grounds on which termination is **mandatory**, not discretionary; check it before treating п. 1 as the whole list.
+- Notice ТК 53: **≥ 1 month** for (1)–(2); **15 working days** for (3), replaceable by pay for the unworked period; representatives notified **≥ 1 month** ahead. Resignation **≥ 1 month** (ТК 56); seasonal **7 calendar days** (ТК 134(5)).
+- **Severance ТК 131: 1 average monthly wage** — liquidation, staff reduction, or exit for the employer's breach; **2 average monthly wages** — output-decline ground.
+- **AIFC:** notice after ≥ 1 month service (s 60(2)) — **< 3 months → 7 days; 3 months–< 5 years → 30 days; ≥ 5 years → 90 days**; pay in lieu allowed (60(4)); for cause, none (s 61). **End-of-service gratuity is contractual, not statutory, under the current s 64(1)**; pre-2021 hires keep the earlier s 64 (64(2)). **ТК 131 does not apply.**
+
+## Collective Bargaining & Employee Representation
+- **Finding the instrument**: ask for the employer's acts and the payslip, then check whether an отраслевое or региональное соглашение covers the employer's activity and territory — a генеральное or sectoral agreement can bind without anything in the individual contract pointing to it.
+- **Соглашения** ТК 152: генеральное, отраслевое, региональное (content ТК 153). **Коллективный договор:** bargaining ТК 156; mandatory topics include pay, working time, leave and safety (157(1)); term set by the parties, binding on the employer and its employees (ТК 158).
+- **Can it impose duties the Code alone does not? Yes, upward only.** Added obligations and commitments are valid (157(1)–(2)); employer acts bind employees (ТК 11, ТК 22(2)(1)); terms worsening the employee's position are void (ТК 10(2), 157(3)).
+- Collective disputes ТК 162–178: примирительная комиссия ТК 165; трудовой арбитраж within **5 working days** (166(6)); strike right ТК 171; **lockout prohibited** ТК 178. The trade-union statute is **Закон РК от 27.06.2014 № 211-V "О профессиональных союзах"**.
+- **AIFC:** no collective-bargaining or trade-union provisions in EmpReg — **no AIFC equivalent** of this layer.
+
+## Social Security & Payroll
+| 2026 payment | Rate | Base limits | Norm |
+|---|---|---|---|
+| ОПВ, employee | 10% | ≤ 50× МЗП | СК 249(1) |
+| ОПВР, employer | **3.5% in 2026** (2.5% 2025) | ≥ МЗП, ≤ 50× МЗП; born on/after 01.01.1975 | СК 251(1),(2); 248(6) |
+| СО, employer | **5% from 01.01.2025** | ≤ 7× МЗП, floor 1× МЗП | СК 244(1); 245(1) |
+| ОСМС, employer | 3% | ≤ **40× МЗП from 01.01.2026** | ст. 27 пп. 1 и 2-2 Закона РК 16.11.2015 № 405-V |
+| ВОСМС, employee | 2% | ≤ **20× МЗП from 01.01.2026** | ст. 28 пп. 1 и 5-2 того же закона |
+| Социальный налог | **6% from 01.01.2026**, down from **11% in 2025** (9.5% applied 2018–2024) | СО offset abolished, old ст. 486 п. 3 having no successor | НК ст. 557 п. 1 |
+| ИПН | 10%; **15% above 8,500 МРП/year from 01.01.2026** | — | НК РК № 214-VIII **(unconfirmed art.)** |
+- **Side activity:** paying a worker through their **ИП** on a special regime changes nothing — one ТК 27 feature makes it employment, payroll included.
+- There is **no general 4% self-employed rate**. The four 1% contributions (ОПВ, ОПВР, СО, ВОСМС) apply only to performers working **through internet platforms**, withheld by the operator (СК ст. 102-1 пп. 2–4; ОСМС ст. 28), and ИПН inside that regime is **0%** (НК ст. 720 п. 1). Off-platform, the ordinary rates apply.
+- **AIFC:** RK nationals enrol in their RK pension scheme (s 63); foreign staff of qualifying participants are ИПН-exempt until 01.01.2066 (КЗ-МФЦА 6(6)).
+
+## Foreign Workers & Permit Coupling
+- **Constitutional personal scope is not settled in this file (unconfirmed)**: no constitutional article was opened, so anchor a foreign worker's position in the ТК, which applies to work performed in the RK, and in МЗ and Приказ № 279 — not in a constitutional labour right.
+- **The permit belongs to the employer, not the worker.** ТК 26(1)(4) bars hiring a foreigner temporarily in the RK before the employer holds the LEO's **разрешение на привлечение иностранной рабочей силы**; a permit-linked contract may be fixed-term (ТК 30(1)(6)); ст. 60 подпункт 3) ТК РК ties termination to a contract made without it — note that art. 60 has **no numbered пункты** at all, so "ТК 60(1)(3)" expands to a paragraph that does not exist; the shorthand is ТК 60(3).
+- Quota set and distributed by the migration authority (МЗ 11(4)) as a share of the labour force — LEO permits, countries of origin, labour immigrants (МЗ 36-1(4),(5)). **2026: 0.3% / 2.85%** (Приказ 12.12.2025 № 397 as amended 24.04.2026 by Приказ № 153). The consolidated page carries only the current redaction, so no superseded figure is quoted here. The LEO issues within its quota (Приказ № 279 пп.16–17); validity п. 25 has **four** bands, and only two of them bar extension: category 1 (heads) one, two or three years **with an extension of one, two or three years**; categories 2 and 3 twelve months **extendable by twelve months up to three times**; category 4 twelve months **without extension**; seasonal workers up to 90, 180, 270 or 365 calendar days **without extension**.
+- **Внутрикорпоративный перевод:** free of charge under **п. 44** — not п. 22, which is the provision that *imposes* the fee; ≤ 3 years plus one 12-month extension, resting first on **МЗ ст. 37-3 п. 1** with Приказ № 279 п. 75 as the repeating rule; ≥ 1 year service at the transferring WTO-member entity (п. 46); **outside the annual quota** (МЗ 36-1(3)) yet permit-bound (МЗ 37-3).
+- **No-permit list МЗ 36-1(2)**, 9 categories: autonomous education organisations, state bodies, priority-investment and large-SEZ staff, permanent residents, heads of foreign branches, and **graduate-level managers and specialists of the "Астана Хаб" cluster fund or its participants**.
+- **AIFC is not on it** — its exemption is constitutional: participants and bodies engage foreigners **without any permit** (КЗ-МФЦА 8(1)) against high-qualification documents (8(2)); visas to 5 years (7(2)).
+- **The worker's own clock is what this section does not carry.** Because the permit is the employer's, a dismissal strands the worker: whether a new post may lawfully start before a fresh permit issues, what the worker must do and within what period, and the exposure for working meanwhile are **(unconfirmed)** here. Settle them before advising, since the labour answer and the status answer can point opposite ways. Astana Hub entry and work are referred by МЗ ст. 6 п. 1 to **Закон РК от 10.06.2014 № 207-V "Об инновационном кластере "Астана Хаб""**.
+
+## Dispute Procedure: Forum, Deadlines, Burden of Proof
+- **Согласительная комиссия: a mandatory pre-court stage** for most employers; courts take only unresolved issues or non-execution of its decision (ТК 159(1),(7)). Permanent parity body deciding within **15 working days** of registration (159(2),(5)). Not required in microbusiness, NPOs or foreign branches and representative offices "с численностью работников не более пятнадцати человек", in domestic work, or for executive-body officers (159(1)) — the statute does not settle whether that headcount qualifies all three organisational forms or only the last, so do not choose a reading for it. The second part of ТК 159(1) also excludes military, special-state, law-enforcement and civil-protection staff and civil servants.
+- Deadlines ТК 160 — commission: **1 month** for reinstatement from delivery of the termination order, **1 year** otherwise from knowledge of the breach; court after a commission decision **2 months**; commission-bypassing claimants, as written, **3 months** / 1 year.
+- **Two 2026 Constitutional Court rulings override that text.** НП КС РК 08.06.2026 **№ 81-НП**: the one-year bar does not reach unpaid wages and other mandatory payments — general **3-year** limitation, ст. 178 ГК РК. НП КС РК 12.06.2026 **№ 88-НП**: the 3-month deadline for commission-bypassing reinstatement claims is unconstitutional, so **1 year** governs.
+- Remedies: reinstatement (161(2), immediately enforceable, extra pay for delay); **wages for the whole вынужденный прогул, capped at 6 months** (161(1)). **Moral damages are not in ТК 161** — Civil Code **(unconfirmed)**.
+- **Burden of proof: no ТК shifting provision confirmed here**; each party proves its own assertions (ГПК РК **(unconfirmed)**). In practice the employer justifies the ground — reasoning only.
+- **AIFC forum:** EmpReg disputes go to the **AIFC Court** (s 4(3)), outside the RK judicial system and applying AIFC law (КЗ-МФЦА 13(2),(6)), with **exclusive jurisdiction** over disputes between participants, bodies and/or **their foreign employees**, AIFC-law operations and referrals by agreement (13(4)). Gap: 13(4)(1) says *foreign* employees, so for an RK national the route rests on s 4(3). No conciliation stage or limitation period in EmpReg **(unconfirmed)** — which leaves an AIFC employee unable to say when the claim dies, so settle it before advising. **Nor is the route to enforce an AIFC Court judgment against assets inside the RK covered here (unconfirmed)**: winning in that court and collecting are separate problems, and the second is the one the client cares about.
+
+## Non-Waivable Rights & Void Clauses
+- **ТК 10(2) is the anchor:** terms of agreements, collective and employment contracts **and employer acts** worsening the employee's position against labour legislation are **invalid and not applied** — a signed waiver of ТК 131 severance or ТК 53 notice is ineffective. No unilateral change (ТК 10(3)); same ban for collective agreements (157(3)); discrimination prohibited (ТК 6(2),(4)).
+- **AIFC has its own voidness rule**: EmpReg s 7(1) — "a provision in an agreement to waive or exclude any of those requirements is void unless expressly permitted under these Regulations". s 65 still caps termination compensation at EmpReg, Board rules and contract, so the comparator is EmpReg, not ТК. Unlike ТК 10(2), s 7(2)–(3) carve out a written settlement agreement.
+
+## Common Pitfalls
+1. Citing **Закон "О занятости населения" № 482-V** — repealed by СК № 224-VII from 01.07.2023; permits now rest on МЗ and Приказ № 279.
+2. Giving a dismissed worker 3 months to sue — НП КС № 88-НП (12.06.2026) voided that.
+3. Treating the согласительная комиссия as optional (ТК 159(1)).
+4. Claiming Kazakhstan bans non-competes, or that compensation is mandatory — see ТК 29.
+5. Inventing a probation-exempt list — ТК 36 has none, bar seasonal work (ТК 134(3)).
+6. Promising AIFC staff a statutory gratuity — the current s 64 is contractual.
+7. Collapsing the permit exemptions: Astana Hub in МЗ 36-1(2), the AIFC in КЗ-МФЦА 8(1).
+8. Assuming an ИП contract escapes employment law (ТК 27).
+
+## Citation Format
+Expand the shorthand when answering: `ТК n(m)` = `ст. n п. m ТК РК`; `СК`, `МЗ`, `КЗ-МФЦА`, `s n(m)` likewise for the instruments in Primary Sources. Orders: `Приказ <body> от DD.MM.YYYY № N (МЮ № NNNNN)`; `НП КС РК от DD.MM.YYYY № N-НП`. Never cite ТК РК for an AIFC employee; name the regime, date every figure.
+
+## Always Disclaim
+Я AI-ассистент и не заменяю лицензированного юриста РК. Нормы и ставки меняются; перед юридически значимым решением проверьте действующую редакцию на adilet.zan.kz (для МФЦА — aifc.kz) и обратитесь к специалисту.

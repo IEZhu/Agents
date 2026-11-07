@@ -1,0 +1,154 @@
+---
+description: "Mexican employment and labour law: Ley Federal del Trabajo, dismissal and severance, the 2026 working-time reform, aviso de rescisión, aguinaldo, PTU, IMSS payroll, CFCRL conciliation and the Tribunales Laborales. Role: Mexico employment adviser."
+compiled: "MX labour: LFT, federal only, state law never displaces it. Ordinary week 48 h today; 40 h is the 2030 end state and the weekly overtime cap is 9 h in 2026. Min wage 2026 $315.04/day general, $440.87 frontera norte. Probation 30 days, 180 for dirección, written plus IMSS or the contract is indefinite. Aviso de rescisión handed over or filed within 5 business days, else unjustified separation is presumed. Severance 3 months plus 20 days a year plus salarios caídos to 12 months. Conciliation before the CFCRL is mandatory; 2 months to sue after separation. LFT 5 and 33 void any waiver."
+keywords:
+  - /mx_labor
+  - mx_labor
+  - derecho laboral mexicano
+  - Ley Federal del Trabajo
+  - aviso de rescisión
+  - prima de antigüedad
+  - salarios caídos
+  - aguinaldo
+  - PTU
+  - Tribunal Laboral
+  - CFCRL
+  - conciliación prejudicial
+  - liquidación laboral
+  - REPSE
+as_of: "2026-11-06"
+review_after_days: 180
+review_on: "2027-02-15"
+sources:
+  - https://ordenjuridico.gob.mx/Documentos/Federal/html/wo125151.html
+  - https://www.diputados.gob.mx/LeyesBiblio/pdf/LFT.pdf
+  - https://dof.gob.mx/nota_detalle.php?codigo=5786537&fecha=01/05/2026
+  - https://dof.gob.mx/nota_detalle.php?codigo=5781417&fecha=03/03/2026
+  - https://dof.gob.mx/nota_detalle.php?codigo=5775534&fecha=09/12/2025
+  - https://dof.gob.mx/nota_detalle.php?codigo=5778072&fecha=09/01/2026
+  - https://dof.gob.mx/nota_detalle.php?codigo=5607729&fecha=16/12/2020
+  - https://dof.gob.mx/nota_detalle.php?codigo=5559130&fecha=01/05/2019
+---
+## Role
+- Mexico employment layer for an AI persona advising individuals and small employers, immigration often involved.
+- Federal law (CPEUM 123A; LFT 1); state law never displaces it. Assumes `skill-jurisdiction-mx`. Figures dated; re-verify.
+
+## Primary Sources
+- CPEUM 123A (floor), 5 (free choice of work), 1 (all persons).
+- LFT (DOF 01-04-1970), read at reforma 21-02-2025 plus DOF 15-01-2026 (arts. 2o., 3o., 56; paragraphs added to 16), 01-05-2026 (working time, and a second decree the same day adding art. 283 Quáter) and 14-05-2026 (only arts. 304-310, artistas intérpretes).
+- The consolidated SEGOB copy dated 21-02-2025 predates all three 2026 reforms, so re-read any article they touched at the DOF rather than in that copy.
+- Decrees: 01-05-2019 justice; 11-01-2021 teletrabajo; 23-04-2021 subcontracting, PTU cap; 27-12-2022 vacaciones; 24-12-2024 plataformas; 03-03-2026, 01-05-2026 40 hours.
+- Also LSS, Ley del INFONAVIT, LISR, Ley de Migración (LM) + Reglamento (RLM), Ley de Amparo (LA), NOM-037-STPS-2023; bodies STPS, CFCRL, IMSS, INM, PROFEDET, CONASAMI.
+
+## Contract Types & Mandatory Written Terms
+- Modalities (LFT 35): obra/tiempo determinado (task/fixed term), temporada (seasonal), indeterminado (indefinite), optional prueba or capacitación inicial; default; fixed term per 37.
+- Written terms where no CCT applies (LFT 24), ten mandatory contents listed in LFT 25 (fr. X added DOF 01-05-2019).
+- Substance governs: subordinated personal work for a salary is employment (LFT 20), presumed (21).
+- Teletrabajo (remote work) above 40% of home time (LFT 330-A); NOM-037-STPS-2023 in force 5 Dec 2023.
+- Personnel subcontracting banned (LFT 12); specialized services need REPSE registration, 3-yearly renewal (13, 15); client jointly liable (14).
+
+## Probation & Early Termination
+| Modality | Maximum | Norm |
+|---|---|---|
+| Periodo a prueba (probation) | 30 days; 180 for dirección/gerencia or specialised technical posts | LFT 39-A |
+| Capacitación inicial (initial training) | 3 months; 6 for those posts | LFT 39-B |
+- Probation only in indefinite relationships or ones over 180 days (LFT 39-A).
+- Writing plus guaranteed social security, else indefinite (39-C); full salary, IMSS and post benefits throughout (39-A, 39-B).
+- Improrrogables (non-extendable), never twice for one worker in a firm, other posts and promotions included (LFT 39-D); continuing makes it indefinite (39-E).
+- Proper ending costs no LFT 48/50 money, but the prima de antigüedad is not free: the 15-year condition in LFT 162 fr. III governs only voluntary exit, and the same fracción pays the prima on any employer-initiated separation whatever the service. Missing writing or a second period means indefinite, so ending it is a dismissal.
+
+## Working Time, Rest & Leave
+- The ordinary cap today is **48 h a week**; the 40-hour week is the 2030 end state, not current law: CPEUM 123A fr. IV (DOF 03-03-2026); LFT 59 (DOF 01-05-2026).
+- Phase-in 1 Jan: 2026 48 h, 2027 46, 2028 44, 2029 42, 2030 40; no wage cut (transitorios Segundo, Séptimo, DOF 01-05-2026).
+- Daily caps 8 h diurna (day), 7 nocturna (night), 7.5 mixta (LFT 61, DOF 01-05-2026).
+- Overtime +100%, over 4 h daily on 4 days (LFT 66); the weekly cap is **9 h in 2026**, phased 9/9/10/11/12 h across 2026–2030, so 12 h is the end state, not today's ceiling.
+- Then 4 further h weekly at +200%, max 12 h daily total (LFT 68); 67 ¶2 derogated.
+- Electronic start/finish record: the LFT 132 fr. XXXIV duty has applied since 1 May 2026; only the STPS general provisions start 1 Jan 2027 (DOF 01-05-2026). Fine 250–5,000 UMA (994 fr. IV Bis).
+- One paid rest day per six (LFT 69); prima dominical (Sunday premium) 25% (71); nine statutory holidays (74).
+- Vacations (LFT 76, DOF 27-12-2022, from 2023): 12 days after one year, +2 yearly to 20, then +2 per 5 years.
+- ≥ 12 continuous days (LFT 78); proportional pay on an incomplete year (79); prima vacacional (vacation premium) 25% (80); paternity 5 days (132 fr. XXVII Bis).
+
+## Pay, Minimum Wage & Mandatory Bonuses
+- Minimum wage 1 Jan 2026 (CONASAMI, DOF 09-12-2025): general zone $315.04 daily, frontera norte (border) $440.87; 2025 $278.80/$419.88.
+- UMA 1 Feb 2026 (INEGI, DOF 09-01-2026): daily $117.31, monthly $3,566.22, annual $42,794.64; it indexes fines.
+- Aguinaldo (year-end bonus) ≥ 15 days' salary before 20 December, pro rata under a year (LFT 87).
+- PTU (profit sharing): constitutional (CPEUM 123A fr. IX), 10% of renta gravable — arts. 117 and 120 LFT delegate the rate to the Comisión Nacional, whose resolution sets it (DOF 18-09-2020) — within 60 days of the tax due date (122).
+- PTU cap 3 months' salary or the last 3 years' average, whichever favours the worker (LFT 127 fr. VIII, DOF 23-04-2021).
+
+## Exclusivity, Moonlighting & Non-Compete
+- The LFT does not regulate exclusivity; a clause binds as a work condition but cannot waive a right (LFT 5, 33).
+- The duty is secrecy, not non-competition: technical, commercial, manufacturing secrets and reserved matters (LFT 134 fr. XIII).
+- Competing activity reaches dismissal only via LFT 47 fr. IX (secrets), II (probity), X (absences), XV (analogous).
+- CPEUM 5: nobody may be barred from lawful work of choice, save judicial determination or governmental resolution; so a post-termination bar is unenforceable as a labour duty and void if it conditions a finiquito (LFT 33), at most a civil covenant in damages **(unconfirmed, no tesis opened)**.
+
+## Termination: Grounds, Procedure, Severance
+- Just cause: LFT 47's sixteen fracciones, counting XIV Bis; worker causes LFT 51 within 30 days, paid under 50 (52); no-fault 53.
+- Aviso de rescisión (dismissal notice): written, naming conduct and dates, handed personally at dismissal or sent to the Tribunal within 5 business days (LFT 47).
+- Non-delivery "por sí sola presumirá la separación no justificada", rebuttable (LFT 47).
+- Worker elects reinstatement or the constitutional 3 months' salary at the payment-date wage (LFT 48; CPEUM 123A XXII).
+- Salarios caídos (back pay) up to 12 months where cause is unproven, then 2% monthly interest on 15 months' salary (LFT 48).
+- Reinstatement excused: under one year, permanent contact, confianza (trusted staff), trabajo del hogar (domestic work), eventuales (casual), platform workers (LFT 49).
+- LFT 50: indefinite, 20 days' salary yearly (fr. II) plus 3 months and salarios caídos (fr. III); fixed term, half the time served or 6 months plus 20 days (fr. I).
+- **The base is missing from those figures, and it decides the number.** Every amount above is days or months of salary; before producing one, fix which elements make up the *salario diario integrado* for indemnity purposes, the reference period for variable pay and commissions, and the partial-year rule. This file does not settle it **(unconfirmed)** — take it from LFT 84 and 89 and current criteria.
+- Prima de antigüedad (seniority premium) 12 days' salary yearly (LFT 162 fr. I), capped at twice the area minimum wage (fr. II; 485–486); extending it to LFT 48/50 money is contested **(unconfirmed)**.
+- Finiquito (final pay-out) = accrued items: wages, pro-rata aguinaldo (87), vacations and prima (79–80), prima de antigüedad (162); liquidación (severance package) adds LFT 48/50 money.
+- LFT 33: a convenio (settlement) must be written, recite facts and rights, and be ratified before the Centro or Tribunal.
+
+## Collective Bargaining & Employee Representation
+- CCT (contrato colectivo de trabajo): union-employer agreement setting conditions in one or more enterprises (LFT 386).
+- A CCT can add duties beyond the LFT and displaces the individual writing duty (LFT 24); always check for one.
+- **Finding it**: ask for the payslip and the *reglamento interior de trabajo*, then check the CFCRL's public register for a CCT covering the employer, and separately for a *contrato-ley* extending a sectoral agreement to the whole branch. Where a CCT and a contrato-ley both reach the worker, establish which prevails before answering — this file does not decide it **(unconfirmed)**.
+- The employer must sign on a member union's request, but the union first needs the CFCRL's Constancia de Representatividad (representativeness certificate, LFT 387), granted on a confidential list showing ≥ 30% support (390 Bis).
+- An initial CCT or revision registers only on majority approval by personal, free, secret vote (LFT 390 Ter; revisions 400 Bis).
+- Legitimation: existing CCTs had to be revised within 4 years of DOF 01-05-2019, by 1–2 May 2023; failing that the CCT terminated, yet better-than-LFT conditions survive (transitorio Décimo Primero).
+
+## Social Security & Payroll
+- Report movements within 5 business days (LSS 15 fr. I); SBC ceiling 25 UMA (28). Rates below: LSS text at DOF 07-06-2024, reformed DOF 15-01-2026 (no cited rate article changed).
+
+| Branch | Employer | Worker | Norm |
+|---|---|---|---|
+| Riesgos de trabajo (occupational risk) | firm prima, minimum 0.5%; new firms 0.54355%–7.58875% by class | — | LSS 72, 73 |
+| Enf. y maternidad (sickness) | 13.9% of a daily minimum wage per insured, +6% of SBC above 3x, +0.7% | 2% of that excess, +0.25% | LSS 106, 107 |
+| Invalidez y vida (disability/life) | 1.75% | 0.625% | LSS 147 |
+| Retiro (retirement, SAR) | 2% | — | LSS 168 fr. I |
+| Cesantía y vejez (old age) | 3.150% at 1 minimum wage to 11.875% at 4.01 UMA and above | 1.125% | LSS 168 fr. II (DOF 16-12-2020) |
+| Guarderías (childcare) | 1% | — | LSS 211 |
+| INFONAVIT housing | 5% of salary | — | LINFONAVIT 29 fr. II |
+
+- Applied enfermedades y maternidad rates: LSS transitorio DECIMO NOVENO closed its ten annual steps in 2007, so the figures are 20.40% of a UMA per insured, plus 1.10% employer and 0.40% worker on SBC above 3 UMA.
+- **(unconfirmed)** the 2026 cesantía y vejez step alone: the DOF 16-12-2020 year table was not retrievable as text, and only 3.150% for 2021–2022 with phasing from 2023 is confirmed.
+- Side activity: salary withheld under LISR Título IV Cap. I; RESICO to $3,500,000 yearly income at 1.00%–2.50% (LISR 113-E monthly table, 113-F annual table, both added by **DOF 12-11-2021**; a ceiling rise was presented with the Paquete Económico 2027 and is not in the DOF, so re-check after it is published).
+
+## Foreign Workers & Permit Coupling
+- CPEUM 1 covers "todas las personas" and LFT 3 bars conditions discriminating by "condición migratoria".
+- Quota: ≥ 90% Mexican workers per establishment; técnicos and profesionales Mexican unless no specialist exists; directores out (LFT 7).
+- Residente temporal (temporary resident) up to 4 years, work permit subject to a job offer (LM 52 fr. VII); visitante remunerado (paid visitor) 180 days (fr. II).
+- Hiring a foreigner needs INM's constancia de inscripción del empleador (employer registration, RLM 166); the resident reports a workplace change within 90 natural days (LM 63; RLM 167).
+- The employer reports a change of domicile or legal representative to the INM within 30 natural days (RLM 166).
+- Dismissal does not cancel the card (LM 64); the permit rests on that offer.
+- **The worker's own clock is what this section does not carry.** Whether a new post may lawfully start before the condición de estancia is amended, what the worker must notify the INM and within what period, and the exposure for working on a status whose basis has ended are **(unconfirmed)** here — settle them with the INM before advising, since the labour answer and the status answer can point opposite ways.
+
+## Dispute Procedure: Forum, Deadlines, Burden of Proof
+- Forum since 2019: Tribunales Laborales (labour courts) of the federal or state judiciary (LFT 604, reformed DOF 01-05-2019; CPEUM 123A fr. XX, reformed DOF 24-02-2017). **The Juntas are not gone**: transitorio Séptimo of DOF 01-05-2019 leaves every procedure already before a Junta to be concluded by it under the old rules, bars the new Centros from conciliating those matters including execution, and transitorio Vigésimo Séptimo still provides representatives "en tanto éstas continúan su operación". Ask when the case started before naming the forum.
+- **A foreign forum or governing-law clause is the question this section would otherwise leave open.** For work performed in Mexico the LFT applies by its own terms — **art. 1o. alone**, "de observancia general en toda la República"; art. 2o. is a purpose-and-definition provision and does not carry scope and its rights are *orden público* (LFT 5), so a pre-dispute clause sending the dispute abroad or to foreign law cannot remove the Mexican court or the statutory minimum. State that reasoning rather than the clause: the exact authority defeating such a clause is **(unconfirmed)** here.
+- Conciliation before the CFCRL or local Centro first (LFT 684-A, 684-B), one obligatory hearing (CPEUM 123A fr. XX), capped at 45 natural days (684-D); its constancia opens the Tribunal (684-E); exemptions 685 Ter.
+- Deadlines: 1 year generally (LFT 516); 2 months for a worker separated from work, suspended by the conciliation filing (518, 684-B); 1 month for employer discipline or the worker walking out (517); 2 years in 519 cases; prescription waits on personal receipt of the aviso (47).
+- Burden reversed: the employer proves hire date, seniority, absences and the cause of dismissal (LFT 784), and keeps and produces contracts, payroll, attendance, PTU, vacation, aguinaldo receipts (804); failure presumes the worker's facts (805).
+- Amparo directo against a sentencia definitiva (final judgment): LA 170 fr. I gives the remedy but names no court, so cite the competence provisions, not that fracción, for the Tribunal Colegiado. Indirecto for norms and outside acts (107); filing period 15 days (17).
+
+## Non-Waivable Rights & Void Clauses
+- LFT 5: the Law is orden público (public policy), so a stipulation, written or verbal, has no effect against the rights it lists.
+- LFT 33: a renuncia (waiver) of earned wages, indemnities or other benefits from services rendered is void in any form.
+- CPEUM 123A fr. XXVII: conditions are null though contracted, incl. inciso g) waiver of indemnities and h) of any protected right; waiving LFT 48/50 money, PTU, vacations or the prima is void, the clause falling and the rest standing (33).
+
+## Common Pitfalls
+1. Probation as a free trial: no writing, or a second period, makes the contract indefinite (LFT 39-C, 39-D).
+2. Skipping or late-filing the aviso de rescisión, which alone presumes unjustified separation (LFT 47).
+3. Unregistered staffing provider: LFT 12 bans personnel subcontracting, 14 makes the client jointly liable.
+
+## Citation Format
+- Expand shorthand: `LFT 47` to `art. 47 LFT`, `CPEUM 123A fr. IV` to `art. 123 ap. A fracc. IV CPEUM`.
+- Jurisprudence `Tesis: [registro], SJF, [época]`; never cite a registry number or quotation not opened and read.
+
+## Always Disclaim
+Soy un asistente de IA, no un abogado con cédula: información jurídica, no asesoría. Reconfirme las cifras en el DOF, CONASAMI, IMSS o el CFCRL. Ante un despido, huelga o trámite migratorio laboral, consulte a un abogado titulado.

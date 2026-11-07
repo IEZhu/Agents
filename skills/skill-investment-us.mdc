@@ -1,0 +1,138 @@
+---
+description: "United States investment and securities law for private offerings: the Howey test, Regulation D and Rule 506, accredited-investor thresholds, Regulation S, A+ and CF, Rule 144 resales, Investment Advisers Act exemptions, broker-dealer and finder questions, blue sky notice filings, CFIUS screening and Rule 10b-5. Role: US securities adviser."
+compiled: "US private offerings: no offer or sale without registration or an exemption (77e). Howey asks whether money went into a common enterprise with profits expected from the efforts of others. Rule 506(b) has no cap, no solicitation and at most 35 non-accredited investors; 506(c) is accredited only, verified by reasonable steps; the five years is not a verification that keeps running but a period in which a fresh written representation at the time of sale stands in for re-verification. Reg A Tier 2 $75,000,000; Reg CF $5,000,000, which is a rule figure the five-year adjustment does not raise, only the investor limits being indexed. Accredited individual: income over $200,000, or net worth over $1,000,000 excluding the primary residence, neither indexed. The qualified-client amounts live in Order IA-6961, not in the rule text. Rule 144 hold 6 months for a reporting issuer, else 1 year. Form D within 15 days of first sale, 83(b) within 30 days of transfer. Integration, bad-actor disqualification, non-accredited disclosure and the verification method decide whether the exemption survived. State notice filings and state private remedies survive federal preemption."
+keywords:
+  - /us_investment
+  - us_investment
+  - Howey test
+  - Regulation D
+  - Rule 506(c)
+  - accredited investor
+  - Regulation S
+  - Regulation A+
+  - Regulation CF
+  - Rule 144
+  - Form D
+  - blue sky notice filing
+  - Investment Advisers Act
+  - exempt reporting adviser
+  - 3(c)(1)
+  - 3(c)(7)
+  - broker-dealer registration
+  - finder compensation
+  - CFIUS
+  - 83(b) election
+  - QSBS
+  - Rule 10b-5
+as_of: "2026-11-06"
+review_after_days: 180
+review_on: "2027-02-15"
+sources:
+  - https://www.ecfr.gov/api/versioner/v1/full/2026-11-02/title-17.xml?part=230&section=230.501
+  - https://www.ecfr.gov/api/versioner/v1/full/2026-11-02/title-17.xml?part=230&section=230.506
+  - https://www.ecfr.gov/api/versioner/v1/full/2026-11-02/title-17.xml?part=230&section=230.144
+  - https://www.ecfr.gov/api/versioner/v1/full/2026-11-02/title-17.xml?part=230&section=230.251
+  - https://www.ecfr.gov/api/versioner/v1/full/2026-11-02/title-17.xml?part=227&section=227.100
+  - https://www.govinfo.gov/link/uscode/15/77d?link-type=html
+  - https://www.govinfo.gov/link/uscode/15/77r?link-type=html
+  - https://www.govinfo.gov/content/pkg/PLAW-119publ21/html/PLAW-119publ21.htm
+  - https://www.sec.gov/corpfin/framework-investment-contract-analysis-digital-assets
+---
+## Role
+Assumes `skill-jurisdiction-us`. Layers: SEC law, blue sky, CFIUS, IRC. Ask: **who offers, to whom, where, offering or resale, is the issuer a fund.** Non-US clients add CFIUS and withholding; visas: `skill-jurisdiction-us`.
+
+## Primary Sources
+Securities Act 1933, 15 U.S.C. 77a-77aa; Exchange Act 1934, 78a; ICA, 80a-1; Advisers Act, 80b-1; rules 17 C.F.R. 227, 230, 239, 240, 270, 275. CFIUS: 50 U.S.C. 4565; 31 C.F.R. 800, 802. Tax: 26 U.S.C./C.F.R. Checked: eCFR, govinfo, federalregister.gov, sec.gov, FINRA, irs.gov; figures as at **eCFR 2026-11-02**, researched 2026-11-06.
+Shorthand: `77x/78x/80x` = 15 U.S.C.; `227.x/230.x/240.x/270.x/275.x` = 17 C.F.R.; `800.x/802.x` = 31 C.F.R.; `1.x` = 26 C.F.R.; `IRC` = 26 U.S.C.
+
+## What Counts as a Security
+- 77b(a)(1) lists "note", "stock", "investment contract": the label does not decide. A SAFE, revenue share or passive LLC/LP interest can be one; profit shares turn on who works.
+- *Howey*, 328 U.S. 293 (1946): the test is whether a person "invests his money in a common enterprise and is led to expect profits solely from the efforts of the promoter or a third party", at 298-299.
+- Do not quote "form was disregarded for substance and emphasis was placed upon economic reality" as the holding: at 298 that sentence is **past tense**, describing how state blue-sky courts construed "investment contract" before 1933, not a rule the Court laid down.
+- Notes: the "family resemblance" test is *Reves v. Ernst & Young*, 494 U.S. 56, 63-64 (1990).
+- Tokens: Release Nos. 33-11412; 34-105020, 91 FR 13714 (2026-03-23), effective then. Of its five categories only **digital securities** — an enumerated instrument in token form — are securities by virtue of the instrument itself; the release does not use "per se". The others, stablecoins other than payment stablecoins included, can still be securities when sold as part of an investment contract. It supersedes the 2019 staff Framework but "does not supersede or replace the Howey test, which is binding legal precedent"; a token can enter and later leave an investment contract.
+- 91 FR 64811 (2026-10-13) is **not** an SEC release: it is a CFTC *advanced notice of proposed rulemaking*, "Regulation Crypto Asset Transactions and Regulation Crypto Asset Markets". The SEC's own crypto proposal is listed as "Regulation Crypto Assets", 91 FR 54510 (2026-08-21, document 2026-17183) — open it before citing it **(unconfirmed)**.
+
+## Public Offering vs Exemption
+No offer or sale without registration or an exemption, 77e(a), (c); base exemption 4(a)(2), 77d(a)(2).
+- **506(b)**, 230.506(b)(2)(i): no cap, no solicitation; accredited unlimited plus ≤35 non-accredited sophisticated per 90 calendar days (86 FR 3598, 2021-01-14).
+- **506(c)**, 230.506(c)(2)(ii): no cap, solicitation allowed, accredited only, verified by reasonable steps; (ii)(E) does not make a verification **last** five years — within five years of a prior verification a fresh **written representation at the time of sale**, with no contrary knowledge, substitutes for verifying again.
+- **Reg A**, 230.251(a): Tier 1 $20,000,000, affiliate resales ≤$6,000,000, state qualification; Tier 2 $75,000,000, ≤$22,500,000, non-accredited capped at 10% of income or net worth, (d)(2)(i)(C). 86 FR 3596 (2021-01-14). No inflation index, but 15 U.S.C. 77c(b)(5) obliges the Commission to review the offering limit **every 2 years** and either raise it or report to Congress; note too that the statutory ceiling in 77c(b)(2)(A) still reads $50,000,000 against the rule's $75,000,000.
+- **Reg CF**, 227.100(a): $5,000,000/12 months, portal only (86 FR 3590, 2021-01-14); non-accredited: greater of $2,500 or 5% of income/net worth under $124,000, else 10% capped at $124,000 (87 FR 57398, 2022-09-20). **Only the investor limits are indexed** by 77d-1(h), by five-yearly FR notice on BLS CPI-U; 77d-1(h) sets a five-year maximum interval and names no next date, so do not quote one. The **$5,000,000 ceiling is a rule figure the adjustment does not raise**: the 2022 adjustment amended only 227.100(a)(2)(i) and (ii) and recorded that an indexed offering limit would be $1,235,000.
+- **Reg S**, 230.901-905: offshore, no directed selling efforts into the US; distribution-compliance period by **category, not by debt versus equity**: 230.903(b)(2) puts equity of a reporting foreign issuer and debt of a reporting issuer or of a non-reporting foreign issuer alike on 40 days, while (b)(3) gives 1 year, or 6 months for a reporting issuer.
+- **Rule 701**, 230.701(d)(2): greatest of $1,000,000, 15% of assets or 15% of the class, for employees, directors, consultants; disclosure above $10 million/12 months, (e).
+- Form D within 15 calendar days of first sale, 230.503(a)(1); annual amendment while open, (a)(3)(iii).
+- **Four steps decide whether the exemption survived, and none is in the figures above.** Integration of what looks like separate rounds; bad-actor disqualification of the issuer and its covered persons; the disclosure that admitting even one non-accredited investor triggers under 506(b); and which verification methods a solicited 506(c) round actually relied on. This file does not carry their rule text **(unconfirmed)** — settle each against 17 C.F.R. 230 before treating a round as exempt.
+
+## Who May Invest: Accredited, Qualified, Non-US
+- **Accredited individual**, 230.501(a)(6), (a)(5): income >$200,000 (joint >$300,000) in each of the two prior years and expected this year; or net worth >$1,000,000 ex primary residence. **Not indexed**: income test from 1982, residence carve-out 76 FR 81806 (2011-12-29).
+- **Credential, insiders**, 230.501(a)(10), (a)(4), (a)(11) (2020): a certification designated by Commission order - Series 7, 65, 82 (33-10824, 85 FR 64277, 2020-10-09); director, executive officer or GP; a 3(c)(1)/3(c)(7) fund's "knowledgeable employee", 270.3c-5(a)(4).
+- **Entities**, 230.501(a)(3), (a)(8), (a)(9), (a)(12): $5,000,000 assets or investments; all owners accredited; family office >$5,000,000 AUM. **QIB**, 230.144A(a)(1): institution ≥$100 million unaffiliated, dealer ≥$10 million.
+- **Qualified client** (performance fees): ≥$1,400,000 managed or net worth >$2,700,000 — the amounts come from **Order IA-6961**, 91 FR 23520, the Federal Register issue of **2026-05-01** (the order's own release line reads April 28, 2026), effective 2026-06-29, and not from 275.205-3(d)(1), whose text carries no figure and reads "at least the applicable dollar amount specified in the most recent order". Cite the order for the number and the rule for the mechanism, so a later order supersedes rather than contradicts. **Indexed** by 275.205-3(e): $750,000/$1,500,000 (1997 base) × PCE chain-type price index, rounded to $100,000; next order about 2031-05-01.
+- **Qualified purchaser** (3(c)(7)), 80a-2(a)(51)(A), NSMIA 1996, **not indexed**: individual ≥$5,000,000 investments; any person investing ≥$25,000,000 discretionary.
+- Status: still the 2020 amendments; 230.501 last changed by technical amendments, 90 FR 9684 (2025-02-18). Proposals only, each with its own release and file number: 33-11447/4-933 CFA at 91 FR 63314, 33-11445/4-931 FINRA exam at 63335, 33-11448/4-934 CFP at 63345, 33-11449/4-935 Series 79 and 86/87 at 63357, 33-11446/4-932 US CPA at 63368 (all 2026-10-05); 91 FR 63676 (2026-10-06) on "qualified client" = accredited. Nothing bars a non-US buyer; limits are the issuer's, withholding and CFIUS.
+
+## Resale and Liquidity
+- Reg D, 4(a)(2) and 701 stock is restricted. Rule 144 hold: 6 months if the issuer has reported under the Exchange Act for 90 days, else 1 year, 230.144(d)(1)(i)-(ii).
+- Affiliates add current public information, volume limits (greater of 1% of the class or the four-week average weekly reported volume), manner-of-sale limits and Form 144: 230.144(c), (e)(1), (f), (h); shells excluded, 230.144(i)(2).
+- 144A resales: QIBs only, 230.144A(d); illiquidity is otherwise contractual (transfer restrictions, ROFR).
+
+## Funds and Investment Advisers
+- ICA exclusions, 80a-3(c)(1), (c)(7): 3(c)(1), ≤100 beneficial owners, or **250 for a qualifying venture capital fund capped at $12,000,000 in aggregate capital contributions and uncalled committed capital**, 17 C.F.R. 270.3c-7 (89 FR 70483, 2024-08-30), with the next adjustment order due after 2029-11-01 — the $10,000,000 in Pub. L. 115-174 s. 504(1) is the superseded 2018 figure; 3(c)(7), all holders qualified purchasers, no public offering.
+- Registration: barred below $25,000,000 AUM, mid-sized band to $100,000,000, 80b-3a(a); by rule register at $100,000,000, buffer $110,000,000, exit below $90,000,000, 275.203A-1(a)(1). Below the band: state law — **(unconfirmed)**, de minimis counts unchecked.
+- Exemptions (both yield exempt reporting advisers): private fund adviser, solely private funds under $150,000,000 US private fund assets, 80b-3(m), 275.203(m)-1; VC adviser, 80b-3(l), 275.203(l)-1.
+- Filings: Form ADV annual amendment within 90 days of fiscal year end, 275.204-1(a)(1)(i); Form PF at ≥$150 million private fund assets, 275.204(b)-1(a), its 2024 amendments deferred to 2027-07-01, 91 FR 56593 (2026-09-03).
+- Status: Private Fund Adviser Rules (IA-6383, 88 FR 63206, 2023-09-14) vacated in full 2024-06-05, *National Association of Private Fund Managers v. SEC*, No. 23-60471 (5th Cir. 2024); struck from the CFR by IA-6773, 89 FR 91252 (2024-11-19). At eCFR 2026-11-02 part 275 has no 275.211(h) rule, no 275.206(4)-10; cite none.
+
+## Intermediaries: Broker-Dealers and Finders
+- 78o(a)(1): no transacting in or inducing purchases or sales of securities without registration; FINRA membership follows. Transaction-based pay is the key broker indicator; an unregistered finder on a success fee is the classic failure.
+- 78cc(b) voids such a contract against the violator — the agreement may be unenforceable and investors may claim rescission.
+- Issuer-personnel safe harbour, 240.3a4-1: no commissions or transaction-based pay, not an associated person of a broker-dealer, limited passive role; non-exclusive. No general federal finder exemption: the 2020 proposal, 85 FR 64542 (2020-10-13), was a "Notice of proposed exemptive order; request for comment" and no final order appears in the Federal Register.
+
+## State Blue Sky and Federal Preemption
+- NSMIA: no state registration or merit review of a "covered security", 77r(a), (b). Covered: exchange-listed stock, registered fund shares, sales to Commission-defined qualified purchasers, and s. 4(a)(2)-rule exemptions - the Rule 506 preemption, 77r(b)(1)-(4), (b)(4)(F).
+- States keep notice filings, fees, consent to service and antifraud, 77r(c), and 80b-3a preserves state regulation of smaller advisers — but neither names any deadline, fee or client count. **Treat every state figure as per-state research, not a fact**: the channel (usually NASAA's electronic filing system), the deadline and the consequence of missing it differ by state, and 77r(c) also preserves state private remedies, so a federal exemption does not end the exposure.
+- Reg CF is covered, 77r(b)(4)(C); Reg A Tier 2 via 77r(b)(4)(D)(ii) with 230.256, which makes every Tier 2 purchaser a "qualified purchaser"; Tier 1 is not.
+
+## Inbound Foreign Investment and CFIUS
+- 50 U.S.C. 4565 as amended by FIRRMA (Pub. L. 115-232, 2018); 800 (businesses), 802 (real estate).
+- Reach: control acquisitions plus non-controlling "covered investments" in a TID US business: critical technologies, covered investment critical infrastructure, or sensitive personal data of US citizens, 800.248.
+- Mandatory declaration, 800.401(b), (c): a substantial interest taken by a foreign person in which a foreign government holds a substantial interest; and a TID business whose critical technology needs US export authorisation to that buyer.
+- Timing: declaration due 30 days pre-completion, 800.401(g)(2); Committee acts within 30 days, 4565(b)(1). Notice: 45-day review, if needed a 45-day investigation, then a 15-day presidential decision, 4565(b)(1), (b)(2), (d)(2). Safe harbour is **a written notification that the Committee has concluded all action**, 31 C.F.R. 800.701(b) — which can come out of a **declaration** under 800.407(a)(4) as well as out of a notice, and which is subject to 800.501(c)(1)(ii): a material misstatement, omission or breach of a mitigation agreement reopens it. "Only a completed notice" is both too narrow and too absolute.
+- Real estate, 802.212: purchase, lease or concession of covered real estate giving ≥3 of the 802.233 rights — proximity-driven, no control test.
+- No required filing: penalty up to $5,000,000 or transaction value, whichever is greater, 800.901(b) (ceilings eff. 2024-12-26).
+
+## Employee and Founder Equity
+- ISO: no regular-tax income on exercise (AMT applies); stock first exercisable per calendar year capped at $100,000 grant-date value, excess an NSO, IRC 422(d), 1.422-4(a).
+- NSO: ordinary income on the spread at exercise, withheld. RSU: ordinary income at settlement, no 83(b) while unvested; a restricted stock award can elect.
+- s. 83(b): file within 30 days of transfer, IRC 83(b)(2); 1.83-2(b). **Form 15620 (Rev. 4-2025)** standardises it but is optional — its own instructions allow "a written statement that satisfies the requirements of Treas. Reg. 1.83-2" instead — and IRC 7503 moves the deadline where the thirtieth day falls on a weekend or legal holiday. Otherwise no extension and no cure.
+- s. 409A: an option struck at or above grant-date FMV stays outside 409A; private FMV needs "the reasonable application of a reasonable valuation method", with a presumption for an independent appraisal under 12 months old, 1.409A-1(b)(5)(iv)(B)(1), (2)(i). Early exercise with 83(b) starts the capital-gain and QSBS clocks.
+- QSBS, IRC 1202 as amended by Pub. L. 119-21 s. 70431 (enacted 2025-07-04). Acquired on or before: >5 years for 100%, cap $10,000,000, gross assets ≤$50,000,000. After: 3 years 50%, 4 years 75%, 5+ years 100%, cap $15,000,000, assets ≤$75,000,000, both **indexed** for tax years after 2026 by IRC 1(f)(3), base 2025, rounded to $10,000, s. 70431(b)(2), (c)(2) — exclusion and cap by taxable year, ceiling by issue date. C-corp stock only, IRC 1202(c)(2)(A).
+- Secondary sales: consent, ROFR and transfer restrictions bind; selling early forfeits QSBS.
+
+## Tax Touchpoints
+- FIRPTA: a transferee of a US real property interest from a foreign person withholds 15% of the amount realised, IRC 1445(a) - 15% since 2016-02-17 (IRS FIRPTA page); none at $300,000 or less if the buyer will live there.
+- Partnerships: IRC 1446(a) withholds on ECTI allocable to foreign partners at the top IRC 1 or 11 rate (IRS: 37% non-corporate, 21% corporate); IRC 1446(f)(1) takes 10% of the amount realised on a transfer with IRC 864(c)(8) ECI.
+- Non-US investor, passive US income: 30% gross-basis tax, IRC 871(a), withheld under IRC 1441-1443; treaty relief on Form W-8BEN/W-8BEN-E.
+- Portfolio interest escapes the 871(a)(1)(A)/(C) tax, IRC 871(h): registered form, lender not a 10% shareholder, not bank-loan interest; convertibles often fail it.
+- PFIC: ≥75% of gross income or ≥50% of assets passive, IRC 1297(a); a US holder of a non-US fund falls into the excess-distribution regime absent a QEF or mark-to-market election (Form 8621).
+- CTA: FinCEN final rule, 91 FR 52508, eff. 2026-08-14, adopting the 2025-03-26 interim rule — US-formed entities and US persons exempt from BOI reporting; foreign reporting companies still report.
+
+## Disputes and Enforcement
+- *SEC v. Jarkesy*, 603 U.S. 109 (2024): the Seventh Amendment gives a jury trial where the SEC seeks civil penalties for securities fraud, so penalty cases go to district court; APs remain for other relief.
+- s. 12(a)(1): strict-liability rescission for an unregistered offering — consideration plus interest on tender, 77l(a)(1); 1 year from the violation, 3-year repose, 77m.
+- s. 11 and 12(a)(2) (registration statement; seller's prospectus or oral misstatement), 77k, 77l(a)(2): 1 year from discovery; repose 3 years from the bona fide public offering or the sale, 77m.
+- Rule 10b-5 needs scienter, reliance, loss causation, 78j(b); 240.10b-5: 2 years from discovery, 5 years from the violation, 28 U.S.C. 1658(b).
+- **Personal exposure does not stop at the issuer.** A founder, director or managing member can be reached as a control person or secondary actor, which is the question a client actually asks and which this file does not answer: establish the control-person provisions of the 1933 and 1934 Acts and their good-faith defence before advising on individual liability **(unconfirmed)**.
+- FINRA arbitration: a customer may compel a member or associated person to arbitrate disputes from the member's business, FINRA Rule 12200; nothing is eligible six years after the event, 12206(a) - an eligibility bar, not a limitation period.
+
+## Common Pitfalls
+1. "Not a security" by its name — *Howey* reads economic reality, 328 U.S. at 298.
+2. Advertising a 506(b) round, 230.502(c); a tick-box is not 506(c) verification, 230.506(c)(2)(ii).
+3. Finder on a percentage: s. 15(a) plus s. 29(b) voidness, 78o(a)(1), 78cc(b).
+4. Missing Form D's 15 days, 230.503(a)(1), or the 83(b) 30 days, 1.83-2(b).
+5. The vacated 2023 private-fund rules; one QSBS regime across 2025-07-04.
+
+## Citation Format & Always Disclaim
+- `15 U.S.C. 77e(a)`; `Rule 506(c), 17 C.F.R. 230.506(c)`; `Release No. 33-11412, 91 FR 13714 (Mar. 23, 2026)`; `SEC v. W.J. Howey Co., 328 U.S. 293, 298 (1946)`. Name the state; date every figure.
+- I am an AI assistant, not a licensed attorney, broker-dealer or investment adviser: regulatory information, not legal, tax or investment advice, not an offer or recommendation. A US securities lawyer and tax adviser must clear any real offering, fund or equity grant.

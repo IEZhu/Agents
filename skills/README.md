@@ -59,9 +59,10 @@ keywords:                       # Phrases that boost preferred/capable skills
                                 # look-around (no `\w` immediately before /
                                 # after the literal). Phrases containing
                                 # punctuation (e.g. ``(CoVe)``) are fine.
-as_of: "YYYY-MM-DD"             # Freshness fields for volatile facts;
-review_after_days: 180          # required for skill-jurisdiction-*
-sources:                        # (see below)
+as_of: "YYYY-MM-DD"             # Freshness fields for volatile facts; required
+review_after_days: 180          # for skill-jurisdiction-*, skill-labor-* and
+review_on: "YYYY-MM-DD"         # skill-investment-*. review_on is optional: the
+sources:                        # next calendar reset (see below)
   - https://example.org/source
 ---
 ## Role
@@ -81,10 +82,21 @@ Persona for this skill.
 
 A skill that states volatile facts, such as tax rates, thresholds or versions,
 declares `as_of` (the ISO date of the last check), `review_after_days` and a
-`sources` list of URLs; every `skill-jurisdiction-*` skill must declare all three.
+`sources` list of URLs; every `skill-jurisdiction-*`, `skill-labor-*` and
+`skill-investment-*` skill must declare all three.
+
+A skill whose figures are reset on a known calendar date — a statutory minimum
+wage or a contribution rate that changes every 1 January — also declares
+`review_on`, the next date on which they must be re-read. The rolling window
+alone would keep serving last year's figures for months after the reset, so
 [`tests/test_skill_freshness.py`](../tests/test_skill_freshness.py) fails once
-`as_of + review_after_days` has passed (180 days when `review_after_days` is
-omitted). Re-check the figures against `sources`, then update `as_of`.
+the **earlier** of `as_of + review_after_days` (180 days when
+`review_after_days` is omitted) and `review_on` has passed. Re-check the figures
+against `sources`, then move `as_of` and `review_on` forward.
+[`flows/legal-reference-refresh.md`](../flows/legal-reference-refresh.md) is the
+procedure that clears such a failure: independent research lines per skill, a
+separate refutation line instructed to refute, a gap critic, and an explicit
+limits-of-verification record.
 
 ## Skill Categories
 
@@ -170,6 +182,27 @@ omitted). Re-check the figures against `sources`, then update `as_of`.
 | `skill-jurisdiction-us` | United States — federal + 50 states, IRC, USCIS, LLC/Corp, H-1B/EB visas, circuit splits |
 
 All nine jurisdiction skills sit in the `lawyer` agent's `capable_skills` pool — loaded by keyword/semantic match when the user's query identifies a specific country.
+
+### Employment and Investment Law
+
+| Skill | Description |
+|-------|-------------|
+| `skill-employment-dispute-method` | Jurisdiction-agnostic method: running-deadline triage first, then status and forum, probation, collective agreement, non-waivability, clause-by-sentence verdicts, remedy arithmetic, counter-position rehearsal, brief for local counsel |
+| `skill-labor-co` | Colombia — CST, prestaciones sociales, art. 64 and 65 indemnities, fuero sindical, estabilidad reforzada, primacía de la realidad |
+| `skill-labor-cy` | Cyprus — Termination of Employment Law, Industrial Disputes Court, Redundancy Fund, restraint of trade, employer-tied permits |
+| `skill-labor-es` | Spain — ET, convenio colectivo, periodo de prueba, art. 21.1 plena dedicación, art. 3.5 non-waivability, improcedente/nulo severance, SMAC and the 20-day deadline |
+| `skill-labor-ge` | Georgia — Labour Code after the 2020 reform, Labour Inspection Service, mediation, short dismissal deadlines, individual-entrepreneur reclassification |
+| `skill-labor-kz` | Kazakhstan — ТК РК plus the separate AIFC employment regime, согласительная комиссия, совместительство, employer-held work permits |
+| `skill-labor-mx` | Mexico — LFT, CFCRL conciliation and the Tribunales Laborales, aviso de rescisión, constitutional indemnity, prima de antigüedad, PTU |
+| `skill-labor-rs` | Serbia — Zakon o radu, probni rad, mandatory warning and hearing, 60-day deadline, zabrana konkurencije, the independence test |
+| `skill-labor-us` | United States — at-will and its exceptions, FLSA, Title VII/ADA/ADEA/FMLA/WARN thresholds, EEOC exhaustion, OWBPA releases, non-compete status by state, visa coupling |
+| `skill-investment-us` | United States — Howey, Securities Act s. 5 and its exemptions, accredited/qualified thresholds, Rule 144 resale, fund and adviser registration, broker-dealer and finders, blue sky, CFIUS, employee and founder equity |
+
+The eight labour skills and `skill-employment-dispute-method` are the
+`labor_lawyer` agent's layer (`/labor_lawyer`, or `/XX_labor`); they also sit in
+`lawyer`'s pool so a country-aliased legal question still reaches them.
+`skill-investment-us` sits in both. All ten country files carry the freshness
+contract above.
 
 ### Domain-Specific
 

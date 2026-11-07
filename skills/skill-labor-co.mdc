@@ -1,0 +1,128 @@
+---
+description: "Colombian employment and labour law: Código Sustantivo del Trabajo, prestaciones sociales, cesantías and prima de servicios, indemnización moratoria, estabilidad laboral reforzada, primacía de la realidad and the UGPP contribution audit. Role: Colombia employment adviser."
+compiled: "CO labour: the CST as amended by Ley 2466 de 2025, with Ley 2452 de 2025 governing procedure since 2 April 2026. SMLMV 2026 $1,750,905 a month; auxilio de transporte $249,095 for workers up to 2 SMLMV, owed only where public transport is provided. Probation 2 months at most and no art. 64 indemnity on ending it. Art. 64 indemnity below 10 SMLMV: 30 days for the first year plus 20 for each later year. The two reintegro terms differ and must not be merged: fuero sindical 1 year under art. 298, estabilidad laboral reforzada 2 years from termination under art. 300. Prescription 3 years. The art. 65 moratory sanction is a day's salary per day to 24 months and is not automatic, good faith defeating it. Art. 53 CP makes the minimum non-waivable, and primacia de la realidad converts a disguised services contract with contributions falling due retroactively."
+keywords:
+  - /co_labor
+  - co_labor
+  - derecho laboral colombiano
+  - Código Sustantivo del Trabajo
+  - prestaciones sociales
+  - cesantías
+  - prima de servicios
+  - auxilio de transporte
+  - indemnización moratoria
+  - fuero sindical
+  - estabilidad laboral reforzada
+  - primacía de la realidad
+  - SMLMV
+  - convención colectiva
+  - UGPP
+as_of: "2026-11-06"
+review_after_days: 180
+review_on: "2027-02-15"
+sources:
+  - https://www.funcionpublica.gov.co/eva/gestornormativo/norma.php?i=199983
+  - https://www.funcionpublica.gov.co/eva/gestornormativo/norma.php?i=260676
+  - https://www.funcionpublica.gov.co/eva/gestornormativo/norma.php?i=259639
+  - https://normativa.colpensiones.gov.co/colpens/compilacion/docs/codigo_sustantivo_trabajo.htm
+  - https://normativa.colpensiones.gov.co/colpens/compilacion/docs/ley_0797_2003.htm
+  - https://www.corteconstitucional.gov.co/relatoria/2001/C-893-01.htm
+  - https://normograma.dian.gov.co/dian/compilacion/docs/oficio_dian_5299_2026.htm
+---
+## Role
+Colombian employment law for individuals and small employers. Assumes `skill-jurisdiction-co`.
+
+## Primary Sources
+- **CST** = Decreto 2663 de 1950; **CPTSS** = Ley 2452 de 2025, in force **2 Apr 2026**, replacing Decreto Ley 2158 de 1948.
+- **Ley 2466 de 2025** (*reforma laboral*, 25 Jun 2025): in force on promulgation, art. 70, bar the staggered dates below.
+
+## Contract Types & Mandatory Written Terms
+| Form | Rule | Norm |
+|---|---|---|
+| *Indefinido* (open-ended) | default; worker resigns on 30 days' notice, unpenalisable | art. 47 CST |
+| *Término fijo* (fixed term) | **max 4 yrs** (3 pre-2025), written; if under 1 yr, post-4th renewals ≥1 yr; auto-renews absent 30-day notice | art. 46 CST |
+| *Obra o labor* (task) | written, task precise; a defect in either form, or work outlasting the task, ⇒ indefinite from day 1 | art. 46 CST |
+- ***Prestación de servicios*** (services contract) is not employment, yet art. 24 CST **presumes** employment behind any personal service and *primacía de la realidad* converts a disguised one, arts. 53 CP and 23 CST: *prestaciones* and contributions fall due retroactively.
+
+## Probation & Early Termination
+- Written or non-existent, art. 77 CST. Max **2 months**; on a *término fijo* under 1 yr, **one fifth of the term**, capped at 2 months; void in a second successive contract — art. 78 CST.
+- Ends anytime, no notice, **no art. 64 CST indemnity**, art. 80 CST. Cost: salary, *prima*, *cesantías* + 12% interest and *vacaciones*, pro rata. Does not override reinforced stability *(unconfirmed: no ruling opened)*.
+
+## Working Time, Rest & Leave
+| Item | Value and date | Norm |
+|---|---|---|
+| Week | 42 h, 8 h/day; ladder 47 h at +2 yrs, 46 h at +3 yrs, −2 h/yr after | art. 161 CST; art. 3 Ley 2101/2021 |
+| Day / night | 06:00–19:00 / **19:00–06:00**, from 6 months after the 25 Jun 2025 *sanción* | art. 160 CST |
+| Surcharges | night **+35%**, overtime day **+25%**, overtime night **+75%**, not cumulative; overtime cap 2 h/day, 12 h/week (art. 13 Ley 2466 de 2025), whose *parágrafo* excepts private security under Ley 1920 de 2018 and the health sector | art. 168 CST; art. 22 Ley 50/1990 |
+| Rest day / holiday | **100%**, phased **80% from 1 Jul 2025, 90% from 1 Jul 2026, 100% from 1 Jul 2027** | art. 179 CST |
+| *Vacaciones* | **15 working days**/yr | arts. 186, 189 CST |
+
+## Pay, Minimum Wage & Mandatory Bonuses
+- **2026**: SMLMV **$1,750,905**/month from 1 Jan 2026, art. 1 Decreto 1469 de 2025. The decree's provisional suspension of 12 Feb 2026 was **lifted** by the Consejo de Estado's judgment of 09/07/2026, so Decreto 1469 de 2025 is again the operative norm and Decreto 0159 de 2026 is spent — history, not current law.
+- *Auxilio de transporte* **$249,095**/month for workers earning ≤2 SMLMV, art. 1 Decreto 1470 de 2025, **owed only where a public transport service is provided**. The decree says nothing about salary character: that comes from Ley 15 de 1959.
+- ***Prima de servicios***: 30 days' salary/yr, half by 30 Jun, half by 20 Dec, art. 306 CST.
+- ***Cesantías*** (severance savings): one month's salary/yr + pro rata, arts. 249, 253 CST. Deposit **before 15 February** following, late ⇒ **1 day's salary per day**, art. 99 Ley 50/1990. **12%/yr** interest on the 31 Dec balance, paid in January, missed ⇒ an extra sum **equal to it**, arts. 1, 5 Decreto 116/1976.
+- ***Salario integral***: only above **10 SMLMV**, written; floor 10 SMLMV + *factor prestacional* ≥30% = **13 SMLMV**, art. 132 CST.
+
+## Exclusivity, Moonlighting & Non-Compete
+- Exclusivity **during** the contract is lawful: art. 60 CST's prohibitions omit outside work, so it binds as a contract or *reglamento* duty whose grave breach is a just cause under **art. 62(A)(6) CST**. Competing work may also engage art. 62(A)(4) or 62(A)(5) CST; gravity must be proved.
+- **Post-termination non-compete is void**, art. 44 CST; its old exception for technical, industrial and agricultural workers is struck **INEXEQUIBLE**, so paying for the abstention does not help. Confidentiality and loyalty duties, art. 58 CST, bind instead.
+
+## Termination: Grounds, Procedure, Severance
+- Just causes are a closed list, art. 62 CST, and the notice must state the facts. Sanctions need **due process** since 2025, art. 115 CST, bar domestic workers and firms **under 10 workers**, art. 115 par. 6 CST.
+- **Indemnity, art. 64 CST** (dismissal without just cause, or resignation for employer fault):
+  - *Término fijo*: salary for the remaining term; *obra o labor*: rest of the work, **minimum 15 days**.
+  - *Indefinido* under **10 SMLMV**: **30 days** for ≤1 yr, **+20 days** per later year, pro rata.
+  - *Indefinido* at or above **10 SMLMV**: **20 days** for ≤1 yr, **+15 days** per later year, pro rata.
+- ***Indemnización moratoria*, art. 65 CST**: unpaid sums ⇒ **1 day's salary per day of delay, up to 24 months**; above **1 SMLMV** only, at or below which the pre-2003 open-ended daily sanction continues, art. 65 par. 2 CST. **After the 24 months it is moratory interest, not the daily sanction** — two different things, so do not run the daily figure past that point.
+- **The sanction is not automatic.** Settled Sala Laboral doctrine defeats it where the employer acted in good faith, and that is the usual battleground, so never produce a 24-month exposure figure as if the citation settled it. Which party must show what is **(sin verificar)** here — establish it before relying on the number. Art. 65 par. 1 CST: **60 days** to prove the last 3 months' contributions, else **the termination has no effect**.
+- ***Liquidación*** = unpaid salary + *prima*, *cesantías* not yet deposited, their 12% interest and *vacaciones* pro rata, + any art. 64 CST indemnity. The compensation of accrued leave on termination rests on **art. 1 Ley 995 de 2005**, not art. 189 CST: numeral 2 of art. 189 was derogated by art. 2 of that law, and what survives there is only the power to pay up to half the leave in money at the worker's written request.
+- **The base is missing from the indemnity rules above, and it decides the number.** Each figure is days of salary; before producing one, fix which pay elements enter the daily salary, the reference period for variable pay and commissions, and how an incomplete year is counted. This file does not settle it **(sin verificar)**.
+- ***Estabilidad laboral reforzada***: the dismissal is **ineffective and compensable at the same time** — SU-049 de 2017 orders the remedies cumulatively: *ineficacia* of the termination, ***reintegro*** or renewal, the pay lost in between, **and** the 180 days' indemnity. "Void, not compensable" drops the indemnity the Court itself awards. Pregnancy/lactation: prior Inspector de Trabajo authorisation; dismissal in pregnancy or the **18 weeks** after birth is presumed discriminatory; extra **60 days**' indemnity, arts. 239, 240 CST. Disability or health: no termination without the labour office's authorisation, else **180 days' salary**, art. 26 Ley 361 de 1997. *Pre-pensionados*: no longer jurisprudential only — art. 300 lit. c) Ley 2452 de 2025 names "Fuero por prepensionado" expressly and routes it through the special reintegro procedure of arts. 293 to 297, on the 2-year term.
+
+## Collective Bargaining & Employee Representation
+- **A collective instrument can impose duties the CST alone does not**, and it binds whether or not the worker joined the union once the one-third threshold is passed — so never answer a Colombian employment question from the code alone.
+- **Finding it**: ask for the *nómina* and the *reglamento interno de trabajo*, then check whether a *sindicato* exists in the enterprise and which instrument it signed; where a *convención* and a *pacto* both exist, the *convención*'s art. 471 extension decides which governs a non-member above one third.
+- ***Convención colectiva***, art. 467 CST: binds **only members and adherents** up to one third of the workforce, art. 470 CST, and **all workers above one third**, art. 471 CST. ***Pacto colectivo***: art. 481 CST carries only the signatories rule; the **prohibition above one third** is a separate unnumbered article headed PROHIBICIÓN, added by art. 70 Ley 50 de 1990 and printed after art. 481, and it is **plainly *exequible*** — C-1491/00 declared `más de la tercera parte de los` exequible with no conditioning formula. The *condicionalmente exequible* marking on that page belongs to **art. 481 CST** itself, printed immediately above; the conditioning judgment is not named here *(unconfirmed)*. Reading the marking onto the prohibition inverts which of the two rules is qualified.
+- ***Fuero sindical*** (union immunity), art. 405 CST: no dismissal, worsening or transfer **without just cause certified in advance by the labour judge**, for the workers art. 406 CST lists (founders, up to 5 board principals and 5 alternates for the mandate **+6 months**, claims-commission members). Breach ⇒ ***reintegro*** plus lost wages, art. 408 CST; the action prescribes in **1 year** from the dismissal, art. 298 Ley 2452 de 2025.
+
+## Social Security & Payroll
+| Contribution | Rate and date | Split | Norm |
+|---|---|---|---|
+| Pension | **16%** of IBC since 1 Jan 2008 | employer 12% / worker 4% | art. 20 Ley 100/1993; Decreto 4982 de 2007 |
+| *Fondo de Solidaridad Pensional* | **+1%** where IBC ≥4 SMLMV | worker | art. 20 Ley 100/1993 |
+| Health | **12.5%** since 1 Jan 2007 | employer 8.5% / worker 4% | art. 204 Ley 100/1993 |
+- ARL and *parafiscales* (SENA, ICBF, *caja*): employer-only *(rates unconfirmed)*. **Art. 114-1 E.T.** exonerates income-tax-paying employers from SENA, ICBF and health contributions for workers earning **under 10 SMLMV**/month (DIAN Concepto 5299 de 2026).
+- **Paid side activity**: an independent contractor contributes on **40% of the monthly contract value, VAT excluded**, under **art. 89 Ley 2277 de 2022** — where 1 SMLMV is the net monthly income threshold that makes that rule apply, not the base floor. The **contribution base floor of 1 SMLMV is art. 18 Ley 100 de 1993** as amended by art. 5 Ley 797 de 2003; a dependent worker with side income adds a second IBC; **UGPP** reclassifies under-declared bases and disguised *prestación de servicios*.
+
+## Foreign Workers & Permit Coupling
+- **Migratory status never defeats labour rights**, art. 37 Ley 2466 de 2025; art. 2 CST applies the code to all inhabitants regardless of nationality, so an irregular worker still claims salary, *prestaciones* and the art. 64 CST indemnity.
+- **Visa M – Trabajador is employer-tied**: the permit covers only the authorised post, entity, profession or activity — Resolución 5477 de 2022 MRE *(unconfirmed: cancilleria.gov.co returned 403)*.
+- **SIRE** (Migración Colombia): the employer reports the start and the end of the link within **15 calendar days** — the **general** deadline in the art. 6 table of Resolución 2357 de 2020 UAEMC with art. 2.2.1.11.5.1 Decreto 1067 de 2015, not a PEPFF-specific rule; PEPFF appears nowhere in that resolution.
+- **RUTEC** (MinTrabajo): **120 days** from hiring to register and **30 days** to report any *novedad*, closing a terminated engagement included, Resolución 4386 de 2018 *(sin verificar: mintrabajo.gov.co did not resolve, so the resolution was readable only on a private compilation and its current force is unestablished)*.
+- **On dismissal** the entitlements stand but the visa's basis ends: report in SIRE and RUTEC; a new visa or status is needed. Remote work done in Colombia falls under art. 2 CST whatever the contract says.
+- **The worker's own clock is the part usually missed, and this file does not carry it.** Whether a new post may lawfully start before the status is amended, what the worker must notify and within what period, and the exposure for working on a visa whose basis has ended are **(sin verificar)** here: establish them from Migración Colombia and the Cancillería before advising, because the labour answer and the status answer can point opposite ways.
+
+## Dispute Procedure: Forum, Deadlines, Burden of Proof
+- **A new procedural code governs**: Ley 2452 de 2025, in force **2 April 2026**, repealed the CPTSS (Decreto Ley 2158 de 1948), Ley 712 de 2001 and Ley 1149 de 2007; cases filed earlier continue under the old rules, arts. 330, 331.
+- **Instances**: first instance before the *juez laboral municipal* up to **40 SMLMV**, the *circuito* judge above, art. 13 Ley 2452 de 2025; **casación** where the unfavourable value exceeds **150 SMLMV**, art. 239 Ley 2452 de 2025 — and, below that, the Sala Laboral may still **select** a second-instance judgment for unification and legality control, arts. 239 and 240, so the threshold is not an absolute bar. **Venue**: the last place of service **or** the defendant's domicile, claimant's choice, art. 10.
+- **Conciliation is not a *requisito de procedibilidad***, art. 19 Ley 2452 de 2025 (**Sentencia C-893 de 2001** had already struck art. 35 Ley 640 de 2001); pre-suit conciliation before a labour judge is available, art. 20.
+- **Prescription: 3 years** from each obligation becoming exigible, art. 488 CST (art. 62 Ley 2466/2025) and art. 317 Ley 2452 de 2025; filing interrupts it if the defendant is notified within 1 year, art. 318. An extrajudicial written claim **does** still interrupt: **art. 319 lit. a) Ley 2452 de 2025** and **art. 489 CST** both give it, the latter **once only** (`por una sola vez`), a limit art. 319 lit. a) omits. The old route in art. 151 CPTSS went with Decreto 2158 de 1948, repealed by art. 331 Ley 2452. **Do not quote art. 488 CST from the gestor normativo page**: art. 62 Ley 2466 de 2025 replaced it and that consolidation still shows the old text. **The two reintegro terms are different and must not be merged**: *fuero sindical* runs **1 year** under art. 298 Ley 2452 de 2025, while **estabilidad laboral reforzada runs 2 years from the termination of the contract** under art. 300 — covering maternity, disability, *prepensionado*, *acoso laboral* and *fuero circunstancial*. Quoting one year for the second loses the claim by a full year. The art. 300 *parágrafo* sends a damages claim to the ordinary process under the general prescription instead.
+- **Burden of proof**: art. 24 CST presumes employment behind any personal service, so the alleged employer must disprove subordination; one invoking a just cause must prove the facts it stated *(unconfirmed as to the evidentiary article)*.
+- **Tutela**, art. 86 CP, against a private employer only where a fundamental right is engaged and the claimant stands in ***subordinación o indefensión***, art. 42(4), 42(9) Decreto 2591 de 1991; subsidiary, so for reinstatement and *mínimo vital* urgency.
+- **Foreign forum and foreign-law clauses fail** for work done in Colombia: art. 2 CST applies territorially and arts. 13–14 and 43 CST make the minimum non-waivable *orden público*.
+
+## Non-Waivable Rights & Void Clauses
+- **Art. 53 CP**: *irrenunciabilidad* (non-waivability) of minimum benefits, *primacía de la realidad*, settlement **only of uncertain and disputed rights**. **Arts. 13–14 CST**: labour rules are *orden público*, their rights irrenunciable, and a stipulation affecting the statutory minimum has no effect.
+- Void however drafted: waiver of the art. 64 CST indemnity, of *prima*, *cesantías*, their interest, *vacaciones*, overtime or surcharges; sub-minimum pay; a non-compete, art. 44 CST; a settlement of accrued rights.
+
+## Common Pitfalls
+1. Pre-2025 hours: night work starts at **19:00** and the rest-day surcharge is on the **80/90/100% ladder**, arts. 160, 179 CST.
+2. Quoting the CPTSS: Ley 2452 de 2025 replaced it on **2 April 2026**, moving the cuantía to 40 SMLMV, casación to 150 SMLMV and the *fuero* action to 1 year.
+3. Treating a reinforced-stability dismissal as a money question: it is void, the remedy *reintegro*, arts. 239–240 CST.
+
+## Citation Format
+- `art. 64 CST`, with the amending law where it matters: `art. 46 CST (mod. art. 6 Ley 2466 de 2025)`. Date every figure; mark anything unchecked `(sin verificar)`.
+
+## Always Disclaim
+Soy un asistente de IA, no un abogado laboralista colombiano titulado. La Ley 2466 de 2025 rige por etapas hasta julio de 2027 y la Ley 2452 de 2025 el procedimiento desde abril de 2026: verifique la norma vigente a la fecha de los hechos.
