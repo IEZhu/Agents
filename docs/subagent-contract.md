@@ -181,8 +181,8 @@ follows on a two-space-indented `fix:` line, and `[^id]` cites an evidence entry
 space, and it is required throughout: every `## evidence` line needs it, and so does every
 `## changes` item, every `## artifacts` item and every finding. The separator is read
 outside code spans, so an em dash inside backticks belongs to that side of the line
-instead of separating it, and a line whose only spaced em dash sits inside a code span is
-reported as `separator_required` rather than split there. A code span is a run of
+instead of separating it, and a line where neither ` — ` nor ` -- ` appears outside a
+code span is reported as `separator_required`. A code span is a run of
 backticks closed by a run of the same length, the rule Markdown itself uses, so a span
 opened with two backticks may hold a single backtick, and a run that nothing closes is
 literal text. For workers written before this contract named one spelling, a spaced
