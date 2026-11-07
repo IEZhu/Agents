@@ -292,8 +292,16 @@ fingerprint like every other contract field. Validation then accepts a
 `ran_in_attempt` only when it equals the envelope's `attempt_id` or appears in
 that lineage. When no lineage was supplied the only accepted value is the
 current `attempt_id`, and any other is a diagnostic rather than a silently
-ignored field — which also keeps a worker from inventing an attempt to park a
-failed check in.
+ignored field. What that buys has to be stated exactly: the lineage constrains
+the label, not the content. A worker can still copy a check, or invent one, and
+attach a lineage `attempt_id` to it, because validation holds no digest of the
+earlier attempt's checks to compare against — so a preserved check is an
+unverifiable worker claim, and the parent, which holds the earlier receipt, is
+the only party that can confirm it. Binding the content too is a small extension
+worth naming here: the parent passes digests of the checks it expects preserved
+alongside `preserves_attempts`, preparation pins them into the contract, and
+validation compares rather than trusts. Until that exists, `ran_in_attempt`
+keeps a preserved failure from driving escalation and claims nothing more.
 
 Two cheap additions from argumentation theory make the field usable rather than
 decorative:
@@ -340,7 +348,8 @@ with the contract.
 
 ```
 Route {
-  model:           the resolved model, or null for tier `inherit`
+  model:           the resolved model, or null when none is bound
+  model_source:    resolved | host_reported | unknown
   lineage:         the model family, where the server can resolve it
   decomposition:   a short parent-assigned id for the framing or split used
   information_set: the pinned manifest id, or an id for the named materials
@@ -366,8 +375,13 @@ it — so for an `inherit` attempt on either side the claim is neither confirmed
 nor refuted: preparation marks it `unverifiable`, and an unverifiable claim is
 recorded as route-different-unverified, never as model independence. An unknown
 model is not evidence of difference any more than it is evidence of equality.
-Making the claim checkable requires the host to report the model it actually
-launched and preparation to bind that identity to the attempt.
+Making the claim checkable requires a carrier, which is why the route records
+`model_source` beside `model`: `resolved` where the tier fixed the model,
+`host_reported` where the host told preparation which model it actually launched
+and preparation bound that identity to the attempt, and `unknown` otherwise.
+Only the first two can support a `model` claim; `unknown` leaves it
+`unverifiable` however the tier was requested. Tier `inherit` is therefore
+checkable exactly when the host reports, and never by the tier alone.
 
 Resolving a tier is not the same as knowing the model, so even the lower tiers
 do not settle it by themselves. Tier resolution can yield an alias or a
@@ -462,15 +476,26 @@ Two dependence statistics, one structural and one statistical, both computable
 without ground truth:
 
 - **Evidence overlap**, available today with no new machinery. Two results that
-  cite the same `evidence[].reference` strings for the same claim are not
-  independent on the information set. The envelope already carries those
-  references.
+  cite the same `evidence[].reference` strings for the same claim do not differ
+  on the `information_set` dimension — a fact about the routes, not a
+  measurement of their errors, since two analysts can read one public source and
+  still be conditionally independent. Overlap is therefore a proxy that triggers
+  measurement rather than a substitute for it: it says a dependence estimate is
+  needed, while the statistic below or the control set supplies the ρ the
+  discount uses. Treating overlap itself as the discount would undercount
+  evidence systematically. The envelope already carries those references.
 - **The rank-one test.** If classifiers' errors are conditionally independent,
-  the off-diagonal entries of their verdict covariance matrix form a rank-one
-  matrix whose leading eigenvector entries scale with each classifier's balanced
-  accuracy (Parisi et al.). Departure from rank-one is evidence of dependence,
-  and the same eigenvector gives an unsupervised accuracy ranking — but only up
-  to the eigenvector's sign, which no amount of unlabelled data resolves. The
+  their verdict covariance factors off the diagonal: `C[i,j] = a[i] * a[j]` for
+  every `i != j`, each `a[i]` scaling with that classifier's balanced accuracy
+  (Parisi et al.). The diagonal carries each classifier's own variance, which
+  the factorization does not predict, so it is treated as unknown and excluded
+  from the fit: zeroing it does not leave a rank-one matrix for three or more
+  classifiers, and testing the zero-diagonal matrix for rank one would reject
+  conditional independence that holds. The test is whether the off-diagonal
+  entries are consistent with one outer product, and departure from that is
+  evidence of dependence. The fitted vector `a` doubles as an unsupervised
+  accuracy ranking — it is the leading eigenvector of the fitted rank-one part —
+  but only up to its sign, which no amount of unlabelled data resolves. The
   source's own tie-breaker is the assumption that most of the classifiers are
   better than random; where that cannot be asserted for a task class, the
   control set has to supply the orientation, and until one of the two holds the
@@ -658,7 +683,7 @@ recorded a finding.
   sequential rule to terminate inside `max_attempts` on real tasks, keep the
   zero-value check and the all-or-none policy and drop the e-process.
 
-### Layer 5 — The accepted result carries an uncertainty, and the decision is separate
+### Layer 5 — The accepted result carries a disposition, and the decision is separate
 
 Finding 11 is a procedure, not an attitude. Metrology separates three things the
 protocol currently fuses: the value, its uncertainty, and the decision taken on
@@ -697,6 +722,15 @@ Proposal, all parent-side and no schema change:
 - Where no ground truth exists and several routes were run, report the
   dispersion (finding 10) rather than a verdict, and call it what the standards
   call it: a degree of equivalence, not accuracy.
+- What this layer does not deliver is an interval. The four dispositions are
+  qualitative, and a single verdict supports no sampling model a bound could
+  come from: with one route there is nothing to disperse, and the effective
+  count of layer 3 corrects a weight rather than producing a confidence level.
+  An accepted result therefore carries a disposition, its route, and a
+  dispersion wherever several routes ran, and says so, instead of dressing a
+  qualitative marker as a measured uncertainty. A quantified bound needs the
+  control set of layer 6 to supply per-route error rates first, which is why it
+  belongs there and not here.
 
 - **Surface:** `docs/subagent-contract.md` (#326's peer-rights section), the
   Delegation paragraph #326 specifies, and the integrating flows.
@@ -806,7 +840,7 @@ no left-hand side. But it must be *derived from structure, not asserted*, for
 exactly the reason in finding 13: a self-assigned score that unlocks less work
 will drift downward.
 
-Three structural questions, answerable without judgement about content:
+Three questions about the claim's role, which the parent answers:
 
 1. **Load-bearing?** Does any decision, edit or further claim depend on it? If
    nothing does, its importance is `none` — the value-of-information rule says a
@@ -816,6 +850,17 @@ Three structural questions, answerable without judgement about content:
    Irreversible raises the rating.
 3. **Durable?** Will it be reused beyond this turn? Durable raises the rating,
    and makes it a candidate for the store.
+
+The three answers are the parent's, not the contract's. Whether anything depends
+on a claim, whether a wrong value can be undone cheaply, and whether it will be
+reused are facts about the parent's intended use, and no contract field carries
+them — so the rating is a recorded parent attestation, not a derivation, and
+nothing stops a parent rating down to buy less verification. The defence is
+measurement rather than derivation: the ledger stores the rating beside the
+outcome, so the observed refutation rate of `routine`-rated claims is visible,
+and a rating that drifts downward surfaces as refuted `routine` claims. That is
+the Campbell hazard of finding 13, handled the only way it can be when the input
+is a judgement — by watching what the judgement leads to.
 
 Three levels are enough, and the trigger list already exists: `no-fabrication`
 names the claim types in scope — API and method names and signatures, versions,
@@ -887,9 +932,13 @@ Five properties the store must have, each from a documented failure:
 
 **What the store buys that no single-shot mechanism can.** Contradiction
 detection over time. A new claim whose key matches a stored record with the
-opposite verdict is a defeater by construction, found for the cost of a lookup
-rather than a verifier — the cheapest check in the whole design, and one that
-only exists once facts are kept. The repository's `skill-fact-verification`
+opposite verdict is a contradiction between records, found for the cost of a
+lookup rather than a verifier — the cheapest signal in the whole design, and one
+that only exists once facts are kept. It is a trigger, not a verdict: either
+record may be stale, scoped to a different source or version, or simply wrong,
+and the store is not an authority, so the lookup opens fresh validation instead
+of settling the dispute. Letting the cache decide would hand it exactly the
+authority this section refuses it. The repository's `skill-fact-verification`
 already carries a temporal-coherence check; the store is what gives it something
 to check against.
 
@@ -924,7 +973,7 @@ not a candidate.
 | `Route` with `blinded`, plus `verifies` and `independence`; same-model refusal at preparation | 2 | `src/schemas/subagent.py`, `src/engine/subagent.py`, `src/engine/model_tiers.py` | schema |
 | Evidence overlap and the rank-one dependence test; effective-verdict count | 3 | parent procedure, documented | procedure |
 | `Acceptance {accept_costs, check_cost, stopping, max_attempts, dependence_threshold}`; escalation driven by it | 4 | `src/schemas/subagent.py`, `src/engine/model_tiers.py`, `docs/subagent-model-tiers.md` | schema |
-| A host-reported resolved model bound to the attempt, so a `model` independence claim is checkable at tier `inherit` | 2 | `src/engine/model_tiers.py`, `docs/subagent-model-tiers.md` | schema |
+| `Route.model_source` plus a host-reported resolved model bound to the attempt; without it an `inherit` claim stays `unverifiable` | 2 | `src/schemas/subagent.py`, `src/engine/model_tiers.py`, `docs/subagent-model-tiers.md` | schema |
 | Ledger outcomes, per-route sensitivity, ρ estimates, control chart, debiased calibration | 6 | `src/engine/subagent_ledger.py`, `scripts/subagent_tiers_report.py` | subsystem |
 | Known-answer control set, re-run on every model or prompt change | 6 | `evals/` (generalising #567) | evaluation |
 | Derived `importance`; `ValidatedFact` store, append-only, expiring, parent-only, granted to workers only as pinned artifacts | 7 | new module beside `src/artifacts/` and `src/memory/`; `src/user_sync/scope.py` for opt-in sync | subsystem |
