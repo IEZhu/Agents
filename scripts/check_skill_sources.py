@@ -78,12 +78,17 @@ FAILING = {MISSING, MISSING_200}
 
 
 def declared_sources(path: Path) -> list[str]:
-    """Read the frontmatter the way the loader and the tests do.
+    """Read the frontmatter with the one parser the rest of the repository uses.
 
-    A hand-rolled ``^---\\n`` match fails on a file saved with CRLF and returns
-    an empty list, so the script would report a skill as having no sources and
-    exit 0 — a check reporting silence as success. ``split_frontmatter`` is the
-    one parser the rest of the repository uses.
+    This replaced a hand-rolled ``^---\\n`` match. The reason first given for the
+    change was wrong and is corrected here: a review raised CRLF, and
+    ``Path.read_text`` already normalises CRLF to LF, so the old pattern matched
+    such a file perfectly well. The reviewer withdrew the finding and was right
+    to. What survives is the real reason — one parser, shared with the loader and
+    the tests, instead of a second one that can drift from it — and the guard
+    below, which does matter on its own: a volatile skill that parses to no
+    sources at all is reported as a finding rather than passed over, so the
+    script can never report silence as success.
     """
     with open(path, encoding="utf-8") as handle:
         front, _ = split_frontmatter(handle.read())
