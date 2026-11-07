@@ -229,18 +229,78 @@ def test_a_schema_error_names_and_shortens_the_line_that_holds_it(worker_tree):
     assert message.endswith("\u2026") and len(message) <= 240, message
 
 
-def test_the_result_format_states_both_line_shapes_with_a_counter_example(worker_tree):
-    """The package, not the worker, is where these two defects live: spell the shapes out."""
-    from src.engine.subagent_text import render_result_format
+def _labelled_examples(rendered):
+    """The ``right``/``wrong`` examples of a rendered result format, with their continuations."""
+    from src.engine.subagent_text import EXAMPLE_LABEL
+
+    lines, examples = rendered.splitlines(), []
+    for index, line in enumerate(lines):
+        label = EXAMPLE_LABEL.fullmatch(line)
+        if not label:
+            continue
+        outcome, why, item = label.groups()
+        for continuation in lines[index + 1:]:
+            if EXAMPLE_LABEL.fullmatch(continuation) or not continuation.startswith("     "):
+                break
+            item += "\n" + continuation.strip()
+        examples.append((outcome, why, item))
+    return examples
+
+
+def test_every_labelled_example_in_the_result_format_behaves_as_labelled(worker_tree):
+    """The rendered rule's claims are executed, so its prose cannot drift from the parser.
+
+    Three rounds of #595 each corrected one hand-written statement of the separator rule and
+    left another contradicting `_split`, while the only test touching that statement asserted
+    it as a string and so passed either way (#596).
+    """
+    from src.engine.subagent_text import (SEPARATORS, TextFormatError, _finding, _split,
+                                           render_result_format)
 
     rendered = render_result_format(prepared(result_type="review").contract.model_dump(mode="json"))
-    assert "one space, an em dash (U+2014, '—') and one space" in rendered
-    assert "outside any `code span`" in rendered
-    assert "  wrong: - high src/app.py:12 The token is logged.[^e1]   (no separator: rejected)" in rendered
-    assert "(only inside a span: rejected)" in rendered
-    assert "A finding that only confirms something takes one too" in rendered
-    assert "  wrong: - info src/app.py:40 — The guard is correct.[^e2]\n         fix:" in rendered
-    assert "check every ' — ' and every 'fix:' line the form shows" in rendered
+    examples = _labelled_examples(rendered)
+    parts = [item for item in examples if not item[2].startswith("- ")]
+    findings = [item for item in examples if item[2].startswith("- ")]
+    assert len(parts) >= 6 and len(findings) == 2, examples
+    for group in (parts, findings):
+        assert {outcome for outcome, _, _ in group} == {"right", "wrong"}, group
+
+    for outcome, why, item in parts:
+        if outcome == "right":
+            location, explanation = _split(item, "$.x", "shape")
+            assert location and explanation, why
+        else:
+            with pytest.raises(TextFormatError):
+                _split(item, "$.x", "shape")
+    for outcome, why, item in findings:
+        if outcome == "right":
+            assert _finding(item[2:], "$.x")["recommendation"], why
+        else:
+            with pytest.raises(TextFormatError):
+                _finding(item[2:], "$.x")
+
+    # Generation puts an example beside every spelling, so a new one arrives already executed.
+    assert len(parts) == 3 + 3 * len([s for s in SEPARATORS if not s.write_it]), parts
+
+
+def test_the_spelling_to_write_wins_over_the_tolerated_one(worker_tree):
+    """``SEPARATORS`` is a precedence, so reordering it has to fail a test, not just a review.
+
+    Generation cannot establish this: it would put an example beside either order (#596).
+    """
+    from src.engine.subagent_text import SEPARATORS, WRITE_SEPARATOR, _split
+
+    for separator in (s for s in SEPARATORS if not s.write_it):
+        line = f"a{WRITE_SEPARATOR.spelling}b{separator.spelling}c"
+        assert _split(line, "$.x", "shape") == ("a", f"b{separator.spelling}c".strip()), line
+
+
+def test_the_result_format_names_the_separator_source_and_omits_the_fix_rule(worker_tree):
+    from src.engine.subagent_text import SEPARATORS, WRITE_SEPARATOR, render_result_format
+
+    rendered = render_result_format(prepared(result_type="review").contract.model_dump(mode="json"))
+    assert f"write exactly that: {WRITE_SEPARATOR.note}" in rendered
+    assert all(f"'{separator.spelling}'" in rendered for separator in SEPARATORS)
 
     other = render_result_format(prepared(result_type="research").contract.model_dump(mode="json"))
     assert "### The separator" in other and "### The fix: line" not in other
@@ -252,7 +312,10 @@ def test_the_result_format_shows_several_locations_and_a_pre_reply_check(worker_
     package = prepared(result_type="implementation")
     rendered = render_result_format(package.contract.model_dump(mode="json"))
     assert "[^e2]: src/a.py:10-20, src/b.py:30 — <what both showed>" in rendered
-    assert "Before replying, check every ' — ' the form shows and the 4000-character limit." in rendered
+    from src.engine.subagent_text import WRITE_SEPARATOR
+
+    assert (f"Before replying, check every '{WRITE_SEPARATOR.spelling}' the form shows "
+            "and the 4000-character limit.") in rendered
     assert rendered in package.worker_context
 
 
@@ -415,7 +478,9 @@ def test_the_documented_separator_decides_over_a_double_hyphen_in_the_reference(
     from src.engine.subagent_text import parse_result
 
     package = prepared(result_type="review")
-    assert "' -- ' still parses on a line that holds no em dash" in package.worker_context
+    from src.engine.subagent_text import SEPARATORS
+
+    assert all(f"'{s.spelling}'" in package.worker_context for s in SEPARATORS)
     text = text_result(package).replace(
         "[^e1]: src/app.py:12 — logger.info prints the header",
         "[^e1]: git log --oneline -- src/app.py — logger.info prints the header")
