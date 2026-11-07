@@ -263,12 +263,23 @@ windows and never exercise that branch.
 files disagreeing on a supranational rule is a defect even where neither is
 refuted alone.
 
-**Mechanical invariants**, in the parent, no worker: every source `https` where
-the host serves it, no placeholder text, no mixed-script words, no zero-width or
-non-breaking spaces, balanced emphasis, no ragged tables, zero keyword
-collisions with each neighbouring country skill, every future date marked as not
-yet in force, and the count of `(unconfirmed)` markers that ship. Report a check
-that found nothing to examine as vacuous rather than as passed.
+**Mechanical invariants** are a test, not a chore: `tests/test_skill_invariants.py`
+holds every source to `https`, bars placeholders in prose and invisible
+characters anywhere, rejects a word mixing Latin and Cyrillic, requires balanced
+emphasis and square tables, insists a future date say it is not yet in force, and
+forbids a literal keyword shared with a sibling skill for the same country. Its
+own seven mutants are in the audit record: a guard nobody has seen fail is not a
+guard. Still report by hand the count of `(unconfirmed)` markers that ship, and
+report a check that found nothing to examine as vacuous rather than as passed.
+
+**Whether each declared source still serves its document** is a separate run,
+`scripts/check_skill_sources.py`, because it needs the network and the suite does
+not have one. It reads the body rather than trusting the status, retries once, and
+sends the `Accept` header an API documents. It fails only on a URL that is
+positively wrong — a 404, or an error page under a 200. A host that refuses this
+client is reported and does not fail the run: that is a limitation of where the
+check ran, and it belongs in the pull request as one. Do not disguise the client
+to get past such a block.
 
 **Decision rule.** Fix it in advance and let it be able to fail: a ceiling on
 substantive refutations in the sample, zero in the mandatory stratum, zero in the
@@ -292,6 +303,14 @@ LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/test_skill_fresh
 
 ```bash
 .venv/bin/python -B scripts/check_docs.py
+```
+
+```bash
+LANGFUSE_TRACING_ENABLED=false .venv/bin/python -m pytest tests/test_skill_invariants.py -q
+```
+
+```bash
+.venv/bin/python -B scripts/check_skill_sources.py
 ```
 
 Then open the pull request against `dev`. Its description states, per skill: how
