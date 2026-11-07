@@ -361,7 +361,9 @@ Route {
   model_source:    resolved | host_attested | unknown
   lineage:         the model family, where the server can resolve it
   decomposition:   a short parent-assigned id for the framing or split used
-  information_set: the pinned manifest id, or an id for the named materials
+  information_set: the manifest id the route pinned, or an id for the named
+                   materials; compared by the contents it resolves to, never
+                   by the id itself
   stance:          produce | refute | rederive | replicate
   blinded:         whether the worker was shown the checked conclusion
 }
