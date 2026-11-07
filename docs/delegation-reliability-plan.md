@@ -969,16 +969,22 @@ Neither draw measures the drift or names the claims rated too low. So the Campbe
 unmeasured by construction here, and the honest report says that instead of
 claiming the drift would surface.
 
-Three levels are enough, and the trigger list already exists: `no-fabrication`
-names the claim types in scope — API and method names and signatures, versions,
-CLI flags, config keys, paths, numbers and benchmarks, quotes, citations, URLs —
-so the rule and this layer stay consistent instead of defining two taxonomies.
+Three rated levels are enough above the `none` that question 1 assigns, and
+the trigger list already exists: `no-fabrication` names the claim types in
+scope — API and method names and signatures, versions, CLI flags, config
+keys, paths, numbers and benchmarks, quotes, citations, URLs — so the rule
+and this layer stay consistent instead of defining two taxonomies.
 
 | Level | Validation required | Stored |
 |---|---|---|
+| `none` | none | no |
 | `routine` | none | no |
 | `load_bearing` | one route-different check, blinded where possible | yes, with its route and expiry |
 | `critical` | blinded re-derivation by a different route, plus a refuter asked for a named defeater | only on a confirmed verdict; otherwise `accepted_conditional` and not stored |
+
+`none` and `routine` share both columns and differ in what they are about: a
+`none` claim carries no decision, so it enters no rated cohort and cannot
+dilute the `routine` refutation rate the ledger reports.
 
 **The store.** A validated fact is not a cache entry; it is a certificate, and
 the metrology analogue is a certified reference material — a value that travels
@@ -1077,7 +1083,7 @@ not a candidate.
 | Four parent dispositions, with the conditional and unchecked ones reaching the user | 5 | `docs/subagent-contract.md`, `flows/pr-review.md`, `flows/code-review-pass.md` | instruction |
 | `Check.kind: own_execution \| subject`, `Check.criterion_id` and `Check.ran_in_attempt`; `check_failed` counts only own-execution checks from the current attempt | 1 | `src/schemas/subagent.py`, `src/engine/model_tiers.py`, `src/engine/subagent_text.py` | schema |
 | `Criterion.falsifier`, `Criterion.method` | 1 | `src/schemas/subagent.py`, `src/engine/subagent_validation.py` | schema |
-| `Route` with `blinded`, plus `verifies` and `independence`; same-model refusal at preparation | 2 | `src/schemas/subagent.py`, `src/engine/subagent.py`, `src/engine/model_tiers.py` | schema |
+| `Route` with `blinded`, plus `verifies` and `independence`; the preparation-side `model` check that refutes the claim on two identical resolved identities and marks it `unverifiable` where either is unbound | 2 | `src/schemas/subagent.py`, `src/engine/subagent.py`, `src/engine/model_tiers.py` | schema |
 | Evidence overlap and the rank-one dependence test; effective-verdict count | 3 | parent procedure, documented | procedure |
 | `Acceptance {accept_costs, check_cost, stopping, max_attempts, dependence_threshold}`; escalation driven by it | 4 | `src/schemas/subagent.py`, `src/engine/model_tiers.py`, `docs/subagent-model-tiers.md` | schema |
 | `Route.model_source` plus a host-origin attestation of the model actually launched, bound to the task, attempt and contract revision; without that channel an `inherit` claim stays `unverifiable` | 2 | `src/schemas/subagent.py`, `src/engine/model_tiers.py`, `docs/subagent-model-tiers.md` | schema |
@@ -1191,7 +1197,9 @@ measurement in #327's form.
    attempt, it has no route to compare and records with the route unknown.
 4. `Criterion.falsifier` and `Criterion.method`, with the validator's conditional
    requirement.
-5. `Route`, `verifies`, `independence`, and the server-side same-model refusal.
+5. `Route`, `verifies`, `independence`, and the preparation-side `model` check,
+   which refutes or leaves unverified an independence claim and never refuses
+   the attempt.
 6. Ledger outcome recording: the route, the verdict, the known answer where
    there is one, and the outcome class. Recording only; no derived statistic
    yet.
