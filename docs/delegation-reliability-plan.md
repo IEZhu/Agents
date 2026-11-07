@@ -376,12 +376,19 @@ nor refuted: preparation marks it `unverifiable`, and an unverifiable claim is
 recorded as route-different-unverified, never as model independence. An unknown
 model is not evidence of difference any more than it is evidence of equality.
 Making the claim checkable requires a carrier, which is why the route records
-`model_source` beside `model`: `resolved` where the tier fixed the model,
-`host_reported` where the host told preparation which model it actually launched
-and preparation bound that identity to the attempt, and `unknown` otherwise.
-Only the first two can support a `model` claim; `unknown` leaves it
-`unverifiable` however the tier was requested. Tier `inherit` is therefore
-checkable exactly when the host reports, and never by the tier alone.
+`model_source` beside `model`. Its values divide by *when* the identity is
+known, because preparation fingerprints the contract before the worker is
+launched and cannot receive what the host learns at launch: `resolved` where the
+tier fixed the model, so preparation binds it into the contract itself;
+`host_attested` where the host reports the model it actually launched *after*
+preparation, which therefore cannot enter the fingerprint and binds to the
+attempt the only other way available — recorded against that `attempt_id` on the
+result and in the ledger, carrying the host's word and not the server's; and
+`unknown` otherwise. A `resolved` identity supports a `model` claim as contract
+evidence, a `host_attested` one only as an attestation whose trust is the host's,
+and `unknown` leaves the claim `unverifiable` however the tier was requested.
+Tier `inherit` is therefore never checkable from the contract, and checkable
+from an attestation exactly when the host makes one.
 
 Resolving a tier is not the same as knowing the model, so even the lower tiers
 do not settle it by themselves. Tier resolution can yield an alias or a
@@ -476,14 +483,15 @@ Two dependence statistics, one structural and one statistical, both computable
 without ground truth:
 
 - **Evidence overlap**, available today with no new machinery. Two results that
-  cite the same `evidence[].reference` strings for the same claim do not differ
-  on the `information_set` dimension — a fact about the routes, not a
-  measurement of their errors, since two analysts can read one public source and
-  still be conditionally independent. Overlap is therefore a proxy that triggers
-  measurement rather than a substitute for it: it says a dependence estimate is
-  needed, while the statistic below or the control set supplies the ρ the
-  discount uses. Treating overlap itself as the discount would undercount
-  evidence systematically. The envelope already carries those references.
+  cite the same `evidence[].reference` strings for the same claim share
+  evidence, which is not the same as sharing an information set: two workers can
+  cite one source while holding different pinned manifests or extra materials,
+  so whether the routes differ on `information_set` is settled by comparing the
+  recorded `information_set` values, not their citations. Overlap is a
+  shared-evidence signal and nothing more — it says a dependence estimate is
+  worth buying, and never supplies one, since two analysts can read one public
+  source and still be conditionally independent. The envelope already carries
+  those references.
 - **The rank-one test.** If classifiers' errors are conditionally independent,
   their verdict covariance factors off the diagonal: `C[i,j] = a[i] * a[j]` for
   every `i != j`, each `a[i]` scaling with that classifier's balanced accuracy
@@ -493,9 +501,21 @@ without ground truth:
   classifiers, and testing the zero-diagonal matrix for rank one would reject
   conditional independence that holds. The test is whether the off-diagonal
   entries are consistent with one outer product, and departure from that is
-  evidence of dependence. The fitted vector `a` doubles as an unsupervised
+  evidence of dependence. What it does not give is ρ: it detects some departures
+  from conditional independence without labels, and the same verdict
+  distribution can arise from independent errors or correlated ones under
+  different ground truths. The numeric discount therefore takes its ρ from the
+  labelled control set of layer 6, and where no ρ is available the result keeps
+  `accepted_conditional` with the dependence recorded as unmeasured rather than
+  a discount computed from this test. The fitted vector `a` doubles as an unsupervised
   accuracy ranking — it is the leading eigenvector of the fitted rank-one part —
-  but only up to its sign, which no amount of unlabelled data resolves. The
+  but only where the fit identifies it, and then only up to its sign, which no
+  amount of unlabelled data resolves. Two classifiers do not identify it at all:
+  their single off-diagonal entry fixes the product `a[1] * a[2]` and nothing
+  about either factor, so fits that reverse the ranking explain the data equally
+  well and resolving the sign does not help. Below three classifiers, and
+  wherever the fit is otherwise unidentifiable, the ranking is reported
+  unavailable rather than ambiguous. The
   source's own tie-breaker is the assumption that most of the classifiers are
   better than random; where that cannot be asserted for a task class, the
   control set has to supply the orientation, and until one of the two holds the
@@ -836,9 +856,12 @@ scratch next session.
 **Is an importance rating needed?** Yes — findings 9 and the all-or-none rule
 make it unavoidable, because the decision "verify or not" is a comparison of the
 claim's consequence against the cost of a check, and without a rating there is
-no left-hand side. But it must be *derived from structure, not asserted*, for
-exactly the reason in finding 13: a self-assigned score that unlocks less work
-will drift downward.
+no left-hand side. But it must be *structured rather than free*, for exactly
+the reason in finding 13: a self-assigned score that unlocks less work will
+drift downward. Structured means the parent answers three fixed questions
+instead of picking a level, which constrains the answer without making it
+checkable — the answers are still the parent's assertions, as the paragraph
+after them says.
 
 Three questions about the claim's role, which the parent answers:
 
@@ -855,12 +878,17 @@ The three answers are the parent's, not the contract's. Whether anything depends
 on a claim, whether a wrong value can be undone cheaply, and whether it will be
 reused are facts about the parent's intended use, and no contract field carries
 them — so the rating is a recorded parent attestation, not a derivation, and
-nothing stops a parent rating down to buy less verification. The defence is
-measurement rather than derivation: the ledger stores the rating beside the
-outcome, so the observed refutation rate of `routine`-rated claims is visible,
-and a rating that drifts downward surfaces as refuted `routine` claims. That is
-the Campbell hazard of finding 13, handled the only way it can be when the input
-is a judgement — by watching what the judgement leads to.
+nothing stops a parent rating down to buy less verification. The defence is measurement rather than
+derivation, and it is a weak one: the ledger stores the rating beside the
+outcome, so the refutation rate of `routine`-rated claims is at least visible.
+But `routine` requires no validation, and an unvalidated wrong claim is usually
+never refuted, so the ledger can sit unchanged while ratings drift down. The
+observed rate is a lower bound on the drift, not a detector of it, and it
+becomes a measurement only under the same condition layer 6 states for the
+refutation rate in general: follow-up drawn at random from `routine` claims and
+labelled reliably. Without that sampling the Campbell hazard of finding 13
+stands unmeasured, and the honest report says so rather than claiming the drift
+would surface.
 
 Three levels are enough, and the trigger list already exists: `no-fabrication`
 names the claim types in scope — API and method names and signatures, versions,
@@ -882,7 +910,7 @@ therefore holds:
 ValidatedFact {
   key:            content-derived, from the normalised claim and its subject
   claim:          the statement, bounded
-  importance:     the derived level, with the three structural answers
+  importance:     the level the three answers give, as the parent asserted them
   verdict:        confirmed | refuted | unresolved
   qualifier:      the Layer 5 marker, with its fixed meaning
   evidence:       references, as the envelope already models them
@@ -976,7 +1004,7 @@ not a candidate.
 | `Route.model_source` plus a host-reported resolved model bound to the attempt; without it an `inherit` claim stays `unverifiable` | 2 | `src/schemas/subagent.py`, `src/engine/model_tiers.py`, `docs/subagent-model-tiers.md` | schema |
 | Ledger outcomes, per-route sensitivity, ρ estimates, control chart, debiased calibration | 6 | `src/engine/subagent_ledger.py`, `scripts/subagent_tiers_report.py` | subsystem |
 | Known-answer control set, re-run on every model or prompt change | 6 | `evals/` (generalising #567) | evaluation |
-| Derived `importance`; `ValidatedFact` store, append-only, expiring, parent-only, granted to workers only as pinned artifacts | 7 | new module beside `src/artifacts/` and `src/memory/`; `src/user_sync/scope.py` for opt-in sync | subsystem |
+| Parent-attested `importance` from the three fixed questions; `ValidatedFact` store, append-only, expiring, parent-only, granted to workers only as pinned artifacts | 7 | new module beside `src/artifacts/` and `src/memory/`; `src/user_sync/scope.py` for opt-in sync | subsystem |
 
 ## Self-application: how we would know this works
 
@@ -1094,7 +1122,7 @@ measurement in #327's form.
 8. Per-route sensitivity, specificity and ρ, measured on that control set; then
    the `Acceptance` block and the sequential rule, which cannot be implemented
    honestly before those numbers exist.
-9. Derived `importance`, then the `ValidatedFact` store — last, because a store
+9. Parent-attested `importance`, then the `ValidatedFact` store — last, because a store
    is only as good as the validation that fills it.
 
 ## Evidence base
