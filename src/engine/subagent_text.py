@@ -29,6 +29,7 @@ A result looks like this (the payload section depends on the result type)::
 """
 from __future__ import annotations
 
+from bisect import bisect_right
 from collections.abc import Callable
 import re
 
@@ -48,14 +49,30 @@ _SEPARATOR = re.compile(r"\s+(?:—|--)\s+")
 _HEADING = re.compile(r"##\s+([A-Za-z_]+)\s*")
 _HEADER = re.compile(r"([a-z_]+):[ \t]*(.*)")
 _EVIDENCE = re.compile(r"\[\^([^\]]*)\]:[ \t]*(.*)")
+_BACKTICK_RUN = re.compile(r"`+")
+EXCERPT_CHARS = 120  # enough of a line to find it, short enough for a 240-character diagnostic
+
+
+def excerpt(text: str) -> str:
+    """One of the worker's own lines, collapsed onto one line and shortened for a diagnostic.
+
+    The line is quoted as the worker wrote it: a reference inside it stays a reference and is
+    never read, so naming the offending line leaves validation structural (#526).
+    """
+    collapsed = " ".join(text.split())
+    return collapsed if len(collapsed) <= EXCERPT_CHARS else collapsed[:EXCERPT_CHARS - 1] + "\u2026"
 
 
 class TextFormatError(ValueError):
-    """A result that does not follow the text format; ``path`` names the offending part."""
+    """A result that does not follow the text format; ``path`` names the offending part.
 
-    def __init__(self, code: str, message: str, path: str = "$.result"):
+    ``line`` is that part as the worker wrote it, so the diagnostic can name the offending
+    line and not only the position the parsed result would have kept it in (#526).
+    """
+
+    def __init__(self, code: str, message: str, path: str = "$.result", line: str = ""):
         super().__init__(message)
-        self.code, self.path = code, path
+        self.code, self.path, self.line = code, path, excerpt(line)
 
 
 # Rendering: what the worker reads.
@@ -100,6 +117,22 @@ _PAYLOAD_TEMPLATES = {
 }
 
 
+# Two line shapes cost most of the discarded worker runs of #526: a findings or evidence
+# line without the separator, and a finding whose 'fix:' line is missing or empty. Both are
+# stated here with a counter-example, because that is what a worker reads before replying.
+_PAYLOAD_RULES = {"findings": [
+    "",
+    "### The fix: line",
+    "Every finding carries its own 'fix:' line, indented by two spaces, with a non-empty "
+    "recommendation on it. A finding that only confirms something takes one too, saying "
+    "what to keep; a missing or empty 'fix:' rejects the finding.",
+    "  right: - info src/app.py:40 — The guard is correct.[^e2]",
+    "         fix: Keep the guard as it is.",
+    "  wrong: - info src/app.py:40 — The guard is correct.[^e2]",
+    "         fix:",
+]}
+
+
 def render_result_format(contract: dict) -> str:
     """A filled-in template of the result; it replaces the JSON Schema for text contracts."""
     payload = PAYLOAD_KEYS[contract["result_type"]]
@@ -139,13 +172,25 @@ def render_result_format(contract: dict) -> str:
         "```",
         "Omit a section or the question line when it would be empty; keep summary and "
         f"{payload}. One list item per '- ' line; indent continuation lines by two spaces. "
-        "Where the form shows ' — ', that separator is required: "
-        "every evidence line, finding, changes item and artifacts item needs it. "
         "[^id] cites an entry of ## evidence; evidence ids are unique. Every text is at most "
         f"4000 characters; at most 50 {short_lists} and 100 of any other list. "
         "completed: no remaining_work, no question. partial: remaining_work. failed: a "
-        "limitation saying why. input_required: question. "
-        "Before replying, check every ' — ' the form shows and the 4000-character limit.",
+        "limitation saying why. input_required: question.",
+        "",
+        "### The separator",
+        "Where the form shows ' — ', write exactly that: one space, an em dash (U+2014, "
+        "'—') and one space. Not a plain hyphen, not an en dash '–', not nothing at all; "
+        "' -- ' still parses on a line that holds no em dash, for older workers, but do not "
+        "write it. The separator has to stand in the line's own text, outside any `code "
+        "span`, because that is where it is looked for. Every evidence line, finding, "
+        "changes item and artifacts item needs one.",
+        "  right: - high src/app.py:12 — The token is logged.[^e1]",
+        "  wrong: - high src/app.py:12 The token is logged.[^e1]   (no separator: rejected)",
+        "  wrong: - high `src/app.py:12 — the header` is logged.   (only inside a span: rejected)",
+        *_PAYLOAD_RULES.get(payload, []),
+        "",
+        "Before replying, check every ' — '" + (" and every 'fix:' line" if payload == "findings" else "")
+        + " the form shows and the 4000-character limit.",
     ])
 
 
@@ -168,16 +213,50 @@ def _references(text: str) -> tuple[str, list[str]]:
     return re.sub(r"[ \t]+\n", "\n", _REFERENCE.sub("", text)).strip(), ids
 
 
-def _split(text: str, path: str, shape: str) -> tuple[str, str]:
+def _outside_code_spans(text: str) -> str:
+    """``text`` with every code span's characters replaced, so none of them can match.
+
+    A span is a run of backticks closed by a run of the same length, the rule Markdown
+    itself uses, so a ``-delimited span may hold a single backtick and still be one part of
+    the line. Lengths are preserved, so a match in the result indexes the original text,
+    and a run with no closer masks nothing, because it must not swallow the rest of the
+    line. The runs are indexed once and each closer is found by bisection, so a result full
+    of stray backticks cannot make this quadratic.
+    """
+    runs = [match.span() for match in _BACKTICK_RUN.finditer(text)]
+    if not runs:
+        return text
+    by_length: dict[int, list[int]] = {}
+    for index, (start, end) in enumerate(runs):
+        by_length.setdefault(end - start, []).append(index)
+    masked = list(text)
+    index = 0
+    while index < len(runs):
+        start, end = runs[index]
+        same_length = by_length[end - start]
+        candidate = bisect_right(same_length, index)
+        if candidate == len(same_length):
+            index += 1  # a run that nothing closes is literal text, not a span
+            continue
+        closer = same_length[candidate]
+        masked[start:runs[closer][1]] = "\x00" * (runs[closer][1] - start)
+        index = closer + 1  # runs inside the span are its content, not openers
+    return "".join(masked)
+
+
+def _split(text: str, path: str, shape: str, line: str = "") -> tuple[str, str]:
     # A reference may itself contain ' -- ', as `git log --oneline -- path` does, so the
     # documented separator decides wherever it appears; ' -- ' stays accepted without it.
-    pattern = _EM_SEPARATOR if _EM_SEPARATOR.search(text) else _SEPARATOR
-    parts = pattern.split(text, maxsplit=1)
-    if len(parts) != 2:
-        raise TextFormatError("separator_required", f"Expected '{shape}' with ' — ' between the parts; "
-                              "every evidence line, finding, changes item and artifacts item needs it.",
-                              path)
-    return parts[0].strip(), parts[1].strip()
+    # Both are looked for outside code spans: a worker who writes a location or a command in
+    # backticks means one part, and splitting inside it would report neither of them (#526).
+    outside = _outside_code_spans(text)
+    pattern = _EM_SEPARATOR if _EM_SEPARATOR.search(outside) else _SEPARATOR
+    found = pattern.search(outside)
+    if not found:
+        raise TextFormatError("separator_required",
+                              f"Expected '{shape}', with ' — ' between the two parts.",
+                              path, line or text)
+    return text[:found.start()].strip(), text[found.end():].strip()
 
 
 def _parsed(items: list[str], path: str, parse: Callable[[str, str], dict],
@@ -221,7 +300,7 @@ def _items(lines: list[str], path: str, errors: list[TextFormatError]) -> list[s
             continue
         else:
             errors.append(TextFormatError("invalid_item", "List items start with '- '; indent continuation lines.",
-                                          f"{path}[{len(items)}]"))
+                                          f"{path}[{len(items)}]", line))
             stray = True
     return items
 
@@ -242,11 +321,12 @@ def dropped_positions(errors: list[TextFormatError]) -> dict[str, list[int]]:
     return positions
 
 
-def _evidence(lines: list[str], errors: list[TextFormatError]) -> list[dict]:
+def _evidence(lines: list[str], errors: list[TextFormatError], sources: list[str]) -> list[dict]:
     """The entries of ## evidence, each written '[^id]: reference — description'.
 
     A malformed entry is collected and skipped, keeping the position of its own line.
     A run of lines that are no entry at all is one problem and takes no position.
+    ``sources`` receives the line each position came from, for the diagnostics (#526).
     """
     entries: list[dict] = []
     index = 0  # the line's own position, kept when an earlier line was skipped
@@ -258,8 +338,10 @@ def _evidence(lines: list[str], errors: list[TextFormatError]) -> list[dict]:
         path = f"$.result.evidence[{index}]"
         if match:
             index += 1
+            sources.append(line.strip())
             try:
-                reference, description = _split(match.group(2), path, "[^id]: reference — description")
+                reference, description = _split(match.group(2), path,
+                                                "[^id]: reference — description", line)
             except TextFormatError as error:
                 errors.append(error)
                 skipped = True
@@ -272,7 +354,8 @@ def _evidence(lines: list[str], errors: list[TextFormatError]) -> list[dict]:
             entries[-1]["description"] += "\n" + line.strip()
         else:
             errors.append(TextFormatError("invalid_evidence",
-                                          "Evidence lines read '[^id]: reference — description'.", path))
+                                          "Evidence lines read '[^id]: reference — description'.",
+                                          path, line))
             skipped = True  # a line that is no evidence line takes no position of its own
     return entries
 
@@ -281,8 +364,9 @@ def _finding(item: str, path: str) -> dict:
     head, *rest = item.split("\n")
     severity, _, remainder = head.partition(" ")
     if severity not in SEVERITIES:
-        raise TextFormatError("invalid_severity", "A finding starts with critical, high, medium, low or info.", path)
-    location, explanation = _split(remainder, path, "<severity> <location> — <explanation>")
+        raise TextFormatError("invalid_severity", "A finding starts with critical, high, medium, low or info.",
+                              path, item)
+    location, explanation = _split(remainder, path, "<severity> <location> — <explanation>", item)
     recommendation = None
     for line in rest:
         if line.startswith("fix:"):
@@ -293,6 +377,10 @@ def _finding(item: str, path: str) -> dict:
             explanation += "\n" + line
     explanation, explanation_ids = _references(explanation)
     recommendation, recommendation_ids = _references(recommendation or "")
+    if not recommendation:
+        raise TextFormatError("recommendation_required",
+                              "A finding needs its own 'fix:' line with a recommendation on it.",
+                              path, item)
     return {"severity": severity, "location": location, "explanation": explanation,
             "recommendation": recommendation,
             "evidence_ids": _unique(explanation_ids + recommendation_ids)}
@@ -301,7 +389,7 @@ def _finding(item: str, path: str) -> dict:
 def _check(item: str, path: str) -> dict:
     status, separator, name = item.partition(":")
     if not separator or status.strip() not in CHECK_STATES:
-        raise TextFormatError("invalid_check", "A check reads '<passed|failed|not_run>: <name>'.", path)
+        raise TextFormatError("invalid_check", "A check reads '<passed|failed|not_run>: <name>'.", path, item)
     name, ids = _references(name)
     return {"name": name, "status": status.strip(), "evidence_ids": ids}
 
@@ -326,13 +414,17 @@ def _payload(key: str, items: list[str], errors: list[TextFormatError]) -> list:
     return _parsed(items, "$.result.result.changes[{}]", _change, errors)
 
 
-def parse_result(text: str, expected: TaskContract) -> tuple[dict, list[TextFormatError]]:
+def parse_result(text: str, expected: TaskContract
+                 ) -> tuple[dict, list[TextFormatError], dict[str, list[str]]]:
     """The JSON-shaped result a text result stands for, and the per-line problems it carries.
 
     A problem that leaves the whole result unreadable raises ``TextFormatError``: an unknown
     or repeated section, a malformed, repeated or missing header line, an identity that does
     not match. A problem of one line is collected into the returned list and that line is
     skipped, never guessed at, so one validation can report every one of them (#526).
+
+    The third value holds every list's source lines, by list path and in source order, so a
+    schema error on one of them can name the line and not only its position (#526).
 
     The worker writes a prefix of the contract revision; a matching prefix stands for the
     whole revision, and the bundle revision follows from the contract that binds it.
@@ -348,9 +440,11 @@ def parse_result(text: str, expected: TaskContract) -> tuple[dict, list[TextForm
         if heading:
             current = heading.group(1).lower()
             if current not in allowed:
-                raise TextFormatError("unknown_section", f"Sections for this result: {', '.join(sorted(allowed))}.")
+                raise TextFormatError("unknown_section", f"Sections for this result: {', '.join(sorted(allowed))}.",
+                                      "$.result", line)
             if current in sections:
-                raise TextFormatError("duplicate_section", "Each section appears once.", f"$.result.{current}")
+                raise TextFormatError("duplicate_section", "Each section appears once.",
+                                      f"$.result.{current}", line)
             sections[current] = []
         elif current is not None:
             sections[current].append(line)
@@ -358,9 +452,10 @@ def parse_result(text: str, expected: TaskContract) -> tuple[dict, list[TextForm
             field = _HEADER.fullmatch(line.strip())
             if not field or field.group(1) not in HEADER_KEYS:
                 raise TextFormatError("invalid_header", "Before the first section, only 'key: value' lines for "
-                                      "task, attempt, contract, status and question.")
+                                      "task, attempt, contract, status and question.", "$.result", line)
             if field.group(1) in header:
-                raise TextFormatError("duplicate_header", "Each header line appears once.", f"$.result.{field.group(1)}")
+                raise TextFormatError("duplicate_header", "Each header line appears once.",
+                                      f"$.result.{field.group(1)}", line)
             header[field.group(1)] = field.group(2).strip()
     for key in ("task", "attempt", "contract", "status"):
         if not header.get(key):
@@ -376,17 +471,20 @@ def parse_result(text: str, expected: TaskContract) -> tuple[dict, list[TextForm
     errors: list[TextFormatError] = []
     lists = {name: _items(sections.get(name, []), _list_path(name, payload_key), errors)
              for name in (*LIST_SECTIONS, payload_key)}
+    sources = {_list_path(name, payload_key): items for name, items in lists.items()}
+    evidence_lines: list[str] = []
+    sources["$.result.evidence"] = evidence_lines
     return {
         "protocol": PROTOCOL, "task_id": header["task"], "attempt_id": header["attempt"],
         "bundle_revision": expected.bundle_revision, "contract_revision": expected.contract_revision,
         "status": header["status"], "question": question,
         "result": {"summary": "\n".join(sections.get("summary", [])).strip(),
                    payload_key: _payload(payload_key, lists[payload_key], errors)},
-        "evidence": _evidence(sections.get("evidence", []), errors),
+        "evidence": _evidence(sections.get("evidence", []), errors, evidence_lines),
         "artifacts": _parsed(lists["artifacts"], "$.result.artifacts[{}]", _artifact, errors),
         "checks": _parsed(lists["checks"], "$.result.checks[{}]", _check, errors),
         "limitations": lists["limitations"], "remaining_work": lists["remaining_work"],
-    }, errors
+    }, errors, sources
 
 
 def is_text_result(value) -> bool:

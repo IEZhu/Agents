@@ -59,8 +59,11 @@ def test_text_result_maps_to_the_closed_model(worker_tree):
     from src.engine.subagent_text import parse_result
 
     package = prepared(result_type="review")
-    value, errors = parse_result(text_result(package), package.contract)
+    value, errors, sources = parse_result(text_result(package), package.contract)
     assert errors == []
+    assert sources["$.result.result.findings"] == [
+        "high src/app.py:12 — The token is logged.[^e1]\nfix: Drop it from the message."]
+    assert sources["$.result.evidence"][1] == "[^e2]: pytest tests/test_app.py -q — 12 passed"
     assert value["contract_revision"] == package.contract_revision
     assert value["bundle_revision"] == package.descriptor.bundle_revision
     assert value["result"]["findings"] == [{
@@ -94,7 +97,7 @@ def test_text_package_carries_no_json_contract_or_schema(worker_tree):
     (lambda text: text.replace("- high src", "- severe src"), "invalid_severity"),
     (lambda text: text.replace("- passed: Read", "- done: Read"), "invalid_check"),
     (lambda text: text.replace("logged.[^e1]", "logged.[^e9]"), "unknown_evidence_id"),
-    (lambda text: text.replace("  fix: Drop it from the message.", ""), "string_too_short"),
+    (lambda text: text.replace("  fix: Drop it from the message.", ""), "recommendation_required"),
     (lambda text: text.replace("## checks\n", "## checks\nstray line\n"), "invalid_item"),
     (lambda text: text + "\nstray line", "invalid_evidence"),
 ])
@@ -172,17 +175,75 @@ def test_a_finding_may_cite_the_same_evidence_twice(worker_tree):
                                         "  fix: Drop it from the message.[^e1]")
     response = validate_result(package.contract.model_dump(mode="json"), text)
     assert response.valid, response.errors
-    value, errors = parse_result(text, package.contract)
+    value, errors, _ = parse_result(text, package.contract)
     assert errors == [] and value["result"]["findings"][0]["evidence_ids"] == ["e1"]
 
 
-def test_the_separator_diagnostic_names_the_sections_it_covers(worker_tree):
+def test_the_separator_diagnostic_names_the_offending_line(worker_tree):
+    """A path into the parsed model does not say which line to correct; the line does (#526)."""
     package = prepared(result_type="review")
     text = text_result(package).replace("[^e1]: src/app.py:12 — logger", "[^e1]: src/app.py:12 logger")
     response = validate_result(package.contract.model_dump(mode="json"), text)
-    message = next(error.message for error in response.errors if error.code == "separator_required")
-    assert "every evidence line, finding, changes item and artifacts item" in message
-    assert len(message) <= 240, message
+    error = next(error for error in response.errors if error.code == "separator_required")
+    assert error.path == "$.result.evidence[0]"
+    assert "'[^id]: reference — description'" in error.message
+    assert error.message.endswith("Line: [^e1]: src/app.py:12 logger.info prints the header")
+    assert len(error.message) <= 240, error.message
+
+
+def test_a_finding_without_the_separator_names_its_own_line(worker_tree):
+    """One of the two line shapes that discarded six of eight worker runs of #526."""
+    package = prepared(result_type="review")
+    text = text_result(package, payload="## findings\n- high src/app.py:12 The token is logged.[^e1]\n"
+                                        "  fix: Drop it from the message.")
+    response = validate_result(package.contract.model_dump(mode="json"), text)
+    assert [(error.path, error.code) for error in response.errors] == [
+        ("$.result.result.findings[0]", "separator_required")], response.errors
+    message = response.errors[0].message
+    assert "'<severity> <location> — <explanation>'" in message
+    assert "Line: high src/app.py:12 The token is logged.[^e1] fix: Drop it from the message." in message
+
+
+@pytest.mark.parametrize("fix", ["\n  fix:", "\n  fix: [^e1]", ""])
+def test_an_empty_or_missing_fix_line_is_rejected_by_its_own_name(worker_tree, fix):
+    """The other one: pydantic called it `string_too_short` on `.recommendation` (#526)."""
+    package = prepared(result_type="review")
+    text = text_result(package, payload="## findings\n- high src/app.py:12 — The token is logged.[^e1]" + fix)
+    response = validate_result(package.contract.model_dump(mode="json"), text)
+    assert [(error.path, error.code) for error in response.errors] == [
+        ("$.result.result.findings[0]", "recommendation_required")], response.errors
+    message = response.errors[0].message
+    assert "'fix:' line with a recommendation" in message
+    assert "Line: high src/app.py:12 — The token is logged.[^e1]" in message
+
+
+def test_a_schema_error_names_and_shortens_the_line_that_holds_it(worker_tree):
+    """A size error on one item also says which line it is, bounded for the 240-char field."""
+    package = prepared(result_type="implementation")
+    text = text_result(package, payload="## changes\n- src/c.py — " + "verbose " * 600)
+    response = validate_result(package.contract.model_dump(mode="json"), text)
+    assert [(error.path, error.code) for error in response.errors] == [
+        ("$.result.result.changes[0].description", "string_too_long")], response.errors
+    message = response.errors[0].message
+    assert " Line: src/c.py — verbose verbose" in message
+    assert message.endswith("\u2026") and len(message) <= 240, message
+
+
+def test_the_result_format_states_both_line_shapes_with_a_counter_example(worker_tree):
+    """The package, not the worker, is where these two defects live: spell the shapes out."""
+    from src.engine.subagent_text import render_result_format
+
+    rendered = render_result_format(prepared(result_type="review").contract.model_dump(mode="json"))
+    assert "one space, an em dash (U+2014, '—') and one space" in rendered
+    assert "outside any `code span`" in rendered
+    assert "  wrong: - high src/app.py:12 The token is logged.[^e1]   (no separator: rejected)" in rendered
+    assert "(only inside a span: rejected)" in rendered
+    assert "A finding that only confirms something takes one too" in rendered
+    assert "  wrong: - info src/app.py:40 — The guard is correct.[^e2]\n         fix:" in rendered
+    assert "check every ' — ' and every 'fix:' line the form shows" in rendered
+
+    other = render_result_format(prepared(result_type="research").contract.model_dump(mode="json"))
+    assert "### The separator" in other and "### The fix: line" not in other
 
 
 def test_the_result_format_shows_several_locations_and_a_pre_reply_check(worker_tree):
@@ -224,6 +285,21 @@ def test_a_schema_error_after_a_skipped_entry_keeps_the_source_position(worker_t
     assert [(error.path, error.code) for error in response.errors] == [
         (f"{prefix}[0]", first),
         (f"{prefix}[2].{field}", "string_too_long")], response.errors
+    assert all(" Line: " in error.message for error in response.errors), response.errors
+
+
+def test_a_finding_rejected_for_its_fix_line_keeps_the_later_positions(worker_tree):
+    """The over-long finding is the third line, not the second the shortened list holds."""
+    package = prepared(result_type="review")
+    text = text_result(package, payload=(
+        "## findings\n- high src/app.py:12 — First finding.[^e1]\n  fix:\n"
+        "- low src/app.py:14 — Second finding.[^e1]\n  fix: Keep it.\n"
+        "- info src/app.py:16 — " + "x" * 4001 + "\n  fix: Keep it."))
+    response = validate_result(package.contract.model_dump(mode="json"), text)
+    assert [(error.path, error.code) for error in response.errors] == [
+        ("$.result.result.findings[0]", "recommendation_required"),
+        ("$.result.result.findings[2].explanation", "string_too_long")], response.errors
+    assert all(" Line: " in error.message for error in response.errors), response.errors
 
 
 def test_a_repeated_citation_in_a_check_or_a_conclusion_counts_once(worker_tree):
@@ -234,7 +310,7 @@ def test_a_repeated_citation_in_a_check_or_a_conclusion_counts_once(worker_tree)
         "- passed: Read the code.[^e1]", "- passed: Read the code.[^e1][^e1]")
     response = validate_result(package.contract.model_dump(mode="json"), text)
     assert response.valid, response.errors
-    value, errors = parse_result(text, package.contract)
+    value, errors, _ = parse_result(text, package.contract)
     assert errors == []
     assert value["result"]["conclusions"][0]["evidence_ids"] == ["e1"]
     assert value["checks"][0]["evidence_ids"] == ["e1"]
@@ -244,7 +320,7 @@ def test_a_json_result_still_rejects_a_repeated_citation(worker_tree):
     from src.engine.subagent_text import parse_result
 
     package = prepared()
-    value, errors = parse_result(text_result(package), package.contract)
+    value, errors, _ = parse_result(text_result(package), package.contract)
     assert errors == []
     value["checks"][0]["evidence_ids"] = ["e1", "e1"]
     response = validate_result(package.contract.model_dump(mode="json"), value)
@@ -328,7 +404,7 @@ def test_a_continuation_still_reaches_the_entry_after_a_skipped_line(worker_tree
         "[^e1]: src/app.py:12 logger.info prints the header").replace(
         "[^e2]: pytest tests/test_app.py -q — 12 passed",
         "[^e2]: pytest tests/test_app.py -q — 12 passed\n  and 3 skipped")
-    value, errors = parse_result(text, package.contract)
+    value, errors, _ = parse_result(text, package.contract)
     assert [(error.path, error.code) for error in errors] == [
         ("$.result.evidence[0]", "separator_required")]
     assert value["evidence"][0]["description"] == "12 passed\nand 3 skipped"
@@ -339,7 +415,7 @@ def test_the_documented_separator_decides_over_a_double_hyphen_in_the_reference(
     from src.engine.subagent_text import parse_result
 
     package = prepared(result_type="review")
-    assert "that separator is required" in package.worker_context
+    assert "' -- ' still parses on a line that holds no em dash" in package.worker_context
     text = text_result(package).replace(
         "[^e1]: src/app.py:12 — logger.info prints the header",
         "[^e1]: git log --oneline -- src/app.py — logger.info prints the header")
@@ -347,6 +423,62 @@ def test_the_documented_separator_decides_over_a_double_hyphen_in_the_reference(
     evidence = parse_result(text, package.contract)[0]["evidence"][0]
     assert evidence["reference"] == "git log --oneline -- src/app.py"
     assert evidence["description"] == "logger.info prints the header"
+
+
+def test_a_separator_only_inside_a_code_span_is_no_separator(worker_tree):
+    """Splitting there corrupted the location and the explanation instead of rejecting."""
+    package = prepared(result_type="review")
+    text = text_result(package, payload="## findings\n- high `src/app.py:12 — the header` is logged.[^e1]\n"
+                                        "  fix: Drop it from the message.")
+    response = validate_result(package.contract.model_dump(mode="json"), text)
+    assert [(error.path, error.code) for error in response.errors] == [
+        ("$.result.result.findings[0]", "separator_required")], response.errors
+    assert "Line: high `src/app.py:12 — the header` is logged.[^e1]" in response.errors[0].message
+
+
+def test_a_code_span_does_not_move_the_separator_that_is_outside_it(worker_tree):
+    """The parts keep their own backticks; only the separator is read outside a span."""
+    from src.engine.subagent_text import parse_result
+
+    package = prepared(result_type="review")
+    text = text_result(package, payload="## findings\n- high `src/app.py:12` — `a — b` is logged.[^e1]\n"
+                                        "  fix: Drop it from the message.")
+    assert validate_result(package.contract.model_dump(mode="json"), text).valid
+    finding = parse_result(text, package.contract)[0]["result"]["findings"][0]
+    assert finding["location"] == "`src/app.py:12`"
+    assert finding["explanation"] == "`a — b` is logged."
+
+
+@pytest.mark.parametrize("location", ["``src/app.py:12 ` — the header``",
+                                      "```src/app.py:12 — the header```"])
+def test_a_code_span_is_closed_by_a_run_of_its_own_length(worker_tree, location):
+    """A ``-delimited span may hold a single backtick, so masking cannot stop at one."""
+    package = prepared(result_type="review")
+    text = text_result(package, payload=f"## findings\n- high {location} is logged.[^e1]\n"
+                                        "  fix: Drop it from the message.")
+    response = validate_result(package.contract.model_dump(mode="json"), text)
+    assert [(error.path, error.code) for error in response.errors] == [
+        ("$.result.result.findings[0]", "separator_required")], response.errors
+
+
+def test_a_run_longer_than_its_closer_opens_no_span(worker_tree):
+    """Three backticks are not closed by one, so that text is literal and splits normally."""
+    from src.engine.subagent_text import parse_result
+
+    package = prepared(result_type="review")
+    text = text_result(package, payload="## findings\n- high ```src/app.py — a` is logged.[^e1]\n"
+                                        "  fix: Drop it from the message.")
+    assert validate_result(package.contract.model_dump(mode="json"), text).valid
+    finding = parse_result(text, package.contract)[0]["result"]["findings"][0]
+    assert finding["location"] == "```src/app.py"
+
+
+def test_an_unclosed_backtick_masks_nothing(worker_tree):
+    """An unclosed span must not swallow the rest of the line and hide the separator."""
+    package = prepared(result_type="review")
+    text = text_result(package, payload="## findings\n- high src/app.py:12 — the `header is logged.[^e1]\n"
+                                        "  fix: Drop it from the message.")
+    assert validate_result(package.contract.model_dump(mode="json"), text).valid
 
 
 def test_a_double_hyphen_still_separates_when_no_em_dash_is_present(worker_tree):

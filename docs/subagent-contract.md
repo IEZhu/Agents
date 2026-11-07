@@ -176,15 +176,26 @@ revision), `status` and, for `input_required`, `question`. Sections are `summary
 payload (`items`, `conclusions`, `findings` or `changes`), `checks`, `evidence`,
 `artifacts`, `limitations`, `remaining_work` and `question`; empty ones are omitted. A
 list item starts with `- `, continuation lines are indented, a finding's recommendation
-follows on a `fix:` line, and `[^id]` cites an evidence entry. The ` — ` separator between
-the two parts of a line is required throughout: every `## evidence` line needs it, and so
-does every `## changes` item, every `## artifacts` item and every finding. Evidence IDs
+follows on a two-space-indented `fix:` line, and `[^id]` cites an evidence entry. The
+` — ` separator between the two parts of a line is one space, an em dash (U+2014) and one
+space, and it is required throughout: every `## evidence` line needs it, and so does every
+`## changes` item, every `## artifacts` item and every finding. It is read outside code
+spans only, so an em dash inside backticks is part of that side of the line and not the
+separator; a line whose only spaced em dash sits inside a code span is reported as
+`separator_required` rather than split there. For workers written before this contract
+named one spelling, ` -- ` still separates a line that holds no em dash outside a code
+span, and the rendered format says so while telling the worker to write ` — `. A finding whose `fix:` line is missing or empty is
+rejected as `recommendation_required`, a finding that only confirms something included:
+the typed payload keeps `recommendation` required, so a parent never integrates a review
+item it then has to chase a recommendation for. Evidence IDs
 are unique; in a text result a repeated citation of one ID inside a single item counts
 once, including a finding's explanation and its `fix:` line together, and does not fail
 validation. A JSON result keeps the stricter rule and reports
 `duplicate_evidence_reference` for a reference repeated within one item. The rendered
-result format shows an evidence example with several locations and closes with a
-pre-reply check for the separator and the 4,000-character limit per text.
+result format shows an evidence example with several locations, states both of those line
+shapes with a counter-example of each — together they discarded six of eight worker runs
+in one measured task (#526) — and closes with a pre-reply check for the separator, the
+`fix:` lines and the 4,000-character limit per text.
 `src/engine/subagent_text.py` parses this into the same closed result model, filling the
 protocol, the full contract revision and the bundle revision from the contract, so every
 structural rule below applies unchanged; a text result may sit in one code fence.
@@ -366,8 +377,8 @@ resolution in v1: JSON Schemas come only from the fixed built-in result models.
 
 One validation of a text result reports every per-line format error it found instead of
 stopping at the first: `invalid_item`, `invalid_evidence`, `separator_required`,
-`invalid_severity` and `invalid_check` are collected across the whole result, within the
-same limit of 20 diagnostics. A line whose error was collected is skipped rather than
+`invalid_severity`, `invalid_check` and `recommendation_required` are collected across the
+whole result, within the same limit of 20 diagnostics. A line whose error was collected is skipped rather than
 guessed — the result is invalid either way, and nothing is repaired — and its diagnostic
 keeps that line's own position, such as `$.result.result.changes[2]`. A run of consecutive
 lines that belong to no item and to no evidence entry is one diagnostic, because it is one
@@ -381,8 +392,13 @@ not, because they would only describe the lines that were skipped, and they run 
 format is clean. Whole-result errors still stop parsing with a single diagnostic,
 because they leave the result's structure or identity uninterpretable: `unknown_section`,
 `duplicate_section`, `invalid_header`, `duplicate_header`, `header_required` and
-`identity_mismatch`. The `separator_required` message names every evidence line, finding,
-changes item and artifacts item, so one correction round can fix every occurrence.
+`identity_mismatch`. A `separator_required` diagnostic names the shape that was expected,
+not the sections it covers, because the quoted line now says which one it is. Every
+diagnostic about one line also quotes that line, collapsed onto
+one line and shortened to 120 characters, so a correction needs no guess about which of a
+long result's lines failed; a schema or size error on a list item quotes its line too.
+Quoting is all that happens to it: a reference inside the line stays a reference and is
+never read, so validation stays structural.
 
 Return `valid: true/false`, a bounded list of errors with field paths and error
 codes, `verification: structural_only`, `result_sha256` when the result could be
@@ -503,8 +519,9 @@ stored contract; and `invalid_result_ref`, `result_ref_missing`,
 `invalid_text` or `result_ref_empty` for the file. A text result that breaks the
 format reports `unknown_section`, `duplicate_section`, `invalid_header`,
 `duplicate_header`, `header_required` or `identity_mismatch` on its own, and collects
-`separator_required`, `invalid_item`, `invalid_evidence`, `invalid_severity` and
-`invalid_check` for every offending line in one response, merged with the schema errors
+`separator_required`, `invalid_item`, `invalid_evidence`, `invalid_severity`,
+`invalid_check` and `recommendation_required` for every offending line in one response,
+each quoting that line, merged with the schema errors
 ([result validation](#result-validation)).
 Artifact-backed preparation can also fail with `worker_artifact_rule_missing`,
 workspace errors, `artifact_unavailable` or `integrity_error`; it returns no

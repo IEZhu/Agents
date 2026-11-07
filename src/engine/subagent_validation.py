@@ -10,8 +10,8 @@ from typing import Any
 from pydantic import ValidationError
 
 from src.engine import model_tiers
-from src.engine.subagent_text import (TextFormatError, dropped_positions, is_text_result,
-                                      parse_result)
+from src.engine.subagent_text import (TextFormatError, dropped_positions, excerpt,
+                                      is_text_result, parse_result)
 from src.schemas.subagent import (ContractExecution, Diagnostic, Escalation, MAX_ERRORS,
                                   MAX_JSON_DEPTH, MAX_JSON_NODES, MAX_RESULT_CHARS, RESULT_MODELS,
                                   TaskContract, ValidationResponse)
@@ -142,24 +142,44 @@ def _source_position(position: int, dropped: list[int]) -> int:
     return position
 
 
-def _schema_diagnostics(error: Exception, positions: dict[str, list[int]]) -> list[Diagnostic]:
-    """`diagnostics` with every list position translated back to the line that holds it."""
+def _with_line(message: str, line: str) -> str:
+    """The diagnostic's own message, followed by the worker's line wherever one is known.
+
+    A rejection over one line of a long result is unusable without it: the parent would see
+    only a path into the parsed model and could not tell which line to correct (#526).
+    """
+    return f"{message} Line: {line}" if line else message
+
+
+def _source_line(sources: dict[str, list[str]], path: str, position: int) -> str:
+    """The line one list position was parsed from, where the parse recorded it."""
+    lines = sources.get(path, [])
+    return excerpt(lines[position]) if position < len(lines) else ""
+
+
+def _schema_diagnostics(error: Exception, positions: dict[str, list[int]],
+                        sources: dict[str, list[str]]) -> list[Diagnostic]:
+    """`diagnostics` with every list position translated back to the line that holds it,
+    and that line quoted, so a schema or size error names it too."""
     if not isinstance(error, ValidationError):
         return diagnostics(error, "$.result")
     reported = []
     for item in error.errors(include_input=False, include_url=False)[:MAX_ERRORS]:
-        path = "$.result"
+        path, line = "$.result", ""
         for part in item["loc"]:
             if isinstance(part, int):
-                path += f"[{_source_position(part, positions.get(path, []))}]"
+                position = _source_position(part, positions.get(path, []))
+                line = _source_line(sources, path, position)
+                path += f"[{position}]"
             else:
                 path += f".{part}"
-        reported.append(diagnostic(path, item["type"], item["msg"]))
+        reported.append(diagnostic(path, item["type"], _with_line(item["msg"], line)))
     return reported
 
 
 def partial_diagnostics(value: dict, text_errors: list[TextFormatError],
-                        expected: TaskContract) -> list[Diagnostic]:
+                        expected: TaskContract,
+                        sources: dict[str, list[str]]) -> list[Diagnostic]:
     """Everything one validation can say when some lines of a text result did not parse.
 
     The identity reads the header alone, so it is reported now instead of in the round after
@@ -171,12 +191,13 @@ def partial_diagnostics(value: dict, text_errors: list[TextFormatError],
                 for field in ("protocol", "task_id", "attempt_id", "bundle_revision",
                               "contract_revision")
                 if value.get(field) != getattr(expected, field)]
-    reported += [diagnostic(error.path, error.code, str(error)) for error in text_errors]
+    reported += [diagnostic(error.path, error.code, _with_line(str(error), error.line))
+                 for error in text_errors]
     try:
         RESULT_MODELS[expected.result_type].model_validate(
             bounded_object(value, max_chars=MAX_RESULT_CHARS))
     except (ContractError, ValidationError) as error:
-        reported += _schema_diagnostics(error, dropped_positions(text_errors))
+        reported += _schema_diagnostics(error, dropped_positions(text_errors), sources)
     return reported
 
 
@@ -197,6 +218,7 @@ def assess_result(contract: Any, result: Any) -> tuple[ValidationResponse, Outco
         return ValidationResponse(valid=False, errors=diagnostics(error, "$.contract")), None
 
     digest = None
+    sources: dict[str, list[str]] = {}
 
     def finish(errors: list, status: str | None = None, failed_checks: int = 0):
         valid = not errors
@@ -218,11 +240,12 @@ def assess_result(contract: Any, result: Any) -> tuple[ValidationResponse, Outco
             except UnicodeEncodeError:
                 raise ContractError("invalid_text", "The result is not valid UTF-8 text.") from None
             try:
-                value, text_errors = parse_result(result, expected)
+                value, text_errors, sources = parse_result(result, expected)
             except TextFormatError as error:
-                raise ContractError(error.code, str(error), "$" + error.path[len("$.result"):]) from None
+                raise ContractError(error.code, _with_line(str(error), error.line),
+                                    "$" + error.path[len("$.result"):]) from None
             if text_errors:
-                return finish(partial_diagnostics(value, text_errors, expected)[:MAX_ERRORS])
+                return finish(partial_diagnostics(value, text_errors, expected, sources)[:MAX_ERRORS])
             value = bounded_object(value, max_chars=MAX_RESULT_CHARS)
         else:
             value = bounded_object(result, max_chars=MAX_RESULT_CHARS, allow_json=True)
@@ -230,7 +253,7 @@ def assess_result(contract: Any, result: Any) -> tuple[ValidationResponse, Outco
                                     .encode("utf-8")).hexdigest()
         report = RESULT_MODELS[expected.result_type].model_validate(value)
     except (ContractError, ValidationError) as error:
-        return finish(diagnostics(error, "$.result"))
+        return finish(_schema_diagnostics(error, {}, sources))
 
     errors = []
 
