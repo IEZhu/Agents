@@ -128,14 +128,17 @@ def render_assignment(contract: dict) -> str:
     return "\n".join(lines).rstrip()
 
 
-_PAYLOAD_TEMPLATES = {
-    "items": ["## items", "- <one result item>"],
-    "conclusions": ["## conclusions", "- <claim>[^e1]"],
-    "findings": ["## findings",
-                 f"- <critical|high|medium|low|info> <location>{WRITE_SEPARATOR.spelling}<explanation>[^e1]",
-                 "  fix: <recommendation>"],
-    "changes": ["## changes", f"- <path>{WRITE_SEPARATOR.spelling}<what changed>"],
-}
+def _payload_template(key: str) -> list[str]:
+    """The payload section a worker copies. Built per call, so a test can move the source."""
+    separator = WRITE_SEPARATOR.spelling
+    return {
+        "items": ["## items", "- <one result item>"],
+        "conclusions": ["## conclusions", "- <claim>[^e1]"],
+        "findings": ["## findings",
+                     f"- <critical|high|medium|low|info> <location>{separator}<explanation>[^e1]",
+                     "  fix: <recommendation>"],
+        "changes": ["## changes", f"- <path>{separator}<what changed>"],
+    }[key]
 
 
 # Every labelled example below is executed by tests/test_subagent_exchange.py against the
@@ -177,19 +180,24 @@ def _separator_rules() -> list[str]:
 # Two line shapes cost most of the discarded worker runs of #526: a findings or evidence
 # line without the separator, and a finding whose 'fix:' line is missing or empty. Both are
 # stated here with a counter-example, because that is what a worker reads before replying.
-_PAYLOAD_RULES = {"findings": [
-    "",
-    "### The fix: line",
-    "Every finding carries its own 'fix:' line, indented by two spaces, with a non-empty "
-    "recommendation on it. A finding that only confirms something takes one too, saying "
-    "what to keep; a missing or empty 'fix:' rejects the finding.",
-    "  right (a confirming finding names what to keep): "
-    f"- info src/app.py:40{WRITE_SEPARATOR.spelling}The guard is correct.[^e2]",
-    "         fix: Keep the guard as it is.",
-    "  wrong (the fix: line has no recommendation on it): "
-    f"- info src/app.py:40{WRITE_SEPARATOR.spelling}The guard is correct.[^e2]",
-    "         fix:",
-]}
+def _payload_rules(key: str) -> list[str]:
+    """The rules only one payload needs; empty for the others."""
+    if key != "findings":
+        return []
+    separator = WRITE_SEPARATOR.spelling
+    return [
+        "",
+        "### The fix: line",
+        "Every finding carries its own 'fix:' line, indented by two spaces, with a non-empty "
+        "recommendation on it. A finding that only confirms something takes one too, saying "
+        "what to keep; a missing or empty 'fix:' rejects the finding.",
+        "  right (a confirming finding names what to keep): "
+        f"- info src/app.py:40{separator}The guard is correct.[^e2]",
+        "         fix: Keep the guard as it is.",
+        "  wrong (the fix: line has no recommendation on it): "
+        f"- info src/app.py:40{separator}The guard is correct.[^e2]",
+        "         fix:",
+    ]
 
 
 def render_result_format(contract: dict) -> str:
@@ -211,7 +219,7 @@ def render_result_format(contract: dict) -> str:
         "## summary",
         "<what was done and found>",
         "",
-        *_PAYLOAD_TEMPLATES[payload],
+        *_payload_template(payload),
         "",
         "## checks",
         "- <passed|failed|not_run>: <check actually run>[^e1]",
@@ -237,7 +245,7 @@ def render_result_format(contract: dict) -> str:
         "limitation saying why. input_required: question.",
         "",
         *_separator_rules(),
-        *_PAYLOAD_RULES.get(payload, []),
+        *_payload_rules(payload),
         "",
         f"Before replying, check every '{WRITE_SEPARATOR.spelling}'"
         + (" and every 'fix:' line" if payload == "findings" else "")

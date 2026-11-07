@@ -295,22 +295,59 @@ def test_the_spelling_to_write_wins_over_the_tolerated_one(worker_tree):
         assert _split(line, "$.x", "shape") == ("a", f"b{separator.spelling}c".strip()), line
 
 
+def test_moving_the_written_spelling_moves_every_line_that_writes_it(worker_tree):
+    """A literal in a template reads exactly like a derived one until the source moves (#596).
+
+    Asserting that a template holds WRITE_SEPARATOR.spelling is the assertion this pull
+    request's own history warns about: it passes while the template states the spelling
+    itself. So move the source and require the rendered text to follow. Every line whose
+    separator stands in its own text has to; the examples that carry an em dash inside a
+    code span are about that em dash and keep it, which is why the test asks where the
+    separator sits rather than listing exceptions.
+    """
+    import re
+
+    from src.engine import subagent_text
+    from src.engine.subagent_text import (SEPARATORS, WRITE_SEPARATOR, Separator,
+                                           _outside_code_spans, render_result_format)
+
+    contracts = {result_type: prepared(result_type=result_type).contract.model_dump(mode="json")
+                 for result_type in PAYLOAD_KEYS}
+    before = {result_type: render_result_format(contract)
+              for result_type, contract in contracts.items()}
+
+    # A template can fail in two ways that no single check catches. Dropping the separator
+    # is the #526 trap itself, and only naming the shapes finds that; stating the spelling
+    # as a literal reads exactly like a derived one, and only moving the source finds that.
+    spelling = WRITE_SEPARATOR.spelling
+    payload_shapes = {"review": [f"<location>{spelling}<explanation>"],
+                      "implementation": [f"- <path>{spelling}<what changed>"]}
+    for result_type, text in before.items():
+        for shape in payload_shapes.get(result_type, []) + [
+                f"[^e1]: <command, path:line or URL>{spelling}<what it showed>",
+                f"- <path or artifact:// reference>{spelling}<purpose>"]:
+            assert shape in text, (result_type, shape)
+
+    moved = Separator(" => ", re.compile(r"\s+=>\s+"), write_it=True, note="a fat arrow")
+    kept = tuple(separator for separator in SEPARATORS if not separator.write_it)
+    subagent_text.SEPARATORS, subagent_text.WRITE_SEPARATOR = (moved, *kept), moved
+    try:
+        for result_type, contract in contracts.items():
+            after = render_result_format(contract)
+            # Nothing in the package still tells a worker to write the spelling that moved.
+            assert [line for line in after.splitlines()
+                    if spelling in _outside_code_spans(line)] == [], result_type
+            assert moved.spelling in _outside_code_spans(after), result_type
+    finally:
+        subagent_text.SEPARATORS, subagent_text.WRITE_SEPARATOR = SEPARATORS, WRITE_SEPARATOR
+
+
 def test_the_result_format_names_the_separator_source_and_omits_the_fix_rule(worker_tree):
     from src.engine.subagent_text import SEPARATORS, WRITE_SEPARATOR, render_result_format
 
     rendered = render_result_format(prepared(result_type="review").contract.model_dump(mode="json"))
     assert f"write exactly that: {WRITE_SEPARATOR.note}" in rendered
     assert all(f"'{separator.spelling}'" in rendered for separator in SEPARATORS)
-
-    # The templates a worker copies derive the spelling too, so the package cannot state two.
-    spelling = WRITE_SEPARATOR.spelling
-    for template in (f"<location>{spelling}<explanation>",
-                     f"[^e1]: <command, path:line or URL>{spelling}<what it showed>",
-                     f"- <path or artifact:// reference>{spelling}<purpose>"):
-        assert template in rendered, template
-    implementation = render_result_format(
-        prepared(result_type="implementation").contract.model_dump(mode="json"))
-    assert f"- <path>{spelling}<what changed>" in implementation
 
     other = render_result_format(prepared(result_type="research").contract.model_dump(mode="json"))
     assert "### The separator" in other and "### The fix: line" not in other
