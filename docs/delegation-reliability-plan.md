@@ -404,6 +404,19 @@ of this layer's work; until it exists, no attempt has a `host_attested` route to
 record, and tier `inherit` stays `unverifiable` in practice. A `resolved` identity supports a `model` claim as contract
 evidence, a `host_attested` one only as an attestation whose trust is the host's,
 and `unknown` leaves the claim `unverifiable` however the tier was requested.
+
+Once the attestations do arrive, the classification is not left where
+preparation put it. Preparation marked the `inherit` claim `unverifiable` and
+the attempt route-different-unverified, and that receipt stays exactly as
+issued — it records what was knowable at preparation, and rewriting it would
+destroy the only fixed point the check has. The decision is taken afterwards,
+on both attempts' bound identities: two attested identities that differ promote
+the claim to model-different on attestation, two that match refute it, and a
+pair where either side is still `unknown` stays unverified. The promoted or
+refuted verdict is recorded beside the receipt with the attestations it rests
+on, so a reader can always see which of the two the conclusion came from, and
+an attestation that arrives for only one side of a comparison settles
+nothing.
 Tier `inherit` is therefore never checkable from the contract, and checkable
 from an attestation exactly when the host makes one.
 
@@ -514,7 +527,13 @@ without ground truth:
   artifacts equal, as they should be, and keeps genuinely different input sets
   distinct — which matters because this same test decides the route-different
   check that `load_bearing` requires, and an id comparison would hand it a pass
-  for free. Overlap is a
+  for free. A set comparison alone would hand out a cheaper pass still: add one
+  unrelated artifact to a manifest and the sets differ while the check reads the
+  same material it always did. So a difference counts for `information_set` only
+  when the changed material bears on the claim being checked — cited in the
+  result, or named by the criterion it tests. A difference nobody can tie to the
+  check is recorded as unverified, which leaves the route same-route for the
+  purposes of `load_bearing` rather than passing it on a technicality. Overlap is a
   shared-evidence signal and nothing more — it says a dependence estimate is
   worth buying, and never supplies one, since two analysts can read one public
   source and still be conditionally independent. The envelope already carries
@@ -817,10 +836,15 @@ only source of d and f that Layer 4 can use.
 Production refutations are a weaker quantity and must be labelled as one, with
 its cohort named. They count only the wrong results somebody happened to notice,
 among the attempts the ledger happens to hold — and the ledger is opt-in and can
-lose a write, so its contents are not the field. The rate is therefore an
-observed-refutation rate *over the recorded cohort*, and bounds the false-accept
-rate of that cohort alone: one refutation among one recorded claim reads as 100%
-while ninety-nine unrecorded ones were right. Scoping it is not pedantry, it is
+lose a write, so its contents are not the field. The numerator holds only the
+refutations somebody noticed, so the rate is an observed-refutation rate over
+the recorded cohort and a *lower bound* on that cohort's false-accept rate —
+never an operating characteristic, and never the cohort's error rate as such.
+Sensitivity and specificity keep coming from the control set, which is the only
+place they can be measured. The denominator has to be every recorded accepted
+claim for even the bound to hold, and the cohort stays small: one refutation
+among one recorded claim reads as 100% while ninety-nine unrecorded ones were
+right. Scoping it is not pedantry, it is
 what keeps the number from being read as a field rate. Turning it into an
 estimate for the broader population needs a sample drawn at random from that
 population, not from the ledger, because following up the suspicious ones is
