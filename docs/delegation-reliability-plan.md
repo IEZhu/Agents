@@ -942,10 +942,14 @@ claims at large, since the ledger is opt-in and may hold few of them. It is not 
 Those are different quantities, and the gap between them is the whole problem:
 `routine` requires no validation, an unvalidated wrong claim is usually never
 refuted, and the ledger therefore sits unchanged whether the ratings are honest
-or sliding. Follow-up drawn at random from `routine` claims and labelled
-reliably — layer 6's condition for any refutation rate — turns the bound into an
-estimate of that false-accept rate, and still neither measures the drift nor
-names the claims rated too low. So the Campbell hazard of finding 13 stays
+or sliding. Follow-up drawn at random and labelled reliably —
+layer 6's condition for any refutation rate — turns the bound into an estimate,
+and what it estimates is the population the sample came from, which has to be
+said each time: drawn from the recorded `routine` claims it estimates that
+cohort's false-accept rate, and drawn from all `routine` claims, recorded or
+not, it estimates the field rate for `routine`. The second needs a frame that
+reaches the unrecorded ones, which the ledger by definition does not provide.
+Neither draw measures the drift or names the claims rated too low. So the Campbell hazard of finding 13 stays
 unmeasured by construction here, and the honest report says that instead of
 claiming the drift would surface.
 
